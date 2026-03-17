@@ -12,6 +12,7 @@
 /* D3d: ImGui event integration — pdgui processes events before PD */
 extern "C" {
     signed int pdguiProcessEvent(void *sdlEvent);  /* s32 = signed int */
+    void pdguiToggle(void);
 }
 
 static SDL_Window* wnd;
@@ -309,7 +310,6 @@ static void gfx_sdl_handle_events(void) {
                     set_fullscreen(!fullscreen_state, true);
                 } else if (event.key.keysym.sym == SDLK_F12) {
                     /* D3d: Toggle ImGui overlay */
-                    extern void pdguiToggle(void);
                     pdguiToggle();
                 }
                 break;
