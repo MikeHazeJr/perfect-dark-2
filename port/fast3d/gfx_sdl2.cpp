@@ -9,6 +9,11 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 
+/* D3d: ImGui event integration — pdgui processes events before PD */
+extern "C" {
+    signed int pdguiProcessEvent(void *sdlEvent);  /* s32 = signed int */
+}
+
 static SDL_Window* wnd;
 static SDL_GLContext ctx;
 static SDL_Renderer* renderer;
@@ -291,11 +296,21 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        /* D3d: Let ImGui see every event first */
+        int consumed = pdguiProcessEvent(&event);
+        if (consumed) {
+            continue;  /* ImGui consumed this event — skip PD handling */
+        }
+
         switch (event.type) {
             case SDL_KEYDOWN:
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
+                } else if (event.key.keysym.sym == SDLK_F12) {
+                    /* D3d: Toggle ImGui overlay */
+                    extern void pdguiToggle(void);
+                    pdguiToggle();
                 }
                 break;
             case SDL_WINDOWEVENT:

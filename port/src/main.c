@@ -16,6 +16,7 @@
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
+#include "pdgui.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
@@ -89,6 +90,7 @@ static void gameInit(void)
 static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
+	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
 	inputSaveBinds();
@@ -111,6 +113,7 @@ int main(int argc, const char **argv)
 	fsInit();
 	configInit();
 	videoInit();
+	pdguiInit(videoGetWindowHandle());
 	inputInit();
 	audioInit();
 	romdataInit();

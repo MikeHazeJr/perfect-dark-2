@@ -12,6 +12,7 @@
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
+#include "pdgui.h"
 
 #ifdef PLATFORM_NSWITCH
 #define DEFAULT_VID_WIDTH 1280
@@ -130,6 +131,10 @@ void videoEndFrame(void)
 	if (!initDone) {
 		return;
 	}
+
+	/* D3d: Render ImGui overlay after PD's GBI commands, before buffer swap */
+	pdguiNewFrame();
+	pdguiRender();
 
 	gfx_end_frame();
 

@@ -1273,7 +1273,23 @@ The N64 platform strip (Phase D1) is complete. Build compiles successfully. Firs
 
 **Detailed plan**: See `docs/MOD_LOADER_PLAN.md` Sub-Phase D3.4
 
+**Implementation (2026-03-17):**
+- **GitHub repo created**: https://github.com/MikeHazeJr/perfect-dark-2 (public, initial commit pushed)
+- **Dear ImGui v1.91.8 vendored** into `port/fast3d/imgui/` (core + SDL2 + OpenGL3 backends + LICENSE)
+- **pdgui_backend.cpp** created in `port/fast3d/` — C++ implementation with `extern "C"` linkage:
+  - `pdguiInit()` — creates ImGui context, initializes SDL2+OpenGL3 backends with PD-themed style
+  - `pdguiNewFrame()` / `pdguiRender()` — frame lifecycle, renders demo window as placeholder
+  - `pdguiProcessEvent()` — forwards SDL events to ImGui, suppresses PD input when overlay captures
+  - `pdguiWantsInput()` / `pdguiIsActive()` / `pdguiToggle()` — state queries and F12 toggle
+- **pdgui.h** created in `port/include/` — public C header using `s32` types (not stdbool.h)
+- **gfx_sdl2.cpp** modified — event loop calls `pdguiProcessEvent()` before PD's handler, F12 toggles overlay
+- **video.c** modified — `videoEndFrame()` calls `pdguiNewFrame()` + `pdguiRender()` before `gfx_end_frame()`
+- **main.c** modified — `pdguiInit(videoGetWindowHandle())` after `videoInit()`, `pdguiShutdown()` in cleanup
+- **CMakeLists.txt** modified — added `port/fast3d/imgui` to include paths; GLOB_RECURSE auto-discovers `.cpp` files
+- **GLSL version**: `#version 130` (GLSL 1.30 / OpenGL 3.0) — compatible with port's GL 2.1+ compat context
+- **Style**: PD-themed dark + blue/cyan accent, semi-transparent panels, rounded corners
+
 ### Immediate Next Step
-- Create GitHub repo "perfect-dark-2" (public) and push codebase
-- Install gh CLI, authenticate, create repo, initial commit + push
-- Then: vendor Dear ImGui, wire up SDL2+OpenGL3 backends, build pdgui layer
+- Build and test on MSYS2/MinGW to verify ImGui integration compiles and renders
+- Replace demo window with mod manager screen (modmenu.c)
+- Create dynmenu.c builder API and pdgui_style.c as separate files
