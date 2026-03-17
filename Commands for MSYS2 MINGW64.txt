@@ -1,0 +1,5 @@
+/c/users/mikeh/onedrive/desktop/pdu/perfect_dark-mike
+
+rm -rf build
+cmake -G"MSYS Makefiles" -Bbuild .
+cmake --build build -j4

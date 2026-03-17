@@ -1,0 +1,43 @@
+# Build artifacts
+build/
+*.exe
+*.dll
+*.o
+*.obj
+*.a
+*.pyc
+
+# ROM outputs
+pd.*.z64
+
+# Asset binaries (extracted from ROM — not committed)
+src/assets/*/*.bin
+src/assets/*/*.ctl
+src/assets/*/*.tbl
+src/assets/*/animations/*.bin
+src/assets/*/files/audio/*.mp3
+src/assets/*/files/bgdata/*.bin
+src/assets/*/files/bgdata/*.seg
+src/assets/*/files/chrs/*.bin
+src/assets/*/files/guns/*.bin
+src/assets/*/files/props/*.bin
+src/assets/*/files/ob/ob_mid.seg
+src/assets/*/fonts/*.bin
+src/assets/*/sequences/*.seq
+src/assets/*/textures/*.bin
+src/generated
+
+# Tools
+tools/mkrom/mkrom
+
+# IDE / editor
+/.vs
+CppProperties.json
+.idea
+cmake-build-debug
+
+# Flatpak
+.flatpak-builder
+
+# Extracted ROM data
+extracted
