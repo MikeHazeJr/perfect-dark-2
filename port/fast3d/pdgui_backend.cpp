@@ -13,8 +13,6 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
-#include "glad/glad.h"
-
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
@@ -115,16 +113,10 @@ void pdguiNewFrame(void)
         return;
     }
 
-    /* Reset GL state that PD's GBI renderer may have left dirty.
-     * PD sets a custom viewport and scissor rect for N64-style rendering;
-     * without this reset, ImGui inherits the clipped region and renders
-     * squished/clipped to a small portion of the screen. */
-    int w, h;
-    SDL_GL_GetDrawableSize(g_PdguiWindow, &w, &h);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);  /* draw to default framebuffer */
-    glViewport(0, 0, w, h);
-    glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_DEPTH_TEST);
+    /* GL state is reset by gfx_opengl_reset_for_overlay() in gfx_pc.cpp
+     * before this function is called — viewport, framebuffer, scissor, depth
+     * are all set to full-window defaults using glad (the same GL loader the
+     * rest of the renderer uses). */
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();

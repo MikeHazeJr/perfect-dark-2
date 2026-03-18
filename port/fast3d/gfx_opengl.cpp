@@ -1030,6 +1030,16 @@ static void gfx_opengl_end_frame(void) {
 static void gfx_opengl_finish_render(void) {
 }
 
+/* D3d: Reset GL state to full-window defaults for ImGui overlay rendering.
+ * Called from gfx_pc.cpp after PD's scene rendering, before ImGui frame. */
+extern "C" void gfx_opengl_reset_for_overlay(int width, int height) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, width, height);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+}
+
 static int gfx_opengl_create_framebuffer() {
     size_t i = framebuffers.size();
     framebuffers.resize(i + 1);
