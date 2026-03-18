@@ -901,7 +901,7 @@ void bwalkUpdateVertical(void)
 		 * On PC we have no N64 hardware limitations, so use a
 		 * consistent, satisfying jump height everywhere —
 		 * single-player, combat simulator, and network play. */
-		#define FIXED_JUMP_IMPULSE 6.4f
+		#define FIXED_JUMP_IMPULSE 7.2f
 		f32 impulse = FIXED_JUMP_IMPULSE;
 
 		/* Jump allowed when: feet are near or below ground, not already
