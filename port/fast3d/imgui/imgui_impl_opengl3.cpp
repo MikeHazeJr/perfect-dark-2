@@ -163,7 +163,7 @@
 // [PD port] Use glad (the same GL loader the rest of the port uses) instead of
 // ImGui's built-in gl3w-based loader. This avoids dual-loader conflicts where
 // glad and imgl3w maintain separate GL function pointer tables.
-#include "glad/glad.h"
+#include "../glad/glad.h"
 #endif
 
 // Vertex arrays are not supported on ES2/WebGL1 unless Emscripten which uses an extension
