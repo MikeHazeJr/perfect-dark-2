@@ -149,10 +149,29 @@ void pdguiRender(void)
 
     /* Demo window for initial integration testing — will be replaced by
      * the mod manager screen and other pdgui screens in later commits. */
-    ImGui::ShowDemoWindow();
+    bool show = true;
+    ImGui::ShowDemoWindow(&show);
 
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImDrawData *dd = ImGui::GetDrawData();
+
+    /* Debug: log draw data details */
+    static int dbg_render = 0;
+    if (dbg_render < 10) {
+        FILE *f = fopen("pdgui_debug.log", "a");
+        if (f) {
+            fprintf(f, "[render] frame=%d CmdListsCount=%d TotalVtx=%d TotalIdx=%d DisplayPos=%.0f,%.0f DisplaySize=%.0f,%.0f FbScale=%.2f,%.2f\n",
+                    dbg_render,
+                    dd->CmdListsCount, dd->TotalVtxCount, dd->TotalIdxCount,
+                    dd->DisplayPos.x, dd->DisplayPos.y,
+                    dd->DisplaySize.x, dd->DisplaySize.y,
+                    dd->FramebufferScale.x, dd->FramebufferScale.y);
+            fclose(f);
+        }
+        ++dbg_render;
+    }
+
+    ImGui_ImplOpenGL3_RenderDrawData(dd);
 }
 
 void pdguiShutdown(void)
