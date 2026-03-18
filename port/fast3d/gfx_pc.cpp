@@ -2678,6 +2678,13 @@ extern "C" void gfx_run(Gfx* commands) {
     }
 
     gfx_rapi->end_frame();
+
+    /* D3d: Render ImGui overlay after PD scene, before buffer swap */
+    extern "C" void pdguiNewFrame(void);
+    extern "C" void pdguiRender(void);
+    pdguiNewFrame();
+    pdguiRender();
+
     gfx_wapi->swap_buffers_begin();
 }
 
