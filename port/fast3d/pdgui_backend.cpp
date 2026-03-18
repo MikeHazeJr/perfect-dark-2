@@ -122,15 +122,21 @@ void pdguiNewFrame(void)
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
-    /* Debug: log ImGui's display size on first few frames */
+    /* Debug: write to file since stderr gets flooded */
     static int dbg_count = 0;
     if (dbg_count < 10) {
-        ImGuiIO &io = ImGui::GetIO();
-        int w, h;
-        SDL_GL_GetDrawableSize(g_PdguiWindow, &w, &h);
-        fprintf(stderr, "[pdgui] NewFrame: io.DisplaySize=%.0fx%.0f, SDL_drawable=%dx%d, fb_scale=%.2f,%.2f\n",
-                io.DisplaySize.x, io.DisplaySize.y, w, h,
-                io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
+        FILE *f = fopen("pdgui_debug.log", "a");
+        if (f) {
+            ImGuiIO &io = ImGui::GetIO();
+            int sdl_w, sdl_h, win_w, win_h;
+            SDL_GL_GetDrawableSize(g_PdguiWindow, &sdl_w, &sdl_h);
+            SDL_GetWindowSize(g_PdguiWindow, &win_w, &win_h);
+            fprintf(f, "[imgui] frame=%d DisplaySize=%.0fx%.0f SDL_drawable=%dx%d SDL_window=%dx%d fb_scale=%.2f,%.2f\n",
+                    dbg_count, io.DisplaySize.x, io.DisplaySize.y,
+                    sdl_w, sdl_h, win_w, win_h,
+                    io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
+            fclose(f);
+        }
         ++dbg_count;
     }
 }

@@ -1033,15 +1033,26 @@ static void gfx_opengl_finish_render(void) {
 /* D3d: Reset GL state to full-window defaults for ImGui overlay rendering.
  * Called from gfx_pc.cpp after PD's scene rendering, before ImGui frame. */
 extern "C" void gfx_opengl_reset_for_overlay(int width, int height) {
-    /* Debug: log dimensions and current GL state on first few calls */
+    /* Debug: write to file since stderr gets flooded */
     static int dbg_count = 0;
     if (dbg_count < 10) {
-        GLint vp[4];
-        glGetIntegerv(GL_VIEWPORT, vp);
-        GLint cur_fbo = 0;
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &cur_fbo);
-        fprintf(stderr, "[pdgui] reset_for_overlay: requested=%dx%d, current_vp=%d,%d,%d,%d, cur_fbo=%d\n",
-                width, height, vp[0], vp[1], vp[2], vp[3], cur_fbo);
+        FILE *f = fopen("pdgui_debug.log", dbg_count == 0 ? "w" : "a");
+        if (f) {
+            GLint vp[4];
+            glGetIntegerv(GL_VIEWPORT, vp);
+            GLint cur_fbo = 0;
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &cur_fbo);
+            GLboolean scissor_on = GL_FALSE;
+            glGetBooleanv(GL_SCISSOR_TEST, &scissor_on);
+            GLint scissor[4];
+            glGetIntegerv(GL_SCISSOR_BOX, scissor);
+            fprintf(f, "[reset] frame=%d requested=%dx%d cur_vp=%d,%d,%d,%d cur_fbo=%d scissor=%s scissor_box=%d,%d,%d,%d\n",
+                    dbg_count, width, height,
+                    vp[0], vp[1], vp[2], vp[3], cur_fbo,
+                    scissor_on ? "ON" : "OFF",
+                    scissor[0], scissor[1], scissor[2], scissor[3]);
+            fclose(f);
+        }
         ++dbg_count;
     }
 
