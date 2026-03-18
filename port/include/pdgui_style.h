@@ -10,6 +10,10 @@
 
 #include <PR/ultratypes.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Apply PD's blue palette and sharp-cornered metrics to ImGui's style. */
 void pdguiApplyPdStyle(void);
 
@@ -28,5 +32,9 @@ void pdguiRenderWindowBg(void);
 /* Iterate all active ImGui windows and add PD-style shimmer to their borders.
  * Call once per frame after all windows have been submitted, before Render(). */
 void pdguiRenderAllWindowShimmers(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _IN_PDGUI_STYLE_H */
