@@ -2632,6 +2632,10 @@ extern "C" void gfx_start_frame(void) {
 
 uint32_t num_dls = 0;
 
+/* D3d: ImGui overlay — rendered after PD scene, before buffer swap */
+extern "C" void pdguiNewFrame(void);
+extern "C" void pdguiRender(void);
+
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     gfx_sp_reset();
@@ -2680,8 +2684,6 @@ extern "C" void gfx_run(Gfx* commands) {
     gfx_rapi->end_frame();
 
     /* D3d: Render ImGui overlay after PD scene, before buffer swap */
-    extern "C" void pdguiNewFrame(void);
-    extern "C" void pdguiRender(void);
     pdguiNewFrame();
     pdguiRender();
 
