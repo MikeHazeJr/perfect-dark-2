@@ -121,6 +121,18 @@ void pdguiNewFrame(void)
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
+
+    /* Debug: log ImGui's display size on first few frames */
+    static int dbg_count = 0;
+    if (dbg_count < 10) {
+        ImGuiIO &io = ImGui::GetIO();
+        int w, h;
+        SDL_GL_GetDrawableSize(g_PdguiWindow, &w, &h);
+        fprintf(stderr, "[pdgui] NewFrame: io.DisplaySize=%.0fx%.0f, SDL_drawable=%dx%d, fb_scale=%.2f,%.2f\n",
+                io.DisplaySize.x, io.DisplaySize.y, w, h,
+                io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
+        ++dbg_count;
+    }
 }
 
 void pdguiRender(void)
