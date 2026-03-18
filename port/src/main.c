@@ -24,7 +24,6 @@
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 16;
-u8 g_Is4Mb = 0;
 s8 g_Resetting = false;
 OSSched g_Sched;
 

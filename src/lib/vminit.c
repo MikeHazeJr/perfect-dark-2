@@ -69,7 +69,6 @@
  * mappings in the TLB are static.
  */
 
-u8 g_Is4Mb;
 u32 g_VmNumTlbMisses;
 u32 g_VmNumPageMisses;
 u32 g_VmNumPageReplaces;
@@ -205,8 +204,6 @@ void vmInit(void)
 	if (osGetMemSize() <= 0x400000)
 #endif
 	{
-		g_Is4Mb = true;
-
 		g_VmNumPages = (s32)((REF_SEG _gameSegmentEnd - REF_SEG _gameSegmentStart) + (VM_PAGE_SIZE - 1)) / VM_PAGE_SIZE;
 
 		g_VmRamEnd = 0x7f000000 + VM_PAGE_SIZE * g_VmNumPages;
@@ -260,8 +257,6 @@ void vmInit(void)
 		vmInitVacant();
 	} else {
 		// Expansion pak is being used
-		g_Is4Mb = numentries * false;
-
 		numpages = (u32)((REF_SEG _gameSegmentEnd - REF_SEG _gameSegmentStart) + (VM_PAGE_SIZE - 1)) / VM_PAGE_SIZE;
 		s7 = (u8 *) STACK_START;
 

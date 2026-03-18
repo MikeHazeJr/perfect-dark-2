@@ -177,7 +177,6 @@ Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 	}
 
 	textcolour = textcolour * 160 / 255;
-	if (g_Is4Mb);
 	textcolour |= 0x00ff0000;
 
 	formatTime(buffer, playerGetMissionTime(), TIMEPRECISION_HUNDREDTHS);

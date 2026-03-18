@@ -3,9 +3,10 @@
 ## Project
 Merged PC port: `perfect_dark-mike` combining AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon, extra stages) + netplay (ENet). PC only.
 
-### IMPORTANT: Modern Hardware — No N64 Constraints
-This is a **PC-only port running on modern x86_64 hardware**. The original N64's computational
-constraints **do not apply**. When implementing new features or fixing bugs:
+### IMPORTANT: PC-Only — No N64/Switch Constraints
+This is a **PC-only port running on modern x86_64 hardware**. N64 and Nintendo Switch are **not
+supported targets**. The original N64's computational constraints **do not apply**. When implementing
+new features or fixing bugs:
 - **Do not avoid solutions because they would have been "expensive" on N64.** Per-triangle mesh
   collision, spatial acceleration structures (BVH/octree), per-frame raycasts against prop geometry,
   runtime physics calculations — all of this is trivially cheap on modern CPUs.
@@ -17,6 +18,9 @@ constraints **do not apply**. When implementing new features or fixing bugs:
   geo), and the lack of proper ceiling detection are all artifacts of hardware constraints. When fixing
   or extending these systems, consider replacing them with proper geometric solutions rather than
   layering more workarounds on top.
+- **Types**: New code should use standard C types (`bool`, `int`, `float`, `<stdbool.h>`). Existing
+  decompiled code uses legacy typedefs (`s32`, `u8`, `f32`) which mix safely — modernize organically.
+- **No platform guards**: `#ifndef PLATFORM_N64` is unnecessary. Write new code unconditionally.
 - **Future direction:** Mesh-based prop collision (standing on tables, proper ceiling detection,
   accurate obstacle interaction) should use actual geometry queries rather than the current
   GEOFLAG_WALL/FLOOR flag system where possible.
@@ -132,11 +136,16 @@ constraints **do not apply**. When implementing new features or fixing bugs:
 
 ### Phase 8: Player Collision Fixes (DONE)
 
-All changes in `src/game/bondwalk.c`, guarded by `#ifndef PLATFORM_N64`.
+All changes guarded by `#ifndef PLATFORM_N64`.
 
-- **Ceiling collision clamp**: After upward movement, calls `cdFindCeilingRoomYColourFlagsAtPos` and clamps player to ceiling - headheight.
-- **Jump ground tolerance**: Changed strict `<=` to `<= vv_ground + 5.0f` with `bdeltapos.y < 1.5f` guard.
-- **Prop surface ground detection**: Secondary `cdTestVolume` probe with binary search (8 iterations) finds prop surfaces between feet and floor.
+- **Ceiling collision clamp** (bondwalk.c): After upward movement, calls `cdFindCeilingRoomYColourFlagsAtPos` and clamps player to ceiling - headheight.
+- **Jump ground tolerance** (bondwalk.c): Changed strict `<=` to `<= vv_ground + 5.0f` with `bdeltapos.y < 1.5f` guard.
+- **Jump impulse**: Fixed at 8.2f (`FIXED_JUMP_IMPULSE` in bondwalk.c) for consistent feel across all modes.
+- **Auto-generated prop collision** (propobj.c): Props that lack custom collision geometry (`unkgeo == NULL`) but have a model bounding box now automatically get a floor tile (geotilef with `GEOFLAG_FLOOR1|GEOFLAG_FLOOR2`) generated from the TOP face of their bbox. This lets the player stand on tables, crates, and other props that didn't have explicit floor collision. Minimum size filter (30x30 units) prevents tiny objects (weapons, keys) from getting floor tiles.
+  - `objInit()`: Allocates a 0x40-byte geotilef and initializes its header when unkgeo would be NULL.
+  - `objBuildTopFaceTile()`: New static function — transforms bbox ymax face to world space (vs `func0f070a1c` which uses ymin).
+  - `func0f069b4c()`: Extended to update auto-generated tiles when props move, using `objBuildTopFaceTile`.
+- **Capsule probe relaxation** (bondwalk.c): `capsuleFindFloor` velocity gate relaxed from `bdeltapos.y <= 0.5f` to `<= 4.0f`, allowing prop surface detection during descent (not just when stationary).
 
 ### Phase 9: Robustness & Quality Fixes (DONE)
 
@@ -703,6 +712,23 @@ C2 (NPC replication) is the largest and most critical piece. Without it, nothing
 5. **Orphaned `#else` directives** (14 across 11 files): bondeyespy.c, bondgun.c, bondwalk.c, botinv.c, challenge.c, chr.c, gunfx.c, lang.c, playerreset.c, propobj.c (×2), sight.c (×2), weatherreset.c — each had an `#else` that lost its parent `#if PLATFORM_N64`, plus dead N64 code blocks. All removed, keeping only PC code paths.
 
 **Final verification**: Zero `PLATFORM_N64` references remain. All `#if`/`#endif` pairs balanced. Zero orphaned `#else`/`#elif` directives. Codebase preprocessor-clean.
+
+**D1 Tier 1 — Dead N64 Code Removal**: Removed all files that were never compiled in the PC build:
+- **39 .s assembly files** deleted: src/rsp/ (3 RSP microcode), src/lib/ (8), src/lib/mp3/ (3), src/game/ (3), src/lib/ultra/os/ (18), src/lib/ultra/libc/ (3), src/lib/ultra/gu/sqrtf.s, src/preamble/preamble.s, src/romheader/romheader.s. All had C fallbacks (`_c.c` suffix) or PC replacements in port/.
+- **27 ultra/os/ C files** deleted: Thread, message queue, timer, TLB management — all replaced by PC implementations in port/src/libultra.c.
+- **78 ultra/io/ C files** deleted: N64 peripheral I/O (controller pak, Game Boy pak, PI/SI/SP/DP/AI/VI management). Kept only 4 vi mode table files (vimodentsclan1.c, vimodepallan1.c, vimodempallan1.c, vitbl.c) + viint.h — these are compiled and provide video mode data.
+- **8 ultra/libc/ C files** deleted: N64 printf/sprintf/string — standard libc used on PC.
+- **game_13c510.c** deleted (was explicitly excluded from CMake). Functions live in artifact.c.
+- **Orphan headers** removed: osint.h, xstdio.h, piint.h, siint.h, controller.h (ultra/io).
+- **Empty directories** removed: src/rsp/, src/preamble/, src/romheader/, src/lib/ultra/os/, src/lib/ultra/libc/.
+- **CMakeLists.txt** cleaned: removed `list(REMOVE_ITEM SRC_GAME ... game_13c510.c)`.
+
+**D1 Tier 2 — IS4MB/IS8MB Compile-Time Constants**:
+- `IS4MB()` → `(0)`, `IS8MB()` → `(1)` in constants.h. Compiler dead-code-eliminates all 4MB branches.
+- Removed `g_Is4Mb` variable: definition (vminit.c, port/src/main.c), declaration (bss.h), assignments (pdmain.c, vminit.c).
+- Fixed 2 direct `g_Is4Mb` references: vmstats.c (→ `IS4MB()` macro), hudmsg.c (removed no-op `if` statement).
+- ROM_GAMECODE/ROM_COMPANYCODE left intact — used by save system as game identification constants.
+- Verification: zero dangling references to any deleted file. Zero PLATFORM_N64 references. Zero g_Is4Mb references in compiled code.
 
 ### Phase D2: Jump Polish & Bot Jump AI
 **Goal**: Ensure jump works reliably for players; teach simulants to jump.

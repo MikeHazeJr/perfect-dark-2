@@ -1,12 +1,9 @@
 #ifndef _IN_PLATFORM_H
 #define _IN_PLATFORM_H
 
-// detect OS
+// detect OS (PC-only port: Windows, Linux, macOS)
 #if defined(_WIN32)
 	#define PLATFORM_WIN32 1
-#elif defined(__SWITCH__)
-	#define PLATFORM_POSIX 1
-	#define PLATFORM_NSWITCH 1
 #elif defined(__linux__)
 	#define PLATFORM_POSIX 1
 	#define PLATFORM_LINUX 1

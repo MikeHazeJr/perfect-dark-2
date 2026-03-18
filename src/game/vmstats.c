@@ -10,7 +10,7 @@ void vmPrintStatsIfEnabled(void)
 {
 	char buffer[80];
 
-	if (g_Is4Mb) {
+	if (IS4MB()) {
 #ifdef DEBUG
 		if (g_VmShowStats) {
 			dhudSetFgColour(0xff, 0xff, 0xff, 0xff);

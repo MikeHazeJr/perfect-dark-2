@@ -286,7 +286,6 @@ void mainInit(void)
 
 	var8005d9b0 = rmonIsDisabled();
 
-	g_Is4Mb = (osGetMemSize() <= 0x400000);
 	g_VmShowStats = 0;
 
 	// no copyright screen

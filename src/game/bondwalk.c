@@ -901,7 +901,7 @@ void bwalkUpdateVertical(void)
 		 * On PC we have no N64 hardware limitations, so use a
 		 * consistent, satisfying jump height everywhere —
 		 * single-player, combat simulator, and network play. */
-		#define FIXED_JUMP_IMPULSE 7.2f
+		#define FIXED_JUMP_IMPULSE 8.2f
 		f32 impulse = FIXED_JUMP_IMPULSE;
 
 		/* Jump allowed when: feet are near or below ground, not already
@@ -991,15 +991,16 @@ void bwalkUpdateVertical(void)
 		ground = -30000;
 	}
 
-	/* PC: Capsule-based prop surface detection — replaces the old binary
-	 * search hack with a proper capsule floor probe. The capsule system
-	 * projects the player's collision volume downward to find prop surfaces
-	 * that have wall geometry but no floor geometry (desks, tables, crates).
+	/* PC: Capsule-based prop surface detection — secondary fallback after
+	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary
+	 * ground detection (auto-generated floor tiles from model bounding boxes).
+	 * This probe catches edge cases where the capsule system detects surfaces
+	 * that the tile system misses.
 	 *
-	 * Only probe when NOT jumping upward — during upward movement the swept
-	 * capsule cast (in the airborne section below) handles collision. */
+	 * Only skip during strong upward movement (jump ascent) — during descent
+	 * and when grounded, the probe should always run. */
 	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
-			&& g_Vars.currentplayer->bdeltapos.y <= 0.5f) {
+			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
 		struct coord floorpos;
 		struct prop *floorprop = NULL;
 		u16 capsulefloorflags = 0;

@@ -1822,6 +1822,84 @@ void func0f069850(struct defaultobj *obj, struct coord *pos, f32 rot[3][3], stru
 	}
 }
 
+/**
+ * Build a geotilef floor surface from the TOP face (ymax) of a bounding box.
+ * func0f070a1c uses ymin (bottom face); this variant uses ymax so the player
+ * stands on top of props like tables and crates.
+ */
+static void objBuildTopFaceTile(struct defaultobj *obj, struct geotilef *tile,
+		u32 flags, struct modelrodata_bbox *bbox)
+{
+	struct coord vertices[4];
+	struct coord *pos = &obj->prop->pos;
+	s32 i;
+	s32 j;
+
+	f32 r00xmin = obj->realrot[0][0] * bbox->xmin;
+	f32 r01xmin = obj->realrot[0][1] * bbox->xmin;
+	f32 r02xmin = obj->realrot[0][2] * bbox->xmin;
+
+	f32 r20zmin = obj->realrot[2][0] * bbox->zmin;
+	f32 r21zmin = obj->realrot[2][1] * bbox->zmin;
+	f32 r22zmin = obj->realrot[2][2] * bbox->zmin;
+
+	f32 r00xmax = obj->realrot[0][0] * bbox->xmax;
+	f32 r01xmax = obj->realrot[0][1] * bbox->xmax;
+	f32 r02xmax = obj->realrot[0][2] * bbox->xmax;
+
+	f32 r20zmax = obj->realrot[2][0] * bbox->zmax;
+	f32 r21zmax = obj->realrot[2][1] * bbox->zmax;
+	f32 r22zmax = obj->realrot[2][2] * bbox->zmax;
+
+	/* Use ymax (top face) instead of ymin (bottom face) */
+	f32 ymx = obj->realrot[1][0] * bbox->ymax + pos->f[0];
+	f32 ymy = obj->realrot[1][1] * bbox->ymax + pos->f[1];
+	f32 ymz = obj->realrot[1][2] * bbox->ymax + pos->f[2];
+
+	vertices[0].x = r00xmin + ymx + r20zmin;
+	vertices[0].y = r01xmin + ymy + r21zmin;
+	vertices[0].z = r02xmin + ymz + r22zmin;
+
+	vertices[1].x = r00xmin + ymx + r20zmax;
+	vertices[1].y = r01xmin + ymy + r21zmax;
+	vertices[1].z = r02xmin + ymz + r22zmax;
+
+	vertices[2].x = r00xmax + ymx + r20zmax;
+	vertices[2].y = r01xmax + ymy + r21zmax;
+	vertices[2].z = r02xmax + ymz + r22zmax;
+
+	vertices[3].x = r00xmax + ymx + r20zmin;
+	vertices[3].y = r01xmax + ymy + r21zmin;
+	vertices[3].z = r02xmax + ymz + r22zmin;
+
+	tile->header.type = GEOTYPE_TILE_F;
+	tile->header.flags = flags;
+	tile->header.numvertices = 4;
+
+	for (i = 0; i < 4; i++) {
+		tile->vertices[i].x = vertices[i].x;
+		tile->vertices[i].y = vertices[i].y;
+		tile->vertices[i].z = vertices[i].z;
+	}
+
+	tile->floorcol = 0xfff;
+	tile->floortype = FLOORTYPE_DEFAULT;
+
+	for (i = 0; i < 3; i++) {
+		tile->min[i] = 0;
+		tile->max[i] = 0;
+
+		for (j = 1; j < 4; j++) {
+			if (tile->vertices[j].f[i] < tile->vertices[tile->min[i]].f[i]) {
+				tile->min[i] = j;
+			}
+			if (tile->vertices[j].f[i] > tile->vertices[tile->max[i]].f[i]) {
+				tile->max[i] = j;
+			}
+		}
+	}
+}
+
 void func0f069b4c(struct defaultobj *obj)
 {
 	union modelrodata *rodata;
@@ -1854,6 +1932,21 @@ void func0f069b4c(struct defaultobj *obj)
 
 		if (rodata != NULL) {
 			func0f070ca0(obj, (struct geotilef *)ptr, GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT, NULL, &rodata->type19);
+		}
+
+		/* Update auto-generated bbox floor tiles. These are created by
+		 * objInit for props that had no custom collision geometry (MODELPART_0065/0066).
+		 * We detect them by: no OBJH2FLAG_08 (no AABB/cyl), no MODELPART_0065,
+		 * but geocount == 1 and unkgeo is set. Uses the TOP face (ymax) of the
+		 * bounding box so the player stands on top of the prop. */
+		if (!(obj->hidden2 & OBJH2FLAG_08) && rodata == NULL
+				&& modelGetPartRodata(obj->model->definition, MODELPART_0065) == NULL) {
+			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
+
+			if (autobbox != NULL && obj->geocount == 1) {
+				objBuildTopFaceTile(obj, (struct geotilef *)obj->unkgeo,
+						GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2, autobbox);
+			}
 		}
 	}
 }
@@ -2073,6 +2166,50 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 			obj->unkgeo = mempAlloc(ALIGN16(geosize), MEMPOOL_STAGE);
 		} else {
 			obj->unkgeo = NULL;
+		}
+
+		/* Auto-generate floor collision for props that have no custom
+		 * collision geometry but do have a model bounding box. This lets the
+		 * player stand on tables, crates, and other props that the original
+		 * level designers didn't give explicit floor tiles to.
+		 *
+		 * We create a single geotilef (4-vertex float tile) representing the
+		 * top face of the bounding box, flagged GEOFLAG_FLOOR1|GEOFLAG_FLOOR2.
+		 * The existing collision system (cdFindGroundInfoAtCyl, cdCollectGeoForCyl)
+		 * then picks this up automatically — no special-casing needed. */
+		if (obj->unkgeo == NULL
+				&& (obj->flags3 & OBJFLAG3_WALKTHROUGH) == 0) {
+			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
+
+			/* Only generate floor tiles for props large enough to stand on.
+			 * Skip tiny objects (weapons, keys, gadgets) whose bounding box
+			 * top surface is smaller than ~30x30 units in XZ. The scale factor
+			 * is applied to the bbox extents. */
+			if (autobbox != NULL) {
+				f32 scale = obj->model->scale;
+				f32 xextent = (autobbox->xmax - autobbox->xmin) * scale;
+				f32 zextent = (autobbox->zmax - autobbox->zmin) * scale;
+
+				if (xextent < 30.0f || zextent < 30.0f) {
+					autobbox = NULL;  /* too small — skip */
+				}
+			}
+
+			if (autobbox != NULL) {
+				obj->unkgeo = mempAlloc(ALIGN16(0x40), MEMPOOL_STAGE);
+				obj->geocount = 1;
+
+				/* The tile vertices are populated by func0f069b4c (called
+				 * from the geometry update path) once the prop has a
+				 * world-space position. We initialize the header here so
+				 * the collision system recognizes the type. */
+				struct geotilef *tile = (struct geotilef *)obj->unkgeo;
+				tile->header.type = GEOTYPE_TILE_F;
+				tile->header.flags = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2;
+				tile->header.numvertices = 4;
+				tile->floortype = FLOORTYPE_DEFAULT;
+				tile->floorcol = 0xfff;
+			}
 		}
 
 		obj->prop = prop;

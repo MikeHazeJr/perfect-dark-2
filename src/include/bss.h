@@ -19,7 +19,6 @@ extern OSPiHandle LeoDiskHandle;
 extern OSTimer var80090ab0;
 extern OSMesgQueue g_GbpakMesgQueue;
 extern OSMesg g_GbpakMesg;
-extern u8 g_Is4Mb;
 extern u32 g_VmNumTlbMisses;
 extern u32 g_VmNumPageMisses;
 extern u32 g_VmNumPageReplaces;
