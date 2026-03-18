@@ -15,6 +15,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
 #include "game/options.h"
+#include "game/game_1531a0.h"
 #include "bss.h"
 #include "lib/main.h"
 #include "data.h"
@@ -890,6 +891,15 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 {
 	u32 prevplayernum = g_MpPlayerNum;
 	g_MpPlayerNum = playernum;
+
+	sysLogPrintf(LOG_NOTE, "ENDSCREEN_DIAG: mpPushEndscreenDialog player=%d slot=%d "
+		"g_FontHandelGothicSm=%p g_CharsHandelGothicSm=%p "
+		"g_FontHandelGothicXs=%p g_CharsHandelGothicXs=%p",
+		arg0, playernum,
+		(void *)g_FontHandelGothicSm, (void *)g_CharsHandelGothicSm,
+		(void *)g_FontHandelGothicXs, (void *)g_CharsHandelGothicXs);
+	/* Verify font memory hasn't been corrupted during gameplay */
+	textVerifyFontIntegrity("mpPushEndscreenDialog");
 
 	g_Menus[g_MpPlayerNum].playernum = arg0;
 

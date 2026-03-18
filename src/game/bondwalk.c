@@ -896,23 +896,21 @@ void bwalkUpdateVertical(void)
 	/* === Jump impulse — applied before ladder/lift detection === */
 	if (g_Vars.currentplayer->wantsjump) {
 		g_Vars.currentplayer->wantsjump = false;
+		g_Vars.currentplayer->jumpconsumed = true;
 
-		/* PC: Fixed jump impulse of 8.0 for all modes.
-		 * On PC we have no N64 hardware limitations, so use a
-		 * consistent, satisfying jump height everywhere —
-		 * single-player, combat simulator, and network play. */
 		#define FIXED_JUMP_IMPULSE 8.2f
 		f32 impulse = FIXED_JUMP_IMPULSE;
 
-		/* Jump allowed when: feet are near or below ground, not already
-		 * significantly rising, and not on a ladder.  Generous tolerance
-		 * (10 units) lets the player jump on slopes and slightly uneven
-		 * terrain.  The vertical velocity check (< 2.0) prevents true
-		 * double-jumps mid-air while allowing jump on gentle downslopes. */
+		/* Grounded check:
+		 * - If feet are within 3 units of ground, always grounded (handles
+		 *   ramps where bdeltapos.y follows the slope surface upward).
+		 * - If feet are within 10 units and not rising fast, grounded
+		 *   (generous tolerance for uneven terrain).
+		 * - Never grounded on a ladder. */
 		const f32 groundgap = g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->vv_ground;
 		const bool grounded =
-			groundgap < 10.0f
-			&& g_Vars.currentplayer->bdeltapos.y < 2.0f
+			(groundgap < 3.0f
+			|| (groundgap < 10.0f && g_Vars.currentplayer->bdeltapos.y < 2.0f))
 			&& !g_Vars.currentplayer->onladder;
 
 		sysLogPrintf(LOG_NOTE, "JUMP: impulse=%.1f grounded=%d gap=%.2f "
@@ -1242,7 +1240,49 @@ void bwalkUpdateVertical(void)
 				verticalDelta = clampedDelta;
 
 				/* If moving upward and hit something, kill upward velocity */
-				if (verticalDelta > 0.0f && sweep.hittype == CAPSULE_HIT_CEILING) {
+				if (verticalDelta > 0.0f
+						&& (sweep.hittype == CAPSULE_HIT_CEILING
+						|| sweep.hittype == CAPSULE_HIT_WALL)) {
+					fallspeed = 0.0f;
+				}
+			}
+		}
+
+		/* Pre-move ceiling check: the capsule sweep only tests WALL geometry
+		 * (via cdTestVolume). FLOOR1|FLOOR2-only ceiling surfaces are invisible
+		 * to it. Use the geo system to find floor-flagged ceilings and clamp
+		 * the move before it happens — prevents clipping through angled roofs. */
+		if (verticalDelta > 0.5f) {
+			f32 preCeilY = 99999.0f;
+			struct coord ceilpos;
+			ceilpos.x = g_Vars.currentplayer->prop->pos.x;
+			ceilpos.y = g_Vars.currentplayer->prop->pos.y;
+			ceilpos.z = g_Vars.currentplayer->prop->pos.z;
+
+			cdFindCeilingRoomYColourFlagsAtPos(&ceilpos,
+					g_Vars.currentplayer->prop->rooms,
+					&preCeilY, NULL, NULL);
+
+			if (preCeilY < 99990.0f) {
+				f32 headheight = g_Vars.currentplayer->vv_headheight
+						+ g_Vars.currentplayer->crouchoffsetrealsmall;
+				if (headheight < 80.0f) {
+					headheight = 80.0f;
+				}
+
+				f32 maxGround = preCeilY - headheight;
+
+				if (g_Vars.currentplayer->vv_manground + verticalDelta > maxGround) {
+					sysLogPrintf(LOG_NOTE,
+						"PRE_CEIL_CLAMP: ceilY=%.1f maxGround=%.1f "
+						"delta %.2f -> %.2f, killing velocity",
+						preCeilY, maxGround,
+						verticalDelta, maxGround - g_Vars.currentplayer->vv_manground);
+					verticalDelta = maxGround - g_Vars.currentplayer->vv_manground;
+					if (verticalDelta < 0.0f) {
+						verticalDelta = 0.0f;
+					}
+					newmanground = g_Vars.currentplayer->vv_manground + verticalDelta;
 					fallspeed = 0.0f;
 				}
 			}

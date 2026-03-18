@@ -104,6 +104,23 @@ struct fontchar *g_CharsHandelGothicMd = NULL;
 struct font *g_FontHandelGothicLg = NULL;
 struct fontchar *g_CharsHandelGothicLg = NULL;
 
+/* Font memory integrity tracking: capture checksums at load time to detect
+ * corruption during gameplay before the endscreen renders. */
+static u32 s_FontSmChecksum = 0;
+static u32 s_FontSmLen = 0;
+static void *s_FontSmBase = NULL;
+
+static u32 fontMemChecksum(const void *data, u32 len)
+{
+	const u8 *p = (const u8 *)data;
+	u32 hash = 0x811c9dc5; /* FNV-1a offset basis */
+	for (u32 i = 0; i < len; i++) {
+		hash ^= p[i];
+		hash *= 0x01000193; /* FNV-1a prime */
+	}
+	return hash;
+}
+
 u32 var8007fb24 = 0x00000000;
 u32 var8007fb28 = 0x00000000;
 u32 var8007fb2c = 0x00000000;
@@ -251,6 +268,16 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 	*fontptr = font;
 	*charsptr = chars;
 
+	/* Capture integrity checksum for HandelGothicSm so we can detect
+	 * if anything overwrites font memory during gameplay. */
+	if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart) {
+		s_FontSmBase = font;
+		s_FontSmLen = len;
+		s_FontSmChecksum = fontMemChecksum(font, len);
+		sysLogPrintf(LOG_NOTE, "FONT_INTEGRITY: HandelGothicSm loaded at %p "
+			"len=%u checksum=0x%08x", (void *)font, len, s_FontSmChecksum);
+	}
+
 #if PAL
 	if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart
 			|| romstart == REF_SEG _fonthandelgothicxsSegmentRomStart
@@ -262,6 +289,25 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 		(*charsptr)['|' - 0x21].baseline++;
 	}
 #endif
+}
+
+void textVerifyFontIntegrity(const char *caller)
+{
+	if (s_FontSmBase && s_FontSmLen > 0) {
+		u32 current = fontMemChecksum(s_FontSmBase, s_FontSmLen);
+		if (current != s_FontSmChecksum) {
+			sysLogPrintf(LOG_WARNING,
+				"FONT_INTEGRITY [%s]: HandelGothicSm CORRUPTED! "
+				"base=%p len=%u expected=0x%08x got=0x%08x",
+				caller, s_FontSmBase, s_FontSmLen,
+				s_FontSmChecksum, current);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"FONT_INTEGRITY [%s]: HandelGothicSm OK "
+				"(base=%p checksum=0x%08x)",
+				caller, s_FontSmBase, s_FontSmChecksum);
+		}
+	}
 }
 
 void textReset(void)
@@ -1901,6 +1947,23 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *
 	f32 alpha;
 
 	static u32 sbrd = 0x00000000;
+	static bool s_FontDiagOnce = false;
+
+	if (!s_FontDiagOnce && text && text[0]) {
+		sysLogPrintf(LOG_NOTE, "FONT_DIAG: chars=%p font=%p text='%.20s' "
+			"g_CharsHandelGothicSm=%p g_FontHandelGothicSm=%p",
+			(void *)chars, (void *)font, text,
+			(void *)g_CharsHandelGothicSm, (void *)g_FontHandelGothicSm);
+		if (chars && font) {
+			struct fontchar *testchar = &chars['A' - 0x21];
+			sysLogPrintf(LOG_NOTE, "FONT_DIAG: char 'A' idx=%d baseline=%d "
+				"h=%d w=%d pixeldata=%p",
+				testchar->index, testchar->baseline,
+				testchar->height, testchar->width,
+				testchar->pixeldata);
+		}
+		s_FontDiagOnce = true;
+	}
 
 	spb0 = var8007fad0;
 

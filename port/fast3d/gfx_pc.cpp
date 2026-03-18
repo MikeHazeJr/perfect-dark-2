@@ -1805,7 +1805,23 @@ static void gfx_dp_set_tile_size(uint8_t tile, uint16_t uls, uint16_t ult, uint1
 static void gfx_dp_load_tlut(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t lrs, uint32_t lrt) {
     // SUPPORT_CHECK(tile == G_TX_LOADTILE);
     SUPPORT_CHECK(rdp.texture_to_load.siz == G_IM_SIZ_16b);
-    SUPPORT_CHECK(rdp.texture_tile[tile].tmem >= 256);
+
+    /* PC fix: some game code (notably Perfect Dark's font renderer) calls
+     * gDPLoadTLUTCmd on a tile whose TMEM was never set up for palette data.
+     * On real N64 hardware the palette destination is determined by the tile's
+     * TMEM offset regardless; the code happens to work because the tile retains
+     * its TMEM from a previous operation.  On the PC translator, 3D rendering
+     * may repurpose the tile with a TMEM value < 256, causing palofs to
+     * underflow and palette data to be written/indexed incorrectly.
+     *
+     * Fix: if the tile's TMEM is below the palette area (256), force it to 256
+     * (palette index 0), which is the overwhelmingly common case for CI4 text
+     * and 2D overlays. */
+    uint32_t tmem = rdp.texture_tile[tile].tmem;
+    if (tmem < 256) {
+        tmem = 256;
+        rdp.texture_tile[tile].tmem = tmem;
+    }
 
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;
@@ -1818,7 +1834,7 @@ static void gfx_dp_load_tlut(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     const uint32_t count =  width * height;
     const uint16_t *base = (const uint16_t *)rdp.texture_to_load.addr + pitch * ult + uls;
 
-    if (rdp.texture_tile[tile].tmem == 256) {
+    if (tmem == 256) {
         rdp.palette_addrs[0] = (const uint8_t *)base;
         if (count >= 256) {
             rdp.palette_addrs[1] = (const uint8_t *)(base + 128);
@@ -1827,7 +1843,7 @@ static void gfx_dp_load_tlut(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
         rdp.palette_addrs[1] = (const uint8_t *)base;
     }
 
-    const uint32_t palofs = rdp.texture_tile[tile].tmem - 256;
+    const uint32_t palofs = tmem - 256;
     SUPPORT_CHECK(palofs + count <= 256);
 
     const uint16_t *src = base;

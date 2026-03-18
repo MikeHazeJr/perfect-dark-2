@@ -1934,18 +1934,29 @@ void func0f069b4c(struct defaultobj *obj)
 			func0f070ca0(obj, (struct geotilef *)ptr, GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT, NULL, &rodata->type19);
 		}
 
-		/* Update auto-generated bbox floor tiles. These are created by
-		 * objInit for props that had no custom collision geometry (MODELPART_0065/0066).
-		 * We detect them by: no OBJH2FLAG_08 (no AABB/cyl), no MODELPART_0065,
-		 * but geocount == 1 and unkgeo is set. Uses the TOP face (ymax) of the
-		 * bounding box so the player stands on top of the prop. */
-		if (!(obj->hidden2 & OBJH2FLAG_08) && rodata == NULL
-				&& modelGetPartRodata(obj->model->definition, MODELPART_0065) == NULL) {
+		/* Update auto-generated bbox floor tile. Created by objInit for
+		 * props without MODELPART_0065 floor tiles. The auto tile is
+		 * always at the END of the geo buffer. Detect it by scanning
+		 * backwards for a GEOTYPE_TILE_F with FLOOR1|FLOOR2 flags. */
+		if (modelGetPartRodata(obj->model->definition, MODELPART_0065) == NULL
+				&& obj->unkgeo != NULL && obj->geocount >= 1) {
 			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
 
-			if (autobbox != NULL && obj->geocount == 1) {
-				objBuildTopFaceTile(obj, (struct geotilef *)obj->unkgeo,
-						GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2, autobbox);
+			if (autobbox != NULL) {
+				/* The auto tile is the last 0x40 bytes of the geo buffer */
+				struct geotilef *lastTile = (struct geotilef *)
+					((uintptr_t)obj->unkgeo
+					+ (obj->geocount - 1) * 0x40
+					+ ((obj->hidden2 & OBJH2FLAG_08)
+						? ((obj->flags3 & OBJFLAG3_GEOCYL)
+							? sizeof(struct geocyl) : sizeof(struct geoblock))
+						: 0));
+
+				if (lastTile->header.type == GEOTYPE_TILE_F
+						&& (lastTile->header.flags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))) {
+					objBuildTopFaceTile(obj, lastTile,
+							GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2, autobbox);
+				}
 			}
 		}
 	}
@@ -2162,54 +2173,52 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 			obj->hidden2 &= ~OBJH2FLAG_08;
 		}
 
+		/* Auto-generate floor collision for props that lack floor tiles
+		 * but have a model bounding box large enough to stand on.
+		 * This covers two cases:
+		 * (a) Props with no collision at all (geocount was 0)
+		 * (b) Props with wall/block collision but no floor tiles
+		 *     (e.g. translucent desks with AABB sides only)
+		 *
+		 * We check BEFORE allocating so the floor tile fits in the
+		 * same allocation. The tile uses the top face (ymax) of the
+		 * bounding box, flagged GEOFLAG_FLOOR1|GEOFLAG_FLOOR2. */
+		bool needAutoFloor = false;
+		bool hasFloorParts = (modelGetPartRodata(modeldef, MODELPART_BASIC_0065) != NULL);
+
+		if (!hasFloorParts
+				&& (obj->flags3 & OBJFLAG3_WALKTHROUGH) == 0) {
+			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
+
+			if (autobbox != NULL) {
+				f32 scale = obj->model->scale;
+				f32 xextent = (autobbox->xmax - autobbox->xmin) * scale;
+				f32 zextent = (autobbox->zmax - autobbox->zmin) * scale;
+
+				if (xextent >= 30.0f && zextent >= 30.0f) {
+					needAutoFloor = true;
+					geosize += 0x40;
+					obj->geocount++;
+				}
+			}
+		}
+
 		if (obj->geocount > 0) {
 			obj->unkgeo = mempAlloc(ALIGN16(geosize), MEMPOOL_STAGE);
 		} else {
 			obj->unkgeo = NULL;
 		}
 
-		/* Auto-generate floor collision for props that have no custom
-		 * collision geometry but do have a model bounding box. This lets the
-		 * player stand on tables, crates, and other props that the original
-		 * level designers didn't give explicit floor tiles to.
-		 *
-		 * We create a single geotilef (4-vertex float tile) representing the
-		 * top face of the bounding box, flagged GEOFLAG_FLOOR1|GEOFLAG_FLOOR2.
-		 * The existing collision system (cdFindGroundInfoAtCyl, cdCollectGeoForCyl)
-		 * then picks this up automatically — no special-casing needed. */
-		if (obj->unkgeo == NULL
-				&& (obj->flags3 & OBJFLAG3_WALKTHROUGH) == 0) {
-			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
-
-			/* Only generate floor tiles for props large enough to stand on.
-			 * Skip tiny objects (weapons, keys, gadgets) whose bounding box
-			 * top surface is smaller than ~30x30 units in XZ. The scale factor
-			 * is applied to the bbox extents. */
-			if (autobbox != NULL) {
-				f32 scale = obj->model->scale;
-				f32 xextent = (autobbox->xmax - autobbox->xmin) * scale;
-				f32 zextent = (autobbox->zmax - autobbox->zmin) * scale;
-
-				if (xextent < 30.0f || zextent < 30.0f) {
-					autobbox = NULL;  /* too small — skip */
-				}
-			}
-
-			if (autobbox != NULL) {
-				obj->unkgeo = mempAlloc(ALIGN16(0x40), MEMPOOL_STAGE);
-				obj->geocount = 1;
-
-				/* The tile vertices are populated by func0f069b4c (called
-				 * from the geometry update path) once the prop has a
-				 * world-space position. We initialize the header here so
-				 * the collision system recognizes the type. */
-				struct geotilef *tile = (struct geotilef *)obj->unkgeo;
-				tile->header.type = GEOTYPE_TILE_F;
-				tile->header.flags = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2;
-				tile->header.numvertices = 4;
-				tile->floortype = FLOORTYPE_DEFAULT;
-				tile->floorcol = 0xfff;
-			}
+		/* Initialize the auto-generated floor tile at the end of the
+		 * geo buffer (after any AABB/cylinder block and custom tiles). */
+		if (needAutoFloor && obj->unkgeo != NULL) {
+			struct geotilef *tile = (struct geotilef *)
+				((uintptr_t)obj->unkgeo + geosize - 0x40);
+			tile->header.type = GEOTYPE_TILE_F;
+			tile->header.flags = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2;
+			tile->header.numvertices = 4;
+			tile->floortype = FLOORTYPE_DEFAULT;
+			tile->floorcol = 0xfff;
 		}
 
 		obj->prop = prop;

@@ -144,7 +144,12 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 	}
 
 	if (!handled && (inmove->ucmd & UCMD_JUMP)) {
-		pl->wantsjump = true;
+		if (!pl->jumpconsumed) {
+			pl->wantsjump = true;
+		}
+	} else {
+		/* Button released — allow next press to trigger a jump */
+		pl->jumpconsumed = false;
 	}
 
 	pl->bondactivateorreload = 0;
@@ -1824,7 +1829,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 					// Handle jump input — no isfalling guard here; bwalkUpdateVertical
 					// enforces the grounded check so we just need the button to be held.
-					if (controlmode == CONTROLMODE_PC && allowc1buttons) {
+					if (controlmode == CONTROLMODE_PC && allowc1buttons && !g_Vars.currentplayer->jumpconsumed) {
 						for (i = 0; i < numsamples; i++) {
 							if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_JUMP)) {
 								g_Vars.currentplayer->wantsjump = true;

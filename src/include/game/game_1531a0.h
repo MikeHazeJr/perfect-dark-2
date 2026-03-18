@@ -14,6 +14,7 @@ void textSetWrapIndent(s32 count);
 void text0f1531d0(s32 arg0);
 void text0f1531dc(bool arg0);
 void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontchar **charsptr, bool monospace);
+void textVerifyFontIntegrity(const char *caller);
 void textReset(void);
 Gfx *text0f153628(Gfx *gdl);
 Gfx *text0f153780(Gfx *gdl);

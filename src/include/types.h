@@ -2812,6 +2812,7 @@ struct player {
 	/*0x1c88*/ bool isremote;
 	/*0x1c8c*/ struct netclient *client;
 	bool wantsjump;
+	bool jumpconsumed;  /* Prevents held-button re-triggering after a jump attempt */
 };
 
 struct ailist {
