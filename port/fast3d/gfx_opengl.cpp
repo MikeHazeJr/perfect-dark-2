@@ -1031,36 +1031,24 @@ static void gfx_opengl_finish_render(void) {
 }
 
 /* D3d: Reset GL state to full-window defaults for ImGui overlay rendering.
- * Called from gfx_pc.cpp after PD's scene rendering, before ImGui frame. */
+ * Called from gfx_pc.cpp after PD's scene rendering, before ImGui frame.
+ *
+ * NOTE: Do NOT unbind PD's shader program, VAO, VBO, or EBO here!
+ * PD binds these once at init and never rebinds them. ImGui's backend
+ * saves the current bindings, sets its own state, renders, then restores
+ * PD's bindings. Unbinding them here would cause ImGui to save zeros and
+ * restore zeros, destroying PD's state on the next frame. */
 extern "C" void gfx_opengl_reset_for_overlay(int width, int height) {
-    /* Debug: write to file since stderr gets flooded */
-    static int dbg_count = 0;
-    if (dbg_count < 10) {
-        FILE *f = fopen("pdgui_debug.log", dbg_count == 0 ? "w" : "a");
-        if (f) {
-            GLint vp[4];
-            glGetIntegerv(GL_VIEWPORT, vp);
-            GLint cur_fbo = 0;
-            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &cur_fbo);
-            GLboolean scissor_on = GL_FALSE;
-            glGetBooleanv(GL_SCISSOR_TEST, &scissor_on);
-            GLint scissor[4];
-            glGetIntegerv(GL_SCISSOR_BOX, scissor);
-            fprintf(f, "[reset] frame=%d requested=%dx%d cur_vp=%d,%d,%d,%d cur_fbo=%d scissor=%s scissor_box=%d,%d,%d,%d\n",
-                    dbg_count, width, height,
-                    vp[0], vp[1], vp[2], vp[3], cur_fbo,
-                    scissor_on ? "ON" : "OFF",
-                    scissor[0], scissor[1], scissor[2], scissor[3]);
-            fclose(f);
-        }
-        ++dbg_count;
-    }
-
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width, height);
+    glScissor(0, 0, width, height);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_BLEND);
+    glActiveTexture(GL_TEXTURE0);
+    while (glGetError() != GL_NO_ERROR) {}
 }
 
 static int gfx_opengl_create_framebuffer() {

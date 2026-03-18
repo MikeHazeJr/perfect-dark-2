@@ -12,10 +12,21 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
+
+/* PD-authentic style — colors, metrics, shimmer effects */
+#include "pdgui_style.h"
+
+/* Handel Gothic — PD's original menu font, embedded as a C array */
+#include "pdgui_font_handelgothic.h"
+
+/* Logging */
+#include "system.h"
 
 /* ---------------------------------------------------------------------------
  * State
@@ -24,52 +35,6 @@
 static bool g_PdguiInitialized = false;
 static bool g_PdguiActive = false;  /* overlay visible? */
 static SDL_Window *g_PdguiWindow = nullptr;
-
-/* ---------------------------------------------------------------------------
- * PD-themed style (inline for now; will move to pdgui_style.c later)
- * --------------------------------------------------------------------------- */
-
-static void pdguiApplyStyle(void)
-{
-    ImGuiStyle &style = ImGui::GetStyle();
-    ImVec4 *colors = style.Colors;
-
-    /* Dark background with blue/cyan accent — PD's signature palette */
-    colors[ImGuiCol_WindowBg]           = ImVec4(0.06f, 0.06f, 0.12f, 0.94f);
-    colors[ImGuiCol_PopupBg]            = ImVec4(0.06f, 0.06f, 0.12f, 0.94f);
-    colors[ImGuiCol_Border]             = ImVec4(0.20f, 0.40f, 0.60f, 0.50f);
-    colors[ImGuiCol_FrameBg]            = ImVec4(0.10f, 0.15f, 0.25f, 0.54f);
-    colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.15f, 0.30f, 0.50f, 0.40f);
-    colors[ImGuiCol_FrameBgActive]      = ImVec4(0.20f, 0.40f, 0.65f, 0.67f);
-    colors[ImGuiCol_TitleBg]            = ImVec4(0.04f, 0.04f, 0.08f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]      = ImVec4(0.10f, 0.20f, 0.40f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed]   = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
-    colors[ImGuiCol_CheckMark]          = ImVec4(0.30f, 0.70f, 1.00f, 1.00f);
-    colors[ImGuiCol_SliderGrab]         = ImVec4(0.25f, 0.55f, 0.85f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive]   = ImVec4(0.35f, 0.65f, 1.00f, 1.00f);
-    colors[ImGuiCol_Button]             = ImVec4(0.15f, 0.30f, 0.55f, 0.40f);
-    colors[ImGuiCol_ButtonHovered]      = ImVec4(0.20f, 0.40f, 0.70f, 1.00f);
-    colors[ImGuiCol_ButtonActive]       = ImVec4(0.10f, 0.30f, 0.60f, 1.00f);
-    colors[ImGuiCol_Header]             = ImVec4(0.15f, 0.30f, 0.55f, 0.31f);
-    colors[ImGuiCol_HeaderHovered]      = ImVec4(0.20f, 0.40f, 0.70f, 0.80f);
-    colors[ImGuiCol_HeaderActive]       = ImVec4(0.25f, 0.50f, 0.80f, 1.00f);
-    colors[ImGuiCol_Separator]          = ImVec4(0.20f, 0.40f, 0.60f, 0.50f);
-    colors[ImGuiCol_Tab]                = ImVec4(0.10f, 0.20f, 0.40f, 0.86f);
-    colors[ImGuiCol_TabHovered]         = ImVec4(0.20f, 0.40f, 0.70f, 0.80f);
-    colors[ImGuiCol_TabActive]          = ImVec4(0.15f, 0.35f, 0.60f, 1.00f);
-    colors[ImGuiCol_Text]              = ImVec4(0.85f, 0.90f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextDisabled]      = ImVec4(0.40f, 0.45f, 0.55f, 1.00f);
-
-    /* Rounded corners, subtle borders */
-    style.WindowRounding    = 6.0f;
-    style.FrameRounding     = 4.0f;
-    style.GrabRounding      = 3.0f;
-    style.TabRounding       = 4.0f;
-    style.WindowBorderSize  = 1.0f;
-    style.FrameBorderSize   = 0.0f;
-    style.WindowPadding     = ImVec2(10.0f, 10.0f);
-    style.ItemSpacing       = ImVec2(8.0f, 6.0f);
-}
 
 /* ---------------------------------------------------------------------------
  * C-callable API (extern "C" for linkage with video.c, main.c, etc.)
@@ -92,13 +57,35 @@ void pdguiInit(void *sdlWindow)
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    /* Apply PD-themed style */
-    pdguiApplyStyle();
+    /* Load Handel Gothic — PD's original menu font, embedded in the binary.
+     * ImGui takes ownership of the copy, so we must allocate + memcpy.
+     * AddFontFromMemoryTTF takes ownership and will free the buffer. */
+    {
+        void *fontCopy = ImGui::MemAlloc(g_HandelGothicFont_size);
+        memcpy(fontCopy, g_HandelGothicFont_data, g_HandelGothicFont_size);
+
+        ImFontConfig cfg;
+        cfg.FontDataOwnedByAtlas = true;  /* ImGui will free fontCopy */
+        snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
+
+        ImFont *font = io.Fonts->AddFontFromMemoryTTF(
+            fontCopy, (int)g_HandelGothicFont_size, 16.0f, &cfg);
+
+        if (font) {
+            io.FontDefault = font;
+            sysLogPrintf(LOG_NOTE, "pdgui: Loaded embedded Handel Gothic (%u bytes)",
+                         g_HandelGothicFont_size);
+        } else {
+            sysLogPrintf(LOG_NOTE, "pdgui: Failed to load embedded Handel Gothic");
+        }
+    }
+
+    /* Apply PD-authentic style (colors, sharp corners, compact metrics) */
+    pdguiApplyPdStyle();
 
     /* Initialize SDL2 + OpenGL3 backends.
-     * We use "#version 130" (GLSL 1.30 / OpenGL 3.0) which is compatible with
-     * the port's OpenGL 2.1 compat / 3.x core setup. The ImGui OpenGL3 backend
-     * falls back gracefully for older GL versions. */
+     * We use "#version 130" (GLSL 1.30 / OpenGL 3.0) which matches the port's
+     * default GL 3.0 compatibility profile context. */
     SDL_GLContext glCtx = SDL_GL_GetCurrentContext();
     ImGui_ImplSDL2_InitForOpenGL(g_PdguiWindow, glCtx);
     ImGui_ImplOpenGL3_Init("#version 130");
@@ -113,32 +100,9 @@ void pdguiNewFrame(void)
         return;
     }
 
-    /* GL state is reset by gfx_opengl_reset_for_overlay() in gfx_pc.cpp
-     * before this function is called — viewport, framebuffer, scissor, depth
-     * are all set to full-window defaults using glad (the same GL loader the
-     * rest of the renderer uses). */
-
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
-
-    /* Debug: write to file since stderr gets flooded */
-    static int dbg_count = 0;
-    if (dbg_count < 10) {
-        FILE *f = fopen("pdgui_debug.log", "a");
-        if (f) {
-            ImGuiIO &io = ImGui::GetIO();
-            int sdl_w, sdl_h, win_w, win_h;
-            SDL_GL_GetDrawableSize(g_PdguiWindow, &sdl_w, &sdl_h);
-            SDL_GetWindowSize(g_PdguiWindow, &win_w, &win_h);
-            fprintf(f, "[imgui] frame=%d DisplaySize=%.0fx%.0f SDL_drawable=%dx%d SDL_window=%dx%d fb_scale=%.2f,%.2f\n",
-                    dbg_count, io.DisplaySize.x, io.DisplaySize.y,
-                    sdl_w, sdl_h, win_w, win_h,
-                    io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-            fclose(f);
-        }
-        ++dbg_count;
-    }
 }
 
 void pdguiRender(void)
@@ -147,31 +111,17 @@ void pdguiRender(void)
         return;
     }
 
-    /* Demo window for initial integration testing — will be replaced by
-     * the mod manager screen and other pdgui screens in later commits. */
+    /* Demo window as placeholder for testing — will be replaced by the mod
+     * manager screen (modmenu.c) and other pdgui screens in later commits. */
     bool show = true;
     ImGui::ShowDemoWindow(&show);
 
+    /* Add PD-style shimmer effects to all visible windows via foreground draw list.
+     * This adds the animated border highlights that are PD's signature look. */
+    pdguiRenderAllWindowShimmers();
+
     ImGui::Render();
-    ImDrawData *dd = ImGui::GetDrawData();
-
-    /* Debug: log draw data details */
-    static int dbg_render = 0;
-    if (dbg_render < 10) {
-        FILE *f = fopen("pdgui_debug.log", "a");
-        if (f) {
-            fprintf(f, "[render] frame=%d CmdListsCount=%d TotalVtx=%d TotalIdx=%d DisplayPos=%.0f,%.0f DisplaySize=%.0f,%.0f FbScale=%.2f,%.2f\n",
-                    dbg_render,
-                    dd->CmdListsCount, dd->TotalVtxCount, dd->TotalIdxCount,
-                    dd->DisplayPos.x, dd->DisplayPos.y,
-                    dd->DisplaySize.x, dd->DisplaySize.y,
-                    dd->FramebufferScale.x, dd->FramebufferScale.y);
-            fclose(f);
-        }
-        ++dbg_render;
-    }
-
-    ImGui_ImplOpenGL3_RenderDrawData(dd);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 void pdguiShutdown(void)
@@ -195,17 +145,24 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 0;
     }
 
-    /* Always let ImGui see events so it can track mouse/keyboard state,
-     * even when the overlay isn't visible (needed for toggle detection). */
-    ImGui_ImplSDL2_ProcessEvent((const SDL_Event *)sdlEvent);
+    const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
-    /* Only consume events when the overlay is active and ImGui wants them. */
+    /* F12 toggle is handled here (not in gfx_sdl2) so we can consume the
+     * event and prevent it from reaching PD's input system. */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
+        g_PdguiActive = !g_PdguiActive;
+        return 1;  /* consumed — PD never sees F12 */
+    }
+
+    /* Always forward events to ImGui so it can track mouse/keyboard state. */
+    ImGui_ImplSDL2_ProcessEvent(ev);
+
+    /* When the overlay is active, consume input events that ImGui wants. */
     if (!g_PdguiActive) {
         return 0;
     }
 
     ImGuiIO &io = ImGui::GetIO();
-    const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
     switch (ev->type) {
         case SDL_MOUSEMOTION:
@@ -217,7 +174,10 @@ s32 pdguiProcessEvent(void *sdlEvent)
         case SDL_KEYDOWN:
         case SDL_KEYUP:
         case SDL_TEXTINPUT:
-            return io.WantCaptureKeyboard ? 1 : 0;
+            /* When overlay is active, consume ALL keyboard input so the game
+             * doesn't act on keys meant for ImGui (prevents accidental jumps,
+             * menu actions, etc. while the overlay is open). */
+            return 1;
 
         default:
             return 0;

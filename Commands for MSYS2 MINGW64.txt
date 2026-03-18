@@ -1,4 +1,4 @@
-/c/users/mikeh/onedrive/desktop/pdu/perfect_dark-mike
+cd /c/users/mikeh/onedrive/desktop/pdu/perfect_dark-mike
 
 rm -rf build
 cmake -G"MSYS Makefiles" -Bbuild .

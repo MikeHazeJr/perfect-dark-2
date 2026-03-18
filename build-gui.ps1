@@ -48,7 +48,6 @@ $env:PATH          = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 $script:ErrorLines = [System.Collections.ArrayList]::new()
 $script:AllOutput  = [System.Collections.ArrayList]::new()
 $script:IsRunning  = $false
-$script:LaunchBat  = "PD(All in One Mod)[US](64bit).bat"
 $script:ExeName    = "pd.x86_64.exe"
 
 # Thread-safe queue for async output from background reader threads
@@ -64,6 +63,7 @@ $form.ForeColor = [System.Drawing.Color]::White
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $false
+$form.ShowInTaskbar = $true
 
 # --- Title ---
 $title = New-Object System.Windows.Forms.Label
@@ -116,12 +116,13 @@ function New-BuildButton($text, $x, $w, $color) {
 }
 
 # Main actions
-$btnBuild   = New-BuildButton "Build"    8   120 ([System.Drawing.Color]::FromArgb(220,180,60))
-$btnRunGame = New-BuildButton "Run Game" 136 120 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnBuild      = New-BuildButton "Build"          8   100 ([System.Drawing.Color]::FromArgb(220,180,60))
+$btnRunGame    = New-BuildButton "Run Game"      116   100 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnRunGameLog = New-BuildButton "Run + Log"     224   100 ([System.Drawing.Color]::FromArgb(50,180,220))
 
 # Separator
 $btnSep1 = New-Object System.Windows.Forms.Label
-$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(268, 6)
+$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(336, 6)
 $btnSep1.Size = New-Object System.Drawing.Size(2, 34)
 $btnSep1.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep1)
@@ -208,13 +209,15 @@ function Set-Buttons-Enabled($enabled) {
     $script:IsRunning = !$enabled
     $btnBuild.Enabled = $enabled
     $btnRunGame.Enabled = $enabled
+    $btnRunGameLog.Enabled = $enabled
 }
 
 function Classify-Line($line) {
-    if ($line -match ':\s*error\s*:|:\s*fatal error\s*:|^make.*\*\*\*.*Error|FAILED') {
+    # Comprehensive error detection for GCC/G++/ld/CMake toolchains
+    if ($line -match ':\s*error\s*:|:\s*fatal error\s*:|^make.*\*\*\*.*Error|FAILED|undefined reference|multiple definition|collect2:\s*error|ld returned|cannot find -l|CMake Error|error:\s|Error:') {
         return "error"
     }
-    if ($line -match ':\s*warning\s*:') {
+    if ($line -match ':\s*warning\s*:|Warning:') {
         return "warning"
     }
     if ($line -match ':\s*note\s*:') {
@@ -415,12 +418,6 @@ function Copy-AddinFiles {
         Write-Output-Line "  $($_.Name)" ([System.Drawing.Color]::FromArgb(180,140,220))
         $copied++
     }
-    # BAT launchers (use -LiteralPath to handle parentheses in filename)
-    Get-ChildItem -LiteralPath $script:AddinDir -Filter "*.bat" -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $script:BuildDir -Force
-        Write-Output-Line "  $($_.Name)" ([System.Drawing.Color]::FromArgb(180,140,220))
-        $copied++
-    }
     # Data folder
     $dataDir = Join-Path $script:AddinDir "data"
     if (Test-Path $dataDir) {
@@ -436,6 +433,37 @@ function Copy-AddinFiles {
         $copied++
     }
     Write-Output-Line "Copied $copied items." ([System.Drawing.Color]::FromArgb(100,200,100))
+}
+
+# --- Game launch helper ---
+function Launch-Game($withLogging) {
+    if ($script:IsRunning) { return }
+
+    $launchExe = Join-Path $script:BuildDir $script:ExeName
+
+    if (!(Test-Path $launchExe)) {
+        Write-Output-Line "Game not found. Build first." ([System.Drawing.Color]::FromArgb(255,100,100))
+        $statusLabel.Text = "Game not found"
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        return
+    }
+
+    # Build argument list: always load mods, optionally enable logging
+    $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64"
+    if ($withLogging) {
+        $gameArgs += " --log"
+    }
+
+    $label = if ($withLogging) { "game (with logging)" } else { "game" }
+    Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
+    Write-Output-Line "Launching $label..." ([System.Drawing.Color]::FromArgb(50,220,120))
+    if ($withLogging) {
+        Write-Output-Line "  Logging enabled (--log)" ([System.Drawing.Color]::FromArgb(50,180,220))
+    }
+    $statusLabel.Text = "Game running..."
+    $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
+
+    Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir
 }
 
 # --- Button handlers ---
@@ -465,7 +493,7 @@ $btnBuild.Add_Click({
 
     Set-Buttons-Enabled $false
 
-    # Pipeline: Configure → Build → Copy Files
+    # Pipeline: Configure -> Build -> Copy Files
     $script:StepQueue.Clear()
     $script:StepQueue.Enqueue((Get-BuildStep))
 
@@ -473,31 +501,9 @@ $btnBuild.Add_Click({
     Start-Build-Step $step.Name $step.Exe $step.Args
 })
 
-$btnRunGame.Add_Click({
-    if ($script:IsRunning) { return }
+$btnRunGame.Add_Click({ Launch-Game $false })
 
-    # Try the launch BAT first, then fall back to exe directly
-    $launchBat = Join-Path $script:BuildDir $script:LaunchBat
-    $launchExe = Join-Path $script:BuildDir $script:ExeName
-
-    if (Test-Path -LiteralPath $launchBat) {
-        Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
-        Write-Output-Line "Launching game via $($script:LaunchBat)..." ([System.Drawing.Color]::FromArgb(50,220,120))
-        $statusLabel.Text = "Game running..."
-        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$launchBat`"" -WorkingDirectory $script:BuildDir
-    } elseif (Test-Path $launchExe) {
-        Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
-        Write-Output-Line "Launching game via $($script:ExeName) (no launch BAT found)..." ([System.Drawing.Color]::FromArgb(50,220,120))
-        $statusLabel.Text = "Game running..."
-        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
-        Start-Process -FilePath $launchExe -WorkingDirectory $script:BuildDir
-    } else {
-        Write-Output-Line "Game not found. Build first, then Copy Files." ([System.Drawing.Color]::FromArgb(255,100,100))
-        $statusLabel.Text = "Game not found"
-        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
-    }
-})
+$btnRunGameLog.Add_Click({ Launch-Game $true })
 
 $btnCopyErrors.Add_Click({
     if ($script:ErrorLines.Count -eq 0) {

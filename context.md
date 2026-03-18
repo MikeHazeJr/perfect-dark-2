@@ -1250,7 +1250,7 @@ The N64 platform strip (Phase D1) is complete. Build compiles successfully. Firs
 - **No circular dependency**: `modmgrResolvePath` passes absolute paths to `fsFileSize`, which bypasses `fsFullPath`'s mod resolution on absolute paths
 - **Multi-mod support**: File resolution now checks ALL enabled mods in registry order (first match wins), not just one selected mod
 
-### D3d: Menu System Modernization + Mod Manager Menu (IN PROGRESS)
+### D3d: Menu System Modernization + Mod Manager Menu (RENDERING VERIFIED)
 
 **Design decisions made (2026-03-17):**
 - **Rendering**: Dear ImGui (SDL2 + OpenGL3 backends) replaces PD's N64-era menu renderer
@@ -1282,14 +1282,21 @@ The N64 platform strip (Phase D1) is complete. Build compiles successfully. Firs
   - `pdguiProcessEvent()` — forwards SDL events to ImGui, suppresses PD input when overlay captures
   - `pdguiWantsInput()` / `pdguiIsActive()` / `pdguiToggle()` — state queries and F12 toggle
 - **pdgui.h** created in `port/include/` — public C header using `s32` types (not stdbool.h)
-- **gfx_sdl2.cpp** modified — event loop calls `pdguiProcessEvent()` before PD's handler, F12 toggles overlay
-- **video.c** modified — `videoEndFrame()` calls `pdguiNewFrame()` + `pdguiRender()` before `gfx_end_frame()`
+- **gfx_sdl2.cpp** modified — event loop calls `pdguiProcessEvent()` before PD's handler
+- **gfx_pc.cpp** modified — ImGui renders inside `gfx_run()` after `rapi->end_frame()` and before `swap_buffers_begin()` (NOT in videoEndFrame — the buffer swap happens inside gfx_run)
+- **gfx_opengl.cpp** modified — `gfx_opengl_reset_for_overlay()` resets GL state (framebuffer, viewport, scissor, depth, cull, stencil, blend, active texture) between PD's scene and ImGui. Does NOT unbind PD's VAO/VBO/program (ImGui's backend saves and restores these).
 - **main.c** modified — `pdguiInit(videoGetWindowHandle())` after `videoInit()`, `pdguiShutdown()` in cleanup
 - **CMakeLists.txt** modified — added `port/fast3d/imgui` to include paths; GLOB_RECURSE auto-discovers `.cpp` files
-- **GLSL version**: `#version 130` (GLSL 1.30 / OpenGL 3.0) — compatible with port's GL 2.1+ compat context
+- **imgui_impl_opengl3.cpp** modified — replaced ImGui's built-in imgl3w loader with glad (`#include "../glad/glad.h"`) to use the same GL loader as the rest of the port
+- **GLSL version**: `#version 130` (GLSL 1.30 / OpenGL 3.0) — matches port's default GL 3.0 compat context
+- **GL context**: 3.0 compatibility profile (default fallback in gfx_sdl2.cpp)
 - **Style**: PD-themed dark + blue/cyan accent, semi-transparent panels, rounded corners
+- **F12 toggle**: Handled in `pdguiProcessEvent()` which consumes the event so PD never sees F12
+- **Input isolation**: When overlay is active, ALL keyboard events are consumed (prevents game actions while using ImGui)
+- **Rendering verified**: 2026-03-17 — fullscreen overlay + positioned windows render correctly over game content at 60fps
+
+**Key architecture lesson**: ImGui must render inside `gfx_run()` between `rapi->end_frame()` and `wapi->swap_buffers_begin()` because `SDL_GL_SwapWindow` is called by `swap_buffers_begin`, not by `gfx_end_frame`. CMake's `GLOB_RECURSE` may not detect changes to vendored files — always do a clean rebuild (`rm -rf build`) when modifying vendored code.
 
 ### Immediate Next Step
-- Build and test on MSYS2/MinGW to verify ImGui integration compiles and renders
 - Replace demo window with mod manager screen (modmenu.c)
 - Create dynmenu.c builder API and pdgui_style.c as separate files
