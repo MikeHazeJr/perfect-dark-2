@@ -20,8 +20,10 @@
 #include "net/netupnp.h"
 #include "net/netlobby.h"
 
-/* All game globals are defined in server_stubs.c.
- * server_main.c just provides the entry point. */
+/* Functions stubbed in server_stubs.c */
+extern void conInit(void);
+
+/* All game globals are defined in server_stubs.c. */
 extern u32 g_OsMemSize;
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;

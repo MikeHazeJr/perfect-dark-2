@@ -47,7 +47,7 @@ s32 g_MainIsBooting = 0;
 OSMesgQueue *g_PiMesgQueue = NULL;
 
 /* Game state — types must match declarations in data.h / bss.h exactly */
-struct vars g_Vars;
+struct g_vars g_Vars;
 s32 g_StageNum = 0;                           /* data.h:582 */
 struct mpsetup g_MpSetup;
 struct missionconfig g_MissionConfig;
