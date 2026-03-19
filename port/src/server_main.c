@@ -1,9 +1,9 @@
 /**
  * server_main.c -- Dedicated server entry point.
  *
- * Separate executable (pd-server) with its own main loop.
- * No game state machine, no stage loading, no gameplay rendering.
- * Just: SDL window for ImGui GUI + ENet networking + tick loop.
+ * Completely independent of the game's rendering pipeline.
+ * Own SDL window, own GL context, own ImGui instance, own main loop.
+ * The game's networking and multiplayer logic hooks into this.
  */
 
 #include <stdlib.h>
@@ -18,21 +18,17 @@
 #include "bss.h"
 #include "data.h"
 
-#include "video.h"
-#include "input.h"
 #include "fs.h"
 #include "romdata.h"
 #include "config.h"
 #include "modmgr.h"
-#include "pdgui.h"
 #include "system.h"
 #include "console.h"
 #include "net/net.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
 
-/* Globals that the shared game code references.
- * These are normally defined in main.c — the server needs its own copies. */
+/* Globals that shared game code references */
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
 s8 g_Resetting = false;
@@ -47,33 +43,29 @@ u8  g_VmShowStats = 0;
 s32 g_TickRateDiv = 1;
 s32 g_TickExtraSleep = 1;
 
-/* Stubs needed by shared code */
 void *bootAllocateStack(s32 threadid, s32 size)
 {
     static u8 stackbuf[0x1000];
     return stackbuf;
 }
 
-/* Net globals are defined in net.c */
+/* Net globals defined in net.c */
 extern s32 g_NetDedicated;
 extern s32 g_NetHostLatch;
 extern u32 g_NetServerPort;
 extern s32 g_NetMaxClients;
+extern s32 g_NetNumClients;
 
-/* ImGui render functions — signatures must match pdgui.h exactly */
-extern s32 pdguiProcessEvent(void *sdlEvent);
-extern void pdguiNewFrame(void);
-extern void pdguiRender(void);
-
-/* Server-specific render call that clears the screen, renders ImGui, and swaps.
- * Defined in pdgui_backend.cpp since it needs ImGui C++ API access. */
-extern void pdguiServerFrame(void);
+/* Server GUI — implemented in server_gui.cpp */
+extern s32 serverGuiInit(SDL_Window *window, void *glContext);
+extern void serverGuiFrame(SDL_Window *window);
+extern void serverGuiProcessEvent(SDL_Event *ev);
+extern void serverGuiShutdown(void);
 
 int main(int argc, char **argv)
 {
     sysInitArgs(argc, (const char **)argv);
 
-    /* Force dedicated server mode */
     g_NetDedicated = 1;
     g_NetHostLatch = 1;
 
@@ -81,23 +73,16 @@ int main(int argc, char **argv)
 
     conInit();
     sysInit();
-
-    sysLogPrintf(LOG_NOTE, "SERVER: Initializing...");
-
     fsInit();
     configInit();
-    videoInit();
-    pdguiInit(videoGetWindowHandle());
-    inputInit();
 
+    /* No videoInit — the server creates its own window below */
     /* No audioInit — server has no audio */
 
     romdataInit();
     netInit();
 
-    sysLogPrintf(LOG_NOTE, "SERVER: Init complete, setting up memory...");
-
-    /* Minimal game init — just memory, no game state machine */
+    /* Minimal game init */
     osMemSize = g_OsMemSizeMb * 1024 * 1024;
     g_OsMemSize = osGetMemSize();
     g_MempHeapSize = g_OsMemSize;
@@ -112,7 +97,46 @@ int main(int argc, char **argv)
         gamefileLoadDefaults(&g_GameFile);
     }
 
-    /* Start the server */
+    /* === Create the server's own SDL window and GL context === */
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0) {
+        printf("SERVER: SDL_Init failed: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+    SDL_Window *window = SDL_CreateWindow(
+        "PD2 Dedicated Server - starting...",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        800, 500,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
+
+    if (!window) {
+        printf("SERVER: SDL_CreateWindow failed: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_GLContext glCtx = SDL_GL_CreateContext(window);
+    if (!glCtx) {
+        printf("SERVER: SDL_GL_CreateContext failed: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_GL_MakeCurrent(window, glCtx);
+    SDL_GL_SetSwapInterval(1); /* vsync */
+
+    sysLogPrintf(LOG_NOTE, "SERVER: Window and GL context created");
+
+    /* Initialize the server GUI (ImGui) */
+    if (serverGuiInit(window, glCtx) != 0) {
+        printf("SERVER: GUI init failed\n");
+        return 1;
+    }
+
+    /* Start the network server */
     {
         s32 result = netStartServer((u16)g_NetServerPort, g_NetMaxClients);
         if (result != 0) {
@@ -125,37 +149,54 @@ int main(int argc, char **argv)
                      g_NetServerPort, g_NetMaxClients);
     }
 
-    sysLogPrintf(LOG_NOTE, "SERVER: Entering main loop. Close window to stop.");
+    sysLogPrintf(LOG_NOTE, "SERVER: Entering main loop");
 
-    /* === Server main loop ===
-     * This replaces the game's osCreateScheduler/bootCreateSched.
-     * Simple loop: poll SDL events, process network, render ImGui GUI. */
+    /* === Main loop === */
     s32 running = 1;
     while (running) {
-        /* Poll SDL events (window close, input for ImGui) */
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) {
                 running = 0;
             }
-            pdguiProcessEvent(&ev);
+            serverGuiProcessEvent(&ev);
         }
 
-        /* Process network — receive packets, send updates */
+        /* Network tick */
         netStartFrame();
         netEndFrame();
 
-        /* Render the server GUI — clears screen, draws ImGui, swaps buffer */
-        pdguiServerFrame();
+        /* Update window title */
+        {
+            static u32 titleCounter = 0;
+            if (++titleCounter >= 60) {
+                titleCounter = 0;
+                char title[256];
+                const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
+                if (ip && ip[0]) {
+                    snprintf(title, sizeof(title), "PD2 Dedicated Server - %s:%u - %d/%d connected",
+                             ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+                } else {
+                    snprintf(title, sizeof(title), "PD2 Dedicated Server - port %u - %d/%d connected",
+                             g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+                }
+                SDL_SetWindowTitle(window, title);
+            }
+        }
 
-        /* Cap at ~60 FPS to save CPU */
+        /* Render GUI */
+        serverGuiFrame(window);
+
         SDL_Delay(16);
     }
 
     /* Cleanup */
     sysLogPrintf(LOG_NOTE, "SERVER: Shutting down...");
     netDisconnect();
-    pdguiShutdown();
+    serverGuiShutdown();
+    SDL_GL_DeleteContext(glCtx);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
     return 0;
 }
