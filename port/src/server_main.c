@@ -13,43 +13,18 @@
 #include <PR/ultrasched.h>
 #include <PR/os_message.h>
 
-#include "lib/main.h"
-#include "lib/mempc.h"
-#include "bss.h"
-#include "data.h"
-
-#include "fs.h"
-#include "romdata.h"
-#include "config.h"
-#include "modmgr.h"
 #include "system.h"
-#include "console.h"
+#include "config.h"
+#include "fs.h"
 #include "net/net.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
 
-/* Globals that shared game code references */
-u32 g_OsMemSize = 0;
-s32 g_OsMemSizeMb = 64;
-s8 g_Resetting = false;
-OSSched g_Sched;
-OSMesgQueue g_MainMesgQueue;
-OSMesg g_MainMesgBuf[32];
-u8 *g_MempHeap = NULL;
-u32 g_MempHeapSize = 0;
-s32 g_SkipIntro = 1;
-s32 g_FileAutoSelect = 0;
-u8  g_VmShowStats = 0;
-s32 g_TickRateDiv = 1;
-s32 g_TickExtraSleep = 1;
-
-void *bootAllocateStack(s32 threadid, s32 size)
-{
-    static u8 stackbuf[0x1000];
-    return stackbuf;
-}
-
-/* Net globals defined in net.c */
+/* All game globals are defined in server_stubs.c.
+ * server_main.c just provides the entry point. */
+extern u32 g_OsMemSize;
+extern u8 *g_MempHeap;
+extern u32 g_MempHeapSize;
 extern s32 g_NetDedicated;
 extern s32 g_NetHostLatch;
 extern u32 g_NetServerPort;
@@ -71,31 +46,21 @@ int main(int argc, char **argv)
 
     printf("PD2 Dedicated Server starting...\n");
 
+    /* conInit is stubbed — server uses printf/sysLogPrintf */
     conInit();
     sysInit();
     fsInit();
     configInit();
 
-    /* No videoInit — the server creates its own window below */
-    /* No audioInit — server has no audio */
+    /* No videoInit, audioInit, romdataInit, modmgrInit — server doesn't
+     * need rendering, audio, ROM data, or mod management. */
 
-    romdataInit();
     netInit();
 
-    /* Minimal game init */
-    osMemSize = g_OsMemSizeMb * 1024 * 1024;
-    g_OsMemSize = osGetMemSize();
+    /* Minimal memory setup */
+    g_OsMemSize = 64 * 1024 * 1024;
     g_MempHeapSize = g_OsMemSize;
     g_MempHeap = sysMemZeroAlloc(g_MempHeapSize);
-
-    modmgrInit();
-
-    /* Load defaults — server doesn't need agent files */
-    {
-        extern struct gamefile g_GameFile;
-        extern void gamefileLoadDefaults(struct gamefile *file);
-        gamefileLoadDefaults(&g_GameFile);
-    }
 
     /* === Create the server's own SDL window and GL context === */
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0) {

@@ -359,31 +359,31 @@ endif()
 # Dedicated server target — MINIMAL source list, decoupled from game rendering.
 # Only includes: networking, system, filesystem, server GUI, and stubs.
 
-file(GLOB SRC_SERVER_NET "${CMAKE_SOURCE_DIR}/port/src/net/*.c")
 file(GLOB SRC_SERVER_MINIUPNPC "${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src/*.c")
 
 set(SRC_SERVER
-  # Server entry point and stubs
+  # Server entry point + comprehensive stubs for ALL game dependencies
   ${CMAKE_SOURCE_DIR}/port/src/server_main.c
   ${CMAKE_SOURCE_DIR}/port/src/server_stubs.c
   ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
 
-  # Core networking (ENet, messages, lobby, UPnP)
-  ${SRC_SERVER_NET}
+  # Core networking ONLY (not netmenu.c — that's client UI)
+  ${CMAKE_SOURCE_DIR}/port/src/net/net.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netmsg.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netupnp.c
+
+  # UPnP library
   ${SRC_SERVER_MINIUPNPC}
 
-  # System infrastructure
+  # Minimal system (no pdsched, no console, no mpsetups, no romdata,
+  # no modmgr, no libultra — all stubbed in server_stubs.c)
   ${CMAKE_SOURCE_DIR}/port/src/system.c
-  ${CMAKE_SOURCE_DIR}/port/src/console.c
   ${CMAKE_SOURCE_DIR}/port/src/config.c
   ${CMAKE_SOURCE_DIR}/port/src/fs.c
-  ${CMAKE_SOURCE_DIR}/port/src/romdata.c
-  ${CMAKE_SOURCE_DIR}/port/src/modmgr.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/crash.c
-  ${CMAKE_SOURCE_DIR}/port/src/libultra.c
-  ${CMAKE_SOURCE_DIR}/port/src/pdsched.c
-  ${CMAKE_SOURCE_DIR}/port/src/mpsetups.c
 
   # Server GUI (ImGui, SDL2, OpenGL — self-contained)
   ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
