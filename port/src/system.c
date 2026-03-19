@@ -90,7 +90,14 @@ void sysInit(void)
 	startTick = sysGetMicroseconds();
 
 	if (sysArgCheck("--log")) {
-		sysLogSetPath(LOG_FNAME);
+		/* Name the log file based on mode for clarity */
+		if (sysArgCheck("--dedicated")) {
+			sysLogSetPath("pd-server.log");
+		} else if (sysArgCheck("--host")) {
+			sysLogSetPath("pd-host.log");
+		} else {
+			sysLogSetPath("pd-client.log");
+		}
 	}
 
 #ifdef VERSION_HASH
@@ -202,7 +209,16 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
 
-	/* Capture to ring buffer for on-screen display */
+	/* Generate timestamp for file logging */
+	char timestamp[32] = {0};
+	{
+		float sec = sysGetSeconds();
+		s32 mins = (s32)(sec / 60.0f);
+		float secs = sec - (mins * 60.0f);
+		snprintf(timestamp, sizeof(timestamp), "[%02d:%05.2f]", mins, secs);
+	}
+
+	/* Capture to ring buffer for on-screen display (no timestamp, keep compact) */
 	{
 		char combined[SYSLOG_RING_LINELEN];
 		snprintf(combined, sizeof(combined), "%s%s", pfx, logmsg);
@@ -212,16 +228,18 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 		s_LogRingCount++;
 	}
 
+	/* File log: timestamped */
 	if (logPath[0]) {
 		FILE *f = fopen(logPath, "ab");
 		if (f) {
-			fprintf(f, "%s%s\n", pfx, logmsg);
+			fprintf(f, "%s %s%s\n", timestamp, pfx, logmsg);
 			fclose(f);
 		}
 	}
 
+	/* Console: timestamped */
 	FILE *fout = (lvl == LOG_NOTE || lvl == LOG_CHAT) ? stdout : stderr;
-	fprintf(fout, "%s%s\n", pfx, logmsg);
+	fprintf(fout, "%s %s%s\n", timestamp, pfx, logmsg);
 	fflush(fout);
 
 	if ((level & LOGFLAG_NOCON) == 0) {

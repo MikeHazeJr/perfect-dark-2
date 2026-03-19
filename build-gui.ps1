@@ -119,21 +119,21 @@ function New-BuildButton($text, $x, $w, $color) {
 }
 
 # Main actions
-$btnBuild      = New-BuildButton "Build"          8   100 ([System.Drawing.Color]::FromArgb(220,180,60))
-$btnRunGame    = New-BuildButton "Run Game"      116   100 ([System.Drawing.Color]::FromArgb(50,220,120))
-$btnRunGameLog = New-BuildButton "Run + Log"     224   100 ([System.Drawing.Color]::FromArgb(50,180,220))
+$btnBuild      = New-BuildButton "Build"          8    80 ([System.Drawing.Color]::FromArgb(220,180,60))
+$btnRunGame    = New-BuildButton "Client"        96    80 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnRunServer  = New-BuildButton "Server"       184    80 ([System.Drawing.Color]::FromArgb(255,180,50))
 
 # Separator
 $btnSep1 = New-Object System.Windows.Forms.Label
-$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(336, 6)
+$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(276, 6)
 $btnSep1.Size = New-Object System.Drawing.Size(2, 34)
 $btnSep1.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep1)
 
 # Utility buttons
-$btnCopyErrors = New-BuildButton "Copy Errors" 352 120 ([System.Drawing.Color]::FromArgb(255,120,80))
-$btnCopyAll    = New-BuildButton "Copy All"     480 120 ([System.Drawing.Color]::FromArgb(160,160,160))
-$btnClear      = New-BuildButton "Clear"        608 120 ([System.Drawing.Color]::FromArgb(120,120,120))
+$btnCopyErrors = New-BuildButton "Copy Errors" 290 100 ([System.Drawing.Color]::FromArgb(255,120,80))
+$btnCopyAll    = New-BuildButton "Copy All"    398 100 ([System.Drawing.Color]::FromArgb(160,160,160))
+$btnClear      = New-BuildButton "Clear"       506  80 ([System.Drawing.Color]::FromArgb(120,120,120))
 
 # --- Output area ---
 $outputBox = New-Object System.Windows.Forms.RichTextBox
@@ -219,14 +219,14 @@ function Update-RunButtons {
     $exePath = Join-Path $script:BuildDir $script:ExeName
     $canRun = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $exePath))
     $btnRunGame.Enabled = $canRun
-    $btnRunGameLog.Enabled = $canRun
+    $btnRunServer.Enabled = $canRun
 
     if ($canRun) {
         $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
-        $btnRunGameLog.ForeColor = [System.Drawing.Color]::FromArgb(50, 180, 220)
+        $btnRunServer.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 50)
     } else {
         $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-        $btnRunGameLog.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
+        $btnRunServer.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
     }
 }
 
@@ -461,7 +461,8 @@ function Copy-AddinFiles {
 }
 
 # --- Game launch helper ---
-function Launch-Game($withLogging) {
+# mode: "client" or "server"
+function Launch-Game($mode) {
     if ($script:IsRunning) { return }
 
     $launchExe = Join-Path $script:BuildDir $script:ExeName
@@ -473,20 +474,25 @@ function Launch-Game($withLogging) {
         return
     }
 
-    # Build argument list: always load mods, optionally enable logging
-    $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64"
-    if ($withLogging) {
-        $gameArgs += " --log"
+    # Base args: mods + logging always on
+    $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64 --log"
+
+    if ($mode -eq "server") {
+        $gameArgs += " --dedicated --host"
+        $label = "Dedicated Server"
+        $labelColor = [System.Drawing.Color]::FromArgb(255, 180, 50)
+    } else {
+        $label = "Client"
+        $labelColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
     }
 
-    $label = if ($withLogging) { "game (with logging)" } else { "game" }
     Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
-    Write-Output-Line "Launching $label..." ([System.Drawing.Color]::FromArgb(50,220,120))
-    if ($withLogging) {
-        Write-Output-Line "  Logging enabled (--log)" ([System.Drawing.Color]::FromArgb(50,180,220))
+    Write-Output-Line "Launching $label..." $labelColor
+    Write-Output-Line "  Logging enabled" ([System.Drawing.Color]::FromArgb(50,180,220))
+    if ($mode -eq "server") {
+        Write-Output-Line "  Mode: --dedicated --host" ([System.Drawing.Color]::FromArgb(255,180,50))
     }
 
-    # Track the process so we can poll whether it's actually running
     $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir -PassThru
     Update-GameStatus
 }
@@ -577,9 +583,9 @@ $btnBuild.Add_Click({
     Start-Build-Step $step.Name $step.Exe $step.Args
 })
 
-$btnRunGame.Add_Click({ Launch-Game $false })
+$btnRunGame.Add_Click({ Launch-Game "client" })
 
-$btnRunGameLog.Add_Click({ Launch-Game $true })
+$btnRunServer.Add_Click({ Launch-Game "server" })
 
 $btnCopyErrors.Add_Click({
     if ($script:ErrorLines.Count -eq 0) {
