@@ -1,17 +1,10 @@
 /**
- * netupnp.c -- Automatic UPnP port forwarding for the network server.
+ * netupnp.c -- Async UPnP port forwarding for the network server.
  *
- * When hosting a game, this module:
- *   1. Discovers the router via UPnP/SSDP
- *   2. Queries the external (public) IP address
- *   3. Adds a UDP port mapping so external players can connect
- *   4. Removes the mapping when the server shuts down
+ * UPnP discovery and port mapping runs on a background thread to avoid
+ * blocking the game during startup (discovery can take 2-5 seconds).
  *
- * This eliminates the need for manual router port forwarding in most cases.
- * Uses miniupnpc (BSD 3-Clause license) for all UPnP operations.
- *
- * If UPnP is not available on the router, the module silently falls back
- * to manual mode — the game still works, just needs manual port forwarding.
+ * Status is polled via netUpnpGetStatus() / netUpnpGetExternalIP().
  */
 
 #include <stdio.h>
@@ -20,102 +13,147 @@
 #include "types.h"
 #include "system.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include "miniupnpc.h"
 #include "upnpcommands.h"
 #include "upnperrors.h"
 
-/* State */
+/* Status values */
+#define UPNP_STATUS_IDLE      0
+#define UPNP_STATUS_WORKING   1
+#define UPNP_STATUS_SUCCESS   2
+#define UPNP_STATUS_FAILED    3
+
+/* State — accessed from main thread, written by worker thread */
 static struct UPNPUrls s_UpnpUrls;
 static struct IGDdatas s_UpnpData;
 static char s_ExternalIP[64] = {0};
 static char s_MappedPort[8] = {0};
-static s32 s_UpnpActive = 0;
+static char s_LanAddr[64] = {0};
+static volatile s32 s_UpnpStatus = UPNP_STATUS_IDLE;
+static volatile s32 s_UpnpActive = 0;
+static u16 s_RequestedPort = 0;
 
 /**
- * Attempt to set up UPnP port forwarding.
- *
- * port:     The UDP port to forward (e.g., 27100)
- * Returns:  0 on success, -1 on failure (caller should fall back to manual)
+ * Worker thread function — does all UPnP I/O without blocking the game.
  */
-s32 netUpnpSetup(u16 port)
+#ifdef _WIN32
+static DWORD WINAPI upnpWorkerThread(LPVOID param)
+#else
+static void *upnpWorkerThread(void *param)
+#endif
 {
+    u16 port = s_RequestedPort;
+    s_UpnpStatus = UPNP_STATUS_WORKING;
+
+    sysLogPrintf(LOG_NOTE, "UPNP: [thread] Discovering devices...");
+
     struct UPNPDev *devlist = NULL;
     int error = 0;
-
-    sysLogPrintf(LOG_NOTE, "UPNP: Discovering UPnP devices...");
-
-    /* Discover UPnP devices on the network (2 second timeout) */
     devlist = upnpDiscover(2000, NULL, NULL, 0, 0, 2, &error);
     if (!devlist) {
-        sysLogPrintf(LOG_WARNING, "UPNP: No UPnP devices found (error %d). "
-                     "Manual port forwarding required.", error);
-        return -1;
+        sysLogPrintf(LOG_WARNING, "UPNP: [thread] No devices found (error %d)", error);
+        s_UpnpStatus = UPNP_STATUS_FAILED;
+        return 0;
     }
 
-    sysLogPrintf(LOG_NOTE, "UPNP: Found UPnP devices, looking for IGD...");
+    sysLogPrintf(LOG_NOTE, "UPNP: [thread] Found devices, looking for IGD...");
 
-    /* Find a valid Internet Gateway Device */
-    char lanAddr[64] = {0};
     char wanAddr[64] = {0};
     int igdResult = UPNP_GetValidIGD(devlist, &s_UpnpUrls, &s_UpnpData,
-                                      lanAddr, sizeof(lanAddr),
+                                      s_LanAddr, sizeof(s_LanAddr),
                                       wanAddr, sizeof(wanAddr));
-
     freeUPNPDevlist(devlist);
 
     if (igdResult == 0) {
-        sysLogPrintf(LOG_WARNING, "UPNP: No valid IGD found. "
-                     "Manual port forwarding required.");
-        return -1;
+        sysLogPrintf(LOG_WARNING, "UPNP: [thread] No valid IGD found");
+        s_UpnpStatus = UPNP_STATUS_FAILED;
+        return 0;
     }
 
-    sysLogPrintf(LOG_NOTE, "UPNP: IGD found (type %d), LAN address: %s", igdResult, lanAddr);
+    sysLogPrintf(LOG_NOTE, "UPNP: [thread] IGD found (type %d), LAN: %s", igdResult, s_LanAddr);
 
-    /* Get the external (public) IP */
+    /* Get external IP */
     int ipResult = UPNP_GetExternalIPAddress(s_UpnpUrls.controlURL,
                                               s_UpnpData.first.servicetype,
                                               s_ExternalIP);
     if (ipResult != 0 || s_ExternalIP[0] == '\0') {
-        sysLogPrintf(LOG_WARNING, "UPNP: Could not get external IP (error %d)", ipResult);
-        /* Continue anyway — we can still try to add the mapping */
+        sysLogPrintf(LOG_WARNING, "UPNP: [thread] Could not get external IP (error %d)", ipResult);
         strncpy(s_ExternalIP, "unknown", sizeof(s_ExternalIP));
     } else {
-        sysLogPrintf(LOG_NOTE, "UPNP: External IP: %s", s_ExternalIP);
+        sysLogPrintf(LOG_NOTE, "UPNP: [thread] External IP: %s", s_ExternalIP);
     }
 
-    /* Add port mapping: external port → LAN address:port (UDP, 1 hour lease) */
+    /* Add port mapping */
     snprintf(s_MappedPort, sizeof(s_MappedPort), "%u", port);
 
     int mapResult = UPNP_AddPortMapping(
         s_UpnpUrls.controlURL,
         s_UpnpData.first.servicetype,
-        s_MappedPort,        /* external port */
-        s_MappedPort,        /* internal port */
-        lanAddr,             /* internal client (this machine's LAN IP) */
-        "Perfect Dark 2",    /* description shown in router UI */
-        "UDP",               /* protocol */
-        NULL,                /* remote host (NULL = any) */
-        "3600"               /* lease duration in seconds (1 hour, auto-renews) */
+        s_MappedPort, s_MappedPort, s_LanAddr,
+        "Perfect Dark 2", "UDP", NULL, "3600"
     );
 
     if (mapResult != 0) {
-        sysLogPrintf(LOG_WARNING, "UPNP: Port mapping failed: %s (%d). "
-                     "Manual port forwarding may be required.",
+        sysLogPrintf(LOG_WARNING, "UPNP: [thread] Port mapping failed: %s (%d)",
                      strupnperror(mapResult), mapResult);
         FreeUPNPUrls(&s_UpnpUrls);
-        return -1;
+        s_UpnpStatus = UPNP_STATUS_FAILED;
+        return 0;
     }
 
-    sysLogPrintf(LOG_NOTE, "UPNP: Port %s/UDP mapped successfully!", s_MappedPort);
-    sysLogPrintf(LOG_NOTE, "UPNP: Players can connect to %s:%s", s_ExternalIP, s_MappedPort);
+    sysLogPrintf(LOG_NOTE, "UPNP: [thread] Port %s/UDP mapped! Connect to %s:%s",
+                 s_MappedPort, s_ExternalIP, s_MappedPort);
 
     s_UpnpActive = 1;
+    s_UpnpStatus = UPNP_STATUS_SUCCESS;
     return 0;
 }
 
 /**
- * Remove the UPnP port mapping. Call when the server shuts down.
+ * Start async UPnP port forwarding. Returns immediately.
+ * Poll netUpnpGetStatus() to check progress.
  */
+s32 netUpnpSetup(u16 port)
+{
+    if (s_UpnpStatus == UPNP_STATUS_WORKING) {
+        return 0; /* Already in progress */
+    }
+
+    s_RequestedPort = port;
+    s_UpnpStatus = UPNP_STATUS_WORKING;
+    s_ExternalIP[0] = '\0';
+
+    sysLogPrintf(LOG_NOTE, "UPNP: Starting async discovery for port %u...", port);
+
+#ifdef _WIN32
+    HANDLE thread = CreateThread(NULL, 0, upnpWorkerThread, NULL, 0, NULL);
+    if (thread) {
+        CloseHandle(thread); /* Detach — we don't need to join */
+    } else {
+        sysLogPrintf(LOG_WARNING, "UPNP: Could not create worker thread");
+        s_UpnpStatus = UPNP_STATUS_FAILED;
+        return -1;
+    }
+#else
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, upnpWorkerThread, NULL) == 0) {
+        pthread_detach(thread);
+    } else {
+        sysLogPrintf(LOG_WARNING, "UPNP: Could not create worker thread");
+        s_UpnpStatus = UPNP_STATUS_FAILED;
+        return -1;
+    }
+#endif
+
+    return 0;
+}
+
 void netUpnpTeardown(void)
 {
     if (!s_UpnpActive) {
@@ -127,13 +165,11 @@ void netUpnpTeardown(void)
     int result = UPNP_DeletePortMapping(
         s_UpnpUrls.controlURL,
         s_UpnpData.first.servicetype,
-        s_MappedPort,
-        "UDP",
-        NULL
+        s_MappedPort, "UDP", NULL
     );
 
     if (result != 0) {
-        sysLogPrintf(LOG_WARNING, "UPNP: Could not remove port mapping: %s (%d)",
+        sysLogPrintf(LOG_WARNING, "UPNP: Could not remove mapping: %s (%d)",
                      strupnperror(result), result);
     } else {
         sysLogPrintf(LOG_NOTE, "UPNP: Port mapping removed.");
@@ -143,21 +179,20 @@ void netUpnpTeardown(void)
     s_ExternalIP[0] = '\0';
     s_MappedPort[0] = '\0';
     s_UpnpActive = 0;
+    s_UpnpStatus = UPNP_STATUS_IDLE;
 }
 
-/**
- * Get the external (public) IP discovered via UPnP.
- * Returns empty string if UPnP is not active or IP unknown.
- */
 const char *netUpnpGetExternalIP(void)
 {
     return s_ExternalIP;
 }
 
-/**
- * Returns non-zero if UPnP port mapping is active.
- */
 s32 netUpnpIsActive(void)
 {
     return s_UpnpActive;
+}
+
+s32 netUpnpGetStatus(void)
+{
+    return s_UpnpStatus;
 }

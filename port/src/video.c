@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 #include "platform.h"
@@ -82,7 +83,7 @@ s32 videoInit(void)
 		.wapi = wmAPI,
 		.rapi = renderingAPI,
 		.window_settings = {
-			.title = g_NetDedicated ? "Perfect Dark 2 - Dedicated Server" : "Perfect Dark",
+			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 (v0.0.2)",
 			.width = vidWidth,
 			.height = vidHeight,
 			.x = 100,
@@ -177,6 +178,16 @@ void *videoGetWindowHandle(void)
 		return wmAPI->get_window_handle();
 	}
 	return NULL;
+}
+
+void videoSetWindowTitle(const char *title)
+{
+	if (initDone) {
+		void *handle = wmAPI->get_window_handle();
+		if (handle) {
+			SDL_SetWindowTitle((SDL_Window *)handle, title);
+		}
+	}
 }
 
 void videoUpdateNativeResolution(s32 w, s32 h)

@@ -520,15 +520,10 @@ s32 netStartServer(u16 port, s32 maxclients)
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: created server on port %u", port);
 
-	/* Attempt automatic UPnP port forwarding.
-	 * If successful, external players can connect without manual router config.
-	 * If it fails, the server still works — just needs manual port forwarding. */
-	if (netUpnpSetup(port) == 0) {
-		sysLogPrintf(LOG_NOTE, "NET: UPnP port forwarding active — connect to %s:%u",
-		             netUpnpGetExternalIP(), port);
-	} else {
-		sysLogPrintf(LOG_NOTE, "NET: UPnP unavailable — manual port forwarding required for port %u", port);
-	}
+	/* Start async UPnP port forwarding (runs on background thread).
+	 * Returns immediately — discovery takes 2-5 seconds on the thread.
+	 * Poll netUpnpGetStatus() or check the lobby overlay for results. */
+	netUpnpSetup(port);
 
 	lobbyInit();
 
