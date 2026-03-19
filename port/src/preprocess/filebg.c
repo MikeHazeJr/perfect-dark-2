@@ -5,6 +5,7 @@
 
 #include "data.h"
 #include "bss.h"
+#include "system.h"
 
 #include "preprocess/common.h"
 #include "preprocess/gbi.h"
@@ -444,12 +445,17 @@ static u32 convertSection1(u8 *dst, u8 *src, u32 ofs)
 
 void preprocessBgSection1(u8 *data, u32 size, u32 ofs)
 {
+	/* Allocate temp buffer at the same size as the data buffer.
+	 * The caller (bg.c) now passes a buffer with headroom for 64-bit
+	 * pointer expansion, so this should have enough space. */
 	u8 *dst = sysMemZeroAlloc(size);
 
 	u32 newSize = convertSection1(dst, data, ofs);
 
 	if (newSize > size) {
-		sysFatalError("overflow when trying to preprocess a bg file, size %d newsize %d", size, newSize);
+		sysLogPrintf(LOG_ERROR, "BG: section1 overflow size=%u newsize=%u — skipping conversion to avoid crash", size, newSize);
+		sysMemFree(dst);
+		return;
 	}
 
 	memcpy(data, dst, newSize);

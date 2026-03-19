@@ -1522,7 +1522,14 @@ void bgReset(s32 stagenum)
 	scratch += 0xc;
 	bgInflate((u8 *) scratch, g_BgPrimaryData, primcompsize);
 
-	preprocessBgSection1(g_BgPrimaryData, inflatedsize, 0x0f000000);
+	/* On 64-bit platforms, pointer expansion during preprocessing can make
+	 * the converted data larger than the inflated size. The buffer has
+	 * scratch headroom (0x8010) that we can use for the expansion.
+	 * Pass the full allocation size, not just inflatedsize. */
+	{
+		u32 bgBufSize = ALIGN16(inflatedsize + 0x8010);
+		preprocessBgSection1(g_BgPrimaryData, bgBufSize, 0x0f000000);
+	}
 
 	// Shrink the allocation (ie. free the scratch space)
 	mempRealloc(g_BgPrimaryData, inflatedsize, MEMPOOL_STAGE);
