@@ -316,6 +316,9 @@ set(SRC_LIB
 )
 list(PREPEND SRC_LIB "${CMAKE_SOURCE_DIR}")
 
+# Exclude server_main.c from client sources (it has its own main/globals)
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_main\\.c$")
+
 set(SRC
   ${SRC_GAME}
   ${SRC_PORT}

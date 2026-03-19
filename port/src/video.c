@@ -12,6 +12,9 @@
 
 extern s32 g_NetDedicated;
 
+/* Forward declaration — defined below, called from videoEndFrame */
+void videoSetWindowTitle(const char *title);
+
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
