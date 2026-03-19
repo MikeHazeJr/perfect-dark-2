@@ -356,18 +356,58 @@ if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-# Dedicated server target — same sources but with server_main.c instead of main.c.
-# Uses a console window (not WIN32_EXECUTABLE) for operator visibility.
+# Dedicated server target — MINIMAL source list, decoupled from game rendering.
+# Only includes: networking, system, filesystem, server GUI, and stubs.
 
-set(SRC_SERVER ${SRC})
-list(FILTER SRC_SERVER EXCLUDE REGEX ".*/port/src/main\\.c$")
-list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/port/src/server_main.c")
+file(GLOB SRC_SERVER_NET "${CMAKE_SOURCE_DIR}/port/src/net/*.c")
+file(GLOB SRC_SERVER_MINIUPNPC "${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src/*.c")
+
+set(SRC_SERVER
+  # Server entry point and stubs
+  ${CMAKE_SOURCE_DIR}/port/src/server_main.c
+  ${CMAKE_SOURCE_DIR}/port/src/server_stubs.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
+
+  # Core networking (ENet, messages, lobby, UPnP)
+  ${SRC_SERVER_NET}
+  ${SRC_SERVER_MINIUPNPC}
+
+  # System infrastructure
+  ${CMAKE_SOURCE_DIR}/port/src/system.c
+  ${CMAKE_SOURCE_DIR}/port/src/console.c
+  ${CMAKE_SOURCE_DIR}/port/src/config.c
+  ${CMAKE_SOURCE_DIR}/port/src/fs.c
+  ${CMAKE_SOURCE_DIR}/port/src/romdata.c
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr.c
+  ${CMAKE_SOURCE_DIR}/port/src/utils.c
+  ${CMAKE_SOURCE_DIR}/port/src/crash.c
+  ${CMAKE_SOURCE_DIR}/port/src/libultra.c
+  ${CMAKE_SOURCE_DIR}/port/src/pdsched.c
+  ${CMAKE_SOURCE_DIR}/port/src/mpsetups.c
+
+  # Server GUI (ImGui, SDL2, OpenGL — self-contained)
+  ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c
+
+  # ENet (external library)
+  ${CMAKE_SOURCE_DIR}/port/external/enet.c
+)
+
+# ImGui sources for server GUI
+file(GLOB SRC_SERVER_IMGUI "${CMAKE_SOURCE_DIR}/port/fast3d/imgui/*.cpp")
+list(APPEND SRC_SERVER ${SRC_SERVER_IMGUI})
+
+if(WIN32)
+  list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
+endif()
 
 set(SERVER_BIN_NAME "pd-server.${TARGET_ARCH}")
 add_executable(pd-server ${SRC_SERVER})
 add_dependencies(pd-server pd_headers)
 target_link_libraries(pd-server ${LIBS})
 set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
+# Server defines — used by shared headers
+target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
 
 # Additional commands for specific platforms.
 
