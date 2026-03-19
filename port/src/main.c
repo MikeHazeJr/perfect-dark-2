@@ -129,6 +129,14 @@ int main(int argc, const char **argv)
 	pdguiInit(videoGetWindowHandle());
 	inputInit();
 	audioInit();
+
+	/* Dedicated server: mute music. Keep UI/menu sound effects
+	 * for the operator navigating the server interface. */
+	if (g_NetDedicated) {
+		extern void optionsSetMusicVolume(s32 vol);
+		optionsSetMusicVolume(0);
+	}
+
 	romdataInit();
 	netInit();
 
@@ -178,6 +186,13 @@ int main(int argc, const char **argv)
 		if (g_FileAutoSelect < 0) {
 			// default to profile 0 if going into a net game
 			g_FileAutoSelect = 0;
+		}
+		if (g_NetDedicated) {
+			/* Dedicated server: load game defaults immediately so we don't
+			 * need an agent file. The server doesn't play — it just hosts. */
+			extern struct gamefile g_GameFile;
+			extern void gamefileLoadDefaults(struct gamefile *file);
+			gamefileLoadDefaults(&g_GameFile);
 		}
 		// skip the intro if going into a net game
 		g_StageNum = STAGE_CITRAINING;

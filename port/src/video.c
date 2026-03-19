@@ -145,12 +145,17 @@ void videoEndFrame(void)
 	vidLastRenderTime = endTime - startTime;
 
 	if (endTime >= fpsTime) {
-		char tmp[128];
 		vidAvgFPS = fpsNumFrames ? ((f64)fpsNumFrames / accumDelta) : 0.f;
 		fpsNumFrames = 0;
 		accumDelta = 0.0;
-		snprintf(tmp, sizeof(tmp), "fps %4.1f frt %lf frm %u", vidAvgFPS, vidLastRenderTime, frames);
-		wmAPI->set_window_title(tmp);
+		/* Don't overwrite our custom window title with FPS info.
+		 * The dedicated server and lobby code manage the title via
+		 * videoSetWindowTitle(). Only set FPS title in dev mode. */
+		if (!g_NetDedicated) {
+			char tmp[128];
+			snprintf(tmp, sizeof(tmp), "fps %4.1f frt %lf frm %u", vidAvgFPS, vidLastRenderTime, frames);
+			wmAPI->set_window_title(tmp);
+		}
 		fpsTime = endTime + vidDisplayFPSInterval;
 	}
 }
