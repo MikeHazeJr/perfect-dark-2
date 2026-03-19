@@ -134,9 +134,11 @@ s32 pdguiHotswapRegister(struct menudialogdef *dialogdef,
                           PdguiMenuRenderFn renderFn,
                           const char *name)
 {
-    if (!dialogdef || !renderFn) {
+    if (!dialogdef) {
         return -1;
     }
+    /* renderFn may be NULL — this means "force PD native rendering"
+     * for this dialog, bypassing any type-based fallback. */
 
     /* Check for duplicate */
     HotswapEntry *existing = findEntry(dialogdef);
@@ -189,6 +191,15 @@ s32 pdguiHotswapCheck(struct menudialogdef *dialogdef,
     }
 
     HotswapEntry *entry = findEntry(dialogdef);
+
+    /* If a dialog is registered with a NULL renderFn, it means
+     * "force PD native rendering" — skip type fallback entirely.
+     * This is used for dialogs that need special PD handlers (e.g.,
+     * keyboard input, custom rendering) that our generic ImGui
+     * type renderers can't handle. */
+    if (entry && !entry->renderFn) {
+        return 0;
+    }
 
     /* If no definition-specific match, try type-based fallback.
      * menudialogdef is an incomplete type here (can't include types.h),

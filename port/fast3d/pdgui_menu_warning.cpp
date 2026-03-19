@@ -362,6 +362,18 @@ static s32 renderSuccessDialog(struct menudialog *dialog,
 
 extern "C" {
 
+/* Dialogs that must use PD native rendering despite their type.
+ * These use special handlers (keyboard input, custom rendering)
+ * that our generic ImGui type renderers can't handle. Registered
+ * with NULL renderFn so pdguiHotswapCheck forces PD native. */
+extern struct menudialogdef g_NetJoinAddressDialog;
+extern struct menudialogdef g_FilemgrRenameMenuDialog;
+extern struct menudialogdef g_FilemgrDuplicateNameMenuDialog;
+extern struct menudialogdef g_MpPlayerNameMenuDialog;
+extern struct menudialogdef g_MpSaveSetupNameMenuDialog;
+extern struct menudialogdef g_MpEndscreenConfirmNameMenuDialog;
+extern struct menudialogdef g_MpChangeTeamNameMenuDialog;
+
 void pdguiMenuWarningRegister(void)
 {
     if (s_Registered) return;
@@ -373,6 +385,16 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegisterType(MENUDIALOGTYPE_SUCCESS,
                               renderSuccessDialog,
                               "Success Dialog");
+
+    /* Force PD native for dialogs with keyboard/text input handlers.
+     * NULL renderFn = "always use PD native, skip type fallback". */
+    pdguiHotswapRegister(&g_NetJoinAddressDialog, NULL, "Join Address (native)");
+    pdguiHotswapRegister(&g_FilemgrRenameMenuDialog, NULL, "Rename File (native)");
+    pdguiHotswapRegister(&g_FilemgrDuplicateNameMenuDialog, NULL, "Duplicate Name (native)");
+    pdguiHotswapRegister(&g_MpPlayerNameMenuDialog, NULL, "Player Name (native)");
+    pdguiHotswapRegister(&g_MpSaveSetupNameMenuDialog, NULL, "Save Setup Name (native)");
+    pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, NULL, "Confirm Name (native)");
+    pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
 
     s_Registered = true;
     sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DANGER + SUCCESS type fallbacks");
