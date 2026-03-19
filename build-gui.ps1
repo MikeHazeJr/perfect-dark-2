@@ -118,22 +118,32 @@ function New-BuildButton($text, $x, $w, $color) {
     return $btn
 }
 
-# Main actions
-$btnBuild      = New-BuildButton "Build"          8    80 ([System.Drawing.Color]::FromArgb(220,180,60))
-$btnRunGame    = New-BuildButton "Client"        96    80 ([System.Drawing.Color]::FromArgb(50,220,120))
-$btnRunServer  = New-BuildButton "Server"       184    80 ([System.Drawing.Color]::FromArgb(255,180,50))
+# Build actions
+$btnBuildClient = New-BuildButton "Build Client"   8  100 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnBuildServer = New-BuildButton "Build Server" 116  100 ([System.Drawing.Color]::FromArgb(255,180,50))
 
-# Separator
+# Separator 1
+$btnSep0 = New-Object System.Windows.Forms.Label
+$btnSep0.Text = ""; $btnSep0.Location = New-Object System.Drawing.Point(224, 6)
+$btnSep0.Size = New-Object System.Drawing.Size(2, 34)
+$btnSep0.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
+$buttonPanel.Controls.Add($btnSep0)
+
+# Run actions
+$btnRunGame    = New-BuildButton "Run Client"   234   90 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnRunServer  = New-BuildButton "Run Server"   332   90 ([System.Drawing.Color]::FromArgb(255,180,50))
+
+# Separator 2
 $btnSep1 = New-Object System.Windows.Forms.Label
-$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(276, 6)
+$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(430, 6)
 $btnSep1.Size = New-Object System.Drawing.Size(2, 34)
 $btnSep1.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep1)
 
 # Utility buttons
-$btnCopyErrors = New-BuildButton "Copy Errors" 290 100 ([System.Drawing.Color]::FromArgb(255,120,80))
-$btnCopyAll    = New-BuildButton "Copy All"    398 100 ([System.Drawing.Color]::FromArgb(160,160,160))
-$btnClear      = New-BuildButton "Clear"       506  80 ([System.Drawing.Color]::FromArgb(120,120,120))
+$btnCopyErrors = New-BuildButton "Copy Errors" 440 100 ([System.Drawing.Color]::FromArgb(255,120,80))
+$btnCopyAll    = New-BuildButton "Copy All"    548  80 ([System.Drawing.Color]::FromArgb(160,160,160))
+$btnClear      = New-BuildButton "Clear"       636  60 ([System.Drawing.Color]::FromArgb(120,120,120))
 
 # --- Output area ---
 $outputBox = New-Object System.Windows.Forms.RichTextBox
@@ -210,7 +220,8 @@ function Write-Header($text) {
 
 function Set-Buttons-Enabled($enabled) {
     $script:IsRunning = !$enabled
-    $btnBuild.Enabled = $enabled
+    $btnBuildClient.Enabled = $enabled
+    $btnBuildServer.Enabled = $enabled
     Update-RunButtons
 }
 
@@ -412,13 +423,22 @@ function Get-ConfigureStep {
     }
 }
 
-function Get-BuildStep {
+function Get-BuildStep($target) {
     $cores = $env:NUMBER_OF_PROCESSORS
     if (!$cores) { $cores = 4 }
+    $targetArg = ""
+    $label = "Build All"
+    if ($target -eq "client") {
+        $targetArg = "--target pd"
+        $label = "Build Client"
+    } elseif ($target -eq "server") {
+        $targetArg = "--target pd-server"
+        $label = "Build Server"
+    }
     return @{
-        Name = "Build (Compile)"
+        Name = "$label (Compile)"
         Exe  = $script:CMake
-        Args = "--build `"$($script:BuildDir)`" -- -j$cores -k"
+        Args = "--build `"$($script:BuildDir)`" $targetArg -- -j$cores -k"
     }
 }
 
@@ -547,47 +567,40 @@ function Update-GameStatus {
     }
 }
 
-# --- Button handlers ---
-$btnBuild.Add_Click({
+# --- Build helper (shared by both build buttons) ---
+function Start-Build($target) {
     if ($script:IsRunning) { return }
 
-    # Clear console for a clean slate
     $outputBox.Clear()
     $script:ErrorLines.Clear()
     $script:AllOutput.Clear()
     $errorCountLabel.Text = ""
     $script:BuildSucceeded = $false
 
-    # Reset progress bar to blue
     $progressFill.Size = New-Object System.Drawing.Size(0, 22)
     $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
     $progressLabel.Text = ""
 
-    # Always clean before building
-    Write-Header "Clean"
-    if (Test-Path $script:BuildDir) {
-        try {
-            Remove-Item -Recurse -Force $script:BuildDir
-            Write-Output-Line "Build directory removed." ([System.Drawing.Color]::FromArgb(100,200,100))
-        } catch {
-            Write-Output-Line "Failed to remove build dir: $_" ([System.Drawing.Color]::FromArgb(255,100,100))
-        }
-    } else {
-        Write-Output-Line "Already clean." ([System.Drawing.Color]::FromArgb(180,180,180))
+    # Clean only if build dir doesn't exist (incremental builds are faster)
+    if (-not (Test-Path $script:BuildDir)) {
+        Write-Header "Clean Build"
     }
 
     Set-Buttons-Enabled $false
 
-    # Pipeline: Configure -> Build -> Copy Files
+    # Pipeline: Configure -> Build target -> Copy Files
     $script:StepQueue.Clear()
-    $script:StepQueue.Enqueue((Get-BuildStep))
+    $script:StepQueue.Enqueue((Get-BuildStep $target))
 
     $step = Get-ConfigureStep
     Start-Build-Step $step.Name $step.Exe $step.Args
-})
+}
+
+# --- Button handlers ---
+$btnBuildClient.Add_Click({ Start-Build "client" })
+$btnBuildServer.Add_Click({ Start-Build "server" })
 
 $btnRunGame.Add_Click({ Launch-Game "client" })
-
 $btnRunServer.Add_Click({ Launch-Game "server" })
 
 $btnCopyErrors.Add_Click({
