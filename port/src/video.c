@@ -9,6 +9,8 @@
 #include "system.h"
 #include "video.h"
 
+extern s32 g_NetDedicated;
+
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
@@ -80,7 +82,7 @@ s32 videoInit(void)
 		.wapi = wmAPI,
 		.rapi = renderingAPI,
 		.window_settings = {
-			.title = "Perfect Dark",
+			.title = g_NetDedicated ? "Perfect Dark 2 - Dedicated Server" : "Perfect Dark",
 			.width = vidWidth,
 			.height = vidHeight,
 			.x = 100,

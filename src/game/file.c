@@ -256,7 +256,16 @@ void *fileLoadToAddr(s32 filenum, s32 method, u8 *ptr, u32 size)
 
 	if (method == FILELOADMETHOD_EXTRAMEM || method == FILELOADMETHOD_DEFAULT) {
 		info->allocsize = size;
+		info->loadedsize = 0;
 		fileLoad(ptr, size, (uintptr_t*)&g_FileTable[filenum], info);
+
+		/* If fileLoad failed (e.g., file not in ROM data), loadedsize stays 0.
+		 * Return NULL so callers know the load failed instead of getting back
+		 * a pointer to garbage memory. */
+		if (info->loadedsize == 0 && size > 0) {
+			sysLogPrintf(LOG_WARNING, "fileLoadToAddr: file %d failed to load (size=%u), returning NULL", filenum, size);
+			return NULL;
+		}
 	} else {
 		while (1);
 	}

@@ -61,6 +61,9 @@ u8 netLobbyGetClientBody(s32 idx);
 u8 netLobbyGetClientTeam(s32 idx);
 s32 netLobbyIsLocalClient(s32 idx);
 
+/* Dedicated server flag */
+extern s32 g_NetDedicated;
+
 /* Video info */
 s32 viGetWidth(void);
 s32 viGetHeight(void);
@@ -72,6 +75,46 @@ s32 viGetHeight(void);
  * ======================================================================== */
 
 extern "C" {
+
+/**
+ * Render the dedicated server info overlay (top-left).
+ * Shows server status, IP, port, and connected player count.
+ */
+static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
+{
+    float scale = (float)winH / 480.0f;
+    float overlayW = 240.0f * scale;
+    float overlayH = 80.0f * scale;
+
+    ImGui::SetNextWindowPos(ImVec2(10.0f * scale, 10.0f * scale));
+    ImGui::SetNextWindowSize(ImVec2(overlayW, overlayH));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
+                           | ImGuiWindowFlags_NoMove
+                           | ImGuiWindowFlags_NoCollapse
+                           | ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoFocusOnAppearing
+                           | ImGuiWindowFlags_NoNav
+                           | ImGuiWindowFlags_NoTitleBar;
+
+    if (ImGui::Begin("##dedicated_server_info", nullptr, flags)) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "DEDICATED SERVER");
+        ImGui::Separator();
+
+        u32 port = netGetServerPort();
+        const char *publicIP = netGetPublicIP();
+
+        if (publicIP && publicIP[0]) {
+            ImGui::Text("IP: %s:%u", publicIP, port);
+        } else {
+            ImGui::Text("Port: %u", port);
+        }
+
+        ImGui::Text("Players: %d / %d", clientCount, netGetMaxClients());
+    }
+    ImGui::End();
+}
 
 /**
  * Render the lobby player list sidebar.
@@ -86,8 +129,13 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     }
 
     s32 clientCount = netLobbyGetClientCount();
-    if (clientCount <= 0) {
+    if (clientCount <= 0 && !g_NetDedicated) {
         return;
+    }
+
+    /* Dedicated server: show server info overlay in top-left */
+    if (g_NetDedicated && mode == NETMODE_SERVER) {
+        renderDedicatedServerOverlay(winW, winH, clientCount);
     }
 
     /* ---- Layout: small sidebar on the right ---- */
