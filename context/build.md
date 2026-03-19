@@ -20,8 +20,20 @@ Located in project root. Commands: `clean`, `configure`, `build`, `copy`, `all` 
 - `copy`: Copies post-batch-addin files (DLLs, data, mods) into build directory
 - `all`: Full pipeline — configure + build + copy
 
-### Build Tool GUI
-Custom GUI application for building. User uses this primarily. Details in the tool itself.
+### Build Tool GUI (build-gui.ps1 + "Build Tool.bat")
+PowerShell WinForms application. User's primary build method.
+
+**Launch**: Double-click `Build Tool.bat` in project root → runs `powershell -ExecutionPolicy Bypass -File build-gui.ps1`
+
+**Features** (updated 2026-03-18):
+- Configure + Build buttons with async C# line reader for non-blocking output
+- **Progress bar**: Blue (`0, 96, 191`) during compile → Green (`0, 191, 96`) on success → Red (`191, 0, 0`) on failure
+- **-k (keep-going) flag**: Build uses `--build ... -- -j$cores -k` so all errors are reported, not just the first
+- **Run Game / Run+Log**: Only enabled after successful build (or if existing exe found in build/)
+- **Game process monitoring**: 2-second timer polls process state, shows "Game Running"/"Game Stopped"
+- **Run with logging**: Launches with `> game_output.log 2>&1`, button to open log after game exits
+
+**Key state vars**: `$script:BuildSucceeded`, `$script:GameProcess`, `$script:GameRunning`
 
 ### Manual CMake
 ```
@@ -78,9 +90,15 @@ perfect_dark-mike/
 
 ## Known Issues
 - SDL2 and zlib still distributed as DLLs (TODO-1: investigate static linking)
-- Build Tool GUI details not fully documented here
 
 ## Session Fixes (Build-Related)
 - **FIX-1**: Added `-static-libgcc` to prevent DLL dependency
 - **FIX-5**: Static linked libwinpthread
 - **FIX-4**: Default mod directories compiled into exe (no BAT file needed)
+- **FIX-13**: Added `#include "system.h"` to game_1531a0.c, mplayer/ingame.c, lib/mempc.c (sysLogPrintf/LOG_NOTE/LOG_WARNING)
+- **Build -k flag**: Added keep-going flag to build command for full error reporting
+- **Build GUI update**: Progress bar colors, gated run buttons, process monitoring (2026-03-18)
+
+## .gitignore Additions (2026-03-18)
+- `build_errors.log`
+- `build/game_output.log`

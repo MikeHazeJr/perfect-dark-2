@@ -11,6 +11,7 @@
 #include "utils.h"
 #include "system.h"
 #include "fs.h"
+#include "pdgui.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 14)
 // this was added in 2.0.14
@@ -788,6 +789,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
 	npad->button = 0;
 
+	/* When any ImGui overlay is active (F11 storyboard, F12 debug), suppress
+	 * ALL game input so the player doesn't move, shoot, or navigate game
+	 * menus while the overlay has focus.  Same pattern as textInput below. */
+	if (pdguiIsActive()) {
+		npad->stick_x = 0;
+		npad->stick_y = 0;
+		npad->rstick_x = 0;
+		npad->rstick_y = 0;
+		return 0;
+	}
+
 	if (textInput) {
 		npad->stick_x = 0;
 		npad->stick_y = 0;
@@ -866,6 +878,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
 static inline void inputUpdateMouse(void)
 {
+	/* Suppress mouse input when ImGui overlay is active */
+	if (pdguiIsActive()) {
+		mouseDX = 0;
+		mouseDY = 0;
+		mouseButtons = 0;
+		mouseWheel = 0;
+		return;
+	}
+
 	s32 mx, my;
 	mouseButtons = SDL_GetMouseState(&mx, &my);
 
@@ -1164,6 +1185,12 @@ const u32 *inputKeyGetBinds(s32 idx, u32 ck)
 
 s32 inputKeyPressed(u32 vk)
 {
+	/* When any ImGui overlay is active, suppress all key/button polling
+	 * so the game doesn't act on inputs meant for the overlay. */
+	if (pdguiIsActive()) {
+		return 0;
+	}
+
 	if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
 		const u8 *state = SDL_GetKeyboardState(NULL);
 		return state[vk - VK_KEYBOARD_BEGIN];
@@ -1220,6 +1247,14 @@ s32 inputButtonPressed(s32 idx, u32 contbtn)
 void inputLockMouse(s32 lock)
 {
 	mouseLocked = !!lock;
+
+	/* When the ImGui debug overlay is active, don't actually grab the mouse.
+	 * The overlay needs absolute coordinates and a visible cursor.
+	 * The saved mouseLocked state will be restored when the overlay closes. */
+	if (pdguiIsActive()) {
+		return;
+	}
+
 	SDL_SetRelativeMouseMode(mouseLocked);
 }
 
@@ -1302,6 +1337,12 @@ s32 inputAutoLockMouse(s32 wantlock)
 void inputMouseShowCursor(s32 show)
 {
 	mouseShowCursor = !!show;
+
+	/* Don't hide the cursor while the debug overlay is active */
+	if (pdguiIsActive()) {
+		return;
+	}
+
 	SDL_ShowCursor(mouseShowCursor);
 	if (show) {
 		mouseCursorTime = sysGetMicroseconds() + CURSOR_HIDE_TIME;

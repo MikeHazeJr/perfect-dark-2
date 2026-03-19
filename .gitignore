@@ -30,6 +30,10 @@ src/generated
 # Tools
 tools/mkrom/mkrom
 
+# Build logs
+build_errors.log
+build/game_output.log
+
 # IDE / editor
 /.vs
 CppProperties.json

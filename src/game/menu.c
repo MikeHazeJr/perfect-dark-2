@@ -53,6 +53,8 @@
 #include "video.h"
 #include "input.h"
 #include "net/net.h"
+#include "pdgui_hotswap.h"
+#include "pdgui_charpreview.h"
 #define BLUR_OFS 10
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -3727,6 +3729,21 @@ u32 g_MenuCThresh = 120;
 
 Gfx *menuRenderDialog(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight)
 {
+	/* F8 hot-swap: if an ImGui replacement exists and is active, skip the
+	 * PD native render entirely.  The ImGui version draws during pdguiRender()
+	 * instead, using the same game state this dialog holds.
+	 *
+	 * However, if a character preview is requested, we still render the
+	 * menu model to the preview FBO before returning — this gives the
+	 * ImGui screen a 3D character texture to display. */
+	if (dialog && dialog->definition) {
+		if (pdguiHotswapCheck(dialog->definition, dialog, menu)) {
+			/* Render character preview model to FBO if requested */
+			gdl = pdguiCharPreviewRenderGBI(gdl, menu);
+			return gdl;  /* ImGui handled it — return unmodified display list */
+		}
+	}
+
 	mainOverrideVariable("cthresh", &g_MenuCThresh);
 
 	textSetWaveBlend(dialog->unk54, dialog->unk58, g_MenuCThresh);
@@ -4698,6 +4715,16 @@ void menuProcessInput(void)
 	s32 stickintervalbase;
 	s32 ystickintervalmult;
 	s32 allowdiagonal;
+
+	/* F8 hot-swap: if the current dialog is being rendered by ImGui,
+	 * suppress all PD menu input processing.  ImGui handles its own input. */
+	{
+		struct menudialog *curdlg = g_Menus[g_MpPlayerNum].curdialog;
+		if (curdlg && curdlg->definition &&
+			pdguiHotswapIsDialogSwapped(curdlg->definition)) {
+			return;
+		}
+	}
 
 	yhelddir = 0;
 	xhelddir = 0;

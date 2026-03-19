@@ -21,6 +21,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "system.h"
 
 struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;

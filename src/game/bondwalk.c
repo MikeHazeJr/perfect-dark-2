@@ -901,6 +901,15 @@ void bwalkUpdateVertical(void)
 		#define FIXED_JUMP_IMPULSE 8.2f
 		f32 impulse = FIXED_JUMP_IMPULSE;
 
+		/* Apply per-player jump height override from extplayerconfig.
+		 * jumpheight > 0 = direct impulse override, 0 = use match default. */
+		{
+			s32 pidx = g_Vars.currentplayerindex;
+			if (pidx >= 0 && pidx < MAX_PLAYERS && g_PlayerExtCfg[pidx].jumpheight > 0.0f) {
+				impulse = g_PlayerExtCfg[pidx].jumpheight;
+			}
+		}
+
 		/* Grounded check:
 		 * - If feet are within 3 units of ground, always grounded (handles
 		 *   ramps where bdeltapos.y follows the slope surface upward).

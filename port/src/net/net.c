@@ -510,6 +510,20 @@ void netServerStageStart(void)
 
 	g_NetLocalClient->state = CLSTATE_GAME;
 
+	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x scenario=%u clients=%d",
+	             g_StageNum, g_MpSetup.scenario, g_NetNumClients);
+
+	// Log each connected client's state for debugging
+	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+		if (g_NetClients[ci].state != CLSTATE_DISCONNECTED) {
+			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head=%u body=%u team=%u",
+			             g_NetClients[ci].id, g_NetClients[ci].settings.name,
+			             g_NetClients[ci].state, g_NetClients[ci].playernum,
+			             g_NetClients[ci].settings.headnum, g_NetClients[ci].settings.bodynum,
+			             g_NetClients[ci].settings.team);
+		}
+	}
+
 	// clear preserved players from previous rounds
 	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
 	g_NetNumPreserved = 0;
@@ -522,6 +536,8 @@ void netServerStageStart(void)
 	// Bots and props are created deterministically from the same RNG seed,
 	// but a full resync ensures all clients converge even if timing differs.
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS;
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
 }
 
 void netServerCoopStageStart(u8 stagenum, u8 difficulty)
@@ -601,13 +617,15 @@ void netServerStageEnd(void)
 		return;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: ending stage, game mode=%u", g_NetGameMode);
+	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
 	g_NetLocalClient->state = CLSTATE_LOBBY;
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageEndWrite(&g_NetMsgRel);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END sent, returning to lobby");
 }
 
 void netServerKick(struct netclient *cl, const u32 reason)

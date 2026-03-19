@@ -5,6 +5,7 @@
 #include <PR/os_message.h>
 
 #include "lib/main.h"
+#include "lib/mempc.h"
 #include "bss.h"
 #include "data.h"
 
@@ -23,7 +24,7 @@
 #include "net/net.h"
 
 u32 g_OsMemSize = 0;
-s32 g_OsMemSizeMb = 16;
+s32 g_OsMemSizeMb = 64;
 s8 g_Resetting = false;
 OSSched g_Sched;
 
@@ -89,6 +90,13 @@ static void gameInit(void)
 static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
+
+	/* Validate persistent allocations one final time before freeing.
+	 * If any corruption occurred during the session, this is our last
+	 * chance to log it for post-mortem analysis. */
+	mempPCValidate("shutdown");
+	mempPCFreeAll();
+
 	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();

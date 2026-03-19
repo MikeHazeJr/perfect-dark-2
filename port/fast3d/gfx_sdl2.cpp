@@ -12,6 +12,7 @@
 /* D3d: ImGui event integration — pdgui processes events before PD */
 extern "C" {
     signed int pdguiProcessEvent(void *sdlEvent);  /* s32 = signed int */
+    signed int pdguiIsActive(void);
 }
 
 static SDL_Window* wnd;
@@ -244,6 +245,10 @@ static void gfx_sdl_set_maximize_window(bool enable) {
 }
 
 static void gfx_sdl_set_cursor_visibility(bool visible) {
+    /* Don't hide cursor while debug overlay is active */
+    if (!visible && pdguiIsActive()) {
+        return;
+    }
     if (visible) {
         SDL_ShowCursor(SDL_ENABLE);
     } else {

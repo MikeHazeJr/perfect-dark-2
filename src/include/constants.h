@@ -1615,6 +1615,11 @@
 #define MEMPOOL_7         7
 #define MEMPOOL_8         8
 
+/* PC-only persistent pool: backed by malloc, never recycled with stages.
+ * Use for fonts, palettes, and other read-only data that should survive
+ * stage transitions.  Falls back to MEMPOOL_STAGE on N64 builds. */
+#define MEMPOOL_PC_PERSISTENT  0xFE
+
 #define MENUBANNER_SEARCHINGFORCAMERA 0
 #define MENUBANNER_CALIBRATINGCAMERA  1
 #define MENUBANNER_DOWNLOADINGIMAGE   2

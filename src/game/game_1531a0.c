@@ -11,9 +11,11 @@
 #include "lib/dma.h"
 #include "lib/main.h"
 #include "lib/memp.h"
+#include "lib/mempc.h"
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "system.h"
 
 #define SPACE_WIDTH 5
 
@@ -109,6 +111,28 @@ struct fontchar *g_CharsHandelGothicLg = NULL;
 static u32 s_FontSmChecksum = 0;
 static u32 s_FontSmLen = 0;
 static void *s_FontSmBase = NULL;
+
+/**
+ * Persistent font cache: fonts loaded via mempPCAlloc survive stage transitions.
+ *
+ * Keyed by ROM start address (unique per font segment). On the first call to
+ * textLoadFont for a given ROM address, we allocate persistent memory, DMA the
+ * data, and perform all pointer fixups. On subsequent calls (stage transitions),
+ * we simply restore the cached pointers — no re-allocation, no re-DMA, no leak.
+ *
+ * This eliminates the class of bugs where MEMPOOL_STAGE resets corrupt or
+ * invalidate font memory mid-gameplay.
+ */
+#define FONT_CACHE_MAX 12 /* more than enough for all font segments */
+
+struct fontcache {
+	u8             *romstart;  /* ROM segment address — cache key */
+	struct font    *font;      /* persistent font struct pointer */
+	struct fontchar *chars;    /* persistent chars pointer (inside font data) */
+};
+
+static struct fontcache s_FontPCCache[FONT_CACHE_MAX];
+static s32 s_FontPCCacheCount = 0;
 
 static u32 fontMemChecksum(const void *data, u32 len)
 {
@@ -213,6 +237,32 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 	struct font *font;
 	struct fontchar *chars;
 
+	/*
+	 * Persistent font cache lookup: if this ROM segment was already loaded
+	 * into persistent memory (mempPCAlloc), just restore the cached pointers.
+	 * This is the fast path on every stage transition after the first load.
+	 *
+	 * The font data, pointer fixups, monospace adjustments, and baseline
+	 * tweaks were all applied on the original load and remain valid in
+	 * persistent memory — no work needs to be repeated.
+	 */
+	for (i = 0; i < s_FontPCCacheCount; i++) {
+		if (s_FontPCCache[i].romstart == romstart) {
+			*fontptr = s_FontPCCache[i].font;
+			*charsptr = s_FontPCCache[i].chars;
+
+			sysLogPrintf(LOG_NOTE, "MEMPC: font cache hit for rom=%p -> %p (stage reload skipped)",
+				(void *)romstart, (void *)s_FontPCCache[i].font);
+			return;
+		}
+	}
+
+	/*
+	 * First-time load: allocate from persistent PC memory so this font
+	 * survives stage transitions. All subsequent calls for the same ROM
+	 * segment will hit the cache above.
+	 */
+
 #if VERSION >= VERSION_PAL_BETA
 	s32 numchars = 94;
 
@@ -230,7 +280,43 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 #endif
 
 	len = (romptr_t)romend - (romptr_t)romstart;
-	font = mempAlloc(len, MEMPOOL_STAGE);
+
+	/* Build a human-readable tag for debug tracking.
+	 * Compare ROM addresses to identify which font this is. */
+	const char *tag = "FontUnknown";
+	if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart) {
+		tag = "FontHandelGothicSm";
+	} else if (romstart == REF_SEG _fonthandelgothicxsSegmentRomStart) {
+		tag = "FontHandelGothicXs";
+	} else if (romstart == REF_SEG _fonthandelgothicmdSegmentRomStart) {
+		tag = "FontHandelGothicMd";
+	} else {
+		/* Could be Lg, Numeric, Tahoma — use a generic tag.
+		 * These are less common; the tag still aids debugging. */
+		extern u8 EXT_SEG _fonthandelgothiclgSegmentRomStart;
+		extern u8 EXT_SEG _fontnumericSegmentRomStart;
+		extern u8 EXT_SEG _fonttahomaSegmentRomStart;
+		if (romstart == REF_SEG _fonthandelgothiclgSegmentRomStart) {
+			tag = "FontHandelGothicLg";
+		} else if (romstart == REF_SEG _fontnumericSegmentRomStart) {
+			tag = "FontNumeric";
+		} else if (romstart == REF_SEG _fonttahomaSegmentRomStart) {
+			tag = "FontTahoma";
+		}
+	}
+
+	bool persistent = false;
+	font = mempPCAlloc(len, tag);
+	if (font) {
+		persistent = true;
+	} else {
+		/* Fallback: if persistent alloc fails, fall back to stage pool.
+		 * This should never happen with adequate heap size, but defensive
+		 * coding means the game still runs (without cross-stage persistence). */
+		sysLogPrintf(LOG_WARNING, "MEMPC: persistent alloc failed for '%s' (%u bytes), "
+			"falling back to MEMPOOL_STAGE", tag, len);
+		font = mempAlloc(len, MEMPOOL_STAGE);
+	}
 	chars = font->chars;
 
 	dmaExec(font, (romptr_t) romstart, len);
@@ -267,6 +353,21 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 
 	*fontptr = font;
 	*charsptr = chars;
+
+	/* Cache this allocation so subsequent stage transitions skip
+	 * the alloc + DMA + fixup entirely.
+	 * Only cache if we successfully used persistent memory — a stage-pool
+	 * fallback allocation would become dangling after mempResetPool(STAGE). */
+	if (persistent && s_FontPCCacheCount < FONT_CACHE_MAX) {
+		s_FontPCCache[s_FontPCCacheCount].romstart = romstart;
+		s_FontPCCache[s_FontPCCacheCount].font = font;
+		s_FontPCCache[s_FontPCCacheCount].chars = chars;
+		s_FontPCCacheCount++;
+	} else if (!persistent) {
+		sysLogPrintf(LOG_WARNING, "MEMPC: '%s' on stage pool -- not cached (will reload each stage)", tag);
+	} else {
+		sysLogPrintf(LOG_WARNING, "MEMPC: font cache full -- '%s' won't be cached", tag);
+	}
 
 	/* Capture integrity checksum for HandelGothicSm so we can detect
 	 * if anything overwrites font memory during gameplay. */

@@ -49,6 +49,9 @@ $script:ErrorLines = [System.Collections.ArrayList]::new()
 $script:AllOutput  = [System.Collections.ArrayList]::new()
 $script:IsRunning  = $false
 $script:ExeName    = "pd.x86_64.exe"
+$script:BuildSucceeded = $false        # True after a successful build
+$script:GameProcess    = $null         # Tracked game process object
+$script:GameRunning    = $false        # Actual running state (polled)
 
 # Thread-safe queue for async output from background reader threads
 $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
@@ -155,7 +158,7 @@ $form.Controls.Add($progressPanel)
 $progressFill = New-Object System.Windows.Forms.Panel
 $progressFill.Location = New-Object System.Drawing.Point(0, 0)
 $progressFill.Size = New-Object System.Drawing.Size(0, 22)
-$progressFill.BackColor = [System.Drawing.Color]::FromArgb(80, 160, 80)
+$progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)   # PD blue during compile
 $progressPanel.Controls.Add($progressFill)
 
 $progressLabel = New-Object System.Windows.Forms.Label
@@ -208,8 +211,23 @@ function Write-Header($text) {
 function Set-Buttons-Enabled($enabled) {
     $script:IsRunning = !$enabled
     $btnBuild.Enabled = $enabled
-    $btnRunGame.Enabled = $enabled
-    $btnRunGameLog.Enabled = $enabled
+    Update-RunButtons
+}
+
+function Update-RunButtons {
+    # Run buttons require: not building AND (last build succeeded OR exe already exists)
+    $exePath = Join-Path $script:BuildDir $script:ExeName
+    $canRun = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $exePath))
+    $btnRunGame.Enabled = $canRun
+    $btnRunGameLog.Enabled = $canRun
+
+    if ($canRun) {
+        $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
+        $btnRunGameLog.ForeColor = [System.Drawing.Color]::FromArgb(50, 180, 220)
+    } else {
+        $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
+        $btnRunGameLog.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
+    }
 }
 
 function Classify-Line($line) {
@@ -246,6 +264,7 @@ function Start-Build-Step($stepName, $exe, $argList) {
     $script:StepStartTime = [DateTime]::Now
     $script:BuildPercent = 0
     $progressFill.Size = New-Object System.Drawing.Size(0, 22)
+    $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)   # Blue for compile
     $progressLabel.Text = ""
     $statusLabel.Text = $stepName
     $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 180, 255)
@@ -310,9 +329,8 @@ $timer.Add_Tick({
                 $fillWidth = [math]::Floor(($pct / 100.0) * 930)
                 $progressFill.Size = New-Object System.Drawing.Size($fillWidth, 22)
                 $progressLabel.Text = "${pct}% - $($script:CurrentStep)"
-                $r = [math]::Max(80, [int](220 - ($pct * 1.4)))
-                $g = [math]::Min(200, [int](120 + ($pct * 0.8)))
-                $progressFill.BackColor = [System.Drawing.Color]::FromArgb($r, $g, 60)
+                # Stay blue (PD blue) throughout the compile
+                $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
             }
         }
 
@@ -349,19 +367,23 @@ $timer.Add_Tick({
         }
 
         if ($exitCode -ne 0) {
-            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(200, 60, 60)
+            # --- RED: build failed ---
+            $progressFill.Size = New-Object System.Drawing.Size(930, 22)
+            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
             $progressLabel.Text = "FAILED - $($script:CurrentStep)"
             Write-Output-Line "" ([System.Drawing.Color]::FromArgb(255,100,100))
             Write-Output-Line ">>> $($script:CurrentStep) FAILED (exit code $exitCode) after ${totalElapsed}s <<<" ([System.Drawing.Color]::FromArgb(255,100,100))
             $statusLabel.Text = "FAILED: $($script:CurrentStep)"
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+            $script:BuildSucceeded = $false
             $script:StepQueue.Clear()
             Set-Buttons-Enabled $true
             return
         }
 
+        # --- Step succeeded: stay blue, advance ---
         $progressFill.Size = New-Object System.Drawing.Size(930, 22)
-        $progressFill.BackColor = [System.Drawing.Color]::FromArgb(80, 200, 80)
+        $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
         $progressLabel.Text = "100% - $($script:CurrentStep) Complete"
         Write-Output-Line ">>> $($script:CurrentStep) OK (${totalElapsed}s) <<<" ([System.Drawing.Color]::FromArgb(100,200,100))
 
@@ -370,10 +392,13 @@ $timer.Add_Tick({
             $next = $script:StepQueue.Dequeue()
             Start-Build-Step $next.Name $next.Exe $next.Args
         } else {
-            # All build steps done — copy addin files
+            # --- GREEN: all steps done ---
+            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 191, 96)
+            $progressLabel.Text = "BUILD COMPLETE"
             Copy-AddinFiles
             $statusLabel.Text = "Build Complete"
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 200, 100)
+            $script:BuildSucceeded = $true
             Set-Buttons-Enabled $true
         }
     }
@@ -394,7 +419,7 @@ function Get-BuildStep {
     return @{
         Name = "Build (Compile)"
         Exe  = $script:CMake
-        Args = "--build `"$($script:BuildDir)`" -- -j$cores"
+        Args = "--build `"$($script:BuildDir)`" -- -j$cores -k"
     }
 }
 
@@ -460,10 +485,57 @@ function Launch-Game($withLogging) {
     if ($withLogging) {
         Write-Output-Line "  Logging enabled (--log)" ([System.Drawing.Color]::FromArgb(50,180,220))
     }
-    $statusLabel.Text = "Game running..."
-    $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
 
-    Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir
+    # Track the process so we can poll whether it's actually running
+    $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir -PassThru
+    Update-GameStatus
+}
+
+# --- Game process polling ---
+function Update-GameStatus {
+    $wasRunning = $script:GameRunning
+
+    # Check our tracked process first
+    if ($null -ne $script:GameProcess) {
+        try {
+            if ($script:GameProcess.HasExited) {
+                $script:GameProcess = $null
+                $script:GameRunning = $false
+            } else {
+                $script:GameRunning = $true
+            }
+        } catch {
+            # Process handle invalidated
+            $script:GameProcess = $null
+            $script:GameRunning = $false
+        }
+    } else {
+        $script:GameRunning = $false
+    }
+
+    # Fallback: also check system-wide for the exe name (catches external launches)
+    if (-not $script:GameRunning) {
+        try {
+            $procs = Get-Process -Name ($script:ExeName -replace '\.exe$','') -ErrorAction SilentlyContinue
+            $script:GameRunning = ($null -ne $procs -and $procs.Count -gt 0)
+        } catch {
+            $script:GameRunning = $false
+        }
+    }
+
+    # Update status bar
+    if ($script:GameRunning) {
+        if (-not $script:IsRunning) {
+            $statusLabel.Text = "Game running"
+            $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
+        }
+    } else {
+        if ($wasRunning -and -not $script:IsRunning) {
+            # Game just exited
+            $statusLabel.Text = "Game exited"
+            $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
+        }
+    }
 }
 
 # --- Button handlers ---
@@ -475,7 +547,11 @@ $btnBuild.Add_Click({
     $script:ErrorLines.Clear()
     $script:AllOutput.Clear()
     $errorCountLabel.Text = ""
+    $script:BuildSucceeded = $false
+
+    # Reset progress bar to blue
     $progressFill.Size = New-Object System.Drawing.Size(0, 22)
+    $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
     $progressLabel.Text = ""
 
     # Always clean before building
@@ -548,12 +624,25 @@ $btnClear.Add_Click({
     $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 200, 100)
 })
 
+# --- Game status polling timer (every 2 seconds) ---
+$gameTimer = New-Object System.Windows.Forms.Timer
+$gameTimer.Interval = 2000
+$gameTimer.Add_Tick({ Update-GameStatus })
+$gameTimer.Start()
+
+# --- Initial button state (enable Run if exe already exists from prior build) ---
+$exeCheck = Join-Path $script:BuildDir $script:ExeName
+if (Test-Path $exeCheck) { $script:BuildSucceeded = $true }
+Update-RunButtons
+
 # --- Cleanup on close ---
 $form.Add_FormClosing({
     $timer.Stop()
+    $gameTimer.Stop()
     if ($null -ne $script:Process -and !$script:Process.HasExited) {
         try { $script:Process.Kill() } catch {}
     }
+    # Don't kill the game process — let it keep running
 })
 
 # --- Launch ---

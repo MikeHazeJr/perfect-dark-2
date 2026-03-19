@@ -38,11 +38,14 @@ Merged PC port combining:
 | File | System | What It Covers |
 |------|--------|----------------|
 | [tasks.md](tasks.md) | Task Tracker | **Read first.** Current task, step-by-step progress, blocked items, testing status |
+| [imgui.md](imgui.md) | ImGui & Styling | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu, font |
 | [collision.md](collision.md) | Collision | Capsule sweep, floor/ceiling detection, legacy cdTestVolume, geometry types |
 | [movement.md](movement.md) | Movement & Jump | Jump physics, vertical movement, ground detection, airborne logic |
 | [networking.md](networking.md) | Networking | All completed phases (1-10, C1-C12), message types, resync, damage authority |
 | [build.md](build.md) | Build & Infra | CMake, MSYS2/MinGW, Build Tool GUI, static linking, mod loading |
-| [roadmap.md](roadmap.md) | Modernization | Planned: mod manager, NAT traversal, dedicated server, map editor, etc. |
+| [roadmap.md](roadmap.md) | Modernization | Full D1-D15 phases, ImGui preview system, dependencies, TODOs |
+| [rendering-trace.md](rendering-trace.md) | Rendering Pipeline | Endscreen dialog call chain, file cross-references, g_ScaleX map, GBI translation, bug leads |
+| [menu-storyboard.md](menu-storyboard.md) | Menu Storyboard ADR | D4 architecture, 113-menu inventory, component library, design tokens, implementation phases |
 
 ## Key Architectural Facts
 - **Net modes**: `g_NetMode` — NETMODE_NONE(0), SERVER(1), CLIENT(2)

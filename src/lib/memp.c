@@ -4,6 +4,7 @@
 #include "lib/boot.h"
 #include "lib/crash.h"
 #include "lib/memp.h"
+#include "lib/mempc.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
@@ -305,6 +306,11 @@ void *mempAllocFromPackedWord(u32 word)
 void mempResetPool(u8 pool)
 {
 	if (pool == MEMPOOL_STAGE) {
+		/* Validate persistent PC allocations before the stage pool is wiped.
+		 * If any persistent data (fonts, etc.) has been overwritten by a stray
+		 * stage-pool write, the canaries will catch it here and log the culprit. */
+		mempPCValidate("mempResetPool(STAGE)");
+
 		g_MempOnboardPools[MEMPOOL_STAGE].start = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
 		g_MempOnboardPools[MEMPOOL_PERMANENT].rightpos = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
 		g_MempOnboardPools[MEMPOOL_PERMANENT].end = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
