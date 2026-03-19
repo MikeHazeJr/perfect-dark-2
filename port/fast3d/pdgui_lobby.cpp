@@ -49,6 +49,7 @@ extern "C" {
 s32 netGetMode(void);
 s32 netGetNumClients(void);
 s32 netGetMaxClients(void);
+u32 netGetServerPort(void);
 
 /* Bridge functions for reading client info from C (net.c) */
 s32 netLobbyGetClientCount(void);
@@ -90,13 +91,14 @@ void pdguiLobbyRender(s32 winW, s32 winH)
 
     /* ---- Layout: small sidebar on the right ---- */
     float scale = (float)winH / 480.0f;
-    float sideW = 180.0f * scale;
-    float sideH = (40.0f * clientCount + 30.0f) * scale;
+    float sideW = 200.0f * scale;
+    float extraH = (mode == NETMODE_SERVER) ? 36.0f : 0.0f;
+    float sideH = (40.0f * clientCount + 34.0f + extraH) * scale;
     float sideX = (float)winW - sideW - 10.0f * scale;
     float sideY = 10.0f * scale;
 
     /* Clamp height */
-    if (sideH > (float)winH * 0.4f) sideH = (float)winH * 0.4f;
+    if (sideH > (float)winH * 0.5f) sideH = (float)winH * 0.5f;
 
     ImGui::SetNextWindowPos(ImVec2(sideX, sideY));
     ImGui::SetNextWindowSize(ImVec2(sideW, sideH));
@@ -118,6 +120,13 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* Header */
     const char *header = (mode == NETMODE_SERVER) ? "Lobby (Host)" : "Lobby";
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", header);
+
+    /* Show server connection info for the host */
+    if (mode == NETMODE_SERVER) {
+        u32 port = netGetServerPort();
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Port: %u", port);
+    }
+
     ImGui::Separator();
 
     /* Player entries */

@@ -98,6 +98,11 @@ s32 netGetMaxClients(void)
     return g_NetMaxClients;
 }
 
+u32 netGetServerPort(void)
+{
+    return g_NetServerPort;
+}
+
 /**
  * Get number of connected client slots (including server's local client).
  * Returns count of clients in non-disconnected states.
