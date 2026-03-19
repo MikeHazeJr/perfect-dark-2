@@ -261,11 +261,16 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
-    /* F8 hot-swap toggle — does NOT consume input or open an overlay.
+    /* F8 / RS-click hot-swap toggle — does NOT consume input or open an overlay.
      * Just flips the rendering mode for menus that have ImGui replacements. */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F8) {
         pdguiHotswapToggle();
         return 1;  /* consumed — PD never sees F8 */
+    }
+    if (ev->type == SDL_CONTROLLERBUTTONDOWN &&
+        ev->cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK) {
+        pdguiHotswapToggle();
+        return 1;
     }
 
     /* F11 storyboard toggle — check first, before F12 debug overlay */
