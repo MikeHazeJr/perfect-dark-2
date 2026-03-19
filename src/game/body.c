@@ -13,6 +13,7 @@
 #include "game/pad.h"
 #include "game/propobj.h"
 #include "bss.h"
+#include "system.h"
 #include "lib/memp.h"
 #include "lib/model.h"
 #include "lib/mema.h"
@@ -167,6 +168,13 @@ bool bodyLoad(s32 bodynum)
 
 struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeldef, struct modeldef *headmodeldef, bool sunglasses, struct model *model, bool isplayer, u8 varyheight)
 {
+	/* Bounds check bodynum against g_HeadsAndBodies[152] */
+	if (bodynum < 0 || bodynum >= ARRAYCOUNT(g_HeadsAndBodies)) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: bodynum %d out of range [0,%d), falling back to 0",
+		             bodynum, ARRAYCOUNT(g_HeadsAndBodies));
+		bodynum = 0;
+	}
+
 	f32 scale = g_HeadsAndBodies[bodynum].scale * 0.10000001f;
 	f32 animscale = g_HeadsAndBodies[bodynum].animscale;
 	struct modelnode *node = NULL;
@@ -182,6 +190,13 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		}
 
 		bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+	}
+
+	/* Safety: if model still couldn't load, bail out */
+	if (bodymodeldef == NULL || bodymodeldef->skel == NULL) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: bodymodeldef NULL or invalid skel for bodynum %d (file 0x%04x), aborting",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum);
+		return model;
 	}
 
 	modelAllocateRwData(bodymodeldef);

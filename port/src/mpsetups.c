@@ -82,7 +82,8 @@ static struct menuitem g_StatusOkMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
-static struct menudialogdef g_StatusOkDialog = {
+/* non-static so pdgui can register as forced-native */
+struct menudialogdef g_StatusOkDialog = {
 	MENUDIALOGTYPE_SUCCESS,
 	L_OPTIONS_345, // "Cool!"
 	g_StatusOkMenuItems,
@@ -180,7 +181,8 @@ static struct menuitem g_DeleteSetupItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
-static struct menudialogdef g_DeleteSetupDialog = {
+/* non-static so pdgui can register as forced-native */
+struct menudialogdef g_DeleteSetupDialog = {
 		MENUDIALOGTYPE_DANGER,
 		(uintptr_t)"Delete Setup\n",
 		g_DeleteSetupItems,

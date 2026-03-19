@@ -380,6 +380,10 @@ extern struct menudialogdef g_MpSaveSetupNameMenuDialog;
 extern struct menudialogdef g_MpEndscreenConfirmNameMenuDialog;
 extern struct menudialogdef g_MpChangeTeamNameMenuDialog;
 extern struct menudialogdef g_MpReadyMenuDialog;
+/* mpsetups dialogs (port-added, were static, now exposed for registration) */
+extern struct menudialogdef g_StatusOkDialog;
+extern struct menudialogdef g_StatusErrorDialog;
+extern struct menudialogdef g_DeleteSetupDialog;
 
 void pdguiMenuWarningRegister(void)
 {
@@ -407,6 +411,10 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, NULL, "Confirm Name (native)");
     pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
     pdguiHotswapRegister(&g_MpReadyMenuDialog, NULL, "MP Ready (native)");
+    /* mpsetups dialogs (port-added) */
+    pdguiHotswapRegister(&g_StatusOkDialog, NULL, "Setup OK (native)");
+    pdguiHotswapRegister(&g_StatusErrorDialog, NULL, "Setup Error (native)");
+    pdguiHotswapRegister(&g_DeleteSetupDialog, NULL, "Delete Setup (native)");
 
     s_Registered = true;
     sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DANGER + SUCCESS type fallbacks");

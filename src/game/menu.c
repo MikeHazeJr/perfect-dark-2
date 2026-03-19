@@ -1881,6 +1881,16 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					bodyfilenum = g_HeadsAndBodies[bodynum].filenum;
 
 					totalfilelen = fileGetInflatedSize(bodyfilenum, LOADTYPE_MODEL);
+					if (totalfilelen <= 0) {
+						/* Model file missing or empty — skip this body entirely */
+						sysLogPrintf(LOG_WARNING, "menuRenderModel: file 0x%04x has no data (bodynum=%d), skipping",
+						             bodyfilenum, bodynum);
+						menumodel->bodymodeldef = NULL;
+						menumodel->headmodeldef = NULL;
+						menumodel->curparams = menumodel->newparams;
+						menumodel->newparams = 0;
+						return gdl;
+					}
 					totalfilelen = ALIGN64(totalfilelen);
 
 					if (g_HeadsAndBodies[bodynum].unk00_01) {
@@ -1903,8 +1913,14 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->bodynum = bodynum;
 					menumodel->bodymodeldef = modeldefLoad(bodyfilenum, menumodel->allocstart, totalfilelen, &texpool);
 
-					if (menumodel->bodymodeldef == NULL) {
-						// Body model file missing or corrupt — abort model setup
+					if (menumodel->bodymodeldef == NULL || menumodel->bodymodeldef->skel == NULL) {
+						/* Body model file missing, corrupt, or failed to load.
+						 * Abort model setup to prevent null dereference in body0f02ce8c.
+						 * This catches both true NULL returns AND zeroed-memory pointers
+						 * from fileLoad() silently failing on missing ROM files. */
+						sysLogPrintf(LOG_WARNING, "menuRenderModel: bodymodeldef invalid for file 0x%04x (bodynum=%d), skipping",
+						             bodyfilenum, bodynum);
+						menumodel->bodymodeldef = NULL;
 						menumodel->headmodeldef = NULL;
 						menumodel->curparams = menumodel->newparams;
 						menumodel->newparams = 0;
