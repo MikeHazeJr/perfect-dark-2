@@ -161,6 +161,8 @@ include_directories("${CMAKE_SOURCE_DIR}/src/lib/ultra/audio")
 include_directories("${CMAKE_SOURCE_DIR}/port/include")
 include_directories("${CMAKE_BINARY_DIR}/port/include")
 include_directories("${CMAKE_SOURCE_DIR}/port/fast3d/imgui")  # Dear ImGui (D3d)
+include_directories("${CMAKE_SOURCE_DIR}/port/external/miniupnpc/include")  # UPnP (auto port forwarding)
+include_directories("${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src")      # UPnP internal headers
 
 # Set Release optimization to -Og until I fix the -O2 issues
 if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
@@ -245,7 +247,8 @@ list(APPEND LIBS "${GL_LIBRARY}")
 # Platform-specific extra libs
 if(NOT EXTRA_LIBRARIES)
   if(WIN32)
-    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp iphlpapi -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    add_definitions(-DMINIUPNP_STATICLIB)
   elseif(NINTENDO_SWITCH)
     set(EXTRA_LIBRARIES stdc++ pthread)
   else()

@@ -103,6 +103,16 @@ u32 netGetServerPort(void)
     return g_NetServerPort;
 }
 
+const char *netGetPublicIP(void)
+{
+    extern const char *netUpnpGetExternalIP(void);
+    extern s32 netUpnpIsActive(void);
+    if (netUpnpIsActive()) {
+        return netUpnpGetExternalIP();
+    }
+    return "";
+}
+
 /**
  * Get number of connected client slots (including server's local client).
  * Returns count of clients in non-disconnected states.

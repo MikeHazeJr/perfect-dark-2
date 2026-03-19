@@ -50,6 +50,7 @@ s32 netGetMode(void);
 s32 netGetNumClients(void);
 s32 netGetMaxClients(void);
 u32 netGetServerPort(void);
+const char *netGetPublicIP(void);
 
 /* Bridge functions for reading client info from C (net.c) */
 s32 netLobbyGetClientCount(void);
@@ -124,7 +125,12 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* Show server connection info for the host */
     if (mode == NETMODE_SERVER) {
         u32 port = netGetServerPort();
-        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Port: %u", port);
+        const char *publicIP = netGetPublicIP();
+        if (publicIP && publicIP[0]) {
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", publicIP, port);
+        } else {
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Port: %u", port);
+        }
     }
 
     ImGui::Separator();

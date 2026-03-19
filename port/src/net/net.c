@@ -8,6 +8,7 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
+#include "net/netupnp.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -520,6 +521,16 @@ s32 netStartServer(u16 port, s32 maxclients)
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: created server on port %u", port);
 
+	/* Attempt automatic UPnP port forwarding.
+	 * If successful, external players can connect without manual router config.
+	 * If it fails, the server still works — just needs manual port forwarding. */
+	if (netUpnpSetup(port) == 0) {
+		sysLogPrintf(LOG_NOTE, "NET: UPnP port forwarding active — connect to %s:%u",
+		             netUpnpGetExternalIP(), port);
+	} else {
+		sysLogPrintf(LOG_NOTE, "NET: UPnP unavailable — manual port forwarding required for port %u", port);
+	}
+
 	return 0;
 }
 
@@ -752,6 +763,9 @@ s32 netDisconnect(void)
 	enet_host_service(g_NetHost, NULL, 10);
 
 	enet_host_destroy(g_NetHost);
+
+	/* Clean up UPnP port mapping if we were the server */
+	netUpnpTeardown();
 
 	g_NetHost = NULL;
 	g_NetMode = NETMODE_NONE;
