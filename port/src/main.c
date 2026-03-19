@@ -115,6 +115,12 @@ int main(int argc, const char **argv)
 		crashInit();
 	}
 
+	/* Parse --dedicated early so the window title is correct in videoInit */
+	if (sysArgCheck("--dedicated")) {
+		extern s32 g_NetDedicated;
+		g_NetDedicated = 1;
+	}
+
 	conInit();
 	sysInit();
 	fsInit();
