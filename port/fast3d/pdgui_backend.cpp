@@ -13,6 +13,8 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <stdio.h>
+
+#include "glad/glad.h"
 #include <string.h>
 
 #include "imgui/imgui.h"
@@ -233,6 +235,47 @@ void pdguiRender(void)
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+/**
+ * Server-only render frame: clear screen, draw ImGui, swap buffers.
+ * Called from the dedicated server's main loop (server_main.c).
+ * The game client uses gfx_run() which handles this differently.
+ */
+void pdguiServerFrame(void)
+{
+    if (!g_PdguiInitialized || !g_PdguiWindow) {
+        return;
+    }
+
+    int winW = 0, winH = 0;
+    SDL_GetWindowSize(g_PdguiWindow, &winW, &winH);
+    if (winW <= 0 || winH <= 0) return;
+
+    /* GL clear */
+    glViewport(0, 0, winW, winH);
+    glClearColor(0.06f, 0.06f, 0.08f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    /* ImGui frame */
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+
+    /* Render lobby overlay (server info, player list, log) */
+    pdguiLobbyRender((s32)winW, (s32)winH);
+
+    /* Always call hotswap render to keep the WasActive flag in sync */
+    pdguiHotswapRenderQueued((s32)winW, (s32)winH);
+
+    /* Shimmer effects */
+    pdguiRenderAllWindowShimmers();
+
+    /* Finalize and draw */
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    SDL_GL_SwapWindow(g_PdguiWindow);
 }
 
 void pdguiShutdown(void)

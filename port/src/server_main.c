@@ -65,9 +65,9 @@ extern s32 pdguiProcessEvent(void *sdlEvent);
 extern void pdguiNewFrame(void);
 extern void pdguiRender(void);
 
-/* Video frame functions */
-extern void videoStartFrame(void);
-extern void videoEndFrame(void);
+/* Server-specific render call that clears the screen, renders ImGui, and swaps.
+ * Defined in pdgui_backend.cpp since it needs ImGui C++ API access. */
+extern void pdguiServerFrame(void);
 
 int main(int argc, char **argv)
 {
@@ -145,11 +145,8 @@ int main(int argc, char **argv)
         netStartFrame();
         netEndFrame();
 
-        /* Render the server GUI via ImGui */
-        videoStartFrame();
-        pdguiNewFrame();
-        pdguiRender();
-        videoEndFrame();
+        /* Render the server GUI — clears screen, draws ImGui, swaps buffer */
+        pdguiServerFrame();
 
         /* Cap at ~60 FPS to save CPU */
         SDL_Delay(16);

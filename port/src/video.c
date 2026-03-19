@@ -87,13 +87,13 @@ s32 videoInit(void)
 		.rapi = renderingAPI,
 		.window_settings = {
 			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - Client (v0.0.2)",
-			.width = vidWidth,
-			.height = vidHeight,
+			.width = g_NetDedicated ? 800 : vidWidth,
+			.height = g_NetDedicated ? 500 : vidHeight,
 			.x = 100,
 			.y = 100,
-			.fullscreen = vidFullscreen,
-			.fullscreen_is_exclusive = vidFullscreenExclusive,
-			.maximized = vidMaximize,
+			.fullscreen = g_NetDedicated ? false : vidFullscreen,
+			.fullscreen_is_exclusive = g_NetDedicated ? false : vidFullscreenExclusive,
+			.maximized = g_NetDedicated ? false : vidMaximize,
 			.centered = vidCenter,
 			.allow_hidpi = vidAllowHiDpi
 		}
