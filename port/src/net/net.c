@@ -549,7 +549,16 @@ void netServerStageStart(void)
 	// re-read the player config in case it changed
 	netClientReadConfig(g_NetLocalClient, 0);
 
-	g_NetLocalClient->state = CLSTATE_GAME;
+	/* Transition ALL connected clients to CLSTATE_GAME.
+	 * The server must do this before stage initialization code runs,
+	 * because the init code assumes all clients are in GAME state.
+	 * Remote clients will also transition on their end when they
+	 * receive and process SVC_STAGE_START. */
+	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+		if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+			g_NetClients[ci].state = CLSTATE_GAME;
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x scenario=%u clients=%d",
 	             g_StageNum, g_MpSetup.scenario, g_NetNumClients);

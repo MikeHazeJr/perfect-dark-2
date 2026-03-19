@@ -437,6 +437,27 @@ static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *
 	if (inputKeyPressed(VK_ESCAPE)) {
 		netDisconnect();
 		menuPopDialog();
+		return 0;
+	}
+
+	/* Auto-close the "Joining Game..." dialog once we reach the lobby.
+	 * When the client authenticates, the server sends SVC_AUTH which
+	 * transitions to CLSTATE_LOBBY. Close this dialog and open Combat
+	 * Simulator setup (mirroring what the host does). */
+	if (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_LOBBY) {
+		sysLogPrintf(LOG_NOTE, "NET: client reached lobby, closing join dialog");
+		menuPopDialog();
+		if (g_NetLocalClient->state == CLSTATE_LOBBY) {
+			menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);
+		}
+		return 0;
+	}
+
+	/* Auto-close if disconnected (connection failed / timed out) */
+	if (g_NetMode == NETMODE_NONE) {
+		sysLogPrintf(LOG_NOTE, "NET: disconnected while joining, closing dialog");
+		menuPopDialog();
+		return 0;
 	}
 
 	return 0;
