@@ -148,14 +148,9 @@ void videoEndFrame(void)
 		vidAvgFPS = fpsNumFrames ? ((f64)fpsNumFrames / accumDelta) : 0.f;
 		fpsNumFrames = 0;
 		accumDelta = 0.0;
-		/* Don't overwrite our custom window title with FPS info.
-		 * The dedicated server and lobby code manage the title via
-		 * videoSetWindowTitle(). Only set FPS title in dev mode. */
-		if (!g_NetDedicated) {
-			char tmp[128];
-			snprintf(tmp, sizeof(tmp), "fps %4.1f frt %lf frm %u", vidAvgFPS, vidLastRenderTime, frames);
-			wmAPI->set_window_title(tmp);
-		}
+		/* Window title is managed by pdguiLobbyRender via videoSetWindowTitle.
+		 * Don't overwrite with FPS info — it conflicts with our custom titles.
+		 * FPS is available in the debug overlay (F12) or log if needed. */
 		fpsTime = endTime + vidDisplayFPSInterval;
 	}
 }
