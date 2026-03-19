@@ -213,12 +213,12 @@ void pdguiRender(void)
 
     /* F8 hot-swap: render any ImGui menu replacements that were queued
      * during the GBI phase by pdguiHotswapCheck() in menuRenderDialog().
-     * Also call when hotswapWasActive so the persistent flag can clear
-     * when menus close (pdguiHotswapRenderQueued sets the flag based on
-     * current queue count). */
-    if (hotswapQueued || hotswapWasActive) {
-        pdguiHotswapRenderQueued((s32)winW, (s32)winH);
-    }
+     *
+     * ALWAYS call pdguiHotswapRenderQueued so the persistent WasActive flag
+     * stays in sync. If we skip the call (e.g., during gameplay with only
+     * the lobby sidebar active), the flag stays stale from the last menu
+     * frame and pdguiIsActive/pdguiWantsInput block all game input. */
+    pdguiHotswapRenderQueued((s32)winW, (s32)winH);
 
     /* F8 hot-swap status badge (always visible when menus have replacements) */
     pdguiHotswapRenderBadge((s32)winW, (s32)winH);

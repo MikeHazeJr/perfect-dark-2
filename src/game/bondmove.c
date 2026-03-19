@@ -1829,22 +1829,22 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 					// Handle jump input — no isfalling guard here; bwalkUpdateVertical
 					// enforces the grounded check so we just need the button to be held.
-					if (controlmode == CONTROLMODE_PC && allowc1buttons && !g_Vars.currentplayer->jumpconsumed) {
+					if (controlmode == CONTROLMODE_PC && allowc1buttons) {
+						bool jumpButtonHeld = false;
 						for (i = 0; i < numsamples; i++) {
 							if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_JUMP)) {
-								g_Vars.currentplayer->wantsjump = true;
-								sysLogPrintf(LOG_NOTE, "JUMP_INPUT: wantsjump set! contpad1=%d BUTTON_JUMP=0x%x c1allowed=0x%x",
-									contpad1, BUTTON_JUMP, c1allowedbuttons);
+								jumpButtonHeld = true;
 								break;
 							}
 						}
-					} else {
-						// Log once per second when jump input path is bypassed
-						static s32 jumpbypass_timer = 0;
-						if (++jumpbypass_timer >= 60) {
-							jumpbypass_timer = 0;
-							sysLogPrintf(LOG_NOTE, "JUMP_INPUT: bypass controlmode=%d (PC=%d) allowc1=%d",
-								controlmode, CONTROLMODE_PC, allowc1buttons);
+
+						if (jumpButtonHeld && !g_Vars.currentplayer->jumpconsumed) {
+							g_Vars.currentplayer->wantsjump = true;
+						} else if (!jumpButtonHeld) {
+							// Button released — clear consumed flag so next press works.
+							// This is critical for local (non-networked) play where
+							// bmoveProcessRemoteInput doesn't run to clear the flag.
+							g_Vars.currentplayer->jumpconsumed = false;
 						}
 					}
 

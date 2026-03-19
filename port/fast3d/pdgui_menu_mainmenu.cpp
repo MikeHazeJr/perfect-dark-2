@@ -599,32 +599,35 @@ static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
 /* Render the Settings sub-view with LB/RB bumper tab switching */
 static void renderSettingsView(float scale, float contentH)
 {
-    /* LB/RB bumper handling: check SDL controller state for tab switching.
-     * ImGui doesn't natively map bumpers to tab switching, so we poll. */
-    {
-        /* ImGui maps SDL_CONTROLLER_BUTTON_LEFTSHOULDER → ImGuiKey_GamepadL1
-         * and SDL_CONTROLLER_BUTTON_RIGHTSHOULDER → ImGuiKey_GamepadR1 */
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
-            s_SettingsSubTab--;
-            if (s_SettingsSubTab < 0) s_SettingsSubTab = 3;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
-            s_SettingsSubTab++;
-            if (s_SettingsSubTab > 3) s_SettingsSubTab = 0;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
+    /* LB/RB bumper handling: use a pending flag so SetSelected only fires
+     * for ONE frame after a bumper press, not continuously. */
+    static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
+
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        s_SettingsSubTab--;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 3;
+        s_BumperPendingTab = s_SettingsSubTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        s_SettingsSubTab++;
+        if (s_SettingsSubTab > 3) s_SettingsSubTab = 0;
+        s_BumperPendingTab = s_SettingsSubTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
     }
 
     /* Tab bar for settings categories */
     ImGuiTabBarFlags tabFlags = ImGuiTabBarFlags_None;
     if (ImGui::BeginTabBar("##settings_tabs", tabFlags)) {
 
-        /* Use SetSelected flag to sync with bumper-driven s_SettingsSubTab */
-        ImGuiTabItemFlags selFlag0 = (s_SettingsSubTab == 0) ? ImGuiTabItemFlags_SetSelected : 0;
-        ImGuiTabItemFlags selFlag1 = (s_SettingsSubTab == 1) ? ImGuiTabItemFlags_SetSelected : 0;
-        ImGuiTabItemFlags selFlag2 = (s_SettingsSubTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
-        ImGuiTabItemFlags selFlag3 = (s_SettingsSubTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
+        /* Only apply SetSelected on the frame a bumper press happens.
+         * After that frame, clear the pending flag so ImGui's own tab
+         * click handling works normally without fighting. */
+        ImGuiTabItemFlags selFlag0 = (s_BumperPendingTab == 0) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag1 = (s_BumperPendingTab == 1) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag2 = (s_BumperPendingTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
+        s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
             s_SettingsSubTab = 0;
