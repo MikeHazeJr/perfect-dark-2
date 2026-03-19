@@ -248,16 +248,56 @@ void pdguiServerFrame(void)
         return;
     }
 
-    /* Ensure GL context is current on our window.
-     * The game client does this via gfx_run(), but the server bypasses that. */
-    SDL_GLContext ctx = SDL_GL_GetCurrentContext();
-    if (ctx) {
+    /* One-time GL setup: ensure context is current and GLAD is loaded.
+     * gfx_init creates the context but the server doesn't call gfx_run
+     * which normally manages GL state each frame. */
+    static bool s_GlReady = false;
+    if (!s_GlReady) {
+        SDL_GLContext ctx = SDL_GL_GetCurrentContext();
+        if (!ctx) {
+            /* No GL context — can't render */
+            return;
+        }
         SDL_GL_MakeCurrent(g_PdguiWindow, ctx);
+        /* GLAD should already be loaded by gfx_init, but verify */
+        if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+            sysLogPrintf(LOG_ERROR, "pdguiServerFrame: GLAD failed to load");
+            return;
+        }
+        s_GlReady = true;
+        sysLogPrintf(LOG_NOTE, "pdguiServerFrame: GL context ready");
     }
 
     int winW = 0, winH = 0;
     SDL_GetWindowSize(g_PdguiWindow, &winW, &winH);
     if (winW <= 0 || winH <= 0) return;
+
+    /* Update window title (server doesn't call videoEndFrame) */
+    {
+        static u32 s_TitleCounter = 0;
+        if (++s_TitleCounter >= 60) {
+            s_TitleCounter = 0;
+            extern s32 g_NetMode;
+            extern s32 g_NetNumClients;
+            extern s32 g_NetMaxClients;
+            extern u32 g_NetServerPort;
+            extern const char *netUpnpGetExternalIP(void);
+            extern s32 netUpnpIsActive(void);
+
+            char titleBuf[256];
+            const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
+            if (ip && ip[0]) {
+                snprintf(titleBuf, sizeof(titleBuf),
+                         "PD2 Dedicated Server - %s:%u - %d/%d connected",
+                         ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+            } else {
+                snprintf(titleBuf, sizeof(titleBuf),
+                         "PD2 Dedicated Server - port %u - %d/%d connected",
+                         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+            }
+            SDL_SetWindowTitle(g_PdguiWindow, titleBuf);
+        }
+    }
 
     /* GL clear */
     glViewport(0, 0, winW, winH);
