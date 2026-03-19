@@ -1,48 +1,35 @@
 /**
  * server_stubs.c — Comprehensive stubs for ALL game dependencies.
  *
- * This file provides empty/minimal implementations of every game function
- * and global variable that the networking code (net.c, netmsg.c) references.
- * The dedicated server links ONLY against this + networking + system code.
- *
- * As we migrate the networking code to use net_interface.h callbacks,
- * stubs here will be replaced with proper callback invocations.
+ * Provides empty/minimal implementations of every game function and global
+ * that the networking code references. Uses types.h/data.h/bss.h for correct
+ * types — only the VALUES are stubbed, not the types.
  *
  * ONLY compiled into pd-server, never into the game client.
  */
 
 #include <PR/ultratypes.h>
+#include <PR/ultrasched.h>
+#include <PR/os_message.h>
 #include <PR/gbi.h>
 #include <string.h>
 #include <stdio.h>
-#include "system.h"
 
-/* We need types.h for struct definitions referenced by net.c/netmsg.c,
- * but it redefines bool. Include it since this is a C file. */
+/* Include types.h for struct definitions. Do NOT include bss.h — it only
+ * has extern declarations that we need to DEFINE here. */
 #include "types.h"
 #include "constants.h"
 #include "data.h"
+#include "system.h"
+#include "lib/main.h"
 
 /* ========================================================================
- * Global variables referenced by networking code
+ * Globals — definitions for everything bss.h declares as extern.
+ * The game normally provides these from compiled game .c files.
+ * The server stubs them with zero/default values.
  * ======================================================================== */
 
-/* Game state — net.c reads these extensively */
-struct vars g_Vars = {0};
-u32 g_StageNum = 0;
-struct mpsetup g_MpSetup = {0};
-struct missionconfig g_MissionConfig = {0};
-struct mpplayerconfig g_PlayerConfigsArray[MAX_MPPLAYERCONFIGS] = {0};
-struct extplayerconfig g_PlayerExtCfg[MAX_PLAYERS] = {0};
-s32 g_MpPlayerNum = 0;
-u32 g_RngSeed = 0;
-u32 g_Rng2Seed = 0;
-u64 g_RngSeeds[2] = {0};
-s32 g_NotLoadMod = 0;
-char g_RomName[64] = "pd-server";
-s32 g_NumReasonsToEndMpMatch = 0;
-
-/* Server main globals */
+/* Main / scheduler */
 u32 g_OsMemSize = 0;
 u8 *g_MempHeap = NULL;
 u32 g_MempHeapSize = 0;
@@ -52,6 +39,71 @@ u8  g_VmShowStats = 0;
 s32 g_TickRateDiv = 1;
 s32 g_TickExtraSleep = 1;
 s8  g_Resetting = 0;
+s32 g_OsMemSizeMb = 64;
+OSSched g_Sched;
+OSMesgQueue g_MainMesgQueue;
+OSMesg g_MainMesgBuf[32];
+s32 g_MainIsBooting = 0;
+OSMesgQueue *g_PiMesgQueue = NULL;
+
+/* Game state — types must match declarations in data.h / bss.h exactly */
+struct vars g_Vars;
+s32 g_StageNum = 0;                           /* data.h:582 */
+struct mpsetup g_MpSetup;
+struct missionconfig g_MissionConfig;
+struct mpplayerconfig g_PlayerConfigsArray[MAX_MPPLAYERCONFIGS];
+struct extplayerconfig g_PlayerExtCfg[MAX_PLAYERS];
+s32 g_MpPlayerNum = 0;
+u64 g_RngSeed = 0;                            /* data.h:583 */
+u64 g_Rng2Seed = 0;                           /* data.h:584 */
+u64 g_RngSeeds[2] = {0};
+s32 g_NotLoadMod = 0;
+char g_RomName[64] = "pd-server";
+s32 g_NumReasonsToEndMpMatch = 0;
+
+/* Bot / chr */
+u8 g_BotCount = 0;
+struct chrdata *g_MpBotChrPtrs[MAX_MPCHRS];
+struct chrdata *g_ChrSlots = NULL;             /* data.h:142 — pointer, not array */
+s32 g_NumChrSlots = 0;
+
+/* MP state */
+struct mpchrconfig *g_MpAllChrConfigPtrs[MAX_MPCHRS];
+s32 g_MpNumChrs = 0;
+
+/* Objectives (co-op) */
+struct objective g_Objectives[MAX_OBJECTIVES];
+u8 g_ObjectiveStatuses[MAX_OBJECTIVES];
+s32 g_ObjectiveLastIndex = 0;
+u32 g_StageFlags = 0;
+s32 g_AlarmTimer = 0;
+s32 g_InCutscene = 0;
+
+/* Menu / UI state */
+struct menudata g_MenuData;
+struct menu g_Menus[MAX_PLAYERS];
+s32 g_MenuKeyboardPlayer = -1;
+s32 g_SndDisabled = 1;
+
+/* Rendering state — data.h types */
+struct font *g_FontHandelGothicXs = NULL;      /* data.h:421 */
+struct fontchar *g_CharsHandelGothicXs = NULL; /* data.h:422 */
+struct modelstate g_ModelStates[NUM_MODELS];    /* data.h:341 */
+OSViMode osViModeTable[1];                     /* data.h:81 — array, provide 1 entry */
+void *g_ViBackData = NULL;
+
+/* File lists */
+struct filelist *g_FileLists[MAX_PLAYERS];      /* data.h:301 */
+struct gamefile g_GameFile;
+struct fileguid g_GameFileGuid;
+
+/* MP bodies/heads/arenas */
+struct mpbody g_MpBodies[63];
+struct mphead g_MpHeads[76];
+struct mparena g_MpArenas[1];                  /* data.h:461 — array, provide 1 entry */
+
+/* Solo stages */
+struct solostage g_SoloStages[21];
 
 void *bootAllocateStack(s32 threadid, s32 size) {
     static u8 stackbuf[0x1000];
@@ -59,61 +111,12 @@ void *bootAllocateStack(s32 threadid, s32 size) {
     return stackbuf;
 }
 
-/* Bot/chr state */
-u8 g_BotCount = 0;
-struct chrdata *g_MpBotChrPtrs[MAX_MPCHRS] = {0};
-struct chrslot g_ChrSlots[MAX_MPCHRS] = {0};
-s32 g_NumChrSlots = 0;
-
-/* MP state */
-struct mpchrconfig *g_MpAllChrConfigPtrs[MAX_MPCHRS] = {0};
-s32 g_MpNumChrs = 0;
-
-/* Objectives (co-op) */
-struct objective g_Objectives[MAX_OBJECTIVES] = {0};
-u8 g_ObjectiveStatuses[MAX_OBJECTIVES] = {0};
-s32 g_ObjectiveLastIndex = 0;
-u32 g_StageFlags = 0;
-s32 g_AlarmTimer = 0;
-s32 g_InCutscene = 0;
-
-/* Model state — netmsg.c references for prop sync */
-void *g_ModelStates = NULL;
-
-/* Menu state — referenced by various port code */
-struct menudata g_MenuData = {0};
-struct menu g_Menus[MAX_PLAYERS] = {0};
-s32 g_MenuKeyboardPlayer = -1;
-
-/* File lists */
-struct filelist *g_FileLists[4] = {0};
-
-/* Game file */
-struct gamefile g_GameFile = {0};
-struct fileguid g_GameFileGuid = {0};
-
-/* Rendering stubs */
-void *g_FontHandelGothicXs = NULL;
-void *g_CharsHandelGothicXs = NULL;
-s32 g_MainIsBooting = 0;
-void *g_PiMesgQueue = NULL;
-s32 g_SndDisabled = 1;  /* Sound disabled on server */
-void *g_ViBackData = NULL;
-void *osViModeTable = NULL;
-
-/* MP bodies/heads/arenas — referenced by modmgr which is excluded,
- * but netmenu.c or net.c may reference indirectly */
-struct mpbody g_MpBodies[63] = {0};
-struct mphead g_MpHeads[76] = {0};
-void *g_MpArenas = NULL;
-
-/* Solo stages — referenced by netmenu.c for co-op */
-struct solostage g_SoloStages[21] = {0};
-
 /* ========================================================================
- * Player / Character function stubs
+ * Function stubs — empty implementations for linker satisfaction.
+ * Grouped by subsystem.
  * ======================================================================== */
 
+/* --- Player / Character --- */
 void playerDie(s32 arg) { (void)arg; }
 void playerDieByShooter(s32 shooter, s32 arg) { (void)shooter; (void)arg; }
 void playerStartNewLife(void) {}
@@ -131,25 +134,19 @@ void chrDamage(struct prop *prop, f32 damage, struct coord *pos, s32 hitpart,
     (void)attackernum; (void)weaponnum; (void)arg6;
 }
 
-/* ========================================================================
- * Weapon / Equipment stubs
- * ======================================================================== */
-
+/* --- Weapon / Equipment --- */
 void bgunEquipWeapon(s32 weaponnum) { (void)weaponnum; }
 void bgunEquipWeapon2(s32 hand, s32 weaponnum) { (void)hand; (void)weaponnum; }
 f32 currentPlayerGetGunZoomFov(void) { return 60.0f; }
 s32 bgunIsUsingSecondaryFunction(void) { return 0; }
 s32 weaponHasFlag(s32 weaponnum, s32 flag) { (void)weaponnum; (void)flag; return 0; }
 void weaponDeleteFromChr(struct chrdata *chr, s32 hand) { (void)chr; (void)hand; }
-void *weaponCreate(void *prop, void *model, s32 weaponnum) {
+struct defaultobj *weaponCreate(struct prop *prop, struct model *model, s32 weaponnum) {
     (void)prop; (void)model; (void)weaponnum; return NULL;
 }
 void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
 
-/* ========================================================================
- * Match / Stage stubs
- * ======================================================================== */
-
+/* --- Match / Stage --- */
 void mpStartMatch(void) { sysLogPrintf(LOG_NOTE, "STUB: mpStartMatch"); }
 void mpSetPaused(s32 mode) { (void)mode; }
 void mainChangeToStage(s32 stagenum) { sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum); }
@@ -163,11 +160,8 @@ void objectivesDisableChecking(void) {}
 s32 objectiveGetDifficultyBits(s32 idx) { (void)idx; return 0x7; }
 void mpInit(void) {}
 
-/* ========================================================================
- * Prop / Object stubs
- * ======================================================================== */
-
-void *propAllocate(void) { return NULL; }
+/* --- Prop / Object --- */
+struct prop *propAllocate(void) { return NULL; }
 void propActivate(struct prop *prop) { (void)prop; }
 void propRegisterRooms(struct prop *prop) { (void)prop; }
 void propDeregisterRooms(struct prop *prop) { (void)prop; }
@@ -185,35 +179,24 @@ void objDamage(struct prop *prop, f32 damage, struct coord *pos,
 void objSetDropped(struct prop *prop, s32 arg) { (void)prop; (void)arg; }
 void doorSetMode(struct prop *prop, s32 mode) { (void)prop; (void)mode; }
 void roomsCopy(s16 *dst, s16 *src) { if (dst && src) memcpy(dst, src, 8 * sizeof(s16)); }
-void *setupLoadModeldef(s32 filenum) { (void)filenum; return NULL; }
-void *modelmgrInstantiateModelWithoutAnim(void *modeldef) { (void)modeldef; return NULL; }
+struct modeldef *setupLoadModeldef(s32 filenum) { (void)filenum; return NULL; }
+struct model *modelmgrInstantiateModelWithoutAnim(struct modeldef *def) { (void)def; return NULL; }
 void laptopDeploy(struct prop *prop) { (void)prop; }
-void *psCreate(void *arg0, void *arg1, void *arg2, void *arg3) {
-    (void)arg0; (void)arg1; (void)arg2; (void)arg3; return NULL;
+struct prop *psCreate(void *a, void *b, void *c, void *d) {
+    (void)a; (void)b; (void)c; (void)d; return NULL;
 }
-void modelSetScale(void *model, f32 scale) { (void)model; (void)scale; }
-
-/* ========================================================================
- * Math stubs
- * ======================================================================== */
-
-void mtx4LoadRotation(void *mtx, f32 angle, void *axis) { (void)mtx; (void)angle; (void)axis; }
+void modelSetScale(struct model *model, f32 scale) { (void)model; (void)scale; }
 void func0f0685e4(struct prop *prop) { (void)prop; }
 void func0f08adc8(void *arg) { (void)arg; }
+void mtx4LoadRotation(Mtxf *mtx, f32 angle, struct coord *axis) { (void)mtx; (void)angle; (void)axis; }
 
-/* ========================================================================
- * Menu stubs
- * ======================================================================== */
-
+/* --- Menu --- */
 void menuPushDialog(struct menudialogdef *d) { (void)d; }
 void menuPopDialog(void) {}
 s32 menuIsDialogOpen(struct menudialogdef *d) { (void)d; return 0; }
 void menuStop(void) {}
 
-/* ========================================================================
- * Display / Rendering stubs
- * ======================================================================== */
-
+/* --- Display / Rendering --- */
 void viBlack(s32 black) { (void)black; }
 s32 viGetWidth(void) { return 800; }
 s32 viGetHeight(void) { return 500; }
@@ -226,19 +209,14 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, const char *text,
     (void)w; (void)h; (void)arg; (void)arg2; return gdl;
 }
 void hudmsgCreate(const char *text, s32 type) { (void)text; (void)type; }
-void hudmsgCreateWithFlags(const char *text, s32 type, s32 flags) {
-    (void)text; (void)type; (void)flags;
-}
+void hudmsgCreateWithFlags(const char *text, s32 type, s32 flags) { (void)text; (void)type; (void)flags; }
 void hudmsgRenderBox(void) {}
-Gfx *menuRenderModel(Gfx *gdl, void *menumodel, s32 modeltype) {
+Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype) {
     (void)menumodel; (void)modeltype; return gdl;
 }
 void alarmStopAudio(void) {}
 
-/* ========================================================================
- * Input stubs
- * ======================================================================== */
-
+/* --- Input --- */
 s32 inputKeyPressed(s32 key) { (void)key; return 0; }
 void inputStartTextInput(void) {}
 void inputStopTextInput(void) {}
@@ -248,57 +226,17 @@ s32 inputTextHandler(char *buf, s32 maxlen, s32 *cursor, s32 multiline) {
 void inputClearLastKey(void) {}
 void inputClearLastTextChar(void) {}
 
-/* ========================================================================
- * File / ROM stubs
- * ======================================================================== */
-
-void gamefileLoadDefaults(struct gamefile *file) {
-    if (file) memset(file, 0, sizeof(struct gamefile));
-}
+/* --- File / ROM --- */
+void gamefileLoadDefaults(struct gamefile *file) { if (file) memset(file, 0, sizeof(*file)); }
 void romdataFileFreeForSolo(void) {}
 
-/* ========================================================================
- * Setup / Config stubs
- * ======================================================================== */
-
+/* --- Setup / Config --- */
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }
 u32 mpGetNumBodies(void) { return 0; }
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum) { (void)bodynum; return 0; }
 void netClientSettingsChanged(void) {}
 void modConfigLoad(const char *fname) { (void)fname; }
 
-/* ========================================================================
- * Console stubs (console.c is excluded from server)
- * ======================================================================== */
-
+/* --- Console (excluded from server build) --- */
 void conInit(void) {}
-void conPrintLn(s32 showmsg, const char *text) {
-    /* Print to stdout since we don't have the game console */
-    if (text) printf("%s\n", text);
-}
-
-/* ========================================================================
- * LibUltra stubs (libultra.c excluded — too many video/audio deps)
- * ======================================================================== */
-
-u32 osMemSize = 64 * 1024 * 1024;
-s32 osTvType = 1;  /* NTSC */
-u64 osClockRate = 62500000ULL;
-s32 osResetType = 0;
-s32 osViClock = 48681812;
-
-void osCreateMesgQueue(void *mq, void *msg, s32 count) { (void)mq; (void)msg; (void)count; }
-void osCreateScheduler(void *sc, void *thread, s32 mode, s32 pri) {
-    (void)sc; (void)thread; (void)mode; (void)pri;
-}
-u32 osGetMemSize(void) { return osMemSize; }
-u64 osGetTime(void) { return 0; }
-u32 osGetCount(void) { return 0; }
-void osRecvMesg(void *mq, void *msg, s32 flags) { (void)mq; (void)msg; (void)flags; }
-void osSendMesg(void *mq, void *msg, s32 flags) { (void)mq; (void)msg; (void)flags; }
-s32 osEepromLongRead(void *mq, u8 addr, u8 *buf, s32 len) {
-    (void)mq; (void)addr; (void)buf; (void)len; return 0;
-}
-s32 osEepromLongWrite(void *mq, u8 addr, u8 *buf, s32 len) {
-    (void)mq; (void)addr; (void)buf; (void)len; return 0;
-}
+void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
