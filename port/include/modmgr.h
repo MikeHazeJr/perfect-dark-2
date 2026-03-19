@@ -8,7 +8,7 @@
 // in types.h (#define bool s32), and stdbool.h would conflict with that.
 
 // Base game asset counts (must match array definitions in mplayer.c / setup.c)
-#define MODMGR_BASE_BODIES      63
+#define MODMGR_BASE_BODIES      61
 #define MODMGR_BASE_HEADS       76
 #define MODMGR_BASE_ARENAS      75
 

@@ -2212,8 +2212,12 @@ struct mpbody g_MpBodies[] = {
 	/*0x3a*/ { BODY_MOORE,            L_OPTIONS_070,   1000,             MPFEATURE_8BOTS            },
 	/*0x3b*/ { BODY_DALTON,           L_OPTIONS_070,   1000,             MPFEATURE_8BOTS            },
 	/*0x3c*/ { BODY_DJBOND,           L_OPTIONS_070,   1000,             MPFEATURE_8BOTS            },
-	/*0x3d*/ { BODY_SKEDAR,           L_OPTIONS_356,   1000,             0                          },
-	/*0x3e*/ { BODY_DRCAROLL,         L_OPTIONS_355,   1000,             0                          },
+	/* NOTE: Skedar (BODY_SKEDAR/0x5c) and Dr. Carroll (BODY_DRCAROLL/0x6b)
+	 * are NOT included here. Their model files (FILE_CSKEDAR/FILE_CDRCARROLL)
+	 * are not reliably loadable — the ROM data loader returns allocated but
+	 * uninitialized memory when the file is missing, causing crashes in
+	 * body0f02ce8c → modelAllocateRwData. They can be added dynamically
+	 * by the mod manager if a mod provides the model files. */
 };
 
 u32 g_MpMaleHeads[] = {

@@ -493,7 +493,7 @@ extern bool g_MpEnableMusicSwitching;
 extern struct mpweapon g_MpWeapons[NUM_MPWEAPONS];
 extern struct mphead g_MpHeads[VERSION == VERSION_JPN_FINAL ? 75 : 76];
 extern struct botprofile g_BotProfiles[18];
-extern struct mpbody g_MpBodies[63];
+extern struct mpbody g_MpBodies[61];
 extern struct mppreset g_MpPresets[];
 extern u32 g_TeamColours[];
 extern u32 var80087ce4[];

@@ -192,10 +192,25 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 	}
 
-	/* Safety: if model still couldn't load, bail out */
-	if (bodymodeldef == NULL || bodymodeldef->skel == NULL) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: bodymodeldef NULL or invalid skel for bodynum %d (file 0x%04x), aborting",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum);
+	/* Safety: if model still couldn't load or contains garbage data, bail out.
+	 * The ROM data loader can return allocated-but-uninitialized memory when a
+	 * file is missing, so a non-NULL pointer doesn't guarantee valid data.
+	 * Check multiple fields for basic sanity. */
+	if (bodymodeldef == NULL
+		|| bodymodeldef->skel == NULL
+		|| bodymodeldef->rootnode == NULL
+		|| bodymodeldef->numparts <= 0
+		|| bodymodeldef->numparts > 500
+		|| bodymodeldef->scale <= 0.0f
+		|| bodymodeldef->scale > 100.0f) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: invalid bodymodeldef for bodynum %d (file 0x%04x) "
+		             "ptr=%p skel=%p root=%p parts=%d scale=%.2f — skipping",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum,
+		             (void *)bodymodeldef,
+		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
+		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
+		             bodymodeldef ? bodymodeldef->numparts : -1,
+		             bodymodeldef ? bodymodeldef->scale : -1.0f);
 		return model;
 	}
 

@@ -1913,11 +1913,14 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->bodynum = bodynum;
 					menumodel->bodymodeldef = modeldefLoad(bodyfilenum, menumodel->allocstart, totalfilelen, &texpool);
 
-					if (menumodel->bodymodeldef == NULL || menumodel->bodymodeldef->skel == NULL) {
-						/* Body model file missing, corrupt, or failed to load.
-						 * Abort model setup to prevent null dereference in body0f02ce8c.
-						 * This catches both true NULL returns AND zeroed-memory pointers
-						 * from fileLoad() silently failing on missing ROM files. */
+					if (menumodel->bodymodeldef == NULL
+						|| menumodel->bodymodeldef->skel == NULL
+						|| menumodel->bodymodeldef->rootnode == NULL
+						|| menumodel->bodymodeldef->numparts <= 0
+						|| menumodel->bodymodeldef->numparts > 500) {
+						/* Body model file missing, corrupt, or contains garbage data.
+						 * The ROM loader can return allocated-but-uninitialized memory
+						 * when a file is missing, so non-NULL doesn't mean valid. */
 						sysLogPrintf(LOG_WARNING, "menuRenderModel: bodymodeldef invalid for file 0x%04x (bodynum=%d), skipping",
 						             bodyfilenum, bodynum);
 						menumodel->bodymodeldef = NULL;
