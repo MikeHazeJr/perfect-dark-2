@@ -248,6 +248,13 @@ void pdguiServerFrame(void)
         return;
     }
 
+    /* Ensure GL context is current on our window.
+     * The game client does this via gfx_run(), but the server bypasses that. */
+    SDL_GLContext ctx = SDL_GL_GetCurrentContext();
+    if (ctx) {
+        SDL_GL_MakeCurrent(g_PdguiWindow, ctx);
+    }
+
     int winW = 0, winH = 0;
     SDL_GetWindowSize(g_PdguiWindow, &winW, &winH);
     if (winW <= 0 || winH <= 0) return;
@@ -255,14 +262,26 @@ void pdguiServerFrame(void)
     /* GL clear */
     glViewport(0, 0, winW, winH);
     glClearColor(0.06f, 0.06f, 0.08f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     /* ImGui frame */
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
-    /* Render lobby overlay (server info, player list, log) */
+    /* Server GUI: render a simple test panel to confirm ImGui works,
+     * plus the lobby overlay (server info, player list, log) */
+    ImGui::SetNextWindowPos(ImVec2(10, 10));
+    ImGui::SetNextWindowSize(ImVec2(300, 100));
+    if (ImGui::Begin("Server Status", nullptr, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::Text("PD2 Dedicated Server");
+        ImGui::Text("Window: %dx%d", winW, winH);
+        extern s32 g_NetMode;
+        extern s32 g_NetDedicated;
+        ImGui::Text("NetMode: %d  Dedicated: %d", g_NetMode, g_NetDedicated);
+    }
+    ImGui::End();
+
     pdguiLobbyRender((s32)winW, (s32)winH);
 
     /* Always call hotswap render to keep the WasActive flag in sync */
