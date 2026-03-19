@@ -714,13 +714,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
     float buttonW = -1.0f; /* full width */
     float spacing = 6.0f * scale;
 
-    /* B button / Escape = back to top-level from sub-views */
-    if (s_MenuView != 0) {
-        bool wantsBack = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
-                      || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-        if (wantsBack) {
+    /* B button / Escape navigation:
+     * Sub-views (Play, Settings) -> back to top-level
+     * Top-level -> close menu entirely (return to CI free-roam) */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (s_MenuView != 0) {
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
+        } else {
+            /* At top-level: close the menu, return to Carrington Institute */
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuPopDialog();
         }
     }
 
