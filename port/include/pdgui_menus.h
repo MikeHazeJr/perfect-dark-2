@@ -23,6 +23,7 @@ void pdguiMenuAgentSelectRegister(void);
 void pdguiMenuMainMenuRegister(void);
 void pdguiMenuAgentCreateRegister(void);
 void pdguiMenuWarningRegister(void);
+void pdguiMenuNetworkRegister(void);
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -36,6 +37,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuMainMenuRegister();
     pdguiMenuAgentCreateRegister();
     pdguiMenuWarningRegister();
+    pdguiMenuNetworkRegister();
 }
 
 #ifdef __cplusplus

@@ -29,9 +29,10 @@
 extern MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
 extern MenuItemHandlerResult menuhandlerMpAdvancedSetup(s32 operation, struct menuitem *item, union handlerdata *data);
 
-static s32 g_NetMenuMaxPlayers = NET_MAX_CLIENTS;
-static s32 g_NetMenuPort = NET_DEFAULT_PORT;
-static char g_NetJoinAddr[NET_MAX_ADDR + 1];
+/* Non-static so ImGui network menus can access them */
+s32 g_NetMenuMaxPlayers = NET_MAX_CLIENTS;
+s32 g_NetMenuPort = NET_DEFAULT_PORT;
+char g_NetJoinAddr[NET_MAX_ADDR + 1];
 static s32 g_NetJoinAddrPtr = 0;
 
 /* host */
