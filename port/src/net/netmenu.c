@@ -443,14 +443,13 @@ static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *
 
 	/* Auto-close the "Joining Game..." dialog once we reach the lobby.
 	 * When the client authenticates, the server sends SVC_AUTH which
-	 * transitions to CLSTATE_LOBBY. Close this dialog and open Combat
-	 * Simulator setup (mirroring what the host does). */
+	 * transitions to CLSTATE_LOBBY. Pop the entire join dialog stack
+	 * (Joining → JoinMenu → NetMenu) and let the lobby overlay take over. */
 	if (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_LOBBY) {
-		sysLogPrintf(LOG_NOTE, "NET: client reached lobby, closing join dialog");
-		menuPopDialog();
-		if (g_NetLocalClient->state == CLSTATE_LOBBY) {
-			menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);
-		}
+		sysLogPrintf(LOG_NOTE, "NET: client reached lobby, closing join dialogs");
+		menuPopDialog(); /* Pop JoiningDialog */
+		menuPopDialog(); /* Pop JoinMenuDialog */
+		menuPopDialog(); /* Pop NetMenuDialog */
 		return 0;
 	}
 

@@ -197,37 +197,7 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
 void pdguiLobbyRender(s32 winW, s32 winH)
 {
     s32 mode = netGetMode();
-
-    /* Update window title at most once per second */
-    {
-        static u32 s_TitleFrameCounter = 0;
-        if (++s_TitleFrameCounter >= 60) {
-            s_TitleFrameCounter = 0;
-            char titleBuf[256];
-
-            if (g_NetDedicated && mode == NETMODE_SERVER) {
-                const char *ip = netGetPublicIP();
-                u32 port = netGetServerPort();
-                s32 count = netLobbyGetClientCount();
-                s32 max = netGetMaxClients();
-                if (ip && ip[0]) {
-                    snprintf(titleBuf, sizeof(titleBuf),
-                             "PD2 Dedicated Server - %s:%u - %d/%d connected",
-                             ip, port, count, max);
-                } else {
-                    snprintf(titleBuf, sizeof(titleBuf),
-                             "PD2 Dedicated Server - port %u - %d/%d connected",
-                             port, count, max);
-                }
-            } else if (mode != NETMODE_NONE) {
-                snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 (v0.0.2)");
-            } else {
-                snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 (v0.0.2)");
-            }
-
-            videoSetWindowTitle(titleBuf);
-        }
-    }
+    /* Window title is managed by videoEndFrame() — single authority. */
 
     if (mode == NETMODE_NONE) {
         return;  /* Not in a network session */
@@ -243,9 +213,13 @@ void pdguiLobbyRender(s32 winW, s32 winH)
         renderDedicatedServerOverlay(winW, winH, clientCount);
     }
 
-    /* Unified lobby screen — shown when local client is in lobby state.
-     * This is the main multiplayer menu, not tied to any specific PD dialog. */
-    if (netLocalClientInLobby() || (g_NetDedicated && mode == NETMODE_SERVER)) {
+    /* Unified lobby screen — shown for:
+     * - Clients waiting in lobby (not the host who's configuring)
+     * - Dedicated servers (always show the lobby view)
+     * Host players use the PD native Combat Sim menus to configure. */
+    if (g_NetDedicated && mode == NETMODE_SERVER) {
+        pdguiLobbyScreenRender(winW, winH);
+    } else if (mode == NETMODE_CLIENT && netLocalClientInLobby()) {
         pdguiLobbyScreenRender(winW, winH);
     }
 

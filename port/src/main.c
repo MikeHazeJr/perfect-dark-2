@@ -130,11 +130,13 @@ int main(int argc, const char **argv)
 	inputInit();
 	audioInit();
 
-	/* Dedicated server: mute music. Keep UI/menu sound effects
-	 * for the operator navigating the server interface. */
+	/* Dedicated server: mute ALL audio — music and sound effects.
+	 * The server has no player, no need for any audio output. */
 	if (g_NetDedicated) {
 		extern void optionsSetMusicVolume(s32 vol);
+		extern void sndSetSfxVolume(s32 vol);
 		optionsSetMusicVolume(0);
+		sndSetSfxVolume(0);
 	}
 
 	romdataInit();

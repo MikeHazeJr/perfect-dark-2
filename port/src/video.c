@@ -83,7 +83,7 @@ s32 videoInit(void)
 		.wapi = wmAPI,
 		.rapi = renderingAPI,
 		.window_settings = {
-			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 (v0.0.2)",
+			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - Client (v0.0.2)",
 			.width = vidWidth,
 			.height = vidHeight,
 			.x = 100,
@@ -148,10 +148,36 @@ void videoEndFrame(void)
 		vidAvgFPS = fpsNumFrames ? ((f64)fpsNumFrames / accumDelta) : 0.f;
 		fpsNumFrames = 0;
 		accumDelta = 0.0;
-		/* Window title is managed by pdguiLobbyRender via videoSetWindowTitle.
-		 * Don't overwrite with FPS info — it conflicts with our custom titles.
-		 * FPS is available in the debug overlay (F12) or log if needed. */
 		fpsTime = endTime + vidDisplayFPSInterval;
+
+		/* === SINGLE AUTHORITY for window title ===
+		 * Updated once per second here. No other code should call
+		 * SDL_SetWindowTitle or wmAPI->set_window_title directly. */
+		{
+			extern s32 g_NetMode;
+			extern s32 g_NetNumClients;
+			extern s32 g_NetMaxClients;
+			extern u32 g_NetServerPort;
+			extern const char *netUpnpGetExternalIP(void);
+			extern s32 netUpnpIsActive(void);
+
+			char titleBuf[256];
+			if (g_NetDedicated) {
+				const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
+				if (ip && ip[0]) {
+					snprintf(titleBuf, sizeof(titleBuf),
+					         "PD2 Dedicated Server - %s:%u - %d/%d connected",
+					         ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+				} else {
+					snprintf(titleBuf, sizeof(titleBuf),
+					         "PD2 Dedicated Server - port %u - %d/%d connected",
+					         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+				}
+			} else {
+				snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 - Client (v0.0.2)");
+			}
+			videoSetWindowTitle(titleBuf);
+		}
 	}
 }
 
