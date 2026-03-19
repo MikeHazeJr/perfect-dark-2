@@ -169,6 +169,22 @@ s32 sysLogIsOpen(void)
 	return (logPath[0] != '\0');
 }
 
+/* Ring buffer for on-screen log display (dedicated server overlay) */
+#define SYSLOG_RING_LINES 64
+#define SYSLOG_RING_LINELEN 128
+static char s_LogRing[SYSLOG_RING_LINES][SYSLOG_RING_LINELEN];
+static s32 s_LogRingHead = 0;
+static s32 s_LogRingCount = 0;
+
+s32 sysLogRingGetCount(void) { return s_LogRingCount < SYSLOG_RING_LINES ? s_LogRingCount : SYSLOG_RING_LINES; }
+const char *sysLogRingGetLine(s32 idx)
+{
+	s32 total = sysLogRingGetCount();
+	if (idx < 0 || idx >= total) return "";
+	s32 start = (s_LogRingHead - total + SYSLOG_RING_LINES) % SYSLOG_RING_LINES;
+	return s_LogRing[(start + idx) % SYSLOG_RING_LINES];
+}
+
 void sysLogPrintf(s32 level, const char *fmt, ...)
 {
 	static const char *prefix[] = {
@@ -185,6 +201,16 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	va_end(ap);
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
+
+	/* Capture to ring buffer for on-screen display */
+	{
+		char combined[SYSLOG_RING_LINELEN];
+		snprintf(combined, sizeof(combined), "%s%s", pfx, logmsg);
+		strncpy(s_LogRing[s_LogRingHead], combined, SYSLOG_RING_LINELEN - 1);
+		s_LogRing[s_LogRingHead][SYSLOG_RING_LINELEN - 1] = '\0';
+		s_LogRingHead = (s_LogRingHead + 1) % SYSLOG_RING_LINES;
+		s_LogRingCount++;
+	}
 
 	if (logPath[0]) {
 		FILE *f = fopen(logPath, "ab");

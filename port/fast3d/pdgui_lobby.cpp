@@ -64,6 +64,10 @@ s32 netLobbyIsLocalClient(s32 idx);
 /* Dedicated server flag */
 extern s32 g_NetDedicated;
 
+/* Log ring buffer for on-screen display */
+s32 sysLogRingGetCount(void);
+const char *sysLogRingGetLine(s32 idx);
+
 /* Video info */
 s32 viGetWidth(void);
 s32 viGetHeight(void);
@@ -83,12 +87,14 @@ extern "C" {
 static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
 {
     float scale = (float)winH / 480.0f;
-    float overlayW = 240.0f * scale;
-    float overlayH = 80.0f * scale;
+
+    /* ---- Server info panel (top-left) ---- */
+    float infoW = 260.0f * scale;
+    float infoH = 80.0f * scale;
 
     ImGui::SetNextWindowPos(ImVec2(10.0f * scale, 10.0f * scale));
-    ImGui::SetNextWindowSize(ImVec2(overlayW, overlayH));
-    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::SetNextWindowSize(ImVec2(infoW, infoH));
+    ImGui::SetNextWindowBgAlpha(0.85f);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
                            | ImGuiWindowFlags_NoMove
@@ -106,12 +112,50 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
         const char *publicIP = netGetPublicIP();
 
         if (publicIP && publicIP[0]) {
-            ImGui::Text("IP: %s:%u", publicIP, port);
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", publicIP, port);
         } else {
-            ImGui::Text("Port: %u", port);
+            ImGui::Text("Port: %u (UPnP inactive)", port);
         }
 
         ImGui::Text("Players: %d / %d", clientCount, netGetMaxClients());
+    }
+    ImGui::End();
+
+    /* ---- Live log window (bottom-left) ---- */
+    float logW = (float)winW * 0.5f;
+    float logH = (float)winH * 0.35f;
+    float logX = 10.0f * scale;
+    float logY = (float)winH - logH - 10.0f * scale;
+
+    ImGui::SetNextWindowPos(ImVec2(logX, logY));
+    ImGui::SetNextWindowSize(ImVec2(logW, logH));
+    ImGui::SetNextWindowBgAlpha(0.75f);
+
+    if (ImGui::Begin("##server_log", nullptr, flags)) {
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Server Log");
+        ImGui::Separator();
+
+        if (ImGui::BeginChild("##log_scroll", ImVec2(0, 0), false)) {
+            s32 lineCount = sysLogRingGetCount();
+            for (s32 i = 0; i < lineCount; i++) {
+                const char *line = sysLogRingGetLine(i);
+                /* Color-code by prefix */
+                if (strncmp(line, "ERROR:", 6) == 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", line);
+                } else if (strncmp(line, "WARNING:", 8) == 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", line);
+                } else if (strncmp(line, "CHAT:", 5) == 0) {
+                    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", line);
+                } else {
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.8f, 0.9f), "%s", line);
+                }
+            }
+            /* Auto-scroll to bottom */
+            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f) {
+                ImGui::SetScrollHereY(1.0f);
+            }
+        }
+        ImGui::EndChild();
     }
     ImGui::End();
 }
