@@ -15,6 +15,7 @@
 #include "data.h"
 #include "bss.h"
 #include "net/net.h"
+#include "net/netlobby.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -209,4 +210,45 @@ s32 netLobbyIsLocalClient(s32 idx)
         }
     }
     return 0;
+}
+
+/* ========================================================================
+ * Lobby state bridge functions
+ * ======================================================================== */
+
+s32 lobbyGetPlayerCount(void)
+{
+    lobbyUpdate();
+    return g_Lobby.numPlayers;
+}
+
+/* Fills a simplified player view struct for ImGui.
+ * The struct layout must match lobbyplayer_view in pdgui_lobby.cpp. */
+s32 lobbyGetPlayerInfo(s32 idx, void *out)
+{
+    if (idx < 0 || idx >= g_Lobby.numPlayers || !out) return 0;
+
+    struct lobbyplayer *lp = &g_Lobby.players[idx];
+    if (!lp->active) return 0;
+
+    /* Write fields matching lobbyplayer_view layout */
+    u8 *p = (u8 *)out;
+    p[0] = lp->active;
+    p[1] = lp->isLeader;
+    p[2] = lp->isReady;
+    p[3] = lp->headnum;
+    p[4] = lp->bodynum;
+    p[5] = lp->team;
+    strncpy((char *)(p + 6), lp->name, 15);
+    p[21] = '\0';
+
+    /* isLocal (s32 at offset 24, aligned) */
+    s32 isLocal = (&g_NetClients[lp->clientId] == g_NetLocalClient) ? 1 : 0;
+    memcpy(p + 24, &isLocal, sizeof(s32));
+
+    /* state (s32 at offset 28) */
+    s32 state = g_NetClients[lp->clientId].state;
+    memcpy(p + 28, &state, sizeof(s32));
+
+    return 1;
 }

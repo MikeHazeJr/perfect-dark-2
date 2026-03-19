@@ -9,6 +9,7 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netupnp.h"
+#include "net/netlobby.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -529,6 +530,8 @@ s32 netStartServer(u16 port, s32 maxclients)
 		sysLogPrintf(LOG_NOTE, "NET: UPnP unavailable — manual port forwarding required for port %u", port);
 	}
 
+	lobbyInit();
+
 	return 0;
 }
 
@@ -730,6 +733,8 @@ s32 netStartClient(const char *addr)
 	g_NetNextSyncId = 1;
 
 	sysLogPrintf(LOG_NOTE, "NET: waiting for response from %s...", addr);
+
+	lobbyInit();
 
 	return 0;
 }

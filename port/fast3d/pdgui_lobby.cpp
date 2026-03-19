@@ -68,6 +68,26 @@ extern s32 g_NetDedicated;
 s32 sysLogRingGetCount(void);
 const char *sysLogRingGetLine(s32 idx);
 
+/* Lobby state management */
+void lobbyUpdate(void);
+
+/* Lobby player data (from netlobby.h, simplified for C++) */
+struct lobbyplayer_view {
+    u8 active;
+    u8 isLeader;
+    u8 isReady;
+    u8 headnum;
+    u8 bodynum;
+    u8 team;
+    char name[16];
+    s32 isLocal;
+    s32 state; /* CLSTATE_* */
+};
+
+s32 lobbyGetPlayerCount(void);
+s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
+s32 lobbyIsLocalLeader(void);
+
 /* Video info */
 s32 viGetWidth(void);
 s32 viGetHeight(void);
@@ -227,24 +247,23 @@ void pdguiLobbyRender(s32 winW, s32 winH)
 
     ImGui::Separator();
 
-    /* Player entries */
+    /* Player entries — using lobby state system */
     ImDrawList *dl = ImGui::GetWindowDrawList();
 
-    for (s32 i = 0; i < clientCount; i++) {
-        s32 state = netLobbyGetClientState(i);
-        if (state == CLSTATE_DISCONNECTED) continue;
-
-        const char *name = netLobbyGetClientName(i);
-        u8 team = netLobbyGetClientTeam(i);
-        bool isLocal = netLobbyIsLocalClient(i) != 0;
+    s32 playerCount = lobbyGetPlayerCount();
+    for (s32 i = 0; i < playerCount; i++) {
+        struct lobbyplayer_view pv;
+        memset(&pv, 0, sizeof(pv));
+        if (!lobbyGetPlayerInfo(i, &pv)) continue;
+        if (!pv.active) continue;
 
         /* State indicator color */
         ImU32 stateColor;
         const char *stateText;
-        switch (state) {
+        switch (pv.state) {
             case CLSTATE_CONNECTING:
                 stateColor = IM_COL32(255, 200, 0, 255);
-                stateText = "...";
+                stateText = "connecting";
                 break;
             case CLSTATE_AUTH:
                 stateColor = IM_COL32(255, 200, 0, 255);
@@ -252,7 +271,7 @@ void pdguiLobbyRender(s32 winW, s32 winH)
                 break;
             case CLSTATE_LOBBY:
                 stateColor = IM_COL32(100, 255, 100, 255);
-                stateText = "ready";
+                stateText = "lobby";
                 break;
             case CLSTATE_GAME:
                 stateColor = IM_COL32(100, 200, 255, 255);
@@ -267,24 +286,34 @@ void pdguiLobbyRender(s32 winW, s32 winH)
         /* Player row */
         ImVec2 cursor = ImGui::GetCursorScreenPos();
 
-        /* Small colored dot for team/state */
+        /* Small colored dot for state */
         float dotR = 4.0f * scale;
         dl->AddCircleFilled(
             ImVec2(cursor.x + dotR + 2.0f, cursor.y + 10.0f * scale),
             dotR, stateColor, 12);
 
-        /* Name */
-        char displayName[32];
-        if (isLocal) {
-            snprintf(displayName, sizeof(displayName), "%s (you)", name);
-        } else {
-            snprintf(displayName, sizeof(displayName), "%s", name);
+        /* Name with leader/local indicators */
+        char displayName[48];
+        const char *suffix = "";
+        if (pv.isLocal && pv.isLeader) {
+            suffix = " (you, leader)";
+        } else if (pv.isLocal) {
+            suffix = " (you)";
+        } else if (pv.isLeader) {
+            suffix = " (leader)";
         }
+        snprintf(displayName, sizeof(displayName), "%s%s", pv.name, suffix);
 
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotR * 2 + 8.0f);
-        ImGui::Text("%s", displayName);
 
-        /* State text (smaller, dimmed) */
+        /* Leader name in gold, others in white */
+        if (pv.isLeader) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", displayName);
+        } else {
+            ImGui::Text("%s", displayName);
+        }
+
+        /* State text */
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), " [%s]", stateText);
     }
