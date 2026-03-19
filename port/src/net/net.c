@@ -485,9 +485,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 
 	/* If --bind was specified, bind to that specific IP instead of all interfaces */
 	if (g_NetBindAddr[0]) {
-		ENetAddress bindAddr;
-		if (enet_address_set_host(&bindAddr, g_NetBindAddr) == 0) {
-			g_NetLocalAddr.host = bindAddr.host;
+		if (enet_address_set_ip(&g_NetLocalAddr, g_NetBindAddr) == 0) {
 			sysLogPrintf(LOG_NOTE, "NET: binding to %s:%u", g_NetBindAddr, port);
 		} else {
 			sysLogPrintf(LOG_WARNING, "NET: could not resolve bind address '%s', using all interfaces", g_NetBindAddr);

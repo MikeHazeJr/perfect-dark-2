@@ -56,8 +56,10 @@ s32 netUpnpSetup(u16 port)
 
     /* Find a valid Internet Gateway Device */
     char lanAddr[64] = {0};
+    char wanAddr[64] = {0};
     int igdResult = UPNP_GetValidIGD(devlist, &s_UpnpUrls, &s_UpnpData,
-                                      lanAddr, sizeof(lanAddr));
+                                      lanAddr, sizeof(lanAddr),
+                                      wanAddr, sizeof(wanAddr));
 
     freeUPNPDevlist(devlist);
 
