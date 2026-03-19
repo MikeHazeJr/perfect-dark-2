@@ -162,6 +162,7 @@ extern u8 g_NetCoopRadar; // 0 = off, 1 = on
 
 extern s32 g_NetJoinLatch;
 extern s32 g_NetHostLatch;
+extern s32 g_NetDedicated; // --dedicated : server-only, no local player
 
 // net frame, ticks at 60 fps, starts at 0 when the server is started
 extern u32 g_NetTick;

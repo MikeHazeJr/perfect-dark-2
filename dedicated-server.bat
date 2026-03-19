@@ -15,8 +15,7 @@ echo Detecting public IP...
 for /f "tokens=*" %%i in ('powershell -Command "(Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing -TimeoutSec 5).Content" 2^>nul') do set PUBLIC_IP=%%i
 
 if "%PUBLIC_IP%"=="" (
-    echo [WARNING] Could not detect public IP. Players on LAN can still connect.
-    echo           Check your IP manually at https://whatismyip.com
+    echo [WARNING] Could not detect public IP.
 ) else (
     echo.
     echo ============================================
@@ -28,7 +27,10 @@ if "%PUBLIC_IP%"=="" (
 )
 
 echo.
-echo NAT punch-through is used for connectivity.
+echo IMPORTANT: UDP port %PORT% must be forwarded in your router!
+echo   Router settings: forward UDP port %PORT% to this PC.
+echo   If using Hamachi/VPN: use the VPN IP instead of public IP.
+echo   Disable Hamachi if not using it (can interfere with routing).
 echo.
 echo Starting server...
 echo.

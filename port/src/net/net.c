@@ -426,6 +426,9 @@ struct netclient *netClientForPlayerNum(s32 playernum)
 	return NULL;
 }
 
+static char g_NetBindAddr[NET_MAX_ADDR + 1] = {0};
+s32 g_NetDedicated = false;
+
 void netInit(void)
 {
 	if (enet_initialize() < 0) {
@@ -443,6 +446,13 @@ void netInit(void)
 		g_NetServerPort = argport;
 	}
 
+	/* --bind <ip> : bind server to a specific network interface (e.g., Hamachi IP) */
+	const char *argbind = sysArgGetString("--bind");
+	if (argbind) {
+		strncpy(g_NetBindAddr, argbind, sizeof(g_NetBindAddr) - 1);
+		sysLogPrintf(LOG_NOTE, "NET: will bind to %s", g_NetBindAddr);
+	}
+
 	const char *argjoin = sysArgGetString("--connect");
 	if (argjoin) {
 		strncpy(g_NetLastJoinAddr, argjoin, sizeof(g_NetLastJoinAddr) - 1);
@@ -451,6 +461,13 @@ void netInit(void)
 
 	if (sysArgCheck("--host")) {
 		g_NetHostLatch = true;
+	}
+
+	/* --dedicated : server-only mode, no local player needed */
+	if (sysArgCheck("--dedicated")) {
+		g_NetDedicated = true;
+		g_NetHostLatch = true;
+		sysLogPrintf(LOG_NOTE, "NET: dedicated server mode enabled");
 	}
 
 	g_NetInit = true;
@@ -464,9 +481,21 @@ s32 netStartServer(u16 port, s32 maxclients)
 
 	memset(&g_NetLocalAddr, 0, sizeof(g_NetLocalAddr));
 	g_NetLocalAddr.port = port;
+
+	/* If --bind was specified, bind to that specific IP instead of all interfaces */
+	if (g_NetBindAddr[0]) {
+		ENetAddress bindAddr;
+		if (enet_address_set_host(&bindAddr, g_NetBindAddr) == 0) {
+			g_NetLocalAddr.host = bindAddr.host;
+			sysLogPrintf(LOG_NOTE, "NET: binding to %s:%u", g_NetBindAddr, port);
+		} else {
+			sysLogPrintf(LOG_WARNING, "NET: could not resolve bind address '%s', using all interfaces", g_NetBindAddr);
+		}
+	}
+
 	g_NetHost = enet_host_create(&g_NetLocalAddr, maxclients, NETCHAN_COUNT, g_NetServerInRate, g_NetServerOutRate, 0);
 	if (!g_NetHost) {
-		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host");
+		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host on port %u", port);
 		return -2;
 	}
 

@@ -51,7 +51,9 @@ Write-Host "  ============================================" -ForegroundColor Gre
 Write-Host ""
 
 # Port forward reminder
-Write-Host "  NAT punch-through is used for connectivity." -ForegroundColor DarkYellow
+Write-Host "  IMPORTANT: Port $Port (UDP) must be forwarded in your router!" -ForegroundColor Red
+Write-Host "  ENet uses direct UDP - no NAT punch-through." -ForegroundColor DarkYellow
+Write-Host "  Router: forward UDP port $Port to local IP $localIP" -ForegroundColor DarkYellow
 Write-Host ""
 
 # Check if build exists
