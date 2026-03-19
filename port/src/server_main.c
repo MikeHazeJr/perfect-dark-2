@@ -29,7 +29,8 @@
 #include "net/netupnp.h"
 #include "net/netlobby.h"
 
-/* Globals that the shared game code references */
+/* Globals that the shared game code references.
+ * These are normally defined in main.c — the server needs its own copies. */
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
 s8 g_Resetting = false;
@@ -39,11 +40,21 @@ OSMesg g_MainMesgBuf[32];
 u8 *g_MempHeap = NULL;
 u32 g_MempHeapSize = 0;
 s32 g_SkipIntro = 1;
+s32 g_FileAutoSelect = 0;       /* Auto-select first profile */
+u8  g_VmShowStats = 0;          /* No VM stats on server */
+s32 g_TickRateDiv = 1;          /* Normal tick rate */
+s32 g_TickExtraSleep = 1;       /* Allow sleep for lower CPU usage */
 
-/* Forward declarations */
+/* bootAllocateStack — stub needed by audiomgr.c */
+void *bootAllocateStack(s32 threadid, s32 size)
+{
+    static u8 stackbuf[0x1000];
+    return stackbuf;
+}
+
+/* Net globals are defined in net.c — just extern them */
 extern s32 g_NetDedicated;
 extern s32 g_NetHostLatch;
-extern s32 g_FileAutoSelect;
 extern u32 g_NetServerPort;
 extern s32 g_NetMaxClients;
 
