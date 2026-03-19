@@ -342,7 +342,7 @@ generate_asset_headers("textures.json" "${CMAKE_SOURCE_DIR}/tools/assetmgr/mktex
 
 add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
-# Game target
+# Game client target
 
 set(BIN_NAME "pd${BIN_REGION}.${TARGET_ARCH}")
 add_executable(pd ${SRC})
@@ -352,6 +352,19 @@ set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
 if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+
+# Dedicated server target — same sources but with server_main.c instead of main.c.
+# Uses a console window (not WIN32_EXECUTABLE) for operator visibility.
+
+set(SRC_SERVER ${SRC})
+list(FILTER SRC_SERVER EXCLUDE REGEX ".*/port/src/main\\.c$")
+list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/port/src/server_main.c")
+
+set(SERVER_BIN_NAME "pd-server.${TARGET_ARCH}")
+add_executable(pd-server ${SRC_SERVER})
+add_dependencies(pd-server pd_headers)
+target_link_libraries(pd-server ${LIBS})
+set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
 
 # Additional commands for specific platforms.
 

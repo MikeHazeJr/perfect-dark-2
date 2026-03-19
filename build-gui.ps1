@@ -478,7 +478,13 @@ function Launch-Game($mode) {
     $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64 --log"
 
     if ($mode -eq "server") {
-        $gameArgs += " --dedicated --host"
+        # Dedicated server is a separate executable
+        $launchExe = Join-Path $script:BuildDir "pd-server.x86_64.exe"
+        if (!(Test-Path $launchExe)) {
+            # Fallback to game exe with --dedicated flag if server exe not built yet
+            $launchExe = Join-Path $script:BuildDir $script:ExeName
+            $gameArgs += " --dedicated --host"
+        }
         $label = "Dedicated Server"
         $labelColor = [System.Drawing.Color]::FromArgb(255, 180, 50)
     } else {
@@ -488,10 +494,8 @@ function Launch-Game($mode) {
 
     Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
     Write-Output-Line "Launching $label..." $labelColor
+    Write-Output-Line "  Exe: $launchExe" ([System.Drawing.Color]::FromArgb(50,180,220))
     Write-Output-Line "  Logging enabled" ([System.Drawing.Color]::FromArgb(50,180,220))
-    if ($mode -eq "server") {
-        Write-Output-Line "  Mode: --dedicated --host" ([System.Drawing.Color]::FromArgb(255,180,50))
-    }
 
     $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir -PassThru
     Update-GameStatus
