@@ -69,7 +69,18 @@ int main(int argc, const char **argv)
     romdataInit();
     netInit();
 
-    gameInit();
+    /* Server-local gameInit — sets up player configs and HUD alignment.
+     * The client's gameInit is static in main.c so we replicate it here. */
+    {
+        extern s32 g_HudCenter;
+        extern u8 g_HudAlignModeL, g_HudAlignModeR;
+        osMemSize = g_OsMemSizeMb * 1024 * 1024;
+        for (s32 i = 0; i < MAX_LOCAL_PLAYERS; ++i) {
+            struct extplayerconfig *cfg = g_PlayerExtCfg + i;
+            cfg->fovzoommult = cfg->fovzoom ? cfg->fovy / 60.0f : 1.0f;
+        }
+    }
+
     modmgrInit();
 
     g_OsMemSize = osGetMemSize();
@@ -95,7 +106,15 @@ int main(int argc, const char **argv)
     }
 
     sysLogPrintf(LOG_NOTE, "SERVER: Entering main loop");
-    bootCreateSched();
+
+    /* Start the scheduler — this is the main game loop.
+     * Same as the client's bootCreateSched in main.c. */
+    osCreateMesgQueue(&g_MainMesgQueue, g_MainMesgBuf, ARRAYCOUNT(g_MainMesgBuf));
+    if (osTvType == OS_TV_MPAL) {
+        osCreateScheduler(&g_Sched, NULL, OS_VI_MPAL_LAN1, 1);
+    } else {
+        osCreateScheduler(&g_Sched, NULL, OS_VI_NTSC_LAN1, 1);
+    }
 
     /* Cleanup */
     netDisconnect();

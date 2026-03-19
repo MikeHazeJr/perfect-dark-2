@@ -215,19 +215,18 @@ function Set-Buttons-Enabled($enabled) {
 }
 
 function Update-RunButtons {
-    # Run buttons require: not building AND (last build succeeded OR exe already exists)
-    $exePath = Join-Path $script:BuildDir $script:ExeName
-    $canRun = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $exePath))
-    $btnRunGame.Enabled = $canRun
-    $btnRunServer.Enabled = $canRun
+    # Run buttons: not building AND (last build succeeded OR specific exe exists)
+    $clientExe = Join-Path $script:BuildDir $script:ExeName
+    $serverExe = Join-Path $script:BuildDir "pd-server.x86_64.exe"
 
-    if ($canRun) {
-        $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
-        $btnRunServer.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 50)
-    } else {
-        $btnRunGame.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-        $btnRunServer.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-    }
+    $canRunClient = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $clientExe))
+    $canRunServer = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $serverExe))
+
+    $btnRunGame.Enabled = $canRunClient
+    $btnRunServer.Enabled = $canRunServer
+
+    $btnRunGame.ForeColor = if ($canRunClient) { [System.Drawing.Color]::FromArgb(50, 220, 120) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
+    $btnRunServer.ForeColor = if ($canRunServer) { [System.Drawing.Color]::FromArgb(255, 180, 50) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
 }
 
 function Classify-Line($line) {
