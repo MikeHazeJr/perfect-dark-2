@@ -71,6 +71,12 @@ void videoSetWindowTitle(const char *title);
 s32 sysLogRingGetCount(void);
 const char *sysLogRingGetLine(s32 idx);
 
+/* Lobby screen (from pdgui_menu_lobby.cpp) */
+void pdguiLobbyScreenRender(s32 winW, s32 winH);
+
+/* Check if local client is in lobby state */
+s32 netLocalClientInLobby(void);
+
 /* Lobby state management */
 void lobbyUpdate(void);
 
@@ -235,6 +241,12 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* Dedicated server: show server info overlay in top-left */
     if (g_NetDedicated && mode == NETMODE_SERVER) {
         renderDedicatedServerOverlay(winW, winH, clientCount);
+    }
+
+    /* Unified lobby screen — shown when local client is in lobby state.
+     * This is the main multiplayer menu, not tied to any specific PD dialog. */
+    if (netLocalClientInLobby() || (g_NetDedicated && mode == NETMODE_SERVER)) {
+        pdguiLobbyScreenRender(winW, winH);
     }
 
     /* ---- Layout: small sidebar on the right ---- */

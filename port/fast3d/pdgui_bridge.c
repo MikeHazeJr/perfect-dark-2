@@ -252,3 +252,9 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
 
     return 1;
 }
+
+s32 netLocalClientInLobby(void)
+{
+    if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) return 0;
+    return (g_NetLocalClient->state == CLSTATE_LOBBY) ? 1 : 0;
+}
