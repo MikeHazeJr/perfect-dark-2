@@ -575,14 +575,17 @@ struct menudialogdef g_NetJoinAddressDialog = {
 	NULL,
 };
 
+static s32 g_NetJoinAddrEditing = 0;
+
 static MenuItemHandlerResult menuhandlerEnterJoinAddress(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	/* This handler is kept for the popup dialog (forced-native).
+	 * Inline editing is handled by menuhandlerJoinAddress below. */
 	if (!menuIsDialogOpen(&g_NetJoinAddressDialog)) {
 		return 0;
 	}
 
 	if (inputTextHandler(g_NetJoinAddr, NET_MAX_ADDR, &g_NetJoinAddrPtr, false) < 0) {
-		// escape has been pressed, stop editing
 		inputStopTextInput();
 		menuPopDialog();
 	}
@@ -593,11 +596,24 @@ static MenuItemHandlerResult menuhandlerEnterJoinAddress(s32 operation, struct m
 static MenuItemHandlerResult menuhandlerJoinAddress(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		inputClearLastKey();
-		inputClearLastTextChar();
-		inputStartTextInput();
-		g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
-		menuPushDialog(&g_NetJoinAddressDialog);
+		if (!g_NetJoinAddrEditing) {
+			/* Start inline text editing — no popup dialog */
+			inputClearLastKey();
+			inputClearLastTextChar();
+			inputStartTextInput();
+			g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
+			g_NetJoinAddrEditing = 1;
+		}
+	}
+
+	/* While editing, process text input every frame */
+	if (g_NetJoinAddrEditing) {
+		s32 result = inputTextHandler(g_NetJoinAddr, NET_MAX_ADDR, &g_NetJoinAddrPtr, false);
+		if (result < 0) {
+			/* Escape or Enter pressed — stop editing */
+			inputStopTextInput();
+			g_NetJoinAddrEditing = 0;
+		}
 	}
 
 	return 0;

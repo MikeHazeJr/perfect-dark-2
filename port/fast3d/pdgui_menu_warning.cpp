@@ -366,13 +366,20 @@ extern "C" {
  * These use special handlers (keyboard input, custom rendering)
  * that our generic ImGui type renderers can't handle. Registered
  * with NULL renderFn so pdguiHotswapCheck forces PD native. */
+/* Network dialogs with special handlers */
 extern struct menudialogdef g_NetJoinAddressDialog;
+extern struct menudialogdef g_NetJoiningDialog;
+extern struct menudialogdef g_NetCoopHostMenuDialog;
+/* File manager keyboard input dialogs */
 extern struct menudialogdef g_FilemgrRenameMenuDialog;
 extern struct menudialogdef g_FilemgrDuplicateNameMenuDialog;
+extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
+/* MP keyboard/special dialogs */
 extern struct menudialogdef g_MpPlayerNameMenuDialog;
 extern struct menudialogdef g_MpSaveSetupNameMenuDialog;
 extern struct menudialogdef g_MpEndscreenConfirmNameMenuDialog;
 extern struct menudialogdef g_MpChangeTeamNameMenuDialog;
+extern struct menudialogdef g_MpReadyMenuDialog;
 
 void pdguiMenuWarningRegister(void)
 {
@@ -386,15 +393,20 @@ void pdguiMenuWarningRegister(void)
                               renderSuccessDialog,
                               "Success Dialog");
 
-    /* Force PD native for dialogs with keyboard/text input handlers.
+    /* Force PD native for dialogs with special handlers (keyboard input,
+     * custom status rendering, network state monitoring, etc.).
      * NULL renderFn = "always use PD native, skip type fallback". */
     pdguiHotswapRegister(&g_NetJoinAddressDialog, NULL, "Join Address (native)");
+    pdguiHotswapRegister(&g_NetJoiningDialog, NULL, "Joining Game (native)");
+    pdguiHotswapRegister(&g_NetCoopHostMenuDialog, NULL, "Co-op Host (native)");
     pdguiHotswapRegister(&g_FilemgrRenameMenuDialog, NULL, "Rename File (native)");
     pdguiHotswapRegister(&g_FilemgrDuplicateNameMenuDialog, NULL, "Duplicate Name (native)");
+    pdguiHotswapRegister(&g_FilemgrFileSavedMenuDialog, NULL, "File Saved (native)");
     pdguiHotswapRegister(&g_MpPlayerNameMenuDialog, NULL, "Player Name (native)");
     pdguiHotswapRegister(&g_MpSaveSetupNameMenuDialog, NULL, "Save Setup Name (native)");
     pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, NULL, "Confirm Name (native)");
     pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
+    pdguiHotswapRegister(&g_MpReadyMenuDialog, NULL, "MP Ready (native)");
 
     s_Registered = true;
     sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DANGER + SUCCESS type fallbacks");
