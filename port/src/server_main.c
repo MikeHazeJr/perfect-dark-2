@@ -60,8 +60,8 @@ extern s32 g_NetHostLatch;
 extern u32 g_NetServerPort;
 extern s32 g_NetMaxClients;
 
-/* ImGui render functions */
-extern void pdguiProcessEvent(void *sdlEvent);
+/* ImGui render functions — signatures must match pdgui.h exactly */
+extern s32 pdguiProcessEvent(void *sdlEvent);
 extern void pdguiNewFrame(void);
 extern void pdguiRender(void);
 
@@ -69,9 +69,9 @@ extern void pdguiRender(void);
 extern void videoStartFrame(void);
 extern void videoEndFrame(void);
 
-int main(int argc, const char **argv)
+int main(int argc, char **argv)
 {
-    sysInitArgs(argc, argv);
+    sysInitArgs(argc, (const char **)argv);
 
     /* Force dedicated server mode */
     g_NetDedicated = 1;
