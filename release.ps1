@@ -314,13 +314,17 @@ if ($SkipPush -or $DryRun) {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
 
-    # Route through cmd /c so stderr goes to stdout as plain strings.
-    # PowerShell's 2>&1 wraps stderr as ErrorRecord objects, and with
-    # $ErrorActionPreference = "Stop" those become terminating errors --
-    # even for normal git progress like "Enumerating objects: 5, done."
-    $pushOut = cmd /c "git push origin $currentBranch --progress 2>&1"
+    # Temporarily allow errors so git's stderr progress lines don't kill us.
+    # Git writes ALL progress (Enumerating objects, Counting, etc.) to stderr.
+    # With $ErrorActionPreference = "Stop", PowerShell's 2>&1 wraps those as
+    # terminating ErrorRecords. We lower to Continue, run git, save exit code,
+    # then restore Stop.
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $pushOut = git push origin $currentBranch --progress 2>&1
     $pushExit = $LASTEXITCODE
-    foreach ($line in $pushOut) { Write-Host "    $line" -ForegroundColor Gray }
+    $ErrorActionPreference = $savedEAP
+    foreach ($line in $pushOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
     if ($pushExit -ne 0) {
         Write-Host "  ERROR: Branch push failed (exit $pushExit)" -ForegroundColor Red
@@ -330,9 +334,11 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  Branch pushed." -ForegroundColor Green
 
     Write-Host "  Pushing tags ..." -ForegroundColor Gray
-    $pushTagOut = cmd /c "git push origin --tags --progress 2>&1"
+    $ErrorActionPreference = "Continue"
+    $tagOut = git push origin --tags --progress 2>&1
     $tagExit = $LASTEXITCODE
-    foreach ($line in $pushTagOut) { Write-Host "    $line" -ForegroundColor Gray }
+    $ErrorActionPreference = $savedEAP
+    foreach ($line in $tagOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
     if ($tagExit -ne 0) {
         Write-Host "  ERROR: Tag push failed (exit $tagExit)" -ForegroundColor Red
@@ -387,13 +393,12 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path $zipPath) { $assetCount += 1 }
     Write-Host "  Uploading $assetCount asset(s) to GitHub ..." -ForegroundColor Gray
 
-    # Use cmd /c to avoid PowerShell's stderr-as-ErrorRecord problem.
-    # Quote each arg to handle paths with spaces.
-    $quotedArgs = $ghArgs | ForEach-Object { "`"$_`"" }
-    $ghCmd = "gh " + ($quotedArgs -join ' ')
-    $ghOut = cmd /c "$ghCmd 2>&1"
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $ghOut = gh @ghArgs 2>&1
     $ghExit = $LASTEXITCODE
-    foreach ($line in $ghOut) { Write-Host "    $line" -ForegroundColor Gray }
+    $ErrorActionPreference = $savedEAP
+    foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
     if ($ghExit -eq 0) {
         Write-Host ""
