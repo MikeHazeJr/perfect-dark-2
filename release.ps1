@@ -1,4 +1,4 @@
-# Perfect Dark 2 — Release Script
+# Perfect Dark 2 -- Release Script
 # Packages and pushes builds for both client and dedicated server.
 #
 # Usage:
@@ -54,7 +54,7 @@ $Tag = "v$Version"
 $ReleaseNotes = "RELEASE_$Tag.md"
 $DistDir = "dist/$Tag"
 
-# Build artifact paths — supports both flat and subdirectory layouts
+# Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
 $ClientExe = if (Test-Path "build/client/pd.x86_64.exe") { "build/client/pd.x86_64.exe" }
              elseif (Test-Path "build/pd.x86_64.exe")    { "build/pd.x86_64.exe" }
@@ -63,7 +63,7 @@ $ServerExe = if (Test-Path "build/server/pd-server.x86_64.exe") { "build/server/
              elseif (Test-Path "build/pd-server.x86_64.exe")    { "build/pd-server.x86_64.exe" }
              else { "" }
 
-# Data and mods — prefer build/client/ copies, fall back to post-batch-addin
+# Data and mods -- prefer build/client/ copies, fall back to post-batch-addin
 $DataSource = if (Test-Path "build/client/data") { "build/client/data" }
               elseif (Test-Path "post-batch-addin/data") { "post-batch-addin/data" }
               else { "" }
@@ -71,12 +71,12 @@ $ModsSource = if (Test-Path "build/client/mods") { "build/client/mods" }
               elseif (Test-Path "post-batch-addin/mods") { "post-batch-addin/mods" }
               else { "" }
 
-# DLLs — check build/client first, then post-batch-addin
+# DLLs -- check build/client first, then post-batch-addin
 $DllSearchPaths = @("build/client", "post-batch-addin")
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
-Write-Host "  Perfect Dark 2 — Release $Tag" -ForegroundColor Cyan
+Write-Host "  Perfect Dark 2 -- Release $Tag" -ForegroundColor Cyan
 Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 
@@ -162,7 +162,7 @@ foreach ($dll in $dllNames) {
         }
     }
     if (-not $found) {
-        Write-Host "  $dll — NOT FOUND (skipped)" -ForegroundColor Yellow
+        Write-Host "  $dll -- NOT FOUND (skipped)" -ForegroundColor Yellow
     }
 }
 
@@ -205,7 +205,7 @@ if ($hasData) {
         }
     }
 } else {
-    Write-Host "  data/ — NOT FOUND (skipped)" -ForegroundColor Yellow
+    Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
 # --- Mods folder ---
@@ -214,7 +214,7 @@ if ($hasMods) {
     Write-Host "  Copying mods/ ..." -ForegroundColor Gray
     Copy-Item $ModsSource "$DistDir/mods" -Recurse -Force
 } else {
-    Write-Host "  mods/ — NOT FOUND (skipped)" -ForegroundColor Yellow
+    Write-Host "  mods/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
 # ============================================================================
@@ -278,7 +278,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
     Write-Host "  Skipping GitHub release ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
-    $ghArgs = @("release", "create", $Tag, "--title", "$Tag — Perfect Dark 2")
+    $ghArgs = @("release", "create", $Tag, "--title", "$Tag -- Perfect Dark 2")
 
     if ($hasNotes) {
         $ghArgs += "--notes-file"
@@ -322,7 +322,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Green
-Write-Host "  RELEASE $Tag — PACKAGING COMPLETE" -ForegroundColor Green
+Write-Host "  RELEASE $Tag -- PACKAGING COMPLETE" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Green
 Write-Host ""
 
