@@ -228,7 +228,8 @@ endif()
 
 set(LIBS )
 
-# SDL2 — static on Windows so no SDL2.dll is needed at runtime
+# SDL2 -- static on Windows so no SDL2.dll is needed at runtime
+# MSYS2: pacman -S mingw-w64-x86_64-SDL2
 find_package(SDL2 REQUIRED)
 if(NINTENDO_SWITCH)
   if(NOT SDL2_LIBRARY OR NOT SDL2_INCLUDE_DIR)
@@ -238,41 +239,57 @@ if(NINTENDO_SWITCH)
 endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
 if(WIN32)
-  # Use the static library instead of the import stub (.dll.a)
-  # MSYS2 path: /mingw64/lib/libSDL2.a
-  set(SDL2_STATIC_LIB "${SDL2_INCLUDE_DIR}/../lib/libSDL2.a")
-  if(EXISTS "${SDL2_STATIC_LIB}")
-    message(STATUS "SDL2: Using static library ${SDL2_STATIC_LIB}")
-    list(APPEND LIBS mingw32 "${SDL2_INCLUDE_DIR}/../lib/libSDL2main.a" "${SDL2_STATIC_LIB}")
+  # Search multiple paths for the static .a (not the .dll.a import stub)
+  find_library(SDL2_STATIC_LIB NAMES libSDL2.a
+    PATHS
+      "${SDL2_INCLUDE_DIR}/../lib"
+      "C:/msys64/mingw64/lib"
+    NO_DEFAULT_PATH
+  )
+  find_library(SDL2_MAIN_STATIC NAMES libSDL2main.a
+    PATHS
+      "${SDL2_INCLUDE_DIR}/../lib"
+      "C:/msys64/mingw64/lib"
+    NO_DEFAULT_PATH
+  )
+  if(SDL2_STATIC_LIB AND SDL2_MAIN_STATIC)
+    message(STATUS "SDL2: Static linking via ${SDL2_STATIC_LIB}")
+    list(APPEND LIBS mingw32 "${SDL2_MAIN_STATIC}" "${SDL2_STATIC_LIB}")
     # SDL2 static on Windows needs these system libs
-    list(APPEND LIBS imm32 version setupapi)
+    list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm)
   else()
-    message(WARNING "SDL2: Static library not found at ${SDL2_STATIC_LIB}, falling back to dynamic")
+    message(WARNING "SDL2: Static .a not found, falling back to dynamic (will need SDL2.dll)")
     list(APPEND LIBS "${SDL2_LIBRARY}")
   endif()
 else()
   list(APPEND LIBS "${SDL2_LIBRARY}")
 endif()
 
-# ZLib — static on Windows so no zlib1.dll is needed at runtime
+# ZLib -- static on Windows so no zlib1.dll is needed at runtime
+# MSYS2: pacman -S mingw-w64-x86_64-zlib
 find_package(ZLIB REQUIRED)
 if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
 endif()
 if(WIN32)
-  set(ZLIB_STATIC_LIB "${ZLIB_INCLUDE_DIR}/../lib/libz.a")
-  if(EXISTS "${ZLIB_STATIC_LIB}")
-    message(STATUS "ZLIB: Using static library ${ZLIB_STATIC_LIB}")
+  find_library(ZLIB_STATIC_LIB NAMES libz.a
+    PATHS
+      "${ZLIB_INCLUDE_DIR}/../lib"
+      "C:/msys64/mingw64/lib"
+    NO_DEFAULT_PATH
+  )
+  if(ZLIB_STATIC_LIB)
+    message(STATUS "ZLIB: Static linking via ${ZLIB_STATIC_LIB}")
     list(APPEND LIBS "${ZLIB_STATIC_LIB}")
   else()
-    message(WARNING "ZLIB: Static library not found at ${ZLIB_STATIC_LIB}, falling back to dynamic")
+    message(WARNING "ZLIB: Static .a not found, falling back to dynamic (will need zlib1.dll)")
     list(APPEND LIBS "${ZLIB_LIBRARY}")
   endif()
 else()
   list(APPEND LIBS "${ZLIB_LIBRARY}")
 endif()
 
-# libcurl — static on Windows so no libcurl-4.dll is needed at runtime
+# libcurl -- static on Windows so no libcurl-4.dll is needed at runtime
 # MSYS2: pacman -S mingw-w64-x86_64-curl
 find_package(CURL REQUIRED)
 if(CURL_INCLUDE_DIRS)
@@ -283,15 +300,19 @@ endif()
 if(WIN32)
   # Static curl needs CURL_STATICLIB defined so headers use dllimport correctly
   add_definitions(-DCURL_STATICLIB)
-  # Use pkg-config to get the full static dependency chain
+
+  # Try pkg-config first -- it knows the full static dependency chain
   find_package(PkgConfig)
+  set(_curl_static_ok FALSE)
+
   if(PKG_CONFIG_FOUND)
     pkg_check_modules(CURL_STATIC QUIET libcurl)
     if(CURL_STATIC_STATIC_LIBRARIES)
-      message(STATUS "CURL: Using static link via pkg-config: ${CURL_STATIC_STATIC_LIBRARIES}")
+      message(STATUS "CURL: Static link via pkg-config: ${CURL_STATIC_STATIC_LIBRARIES}")
       foreach(_lib ${CURL_STATIC_STATIC_LIBRARIES})
-        # pkg-config returns bare lib names; find_library resolves them
-        find_library(_found_${_lib} NAMES ${_lib} PATHS "${CURL_STATIC_LIBRARY_DIRS}" NO_DEFAULT_PATH)
+        find_library(_found_${_lib} NAMES ${_lib}
+          PATHS "${CURL_STATIC_LIBRARY_DIRS}" "C:/msys64/mingw64/lib"
+          NO_DEFAULT_PATH)
         if(_found_${_lib})
           list(APPEND LIBS "${_found_${_lib}}")
         else()
@@ -299,27 +320,52 @@ if(WIN32)
         endif()
         unset(_found_${_lib} CACHE)
       endforeach()
-    else()
-      message(WARNING "CURL: pkg-config static libs not found, falling back to dynamic")
-      if(CURL_LIBRARIES)
-        list(APPEND LIBS "${CURL_LIBRARIES}")
-      elseif(CURL_LIBRARY)
-        list(APPEND LIBS "${CURL_LIBRARY}")
-      endif()
+      set(_curl_static_ok TRUE)
     endif()
-  else()
-    # No pkg-config — try manual static curl with common deps
-    set(CURL_STATIC_LIB "${CURL_INCLUDE_DIR}/../lib/libcurl.a")
-    if(EXISTS "${CURL_STATIC_LIB}")
-      message(STATUS "CURL: Using static library (manual) ${CURL_STATIC_LIB}")
-      list(APPEND LIBS "${CURL_STATIC_LIB}" ssl crypto crypt32 wldap32 bcrypt)
-    else()
-      message(WARNING "CURL: Static library not found, falling back to dynamic")
-      if(CURL_LIBRARIES)
-        list(APPEND LIBS "${CURL_LIBRARIES}")
-      elseif(CURL_LIBRARY)
-        list(APPEND LIBS "${CURL_LIBRARY}")
-      endif()
+  endif()
+
+  # Fallback: manual static curl with known Windows deps
+  if(NOT _curl_static_ok)
+    find_library(CURL_STATIC_LIB NAMES libcurl.a
+      PATHS
+        "${CURL_INCLUDE_DIR}/../lib"
+        "C:/msys64/mingw64/lib"
+      NO_DEFAULT_PATH
+    )
+    if(CURL_STATIC_LIB)
+      message(STATUS "CURL: Static linking (manual) via ${CURL_STATIC_LIB}")
+      list(APPEND LIBS "${CURL_STATIC_LIB}")
+      # Common static curl deps on Windows (SSL + system libs)
+      # These cover most MSYS2 curl builds (OpenSSL or Schannel backend)
+      find_library(_ssl NAMES libssl.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_crypto NAMES libcrypto.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_idn2 NAMES libidn2.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_ssh2 NAMES libssh2.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_nghttp2 NAMES libnghttp2.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_brotlidec NAMES libbrotlidec.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_brotlicommon NAMES libbrotlicommon.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_zstd NAMES libzstd.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      find_library(_psl NAMES libpsl.a PATHS "C:/msys64/mingw64/lib" NO_DEFAULT_PATH)
+      if(_ssl)     list(APPEND LIBS "${_ssl}") endif()
+      if(_crypto)  list(APPEND LIBS "${_crypto}") endif()
+      if(_idn2)    list(APPEND LIBS "${_idn2}") endif()
+      if(_ssh2)    list(APPEND LIBS "${_ssh2}") endif()
+      if(_nghttp2) list(APPEND LIBS "${_nghttp2}") endif()
+      if(_brotlidec) list(APPEND LIBS "${_brotlidec}") endif()
+      if(_brotlicommon) list(APPEND LIBS "${_brotlicommon}") endif()
+      if(_zstd)    list(APPEND LIBS "${_zstd}") endif()
+      if(_psl)     list(APPEND LIBS "${_psl}") endif()
+      list(APPEND LIBS crypt32 wldap32 bcrypt ws2_32)
+      set(_curl_static_ok TRUE)
+    endif()
+  endif()
+
+  if(NOT _curl_static_ok)
+    message(WARNING "CURL: No static .a found, falling back to dynamic (will need libcurl-4.dll)")
+    if(CURL_LIBRARIES)
+      list(APPEND LIBS "${CURL_LIBRARIES}")
+    elseif(CURL_LIBRARY)
+      list(APPEND LIBS "${CURL_LIBRARY}")
     endif()
   endif()
 else()
@@ -459,7 +505,7 @@ if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-# Dedicated server target — MINIMAL source list, decoupled from game rendering.
+# Dedicated server target -- MINIMAL source list, decoupled from game rendering.
 # Only includes: networking, system, filesystem, server GUI, and stubs.
 
 file(GLOB SRC_SERVER_MINIUPNPC "${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src/*.c")
@@ -471,7 +517,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/server_bridge.c
   ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
 
-  # Core networking ONLY (not netmenu.c — that's client UI)
+  # Core networking ONLY (not netmenu.c -- that's client UI)
   ${CMAKE_SOURCE_DIR}/port/src/net/net.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netmsg.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
@@ -482,21 +528,21 @@ set(SRC_SERVER
   ${SRC_SERVER_MINIUPNPC}
 
   # Minimal system (no pdsched, no console, no mpsetups, no romdata,
-  # no modmgr, no libultra — all stubbed in server_stubs.c)
+  # no modmgr, no libultra -- all stubbed in server_stubs.c)
   ${CMAKE_SOURCE_DIR}/port/src/system.c
   ${CMAKE_SOURCE_DIR}/port/src/config.c
   ${CMAKE_SOURCE_DIR}/port/src/fs.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/crash.c
 
-  # Server GUI (ImGui, SDL2, OpenGL — self-contained)
+  # Server GUI (ImGui, SDL2, OpenGL -- self-contained)
   ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c
 
   # ENet (external library)
   ${CMAKE_SOURCE_DIR}/port/external/enet.c
 
-  # Update system (D13) — server has its own update path + --check-update CLI
+  # Update system (D13) -- server has its own update path + --check-update CLI
   ${CMAKE_SOURCE_DIR}/port/src/updater.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
@@ -515,7 +561,7 @@ add_executable(pd-server ${SRC_SERVER})
 add_dependencies(pd-server pd_headers)
 target_link_libraries(pd-server ${LIBS})
 set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
-# Server defines — used by shared headers
+# Server defines -- used by shared headers
 target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
 
 # Additional commands for specific platforms.

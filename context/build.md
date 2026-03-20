@@ -48,7 +48,7 @@ The build requires MSYS2/MinGW on Windows. The AI sandbox runs Linux and cannot 
 - `-static-libgcc` — prevents `libgcc_s_seh-1.dll` dependency (FIX-1)
 - `-static-libstdc++` — prevents libstdc++ DLL dependency
 - `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` — statically links libwinpthread (FIX-5)
-- **Still distributing as DLLs**: SDL2 (`libSDL2.dll`), zlib (`libz.dll`) — static linking deferred (TODO-1)
+- **SDL2, zlib, libcurl**: Now statically linked on Windows (no DLLs needed at runtime). CMakeLists.txt uses find_library to locate .a files in MSYS2 paths.
 
 ## Directory Structure
 ```
@@ -89,7 +89,7 @@ perfect_dark-mike/
 - **ENet**: Networking (statically linked)
 
 ## Known Issues
-- SDL2 and zlib still distributed as DLLs (TODO-1: investigate static linking)
+- None currently
 
 ## Session Fixes (Build-Related)
 - **FIX-1**: Added `-static-libgcc` to prevent DLL dependency

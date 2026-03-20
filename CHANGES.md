@@ -9,6 +9,7 @@
 
 ## Improvements
 <!-- Bug fixes, performance gains, polish -->
+- SDL2, zlib, and libcurl are now statically linked into the executable (no more missing DLL errors)
 
 ## Additions
 <!-- New features, new systems, new content -->
