@@ -1344,7 +1344,9 @@ function Start-PushRelease {
     # After release.ps1 finishes, we clear CHANGES.md via the completion handler
     $script:PendingPostRelease = $totalChanges -gt 0
 
-    Start-Build-Step "Push Release v$verStr" "powershell.exe" "-ExecutionPolicy Bypass -File `"$releaseScript`" $scriptArgs"
+    # Use -Command with *>&1 to capture Write-Host output (stream 6).
+    # -File mode loses Write-Host in subprocess because it bypasses stdout/stderr.
+    Start-Build-Step "Push Release v$verStr" "powershell.exe" "-ExecutionPolicy Bypass -Command `"& { . '$releaseScript' $scriptArgs } *>&1`""
 }
 
 # Flag for post-release cleanup
