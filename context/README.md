@@ -38,6 +38,7 @@ Merged PC port combining:
 | File | System | What It Covers |
 |------|--------|----------------|
 | [tasks.md](tasks.md) | Task Tracker | **Read first.** Current task, step-by-step progress, blocked items, testing status |
+| [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries, decisions, next steps |
 | [imgui.md](imgui.md) | ImGui & Styling | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu, font |
 | [collision.md](collision.md) | Collision | Capsule sweep, floor/ceiling detection, legacy cdTestVolume, geometry types |
 | [movement.md](movement.md) | Movement & Jump | Jump physics, vertical movement, ground detection, airborne logic |
