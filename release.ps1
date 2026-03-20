@@ -314,9 +314,11 @@ if ($SkipPush -or $DryRun) {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
 
-    # Capture output to variable first -- piping 2>&1 through ForEach-Object
-    # corrupts $LASTEXITCODE because PowerShell wraps stderr as ErrorRecords.
-    $pushOut = git push origin $currentBranch --progress 2>&1
+    # Route through cmd /c so stderr goes to stdout as plain strings.
+    # PowerShell's 2>&1 wraps stderr as ErrorRecord objects, and with
+    # $ErrorActionPreference = "Stop" those become terminating errors --
+    # even for normal git progress like "Enumerating objects: 5, done."
+    $pushOut = cmd /c "git push origin $currentBranch --progress 2>&1"
     $pushExit = $LASTEXITCODE
     foreach ($line in $pushOut) { Write-Host "    $line" -ForegroundColor Gray }
 
@@ -328,9 +330,9 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  Branch pushed." -ForegroundColor Green
 
     Write-Host "  Pushing tags ..." -ForegroundColor Gray
-    $tagOut = git push origin --tags --progress 2>&1
+    $pushTagOut = cmd /c "git push origin --tags --progress 2>&1"
     $tagExit = $LASTEXITCODE
-    foreach ($line in $tagOut) { Write-Host "    $line" -ForegroundColor Gray }
+    foreach ($line in $pushTagOut) { Write-Host "    $line" -ForegroundColor Gray }
 
     if ($tagExit -ne 0) {
         Write-Host "  ERROR: Tag push failed (exit $tagExit)" -ForegroundColor Red
@@ -385,7 +387,11 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path $zipPath) { $assetCount += 1 }
     Write-Host "  Uploading $assetCount asset(s) to GitHub ..." -ForegroundColor Gray
 
-    $ghOut = gh @ghArgs 2>&1
+    # Use cmd /c to avoid PowerShell's stderr-as-ErrorRecord problem.
+    # Quote each arg to handle paths with spaces.
+    $quotedArgs = $ghArgs | ForEach-Object { "`"$_`"" }
+    $ghCmd = "gh " + ($quotedArgs -join ' ')
+    $ghOut = cmd /c "$ghCmd 2>&1"
     $ghExit = $LASTEXITCODE
     foreach ($line in $ghOut) { Write-Host "    $line" -ForegroundColor Gray }
 
