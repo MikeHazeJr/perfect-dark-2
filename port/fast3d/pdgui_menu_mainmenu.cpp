@@ -46,7 +46,11 @@ extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
 extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
+extern struct menudialogdef g_MatchSetupMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
+
+/* Match setup init (from matchsetup.c) */
+void matchConfigInit(void);
 
 /* Extended options (port-added) */
 extern struct menudialogdef g_ExtendedMenuDialog;
@@ -96,13 +100,20 @@ u32 joyGetConnectedControllers(void);
 /* Change agent handler */
 MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *item, union handlerdata *data);
 
-/* Audio API */
+/* Audio API — legacy (still used by original menus) */
 s32 optionsGetMusicVolume(void);
 void optionsSetMusicVolume(s32 vol);
 void sndSetSfxVolume(s32 vol);
 
-/* g_SfxVolume is an extern s16 but the VOLUME macro scales it.
- * We'll call the handlers via MENUOP_GET pattern instead. */
+/* Volume layer system — from port/include/audio.h */
+f32 audioGetMasterVolume(void);
+void audioSetMasterVolume(f32 vol);
+f32 audioGetMusicVolume(void);
+void audioSetMusicVolume(f32 vol);
+f32 audioGetGameplayVolume(void);
+void audioSetGameplayVolume(f32 vol);
+f32 audioGetUiVolume(void);
+void audioSetUiVolume(f32 vol);
 
 /* Video API — from port/include/video.h */
 s32 videoGetFullscreen(void);
@@ -125,6 +136,8 @@ s32 videoGetDisplayFPS(void);
 void videoSetDisplayFPS(s32 displayfps);
 s32 videoGetCenterWindow(void);
 void videoSetCenterWindow(s32 center);
+s32 videoGetMaximizeWindow(void);
+void videoSetMaximizeWindow(s32 fs);
 
 /* Display mode */
 typedef struct {
@@ -143,6 +156,9 @@ extern s32 g_MusicDisableMpDeath;
 extern s32 g_HudCenter;
 extern f32 g_ViShakeIntensityMult;
 
+/* Skip intro — from port/src/main.c, registered as Game.SkipIntro */
+extern s32 g_SkipIntro;
+
 /* Mouse API — from port/include/input.h */
 s32 inputMouseIsEnabled(void);
 void inputMouseEnable(s32 enabled);
@@ -150,6 +166,22 @@ void inputMouseGetSpeed(f32 *x, f32 *y);
 void inputMouseSetSpeed(f32 x, f32 y);
 s32 inputGetMouseLockMode(void);
 void inputSetMouseLockMode(s32 mode);
+
+/* Input binding API — from port/include/input.h.
+ * We can't include input.h (types.h conflict), so replicate constants.
+ * Use PD_ prefix to avoid collision with Windows VK_ defines. */
+#define PD_INPUT_MAX_BINDS 4
+#define PD_VK_ESCAPE 41
+#define PD_VK_JOY_BEGIN 519
+#define PD_VK_TOTAL_COUNT (PD_VK_JOY_BEGIN + 4 * 32)
+void inputKeyBind(s32 idx, u32 ck, s32 bind, u32 vk);
+const u32 *inputKeyGetBinds(s32 idx, u32 ck);
+const char *inputGetKeyName(s32 vk);
+const char *inputGetContKeyName(u32 ck);
+void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode);
+void inputSaveBinds(void);
+void inputClearLastKey(void);
+s32 inputGetLastKey(void);
 
 extern s32 g_MenuMouseControl;
 
@@ -187,6 +219,15 @@ extern s32 g_MpPlayerNum;
 /* Config save */
 s32 configSave(const char *fname);
 
+/* Input modes API — from port/include/inputmodes.h */
+s32 inputModeGet(u32 ck);
+void inputModeSet(u32 ck, s32 mode);
+f32 inputModeGetTiming(u32 ck);
+void inputModeSetTiming(u32 ck, f32 seconds);
+
+/* Button edge glow — from pdgui_style */
+void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -198,16 +239,27 @@ static bool s_RegisteredPause = false;
 static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game */
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
+static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
+static bool s_NeedsFocus = false;      /* one-shot: give nav focus to first widget */
 
 /* ========================================================================
  * Sound-playing widget wrappers
  * ======================================================================== */
 
-/* Button that plays SELECT sound on click */
+/* Button that plays SELECT sound on click, with edge glow on hover/active */
 static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
 {
     bool clicked = ImGui::Button(label, size);
     if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
+
+    /* Draw animated edge glow when hovered (mouse), active (pressed), or focused (gamepad nav) */
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
+                                rmax.x - rmin.x, rmax.y - rmin.y,
+                                ImGui::IsItemActive() ? 1 : 0);
+    }
     return clicked;
 }
 
@@ -246,6 +298,10 @@ static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max,
 
 static void renderSettingsVideo(float scale)
 {
+    /* ---- Display ---- */
+    ImGui::TextDisabled("Display");
+    ImGui::Separator();
+
     bool fullscreen = videoGetFullscreen() != 0;
     if (PdCheckbox("Fullscreen", &fullscreen)) {
         videoSetFullscreen(fullscreen ? 1 : 0);
@@ -303,21 +359,17 @@ static void renderSettingsVideo(float scale)
         videoSetCenterWindow(centerWin ? 1 : 0);
     }
 
-    /* Anti-aliasing */
-    {
-        int msaa = videoGetMSAA();
-        int msaaIdx = 0;
-        if (msaa >= 16) msaaIdx = 4;
-        else if (msaa >= 8) msaaIdx = 3;
-        else if (msaa >= 4) msaaIdx = 2;
-        else if (msaa >= 2) msaaIdx = 1;
-
-        const char *msaaOpts[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA", "16x MSAA" };
-        if (PdCombo("Anti-aliasing", &msaaIdx, msaaOpts, 5)) {
-            videoSetMSAA(1 << msaaIdx);
+    if (!fullscreen) {
+        bool maximize = videoGetMaximizeWindow() != 0;
+        if (PdCheckbox("Maximize Window", &maximize)) {
+            videoSetMaximizeWindow(maximize ? 1 : 0);
         }
     }
 
+    ImGui::Spacing();
+
+    /* ---- Performance ---- */
+    ImGui::TextDisabled("Performance");
     ImGui::Separator();
 
     /* VSync */
@@ -356,7 +408,28 @@ static void renderSettingsVideo(float scale)
         videoSetDisplayFPS(showFps ? 1 : 0);
     }
 
+    ImGui::Spacing();
+
+    /* ---- Rendering ---- */
+    ImGui::TextDisabled("Rendering");
     ImGui::Separator();
+
+    /* Anti-aliasing */
+    {
+        int msaa = videoGetMSAA();
+        int msaaIdx = 0;
+        if (msaa >= 16) msaaIdx = 4;
+        else if (msaa >= 8) msaaIdx = 3;
+        else if (msaa >= 4) msaaIdx = 2;
+        else if (msaa >= 2) msaaIdx = 1;
+
+        const char *msaaOpts[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA", "16x MSAA" };
+        if (PdCombo("Anti-aliasing *", &msaaIdx, msaaOpts, 5)) {
+            videoSetMSAA(1 << msaaIdx);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(restart required)");
+    }
 
     /* Texture Filtering */
     {
@@ -377,6 +450,10 @@ static void renderSettingsVideo(float scale)
         videoSetDetailTextures(detailTex ? 1 : 0);
     }
 
+    ImGui::Spacing();
+
+    /* ---- Gameplay Visuals ---- */
+    ImGui::TextDisabled("Gameplay Visuals");
     ImGui::Separator();
 
     /* HUD Centering */
@@ -403,19 +480,38 @@ static void renderSettingsVideo(float scale)
 
 static void renderSettingsAudio(float scale)
 {
-    /* Sound and Music volumes — we call the handlers indirectly.
-     * The original uses slider values 0-65535 (u16 range) for sfx
-     * and 0-65535 for music. We'll use a 0-100 scale and map. */
+    /* Volume layer system — four independent 0.0–1.0 float layers.
+     * Displayed as 0–100% sliders. Each setter internally calls
+     * audioApplyVolumes() to push composite values to the engine. */
 
     ImGui::TextDisabled("Volume Controls");
     ImGui::Separator();
 
     {
-        int musicVol = optionsGetMusicVolume();
-        /* Music volume is 0 to 0x7FFF range in PD */
-        float musicPct = (float)musicVol / 327.67f; /* 0x7FFF/100 */
-        if (PdSliderFloat("Music", &musicPct, 0.0f, 100.0f, "%.0f%%")) {
-            optionsSetMusicVolume((s32)(musicPct * 327.67f));
+        float master = audioGetMasterVolume() * 100.0f;
+        if (PdSliderFloat("Master Volume", &master, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMasterVolume(master / 100.0f);
+        }
+    }
+
+    {
+        float music = audioGetMusicVolume() * 100.0f;
+        if (PdSliderFloat("Music", &music, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMusicVolume(music / 100.0f);
+        }
+    }
+
+    {
+        float gameplay = audioGetGameplayVolume() * 100.0f;
+        if (PdSliderFloat("Gameplay", &gameplay, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetGameplayVolume(gameplay / 100.0f);
+        }
+    }
+
+    {
+        float ui = audioGetUiVolume() * 100.0f;
+        if (PdSliderFloat("UI", &ui, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetUiVolume(ui / 100.0f);
         }
     }
 
@@ -427,8 +523,169 @@ static void renderSettingsAudio(float scale)
     }
 }
 
+/* ---- Key rebinding state ---- */
+
+/* Capture state: which CK action + which column (0=MKB, 1=Controller) we're listening for */
+static s32 s_CaptureActive = 0;      /* non-zero when waiting for a key press */
+static u32 s_CaptureCK = 0;          /* CK action being rebound */
+static s32 s_CaptureColumn = 0;      /* 0 = MKB, 1 = Controller */
+static s32 s_CaptureBind = 0;        /* bind slot index (0-3) */
+static s32 s_CaptureIsSecond = 0;    /* 0 = first bind button, 1 = second */
+
+/* Bindable actions table — maps CK enum index to display name.
+ * Uses Extended Options menu names, not N64-style names.
+ * Includes CK_0040+ reserved slots as NULL (skipped in UI),
+ * plus the extended actions at CK_2000(29), CK_4000(30), CK_8000(31). */
+
+struct BindableAction {
+    u32 ck;             /* CK enum index */
+    const char *name;   /* Display name from Extended Options */
+};
+
+static const BindableAction s_BindableActions[] = {
+    {  3, "Forward"       },  /* CK_C_U       */
+    {  2, "Backward"      },  /* CK_C_D       */
+    {  1, "Strafe Left"   },  /* CK_C_L       */
+    {  0, "Strafe Right"  },  /* CK_C_R       */
+    { 13, "Fire"          },  /* CK_ZTRIG     */
+    {  4, "Aim Mode"      },  /* CK_RTRIG     */
+    {  5, "Fire Mode"     },  /* CK_LTRIG     */
+    {  6, "Reload"        },  /* CK_X         */
+    {  7, "Next Weapon"   },  /* CK_Y         */
+    {  9, "Prev Weapon"   },  /* CK_DPAD_L    */
+    { 14, "Use / Cancel"  },  /* CK_B         */
+    { 15, "Use / Accept"  },  /* CK_A         */
+    { 10, "Radial Menu"   },  /* CK_DPAD_D    */
+    { 12, "Pause Menu"    },  /* CK_START     */
+    { 30, "Jump"          },  /* CK_4000      */
+    { 29, "Full Crouch"   },  /* CK_2000      */
+    { 31, "Cycle Crouch"  },  /* CK_8000      */
+    { 16, "Look Left"     },  /* CK_STICK_XNEG */
+    { 17, "Look Right"    },  /* CK_STICK_XPOS */
+    { 18, "Look Down"     },  /* CK_STICK_YNEG */
+    { 19, "Look Up"       },  /* CK_STICK_YPOS */
+    {  8, "D-Pad Right"   },  /* CK_DPAD_R    */
+    { 11, "D-Pad Up"      },  /* CK_DPAD_U    */
+    { 20, "UI Accept"     },  /* CK_ACCEPT    */
+    { 21, "UI Cancel"     },  /* CK_CANCEL    */
+};
+#define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
+
+/* Helper: is this VK a mouse or keyboard key? */
+static bool isVkMKB(u32 vk)
+{
+    return (vk > 0 && vk < PD_VK_JOY_BEGIN);
+}
+
+/* Helper: is this VK a controller/joystick key? */
+static bool isVkController(u32 vk)
+{
+    return (vk >= PD_VK_JOY_BEGIN && vk < PD_VK_TOTAL_COUNT);
+}
+
+/* Helper: get human-readable name, handling 0 (unbound) */
+static const char *getBindName(u32 vk)
+{
+    if (vk == 0) return "---";
+    return inputGetKeyName((s32)vk);
+}
+
+/* Helper: find the first MKB bind and first controller bind for a CK action.
+ * Returns up to 2 of each type (slot indices written into mkbSlots/ctrlSlots).
+ * Returns count found for each. */
+static void getBindsByType(s32 cidx, u32 ck, u32 mkbVKs[2], s32 mkbSlots[2], s32 *mkbCount,
+                           u32 ctrlVKs[2], s32 ctrlSlots[2], s32 *ctrlCount)
+{
+    const u32 *bindsArr = inputKeyGetBinds(cidx, ck);
+    *mkbCount = 0;
+    *ctrlCount = 0;
+    mkbVKs[0] = mkbVKs[1] = 0;
+    ctrlVKs[0] = ctrlVKs[1] = 0;
+    mkbSlots[0] = mkbSlots[1] = -1;
+    ctrlSlots[0] = ctrlSlots[1] = -1;
+
+    for (s32 i = 0; i < PD_INPUT_MAX_BINDS && bindsArr; i++) {
+        u32 vk = bindsArr[i];
+        if (vk == 0) continue;
+        if (isVkMKB(vk) && *mkbCount < 2) {
+            mkbSlots[*mkbCount] = i;
+            mkbVKs[*mkbCount] = vk;
+            (*mkbCount)++;
+        } else if (isVkController(vk) && *ctrlCount < 2) {
+            ctrlSlots[*ctrlCount] = i;
+            ctrlVKs[*ctrlCount] = vk;
+            (*ctrlCount)++;
+        }
+    }
+}
+
+/* Find an available bind slot for a given CK (first slot with vk==0, or slot 0) */
+static s32 findFreeBindSlot(s32 cidx, u32 ck)
+{
+    const u32 *bindsArr = inputKeyGetBinds(cidx, ck);
+    if (!bindsArr) return 0;
+    for (s32 i = 0; i < PD_INPUT_MAX_BINDS; i++) {
+        if (bindsArr[i] == 0) return i;
+    }
+    return 0; /* all full — overwrite slot 0 */
+}
+
+static void renderBindButton(u32 ck, const char *idSuffix, s32 captureCol,
+                              s32 isSecond, u32 vk, s32 slot, s32 otherSlot,
+                              bool *rowHov, bool *rowNav)
+{
+    char btnLabel[64];
+    bool isCap = (s_CaptureActive && s_CaptureCK == ck
+                  && s_CaptureColumn == captureCol
+                  && s_CaptureIsSecond == isSecond);
+    if (isCap) {
+        snprintf(btnLabel, sizeof(btnLabel), "...##%s_%u", idSuffix, ck);
+    } else {
+        snprintf(btnLabel, sizeof(btnLabel), "%s##%s_%u", getBindName(vk), idSuffix, ck);
+    }
+    if (ImGui::SmallButton(btnLabel) && !s_CaptureActive) {
+        s32 useSlot = slot;
+        if (useSlot < 0) {
+            useSlot = findFreeBindSlot(0, ck);
+            if (useSlot == otherSlot) {
+                const u32 *ba = inputKeyGetBinds(0, ck);
+                useSlot = -1;
+                for (s32 i = 0; i < PD_INPUT_MAX_BINDS && ba; i++) {
+                    if (i != otherSlot && ba[i] == 0) { useSlot = i; break; }
+                }
+                if (useSlot < 0) useSlot = (otherSlot == 0) ? 1 : 0;
+            }
+        }
+        s_CaptureActive = 1;
+        s_CaptureCK = ck;
+        s_CaptureColumn = captureCol;
+        s_CaptureIsSecond = isSecond;
+        s_CaptureBind = useSlot;
+        inputClearLastKey();
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    if (ImGui::IsItemHovered()) *rowHov = true;
+    if (ImGui::IsItemFocused()) *rowNav = true;
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && vk != 0 && slot >= 0) {
+        inputKeyBind(0, ck, slot, 0);
+        inputSaveBinds();
+        configSave("pd.ini");
+        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+    }
+}
+
+/* Get the display name for a bindable action CK value */
+static const char *getActionName(u32 ck)
+{
+    for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+        if (s_BindableActions[i].ck == ck) return s_BindableActions[i].name;
+    }
+    return "???";
+}
+
 static void renderSettingsControls(float scale)
 {
+    /* ---- Mouse Settings ---- */
     ImGui::TextDisabled("Mouse");
     ImGui::Separator();
 
@@ -478,6 +735,249 @@ static void renderSettingsControls(float scale)
         if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
             g_PlayerExtCfg[0].mouseaimspeedy = aimY;
         }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ---- Key Bindings ---- */
+    ImGui::TextDisabled("Key Bindings");
+    ImGui::Separator();
+
+    /* Handle active capture mode */
+    if (s_CaptureActive) {
+        s32 newKey = inputGetLastKey();
+
+        /* Escape / B-button cancels capture */
+        if (newKey == PD_VK_ESCAPE) {
+            s_CaptureActive = 0;
+            inputClearLastKey();
+        } else if (newKey > 0) {
+            bool valid = false;
+
+            if (s_CaptureColumn == 0 && isVkMKB((u32)newKey)) {
+                valid = true;
+            } else if (s_CaptureColumn == 1 && isVkController((u32)newKey)) {
+                valid = true;
+            }
+
+            if (valid) {
+                inputKeyBind(0, s_CaptureCK, s_CaptureBind, (u32)newKey);
+                inputSaveBinds();
+                configSave("pd.ini");
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            } else {
+                /* Wrong input type — play error sound */
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+
+            s_CaptureActive = 0;
+            inputClearLastKey();
+        }
+    }
+
+    /* Capture mode banner */
+    if (s_CaptureActive) {
+        const char *typeStr = (s_CaptureColumn == 0) ? "keyboard/mouse" : "controller";
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+            "Press a %s key for \"%s\" (Esc to cancel)",
+            typeStr, getActionName(s_CaptureCK));
+        ImGui::Spacing();
+    }
+
+    /* 7-column table: Action | MKB1 | MKB2 | Ctrl1 | Ctrl2 | Mode | Window */
+    ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV
+                                | ImGuiTableFlags_RowBg
+                                | ImGuiTableFlags_SizingStretchProp
+                                | ImGuiTableFlags_PadOuterX;
+
+    /* Compact cell padding for tight layout */
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 1.0f));
+
+    if (ImGui::BeginTable("##binds_table", 7, tableFlags)) {
+        ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("MKB 1",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("MKB 2",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Ctrl 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Ctrl 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Mode",    ImGuiTableColumnFlags_WidthStretch, 0.8f);
+        ImGui::TableSetupColumn("Window",  ImGuiTableColumnFlags_WidthStretch, 0.8f);
+        ImGui::TableHeadersRow();
+
+        for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+            u32 ck = s_BindableActions[row].ck;
+            const char *actionName = s_BindableActions[row].name;
+
+            u32 mkbVKs[2], ctrlVKs[2];
+            s32 mkbSlots[2], ctrlSlots[2];
+            s32 mkbCount, ctrlCount;
+            getBindsByType(0, ck, mkbVKs, mkbSlots, &mkbCount,
+                           ctrlVKs, ctrlSlots, &ctrlCount);
+
+            ImGui::TableNextRow();
+            bool rowHovered = false;
+            bool rowNavFocus = false;
+
+            /* Col 0: Action name */
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(actionName);
+
+            /* Col 1: MKB Bind 1 */
+            ImGui::TableSetColumnIndex(1);
+            renderBindButton(ck, "mkb1", 0, 0, mkbVKs[0],
+                             (mkbSlots[0] >= 0) ? mkbSlots[0] : findFreeBindSlot(0, ck),
+                             mkbSlots[1], &rowHovered, &rowNavFocus);
+
+            /* Col 2: MKB Bind 2 */
+            ImGui::TableSetColumnIndex(2);
+            renderBindButton(ck, "mkb2", 0, 1, mkbVKs[1], mkbSlots[1], mkbSlots[0],
+                             &rowHovered, &rowNavFocus);
+
+            /* Col 3: Controller Bind 1 */
+            ImGui::TableSetColumnIndex(3);
+            renderBindButton(ck, "ctrl1", 1, 0, ctrlVKs[0],
+                             (ctrlSlots[0] >= 0) ? ctrlSlots[0] : findFreeBindSlot(0, ck),
+                             ctrlSlots[1], &rowHovered, &rowNavFocus);
+
+            /* Col 4: Controller Bind 2 */
+            ImGui::TableSetColumnIndex(4);
+            renderBindButton(ck, "ctrl2", 1, 1, ctrlVKs[1], ctrlSlots[1], ctrlSlots[0],
+                             &rowHovered, &rowNavFocus);
+
+            /* Col 5: Input Mode (Single / 2xTap / Hold) */
+            ImGui::TableSetColumnIndex(5);
+            {
+                s32 mode = inputModeGet(ck);
+                ImGui::PushItemWidth(-1);
+                char comboId[32];
+                snprintf(comboId, sizeof(comboId), "##mode_%u", ck);
+                const char *modeOpts[] = { "Single", "2xTap", "Hold" };
+                if (ImGui::Combo(comboId, &mode, modeOpts, 3)) {
+                    inputModeSet(ck, mode);
+                    configSave("pd.ini");
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+                ImGui::PopItemWidth();
+            }
+
+            /* Col 6: Timing Window slider (only active when mode != Single) */
+            ImGui::TableSetColumnIndex(6);
+            {
+                s32 mode = inputModeGet(ck);
+                if (mode != 0) {
+                    f32 timing = inputModeGetTiming(ck);
+                    ImGui::PushItemWidth(-1);
+                    char sliderId[32];
+                    snprintf(sliderId, sizeof(sliderId), "##tmg_%u", ck);
+                    if (ImGui::SliderFloat(sliderId, &timing, 0.25f, 1.5f, "%.2fs")) {
+                        inputModeSetTiming(ck, timing);
+                        configSave("pd.ini");
+                    }
+                    ImGui::PopItemWidth();
+                } else {
+                    ImGui::TextDisabled("--");
+                }
+            }
+
+            /* Row highlight */
+            if (s_CaptureActive && s_CaptureCK == ck) {
+                rowNavFocus = true;
+            }
+            if (rowHovered || rowNavFocus) {
+                ImU32 hlColor = rowNavFocus
+                    ? IM_COL32(80, 120, 200, 80)
+                    : IM_COL32(200, 200, 255, 40);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, hlColor);
+            }
+        }
+
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar(3); /* CellPadding, FramePadding, ItemSpacing */
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Click to rebind. Right-click to clear. Esc to cancel.");
+
+    ImGui::Spacing();
+
+    /* Reset to Defaults buttons */
+    if (PdButton("Reset MKB to Defaults")) {
+        /* Save current controller binds */
+        u32 savedCtrl[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
+        s32 savedCtrlSlots[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
+        s32 savedCtrlCounts[NUM_BINDABLE_ACTIONS];
+        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+            u32 ck = s_BindableActions[i].ck;
+            savedCtrlCounts[i] = 0;
+            const u32 *ba = inputKeyGetBinds(0, ck);
+            if (!ba) continue;
+            for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
+                if (ba[j] != 0 && isVkController(ba[j])) {
+                    s32 c = savedCtrlCounts[i];
+                    savedCtrl[i][c] = ba[j];
+                    savedCtrlSlots[i][c] = j;
+                    savedCtrlCounts[i]++;
+                }
+            }
+        }
+        inputSetDefaultKeyBinds(0, 0);
+        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+            u32 ck = s_BindableActions[i].ck;
+            const u32 *ba = inputKeyGetBinds(0, ck);
+            if (ba) {
+                for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
+                    if (ba[j] != 0 && isVkController(ba[j])) {
+                        inputKeyBind(0, ck, j, 0);
+                    }
+                }
+            }
+            for (s32 c = 0; c < savedCtrlCounts[i]; c++) {
+                inputKeyBind(0, ck, savedCtrlSlots[i][c], savedCtrl[i][c]);
+            }
+        }
+        inputSaveBinds();
+        configSave("pd.ini");
+    }
+
+    ImGui::SameLine();
+
+    if (PdButton("Reset Controller to Defaults")) {
+        u32 savedMkb[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
+        s32 savedMkbSlots[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
+        s32 savedMkbCounts[NUM_BINDABLE_ACTIONS];
+        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+            u32 ck = s_BindableActions[i].ck;
+            savedMkbCounts[i] = 0;
+            const u32 *ba = inputKeyGetBinds(0, ck);
+            if (!ba) continue;
+            for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
+                if (ba[j] != 0 && isVkMKB(ba[j])) {
+                    s32 c = savedMkbCounts[i];
+                    savedMkb[i][c] = ba[j];
+                    savedMkbSlots[i][c] = j;
+                    savedMkbCounts[i]++;
+                }
+            }
+        }
+        inputSetDefaultKeyBinds(0, 0);
+        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+            u32 ck = s_BindableActions[i].ck;
+            const u32 *ba = inputKeyGetBinds(0, ck);
+            if (ba) {
+                for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
+                    if (ba[j] != 0 && isVkMKB(ba[j])) {
+                        inputKeyBind(0, ck, j, 0);
+                    }
+                }
+            }
+            for (s32 c = 0; c < savedMkbCounts[i]; c++) {
+                inputKeyBind(0, ck, savedMkbSlots[i][c], savedMkb[i][c]);
+            }
+        }
+        inputSaveBinds();
+        configSave("pd.ini");
     }
 }
 
@@ -548,6 +1048,12 @@ static void renderSettingsGame(float scale)
 
     ImGui::Separator();
 
+    bool skipIntro = g_SkipIntro != 0;
+    if (PdCheckbox("Skip Intro", &skipIntro)) {
+        g_SkipIntro = skipIntro ? 1 : 0;
+        configSave("pd.ini");
+    }
+
     bool useKeyReloads = g_PlayerExtCfg[0].usereloads != 0;
     if (PdCheckbox("Use Key Reloads", &useKeyReloads)) {
         g_PlayerExtCfg[0].usereloads = useKeyReloads ? 1 : 0;
@@ -607,12 +1113,14 @@ static void renderSettingsView(float scale, float contentH)
         s_SettingsSubTab--;
         if (s_SettingsSubTab < 0) s_SettingsSubTab = 3;
         s_BumperPendingTab = s_SettingsSubTab;
+        s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
         s_SettingsSubTab++;
         if (s_SettingsSubTab > 3) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
+        s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
 
@@ -631,7 +1139,10 @@ static void renderSettingsView(float scale, float contentH)
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
             s_SettingsSubTab = 0;
-            ImGui::BeginChild("##settings_scroll", ImVec2(0, 0), false);
+            ImGui::BeginChild("##settings_scroll_v", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsVideo(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
@@ -639,7 +1150,10 @@ static void renderSettingsView(float scale, float contentH)
 
         if (ImGui::BeginTabItem("Audio", nullptr, selFlag1)) {
             s_SettingsSubTab = 1;
-            ImGui::BeginChild("##settings_scroll", ImVec2(0, 0), false);
+            ImGui::BeginChild("##settings_scroll_a", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsAudio(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
@@ -647,7 +1161,10 @@ static void renderSettingsView(float scale, float contentH)
 
         if (ImGui::BeginTabItem("Controls", nullptr, selFlag2)) {
             s_SettingsSubTab = 2;
-            ImGui::BeginChild("##settings_scroll", ImVec2(0, 0), false);
+            ImGui::BeginChild("##settings_scroll_c", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsControls(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
@@ -655,7 +1172,10 @@ static void renderSettingsView(float scale, float contentH)
 
         if (ImGui::BeginTabItem("Game", nullptr, selFlag3)) {
             s_SettingsSubTab = 3;
-            ImGui::BeginChild("##settings_scroll", ImVec2(0, 0), false);
+            ImGui::BeginChild("##settings_scroll_g", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsGame(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
@@ -698,6 +1218,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * SetNextWindowFocus() to avoid stealing focus from child popups. */
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        s_MenuView = 0; /* Always open to main menu */
+        s_NeedsFocus = true;
     }
 
     /* Determine title based on current view */
@@ -716,9 +1238,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* B button / Escape navigation:
      * Sub-views (Play, Settings) -> back to top-level
-     * Top-level -> close menu entirely (return to CI free-roam) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+     * Top-level -> close menu entirely (return to CI free-roam)
+     *
+     * Guard: skip on the frame the window first appears. When the user
+     * presses B/Escape to close the menu and then reopens it, ImGui's
+     * key state can still report IsKeyPressed=true on the first frame,
+     * which would immediately close the menu again. */
+    if (!ImGui::IsWindowAppearing() &&
+        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -739,13 +1267,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, spacing * 2));
 
-        /* Play */
+        /* Play — give nav focus on first appearance or view switch */
+        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Play", ImVec2(buttonW, buttonH * 1.2f))) {
             s_MenuView = 1;
-        }
-        /* Give default nav focus to the first button */
-        if (ImGui::IsWindowAppearing()) {
-            ImGui::SetItemDefaultFocus();
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -779,20 +1304,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * ================================================================ */
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
-        /* Solo Missions */
+        /* Solo Missions — give nav focus on view switch */
+        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
             menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
-        }
-        /* Give default nav focus to first item */
-        if (ImGui::IsWindowAppearing()) {
-            ImGui::SetItemDefaultFocus();
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Combat Simulator */
-        if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
-            menuhandlerMainMenuCombatSimulator(MENUOP_SET, nullptr, nullptr);
+        /* Local Play — opens new match setup lobby */
+        if (PdButton("Local Play", ImVec2(buttonW, buttonH))) {
+            matchConfigInit();
+            menuPushDialog(&g_MatchSetupMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -818,45 +1341,31 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Network Game / Host */
-        if (PdButton("Network Game", ImVec2(buttonW, buttonH))) {
+        /* Network Play */
+        if (PdButton("Network Play", ImVec2(buttonW, buttonH))) {
             menuPushDialog(&g_NetMenuDialog);
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing * 2));
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Back button */
-        if (PdButton("Back", ImVec2(buttonW, 28.0f * scale))) {
-            s_MenuView = 0;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
         }
 
     } else if (s_MenuView == 2) {
         /* ================================================================
          * SETTINGS SUB-MENU
+         * Navigation: B/Escape returns to top-level (handled above).
          * ================================================================ */
         float contentH = dialogH - pdTitleH - 40.0f * scale;
         renderSettingsView(scale, contentH);
-
-        ImGui::Separator();
-
-        /* Back button */
-        if (PdButton("Back", ImVec2(buttonW, 28.0f * scale))) {
-            s_MenuView = 0;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
     }
 
-    /* Sound on view switches */
-    if (s_PrevView >= 0 && s_PrevView != s_MenuView) {
+    /* Sound on view switches + auto-focus flag */
+    s_ViewJustChanged = (s_PrevView >= 0 && s_PrevView != s_MenuView);
+    if (s_ViewJustChanged) {
         pdguiPlaySound(PDGUI_SND_SWIPE);
+        s_NeedsFocus = true;  /* focus first widget on next frame */
     }
     s_PrevView = s_MenuView;
 
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
+        s_NeedsFocus = true;  /* focus first widget when tab changes */
     }
     s_PrevSubTab = s_SettingsSubTab;
 

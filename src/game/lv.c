@@ -2087,6 +2087,11 @@ void lvTick(void)
 {
 	s32 j;
 	s32 i;
+	static s32 s_LvTickFirstRun = 1;
+	if (s_LvTickFirstRun) {
+		sysLogPrintf(LOG_NOTE, "INTRO: lvTick first call - g_Vars.stagenum=0x%02x", g_Vars.stagenum);
+		s_LvTickFirstRun = 0;
+	}
 
 	lvCheckPauseStateChanged();
 
@@ -2368,6 +2373,11 @@ void lvTick(void)
 	}
 
 	if (g_Vars.stagenum == STAGE_TITLE) {
+		static s32 s_TitleTickCount = 0;
+		if (s_TitleTickCount < 5 || s_TitleTickCount % 300 == 0) {
+			sysLogPrintf(LOG_NOTE, "INTRO: lvTick calling titleTick (tick #%d, g_TitleMode=%d)", s_TitleTickCount, g_TitleMode);
+		}
+		s_TitleTickCount++;
 		titleTick();
 		langTick();
 		musicTick();

@@ -37,6 +37,9 @@ struct menudialogdef g_MpChangeTeamNameMenuDialog;
 struct menudialogdef g_MpEditSimulantMenuDialog;
 struct menudialogdef g_MpSaveSetupNameMenuDialog;
 
+/* PC port: our lobby dialog that replaces g_CombatSimulatorMenuDialog */
+extern struct menudialogdef g_MatchSetupMenuDialog;
+
 extern struct menudialogdef g_ManageSettingsDialog;
 extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
 extern struct menudialogdef g_FilemgrErrorMenuDialog;
@@ -5665,7 +5668,7 @@ MenuDialogHandlerResult menudialogCombatSimulator(s32 operation, struct menudial
 	}
 
 	if (g_Menus[g_MpPlayerNum].curdialog
-			&& g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog
+			&& (g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog || g_Menus[g_MpPlayerNum].curdialog->definition == &g_MatchSetupMenuDialog)
 			&& operation == MENUOP_TICK) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_Vars.mpquickteam = MPQUICKTEAM_NONE;

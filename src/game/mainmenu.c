@@ -36,6 +36,9 @@
 #include "types.h"
 #include "net/net.h"
 
+/* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
+extern struct menudialogdef g_MatchSetupMenuDialog;
+
 bool g_NotLoadMod;
 
 u8 g_InventoryWeapon;
@@ -45,10 +48,7 @@ struct menudialogdef g_CiControlPlayer2MenuDialog;
 struct menudialogdef g_CinemaMenuDialog;
 extern struct menudialogdef g_ExtendedMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
-extern MenuItemHandlerResult menuhandlerJoinGame(s32 operation, struct menuitem *item, union handlerdata *data);
 extern MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item, union handlerdata *data);
-extern MenuItemHandlerResult menuhandlerHostGame(s32 operation, struct menuitem *item, union handlerdata *data);
-extern MenuItemHandlerResult menuhandlerHostStart(s32 operation, struct menuitem *item, union handlerdata *data);
 
 char *menuTextCurrentStageName(struct menuitem *item)
 {
@@ -4826,7 +4826,7 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_NotLoadMod = false;
 		romdataFileFreeForSolo();
-		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		func0f0f820c(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
 		func0f0f8300();
 	}
 
@@ -4877,13 +4877,10 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 			g_MissionConfig.isanti = false;
 		}
 		if (g_NetJoinLatch) {
-			menuhandlerJoinGame(MENUOP_SET, NULL, NULL);
+			/* Auto-join: open the Multiplayer menu and start connection */
+			menuPushDialog(&g_NetMenuDialog);
 			menuhandlerJoinStart(MENUOP_SET, NULL, NULL);
 			g_NetJoinLatch = false;
-		} else if (g_NetHostLatch) {
-			menuhandlerHostGame(MENUOP_SET, NULL, NULL);
-			menuhandlerHostStart(MENUOP_SET, NULL, NULL);
-			g_NetHostLatch = false;
 		}
 		break;
 	}

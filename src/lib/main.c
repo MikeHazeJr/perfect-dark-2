@@ -24,6 +24,7 @@
 #include "game/stubs/game_00b200.h"
 #include "game/challenge.h"
 #include "game/title.h"
+#include "audio.h"
 #include "game/pdmode.h"
 #include "game/objectives.h"
 #include "game/endscreen.h"
@@ -811,6 +812,7 @@ void mainProc(void)
 	mainInit();
 	rdpInit();
 	sndInit();
+	audioNotifyEngineReady(); /* Port: safe to write volumes now that sndInit is done */
 
 	while (true) {
 		mainLoop();

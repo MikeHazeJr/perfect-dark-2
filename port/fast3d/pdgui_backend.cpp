@@ -37,6 +37,8 @@
 
 /* Lobby sidebar — declared in pdgui_lobby.cpp */
 extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
+extern "C" void pdguiUpdateRender(void);
+extern "C" s32  pdguiUpdateIsActive(void);
 
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
@@ -185,9 +187,11 @@ void pdguiRender(void)
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
 
     bool networkActive = (netGetMode() != 0);
+    bool updateActive = (pdguiUpdateIsActive() != 0);
 
+    /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive && !networkActive)) {
+        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive && !networkActive && !updateActive)) {
         return;
     }
 
@@ -228,6 +232,10 @@ void pdguiRender(void)
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);
+
+    /* D13: Update notification banner, version picker, download progress.
+     * Renders as overlay — independent of hotswap and menu state. */
+    pdguiUpdateRender();
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */

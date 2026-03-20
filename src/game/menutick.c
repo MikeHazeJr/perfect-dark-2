@@ -32,6 +32,9 @@
 #include "net/net.h"
 #include "mod.h"
 
+/* PC port: redirect post-match menu to our new Match Setup lobby */
+extern struct menudialogdef g_MatchSetupMenuDialog;
+
 u8 g_FileState = 0;
 u8 var80062944 = 0;
 u8 var80062948 = 0;
@@ -248,7 +251,7 @@ void menuTick(void)
 							if (IS4MB()) {
 								menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
 							} else {
-								menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+								menuPushRootDialog(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
 							}
 						} else {
 							g_Vars.waitingtojoin[i] = true;
@@ -531,7 +534,8 @@ void menuTick(void)
 				g_MenuData.prevmenudialog = &g_MainMenu4MbMenuDialog;
 			} else {
 				g_MenuData.prevmenuroot = MENUROOT_MPSETUP;
-				g_MenuData.prevmenudialog = &g_CombatSimulatorMenuDialog;
+				/* PC port: return to Match Setup lobby */
+				g_MenuData.prevmenudialog = &g_MatchSetupMenuDialog;
 			}
 		}
 

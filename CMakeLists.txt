@@ -121,7 +121,20 @@ if((VERSION_BRANCH STREQUAL "") OR (VERSION_BRANCH STREQUAL "HEAD"))
   set(VERSION_BRANCH "port-custom")
 endif()
 
-message(STATUS "Version: ${VERSION_ROMID}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
+# Semantic version (D13 Update System)
+# Bump these when creating releases. Dev builds use VERSION_SEM_DEV > 0.
+set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
+set(VERSION_SEM_MINOR 1 CACHE STRING "Semantic version minor")
+set(VERSION_SEM_PATCH 0 CACHE STRING "Semantic version patch")
+set(VERSION_SEM_DEV   1 CACHE STRING "Dev build number (0 = stable release)")
+
+if(VERSION_SEM_DEV GREATER 0)
+  set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}-dev.${VERSION_SEM_DEV}")
+else()
+  set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
+endif()
+
+message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
 
@@ -211,24 +224,107 @@ endif()
 
 set(LIBS )
 
-# SDL2
+# SDL2 — static on Windows so no SDL2.dll is needed at runtime
 find_package(SDL2 REQUIRED)
 if(NINTENDO_SWITCH)
   if(NOT SDL2_LIBRARY OR NOT SDL2_INCLUDE_DIR)
-    # sometimes FindSDL2 just wants us to suffer and does not set these
     set(SDL2_LIBRARY "SDL2")
     set(SDL2_INCLUDE_DIR "${DEVKITPRO}/portlibs/switch/include/SDL2")
   endif()
 endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
-list(APPEND LIBS "${SDL2_LIBRARY}")
+if(WIN32)
+  # Use the static library instead of the import stub (.dll.a)
+  # MSYS2 path: /mingw64/lib/libSDL2.a
+  set(SDL2_STATIC_LIB "${SDL2_INCLUDE_DIR}/../lib/libSDL2.a")
+  if(EXISTS "${SDL2_STATIC_LIB}")
+    message(STATUS "SDL2: Using static library ${SDL2_STATIC_LIB}")
+    list(APPEND LIBS mingw32 "${SDL2_INCLUDE_DIR}/../lib/libSDL2main.a" "${SDL2_STATIC_LIB}")
+    # SDL2 static on Windows needs these system libs
+    list(APPEND LIBS imm32 version setupapi)
+  else()
+    message(WARNING "SDL2: Static library not found at ${SDL2_STATIC_LIB}, falling back to dynamic")
+    list(APPEND LIBS "${SDL2_LIBRARY}")
+  endif()
+else()
+  list(APPEND LIBS "${SDL2_LIBRARY}")
+endif()
 
-# ZLib
+# ZLib — static on Windows so no zlib1.dll is needed at runtime
 find_package(ZLIB REQUIRED)
 if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
 endif()
-list(APPEND LIBS "${ZLIB_LIBRARY}")
+if(WIN32)
+  set(ZLIB_STATIC_LIB "${ZLIB_INCLUDE_DIR}/../lib/libz.a")
+  if(EXISTS "${ZLIB_STATIC_LIB}")
+    message(STATUS "ZLIB: Using static library ${ZLIB_STATIC_LIB}")
+    list(APPEND LIBS "${ZLIB_STATIC_LIB}")
+  else()
+    message(WARNING "ZLIB: Static library not found at ${ZLIB_STATIC_LIB}, falling back to dynamic")
+    list(APPEND LIBS "${ZLIB_LIBRARY}")
+  endif()
+else()
+  list(APPEND LIBS "${ZLIB_LIBRARY}")
+endif()
+
+# libcurl — static on Windows so no libcurl-4.dll is needed at runtime
+# MSYS2: pacman -S mingw-w64-x86_64-curl
+find_package(CURL REQUIRED)
+if(CURL_INCLUDE_DIRS)
+  include_directories(SYSTEM "${CURL_INCLUDE_DIRS}")
+elseif(CURL_INCLUDE_DIR)
+  include_directories(SYSTEM "${CURL_INCLUDE_DIR}")
+endif()
+if(WIN32)
+  # Static curl needs CURL_STATICLIB defined so headers use dllimport correctly
+  add_definitions(-DCURL_STATICLIB)
+  # Use pkg-config to get the full static dependency chain
+  find_package(PkgConfig)
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(CURL_STATIC QUIET libcurl)
+    if(CURL_STATIC_STATIC_LIBRARIES)
+      message(STATUS "CURL: Using static link via pkg-config: ${CURL_STATIC_STATIC_LIBRARIES}")
+      foreach(_lib ${CURL_STATIC_STATIC_LIBRARIES})
+        # pkg-config returns bare lib names; find_library resolves them
+        find_library(_found_${_lib} NAMES ${_lib} PATHS "${CURL_STATIC_LIBRARY_DIRS}" NO_DEFAULT_PATH)
+        if(_found_${_lib})
+          list(APPEND LIBS "${_found_${_lib}}")
+        else()
+          list(APPEND LIBS "${_lib}")
+        endif()
+        unset(_found_${_lib} CACHE)
+      endforeach()
+    else()
+      message(WARNING "CURL: pkg-config static libs not found, falling back to dynamic")
+      if(CURL_LIBRARIES)
+        list(APPEND LIBS "${CURL_LIBRARIES}")
+      elseif(CURL_LIBRARY)
+        list(APPEND LIBS "${CURL_LIBRARY}")
+      endif()
+    endif()
+  else()
+    # No pkg-config — try manual static curl with common deps
+    set(CURL_STATIC_LIB "${CURL_INCLUDE_DIR}/../lib/libcurl.a")
+    if(EXISTS "${CURL_STATIC_LIB}")
+      message(STATUS "CURL: Using static library (manual) ${CURL_STATIC_LIB}")
+      list(APPEND LIBS "${CURL_STATIC_LIB}" ssl crypto crypt32 wldap32 bcrypt)
+    else()
+      message(WARNING "CURL: Static library not found, falling back to dynamic")
+      if(CURL_LIBRARIES)
+        list(APPEND LIBS "${CURL_LIBRARIES}")
+      elseif(CURL_LIBRARY)
+        list(APPEND LIBS "${CURL_LIBRARY}")
+      endif()
+    endif()
+  endif()
+else()
+  if(CURL_LIBRARIES)
+    list(APPEND LIBS "${CURL_LIBRARIES}")
+  elseif(CURL_LIBRARY)
+    list(APPEND LIBS "${CURL_LIBRARY}")
+  endif()
+endif()
 
 # GL
 if(NOT GL_LIBRARY)
@@ -316,8 +412,11 @@ set(SRC_LIB
 )
 list(PREPEND SRC_LIB "${CMAKE_SOURCE_DIR}")
 
-# Exclude server_main.c from client sources (it has its own main/globals)
+# Exclude server-only files from client sources (they have their own main/globals/stubs)
 list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_main\\.c$")
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_stubs\\.c$")
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_bridge\\.c$")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*/server_gui\\.cpp$")
 
 set(SRC
   ${SRC_GAME}
@@ -365,6 +464,7 @@ set(SRC_SERVER
   # Server entry point + comprehensive stubs for ALL game dependencies
   ${CMAKE_SOURCE_DIR}/port/src/server_main.c
   ${CMAKE_SOURCE_DIR}/port/src/server_stubs.c
+  ${CMAKE_SOURCE_DIR}/port/src/server_bridge.c
   ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
 
   # Core networking ONLY (not netmenu.c — that's client UI)
@@ -391,6 +491,11 @@ set(SRC_SERVER
 
   # ENet (external library)
   ${CMAKE_SOURCE_DIR}/port/external/enet.c
+
+  # Update system (D13) — server has its own update path + --check-update CLI
+  ${CMAKE_SOURCE_DIR}/port/src/updater.c
+  ${CMAKE_SOURCE_DIR}/port/src/sha256.c
+  ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
 )
 
 # ImGui sources for server GUI

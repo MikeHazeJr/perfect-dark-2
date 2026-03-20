@@ -1534,10 +1534,30 @@ void playerTickChrBody(void)
 
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
-			if (bodymodeldef == NULL) {
-				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL (multi) for bodynum=%d filenum=0x%04x",
+			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
+			 * missing file, etc.). If the player's configured body is broken,
+			 * fall back to the default combat body. NOTE: we no longer reject
+			 * models with bad scale here — body0f02ce8c will clamp the scale
+			 * instead of rejecting, preventing cascading failures. */
+			if (bodymodeldef == NULL
+				|| bodymodeldef->skel == NULL
+				|| bodymodeldef->rootnode == NULL
+				|| bodymodeldef->numparts <= 0
+				|| bodymodeldef->numparts > 500) {
+				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
 					bodynum, g_HeadsAndBodies[bodynum].filenum);
-				return;
+				bodynum = BODY_DARK_COMBAT;
+				headnum = HEAD_DARK_COMBAT;
+
+				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
+					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				}
+				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+
+				if (bodymodeldef == NULL) {
+					sysLogPrintf(LOG_WARNING, "PLAYER: fallback bodymodeldef also NULL — giving up");
+					return;
+				}
 			}
 
 			if (g_HeadsAndBodies[bodynum].unk00_01) {
@@ -1559,6 +1579,32 @@ void playerTickChrBody(void)
 		}
 
 		g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+
+		/* If body failed to load (corrupt modeldef, missing file, etc.),
+		 * try falling back to default combat body before giving up. */
+		if (g_Vars.currentplayer->model00d4 == NULL) {
+			sysLogPrintf(LOG_WARNING, "PLAYER: body0f02ce8c returned NULL for bodynum=%d, trying fallback BODY_DARK_COMBAT", bodynum);
+			bodynum = BODY_DARK_COMBAT;
+			headnum = HEAD_DARK_COMBAT;
+
+			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			}
+			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+
+			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
+				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+			}
+			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+
+			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+		}
+
+		if (g_Vars.currentplayer->model00d4 == NULL) {
+			sysLogPrintf(LOG_WARNING, "PLAYER: fallback body also failed — player will be invisible");
+			g_Vars.currentplayer->haschrbody = false;
+			return;
+		}
 
 		chr0f020b14(g_Vars.currentplayer->prop, g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms, turnangle, 0);

@@ -11,10 +11,14 @@
 
 #include <PR/ultratypes.h>
 #include <string.h>
+#include "net/netenet.h"  /* must precede types.h — enet.h #undef's bool */
 #include "types.h"
 #include "data.h"
 #include "bss.h"
+#include "system.h"
 #include "net/net.h"
+#include "net/netbuf.h"
+#include "net/netmsg.h"
 #include "net/netlobby.h"
 
 /**
@@ -239,16 +243,16 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
     p[3] = lp->headnum;
     p[4] = lp->bodynum;
     p[5] = lp->team;
-    strncpy((char *)(p + 6), lp->name, 15);
-    p[21] = '\0';
+    strncpy((char *)(p + 6), lp->name, 31);
+    p[37] = '\0';
 
-    /* isLocal (s32 at offset 24, aligned) */
+    /* isLocal (s32 at offset 40, aligned after name[32]) */
     s32 isLocal = (&g_NetClients[lp->clientId] == g_NetLocalClient) ? 1 : 0;
-    memcpy(p + 24, &isLocal, sizeof(s32));
+    memcpy(p + 40, &isLocal, sizeof(s32));
 
-    /* state (s32 at offset 28) */
+    /* state (s32 at offset 44) */
     s32 state = g_NetClients[lp->clientId].state;
-    memcpy(p + 28, &state, sizeof(s32));
+    memcpy(p + 44, &state, sizeof(s32));
 
     return 1;
 }
@@ -257,4 +261,72 @@ s32 netLocalClientInLobby(void)
 {
     if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) return 0;
     return (g_NetLocalClient->state == CLSTATE_LOBBY) ? 1 : 0;
+}
+
+u32 netGetClientPing(s32 clientId)
+{
+    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return 0;
+    struct netclient *cl = &g_NetClients[clientId];
+    if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return 0;
+    /* ENet peer round-trip time in milliseconds */
+    return cl->peer->roundTripTime;
+}
+
+void netServerKickClient(s32 clientId, const char *reason)
+{
+    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return;
+    if (g_NetMode != NETMODE_SERVER) return;
+
+    struct netclient *cl = &g_NetClients[clientId];
+    if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return;
+
+    sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
+                 clientId, cl->settings.name, reason ? reason : "no reason");
+    enet_peer_disconnect(cl->peer, 0);
+}
+
+/* ========================================================================
+ * Recent server browser bridge functions
+ * ======================================================================== */
+
+s32 netRecentServerGetCount(void)
+{
+    return g_NetNumRecentServers;
+}
+
+s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
+                           u8 *flags, u8 *numclients, u8 *maxclients,
+                           u32 *online)
+{
+    if (idx < 0 || idx >= g_NetNumRecentServers) return 0;
+
+    struct netrecentserver *srv = &g_NetRecentServers[idx];
+    if (addr && addrSize > 0) {
+        strncpy(addr, srv->addr, addrSize - 1);
+        addr[addrSize - 1] = '\0';
+    }
+    if (flags) *flags = srv->flags;
+    if (numclients) *numclients = srv->numclients;
+    if (maxclients) *maxclients = srv->maxclients;
+    if (online) *online = srv->online ? 1 : 0;
+    return 1;
+}
+
+/* ========================================================================
+ * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
+ * ======================================================================== */
+
+s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+{
+    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
+        return -1;
+    }
+    if (g_NetLocalClient->state < CLSTATE_LOBBY) {
+        return -2;
+    }
+
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u",
+                 gamemode, stagenum, difficulty);
+    return 0;
 }

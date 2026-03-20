@@ -9,9 +9,71 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
-## Current Task: Menu System Phase 2 — Bugs, Restructure, and Features
+## Current Task: D13 — Update System
 
-### Status: IN PROGRESS
+### Status: CODE WRITTEN — NEEDS BUILD TEST
+
+**All source files created 2026-03-20. Mike needs to install libcurl and compile.**
+
+### Architecture
+Semantic versioning, GitHub Releases API, SHA-256 verification, rename-on-restart self-replacement,
+save migration framework, ImGui update UI. Full design in [context/update-system.md](update-system.md).
+
+### New Files
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `port/include/updateversion.h` | Version struct, comparison, channel enum, tag parsing | WRITTEN |
+| `port/include/sha256.h` | SHA-256 public API | WRITTEN |
+| `port/src/sha256.c` | SHA-256 implementation (~200 LOC, no deps) | WRITTEN |
+| `port/include/updater.h` | Update checker/downloader API (async, threaded) | WRITTEN |
+| `port/src/updater.c` | GitHub API client, download, self-replace, JSON parsing | WRITTEN |
+| `port/include/savemigrate.h` | Save migration chain API | WRITTEN |
+| `port/src/savemigrate.c` | Version-aware migration framework (no migrations yet — SAVE_VERSION=1) | WRITTEN |
+| `port/fast3d/pdgui_menu_update.cpp` | ImGui notification banner, version picker, download progress | WRITTEN |
+| `context/update-system.md` | Full architecture document | WRITTEN |
+
+### Modified Files
+
+| File | Change | Status |
+|------|--------|--------|
+| `port/include/versioninfo.h.in` | Added VERSION_MAJOR/MINOR/PATCH/DEV template vars | MODIFIED |
+| `CMakeLists.txt` | Added libcurl dep, VERSION_SEM_* vars, configure_file updates | MODIFIED |
+| `port/src/main.c` | Added updaterApplyPending (early), updaterInit, updaterCheckAsync, updaterShutdown | MODIFIED |
+| `port/src/server_main.c` | Added --check-update flag, updater init/check, forward declarations | MODIFIED |
+| `port/fast3d/pdgui_backend.cpp` | Added pdguiUpdateRender() call, updateActive guard in render check | MODIFIED |
+
+### Build Prerequisites
+```bash
+# In MSYS2 MinGW terminal:
+pacman -S mingw-w64-x86_64-curl
+```
+
+### Testing Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Install libcurl in MSYS2 | WAITING |
+| 2 | Compile client (`pd.x86_64.exe`) | WAITING |
+| 3 | Compile server (`pd-server.x86_64.exe`) | WAITING |
+| 4 | Launch game — verify update check runs (check log for "UPDATER: Initialized") | WAITING |
+| 5 | Open F12 debug menu → verify version string displays correctly | WAITING |
+| 6 | Create a test GitHub release with `client-v0.1.0` tag + exe asset + .sha256 | WAITING |
+| 7 | Verify notification banner appears when update is available | WAITING |
+| 8 | Test version picker dialog (Settings → About/Update) | WAITING |
+| 9 | Test download + SHA-256 verification | WAITING |
+| 10 | Test restart-to-apply flow | WAITING |
+| 11 | Test server `--check-update` CLI flag | WAITING |
+| 12 | Test save migration (bump SAVE_VERSION, verify backup + chain) | FUTURE |
+
+### Blockers
+- Mike must install libcurl and compile on Windows
+
+---
+
+## Previous Task: Menu System Phase 2 — Bugs, Restructure, and Features
+
+### Status: IN PROGRESS (paused for D13)
 
 ### Phase 2a: Critical Bug Fixes
 
@@ -120,13 +182,57 @@ Agent creation flow (from Agent Select "New Agent..."):
 - Verify pickup/prop sync (weapons, ammo, shields on map)
 - Test lobby sidebar appearance during actual networked session
 
-### Phase 2d: Network Hosting Architecture (PLAN — future)
+### Phase 3: Multiplayer Refactor — Dedicated Server Only — DONE
 
-Vision: Drop-in/drop-out for all modes beyond initial lobby-based hosting.
-- Host starts server, joiners connect anytime (lobby, match, mission)
-- Campaign: seamless co-op/counter-op without gameplay interruption
-- Spectate mode for all modes
-- Requires: mid-game state sync, spectator camera, drop-in slot allocation
+**Architecture change: Dedicated-server-only model.**
+All remote multiplayer routes through a dedicated server process. The game client never hosts.
+Local play (splitscreen, solo) uses NETMODE_NONE and is completely unaffected.
+
+**Completed work:**
+
+1. **Host menu removal** — Removed all host-related menu handlers from netmenu.c (menuhandlerHostMaxPlayers, menuhandlerHostPort, menuhandlerHostStart, etc.). Removed host code paths from mainmenu.c.
+
+2. **New Multiplayer menu** (pdgui_menu_network.cpp) — Server Browser with clickable rows (address, status, player count), Direct IP connect with InputText, Agent name in title bar. Registered via pdguiHotswapRegister for g_NetMenuDialog.
+
+3. **Lobby system rewrite** (netlobby.c) — Leader election: first client in CLSTATE_LOBBY becomes leader (not host). Agent names via cl->settings.name. Server skips its own slot when g_NetDedicated. Re-election on leader disconnect.
+
+4. **Lobby screen** (pdgui_menu_lobby.cpp) — Two-column layout: player list (left) with Agent names, game mode selection (right) for leader. Leader controls: Combat Simulator, Co-op Campaign, Counter-Operative. Non-leaders see disabled buttons. Disconnect button with B/Escape support.
+
+5. **Sidebar overlay fix** (pdgui_lobby.cpp) — Sidebar no longer overlaps lobby screen. Only renders as minimal "Connected: X players" during CLSTATE_GAME. Dedicated server overlay gated behind g_NetDedicated. Removed stale "Lobby (Host)" text.
+
+6. **Dedicated server enhancements** (server_main.c, server_gui.cpp):
+   - Command-line args: --port, --maxclients, --gamemode, --headless
+   - Signal handling: SIGINT/SIGTERM for graceful shutdown (cross-platform)
+   - Server GUI: 4-panel layout (status bar, player list with ping/kick, server controls, log)
+   - Headless mode for unattended operation
+
+7. **CLC_LOBBY_START protocol** (netmsg.h, netmsg.c, net.c):
+   - New message: CLC_LOBBY_START (0x08) — leader requests match start {gamemode, stagenum, difficulty}
+   - New message: SVC_LOBBY_LEADER (0x60) — server announces authoritative leader
+   - New message: SVC_LOBBY_STATE (0x61) — server broadcasts lobby state changes
+   - Server validates sender is lobby leader before starting match
+   - Dispatched in both CLC and SVC switch statements in net.c
+
+8. **Lobby UI wired to protocol** — Combat Sim button sends CLC_LOBBY_START directly. Co-op config dialog's "Start Mission" button sends CLC_LOBBY_START with stage/difficulty. Removed TODO stubs.
+
+9. **Cleanup:**
+   - "Network Game" renamed to "Multiplayer" in main menu and storyboard
+   - Stale g_NetHostMenuDialog / g_NetJoinMenuDialog removed from storyboard catalog
+   - Debug menu "Host Lobby" renamed to "Debug: Local Server" with "(dev only)" label
+   - PDGUI_NET_MAX_CLIENTS fixed from 4 to 8 in debug menu
+   - strncpy null-termination fix in pdgui_menu_network.cpp
+   - netGetClientPing() and netServerKickClient() bridge functions added
+
+**Remaining TODO:**
+- End-to-end playtest: Connect → Lobby → Start Match → Play → Endscreen
+- Combat Sim stage selection (currently hardcoded to Complex for quick start)
+- Authoritative leader broadcast: server should send SVC_LOBBY_LEADER on leader change
+- "Quick Play" button that auto-launches server subprocess + connects to localhost
+
+### Phase 2d: Network Hosting Architecture (SUPERSEDED by Phase 3)
+
+Original vision for drop-in/drop-out has been partially addressed by the dedicated server model.
+Remaining vision items: mid-game join, spectator mode, seamless co-op drop-in.
 
 ### Previous Steps (Phase 1 — COMPLETE)
 

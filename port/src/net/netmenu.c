@@ -1,3 +1,16 @@
+/**
+ * netmenu.c -- Network multiplayer menus (PD native menu system).
+ *
+ * Architecture: Dedicated-server-only model.
+ * - Clients NEVER host. All multiplayer goes through a dedicated server.
+ * - Local play (splitscreen, solo) uses NETMODE_NONE and is unaffected.
+ * - The "Multiplayer" menu provides: Server Browser, Direct IP, Recent Servers.
+ * - Once connected, the lobby (pdgui_menu_lobby.cpp) handles game setup.
+ *
+ * Legacy host menus have been removed. The co-op configuration dialog is
+ * retained for use by the lobby leader (runs on client, sends to server).
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,118 +39,19 @@
 #include "lib/vi.h"
 #include "romdata.h"
 
-extern MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
-extern MenuItemHandlerResult menuhandlerMpAdvancedSetup(s32 operation, struct menuitem *item, union handlerdata *data);
-
 /* Non-static so ImGui network menus can access them */
 s32 g_NetMenuMaxPlayers = NET_MAX_CLIENTS;
 s32 g_NetMenuPort = NET_DEFAULT_PORT;
 char g_NetJoinAddr[NET_MAX_ADDR + 1];
 static s32 g_NetJoinAddrPtr = 0;
 
-/* host */
-
-static MenuItemHandlerResult menuhandlerHostMaxPlayers(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GETSLIDER:
-		data->slider.value = g_NetMenuMaxPlayers;
-		break;
-	case MENUOP_SET:
-		if (data->slider.value) {
-			g_NetMenuMaxPlayers = data->slider.value;
-		}
-		break;
-	}
-
-	return 0;
-}
-
-static MenuItemHandlerResult menuhandlerHostPort(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-
-	}
-
-	return 0;
-}
-
-static char *menuhandlerHostPortValue(struct menuitem *item)
-{
-	static char tmp[16];
-	snprintf(tmp, sizeof(tmp), "%u\n", g_NetMenuPort);
-	return tmp;
-}
-
-MenuItemHandlerResult menuhandlerHostStart(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-		if (netStartServer(g_NetMenuPort, g_NetMenuMaxPlayers) == 0) {
-			// load the setup file when entering the Combat Simulator
-			mpsetupCopyAllFromPak();
-			mpsetupLoadCurrentFile();
-			menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);
-			menuhandlerMpAdvancedSetup(MENUOP_SET, NULL, NULL);
-		}
-	}
-
-	return 0;
-}
-
-struct menuitem g_NetHostMenuItems[] = {
-	{
-		MENUITEMTYPE_SLIDER,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Max Players",
-		NET_MAX_CLIENTS,
-		menuhandlerHostMaxPlayers,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Port\n",
-		(uintptr_t)&menuhandlerHostPortValue,
-		menuhandlerHostPort,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		0,
-		L_MPMENU_036, // "Start Game"
-		0,
-		menuhandlerHostStart,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
-		L_OPTIONS_213, // "Back"
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
-
-struct menudialogdef g_NetHostMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Host Network Game",
-	g_NetHostMenuItems,
-	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
-	NULL,
-};
-
-/* co-op host */
+/* ========================================================================
+ * Co-op configuration dialog (used by lobby leader, no local server)
+ *
+ * In the dedicated-server model, the lobby leader opens this dialog to
+ * configure a co-op mission. The settings are sent to the server via
+ * network messages. The dialog does NOT start a local server.
+ * ======================================================================== */
 
 #define NUM_COOP_STAGES 21
 
@@ -224,11 +138,10 @@ MenuItemHandlerResult menuhandlerNetCoopRadar(s32 operation, struct menuitem *it
 
 static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	// Character body selection — also auto-assigns matching head
-	// Uses local player config (index 0 for server host)
+	/* Character body selection for co-op — uses local player config (index 0) */
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1; // +1 for "Default" at index 0
+		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value == 0) {
@@ -241,13 +154,11 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 	case MENUOP_GETSELECTEDINDEX: {
 		u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
 		u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
-		// Index 0 = "Default", index 1+ = body list
 		data->dropdown.value = (mpbody == 0 && mphead == 0) ? 0 : (mpbody + 1);
 		break;
 	}
 	case MENUOP_SET:
 		if (data->dropdown.value == 0) {
-			// "Default" — clear custom selection
 			g_PlayerConfigsArray[0].base.mpbodynum = 0;
 			g_PlayerConfigsArray[0].base.mpheadnum = 0;
 		} else if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
@@ -255,67 +166,63 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
 			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 		}
-		sysLogPrintf(LOG_NOTE, "NET: host co-op character set: body=%u head=%u",
+		sysLogPrintf(LOG_NOTE, "NET: co-op character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
+		/* Notify server of updated settings */
+		if (g_NetMode == NETMODE_CLIENT) {
+			netClientSettingsChanged();
+		}
 		break;
 	}
 	return 0;
 }
 
-static MenuItemHandlerResult menuhandlerCoopHostBack(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult menuhandlerCoopConfigBack(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		/* Shutting down the co-op host session — stop the server before leaving */
-		if (g_NetMode == NETMODE_SERVER) {
-			sysLogPrintf(LOG_NOTE, "NET: co-op host canceled, stopping server");
-			netDisconnect();
-		}
 		menuPopDialog();
 	}
 	return 0;
 }
 
-static const char *menutextCoopPlayerStatus(struct menuitem *item)
-{
-	static char tmp[128];
-	if (g_NetNumClients < 2) {
-		snprintf(tmp, sizeof(tmp), "Waiting for Player 2...\n");
-	} else {
-		/* Find the remote client and show their name */
-		for (s32 i = 0; i < g_NetMaxClients; i++) {
-			struct netclient *ncl = &g_NetClients[i];
-			if (ncl->state && ncl != g_NetLocalClient && ncl->settings.name[0]) {
-				snprintf(tmp, sizeof(tmp), "Player 2: %s\n", ncl->settings.name);
-				return tmp;
-			}
-		}
-		snprintf(tmp, sizeof(tmp), "Player 2 connected\n");
-	}
-	return tmp;
-}
-
-static MenuItemHandlerResult menuhandlerCoopStart(s32 operation, struct menuitem *item, union handlerdata *data)
+/* Co-op start: lobby leader sends CLC_LOBBY_START to the dedicated server.
+ * The server validates the sender is the leader, then starts the mission.
+ * Only enabled when connected as a client and in CLSTATE_LOBBY. */
+static MenuItemHandlerResult menuhandlerCoopConfigStart(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		if (g_NetMode == NETMODE_SERVER && g_NetNumClients >= 2) {
-			g_NetGameMode = NETGAMEMODE_COOP;
-			g_MissionConfig.stagenum = g_SoloStages[g_NetCoopStageIndex].stagenum;
-			g_MissionConfig.stageindex = g_NetCoopStageIndex;
-			g_MissionConfig.difficulty = g_NetCoopDiffIndex;
-			g_MissionConfig.iscoop = true;
-			g_MissionConfig.isanti = false;
-			netServerCoopStageStart(g_MissionConfig.stagenum, g_MissionConfig.difficulty);
+		if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient &&
+		    g_NetLocalClient->state >= CLSTATE_LOBBY) {
+			u8 stagenum = (u8)g_SoloStages[g_NetCoopStageIndex].stagenum;
+			u8 difficulty = (u8)g_NetCoopDiffIndex;
+			/* Determine game mode: co-op or counter-op.
+			 * Counter-op is selected when menuhandler sets g_NetGameMode = 2.
+			 * Default to co-op (1). */
+			u8 gamemode = (g_NetGameMode == 2) ? 2 : 1;
+
+			sysLogPrintf(LOG_NOTE, "NET: lobby leader requesting co-op start "
+				"(stage=%d stagenum=0x%02x diff=%d mode=%d)",
+				g_NetCoopStageIndex, stagenum, difficulty, gamemode);
+
+			netmsgClcLobbyStartWrite(&g_NetLocalClient->out,
+				gamemode, stagenum, difficulty);
+
+			/* Pop the config dialog — we're done configuring */
+			menuPopDialog();
 		}
 	}
 	if (operation == MENUOP_CHECKDISABLED) {
-		/* need at least one other client connected (host + 1 remote = 2) */
-		return (g_NetNumClients < 2) ? true : false;
+		/* Disabled when not connected to a server */
+		if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient ||
+		    g_NetLocalClient->state < CLSTATE_LOBBY) {
+			return true;
+		}
+		return false;
 	}
 	return 0;
 }
 
 struct menuitem g_NetCoopHostMenuItems[] = {
-	/* --- Mission setup --- */
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
@@ -348,7 +255,6 @@ struct menuitem g_NetCoopHostMenuItems[] = {
 		0,
 		NULL,
 	},
-	/* --- Gameplay options --- */
 	{
 		MENUITEMTYPE_CHECKBOX,
 		0,
@@ -373,50 +279,42 @@ struct menuitem g_NetCoopHostMenuItems[] = {
 		0,
 		NULL,
 	},
-	/* --- Player status and actions --- */
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_SELECTABLE_CENTRE,
-		(uintptr_t)&menutextCoopPlayerStatus,
-		0,
-		NULL,
-	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Start Mission\n",
 		0,
-		menuhandlerCoopStart,
+		menuhandlerCoopConfigStart,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Cancel\n",
+		(uintptr_t)"Back\n",
 		0,
-		menuhandlerCoopHostBack,
+		menuhandlerCoopConfigBack,
 	},
 	{ MENUITEMTYPE_END },
 };
 
 struct menudialogdef g_NetCoopHostMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Host Co-op Mission",
+	(uintptr_t)"Co-op Mission Setup",
 	g_NetCoopHostMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS | MENUDIALOGFLAG_IGNOREBACK,
 	NULL,
 };
 
-/* join */
+/* ========================================================================
+ * Join / Connect flow
+ * ======================================================================== */
 
 static const char *menutextJoinAddress(struct menuitem *item)
 {
 	static char tmp[256 + 1];
 	if (item && item->flags & MENUITEMFLAG_SELECTABLE_CENTRE) {
-		// in centered dialog
 		if (g_NetMode == NETMODE_NONE) {
 			snprintf(tmp, sizeof(tmp), "%s_\n", g_NetJoinAddr);
 		} else if (g_NetLocalClient->state == CLSTATE_CONNECTING) {
@@ -424,10 +322,9 @@ static const char *menutextJoinAddress(struct menuitem *item)
 		} else if (g_NetLocalClient->state == CLSTATE_AUTH) {
 			snprintf(tmp, sizeof(tmp), "Authenticating with %s...\n", g_NetJoinAddr);
 		} else if (g_NetLocalClient->state == CLSTATE_LOBBY) {
-			snprintf(tmp, sizeof(tmp), "Waiting for host...\n");
+			snprintf(tmp, sizeof(tmp), "Connected to server\n");
 		}
 	} else {
-		// label
 		snprintf(tmp, sizeof(tmp), "%s\n", g_NetJoinAddr);
 	}
 	return tmp;
@@ -441,15 +338,12 @@ static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *
 		return 0;
 	}
 
-	/* Auto-close the "Joining Game..." dialog once we reach the lobby.
-	 * When the client authenticates, the server sends SVC_AUTH which
-	 * transitions to CLSTATE_LOBBY. Pop the entire join dialog stack
-	 * (Joining → JoinMenu → NetMenu) and let the lobby overlay take over. */
+	/* Auto-close the "Connecting..." dialog once we reach the lobby.
+	 * Pop the entire join dialog stack and let the lobby overlay take over. */
 	if (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_LOBBY) {
 		sysLogPrintf(LOG_NOTE, "NET: client reached lobby, closing join dialogs");
 		menuPopDialog(); /* Pop JoiningDialog */
-		menuPopDialog(); /* Pop JoinMenuDialog */
-		menuPopDialog(); /* Pop NetMenuDialog */
+		menuPopDialog(); /* Pop MultiplayerMenuDialog */
 		return 0;
 	}
 
@@ -465,10 +359,9 @@ static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *
 
 static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	// Character selection for joining client
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1; // +1 for "Default" at index 0
+		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value == 0) {
@@ -493,14 +386,11 @@ static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menu
 			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
 			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 		}
-		sysLogPrintf(LOG_NOTE, "NET: client co-op character set: body=%u head=%u",
+		sysLogPrintf(LOG_NOTE, "NET: client character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
-		// Notify server of updated settings
 		netClientSettingsChanged();
 		break;
 	case MENUOP_CHECKHIDDEN:
-		/* Only show character selector in co-op/anti when connected (CLSTATE_LOBBY+).
-		 * In MP mode, character selection happens in the Combat Simulator menus instead. */
 		if (!g_NetLocalClient || g_NetLocalClient->state < CLSTATE_LOBBY) {
 			return true;
 		}
@@ -550,12 +440,16 @@ struct menuitem g_NetJoiningMenuItems[] = {
 
 struct menudialogdef g_NetJoiningDialog = {
 	MENUDIALOGTYPE_SUCCESS,
-	(uintptr_t)"Joining Game...",
+	(uintptr_t)"Connecting...",
 	g_NetJoiningMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_IGNOREBACK | MENUDIALOGFLAG_STARTSELECTS,
 	NULL,
 };
+
+/* ========================================================================
+ * Address entry
+ * ======================================================================== */
 
 static MenuItemHandlerResult menuhandlerEnterJoinAddress(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -600,8 +494,6 @@ static s32 g_NetJoinAddrEditing = 0;
 
 static MenuItemHandlerResult menuhandlerEnterJoinAddress(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	/* This handler is kept for the popup dialog (forced-native).
-	 * Inline editing is handled by menuhandlerJoinAddress below. */
 	if (!menuIsDialogOpen(&g_NetJoinAddressDialog)) {
 		return 0;
 	}
@@ -618,7 +510,6 @@ static MenuItemHandlerResult menuhandlerJoinAddress(s32 operation, struct menuit
 {
 	if (operation == MENUOP_SET) {
 		if (!g_NetJoinAddrEditing) {
-			/* Start inline text editing — no popup dialog */
 			inputClearLastKey();
 			inputClearLastTextChar();
 			inputStartTextInput();
@@ -627,11 +518,9 @@ static MenuItemHandlerResult menuhandlerJoinAddress(s32 operation, struct menuit
 		}
 	}
 
-	/* While editing, process text input every frame */
 	if (g_NetJoinAddrEditing) {
 		s32 result = inputTextHandler(g_NetJoinAddr, NET_MAX_ADDR, &g_NetJoinAddrPtr, false);
 		if (result < 0) {
-			/* Escape or Enter pressed — stop editing */
 			inputStopTextInput();
 			g_NetJoinAddrEditing = 0;
 		}
@@ -648,293 +537,15 @@ MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item,
 		}
 	}
 	if (operation == MENUOP_CHECKDISABLED) {
-		/* Disable Connect when address is empty */
 		return (g_NetJoinAddr[0] == '\0') ? true : false;
 	}
 
 	return 0;
 }
 
-extern struct menudialogdef g_NetRecentServersMenuDialog;
-
-struct menuitem g_NetJoinMenuItems[] = {
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Address:   \n",
-		(uintptr_t)&menutextJoinAddress,
-		menuhandlerJoinAddress,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Connect\n",
-		0,
-		menuhandlerJoinStart,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Recent Servers\n",
-		0,
-		(void *)&g_NetRecentServersMenuDialog,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
-		L_OPTIONS_213, // "Back"
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
-
-struct menudialogdef g_NetJoinMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Join Network Game",
-	g_NetJoinMenuItems,
-	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS | MENUDIALOGFLAG_IGNOREBACK,
-	NULL,
-};
-
-/* main */
-
-MenuItemHandlerResult menuhandlerHostGame(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-		g_NetMenuPort = g_NetServerPort;
-		g_NetMenuMaxPlayers = g_NetMaxClients;
-		menuPushDialog(&g_NetHostMenuDialog);
-	}
-
-	return 0;
-}
-
-MenuItemHandlerResult menuhandlerHostCoop(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-		g_NetMenuPort = g_NetServerPort;
-		g_NetMenuMaxPlayers = 2; // co-op is always 2 players
-		if (netStartServer(g_NetMenuPort, g_NetMenuMaxPlayers) == 0) {
-			g_NetGameMode = NETGAMEMODE_COOP;
-			g_NetCoopStageIndex = 0;
-			g_NetCoopDiffIndex = 0;
-			g_MissionConfig.stagenum = g_SoloStages[0].stagenum;
-			g_MissionConfig.stageindex = 0;
-			g_MissionConfig.difficulty = 0;
-			g_MissionConfig.iscoop = true;
-			g_MissionConfig.isanti = false;
-			menuPushDialog(&g_NetCoopHostMenuDialog);
-		}
-	}
-
-	return 0;
-}
-
-MenuItemHandlerResult menuhandlerJoinGame(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-		if (g_NetJoinAddr[0] == '\0') {
-			strncpy(g_NetJoinAddr, g_NetLastJoinAddr, NET_MAX_ADDR);
-			g_NetJoinAddr[NET_MAX_ADDR] = '\0';
-			g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
-		}
-		menuPushDialog(&g_NetJoinMenuDialog);
-	}
-
-	return 0;
-}
-
-struct menuitem g_NetMenuItems[] = {
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Host Game\n",
-		0,
-		menuhandlerHostGame,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Host Co-op\n",
-		0,
-		menuhandlerHostCoop,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Join Game\n",
-		0,
-		menuhandlerJoinGame,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
-		L_OPTIONS_213, // "Back"
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
-
-struct menudialogdef g_NetMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Network Game",
-	g_NetMenuItems,
-	NULL,
-	MENUDIALOGFLAG_MPLOCKABLE | MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
-	NULL,
-};
-
-/* in-match controls dialog (accessible from pause menu during network games) */
-
-static MenuItemHandlerResult menuhandlerNetReversePitch(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		data->checkbox.value = (g_PlayerConfigsArray[0].options & OPTION_FORWARDPITCH) ? 0 : 1;
-		break;
-	case MENUOP_SET:
-		if (data->checkbox.value) {
-			g_PlayerConfigsArray[0].options &= ~OPTION_FORWARDPITCH;
-		} else {
-			g_PlayerConfigsArray[0].options |= OPTION_FORWARDPITCH;
-		}
-		if (g_NetLocalClient) {
-			g_NetLocalClient->settings.options = g_PlayerConfigsArray[0].options;
-			netClientSettingsChanged();
-		}
-		break;
-	}
-	return 0;
-}
-
-static MenuItemHandlerResult menuhandlerNetMouseSpeedX(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GETSLIDER:
-		data->slider.value = (s32)(g_PlayerExtCfg[0].mouseaimspeedx * 100.0f);
-		break;
-	case MENUOP_SET:
-		g_PlayerExtCfg[0].mouseaimspeedx = (f32)data->slider.value / 100.0f;
-		break;
-	}
-	return 0;
-}
-
-static MenuItemHandlerResult menuhandlerNetMouseSpeedY(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GETSLIDER:
-		data->slider.value = (s32)(g_PlayerExtCfg[0].mouseaimspeedy * 100.0f);
-		break;
-	case MENUOP_SET:
-		g_PlayerExtCfg[0].mouseaimspeedy = (f32)data->slider.value / 100.0f;
-		break;
-	}
-	return 0;
-}
-
-static MenuItemHandlerResult menuhandlerNetLookAhead(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		data->checkbox.value = (g_PlayerConfigsArray[0].options & OPTION_LOOKAHEAD) ? 1 : 0;
-		break;
-	case MENUOP_SET:
-		if (data->checkbox.value) {
-			g_PlayerConfigsArray[0].options |= OPTION_LOOKAHEAD;
-		} else {
-			g_PlayerConfigsArray[0].options &= ~OPTION_LOOKAHEAD;
-		}
-		if (g_NetLocalClient) {
-			g_NetLocalClient->settings.options = g_PlayerConfigsArray[0].options;
-			netClientSettingsChanged();
-		}
-		break;
-	}
-	return 0;
-}
-
-struct menuitem g_NetPauseControlsMenuItems[] = {
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Reverse Pitch\n",
-		0,
-		menuhandlerNetReversePitch,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Look Ahead\n",
-		0,
-		menuhandlerNetLookAhead,
-	},
-	{
-		MENUITEMTYPE_SLIDER,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Mouse Speed X",
-		1000,
-		menuhandlerNetMouseSpeedX,
-	},
-	{
-		MENUITEMTYPE_SLIDER,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Mouse Speed Y",
-		1000,
-		menuhandlerNetMouseSpeedY,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
-		L_OPTIONS_213, // "Back"
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
-
-struct menudialogdef g_NetPauseControlsMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Controls",
-	g_NetPauseControlsMenuItems,
-	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
-	NULL,
-};
-
-/* recent servers list (shown on join screen) */
+/* ========================================================================
+ * Recent servers list
+ * ======================================================================== */
 
 static char g_NetRecentServerStatusText[NET_MAX_RECENT_SERVERS][128];
 
@@ -1098,9 +709,227 @@ struct menuitem g_NetRecentServersMenuItems[] = {
 
 struct menudialogdef g_NetRecentServersMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Recent Servers",
+	(uintptr_t)"Server Browser",
 	g_NetRecentServersMenuItems,
 	(void *)menuhandlerRecentServersDialog,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
+	NULL,
+};
+
+/* ========================================================================
+ * Main Multiplayer menu (replaces old "Network Game" Host/Join/Back)
+ *
+ * Layout:
+ *   - Server Browser (recent/discovered servers)
+ *   - Direct IP connect
+ *   - Back
+ * ======================================================================== */
+
+extern struct menudialogdef g_NetRecentServersMenuDialog;
+
+MenuItemHandlerResult menuhandlerMultiplayerConnect(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		if (g_NetJoinAddr[0] == '\0') {
+			strncpy(g_NetJoinAddr, g_NetLastJoinAddr, NET_MAX_ADDR);
+			g_NetJoinAddr[NET_MAX_ADDR] = '\0';
+			g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
+		}
+	}
+
+	return 0;
+}
+
+struct menuitem g_NetMenuItems[] = {
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Address:   \n",
+		(uintptr_t)&menutextJoinAddress,
+		menuhandlerJoinAddress,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Connect\n",
+		0,
+		menuhandlerJoinStart,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Server Browser\n",
+		0,
+		(void *)&g_NetRecentServersMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_NetMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Multiplayer",
+	g_NetMenuItems,
+	NULL,
+	MENUDIALOGFLAG_MPLOCKABLE | MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
+	NULL,
+};
+
+/* ========================================================================
+ * In-match controls dialog (pause menu during network games)
+ * ======================================================================== */
+
+static MenuItemHandlerResult menuhandlerNetReversePitch(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		data->checkbox.value = (g_PlayerConfigsArray[0].options & OPTION_FORWARDPITCH) ? 0 : 1;
+		break;
+	case MENUOP_SET:
+		if (data->checkbox.value) {
+			g_PlayerConfigsArray[0].options &= ~OPTION_FORWARDPITCH;
+		} else {
+			g_PlayerConfigsArray[0].options |= OPTION_FORWARDPITCH;
+		}
+		if (g_NetLocalClient) {
+			g_NetLocalClient->settings.options = g_PlayerConfigsArray[0].options;
+			netClientSettingsChanged();
+		}
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerNetMouseSpeedX(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_PlayerExtCfg[0].mouseaimspeedx * 100.0f);
+		break;
+	case MENUOP_SET:
+		g_PlayerExtCfg[0].mouseaimspeedx = (f32)data->slider.value / 100.0f;
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerNetMouseSpeedY(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_PlayerExtCfg[0].mouseaimspeedy * 100.0f);
+		break;
+	case MENUOP_SET:
+		g_PlayerExtCfg[0].mouseaimspeedy = (f32)data->slider.value / 100.0f;
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerNetLookAhead(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		data->checkbox.value = (g_PlayerConfigsArray[0].options & OPTION_LOOKAHEAD) ? 1 : 0;
+		break;
+	case MENUOP_SET:
+		if (data->checkbox.value) {
+			g_PlayerConfigsArray[0].options |= OPTION_LOOKAHEAD;
+		} else {
+			g_PlayerConfigsArray[0].options &= ~OPTION_LOOKAHEAD;
+		}
+		if (g_NetLocalClient) {
+			g_NetLocalClient->settings.options = g_PlayerConfigsArray[0].options;
+			netClientSettingsChanged();
+		}
+		break;
+	}
+	return 0;
+}
+
+struct menuitem g_NetPauseControlsMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Reverse Pitch\n",
+		0,
+		menuhandlerNetReversePitch,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Look Ahead\n",
+		0,
+		menuhandlerNetLookAhead,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mouse Speed X",
+		1000,
+		menuhandlerNetMouseSpeedX,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mouse Speed Y",
+		1000,
+		menuhandlerNetMouseSpeedY,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_NetPauseControlsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Controls",
+	g_NetPauseControlsMenuItems,
+	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
 	NULL,
 };

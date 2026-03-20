@@ -171,14 +171,14 @@ static const char *vkJoyNames[] = {
 	"JOY1_BUTTON_19",
 	"JOY1_TOUCHPAD",
 	"JOY1_BUTTON_21",
-	"JOY1_BUTTON_22",
-	"JOY1_BUTTON_23",
-	"JOY1_BUTTON_24",
-	"JOY1_BUTTON_25",
-	"JOY1_BUTTON_26",
-	"JOY1_BUTTON_27",
-	"JOY1_BUTTON_28",
-	"JOY1_BUTTON_29",
+	"JOY1_LSTICK_LEFT",
+	"JOY1_LSTICK_RIGHT",
+	"JOY1_LSTICK_UP",
+	"JOY1_LSTICK_DOWN",
+	"JOY1_RSTICK_LEFT",
+	"JOY1_RSTICK_RIGHT",
+	"JOY1_RSTICK_UP",
+	"JOY1_RSTICK_DOWN",
 	"JOY1_LTRIGGER",
 	"JOY1_RTRIGGER",
 };
@@ -537,6 +537,32 @@ static int inputEventFilter(void *data, SDL_Event *event)
 					const s32 idx = inputControllerGetIndex(ctrl);
 					if (idx >= 0) {
 						lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
+					}
+				}
+				/* Stick axis directions — synthetic VKs for rebinding capture */
+				else if (event->caxis.value > TRIG_THRESHOLD || event->caxis.value < -TRIG_THRESHOLD) {
+					s32 vk = 0;
+					switch (event->caxis.axis) {
+					case SDL_CONTROLLER_AXIS_LEFTX:
+						vk = (event->caxis.value < 0) ? VK_JOY1_LSTICK_LEFT : VK_JOY1_LSTICK_RIGHT;
+						break;
+					case SDL_CONTROLLER_AXIS_LEFTY:
+						vk = (event->caxis.value < 0) ? VK_JOY1_LSTICK_UP : VK_JOY1_LSTICK_DOWN;
+						break;
+					case SDL_CONTROLLER_AXIS_RIGHTX:
+						vk = (event->caxis.value < 0) ? VK_JOY1_RSTICK_LEFT : VK_JOY1_RSTICK_RIGHT;
+						break;
+					case SDL_CONTROLLER_AXIS_RIGHTY:
+						vk = (event->caxis.value < 0) ? VK_JOY1_RSTICK_UP : VK_JOY1_RSTICK_DOWN;
+						break;
+					}
+					if (vk) {
+						lastKey = vk;
+						SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
+						const s32 idx = inputControllerGetIndex(ctrl);
+						if (idx >= 0) {
+							lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
+						}
 					}
 				}
 			}
@@ -1211,6 +1237,28 @@ s32 inputKeyPressed(u32 vk)
 		if (vk == 30 || vk == 31) {
 			const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
 			return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
+		}
+		// stick axis directions (synthetic VKs 22-29)
+		if (vk >= 22 && vk <= 29) {
+			s32 axis = 0;
+			s32 wantNeg = 0;
+			switch (vk) {
+			case 22: axis = SDL_CONTROLLER_AXIS_LEFTX;  wantNeg = 1; break; // LSTICK_LEFT
+			case 23: axis = SDL_CONTROLLER_AXIS_LEFTX;  wantNeg = 0; break; // LSTICK_RIGHT
+			case 24: axis = SDL_CONTROLLER_AXIS_LEFTY;  wantNeg = 1; break; // LSTICK_UP
+			case 25: axis = SDL_CONTROLLER_AXIS_LEFTY;  wantNeg = 0; break; // LSTICK_DOWN
+			case 26: axis = SDL_CONTROLLER_AXIS_RIGHTX; wantNeg = 1; break; // RSTICK_LEFT
+			case 27: axis = SDL_CONTROLLER_AXIS_RIGHTX; wantNeg = 0; break; // RSTICK_RIGHT
+			case 28: axis = SDL_CONTROLLER_AXIS_RIGHTY; wantNeg = 1; break; // RSTICK_UP
+			case 29: axis = SDL_CONTROLLER_AXIS_RIGHTY; wantNeg = 0; break; // RSTICK_DOWN
+			default: return 0;
+			}
+			s32 val = SDL_GameControllerGetAxis(pads[idx], axis);
+			if (wantNeg) {
+				return val < -TRIG_THRESHOLD;
+			} else {
+				return val > TRIG_THRESHOLD;
+			}
 		}
 		return SDL_GameControllerGetButton(pads[idx], vk);
 	}

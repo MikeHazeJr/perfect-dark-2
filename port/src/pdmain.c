@@ -325,10 +325,12 @@ void mainInit(void)
 	racesInit();
 	bodiesInit();
 	titleInit();
+	sysLogPrintf(LOG_NOTE, "INTRO: mainInit - titleInit() done, g_StageNum=0x%02x", g_StageNum);
 
 	modelSetDistanceChecksDisabled(true); // don't use LODs
 
 	g_MainIsBooting = 0;
+	sysLogPrintf(LOG_NOTE, "INTRO: mainInit complete, g_MainIsBooting=0");
 }
 
 void mainProc(void)
@@ -377,13 +379,17 @@ void mainLoop(void)
 
 	var8005d9c4 = 0;
 	argGetLevel(&g_StageNum);
+	sysLogPrintf(LOG_NOTE, "INTRO: mainLoop - after argGetLevel, g_StageNum=0x%02x, g_DoBootPakMenu=%d",
+		g_StageNum, g_DoBootPakMenu);
 
 	if (g_DoBootPakMenu) {
 		g_Vars.pakstocheck = 0xfd;
 		g_StageNum = STAGE_BOOTPAKMENU;
+		sysLogPrintf(LOG_NOTE, "INTRO: mainLoop - boot pak menu override, g_StageNum=BOOTPAKMENU");
 	}
 
 	if (g_StageNum != STAGE_TITLE) {
+		sysLogPrintf(LOG_NOTE, "INTRO: mainLoop - g_StageNum != STAGE_TITLE, calling titleSetNextStage");
 		titleSetNextStage(g_StageNum);
 
 		if (STAGE_IS_GAMEPLAY(g_StageNum)) {
@@ -554,6 +560,8 @@ void mainLoop(void)
 		zbufReset(g_StageNum);
 		lvReset(g_StageNum);
 		viReset(g_StageNum);
+		sysLogPrintf(LOG_NOTE, "INTRO: mainLoop - entering tick loop with g_StageNum=0x%02x, g_Vars.stagenum=0x%02x",
+			g_StageNum, g_Vars.stagenum);
 		frametimeCalculate();
 		profileReset();
 

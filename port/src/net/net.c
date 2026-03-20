@@ -1010,6 +1010,7 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
+			case CLC_LOBBY_START: rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1079,6 +1080,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
+			case SVC_LOBBY_LEADER: rc = netmsgSvcLobbyLeaderRead(&cl->in, cl); break;
+			case SVC_LOBBY_STATE: rc = netmsgSvcLobbyStateRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;

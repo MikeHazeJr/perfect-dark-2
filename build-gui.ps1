@@ -33,9 +33,11 @@ public class AsyncLineReader
 "@
 
 # --- Config ---
-$script:ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script:BuildDir   = Join-Path $script:ProjectDir "build"
-$script:AddinDir   = Join-Path $script:ProjectDir "..\post-batch-addin"
+$script:ProjectDir      = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:ClientBuildDir  = Join-Path $script:ProjectDir "build\client"
+$script:ServerBuildDir  = Join-Path $script:ProjectDir "build\server"
+$script:BuildDir        = $script:ClientBuildDir   # Active build dir (set per-build)
+$script:AddinDir        = Join-Path $script:ProjectDir "..\post-batch-addin"
 $script:CMake      = "cmake"
 $script:Make       = "C:\msys64\usr\bin\make.exe"
 $script:CC         = "C:/msys64/mingw64/bin/cc.exe"
@@ -50,6 +52,7 @@ $script:AllOutput  = [System.Collections.ArrayList]::new()
 $script:IsRunning  = $false
 $script:ExeName    = "pd.x86_64.exe"
 $script:BuildSucceeded = $false        # True after a successful build
+$script:BuildTarget    = ""            # "client", "server", or "" (tracks current build)
 $script:GameProcess    = $null         # Tracked game process object
 $script:GameRunning    = $false        # Actual running state (polled)
 
@@ -95,18 +98,18 @@ $statusLabel.Size = New-Object System.Drawing.Size(430, 20)
 $statusLabel.TextAlign = "MiddleRight"
 $form.Controls.Add($statusLabel)
 
-# --- Button panel ---
+# --- Left button panel (vertical) ---
 $buttonPanel = New-Object System.Windows.Forms.Panel
 $buttonPanel.Location = New-Object System.Drawing.Point(10, 58)
-$buttonPanel.Size = New-Object System.Drawing.Size(930, 46)
+$buttonPanel.Size = New-Object System.Drawing.Size(150, 580)
 $buttonPanel.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
 $form.Controls.Add($buttonPanel)
 
-function New-BuildButton($text, $x, $w, $color) {
+function New-BuildButton($text, $y, $color) {
     $btn = New-Object System.Windows.Forms.Button
     $btn.Text = $text
-    $btn.Location = New-Object System.Drawing.Point($x, 6)
-    $btn.Size = New-Object System.Drawing.Size($w, 34)
+    $btn.Location = New-Object System.Drawing.Point(8, $y)
+    $btn.Size = New-Object System.Drawing.Size(134, 36)
     $btn.FlatStyle = "Flat"
     $btn.FlatAppearance.BorderColor = $color
     $btn.FlatAppearance.BorderSize = 1
@@ -119,36 +122,36 @@ function New-BuildButton($text, $x, $w, $color) {
 }
 
 # Build actions
-$btnBuildClient = New-BuildButton "Build Client"   8  100 ([System.Drawing.Color]::FromArgb(50,220,120))
-$btnBuildServer = New-BuildButton "Build Server" 116  100 ([System.Drawing.Color]::FromArgb(255,180,50))
+$btnBuildClient = New-BuildButton "Build Client"    8 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnBuildServer = New-BuildButton "Build Server"   50 ([System.Drawing.Color]::FromArgb(255,180,50))
 
 # Separator 1
 $btnSep0 = New-Object System.Windows.Forms.Label
-$btnSep0.Text = ""; $btnSep0.Location = New-Object System.Drawing.Point(224, 6)
-$btnSep0.Size = New-Object System.Drawing.Size(2, 34)
+$btnSep0.Text = ""; $btnSep0.Location = New-Object System.Drawing.Point(8, 94)
+$btnSep0.Size = New-Object System.Drawing.Size(134, 2)
 $btnSep0.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep0)
 
 # Run actions
-$btnRunGame    = New-BuildButton "Run Client"   234   90 ([System.Drawing.Color]::FromArgb(50,220,120))
-$btnRunServer  = New-BuildButton "Run Server"   332   90 ([System.Drawing.Color]::FromArgb(255,180,50))
+$btnRunGame    = New-BuildButton "Run Client"   104 ([System.Drawing.Color]::FromArgb(50,220,120))
+$btnRunServer  = New-BuildButton "Run Server"   146 ([System.Drawing.Color]::FromArgb(255,180,50))
 
 # Separator 2
 $btnSep1 = New-Object System.Windows.Forms.Label
-$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(430, 6)
-$btnSep1.Size = New-Object System.Drawing.Size(2, 34)
+$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(8, 190)
+$btnSep1.Size = New-Object System.Drawing.Size(134, 2)
 $btnSep1.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep1)
 
-# Utility buttons
-$btnCopyErrors = New-BuildButton "Copy Errors" 440 100 ([System.Drawing.Color]::FromArgb(255,120,80))
-$btnCopyAll    = New-BuildButton "Copy All"    548  80 ([System.Drawing.Color]::FromArgb(160,160,160))
-$btnClear      = New-BuildButton "Clear"       636  60 ([System.Drawing.Color]::FromArgb(120,120,120))
+# Package release (D13)
+$btnPackage = New-BuildButton "Package" 200 ([System.Drawing.Color]::FromArgb(180,140,220))
 
-# --- Output area ---
+# --- Right side: console + utility buttons + progress bar ---
+
+# Output area (right of button panel)
 $outputBox = New-Object System.Windows.Forms.RichTextBox
-$outputBox.Location = New-Object System.Drawing.Point(10, 110)
-$outputBox.Size = New-Object System.Drawing.Size(930, 474)
+$outputBox.Location = New-Object System.Drawing.Point(170, 58)
+$outputBox.Size = New-Object System.Drawing.Size(770, 502)
 $outputBox.BackColor = [System.Drawing.Color]::FromArgb(20, 20, 20)
 $outputBox.ForeColor = [System.Drawing.Color]::FromArgb(200, 200, 200)
 $outputBox.Font = New-Object System.Drawing.Font("Consolas", 9)
@@ -158,10 +161,47 @@ $outputBox.ScrollBars = "Both"
 $outputBox.BorderStyle = "None"
 $form.Controls.Add($outputBox)
 
-# --- Progress bar ---
+# Utility buttons (below console)
+$utilPanel = New-Object System.Windows.Forms.Panel
+$utilPanel.Location = New-Object System.Drawing.Point(170, 564)
+$utilPanel.Size = New-Object System.Drawing.Size(770, 36)
+$utilPanel.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+$form.Controls.Add($utilPanel)
+
+function New-UtilButton($text, $x, $w, $color) {
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $text
+    $btn.Location = New-Object System.Drawing.Point($x, 2)
+    $btn.Size = New-Object System.Drawing.Size($w, 32)
+    $btn.FlatStyle = "Flat"
+    $btn.FlatAppearance.BorderColor = $color
+    $btn.FlatAppearance.BorderSize = 1
+    $btn.ForeColor = $color
+    $btn.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 45)
+    $btn.Cursor = "Hand"
+    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $utilPanel.Controls.Add($btn)
+    return $btn
+}
+
+$btnCopyErrors = New-UtilButton "Copy Errors"  4 110 ([System.Drawing.Color]::FromArgb(255,120,80))
+$btnCopyAll    = New-UtilButton "Copy All"   120  90 ([System.Drawing.Color]::FromArgb(160,160,160))
+$btnClear      = New-UtilButton "Clear"      216  70 ([System.Drawing.Color]::FromArgb(120,120,120))
+
+# Error count label (right-aligned in util panel)
+$errorCountLabel = New-Object System.Windows.Forms.Label
+$errorCountLabel.Text = ""
+$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$errorCountLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 120, 80)
+$errorCountLabel.Location = New-Object System.Drawing.Point(300, 8)
+$errorCountLabel.Size = New-Object System.Drawing.Size(460, 20)
+$errorCountLabel.TextAlign = "MiddleRight"
+$utilPanel.Controls.Add($errorCountLabel)
+
+# --- Progress bar (below util panel, full right-side width) ---
 $progressPanel = New-Object System.Windows.Forms.Panel
-$progressPanel.Location = New-Object System.Drawing.Point(10, 588)
-$progressPanel.Size = New-Object System.Drawing.Size(930, 22)
+$progressPanel.Location = New-Object System.Drawing.Point(170, 604)
+$progressPanel.Size = New-Object System.Drawing.Size(770, 22)
 $progressPanel.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
 $form.Controls.Add($progressPanel)
 
@@ -182,15 +222,7 @@ $progressPanel.Controls.Add($progressLabel)
 $progressLabel.BringToFront()
 
 $script:BuildPercent = 0
-
-# --- Error count label ---
-$errorCountLabel = New-Object System.Windows.Forms.Label
-$errorCountLabel.Text = ""
-$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
-$errorCountLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 120, 80)
-$errorCountLabel.Location = New-Object System.Drawing.Point(10, 616)
-$errorCountLabel.Size = New-Object System.Drawing.Size(600, 20)
-$form.Controls.Add($errorCountLabel)
+$script:HasErrors = $false     # Track whether any error has been seen this build
 
 # --- Timer for draining async output queue ---
 $timer = New-Object System.Windows.Forms.Timer
@@ -226,18 +258,23 @@ function Set-Buttons-Enabled($enabled) {
 }
 
 function Update-RunButtons {
-    # Run buttons: not building AND (last build succeeded OR specific exe exists)
-    $clientExe = Join-Path $script:BuildDir $script:ExeName
-    $serverExe = Join-Path $script:BuildDir "pd-server.x86_64.exe"
+    # Each target lives in its own build directory
+    $clientExe = Join-Path $script:ClientBuildDir $script:ExeName
+    $serverExe = Join-Path $script:ServerBuildDir "pd-server.x86_64.exe"
 
-    $canRunClient = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $clientExe))
-    $canRunServer = (-not $script:IsRunning) -and ($script:BuildSucceeded -or (Test-Path $serverExe))
+    $canRunClient = (-not $script:IsRunning) -and (Test-Path $clientExe)
+    $canRunServer = (-not $script:IsRunning) -and (Test-Path $serverExe)
+
+    # Package button: enabled when not building and at least one exe exists
+    $canPackage = (-not $script:IsRunning) -and ((Test-Path $clientExe) -or (Test-Path $serverExe))
 
     $btnRunGame.Enabled = $canRunClient
     $btnRunServer.Enabled = $canRunServer
+    $btnPackage.Enabled = $canPackage
 
     $btnRunGame.ForeColor = if ($canRunClient) { [System.Drawing.Color]::FromArgb(50, 220, 120) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
     $btnRunServer.ForeColor = if ($canRunServer) { [System.Drawing.Color]::FromArgb(255, 180, 50) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
+    $btnPackage.ForeColor = if ($canPackage) { [System.Drawing.Color]::FromArgb(180, 140, 220) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
 }
 
 function Classify-Line($line) {
@@ -274,7 +311,10 @@ function Start-Build-Step($stepName, $exe, $argList) {
     $script:StepStartTime = [DateTime]::Now
     $script:BuildPercent = 0
     $progressFill.Size = New-Object System.Drawing.Size(0, 22)
-    $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)   # Blue for compile
+    # Keep red if errors already seen in a prior step, otherwise reset to blue
+    if (-not $script:HasErrors) {
+        $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
+    }
     $progressLabel.Text = ""
     $statusLabel.Text = $stepName
     $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 180, 255)
@@ -329,6 +369,11 @@ $timer.Add_Tick({
         Write-Output-Line $text (Get-Line-Color $class)
         if ($class -eq "error") {
             [void]$script:ErrorLines.Add($text)
+            # Turn progress bar red on FIRST error (immediate feedback)
+            if (-not $script:HasErrors) {
+                $script:HasErrors = $true
+                $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
+            }
         }
 
         # Parse build progress: lines like "[  5%] Building C object ..."
@@ -336,11 +381,13 @@ $timer.Add_Tick({
             $pct = [int]$Matches[1]
             if ($pct -ge $script:BuildPercent) {
                 $script:BuildPercent = $pct
-                $fillWidth = [math]::Floor(($pct / 100.0) * 930)
+                $fillWidth = [math]::Floor(($pct / 100.0) * 770)
                 $progressFill.Size = New-Object System.Drawing.Size($fillWidth, 22)
                 $progressLabel.Text = "${pct}% - $($script:CurrentStep)"
-                # Stay blue (PD blue) throughout the compile
-                $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
+                # Keep red if errors have been seen, otherwise stay blue
+                if (-not $script:HasErrors) {
+                    $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
+                }
             }
         }
 
@@ -378,7 +425,7 @@ $timer.Add_Tick({
 
         if ($exitCode -ne 0) {
             # --- RED: build failed ---
-            $progressFill.Size = New-Object System.Drawing.Size(930, 22)
+            $progressFill.Size = New-Object System.Drawing.Size(770, 22)
             $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
             $progressLabel.Text = "FAILED - $($script:CurrentStep)"
             Write-Output-Line "" ([System.Drawing.Color]::FromArgb(255,100,100))
@@ -391,9 +438,13 @@ $timer.Add_Tick({
             return
         }
 
-        # --- Step succeeded: stay blue, advance ---
-        $progressFill.Size = New-Object System.Drawing.Size(930, 22)
-        $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
+        # --- Step succeeded: keep red if errors were seen, else blue ---
+        $progressFill.Size = New-Object System.Drawing.Size(770, 22)
+        if ($script:HasErrors) {
+            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
+        } else {
+            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
+        }
         $progressLabel.Text = "100% - $($script:CurrentStep) Complete"
         Write-Output-Line ">>> $($script:CurrentStep) OK (${totalElapsed}s) <<<" ([System.Drawing.Color]::FromArgb(100,200,100))
 
@@ -402,9 +453,14 @@ $timer.Add_Tick({
             $next = $script:StepQueue.Dequeue()
             Start-Build-Step $next.Name $next.Exe $next.Args
         } else {
-            # --- GREEN: all steps done ---
-            $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 191, 96)
-            $progressLabel.Text = "BUILD COMPLETE"
+            # --- All steps done: green if clean, red if errors were seen ---
+            if ($script:HasErrors) {
+                $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
+                $progressLabel.Text = "COMPLETE (with errors)"
+            } else {
+                $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 191, 96)
+                $progressLabel.Text = "BUILD COMPLETE"
+            }
             Copy-AddinFiles
             $statusLabel.Text = "Build Complete"
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 200, 100)
@@ -443,7 +499,14 @@ function Get-BuildStep($target) {
 }
 
 # --- Copy addin files helper (called after build completes) ---
+# Only client builds need data/mods. Server is fully self-contained.
 function Copy-AddinFiles {
+    if ($script:BuildTarget -eq "server") {
+        Write-Header "Post-Build"
+        Write-Output-Line "  Server build -- no addin files needed." ([System.Drawing.Color]::FromArgb(160,160,160))
+        return
+    }
+
     Write-Header "Copy Addin Files"
 
     if (!(Test-Path $script:AddinDir)) {
@@ -456,12 +519,6 @@ function Copy-AddinFiles {
     }
 
     $copied = 0
-    # DLLs
-    Get-ChildItem "$($script:AddinDir)\*.dll" -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item $_.FullName -Destination $script:BuildDir -Force
-        Write-Output-Line "  $($_.Name)" ([System.Drawing.Color]::FromArgb(180,140,220))
-        $copied++
-    }
     # Data folder
     $dataDir = Join-Path $script:AddinDir "data"
     if (Test-Path $dataDir) {
@@ -484,31 +541,32 @@ function Copy-AddinFiles {
 function Launch-Game($mode) {
     if ($script:IsRunning) { return }
 
-    $launchExe = Join-Path $script:BuildDir $script:ExeName
-
-    if (!(Test-Path $launchExe)) {
-        Write-Output-Line "Game not found. Build first." ([System.Drawing.Color]::FromArgb(255,100,100))
-        $statusLabel.Text = "Game not found"
-        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
-        return
-    }
-
-    # Base args: mods + logging always on
-    $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64 --log"
-
     if ($mode -eq "server") {
-        # Dedicated server is a separate executable
-        $launchExe = Join-Path $script:BuildDir "pd-server.x86_64.exe"
-        if (!(Test-Path $launchExe)) {
-            # Fallback to game exe with --dedicated flag if server exe not built yet
-            $launchExe = Join-Path $script:BuildDir $script:ExeName
-            $gameArgs += " --dedicated --host"
-        }
+        $launchDir = $script:ServerBuildDir
+        $launchExe = Join-Path $launchDir "pd-server.x86_64.exe"
+        $gameArgs = "--log"
         $label = "Dedicated Server"
         $labelColor = [System.Drawing.Color]::FromArgb(255, 180, 50)
+
+        if (!(Test-Path $launchExe)) {
+            Write-Output-Line "Server not found. Build server first." ([System.Drawing.Color]::FromArgb(255,100,100))
+            $statusLabel.Text = "Server not found"
+            $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+            return
+        }
     } else {
+        $launchDir = $script:ClientBuildDir
+        $launchExe = Join-Path $launchDir $script:ExeName
+        $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64 --log"
         $label = "Client"
         $labelColor = [System.Drawing.Color]::FromArgb(50, 220, 120)
+
+        if (!(Test-Path $launchExe)) {
+            Write-Output-Line "Game not found. Build client first." ([System.Drawing.Color]::FromArgb(255,100,100))
+            $statusLabel.Text = "Game not found"
+            $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+            return
+        }
     }
 
     Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
@@ -516,7 +574,7 @@ function Launch-Game($mode) {
     Write-Output-Line "  Exe: $launchExe" ([System.Drawing.Color]::FromArgb(50,180,220))
     Write-Output-Line "  Logging enabled" ([System.Drawing.Color]::FromArgb(50,180,220))
 
-    $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $script:BuildDir -PassThru
+    $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $launchDir -PassThru
     Update-GameStatus
 }
 
@@ -576,13 +634,26 @@ function Start-Build($target) {
     $script:AllOutput.Clear()
     $errorCountLabel.Text = ""
     $script:BuildSucceeded = $false
+    $script:BuildTarget = $target
+    $script:HasErrors = $false
+
+    # Set active build directory based on target
+    if ($target -eq "server") {
+        $script:BuildDir = $script:ServerBuildDir
+    } else {
+        $script:BuildDir = $script:ClientBuildDir
+    }
 
     $progressFill.Size = New-Object System.Drawing.Size(0, 22)
     $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 96, 191)
     $progressLabel.Text = ""
 
-    # Clean only if build dir doesn't exist (incremental builds are faster)
-    if (-not (Test-Path $script:BuildDir)) {
+    # Always clean build: wipe the target's build directory
+    if (Test-Path $script:BuildDir) {
+        Write-Header "Clean: $($script:BuildDir | Split-Path -Leaf)"
+        Remove-Item -Path $script:BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Output-Line "  Cleared build directory." ([System.Drawing.Color]::FromArgb(160,160,160))
+    } else {
         Write-Header "Clean Build"
     }
 
@@ -596,12 +667,154 @@ function Start-Build($target) {
     Start-Build-Step $step.Name $step.Exe $step.Args
 }
 
+# --- Package Release (D13) ---
+# Creates a release/ folder with exe + SHA-256 sidecar, ready for GitHub upload.
+
+function Get-BuildVersion {
+    # Read version from the generated versioninfo.h (try client dir first, then server)
+    $versionFile = Join-Path $script:ClientBuildDir "port\include\versioninfo.h"
+    if (!(Test-Path $versionFile)) {
+        $versionFile = Join-Path $script:ServerBuildDir "port\include\versioninfo.h"
+    }
+    if (!(Test-Path $versionFile)) { return $null }
+
+    $content = Get-Content $versionFile -Raw
+    $major = 0; $minor = 0; $patch = 0; $dev = 0
+
+    if ($content -match '#define VERSION_MAJOR\s+(\d+)') { $major = [int]$Matches[1] }
+    if ($content -match '#define VERSION_MINOR\s+(\d+)') { $minor = [int]$Matches[1] }
+    if ($content -match '#define VERSION_PATCH\s+(\d+)') { $patch = [int]$Matches[1] }
+    if ($content -match '#define VERSION_DEV\s+(\d+)')   { $dev   = [int]$Matches[1] }
+
+    $hash = ""
+    if ($content -match '#define VERSION_HASH\s+"([^"]*)"') { $hash = $Matches[1] }
+
+    if ($dev -gt 0) {
+        $verStr = "$major.$minor.$patch-dev.$dev"
+    } else {
+        $verStr = "$major.$minor.$patch"
+    }
+
+    return @{
+        Major   = $major
+        Minor   = $minor
+        Patch   = $patch
+        Dev     = $dev
+        String  = $verStr
+        Hash    = $hash
+        IsDev   = ($dev -gt 0)
+    }
+}
+
+function Package-Release {
+    if ($script:IsRunning) { return }
+
+    $version = Get-BuildVersion
+    if ($null -eq $version) {
+        Write-Output-Line "Cannot read version -- build first." ([System.Drawing.Color]::FromArgb(255,100,100))
+        $statusLabel.Text = "Package failed: build first"
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        return
+    }
+
+    Write-Header "Package Release v$($version.String)"
+
+    $releaseDir = Join-Path $script:ProjectDir "build\release"
+    if (!(Test-Path $releaseDir)) {
+        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+    }
+
+    $clientExe = Join-Path $script:ClientBuildDir "pd.x86_64.exe"
+    $serverExe = Join-Path $script:ServerBuildDir "pd-server.x86_64.exe"
+    $packaged = 0
+
+    # --- Client ---
+    if (Test-Path $clientExe) {
+        $destExe = Join-Path $releaseDir "pd.x86_64.exe"
+        Copy-Item $clientExe -Destination $destExe -Force
+        Write-Output-Line "  Client: pd.x86_64.exe" ([System.Drawing.Color]::FromArgb(50, 220, 120))
+
+        # SHA-256 sidecar
+        $hash = (Get-FileHash -Path $destExe -Algorithm SHA256).Hash.ToLower()
+        $hashFile = Join-Path $releaseDir "pd.x86_64.exe.sha256"
+        "$hash  pd.x86_64.exe" | Set-Content -Path $hashFile -NoNewline
+        Write-Output-Line "  SHA-256: $hash" ([System.Drawing.Color]::FromArgb(130, 170, 210))
+
+        $fileSize = (Get-Item $destExe).Length
+        $sizeMB = [math]::Round($fileSize / 1MB, 1)
+        Write-Output-Line "  Size: $sizeMB MB" ([System.Drawing.Color]::FromArgb(160, 160, 160))
+
+        $packaged++
+    } else {
+        Write-Output-Line "  Client: NOT FOUND (skipped)" ([System.Drawing.Color]::FromArgb(230, 200, 80))
+    }
+
+    # --- Server ---
+    if (Test-Path $serverExe) {
+        $destExe = Join-Path $releaseDir "pd-server.x86_64.exe"
+        Copy-Item $serverExe -Destination $destExe -Force
+        Write-Output-Line "  Server: pd-server.x86_64.exe" ([System.Drawing.Color]::FromArgb(255, 180, 50))
+
+        # SHA-256 sidecar
+        $hash = (Get-FileHash -Path $destExe -Algorithm SHA256).Hash.ToLower()
+        $hashFile = Join-Path $releaseDir "pd-server.x86_64.exe.sha256"
+        "$hash  pd-server.x86_64.exe" | Set-Content -Path $hashFile -NoNewline
+        Write-Output-Line "  SHA-256: $hash" ([System.Drawing.Color]::FromArgb(130, 170, 210))
+
+        $fileSize = (Get-Item $destExe).Length
+        $sizeMB = [math]::Round($fileSize / 1MB, 1)
+        Write-Output-Line "  Size: $sizeMB MB" ([System.Drawing.Color]::FromArgb(160, 160, 160))
+
+        $packaged++
+    } else {
+        Write-Output-Line "  Server: NOT FOUND (skipped)" ([System.Drawing.Color]::FromArgb(230, 200, 80))
+    }
+
+    if ($packaged -eq 0) {
+        Write-Output-Line "Nothing to package -- build client and/or server first." ([System.Drawing.Color]::FromArgb(255,100,100))
+        $statusLabel.Text = "Package failed: no executables"
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        return
+    }
+
+    # --- GitHub release tags ---
+    Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
+    Write-Output-Line "GitHub Release Tags:" ([System.Drawing.Color]::FromArgb(220, 180, 60))
+
+    if (Test-Path $clientExe) {
+        $clientTag = "client-v$($version.String)"
+        Write-Output-Line "  Client: $clientTag" ([System.Drawing.Color]::FromArgb(50, 220, 120))
+    }
+    if (Test-Path $serverExe) {
+        $serverTag = "server-v$($version.String)"
+        Write-Output-Line "  Server: $serverTag" ([System.Drawing.Color]::FromArgb(255, 180, 50))
+    }
+
+    if ($version.IsDev) {
+        Write-Output-Line "  Channel: DEV (mark as prerelease on GitHub)" ([System.Drawing.Color]::FromArgb(230, 200, 80))
+    } else {
+        Write-Output-Line "  Channel: STABLE" ([System.Drawing.Color]::FromArgb(50, 220, 120))
+    }
+
+    Write-Output-Line "  Commit: $($version.Hash)" ([System.Drawing.Color]::FromArgb(160, 160, 160))
+    Write-Output-Line "" ([System.Drawing.Color]::FromArgb(80,80,80))
+    Write-Output-Line "Output: $releaseDir" ([System.Drawing.Color]::FromArgb(180, 140, 220))
+    Write-Output-Line "Upload these files as GitHub Release assets." ([System.Drawing.Color]::FromArgb(160, 160, 160))
+
+    $statusLabel.Text = "Packaged v$($version.String) ($packaged artifact(s))"
+    $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(180, 140, 220)
+
+    # Open the release folder in Explorer
+    Start-Process explorer.exe -ArgumentList $releaseDir
+}
+
 # --- Button handlers ---
 $btnBuildClient.Add_Click({ Start-Build "client" })
 $btnBuildServer.Add_Click({ Start-Build "server" })
 
 $btnRunGame.Add_Click({ Launch-Game "client" })
 $btnRunServer.Add_Click({ Launch-Game "server" })
+$btnPackage.Add_Click({ Package-Release })
 
 $btnCopyErrors.Add_Click({
     if ($script:ErrorLines.Count -eq 0) {
@@ -653,8 +866,9 @@ $gameTimer.Add_Tick({ Update-GameStatus })
 $gameTimer.Start()
 
 # --- Initial button state (enable Run if exe already exists from prior build) ---
-$exeCheck = Join-Path $script:BuildDir $script:ExeName
-if (Test-Path $exeCheck) { $script:BuildSucceeded = $true }
+$clientCheck = Join-Path $script:ClientBuildDir $script:ExeName
+$serverCheck = Join-Path $script:ServerBuildDir "pd-server.x86_64.exe"
+if ((Test-Path $clientCheck) -or (Test-Path $serverCheck)) { $script:BuildSucceeded = $true }
 Update-RunButtons
 
 # --- Cleanup on close ---
@@ -664,7 +878,7 @@ $form.Add_FormClosing({
     if ($null -ne $script:Process -and !$script:Process.HasExited) {
         try { $script:Process.Kill() } catch {}
     }
-    # Don't kill the game process — let it keep running
+    # Don't kill the game process -- let it keep running
 })
 
 # --- Launch ---

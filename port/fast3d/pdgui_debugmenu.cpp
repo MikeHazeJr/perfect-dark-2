@@ -50,7 +50,7 @@ extern "C" {
 #define PDGUI_NETGAMEMODE_ANTI  2
 
 #define PDGUI_NET_DEFAULT_PORT  27100
-#define PDGUI_NET_MAX_CLIENTS   4
+#define PDGUI_NET_MAX_CLIENTS   8
 #define PDGUI_NET_MAX_NAME      32
 
 /* --- constants.h symbols --- */
@@ -69,6 +69,7 @@ struct pdgui_netclient_peek {
 };
 
 extern s32 g_NetMode;
+extern s32 g_NetDedicated;
 extern u8 g_NetGameMode;
 extern u32 g_NetTick;
 extern u32 g_NetServerPort;
@@ -210,16 +211,19 @@ static void pdguiDebugNetworkSection(void)
     /* Controls */
     bool isServer = (g_NetMode == PDGUI_NETMODE_SERVER);
     bool isConnected = (g_NetMode != PDGUI_NETMODE_NONE);
-    u32 localState = pdguiGetLocalClientState();
-    bool inLobby = isConnected && (localState == PDGUI_CLSTATE_LOBBY);
-    bool inGame = isConnected && (localState == PDGUI_CLSTATE_GAME);
+    u32 localState2 = pdguiGetLocalClientState();
+    bool inLobby = isConnected && (localState2 == PDGUI_CLSTATE_LOBBY);
+    bool inGame = isConnected && (localState2 == PDGUI_CLSTATE_GAME);
 
     if (!isConnected) {
-        /* Host button */
-        if (ImGui::Button("Host Lobby", ImVec2(S(160), S(24)))) {
+        /* Debug-only: start a local server inside the game client.
+         * In the dedicated-server-only model, the game client normally
+         * never hosts. This is kept for development/testing only. */
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 0.8f), "(dev only)");
+        if (ImGui::Button("Debug: Local Server", ImVec2(S(160), S(24)))) {
             s32 result = netStartServer(PDGUI_NET_DEFAULT_PORT, PDGUI_NET_MAX_CLIENTS);
             if (result == 0) {
-                sysLogPrintf(LOG_NOTE, "DEBUG_MENU: hosted server on port %u",
+                sysLogPrintf(LOG_NOTE, "DEBUG_MENU: started local server on port %u",
                     PDGUI_NET_DEFAULT_PORT);
             } else {
                 sysLogPrintf(LOG_WARNING, "DEBUG_MENU: netStartServer failed (%d)", result);
@@ -227,12 +231,10 @@ static void pdguiDebugNetworkSection(void)
         }
     }
 
+    /* Start/End Match — only available when running as server
+     * (either dedicated server process or debug local server) */
     if (isServer && inLobby) {
-        /* Start match */
         if (ImGui::Button("Start Match", ImVec2(S(160), S(24)))) {
-            /* Load Complex and start the match.
-             * This mirrors what menuhandlerHostStart does in netmenu.c
-             * but with a hardcoded stage for quick testing. */
             sysLogPrintf(LOG_NOTE, "DEBUG_MENU: starting match on Complex");
             mainChangeToStage(PDGUI_STAGE_MP_COMPLEX);
             netServerStageStart();
@@ -240,12 +242,16 @@ static void pdguiDebugNetworkSection(void)
     }
 
     if (isServer && inGame) {
-        /* End match */
         if (ImGui::Button("End Match", ImVec2(S(160), S(24)))) {
             sysLogPrintf(LOG_NOTE, "DEBUG_MENU: ending match");
             netServerStageEnd();
             mpEndMatch();
         }
+    }
+
+    /* Show warning when debug local server is active */
+    if (isServer && !g_NetDedicated) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.2f, 1.0f), "DEBUG SERVER ACTIVE");
     }
 
     if (isConnected) {

@@ -200,18 +200,27 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| bodymodeldef->skel == NULL
 		|| bodymodeldef->rootnode == NULL
 		|| bodymodeldef->numparts <= 0
-		|| bodymodeldef->numparts > 500
-		|| bodymodeldef->scale <= 0.0f
-		|| bodymodeldef->scale > 100.0f) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: invalid bodymodeldef for bodynum %d (file 0x%04x) "
-		             "ptr=%p skel=%p root=%p parts=%d scale=%.2f — skipping",
+		|| bodymodeldef->numparts > 500) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
+		             "ptr=%p skel=%p root=%p parts=%d — skipping",
 		             bodynum, g_HeadsAndBodies[bodynum].filenum,
 		             (void *)bodymodeldef,
 		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
 		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
-		             bodymodeldef ? bodymodeldef->numparts : -1,
-		             bodymodeldef ? bodymodeldef->scale : -1.0f);
+		             bodymodeldef ? bodymodeldef->numparts : -1);
 		return model;
+	}
+
+	/* Clamp scale to a reasonable range instead of rejecting the model.
+	 * Mods (e.g. mod_allinone) can produce models with absurd scale values
+	 * (e.g. 757-1984) due to format differences. Rejecting these causes
+	 * cascading failures where ALL bodies fail and the player has no chr,
+	 * crashing the tick loop. Clamping lets the model load — it may look
+	 * wrong but won't crash. */
+	if (bodymodeldef->scale <= 0.0f || bodymodeldef->scale > 100.0f) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: clamping bad scale %.2f -> 1.0 for bodynum %d (file 0x%04x)",
+		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum);
+		bodymodeldef->scale = 1.0f;
 	}
 
 	modelAllocateRwData(bodymodeldef);

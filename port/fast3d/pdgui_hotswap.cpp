@@ -240,12 +240,27 @@ s32 pdguiHotswapCheck(struct menudialogdef *dialogdef,
         return 0;
     }
 
-    /* Queue this dialog for ImGui rendering during the overlay phase */
-    if (s_QueueCount < HOTSWAP_MAX_QUEUED) {
-        QueuedRender *qr = &s_Queue[s_QueueCount++];
-        qr->entry = entry;
-        qr->dialog = dialog;
-        qr->menu = menu;
+    /* Queue this dialog for ImGui rendering during the overlay phase.
+     * Deduplicate: if this entry is already queued (same dialogdef rendered
+     * twice per frame, e.g. as both "other" and "curdialog" in menuRenderDialogs),
+     * update the existing queue slot instead of adding a duplicate. */
+    {
+        bool alreadyQueued = false;
+        for (s32 qi = 0; qi < s_QueueCount; qi++) {
+            if (s_Queue[qi].entry == entry) {
+                /* Update with latest dialog/menu pointers */
+                s_Queue[qi].dialog = dialog;
+                s_Queue[qi].menu = menu;
+                alreadyQueued = true;
+                break;
+            }
+        }
+        if (!alreadyQueued && s_QueueCount < HOTSWAP_MAX_QUEUED) {
+            QueuedRender *qr = &s_Queue[s_QueueCount++];
+            qr->entry = entry;
+            qr->dialog = dialog;
+            qr->menu = menu;
+        }
     }
 
     /* Return 1 = suppress PD native render for this dialog */

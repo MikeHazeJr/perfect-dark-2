@@ -71,6 +71,10 @@ s32  pdguiThemeGetSoundPack(void);
 /* Draw a soft colored glow behind text at the given position/size. */
 void pdguiDrawTextGlow(f32 x, f32 y, f32 textW, f32 textH);
 
+/* Draw animated edge glow on a hovered/active button.
+ * Call after the button is drawn. Uses palette accent colors. */
+void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+
 #ifdef __cplusplus
 }
 #endif
