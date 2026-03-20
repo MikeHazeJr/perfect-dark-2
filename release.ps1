@@ -93,8 +93,17 @@ $hasData = $DataSource -ne ""
 $hasMods = $ModsSource -ne ""
 $hasNotes = Test-Path $ReleaseNotes
 
-if ($hasGh)     { Write-Host "  gh CLI:      FOUND" -ForegroundColor Green }
-else            { Write-Host "  gh CLI:      MISSING (will skip GitHub release)" -ForegroundColor Yellow }
+if ($hasGh) {
+    Write-Host "  gh CLI:      FOUND" -ForegroundColor Green
+    # Configure git to use gh's auth token for HTTPS push (prevents hang on credential prompt)
+    Write-Host "  Setting up gh credential helper for git..." -ForegroundColor Gray
+    gh auth setup-git 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+} else {
+    Write-Host "  gh CLI:      MISSING (will skip GitHub release)" -ForegroundColor Yellow
+}
+
+# Prevent git from hanging on credential prompts in subprocess mode
+$env:GIT_TERMINAL_PROMPT = "0"
 
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
@@ -234,11 +243,46 @@ $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-Write-Host "  Compressing to $zipName ..." -ForegroundColor Gray
-Compress-Archive -Path "$DistDir/*" -DestinationPath $zipPath -Force
-$zipSize = (Get-Item $zipPath).Length
+# Use .NET ZipFile for progress reporting (Compress-Archive gives no feedback)
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$distFullPath = (Resolve-Path $DistDir).Path
+$zipFullPath  = Join-Path (Resolve-Path "dist").Path $zipName
+
+$allFiles = Get-ChildItem $distFullPath -Recurse -File
+$totalFiles = $allFiles.Count
+$totalBytes = ($allFiles | Measure-Object -Property Length -Sum).Sum
+$totalMB = [math]::Round($totalBytes / 1MB, 1)
+Write-Host "  Compressing $totalFiles files ($totalMB MB) to $zipName ..." -ForegroundColor Gray
+
+$zipStream = [System.IO.Compression.ZipFile]::Open($zipFullPath, [System.IO.Compression.ZipArchiveMode]::Create)
+$processed = 0
+$lastPct = -1
+
+foreach ($file in $allFiles) {
+    $relativePath = $file.FullName.Substring($distFullPath.Length + 1).Replace("\", "/")
+    $entry = $zipStream.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Optimal)
+    $entryStream = $entry.Open()
+    $fileStream = [System.IO.File]::OpenRead($file.FullName)
+    $fileStream.CopyTo($entryStream)
+    $fileStream.Close()
+    $entryStream.Close()
+
+    $processed++
+    $pct = [math]::Floor(($processed / $totalFiles) * 100)
+    # Report every 5%
+    if ($pct -ge ($lastPct + 5)) {
+        $lastPct = $pct
+        Write-Host "  [$pct%] $processed / $totalFiles files compressed" -ForegroundColor Gray
+    }
+}
+
+$zipStream.Dispose()
+
+$zipSize = (Get-Item $zipFullPath).Length
 $zipSizeStr = if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) }
-Write-Host "  $zipName ($zipSizeStr)" -ForegroundColor Green
+Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 
 # ============================================================================
 # Step 3: Git tag
