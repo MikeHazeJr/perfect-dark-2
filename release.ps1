@@ -169,19 +169,24 @@ foreach ($dll in $dllNames) {
 # --- Source folders (port/ and src/) ---
 
 if (Test-Path "port") {
-    Write-Host "  Copying port/ ..." -ForegroundColor Gray
+    $portCount = (Get-ChildItem "port" -Recurse -File).Count
+    Write-Host "  Copying port/ ($portCount files) ..." -ForegroundColor Gray
     Copy-Item "port" "$DistDir/port" -Recurse -Force
+    Write-Host "  port/ copied." -ForegroundColor Green
 }
 
 if (Test-Path "src") {
-    Write-Host "  Copying src/ ..." -ForegroundColor Gray
+    $srcCount = (Get-ChildItem "src" -Recurse -File).Count
+    Write-Host "  Copying src/ ($srcCount files) ..." -ForegroundColor Gray
     Copy-Item "src" "$DistDir/src" -Recurse -Force
+    Write-Host "  src/ copied." -ForegroundColor Green
 }
 
 # --- Data folder (EXCLUDING *.z64 ROM files) ---
 
 if ($hasData) {
-    Write-Host "  Copying data/ (excluding *.z64 ROM files) ..." -ForegroundColor Gray
+    $dataCount = (Get-ChildItem $DataSource -Recurse -File | Where-Object { $_.Extension -ne ".z64" }).Count
+    Write-Host "  Copying data/ ($dataCount files, excluding *.z64 ROM files) ..." -ForegroundColor Gray
     New-Item -ItemType Directory -Path "$DistDir/data" -Force | Out-Null
 
     # Copy everything except .z64 files
@@ -229,6 +234,7 @@ $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
+Write-Host "  Compressing to $zipName ..." -ForegroundColor Gray
 Compress-Archive -Path "$DistDir/*" -DestinationPath $zipPath -Force
 $zipSize = (Get-Item $zipPath).Length
 $zipSizeStr = if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) }
@@ -262,9 +268,22 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
     $currentBranch = git branch --show-current
-    Write-Host "  Pushing branch '$currentBranch' and tags..." -ForegroundColor Gray
-    git push origin $currentBranch --tags
-    Write-Host "  Pushed." -ForegroundColor Green
+    Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
+    git push origin $currentBranch --progress 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR: Branch push failed (exit $LASTEXITCODE)" -ForegroundColor Red
+        Write-Host "  Check credentials: git push may need auth." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  Branch pushed." -ForegroundColor Green
+
+    Write-Host "  Pushing tags ..." -ForegroundColor Gray
+    git push origin --tags --progress 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR: Tag push failed (exit $LASTEXITCODE)" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  Tags pushed." -ForegroundColor Green
 }
 
 # ============================================================================
@@ -304,7 +323,16 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
         $ghArgs += $zipPath
     }
 
-    gh @ghArgs
+    Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
+
+    # Count assets being uploaded
+    $assetCount = 0
+    if ($hasClient) { $assetCount += 2 }   # exe + sha256
+    if ($hasServer) { $assetCount += 2 }   # exe + sha256
+    if (Test-Path $zipPath) { $assetCount += 1 }
+    Write-Host "  Uploading $assetCount asset(s) to GitHub ..." -ForegroundColor Gray
+
+    gh @ghArgs 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
 
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
@@ -312,7 +340,8 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
         Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
     } else {
         Write-Host ""
-        Write-Host "  Release creation failed. Run 'gh auth status' to check auth." -ForegroundColor Red
+        Write-Host "  ERROR: Release creation failed (exit $LASTEXITCODE)." -ForegroundColor Red
+        Write-Host "  Run 'gh auth status' to check authentication." -ForegroundColor Red
     }
 }
 
