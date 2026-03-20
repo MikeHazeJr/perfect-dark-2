@@ -313,18 +313,27 @@ if ($SkipPush -or $DryRun) {
 } else {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
-    git push origin $currentBranch --progress 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Branch push failed (exit $LASTEXITCODE)" -ForegroundColor Red
+
+    # Capture output to variable first -- piping 2>&1 through ForEach-Object
+    # corrupts $LASTEXITCODE because PowerShell wraps stderr as ErrorRecords.
+    $pushOut = git push origin $currentBranch --progress 2>&1
+    $pushExit = $LASTEXITCODE
+    foreach ($line in $pushOut) { Write-Host "    $line" -ForegroundColor Gray }
+
+    if ($pushExit -ne 0) {
+        Write-Host "  ERROR: Branch push failed (exit $pushExit)" -ForegroundColor Red
         Write-Host "  Check credentials: git push may need auth." -ForegroundColor Red
         exit 1
     }
     Write-Host "  Branch pushed." -ForegroundColor Green
 
     Write-Host "  Pushing tags ..." -ForegroundColor Gray
-    git push origin --tags --progress 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Tag push failed (exit $LASTEXITCODE)" -ForegroundColor Red
+    $tagOut = git push origin --tags --progress 2>&1
+    $tagExit = $LASTEXITCODE
+    foreach ($line in $tagOut) { Write-Host "    $line" -ForegroundColor Gray }
+
+    if ($tagExit -ne 0) {
+        Write-Host "  ERROR: Tag push failed (exit $tagExit)" -ForegroundColor Red
         exit 1
     }
     Write-Host "  Tags pushed." -ForegroundColor Green
@@ -376,15 +385,17 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path $zipPath) { $assetCount += 1 }
     Write-Host "  Uploading $assetCount asset(s) to GitHub ..." -ForegroundColor Gray
 
-    gh @ghArgs 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+    $ghOut = gh @ghArgs 2>&1
+    $ghExit = $LASTEXITCODE
+    foreach ($line in $ghOut) { Write-Host "    $line" -ForegroundColor Gray }
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($ghExit -eq 0) {
         Write-Host ""
         Write-Host "  Release created:" -ForegroundColor Green
         Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
     } else {
         Write-Host ""
-        Write-Host "  ERROR: Release creation failed (exit $LASTEXITCODE)." -ForegroundColor Red
+        Write-Host "  ERROR: Release creation failed (exit $ghExit)." -ForegroundColor Red
         Write-Host "  Run 'gh auth status' to check authentication." -ForegroundColor Red
     }
 }
