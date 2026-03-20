@@ -484,7 +484,9 @@ function Refresh-BranchList {
 function Switch-Branch($targetBranch) {
     if ($script:IsRunning) { return }
 
-    $currentBranch = $cmbBranch.SelectedItem
+    # Must check git directly -- the dropdown already shows the new selection
+    $currentBranch = ""
+    try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
     if ($targetBranch -eq $currentBranch) { return }
 
     # Release branch requires confirmation
@@ -1271,8 +1273,10 @@ function Start-PushRelease {
         $isDevBuild = $false
     }
 
-    $currentBranch = ""
-    try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
+    $currentBranch = $cmbBranch.SelectedItem
+    if (!$currentBranch) {
+        try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
+    }
 
     # Read changelog
     $sections = Read-ChangesFile
