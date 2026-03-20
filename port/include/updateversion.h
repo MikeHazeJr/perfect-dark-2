@@ -60,9 +60,13 @@ typedef enum {
 /* Build the compile-time version struct */
 #define BUILD_VERSION_INIT { VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, VERSION_DEV }
 
-/* String form: "1.2.3" or "1.2.3-dev.4" */
+/* String form: "0.0.3a", "1.2.3", or "1.2.3-dev.4" */
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
+
+#ifndef VERSION_LABEL
+#define VERSION_LABEL ""
+#endif
 
 #if VERSION_DEV > 0
 #define VERSION_STRING \
@@ -70,7 +74,8 @@ typedef enum {
 	"-dev." STRINGIFY(VERSION_DEV)
 #else
 #define VERSION_STRING \
-	STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)
+	STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH) \
+	VERSION_LABEL
 #endif
 
 /* ========================================================================
