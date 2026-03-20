@@ -86,7 +86,28 @@ Write-Host ""
 
 Write-Host "[Preflight] Checking prerequisites..." -ForegroundColor Yellow
 
-$hasGh = [bool](Get-Command "gh" -ErrorAction SilentlyContinue)
+# Find gh CLI -- check PATH first, then common install locations
+$ghCmd = Get-Command "gh" -ErrorAction SilentlyContinue
+if (-not $ghCmd) {
+    $ghSearchPaths = @(
+        "$env:ProgramFiles\GitHub CLI\gh.exe",
+        "${env:ProgramFiles(x86)}\GitHub CLI\gh.exe",
+        "$env:LOCALAPPDATA\Programs\GitHub CLI\gh.exe",
+        "$env:USERPROFILE\scoop\shims\gh.exe",
+        "C:\Program Files\GitHub CLI\gh.exe",
+        "C:\Program Files (x86)\GitHub CLI\gh.exe"
+    )
+    foreach ($p in $ghSearchPaths) {
+        if (Test-Path $p) {
+            $ghCmd = $p
+            # Add its directory to PATH for this session so git can find it too
+            $ghDir = Split-Path $p -Parent
+            $env:PATH = "$ghDir;$env:PATH"
+            break
+        }
+    }
+}
+$hasGh = [bool]$ghCmd
 $hasClient = $ClientExe -ne ""
 $hasServer = $ServerExe -ne ""
 $hasData = $DataSource -ne ""
@@ -94,12 +115,18 @@ $hasMods = $ModsSource -ne ""
 $hasNotes = Test-Path $ReleaseNotes
 
 if ($hasGh) {
-    Write-Host "  gh CLI:      FOUND" -ForegroundColor Green
+    $ghPath = if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source }
+    Write-Host "  gh CLI:      FOUND ($ghPath)" -ForegroundColor Green
     # Configure git to use gh's auth token for HTTPS push (prevents hang on credential prompt)
     Write-Host "  Setting up gh credential helper for git..." -ForegroundColor Gray
-    gh auth setup-git 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $ghSetup = & gh auth setup-git 2>&1
+    $ErrorActionPreference = $savedEAP
+    foreach ($line in $ghSetup) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 } else {
     Write-Host "  gh CLI:      MISSING (will skip GitHub release)" -ForegroundColor Yellow
+    Write-Host "               Install: winget install GitHub.cli" -ForegroundColor Gray
 }
 
 # Prevent git from hanging on credential prompts in subprocess mode
