@@ -68,6 +68,7 @@ function Invoke-Build($target) {
     $makePath  = "C:/msys64/usr/bin/make.exe"
     $ccPath    = "C:/msys64/mingw64/bin/cc.exe"
     $cores     = $env:NUMBER_OF_PROCESSORS
+    if (!$cores) { $cores = 4 }
 
     # Use cmake if available in PATH, otherwise try MSYS2 path
     $cmake = if (Get-Command "cmake" -ErrorAction SilentlyContinue) { "cmake" } else { $cmakePath }
