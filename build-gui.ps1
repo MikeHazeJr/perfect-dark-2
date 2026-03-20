@@ -143,8 +143,9 @@ $btnSep1.Size = New-Object System.Drawing.Size(134, 2)
 $btnSep1.BackColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $buttonPanel.Controls.Add($btnSep1)
 
-# Package release (D13)
-$btnPackage = New-BuildButton "Package" 200 ([System.Drawing.Color]::FromArgb(180,140,220))
+# Release actions
+$btnPackage    = New-BuildButton "Package"     200 ([System.Drawing.Color]::FromArgb(180,140,220))
+$btnReleaseAll = New-BuildButton "Release All" 242 ([System.Drawing.Color]::FromArgb(255,100,100))
 
 # --- Right side: console + utility buttons + progress bar ---
 
@@ -268,13 +269,18 @@ function Update-RunButtons {
     # Package button: enabled when not building and at least one exe exists
     $canPackage = (-not $script:IsRunning) -and ((Test-Path $clientExe) -or (Test-Path $serverExe))
 
+    # Release All: enabled when not building (it does its own builds)
+    $canRelease = -not $script:IsRunning
+
     $btnRunGame.Enabled = $canRunClient
     $btnRunServer.Enabled = $canRunServer
     $btnPackage.Enabled = $canPackage
+    $btnReleaseAll.Enabled = $canRelease
 
     $btnRunGame.ForeColor = if ($canRunClient) { [System.Drawing.Color]::FromArgb(50, 220, 120) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
     $btnRunServer.ForeColor = if ($canRunServer) { [System.Drawing.Color]::FromArgb(255, 180, 50) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
     $btnPackage.ForeColor = if ($canPackage) { [System.Drawing.Color]::FromArgb(180, 140, 220) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
+    $btnReleaseAll.ForeColor = if ($canRelease) { [System.Drawing.Color]::FromArgb(255, 100, 100) } else { [System.Drawing.Color]::FromArgb(80, 80, 80) }
 }
 
 function Classify-Line($line) {
@@ -687,10 +693,14 @@ function Get-BuildVersion {
     if ($content -match '#define VERSION_DEV\s+(\d+)')   { $dev   = [int]$Matches[1] }
 
     $hash = ""
+    $label = ""
     if ($content -match '#define VERSION_HASH\s+"([^"]*)"') { $hash = $Matches[1] }
+    if ($content -match '#define VERSION_LABEL\s+"([^"]*)"') { $label = $Matches[1] }
 
     if ($dev -gt 0) {
         $verStr = "$major.$minor.$patch-dev.$dev"
+    } elseif ($label -ne "") {
+        $verStr = "$major.$minor.$patch$label"
     } else {
         $verStr = "$major.$minor.$patch"
     }
@@ -700,6 +710,7 @@ function Get-BuildVersion {
         Minor   = $minor
         Patch   = $patch
         Dev     = $dev
+        Label   = $label
         String  = $verStr
         Hash    = $hash
         IsDev   = ($dev -gt 0)
@@ -808,6 +819,67 @@ function Package-Release {
     Start-Process explorer.exe -ArgumentList $releaseDir
 }
 
+# --- Release All Pipeline ---
+# Launches release-all.ps1 as a subprocess through the async process runner.
+# This handles: build both branches, package with port/src/mods/data, push to GitHub.
+
+function Start-ReleaseAll {
+    if ($script:IsRunning) { return }
+
+    $releaseScript = Join-Path $script:ProjectDir "release-all.ps1"
+    if (!(Test-Path $releaseScript)) {
+        Write-Output-Line "release-all.ps1 not found in project root." ([System.Drawing.Color]::FromArgb(255,100,100))
+        $statusLabel.Text = "Release script not found"
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        return
+    }
+
+    # Confirm with the user
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+        "This will:`n`n" +
+        "  1. Switch to 'release' branch`n" +
+        "  2. Build client + server`n" +
+        "  3. Package + push as stable release`n" +
+        "  4. Switch to 'dev' branch`n" +
+        "  5. Build client + server`n" +
+        "  6. Package + push as prerelease`n" +
+        "  7. Return to current branch`n`n" +
+        "Make sure all changes are committed first.`n`n" +
+        "Continue?",
+        "Release All — Full Pipeline",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+
+    # Ask if they want to skip push (local only)
+    $pushConfirm = [System.Windows.Forms.MessageBox]::Show(
+        "Push releases to GitHub?`n`n" +
+        "Yes = Build + Package + Push to GitHub`n" +
+        "No  = Build + Package only (local)",
+        "Push to GitHub?",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+
+    $outputBox.Clear()
+    $script:ErrorLines.Clear()
+    $script:AllOutput.Clear()
+    $errorCountLabel.Text = ""
+    $script:HasErrors = $false
+
+    Set-Buttons-Enabled $false
+
+    $skipPushFlag = ""
+    if ($pushConfirm -ne [System.Windows.Forms.DialogResult]::Yes) {
+        $skipPushFlag = "-SkipPush"
+    }
+
+    # Launch release-all.ps1 via PowerShell subprocess
+    $script:StepQueue.Clear()
+    Start-Build-Step "Release All Pipeline" "powershell.exe" "-ExecutionPolicy Bypass -File `"$releaseScript`" $skipPushFlag"
+}
+
 # --- Button handlers ---
 $btnBuildClient.Add_Click({ Start-Build "client" })
 $btnBuildServer.Add_Click({ Start-Build "server" })
@@ -815,6 +887,7 @@ $btnBuildServer.Add_Click({ Start-Build "server" })
 $btnRunGame.Add_Click({ Launch-Game "client" })
 $btnRunServer.Add_Click({ Launch-Game "server" })
 $btnPackage.Add_Click({ Package-Release })
+$btnReleaseAll.Add_Click({ Start-ReleaseAll })
 
 $btnCopyErrors.Add_Click({
     if ($script:ErrorLines.Count -eq 0) {

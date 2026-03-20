@@ -7,9 +7,17 @@
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #
+# Package contents:
+#   - pd.x86_64.exe (client) + pd-server.x86_64.exe (server)
+#   - port/ and src/ folders (source code)
+#   - mods/ folder (mod data)
+#   - data/ folder (game data, EXCLUDING *.z64 ROM files)
+#   - Runtime DLLs (SDL2, zlib, libwinpthread)
+#   - SHA-256 hashes for update system verification
+#
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
-#   - Successful build of both client and server in build/
+#   - Successful build of both client and server
 #   - Git working tree clean (all changes committed)
 
 param(
@@ -21,10 +29,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# --- Resolve version ---
+# ============================================================================
+# Resolve version from CMakeLists.txt
+# ============================================================================
 
 if ($Version -eq "") {
-    # Parse from CMakeLists.txt
     $cmake = Get-Content "CMakeLists.txt" -Raw
     $major = if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" }
     $minor = if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" }
@@ -42,120 +51,192 @@ if ($Version -eq "") {
 }
 
 $Tag = "v$Version"
-$ClientExe = "build/pd.x86_64.exe"
-$ServerExe = "build/pd-server.x86_64.exe"
-$ReleaseNotes = "RELEASE_v$Version.md"
-$DistDir = "dist/$Version"
+$ReleaseNotes = "RELEASE_$Tag.md"
+$DistDir = "dist/$Tag"
 
-Write-Host "=== Perfect Dark 2 — Release $Tag ===" -ForegroundColor Cyan
+# Build artifact paths — supports both flat and subdirectory layouts
+# Prefer build/client/ and build/server/ (current CMake), fall back to build/
+$ClientExe = if (Test-Path "build/client/pd.x86_64.exe") { "build/client/pd.x86_64.exe" }
+             elseif (Test-Path "build/pd.x86_64.exe")    { "build/pd.x86_64.exe" }
+             else { "" }
+$ServerExe = if (Test-Path "build/server/pd-server.x86_64.exe") { "build/server/pd-server.x86_64.exe" }
+             elseif (Test-Path "build/pd-server.x86_64.exe")    { "build/pd-server.x86_64.exe" }
+             else { "" }
+
+# Data and mods — prefer build/client/ copies, fall back to post-batch-addin
+$DataSource = if (Test-Path "build/client/data") { "build/client/data" }
+              elseif (Test-Path "post-batch-addin/data") { "post-batch-addin/data" }
+              else { "" }
+$ModsSource = if (Test-Path "build/client/mods") { "build/client/mods" }
+              elseif (Test-Path "post-batch-addin/mods") { "post-batch-addin/mods" }
+              else { "" }
+
+# DLLs — check build/client first, then post-batch-addin
+$DllSearchPaths = @("build/client", "post-batch-addin")
+
+Write-Host ""
+Write-Host ("=" * 70) -ForegroundColor Cyan
+Write-Host "  Perfect Dark 2 — Release $Tag" -ForegroundColor Cyan
+Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 
-# --- Preflight checks ---
+# ============================================================================
+# Preflight
+# ============================================================================
 
 Write-Host "[Preflight] Checking prerequisites..." -ForegroundColor Yellow
 
-# Check gh CLI
-if (-not (Get-Command "gh" -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: gh CLI not found. Install from https://cli.github.com/" -ForegroundColor Red
-    exit 1
-}
+$hasGh = [bool](Get-Command "gh" -ErrorAction SilentlyContinue)
+$hasClient = $ClientExe -ne ""
+$hasServer = $ServerExe -ne ""
+$hasData = $DataSource -ne ""
+$hasMods = $ModsSource -ne ""
+$hasNotes = Test-Path $ReleaseNotes
 
-# Check builds exist
-$hasClient = Test-Path $ClientExe
-$hasServer = Test-Path $ServerExe
+if ($hasGh)     { Write-Host "  gh CLI:      FOUND" -ForegroundColor Green }
+else            { Write-Host "  gh CLI:      MISSING (will skip GitHub release)" -ForegroundColor Yellow }
+
+if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
+else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
+
+if ($hasServer) { Write-Host "  Server:      FOUND ($ServerExe)" -ForegroundColor Green }
+else            { Write-Host "  Server:      MISSING" -ForegroundColor Yellow }
+
+if ($hasData)   { Write-Host "  Data:        FOUND ($DataSource)" -ForegroundColor Green }
+else            { Write-Host "  Data:        MISSING" -ForegroundColor Yellow }
+
+if ($hasMods)   { Write-Host "  Mods:        FOUND ($ModsSource)" -ForegroundColor Green }
+else            { Write-Host "  Mods:        MISSING" -ForegroundColor Yellow }
+
+Write-Host "  port/:       $(if (Test-Path 'port') { 'FOUND' } else { 'MISSING' })" -ForegroundColor $(if (Test-Path 'port') { 'Green' } else { 'Yellow' })
+Write-Host "  src/:        $(if (Test-Path 'src') { 'FOUND' } else { 'MISSING' })" -ForegroundColor $(if (Test-Path 'src') { 'Green' } else { 'Yellow' })
+Write-Host "  Notes:       $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will auto-generate)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
 
 if (-not $hasClient -and -not $hasServer) {
+    Write-Host ""
     Write-Host "  ERROR: No build artifacts found." -ForegroundColor Red
-    Write-Host "  Expected: $ClientExe and/or $ServerExe" -ForegroundColor Red
-    Write-Host "  Run 'Build Tool.bat' → Build Client / Build Server first." -ForegroundColor Red
+    Write-Host "  Build client and/or server first via Build Tool or build.bat." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "  Client: $(if ($hasClient) { 'FOUND' } else { 'MISSING (will skip)' })" -ForegroundColor $(if ($hasClient) { 'Green' } else { 'Yellow' })
-Write-Host "  Server: $(if ($hasServer) { 'FOUND' } else { 'MISSING (will skip)' })" -ForegroundColor $(if ($hasServer) { 'Green' } else { 'Yellow' })
-
-# Check release notes
-$hasNotes = Test-Path $ReleaseNotes
-Write-Host "  Release notes ($ReleaseNotes): $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will use auto-generated)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
-
-# --- Create dist directory ---
+# ============================================================================
+# Step 1: Create distribution directory
+# ============================================================================
 
 Write-Host ""
-Write-Host "[1/5] Creating distribution packages..." -ForegroundColor Yellow
+Write-Host "[1/5] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
 
-if (-not (Test-Path $DistDir)) {
-    New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
+if (Test-Path $DistDir) {
+    Remove-Item $DistDir -Recurse -Force
 }
+New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 
-# --- Generate SHA-256 hashes ---
+# --- Executables + SHA-256 hashes ---
 
 if ($hasClient) {
-    Write-Host "  Hashing client..." -ForegroundColor Gray
-    $clientHash = (Get-FileHash $ClientExe -Algorithm SHA256).Hash.ToLower()
-    $clientFileName = [System.IO.Path]::GetFileName($ClientExe)
-    "$clientHash  $clientFileName" | Out-File -FilePath "$DistDir/$clientFileName.sha256" -Encoding ascii -NoNewline
-    Copy-Item $ClientExe "$DistDir/$clientFileName"
-    Write-Host "  Client SHA-256: $clientHash" -ForegroundColor Gray
+    Copy-Item $ClientExe "$DistDir/pd.x86_64.exe"
+    $hash = (Get-FileHash $ClientExe -Algorithm SHA256).Hash.ToLower()
+    "$hash  pd.x86_64.exe" | Out-File "$DistDir/pd.x86_64.exe.sha256" -Encoding ascii -NoNewline
+    Write-Host "  pd.x86_64.exe         SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
 if ($hasServer) {
-    Write-Host "  Hashing server..." -ForegroundColor Gray
-    $serverHash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
-    $serverFileName = [System.IO.Path]::GetFileName($ServerExe)
-    "$serverHash  $serverFileName" | Out-File -FilePath "$DistDir/$serverFileName.sha256" -Encoding ascii -NoNewline
-    Copy-Item $ServerExe "$DistDir/$serverFileName"
-    Write-Host "  Server SHA-256: $serverHash" -ForegroundColor Gray
+    Copy-Item $ServerExe "$DistDir/pd-server.x86_64.exe"
+    $hash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
+    "$hash  pd-server.x86_64.exe" | Out-File "$DistDir/pd-server.x86_64.exe.sha256" -Encoding ascii -NoNewline
+    Write-Host "  pd-server.x86_64.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
-# --- Copy runtime dependencies ---
+# --- Runtime DLLs ---
 
-Write-Host "  Copying runtime dependencies..." -ForegroundColor Gray
-$deps = @("SDL2.dll", "zlib1.dll", "libwinpthread-1.dll")
-foreach ($dll in $deps) {
-    $dllPath = "build/$dll"
-    if (Test-Path $dllPath) {
-        Copy-Item $dllPath "$DistDir/$dll"
-        Write-Host "    $dll" -ForegroundColor Gray
+$dllNames = @("SDL2.dll", "zlib1.dll", "libwinpthread-1.dll")
+foreach ($dll in $dllNames) {
+    $found = $false
+    foreach ($searchPath in $DllSearchPaths) {
+        $dllPath = "$searchPath/$dll"
+        if (Test-Path $dllPath) {
+            Copy-Item $dllPath "$DistDir/$dll"
+            Write-Host "  $dll (from $searchPath)" -ForegroundColor Gray
+            $found = $true
+            break
+        }
+    }
+    if (-not $found) {
+        Write-Host "  $dll — NOT FOUND (skipped)" -ForegroundColor Yellow
     }
 }
 
-# --- Copy data and mods ---
+# --- Source folders (port/ and src/) ---
 
-if (Test-Path "build/data") {
-    Write-Host "  Copying data directory..." -ForegroundColor Gray
-    Copy-Item "build/data" "$DistDir/data" -Recurse -Force
+if (Test-Path "port") {
+    Write-Host "  Copying port/ ..." -ForegroundColor Gray
+    Copy-Item "port" "$DistDir/port" -Recurse -Force
 }
 
-if (Test-Path "build/mods") {
-    Write-Host "  Copying mods directory..." -ForegroundColor Gray
-    Copy-Item "build/mods" "$DistDir/mods" -Recurse -Force
+if (Test-Path "src") {
+    Write-Host "  Copying src/ ..." -ForegroundColor Gray
+    Copy-Item "src" "$DistDir/src" -Recurse -Force
 }
 
-# --- Create zip packages ---
+# --- Data folder (EXCLUDING *.z64 ROM files) ---
+
+if ($hasData) {
+    Write-Host "  Copying data/ (excluding *.z64 ROM files) ..." -ForegroundColor Gray
+    New-Item -ItemType Directory -Path "$DistDir/data" -Force | Out-Null
+
+    # Copy everything except .z64 files
+    Get-ChildItem $DataSource -Recurse | Where-Object {
+        -not $_.PSIsContainer -and $_.Extension -ne ".z64"
+    } | ForEach-Object {
+        $relativePath = $_.FullName.Substring((Resolve-Path $DataSource).Path.Length + 1)
+        $destPath = Join-Path "$DistDir/data" $relativePath
+        $destDir = Split-Path $destPath -Parent
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        Copy-Item $_.FullName $destPath
+    }
+
+    # Report excluded ROMs
+    $romFiles = Get-ChildItem $DataSource -Filter "*.z64" -Recurse
+    if ($romFiles) {
+        foreach ($rom in $romFiles) {
+            Write-Host "    EXCLUDED: $($rom.Name) (ROM file)" -ForegroundColor DarkYellow
+        }
+    }
+} else {
+    Write-Host "  data/ — NOT FOUND (skipped)" -ForegroundColor Yellow
+}
+
+# --- Mods folder ---
+
+if ($hasMods) {
+    Write-Host "  Copying mods/ ..." -ForegroundColor Gray
+    Copy-Item $ModsSource "$DistDir/mods" -Recurse -Force
+} else {
+    Write-Host "  mods/ — NOT FOUND (skipped)" -ForegroundColor Yellow
+}
+
+# ============================================================================
+# Step 2: Create zip archive
+# ============================================================================
 
 Write-Host ""
-Write-Host "[2/5] Creating zip archives..." -ForegroundColor Yellow
+Write-Host "[2/5] Creating zip archive..." -ForegroundColor Yellow
 
-$clientZip = "dist/perfect-dark-2-$Tag-client-win64.zip"
-$serverZip = "dist/perfect-dark-2-$Tag-server-win64.zip"
-$fullZip   = "dist/perfect-dark-2-$Tag-full-win64.zip"
+$zipName = "perfect-dark-2-$Tag-win64.zip"
+$zipPath = "dist/$zipName"
 
-# Full package (client + server + data + mods + DLLs)
-$fullItems = @()
-if ($hasClient) { $fullItems += "$DistDir/pd.x86_64.exe" }
-if ($hasServer) { $fullItems += "$DistDir/pd-server.x86_64.exe" }
-foreach ($dll in $deps) { if (Test-Path "$DistDir/$dll") { $fullItems += "$DistDir/$dll" } }
-if (Test-Path "$DistDir/data") { $fullItems += "$DistDir/data" }
-if (Test-Path "$DistDir/mods") { $fullItems += "$DistDir/mods" }
+if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-if ($fullItems.Count -gt 0) {
-    Write-Host "  Creating full package: $fullZip" -ForegroundColor Gray
-    Compress-Archive -Path $fullItems -DestinationPath $fullZip -Force
-}
+Compress-Archive -Path "$DistDir/*" -DestinationPath $zipPath -Force
+$zipSize = (Get-Item $zipPath).Length
+$zipSizeStr = if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) }
+Write-Host "  $zipName ($zipSizeStr)" -ForegroundColor Green
 
-Write-Host "  Done." -ForegroundColor Green
-
-# --- Git tag ---
+# ============================================================================
+# Step 3: Git tag
+# ============================================================================
 
 Write-Host ""
 Write-Host "[3/5] Git tagging..." -ForegroundColor Yellow
@@ -163,22 +244,22 @@ Write-Host "[3/5] Git tagging..." -ForegroundColor Yellow
 $existingTag = git tag -l $Tag 2>$null
 if ($existingTag) {
     Write-Host "  Tag $Tag already exists, skipping." -ForegroundColor Yellow
+} elseif ($DryRun) {
+    Write-Host "  [DRY RUN] Would create tag: $Tag" -ForegroundColor Magenta
 } else {
-    if ($DryRun) {
-        Write-Host "  [DRY RUN] Would create tag: $Tag" -ForegroundColor Magenta
-    } else {
-        git tag -a $Tag -m "$Tag release"
-        Write-Host "  Created tag: $Tag" -ForegroundColor Green
-    }
+    git tag -a $Tag -m "$Tag release"
+    Write-Host "  Created tag: $Tag" -ForegroundColor Green
 }
 
-# --- Push ---
+# ============================================================================
+# Step 4: Push branch + tags
+# ============================================================================
 
 Write-Host ""
 Write-Host "[4/5] Pushing to remote..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun) {
-    Write-Host "  $(if ($DryRun) { '[DRY RUN] ' } else { '' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
+    Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' and tags..." -ForegroundColor Gray
@@ -186,13 +267,16 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  Pushed." -ForegroundColor Green
 }
 
-# --- GitHub Release ---
+# ============================================================================
+# Step 5: GitHub release
+# ============================================================================
 
 Write-Host ""
 Write-Host "[5/5] Creating GitHub release..." -ForegroundColor Yellow
 
-if ($SkipPush -or $DryRun) {
-    Write-Host "  $(if ($DryRun) { '[DRY RUN] ' } else { '' })Skipping GitHub release." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
+if ($SkipPush -or $DryRun -or -not $hasGh) {
+    $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
+    Write-Host "  Skipping GitHub release ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
     $ghArgs = @("release", "create", $Tag, "--title", "$Tag — Perfect Dark 2")
 
@@ -207,7 +291,7 @@ if ($SkipPush -or $DryRun) {
         $ghArgs += "--prerelease"
     }
 
-    # Attach assets: individual exe + sha256 files for update system, plus full zip
+    # Attach individual executables + hashes (for update system) and the full zip
     if ($hasClient) {
         $ghArgs += "$DistDir/pd.x86_64.exe"
         $ghArgs += "$DistDir/pd.x86_64.exe.sha256"
@@ -216,35 +300,58 @@ if ($SkipPush -or $DryRun) {
         $ghArgs += "$DistDir/pd-server.x86_64.exe"
         $ghArgs += "$DistDir/pd-server.x86_64.exe.sha256"
     }
-    if (Test-Path $fullZip) {
-        $ghArgs += $fullZip
+    if (Test-Path $zipPath) {
+        $ghArgs += $zipPath
     }
 
     gh @ghArgs
 
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
-        Write-Host "=== Release $Tag created successfully! ===" -ForegroundColor Green
+        Write-Host "  Release created:" -ForegroundColor Green
         Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
     } else {
         Write-Host ""
-        Write-Host "=== Release creation failed. Check 'gh auth status'. ===" -ForegroundColor Red
+        Write-Host "  Release creation failed. Run 'gh auth status' to check auth." -ForegroundColor Red
     }
 }
 
-# --- Summary ---
+# ============================================================================
+# Summary
+# ============================================================================
 
 Write-Host ""
-Write-Host "=== Distribution files ===" -ForegroundColor Cyan
+Write-Host ("=" * 70) -ForegroundColor Green
+Write-Host "  RELEASE $Tag — PACKAGING COMPLETE" -ForegroundColor Green
+Write-Host ("=" * 70) -ForegroundColor Green
+Write-Host ""
+
+# List all files with sizes
+Write-Host "  Distribution contents ($DistDir):" -ForegroundColor White
+$totalSize = 0
+
+# Top-level files
 Get-ChildItem $DistDir -File | ForEach-Object {
-    $size = if ($_.Length -gt 1MB) { "{0:N1} MB" -f ($_.Length / 1MB) } else { "{0:N0} KB" -f ($_.Length / 1KB) }
-    Write-Host "  $($_.Name)  ($size)" -ForegroundColor Gray
-}
-if (Test-Path $fullZip) {
-    $zipSize = (Get-Item $fullZip).Length
-    $zipSizeStr = if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) }
-    Write-Host "  $(Split-Path $fullZip -Leaf)  ($zipSizeStr)" -ForegroundColor Gray
+    $size = $_.Length
+    $totalSize += $size
+    $sizeStr = if ($size -gt 1MB) { "{0:N1} MB" -f ($size / 1MB) } else { "{0:N0} KB" -f ($size / 1KB) }
+    Write-Host ("    {0,-35} {1,10}" -f $_.Name, $sizeStr) -ForegroundColor Gray
 }
 
+# Directories with file counts
+foreach ($subdir in @("port", "src", "data", "mods")) {
+    $path = "$DistDir/$subdir"
+    if (Test-Path $path) {
+        $fileCount = (Get-ChildItem $path -Recurse -File).Count
+        $dirSize = (Get-ChildItem $path -Recurse -File | Measure-Object -Property Length -Sum).Sum
+        $totalSize += $dirSize
+        $sizeStr = if ($dirSize -gt 1MB) { "{0:N1} MB" -f ($dirSize / 1MB) } else { "{0:N0} KB" -f ($dirSize / 1KB) }
+        Write-Host ("    {0,-35} {1,10}  ({2} files)" -f "$subdir/", $sizeStr, $fileCount) -ForegroundColor Gray
+    }
+}
+
+$totalStr = if ($totalSize -gt 1MB) { "{0:N1} MB" -f ($totalSize / 1MB) } else { "{0:N0} KB" -f ($totalSize / 1KB) }
 Write-Host ""
-Write-Host "Done. Artifacts are in: $DistDir" -ForegroundColor Green
+Write-Host "  Total (uncompressed): $totalStr" -ForegroundColor White
+Write-Host "  Zip:                  $zipSizeStr ($zipName)" -ForegroundColor White
+Write-Host ""
