@@ -1,4 +1,4 @@
-# Perfect Dark 2 — Full Release Pipeline
+# Perfect Dark 2 -- Full Release Pipeline
 # Builds and pushes releases on both the release and dev branches.
 #
 # Usage:
@@ -9,8 +9,8 @@
 #
 # What it does:
 #   1. Preflight checks (tools, clean tree, branches exist)
-#   2. Switch to 'release' branch → build client + server → package + push as stable
-#   3. Switch to 'dev' branch → build client + server → package + push as prerelease
+#   2. Switch to 'release' branch -> build client + server -> package + push as stable
+#   3. Switch to 'dev' branch -> build client + server -> package + push as prerelease
 #   4. Return to original branch
 #
 # Prerequisites:
@@ -96,7 +96,7 @@ function Invoke-PostBuildCopy {
     # Copy post-batch-addin files (DLLs, data, mods) into build directory
     $addinDir = "post-batch-addin"
     if (-not (Test-Path $addinDir)) {
-        # Check parent — some setups have it one level up
+        # Check parent -- some setups have it one level up
         $parentAddin = "../post-batch-addin"
         if (Test-Path $parentAddin) { $addinDir = $parentAddin }
     }
@@ -131,7 +131,7 @@ if ($hasRelease) { Write-OK "Branch 'release' exists" } else { Write-Fail "Branc
 if ($hasDev)     { Write-OK "Branch 'dev' exists" }     else { Write-Fail "Branch 'dev' not found"; exit 1 }
 
 # Tools
-if (Get-Command "gh" -ErrorAction SilentlyContinue) { Write-OK "gh CLI found" } else { Write-Warn "gh CLI not found — will skip GitHub release" }
+if (Get-Command "gh" -ErrorAction SilentlyContinue) { Write-OK "gh CLI found" } else { Write-Warn "gh CLI not found -- will skip GitHub release" }
 
 # Show versions
 git checkout release --quiet

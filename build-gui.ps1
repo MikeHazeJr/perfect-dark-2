@@ -846,7 +846,7 @@ function Start-ReleaseAll {
         "  7. Return to current branch`n`n" +
         "Make sure all changes are committed first.`n`n" +
         "Continue?",
-        "Release All — Full Pipeline",
+        "Release All - Full Pipeline",
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     )
