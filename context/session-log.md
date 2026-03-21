@@ -4,6 +4,45 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 14 — 2026-03-21
+
+**Focus**: Memory modernization audit and gameplan
+
+### What Was Done
+
+1. **Full codebase audit** of the memp memory pool system — documented the bump allocator architecture, pool overlap design (PERMANENT/STAGE/POOL_0 share address space), lack of individual free, and zero thread safety.
+
+2. **Memory aliasing audit** — identified 13 union types overlaying incompatible structs (most are architecturally valid tagged unions), the compressed-data-overlapping-decompressed-output pattern in `fileLoad`, and pool boundary overlap risks.
+
+3. **Magic number audit** — found 155+ hardcoded allocation sizes across ~40 files. Categorized by risk: 3 direct hex mempAlloc sizes, 11 arithmetic scratch offsets, 8 manual alignment masks, 28+ stack buffers with hex sizes, 6+ hardcoded array multipliers.
+
+4. **IS4MB/ALIGN16 audit** — IS4MB is compile-time `(0)`, all 4MB branches dead-code-eliminated. 119 ALIGN16 wrappers across 39 files, mostly ceremonial on PC (DMA is just memcpy). Low priority but contributes to code noise.
+
+5. **MAX_BOTS stragglers** — investigated `g_AmBotCommands[9]`, confirmed it's a 3×3 active-menu UI grid (not per-bot). No fix needed. All other arrays properly use constants.
+
+6. **Created `context/memory-modernization.md`** — comprehensive 6-phase plan (M0–M6) covering immediate safety fixes through full pool separation. Each phase independently testable.
+
+7. **Executed M0** — converted 24 INIT:/INTRO: diagnostic log lines from `LOG_NOTE` → `LOG_VERBOSE` in pdmain.c. Removed orphaned `#include "system.h"` from challengeinit.c. Verified all 3 buffer-overflow fix sites are consistent (`sizeof(struct mpconfigfull) + 16`), no remaining `0x1ca`.
+
+### Key Decisions
+- Memory modernization will be phased (M0–M6), not a single big-bang refactor
+- Phase M5 (separate pool regions) is the architectural change that eliminates pool overlap risk
+- Phases M0–M4 are safe, incremental, no behavioral change
+- `g_AmBotCommands[9]` confirmed NOT a MAX_BOTS bug — it's a 3×3 active-menu UI grid
+
+### Files Changed
+- `context/memory-modernization.md` — NEW: full audit + 6-phase gameplan
+- `context/README.md` — added memory-modernization.md to file index
+- `context/session-log.md` — this entry
+- `port/src/pdmain.c` — 24× `LOG_NOTE` → `LOG_VERBOSE` for INIT:/INTRO: diagnostic lines
+- `src/game/challengeinit.c` — removed orphaned `#include "system.h"`
+
+### Next Steps
+- **Rebuild** to verify Session 13 buffer fix + M0 logging cleanup boots cleanly
+- **New session**: Begin M1 (name magic numbers) — create `memsizes.h`, replace literals
+
+---
+
 ## Session 13 — 2026-03-21
 
 **Focus**: Fix client crash — model loading at boot before subsystems ready

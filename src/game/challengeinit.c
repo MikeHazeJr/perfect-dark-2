@@ -5,15 +5,16 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
-#include "system.h"
+
 
 void challengesInit(void)
 {
 	struct mpconfigfull *mpconfig;
-	u8 buffer[0x1ca];
+	/* Buffer must hold a full struct mpconfigfull + 16 bytes for DMA alignment.
+	 * Original code used 0x1ca (458 bytes) which was sized for MAX_BOTS=8.
+	 * With MAX_BOTS=24 the structs are ~888 bytes — the old buffer overflowed. */
+	u8 buffer[sizeof(struct mpconfigfull) + 16];
 	s32 i;
-
-	sysLogPrintf(LOG_NOTE, "CHALLENGES: starting init, %d challenges", (s32)ARRAYCOUNT(g_MpChallenges));
 
 	for (i = 0; i < ARRAYCOUNT(g_MpChallenges); i++) {
 		g_MpChallenges[i].availability = 0;
@@ -22,23 +23,14 @@ void challengesInit(void)
 		g_MpChallenges[i].completions[2] = 0;
 		g_MpChallenges[i].completions[3] = 0;
 
-		sysLogPrintf(LOG_NOTE, "CHALLENGES: [%d] loading confignum=%d", i, g_MpChallenges[i].confignum);
-		mpconfig = challengeLoad(i, buffer, 0x1ca);
-		sysLogPrintf(LOG_NOTE, "CHALLENGES: [%d] loaded, mpconfig=%p", i, (void *)mpconfig);
+		mpconfig = challengeLoad(i, buffer, sizeof(buffer));
 		challengeForceUnlockConfigFeatures(&mpconfig->config, g_MpChallenges[i].unlockfeatures, 16, i);
-		sysLogPrintf(LOG_NOTE, "CHALLENGES: [%d] unlockFeatures done", i);
 	}
 
-	sysLogPrintf(LOG_NOTE, "CHALLENGES: challenges loop done, starting presets");
-
 	for (i = 0; i < mpGetNumPresets(); i++) {
-		sysLogPrintf(LOG_NOTE, "CHALLENGES: preset[%d] confignum=%d", i, g_MpPresets[i].confignum);
-		mpconfig = challengeLoadConfig(g_MpPresets[i].confignum, buffer, 0x1ca);
-		sysLogPrintf(LOG_NOTE, "CHALLENGES: preset[%d] loaded", i);
+		mpconfig = challengeLoadConfig(g_MpPresets[i].confignum, buffer, sizeof(buffer));
 		challengeForceUnlockConfigFeatures(&mpconfig->config, g_MpPresets[i].requirefeatures, 16, -1);
 	}
 
-	sysLogPrintf(LOG_NOTE, "CHALLENGES: presets done, calling determinUnlockedFeatures");
 	challengeDetermineUnlockedFeatures();
-	sysLogPrintf(LOG_NOTE, "CHALLENGES: init complete");
 }

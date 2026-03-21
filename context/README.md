@@ -50,6 +50,7 @@ Merged PC port combining:
 | [update-system.md](update-system.md) | Update System (D13) | Version scheme, GitHub API, SHA-256 verification, self-replacement, save migration, release channels |
 | [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries for continuity across AI sessions |
 | [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | ADR | Audit findings: strncpy fixes, protocol verification, architectural assessment |
+| [memory-modernization.md](memory-modernization.md) | Memory (D-MEM) | Full audit + 6-phase plan: magic numbers, stack→heap, IS4MB collapse, ALIGN16 strip, pool separation |
 
 ## Key Architectural Facts
 - **Net modes**: `g_NetMode` — NETMODE_NONE(0), SERVER(1), CLIENT(2)

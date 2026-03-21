@@ -4109,7 +4109,7 @@ void mpApplyConfig(struct mpconfigfull *config)
 void mp0f18dec4(s32 slot)
 {
 	struct mpconfigfull *config;
-	u8 buffer[0x1ca];
+	u8 buffer[sizeof(struct mpconfigfull) + 16];
 	s32 confignum = 0;
 	u32 i;
 
