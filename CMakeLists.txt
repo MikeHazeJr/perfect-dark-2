@@ -126,7 +126,7 @@ endif()
 # VERSION_SEM_LABEL is a cosmetic suffix (e.g., "a" for alpha, "b" for beta).
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 3 CACHE STRING "Semantic version patch")
+set(VERSION_SEM_PATCH 8 CACHE STRING "Semantic version patch")
 set(VERSION_SEM_DEV   0 CACHE STRING "Dev build number (0 = stable release)")
 set(VERSION_SEM_LABEL "a" CACHE STRING "Version label suffix (empty for none, 'a'=alpha, 'b'=beta)")
 
@@ -228,6 +228,17 @@ endif()
 
 set(LIBS )
 
+# Resolve MSYS2 MinGW lib directory reliably for static linking.
+# find_package include dirs can be e.g. /mingw64/include/SDL2 (subfolder),
+# so "../lib" from there goes to /mingw64/include/lib (WRONG).
+# Instead, derive the lib dir from the compiler path or use a known MSYS2 layout.
+if(WIN32)
+  get_filename_component(_MINGW_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+  get_filename_component(_MINGW_PREFIX "${_MINGW_BIN_DIR}" DIRECTORY)
+  set(MINGW_LIB_DIR "${_MINGW_PREFIX}/lib")
+  message(STATUS "MinGW lib dir: ${MINGW_LIB_DIR}")
+endif()
+
 # SDL2 — static on Windows so no SDL2.dll is needed at runtime
 find_package(SDL2 REQUIRED)
 if(NINTENDO_SWITCH)
@@ -239,11 +250,11 @@ endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
 if(WIN32)
   # Use the static library instead of the import stub (.dll.a)
-  # MSYS2 path: /mingw64/lib/libSDL2.a
-  set(SDL2_STATIC_LIB "${SDL2_INCLUDE_DIR}/../lib/libSDL2.a")
+  set(SDL2_STATIC_LIB "${MINGW_LIB_DIR}/libSDL2.a")
+  set(SDL2_STATIC_MAIN "${MINGW_LIB_DIR}/libSDL2main.a")
   if(EXISTS "${SDL2_STATIC_LIB}")
     message(STATUS "SDL2: Using static library ${SDL2_STATIC_LIB}")
-    list(APPEND LIBS mingw32 "${SDL2_INCLUDE_DIR}/../lib/libSDL2main.a" "${SDL2_STATIC_LIB}")
+    list(APPEND LIBS mingw32 "${SDL2_STATIC_MAIN}" "${SDL2_STATIC_LIB}")
     # SDL2 static on Windows needs these system libs
     list(APPEND LIBS imm32 version setupapi)
   else()
@@ -260,7 +271,7 @@ if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
 endif()
 if(WIN32)
-  set(ZLIB_STATIC_LIB "${ZLIB_INCLUDE_DIR}/../lib/libz.a")
+  set(ZLIB_STATIC_LIB "${MINGW_LIB_DIR}/libz.a")
   if(EXISTS "${ZLIB_STATIC_LIB}")
     message(STATUS "ZLIB: Using static library ${ZLIB_STATIC_LIB}")
     list(APPEND LIBS "${ZLIB_STATIC_LIB}")
@@ -283,15 +294,16 @@ endif()
 if(WIN32)
   # Static curl needs CURL_STATICLIB defined so headers use dllimport correctly
   add_definitions(-DCURL_STATICLIB)
-  # Use pkg-config to get the full static dependency chain
+  # Use pkg-config to get the full static dependency chain (most reliable)
   find_package(PkgConfig)
   if(PKG_CONFIG_FOUND)
     pkg_check_modules(CURL_STATIC QUIET libcurl)
     if(CURL_STATIC_STATIC_LIBRARIES)
       message(STATUS "CURL: Using static link via pkg-config: ${CURL_STATIC_STATIC_LIBRARIES}")
       foreach(_lib ${CURL_STATIC_STATIC_LIBRARIES})
-        # pkg-config returns bare lib names; find_library resolves them
-        find_library(_found_${_lib} NAMES ${_lib} PATHS "${CURL_STATIC_LIBRARY_DIRS}" NO_DEFAULT_PATH)
+        find_library(_found_${_lib} NAMES ${_lib}
+                     PATHS "${CURL_STATIC_LIBRARY_DIRS}" "${MINGW_LIB_DIR}"
+                     NO_DEFAULT_PATH)
         if(_found_${_lib})
           list(APPEND LIBS "${_found_${_lib}}")
         else()
@@ -300,19 +312,31 @@ if(WIN32)
         unset(_found_${_lib} CACHE)
       endforeach()
     else()
-      message(WARNING "CURL: pkg-config static libs not found, falling back to dynamic")
-      if(CURL_LIBRARIES)
-        list(APPEND LIBS "${CURL_LIBRARIES}")
-      elseif(CURL_LIBRARY)
-        list(APPEND LIBS "${CURL_LIBRARY}")
+      message(STATUS "CURL: pkg-config static libs not found, trying manual static")
+      set(CURL_STATIC_LIB "${MINGW_LIB_DIR}/libcurl.a")
+      if(EXISTS "${CURL_STATIC_LIB}")
+        message(STATUS "CURL: Using static library ${CURL_STATIC_LIB}")
+        # Full dependency chain for static curl with OpenSSL on MinGW
+        list(APPEND LIBS "${CURL_STATIC_LIB}")
+        # Pull remaining deps from pkg-config --libs --static libcurl
+        # Common chain: ssl crypto zstd brotlidec brotlicommon zlib nghttp2
+        #               idn2 unistring psl ssh2 + Windows system libs
+        list(APPEND LIBS ssl crypto crypt32 wldap32 bcrypt ws2_32)
+      else()
+        message(WARNING "CURL: Static library not found at ${CURL_STATIC_LIB}, falling back to dynamic")
+        if(CURL_LIBRARIES)
+          list(APPEND LIBS "${CURL_LIBRARIES}")
+        elseif(CURL_LIBRARY)
+          list(APPEND LIBS "${CURL_LIBRARY}")
+        endif()
       endif()
     endif()
   else()
-    # No pkg-config — try manual static curl with common deps
-    set(CURL_STATIC_LIB "${CURL_INCLUDE_DIR}/../lib/libcurl.a")
+    # No pkg-config — manual static curl
+    set(CURL_STATIC_LIB "${MINGW_LIB_DIR}/libcurl.a")
     if(EXISTS "${CURL_STATIC_LIB}")
       message(STATUS "CURL: Using static library (manual) ${CURL_STATIC_LIB}")
-      list(APPEND LIBS "${CURL_STATIC_LIB}" ssl crypto crypt32 wldap32 bcrypt)
+      list(APPEND LIBS "${CURL_STATIC_LIB}" ssl crypto crypt32 wldap32 bcrypt ws2_32)
     else()
       message(WARNING "CURL: Static library not found, falling back to dynamic")
       if(CURL_LIBRARIES)

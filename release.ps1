@@ -156,23 +156,23 @@ if ($hasServer) {
     Write-Host "  pd-server.x86_64.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
-# --- Runtime DLLs ---
+# --- Runtime DLLs (fallback — ideally all libs are statically linked) ---
 
-$dllNames = @("SDL2.dll", "zlib1.dll", "libwinpthread-1.dll")
+$dllNames = @("SDL2.dll", "zlib1.dll", "libwinpthread-1.dll", "libcurl-4.dll")
+$dllsIncluded = 0
 foreach ($dll in $dllNames) {
-    $found = $false
     foreach ($searchPath in $DllSearchPaths) {
         $dllPath = "$searchPath/$dll"
         if (Test-Path $dllPath) {
             Copy-Item $dllPath "$DistDir/$dll"
-            Write-Host "  $dll (from $searchPath)" -ForegroundColor Gray
-            $found = $true
+            Write-Host "  $dll (from $searchPath) -- NOTE: should be statically linked" -ForegroundColor Yellow
+            $dllsIncluded++
             break
         }
     }
-    if (-not $found) {
-        Write-Host "  $dll -- NOT FOUND (skipped)" -ForegroundColor Yellow
-    }
+}
+if ($dllsIncluded -eq 0) {
+    Write-Host "  No runtime DLLs needed (all statically linked)" -ForegroundColor Green
 }
 
 # --- Source folders (port/ and src/) ---
@@ -293,7 +293,33 @@ Write-Host "[3/5] Git tagging..." -ForegroundColor Yellow
 
 $existingTag = git tag -l $Tag 2>$null
 if ($existingTag) {
-    Write-Host "  Tag $Tag already exists, skipping." -ForegroundColor Yellow
+    Write-Host "  Tag $Tag already exists — overwriting." -ForegroundColor Yellow
+    if (-not $DryRun) {
+        # Delete the existing GitHub release first (if any)
+        if ($hasGh -and -not $SkipPush) {
+            Write-Host "  Deleting existing GitHub release for $Tag ..." -ForegroundColor Yellow
+            $savedEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            $delOut = gh release delete $Tag --yes --cleanup-tag 2>&1
+            $ErrorActionPreference = $savedEAP
+            foreach ($line in $delOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+            Write-Host "  Existing release deleted." -ForegroundColor Green
+        }
+        # Delete local tag
+        git tag -d $Tag 2>$null
+        # Delete remote tag (if push is enabled)
+        if (-not $SkipPush) {
+            $savedEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            git push origin ":refs/tags/$Tag" 2>&1 | ForEach-Object { Write-Host "    $($_.ToString())" -ForegroundColor Gray }
+            $ErrorActionPreference = $savedEAP
+        }
+        # Recreate tag on current commit
+        git tag -a $Tag -m "$Tag release"
+        Write-Host "  Recreated tag: $Tag" -ForegroundColor Green
+    } else {
+        Write-Host "  [DRY RUN] Would delete and recreate tag: $Tag" -ForegroundColor Magenta
+    }
 } elseif ($DryRun) {
     Write-Host "  [DRY RUN] Would create tag: $Tag" -ForegroundColor Magenta
 } else {

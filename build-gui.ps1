@@ -213,6 +213,54 @@ $btnSaveVersion.Cursor = "Hand"
 $btnSaveVersion.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
 $infoPanel.Controls.Add($btnSaveVersion)
 
+# Version increment buttons (+ buttons beneath each field)
+function New-IncrementButton($x) {
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = "+"
+    $btn.Location = New-Object System.Drawing.Point($x, 28)
+    $btn.Size = New-Object System.Drawing.Size(36, 20)
+    $btn.FlatStyle = "Flat"
+    $btn.FlatAppearance.BorderColor = $script:ColorDimmer
+    $btn.FlatAppearance.BorderSize = 1
+    $btn.ForeColor = $script:ColorGold
+    $btn.BackColor = $script:ColorFieldBg
+    $btn.Cursor = "Hand"
+    $btn.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+    $infoPanel.Controls.Add($btn)
+    return $btn
+}
+
+$btnIncMajor = New-IncrementButton 286
+$btnIncMinor = New-IncrementButton 334
+$btnIncPatch = New-IncrementButton 382
+
+$btnIncMajor.Add_Click({
+    $val = 0
+    if ([int]::TryParse($txtMajor.Text, [ref]$val)) {
+        $txtMajor.Text = ($val + 1).ToString()
+        $txtMinor.Text = "0"
+        $txtPatch.Text = "0"
+        Update-VersionString
+    }
+})
+
+$btnIncMinor.Add_Click({
+    $val = 0
+    if ([int]::TryParse($txtMinor.Text, [ref]$val)) {
+        $txtMinor.Text = ($val + 1).ToString()
+        $txtPatch.Text = "0"
+        Update-VersionString
+    }
+})
+
+$btnIncPatch.Add_Click({
+    $val = 0
+    if ([int]::TryParse($txtPatch.Text, [ref]$val)) {
+        $txtPatch.Text = ($val + 1).ToString()
+        Update-VersionString
+    }
+})
+
 # Computed version string display
 $lblVersionStr = New-Object System.Windows.Forms.Label
 $lblVersionStr.Text = ""
@@ -283,19 +331,20 @@ $btnSep0.BackColor = $script:ColorDimmer
 $buttonPanel.Controls.Add($btnSep0)
 
 # Run actions
-$btnRunGame    = New-BuildButton "Run Client"   104 $script:ColorGreen
-$btnRunServer  = New-BuildButton "Run Server"   146 $script:ColorOrange
+$btnRunGame      = New-BuildButton "Run Client"       104 $script:ColorGreen
+$btnRunServer    = New-BuildButton "Run Server"       146 $script:ColorOrange
+$btnRunServerGui = New-BuildButton "Server (GUI)"     188 $script:ColorOrange
 
 # Separator 2
 $btnSep1 = New-Object System.Windows.Forms.Label
-$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(8, 190)
+$btnSep1.Text = ""; $btnSep1.Location = New-Object System.Drawing.Point(8, 232)
 $btnSep1.Size = New-Object System.Drawing.Size(134, 2)
 $btnSep1.BackColor = $script:ColorDimmer
 $buttonPanel.Controls.Add($btnSep1)
 
 # Release actions
-$btnPackage     = New-BuildButton "Package"       200 $script:ColorPurple
-$btnPushRelease = New-BuildButton "Push Release"  242 $script:ColorRed
+$btnPackage     = New-BuildButton "Package"       242 $script:ColorPurple
+$btnPushRelease = New-BuildButton "Push Release"  284 $script:ColorRed
 
 # ============================================================================
 # Right side: console + utility buttons + progress bar
@@ -425,11 +474,13 @@ function Update-RunButtons {
 
     $btnRunGame.Enabled = $canRunClient
     $btnRunServer.Enabled = $canRunServer
+    $btnRunServerGui.Enabled = $canRunServer
     $btnPackage.Enabled = $canPackage
     $btnPushRelease.Enabled = $canRelease
 
     $btnRunGame.ForeColor = if ($canRunClient) { $script:ColorGreen } else { $script:ColorDisabled }
     $btnRunServer.ForeColor = if ($canRunServer) { $script:ColorOrange } else { $script:ColorDisabled }
+    $btnRunServerGui.ForeColor = if ($canRunServer) { $script:ColorOrange } else { $script:ColorDisabled }
     $btnPackage.ForeColor = if ($canPackage) { $script:ColorPurple } else { $script:ColorDisabled }
     $btnPushRelease.ForeColor = if ($canRelease) { $script:ColorRed } else { $script:ColorDisabled }
 }
@@ -507,22 +558,27 @@ function Switch-Branch($targetBranch) {
         }
     }
 
-    # Check for uncommitted changes
+    # Check for uncommitted changes — auto-stash if needed
     $status = git -C $script:ProjectDir status --porcelain 2>$null
+    $didStash = $false
     if ($status) {
         $confirm = [System.Windows.Forms.MessageBox]::Show(
             "You have uncommitted changes.`n`n" +
-            "Switching branches may cause conflicts.`n" +
-            "Commit or stash your changes first.`n`n" +
-            "Switch anyway?",
+            "They will be automatically stashed and`n" +
+            "restored when you switch back.`n`n" +
+            "Stash and switch?",
             "Uncommitted Changes",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
+            [System.Windows.Forms.MessageBoxIcon]::Question
         )
         if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) {
             Refresh-BranchList
             return
         }
+        # Stash changes (including untracked files)
+        $stashResult = git -C $script:ProjectDir stash push -u -m "buildtool-autostash ($currentBranch)" 2>&1
+        Write-Output-Line "  Stashed: $stashResult" $script:ColorPurple
+        $didStash = $true
     }
 
     Write-Header "Switching to branch: $targetBranch"
@@ -533,10 +589,27 @@ function Switch-Branch($targetBranch) {
         $statusLabel.ForeColor = $script:ColorGreen
         Refresh-VersionFields
         Refresh-ChangesStatus
+
+        # Check if this branch has a previously auto-stashed set of changes
+        $stashList = git -C $script:ProjectDir stash list 2>$null
+        if ($stashList) {
+            $escapedBranch = [regex]::Escape($targetBranch)
+            foreach ($entry in $stashList) {
+                if ($entry -match "^(stash@\{\d+\}).*buildtool-autostash \($escapedBranch\)") {
+                    $popResult = git -C $script:ProjectDir stash pop $Matches[1] 2>&1
+                    Write-Output-Line "  Restored auto-stash for $targetBranch" $script:ColorPurple
+                    break
+                }
+            }
+        }
     } catch {
         Write-Output-Line "  Failed to switch branch: $_" $script:ColorRed
         $statusLabel.Text = "Branch switch failed"
         $statusLabel.ForeColor = $script:ColorRed
+        if ($didStash) {
+            git -C $script:ProjectDir stash pop 2>$null
+            Write-Output-Line "  Restored stash after failed switch" $script:ColorOrange
+        }
     }
     Refresh-BranchList
 }
@@ -981,11 +1054,16 @@ function Copy-AddinFiles {
 function Launch-Game($mode) {
     if ($script:IsRunning) { return }
 
-    if ($mode -eq "server") {
+    if ($mode -eq "server" -or $mode -eq "server-gui") {
         $launchDir = $script:ServerBuildDir
         $launchExe = Join-Path $launchDir "pd-server.x86_64.exe"
-        $gameArgs = "--log"
-        $label = "Dedicated Server"
+        if ($mode -eq "server") {
+            $gameArgs = "--headless --log"
+            $label = "Dedicated Server (headless)"
+        } else {
+            $gameArgs = "--log"
+            $label = "Dedicated Server (GUI)"
+        }
         $labelColor = $script:ColorOrange
 
         if (!(Test-Path $launchExe)) {
@@ -1361,6 +1439,7 @@ $btnBuildServer.Add_Click({ Start-Build "server" })
 
 $btnRunGame.Add_Click({ Launch-Game "client" })
 $btnRunServer.Add_Click({ Launch-Game "server" })
+$btnRunServerGui.Add_Click({ Launch-Game "server-gui" })
 $btnPackage.Add_Click({ Package-Release })
 $btnPushRelease.Add_Click({ Start-PushRelease })
 
