@@ -6,7 +6,30 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ## Session 6 — 2026-03-21
 
-**Focus**: strncpy null-termination audit, ADR-001, build tool commit
+**Focus**: strncpy audit, 32-slot bot expansion, async bot ticking
+
+### What Was Done
+- Re-applied netmsg.c fixes lost during compaction + full propagation sweep (27 sites, 9 files)
+- Created ADR-001 architecture audit document and session-log.md
+- **32-character slot expansion**: MAX_BOTS 8→24, chrslots u16→u32, all masks updated
+- Removed all MPFEATURE_8BOTS gates — all bot slots available on PC
+- Fixed signed shift UB across 20 files (~60 call sites: `1 <<` → `1u <<`)
+- Updated network protocol (SVC_STAGE_START chrslots u32, bumped to v19)
+- Updated preprocess/misc.c N64 save format conversion for u32 chrslots
+- Added async bot tick scheduler: distributes AI across frame groups for 9+ bots
+- Updated matchsetup.c MATCH_MAX_SLOTS to MAX_MPCHRS, save format to use constants
+
+### Commits
+- `841ae31`: Static linking fix, build tool features, release overwrite
+- `e0a8853`: strncpy null-termination across codebase (27 locations)
+- `8c6e47a`: 32-character slot expansion (20 files)
+
+### Decisions
+- Unified slot model: 8 player bits + 24 bot bits in u32 chrslots
+- Async AI: ≤8 bots = 60Hz, 9-16 = 30Hz, 17-24 = 20Hz per bot
+- Protocol version bumped to 19 (breaking change, chrslots wire format)
+
+### Previous Focus
 
 ### What Was Done
 - Re-applied netmsg.c fixes lost during context compaction (3 strncpy + 1 strcpy→snprintf)
