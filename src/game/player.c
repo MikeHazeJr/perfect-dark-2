@@ -217,14 +217,14 @@ s32 g_NumDeathAnimations = 0;
  * chrs and room visibility. A shortlist of 4 pads is then created based on the
  * best pads, and a random pad is selected from the shortlist.
  *
- * @dangerous: If there are too many pads (24+) in the setup then array
- * overflows may occur.
+ * Arrays sized to MAX_MPCHRS (32) to support stock maps (max 21 pads)
+ * and future custom maps with up to 32 spawn points.
  */
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
-	u8 verybadpads[24];
-	u8 badpads[24];
-	f32 padsqdists[24];
+	u8 verybadpads[MAX_MPCHRS];
+	u8 badpads[MAX_MPCHRS];
+	f32 padsqdists[MAX_MPCHRS];
 
 	u8 stack1[0x10];
 	f32 xdiff;

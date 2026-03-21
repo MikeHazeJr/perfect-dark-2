@@ -228,6 +228,9 @@ void inputModeSetTiming(u32 ck, f32 seconds);
 /* Button edge glow — from pdgui_style */
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 
+/* Update UI — from pdgui_menu_update.cpp */
+void pdguiUpdateRenderSettingsTab(void);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -236,7 +239,7 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
-static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game */
+static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates */
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
@@ -1111,14 +1114,14 @@ static void renderSettingsView(float scale, float contentH)
 
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 3;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 4;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 3) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > 4) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1135,6 +1138,7 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag1 = (s_BumperPendingTab == 1) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag2 = (s_BumperPendingTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -1177,6 +1181,17 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsGame(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Updates", nullptr, selFlag4)) {
+            s_SettingsSubTab = 4;
+            ImGui::BeginChild("##settings_scroll_u", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            pdguiUpdateRenderSettingsTab();
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

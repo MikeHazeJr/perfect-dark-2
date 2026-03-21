@@ -42,6 +42,7 @@ static float s_NotificationTimer = 0.0f;    /* seconds since notification appear
 static int s_SelectedRelease = -1;          /* selected row in version picker */
 static bool s_ConfirmDownload = false;      /* confirm download dialog */
 static bool s_DownloadActive = false;       /* download in progress */
+static bool s_DownloadFailed = false;       /* last download attempt failed */
 static bool s_RestartPrompt = false;        /* download done, prompt restart */
 
 /* ========================================================================
@@ -128,7 +129,7 @@ static void renderDownloadProgress(void)
 
 	if (status == UPDATER_DOWNLOAD_FAILED) {
 		s_DownloadActive = false;
-		/* Error will be shown in version picker */
+		s_DownloadFailed = true;
 		return;
 	}
 
@@ -220,6 +221,202 @@ static void renderRestartPrompt(void)
  * Version picker dialog
  * ======================================================================== */
 
+/**
+ * Render the version picker content (header, table, buttons).
+ * Shared between the floating dialog and the inline Settings tab.
+ * tableH: height for the version list table (use 0 for auto-fill).
+ */
+static void renderVersionPickerContent(float tableH)
+{
+	/* Header: current version + channel */
+	const pdversion_t *cur = updaterGetCurrentVersion();
+	char curstr[64];
+	if (cur) {
+		versionFormat(cur, curstr, sizeof(curstr));
+	} else {
+		snprintf(curstr, sizeof(curstr), "(unknown)");
+	}
+
+	ImGui::Text("Current version: %s", curstr);
+	ImGui::SameLine(0, 16);
+
+	/* Channel selector */
+	update_channel_t channel = updaterGetChannel();
+	const char *channelLabels[] = { "Stable", "Dev / Test" };
+	ImGui::SetNextItemWidth(120);
+	int channelInt = (int)channel;
+	if (ImGui::Combo("Channel##upd", &channelInt, channelLabels, 2)) {
+		updaterSetChannel((update_channel_t)channelInt);
+		/* Re-check with new channel */
+		updaterCheckAsync();
+	}
+
+	ImGui::Separator();
+
+	/* Status line */
+	updater_status_t status = updaterGetStatus();
+	switch (status) {
+	case UPDATER_IDLE:
+		ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1), "Not checked yet");
+		break;
+	case UPDATER_CHECKING:
+		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1), "Checking for updates...");
+		break;
+	case UPDATER_CHECK_DONE: {
+		s32 count = updaterGetReleaseCount();
+		if (updaterIsUpdateAvailable()) {
+			const updater_release_t *lat = updaterGetLatest();
+			char latstr[64];
+			versionFormat(&lat->version, latstr, sizeof(latstr));
+			ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
+				"Update available: v%s (%d versions found)", latstr, count);
+		} else {
+			ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
+				"Up to date (%d versions found)", count);
+		}
+		break;
+	}
+	case UPDATER_CHECK_FAILED:
+		ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1), "Check failed: %s", updaterGetError());
+		break;
+	case UPDATER_DOWNLOADING:
+		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1), "Downloading...");
+		break;
+	case UPDATER_DOWNLOAD_DONE:
+		ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1), "Download complete — restart to apply");
+		break;
+	case UPDATER_DOWNLOAD_FAILED:
+		ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1), "Download failed: %s", updaterGetError());
+		break;
+	}
+
+	/* Check button */
+	ImGui::SameLine();
+	if (status != UPDATER_CHECKING && status != UPDATER_DOWNLOADING) {
+		if (ImGui::SmallButton("Check Now")) {
+			updaterCheckAsync();
+		}
+	}
+
+	ImGui::Spacing();
+
+	/* Version list table */
+	if (status == UPDATER_CHECK_DONE || status == UPDATER_DOWNLOAD_DONE ||
+	    status == UPDATER_DOWNLOAD_FAILED) {
+
+		s32 count = updaterGetReleaseCount();
+
+		if (count > 0 && ImGui::BeginTable("versions", 4,
+			ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+			ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
+			ImVec2(0, tableH > 0 ? tableH : 280))) {
+
+			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 100);
+			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60);
+			ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70);
+			ImGui::TableHeadersRow();
+
+			for (s32 i = 0; i < count; i++) {
+				const updater_release_t *rel = updaterGetRelease(i);
+				if (!rel) continue;
+
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+
+				/* Version with current marker */
+				char verstr[64];
+				versionFormat(&rel->version, verstr, sizeof(verstr));
+
+				bool isCurrent = cur && (versionCompare(&rel->version, cur) == 0);
+				bool isNewer = cur && (versionCompare(&rel->version, cur) > 0);
+
+				bool selected = (s_SelectedRelease == i);
+				char selectableId[128];
+				snprintf(selectableId, sizeof(selectableId), "%s##rel_%d", verstr, i);
+
+				if (ImGui::Selectable(selectableId, selected,
+					ImGuiSelectableFlags_SpanAllColumns)) {
+					s_SelectedRelease = i;
+				}
+
+				if (isCurrent) {
+					ImGui::SameLine();
+					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
+				} else if (isNewer) {
+					ImGui::SameLine();
+					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "*");
+				}
+
+				ImGui::TableNextColumn();
+				if (rel->isPrerelease) {
+					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dev");
+				} else {
+					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Stable");
+				}
+
+				ImGui::TableNextColumn();
+				ImGui::TextWrapped("%s", rel->name[0] ? rel->name : "(no title)");
+
+				ImGui::TableNextColumn();
+				if (rel->assetSize > 0) {
+					ImGui::Text("%.1f MB", (double)rel->assetSize / (1024.0 * 1024.0));
+				} else {
+					ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "—");
+				}
+			}
+
+			ImGui::EndTable();
+		}
+
+		/* Changelog for selected release */
+		if (s_SelectedRelease >= 0 && s_SelectedRelease < count) {
+			const updater_release_t *sel = updaterGetRelease(s_SelectedRelease);
+			if (sel && sel->body[0]) {
+				ImGui::Spacing();
+				ImGui::Text("Changelog:");
+				ImGui::BeginChild("changelog", ImVec2(0, 80), true);
+				ImGui::TextWrapped("%s", sel->body);
+				ImGui::EndChild();
+			}
+		}
+
+		/* Action buttons */
+		ImGui::Spacing();
+
+		if (s_SelectedRelease >= 0 && s_SelectedRelease < count) {
+			const updater_release_t *sel = updaterGetRelease(s_SelectedRelease);
+			bool isCurrent = sel && cur && (versionCompare(&sel->version, cur) == 0);
+
+			if (sel && !isCurrent && sel->assetUrl[0] &&
+			    status != UPDATER_DOWNLOADING) {
+				const char *btnLabel = s_DownloadFailed
+					? "Retry Download" : "Download & Install";
+				if (ImGui::Button(btnLabel, ImVec2(160, 0))) {
+					s_DownloadFailed = false;
+					updaterDownloadAsync(sel);
+					s_DownloadActive = true;
+				}
+
+				/* Rollback warning */
+				if (sel && cur && versionCompare(&sel->version, cur) < 0) {
+					ImGui::SameLine();
+					ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1),
+						"(rollback — older than current)");
+				}
+			}
+
+			/* Show download failure message */
+			if (s_DownloadFailed) {
+				const char *errMsg = updaterGetError();
+				ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
+					"Download failed: %s",
+					(errMsg && errMsg[0]) ? errMsg : "unknown error");
+			}
+		}
+	}
+}
+
 static void renderVersionPicker(void)
 {
 	if (!s_ShowVersionPicker) return;
@@ -233,178 +430,7 @@ static void renderVersionPicker(void)
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
-		/* Header: current version + channel */
-		const pdversion_t *cur = updaterGetCurrentVersion();
-		char curstr[64];
-		versionFormat(cur, curstr, sizeof(curstr));
-
-		ImGui::Text("Current version: %s", curstr);
-		ImGui::SameLine(0, 16);
-
-		/* Channel selector */
-		update_channel_t channel = updaterGetChannel();
-		const char *channelLabels[] = { "Stable", "Dev / Test" };
-		ImGui::SetNextItemWidth(120);
-		int channelInt = (int)channel;
-		if (ImGui::Combo("Channel", &channelInt, channelLabels, 2)) {
-			updaterSetChannel((update_channel_t)channelInt);
-			/* Re-check with new channel */
-			updaterCheckAsync();
-		}
-
-		ImGui::Separator();
-
-		/* Status line */
-		updater_status_t status = updaterGetStatus();
-		switch (status) {
-		case UPDATER_IDLE:
-			ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1), "Not checked yet");
-			break;
-		case UPDATER_CHECKING:
-			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1), "Checking for updates...");
-			break;
-		case UPDATER_CHECK_DONE: {
-			s32 count = updaterGetReleaseCount();
-			if (updaterIsUpdateAvailable()) {
-				const updater_release_t *lat = updaterGetLatest();
-				char latstr[64];
-				versionFormat(&lat->version, latstr, sizeof(latstr));
-				ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
-					"Update available: v%s (%d versions found)", latstr, count);
-			} else {
-				ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
-					"Up to date (%d versions found)", count);
-			}
-			break;
-		}
-		case UPDATER_CHECK_FAILED:
-			ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1), "Check failed: %s", updaterGetError());
-			break;
-		case UPDATER_DOWNLOADING:
-			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1), "Downloading...");
-			break;
-		case UPDATER_DOWNLOAD_DONE:
-			ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1), "Download complete — restart to apply");
-			break;
-		case UPDATER_DOWNLOAD_FAILED:
-			ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1), "Download failed: %s", updaterGetError());
-			break;
-		}
-
-		/* Check button */
-		ImGui::SameLine();
-		if (status != UPDATER_CHECKING && status != UPDATER_DOWNLOADING) {
-			if (ImGui::SmallButton("Check Now")) {
-				updaterCheckAsync();
-			}
-		}
-
-		ImGui::Spacing();
-
-		/* Version list table */
-		if (status == UPDATER_CHECK_DONE || status == UPDATER_DOWNLOAD_DONE ||
-		    status == UPDATER_DOWNLOAD_FAILED) {
-
-			s32 count = updaterGetReleaseCount();
-
-			if (count > 0 && ImGui::BeginTable("versions", 4,
-				ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-				ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
-				ImVec2(0, 280))) {
-
-				ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 100);
-				ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60);
-				ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
-				ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70);
-				ImGui::TableHeadersRow();
-
-				for (s32 i = 0; i < count; i++) {
-					const updater_release_t *rel = updaterGetRelease(i);
-					if (!rel) continue;
-
-					ImGui::TableNextRow();
-					ImGui::TableNextColumn();
-
-					/* Version with current marker */
-					char verstr[64];
-					versionFormat(&rel->version, verstr, sizeof(verstr));
-
-					bool isCurrent = (versionCompare(&rel->version, cur) == 0);
-					bool isNewer = (versionCompare(&rel->version, cur) > 0);
-
-					bool selected = (s_SelectedRelease == i);
-					char selectableId[128];
-					snprintf(selectableId, sizeof(selectableId), "%s##rel_%d", verstr, i);
-
-					if (ImGui::Selectable(selectableId, selected,
-						ImGuiSelectableFlags_SpanAllColumns)) {
-						s_SelectedRelease = i;
-					}
-
-					if (isCurrent) {
-						ImGui::SameLine();
-						ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
-					} else if (isNewer) {
-						ImGui::SameLine();
-						ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "*");
-					}
-
-					ImGui::TableNextColumn();
-					if (rel->isPrerelease) {
-						ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dev");
-					} else {
-						ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Stable");
-					}
-
-					ImGui::TableNextColumn();
-					ImGui::TextWrapped("%s", rel->name[0] ? rel->name : "(no title)");
-
-					ImGui::TableNextColumn();
-					if (rel->assetSize > 0) {
-						ImGui::Text("%.1f MB", (double)rel->assetSize / (1024.0 * 1024.0));
-					} else {
-						ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "—");
-					}
-				}
-
-				ImGui::EndTable();
-			}
-
-			/* Changelog for selected release */
-			if (s_SelectedRelease >= 0 && s_SelectedRelease < count) {
-				const updater_release_t *sel = updaterGetRelease(s_SelectedRelease);
-				if (sel && sel->body[0]) {
-					ImGui::Spacing();
-					ImGui::Text("Changelog:");
-					ImGui::BeginChild("changelog", ImVec2(0, 80), true);
-					ImGui::TextWrapped("%s", sel->body);
-					ImGui::EndChild();
-				}
-			}
-
-			/* Action buttons */
-			ImGui::Spacing();
-
-			if (s_SelectedRelease >= 0 && s_SelectedRelease < count) {
-				const updater_release_t *sel = updaterGetRelease(s_SelectedRelease);
-				bool isCurrent = sel && (versionCompare(&sel->version, cur) == 0);
-
-				if (sel && !isCurrent && sel->assetUrl[0] &&
-				    status != UPDATER_DOWNLOADING) {
-					if (ImGui::Button("Download & Install", ImVec2(160, 0))) {
-						updaterDownloadAsync(sel);
-						s_DownloadActive = true;
-					}
-
-					/* Rollback warning */
-					if (sel && versionCompare(&sel->version, cur) < 0) {
-						ImGui::SameLine();
-						ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1),
-							"(rollback — older than current)");
-					}
-				}
-			}
-		}
+		renderVersionPickerContent(280);
 	}
 	ImGui::End();
 
@@ -450,7 +476,7 @@ void pdguiUpdateRender(void)
 }
 
 /**
- * Open the version picker dialog (callable from Settings menu).
+ * Open the version picker as a floating dialog (from notification banner).
  */
 void pdguiUpdateShowPicker(void)
 {
@@ -461,6 +487,28 @@ void pdguiUpdateShowPicker(void)
 	if (status == UPDATER_IDLE || status == UPDATER_CHECK_FAILED) {
 		updaterCheckAsync();
 	}
+}
+
+/**
+ * Render update UI inline inside the Settings tab.
+ * Called every frame while the "Updates" tab is active.
+ * Unlike pdguiUpdateShowPicker(), this does NOT open a floating window —
+ * it renders directly into the current ImGui context (the tab's child).
+ */
+void pdguiUpdateRenderSettingsTab(void)
+{
+	/* Auto-trigger a version check the first time the tab is viewed */
+	static bool s_TabCheckTriggered = false;
+	if (!s_TabCheckTriggered) {
+		updater_status_t status = updaterGetStatus();
+		if (status == UPDATER_IDLE || status == UPDATER_CHECK_FAILED) {
+			updaterCheckAsync();
+		}
+		s_TabCheckTriggered = true;
+	}
+
+	/* Use 0 for table height — let it fill available space */
+	renderVersionPickerContent(0);
 }
 
 /**
