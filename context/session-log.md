@@ -4,6 +4,64 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 11 — 2026-03-21
+
+**Focus**: Log channel filter system, always-on logging, debug menu wiring, build tool polish, release cleanup
+
+### What Was Done
+
+1. **Always-on logging** (`port/src/system.c`)
+   - Removed `sysArgCheck("--log")` gate — logging is now unconditional in `sysInit()`
+   - Log filename: `pd-server.log` (dedicated), `pd-host.log` (host), `pd-client.log` (client)
+   - Removed `--log` from build-gui.ps1 launch args (no longer needed)
+
+2. **Log channel filter system** (`port/include/system.h`, `port/src/system.c`)
+   - 8 channels: Network, Game, Combat, Audio, Menu, Save, Mods, System
+   - Bitmask constants (LOG_CH_NETWORK through LOG_CH_SYSTEM) + LOG_CH_ALL/LOG_CH_NONE presets
+   - `sysLogClassifyMessage()` — maps ~30 known string prefixes to channel bitmask
+   - Filter logic in `sysLogPrintf()`: warnings/errors always pass, LOG_NOTE filtered by channel, untagged messages always pass
+   - `sysLogSetChannelMask()` / `sysLogGetChannelMask()` with change logging
+   - Zero changes to existing 470+ log call sites (prefix-based classification)
+
+3. **ImGui debug menu log section** (`port/fast3d/pdgui_debugmenu.cpp`)
+   - `pdguiDebugLogSection()` — All/None preset buttons, per-channel checkboxes, hex mask readout
+   - Wired into `pdguiDebugMenuRender()` after Theme section
+
+4. **Build tool version layout fix** (`build-gui.ps1`)
+   - Moved increment/decrement buttons from beside version fields to below them
+   - Layout now: `[0] . [0] . [0]` row, then `[-][+] [-][+] [-][+]` row beneath
+   - All downstream section Y-positions shifted to accommodate
+
+5. **Latest released version display** (`build-gui.ps1`)
+   - VERSION section shows `dev: X.Y.Z` and `stable: X.Y.Z` from GitHub Releases
+   - Added `Prerelease` field to release cache system
+   - Labels refresh on startup (disk cache) and after each API fetch
+   - `*` suffix when showing cached (offline) data
+
+6. **Window height reduction** (`build-gui.ps1`)
+   - Form 880x680 → 880x560, sidebar trimmed to fit content
+   - Console, utility bar, progress bar repositioned to sit just below sidebar
+
+7. **Release script cleanup** (`release.ps1`)
+   - Added step 6/6: local backup + cleanup after push
+   - Stable releases: zip backed up to `backups/` before cleanup
+   - Dev releases: no local backup, GitHub is source of truth
+   - Staging directories auto-cleaned after push + orphans cleaned
+   - Added `backups/` to .gitignore
+
+8. **Version reset** — CMakeLists.txt VERSION_SEM_PATCH 4→1
+
+### Files Modified
+- `port/include/system.h` — LOG_CH_* defines, API, extern arrays
+- `port/src/system.c` — Unconditional logging, filter state, classifier, filter logic
+- `port/fast3d/pdgui_debugmenu.cpp` — Log section + render wiring
+- `build-gui.ps1` — Layout, version labels, window resize, removed --log args
+- `release.ps1` — Post-push cleanup, stable backup to backups/
+- `CMakeLists.txt` — Version patch reset to 1
+- `.gitignore` — Added backups/
+
+---
+
 ## Session 10 — 2026-03-21 (continued)
 
 **Focus**: Connect code system completion, ROM missing dialog, build tooling polish

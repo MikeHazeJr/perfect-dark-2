@@ -152,7 +152,7 @@ if (-not $hasClient -and -not $hasServer) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[1/5] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
+Write-Host "[1/6] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
 
 if (Test-Path $DistDir) {
     Remove-Item $DistDir -Recurse -Force
@@ -248,7 +248,7 @@ if ($hasMods) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[2/5] Creating zip archive..." -ForegroundColor Yellow
+Write-Host "[2/6] Creating zip archive..." -ForegroundColor Yellow
 
 $zipName = "PerfectDark-$Tag-win64.zip"
 $zipPath = "dist/$zipName"
@@ -301,7 +301,7 @@ Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 # ============================================================================
 
 Write-Host ""
-Write-Host "[3/5] Git tagging..." -ForegroundColor Yellow
+Write-Host "[3/6] Git tagging..." -ForegroundColor Yellow
 
 $existingTag = git tag -l $Tag 2>$null
 if ($existingTag) {
@@ -318,7 +318,7 @@ if ($existingTag) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[4/5] Pushing to remote..." -ForegroundColor Yellow
+Write-Host "[4/6] Pushing to remote..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun) {
     Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
@@ -364,7 +364,7 @@ if ($SkipPush -or $DryRun) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[5/5] Creating GitHub release..." -ForegroundColor Yellow
+Write-Host "[5/6] Creating GitHub release..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
@@ -424,41 +424,57 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 }
 
 # ============================================================================
+# Step 6: Local backup + cleanup
+# ============================================================================
+
+Write-Host ""
+Write-Host "[6/6] Cleanup and backup..." -ForegroundColor Yellow
+
+# For STABLE releases, keep a local backup of the zip
+if (-not $Prerelease -and (Test-Path $zipPath)) {
+    $backupDir = Join-Path $PSScriptRoot "backups"
+    if (-not (Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    }
+    $backupDest = Join-Path $backupDir $zipName
+    Copy-Item $zipPath $backupDest -Force
+    Write-Host "  Stable backup: $backupDest" -ForegroundColor Green
+}
+
+# Remove the staging directory (executables, data, mods, DLLs) — GitHub has them
+if (Test-Path $DistDir) {
+    Remove-Item $DistDir -Recurse -Force
+    Write-Host "  Cleaned staging: $DistDir" -ForegroundColor Gray
+}
+
+# Remove the zip too — GitHub is the source of truth, stable backup is saved above
+if (-not $DryRun -and -not $SkipPush -and (Test-Path $zipPath)) {
+    Remove-Item $zipPath -Force
+    Write-Host "  Cleaned zip: $zipPath" -ForegroundColor Gray
+}
+
+# Clean up any old dist/{tag} staging folders left from previous releases
+Get-ChildItem "dist" -Directory -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -match '^v\d+\.\d+\.\d+$'
+} | ForEach-Object {
+    Write-Host "  Cleaning old staging: $($_.FullName)" -ForegroundColor Gray
+    Remove-Item $_.FullName -Recurse -Force
+}
+
+# ============================================================================
 # Summary
 # ============================================================================
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Green
-Write-Host "  RELEASE $Tag -- PACKAGING COMPLETE" -ForegroundColor Green
+Write-Host "  RELEASE $Tag -- COMPLETE" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Green
 Write-Host ""
 
-# List all files with sizes
-Write-Host "  Distribution contents ($DistDir):" -ForegroundColor White
-$totalSize = 0
-
-# Top-level files
-Get-ChildItem $DistDir -File | ForEach-Object {
-    $size = $_.Length
-    $totalSize += $size
-    $sizeStr = if ($size -gt 1MB) { "{0:N1} MB" -f ($size / 1MB) } else { "{0:N0} KB" -f ($size / 1KB) }
-    Write-Host ("    {0,-35} {1,10}" -f $_.Name, $sizeStr) -ForegroundColor Gray
+$zipSizeDisplay = if (Test-Path $zipPath) { $zipSizeStr } else { "(uploaded + cleaned)" }
+Write-Host "  Zip:    $zipName $zipSizeDisplay" -ForegroundColor White
+if (-not $Prerelease) {
+    Write-Host "  Backup: backups/$zipName" -ForegroundColor White
 }
-
-# Directories with file counts
-foreach ($subdir in @("data", "mods")) {
-    $path = "$DistDir/$subdir"
-    if (Test-Path $path) {
-        $fileCount = (Get-ChildItem $path -Recurse -File).Count
-        $dirSize = (Get-ChildItem $path -Recurse -File | Measure-Object -Property Length -Sum).Sum
-        $totalSize += $dirSize
-        $sizeStr = if ($dirSize -gt 1MB) { "{0:N1} MB" -f ($dirSize / 1MB) } else { "{0:N0} KB" -f ($dirSize / 1KB) }
-        Write-Host ("    {0,-35} {1,10}  ({2} files)" -f "$subdir/", $sizeStr, $fileCount) -ForegroundColor Gray
-    }
-}
-
-$totalStr = if ($totalSize -gt 1MB) { "{0:N1} MB" -f ($totalSize / 1MB) } else { "{0:N0} KB" -f ($totalSize / 1KB) }
-Write-Host ""
-Write-Host "  Total (uncompressed): $totalStr" -ForegroundColor White
-Write-Host "  Zip:                  $zipSizeStr ($zipName)" -ForegroundColor White
+Write-Host "  GitHub: https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
 Write-Host ""

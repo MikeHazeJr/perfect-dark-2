@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 dist/
+backups/
 *.exe
 *.dll
 *.o

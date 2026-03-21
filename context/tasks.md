@@ -71,6 +71,48 @@ pacman -S mingw-w64-x86_64-curl
 
 ---
 
+## Current Task: Log Channel Filter System & Build Tool Polish
+
+### Status: CODE WRITTEN — NEEDS BUILD TEST
+
+**All source changes made 2026-03-21.**
+
+### What Was Done
+
+1. **Always-on logging** — Removed `sysArgCheck("--log")` gate in `sysInit()`. Logging is now unconditional. Log filename depends on mode: `pd-server.log` (dedicated), `pd-host.log` (host), `pd-client.log` (client).
+
+2. **String-prefix-based channel filtering** — Zero changes to existing 470+ log call sites. `sysLogClassifyMessage()` maps ~30 known prefixes (NET:, SERVER:, DAMAGE:, SND:, MENU:, SAVE:, MOD:, SYS:, etc.) to 8 channel bitmasks. Filtering in `sysLogPrintf()`: warnings/errors always pass, LOG_NOTE filtered by channel mask, untagged messages always pass.
+
+3. **ImGui debug menu section** — `pdguiDebugLogSection()` in pdgui_debugmenu.cpp with All/None preset buttons, per-channel checkboxes, and hex mask readout. Wired into `pdguiDebugMenuRender()`.
+
+4. **Build tool updates** — Removed `--log` from client/server launch args in build-gui.ps1 (no longer needed). Layout mockup changes applied (Build/Clean Build side-by-side, Stop Building full width, lowercase run/push buttons, Open GitHub, Open Project).
+
+### Modified Files
+
+| File | Change | Status |
+|------|--------|--------|
+| `port/include/system.h` | LOG_CH_* defines, API declarations, extern arrays | WRITTEN |
+| `port/src/system.c` | Unconditional logging, channel filter state, prefix classifier, filter logic, set/get functions | WRITTEN |
+| `port/fast3d/pdgui_debugmenu.cpp` | `pdguiDebugLogSection()` + wired into render | WRITTEN |
+| `build-gui.ps1` | Removed --log args, layout changes, sound system, new button handlers | WRITTEN |
+
+### Testing Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Compile client | WAITING |
+| 2 | Launch game — verify log file created without --log flag | WAITING |
+| 3 | Open F12 debug menu → verify Log Filters section appears | WAITING |
+| 4 | Toggle individual channels, verify log output changes | WAITING |
+| 5 | Test All/None presets | WAITING |
+| 6 | Verify warnings/errors always pass regardless of filter | WAITING |
+| 7 | Build tool layout — verify new button arrangement matches mockup | WAITING |
+
+### Blockers
+- Mike must compile on Windows
+
+---
+
 ## Previous Task: Menu System Phase 2 — Bugs, Restructure, and Features
 
 ### Status: IN PROGRESS (paused for D13)

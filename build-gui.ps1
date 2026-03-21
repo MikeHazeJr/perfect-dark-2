@@ -111,6 +111,13 @@ $env:PATH          = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 
 $script:ErrorLines = [System.Collections.ArrayList]::new()
 $script:AllOutput  = [System.Collections.ArrayList]::new()
+$script:ClientErrorLines = [System.Collections.ArrayList]::new()
+$script:ServerErrorLines = [System.Collections.ArrayList]::new()
+$script:ClientBuildFailed = $false
+$script:ServerBuildFailed = $false
+$script:ClientBuildTime = 0
+$script:ServerBuildTime = 0
+$script:TargetStartTime = [DateTime]::Now
 $script:IsRunning  = $false
 $script:ExeName    = "PerfectDark.exe"
 $script:BuildSucceeded = $false
@@ -123,8 +130,11 @@ $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::n
 # Settings persistence
 # ============================================================================
 
+$script:SoundsDir = Join-Path $script:ProjectDir "dist\build-sounds"
+
 $script:Settings = @{
     GithubRepo = ""
+    SoundsEnabled = $true
 }
 
 function Load-Settings {
@@ -132,6 +142,7 @@ function Load-Settings {
         try {
             $json = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json
             if ($json.GithubRepo) { $script:Settings.GithubRepo = $json.GithubRepo }
+            if ($null -ne $json.SoundsEnabled) { $script:Settings.SoundsEnabled = $json.SoundsEnabled }
         } catch {}
     }
 
@@ -151,6 +162,62 @@ function Save-Settings {
 }
 
 Load-Settings
+
+# ============================================================================
+# Game Sound System
+# ============================================================================
+
+# Sound categories — each maps to a folder in dist/build-sounds/ containing .wav files.
+# Play-GameSound picks a random file from the category folder.
+
+$script:SoundPlayers = @{}  # Cache of loaded SoundPlayer objects
+
+function Get-SoundFiles($category) {
+    $catDir = Join-Path $script:SoundsDir $category
+    if (Test-Path $catDir) {
+        return @(Get-ChildItem -Path $catDir -Filter "*.wav" | Select-Object -ExpandProperty FullName)
+    }
+    return @()
+}
+
+function Play-GameSound($category) {
+    if (-not $script:Settings.SoundsEnabled) { return }
+
+    try {
+        $files = Get-SoundFiles $category
+        if ($files.Count -eq 0) { return }
+
+        # Pick a random file from the category
+        $file = $files | Get-Random
+
+        # Use SoundPlayer for async playback (non-blocking)
+        if ($script:SoundPlayers.ContainsKey($file)) {
+            $player = $script:SoundPlayers[$file]
+        } else {
+            $player = New-Object System.Media.SoundPlayer($file)
+            $player.Load()
+            $script:SoundPlayers[$file] = $player
+        }
+        $player.Play()
+    } catch {
+        # Silently ignore sound errors — they should never disrupt the build
+    }
+}
+
+# Sound trigger functions (named for clarity at call sites)
+function Sound-MenuClick   { Play-GameSound "menu_click" }
+function Sound-MenuTick    { Play-GameSound "menu_tick" }
+function Sound-ItemPickup  { Play-GameSound "item_pickup" }
+function Sound-BuildSuccess { Play-GameSound "enemy_argh" }
+function Sound-BuildFail   {
+    # Fall back to system sound if no game sounds extracted yet
+    $files = Get-SoundFiles "enemy_argh"
+    if ($files.Count -gt 0) {
+        Play-GameSound "enemy_argh"
+    } else {
+        try { [System.Media.SystemSounds]::Hand.Play() } catch {}
+    }
+}
 
 # ============================================================================
 # Colors
@@ -178,7 +245,7 @@ $script:ColorDisabled  = [System.Drawing.Color]::FromArgb(80, 80, 80)
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Perfect Dark - Build Tool"
-$form.Size = New-Object System.Drawing.Size(880, 680)
+$form.Size = New-Object System.Drawing.Size(880, 560)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = $script:ColorBg
 $form.ForeColor = $script:ColorWhite
@@ -277,20 +344,25 @@ $statusLabel.TextAlign = "MiddleRight"
 $form.Controls.Add($statusLabel)
 
 # ============================================================================
-# Action Bar (horizontal toolbar)
+# Layout: Left sidebar (220px) + Right console area
 # ============================================================================
 
-$actionBar = New-Object System.Windows.Forms.Panel
-$actionBar.Location = New-Object System.Drawing.Point(10, 60)
-$actionBar.Size = New-Object System.Drawing.Size(850, 46)
-$actionBar.BackColor = $script:ColorPanelBg
-$form.Controls.Add($actionBar)
+$sideW = 220
+$consoleX = $sideW + 16
+$consoleW = 850 - $sideW - 6
 
-function New-ActionButton($text, $x, $w, $color, $parent) {
+# --- Left Sidebar Panel ---
+$sidePanel = New-Object System.Windows.Forms.Panel
+$sidePanel.Location = New-Object System.Drawing.Point(10, 60)
+$sidePanel.Size = New-Object System.Drawing.Size($sideW, 414)
+$sidePanel.BackColor = $script:ColorPanelBg
+$form.Controls.Add($sidePanel)
+
+function New-SideButton($text, $y, $w, $h, $color, $parent) {
     $btn = New-Object System.Windows.Forms.Button
     $btn.Text = $text
-    $btn.Location = New-Object System.Drawing.Point($x, 6)
-    $btn.Size = New-Object System.Drawing.Size($w, 34)
+    $btn.Location = New-Object System.Drawing.Point(8, $y)
+    $btn.Size = New-Object System.Drawing.Size($w, $h)
     $btn.FlatStyle = "Flat"
     $btn.FlatAppearance.BorderColor = $color
     $btn.FlatAppearance.BorderSize = 1
@@ -302,73 +374,20 @@ function New-ActionButton($text, $x, $w, $color, $parent) {
     return $btn
 }
 
-# Build target dropdown
-$lblBuildTarget = New-Object System.Windows.Forms.Label
-$lblBuildTarget.Text = "Build:"
-$lblBuildTarget.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$lblBuildTarget.ForeColor = $script:ColorDim
-$lblBuildTarget.Location = New-Object System.Drawing.Point(8, 14)
-$lblBuildTarget.AutoSize = $true
-$actionBar.Controls.Add($lblBuildTarget)
-
-$cmbBuildTarget = New-Object System.Windows.Forms.ComboBox
-$cmbBuildTarget.Location = New-Object System.Drawing.Point(52, 10)
-$cmbBuildTarget.Size = New-Object System.Drawing.Size(140, 26)
-$cmbBuildTarget.DropDownStyle = "DropDownList"
-$cmbBuildTarget.BackColor = $script:ColorFieldBg
-$cmbBuildTarget.ForeColor = $script:ColorWhite
-$cmbBuildTarget.FlatStyle = "Flat"
-$cmbBuildTarget.Font = New-Object System.Drawing.Font("Consolas", 9)
-[void]$cmbBuildTarget.Items.Add("Client")
-[void]$cmbBuildTarget.Items.Add("Server")
-[void]$cmbBuildTarget.Items.Add("Client + Server")
-$cmbBuildTarget.SelectedIndex = 0
-$actionBar.Controls.Add($cmbBuildTarget)
-
-$btnBuild = New-ActionButton "Build" 200 80 $script:ColorGreen $actionBar
-
-# Separator
-$sep1 = New-Object System.Windows.Forms.Label
-$sep1.Text = ""; $sep1.Location = New-Object System.Drawing.Point(290, 6)
-$sep1.Size = New-Object System.Drawing.Size(2, 34); $sep1.BackColor = $script:ColorDimmer
-$actionBar.Controls.Add($sep1)
-
-# Run buttons
-$btnRunClient = New-ActionButton "Run Client" 300 90 $script:ColorGreen $actionBar
-$btnRunServer = New-ActionButton "Run Server" 396 90 $script:ColorOrange $actionBar
-
-# Separator
-$sep2 = New-Object System.Windows.Forms.Label
-$sep2.Text = ""; $sep2.Location = New-Object System.Drawing.Point(496, 6)
-$sep2.Size = New-Object System.Drawing.Size(2, 34); $sep2.BackColor = $script:ColorDimmer
-$actionBar.Controls.Add($sep2)
-
-# Open GitHub
-$btnGithub = New-ActionButton "GitHub" 506 80 $script:ColorBlue $actionBar
-
-# ============================================================================
-# Push Bar (version fields + increment + push + stable)
-# ============================================================================
-
-$pushBar = New-Object System.Windows.Forms.Panel
-$pushBar.Location = New-Object System.Drawing.Point(10, 108)
-$pushBar.Size = New-Object System.Drawing.Size(850, 42)
-$pushBar.BackColor = $script:ColorPanelBg
-$form.Controls.Add($pushBar)
-
-# Version label
+# --- Version Section ---
 $lblVerTitle = New-Object System.Windows.Forms.Label
-$lblVerTitle.Text = "Version:"
-$lblVerTitle.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblVerTitle.Text = "VERSION"
+$lblVerTitle.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
 $lblVerTitle.ForeColor = $script:ColorDim
-$lblVerTitle.Location = New-Object System.Drawing.Point(8, 12)
+$lblVerTitle.Location = New-Object System.Drawing.Point(8, 8)
 $lblVerTitle.AutoSize = $true
-$pushBar.Controls.Add($lblVerTitle)
+$sidePanel.Controls.Add($lblVerTitle)
 
-function New-VerField($x, $parent) {
+# Version fields: Major . Minor . Revision (compact row)
+function New-VerField($x, $y, $parent) {
     $txt = New-Object System.Windows.Forms.TextBox
-    $txt.Location = New-Object System.Drawing.Point($x, 8)
-    $txt.Size = New-Object System.Drawing.Size(42, 24)
+    $txt.Location = New-Object System.Drawing.Point($x, $y)
+    $txt.Size = New-Object System.Drawing.Size(42, 22)
     $txt.BackColor = $script:ColorFieldBg
     $txt.ForeColor = $script:ColorGold
     $txt.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
@@ -379,98 +398,262 @@ function New-VerField($x, $parent) {
     return $txt
 }
 
-function New-IncrButton($x, $parent) {
+function New-SmallButton($text, $x, $y, $parent) {
     $btn = New-Object System.Windows.Forms.Button
-    $btn.Text = "+"
-    $btn.Location = New-Object System.Drawing.Point($x, 8)
-    $btn.Size = New-Object System.Drawing.Size(24, 24)
+    $btn.Text = $text
+    $btn.Location = New-Object System.Drawing.Point($x, $y)
+    $btn.Size = New-Object System.Drawing.Size(20, 16)
     $btn.FlatStyle = "Flat"
     $btn.FlatAppearance.BorderColor = $script:ColorDim
     $btn.FlatAppearance.BorderSize = 1
     $btn.ForeColor = $script:ColorGold
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor = "Hand"
-    $btn.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+    $btn.Font = New-Object System.Drawing.Font("Consolas", 7, [System.Drawing.FontStyle]::Bold)
+    $btn.Padding = New-Object System.Windows.Forms.Padding(0)
     $parent.Controls.Add($btn)
     return $btn
 }
 
-# Major
-$txtVerMajor = New-VerField 72 $pushBar
-$btnIncMajor = New-IncrButton 116 $pushBar
+# Version fields row: three textboxes with dots between them
+# Layout:  [ 0 ] . [ 0 ] . [ 0 ]
+#          [-][+]   [-][+]   [-][+]
+$verFieldW = 48
+$verCol1 = 8
+$verCol2 = 72
+$verCol3 = 136
+$verFieldY = 26
+$verBtnY = 50
+$verBtnW = 22
+$verBtnH = 16
 
-# Dot separator
+# Major field
+$txtVerMajor = New-VerField $verCol1 $verFieldY $sidePanel
+$txtVerMajor.Size = New-Object System.Drawing.Size($verFieldW, 22)
+
+# Dot 1
 $lblDot1 = New-Object System.Windows.Forms.Label
-$lblDot1.Text = "."
-$lblDot1.Font = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
-$lblDot1.ForeColor = $script:ColorDim
-$lblDot1.Location = New-Object System.Drawing.Point(142, 8)
-$lblDot1.AutoSize = $true
-$pushBar.Controls.Add($lblDot1)
+$lblDot1.Text = "."; $lblDot1.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$lblDot1.ForeColor = $script:ColorDim; $lblDot1.Location = New-Object System.Drawing.Point(58, 28); $lblDot1.AutoSize = $true
+$sidePanel.Controls.Add($lblDot1)
 
-# Minor
-$txtVerMinor = New-VerField 154 $pushBar
-$btnIncMinor = New-IncrButton 198 $pushBar
+# Minor field
+$txtVerMinor = New-VerField $verCol2 $verFieldY $sidePanel
+$txtVerMinor.Size = New-Object System.Drawing.Size($verFieldW, 22)
 
-# Dot separator
+# Dot 2
 $lblDot2 = New-Object System.Windows.Forms.Label
-$lblDot2.Text = "."
-$lblDot2.Font = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
-$lblDot2.ForeColor = $script:ColorDim
-$lblDot2.Location = New-Object System.Drawing.Point(224, 8)
-$lblDot2.AutoSize = $true
-$pushBar.Controls.Add($lblDot2)
+$lblDot2.Text = "."; $lblDot2.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$lblDot2.ForeColor = $script:ColorDim; $lblDot2.Location = New-Object System.Drawing.Point(122, 28); $lblDot2.AutoSize = $true
+$sidePanel.Controls.Add($lblDot2)
 
-# Revision
-$txtVerRevision = New-VerField 236 $pushBar
-$btnIncRevision = New-IncrButton 280 $pushBar
+# Revision field
+$txtVerRevision = New-VerField $verCol3 $verFieldY $sidePanel
+$txtVerRevision.Size = New-Object System.Drawing.Size($verFieldW, 22)
 
-# Version warning label (shows overwrite/regression warnings)
+# Inc/Dec buttons below each field: [-][+] pairs centered under each textbox
+# Major: [-] at col1, [+] at col1+26
+$btnDecMajor = New-SmallButton "-" $verCol1 $verBtnY $sidePanel
+$btnDecMajor.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+$btnIncMajor = New-SmallButton "+" ($verCol1 + $verBtnW + 4) $verBtnY $sidePanel
+$btnIncMajor.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+
+# Minor: [-] at col2, [+] at col2+26
+$btnDecMinor = New-SmallButton "-" $verCol2 $verBtnY $sidePanel
+$btnDecMinor.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+$btnIncMinor = New-SmallButton "+" ($verCol2 + $verBtnW + 4) $verBtnY $sidePanel
+$btnIncMinor.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+
+# Revision: [-] at col3, [+] at col3+26
+$btnDecRevision = New-SmallButton "-" $verCol3 $verBtnY $sidePanel
+$btnDecRevision.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+$btnIncRevision = New-SmallButton "+" ($verCol3 + $verBtnW + 4) $verBtnY $sidePanel
+$btnIncRevision.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
+
+# Latest released version labels (dev / stable from GitHub)
+$lblLatestDev = New-Object System.Windows.Forms.Label
+$lblLatestDev.Text = "dev: ---"
+$lblLatestDev.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+$lblLatestDev.ForeColor = $script:ColorOrange
+$lblLatestDev.Location = New-Object System.Drawing.Point(8, 70)
+$lblLatestDev.AutoSize = $true
+$sidePanel.Controls.Add($lblLatestDev)
+
+$lblLatestStable = New-Object System.Windows.Forms.Label
+$lblLatestStable.Text = "stable: ---"
+$lblLatestStable.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+$lblLatestStable.ForeColor = $script:ColorGreen
+$lblLatestStable.Location = New-Object System.Drawing.Point(108, 70)
+$lblLatestStable.AutoSize = $true
+$sidePanel.Controls.Add($lblLatestStable)
+
+# Version warning label
 $lblVerWarning = New-Object System.Windows.Forms.Label
 $lblVerWarning.Text = ""
-$lblVerWarning.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblVerWarning.Font = New-Object System.Drawing.Font("Segoe UI", 7, [System.Drawing.FontStyle]::Bold)
 $lblVerWarning.ForeColor = $script:ColorRed
-$lblVerWarning.Location = New-Object System.Drawing.Point(312, 2)
-$lblVerWarning.Size = New-Object System.Drawing.Size(220, 38)
-$pushBar.Controls.Add($lblVerWarning)
+$lblVerWarning.Location = New-Object System.Drawing.Point(8, 84)
+$lblVerWarning.Size = New-Object System.Drawing.Size(204, 16)
+$sidePanel.Controls.Add($lblVerWarning)
 
-# Stable checkbox
+# --- Separator ---
+$sideSep1 = New-Object System.Windows.Forms.Label
+$sideSep1.Text = ""; $sideSep1.Location = New-Object System.Drawing.Point(8, 104)
+$sideSep1.Size = New-Object System.Drawing.Size(204, 1); $sideSep1.BackColor = $script:ColorDimmer
+$sidePanel.Controls.Add($sideSep1)
+
+# --- Build Section ---
+$lblBuildSection = New-Object System.Windows.Forms.Label
+$lblBuildSection.Text = "BUILD"
+$lblBuildSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblBuildSection.ForeColor = $script:ColorDim
+$lblBuildSection.Location = New-Object System.Drawing.Point(8, 110)
+$lblBuildSection.AutoSize = $true
+$sidePanel.Controls.Add($lblBuildSection)
+
+$cmbBuildTarget = New-Object System.Windows.Forms.ComboBox
+$cmbBuildTarget.Location = New-Object System.Drawing.Point(8, 128)
+$cmbBuildTarget.Size = New-Object System.Drawing.Size(204, 24)
+$cmbBuildTarget.DropDownStyle = "DropDownList"
+$cmbBuildTarget.BackColor = $script:ColorFieldBg
+$cmbBuildTarget.ForeColor = $script:ColorWhite
+$cmbBuildTarget.FlatStyle = "Flat"
+$cmbBuildTarget.Font = New-Object System.Drawing.Font("Consolas", 9)
+[void]$cmbBuildTarget.Items.Add("Client")
+[void]$cmbBuildTarget.Items.Add("Server")
+[void]$cmbBuildTarget.Items.Add("Client + Server")
+$cmbBuildTarget.SelectedIndex = 0
+$cmbBuildTarget.Add_SelectedIndexChanged({ Sound-MenuTick })
+$sidePanel.Controls.Add($cmbBuildTarget)
+
+# Build + Clean Build side by side
+$btnBuild = New-SideButton "Build" 156 98 28 $script:ColorGreen $sidePanel
+$btnCleanBuild = New-Object System.Windows.Forms.Button
+$btnCleanBuild.Text = "Clean Build"
+$btnCleanBuild.Location = New-Object System.Drawing.Point(114, 156)
+$btnCleanBuild.Size = New-Object System.Drawing.Size(98, 28)
+$btnCleanBuild.FlatStyle = "Flat"
+$btnCleanBuild.FlatAppearance.BorderColor = $script:ColorGreen
+$btnCleanBuild.FlatAppearance.BorderSize = 1
+$btnCleanBuild.ForeColor = $script:ColorGreen
+$btnCleanBuild.BackColor = $script:ColorFieldBg
+$btnCleanBuild.Cursor = "Hand"
+$btnCleanBuild.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$sidePanel.Controls.Add($btnCleanBuild)
+
+# Hidden clean checkbox (toggled by Clean Build button)
+$chkClean = New-Object System.Windows.Forms.CheckBox
+$chkClean.Visible = $false
+$sidePanel.Controls.Add($chkClean)
+
+# Stop Building button (full width, active only during builds)
+$btnStop = New-Object System.Windows.Forms.Button
+$btnStop.Text = "Stop Building"
+$btnStop.Location = New-Object System.Drawing.Point(8, 188)
+$btnStop.Size = New-Object System.Drawing.Size(204, 26)
+$btnStop.FlatStyle = "Flat"
+$btnStop.FlatAppearance.BorderColor = $script:ColorRed
+$btnStop.FlatAppearance.BorderSize = 1
+$btnStop.ForeColor = $script:ColorDisabled
+$btnStop.BackColor = $script:ColorFieldBg
+$btnStop.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnStop.Enabled = $false
+$sidePanel.Controls.Add($btnStop)
+
+# --- Separator ---
+$sideSep2 = New-Object System.Windows.Forms.Label
+$sideSep2.Text = ""; $sideSep2.Location = New-Object System.Drawing.Point(8, 220)
+$sideSep2.Size = New-Object System.Drawing.Size(204, 1); $sideSep2.BackColor = $script:ColorDimmer
+$sidePanel.Controls.Add($sideSep2)
+
+# --- Run Section ---
+$lblRunSection = New-Object System.Windows.Forms.Label
+$lblRunSection.Text = "RUN"
+$lblRunSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblRunSection.ForeColor = $script:ColorDim
+$lblRunSection.Location = New-Object System.Drawing.Point(8, 226)
+$lblRunSection.AutoSize = $true
+$sidePanel.Controls.Add($lblRunSection)
+
+$btnRunClient = New-SideButton "Client" 244 98 28 $script:ColorGreen $sidePanel
+$btnRunServer = New-Object System.Windows.Forms.Button
+$btnRunServer.Text = "Server"
+$btnRunServer.Location = New-Object System.Drawing.Point(114, 244)
+$btnRunServer.Size = New-Object System.Drawing.Size(98, 28)
+$btnRunServer.FlatStyle = "Flat"
+$btnRunServer.FlatAppearance.BorderColor = $script:ColorOrange
+$btnRunServer.FlatAppearance.BorderSize = 1
+$btnRunServer.ForeColor = $script:ColorOrange
+$btnRunServer.BackColor = $script:ColorFieldBg
+$btnRunServer.Cursor = "Hand"
+$btnRunServer.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$sidePanel.Controls.Add($btnRunServer)
+
+# --- Separator ---
+$sideSep3 = New-Object System.Windows.Forms.Label
+$sideSep3.Text = ""; $sideSep3.Location = New-Object System.Drawing.Point(8, 278)
+$sideSep3.Size = New-Object System.Drawing.Size(204, 1); $sideSep3.BackColor = $script:ColorDimmer
+$sidePanel.Controls.Add($sideSep3)
+
+# --- Push Section ---
+$lblPushSection = New-Object System.Windows.Forms.Label
+$lblPushSection.Text = "PUSH"
+$lblPushSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblPushSection.ForeColor = $script:ColorDim
+$lblPushSection.Location = New-Object System.Drawing.Point(8, 284)
+$lblPushSection.AutoSize = $true
+$sidePanel.Controls.Add($lblPushSection)
+
+$btnPushDev = New-Object System.Windows.Forms.Button
+$btnPushDev.Text = "Dev"
+$btnPushDev.Location = New-Object System.Drawing.Point(8, 302)
+$btnPushDev.Size = New-Object System.Drawing.Size(98, 28)
+$btnPushDev.FlatStyle = "Flat"
+$btnPushDev.FlatAppearance.BorderColor = $script:ColorOrange
+$btnPushDev.FlatAppearance.BorderSize = 1
+$btnPushDev.ForeColor = $script:ColorOrange
+$btnPushDev.BackColor = $script:ColorFieldBg
+$btnPushDev.Cursor = "Hand"
+$btnPushDev.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$sidePanel.Controls.Add($btnPushDev)
+
+$btnPushStable = New-Object System.Windows.Forms.Button
+$btnPushStable.Text = "Stable"
+$btnPushStable.Location = New-Object System.Drawing.Point(114, 302)
+$btnPushStable.Size = New-Object System.Drawing.Size(98, 28)
+$btnPushStable.FlatStyle = "Flat"
+$btnPushStable.FlatAppearance.BorderColor = $script:ColorGreen
+$btnPushStable.FlatAppearance.BorderSize = 1
+$btnPushStable.ForeColor = $script:ColorGreen
+$btnPushStable.BackColor = $script:ColorFieldBg
+$btnPushStable.Cursor = "Hand"
+$btnPushStable.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$sidePanel.Controls.Add($btnPushStable)
+
+# Hidden stable checkbox (used internally by push functions)
 $chkStable = New-Object System.Windows.Forms.CheckBox
-$chkStable.Text = "Stable"
-$chkStable.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$chkStable.ForeColor = $script:ColorGreen
-$chkStable.Location = New-Object System.Drawing.Point(546, 10)
-$chkStable.AutoSize = $true
-$chkStable.BackColor = $script:ColorPanelBg
-$pushBar.Controls.Add($chkStable)
+$chkStable.Visible = $false
+$sidePanel.Controls.Add($chkStable)
 
-# Push button
-$btnPush = New-Object System.Windows.Forms.Button
-$btnPush.Text = "Push to GitHub"
-$btnPush.Location = New-Object System.Drawing.Point(626, 4)
-$btnPush.Size = New-Object System.Drawing.Size(130, 34)
-$btnPush.FlatStyle = "Flat"
-$btnPush.FlatAppearance.BorderColor = $script:ColorPurple
-$btnPush.FlatAppearance.BorderSize = 1
-$btnPush.ForeColor = $script:ColorPurple
-$btnPush.BackColor = $script:ColorFieldBg
-$btnPush.Cursor = "Hand"
-$btnPush.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$pushBar.Controls.Add($btnPush)
+# --- Separator ---
+$sideSep4 = New-Object System.Windows.Forms.Label
+$sideSep4.Text = ""; $sideSep4.Location = New-Object System.Drawing.Point(8, 336)
+$sideSep4.Size = New-Object System.Drawing.Size(204, 1); $sideSep4.BackColor = $script:ColorDimmer
+$sidePanel.Controls.Add($sideSep4)
 
-# Separator between push bar and action bar
-$sep3 = New-Object System.Windows.Forms.Label
-$sep3.Text = ""; $sep3.Location = New-Object System.Drawing.Point(536, 4)
-$sep3.Size = New-Object System.Drawing.Size(2, 34); $sep3.BackColor = $script:ColorDimmer
-$pushBar.Controls.Add($sep3)
+# Open GitHub button
+$btnGithub = New-SideButton "Open GitHub" 342 204 28 $script:ColorBlue $sidePanel
+
+# Open Project button (opens project folder in Explorer)
+$btnOpenProject = New-SideButton "Open Project" 374 204 28 $script:ColorDim $sidePanel
 
 # ============================================================================
-# Console output
+# Right side: Console output + utility bar + progress
 # ============================================================================
 
 $outputBox = New-Object System.Windows.Forms.RichTextBox
-$outputBox.Location = New-Object System.Drawing.Point(10, 156)
-$outputBox.Size = New-Object System.Drawing.Size(850, 386)
+$outputBox.Location = New-Object System.Drawing.Point($consoleX, 60)
+$outputBox.Size = New-Object System.Drawing.Size($consoleW, 394)
 $outputBox.BackColor = $script:ColorConsoleBg
 $outputBox.ForeColor = $script:ColorText
 $outputBox.Font = New-Object System.Drawing.Font("Consolas", 9)
@@ -480,13 +663,10 @@ $outputBox.ScrollBars = "Both"
 $outputBox.BorderStyle = "None"
 $form.Controls.Add($outputBox)
 
-# ============================================================================
 # Utility bar (below console)
-# ============================================================================
-
 $utilPanel = New-Object System.Windows.Forms.Panel
-$utilPanel.Location = New-Object System.Drawing.Point(10, 546)
-$utilPanel.Size = New-Object System.Drawing.Size(850, 34)
+$utilPanel.Location = New-Object System.Drawing.Point($consoleX, 458)
+$utilPanel.Size = New-Object System.Drawing.Size($consoleW, 28)
 $utilPanel.BackColor = $script:ColorPanelBg
 $form.Controls.Add($utilPanel)
 
@@ -494,38 +674,35 @@ function New-UtilButton($text, $x, $w, $color) {
     $btn = New-Object System.Windows.Forms.Button
     $btn.Text = $text
     $btn.Location = New-Object System.Drawing.Point($x, 2)
-    $btn.Size = New-Object System.Drawing.Size($w, 32)
+    $btn.Size = New-Object System.Drawing.Size($w, 24)
     $btn.FlatStyle = "Flat"
     $btn.FlatAppearance.BorderColor = $color
     $btn.FlatAppearance.BorderSize = 1
     $btn.ForeColor = $color
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor = "Hand"
-    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
     $utilPanel.Controls.Add($btn)
     return $btn
 }
 
-$btnCopyErrors = New-UtilButton "Copy Errors"  4 110 $script:ColorRed
-$btnCopyAll    = New-UtilButton "Copy All"   120  90 $script:ColorDim
-$btnClear      = New-UtilButton "Clear"      216  70 ([System.Drawing.Color]::FromArgb(120,120,120))
+$btnCopyErrors = New-UtilButton "Copy Errors"  4 90 $script:ColorRed
+$btnCopyAll    = New-UtilButton "Copy All"    98 70 $script:ColorDim
+$btnClear      = New-UtilButton "Clear"      172 55 ([System.Drawing.Color]::FromArgb(120,120,120))
 
 $errorCountLabel = New-Object System.Windows.Forms.Label
 $errorCountLabel.Text = ""
-$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 7, [System.Drawing.FontStyle]::Bold)
 $errorCountLabel.ForeColor = $script:ColorRed
-$errorCountLabel.Location = New-Object System.Drawing.Point(300, 8)
-$errorCountLabel.Size = New-Object System.Drawing.Size(540, 20)
+$errorCountLabel.Location = New-Object System.Drawing.Point(234, 6)
+$errorCountLabel.Size = New-Object System.Drawing.Size(($consoleW - 240), 16)
 $errorCountLabel.TextAlign = "MiddleRight"
 $utilPanel.Controls.Add($errorCountLabel)
 
-# ============================================================================
 # Progress bar
-# ============================================================================
-
 $progressPanel = New-Object System.Windows.Forms.Panel
-$progressPanel.Location = New-Object System.Drawing.Point(10, 586)
-$progressPanel.Size = New-Object System.Drawing.Size(850, 22)
+$progressPanel.Location = New-Object System.Drawing.Point($consoleX, 490)
+$progressPanel.Size = New-Object System.Drawing.Size($consoleW, 22)
 $progressPanel.BackColor = $script:ColorPanelBg
 $form.Controls.Add($progressPanel)
 
@@ -579,11 +756,24 @@ function Write-Header($text) {
     Write-Output-Line ("=" * 70) $script:ColorDimmer
 }
 
+function Play-BuildSound($success) {
+    if ($success) {
+        Sound-BuildSuccess
+    } else {
+        Sound-BuildFail
+    }
+}
+
 function Set-Buttons-Enabled($enabled) {
     $script:IsRunning = !$enabled
     $btnBuild.Enabled = $enabled
-    $btnPush.Enabled = $enabled
+    $btnCleanBuild.Enabled = $enabled
+    $btnPushDev.Enabled = $enabled
+    $btnPushStable.Enabled = $enabled
     $cmbBuildTarget.Enabled = $enabled
+    # Stop button is inverse — active when running, disabled when idle
+    $btnStop.Enabled = (-not $enabled)
+    $btnStop.ForeColor = if (-not $enabled) { $script:ColorRed } else { $script:ColorDisabled }
     Update-RunButtons
 }
 
@@ -600,7 +790,9 @@ function Update-RunButtons {
     $btnRunClient.ForeColor = if ($canRunClient) { $script:ColorGreen } else { $script:ColorDisabled }
     $btnRunServer.ForeColor = if ($canRunServer) { $script:ColorOrange } else { $script:ColorDisabled }
     $btnBuild.ForeColor = if (-not $script:IsRunning) { $script:ColorGreen } else { $script:ColorDisabled }
-    $btnPush.ForeColor = if (-not $script:IsRunning) { $script:ColorPurple } else { $script:ColorDisabled }
+    $btnCleanBuild.ForeColor = if (-not $script:IsRunning) { $script:ColorGreen } else { $script:ColorDisabled }
+    $btnPushDev.ForeColor = if (-not $script:IsRunning) { $script:ColorOrange } else { $script:ColorDisabled }
+    $btnPushStable.ForeColor = if (-not $script:IsRunning) { $script:ColorGreen } else { $script:ColorDisabled }
 }
 
 function Classify-Line($line) {
@@ -696,7 +888,7 @@ function Load-ReleaseCache {
             $json = Get-Content $script:GhReleaseCacheFile -Raw | ConvertFrom-Json
             $releases = @()
             foreach ($r in $json.releases) {
-                $releases += @{ Tag = $r.Tag; Major = [int]$r.Major; Minor = [int]$r.Minor; Revision = [int]$r.Revision }
+                $releases += @{ Tag = $r.Tag; Major = [int]$r.Major; Minor = [int]$r.Minor; Revision = [int]$r.Revision; Prerelease = [bool]$r.Prerelease }
             }
             $script:GhReleaseCache = $releases
             if ($json.fetchedAt) {
@@ -715,7 +907,7 @@ function Save-ReleaseCache($releases) {
             releases = @()
         }
         foreach ($r in $releases) {
-            $data.releases += @{ Tag = $r.Tag; Major = $r.Major; Minor = $r.Minor; Revision = $r.Revision }
+            $data.releases += @{ Tag = $r.Tag; Major = $r.Major; Minor = $r.Minor; Revision = $r.Revision; Prerelease = $r.Prerelease }
         }
         $data | ConvertTo-Json -Depth 3 | Set-Content $script:GhReleaseCacheFile
     } catch {}
@@ -743,6 +935,7 @@ function Fetch-GithubReleases {
                         $releases += @{
                             Tag = $tag
                             Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]
+                            Prerelease = [bool]$rel.prerelease
                         }
                     }
                 }
@@ -765,6 +958,9 @@ function Fetch-GithubReleases {
         if ($script:GhReleaseCache -eq $null) { $script:GhReleaseCache = @() }
         # Don't update cache time so we retry on next call
     }
+
+    # Refresh the latest version display labels
+    try { Update-LatestVersionLabels } catch {}
 
     return $script:GhReleaseCache
 }
@@ -806,8 +1002,48 @@ function Check-VersionWarning {
     } catch {}
 }
 
+function Update-LatestVersionLabels {
+    try {
+        $releases = $script:GhReleaseCache
+        if ($releases -eq $null -or $releases.Count -eq 0) {
+            $lblLatestDev.Text = "dev: ---"
+            $lblLatestStable.Text = "stable: ---"
+            return
+        }
+
+        $src = if ($script:GhOnline) { "" } else { "*" }
+
+        # Find highest dev (prerelease) and highest stable
+        $highDev = $null; $highDevVal = -1
+        $highStable = $null; $highStableVal = -1
+        foreach ($rel in $releases) {
+            $val = $rel.Major * 1000000 + $rel.Minor * 1000 + $rel.Revision
+            if ($rel.Prerelease) {
+                if ($val -gt $highDevVal) { $highDevVal = $val; $highDev = $rel }
+            } else {
+                if ($val -gt $highStableVal) { $highStableVal = $val; $highStable = $rel }
+            }
+        }
+
+        if ($highDev) {
+            $lblLatestDev.Text = "dev: $($highDev.Major).$($highDev.Minor).$($highDev.Revision)$src"
+        } else {
+            $lblLatestDev.Text = "dev: ---"
+        }
+        if ($highStable) {
+            $lblLatestStable.Text = "stable: $($highStable.Major).$($highStable.Minor).$($highStable.Revision)$src"
+        } else {
+            $lblLatestStable.Text = "stable: ---"
+        }
+    } catch {
+        $lblLatestDev.Text = "dev: ---"
+        $lblLatestStable.Text = "stable: ---"
+    }
+}
+
 # Load disk cache on startup so version warnings work immediately (even offline)
 Load-ReleaseCache
+Update-LatestVersionLabels
 
 # ============================================================================
 # CHANGES.md management
@@ -956,6 +1192,7 @@ $script:StepQueue = [System.Collections.Queue]::new()
 $script:CurrentStep = ""
 
 function Start-Build-Step($stepName, $exe, $argList) {
+    Sound-ItemPickup
     $script:CurrentStep = $stepName
     $script:LastOutputTime = [DateTime]::Now
     $script:StepStartTime = [DateTime]::Now
@@ -1009,6 +1246,12 @@ $timer.Add_Tick({
         Write-Output-Line $text (Get-Line-Color $class)
         if ($class -eq "error") {
             [void]$script:ErrorLines.Add($text)
+            # Route to target-specific error list
+            if ($script:BuildTarget -eq "server") {
+                [void]$script:ServerErrorLines.Add($text)
+            } else {
+                [void]$script:ClientErrorLines.Add($text)
+            }
             if (-not $script:HasErrors) {
                 $script:HasErrors = $true
                 $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
@@ -1019,7 +1262,7 @@ $timer.Add_Tick({
             $pct = [int]$Matches[1]
             if ($pct -ge $script:BuildPercent) {
                 $script:BuildPercent = $pct
-                $fillWidth = [math]::Floor(($pct / 100.0) * 850)
+                $fillWidth = [math]::Floor(($pct / 100.0) * $consoleW)
                 $progressFill.Size = New-Object System.Drawing.Size($fillWidth, 22)
                 $progressLabel.Text = "${pct}% - $($script:CurrentStep)"
                 if (-not $script:HasErrors) { $progressFill.BackColor = $script:ColorBlue }
@@ -1058,7 +1301,7 @@ $timer.Add_Tick({
         }
 
         if ($exitCode -ne 0) {
-            $progressFill.Size = New-Object System.Drawing.Size(850, 22)
+            $progressFill.Size = New-Object System.Drawing.Size($consoleW, 22)
             $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
             $progressLabel.Text = "FAILED - $($script:CurrentStep)"
             Write-Output-Line "" $script:ColorRed
@@ -1067,11 +1310,55 @@ $timer.Add_Tick({
             $statusLabel.ForeColor = $script:ColorRed
             $script:BuildSucceeded = $false
             $script:StepQueue.Clear()
+
+            # Record build time for the failed target
+            $failedTime = [math]::Floor(([DateTime]::Now - $script:TargetStartTime).TotalSeconds)
+
+            # Track which target failed
+            if ($script:BuildTarget -eq "server") {
+                $script:ServerBuildFailed = $true
+                $script:ServerBuildTime = $failedTime
+            } else {
+                $script:ClientBuildFailed = $true
+                $script:ClientBuildTime = $failedTime
+            }
+
+            # In Client+Server mode, continue to server build even if client failed
+            if ($script:PendingServerBuild) {
+                Write-Output-Line "" $script:ColorDim
+                Write-Output-Line "--- Client build failed ($($failedTime)s), continuing to Server build ---" $script:ColorOrange
+                $script:HasErrors = $false
+                $script:IsRunning = $false
+                # PendingServerBuild will be picked up by the game timer
+                return
+            }
+
+            # Build timing summary for progress bar
+            $timingParts = @()
+            if ($script:ClientBuildTime -gt 0 -or $script:ClientBuildFailed) {
+                $cs = if ($script:ClientBuildFailed) { "FAILED" } else { "OK" }
+                $timingParts += "Client $cs - $($script:ClientBuildTime)s"
+            }
+            if ($script:ServerBuildTime -gt 0 -or $script:ServerBuildFailed) {
+                $ss = if ($script:ServerBuildFailed) { "FAILED" } else { "OK" }
+                $timingParts += "Server $ss - $($script:ServerBuildTime)s"
+            }
+            if ($timingParts.Count -gt 0) {
+                $progressLabel.Text = ($timingParts -join "  |  ")
+                # Print timing to output
+                Write-Output-Line "" $script:ColorDim
+                foreach ($part in $timingParts) {
+                    $partColor = if ($part -match "FAILED") { $script:ColorRed } else { $script:ColorGreen }
+                    Write-Output-Line "  $part" $partColor
+                }
+            }
+
+            Play-BuildSound $false
             Set-Buttons-Enabled $true
             return
         }
 
-        $progressFill.Size = New-Object System.Drawing.Size(850, 22)
+        $progressFill.Size = New-Object System.Drawing.Size($consoleW, 22)
         if ($script:HasErrors) {
             $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
         } else {
@@ -1084,17 +1371,64 @@ $timer.Add_Tick({
             $next = $script:StepQueue.Dequeue()
             Start-Build-Step $next.Name $next.Exe $next.Args
         } else {
-            if ($script:HasErrors) {
+            # Record final target build time
+            $finalTime = [math]::Floor(([DateTime]::Now - $script:TargetStartTime).TotalSeconds)
+            if ($script:BuildTarget -eq "server") {
+                $script:ServerBuildTime = $finalTime
+            } else {
+                $script:ClientBuildTime = $finalTime
+            }
+
+            # Check for errors from this target AND any previous target (Client+Server mode)
+            $anyErrors = $script:HasErrors -or $script:ClientBuildFailed -or $script:ServerBuildFailed
+            $totalErrCount = $script:ErrorLines.Count
+
+            # Build per-target timing summary
+            $timingParts = @()
+            if ($script:ClientBuildTime -gt 0 -or $script:ClientBuildFailed) {
+                $clientStatus = if ($script:ClientBuildFailed) { "FAILED" } else { "OK" }
+                $timingParts += "Client $clientStatus - $($script:ClientBuildTime)s"
+            }
+            if ($script:ServerBuildTime -gt 0 -or $script:ServerBuildFailed) {
+                $serverStatus = if ($script:ServerBuildFailed) { "FAILED" } else { "OK" }
+                $timingParts += "Server $serverStatus - $($script:ServerBuildTime)s"
+            }
+            $timingSummary = $timingParts -join "  |  "
+
+            if ($anyErrors) {
                 $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
-                $progressLabel.Text = "COMPLETE (with errors)"
+                if ($timingParts.Count -gt 0) {
+                    $progressLabel.Text = $timingSummary
+                } else {
+                    $progressLabel.Text = "COMPLETE (with errors)"
+                }
             } else {
                 $progressFill.BackColor = [System.Drawing.Color]::FromArgb(0, 191, 96)
-                $progressLabel.Text = "BUILD COMPLETE"
+                if ($timingParts.Count -gt 0) {
+                    $progressLabel.Text = $timingSummary
+                } else {
+                    $progressLabel.Text = "BUILD COMPLETE"
+                }
             }
+
+            # Print timing summary to output
+            if ($timingParts.Count -gt 0) {
+                Write-Output-Line "" $script:ColorDim
+                foreach ($part in $timingParts) {
+                    $partColor = if ($part -match "FAILED") { $script:ColorRed } else { $script:ColorGreen }
+                    Write-Output-Line "  $part" $partColor
+                }
+            }
+
+            if ($totalErrCount -gt 0) {
+                $errorCountLabel.Text = "$totalErrCount error line(s) - click 'Copy Errors'"
+            }
+
             Copy-AddinFiles
+            Play-BuildSound (-not $anyErrors)
             $statusLabel.Text = "Build Complete"
-            $statusLabel.ForeColor = $script:ColorGreen
-            $script:BuildSucceeded = $true
+            $statusLabel.ForeColor = if ($anyErrors) { $script:ColorOrange } else { $script:ColorGreen }
+            $script:BuildSucceeded = -not $anyErrors
             Set-Buttons-Enabled $true
             Refresh-VersionDisplay
         }
@@ -1180,13 +1514,13 @@ function Launch-Game($mode) {
     if ($mode -eq "server") {
         $launchDir = $script:ServerBuildDir
         $launchExe = Join-Path $launchDir "PerfectDarkServer.exe"
-        $gameArgs = "--log"
+        $gameArgs = ""
         $label = "Dedicated Server"
         $labelColor = $script:ColorOrange
     } else {
         $launchDir = $script:ClientBuildDir
         $launchExe = Join-Path $launchDir $script:ExeName
-        $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64 --log"
+        $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64"
         $label = "Client"
         $labelColor = $script:ColorGreen
     }
@@ -1255,6 +1589,13 @@ function Start-Build($target) {
     $outputBox.Clear()
     $script:ErrorLines.Clear()
     $script:AllOutput.Clear()
+    $script:ClientErrorLines.Clear()
+    $script:ServerErrorLines.Clear()
+    $script:ClientBuildFailed = $false
+    $script:ServerBuildFailed = $false
+    $script:ClientBuildTime = 0
+    $script:ServerBuildTime = 0
+    $script:TargetStartTime = [DateTime]::Now
     $errorCountLabel.Text = ""
     $script:BuildSucceeded = $false
     $script:BuildTarget = $target
@@ -1273,12 +1614,21 @@ function Start-Build($target) {
     $progressFill.BackColor = $script:ColorBlue
     $progressLabel.Text = ""
 
-    if (Test-Path $script:BuildDir) {
-        Write-Header "Clean: $($script:BuildDir | Split-Path -Leaf)"
-        Remove-Item -Path $script:BuildDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Output-Line "  Cleared build directory." $script:ColorDim
+    if ($chkClean.Checked) {
+        if (Test-Path $script:BuildDir) {
+            Write-Header "Clean: $($script:BuildDir | Split-Path -Leaf)"
+            Remove-Item -Path $script:BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Output-Line "  Cleared build directory." $script:ColorDim
+        } else {
+            Write-Header "Clean Build"
+        }
     } else {
-        Write-Header "Clean Build"
+        if (Test-Path $script:BuildDir) {
+            Write-Header "Incremental Build"
+            Write-Output-Line "  Reusing existing build directory (only changed files recompile)." $script:ColorDim
+        } else {
+            Write-Header "First Build"
+        }
     }
 
     Set-Buttons-Enabled $false
@@ -1306,6 +1656,41 @@ function Start-BuildFromDropdown {
 }
 
 $script:PendingServerBuild = $false
+
+# Start server build after client, preserving client output and errors
+function Start-Build-Server-After-Client {
+    if ($script:IsRunning) { return }
+
+    # Record client build time before switching targets
+    $script:ClientBuildTime = [math]::Floor(([DateTime]::Now - $script:TargetStartTime).TotalSeconds)
+    $script:TargetStartTime = [DateTime]::Now
+
+    # Don't clear output or error lists — keep client output visible
+    $script:BuildSucceeded = $false
+    $script:BuildTarget = "server"
+    $script:HasErrors = $false
+    $script:BuildDir = $script:ServerBuildDir
+
+    $progressFill.Size = New-Object System.Drawing.Size(0, 22)
+    $progressFill.BackColor = $script:ColorBlue
+    $progressLabel.Text = ""
+
+    Write-Output-Line "" $script:ColorDim
+    Write-Header "Server Build"
+
+    if ($chkClean.Checked -and (Test-Path $script:BuildDir)) {
+        Write-Output-Line "  Clearing server build directory..." $script:ColorDim
+        Remove-Item -Path $script:BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Set-Buttons-Enabled $false
+
+    $script:StepQueue.Clear()
+    $script:StepQueue.Enqueue((Get-BuildStep "server"))
+
+    $step = Get-ConfigureStep
+    Start-Build-Step $step.Name $step.Exe $step.Args
+}
 
 # ============================================================================
 # Push to GitHub
@@ -1398,7 +1783,7 @@ $script:PendingPostRelease = $false
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Build Tool Settings"
-    $dlg.Size = New-Object System.Drawing.Size(500, 260)
+    $dlg.Size = New-Object System.Drawing.Size(500, 310)
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = $script:ColorBg
     $dlg.ForeColor = $script:ColorWhite
@@ -1474,9 +1859,28 @@ function Show-SettingsDialog {
     $txtRepo.BorderStyle = "FixedSingle"
     $dlg.Controls.Add($txtRepo)
 
+    # Sounds toggle
+    $chkSoundsEnabled = New-Object System.Windows.Forms.CheckBox
+    $chkSoundsEnabled.Text = "Enable game sounds"
+    $chkSoundsEnabled.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $chkSoundsEnabled.ForeColor = $script:ColorWhite
+    $chkSoundsEnabled.Location = New-Object System.Drawing.Point(16, 186)
+    $chkSoundsEnabled.AutoSize = $true
+    $chkSoundsEnabled.BackColor = $script:ColorBg
+    $chkSoundsEnabled.Checked = $script:Settings.SoundsEnabled
+    $dlg.Controls.Add($chkSoundsEnabled)
+
+    $lblSoundsHint = New-Object System.Windows.Forms.Label
+    $lblSoundsHint.Text = "Run tools/extract-build-sounds.py to extract sounds from ROM"
+    $lblSoundsHint.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+    $lblSoundsHint.ForeColor = $script:ColorDim
+    $lblSoundsHint.Location = New-Object System.Drawing.Point(16, 208)
+    $lblSoundsHint.AutoSize = $true
+    $dlg.Controls.Add($lblSoundsHint)
+
     $btnSaveSettings = New-Object System.Windows.Forms.Button
     $btnSaveSettings.Text = "Save"
-    $btnSaveSettings.Location = New-Object System.Drawing.Point(376, 146)
+    $btnSaveSettings.Location = New-Object System.Drawing.Point(376, 236)
     $btnSaveSettings.Size = New-Object System.Drawing.Size(80, 28)
     $btnSaveSettings.FlatStyle = "Flat"
     $btnSaveSettings.FlatAppearance.BorderColor = $script:ColorGold
@@ -1485,9 +1889,9 @@ function Show-SettingsDialog {
     $btnSaveSettings.Cursor = "Hand"
     $btnSaveSettings.Add_Click({
         $script:Settings.GithubRepo = $txtRepo.Text.Trim()
+        $script:Settings.SoundsEnabled = $chkSoundsEnabled.Checked
         Save-Settings
-        $lblRepoSaved = New-Object System.Windows.Forms.Label
-        Write-Output-Line "  Settings saved: repo=$($script:Settings.GithubRepo)" $script:ColorGreen
+        Write-Output-Line "  Settings saved: repo=$($script:Settings.GithubRepo), sounds=$($script:Settings.SoundsEnabled)" $script:ColorGreen
         $dlg.Close()
     })
     $dlg.Controls.Add($btnSaveSettings)
@@ -1501,6 +1905,7 @@ function Show-SettingsDialog {
 
 # Version increment buttons
 $btnIncMajor.Add_Click({
+    Sound-MenuTick
     try { $val = [int]$txtVerMajor.Text } catch { $val = 0 }
     $txtVerMajor.Text = "$($val + 1)"
     $txtVerMinor.Text = "0"
@@ -1508,14 +1913,36 @@ $btnIncMajor.Add_Click({
     Check-VersionWarning
 })
 $btnIncMinor.Add_Click({
+    Sound-MenuTick
     try { $val = [int]$txtVerMinor.Text } catch { $val = 0 }
     $txtVerMinor.Text = "$($val + 1)"
     $txtVerRevision.Text = "0"
     Check-VersionWarning
 })
 $btnIncRevision.Add_Click({
+    Sound-MenuTick
     try { $val = [int]$txtVerRevision.Text } catch { $val = 0 }
     $txtVerRevision.Text = "$($val + 1)"
+    Check-VersionWarning
+})
+
+# Version decrement buttons
+$btnDecMajor.Add_Click({
+    Sound-MenuTick
+    try { $val = [int]$txtVerMajor.Text } catch { $val = 0 }
+    if ($val -gt 0) { $txtVerMajor.Text = "$($val - 1)" }
+    Check-VersionWarning
+})
+$btnDecMinor.Add_Click({
+    Sound-MenuTick
+    try { $val = [int]$txtVerMinor.Text } catch { $val = 0 }
+    if ($val -gt 0) { $txtVerMinor.Text = "$($val - 1)" }
+    Check-VersionWarning
+})
+$btnDecRevision.Add_Click({
+    Sound-MenuTick
+    try { $val = [int]$txtVerRevision.Text } catch { $val = 0 }
+    if ($val -gt 0) { $txtVerRevision.Text = "$($val - 1)" }
     Check-VersionWarning
 })
 
@@ -1524,12 +1951,31 @@ $txtVerMajor.Add_TextChanged({ Check-VersionWarning })
 $txtVerMinor.Add_TextChanged({ Check-VersionWarning })
 $txtVerRevision.Add_TextChanged({ Check-VersionWarning })
 
-$btnBuild.Add_Click({ Start-BuildFromDropdown })
-$btnRunClient.Add_Click({ Launch-Game "client" })
-$btnRunServer.Add_Click({ Launch-Game "server" })
-$btnPush.Add_Click({ Start-PushRelease })
+$btnBuild.Add_Click({
+    Sound-MenuClick
+    $chkClean.Checked = $false
+    Start-BuildFromDropdown
+})
+$btnCleanBuild.Add_Click({
+    Sound-MenuClick
+    $chkClean.Checked = $true
+    Start-BuildFromDropdown
+})
+$btnRunClient.Add_Click({ Sound-MenuClick; Launch-Game "client" })
+$btnRunServer.Add_Click({ Sound-MenuClick; Launch-Game "server" })
+$btnPushDev.Add_Click({
+    Sound-MenuClick
+    $chkStable.Checked = $false
+    Start-PushRelease
+})
+$btnPushStable.Add_Click({
+    Sound-MenuClick
+    $chkStable.Checked = $true
+    Start-PushRelease
+})
 
 $btnGithub.Add_Click({
+    Sound-MenuClick
     $repo = $script:Settings.GithubRepo
     if ($repo -ne "") {
         Start-Process "https://github.com/$repo"
@@ -1542,15 +1988,68 @@ $btnGithub.Add_Click({
     }
 })
 
+# Open Project button — opens project folder in Explorer
+$btnOpenProject.Add_Click({
+    Sound-MenuClick
+    Start-Process "explorer.exe" -ArgumentList $script:ProjectDir
+})
+
+# Stop button — kills the running process and re-enables UI
+$btnStop.Add_Click({
+    Sound-MenuClick
+    if ($null -ne $script:Process -and !$script:Process.HasExited) {
+        try { $script:Process.Kill() } catch {}
+        try { $script:Process.Dispose() } catch {}
+        $script:Process = $null
+    }
+    $timer.Stop()
+    $script:StepQueue.Clear()
+    $script:PendingServerBuild = $false
+
+    Write-Output-Line "" $script:ColorRed
+    Write-Output-Line ">>> BUILD STOPPED BY USER <<<" $script:ColorRed
+    $progressFill.BackColor = [System.Drawing.Color]::FromArgb(191, 0, 0)
+    $progressLabel.Text = "STOPPED"
+    $statusLabel.Text = "Stopped"
+    $statusLabel.ForeColor = $script:ColorRed
+
+    Set-Buttons-Enabled $true
+})
+
 $btnCopyErrors.Add_Click({
     if ($script:ErrorLines.Count -eq 0) {
         [System.Windows.Forms.MessageBox]::Show("No errors captured.", "Copy Errors",
             [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
         return
     }
-    $text = "Build errors ($($script:ErrorLines.Count) lines):`r`n```````r`n"
-    foreach ($line in $script:ErrorLines) { $text += "$line`r`n" }
-    $text += "```````r`n"
+
+    $text = ""
+    $hasClient = $script:ClientErrorLines.Count -gt 0
+    $hasServer = $script:ServerErrorLines.Count -gt 0
+
+    if ($hasClient -and $hasServer) {
+        # Segmented output for Client+Server builds
+        $text += "Client Build Errors:`r`nBuild errors ($($script:ClientErrorLines.Count) lines):`r`n```````r`n"
+        foreach ($line in $script:ClientErrorLines) { $text += "$line`r`n" }
+        $text += "```````r`n`r`n"
+        $text += "Server Build Errors:`r`nBuild errors ($($script:ServerErrorLines.Count) lines):`r`n```````r`n"
+        foreach ($line in $script:ServerErrorLines) { $text += "$line`r`n" }
+        $text += "```````r`n"
+    } elseif ($hasClient) {
+        $text += "Client Build Errors:`r`nBuild errors ($($script:ClientErrorLines.Count) lines):`r`n```````r`n"
+        foreach ($line in $script:ClientErrorLines) { $text += "$line`r`n" }
+        $text += "```````r`n"
+    } elseif ($hasServer) {
+        $text += "Server Build Errors:`r`nBuild errors ($($script:ServerErrorLines.Count) lines):`r`n```````r`n"
+        foreach ($line in $script:ServerErrorLines) { $text += "$line`r`n" }
+        $text += "```````r`n"
+    } else {
+        # Fallback: unsegmented (shouldn't happen, but safety)
+        $text += "Build errors ($($script:ErrorLines.Count) lines):`r`n```````r`n"
+        foreach ($line in $script:ErrorLines) { $text += "$line`r`n" }
+        $text += "```````r`n"
+    }
+
     [System.Windows.Forms.Clipboard]::SetText($text)
     $statusLabel.Text = "$($script:ErrorLines.Count) error(s) copied"
     $statusLabel.ForeColor = $script:ColorOrange
@@ -1596,10 +2095,10 @@ $gameTimer.Add_Tick({
         }
     }
 
-    # Client+Server sequential build
-    if ($script:PendingServerBuild -and -not $script:IsRunning -and $script:BuildSucceeded) {
+    # Client+Server sequential build — proceed to server regardless of client result
+    if ($script:PendingServerBuild -and -not $script:IsRunning) {
         $script:PendingServerBuild = $false
-        Start-Build "server"
+        Start-Build-Server-After-Client
     }
 })
 $gameTimer.Start()

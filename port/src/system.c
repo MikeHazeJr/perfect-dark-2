@@ -61,6 +61,111 @@ static char logPath[2048];
 static s32 sysArgc;
 static const char **sysArgv;
 
+/* -----------------------------------------------------------------------
+ * Log channel filter
+ * ----------------------------------------------------------------------- */
+
+static u32 s_LogChannelMask = LOG_CH_ALL;
+
+const char *sysLogChannelNames[LOG_CH_COUNT] = {
+	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System"
+};
+const u32 sysLogChannelBits[LOG_CH_COUNT] = {
+	LOG_CH_NETWORK, LOG_CH_GAME, LOG_CH_COMBAT, LOG_CH_AUDIO,
+	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM
+};
+
+u32 sysLogGetChannelMask(void) { return s_LogChannelMask; }
+
+void sysLogSetChannelMask(u32 mask)
+{
+	if (mask == s_LogChannelMask) return;
+	u32 old = s_LogChannelMask;
+	s_LogChannelMask = mask;
+
+	/* Always log the filter change itself (bypasses filtering) */
+	if (mask == LOG_CH_NONE) {
+		sysLogPrintf(LOG_NOTE, "LOG: All log channels deactivated in settings");
+	} else if (mask == LOG_CH_ALL) {
+		sysLogPrintf(LOG_NOTE, "LOG: All log channels active");
+	} else {
+		char buf[256] = {0};
+		for (s32 i = 0; i < LOG_CH_COUNT; i++) {
+			if (mask & sysLogChannelBits[i]) {
+				if (buf[0]) strncat(buf, ", ", sizeof(buf) - strlen(buf) - 1);
+				strncat(buf, sysLogChannelNames[i], sizeof(buf) - strlen(buf) - 1);
+			}
+		}
+		sysLogPrintf(LOG_NOTE, "LOG: Active channels: %s", buf);
+	}
+}
+
+/* Map a message prefix string to its channel bitmask.
+ * Returns 0 if no known prefix is found (treated as untagged / always pass). */
+static u32 sysLogClassifyMessage(const char *msg)
+{
+	/* Skip level prefix if present (e.g. "WARNING: NET: ...") */
+	if (strncmp(msg, "WARNING: ", 9) == 0) msg += 9;
+	else if (strncmp(msg, "ERROR: ", 7) == 0) msg += 7;
+
+	/* Network */
+	if (strncmp(msg, "NET:",   4) == 0) return LOG_CH_NETWORK;
+	if (strncmp(msg, "UPNP:",  5) == 0) return LOG_CH_NETWORK;
+	if (strncmp(msg, "SERVER:",7) == 0) return LOG_CH_NETWORK;
+	if (strncmp(msg, "LOBBY:", 6) == 0) return LOG_CH_NETWORK;
+	if (strncmp(msg, "MATCHSETUP:", 11) == 0) return LOG_CH_NETWORK;
+
+	/* Game */
+	if (strncmp(msg, "STAGE:",  6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "INTRO:",  6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "CATALOG:",8) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "LOAD:",   5) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "PLAYER:", 7) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "SIMULANT:",9) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "SETUP:",  6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "JUMP:",   5) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "MATCH:",  6) == 0) return LOG_CH_GAME;
+
+	/* Combat */
+	if (strncmp(msg, "DAMAGE:", 7) == 0) return LOG_CH_COMBAT;
+	if (strncmp(msg, "WEAPON:", 7) == 0) return LOG_CH_COMBAT;
+	if (strncmp(msg, "AMMO:",   5) == 0) return LOG_CH_COMBAT;
+	if (strncmp(msg, "HEALTH:", 7) == 0) return LOG_CH_COMBAT;
+	if (strncmp(msg, "PICKUP:", 7) == 0) return LOG_CH_COMBAT;
+
+	/* Audio */
+	if (strncmp(msg, "SND:",   4) == 0) return LOG_CH_AUDIO;
+	if (strncmp(msg, "AUDIO:", 6) == 0) return LOG_CH_AUDIO;
+	if (strncmp(msg, "MUSIC:", 6) == 0) return LOG_CH_AUDIO;
+	if (strncmp(msg, "SFX:",   4) == 0) return LOG_CH_AUDIO;
+
+	/* Menu */
+	if (strncmp(msg, "MENU:",    5) == 0) return LOG_CH_MENU;
+	if (strncmp(msg, "HOTSWAP:", 8) == 0) return LOG_CH_MENU;
+	if (strncmp(msg, "DIALOG:",  7) == 0) return LOG_CH_MENU;
+	if (strncmp(msg, "FONT",     4) == 0) return LOG_CH_MENU;
+
+	/* Save */
+	if (strncmp(msg, "SAVE:",       5) == 0) return LOG_CH_SAVE;
+	if (strncmp(msg, "SAVEMIGRATE:",12) == 0) return LOG_CH_SAVE;
+	if (strncmp(msg, "CONFIG:",     7) == 0) return LOG_CH_SAVE;
+
+	/* Mods */
+	if (strncmp(msg, "MOD:",    4) == 0) return LOG_CH_MOD;
+	if (strncmp(msg, "MODMGR:", 7) == 0) return LOG_CH_MOD;
+
+	/* System */
+	if (strncmp(msg, "SYS:",     4) == 0) return LOG_CH_SYSTEM;
+	if (strncmp(msg, "MEM:",     4) == 0) return LOG_CH_SYSTEM;
+	if (strncmp(msg, "MEMPC:",   6) == 0) return LOG_CH_SYSTEM;
+	if (strncmp(msg, "CRASH:",   6) == 0) return LOG_CH_SYSTEM;
+	if (strncmp(msg, "FS:",      3) == 0) return LOG_CH_SYSTEM;
+	if (strncmp(msg, "UPDATER:", 8) == 0) return LOG_CH_SYSTEM;
+
+	/* No recognized prefix — treat as untagged (always passes filter) */
+	return 0;
+}
+
 static inline void sysLogSetPath(const char *fname)
 {
 	// figure out where the log is and clear it
@@ -89,15 +194,14 @@ void sysInit(void)
 {
 	startTick = sysGetMicroseconds();
 
-	if (sysArgCheck("--log")) {
-		/* Name the log file based on mode for clarity */
-		if (sysArgCheck("--dedicated")) {
-			sysLogSetPath("pd-server.log");
-		} else if (sysArgCheck("--host")) {
-			sysLogSetPath("pd-host.log");
-		} else {
-			sysLogSetPath("pd-client.log");
-		}
+	/* Always log to file — essential for diagnostics in all builds.
+	 * Name the log file based on mode for clarity. */
+	if (sysArgCheck("--dedicated")) {
+		sysLogSetPath("pd-server.log");
+	} else if (sysArgCheck("--host")) {
+		sysLogSetPath("pd-host.log");
+	} else {
+		sysLogSetPath("pd-client.log");
 	}
 
 #ifdef VERSION_HASH
@@ -108,6 +212,12 @@ void sysInit(void)
 	const time_t curtime = time(NULL);
 	strftime(timestr, sizeof(timestr), "%d %b %Y %H:%M:%S", localtime(&curtime));
 	sysLogPrintf(LOG_NOTE, "startup date: %s", timestr);
+
+	/* Print log channel filter status at startup */
+	sysLogPrintf(LOG_NOTE, "LOG: Channel filter mask: 0x%04X (%s)",
+		s_LogChannelMask,
+		s_LogChannelMask == LOG_CH_ALL ? "all channels active" :
+		s_LogChannelMask == LOG_CH_NONE ? "all channels disabled" : "partial");
 
 #ifdef PLATFORM_WIN32
 	// this function is only present on Vista+, so try to import it from kernel32 by hand
@@ -208,6 +318,16 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	va_end(ap);
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
+
+	/* --- Channel filter ---
+	 * Warnings and errors always pass. LOG_NOTE messages are filtered by
+	 * channel. Untagged messages (no recognized prefix) always pass. */
+	if (lvl == LOG_NOTE && s_LogChannelMask != LOG_CH_ALL) {
+		u32 ch = sysLogClassifyMessage(logmsg);
+		if (ch != 0 && !(s_LogChannelMask & ch)) {
+			return;  /* Filtered out */
+		}
+	}
 
 	/* Generate timestamp for file logging */
 	char timestamp[32] = {0};
