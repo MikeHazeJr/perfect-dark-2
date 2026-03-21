@@ -1,35 +1,92 @@
 # Session Log
 
-Reverse-chronological session summaries.
+Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
-## 2026-03-20 — Release Infrastructure & Branching
+## Session 6 — 2026-03-21
+
+**Focus**: strncpy null-termination audit, ADR-001, build tool commit
 
 ### What Was Done
-- Committed all outstanding work (68 files, 10.5K insertions) to main
-- Added `VERSION_LABEL` support to version system (CMake + versioninfo.h.in + updateversion.h)
-  - Allows cosmetic suffixes like "a" (alpha), "b" (beta) on version strings
-  - Display-only — does not affect numeric version comparison in update system
-- Created `release` branch from main:
-  - Version: `0.0.3a` (MAJOR=0, MINOR=0, PATCH=3, LABEL="a")
-  - Tagged as `v0.0.3a`
-  - Full release notes in `RELEASE_v0.0.3a.md`
-  - Release script `release.ps1` for automated packaging + GitHub release
-- Created `dev` branch from main:
-  - Version: `0.0.4-dev.1` (MAJOR=0, MINOR=0, PATCH=4, DEV=1)
-  - Tagged as `v0.0.4-dev.1`
-  - Purpose: test update system's ability to detect newer versions
+- Re-applied netmsg.c fixes lost during context compaction (3 strncpy + 1 strcpy→snprintf)
+- **Propagation check**: Scanned entire port/ codebase for the same strncpy class bug
+  - Found 17 additional instances across 8 files (net.c, updater.c, modmgr.c, fs.c, libultra.c, config.c, input.c, optionsmenu.c)
+  - Fixed all 17 with consistent `buf[SIZE - 1] = '\0'` pattern
+- Created ADR-001 documenting the architecture audit findings
+- Previous session's build tool changes committed: static linking fix, headless server, auto-stash, version increment buttons, release overwrite
 
-### Decisions Made
-- Version numbering starts at `0.0.3a` (alpha) — previous GitHub releases to be removed
-- Full binary replacement for updates (not patches) — build is small enough
-- Three-branch model: `main` (development), `release` (stable), `dev` (testing)
-- Release assets include individual exe + sha256 files (for update system) plus full zip
+### Files Modified
+- `port/src/net/netmsg.c` — 3 strncpy + 1 strcpy fix
+- `port/src/net/net.c` — 4 strncpy fixes
+- `port/src/updater.c` — 2 strncpy fixes
+- `port/src/modmgr.c` — 4 strncpy fixes
+- `port/src/fs.c` — 5 strncpy fixes
+- `port/src/libultra.c` — 3 strncpy fixes
+- `port/src/config.c` — 3 strncpy fixes
+- `port/src/input.c` — 1 strncpy fix
+- `port/src/optionsmenu.c` — 2 strncpy fixes
+- `context/ADR-001-lobby-multiplayer-architecture-audit.md` — NEW
 
-### Next Steps
-- Mike: Build client + server on both branches, push to GitHub
-- Mike: Install libcurl (`pacman -S mingw-w64-x86_64-curl`), delete CMakeCache.txt, reconfigure
-- Mike: Run `release.ps1` on release branch, then on dev branch with `--Prerelease`
-- Test update system: launch release build → should detect 0.0.4-dev.1 as available on dev channel
-- Remove old v0.0.2 and nightly releases from GitHub
+### Decisions
+- strncpy null-termination is now a project-wide standard; future code should prefer snprintf
+
+---
+
+## Sessions 4-5 — 2026-03-20
+
+**Focus**: Architecture audit, build tool improvements, release tooling
+
+### What Was Done
+- Complete architecture audit of lobby/multiplayer systems
+- Fixed CLC_MAP_VOTE_START ID collision (was 0x09, same as CLC_LOBBY_MODE → shifted to 0x0A)
+- CMakeLists.txt: Fixed static linking path resolution (SDL2, zlib, libcurl)
+- build-gui.ps1: Server headless launch, auto-stash branch switching, version increment buttons
+- release.ps1: Release overwrite support, DLL warning cleanup
+- Identified and documented 3 verified false positives in the audit
+
+### Decisions
+- Server launches headless by default (avoids OpenGL context contention)
+- Auto-stash on branch switch with tagged restore
+- Release overwrite: delete existing GitHub release + tags before recreating
+
+---
+
+## Session 3 — 2026-03-19
+
+**Focus**: Phase 3 dedicated server, lobby system
+
+### What Was Done
+- Completed Phase 3: Dedicated-server-only multiplayer model
+- New multiplayer menu (server browser, direct IP connect)
+- Lobby system rewrite with leader election
+- Lobby screen with game mode selection
+- Server GUI (4-panel layout) and headless mode
+- CLC_LOBBY_START protocol for match launching
+- Cleanup: renamed "Network Game" to "Multiplayer", removed stale host menus
+
+---
+
+## Session 2 — 2026-03-18
+
+**Focus**: ImGui debug menu, styling, build system
+
+### What Was Done
+- PD-authentic styling with pixel-accurate shimmer from menugfx.c
+- 7 built-in palettes including Black & Gold
+- F12 debug menu with mouse capture/release
+- Build tool: colored progress bar, gated run buttons, process monitoring
+- Font size 16pt → 24pt
+
+---
+
+## Session 1 — 2026-03-17
+
+**Focus**: Menu system Phase 2 (agent create, delete, typed dialogs, network audit)
+
+### What Was Done
+- Agent Create screen with 3D character preview (FBO)
+- Agent Select enhancements (contextual actions, delete confirmation)
+- Typed dialog system (DANGER + SUCCESS)
+- Network audit began (ENet protocol, message catalog)
+- Skedar/DrCaroll mesh fix (duplicate array indices in g_MpBodies)

@@ -240,6 +240,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	// for now use settings from our own client, remote is supposed to send CLC_SETTINGS after CLC_AUTH
 	srccl->settings = g_NetLocalClient->settings;
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
@@ -396,6 +397,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
 	srccl->settings.bodynum = bodynum;
 	srccl->settings.headnum = headnum;
@@ -585,7 +587,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.chrslots = netbufReadU16(src);
 		g_MpSetup.options = netbufReadU32(src);
 		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
-		strcpy(g_MpSetup.name, "server");
+		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
 	if (src->error) {
@@ -623,6 +625,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			char *name = netbufReadStr(src);
 			if (name) {
 				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
 			} else {
 				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
 				return 3;
