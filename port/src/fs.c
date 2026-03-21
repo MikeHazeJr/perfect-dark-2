@@ -79,7 +79,8 @@ const char *fsFullPath(const char *relPath)
 			const u32 len = strlen(expStr);
 			if (len > 0) {
 				memcpy(pathBuf, expStr, len);
-				strncpy(pathBuf + len, relPath + 2, FS_MAXPATH - len);
+				strncpy(pathBuf + len, relPath + 2, FS_MAXPATH - len - 1);
+				pathBuf[FS_MAXPATH] = '\0';
 				return pathBuf;
 			}
 		}
@@ -137,7 +138,8 @@ s32 fsInit(void)
 			}
 		}
 	}
-	strncpy(baseDir, fsFullPath(path), FS_MAXPATH);
+	strncpy(baseDir, fsFullPath(path), FS_MAXPATH - 1);
+	baseDir[FS_MAXPATH - 1] = '\0';
 
 	// get path to mod dir and expand it if needed
 	// mod directory is overlaid on top of base directory
@@ -149,7 +151,8 @@ s32 fsInit(void)
 		if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
 			// path is explicit; check as-is
 			if (fsFileSize(path) >= 0) {
-				strncpy(modDir, fsFullPath(path), FS_MAXPATH);
+				strncpy(modDir, fsFullPath(path), FS_MAXPATH - 1);
+				modDir[FS_MAXPATH - 1] = '\0';
 			}
 		} else {
 			// path is relative to workdir; try to find it
@@ -157,7 +160,8 @@ s32 fsInit(void)
 			for (s32 i = 0; i < 2 + (portable != 0); ++i) {
 				char *tmp = strFmt("%s/%s", priority[i], path);
 				if (fsFileSize(tmp) >= 0) {
-					strncpy(modDir, fsFullPath(tmp), FS_MAXPATH);
+					strncpy(modDir, fsFullPath(tmp), FS_MAXPATH - 1);
+					modDir[FS_MAXPATH - 1] = '\0';
 					break;
 				}
 			}
@@ -195,7 +199,8 @@ s32 fsInit(void)
 		}
 	}
 
-	strncpy(saveDir, fsFullPath(path), FS_MAXPATH);
+	strncpy(saveDir, fsFullPath(path), FS_MAXPATH - 1);
+	saveDir[FS_MAXPATH - 1] = '\0';
 
 #ifdef PLATFORM_WIN32
 	/*

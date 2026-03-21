@@ -707,7 +707,8 @@ s32 netStartClient(const char *addr)
 	enet_host_set_intercept_callback(g_NetHost, NULL);
 
 	// save the address since it appears to be valid
-	strncpy(g_NetLastJoinAddr, addr, NET_MAX_ADDR);
+	strncpy(g_NetLastJoinAddr, addr, NET_MAX_ADDR - 1);
+	g_NetLastJoinAddr[NET_MAX_ADDR - 1] = '\0';
 	netRecentServerAdd(addr);
 
 	// we'll use the whole array to store what we know of other clients
@@ -835,6 +836,7 @@ void netServerPreservePlayer(struct netclient *cl)
 	}
 
 	strncpy(pp->name, cl->settings.name, NET_MAX_NAME - 1);
+	pp->name[NET_MAX_NAME - 1] = '\0';
 	pp->playernum = cl->playernum;
 	pp->team = cl->settings.team;
 
@@ -1567,7 +1569,8 @@ void netRecentServerAdd(const char *addr)
 	}
 
 	memset(srv, 0, sizeof(*srv));
-	strncpy(srv->addr, addr, NET_MAX_ADDR);
+	strncpy(srv->addr, addr, NET_MAX_ADDR - 1);
+	srv->addr[NET_MAX_ADDR - 1] = '\0';
 }
 
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
@@ -1598,6 +1601,7 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 			char *hostname = netbufReadStr(&buf);
 			if (hostname) {
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
+				srv->hostname[NET_MAX_NAME - 1] = '\0';
 			}
 			srv->lastresponse = g_NetTick;
 			srv->online = true;

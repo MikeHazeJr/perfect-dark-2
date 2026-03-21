@@ -47,6 +47,8 @@ Merged PC port combining:
 | [rendering-trace.md](rendering-trace.md) | Rendering Pipeline | Endscreen dialog call chain, file cross-references, g_ScaleX map, GBI translation, bug leads |
 | [menu-storyboard.md](menu-storyboard.md) | Menu Storyboard ADR | D4 architecture, 113-menu inventory, component library, design tokens, implementation phases |
 | [update-system.md](update-system.md) | Update System (D13) | Version scheme, GitHub API, SHA-256 verification, self-replacement, save migration, release channels |
+| [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries for continuity across AI sessions |
+| [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | ADR | Audit findings: strncpy fixes, protocol verification, architectural assessment |
 
 ## Key Architectural Facts
 - **Net modes**: `g_NetMode` — NETMODE_NONE(0), SERVER(1), CLIENT(2)

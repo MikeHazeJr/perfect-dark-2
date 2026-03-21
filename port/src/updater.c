@@ -479,6 +479,7 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 						/* Match asset to our binary or hash */
 						if (strcmp(aname, assetName) == 0) {
 							strncpy(rel->assetUrl, aurl, UPDATER_MAX_URL_LEN - 1);
+							rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 							rel->assetSize = asize;
 						} else {
 							/* Check for .sha256 sidecar */
@@ -486,6 +487,7 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 							snprintf(hashname, sizeof(hashname), "%s.sha256", assetName);
 							if (strcmp(aname, hashname) == 0) {
 								strncpy(rel->hashUrl, aurl, UPDATER_MAX_URL_LEN - 1);
+								rel->hashUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 							}
 						}
 					}

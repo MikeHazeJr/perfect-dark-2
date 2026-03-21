@@ -586,6 +586,7 @@ static inline void inputGetScancodeName(const SDL_Scancode sc, char *out, size_t
 		const char *scname = SDL_GetScancodeName(sc);
 		if (scname) {
 			strncpy(out, scname, len - 1);
+			out[len - 1] = '\0';
 			for (u32 i = 0; i < len && out[i]; ++i) {
 				if (out[i] == ' ') {
 					out[i] = '_';

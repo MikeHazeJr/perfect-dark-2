@@ -390,10 +390,13 @@ static void modmgrCreateLegacyManifest(modinfo_t *mod)
 
 	// Prettify name from ID
 	strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
+	mod->name[MODMGR_NAME_LEN - 1] = '\0';
 	mod->name[0] = toupper((unsigned char)mod->name[0]);
 
-	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN);
-	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN);
+	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN - 1);
+	mod->version[MODMGR_VERSION_LEN - 1] = '\0';
+	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN - 1);
+	mod->author[MODMGR_AUTHOR_LEN - 1] = '\0';
 	mod->description[0] = '\0';
 	mod->has_modjson = false;
 
@@ -487,7 +490,8 @@ static void modmgrScanDirectory(void)
 		// Initialize mod entry
 		modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
 		memset(mod, 0, sizeof(modinfo_t));
-		strncpy(mod->dirpath, fullpath, FS_MAXPATH);
+		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
+		mod->dirpath[FS_MAXPATH - 1] = '\0';
 		mod->has_modconfig = has_modconfig;
 
 		if (has_modjson) {
