@@ -26,6 +26,7 @@
 extern "C" {
 
 #include "system.h"
+#include "connectcode.h"
 
 /* Net state */
 extern s32 g_NetMode;
@@ -196,17 +197,34 @@ extern "C" void serverGuiFrame(SDL_Window *window)
     if (ImGui::Begin("Server Status", nullptr, panelFlags)) {
         ImGui::Columns(4, nullptr, false);
 
-        /* Column 1: Server identity */
+        /* Column 1: Server identity + connect code */
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "PD2 DEDICATED SERVER");
         const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
         if (ip && ip[0]) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", ip, g_NetServerPort);
+            /* Build connect code from IP + port */
+            char connectCode[256];
+            u32 ipAddr = 0;
+            {
+                /* Parse dotted-quad IP string to network-order u32 */
+                u32 a, b, c, d;
+                if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                    ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+                }
+            }
+            connectCodeEncode(ipAddr, (u16)g_NetServerPort, connectCode, sizeof(connectCode));
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy Code")) {
+                SDL_SetClipboardText(connectCode);
+            }
+            /* Show raw IP:port underneath in subdued color */
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", ip, g_NetServerPort);
         } else {
             s32 upnpStatus = netUpnpGetStatus();
             if (upnpStatus == UPNP_STATUS_WORKING) {
                 ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Port %u (UPnP...)", g_NetServerPort);
             } else {
-                ImGui::Text("Port %u", g_NetServerPort);
+                ImGui::Text("Port %u (LAN only)", g_NetServerPort);
             }
         }
 

@@ -30,6 +30,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "system.h"
+#include "connectcode.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -147,7 +148,22 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
         const char *publicIP = netGetPublicIP();
 
         if (publicIP && publicIP[0]) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", publicIP, port);
+            /* Build connect code from public IP + port */
+            char connectCode[256];
+            u32 ipAddr = 0;
+            {
+                u32 a, b, c, d;
+                if (sscanf(publicIP, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                    ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+                }
+            }
+            connectCodeEncode(ipAddr, (u16)port, connectCode, sizeof(connectCode));
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) {
+                SDL_SetClipboardText(connectCode);
+            }
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", publicIP, port);
         } else {
             ImGui::Text("Port: %u (UPnP inactive)", port);
         }

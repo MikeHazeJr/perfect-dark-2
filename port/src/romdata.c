@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
 #include "romdata.h"
@@ -195,6 +196,61 @@ static inline void romdataWrongRomError(const char *fmt, ...)
 	sysFatalError("Wrong ROM file.\n%s\nEnsure that you have the correct " ROMDATA_ROM_DESC " ROM in z64 format.", reason);
 }
 
+/**
+ * Show a user-friendly ROM missing dialog with an "Open Folder" button.
+ * Uses SDL_ShowMessageBox with custom buttons so users can quickly
+ * navigate to the data directory where the ROM needs to be placed.
+ */
+static void romdataShowMissingRomDialog(const char *romName, const char *dataDir)
+{
+	char msg[1024];
+	snprintf(msg, sizeof(msg),
+		"Perfect Dark N64 ROM not found.\n\n"
+		"Please place your ROM file in the data folder with this exact name:\n\n"
+		"    %s\n\n"
+		"Data folder:\n"
+		"    %s\n\n"
+		"The ROM must be in uncompressed z64 format (32 MB).\n"
+		"Do not rename the extension or use .v64 / .n64 format.",
+		romName, dataDir);
+
+	SDL_MessageBoxButtonData buttons[2] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Open Folder" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Exit" },
+	};
+
+	SDL_MessageBoxData boxData;
+	memset(&boxData, 0, sizeof(boxData));
+	boxData.flags = SDL_MESSAGEBOX_ERROR;
+	boxData.window = NULL;
+	boxData.title = "ROM File Missing";
+	boxData.message = msg;
+	boxData.numbuttons = 2;
+	boxData.buttons = buttons;
+
+	s32 buttonId = 1;
+	SDL_ShowMessageBox(&boxData, &buttonId);
+
+	if (buttonId == 0) {
+		/* Open the data folder in the system file manager */
+#ifdef _WIN32
+		char cmd[1024];
+		snprintf(cmd, sizeof(cmd), "explorer \"%s\"", dataDir);
+		system(cmd);
+#elif defined(__APPLE__)
+		char cmd[1024];
+		snprintf(cmd, sizeof(cmd), "open \"%s\"", dataDir);
+		system(cmd);
+#else
+		char cmd[1024];
+		snprintf(cmd, sizeof(cmd), "xdg-open \"%s\"", dataDir);
+		system(cmd);
+#endif
+	}
+
+	exit(1);
+}
+
 static inline void romdataLoadRom(void)
 {
 	sysLogPrintf(LOG_NOTE, "ROM file: %s", g_RomName);
@@ -202,7 +258,8 @@ static inline void romdataLoadRom(void)
 	g_RomFile = fsFileLoad(g_RomName, &g_RomFileSize);
 
 	if (!g_RomFile) {
-		sysFatalError("Could not open ROM file %s.\nEnsure that it is in the %s directory.", g_RomName, fsFullPath(""));
+		sysLogPrintf(LOG_ERROR, "ROM: Could not open %s in %s", g_RomName, fsFullPath(""));
+		romdataShowMissingRomDialog(g_RomName, fsFullPath(""));
 	}
 
 	// zips are not guaranteed to start with PK, but might as well at least try

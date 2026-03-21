@@ -38,6 +38,7 @@
 #include "system.h"
 #include "lib/vi.h"
 #include "romdata.h"
+#include "connectcode.h"
 
 /* Non-static so ImGui network menus can access them */
 s32 g_NetMenuMaxPlayers = NET_MAX_CLIENTS;
@@ -532,8 +533,33 @@ static MenuItemHandlerResult menuhandlerJoinAddress(s32 operation, struct menuit
 MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		if (g_NetJoinAddr[0] != '\0' && netStartClient(g_NetJoinAddr) == 0) {
-			menuPushDialog(&g_NetJoiningDialog);
+		if (g_NetJoinAddr[0] != '\0') {
+			/* Detect connect code (contains alpha chars) vs raw IP */
+			s32 isCode = 0;
+			for (const char *ch = g_NetJoinAddr; *ch; ch++) {
+				if ((*ch >= 'A' && *ch <= 'Z') || (*ch >= 'a' && *ch <= 'z')) {
+					isCode = 1;
+					break;
+				}
+			}
+
+			if (isCode) {
+				u32 ip = 0;
+				u16 port = 0;
+				if (connectCodeDecode(g_NetJoinAddr, &ip, &port) == 0) {
+					char resolved[NET_MAX_ADDR + 1];
+					snprintf(resolved, sizeof(resolved), "%u.%u.%u.%u:%u",
+					         ip & 0xFF, (ip >> 8) & 0xFF,
+					         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+					if (netStartClient(resolved) == 0) {
+						menuPushDialog(&g_NetJoiningDialog);
+					}
+				}
+			} else {
+				if (netStartClient(g_NetJoinAddr) == 0) {
+					menuPushDialog(&g_NetJoiningDialog);
+				}
+			}
 		}
 	}
 	if (operation == MENUOP_CHECKDISABLED) {

@@ -112,7 +112,7 @@ $env:PATH          = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 $script:ErrorLines = [System.Collections.ArrayList]::new()
 $script:AllOutput  = [System.Collections.ArrayList]::new()
 $script:IsRunning  = $false
-$script:ExeName    = "pd.x86_64.exe"
+$script:ExeName    = "PerfectDark.exe"
 $script:BuildSucceeded = $false
 $script:BuildTarget    = ""
 $script:GameProcess    = $null
@@ -589,7 +589,7 @@ function Set-Buttons-Enabled($enabled) {
 
 function Update-RunButtons {
     $clientExe = Join-Path $script:ClientBuildDir $script:ExeName
-    $serverExe = Join-Path $script:ServerBuildDir "pd-server.x86_64.exe"
+    $serverExe = Join-Path $script:ServerBuildDir "PerfectDarkServer.exe"
 
     $canRunClient = (-not $script:IsRunning) -and (Test-Path $clientExe)
     $canRunServer = (-not $script:IsRunning) -and (Test-Path $serverExe)
@@ -1179,7 +1179,7 @@ function Launch-Game($mode) {
 
     if ($mode -eq "server") {
         $launchDir = $script:ServerBuildDir
-        $launchExe = Join-Path $launchDir "pd-server.x86_64.exe"
+        $launchExe = Join-Path $launchDir "PerfectDarkServer.exe"
         $gameArgs = "--log"
         $label = "Dedicated Server"
         $labelColor = $script:ColorOrange
@@ -1611,7 +1611,7 @@ $gameTimer.Start()
 Refresh-VersionDisplay
 
 $clientCheck = Join-Path $script:ClientBuildDir $script:ExeName
-$serverCheck = Join-Path $script:ServerBuildDir "pd-server.x86_64.exe"
+$serverCheck = Join-Path $script:ServerBuildDir "PerfectDarkServer.exe"
 if ((Test-Path $clientCheck) -or (Test-Path $serverCheck)) { $script:BuildSucceeded = $true }
 Update-RunButtons
 

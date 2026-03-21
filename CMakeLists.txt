@@ -415,7 +415,7 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game client target
 
-set(BIN_NAME "pd${BIN_REGION}.${TARGET_ARCH}")
+set(BIN_NAME "PerfectDark")
 add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})
@@ -465,6 +465,9 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/updater.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
+
+  # Connect code (IP:port ↔ word-based codes)
+  ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
 
 # ImGui sources for server GUI
@@ -475,7 +478,7 @@ if(WIN32)
   list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
 endif()
 
-set(SERVER_BIN_NAME "pd-server.${TARGET_ARCH}")
+set(SERVER_BIN_NAME "PerfectDarkServer")
 add_executable(pd-server ${SRC_SERVER})
 add_dependencies(pd-server pd_headers)
 target_link_libraries(pd-server ${LIBS})

@@ -7,13 +7,15 @@
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #
-# Package contents:
-#   - pd.x86_64.exe (client) + pd-server.x86_64.exe (server)
-#   - port/ and src/ folders (source code)
-#   - mods/ folder (mod data)
+# Package contents (game zip — "PerfectDark-v{X.Y.Z}-win64.zip"):
+#   - PerfectDark.exe (game client)
+#   - PerfectDarkServer.exe (dedicated server)
 #   - data/ folder (game data, EXCLUDING *.z64 ROM files)
-#   - Runtime DLLs (SDL2, zlib, libwinpthread)
+#   - mods/ folder (mod content)
+#   - Runtime DLLs
 #   - SHA-256 hashes for update system verification
+#
+# Source code is NOT included — GitHub auto-generates source archives.
 #
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
@@ -47,11 +49,11 @@ $DistDir = "dist/$Tag"
 
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
-$ClientExe = if (Test-Path "build/client/pd.x86_64.exe") { "build/client/pd.x86_64.exe" }
-             elseif (Test-Path "build/pd.x86_64.exe")    { "build/pd.x86_64.exe" }
+$ClientExe = if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
+             elseif (Test-Path "build/PerfectDark.exe")    { "build/PerfectDark.exe" }
              else { "" }
-$ServerExe = if (Test-Path "build/server/pd-server.x86_64.exe") { "build/server/pd-server.x86_64.exe" }
-             elseif (Test-Path "build/pd-server.x86_64.exe")    { "build/pd-server.x86_64.exe" }
+$ServerExe = if (Test-Path "build/server/PerfectDarkServer.exe") { "build/server/PerfectDarkServer.exe" }
+             elseif (Test-Path "build/PerfectDarkServer.exe")    { "build/PerfectDarkServer.exe" }
              else { "" }
 
 # Data and mods -- prefer build/client/ copies, fall back to post-batch-addin
@@ -135,9 +137,8 @@ else            { Write-Host "  Data:        MISSING" -ForegroundColor Yellow }
 if ($hasMods)   { Write-Host "  Mods:        FOUND ($ModsSource)" -ForegroundColor Green }
 else            { Write-Host "  Mods:        MISSING" -ForegroundColor Yellow }
 
-Write-Host "  port/:       $(if (Test-Path 'port') { 'FOUND' } else { 'MISSING' })" -ForegroundColor $(if (Test-Path 'port') { 'Green' } else { 'Yellow' })
-Write-Host "  src/:        $(if (Test-Path 'src') { 'FOUND' } else { 'MISSING' })" -ForegroundColor $(if (Test-Path 'src') { 'Green' } else { 'Yellow' })
 Write-Host "  Notes:       $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will auto-generate)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
+Write-Host "  Source:      GitHub auto-generates source archives" -ForegroundColor Gray
 
 if (-not $hasClient -and -not $hasServer) {
     Write-Host ""
@@ -161,22 +162,31 @@ New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 # --- Executables + SHA-256 hashes ---
 
 if ($hasClient) {
-    Copy-Item $ClientExe "$DistDir/pd.x86_64.exe"
+    Copy-Item $ClientExe "$DistDir/PerfectDark.exe"
     $hash = (Get-FileHash $ClientExe -Algorithm SHA256).Hash.ToLower()
-    "$hash  pd.x86_64.exe" | Out-File "$DistDir/pd.x86_64.exe.sha256" -Encoding ascii -NoNewline
-    Write-Host "  pd.x86_64.exe         SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+    "$hash  PerfectDark.exe" | Out-File "$DistDir/PerfectDark.exe.sha256" -Encoding ascii -NoNewline
+    Write-Host "  PerfectDark.exe         SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
 if ($hasServer) {
-    Copy-Item $ServerExe "$DistDir/pd-server.x86_64.exe"
+    Copy-Item $ServerExe "$DistDir/PerfectDarkServer.exe"
     $hash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
-    "$hash  pd-server.x86_64.exe" | Out-File "$DistDir/pd-server.x86_64.exe.sha256" -Encoding ascii -NoNewline
-    Write-Host "  pd-server.x86_64.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+    "$hash  PerfectDarkServer.exe" | Out-File "$DistDir/PerfectDarkServer.exe.sha256" -Encoding ascii -NoNewline
+    Write-Host "  PerfectDarkServer.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
 # --- Runtime DLLs ---
 
-$dllNames = @("SDL2.dll", "zlib1.dll", "libwinpthread-1.dll")
+# Runtime DLLs — must match the set in CMakeLists.txt _RUNTIME_DLLS
+$dllNames = @(
+    "SDL2.dll", "zlib1.dll", "libwinpthread-1.dll",
+    "libcurl-4.dll", "libnghttp2-14.dll", "libnghttp3-9.dll",
+    "libidn2-0.dll", "libbrotlidec.dll", "libbrotlicommon.dll",
+    "libpsl-5.dll", "libssh2-1.dll", "libngtcp2-16.dll",
+    "libngtcp2_crypto_ossl-0.dll", "libzstd.dll",
+    "libssl-3-x64.dll", "libcrypto-3-x64.dll",
+    "libunistring-5.dll", "libintl-8.dll", "libiconv-2.dll"
+)
 foreach ($dll in $dllNames) {
     $found = $false
     foreach ($searchPath in $DllSearchPaths) {
@@ -191,22 +201,6 @@ foreach ($dll in $dllNames) {
     if (-not $found) {
         Write-Host "  $dll -- NOT FOUND (skipped)" -ForegroundColor Yellow
     }
-}
-
-# --- Source folders (port/ and src/) ---
-
-if (Test-Path "port") {
-    $portCount = (Get-ChildItem "port" -Recurse -File).Count
-    Write-Host "  Copying port/ ($portCount files) ..." -ForegroundColor Gray
-    Copy-Item "port" "$DistDir/port" -Recurse -Force
-    Write-Host "  port/ copied." -ForegroundColor Green
-}
-
-if (Test-Path "src") {
-    $srcCount = (Get-ChildItem "src" -Recurse -File).Count
-    Write-Host "  Copying src/ ($srcCount files) ..." -ForegroundColor Gray
-    Copy-Item "src" "$DistDir/src" -Recurse -Force
-    Write-Host "  src/ copied." -ForegroundColor Green
 }
 
 # --- Data folder (EXCLUDING *.z64 ROM files) ---
@@ -256,7 +250,7 @@ if ($hasMods) {
 Write-Host ""
 Write-Host "[2/5] Creating zip archive..." -ForegroundColor Yellow
 
-$zipName = "perfect-dark-2-$Tag-win64.zip"
+$zipName = "PerfectDark-$Tag-win64.zip"
 $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
@@ -376,7 +370,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
     Write-Host "  Skipping GitHub release ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
-    $ghArgs = @("release", "create", $Tag, "--title", "$Tag -- Perfect Dark 2")
+    $ghArgs = @("release", "create", $Tag, "--title", "Perfect Dark 2 $Tag")
 
     if ($hasNotes) {
         $ghArgs += "--notes-file"
@@ -391,12 +385,12 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 
     # Attach individual executables + hashes (for update system) and the full zip
     if ($hasClient) {
-        $ghArgs += "$DistDir/pd.x86_64.exe"
-        $ghArgs += "$DistDir/pd.x86_64.exe.sha256"
+        $ghArgs += "$DistDir/PerfectDark.exe"
+        $ghArgs += "$DistDir/PerfectDark.exe.sha256"
     }
     if ($hasServer) {
-        $ghArgs += "$DistDir/pd-server.x86_64.exe"
-        $ghArgs += "$DistDir/pd-server.x86_64.exe.sha256"
+        $ghArgs += "$DistDir/PerfectDarkServer.exe"
+        $ghArgs += "$DistDir/PerfectDarkServer.exe.sha256"
     }
     if (Test-Path $zipPath) {
         $ghArgs += $zipPath
@@ -452,7 +446,7 @@ Get-ChildItem $DistDir -File | ForEach-Object {
 }
 
 # Directories with file counts
-foreach ($subdir in @("port", "src", "data", "mods")) {
+foreach ($subdir in @("data", "mods")) {
     $path = "$DistDir/$subdir"
     if (Test-Path $path) {
         $fileCount = (Get-ChildItem $path -Recurse -File).Count

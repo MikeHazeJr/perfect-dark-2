@@ -4,6 +4,79 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 10 — 2026-03-21 (continued)
+
+**Focus**: Connect code system completion, ROM missing dialog, build tooling polish
+
+### What Was Done
+
+1. **Connect code system** (`port/src/connectcode.c`, `port/include/connectcode.h`)
+   - Cleaned up stale `s_WordTable[256]` from first attempt, keeping only `s_Words[256]`
+   - 256 unique PD-themed words: characters, locations, weapons, gadgets, vehicles, missions, multiplayer, sci-fi
+   - Encode: IP (4 bytes) + port (2 bytes) → 6 words (e.g. "JOANNA FALCON CARRINGTON SKEDAR PHOENIX DATADYNE")
+   - Decode: case-insensitive, supports space/hyphen/dot separators
+   - Added to CMakeLists.txt server source list (client auto-discovers via GLOB_RECURSE)
+
+2. **Server GUI connect code** (`port/fast3d/server_gui.cpp`)
+   - Status bar now shows connect code in green when UPnP provides external IP
+   - "Copy Code" button copies connect code to clipboard via SDL
+   - Raw IP:port shown underneath in subdued gray for reference
+   - Falls back to port-only display when UPnP inactive
+
+3. **In-game server overlay connect code** (`port/fast3d/pdgui_lobby.cpp`)
+   - Dedicated server overlay shows connect code + "Copy" button when public IP available
+   - Same subdued raw IP display underneath
+
+4. **Server console connect code** (`port/src/net/netupnp.c`)
+   - UPnP success log now also prints the connect code for easy sharing from console
+
+5. **Client join flow — connect code support** (`port/fast3d/pdgui_menu_network.cpp`, `port/src/net/netmenu.c`)
+   - Direct Connect input now accepts either raw IP:port OR word-based connect codes
+   - Auto-detects input type by checking for alpha characters
+   - Connect code decoded to IP:port string, then passed to `netStartClient()` as usual
+   - Both ImGui and native menu paths updated
+   - Hint text added: "Enter IP:port or connect code"
+
+6. **ROM missing dialog** (`port/src/romdata.c`)
+   - Replaced bare `sysFatalError()` SDL message box with custom `SDL_ShowMessageBox`
+   - Dialog clearly states: exact ROM filename (`pd.ntsc-final.z64`), data folder path, z64 format requirement
+   - Two buttons: "Open Folder" (opens data dir in system file manager) and "Exit"
+   - Cross-platform: `explorer` on Windows, `open` on macOS, `xdg-open` on Linux
+
+### Files Modified
+- `port/src/connectcode.c` — cleaned up stale array
+- `CMakeLists.txt` — added connectcode.c to server source list
+- `port/fast3d/server_gui.cpp` — connect code display + copy button in status bar
+- `port/fast3d/pdgui_lobby.cpp` — connect code in dedicated server overlay
+- `port/src/net/netupnp.c` — connect code in UPnP success log
+- `port/fast3d/pdgui_menu_network.cpp` — connect code decode in ImGui join flow
+- `port/src/net/netmenu.c` — connect code decode in native menu join flow
+- `port/src/romdata.c` — ROM missing dialog with Open Folder button
+
+### Decisions Made
+- Connect code detection is simple alpha-char check — if input contains letters, treat as code; otherwise as raw IP
+- ROM dialog uses SDL_ShowMessageBox (not ImGui) because ROM loading happens before ImGui is initialized
+- Raw IP still shown in subdued color alongside connect code for debugging/advanced users
+
+### Next Steps
+- Build test all changes (Mike needs to compile)
+- Verify connect code round-trip encoding/decoding works correctly
+- Test ROM missing dialog on Windows
+- Continue with master server / server browser if needed
+
+---
+
+## Session 9 — 2026-03-21 (continuation)
+
+**Focus**: Version format simplification, build tool polish, exe renaming, release packaging, connect code design
+
+(See previous session summary for details — this session covered extensive changes to
+version format from 4-field to 3-field, dark menu theme, taskbar visibility, GitHub
+release checking, offline cache support, executable renaming to PerfectDark.exe /
+PerfectDarkServer.exe, release.ps1 restructuring, and began connect code implementation.)
+
+---
+
 ## Session 8 — 2026-03-21 (late evening)
 
 **Focus**: Updates tab wiring, download button UX, spawn pads, branch consolidation

@@ -20,6 +20,7 @@
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "connectcode.h"
 
 extern "C" {
 
@@ -221,9 +222,10 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     ImGui::Spacing();
 
-    /* ---- Direct IP connect section ---- */
+    /* ---- Direct IP / Connect Code section ---- */
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Direct Connect");
     ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "Enter IP:port or connect code");
 
     ImGui::PushItemWidth(itemW - 120.0f * scale);
     ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
@@ -242,10 +244,36 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     if (doConnect) {
         pdguiPlaySound(PDGUI_SND_SELECT);
-        strncpy(g_NetJoinAddr, s_JoinAddress, NET_MAX_ADDR);
-        g_NetJoinAddr[NET_MAX_ADDR] = '\0';
-        if (netStartClient(g_NetJoinAddr) == 0) {
-            menuPushDialog(&g_NetJoiningDialog);
+
+        /* Detect if input is a connect code (contains alpha chars) or raw IP */
+        bool isConnectCode = false;
+        for (const char *ch = s_JoinAddress; *ch; ch++) {
+            if ((*ch >= 'A' && *ch <= 'Z') || (*ch >= 'a' && *ch <= 'z')) {
+                isConnectCode = true;
+                break;
+            }
+        }
+
+        if (isConnectCode) {
+            /* Decode connect code to IP:port */
+            u32 ip = 0;
+            u16 port = 0;
+            if (connectCodeDecode(s_JoinAddress, &ip, &port) == 0) {
+                snprintf(g_NetJoinAddr, NET_MAX_ADDR, "%u.%u.%u.%u:%u",
+                         ip & 0xFF, (ip >> 8) & 0xFF,
+                         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+                if (netStartClient(g_NetJoinAddr) == 0) {
+                    menuPushDialog(&g_NetJoiningDialog);
+                }
+            }
+            /* Invalid code — silently ignore (field stays, user can retry) */
+        } else {
+            /* Raw IP:port — pass through directly */
+            strncpy(g_NetJoinAddr, s_JoinAddress, NET_MAX_ADDR);
+            g_NetJoinAddr[NET_MAX_ADDR] = '\0';
+            if (netStartClient(g_NetJoinAddr) == 0) {
+                menuPushDialog(&g_NetJoiningDialog);
+            }
         }
     }
 

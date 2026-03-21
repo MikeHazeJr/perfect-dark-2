@@ -776,7 +776,7 @@ static void detectExePath(void)
 	if (len > 0) {
 		s_Updater.exePath[len] = '\0';
 	} else {
-		strncpy(s_Updater.exePath, "pd.x86_64", sizeof(s_Updater.exePath));
+		strncpy(s_Updater.exePath, "PerfectDark", sizeof(s_Updater.exePath));
 	}
 	snprintf(s_Updater.updatePath, sizeof(s_Updater.updatePath),
 		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
