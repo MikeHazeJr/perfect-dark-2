@@ -87,14 +87,25 @@ pacman -S mingw-w64-x86_64-curl
 
 4. **Build tool updates** — Removed `--log` from client/server launch args in build-gui.ps1 (no longer needed). Layout mockup changes applied (Build/Clean Build side-by-side, Stop Building full width, lowercase run/push buttons, Open GitHub, Open Project).
 
+5. **LOG_VERBOSE level** — New `LOG_VERBOSE` enum value below `LOG_NOTE`. Off by default, enabled via `--verbose` CLI flag or debug menu checkbox. Subject to channel filtering. Debug menu shows `+V` in mask readout when enabled.
+
+6. **CMake icon.rc fix** — Both `add_executable` blocks guarded `dist/windows/icon.rc` with `EXISTS` check to prevent configure failure when the file doesn't exist.
+
+7. **CMake error log surfacing** — On configure failure, build tool reads last 40 lines of `CMakeError.log` and `CMakeConfigureLog.yaml` (or `CMakeOutput.log`), prints with color classification.
+
+8. **Font size increase** — All UI fonts bumped (form 10pt, title 16pt, buttons 10pt, headers 9pt, labels 8pt). Console stays 9pt Consolas.
+
+9. **Custom font — Handel Gothic Regular** — `PrivateFontCollection` loads `.otf` from `fonts/Menus/Handel Gothic Regular/`. `New-UIFont` helper replaces all Segoe UI references (falls back gracefully). Console fonts kept as Consolas.
+
 ### Modified Files
 
 | File | Change | Status |
 |------|--------|--------|
-| `port/include/system.h` | LOG_CH_* defines, API declarations, extern arrays | WRITTEN |
-| `port/src/system.c` | Unconditional logging, channel filter state, prefix classifier, filter logic, set/get functions | WRITTEN |
-| `port/fast3d/pdgui_debugmenu.cpp` | `pdguiDebugLogSection()` + wired into render | WRITTEN |
-| `build-gui.ps1` | Removed --log args, layout changes, sound system, new button handlers | WRITTEN |
+| `port/include/system.h` | LOG_CH_* defines, LOG_VERBOSE, verbose API, extern arrays | WRITTEN |
+| `port/src/system.c` | Unconditional logging, channel filter, prefix classifier, verbose state, --verbose flag | WRITTEN |
+| `port/fast3d/pdgui_debugmenu.cpp` | `pdguiDebugLogSection()` + render wiring + verbose checkbox | WRITTEN |
+| `build-gui.ps1` | Layout, version labels, window resize, --log removal, CMake error surfacing, Handel Gothic font system, font size bump | WRITTEN |
+| `CMakeLists.txt` | icon.rc EXISTS guards, version patch reset | WRITTEN |
 
 ### Testing Steps
 
@@ -102,11 +113,14 @@ pacman -S mingw-w64-x86_64-curl
 |---|------|--------|
 | 1 | Compile client | WAITING |
 | 2 | Launch game — verify log file created without --log flag | WAITING |
-| 3 | Open F12 debug menu → verify Log Filters section appears | WAITING |
+| 3 | Open F12 debug menu → verify Log Filters section appears with Verbose checkbox | WAITING |
 | 4 | Toggle individual channels, verify log output changes | WAITING |
 | 5 | Test All/None presets | WAITING |
 | 6 | Verify warnings/errors always pass regardless of filter | WAITING |
-| 7 | Build tool layout — verify new button arrangement matches mockup | WAITING |
+| 7 | Test --verbose flag enables verbose log output | WAITING |
+| 8 | Build tool layout — verify button arrangement, version labels, window size | WAITING |
+| 9 | Build tool font — verify Handel Gothic renders correctly at all sizes | WAITING |
+| 10 | Trigger a CMake configure error — verify diagnostic logs surface in build tool | WAITING |
 
 ### Blockers
 - Mike must compile on Windows

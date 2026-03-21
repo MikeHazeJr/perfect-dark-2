@@ -51,13 +51,42 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 8. **Version reset** — CMakeLists.txt VERSION_SEM_PATCH 4→1
 
+9. **CMake icon.rc fix** (`CMakeLists.txt`)
+   - Both `add_executable` blocks referenced `dist/windows/icon.rc` which didn't exist
+   - Guarded both with `if(WIN32 AND EXISTS ...)` to prevent configure failures
+   - Affects both client (line ~419) and server (line ~482) targets
+
+10. **CMake error log surfacing** (`build-gui.ps1`)
+    - On configure failure, reads last 40 lines of `CMakeFiles/CMakeError.log` and `CMakeFiles/CMakeConfigureLog.yaml` (or `CMakeOutput.log`)
+    - Prints with color classification (errors red, warnings orange, info white)
+    - Helps diagnose build failures without leaving the build tool
+
+11. **LOG_VERBOSE level** (`port/include/system.h`, `port/src/system.c`, `port/fast3d/pdgui_debugmenu.cpp`)
+    - New `LOG_VERBOSE` enum value below `LOG_NOTE` — trace-level detail, off by default
+    - `sysLogGetVerbose()` / `sysLogSetVerbose()` API
+    - Dropped early in `sysLogPrintf()` unless `--verbose` CLI flag or debug menu toggle
+    - Subject to channel filtering same as LOG_NOTE
+    - Debug menu: Verbose checkbox + mask readout shows `+V` when enabled
+    - Stdout routing: verbose goes to stdout (like NOTE/CHAT), not stderr
+
+12. **Font size increase** (`build-gui.ps1`)
+    - All UI font sizes bumped: form 9→10, title 14→16, section headers 8→9, buttons 9→10, small labels 7→8
+    - Console output stays 9pt Consolas (monospace)
+    - Error count 7→8, progress label 8→9
+
+13. **Custom font — Handel Gothic Regular** (`build-gui.ps1`)
+    - `PrivateFontCollection` loads `fonts/Menus/Handel Gothic Regular/Handel Gothic Regular.otf`
+    - `New-UIFont` helper creates fonts from Handel Gothic (falls back to Segoe UI)
+    - All Segoe UI instances replaced with `New-UIFont` calls (console Consolas kept)
+    - Bold variant supported via `[switch]$Bold` parameter
+
 ### Files Modified
-- `port/include/system.h` — LOG_CH_* defines, API, extern arrays
-- `port/src/system.c` — Unconditional logging, filter state, classifier, filter logic
-- `port/fast3d/pdgui_debugmenu.cpp` — Log section + render wiring
-- `build-gui.ps1` — Layout, version labels, window resize, removed --log args
+- `port/include/system.h` — LOG_CH_* defines, LOG_VERBOSE, verbose API, extern arrays
+- `port/src/system.c` — Unconditional logging, filter state, classifier, filter logic, verbose state, --verbose flag
+- `port/fast3d/pdgui_debugmenu.cpp` — Log section + render wiring + verbose checkbox
+- `build-gui.ps1` — Layout, version labels, window resize, removed --log args, CMake error surfacing, font system (Handel Gothic + size bump)
 - `release.ps1` — Post-push cleanup, stable backup to backups/
-- `CMakeLists.txt` — Version patch reset to 1
+- `CMakeLists.txt` — Version patch reset to 1, icon.rc EXISTS guards
 - `.gitignore` — Added backups/
 
 ---

@@ -10,6 +10,7 @@ extern "C" {
 f32 sysGetSeconds(void);
 
 enum LogLevel {
+  LOG_VERBOSE,  /* Trace-level detail: function entry/exit, state dumps. Off by default. */
   LOG_NOTE,
   LOG_WARNING,
   LOG_ERROR,
@@ -43,6 +44,10 @@ enum LogLevel {
 /* Get/set the active channel mask. Default is LOG_CH_ALL. */
 u32  sysLogGetChannelMask(void);
 void sysLogSetChannelMask(u32 mask);
+
+/* Verbose logging: off by default, toggled via debug menu or --verbose flag. */
+s32  sysLogGetVerbose(void);
+void sysLogSetVerbose(s32 enabled);
 
 /* Channel names/count for UI enumeration */
 #define LOG_CH_COUNT 8

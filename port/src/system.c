@@ -66,6 +66,7 @@ static const char **sysArgv;
  * ----------------------------------------------------------------------- */
 
 static u32 s_LogChannelMask = LOG_CH_ALL;
+static s32 s_LogVerbose = 0;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
 	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System"
@@ -98,6 +99,14 @@ void sysLogSetChannelMask(u32 mask)
 		}
 		sysLogPrintf(LOG_NOTE, "LOG: Active channels: %s", buf);
 	}
+}
+
+s32 sysLogGetVerbose(void) { return s_LogVerbose; }
+
+void sysLogSetVerbose(s32 enabled)
+{
+	s_LogVerbose = enabled ? 1 : 0;
+	sysLogPrintf(LOG_NOTE, "LOG: Verbose logging %s", enabled ? "enabled" : "disabled");
 }
 
 /* Map a message prefix string to its channel bitmask.
@@ -213,11 +222,17 @@ void sysInit(void)
 	strftime(timestr, sizeof(timestr), "%d %b %Y %H:%M:%S", localtime(&curtime));
 	sysLogPrintf(LOG_NOTE, "startup date: %s", timestr);
 
+	/* Enable verbose logging from command line */
+	if (sysArgCheck("--verbose")) {
+		s_LogVerbose = 1;
+	}
+
 	/* Print log channel filter status at startup */
-	sysLogPrintf(LOG_NOTE, "LOG: Channel filter mask: 0x%04X (%s)",
+	sysLogPrintf(LOG_NOTE, "LOG: Channel filter mask: 0x%04X (%s), verbose: %s",
 		s_LogChannelMask,
 		s_LogChannelMask == LOG_CH_ALL ? "all channels active" :
-		s_LogChannelMask == LOG_CH_NONE ? "all channels disabled" : "partial");
+		s_LogChannelMask == LOG_CH_NONE ? "all channels disabled" : "partial",
+		s_LogVerbose ? "on" : "off");
 
 #ifdef PLATFORM_WIN32
 	// this function is only present on Vista+, so try to import it from kernel32 by hand
@@ -305,7 +320,7 @@ const char *sysLogRingGetLine(s32 idx)
 void sysLogPrintf(s32 level, const char *fmt, ...)
 {
 	static const char *prefix[] = {
-		"", "WARNING: ", "ERROR: ", "CHAT: "
+		"VERBOSE: ", "", "WARNING: ", "ERROR: ", "CHAT: "
 	};
 
 	const s32 lvl = level & 0x0f;
@@ -319,10 +334,16 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
 
+	/* --- Verbose filter ---
+	 * LOG_VERBOSE messages are dropped entirely unless verbose mode is on. */
+	if (lvl == LOG_VERBOSE && !s_LogVerbose) {
+		return;
+	}
+
 	/* --- Channel filter ---
-	 * Warnings and errors always pass. LOG_NOTE messages are filtered by
-	 * channel. Untagged messages (no recognized prefix) always pass. */
-	if (lvl == LOG_NOTE && s_LogChannelMask != LOG_CH_ALL) {
+	 * Warnings and errors always pass. LOG_NOTE and LOG_VERBOSE messages are
+	 * filtered by channel. Untagged messages (no recognized prefix) always pass. */
+	if ((lvl == LOG_NOTE || lvl == LOG_VERBOSE) && s_LogChannelMask != LOG_CH_ALL) {
 		u32 ch = sysLogClassifyMessage(logmsg);
 		if (ch != 0 && !(s_LogChannelMask & ch)) {
 			return;  /* Filtered out */
@@ -358,7 +379,7 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	}
 
 	/* Console: timestamped */
-	FILE *fout = (lvl == LOG_NOTE || lvl == LOG_CHAT) ? stdout : stderr;
+	FILE *fout = (lvl == LOG_VERBOSE || lvl == LOG_NOTE || lvl == LOG_CHAT) ? stdout : stderr;
 	fprintf(fout, "%s %s%s\n", timestamp, pfx, logmsg);
 	fflush(fout);
 

@@ -402,9 +402,17 @@ static void pdguiDebugLogSection(void)
         sysLogSetChannelMask(mask);
     }
 
+    ImGui::Spacing();
+
+    /* Verbose toggle */
+    bool verbose = sysLogGetVerbose() != 0;
+    if (ImGui::Checkbox("Verbose", &verbose)) {
+        sysLogSetVerbose(verbose ? 1 : 0);
+    }
+
     /* Show current mask value for reference */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-    ImGui::Text("Mask: 0x%04X", mask);
+    ImGui::Text("Mask: 0x%04X%s", mask, verbose ? " +V" : "");
     ImGui::PopStyleColor();
 }
 

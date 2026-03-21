@@ -398,7 +398,7 @@ set(SRC
   ${SRC_LIB}
 )
 
-if(WIN32)
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
   list(APPEND SRC "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
 endif()
 
@@ -474,7 +474,7 @@ set(SRC_SERVER
 file(GLOB SRC_SERVER_IMGUI "${CMAKE_SOURCE_DIR}/port/fast3d/imgui/*.cpp")
 list(APPEND SRC_SERVER ${SRC_SERVER_IMGUI})
 
-if(WIN32)
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
   list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
 endif()
 

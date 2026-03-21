@@ -127,6 +127,34 @@ $script:GameRunning    = $false
 $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 
 # ============================================================================
+# Custom font: Handel Gothic (PD's authentic menu font)
+# ============================================================================
+
+Add-Type -AssemblyName System.Drawing
+
+$script:FontCollection = New-Object System.Drawing.Text.PrivateFontCollection
+$fontPath = Join-Path $script:ProjectDir "fonts\Menus\Handel Gothic Regular\Handel Gothic Regular.otf"
+$script:UseHandelGothic = $false
+if (Test-Path $fontPath) {
+    try {
+        $script:FontCollection.AddFontFile($fontPath)
+        $script:HandelFamily = $script:FontCollection.Families[0]
+        $script:UseHandelGothic = $true
+    } catch {
+        # Fall back to Segoe UI if font loading fails
+    }
+}
+
+# Helper: create a font using Handel Gothic if available, otherwise Segoe UI
+function New-UIFont($size, [switch]$Bold) {
+    $style = if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+    if ($script:UseHandelGothic) {
+        return New-Object System.Drawing.Font($script:HandelFamily, $size, $style, [System.Drawing.GraphicsUnit]::Point)
+    }
+    return New-Object System.Drawing.Font("Segoe UI", $size, $style)
+}
+
+# ============================================================================
 # Settings persistence
 # ============================================================================
 
@@ -249,7 +277,7 @@ $form.Size = New-Object System.Drawing.Size(880, 560)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = $script:ColorBg
 $form.ForeColor = $script:ColorWhite
-$form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$form.Font = New-UIFont 10
 $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $false
 $form.ShowInTaskbar = $true
@@ -315,7 +343,7 @@ $form.Controls.Add($menuStrip)
 
 $title = New-Object System.Windows.Forms.Label
 $title.Text = "Perfect Dark PC Port"
-$title.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+$title.Font = New-UIFont 16 -Bold
 $title.ForeColor = $script:ColorGold
 $title.Location = New-Object System.Drawing.Point(16, 30)
 $title.AutoSize = $true
@@ -323,7 +351,7 @@ $form.Controls.Add($title)
 
 $lblVersionDisplay = New-Object System.Windows.Forms.Label
 $lblVersionDisplay.Text = ""
-$lblVersionDisplay.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+$lblVersionDisplay.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
 $lblVersionDisplay.ForeColor = $script:ColorGold
 $lblVersionDisplay.Location = New-Object System.Drawing.Point(240, 34)
 $lblVersionDisplay.AutoSize = $true
@@ -336,7 +364,7 @@ $script:VerRevision = 0
 
 $statusLabel = New-Object System.Windows.Forms.Label
 $statusLabel.Text = "Ready"
-$statusLabel.Font = New-Object System.Drawing.Font("Consolas", 9)
+$statusLabel.Font = New-Object System.Drawing.Font("Consolas", 10)
 $statusLabel.ForeColor = $script:ColorGreen
 $statusLabel.Location = New-Object System.Drawing.Point(500, 34)
 $statusLabel.Size = New-Object System.Drawing.Size(360, 20)
@@ -369,7 +397,7 @@ function New-SideButton($text, $y, $w, $h, $color, $parent) {
     $btn.ForeColor = $color
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor = "Hand"
-    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btn.Font = New-UIFont 10 -Bold
     $parent.Controls.Add($btn)
     return $btn
 }
@@ -377,7 +405,7 @@ function New-SideButton($text, $y, $w, $h, $color, $parent) {
 # --- Version Section ---
 $lblVerTitle = New-Object System.Windows.Forms.Label
 $lblVerTitle.Text = "VERSION"
-$lblVerTitle.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblVerTitle.Font = New-UIFont 9 -Bold
 $lblVerTitle.ForeColor = $script:ColorDim
 $lblVerTitle.Location = New-Object System.Drawing.Point(8, 8)
 $lblVerTitle.AutoSize = $true
@@ -390,7 +418,7 @@ function New-VerField($x, $y, $parent) {
     $txt.Size = New-Object System.Drawing.Size(42, 22)
     $txt.BackColor = $script:ColorFieldBg
     $txt.ForeColor = $script:ColorGold
-    $txt.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+    $txt.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
     $txt.TextAlign = "Center"
     $txt.BorderStyle = "FixedSingle"
     $txt.MaxLength = 4
@@ -409,7 +437,7 @@ function New-SmallButton($text, $x, $y, $parent) {
     $btn.ForeColor = $script:ColorGold
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor = "Hand"
-    $btn.Font = New-Object System.Drawing.Font("Consolas", 7, [System.Drawing.FontStyle]::Bold)
+    $btn.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
     $btn.Padding = New-Object System.Windows.Forms.Padding(0)
     $parent.Controls.Add($btn)
     return $btn
@@ -433,7 +461,7 @@ $txtVerMajor.Size = New-Object System.Drawing.Size($verFieldW, 22)
 
 # Dot 1
 $lblDot1 = New-Object System.Windows.Forms.Label
-$lblDot1.Text = "."; $lblDot1.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$lblDot1.Text = "."; $lblDot1.Font = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
 $lblDot1.ForeColor = $script:ColorDim; $lblDot1.Location = New-Object System.Drawing.Point(58, 28); $lblDot1.AutoSize = $true
 $sidePanel.Controls.Add($lblDot1)
 
@@ -443,7 +471,7 @@ $txtVerMinor.Size = New-Object System.Drawing.Size($verFieldW, 22)
 
 # Dot 2
 $lblDot2 = New-Object System.Windows.Forms.Label
-$lblDot2.Text = "."; $lblDot2.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$lblDot2.Text = "."; $lblDot2.Font = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
 $lblDot2.ForeColor = $script:ColorDim; $lblDot2.Location = New-Object System.Drawing.Point(122, 28); $lblDot2.AutoSize = $true
 $sidePanel.Controls.Add($lblDot2)
 
@@ -473,7 +501,7 @@ $btnIncRevision.Size = New-Object System.Drawing.Size($verBtnW, $verBtnH)
 # Latest released version labels (dev / stable from GitHub)
 $lblLatestDev = New-Object System.Windows.Forms.Label
 $lblLatestDev.Text = "dev: ---"
-$lblLatestDev.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+$lblLatestDev.Font = New-UIFont 8
 $lblLatestDev.ForeColor = $script:ColorOrange
 $lblLatestDev.Location = New-Object System.Drawing.Point(8, 70)
 $lblLatestDev.AutoSize = $true
@@ -481,7 +509,7 @@ $sidePanel.Controls.Add($lblLatestDev)
 
 $lblLatestStable = New-Object System.Windows.Forms.Label
 $lblLatestStable.Text = "stable: ---"
-$lblLatestStable.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+$lblLatestStable.Font = New-UIFont 8
 $lblLatestStable.ForeColor = $script:ColorGreen
 $lblLatestStable.Location = New-Object System.Drawing.Point(108, 70)
 $lblLatestStable.AutoSize = $true
@@ -490,7 +518,7 @@ $sidePanel.Controls.Add($lblLatestStable)
 # Version warning label
 $lblVerWarning = New-Object System.Windows.Forms.Label
 $lblVerWarning.Text = ""
-$lblVerWarning.Font = New-Object System.Drawing.Font("Segoe UI", 7, [System.Drawing.FontStyle]::Bold)
+$lblVerWarning.Font = New-UIFont 8 -Bold
 $lblVerWarning.ForeColor = $script:ColorRed
 $lblVerWarning.Location = New-Object System.Drawing.Point(8, 84)
 $lblVerWarning.Size = New-Object System.Drawing.Size(204, 16)
@@ -505,7 +533,7 @@ $sidePanel.Controls.Add($sideSep1)
 # --- Build Section ---
 $lblBuildSection = New-Object System.Windows.Forms.Label
 $lblBuildSection.Text = "BUILD"
-$lblBuildSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblBuildSection.Font = New-UIFont 9 -Bold
 $lblBuildSection.ForeColor = $script:ColorDim
 $lblBuildSection.Location = New-Object System.Drawing.Point(8, 110)
 $lblBuildSection.AutoSize = $true
@@ -518,7 +546,7 @@ $cmbBuildTarget.DropDownStyle = "DropDownList"
 $cmbBuildTarget.BackColor = $script:ColorFieldBg
 $cmbBuildTarget.ForeColor = $script:ColorWhite
 $cmbBuildTarget.FlatStyle = "Flat"
-$cmbBuildTarget.Font = New-Object System.Drawing.Font("Consolas", 9)
+$cmbBuildTarget.Font = New-Object System.Drawing.Font("Consolas", 10)
 [void]$cmbBuildTarget.Items.Add("Client")
 [void]$cmbBuildTarget.Items.Add("Server")
 [void]$cmbBuildTarget.Items.Add("Client + Server")
@@ -538,7 +566,7 @@ $btnCleanBuild.FlatAppearance.BorderSize = 1
 $btnCleanBuild.ForeColor = $script:ColorGreen
 $btnCleanBuild.BackColor = $script:ColorFieldBg
 $btnCleanBuild.Cursor = "Hand"
-$btnCleanBuild.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnCleanBuild.Font = New-UIFont 10 -Bold
 $sidePanel.Controls.Add($btnCleanBuild)
 
 # Hidden clean checkbox (toggled by Clean Build button)
@@ -556,7 +584,7 @@ $btnStop.FlatAppearance.BorderColor = $script:ColorRed
 $btnStop.FlatAppearance.BorderSize = 1
 $btnStop.ForeColor = $script:ColorDisabled
 $btnStop.BackColor = $script:ColorFieldBg
-$btnStop.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnStop.Font = New-UIFont 10 -Bold
 $btnStop.Enabled = $false
 $sidePanel.Controls.Add($btnStop)
 
@@ -569,7 +597,7 @@ $sidePanel.Controls.Add($sideSep2)
 # --- Run Section ---
 $lblRunSection = New-Object System.Windows.Forms.Label
 $lblRunSection.Text = "RUN"
-$lblRunSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblRunSection.Font = New-UIFont 9 -Bold
 $lblRunSection.ForeColor = $script:ColorDim
 $lblRunSection.Location = New-Object System.Drawing.Point(8, 226)
 $lblRunSection.AutoSize = $true
@@ -586,7 +614,7 @@ $btnRunServer.FlatAppearance.BorderSize = 1
 $btnRunServer.ForeColor = $script:ColorOrange
 $btnRunServer.BackColor = $script:ColorFieldBg
 $btnRunServer.Cursor = "Hand"
-$btnRunServer.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnRunServer.Font = New-UIFont 10 -Bold
 $sidePanel.Controls.Add($btnRunServer)
 
 # --- Separator ---
@@ -598,7 +626,7 @@ $sidePanel.Controls.Add($sideSep3)
 # --- Push Section ---
 $lblPushSection = New-Object System.Windows.Forms.Label
 $lblPushSection.Text = "PUSH"
-$lblPushSection.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblPushSection.Font = New-UIFont 9 -Bold
 $lblPushSection.ForeColor = $script:ColorDim
 $lblPushSection.Location = New-Object System.Drawing.Point(8, 284)
 $lblPushSection.AutoSize = $true
@@ -614,7 +642,7 @@ $btnPushDev.FlatAppearance.BorderSize = 1
 $btnPushDev.ForeColor = $script:ColorOrange
 $btnPushDev.BackColor = $script:ColorFieldBg
 $btnPushDev.Cursor = "Hand"
-$btnPushDev.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnPushDev.Font = New-UIFont 10 -Bold
 $sidePanel.Controls.Add($btnPushDev)
 
 $btnPushStable = New-Object System.Windows.Forms.Button
@@ -627,7 +655,7 @@ $btnPushStable.FlatAppearance.BorderSize = 1
 $btnPushStable.ForeColor = $script:ColorGreen
 $btnPushStable.BackColor = $script:ColorFieldBg
 $btnPushStable.Cursor = "Hand"
-$btnPushStable.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnPushStable.Font = New-UIFont 10 -Bold
 $sidePanel.Controls.Add($btnPushStable)
 
 # Hidden stable checkbox (used internally by push functions)
@@ -681,7 +709,7 @@ function New-UtilButton($text, $x, $w, $color) {
     $btn.ForeColor = $color
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor = "Hand"
-    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+    $btn.Font = New-UIFont 9 -Bold
     $utilPanel.Controls.Add($btn)
     return $btn
 }
@@ -692,7 +720,7 @@ $btnClear      = New-UtilButton "Clear"      172 55 ([System.Drawing.Color]::Fro
 
 $errorCountLabel = New-Object System.Windows.Forms.Label
 $errorCountLabel.Text = ""
-$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 7, [System.Drawing.FontStyle]::Bold)
+$errorCountLabel.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
 $errorCountLabel.ForeColor = $script:ColorRed
 $errorCountLabel.Location = New-Object System.Drawing.Point(234, 6)
 $errorCountLabel.Size = New-Object System.Drawing.Size(($consoleW - 240), 16)
@@ -714,7 +742,7 @@ $progressPanel.Controls.Add($progressFill)
 
 $progressLabel = New-Object System.Windows.Forms.Label
 $progressLabel.Text = ""
-$progressLabel.Font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$progressLabel.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
 $progressLabel.ForeColor = $script:ColorWhite
 $progressLabel.BackColor = [System.Drawing.Color]::Transparent
 $progressLabel.Location = New-Object System.Drawing.Point(4, 3)
@@ -1311,6 +1339,33 @@ $timer.Add_Tick({
             $script:BuildSucceeded = $false
             $script:StepQueue.Clear()
 
+            # Surface CMake diagnostic logs on configure/generate failures
+            if ($script:CurrentStep -match "Configure") {
+                $cmakeErrLog = Join-Path $script:BuildDir "CMakeFiles\CMakeError.log"
+                $cmakeOutLog = Join-Path $script:BuildDir "CMakeFiles\CMakeConfigureLog.yaml"
+                # Also check the newer CMake 3.26+ configure log
+                if (-not (Test-Path $cmakeOutLog)) {
+                    $cmakeOutLog = Join-Path $script:BuildDir "CMakeFiles\CMakeOutput.log"
+                }
+
+                foreach ($logFile in @($cmakeErrLog, $cmakeOutLog)) {
+                    if (Test-Path $logFile) {
+                        $logName = Split-Path $logFile -Leaf
+                        Write-Output-Line "" $script:ColorDim
+                        Write-Output-Line "--- $logName ---" $script:ColorOrange
+                        try {
+                            $lines = Get-Content $logFile -Tail 40
+                            foreach ($l in $lines) {
+                                $cls = Classify-Line $l
+                                Write-Output-Line "  $l" (Get-Line-Color $cls)
+                            }
+                        } catch {
+                            Write-Output-Line "  (could not read $logFile)" $script:ColorDim
+                        }
+                    }
+                }
+            }
+
             # Record build time for the failed target
             $failedTime = [math]::Floor(([DateTime]::Now - $script:TargetStartTime).TotalSeconds)
 
@@ -1794,7 +1849,7 @@ function Show-SettingsDialog {
     # GitHub Token Status
     $lblTokenTitle = New-Object System.Windows.Forms.Label
     $lblTokenTitle.Text = "GitHub CLI Authentication:"
-    $lblTokenTitle.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $lblTokenTitle.Font = New-UIFont 10 -Bold
     $lblTokenTitle.ForeColor = $script:ColorDim
     $lblTokenTitle.Location = New-Object System.Drawing.Point(16, 16)
     $lblTokenTitle.AutoSize = $true
@@ -1843,7 +1898,7 @@ function Show-SettingsDialog {
     # Repository
     $lblRepoTitle = New-Object System.Windows.Forms.Label
     $lblRepoTitle.Text = "GitHub Repository (owner/repo):"
-    $lblRepoTitle.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $lblRepoTitle.Font = New-UIFont 10 -Bold
     $lblRepoTitle.ForeColor = $script:ColorDim
     $lblRepoTitle.Location = New-Object System.Drawing.Point(16, 126)
     $lblRepoTitle.AutoSize = $true
@@ -1862,7 +1917,7 @@ function Show-SettingsDialog {
     # Sounds toggle
     $chkSoundsEnabled = New-Object System.Windows.Forms.CheckBox
     $chkSoundsEnabled.Text = "Enable game sounds"
-    $chkSoundsEnabled.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $chkSoundsEnabled.Font = New-UIFont 10
     $chkSoundsEnabled.ForeColor = $script:ColorWhite
     $chkSoundsEnabled.Location = New-Object System.Drawing.Point(16, 186)
     $chkSoundsEnabled.AutoSize = $true
@@ -1872,7 +1927,7 @@ function Show-SettingsDialog {
 
     $lblSoundsHint = New-Object System.Windows.Forms.Label
     $lblSoundsHint.Text = "Run tools/extract-build-sounds.py to extract sounds from ROM"
-    $lblSoundsHint.Font = New-Object System.Drawing.Font("Segoe UI", 7)
+    $lblSoundsHint.Font = New-UIFont 8
     $lblSoundsHint.ForeColor = $script:ColorDim
     $lblSoundsHint.Location = New-Object System.Drawing.Point(16, 208)
     $lblSoundsHint.AutoSize = $true
