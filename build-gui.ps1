@@ -125,25 +125,23 @@ $infoPanel.Size = New-Object System.Drawing.Size(930, 54)
 $infoPanel.BackColor = $script:ColorPanelBg
 $form.Controls.Add($infoPanel)
 
-# Branch label
-$lblBranch = New-Object System.Windows.Forms.Label
-$lblBranch.Text = "Branch:"
-$lblBranch.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$lblBranch.ForeColor = $script:ColorDim
-$lblBranch.Location = New-Object System.Drawing.Point(8, 6)
-$lblBranch.AutoSize = $true
-$infoPanel.Controls.Add($lblBranch)
+# Channel label (derived from version — dev > 0 = Dev, else = Stable)
+$lblChannel = New-Object System.Windows.Forms.Label
+$lblChannel.Text = "Channel:"
+$lblChannel.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblChannel.ForeColor = $script:ColorDim
+$lblChannel.Location = New-Object System.Drawing.Point(8, 6)
+$lblChannel.AutoSize = $true
+$infoPanel.Controls.Add($lblChannel)
 
-# Branch dropdown
-$cmbBranch = New-Object System.Windows.Forms.ComboBox
-$cmbBranch.Location = New-Object System.Drawing.Point(70, 3)
-$cmbBranch.Size = New-Object System.Drawing.Size(130, 24)
-$cmbBranch.DropDownStyle = "DropDownList"
-$cmbBranch.BackColor = $script:ColorFieldBg
-$cmbBranch.ForeColor = $script:ColorWhite
-$cmbBranch.FlatStyle = "Flat"
-$cmbBranch.Font = New-Object System.Drawing.Font("Consolas", 9)
-$infoPanel.Controls.Add($cmbBranch)
+# Channel value (read-only, auto-computed from version fields)
+$lblChannelValue = New-Object System.Windows.Forms.Label
+$lblChannelValue.Text = "Stable"
+$lblChannelValue.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+$lblChannelValue.ForeColor = $script:ColorGreen
+$lblChannelValue.Location = New-Object System.Drawing.Point(78, 6)
+$lblChannelValue.AutoSize = $true
+$infoPanel.Controls.Add($lblChannelValue)
 
 # Version fields
 $lblVersion = New-Object System.Windows.Forms.Label
@@ -409,7 +407,7 @@ function Set-Buttons-Enabled($enabled) {
     $script:IsRunning = !$enabled
     $btnBuildClient.Enabled = $enabled
     $btnBuildServer.Enabled = $enabled
-    $cmbBranch.Enabled = $enabled
+    # Channel label is read-only — no enable/disable needed
     $btnSaveVersion.Enabled = $enabled
     Update-RunButtons
 }
@@ -457,88 +455,19 @@ function Get-Line-Color($classification) {
 }
 
 # ============================================================================
-# Branch management
+# Channel display (derived from version)
 # ============================================================================
 
-function Refresh-BranchList {
-    $cmbBranch.Items.Clear()
-    try {
-        $branches = git -C $script:ProjectDir branch --format="%(refname:short)" 2>$null
-        if ($branches) {
-            foreach ($b in $branches) {
-                $b = $b.Trim()
-                if ($b -ne "") { [void]$cmbBranch.Items.Add($b) }
-            }
-        }
-    } catch {}
-
-    # Select current branch
-    try {
-        $current = (git -C $script:ProjectDir branch --show-current 2>$null).Trim()
-        if ($current -and $cmbBranch.Items.Contains($current)) {
-            $cmbBranch.SelectedItem = $current
-        }
-    } catch {}
-}
-
-function Switch-Branch($targetBranch) {
-    if ($script:IsRunning) { return }
-
-    # Must check git directly -- the dropdown already shows the new selection
-    $currentBranch = ""
-    try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
-    if ($targetBranch -eq $currentBranch) { return }
-
-    # Release branch requires confirmation
-    if ($targetBranch -eq "release") {
-        $confirm = [System.Windows.Forms.MessageBox]::Show(
-            "You are switching to the RELEASE branch.`n`n" +
-            "This branch is for stable builds only.`n" +
-            "Make sure your changes are committed first.`n`n" +
-            "Continue?",
-            "Switch to Release Branch",
-            [System.Windows.Forms.MessageBoxButtons]::YesNo,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        )
-        if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) {
-            # Revert dropdown to current branch
-            Refresh-BranchList
-            return
-        }
+function Update-ChannelDisplay {
+    $devVal = 0
+    [int]::TryParse($txtDev.Text, [ref]$devVal) | Out-Null
+    if ($devVal -gt 0) {
+        $lblChannelValue.Text = "Dev (prerelease)"
+        $lblChannelValue.ForeColor = $script:ColorOrange
+    } else {
+        $lblChannelValue.Text = "Stable"
+        $lblChannelValue.ForeColor = $script:ColorGreen
     }
-
-    # Check for uncommitted changes
-    $status = git -C $script:ProjectDir status --porcelain 2>$null
-    if ($status) {
-        $confirm = [System.Windows.Forms.MessageBox]::Show(
-            "You have uncommitted changes.`n`n" +
-            "Switching branches may cause conflicts.`n" +
-            "Commit or stash your changes first.`n`n" +
-            "Switch anyway?",
-            "Uncommitted Changes",
-            [System.Windows.Forms.MessageBoxButtons]::YesNo,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        )
-        if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) {
-            Refresh-BranchList
-            return
-        }
-    }
-
-    Write-Header "Switching to branch: $targetBranch"
-    try {
-        $result = git -C $script:ProjectDir checkout $targetBranch 2>&1
-        Write-Output-Line "  $result" $script:ColorGreen
-        $statusLabel.Text = "Branch: $targetBranch"
-        $statusLabel.ForeColor = $script:ColorGreen
-        Refresh-VersionFields
-        Refresh-ChangesStatus
-    } catch {
-        Write-Output-Line "  Failed to switch branch: $_" $script:ColorRed
-        $statusLabel.Text = "Branch switch failed"
-        $statusLabel.ForeColor = $script:ColorRed
-    }
-    Refresh-BranchList
 }
 
 # ============================================================================
@@ -579,6 +508,7 @@ function Update-VersionString {
         $verStr = "v$major.$minor.$patch"
     }
     $lblVersionStr.Text = $verStr
+    Update-ChannelDisplay
 }
 
 function Save-VersionToFile {
@@ -1273,10 +1203,8 @@ function Start-PushRelease {
         $isDevBuild = $false
     }
 
-    $currentBranch = $cmbBranch.SelectedItem
-    if (!$currentBranch) {
-        try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
-    }
+    $currentBranch = ""
+    try { $currentBranch = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
 
     # Read changelog
     $sections = Read-ChangesFile
@@ -1364,18 +1292,7 @@ $btnRunServer.Add_Click({ Launch-Game "server" })
 $btnPackage.Add_Click({ Package-Release })
 $btnPushRelease.Add_Click({ Start-PushRelease })
 
-# Branch selector
-$cmbBranch.Add_SelectedIndexChanged({
-    $selected = $cmbBranch.SelectedItem
-    if ($null -eq $selected) { return }
-    $current = ""
-    try { $current = (git -C $script:ProjectDir branch --show-current 2>$null).Trim() } catch {}
-    if ($selected -ne $current) {
-        Switch-Branch $selected
-    }
-})
-
-# Version field change handlers - update display string
+# Version field change handlers - update display string + channel indicator
 $txtMajor.Add_TextChanged({ Update-VersionString })
 $txtMinor.Add_TextChanged({ Update-VersionString })
 $txtPatch.Add_TextChanged({ Update-VersionString })
@@ -1477,9 +1394,9 @@ $gameTimer.Start()
 # Initialization
 # ============================================================================
 
-# Populate branch list and version fields
-Refresh-BranchList
+# Populate version fields and channel display
 Refresh-VersionFields
+Update-ChannelDisplay
 Refresh-ChangesStatus
 
 # Enable Run if exe already exists from prior build

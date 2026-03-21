@@ -6,7 +6,7 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ## Session 8 — 2026-03-21 (late evening)
 
-**Focus**: Updates tab wiring, download button UX fixes, spawn pad safety
+**Focus**: Updates tab wiring, download button UX, spawn pads, branch consolidation
 
 ### What Was Done
 
@@ -41,10 +41,26 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 - `port/fast3d/pdgui_menu_update.cpp` — content extraction refactor, inline tab, download failure UX, null safety
 - `src/game/player.c` — spawn pad arrays 24→MAX_MPCHRS (32)
 
+5. **Consolidated to single-branch workflow**
+   - Merged `release` branch into `dev` (resolved all conflicts in favor of dev)
+   - Removed branch switcher dropdown from `build-gui.ps1`
+   - Replaced with read-only "Channel" indicator (derived from version: dev > 0 = Dev, else = Stable)
+   - Removed `Switch-Branch`, `Refresh-BranchList` functions entirely
+   - Push Release now uses `git branch --show-current` instead of dropdown selection
+   - Root cause of yesterday's entire bug cascade: switching to `release` branch built stale code missing all UI work
+
+### Files Modified
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — 5th Settings tab (Updates), bumper wrap, selFlag4
+- `port/fast3d/pdgui_menu_update.cpp` — content extraction refactor, inline tab, download failure UX, null safety
+- `src/game/player.c` — spawn pad arrays 24→MAX_MPCHRS (32)
+- `build-gui.ps1` — removed branch switcher, added channel indicator derived from version
+
 ### Decisions
+- **Single branch forever**: no dev/release split, channel is a version flag
 - Update content renders inline in Settings tab (not as floating dialog)
 - Floating version picker kept for notification banner "View updates" flow
 - `pdguiUpdateRenderSettingsTab()` is the canonical Settings entry point
+- Version field `dev > 0` = prerelease (Dev channel), `dev = 0` = Stable channel
 
 ---
 
