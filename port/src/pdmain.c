@@ -76,6 +76,7 @@
 #include "console.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "modelcatalog.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -301,6 +302,11 @@ void mainInit(void)
 	}
 
 	mempSetHeap(g_MempHeap, g_MempHeapSize);
+
+	/* Model catalog: now that the pool allocator is ready, validate all
+	 * head/body models. This calls modeldefLoadToNew() -> mempAlloc()
+	 * so it MUST come after mempSetHeap(). */
+	catalogValidateAll();
 
 	mempResetPool(MEMPOOL_8);
 	mempResetPool(MEMPOOL_PERMANENT);

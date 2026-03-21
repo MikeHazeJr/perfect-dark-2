@@ -36,6 +36,7 @@
 #include "modmgr.h"
 #include "game/modeldef.h"
 #include "game/lang.h"
+#include "lib/memp.h"
 
 #include <setjmp.h>
 #ifdef _WIN32
@@ -401,6 +402,15 @@ void catalogValidateAll(void)
 
 	if (s_CatalogCount == 0) {
 		sysLogPrintf(LOG_WARNING, "CATALOG: no entries to validate");
+		return;
+	}
+
+	/* Guard: model loading allocates via mempAlloc(MEMPOOL_STAGE), which
+	 * requires mempSetHeap() to have been called. If the stage pool has
+	 * zero free bytes, the pool system isn't initialized yet. */
+	if (mempGetStageFree() == 0) {
+		sysLogPrintf(LOG_ERROR, "CATALOG: catalogValidateAll() called before mempSetHeap() — "
+		             "model loading requires the pool allocator. Skipping validation.");
 		return;
 	}
 

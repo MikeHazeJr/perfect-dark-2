@@ -204,13 +204,21 @@ void sysInit(void)
 	startTick = sysGetMicroseconds();
 
 	/* Always log to file — essential for diagnostics in all builds.
-	 * Name the log file based on mode for clarity. */
-	if (sysArgCheck("--dedicated")) {
-		sysLogSetPath("pd-server.log");
-	} else if (sysArgCheck("--host")) {
-		sysLogSetPath("pd-host.log");
-	} else {
-		sysLogSetPath("pd-client.log");
+	 * Name the log file based on mode for clarity.
+	 * Check both the variable (set by server_main.c directly) AND the
+	 * CLI flag (set by main.c from --dedicated/--host args) so that
+	 * both the standalone server and the client-launched dedicated mode
+	 * get the correct log filename. */
+	{
+		extern s32 g_NetDedicated;
+		extern s32 g_NetHostLatch;
+		if (g_NetDedicated || sysArgCheck("--dedicated")) {
+			sysLogSetPath("pd-server.log");
+		} else if (g_NetHostLatch || sysArgCheck("--host")) {
+			sysLogSetPath("pd-host.log");
+		} else {
+			sysLogSetPath("pd-client.log");
+		}
 	}
 
 #ifdef VERSION_HASH

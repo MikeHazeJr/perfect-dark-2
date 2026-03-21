@@ -1896,8 +1896,8 @@ $script:PendingPostRelease = $false
 
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Build Tool Settings"
-    $dlg.Size = New-Object System.Drawing.Size(500, 350)
+    $dlg.Text = "Settings"
+    $dlg.Size = New-Object System.Drawing.Size(540, 480)
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = $script:ColorBg
     $dlg.ForeColor = $script:ColorWhite
@@ -1905,31 +1905,45 @@ function Show-SettingsDialog {
     $dlg.MaximizeBox = $false
     $dlg.MinimizeBox = $false
 
-    # GitHub Token Status
+    # --- Tab Control ---
+    $tabs = New-Object System.Windows.Forms.TabControl
+    $tabs.Location = New-Object System.Drawing.Point(8, 8)
+    $tabs.Size = New-Object System.Drawing.Size(510, 388)
+    $tabs.Font = New-UIFont 9
+    $dlg.Controls.Add($tabs)
+
+    # ======================================================================
+    # TAB 1: General
+    # ======================================================================
+    $tabGeneral = New-Object System.Windows.Forms.TabPage
+    $tabGeneral.Text = "General"
+    $tabGeneral.BackColor = $script:ColorBg
+    $tabGeneral.ForeColor = $script:ColorWhite
+    $tabs.TabPages.Add($tabGeneral)
+
+    # GitHub CLI Authentication
     $lblTokenTitle = New-Object System.Windows.Forms.Label
     $lblTokenTitle.Text = "GitHub CLI Authentication:"
     $lblTokenTitle.Font = New-UIFont 10 -Bold
     $lblTokenTitle.ForeColor = $script:ColorDim
-    $lblTokenTitle.Location = New-Object System.Drawing.Point(16, 16)
+    $lblTokenTitle.Location = New-Object System.Drawing.Point(12, 12)
     $lblTokenTitle.AutoSize = $true
-    $dlg.Controls.Add($lblTokenTitle)
+    $tabGeneral.Controls.Add($lblTokenTitle)
 
     $lblTokenStatus = New-Object System.Windows.Forms.Label
     $lblTokenStatus.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $lblTokenStatus.Location = New-Object System.Drawing.Point(16, 38)
-    $lblTokenStatus.Size = New-Object System.Drawing.Size(450, 40)
-    $dlg.Controls.Add($lblTokenStatus)
+    $lblTokenStatus.Location = New-Object System.Drawing.Point(12, 34)
+    $lblTokenStatus.Size = New-Object System.Drawing.Size(470, 20)
+    $tabGeneral.Controls.Add($lblTokenStatus)
 
-    # Check gh auth status
     try {
         $savedEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         $authOut = gh auth status 2>&1
         $ErrorActionPreference = $savedEAP
         $authStr = ($authOut | ForEach-Object { $_.ToString() }) -join "`n"
-
         if ($authStr -match 'Logged in to') {
-            $lblTokenStatus.Text = "Active - authenticated with GitHub"
+            $lblTokenStatus.Text = "Authenticated"
             $lblTokenStatus.ForeColor = $script:ColorGreen
         } else {
             $lblTokenStatus.Text = "Not authenticated. Run: gh auth login"
@@ -1942,157 +1956,252 @@ function Show-SettingsDialog {
 
     $btnAuthLogin = New-Object System.Windows.Forms.Button
     $btnAuthLogin.Text = "Run gh auth login"
-    $btnAuthLogin.Location = New-Object System.Drawing.Point(16, 82)
-    $btnAuthLogin.Size = New-Object System.Drawing.Size(150, 30)
+    $btnAuthLogin.Location = New-Object System.Drawing.Point(12, 58)
+    $btnAuthLogin.Size = New-Object System.Drawing.Size(150, 28)
     $btnAuthLogin.FlatStyle = "Flat"
     $btnAuthLogin.FlatAppearance.BorderColor = $script:ColorPurple
     $btnAuthLogin.ForeColor = $script:ColorPurple
     $btnAuthLogin.BackColor = $script:ColorFieldBg
     $btnAuthLogin.Cursor = "Hand"
-    $btnAuthLogin.Add_Click({
-        Start-Process "cmd.exe" -ArgumentList "/k gh auth login"
-    })
-    $dlg.Controls.Add($btnAuthLogin)
+    $btnAuthLogin.Add_Click({ Start-Process "cmd.exe" -ArgumentList "/k gh auth login" })
+    $tabGeneral.Controls.Add($btnAuthLogin)
 
     # Repository
     $lblRepoTitle = New-Object System.Windows.Forms.Label
     $lblRepoTitle.Text = "GitHub Repository (owner/repo):"
     $lblRepoTitle.Font = New-UIFont 10 -Bold
     $lblRepoTitle.ForeColor = $script:ColorDim
-    $lblRepoTitle.Location = New-Object System.Drawing.Point(16, 126)
+    $lblRepoTitle.Location = New-Object System.Drawing.Point(12, 100)
     $lblRepoTitle.AutoSize = $true
-    $dlg.Controls.Add($lblRepoTitle)
+    $tabGeneral.Controls.Add($lblRepoTitle)
 
     $txtRepo = New-Object System.Windows.Forms.TextBox
     $txtRepo.Text = $script:Settings.GithubRepo
-    $txtRepo.Location = New-Object System.Drawing.Point(16, 148)
+    $txtRepo.Location = New-Object System.Drawing.Point(12, 122)
     $txtRepo.Size = New-Object System.Drawing.Size(350, 24)
     $txtRepo.BackColor = $script:ColorFieldBg
     $txtRepo.ForeColor = $script:ColorWhite
     $txtRepo.Font = New-Object System.Drawing.Font("Consolas", 9)
     $txtRepo.BorderStyle = "FixedSingle"
-    $dlg.Controls.Add($txtRepo)
+    $tabGeneral.Controls.Add($txtRepo)
 
     # Sounds toggle
     $chkSoundsEnabled = New-Object System.Windows.Forms.CheckBox
     $chkSoundsEnabled.Text = "Enable game sounds"
     $chkSoundsEnabled.Font = New-UIFont 10
     $chkSoundsEnabled.ForeColor = $script:ColorWhite
-    $chkSoundsEnabled.Location = New-Object System.Drawing.Point(16, 186)
+    $chkSoundsEnabled.Location = New-Object System.Drawing.Point(12, 162)
     $chkSoundsEnabled.AutoSize = $true
     $chkSoundsEnabled.BackColor = $script:ColorBg
     $chkSoundsEnabled.Checked = $script:Settings.SoundsEnabled
-    $dlg.Controls.Add($chkSoundsEnabled)
+    $tabGeneral.Controls.Add($chkSoundsEnabled)
 
-    # Extract Sounds button — runs the extraction tool once to populate dist/build-sounds/
-    $btnExtractSounds = New-Object System.Windows.Forms.Button
-    $btnExtractSounds.Text = "Extract Sounds from ROM"
-    $btnExtractSounds.Location = New-Object System.Drawing.Point(16, 210)
-    $btnExtractSounds.Size = New-Object System.Drawing.Size(200, 28)
-    $btnExtractSounds.FlatStyle = "Flat"
-    $btnExtractSounds.FlatAppearance.BorderColor = $script:ColorOrange
-    $btnExtractSounds.ForeColor = $script:ColorOrange
-    $btnExtractSounds.BackColor = $script:ColorFieldBg
-    $btnExtractSounds.Cursor = "Hand"
-    $btnExtractSounds.Font = New-UIFont 9 -Bold
+    # ======================================================================
+    # TAB 2: Asset Extraction
+    # ======================================================================
+    $tabExtract = New-Object System.Windows.Forms.TabPage
+    $tabExtract.Text = "Asset Extraction"
+    $tabExtract.BackColor = $script:ColorBg
+    $tabExtract.ForeColor = $script:ColorWhite
+    $tabs.TabPages.Add($tabExtract)
 
-    $lblExtractHint = New-Object System.Windows.Forms.Label
-    $lblExtractHint.Font = New-UIFont 8
-    $lblExtractHint.ForeColor = $script:ColorDim
-    $lblExtractHint.Location = New-Object System.Drawing.Point(16, 242)
-    $lblExtractHint.AutoSize = $true
+    # --- ROM Path ---
+    $lblRomTitle = New-Object System.Windows.Forms.Label
+    $lblRomTitle.Text = "ROM File:"
+    $lblRomTitle.Font = New-UIFont 10 -Bold
+    $lblRomTitle.ForeColor = $script:ColorDim
+    $lblRomTitle.Location = New-Object System.Drawing.Point(12, 12)
+    $lblRomTitle.AutoSize = $true
+    $tabExtract.Controls.Add($lblRomTitle)
 
-    # Check if sounds already extracted
-    $existingSounds = @()
-    if (Test-Path $script:SoundsDir) {
-        $existingSounds = @(Get-ChildItem -Path $script:SoundsDir -Filter "*.wav" -Recurse)
-    }
-    if ($existingSounds.Count -gt 0) {
-        $lblExtractHint.Text = "$($existingSounds.Count) sound(s) already extracted. Re-run to overwrite."
-        $lblExtractHint.ForeColor = $script:ColorGreen
+    $txtRomPath = New-Object System.Windows.Forms.TextBox
+    $txtRomPath.Location = New-Object System.Drawing.Point(12, 34)
+    $txtRomPath.Size = New-Object System.Drawing.Size(390, 24)
+    $txtRomPath.BackColor = $script:ColorFieldBg
+    $txtRomPath.ForeColor = $script:ColorWhite
+    $txtRomPath.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $txtRomPath.BorderStyle = "FixedSingle"
+    $txtRomPath.ReadOnly = $true
+    if ($script:Settings.RomPath -ne "" -and (Test-Path $script:Settings.RomPath)) {
+        $txtRomPath.Text = $script:Settings.RomPath
+        $txtRomPath.ForeColor = $script:ColorGreen
     } else {
-        $lblExtractHint.Text = "Requires data/pd.ntsc-final.z64 in project folder. Only needed once."
+        $txtRomPath.Text = "(not found)"
+        $txtRomPath.ForeColor = $script:ColorRed
     }
-    $dlg.Controls.Add($lblExtractHint)
+    $tabExtract.Controls.Add($txtRomPath)
 
-    $btnExtractSounds.Add_Click({
-        $romPath = Join-Path $script:ProjectDir "data\pd.ntsc-final.z64"
-        $toolPath = Join-Path $script:ProjectDir "tools\extract-build-sounds.py"
+    $btnBrowseRom = New-Object System.Windows.Forms.Button
+    $btnBrowseRom.Text = "Browse..."
+    $btnBrowseRom.Location = New-Object System.Drawing.Point(408, 33)
+    $btnBrowseRom.Size = New-Object System.Drawing.Size(80, 26)
+    $btnBrowseRom.FlatStyle = "Flat"
+    $btnBrowseRom.FlatAppearance.BorderColor = $script:ColorDim
+    $btnBrowseRom.ForeColor = $script:ColorWhite
+    $btnBrowseRom.BackColor = $script:ColorFieldBg
+    $btnBrowseRom.Cursor = "Hand"
+    $btnBrowseRom.Font = New-UIFont 9
+    $btnBrowseRom.Add_Click({
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog
+        $ofd.Title = "Locate Perfect Dark ROM (z64)"
+        $ofd.Filter = "N64 ROM files (*.z64)|*.z64|All files (*.*)|*.*"
+        $initDir = Join-Path $script:ProjectDir "data"
+        if (Test-Path $initDir) { $ofd.InitialDirectory = $initDir } else { $ofd.InitialDirectory = $script:ProjectDir }
+        if ($ofd.ShowDialog() -eq "OK") {
+            $script:Settings.RomPath = $ofd.FileName
+            $txtRomPath.Text = $ofd.FileName
+            $txtRomPath.ForeColor = $script:ColorGreen
+        }
+    })
+    $tabExtract.Controls.Add($btnBrowseRom)
 
+    $lblRomHint = New-Object System.Windows.Forms.Label
+    $lblRomHint.Text = "All extraction tools require the original N64 ROM (pd.ntsc-final.z64)."
+    $lblRomHint.Font = New-UIFont 8
+    $lblRomHint.ForeColor = $script:ColorDim
+    $lblRomHint.Location = New-Object System.Drawing.Point(12, 62)
+    $lblRomHint.AutoSize = $true
+    $tabExtract.Controls.Add($lblRomHint)
+
+    # --- Separator ---
+    $sepExtract1 = New-Object System.Windows.Forms.Label
+    $sepExtract1.Text = ""
+    $sepExtract1.Location = New-Object System.Drawing.Point(12, 82)
+    $sepExtract1.Size = New-Object System.Drawing.Size(476, 1)
+    $sepExtract1.BackColor = $script:ColorDimmer
+    $tabExtract.Controls.Add($sepExtract1)
+
+    # --- Extraction tools section header ---
+    $lblToolsTitle = New-Object System.Windows.Forms.Label
+    $lblToolsTitle.Text = "EXTRACTION TOOLS"
+    $lblToolsTitle.Font = New-UIFont 9 -Bold
+    $lblToolsTitle.ForeColor = $script:ColorDim
+    $lblToolsTitle.Location = New-Object System.Drawing.Point(12, 90)
+    $lblToolsTitle.AutoSize = $true
+    $tabExtract.Controls.Add($lblToolsTitle)
+
+    # Helper: create an extraction tool row (button + status label)
+    # Returns @{ Button, Status } for wiring click handlers
+    $toolRowY = 114
+    function New-ExtractToolRow($label, $toolFile, $outDir, $y, $parent) {
+        $btn = New-Object System.Windows.Forms.Button
+        $btn.Text = $label
+        $btn.Location = New-Object System.Drawing.Point(12, $y)
+        $btn.Size = New-Object System.Drawing.Size(200, 26)
+        $btn.FlatStyle = "Flat"
+        $btn.FlatAppearance.BorderColor = $script:ColorOrange
+        $btn.ForeColor = $script:ColorOrange
+        $btn.BackColor = $script:ColorFieldBg
+        $btn.Cursor = "Hand"
+        $btn.Font = New-UIFont 9 -Bold
+        $parent.Controls.Add($btn)
+
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.Font = New-UIFont 8
+        $lbl.Location = New-Object System.Drawing.Point(220, ($y + 5))
+        $lbl.Size = New-Object System.Drawing.Size(268, 18)
+        $lbl.TextAlign = "MiddleLeft"
+        $parent.Controls.Add($lbl)
+
+        # Check existing output
+        $toolPath = Join-Path $script:ProjectDir $toolFile
         if (-not (Test-Path $toolPath)) {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Sound extraction tool not found:`n$toolPath",
-                "Missing Tool", "OK", "Error")
-            return
-        }
-
-        if (-not (Test-Path $romPath)) {
-            # Try to find any .z64 in the data folder as fallback
-            $dataDir = Join-Path $script:ProjectDir "data"
-            $altRom = $null
-            if (Test-Path $dataDir) {
-                $altRom = Get-ChildItem -Path $dataDir -Filter "*.z64" | Select-Object -First 1
-            }
-            if ($altRom) {
-                $romPath = $altRom.FullName
+            $btn.Enabled = $false
+            $btn.ForeColor = $script:ColorDisabled
+            $btn.FlatAppearance.BorderColor = $script:ColorDisabled
+            $lbl.Text = "Tool not found"
+            $lbl.ForeColor = $script:ColorDim
+        } elseif ($outDir -ne "" -and (Test-Path (Join-Path $script:ProjectDir $outDir))) {
+            $files = @(Get-ChildItem -Path (Join-Path $script:ProjectDir $outDir) -Recurse -File -ErrorAction SilentlyContinue)
+            if ($files.Count -gt 0) {
+                $lbl.Text = "$($files.Count) file(s) extracted"
+                $lbl.ForeColor = $script:ColorGreen
             } else {
-                [System.Windows.Forms.MessageBox]::Show(
-                    "ROM file not found. Place pd.ntsc-final.z64 in:`n$(Join-Path $script:ProjectDir 'data')",
-                    "Missing ROM", "OK", "Warning")
-                return
+                $lbl.Text = "Not yet extracted"
+                $lbl.ForeColor = $script:ColorDim
             }
+        } else {
+            $lbl.Text = "Not yet extracted"
+            $lbl.ForeColor = $script:ColorDim
         }
 
-        $btnExtractSounds.Enabled = $false
-        $btnExtractSounds.Text = "Extracting..."
-        $btnExtractSounds.ForeColor = $script:ColorDim
+        return @{ Button = $btn; Status = $lbl; ToolPath = $toolPath }
+    }
+
+    # --- Tool 1: Sound Effects ---
+    $soundTool = New-ExtractToolRow "Sound Effects" "tools\extract-build-sounds.py" "dist\build-sounds" $toolRowY $tabExtract
+
+    $soundTool.Button.Add_Click({
+        $romPath = $script:Settings.RomPath
+        if ($romPath -eq "" -or -not (Test-Path $romPath)) {
+            $romPath = Resolve-RomPath
+            if (-not $romPath) { return }
+            $txtRomPath.Text = $romPath
+            $txtRomPath.ForeColor = $script:ColorGreen
+        }
+
+        $toolPath = Join-Path $script:ProjectDir "tools\extract-build-sounds.py"
+        $soundTool.Button.Enabled = $false
+        $soundTool.Button.Text = "Extracting..."
+        $soundTool.Button.ForeColor = $script:ColorDim
         $dlg.Refresh()
 
         try {
             $outDir = $script:SoundsDir
             $result = & python $toolPath $romPath --outdir $outDir 2>&1
-            $resultStr = ($result | ForEach-Object { $_.ToString() }) -join "`n"
-
             $extractedFiles = @()
             if (Test-Path $outDir) {
                 $extractedFiles = @(Get-ChildItem -Path $outDir -Filter "*.wav" -Recurse)
             }
-
             if ($extractedFiles.Count -gt 0) {
-                $lblExtractHint.Text = "$($extractedFiles.Count) sound(s) extracted successfully."
-                $lblExtractHint.ForeColor = $script:ColorGreen
-                Write-Output-Line "  Sound extraction: $($extractedFiles.Count) WAV files extracted to dist/build-sounds/" $script:ColorGreen
+                $soundTool.Status.Text = "$($extractedFiles.Count) file(s) extracted"
+                $soundTool.Status.ForeColor = $script:ColorGreen
+                Write-Output-Line "  Sound extraction: $($extractedFiles.Count) WAV files extracted" $script:ColorGreen
             } else {
-                $lblExtractHint.Text = "Extraction ran but no files produced. Check console."
-                $lblExtractHint.ForeColor = $script:ColorRed
+                $soundTool.Status.Text = "No files produced. Check console."
+                $soundTool.Status.ForeColor = $script:ColorRed
+                $resultStr = ($result | ForEach-Object { $_.ToString() }) -join "`n"
                 Write-Output-Line "  Sound extraction output:`n$resultStr" $script:ColorOrange
             }
         } catch {
-            $lblExtractHint.Text = "Error: $($_.Exception.Message)"
-            $lblExtractHint.ForeColor = $script:ColorRed
+            $soundTool.Status.Text = "Error: $($_.Exception.Message)"
+            $soundTool.Status.ForeColor = $script:ColorRed
             Write-Output-Line "  Sound extraction failed: $($_.Exception.Message)" $script:ColorRed
         }
 
-        $btnExtractSounds.Enabled = $true
-        $btnExtractSounds.Text = "Extract Sounds from ROM"
-        $btnExtractSounds.ForeColor = $script:ColorOrange
-    })
-    $dlg.Controls.Add($btnExtractSounds)
+        $soundTool.Button.Enabled = $true
+        $soundTool.Button.Text = "Sound Effects"
+        $soundTool.Button.ForeColor = $script:ColorOrange
+    }.GetNewClosure())
 
+    # --- Tool 2: Models & Textures (placeholder) ---
+    $modelTool = New-ExtractToolRow "Models & Textures" "tools\extract-models.py" "dist\models" ($toolRowY + 34) $tabExtract
+
+    # --- Tool 3: Animations (placeholder) ---
+    $animTool = New-ExtractToolRow "Animations" "tools\extract-animations.py" "dist\animations" ($toolRowY + 68) $tabExtract
+
+    # --- Tool 4: Levels (placeholder) ---
+    $levelTool = New-ExtractToolRow "Levels" "tools\extract-levels.py" "dist\levels" ($toolRowY + 102) $tabExtract
+
+    # ======================================================================
+    # Save button (bottom of dialog, outside tabs)
+    # ======================================================================
     $btnSaveSettings = New-Object System.Windows.Forms.Button
     $btnSaveSettings.Text = "Save"
-    $btnSaveSettings.Location = New-Object System.Drawing.Point(376, 272)
+    $btnSaveSettings.Location = New-Object System.Drawing.Point(428, 404)
     $btnSaveSettings.Size = New-Object System.Drawing.Size(80, 28)
     $btnSaveSettings.FlatStyle = "Flat"
     $btnSaveSettings.FlatAppearance.BorderColor = $script:ColorGold
     $btnSaveSettings.ForeColor = $script:ColorGold
     $btnSaveSettings.BackColor = $script:ColorFieldBg
     $btnSaveSettings.Cursor = "Hand"
+    $btnSaveSettings.Font = New-UIFont 10 -Bold
     $btnSaveSettings.Add_Click({
         $script:Settings.GithubRepo = $txtRepo.Text.Trim()
         $script:Settings.SoundsEnabled = $chkSoundsEnabled.Checked
+        # RomPath is saved immediately on browse, but capture any manual changes too
         Save-Settings
-        Write-Output-Line "  Settings saved: repo=$($script:Settings.GithubRepo), sounds=$($script:Settings.SoundsEnabled)" $script:ColorGreen
+        Write-Output-Line "  Settings saved" $script:ColorGreen
         $dlg.Close()
     })
     $dlg.Controls.Add($btnSaveSettings)

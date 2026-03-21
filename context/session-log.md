@@ -4,6 +4,33 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 12 — 2026-03-21
+
+**Focus**: Client crash-on-launch diagnosis and fix; server log filename bug
+
+### What Was Done
+
+1. **Diagnosed client crash-on-launch** — Client opened and immediately closed after build. Root cause: `catalogValidateAll()` was called in `main.c:198` BEFORE `mempSetHeap()` (called later in `pdmain.c:303` inside `mainInit()`). Every `modeldefLoadToNew()` call triggered `mempAlloc()` on uninitialized pool state, causing 151 consecutive access violations caught by VEH. Memp internals corrupted by longjmp, program crashed silently in `mainProc()`.
+
+2. **Fixed init ordering** — Moved `catalogValidateAll()` from `main.c` to `pdmain.c` after `mempSetHeap()`. Added `#include "modelcatalog.h"` to pdmain.c. Left explanatory comment at the old call site.
+
+3. **Added defensive guard** — `catalogValidateAll()` now checks `mempGetStageFree() == 0` before attempting model loads. If the pool system isn't ready, it logs an error and returns safely instead of crashing.
+
+4. **Fixed server log filename** — `PerfectDarkServer.exe` was writing to `pd-client.log` instead of `pd-server.log`. Root cause: `sysInit()` checked `sysArgCheck("--dedicated")` (CLI args) but the server sets `g_NetDedicated = 1` directly without passing `--dedicated` in argv. Fix: check both `g_NetDedicated` variable AND `sysArgCheck("--dedicated")`.
+
+5. **Boot path audit** — Scanned all init functions called before `mempSetHeap()` (romdataInit, gameInit, modmgrInit, catalogInit, filesInit) — confirmed none call `mempAlloc`. catalogValidateAll was the only offender.
+
+### Files Modified
+- `port/src/main.c` — Removed `catalogValidateAll()` call, added comment
+- `port/src/pdmain.c` — Added `catalogValidateAll()` after `mempSetHeap()`, added include
+- `port/src/modelcatalog.c` — Added `mempGetStageFree()` guard, added `lib/memp.h` include
+- `port/src/system.c` — Log path selection now checks `g_NetDedicated`/`g_NetHostLatch` variables
+
+### Key Takeaway
+When adding new init-time systems (like the model catalog), always verify the full dependency chain. The "heap is allocated" != "pool allocator is initialized". The raw memory (`sysMemZeroAlloc`) must be passed through `mempSetHeap()` before `mempAlloc()` can use it.
+
+---
+
 ## Session 11 — 2026-03-21
 
 **Focus**: Log channel filter system, always-on logging, debug menu wiring, build tool polish, release cleanup
@@ -80,11 +107,27 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
     - All Segoe UI instances replaced with `New-UIFont` calls (console Consolas kept)
     - Bold variant supported via `[switch]$Bold` parameter
 
+14. **Build tool version label** (`build-gui.ps1`)
+    - "Build tool version 3.1" in lower-left corner, very dim gray (70,70,70)
+    - Version stored in `$script:BuildToolVersion` for easy bumping
+
+15. **Settings restructure** (`build-gui.ps1`)
+    - Moved Settings from File menu to new Edit menu (standard convention)
+    - Settings dialog now uses TabControl with two tabs: General, Asset Extraction
+    - General tab: GitHub auth, repo, sounds toggle (unchanged functionality)
+    - Asset Extraction tab: ROM path field with Browse dialog, extraction tools section
+    - ROM path persisted in `.build-settings.json`, auto-detected on startup
+    - `Resolve-RomPath` helper: opens `OpenFileDialog` if ROM not found
+    - Extraction tools: reusable `New-ExtractToolRow` creates button + status label rows
+    - Sound Effects tool: functional (runs `extract-build-sounds.py`)
+    - Models & Textures, Animations, Levels: placeholder rows (disabled until tools exist)
+    - Each tool row auto-detects existing extracted files and shows count in green
+
 ### Files Modified
 - `port/include/system.h` — LOG_CH_* defines, LOG_VERBOSE, verbose API, extern arrays
 - `port/src/system.c` — Unconditional logging, filter state, classifier, filter logic, verbose state, --verbose flag
 - `port/fast3d/pdgui_debugmenu.cpp` — Log section + render wiring + verbose checkbox
-- `build-gui.ps1` — Layout, version labels, window resize, removed --log args, CMake error surfacing, font system (Handel Gothic + size bump)
+- `build-gui.ps1` — Layout, version labels, window resize, --log removal, CMake error surfacing, font system, version label, Settings restructure (Edit menu, tabs, ROM path, extraction tools)
 - `release.ps1` — Post-push cleanup, stable backup to backups/
 - `CMakeLists.txt` — Version patch reset to 1, icon.rc EXISTS guards
 - `.gitignore` — Added backups/

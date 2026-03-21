@@ -9,6 +9,31 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
+## Current Task: Critical Boot Fix — catalogValidateAll Init Ordering
+
+### Status: CODE WRITTEN — NEEDS BUILD TEST
+
+**Fixed 2026-03-21 (Session 12).** Client crashed on launch because `catalogValidateAll()` called `mempAlloc()` before pool system was initialized.
+
+### Changes
+- `port/src/main.c` — Removed `catalogValidateAll()` call (was at line 198)
+- `port/src/pdmain.c` — Added `catalogValidateAll()` after `mempSetHeap()` + include
+- `port/src/modelcatalog.c` — Added `mempGetStageFree()` guard + `lib/memp.h` include
+- `port/src/system.c` — Server log filename fix: checks `g_NetDedicated` variable, not just CLI flag
+
+### Testing Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Compile client | WAITING |
+| 2 | Launch client — verify it reaches title screen (no immediate close) | WAITING |
+| 3 | Check pd-client.log — should show catalog validation AFTER "memp heap" line | WAITING |
+| 4 | Check catalog validation — models should load (not all MISSING/ACCESS VIOLATION) | WAITING |
+| 5 | Compile server | WAITING |
+| 6 | Launch server — verify log file is `pd-server.log` (not pd-client.log) | WAITING |
+
+---
+
 ## Current Task: D13 — Update System
 
 ### Status: CODE WRITTEN — NEEDS BUILD TEST

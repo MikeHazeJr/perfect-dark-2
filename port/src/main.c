@@ -194,8 +194,11 @@ int main(int argc, const char **argv)
 	sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
 	sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
 
-	// Now that the heap is ready, validate all catalog models (loads modeldefs).
-	catalogValidateAll();
+	/* NOTE: catalogValidateAll() was previously here, but it calls
+	 * modeldefLoadToNew() -> mempAlloc() which requires the pool system.
+	 * mempSetHeap() isn't called until mainInit() (pdmain.c), so loading
+	 * models here crashed with access violations on every entry.
+	 * Moved to pdmain.c after mempSetHeap(). */
 
 	g_SndDisabled = sysArgCheck("--no-sound");
 
