@@ -311,28 +311,50 @@ void mainInit(void)
 	 * validated lazily via catalogGetSafeBody/Head() when first accessed
 	 * during gameplay, by which point all subsystems are initialized. */
 
+	sysLogPrintf(LOG_NOTE, "INIT: mempResetPool...");
 	mempResetPool(MEMPOOL_8);
 	mempResetPool(MEMPOOL_PERMANENT);
+	sysLogPrintf(LOG_NOTE, "INIT: crashReset...");
 	crashReset();
+	sysLogPrintf(LOG_NOTE, "INIT: challengesInit...");
 	challengesInit();
+	sysLogPrintf(LOG_NOTE, "INIT: utilsInit...");
 	utilsInit();
+	sysLogPrintf(LOG_NOTE, "INIT: texInit...");
 	texInit();
+	sysLogPrintf(LOG_NOTE, "INIT: langInit...");
 	langInit();
+	sysLogPrintf(LOG_NOTE, "INIT: lvInit...");
 	lvInit();
+	sysLogPrintf(LOG_NOTE, "INIT: cheatsInit...");
 	cheatsInit();
+	sysLogPrintf(LOG_NOTE, "INIT: textInit...");
 	textInit();
+	sysLogPrintf(LOG_NOTE, "INIT: dhudInit...");
 	dhudInit();
+	sysLogPrintf(LOG_NOTE, "INIT: playermgrInit...");
 	playermgrInit();
+	sysLogPrintf(LOG_NOTE, "INIT: frametimeInit...");
 	frametimeInit();
+	sysLogPrintf(LOG_NOTE, "INIT: profileInit...");
 	profileInit();
+	sysLogPrintf(LOG_NOTE, "INIT: smokesInit...");
 	smokesInit();
+	sysLogPrintf(LOG_NOTE, "INIT: mpInit...");
 	mpInit(true);
+	sysLogPrintf(LOG_NOTE, "INIT: pheadInit...");
 	pheadInit();
+	sysLogPrintf(LOG_NOTE, "INIT: paksInit...");
 	paksInit();
+	sysLogPrintf(LOG_NOTE, "INIT: pheadInit2...");
 	pheadInit2();
+	sysLogPrintf(LOG_NOTE, "INIT: animsInit...");
 	animsInit();
+	sysLogPrintf(LOG_NOTE, "INIT: racesInit...");
 	racesInit();
+	sysLogPrintf(LOG_NOTE, "INIT: bodiesInit...");
 	bodiesInit();
+	sysLogPrintf(LOG_NOTE, "INIT: titleInit...");
 	titleInit();
 	sysLogPrintf(LOG_NOTE, "INTRO: mainInit - titleInit() done, g_StageNum=0x%02x", g_StageNum);
 
