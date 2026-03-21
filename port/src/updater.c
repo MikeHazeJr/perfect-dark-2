@@ -291,6 +291,10 @@ static CURLcode curlGet(const char *url, curl_buffer_t *buf)
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+#if defined(_WIN32) && defined(CURLSSLOPT_NATIVE_CA)
+	/* Use native Windows Certificate Store as CA source (curl >= 7.71.0) */
+	curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
+#endif
 	curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 
 	/* GitHub API requires Accept header */
@@ -689,6 +693,9 @@ static int SDLCALL downloadThread(void *data)
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 600L);  /* 10 min max for large files */
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+#if defined(_WIN32) && defined(CURLSSLOPT_NATIVE_CA)
+	curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
+#endif
 
 	/* GitHub releases redirect to S3 — need Accept: application/octet-stream */
 	struct curl_slist *headers = NULL;
