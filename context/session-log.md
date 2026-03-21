@@ -6,25 +6,33 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ## Session 13 — 2026-03-21
 
-**Focus**: Fix deeper model loading crash — non-existent ROM files returning non-NULL zeroed memory
+**Focus**: Fix client crash — model loading at boot before subsystems ready
 
 ### What Was Done
 
-1. **Root-caused post-memp crash** — Even with `mempSetHeap()` ordering fixed (Session 12), all 151 models still triggered ACCESS_VIOLATION. Traced full call chain: `fileLoadToNew` allocated ~32KB via `mempAlloc`, then `fileLoad` → `romdataFileLoad` returned NULL → `fileLoad` returned early → `fileLoadToNew` returned non-NULL pointer to zeroed memory → `modeldefLoad` proceeded to `modelPromoteOffsetsToPointers` → crashed on `modeldef->rootnode == NULL`. Each crash leaked the allocation. 151 × ~32KB = ~4.8MB leaked from MEMPOOL_STAGE.
+1. **Identified true root cause** — Rebuild confirmed: files DO exist in ROM (`romdataFileGetData` returns non-NULL). The real problem: `catalogValidateAll()` ran at `pdmain.c:309`, BEFORE `texInit()` (line 319), `langInit()` (line 320), and other subsystems. Model loading via `modelPromoteOffsetsToPointers` / `modeldef0f1a7560` touches texture and skeleton systems that aren't initialized at that point → ACCESS_VIOLATION on ALL 151 models. 151 VEH/longjmp cycles corrupted heap state; game died silently after "End Validation".
 
-2. **Fixed `fileLoadToNew` (file.c)** — Added `romdataFileGetData(filenum) == NULL` pre-check before allocating. Returns NULL immediately for non-existent files. This is the root fix: prevents both the memory leak and the zeroed-memory crash.
+2. **Removed `catalogValidateAll()` from boot (pdmain.c)** — The original port never bulk-validated models at boot. Replaced the call with an explanatory comment. Models will be validated lazily via `catalogGetSafeBody()`/`catalogGetSafeHead()` → `catalogValidateOne()` when first accessed during gameplay, by which point all subsystems are initialized.
 
-3. **Fixed `modeldefLoad` stale g_LoadType (modeldef.c)** — When `fileLoadToNew` returns NULL, `modeldefLoad` now clears `g_LoadType = LOADTYPE_NONE` before returning NULL. Previously, `g_LoadType` stayed at `LOADTYPE_MODEL` because `fileLoad` (which normally clears it) never ran. This could corrupt the next unrelated file load.
+3. **Kept defensive improvements from earlier in session** — These are still valuable for the lazy validation path:
+   - `file.c` (`fileLoadToNew`): pre-check `romdataFileGetData` — returns NULL for non-existent files
+   - `modeldef.c` (`modeldefLoad`): clears `g_LoadType` on NULL early-return
+   - `modelcatalog.c` (`catalogValidateOne`): pre-check `romdataFileGetData` + `#include "romdata.h"`
 
-4. **Added catalog pre-check (modelcatalog.c)** — `catalogValidateOne` now calls `romdataFileGetData` before entering `safeModeldefLoad`. Non-existent files are immediately marked MISSING without VEH overhead. Belt-and-suspenders with the `fileLoadToNew` fix. Added `#include "romdata.h"`.
+4. **Confirmed ROM is valid** — `romdataInit: loaded rom, size = 33554432` (32MB NTSC-Final). All segments loaded successfully. No ROM corruption.
 
 ### Key Insight
-The original `fileLoadToNew` design assumed all file numbers correspond to real files. On a modded/merged build, many g_HeadsAndBodies entries reference file numbers that don't exist in the ROM data. The function allocated memory regardless, then relied on `fileLoad` to populate it — but `fileLoad` silently returned on failure, leaving the caller with a "successfully loaded" pointer to zeros.
+Boot-time model validation was doomed by init ordering. `catalogValidateAll()` sat between `mempSetHeap()` (line 304) and the subsystem init cascade (`texInit` at 319, `langInit` at 320, etc.). Models depend on those subsystems — they can only be loaded after the full init sequence completes. The correct architecture is lazy/on-demand validation during gameplay.
+
+### Files Changed
+- `port/src/pdmain.c` — Removed `catalogValidateAll()` call, replaced with comment
+- `src/game/file.c` — `fileLoadToNew`: pre-check for non-existent ROM files
+- `src/game/modeldef.c` — `modeldefLoad`: clear `g_LoadType` on NULL return
+- `port/src/modelcatalog.c` — `catalogValidateOne`: pre-check + romdata.h include
 
 ### Next Steps
-- Rebuild and test — log should show "not in ROM data (MISSING)" instead of ACCESS VIOLATION
-- Verify game boots past catalog validation to title screen
-- No MEMPOOL_STAGE leaks from missing models
+- Rebuild and test — game should boot past init to title screen
+- Verify server launch from build tool works (confirmed working in log)
 
 ---
 

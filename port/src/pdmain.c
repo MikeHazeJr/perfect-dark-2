@@ -303,10 +303,13 @@ void mainInit(void)
 
 	mempSetHeap(g_MempHeap, g_MempHeapSize);
 
-	/* Model catalog: now that the pool allocator is ready, validate all
-	 * head/body models. This calls modeldefLoadToNew() -> mempAlloc()
-	 * so it MUST come after mempSetHeap(). */
-	catalogValidateAll();
+	/* NOTE: catalogValidateAll() was previously called here, but model
+	 * loading depends on subsystems initialized later in this function
+	 * (texInit, langInit, etc.). Loading at this point triggers ACCESS
+	 * VIOLATION for ALL 151 models because the texture/skeleton systems
+	 * aren't ready yet. Validation is deferred to on-demand: models are
+	 * validated lazily via catalogGetSafeBody/Head() when first accessed
+	 * during gameplay, by which point all subsystems are initialized. */
 
 	mempResetPool(MEMPOOL_8);
 	mempResetPool(MEMPOOL_PERMANENT);
