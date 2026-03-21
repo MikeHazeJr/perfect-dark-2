@@ -187,7 +187,7 @@ function Load-Settings {
     }
 
     # Auto-detect ROM path if not set or if saved path no longer exists
-    if ($script:Settings.RomPath -eq "" -or -not (Test-Path $script:Settings.RomPath)) {
+    if ([string]::IsNullOrEmpty($script:Settings.RomPath) -or -not (Test-Path $script:Settings.RomPath)) {
         $defaultRom = Join-Path $script:ProjectDir "data\pd.ntsc-final.z64"
         if (Test-Path $defaultRom) {
             $script:Settings.RomPath = $defaultRom
@@ -1650,7 +1650,22 @@ function Launch-Game($mode) {
     Write-Output-Line "Launching $label..." $labelColor
     Write-Output-Line "  Exe: $launchExe" ([System.Drawing.Color]::FromArgb(50,180,220))
 
-    $script:GameProcess = Start-Process -FilePath $launchExe -ArgumentList $gameArgs -WorkingDirectory $launchDir -PassThru
+    $startArgs = @{
+        FilePath         = $launchExe
+        WorkingDirectory = $launchDir
+        PassThru         = $true
+    }
+    if ($gameArgs -ne "") {
+        $startArgs.ArgumentList = $gameArgs
+    }
+    try {
+        $script:GameProcess = Start-Process @startArgs
+    } catch {
+        Write-Output-Line "  Launch failed: $($_.Exception.Message)" $script:ColorRed
+        $statusLabel.Text = "Launch failed"
+        $statusLabel.ForeColor = $script:ColorRed
+        return
+    }
     Update-GameStatus
 }
 
@@ -1897,7 +1912,7 @@ $script:PendingPostRelease = $false
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Settings"
-    $dlg.Size = New-Object System.Drawing.Size(540, 480)
+    $dlg.Size = New-Object System.Drawing.Size(540, 510)
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = $script:ColorBg
     $dlg.ForeColor = $script:ColorWhite
@@ -1908,8 +1923,8 @@ function Show-SettingsDialog {
     # --- Tab Control ---
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Location = New-Object System.Drawing.Point(8, 8)
-    $tabs.Size = New-Object System.Drawing.Size(510, 388)
-    $tabs.Font = New-UIFont 9
+    $tabs.Size = New-Object System.Drawing.Size(510, 400)
+    $tabs.Font = New-UIFont 10
     $dlg.Controls.Add($tabs)
 
     # ======================================================================
@@ -2057,7 +2072,7 @@ function Show-SettingsDialog {
 
     $lblRomHint = New-Object System.Windows.Forms.Label
     $lblRomHint.Text = "All extraction tools require the original N64 ROM (pd.ntsc-final.z64)."
-    $lblRomHint.Font = New-UIFont 8
+    $lblRomHint.Font = New-UIFont 9
     $lblRomHint.ForeColor = $script:ColorDim
     $lblRomHint.Location = New-Object System.Drawing.Point(12, 62)
     $lblRomHint.AutoSize = $true
@@ -2097,9 +2112,9 @@ function Show-SettingsDialog {
         $parent.Controls.Add($btn)
 
         $lbl = New-Object System.Windows.Forms.Label
-        $lbl.Font = New-UIFont 8
-        $lbl.Location = New-Object System.Drawing.Point(220, ($y + 5))
-        $lbl.Size = New-Object System.Drawing.Size(268, 18)
+        $lbl.Font = New-UIFont 9
+        $lbl.Location = New-Object System.Drawing.Point(220, ($y + 3))
+        $lbl.Size = New-Object System.Drawing.Size(268, 40)
         $lbl.TextAlign = "MiddleLeft"
         $parent.Controls.Add($lbl)
 
@@ -2188,7 +2203,7 @@ function Show-SettingsDialog {
     # ======================================================================
     $btnSaveSettings = New-Object System.Windows.Forms.Button
     $btnSaveSettings.Text = "Save"
-    $btnSaveSettings.Location = New-Object System.Drawing.Point(428, 404)
+    $btnSaveSettings.Location = New-Object System.Drawing.Point(428, 418)
     $btnSaveSettings.Size = New-Object System.Drawing.Size(80, 28)
     $btnSaveSettings.FlatStyle = "Flat"
     $btnSaveSettings.FlatAppearance.BorderColor = $script:ColorGold
