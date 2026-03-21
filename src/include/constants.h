@@ -14,7 +14,7 @@
 #define true  1
 
 #define MAX_ARTIFACTS          120
-#define MAX_BOTS               8
+#define MAX_BOTS               24
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
 #define MAX_CHRWAYPOINTS       6
@@ -27,14 +27,15 @@
 #define MAX_LOCAL_PLAYERS      4
 #define MAX_PLAYERS            8
 
-/* PC: Bot slot offset in chrslots bitmask.  Bots occupy bits
- * BOT_SLOT_OFFSET through (BOT_SLOT_OFFSET + MAX_BOTS - 1).
- * With MAX_PLAYERS=8 this means bits 8-15.
- * CHRSLOTS_PLAYER_MASK selects only human player bits.
- * CHRSLOTS_BOT_MASK selects only bot/simulant bits. */
+/* PC: Bot slot offset in chrslots bitmask (u32).
+ * Bots occupy bits BOT_SLOT_OFFSET through (BOT_SLOT_OFFSET + MAX_BOTS - 1).
+ * With MAX_PLAYERS=8 and MAX_BOTS=24 this means bits 8-31.
+ * Total capacity: 8 players + 24 bots = 32 characters (one per bit).
+ * CHRSLOTS_PLAYER_MASK selects only human player bits (0-7).
+ * CHRSLOTS_BOT_MASK selects only bot/simulant bits (8-31). */
 #define BOT_SLOT_OFFSET        MAX_PLAYERS
-#define CHRSLOTS_PLAYER_MASK   ((1 << MAX_PLAYERS) - 1)
-#define CHRSLOTS_BOT_MASK      (((1 << MAX_BOTS) - 1) << BOT_SLOT_OFFSET)
+#define CHRSLOTS_PLAYER_MASK   ((1u << MAX_PLAYERS) - 1u)
+#define CHRSLOTS_BOT_MASK      (((1u << MAX_BOTS) - 1u) << BOT_SLOT_OFFSET)
 #define MAX_PROPSPERROOMCHUNK  7
 #define MAX_ROOMPROPLISTCHUNKS 256
 #define MAX_SQUADRONS          16

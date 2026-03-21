@@ -51,8 +51,14 @@ u8 *preprocessMpConfigs(u8* data, u32 size, u32* outSize)
 		PD_SWAP_VAL(cfg->setup.teamscorelimit);
 		PD_SWAP_VAL(cfg->setup.chrslots);
 #if MAX_PLAYERS > 4
-		// make space for the extra players
-		cfg->setup.chrslots = (cfg->setup.chrslots & 0x000f) | ((cfg->setup.chrslots & 0x0ff0) << 4);
+		/* Legacy N64 layout: bits 0-3 = 4 players, bits 4-11 = 8 bots.
+		 * PC layout: bits 0-7 = 8 players, bits 8-31 = bots.
+		 * Shift bot bits from N64 position (4) to PC position (MAX_PLAYERS=8). */
+		{
+			u32 players = cfg->setup.chrslots & 0x000fu;
+			u32 bots = (cfg->setup.chrslots >> 4) & 0x00ffu;
+			cfg->setup.chrslots = players | (bots << BOT_SLOT_OFFSET);
+		}
 #endif
 		// TODO: are these required or are they always 0?
 		PD_SWAP_VAL(cfg->setup.fileguid.deviceserial);

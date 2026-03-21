@@ -239,7 +239,7 @@ void menuTick(void)
 				for (i = 0; i < maxplayers; i++) {
 					g_Vars.waitingtojoin[i] = false;
 
-					if (g_MpSetup.chrslots & (1 << i)) {
+					if (g_MpSetup.chrslots & (1u << i)) {
 						g_MpPlayerNum = i;
 
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
@@ -313,7 +313,7 @@ void menuTick(void)
 					g_Menus[i].playernum = g_MpNumJoined++;
 
 					if (g_MenuData.prevmenuroot == -1) {
-						g_MpSetup.chrslots |= (1 << i);
+						g_MpSetup.chrslots |= (1u << i);
 					}
 				}
 			}
@@ -322,7 +322,7 @@ void menuTick(void)
 				s32 slot = 1;
 				for (i = 1; i < g_NetMaxClients; ++i) {
 					if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-						g_MpSetup.chrslots |= (1 << slot);
+						g_MpSetup.chrslots |= (1u << slot);
 						++slot;
 					}
 				}
@@ -558,7 +558,7 @@ void menuTick(void)
 				}
 
 				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (g_MpSetup.chrslots & (1 << i)) {
+					if (g_MpSetup.chrslots & (1u << i)) {
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;

@@ -2056,13 +2056,9 @@ void setupCreateProps(s32 stagenum)
 				s32 maxsimulants;
 				s32 slotnum;
 
-				if (challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-					maxsimulants = MAX_BOTS;
-				} else {
-					maxsimulants = 4;
-				}
+				maxsimulants = MAX_BOTS; /* PC: all bot slots available */
 
-				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started chrslots=0x%04x maxsim=%d",
+				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started chrslots=0x%08x maxsim=%d",
 					g_MpSetup.chrslots, maxsimulants);
 
 				for (i = 0; i < MAX_BOTS; i++) {
@@ -2076,7 +2072,7 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1 << (slotnum + MAX_PLAYERS)))
+					if ((g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS)))
 							&& mpIsSimSlotEnabled(slotnum)) {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
 						botmgrAllocateBot(chrnum, slotnum);
@@ -2084,7 +2080,7 @@ void setupCreateProps(s32 stagenum)
 					} else {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d chrslots_bit=%d isEnabled=%d",
 							slotnum,
-							(g_MpSetup.chrslots & (1 << (slotnum + MAX_PLAYERS))) ? 1 : 0,
+							(g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS))) ? 1 : 0,
 							mpIsSimSlotEnabled(slotnum));
 					}
 
@@ -2093,7 +2089,7 @@ void setupCreateProps(s32 stagenum)
 
 				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning done total=%d", chrnum);
 			} else {
-				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%04x",
+				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%08x",
 					g_Vars.normmplayerisrunning, mpHasSimulants(), g_MpSetup.chrslots);
 			}
 
