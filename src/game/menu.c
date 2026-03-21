@@ -5673,7 +5673,7 @@ Gfx *menuRender(Gfx *gdl)
 
 					// Check which controllers are connected
 					// and update the alpha of the label
-					if (((g_MpSetup.chrslots | ~joyGetConnectedControllers()) & (1 << i)) == 0) {
+					if (((g_MpSetup.chrslots | ~joyGetConnectedControllers()) & (1u << i)) == 0) {
 #if VERSION >= VERSION_PAL_BETA
 						tmp1 = g_Vars.diffframe60freal * 3;
 #else
@@ -6218,7 +6218,7 @@ s32 menuPakNumToPlayerNum(s32 paknum)
 	u32 result = 0;
 
 	if (g_Vars.normmplayerisrunning) {
-		if (g_MpSetup.chrslots & (1 << paknum)) {
+		if (g_MpSetup.chrslots & (1u << paknum)) {
 			result = paknum;
 		}
 	} else {

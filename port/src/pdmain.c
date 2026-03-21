@@ -547,7 +547,7 @@ void mainLoop(void)
 			g_MpSetup.chrslots = 1;
 
 			for (s32 i = 1; i < numplayers; ++i) {
-				g_MpSetup.chrslots |= 1 << i;
+				g_MpSetup.chrslots |= 1u << i;
 			}
 
 			g_MpSetup.stagenum = g_StageNum;

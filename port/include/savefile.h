@@ -184,10 +184,10 @@ struct savempsetup {
 
     /* Bots */
     u8  numBots;
-    struct savempbot bots[16];         /* up to 16 bots */
+    struct savempbot bots[MAX_BOTS];   /* up to MAX_BOTS bots */
 
     /* Player team assignments */
-    u8  playerTeams[16];               /* expanded from MAX_PLAYERS */
+    u8  playerTeams[MAX_PLAYERS];      /* one per player slot */
 };
 
 /* ========================================================================

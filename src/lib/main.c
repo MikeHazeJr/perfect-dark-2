@@ -1026,15 +1026,15 @@ void mainLoop(void)
 			g_MpSetup.chrslots = 1;
 
 			if (numplayers >= 2) {
-				g_MpSetup.chrslots |= 1 << 1;
+				g_MpSetup.chrslots |= 1u << 1;
 			}
 
 			if (numplayers >= 3) {
-				g_MpSetup.chrslots |= 1 << 2;
+				g_MpSetup.chrslots |= 1u << 2;
 			}
 
 			if (numplayers >= 4) {
-				g_MpSetup.chrslots |= 1 << 3;
+				g_MpSetup.chrslots |= 1u << 3;
 			}
 
 			g_MpSetup.stagenum = g_StageNum;

@@ -2578,7 +2578,7 @@ MenuItemHandlerResult mpLoadPlayerMenuHandler(s32 operation, struct menuitem *it
 		for (i = 0; i < MAX_PLAYERS; i++) {
 			if (file->fileid == g_PlayerConfigsArray[i].fileguid.fileid
 					&& file->deviceserial == g_PlayerConfigsArray[i].fileguid.deviceserial) {
-				if ((g_MpSetup.chrslots & (1 << i)) == 0) {
+				if ((g_MpSetup.chrslots & (1u << i)) == 0) {
 					mpPlayerSetDefaults(i, true);
 				} else {
 					available = false;
@@ -2685,7 +2685,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if ((g_MpSetup.chrslots & (1 << item->param)) == 0) {
+		if ((g_MpSetup.chrslots & (1u << item->param)) == 0) {
 			return 1;
 		}
 		break;
@@ -2705,7 +2705,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 
 char *mpMenuTextHandicapPlayerName(struct menuitem *item)
 {
-	if (g_MpSetup.chrslots & (1 << item->param)) {
+	if (g_MpSetup.chrslots & (1u << item->param)) {
 		if (g_NetMode) {
 			// use client names directly, as the config names are not set yet
 			struct netclient *cl = netClientForPlayerNum(item->param);
@@ -3223,7 +3223,7 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		if (botnum < 0) {
 			botnum = mpGetSlotForNewBot();
 			creating = 1;
-		} else if ((g_MpSetup.chrslots & (1 << (botnum + BOT_SLOT_OFFSET))) == 0) {
+		} else if ((g_MpSetup.chrslots & (1u << (botnum + BOT_SLOT_OFFSET))) == 0) {
 			creating = 1;
 		}
 
@@ -3479,7 +3479,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = item->param;
 
-		if ((g_MpSetup.chrslots & (1 << (item->param + BOT_SLOT_OFFSET))) == 0) {
+		if ((g_MpSetup.chrslots & (1u << (item->param + BOT_SLOT_OFFSET))) == 0) {
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
 		} else if (IS4MB()) {
 			menuPushDialog(&g_MpEditSimulant4MbMenuDialog);
@@ -3488,7 +3488,8 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 		}
 		break;
 	case MENUOP_CHECKHIDDEN:
-		if (item->param >= 4 && !challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
+		/* PC: All bot slots available — no unlock gate */
+		if (item->param >= MAX_BOTS) {
 			return true;
 		}
 		break;
@@ -3505,7 +3506,7 @@ char *mpMenuTextSimulantName(struct menuitem *item)
 {
 	s32 index = item->param;
 
-	if (g_BotConfigsArray[index].base.name[0] == '\0' || (g_MpSetup.chrslots & (1 << (index + BOT_SLOT_OFFSET))) == 0) {
+	if (g_BotConfigsArray[index].base.name[0] == '\0' || (g_MpSetup.chrslots & (1u << (index + BOT_SLOT_OFFSET))) == 0) {
 		return "";
 	}
 
@@ -3517,7 +3518,7 @@ char *func0f17d3dc(struct menuitem *item)
 	s32 index = item->param;
 
 	if (g_BotConfigsArray[index].base.name[0] == '\0'
-			|| ((g_MpSetup.chrslots & (1 << (index + BOT_SLOT_OFFSET))) == 0)) {
+			|| ((g_MpSetup.chrslots & (1u << (index + BOT_SLOT_OFFSET))) == 0)) {
 		return "";
 	}
 
@@ -3887,7 +3888,7 @@ MenuItemHandlerResult menuhandlerMpMaximumTeams(s32 operation, struct menuitem *
 		u8 team = 0;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (g_MpSetup.chrslots & (1u << i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = team++;
@@ -3910,7 +3911,7 @@ MenuItemHandlerResult menuhandlerMpHumansVsSimulants(s32 operation, struct menui
 		s32 i;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (g_MpSetup.chrslots & (1u << i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = i < 4 ? 0 : 1;
@@ -3932,7 +3933,7 @@ MenuItemHandlerResult menuhandlerMpHumanSimulantPairs(s32 operation, struct menu
 		s32 simindex = 0;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (g_MpSetup.chrslots & (1u << i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (i < 4) {
@@ -5545,7 +5546,7 @@ MenuItemHandlerResult menuhandlerMpNumberOfSimulants(s32 operation, struct menui
 {
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = !challengeIsFeatureUnlocked(MPFEATURE_8BOTS) ? 4 : MAX_BOTS;
+		data->dropdown.value = MAX_BOTS; /* PC: all bot slots available */
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
