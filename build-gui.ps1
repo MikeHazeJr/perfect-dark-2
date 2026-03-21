@@ -163,6 +163,7 @@ $script:SoundsDir = Join-Path $script:ProjectDir "dist\build-sounds"
 $script:Settings = @{
     GithubRepo = ""
     SoundsEnabled = $true
+    RomPath = ""
 }
 
 function Load-Settings {
@@ -171,6 +172,7 @@ function Load-Settings {
             $json = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json
             if ($json.GithubRepo) { $script:Settings.GithubRepo = $json.GithubRepo }
             if ($null -ne $json.SoundsEnabled) { $script:Settings.SoundsEnabled = $json.SoundsEnabled }
+            if ($json.RomPath) { $script:Settings.RomPath = $json.RomPath }
         } catch {}
     }
 
@@ -183,6 +185,44 @@ function Load-Settings {
             }
         } catch {}
     }
+
+    # Auto-detect ROM path if not set or if saved path no longer exists
+    if ($script:Settings.RomPath -eq "" -or -not (Test-Path $script:Settings.RomPath)) {
+        $defaultRom = Join-Path $script:ProjectDir "data\pd.ntsc-final.z64"
+        if (Test-Path $defaultRom) {
+            $script:Settings.RomPath = $defaultRom
+        } else {
+            # Try any .z64 in the data folder
+            $dataDir = Join-Path $script:ProjectDir "data"
+            if (Test-Path $dataDir) {
+                $found = Get-ChildItem -Path $dataDir -Filter "*.z64" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($found) { $script:Settings.RomPath = $found.FullName }
+            }
+        }
+    }
+}
+
+# Helper: resolve ROM path — returns path or $null, offers browse dialog if not found
+function Resolve-RomPath {
+    if ($script:Settings.RomPath -ne "" -and (Test-Path $script:Settings.RomPath)) {
+        return $script:Settings.RomPath
+    }
+
+    # ROM not found — open file browser
+    $ofd = New-Object System.Windows.Forms.OpenFileDialog
+    $ofd.Title = "Locate Perfect Dark ROM (z64)"
+    $ofd.Filter = "N64 ROM files (*.z64)|*.z64|All files (*.*)|*.*"
+    $ofd.InitialDirectory = Join-Path $script:ProjectDir "data"
+    if (-not (Test-Path $ofd.InitialDirectory)) {
+        $ofd.InitialDirectory = $script:ProjectDir
+    }
+
+    if ($ofd.ShowDialog() -eq "OK") {
+        $script:Settings.RomPath = $ofd.FileName
+        Save-Settings
+        return $ofd.FileName
+    }
+    return $null
 }
 
 function Save-Settings {
@@ -300,15 +340,10 @@ $menuStrip.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRende
     (New-Object DarkMenuColorTable)
 )
 
+# --- File menu ---
 $menuFile = New-Object System.Windows.Forms.ToolStripMenuItem("File")
 $menuFile.ForeColor = $script:ColorWhite
 $menuFile.BackColor = $script:ColorPanelBg
-
-$menuSettings = New-Object System.Windows.Forms.ToolStripMenuItem("Settings...")
-$menuSettings.ForeColor = $script:ColorText
-$menuSettings.BackColor = $script:ColorPanelBg
-$menuSettings.Add_Click({ Show-SettingsDialog })
-[void]$menuFile.DropDownItems.Add($menuSettings)
 
 $menuEditChanges = New-Object System.Windows.Forms.ToolStripMenuItem("Edit CHANGES.md")
 $menuEditChanges.ForeColor = $script:ColorText
@@ -334,6 +369,20 @@ $menuExit.Add_Click({ $form.Close() })
 [void]$menuFile.DropDownItems.Add($menuExit)
 
 [void]$menuStrip.Items.Add($menuFile)
+
+# --- Edit menu ---
+$menuEdit = New-Object System.Windows.Forms.ToolStripMenuItem("Edit")
+$menuEdit.ForeColor = $script:ColorWhite
+$menuEdit.BackColor = $script:ColorPanelBg
+
+$menuSettings = New-Object System.Windows.Forms.ToolStripMenuItem("Settings...")
+$menuSettings.ForeColor = $script:ColorText
+$menuSettings.BackColor = $script:ColorPanelBg
+$menuSettings.Add_Click({ Show-SettingsDialog })
+[void]$menuEdit.DropDownItems.Add($menuSettings)
+
+[void]$menuStrip.Items.Add($menuEdit)
+
 $form.MainMenuStrip = $menuStrip
 $form.Controls.Add($menuStrip)
 
@@ -752,6 +801,16 @@ $progressLabel.BringToFront()
 
 $script:BuildPercent = 0
 $script:HasErrors = $false
+
+# --- Build tool version label (lower-left, subtle) ---
+$script:BuildToolVersion = "3.1"
+$lblBuildToolVer = New-Object System.Windows.Forms.Label
+$lblBuildToolVer.Text = "Build tool version $($script:BuildToolVersion)"
+$lblBuildToolVer.Font = New-UIFont 8
+$lblBuildToolVer.ForeColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
+$lblBuildToolVer.Location = New-Object System.Drawing.Point(12, 498)
+$lblBuildToolVer.AutoSize = $true
+$form.Controls.Add($lblBuildToolVer)
 
 # ============================================================================
 # Timer + Spinner
@@ -1838,7 +1897,7 @@ $script:PendingPostRelease = $false
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Build Tool Settings"
-    $dlg.Size = New-Object System.Drawing.Size(500, 310)
+    $dlg.Size = New-Object System.Drawing.Size(500, 350)
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = $script:ColorBg
     $dlg.ForeColor = $script:ColorWhite
@@ -1925,17 +1984,104 @@ function Show-SettingsDialog {
     $chkSoundsEnabled.Checked = $script:Settings.SoundsEnabled
     $dlg.Controls.Add($chkSoundsEnabled)
 
-    $lblSoundsHint = New-Object System.Windows.Forms.Label
-    $lblSoundsHint.Text = "Run tools/extract-build-sounds.py to extract sounds from ROM"
-    $lblSoundsHint.Font = New-UIFont 8
-    $lblSoundsHint.ForeColor = $script:ColorDim
-    $lblSoundsHint.Location = New-Object System.Drawing.Point(16, 208)
-    $lblSoundsHint.AutoSize = $true
-    $dlg.Controls.Add($lblSoundsHint)
+    # Extract Sounds button — runs the extraction tool once to populate dist/build-sounds/
+    $btnExtractSounds = New-Object System.Windows.Forms.Button
+    $btnExtractSounds.Text = "Extract Sounds from ROM"
+    $btnExtractSounds.Location = New-Object System.Drawing.Point(16, 210)
+    $btnExtractSounds.Size = New-Object System.Drawing.Size(200, 28)
+    $btnExtractSounds.FlatStyle = "Flat"
+    $btnExtractSounds.FlatAppearance.BorderColor = $script:ColorOrange
+    $btnExtractSounds.ForeColor = $script:ColorOrange
+    $btnExtractSounds.BackColor = $script:ColorFieldBg
+    $btnExtractSounds.Cursor = "Hand"
+    $btnExtractSounds.Font = New-UIFont 9 -Bold
+
+    $lblExtractHint = New-Object System.Windows.Forms.Label
+    $lblExtractHint.Font = New-UIFont 8
+    $lblExtractHint.ForeColor = $script:ColorDim
+    $lblExtractHint.Location = New-Object System.Drawing.Point(16, 242)
+    $lblExtractHint.AutoSize = $true
+
+    # Check if sounds already extracted
+    $existingSounds = @()
+    if (Test-Path $script:SoundsDir) {
+        $existingSounds = @(Get-ChildItem -Path $script:SoundsDir -Filter "*.wav" -Recurse)
+    }
+    if ($existingSounds.Count -gt 0) {
+        $lblExtractHint.Text = "$($existingSounds.Count) sound(s) already extracted. Re-run to overwrite."
+        $lblExtractHint.ForeColor = $script:ColorGreen
+    } else {
+        $lblExtractHint.Text = "Requires data/pd.ntsc-final.z64 in project folder. Only needed once."
+    }
+    $dlg.Controls.Add($lblExtractHint)
+
+    $btnExtractSounds.Add_Click({
+        $romPath = Join-Path $script:ProjectDir "data\pd.ntsc-final.z64"
+        $toolPath = Join-Path $script:ProjectDir "tools\extract-build-sounds.py"
+
+        if (-not (Test-Path $toolPath)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Sound extraction tool not found:`n$toolPath",
+                "Missing Tool", "OK", "Error")
+            return
+        }
+
+        if (-not (Test-Path $romPath)) {
+            # Try to find any .z64 in the data folder as fallback
+            $dataDir = Join-Path $script:ProjectDir "data"
+            $altRom = $null
+            if (Test-Path $dataDir) {
+                $altRom = Get-ChildItem -Path $dataDir -Filter "*.z64" | Select-Object -First 1
+            }
+            if ($altRom) {
+                $romPath = $altRom.FullName
+            } else {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "ROM file not found. Place pd.ntsc-final.z64 in:`n$(Join-Path $script:ProjectDir 'data')",
+                    "Missing ROM", "OK", "Warning")
+                return
+            }
+        }
+
+        $btnExtractSounds.Enabled = $false
+        $btnExtractSounds.Text = "Extracting..."
+        $btnExtractSounds.ForeColor = $script:ColorDim
+        $dlg.Refresh()
+
+        try {
+            $outDir = $script:SoundsDir
+            $result = & python $toolPath $romPath --outdir $outDir 2>&1
+            $resultStr = ($result | ForEach-Object { $_.ToString() }) -join "`n"
+
+            $extractedFiles = @()
+            if (Test-Path $outDir) {
+                $extractedFiles = @(Get-ChildItem -Path $outDir -Filter "*.wav" -Recurse)
+            }
+
+            if ($extractedFiles.Count -gt 0) {
+                $lblExtractHint.Text = "$($extractedFiles.Count) sound(s) extracted successfully."
+                $lblExtractHint.ForeColor = $script:ColorGreen
+                Write-Output-Line "  Sound extraction: $($extractedFiles.Count) WAV files extracted to dist/build-sounds/" $script:ColorGreen
+            } else {
+                $lblExtractHint.Text = "Extraction ran but no files produced. Check console."
+                $lblExtractHint.ForeColor = $script:ColorRed
+                Write-Output-Line "  Sound extraction output:`n$resultStr" $script:ColorOrange
+            }
+        } catch {
+            $lblExtractHint.Text = "Error: $($_.Exception.Message)"
+            $lblExtractHint.ForeColor = $script:ColorRed
+            Write-Output-Line "  Sound extraction failed: $($_.Exception.Message)" $script:ColorRed
+        }
+
+        $btnExtractSounds.Enabled = $true
+        $btnExtractSounds.Text = "Extract Sounds from ROM"
+        $btnExtractSounds.ForeColor = $script:ColorOrange
+    })
+    $dlg.Controls.Add($btnExtractSounds)
 
     $btnSaveSettings = New-Object System.Windows.Forms.Button
     $btnSaveSettings.Text = "Save"
-    $btnSaveSettings.Location = New-Object System.Drawing.Point(376, 236)
+    $btnSaveSettings.Location = New-Object System.Drawing.Point(376, 272)
     $btnSaveSettings.Size = New-Object System.Drawing.Size(80, 28)
     $btnSaveSettings.FlatStyle = "Flat"
     $btnSaveSettings.FlatAppearance.BorderColor = $script:ColorGold
