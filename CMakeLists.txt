@@ -122,21 +122,13 @@ if((VERSION_BRANCH STREQUAL "") OR (VERSION_BRANCH STREQUAL "HEAD"))
 endif()
 
 # Semantic version (D13 Update System)
-# Bump these when creating releases. Dev builds use VERSION_SEM_DEV > 0.
-# VERSION_SEM_LABEL is a cosmetic suffix (e.g., "a" for alpha, "b" for beta).
+# Version is Major.Minor.Revision. Channel (stable/dev) is determined by the
+# GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 4 CACHE STRING "Semantic version patch")
-set(VERSION_SEM_DEV   1 CACHE STRING "Dev build number (0 = stable release)")
-set(VERSION_SEM_LABEL "" CACHE STRING "Version label suffix (empty for none, 'a'=alpha, 'b'=beta)")
+set(VERSION_SEM_PATCH 4 CACHE STRING "Semantic version revision")
 
-if(VERSION_SEM_DEV GREATER 0)
-  set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}-dev.${VERSION_SEM_DEV}")
-elseif(NOT VERSION_SEM_LABEL STREQUAL "")
-  set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}${VERSION_SEM_LABEL}")
-else()
-  set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
-endif()
+set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
 message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
 

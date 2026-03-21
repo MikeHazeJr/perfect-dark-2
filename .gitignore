@@ -28,6 +28,10 @@ src/assets/*/sequences/*.seq
 src/assets/*/textures/*.bin
 src/generated
 
+# Build tool (local machine state)
+.build-settings.json
+.build-release-cache.json
+
 # Tools
 tools/mkrom/mkrom
 

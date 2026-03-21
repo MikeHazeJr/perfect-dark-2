@@ -24,8 +24,7 @@ extern "C" {
 typedef struct pdversion {
 	s32 major;
 	s32 minor;
-	s32 patch;
-	s32 dev;      /* 0 = stable release, >0 = dev build number (e.g., dev.3) */
+	s32 patch;    /* "revision" in the UI — third field of Major.Minor.Revision */
 } pdversion_t;
 
 /* ========================================================================
@@ -53,30 +52,16 @@ typedef enum {
 #ifndef VERSION_PATCH
 #define VERSION_PATCH 0
 #endif
-#ifndef VERSION_DEV
-#define VERSION_DEV 0
-#endif
-
 /* Build the compile-time version struct */
-#define BUILD_VERSION_INIT { VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, VERSION_DEV }
+#define BUILD_VERSION_INIT { VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH }
 
-/* String form: "0.0.3a", "1.2.3", or "1.2.3-dev.4" */
+/* String form: "Major.Minor.Revision" (e.g., "0.0.4", "1.2.3").
+ * Channel (stable/dev) is determined by GitHub prerelease flag, not version. */
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
-#ifndef VERSION_LABEL
-#define VERSION_LABEL ""
-#endif
-
-#if VERSION_DEV > 0
 #define VERSION_STRING \
-	STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH) \
-	"-dev." STRINGIFY(VERSION_DEV)
-#else
-#define VERSION_STRING \
-	STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH) \
-	VERSION_LABEL
-#endif
+	STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)
 
 /* ========================================================================
  * Version comparison
@@ -85,30 +70,17 @@ typedef enum {
 /**
  * Compare two versions.
  * Returns: <0 if a < b, 0 if equal, >0 if a > b.
- *
- * Ordering: 1.0.0-dev.1 < 1.0.0-dev.2 < 1.0.0 (stable) < 1.0.1-dev.1
- * A stable release (dev=0) is considered NEWER than any dev build of the
- * same major.minor.patch.
+ * Simple Major.Minor.Revision comparison.
  */
 static inline s32 versionCompare(const pdversion_t *a, const pdversion_t *b)
 {
 	if (a->major != b->major) return a->major - b->major;
 	if (a->minor != b->minor) return a->minor - b->minor;
-	if (a->patch != b->patch) return a->patch - b->patch;
-
-	/* Both stable (dev=0): equal at this point */
-	if (a->dev == 0 && b->dev == 0) return 0;
-
-	/* Stable beats any dev of the same version */
-	if (a->dev == 0) return 1;   /* a is stable, b is dev → a > b */
-	if (b->dev == 0) return -1;  /* b is stable, a is dev → a < b */
-
-	/* Both dev: compare dev number */
-	return a->dev - b->dev;
+	return a->patch - b->patch;
 }
 
 /**
- * Parse a version string like "1.2.3" or "1.2.3-dev.4" into a pdversion_t.
+ * Parse a version string like "1.2.3" into a pdversion_t.
  * Returns 0 on success, -1 on parse failure.
  */
 s32 versionParse(const char *str, pdversion_t *out);
@@ -120,7 +92,7 @@ s32 versionParse(const char *str, pdversion_t *out);
 s32 versionFormat(const pdversion_t *ver, char *buf, s32 bufsize);
 
 /**
- * Parse a GitHub release tag like "client-v1.2.3" or "server-v1.0.0-dev.2".
+ * Parse a GitHub release tag like "client-v1.2.3" or "server-v1.0.0".
  * Extracts the prefix ("client" or "server") and the version.
  * Returns 0 on success, -1 on parse failure.
  */

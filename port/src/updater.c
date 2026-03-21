@@ -327,26 +327,13 @@ s32 versionParse(const char *str, pdversion_t *out)
 		return -1;
 	}
 
-	/* Check for -dev.N suffix */
-	const char *dash = strchr(str, '-');
-	if (dash) {
-		if (strncmp(dash, "-dev.", 5) == 0) {
-			out->dev = atoi(dash + 5);
-		}
-	}
-
 	return 0;
 }
 
 s32 versionFormat(const pdversion_t *ver, char *buf, s32 bufsize)
 {
-	if (ver->dev > 0) {
-		return snprintf(buf, bufsize, "%d.%d.%d-dev.%d",
-			ver->major, ver->minor, ver->patch, ver->dev);
-	} else {
-		return snprintf(buf, bufsize, "%d.%d.%d",
-			ver->major, ver->minor, ver->patch);
-	}
+	return snprintf(buf, bufsize, "%d.%d.%d",
+		ver->major, ver->minor, ver->patch);
 }
 
 s32 versionParseTag(const char *tag, char *prefixbuf, s32 prefixbufsize, pdversion_t *ver)

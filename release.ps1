@@ -38,16 +38,7 @@ if ($Version -eq "") {
     $major = if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" }
     $minor = if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" }
     $patch = if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" }
-    $dev   = if ($cmake -match 'VERSION_SEM_DEV\s+(\d+)')   { $matches[1] } else { "0" }
-    $label = if ($cmake -match 'VERSION_SEM_LABEL\s+"([^"]*)"') { $matches[1] } else { "" }
-
-    if ([int]$dev -gt 0) {
-        $Version = "$major.$minor.$patch-dev.$dev"
-    } elseif ($label -ne "") {
-        $Version = "$major.$minor.$patch$label"
-    } else {
-        $Version = "$major.$minor.$patch"
-    }
+    $Version = "$major.$minor.$patch"
 }
 
 $Tag = "v$Version"
