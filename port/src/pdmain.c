@@ -316,8 +316,8 @@ void mainInit(void)
 	mempResetPool(MEMPOOL_PERMANENT);
 	sysLogPrintf(LOG_NOTE, "INIT: crashReset...");
 	crashReset();
-	sysLogPrintf(LOG_NOTE, "INIT: challengesInit...");
-	challengesInit();
+	sysLogPrintf(LOG_NOTE, "INIT: challengesInit... (TEMPORARILY SKIPPED for diagnosis)");
+	/* challengesInit(); — temporarily skipped to diagnose boot crash */
 	sysLogPrintf(LOG_NOTE, "INIT: utilsInit...");
 	utilsInit();
 	sysLogPrintf(LOG_NOTE, "INIT: texInit...");
