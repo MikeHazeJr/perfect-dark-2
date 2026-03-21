@@ -2133,7 +2133,7 @@ function Show-SettingsDialog {
 
     $soundTool.Button.Add_Click({
         $romPath = $script:Settings.RomPath
-        if ($romPath -eq "" -or -not (Test-Path $romPath)) {
+        if ([string]::IsNullOrEmpty($romPath) -or -not (Test-Path $romPath)) {
             $romPath = Resolve-RomPath
             if (-not $romPath) { return }
             $txtRomPath.Text = $romPath
