@@ -4,6 +4,30 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 13 — 2026-03-21
+
+**Focus**: Fix deeper model loading crash — non-existent ROM files returning non-NULL zeroed memory
+
+### What Was Done
+
+1. **Root-caused post-memp crash** — Even with `mempSetHeap()` ordering fixed (Session 12), all 151 models still triggered ACCESS_VIOLATION. Traced full call chain: `fileLoadToNew` allocated ~32KB via `mempAlloc`, then `fileLoad` → `romdataFileLoad` returned NULL → `fileLoad` returned early → `fileLoadToNew` returned non-NULL pointer to zeroed memory → `modeldefLoad` proceeded to `modelPromoteOffsetsToPointers` → crashed on `modeldef->rootnode == NULL`. Each crash leaked the allocation. 151 × ~32KB = ~4.8MB leaked from MEMPOOL_STAGE.
+
+2. **Fixed `fileLoadToNew` (file.c)** — Added `romdataFileGetData(filenum) == NULL` pre-check before allocating. Returns NULL immediately for non-existent files. This is the root fix: prevents both the memory leak and the zeroed-memory crash.
+
+3. **Fixed `modeldefLoad` stale g_LoadType (modeldef.c)** — When `fileLoadToNew` returns NULL, `modeldefLoad` now clears `g_LoadType = LOADTYPE_NONE` before returning NULL. Previously, `g_LoadType` stayed at `LOADTYPE_MODEL` because `fileLoad` (which normally clears it) never ran. This could corrupt the next unrelated file load.
+
+4. **Added catalog pre-check (modelcatalog.c)** — `catalogValidateOne` now calls `romdataFileGetData` before entering `safeModeldefLoad`. Non-existent files are immediately marked MISSING without VEH overhead. Belt-and-suspenders with the `fileLoadToNew` fix. Added `#include "romdata.h"`.
+
+### Key Insight
+The original `fileLoadToNew` design assumed all file numbers correspond to real files. On a modded/merged build, many g_HeadsAndBodies entries reference file numbers that don't exist in the ROM data. The function allocated memory regardless, then relied on `fileLoad` to populate it — but `fileLoad` silently returned on failure, leaving the caller with a "successfully loaded" pointer to zeros.
+
+### Next Steps
+- Rebuild and test — log should show "not in ROM data (MISSING)" instead of ACCESS VIOLATION
+- Verify game boots past catalog validation to title screen
+- No MEMPOOL_STAGE leaks from missing models
+
+---
+
 ## Session 12 — 2026-03-21
 
 **Focus**: Client crash-on-launch diagnosis and fix; server log filename bug

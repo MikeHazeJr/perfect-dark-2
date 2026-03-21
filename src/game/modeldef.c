@@ -194,6 +194,11 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	}
 
 	if (modeldef == NULL) {
+		/* fileLoadToNew returned NULL (file not in ROM data). Clear
+		 * g_LoadType since fileLoad never ran to reset it — leaving it
+		 * stale would cause the next fileLoad to misapply model
+		 * preprocessing to unrelated data. */
+		g_LoadType = LOADTYPE_NONE;
 		return NULL;
 	}
 

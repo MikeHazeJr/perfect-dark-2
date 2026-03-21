@@ -9,17 +9,34 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
-## Current Task: Critical Boot Fix — catalogValidateAll Init Ordering
+## Current Task: Critical Boot Fix — Model Loading Crash Chain
 
 ### Status: CODE WRITTEN — NEEDS BUILD TEST
 
-**Fixed 2026-03-21 (Session 12).** Client crashed on launch because `catalogValidateAll()` called `mempAlloc()` before pool system was initialized.
+**Fixed 2026-03-21 (Sessions 12–13).** Two-part crash: (A) `catalogValidateAll()` called before pool init → fixed by moving after `mempSetHeap()`. (B) Even with heap ready, ALL 151 models triggered ACCESS_VIOLATION because `fileLoadToNew` returned non-NULL zeroed memory for non-existent ROM files, which crashed in `modelPromoteOffsetsToPointers`. Each crash also leaked ~32KB from MEMPOOL_STAGE (~4.8MB total).
 
-### Changes
+### Changes (Session 12 — Init Ordering)
 - `port/src/main.c` — Removed `catalogValidateAll()` call (was at line 198)
 - `port/src/pdmain.c` — Added `catalogValidateAll()` after `mempSetHeap()` + include
 - `port/src/modelcatalog.c` — Added `mempGetStageFree()` guard + `lib/memp.h` include
 - `port/src/system.c` — Server log filename fix: checks `g_NetDedicated` variable, not just CLI flag
+
+### Changes (Session 13 — Non-Existent File Handling)
+- `src/game/file.c` (`fileLoadToNew`) — Added `romdataFileGetData(filenum) == NULL` pre-check: returns NULL immediately without allocating. Prevents memory leak AND prevents returning zeroed memory that crashes callers.
+- `src/game/modeldef.c` (`modeldefLoad`) — Added `g_LoadType = LOADTYPE_NONE` on NULL early-return path. Without this, `g_LoadType` stayed stale at `LOADTYPE_MODEL` when fileLoadToNew returned NULL (since fileLoad never ran to clear it), potentially causing the next unrelated file load to be misprocessed as a model.
+- `port/src/modelcatalog.c` (`catalogValidateOne`) — Added `romdataFileGetData` pre-check: files not in ROM are immediately marked MISSING without entering VEH/safeModeldefLoad. Also added `#include "romdata.h"`.
+
+### Root Cause Chain (for future reference)
+```
+catalogValidateAll → catalogValidateOne → safeModeldefLoad → modeldefLoadToNew
+  → modeldefLoad → fileLoadToNew → mempAlloc (allocates ~32KB) → fileLoad
+    → romdataFileLoad returns NULL → fileLoad returns early
+  → fileLoadToNew returns non-NULL ptr to zeroed memory
+  → modeldefLoad does NOT return NULL → modelPromoteOffsetsToPointers
+    → crashes on modeldef->rootnode == NULL (zeroed memory)
+  → VEH catches → model marked INVALID → repeat 151 times → 4.8MB leaked
+  → game dies silently after catalog validation (heap exhausted or corrupted state)
+```
 
 ### Testing Steps
 
@@ -27,10 +44,11 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 |---|------|--------|
 | 1 | Compile client | WAITING |
 | 2 | Launch client — verify it reaches title screen (no immediate close) | WAITING |
-| 3 | Check pd-client.log — should show catalog validation AFTER "memp heap" line | WAITING |
-| 4 | Check catalog validation — models should load (not all MISSING/ACCESS VIOLATION) | WAITING |
-| 5 | Compile server | WAITING |
-| 6 | Launch server — verify log file is `pd-server.log` (not pd-client.log) | WAITING |
+| 3 | Check pd-client.log — NO access violations during catalog validation | WAITING |
+| 4 | Check catalog validation — missing models should say "not in ROM data (MISSING)" | WAITING |
+| 5 | Check MEMPOOL_STAGE — no leaked allocations from missing models | WAITING |
+| 6 | Compile server | WAITING |
+| 7 | Launch server — verify log file is `pd-server.log` (not pd-client.log) | WAITING |
 
 ---
 

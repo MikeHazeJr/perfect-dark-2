@@ -37,6 +37,7 @@
 #include "game/modeldef.h"
 #include "game/lang.h"
 #include "lib/memp.h"
+#include "romdata.h"
 
 #include <setjmp.h>
 #ifdef _WIN32
@@ -368,6 +369,18 @@ static void catalogValidateOne(s32 index)
 	if (ce->status != MODELSTATUS_UNKNOWN) return; /* Already validated */
 
 	struct headorbody *hb = &g_HeadsAndBodies[index];
+
+	/* Quick pre-check: if the file doesn't exist in ROM data, mark it
+	 * MISSING immediately. This avoids the overhead of VEH setup/teardown
+	 * and mempAlloc for every non-existent model file. The deeper fix in
+	 * fileLoadToNew also returns NULL for missing files, but catching it
+	 * here produces a cleaner log and skips unnecessary work entirely. */
+	if (romdataFileGetData(hb->filenum) == NULL) {
+		ce->status = MODELSTATUS_MISSING;
+		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — not in ROM data (MISSING)",
+		             index, hb->filenum);
+		return;
+	}
 
 	/* Load the modeldef if not already cached (requires heap to be ready).
 	 * Use safeModeldefLoad() so a corrupt model file causes an INVALID

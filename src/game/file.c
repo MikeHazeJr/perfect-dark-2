@@ -222,6 +222,16 @@ void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
 	void *ptr;
 
 	if (method == FILELOADMETHOD_EXTRAMEM || method == FILELOADMETHOD_DEFAULT) {
+		/* Pre-check: if the file doesn't exist in ROM data, return NULL
+		 * immediately. Without this guard, we allocate memory via mempAlloc,
+		 * fileLoad's internal romdataFileLoad returns NULL and exits early,
+		 * and we return a non-NULL pointer to zeroed memory. Callers then
+		 * crash dereferencing NULL fields inside the "loaded" struct.
+		 * This also prevents leaking MEMPOOL_STAGE allocations. */
+		if (romdataFileGetData(filenum) == NULL) {
+			return NULL;
+		}
+
 		if (info->loadedsize == 0) {
 			info->loadedsize = (fileGetInflatedSize(filenum, loadtype) + 0x20) & 0xfffffff0;
 
