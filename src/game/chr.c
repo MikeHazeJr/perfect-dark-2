@@ -1090,6 +1090,12 @@ void chrInit(struct prop *prop, u8 *ailist)
 	}
 
 	prop->chr = chr;
+
+	if (chr == NULL) {
+		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) — cannot allocate", g_NumChrSlots);
+		return;
+	}
+
 	chr->chrnum = chrsGetNextUnusedChrnum();
 	chrRegister(chr->chrnum, i);
 
@@ -1309,6 +1315,11 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 
 	chr = prop->chr;
 
+	if (chr == NULL) {
+		sysLogPrintf(LOG_ERROR, "chr0f020b14: chrInit failed (out of chr slots) — aborting");
+		return NULL;
+	}
+
 	modelSetAnim70(model, chr0f01f378);
 	model->chr = chr;
 	model->unk01 = 1;
@@ -1355,6 +1366,10 @@ struct prop *chrAllocate(struct model *model, struct coord *pos, RoomNum *rooms,
 
 	if (prop) {
 		prop = chr0f020b14(prop, model, pos, rooms, faceangle, ailist);
+
+		if (prop == NULL) {
+			return NULL;
+		}
 
 		if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
 			chrSetShield(prop->chr, 8);

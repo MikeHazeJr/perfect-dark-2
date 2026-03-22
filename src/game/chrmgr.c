@@ -49,6 +49,11 @@ void chrmgrConfigure(s32 numchrs)
 	s32 i;
 
 	g_NumChrSlots = PLAYERCOUNT() + numchrs + 10;
+
+	sysLogPrintf(LOG_NOTE, "CHRSLOTS: chrmgrConfigure numchrs=%d PLAYERCOUNT=%d => g_NumChrSlots=%d (sizeof chrdata=%d, total=%d bytes)",
+		numchrs, PLAYERCOUNT(), g_NumChrSlots, (s32)sizeof(struct chrdata),
+		(s32)(g_NumChrSlots * sizeof(struct chrdata)));
+
 	g_ChrSlots = mempAlloc(ALIGN16(g_NumChrSlots * sizeof(struct chrdata)), MEMPOOL_STAGE);
 
 	for (i = 0; i < g_NumChrSlots; i++) {

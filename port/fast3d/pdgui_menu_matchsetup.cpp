@@ -544,7 +544,7 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
 
     ImGui::EndChild(); /* player_scroll */
 
-    /* ---- Bot +/- buttons docked to bottom ---- */
+    /* ---- Add Bot button docked to bottom ---- */
     ImGui::Spacing();
 
     /* Count current bots */
@@ -553,46 +553,29 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
         if (g_MatchConfig.slots[i].type == SLOT_BOT) botCount++;
     }
 
-    float btnW = 32.0f * scale;
-    float btnH = 24.0f * scale;
+    float addBtnW = 100.0f * scale;
+    float addBtnH = 26.0f * scale;
 
-    /* Right-align the bot count + buttons */
+    /* Right-align: bot count label + Add Bot button */
     float botLabelW = ImGui::CalcTextSize("Bots: 00").x;
-    float btnPad = 6.0f * scale;
-    float totalW = botLabelW + btnPad + btnW * 2 + 4.0f * scale;
+    float btnPad = 8.0f * scale;
+    float totalW = botLabelW + btnPad + addBtnW;
     ImGui::SetCursorPosX(panelW - totalW - ImGui::GetStyle().WindowPadding.x);
 
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Bots: %02d", botCount);
     ImGui::SameLine(0, btnPad);
 
-    /* + button */
+    /* Add Bot button */
     bool canAdd = (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
     if (!canAdd) ImGui::BeginDisabled();
-    if (PdButton("+##addbot", ImVec2(btnW, btnH))) {
+    if (PdButton("Add Bot", ImVec2(addBtnW, addBtnH))) {
         s32 newIdx = matchConfigAddBot(
             (u8)s_AddBotType, (u8)s_AddBotDiff,
             0, BODY_DARK_COMBAT, NULL);
         if (newIdx >= 0) selectionSet(newIdx);
     }
     if (!canAdd) ImGui::EndDisabled();
-
-    ImGui::SameLine(0, 2.0f * scale);
-
-    /* - button (remove last bot) */
-    bool canRemove = (botCount > 0);
-    if (!canRemove) ImGui::BeginDisabled();
-    if (PdButton("-##rmbot", ImVec2(btnW, btnH))) {
-        /* Remove last bot in the list */
-        for (s32 i = g_MatchConfig.numSlots - 1; i >= 0; i--) {
-            if (g_MatchConfig.slots[i].type == SLOT_BOT) {
-                matchConfigRemoveSlot(i);
-                pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                break;
-            }
-        }
-    }
-    if (!canRemove) ImGui::EndDisabled();
 
     ImGui::EndChild(); /* players_panel */
 }

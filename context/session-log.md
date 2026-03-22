@@ -42,6 +42,33 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 16c — 2026-03-21
+
+**Focus**: 12+ character crash ROOT CAUSE found and fixed, Match Setup UI polish, Match log channel
+
+### What Was Done
+
+1. **FIXED: 12+ character combat sim crash** — ROOT CAUSE: `chrmgrConfigure()` in `src/game/chrmgr.c` allocates `g_NumChrSlots = PLAYERCOUNT() + numchrs + 10`, where `numchrs` only counts guards from the map setup file — NOT simulant bots. With 1 player + 0 map NPCs + 10 buffer = 11 chr slots, but 24 bots need 25+ slots. chrInit runs out of free slots at bot #12, returns chr=NULL, then `chr->chrnum = ...` dereferences NULL → ACCESS_VIOLATION at +0x5eb54.
+
+   **Fix**: Added bot-counting loop in `src/game/setup.c` before `chrmgrConfigure()` call. When in MP mode with simulants, counts set bits in `g_MpSetup.chrslots` for bot slots and adds to `numchrs`. Now 1 player + 24 bots + 0 map NPCs + 10 buffer = 35 chr slots.
+
+   **Safety nets**: Added NULL checks in `chrInit()` and `chr0f020b14()` in `src/game/chr.c` so exhausted slot pools log errors instead of crashing. `chrAllocate()` handles NULL return from `chr0f020b14()`.
+
+2. **Added LOG_CH_MATCH channel** (0x0100) — New 9th debug log channel for match setup pipeline tracing. Appears in Debug tab channel checkboxes automatically. Added diagnostic logging to `chrmgrConfigure()` showing slot budget calculation.
+
+3. **Match Setup UI: Add Bot button** — Replaced +/- button pair with single "Add Bot" button (100px scaled), keeping the "Bots: 02" counter. X remove buttons on each bot row were already working.
+
+### Files Modified
+- `src/game/setup.c` — Bot count added to numchrs before chrmgrConfigure (the crash fix)
+- `src/game/chr.c` — NULL safety checks in chrInit, chr0f020b14, chrAllocate
+- `src/game/chrmgr.c` — Diagnostic logging in chrmgrConfigure
+- `port/include/system.h` — Added LOG_CH_MATCH (0x0100), LOG_CH_COUNT 8→9
+- `port/src/system.c` — Added "Match" to channel name/bit arrays
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — Replaced +/- with "Add Bot" button
+- `context/session-log.md` — This entry
+
+---
+
 ## Session 16b — 2026-03-21
 
 **Focus**: Match Setup menu layout restructure per Mike's annotated screenshot

@@ -1503,6 +1503,21 @@ void setupCreateProps(s32 stagenum)
 				numchrs += g_Vars.numaibuddies;
 			}
 
+			/* PC: Account for simulant bots in chr slot allocation.
+			 * Original N64 only had 8 total characters so the +10 buffer
+			 * in chrmgrConfigure was always enough. With up to 24 bots
+			 * the slot pool must be sized to fit all of them. */
+			if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
+				s32 k;
+				for (k = 0; k < MAX_BOTS; k++) {
+					if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+						numchrs++;
+					}
+				}
+				sysLogPrintf(LOG_NOTE, "CHRSLOTS: added %d simulant slots (total numchrs=%d)",
+					numchrs - (s32)setupCountCommandType(OBJTYPE_CHR), numchrs);
+			}
+
 			chrmgrConfigure(numchrs);
 		} else {
 			chrmgrConfigure(0);

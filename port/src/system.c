@@ -70,11 +70,11 @@ static u32 s_LogChannelMask = LOG_CH_ALL;
 static s32 s_LogVerbose = 0;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
-	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System"
+	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match"
 };
 const u32 sysLogChannelBits[LOG_CH_COUNT] = {
 	LOG_CH_NETWORK, LOG_CH_GAME, LOG_CH_COMBAT, LOG_CH_AUDIO,
-	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM
+	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM, LOG_CH_MATCH
 };
 
 u32 sysLogGetChannelMask(void) { return s_LogChannelMask; }

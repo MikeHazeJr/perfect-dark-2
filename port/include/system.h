@@ -38,6 +38,7 @@ enum LogLevel {
 #define LOG_CH_SAVE      0x0020  /* SAVE, SAVEMIGRATE, CONFIG             */
 #define LOG_CH_MOD       0x0040  /* MOD, MODMGR, MODLOAD                 */
 #define LOG_CH_SYSTEM    0x0080  /* SYS, MEM, MEMPC, CRASH, FS, UPDATER  */
+#define LOG_CH_MATCH     0x0100  /* MATCH, CHRSLOTS, BOT_ALLOC, MATCHSETUP pipeline */
 #define LOG_CH_ALL       0xFFFF
 #define LOG_CH_NONE      0x0000
 
@@ -50,7 +51,7 @@ s32  sysLogGetVerbose(void);
 void sysLogSetVerbose(s32 enabled);
 
 /* Channel names/count for UI enumeration */
-#define LOG_CH_COUNT 8
+#define LOG_CH_COUNT 9
 extern const char *sysLogChannelNames[LOG_CH_COUNT];
 extern const u32   sysLogChannelBits[LOG_CH_COUNT];
 
