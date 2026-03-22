@@ -4496,6 +4496,13 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 			Mtxf *mtx;
 			f32 sp68;
 
+			/* Safety: modelGetRootMtx returns NULL if model matrices aren't
+			 * computed yet (e.g. bot spawned but not yet animated). Skip hit
+			 * test entirely — can't determine bounding sphere position. */
+			if (!rootmtx) {
+				break;
+			}
+
 			if (func0f06b39c(&shotdata->gunpos2d, &shotdata->gundir2d, (struct coord *)rootmtx->m[3], radius)) {
 				spb8 = 1;
 				hitpart = 1;
@@ -4974,20 +4981,25 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 			chr->geo.radius = 15;
 		}
 
-		/* Combat debug: detect prop/model position divergence (sample every 120 frames) */
+		/* Combat debug: detect prop/model position divergence (sample every 120 frames).
+		 * modelGetRootMtx can return NULL if the model's animation hasn't ticked yet
+		 * (e.g. during the opening camera flythrough before bots get their first
+		 * animation pass). Must check before dereferencing. */
 		if (chr->aibot && chr->model && (g_Vars.lvframe60 % 120) == 0) {
 			Mtxf *rmtx = modelGetRootMtx(chr->model);
-			f32 dx = prop->pos.x - rmtx->m[3][0];
-			f32 dz = prop->pos.z - rmtx->m[3][2];
-			f32 distsq = dx * dx + dz * dz;
-			if (distsq > 100.0f) { /* >10 units divergence */
-				sysLogPrintf(LOG_WARNING, "COMBAT: POS_DESYNC chr=%p "
-					"proppos=(%.0f,%.0f,%.0f) modelpos=(%.0f,%.0f,%.0f) "
-					"delta=%.1f radius=%.1f",
-					(void *)chr,
-					prop->pos.x, prop->pos.y, prop->pos.z,
-					rmtx->m[3][0], rmtx->m[3][1], rmtx->m[3][2],
-					sqrtf(distsq), chr->radius);
+			if (rmtx) {
+				f32 dx = prop->pos.x - rmtx->m[3][0];
+				f32 dz = prop->pos.z - rmtx->m[3][2];
+				f32 distsq = dx * dx + dz * dz;
+				if (distsq > 100.0f) { /* >10 units divergence */
+					sysLogPrintf(LOG_WARNING, "COMBAT: POS_DESYNC chr=%p "
+						"proppos=(%.0f,%.0f,%.0f) modelpos=(%.0f,%.0f,%.0f) "
+						"delta=%.1f radius=%.1f",
+						(void *)chr,
+						prop->pos.x, prop->pos.y, prop->pos.z,
+						rmtx->m[3][0], rmtx->m[3][1], rmtx->m[3][2],
+						sqrtf(distsq), chr->radius);
+				}
 			}
 		}
 

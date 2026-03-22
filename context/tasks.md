@@ -48,8 +48,8 @@ Added explicit `-g` to CMakeLists.txt. After clean rebuild, `addr2line` should p
 
 ### Three Bugs Being Tracked
 
-1. **Camera transition crash** — ACCESS_VIOLATION 2s after bot spawn. Persists after Session 12-13 fix. Scale clamp was active during test — need retest with scale clamp removed. If still crashes, `addr2line` with debug symbols will identify the function.
-2. **Shots pass through bots** — Root cause was scale clamp: `modeldef->scale` clamped to 1.0 → effective model scale 0.1 → hit radius ~0. Scale clamp now removed — **likely fixed**, needs retest.
+1. **Camera transition crash** — ROOT CAUSE FOUND (Session 20): Our Session 18 POS_DESYNC diagnostic in `chrUpdateGeometry` dereferences `modelGetRootMtx()` return value without NULL check. Returns NULL during opening camera flythrough because bot animation hasn't ticked. **Fixed**: NULL guard added. Also added NULL guard to `chrTestHit` (propagation fix). **Needs rebuild to verify.**
+2. **Shots pass through bots** — Root cause was scale clamp: `modeldef->scale` clamped to 1.0 → effective model scale 0.1 → hit radius ~0. Scale clamp now removed. Log shows `hitradius=116.2` — **likely fixed but untestable until crash is resolved.**
 3. **Player instant death** — Needs log data from `COMBAT: DMG_SCALED` to diagnose. May also be affected by scale fix.
 
 ### After Build Stabilization — BotController Architecture (New Phase)

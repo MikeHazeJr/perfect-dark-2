@@ -26,11 +26,30 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 ### Key Finding
 The scale clamp was a defensive measure added before Session 12–13's model loading fix. Now that `fileLoadToNew` properly returns NULL for missing ROM files (and `body0f02ce8c` checks for NULL/invalid modeldefs), the clamp serves no purpose and actively harms model data. The three combat bugs (hit radius, position desync, camera crash) may all improve with correct scale values.
 
+### Second Build (scale clamp removed + debug symbols)
+
+Scale values now log correctly (`modeldef->scale=1162.33`, no clamping). Crash persists at same timing. Debug symbols work — `addr2line` with ImageBase (`0x140000000 + offset`) produces full function names and line numbers.
+
+**Crash call stack** (bottom to top):
+```
+main → mainProc → mainLoop → mainTick → lvTickPlayer → playerTick →
+bmoveTick → bwalkTick → bwalkUpdateVertical → cdFindGroundInfoAtCyl →
+cdCollectGeoForCyl → propUpdateGeometry → chrUpdateGeometry (chr.c:4980)
+```
+
+**Root cause**: Our Session 18 POS_DESYNC diagnostic calls `modelGetRootMtx(chr->model)` without NULL-checking the return. During the opening camera flythrough, bots exist but their animation hasn't ticked — `modelGetRootMtx` returns NULL. Code dereferences NULL+0x30 → ACCESS_VIOLATION.
+
+**Fix applied**:
+- `chr.c` POS_DESYNC diagnostic — Added `if (rmtx)` NULL guard
+- `chr.c` chrTestHit — Added `if (!rootmtx) break;` (propagation fix for original decompiled code)
+
+**Propagation check**: All other `modelGetRootMtx` callers guarded by `PROPFLAG_ONTHISSCREENTHISTICK`. No other unguarded sites.
+
 ### Next Steps
-- Clean rebuild with scale clamp removed + debug symbols enabled
-- If crash persists: run `addr2line` on new backtrace to get function names
-- Verify `objdump -h PerfectDark.exe | grep debug` shows DWARF sections
-- Check log for `body0f02ce8c: bodynum 86 ... modeldef->scale=1162.33` (no more WARNING)
+- Rebuild and test — crash should be resolved
+- If game survives camera animation: run 8-step combat test sequence
+- Watch hitradius=116.2 — may need tuning if too large
+- Watch for real POS_DESYNC warnings once bots are animated
 
 ---
 
