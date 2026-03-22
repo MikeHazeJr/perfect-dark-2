@@ -180,12 +180,16 @@ void propsReset(void)
 		g_Lifts[i] = NULL;
 	}
 
-	g_MaxWeaponSlots = 50;
-	g_MaxHatSlots = 10;
-	g_MaxAmmoCrates = 20;
-	g_MaxDebrisSlots = 15;
-	g_MaxProjectiles = IS4MB() ? 20 : 100;
-	g_MaxEmbedments = IS4MB() ? 40 : 80;
+	/* PC port: Increase object pool limits for 32 simultaneous characters.
+	 * Original N64 values were tuned for 4 players max. With 32 chars
+	 * all fighting, weapon drops and projectiles can easily exceed the
+	 * original limits. */
+	g_MaxWeaponSlots = 100;
+	g_MaxHatSlots = 20;
+	g_MaxAmmoCrates = 40;
+	g_MaxDebrisSlots = 30;
+	g_MaxProjectiles = IS4MB() ? 20 : 200;
+	g_MaxEmbedments = IS4MB() ? 40 : 160;
 
 	if (STAGE_IS_SYSTEM(g_Vars.stagenum)) {
 		g_MaxWeaponSlots = 0;
@@ -1433,6 +1437,20 @@ void setupLoadFiles(s32 stagenum)
 
 		if (g_Vars.normmplayerisrunning) {
 			numobjs += scenarioNumProps();
+		}
+
+		/* PC: Account for simulant bots in model slot allocation.
+		 * Same logic as the chrslots fix below - without this, numchrs=0
+		 * on MP maps with no map-embedded NPCs, causing g_MaxAnims to be
+		 * too small for 20+ bots (each bot needs an anim slot). */
+		if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
+			s32 k;
+			for (k = 0; k < MAX_BOTS; k++) {
+				if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+					numchrs++;
+				}
+			}
+			sysLogPrintf(LOG_NOTE, "MODELMGR: added simulant bot count to numchrs=%d for model slot allocation", numchrs);
 		}
 
 		modelmgrAllocateSlots(numobjs, numchrs);

@@ -6,30 +6,33 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ## Session 17 — 2026-03-21
 
-**Focus**: Fix ROOT CAUSE #2 of 12+ character combat sim crash (model binding pool exhaustion)
+**Focus**: Fix ROOT CAUSE #2 of 12+ character crash (model/anim pool exhaustion) + preemptive pool audit
 
 ### What Was Done
 
-1. **Fixed model rwdata binding pool exhaustion** — The second crash (after Session 16c's chr slot fix) was caused by `NUMTYPE3() = 20` in modelmgr.c. Character body models require type 3 rwdata slots (>52 words, <=256 words). With 20+ bots, all 20 type 3 slots would fill, then bodyAllocateModel would return NULL for remaining bots AND the player, causing a NULL model dereference crash.
+1. **Increased model rwdata binding pools** — `NUMTYPE3() = 20` was too small for 32 characters. Increased: NUMTYPE1 35->70, NUMTYPE2 25->50, NUMTYPE3 20->48, NUMSPARE 60->80. Added LOG_WARNING when pools exhaust.
 
-   **Fix**: Increased all rwdata binding pool sizes for the PC port:
-   - `NUMTYPE1`: 35 -> 70 (small rwdata, props/simple objects)
-   - `NUMTYPE2`: 25 -> 50 (medium rwdata, weapons/animated objects)
-   - `NUMTYPE3`: 20 -> 48 (large rwdata, character body models - 32 chars + 16 margin)
-   - `NUMSPARE`: 60 -> 80 (spare model slots for thrown weapons etc.)
+2. **Fixed modelmgrAllocateSlots receiving numchrs=0** — The ACTUAL crash cause. `modelmgrAllocateSlots(numobjs, numchrs)` in setup.c used a `numchrs` that didn't count simulant bots (same bug pattern as ROOT CAUSE #1). Result: `g_MaxAnims = 0 + 20 = 20`. After 20 bots allocated animated models, `modelmgrInstantiateAnim()` returned NULL, bodyAllocateModel failed. Fix: added bot counting from `g_MpSetup.chrslots` bitmask before the call.
+
+3. **Preemptively doubled hardcoded object pool limits** — N64 pools tuned for 4 players: g_MaxWeaponSlots 50->100, g_MaxHatSlots 10->20, g_MaxAmmoCrates 20->40, g_MaxDebrisSlots 15->30, g_MaxProjectiles 100->200, g_MaxEmbedments 80->160.
+
+4. **Added diagnostic logging** — MODELMGR AllocateSlots logs pool sizes, botmgr logs explicit error on NULL model.
 
    **Files modified:**
-   - `src/game/modelmgr.c` — Increased NUMTYPE1/2/3 macros, added LOG_WARNING when rwdata pools exhausted
-   - `src/game/modelmgrreset.c` — Matched increased pool sizes, added system.h include, added MODELMGR allocation logging in modelmgrAllocateSlots
-   - `src/game/botmgr.c` — Added LOG_ERROR else-branch when bodyAllocateModel returns NULL
+   - `src/game/setup.c` — Bot counting before modelmgrAllocateSlots, doubled object pool limits
+   - `src/game/modelmgr.c` — Increased NUMTYPE macros, exhaustion warning logging
+   - `src/game/modelmgrreset.c` — Matched pool sizes, added system.h, allocation logging
+   - `src/game/botmgr.c` — LOG_ERROR else-branch for NULL model
 
-### Key Insight
+### Root Cause Pattern
 
-Both crash root causes were N64 memory budget limits that are inappropriate for PC:
-- ROOT CAUSE #1: chr slot count didn't include simulant bots (fixed Session 16c)
-- ROOT CAUSE #2: model rwdata type 3 pool capped at 20 slots (fixed this session)
+"numchrs doesn't count bots" existed in TWO call sites in setup.c:
+1. `chrmgrConfigure(numchrs)` — fixed Session 16c
+2. `modelmgrAllocateSlots(numobjs, numchrs)` — fixed this session
 
-Together these fixes should allow the full 1 player + 31 bots (32 total characters) to load without crashing.
+Both used local `numchrs` from `setupCountCommandType(OBJTYPE_CHR)` only. Each needed `g_MpSetup.chrslots` bitmask counting.
+
+### Audit: No further numchrs-dependent allocators found. g_Vars.maxprops shares the same now-fixed numchrs. Gfx/vtx buffers scale by PLAYERCOUNT (local). Proxy mines are static.
 
 ---
 
