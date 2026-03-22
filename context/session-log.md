@@ -4,6 +4,35 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 17 — 2026-03-21
+
+**Focus**: Fix ROOT CAUSE #2 of 12+ character combat sim crash (model binding pool exhaustion)
+
+### What Was Done
+
+1. **Fixed model rwdata binding pool exhaustion** — The second crash (after Session 16c's chr slot fix) was caused by `NUMTYPE3() = 20` in modelmgr.c. Character body models require type 3 rwdata slots (>52 words, <=256 words). With 20+ bots, all 20 type 3 slots would fill, then bodyAllocateModel would return NULL for remaining bots AND the player, causing a NULL model dereference crash.
+
+   **Fix**: Increased all rwdata binding pool sizes for the PC port:
+   - `NUMTYPE1`: 35 -> 70 (small rwdata, props/simple objects)
+   - `NUMTYPE2`: 25 -> 50 (medium rwdata, weapons/animated objects)
+   - `NUMTYPE3`: 20 -> 48 (large rwdata, character body models - 32 chars + 16 margin)
+   - `NUMSPARE`: 60 -> 80 (spare model slots for thrown weapons etc.)
+
+   **Files modified:**
+   - `src/game/modelmgr.c` — Increased NUMTYPE1/2/3 macros, added LOG_WARNING when rwdata pools exhausted
+   - `src/game/modelmgrreset.c` — Matched increased pool sizes, added system.h include, added MODELMGR allocation logging in modelmgrAllocateSlots
+   - `src/game/botmgr.c` — Added LOG_ERROR else-branch when bodyAllocateModel returns NULL
+
+### Key Insight
+
+Both crash root causes were N64 memory budget limits that are inappropriate for PC:
+- ROOT CAUSE #1: chr slot count didn't include simulant bots (fixed Session 16c)
+- ROOT CAUSE #2: model rwdata type 3 pool capped at 20 slots (fixed this session)
+
+Together these fixes should allow the full 1 player + 31 bots (32 total characters) to load without crashing.
+
+---
+
 ## Session 16 — 2026-03-21
 
 **Focus**: Deeper crash audit for 12+ chars, bug pattern catalog, Debug tab polish, config persistence
