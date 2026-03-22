@@ -38,6 +38,7 @@ Merged PC port combining:
 | File | System | What It Covers |
 |------|--------|----------------|
 | [tasks.md](tasks.md) | Task Tracker | **Read first.** Current task, step-by-step progress, blocked items, testing status |
+| [constraints.md](constraints.md) | Constraint Ledger | Active vs. removed constraints. Check before implementing anything complex. |
 | [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries, decisions, next steps |
 | [imgui.md](imgui.md) | ImGui & Styling | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu, font |
 | [collision.md](collision.md) | Collision | Capsule sweep, floor/ceiling detection, legacy cdTestVolume, geometry types |

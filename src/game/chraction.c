@@ -4299,6 +4299,28 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	s32 aplayernum = -1;
 	s32 choketype = CHOKETYPE_NONE;
 
+	/* Combat debug: log every chrDamage entry with full context */
+	{
+		const char *atype = "???";
+		const char *vtype = "???";
+		if (aprop) {
+			if (aprop->type == PROPTYPE_PLAYER) atype = "PLAYER";
+			else if (aprop->type == PROPTYPE_CHR) atype = (aprop->chr && aprop->chr->aibot) ? "BOT" : "NPC";
+		} else {
+			atype = "NULL";
+		}
+		if (vprop->type == PROPTYPE_PLAYER) vtype = "PLAYER";
+		else if (vprop->type == PROPTYPE_CHR) vtype = (chr->aibot) ? "BOT" : "NPC";
+
+		sysLogPrintf(LOG_NOTE, "COMBAT: chrDamage sender=%s receiver=%s "
+			"pos=(%.0f,%.0f,%.0f) dmg_raw=%.2f hp=%.2f/%.2f shield=%.2f "
+			"weapon=%d hitpart=%d explosion=%d",
+			atype, vtype,
+			vprop->pos.x, vprop->pos.y, vprop->pos.z,
+			damage, chr->damage, chr->maxdamage, chrGetShield(chr),
+			gset ? gset->weaponnum : -1, hitpart, explosion);
+	}
+
 	if (g_NetMode == NETMODE_SERVER) {
 		netmsgSvcChrDamageWrite(&g_NetMsgRel, chr, damage, vector, gset, aprop, hitpart,
 				damageshield, prop2, side, arg11, explosion, explosionpos);
@@ -4494,10 +4516,16 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		if (vprop->type == PROPTYPE_PLAYER) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(playermgrGetPlayerNumByProp(vprop));
+			sysLogPrintf(LOG_NOTE, "COMBAT: MP_SCALE damagescale=%.2f dmg_before=%.2f",
+				g_Vars.currentplayerstats->damagescale, damage);
 			damage *= g_Vars.currentplayerstats->damagescale;
 			setCurrentPlayerNum(prevplayernum);
 		}
 	}
+
+	/* Combat debug: log final scaled damage */
+	sysLogPrintf(LOG_NOTE, "COMBAT: DMG_SCALED dmg_final=%.2f healthscale=%.2f armourscale=%.2f mplayerisrunning=%d",
+		damage, healthscale, armourscale, g_Vars.mplayerisrunning);
 
 	// Apply rumble
 	if (vprop->type == PROPTYPE_PLAYER) {
@@ -5003,6 +5031,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chr->damage += damage;
 				chr->lastattacker = (aprop ? aprop->chr : NULL);
 				chr->chrflags |= CHRCFLAG_JUST_INJURED;
+
+				/* Combat debug: log damage result */
+				sysLogPrintf(LOG_NOTE, "COMBAT: DMG_APPLIED dmg_scaled=%.2f hp_after=%.2f/%.2f "
+					"dead=%s invincible=%d",
+					damage, chr->damage, chr->maxdamage,
+					chr->damage >= chr->maxdamage ? "YES" : "NO",
+					(chr->chrflags & CHRCFLAG_INVINCIBLE) != 0);
 
 				if (chr->aibot) {
 					if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_ONEHITKILLS)) {

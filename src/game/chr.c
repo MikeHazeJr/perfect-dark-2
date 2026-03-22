@@ -4463,6 +4463,13 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 	struct coord spd0;
 	struct chrdata *chr = prop->chr;
 
+	/* Combat debug: log if chr is skipped entirely */
+	if ((chr->chrflags & CHRCFLAG_HIDDEN) || !(prop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
+		sysLogPrintf(LOG_VERBOSE, "COMBAT: chrTestHit SKIP chr=%p hidden=%d onscreen=%d",
+			(void *)chr, (chr->chrflags & CHRCFLAG_HIDDEN) != 0,
+			(prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) != 0);
+	}
+
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0 && (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
 		f32 radius = chrGetHitRadius(chr);
 
@@ -4485,6 +4492,14 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 				spb8 = 1;
 				hitpart = 1;
 			}
+
+			/* Combat debug: log bounding sphere test result for this chr */
+			sysLogPrintf(LOG_VERBOSE, "COMBAT: chrTestHit chr=%p aibot=%d proppos=(%.0f,%.0f,%.0f) "
+				"modelpos=(%.0f,%.0f,%.0f) radius=%.1f bsphere=%s",
+				(void *)chr, chr->aibot != NULL,
+				prop->pos.x, prop->pos.y, prop->pos.z,
+				rootmtx->m[3][0], rootmtx->m[3][1], rootmtx->m[3][2],
+				radius, spb8 ? "HIT" : "MISS");
 
 			if (hitpart) {
 				if (chrGetShield(chr) > 0.0f) {
@@ -4598,6 +4613,14 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 		sp90[2] = hit->hitthing.pos.z;
 
 		shield = chrGetShield(chr);
+
+		/* Combat debug: player bullet hit a chr */
+		sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT chr=%p aibot=%d pos=(%.0f,%.0f,%.0f) "
+			"weapon=%d dmg=%.2f shield=%.2f hp=%.2f/%.2f hitpart=%d",
+			(void *)chr, chr->aibot != NULL,
+			prop->pos.x, prop->pos.y, prop->pos.z,
+			shotdata->gset.weaponnum, gsetGetDamage(&shotdata->gset),
+			shield, chr->damage, chr->maxdamage, hit->hitpart);
 
 		func0f0341dc(chr, gsetGetDamage(&shotdata->gset), &shotdata->gundir3d, &shotdata->gset,
 				g_Vars.currentplayer->prop, hit->hitpart, hit->prop, hit->bboxnode,
@@ -4941,6 +4964,23 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 
 		if (g_Vars.useperimshoot) {
 			chr->geo.radius = 15;
+		}
+
+		/* Combat debug: detect prop/model position divergence (sample every 120 frames) */
+		if (chr->aibot && chr->model && (g_Vars.lvframe60 % 120) == 0) {
+			Mtxf *rmtx = modelGetRootMtx(chr->model);
+			f32 dx = prop->pos.x - rmtx->m[3][0];
+			f32 dz = prop->pos.z - rmtx->m[3][2];
+			f32 distsq = dx * dx + dz * dz;
+			if (distsq > 100.0f) { /* >10 units divergence */
+				sysLogPrintf(LOG_WARNING, "COMBAT: POS_DESYNC chr=%p "
+					"proppos=(%.0f,%.0f,%.0f) modelpos=(%.0f,%.0f,%.0f) "
+					"delta=%.1f radius=%.1f",
+					(void *)chr,
+					prop->pos.x, prop->pos.y, prop->pos.z,
+					rmtx->m[3][0], rmtx->m[3][1], rmtx->m[3][2],
+					sqrtf(distsq), chr->radius);
+			}
 		}
 
 		*start = (void *) &chr->geo;

@@ -137,6 +137,7 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "MATCH:",  6) == 0) return LOG_CH_GAME;
 
 	/* Combat */
+	if (strncmp(msg, "COMBAT:", 7) == 0) return LOG_CH_COMBAT;
 	if (strncmp(msg, "DAMAGE:", 7) == 0) return LOG_CH_COMBAT;
 	if (strncmp(msg, "WEAPON:", 7) == 0) return LOG_CH_COMBAT;
 	if (strncmp(msg, "AMMO:",   5) == 0) return LOG_CH_COMBAT;

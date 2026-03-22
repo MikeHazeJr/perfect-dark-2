@@ -4,6 +4,65 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 18 — 2026-03-21
+
+**Focus**: Combat bug diagnosis + combat debug logging channel + constraints.md creation
+
+### What Was Done
+
+1. **Deep diagnosis of two critical combat bugs in local play (31 bots)**:
+   - **Shots pass through bots**: Traced the full hit detection path: prop.c (shot loop) → chrTestHit (chr.c:4460) → chrHit (chr.c:4559) → func0f0341dc → chrDamage. Player shots test against model root matrix position (rootmtx->m[3]), NOT prop->pos. Bot geocyl collision geometry uses prop->pos. If these diverge (position desync), shots pass through visible bots. Also identified PROPFLAG_ONTHISSCREENTHISTICK as a gatekeeper — if bots don't get this flag, they're invisible to hit detection entirely.
+   - **Player instant death**: In MP combat sim, damage = raw_damage * damagescale (default 1.0). No obvious scaling issue found. Needs log data to confirm actual values. May be related to health/handicap settings.
+
+2. **Implemented comprehensive combat debug logging** across 5 files:
+   - `chr.c` — chrTestHit: logs bounding sphere test result (prop pos vs model pos, radius, HIT/MISS) for every tested chr. Also logs when chrs are SKIPPED (hidden or not on screen).
+   - `chr.c` — chrHit: logs when player bullet successfully hits a chr (weapon, damage, shield, health).
+   - `chr.c` — chrUpdateGeometry: **position desync detector** — every 120 frames, compares prop->pos to model root matrix position. Logs WARNING if divergence exceeds 10 units.
+   - `chraction.c` — chrDamage: logs every damage event with sender type (PLAYER/BOT/NPC), receiver type, raw damage, health before/after, weapon, hitpart, shield. Also logs after damage scaling with final values.
+   - `botact.c` — bot hit detection: logs when a bot's shot hits an opponent (attacker pos, target type/pos, damage, weapon).
+   - `prop.c` — shot processing: logs SHOT_FIRED (player pos, weapon, onscreen chr count, total onscreen props) and SHOT_RESULT (HIT/HIT_BG/MISS).
+   - `system.c` — added "COMBAT:" prefix to channel classifier so all new logs route to LOG_CH_COMBAT.
+
+3. **Created context/constraints.md** — Formal constraint ledger with Active Constraints (save format, protocol version, MAX_MPCHRS=36, MAX_PLAYERS=4, C11/C++ split, build system) and Removed Constraints (N64 guards, 4MB mode, dead code, micro-optimization, host-based MP, N64 collision, bot limit, body restriction, --log flag).
+
+4. **End Game crash analysis** — mpEndMatch() calls func0f0f820c(NULL, -6) for endscreen. Without crash log, likely candidate is array bounds issue in endscreen rendering/scoring when iterating 31+ chrs. Need log file from reproduction.
+
+### Files Modified
+- `src/game/chr.c` — Combat debug logging in chrTestHit, chrHit, chrUpdateGeometry
+- `src/game/chraction.c` — Combat debug logging in chrDamage (entry + scaling + application)
+- `src/game/botact.c` — system.h include, combat debug logging in bot hit path
+- `src/game/prop.c` — system.h include, combat debug logging in shot processing loop
+- `port/src/system.c` — Added "COMBAT:" prefix to log channel classifier
+- `context/constraints.md` — NEW: Constraint ledger
+- `context/README.md` — Added constraints.md to file index
+- `context/session-log.md` — This entry
+
+### Key Diagnostic: How to Read Combat Logs
+
+Enable verbose logging (F12 debug menu → Verbose checkbox, or `--verbose` CLI flag) and ensure Combat channel is enabled. Then look for:
+
+```
+COMBAT: SHOT_FIRED — every time player fires (shows onscreen chr count)
+COMBAT: chrTestHit SKIP — chr not tested (hidden or not on screen)
+COMBAT: chrTestHit ... bsphere=MISS — bullet didn't intersect bounding sphere
+COMBAT: PLAYER_HIT — bullet hit a chr (shows damage, health)
+COMBAT: chrDamage — damage applied (shows sender/receiver, raw damage)
+COMBAT: DMG_SCALED — after difficulty/MP scaling
+COMBAT: DMG_APPLIED — health change (before/after, dead?)
+COMBAT: BOT_HIT — bot's shot hit an opponent
+COMBAT: POS_DESYNC — WARNING: prop->pos diverged from model position by >10 units
+```
+
+### Remaining for Next Session
+- **Build and test** with combat logging enabled
+- **Reproduce "shots through bots"** and check for POS_DESYNC warnings or chrTestHit SKIP/MISS patterns
+- **Reproduce "instant death"** and check DMG_SCALED values for anomalies
+- **Reproduce "End Game crash"** and capture full log tail
+- If POS_DESYNC confirmed: investigate model matrix update vs prop->pos update path
+- If chrTestHit SKIP: investigate PROPFLAG_ONTHISSCREENTHISTICK assignment for bot props
+
+---
+
 ## Session 17 — 2026-03-21
 
 **Focus**: Fix ROOT CAUSE #2 of 12+ character crash (model/anim pool exhaustion) + preemptive pool audit
