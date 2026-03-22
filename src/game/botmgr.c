@@ -288,5 +288,8 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 				botinvInit(chr, 10);
 			}
 		}
+	} else {
+		sysLogPrintf(LOG_ERROR, "BOT_ALLOC: FAILED - bodyAllocateModel returned NULL for chrnum=%d slot=%d body=%d head=%d - model pool likely exhausted",
+			chrnum, aibotnum, bodynum, headnum);
 	}
 }
