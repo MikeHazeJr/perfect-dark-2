@@ -178,6 +178,10 @@ if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   add_compile_options(-Og)
 endif()
 
+# Debug info — explicit -g ensures DWARF symbols are embedded regardless
+# of CMAKE_BUILD_TYPE. Without this, addr2line returns ?? on MinGW.
+add_compile_options(-g)
+
 # Common CFLAGS
 add_compile_options(
   -fno-inline-functions

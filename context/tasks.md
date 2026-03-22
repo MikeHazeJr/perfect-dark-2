@@ -29,20 +29,28 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 | # | Test | What to Check | Status |
 |---|------|--------------|--------|
-| 1 | Launch client | Reaches title screen, no ACCESS_VIOLATION during catalog validation | WAITING |
-| 2 | Check pd-client.log for catalog | Missing models say "not in ROM data (MISSING)", no access violations | WAITING |
-| 3 | Start Combat Simulator, 24+ bots | No crash during opening camera animation | WAITING |
-| 4 | Check log: `COMBAT: chrGetHitRadius` | `modeldef_scale` should be ~200-300, `hitradius` should be ~20-30 | WAITING |
-| 5 | Shoot at bots | `COMBAT: SHOT_RESULT HIT` appears, bots take damage | WAITING |
-| 6 | Get shot by bots | `COMBAT: DMG_SCALED` shows sane values, not instant death | WAITING |
-| 7 | Check for POS_DESYNC | No `COMBAT: POS_DESYNC` warnings in log | WAITING |
-| 8 | Play to completion or End Game | No crash on endscreen/End Game | WAITING |
+| 1 | Launch client | Reaches title screen, no ACCESS_VIOLATION during catalog validation | **PASS** (Session 20) |
+| 2 | Check pd-client.log for catalog | Missing models say "not in ROM data (MISSING)", no access violations | **PASS** — catalog init clean |
+| 3 | Start Combat Simulator, 24+ bots | No crash during opening camera animation | **FAIL** — crash at offset 0x60002, 2s after spawn |
+| 4 | Check log: `COMBAT: chrGetHitRadius` | `modeldef_scale` should be ~700-1200 (mod models), `hitradius` TBD | BLOCKED (crash before combat) |
+| 5 | Shoot at bots | `COMBAT: SHOT_RESULT HIT` appears, bots take damage | BLOCKED |
+| 6 | Get shot by bots | `COMBAT: DMG_SCALED` shows sane values, not instant death | BLOCKED |
+| 7 | Check for POS_DESYNC | No `COMBAT: POS_DESYNC` warnings in log | BLOCKED |
+| 8 | Play to completion or End Game | No crash on endscreen/End Game | BLOCKED |
+
+### Session 20 Fix: Scale Clamp Removed
+
+The `modeldef->scale > 100` clamp in body.c and modelcatalog.c was destroying valid mod model data (scale ~1162 clamped to 1.0). Removed. Now only rejects ≤ 0. This may resolve bugs #2 and #3, and may affect the crash (#1) if the camera animation code depends on correct model geometry.
+
+### Session 20 Fix: Debug Symbols
+
+Added explicit `-g` to CMakeLists.txt. After clean rebuild, `addr2line` should produce function names for backtrace diagnosis.
 
 ### Three Bugs Being Tracked
 
-1. **Camera transition crash** — ACCESS_VIOLATION 2s after bot spawn. Likely causes: corrupt model data (Session 12-13 fix) and/or uninitialized ammo slots (Session 19 fix).
-2. **Shots pass through bots** — `chrGetHitRadius` returns model effective scale. If `modeldef->scale` is corrupt (zeroed from bad file load), radius ≈ 0. Session 12-13 fix should restore sane modeldef data.
-3. **Player instant death** — Needs log data from `COMBAT: DMG_SCALED` to diagnose. Could be damage scaling, could be health init, could be related to corrupt model data.
+1. **Camera transition crash** — ACCESS_VIOLATION 2s after bot spawn. Persists after Session 12-13 fix. Scale clamp was active during test — need retest with scale clamp removed. If still crashes, `addr2line` with debug symbols will identify the function.
+2. **Shots pass through bots** — Root cause was scale clamp: `modeldef->scale` clamped to 1.0 → effective model scale 0.1 → hit radius ~0. Scale clamp now removed — **likely fixed**, needs retest.
+3. **Player instant death** — Needs log data from `COMBAT: DMG_SCALED` to diagnose. May also be affected by scale fix.
 
 ### After Build Stabilization — BotController Architecture (New Phase)
 

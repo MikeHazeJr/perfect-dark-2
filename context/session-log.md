@@ -4,6 +4,36 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 20 — 2026-03-21
+
+**Focus**: First build of Sessions 12–19, crash diagnosis, scale clamp removal, debug symbol fix
+
+### What Was Done
+
+1. **First build test** — Mike compiled Sessions 12–19 together and ran the client. The Session 12–13 model loading crash chain fix is **confirmed working**: catalog validation completes without ACCESS_VIOLATION, all 24 bots spawn successfully with valid prop pointers.
+
+2. **Scale clamping identified as destructive** — The `bodymodeldef->scale > 100.0f` clamp in both `body.c` and `modelcatalog.c` was destroying legitimate mod model data. AllInOneMods models have `modeldef->scale` values of 700–2000, which is their intended scale. The clamp forced these to 1.0, making effective model scale ~0.1 instead of ~116 — breaking hit radii, rendering, and animation positioning. **Removed the >100 threshold**. Now only rejects scale ≤ 0 (truly degenerate). Added LOG_NOTE diagnostic to body.c so we can see actual scale values in the log.
+
+3. **Crash still occurs** — ACCESS_VIOLATION at offset 0x60002, 2 seconds after spawn (during opening camera animation). Same timing pattern as pre-fix crash. Root cause unknown — need symbol names to identify the crashing function.
+
+4. **Debug symbols fix** — `addr2line` returned all `??` because DWARF debug info wasn't being embedded. Added explicit `-g` to `CMakeLists.txt` compile options (MinGW's `RelWithDebInfo` wasn't reliably passing `-g`). After next clean build, `addr2line` should produce function names and line numbers.
+
+### Files Modified
+- `src/game/body.c` — Removed `modeldef->scale > 100` clamp, added LOG_NOTE diagnostic
+- `port/src/modelcatalog.c` — Removed `mdef->scale > 100` clamp, only reject ≤ 0
+- `CMakeLists.txt` — Added explicit `-g` for DWARF debug symbol generation
+
+### Key Finding
+The scale clamp was a defensive measure added before Session 12–13's model loading fix. Now that `fileLoadToNew` properly returns NULL for missing ROM files (and `body0f02ce8c` checks for NULL/invalid modeldefs), the clamp serves no purpose and actively harms model data. The three combat bugs (hit radius, position desync, camera crash) may all improve with correct scale values.
+
+### Next Steps
+- Clean rebuild with scale clamp removed + debug symbols enabled
+- If crash persists: run `addr2line` on new backtrace to get function names
+- Verify `objdump -h PerfectDark.exe | grep debug` shows DWARF sections
+- Check log for `body0f02ce8c: bodynum 86 ... modeldef->scale=1162.33` (no more WARNING)
+
+---
+
 ## Session 19 — 2026-03-21
 
 **Focus**: Crash log analysis, hit radius root cause, ammo init fix, BotController architecture decision

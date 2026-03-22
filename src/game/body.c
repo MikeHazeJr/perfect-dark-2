@@ -211,16 +211,17 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		return model;
 	}
 
-	/* Clamp scale to a reasonable range instead of rejecting the model.
-	 * Mods (e.g. mod_allinone) can produce models with absurd scale values
-	 * (e.g. 757-1984) due to format differences. Rejecting these causes
-	 * cascading failures where ALL bodies fail and the player has no chr,
-	 * crashing the tick loop. Clamping lets the model load — it may look
-	 * wrong but won't crash. */
-	if (bodymodeldef->scale <= 0.0f || bodymodeldef->scale > 100.0f) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: clamping bad scale %.2f -> 1.0 for bodynum %d (file 0x%04x)",
+	/* Log modeldef scale for diagnostics. Values of 700-2000 are normal for
+	 * AllInOneMods replacement models — do NOT clamp. The previous clamp to
+	 * 1.0 destroyed model geometry, hit radii, and animation positions.
+	 * Only reject truly degenerate values (zero/negative). */
+	if (bodymodeldef->scale <= 0.0f) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) — setting to 1.0",
 		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum);
 		bodymodeldef->scale = 1.0f;
+	} else {
+		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale);
 	}
 
 	modelAllocateRwData(bodymodeldef);

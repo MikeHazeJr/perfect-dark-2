@@ -176,10 +176,13 @@ static u8 validateModeldef(struct modeldef *mdef, s32 index, u16 filenum, f32 *c
 		return MODELSTATUS_INVALID;
 	}
 
-	/* Scale check — clamp rather than reject */
+	/* Scale check — only reject truly degenerate values (zero/negative).
+	 * Values of 700-2000 are normal for AllInOneMods replacement models.
+	 * The previous clamp to 1.0 for scale > 100 was destroying valid model
+	 * data, causing broken hit radii and rendering. */
 	*correctedScale = mdef->scale;
-	if (mdef->scale <= 0.0f || mdef->scale > 100.0f) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — scale %.4f out of range, clamping to 1.0 (CLAMPED)",
+	if (mdef->scale <= 0.0f) {
+		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — degenerate scale %.4f, setting to 1.0",
 		             index, filenum, mdef->scale);
 		*correctedScale = 1.0f;
 		mdef->scale = 1.0f;
