@@ -82,7 +82,7 @@
 
 void rng2SetSeed(u32 seed);
 
-struct weaponobj *g_Proxies[30];
+struct weaponobj *g_Proxies[MAX_PROXIES];
 f32 g_GasReleaseTimerMax240;
 bool g_GasEnableDamage;
 s32 g_MaxWeaponSlots;

@@ -20,6 +20,11 @@
 #define MAX_CHRWAYPOINTS       6
 #define MAX_EXPLOSIONS         6
 #define MAX_EYESPYDARTS        8
+/* PC: Proximity-triggered weapon tracking (proxy mines, Dragon prox bombs,
+ * grenades). N64 original was 30 for 4 players. With 32 characters each
+ * potentially placing multiple deployables, plus future level editor
+ * support for large maps, 120 gives comfortable headroom. */
+#define MAX_PROXIES            120
 #define MAX_COOPCHRS           MAX_PLAYERS
 #define MAX_MPCHRS             (MAX_PLAYERS + MAX_BOTS)
 #define MAX_MPPLAYERCONFIGS    (MAX_PLAYERS + MAX_COOPCHRS)
