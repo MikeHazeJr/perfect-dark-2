@@ -45,11 +45,18 @@ cdCollectGeoForCyl → propUpdateGeometry → chrUpdateGeometry (chr.c:4980)
 
 **Propagation check**: All other `modelGetRootMtx` callers guarded by `PROPFLAG_ONTHISSCREENTHISTICK`. No other unguarded sites.
 
+### Continued Debugging (same session)
+
+Two more crash iterations after initial NULL guard fix. Same pattern: ACCESS_VIOLATION in chrUpdateGeometry at the POS_DESYNC diagnostic. The `if (rmtx)` check wasn't sufficient because `modelFindNodeMtx` returns `&NULL[index]` — a non-NULL invalid pointer when `model->matrices` is NULL. Adding `model->matrices` check still crashed (likely stale model pointer during early collision ticks).
+
+**Resolution**: Removed POS_DESYNC diagnostic from `chrUpdateGeometry` entirely. This function runs in the collision path (`cdCollectGeoForCyl`) for ALL nearby props during the player's walk tick — including bots with partially-initialized models. Fundamentally unsafe place to inspect model matrices. Combat logging in `chrTestHit` and `chrDamage` remains active in safe render/combat paths.
+
+Also hardened `chrTestHit` with `model->matrices` check before calling `modelGetRootMtx`.
+
 ### Next Steps
 - Rebuild and test — crash should be resolved
-- If game survives camera animation: run 8-step combat test sequence
-- Watch hitradius=116.2 — may need tuning if too large
-- Watch for real POS_DESYNC warnings once bots are animated
+- If game survives: run 8-step combat test sequence
+- Combat logging (chrTestHit, chrDamage) still active for remaining bug diagnosis
 
 ---
 

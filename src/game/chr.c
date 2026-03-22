@@ -4982,27 +4982,13 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 			chr->geo.radius = 15;
 		}
 
-		/* Combat debug: detect prop/model position divergence (sample every 120 frames).
-		 * modelGetRootMtx can return NULL if the model's animation hasn't ticked yet
-		 * (e.g. during the opening camera flythrough before bots get their first
-		 * animation pass). Must check before dereferencing. */
-		if (chr->aibot && chr->model && chr->model->matrices && (g_Vars.lvframe60 % 120) == 0) {
-			Mtxf *rmtx = modelGetRootMtx(chr->model);
-			if (rmtx) {
-				f32 dx = prop->pos.x - rmtx->m[3][0];
-				f32 dz = prop->pos.z - rmtx->m[3][2];
-				f32 distsq = dx * dx + dz * dz;
-				if (distsq > 100.0f) { /* >10 units divergence */
-					sysLogPrintf(LOG_WARNING, "COMBAT: POS_DESYNC chr=%p "
-						"proppos=(%.0f,%.0f,%.0f) modelpos=(%.0f,%.0f,%.0f) "
-						"delta=%.1f radius=%.1f",
-						(void *)chr,
-						prop->pos.x, prop->pos.y, prop->pos.z,
-						rmtx->m[3][0], rmtx->m[3][1], rmtx->m[3][2],
-						sqrtf(distsq), chr->radius);
-				}
-			}
-		}
+		/* NOTE: POS_DESYNC diagnostic was here (Sessions 18-20) but removed.
+		 * chrUpdateGeometry is called from the collision system (cdCollectGeoForCyl)
+		 * for ALL nearby props during the player's walk tick, including bots whose
+		 * models may not yet have valid matrices. This is not a safe place to inspect
+		 * model root matrices. Position desync can still be detected in chrTestHit
+		 * (shot processing path) where PROPFLAG_ONTHISSCREENTHISTICK guarantees
+		 * valid model state. */
 
 		*start = (void *) &chr->geo;
 		*end = *start + sizeof(struct geocyl);
