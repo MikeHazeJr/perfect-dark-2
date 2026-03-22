@@ -864,6 +864,13 @@ void mpPushPauseDialog(void)
 	{
 		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
 
+		/* Bots (mpindex >= MAX_PLAYERS) don't have menus — skip the
+		 * entire pause dialog push to avoid g_Menus[] overflow. */
+		if (g_MpPlayerNum >= MAX_PLAYERS) {
+			g_MpPlayerNum = prevplayernum;
+			return;
+		}
+
 		if (g_Menus[g_MpPlayerNum].openinhibit == 0) {
 			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
@@ -892,6 +899,13 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 {
 	u32 prevplayernum = g_MpPlayerNum;
 	g_MpPlayerNum = playernum;
+
+	/* Bots don't have endscreen menus — restore and bail to avoid
+	 * g_Menus[] / g_PlayerConfigsArray[] overflow. */
+	if (g_MpPlayerNum >= MAX_PLAYERS) {
+		g_MpPlayerNum = prevplayernum;
+		return;
+	}
 
 	sysLogPrintf(LOG_NOTE, "ENDSCREEN_DIAG: mpPushEndscreenDialog player=%d slot=%d "
 		"g_FontHandelGothicSm=%p g_CharsHandelGothicSm=%p "

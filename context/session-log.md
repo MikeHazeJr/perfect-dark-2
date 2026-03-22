@@ -4,6 +4,66 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 15 — 2026-03-21
+
+**Focus**: Combat sim crash fix, Debug tab in Settings, Memory modernization M1
+
+### What Was Done
+
+1. **Fixed combat sim crash (1 player + 11 bots)** — Root cause: `g_Menus[MAX_PLAYERS]` (8 elements) accessed with bot `mpindex` values (8-31) causing ACCESS_VIOLATION. Full audit found 6 vulnerable sites across 4 files. Added bounds checks at each source where bot indices flow into g_Menus access. Bots now correctly skip all menu operations.
+
+   **Files fixed:**
+   - `src/game/mplayer/ingame.c` — `mpPushPauseDialog()`: early return for bot mpindex; `mpPushEndscreenDialog()`: early return for bot playernum
+   - `src/game/mplayer/mplayer.c` — `mpIsPaused()`: bounds check on mpindex; `mpRenderModalText()`: bounds check on two g_Menus accesses (curdialog read + openinhibit write)
+   - `src/game/bondview.c` — Two functions: replaced `#ifdef AVOID_UB` modulo hack and raw `g_Vars.currentplayerstats->mpindex` access with proper `mpindex < MAX_PLAYERS` bounds check
+   - `src/game/menutick.c` — Loop mpindex validation: added `mpindex < MAX_PLAYERS` to guard
+
+2. **Added Debug tab to Settings** — New 6th tab in Settings menu with log channel filters (All/None presets + per-channel checkboxes in 2-column layout), verbose logging toggle, UI theme selector (7 palettes in 3-column grid), memory diagnostics (persistent allocs, heap size, validate button), and keyboard shortcut reference (F11/F12).
+
+   **Files modified:**
+   - `port/fast3d/pdgui_menu_mainmenu.cpp` — Added `renderSettingsDebug()`, 6th tab, bumper wrap 4→5, selFlag5, extern "C" memory function declarations
+
+3. **Memory modernization M1** — Created `src/include/memsizes.h` with 30+ named constants covering all categories (BG, GUN, MENU, TEX, CAM, PAK, SND, ZBUF, entity limits). Replaced magic numbers in 8 high-priority files:
+   - `src/game/menu.c` — blur buffer (0x4b00), menu model buffers (0xb400/0x38400/0x25800)
+   - `src/game/bg.c` — 6 scratch headroom values (0x8010, 0x8000, 0x800, 0x1000, 0x100)
+   - `src/game/botmgr.c` — ammo type count (36)
+   - `src/game/varsreset.c` — onscreen props (200)
+   - `src/game/chrmgr.c` — chr manager slots (15)
+   - `src/game/bondgun.c` — gun model load scratch (0x8000)
+   - `src/game/credits.c` — credits model buffer (0x25800)
+   - `src/game/zbuf.c` — z-buffer alignment (0x40/0x3f)
+
+### Key Decisions
+- **Bounds-check approach** over array expansion for g_Menus fix — bots don't have menus, so the correct fix is preventing the access, not making the array bigger
+- Debug tab goes in Settings (not a separate menu) — discoverability for users who don't know about F12
+- M1 header uses category prefixes (BG_, GUN_, MENU_, etc.) for organization
+
+### Files Created
+- `src/include/memsizes.h` — Named constants for all magic-number allocations
+
+### Files Modified
+- `src/game/mplayer/ingame.c` — Bot bounds checks in pause/endscreen
+- `src/game/mplayer/mplayer.c` — Bot bounds checks in isPaused/renderModalText
+- `src/game/bondview.c` — Replaced AVOID_UB hack with proper bounds check
+- `src/game/menutick.c` — Loop mpindex bounds check
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — Debug tab, 6-tab wrapping, memory externs
+- `src/game/menu.c` — memsizes.h include + 3 magic number replacements
+- `src/game/bg.c` — memsizes.h include + 6 magic number replacements
+- `src/game/botmgr.c` — memsizes.h include + 1 replacement
+- `src/game/varsreset.c` — memsizes.h include + 1 replacement
+- `src/game/chrmgr.c` — memsizes.h include + 1 replacement
+- `src/game/bondgun.c` — memsizes.h include + 1 replacement
+- `src/game/credits.c` — memsizes.h include + 1 replacement
+- `src/game/zbuf.c` — memsizes.h include + 2 replacements
+
+### Next Steps
+- **Build and test** — combat sim with 12 players, Settings → Debug tab, verify no regressions
+- **M1 continuation** — ~100 remaining manual ALIGN16 → ALIGN16() macro replacements, stack buffer naming
+- **M2** — heap-promote dangerous stack buffers (pak.c 16KB, texdecompress.c 12KB, menuitem.c 24KB)
+- **M3** — collapse 107 IS4MB() ternaries (all dead code paths)
+
+---
+
 ## Session 14 — 2026-03-21
 
 **Focus**: Memory modernization audit and gameplan

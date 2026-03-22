@@ -231,6 +231,13 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 /* Update UI — from pdgui_menu_update.cpp */
 void pdguiUpdateRenderSettingsTab(void);
 
+/* Persistent memory diagnostics — from memp.c */
+void *mempPCAlloc(u32 size, const char *tag);
+s32 mempPCValidate(const char *context);
+u32 mempPCGetTotalAllocated(void);
+u32 mempPCGetNumAllocations(void);
+extern s32 g_OsMemSizeMb;
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -239,7 +246,7 @@ void pdguiUpdateRenderSettingsTab(void);
 
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
-static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates */
+static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug */
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
@@ -1105,6 +1112,147 @@ static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
     return pdTitleH;
 }
 
+/* ========================================================================
+ * Debug tab — log channel filters, theme selector, memory diagnostics
+ * ======================================================================== */
+
+static const char *s_ThemeNames[] = {
+    "Grey", "Blue", "Red", "Green", "White", "Silver", "Black & Gold"
+};
+#define PDGUI_NUM_THEMES 7
+
+static void renderSettingsDebug(float scale)
+{
+    /* ------ Log Channel Filters ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Log Channels");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    u32 mask = sysLogGetChannelMask();
+
+    /* Preset buttons: All / None */
+    float btnW = 80.0f * scale;
+    float btnH = 24.0f * scale;
+    bool isAll = (mask == LOG_CH_ALL);
+    bool isNone = (mask == LOG_CH_NONE);
+
+    if (isAll) {
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
+    }
+    if (ImGui::Button("All Channels", ImVec2(btnW, btnH))) {
+        sysLogSetChannelMask(LOG_CH_ALL);
+        mask = LOG_CH_ALL;
+    }
+    if (isAll) ImGui::PopStyleColor();
+
+    ImGui::SameLine();
+
+    if (isNone) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.85f));
+    }
+    if (ImGui::Button("None##ch", ImVec2(btnW, btnH))) {
+        sysLogSetChannelMask(LOG_CH_NONE);
+        mask = LOG_CH_NONE;
+    }
+    if (isNone) ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    /* Individual channel checkboxes — two columns */
+    bool changed = false;
+    ImGui::Columns(2, "##logcols", false);
+    for (int i = 0; i < LOG_CH_COUNT; i++) {
+        bool enabled = (mask & sysLogChannelBits[i]) != 0;
+        if (ImGui::Checkbox(sysLogChannelNames[i], &enabled)) {
+            if (enabled) {
+                mask |= sysLogChannelBits[i];
+            } else {
+                mask &= ~sysLogChannelBits[i];
+            }
+            changed = true;
+        }
+        if (i == (LOG_CH_COUNT / 2) - 1) ImGui::NextColumn();
+    }
+    ImGui::Columns(1);
+
+    if (changed) {
+        sysLogSetChannelMask(mask);
+    }
+
+    ImGui::Spacing();
+
+    /* Verbose toggle */
+    bool verbose = sysLogGetVerbose() != 0;
+    if (ImGui::Checkbox("Verbose Logging", &verbose)) {
+        sysLogSetVerbose(verbose ? 1 : 0);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Theme Selector ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "UI Theme");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    s32 currentPal = pdguiGetPalette();
+
+    for (int i = 0; i < PDGUI_NUM_THEMES; i++) {
+        bool selected = (i == currentPal);
+        if (selected) {
+            ImVec4 activeCol = ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered];
+            activeCol.w = 0.85f;
+            ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
+        }
+
+        if (ImGui::Button(s_ThemeNames[i], ImVec2(btnW, btnH))) {
+            pdguiSetPalette(i);
+        }
+
+        if (selected) {
+            ImGui::PopStyleColor();
+        }
+
+        /* 3 buttons per row */
+        if (i % 3 != 2 && i + 1 < PDGUI_NUM_THEMES) {
+            ImGui::SameLine();
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Memory Diagnostics ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Memory");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    u32 pcTotal = mempPCGetTotalAllocated();
+    u32 pcCount = mempPCGetNumAllocations();
+
+    ImGui::Text("Persistent: %u bytes (%u allocs)", pcTotal, pcCount);
+    ImGui::Text("Heap size:  %d MB", g_OsMemSizeMb);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Validate Memory", ImVec2(btnW * 1.5f, btnH))) {
+        s32 ok = mempPCValidate("settings_debug");
+        sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: mempPCValidate = %s",
+            ok ? "OK" : "CORRUPTED");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Keyboard Shortcuts Reminder ------ */
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
+    ImGui::Separator();
+    ImGui::TextDisabled("F11  Menu Storyboard");
+    ImGui::TextDisabled("F12  Debug Overlay");
+}
+
 /* Render the Settings sub-view with LB/RB bumper tab switching */
 static void renderSettingsView(float scale, float contentH)
 {
@@ -1114,14 +1262,14 @@ static void renderSettingsView(float scale, float contentH)
 
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 4;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 5;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 4) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > 5) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1139,6 +1287,7 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag2 = (s_BumperPendingTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -1192,6 +1341,17 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             pdguiUpdateRenderSettingsTab();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Debug", nullptr, selFlag5)) {
+            s_SettingsSubTab = 5;
+            ImGui::BeginChild("##settings_scroll_d", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsDebug(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

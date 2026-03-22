@@ -923,7 +923,7 @@ void menuTick(void)
 			mpindex = 0;
 		}
 
-		if (mpindex >= 0 && g_Vars.players[i]) {
+		if (mpindex >= 0 && mpindex < MAX_PLAYERS && g_Vars.players[i]) {
 			if (g_MenuData.nextbg != 255U
 					|| g_MenuData.bg
 					|| g_MenuData.unk5d5_05

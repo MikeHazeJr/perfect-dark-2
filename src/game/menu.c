@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "system.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
@@ -3921,7 +3922,7 @@ void menuReset(void)
 	var8009dfc0 = 0;
 
 	if (IS8MB()) {
-		g_BlurBuffer = mempAlloc(0x4b00, MEMPOOL_STAGE);
+		g_BlurBuffer = mempAlloc(MENU_BLUR_BUFFER_SIZE, MEMPOOL_STAGE);
 	}
 
 	g_MenuData.unk5d5_01 = false;
@@ -3973,9 +3974,9 @@ void menuReset(void)
 
 		for (i = 0; i < max; i++) {
 #ifdef PLATFORM_64BIT
-			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? 0xb400 : 0x38400, true); // 50% more
+			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? MENU_MODEL_BUF_4MB : MENU_MODEL_BUF_8MB_64BIT, true);
 #else
-			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? 0xb400 : 0x25800, true);
+			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? MENU_MODEL_BUF_4MB : MENU_MODEL_BUF_8MB_32BIT, true);
 #endif
 		}
 

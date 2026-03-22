@@ -1,7 +1,7 @@
 # Memory Modernization Gameplan (Phase D-MEM)
 
 **Created**: 2026-03-21, Session 14
-**Status**: PLAN — reviewed, not yet executed
+**Status**: IN PROGRESS — M0 done (S14), M1 started (S15)
 **Premise**: The N64's 4–8MB RAM constraint is gone. We have gigabytes. Stop reusing memory
 locations for different things, stop hardcoding N64-era buffer sizes, and make allocations
 self-documenting and crash-resistant.
@@ -115,6 +115,8 @@ risk overflow, especially in recursive or deeply-nested call chains.
 **Risk**: Minimal. Array expansion is additive; diagnostic cleanup is log-only.
 
 ### Phase M1: Name the Magic Numbers
+
+**Status**: IN PROGRESS (Session 15) — Header created, 8 high-priority files done, ~100 ALIGN16 replacements remaining.
 
 **Goal**: Make every allocation self-documenting. No behavioral change.
 

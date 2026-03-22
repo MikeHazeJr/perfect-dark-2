@@ -1538,6 +1538,7 @@ bool mpIsPaused(void)
 {
 	if (PLAYERCOUNT() == 1
 			&& g_Vars.mplayerisrunning
+			&& g_Vars.currentplayerstats->mpindex < MAX_PLAYERS
 			&& g_Menus[g_Vars.currentplayerstats->mpindex].curdialog) {
 		return true;
 	}
@@ -1591,9 +1592,11 @@ Gfx *mpRenderModalText(Gfx *gdl)
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (g_Menus[g_Vars.currentplayerstats->mpindex].curdialog)
+		if (g_Vars.currentplayerstats->mpindex < MAX_PLAYERS
+				&& g_Menus[g_Vars.currentplayerstats->mpindex].curdialog)
 #else
-		if (g_Menus[g_Vars.currentplayernum].curdialog)
+		if (g_Vars.currentplayernum < MAX_PLAYERS
+				&& g_Menus[g_Vars.currentplayernum].curdialog)
 #endif
 		{
 			y = viGetViewTop() + 10;
@@ -1673,7 +1676,9 @@ Gfx *mpRenderModalText(Gfx *gdl)
 
 		gdl = text0f153780(gdl);
 
-		g_Menus[g_Vars.currentplayerstats->mpindex].openinhibit = 10;
+		if (g_Vars.currentplayerstats->mpindex < MAX_PLAYERS) {
+			g_Menus[g_Vars.currentplayerstats->mpindex].openinhibit = 10;
+		}
 	}
 
 #if VERSION >= VERSION_JPN_FINAL

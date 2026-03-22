@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "game/debug.h"
 #include "game/dlights.h"
 #include "game/game_006900.h"
@@ -1506,12 +1507,12 @@ void bgReset(s32 stagenum)
 	inflatedsize = ALIGN16(inflatedsize);
 
 	// Allocate space for the primary bg data
-	// An extra 0x8000 or so is given as temporary scratch space
-	g_BgPrimaryData = mempAlloc(ALIGN16(inflatedsize + 0x8010), MEMPOOL_STAGE);
+	// Extra scratch headroom for compressed-to-inflated decompression overlap
+	g_BgPrimaryData = mempAlloc(ALIGN16(inflatedsize + BG_INFLATE_SCRATCH_LARGE + BG_INFLATE_SCRATCH_HEADER), MEMPOOL_STAGE);
 
 	// Set up pointer to scratch space
 	scratch = (uintptr_t) g_BgPrimaryData + inflatedsize - primcompsize;
-	scratch = ALIGN16(scratch + 0x8000);
+	scratch = ALIGN16(scratch + BG_INFLATE_SCRATCH_LARGE);
 
 	g_LoadType = LOADTYPE_BG;
 
@@ -1524,10 +1525,10 @@ void bgReset(s32 stagenum)
 
 	/* On 64-bit platforms, pointer expansion during preprocessing can make
 	 * the converted data larger than the inflated size. The buffer has
-	 * scratch headroom (0x8010) that we can use for the expansion.
+	 * scratch headroom that we can use for the expansion.
 	 * Pass the full allocation size, not just inflatedsize. */
 	{
-		u32 bgBufSize = ALIGN16(inflatedsize + 0x8010);
+		u32 bgBufSize = ALIGN16(inflatedsize + BG_INFLATE_SCRATCH_LARGE + BG_INFLATE_SCRATCH_HEADER);
 		preprocessBgSection1(g_BgPrimaryData, bgBufSize, 0x0f000000);
 	}
 
@@ -1552,11 +1553,11 @@ void bgReset(s32 stagenum)
 	section2 = mempAlloc(inflatedsize + section2compsize, MEMPOOL_STAGE);
 	scratch = (uintptr_t) section2 + inflatedsize;
 #elif VERSION >= VERSION_NTSC_FINAL
-	section2 = mempAlloc(inflatedsize + 0x8000, MEMPOOL_STAGE);
-	scratch = (uintptr_t) section2 + 0x8000;
+	section2 = mempAlloc(inflatedsize + BG_INFLATE_SCRATCH_LARGE, MEMPOOL_STAGE);
+	scratch = (uintptr_t) section2 + BG_INFLATE_SCRATCH_LARGE;
 #else
-	section2 = mempAlloc(inflatedsize + 0x800, MEMPOOL_STAGE);
-	scratch = (uintptr_t) section2 + 0x800;
+	section2 = mempAlloc(inflatedsize + BG_INFLATE_SCRATCH_SMALL, MEMPOOL_STAGE);
+	scratch = (uintptr_t) section2 + BG_INFLATE_SCRATCH_SMALL;
 #endif
 
 	// Load compressed data from ROM to scratch
@@ -1920,11 +1921,11 @@ void bgBuildTables(s32 stagenum)
 		section3 = mempAlloc(inflatedsize + section3compsize, MEMPOOL_STAGE);
 		scratch = section3 + inflatedsize;
 #elif VERSION >= VERSION_NTSC_FINAL
-		section3 = mempAlloc(inflatedsize + 0x8000, MEMPOOL_STAGE);
-		scratch = section3 + 0x8000;
+		section3 = mempAlloc(inflatedsize + BG_INFLATE_SCRATCH_LARGE, MEMPOOL_STAGE);
+		scratch = section3 + BG_INFLATE_SCRATCH_LARGE;
 #else
-		section3 = mempAlloc(inflatedsize + 0x1000, MEMPOOL_STAGE);
-		scratch = section3 + 0x1000;
+		section3 = mempAlloc(inflatedsize + BG_INFLATE_SCRATCH_MEDIUM, MEMPOOL_STAGE);
+		scratch = section3 + BG_INFLATE_SCRATCH_MEDIUM;
 #endif
 
 		bgLoadFile(scratch, g_BgSection3 + 4, ((section3compsize - 1) | 0xf) + 1);
@@ -1963,7 +1964,7 @@ void bgBuildTables(s32 stagenum)
 		datalenptr = (u16 *) bboxptr;
 
 		for (r = 1; r < g_Vars.roomcount; r++) {
-			g_Rooms[r].gfxdatalen = ALIGN16(*datalenptr * 0x10 + 0x100);
+			g_Rooms[r].gfxdatalen = ALIGN16(*datalenptr * 0x10 + BG_GFXDATA_HEADER_PAD);
 			datalenptr++;
 		}
 

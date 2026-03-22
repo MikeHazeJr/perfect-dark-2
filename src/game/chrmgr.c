@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "game/game_00b820.h"
 #include "game/title.h"
 #include "bss.h"
@@ -32,7 +33,7 @@ void chrmgrReset(void)
 	g_NumChrs = 0;
 	g_Chrnums = NULL;
 	g_ChrIndexes = NULL;
-	var80062960 = mempAlloc(ALIGN16(15 * sizeof(struct var80062960)), MEMPOOL_STAGE);
+	var80062960 = mempAlloc(ALIGN16(CHR_MANAGER_SLOTS * sizeof(struct var80062960)), MEMPOOL_STAGE);
 
 	for (i = 0; i < ARRAYCOUNT(var8009ccc0); i++) {
 		if (!var8009ccc0[i]) {
