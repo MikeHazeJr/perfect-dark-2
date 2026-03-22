@@ -4489,19 +4489,20 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 			struct hitthing sp88;
 			s32 sp84 = 0;
 			struct modelnode *sp80 = NULL;
-			Mtxf *rootmtx = modelGetRootMtx(model);
 			struct prop *next;
 			struct prop *child;
 			f32 sp70;
 			Mtxf *mtx;
 			f32 sp68;
 
-			/* Safety: modelGetRootMtx returns NULL if model matrices aren't
-			 * computed yet (e.g. bot spawned but not yet animated). Skip hit
-			 * test entirely — can't determine bounding sphere position. */
-			if (!rootmtx) {
+			/* Safety: modelGetRootMtx can return NULL or an invalid pointer
+			 * if model matrices aren't allocated yet (bot spawned but not
+			 * yet animated). Check model->matrices first. */
+			if (!model->matrices) {
 				return;
 			}
+
+			Mtxf *rootmtx = modelGetRootMtx(model);
 
 			if (func0f06b39c(&shotdata->gunpos2d, &shotdata->gundir2d, (struct coord *)rootmtx->m[3], radius)) {
 				spb8 = 1;
@@ -4985,7 +4986,7 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 		 * modelGetRootMtx can return NULL if the model's animation hasn't ticked yet
 		 * (e.g. during the opening camera flythrough before bots get their first
 		 * animation pass). Must check before dereferencing. */
-		if (chr->aibot && chr->model && (g_Vars.lvframe60 % 120) == 0) {
+		if (chr->aibot && chr->model && chr->model->matrices && (g_Vars.lvframe60 % 120) == 0) {
 			Mtxf *rmtx = modelGetRootMtx(chr->model);
 			if (rmtx) {
 				f32 dx = prop->pos.x - rmtx->m[3][0];
