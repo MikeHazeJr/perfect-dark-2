@@ -119,7 +119,7 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 					aibot->ammoheld = mempAlloc(AMMO_TYPE_COUNT * sizeof(s32), MEMPOOL_STAGE);
 
-					for (i = 0; i < 33; i++) {
+					for (i = 0; i < AMMO_TYPE_COUNT; i++) {
 						aibot->ammoheld[i] = 0;
 					}
 

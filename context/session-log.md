@@ -4,6 +4,37 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 19 — 2026-03-21
+
+**Focus**: Crash log analysis, hit radius root cause, ammo init fix, BotController architecture decision
+
+### What Was Done
+
+1. **Crash log analysis** — `pd-client.log` shows ACCESS_VIOLATION (`0xc0000005`) at module offset `0x5ff82` exactly 2 seconds after "spawning done total=24", during the opening camera animation. No symbol names in backtrace (21 frames). Crash happens before any gameplay or combat debug output.
+
+2. **Ammo initialization bug found and fixed** — `botmgr.c:122` and `bot.c:146` both iterated `i < 33` to initialize `aibot->ammoheld`, but the array is allocated for `AMMO_TYPE_COUNT` (36). Last 3 slots per bot left uninitialized. With 24 bots, that's 72 uninitialized `s32` values. Fixed both to use `AMMO_TYPE_COUNT`. Added `#include "memsizes.h"` to `bot.c`.
+
+3. **Hit radius root cause traced** — `chrGetHitRadius()` → `modelGetEffectiveScale(chr->model)` → `modeldef->scale * model->scale`. The `model->scale` is set in `body0f02ce8c()` as `g_HeadsAndBodies[bodynum].scale * 0.1`. For body 86 (FILE_CDARK_COMBAT, all bots), `g_HeadsAndBodies[86].scale = 1.0`, so `model->scale = 0.1`. The final radius depends entirely on `modeldef->scale` from ROM data. If the Session 12-13 model loading fixes haven't been compiled, `modeldef->scale` could be zeroed/corrupt — producing a tiny or zero hit radius. Added diagnostic logging to `chrTestHit` that captures `modeldef->scale`, `model->scale`, and final `hitradius` separately.
+
+4. **Architecture decision: BotController layer approved** — Mike asked whether to create a custom bot management wrapper. Recommended a `BotController` struct that wraps existing chr/aibot without rewriting AI logic. Extension points for physics (jumping, mesh collision), combat telemetry (post-game screen data), and lifecycle hooks. Aligns with M-steps memory modernization (clean pool boundaries).
+
+### Files Modified
+- `src/game/botmgr.c` — Fixed ammo init: `33` → `AMMO_TYPE_COUNT`
+- `src/game/bot.c` — Fixed ammo init: `33` → `AMMO_TYPE_COUNT`, added `memsizes.h` include
+- `src/game/chr.c` — Added `chrGetHitRadius` diagnostic logging (modeldef_scale, model_scale, effective, hitradius)
+
+### Critical Finding
+The Session 12-13 model loading fixes (fileLoadToNew crash chain) have NOT been compiled yet. The crash, hit radius problem, and position desync may ALL stem from corrupt model data caused by the same underlying bug. **Priority: compile Session 12-13 + Session 17-19 changes together and test.**
+
+### Next Steps
+- Build with all pending changes (Sessions 12, 13, 17, 18, 19)
+- Test: does the camera transition crash resolve?
+- Test: check `chrGetHitRadius` log values — is `modeldef->scale` a sane number (~200-300)?
+- If combat bugs persist after model fix: investigate further
+- Begin BotController header design if build is stable
+
+---
+
 ## Session 18 — 2026-03-21
 
 **Focus**: Combat bug diagnosis + combat debug logging channel + constraints.md creation

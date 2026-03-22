@@ -4473,6 +4473,14 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0 && (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
 		f32 radius = chrGetHitRadius(chr);
 
+		/* Combat diagnostic: log hit radius components so we can verify modeldef->scale */
+		if (chr->model && chr->model->definition) {
+			sysLogPrintf(LOG_VERBOSE, "COMBAT: chrGetHitRadius chr=%p modeldef_scale=%.4f "
+				"model_scale=%.4f effective=%.4f hitradius=%.4f",
+				(void *)chr, chr->model->definition->scale, chr->model->scale,
+				chr->model->definition->scale * chr->model->scale, radius);
+		}
+
 		if (prop->z - radius < shotdata->distance) {
 			struct model *model = chr->model;
 			s32 hitpart = 0;

@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -143,7 +144,7 @@ void botReset(struct chrdata *chr, u8 respawning)
 			chr->lift = NULL;
 			chr->height = 185;
 
-			for (i = 0; i < 33; i++) {
+			for (i = 0; i < AMMO_TYPE_COUNT; i++) {
 				aibot->ammoheld[i] = 0;
 			}
 

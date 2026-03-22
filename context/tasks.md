@@ -9,6 +9,71 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
+## CRITICAL PATH — Build & Combat Stabilization (Sessions 12–19)
+
+### Priority: BUILD ALL PENDING CHANGES AND TEST
+
+**Everything below depends on getting Sessions 12–19 compiled.** The model loading crash chain fix (Sessions 12–13) likely resolves the combat bugs too, because corrupt model data cascades into hit radius, skeletal animation positions, and camera transition code.
+
+### Build Order (all changes are cumulative — one build covers everything)
+
+| Session | What Changed | Files |
+|---------|-------------|-------|
+| 12 | Init ordering: catalogValidateAll after mempSetHeap | port/src/main.c, port/src/pdmain.c, port/src/modelcatalog.c, port/src/system.c |
+| 13 | fileLoadToNew NULL pre-check + modeldefLoad g_LoadType fix | src/game/file.c, src/game/modeldef.c, port/src/modelcatalog.c |
+| 17 | Pool size expansion for 32-bot support | (see session-log.md) |
+| 18 | Combat debug logging channel (COMBAT: prefix, 5 files) | src/game/chr.c, chraction.c, botact.c, prop.c, port/src/system.c |
+| 19 | Ammo init fix (33→AMMO_TYPE_COUNT), hit radius diagnostic | src/game/botmgr.c, bot.c, chr.c |
+
+### Test Sequence After Build
+
+| # | Test | What to Check | Status |
+|---|------|--------------|--------|
+| 1 | Launch client | Reaches title screen, no ACCESS_VIOLATION during catalog validation | WAITING |
+| 2 | Check pd-client.log for catalog | Missing models say "not in ROM data (MISSING)", no access violations | WAITING |
+| 3 | Start Combat Simulator, 24+ bots | No crash during opening camera animation | WAITING |
+| 4 | Check log: `COMBAT: chrGetHitRadius` | `modeldef_scale` should be ~200-300, `hitradius` should be ~20-30 | WAITING |
+| 5 | Shoot at bots | `COMBAT: SHOT_RESULT HIT` appears, bots take damage | WAITING |
+| 6 | Get shot by bots | `COMBAT: DMG_SCALED` shows sane values, not instant death | WAITING |
+| 7 | Check for POS_DESYNC | No `COMBAT: POS_DESYNC` warnings in log | WAITING |
+| 8 | Play to completion or End Game | No crash on endscreen/End Game | WAITING |
+
+### Three Bugs Being Tracked
+
+1. **Camera transition crash** — ACCESS_VIOLATION 2s after bot spawn. Likely causes: corrupt model data (Session 12-13 fix) and/or uninitialized ammo slots (Session 19 fix).
+2. **Shots pass through bots** — `chrGetHitRadius` returns model effective scale. If `modeldef->scale` is corrupt (zeroed from bad file load), radius ≈ 0. Session 12-13 fix should restore sane modeldef data.
+3. **Player instant death** — Needs log data from `COMBAT: DMG_SCALED` to diagnose. Could be damage scaling, could be health init, could be related to corrupt model data.
+
+### After Build Stabilization — BotController Architecture (New Phase)
+
+**Decision made Session 19**: Create a `BotController` orchestration layer that wraps existing chr/aibot without rewriting AI logic.
+
+```c
+struct BotController {
+    struct chrdata *chr;       // owned chr
+    struct prop *prop;         // owned prop
+    struct aibot *ai;          // existing AI brain (reused as-is)
+    struct BotPhysics physics; // custom movement/collision state
+    struct BotCombat combat;   // hit tracking, damage stats for post-game
+    u32 flags;                 // BOTCTRL_CAN_JUMP, BOTCTRL_MESH_COLLISION, etc.
+    void (*onTick)(struct BotController *self);
+    void (*onDamage)(struct BotController *self, f32 amount, struct prop *attacker);
+    void (*onDeath)(struct BotController *self, struct prop *killer);
+};
+```
+
+**Purpose**: Clean extension points for bot jumping, mesh-based collision, combat telemetry (post-game screen), and M-steps memory modernization. Does NOT rewrite AI — wraps existing botact.c/bot.c/botmgr.c logic and redirects inputs/outputs.
+
+**Depends on**: Build stabilization (above). Don't start until the three combat bugs are confirmed fixed.
+
+### Custom Post-Game Menu (Future Phase)
+
+**Decision made Session 19**: The old endscreen uses legacy data structures sized for N64 limits. Instead of patching it, build a new ImGui-based post-game screen that reads combat telemetry from BotController.combat structs. This also resolves the End Game crash.
+
+**Depends on**: BotController (combat telemetry data source).
+
+---
+
 ## Current Task: Critical Boot Fix — Model Loading Crash Chain
 
 ### Status: CODE WRITTEN — NEEDS BUILD TEST
