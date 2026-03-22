@@ -6,45 +6,48 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ## Session 21 — 2026-03-22
 
-**Focus**: Combat log analysis, crash confirmed fixed, player health system investigation
+**Focus**: Combat log analysis, crash confirmed fixed, player instant death bug diagnosed and fixed
 
 ### What Was Done
 
-1. **Crash chain fully resolved** — Game ran ~3 minutes of active 24-bot combat and exited with clean `shutdown`. No ACCESS_VIOLATION. All memory allocations intact. The POS_DESYNC diagnostic removal from `chrUpdateGeometry` (Session 20) was the final fix.
+1. **Crash chain fully resolved** — Game ran ~3 minutes of active 24-bot combat and exited with clean `shutdown`. No ACCESS_VIOLATION. All memory allocations intact.
 
-2. **Combat log analysis** — 235 damage events, 19 bot kills. Bot-vs-bot combat is functioning correctly. `dmg_scaled` values range 0.80–2.00 (normal). `healthscale=1.00`, `armourscale=1.00`, `damagescale=1.00` — no inflated multipliers.
+2. **Bug #2 (shots pass through) — FIXED** — 235 damage events, 19 bot kills. Hitboxes working correctly after scale clamp removal.
 
-3. **Bug #2 (shots pass through) — FIXED** — Bots register hits on each other consistently. 233/235 damage events are bot-vs-bot with proper kill outcomes. Scale clamp removal restored correct hitboxes.
+3. **Bug #3 (player instant death) — ROOT CAUSE FOUND AND FIXED**
 
-4. **Bug #3 (player instant death) — CONFIRMED, ROOT CAUSE UNDER INVESTIGATION**
-   - Player was hit only 2 times in the entire match. Both showed `hp=0.00/4.00`.
-   - Mike confirmed one-hit kills from single bot shots during gameplay, and **no health HUD visible**.
+   **Root cause**: `g_PlayerConfigsArray[0].handicap` is 0 (BSS zero-init default) instead of 128 (neutral/100%). Player 0 is auto-joined and never hits the `menutick.c:393` code path that sets `handicap = 128` on START press. The field is not stored in save format either.
 
-5. **Dual health system discovered** — Players and bots use completely different health tracking:
-   - **Bots**: `chr->damage` (accumulated) vs `chr->maxdamage` (threshold = 8.0, set by `GAILIST_AIBOT_INIT` AI script: `set_chr_maxdamage(CHR_SELF, 80)` → `80 * 0.1 = 8.0`). Bot dies when `chr->damage >= chr->maxdamage`.
-   - **Players**: `bondhealth` (normalized 0.0–1.0 float). Damage applied as `bondhealth -= damage * 0.125f`. Player dies when `bondhealth <= 0`. At full health (1.0), player can absorb 8.0 raw damage — same as bots.
-   - The `chrDamage` log reads `chr->damage / chr->maxdamage` for ALL entities, but for the player these fields are **never used** in the actual damage path. `chr->damage` stays 0, `chr->maxdamage` stays at `chrInit` default of 4.
+   **Mechanism**: `mpHandicapToDamageScale(0)` returns 0.1. At `chraction.c:4819`, `damage /= 0.1` → **10x damage multiplier on the player**. A 1.10 raw damage hit becomes 11.0, yielding `amount = 11.0 * 0.125 = 1.375` — more than `bondhealth = 1.0`. Instant death from any single shot.
 
-6. **Key code paths identified**:
-   - `chraction.c:4814–4891` — Player damage branch. Uses `bondhealth`, returns before NPC path.
-   - `chraction.c:5017–5054` — NPC/bot damage branch. Uses `chr->damage / chr->maxdamage`.
-   - `player.c:717–732` — Player spawn init. Sets `bondhealth = 1.0` (normal stages), `healthshowmode = HEALTHSHOWMODE_HIDDEN`.
-   - `gailists.c:6052–6067` — `GAILIST_AIBOT_INIT`. Sets bot `maxdamage = 8.0` on every spawn/respawn.
+   **Evidence** (from diagnostic log):
+   ```
+   COMBAT: PLAYER_HIT bondhealth_before=1.0000 damage=11.00 amount=1.3750 healthscale=1.00 onehitkills=0
+   COMBAT: PLAYER_HIT_RESULT bondhealth_after=-0.3750 dead=YES
+   ```
 
-### Working Theory for Bug #3
+   **Fix**: Added safety net at match start (`mplayer.c`, in `mpBegin`) that forces `handicap = 0x80` for any player with `handicap == 0`.
 
-The missing health HUD (`healthshowmode = HEALTHSHOWMODE_HIDDEN` at spawn) combined with one-hit kills suggests either:
-- `bondhealth` is not being initialized to 1.0 on MP respawn (only on initial spawn)
-- Something is draining `bondhealth` between spawn and first hit
-- The MP respawn path doesn't call the same init that sets `bondhealth = 1.0`
+4. **Dual health system documented**:
+   - Bots: `chr->damage` vs `chr->maxdamage` (8.0 from AI script)
+   - Players: `bondhealth` (0.0–1.0 float), damage applied as `bondhealth -= (damage * 0.125) / healthscale`
+   - The `chrDamage` log's `hp=` field is `chr->damage/chr->maxdamage` — irrelevant for players
 
-**Next step**: Add `bondhealth` diagnostic logging to the player spawn path and damage path. The current log doesn't show the player's actual health value — only the unused `chr->damage/chr->maxdamage`.
+5. **End Game crash** — ACCESS_VIOLATION on selecting End Game from pause menu. Separate from combat bugs. Backtrace captured, needs `addr2line` decoding from new build.
 
 ### Files Modified
-- None (analysis only)
+- `src/game/mplayer/mplayer.c` — Handicap fix (force 0→128 for all players at match start) + diagnostic logging
+- `src/game/player.c` — `PLAYER_SPAWN` diagnostic log (bondhealth, options, onehitkills)
+- `src/game/chraction.c` — `PLAYER_HIT` + `PLAYER_HIT_RESULT` diagnostic logs (bondhealth before/after damage)
+
+### Bug Status
+1. **Camera transition crash** — FIXED (Session 20)
+2. **Shots pass through** — FIXED (Session 21)
+3. **Player instant death** — FIXED (Session 21) — needs rebuild to verify
+4. **End Game crash** — NEW, needs `addr2line` diagnosis
 
 ### Bot Count Note
-Log shows 24 bots spawned (`chrslots=0xffffff01`, 24 `BOT_ALLOC` entries). Mike expected 31 — possible cap in simulant setup needs investigation separately.
+Log shows 24 bots (`chrslots=0xffffff01`). Mike expected 31 — separate investigation needed.
 
 ---
 

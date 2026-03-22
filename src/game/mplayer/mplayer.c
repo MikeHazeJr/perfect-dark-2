@@ -233,11 +233,25 @@ void mpStartMatch(void)
 		g_MpSetup.options &= ~(MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART);
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d",
+	/* Ensure all active players have a valid handicap (128 = neutral/100%).
+	 * The handicap field is not stored in the save format, so if
+	 * mpPlayerSetDefaults didn't run for a player (e.g. player 0 who is
+	 * auto-joined), handicap stays at its BSS-init value of 0. A handicap
+	 * of 0 maps to mpHandicapToDamageScale(0) = 0.1, causing incoming
+	 * damage to be divided by 0.1 (10x multiplier) — instant death.
+	 * Fix: force neutral handicap for any player whose handicap is 0. */
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (g_PlayerConfigsArray[i].handicap == 0) {
+			g_PlayerConfigsArray[i].handicap = 0x80;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d handicap0=%d",
 		g_MpSetup.options,
 		(g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0,
 		(g_MpSetup.options & (MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART)) != 0,
-		g_MpSetup.scenario);
+		g_MpSetup.scenario,
+		g_PlayerConfigsArray[0].handicap);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (g_MpSetup.chrslots & (1u << i)) {

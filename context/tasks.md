@@ -50,14 +50,8 @@ Added explicit `-g` to CMakeLists.txt. After clean rebuild, `addr2line` should p
 
 1. **Camera transition crash** — **FIXED (Session 20–21)**. Root cause: Session 18 POS_DESYNC diagnostic in `chrUpdateGeometry` called from collision path for all nearby props, including bots with unallocated model matrices. Diagnostic removed, `chrTestHit` hardened with `model->matrices` check. Game survives into full combat.
 2. **Shots pass through bots** — **FIXED (Session 21)**. Root cause: scale clamp destroying model geometry. 235 damage events logged, 19 bot kills. Hitboxes working correctly.
-3. **Player instant death** — **CONFIRMED, UNDER INVESTIGATION (Session 21)**.
-   - Symptom: Single bot shot kills player. No health HUD visible during gameplay.
-   - NOT a damage scaling issue: `damagescale=1.00`, `healthscale=1.00`, raw damage values normal (1.0–1.4).
-   - Player uses `bondhealth` (0.0–1.0 float), NOT `chr->damage/chr->maxdamage`. The `chrDamage` log shows `chr->damage=0.00 / chr->maxdamage=4.00` for the player but these fields are IRRELEVANT — player branch never writes to `chr->damage`.
-   - `player.c:722` sets `bondhealth = 1.0` on spawn. Confirmed this runs on BOTH initial spawn AND respawn (via `playerStartNewLife` → `playerLoadDefaults`).
-   - `player.c:732` sets `healthshowmode = HEALTHSHOWMODE_HIDDEN` — normal N64 behavior (HUD only shows on damage).
-   - **Leading theory**: `MPOPTION_ONEHITKILLS` (bit 0 of `g_MpSetup.options`) is enabled in saved match config. This zeros `bondhealth` on any hit (`chraction.c:4868-4869`). NOT in default options, but loaded from save data. Gated by `challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)` — if unlocked (common in modded saves), the bit won't be cleared at `mplayer.c:228-230`.
-   - **Diagnostic logging added (Session 21)**: `MATCH: options=` (mplayer.c), `PLAYER_SPAWN: bondhealth=` (player.c), `COMBAT: PLAYER_HIT` + `PLAYER_HIT_RESULT` (chraction.c). Rebuild and check log.
+3. **Player instant death** — **FIXED (Session 21)**. Root cause: `g_PlayerConfigsArray[0].handicap = 0` (BSS zero-init). Player 0 auto-joins without hitting `menutick.c:393` START-press path that sets `handicap = 128`. `mpHandicapToDamageScale(0) = 0.1` → `damage /= 0.1` = 10x multiplier at `chraction.c:4819`. Fix: force `handicap = 0x80` for any player with `handicap == 0` at match start in `mplayer.c`.
+4. **End Game crash** — NEW (Session 21). ACCESS_VIOLATION when selecting End Game from pause menu. Backtrace captured, needs `addr2line` on new build. Likely endscreen/results code.
 
 ### After Build Stabilization — BotController Architecture (New Phase)
 
