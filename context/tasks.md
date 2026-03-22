@@ -31,12 +31,12 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 |---|------|--------------|--------|
 | 1 | Launch client | Reaches title screen, no ACCESS_VIOLATION during catalog validation | **PASS** (Session 20) |
 | 2 | Check pd-client.log for catalog | Missing models say "not in ROM data (MISSING)", no access violations | **PASS** — catalog init clean |
-| 3 | Start Combat Simulator, 24+ bots | No crash during opening camera animation | **FAIL** — crash at offset 0x60002, 2s after spawn |
-| 4 | Check log: `COMBAT: chrGetHitRadius` | `modeldef_scale` should be ~700-1200 (mod models), `hitradius` TBD | BLOCKED (crash before combat) |
-| 5 | Shoot at bots | `COMBAT: SHOT_RESULT HIT` appears, bots take damage | BLOCKED |
-| 6 | Get shot by bots | `COMBAT: DMG_SCALED` shows sane values, not instant death | BLOCKED |
-| 7 | Check for POS_DESYNC | No `COMBAT: POS_DESYNC` warnings in log | BLOCKED |
-| 8 | Play to completion or End Game | No crash on endscreen/End Game | BLOCKED |
+| 3 | Start Combat Simulator, 24+ bots | No crash during opening camera animation | **PASS** (Session 21) — clean shutdown after ~3min combat |
+| 4 | Check log: `COMBAT: chrGetHitRadius` | `modeldef_scale` should be ~700-1200 (mod models), `hitradius` TBD | **PASS** — scale values 1069–1285 in log |
+| 5 | Shoot at bots | `COMBAT: SHOT_RESULT HIT` appears, bots take damage | **PASS** — 235 damage events, 19 kills logged |
+| 6 | Get shot by bots | `COMBAT: DMG_SCALED` shows sane values, not instant death | **FAIL** — one-hit kills confirmed, see Bug #3 |
+| 7 | Check for POS_DESYNC | No `COMBAT: POS_DESYNC` warnings in log | **PASS** — diagnostic removed, no crashes |
+| 8 | Play to completion or End Game | No crash on endscreen/End Game | **PASS** — clean shutdown |
 
 ### Session 20 Fix: Scale Clamp Removed
 
@@ -48,9 +48,16 @@ Added explicit `-g` to CMakeLists.txt. After clean rebuild, `addr2line` should p
 
 ### Three Bugs Being Tracked
 
-1. **Camera transition crash** — ROOT CAUSE FOUND (Session 20): Our Session 18 POS_DESYNC diagnostic in `chrUpdateGeometry` dereferences `modelGetRootMtx()` return value without NULL check. Returns NULL during opening camera flythrough because bot animation hasn't ticked. **Fixed**: NULL guard added. Also added NULL guard to `chrTestHit` (propagation fix). **Needs rebuild to verify.**
-2. **Shots pass through bots** — Root cause was scale clamp: `modeldef->scale` clamped to 1.0 → effective model scale 0.1 → hit radius ~0. Scale clamp now removed. Log shows `hitradius=116.2` — **likely fixed but untestable until crash is resolved.**
-3. **Player instant death** — Needs log data from `COMBAT: DMG_SCALED` to diagnose. May also be affected by scale fix.
+1. **Camera transition crash** — **FIXED (Session 20–21)**. Root cause: Session 18 POS_DESYNC diagnostic in `chrUpdateGeometry` called from collision path for all nearby props, including bots with unallocated model matrices. Diagnostic removed, `chrTestHit` hardened with `model->matrices` check. Game survives into full combat.
+2. **Shots pass through bots** — **FIXED (Session 21)**. Root cause: scale clamp destroying model geometry. 235 damage events logged, 19 bot kills. Hitboxes working correctly.
+3. **Player instant death** — **CONFIRMED, UNDER INVESTIGATION (Session 21)**.
+   - Symptom: Single bot shot kills player. No health HUD visible during gameplay.
+   - NOT a damage scaling issue: `damagescale=1.00`, `healthscale=1.00`, raw damage values normal (1.0–1.4).
+   - Player uses `bondhealth` (0.0–1.0 float), NOT `chr->damage/chr->maxdamage`. The `chrDamage` log shows `chr->damage=0.00 / chr->maxdamage=4.00` for the player but these fields are IRRELEVANT — player branch never writes to `chr->damage`.
+   - `player.c:722` sets `bondhealth = 1.0` on spawn. Confirmed this runs on BOTH initial spawn AND respawn (via `playerStartNewLife` → `playerLoadDefaults`).
+   - `player.c:732` sets `healthshowmode = HEALTHSHOWMODE_HIDDEN` — normal N64 behavior (HUD only shows on damage).
+   - **Leading theory**: `MPOPTION_ONEHITKILLS` (bit 0 of `g_MpSetup.options`) is enabled in saved match config. This zeros `bondhealth` on any hit (`chraction.c:4868-4869`). NOT in default options, but loaded from save data. Gated by `challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)` — if unlocked (common in modded saves), the bit won't be cleared at `mplayer.c:228-230`.
+   - **Diagnostic logging added (Session 21)**: `MATCH: options=` (mplayer.c), `PLAYER_SPAWN: bondhealth=` (player.c), `COMBAT: PLAYER_HIT` + `PLAYER_HIT_RESULT` (chraction.c). Rebuild and check log.
 
 ### After Build Stabilization — BotController Architecture (New Phase)
 

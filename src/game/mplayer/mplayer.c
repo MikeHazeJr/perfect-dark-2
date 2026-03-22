@@ -233,6 +233,12 @@ void mpStartMatch(void)
 		g_MpSetup.options &= ~(MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART);
 	}
 
+	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d",
+		g_MpSetup.options,
+		(g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0,
+		(g_MpSetup.options & (MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART)) != 0,
+		g_MpSetup.scenario);
+
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (g_MpSetup.chrslots & (1u << i)) {
 			numplayers++;

@@ -722,6 +722,14 @@ void playerLoadDefaults(void)
 		g_Vars.currentplayer->bondhealth = 1;
 	}
 
+	sysLogPrintf(LOG_NOTE, "PLAYER_SPAWN: bondhealth=%.4f stageindex=%d mplay=%d normmplay=%d options=0x%08x onehitkills=%d",
+		g_Vars.currentplayer->bondhealth,
+		stageGetIndex(g_Vars.stagenum),
+		g_Vars.mplayerisrunning,
+		g_Vars.normmplayerisrunning,
+		g_Vars.mplayerisrunning ? g_MpSetup.options : 0,
+		g_Vars.mplayerisrunning ? (g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0 : 0);
+
 	g_Vars.currentplayer->oldhealth = 1;
 	g_Vars.currentplayer->oldarmour = 0;
 	g_Vars.currentplayer->apparenthealth = 1;

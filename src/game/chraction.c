@@ -4854,6 +4854,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				if (g_Vars.currentplayer->invincible == false && damage > 0) {
 					f32 statsamount = amount = damage * 0.125f;
 
+					sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT bondhealth_before=%.4f damage=%.2f amount=%.4f healthscale=%.2f onehitkills=%d invincible=%d",
+						g_Vars.currentplayer->bondhealth, damage, amount, healthscale,
+						(g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_ONEHITKILLS)) ? 1 : 0,
+						g_Vars.currentplayer->invincible);
+
 					if (statsamount > g_Vars.currentplayer->bondhealth) {
 						statsamount = g_Vars.currentplayer->bondhealth;
 					}
@@ -4874,6 +4879,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					chr->lastattacker = (aprop ? aprop->chr : NULL);
 
 					showdamage = true;
+
+					sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT_RESULT bondhealth_after=%.4f dead=%s",
+						g_Vars.currentplayer->bondhealth,
+						(g_Vars.currentplayer->bondhealth <= 0) ? "YES" : "NO");
 
 					if (g_Vars.currentplayer->training == false
 							&& g_Vars.currentplayer->bondhealth <= 0) {
