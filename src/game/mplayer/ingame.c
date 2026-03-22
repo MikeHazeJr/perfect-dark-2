@@ -22,6 +22,7 @@
 #include "types.h"
 #include "net/net.h"
 #include "system.h"
+#include "pdgui_pausemenu.h"
 
 struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;
@@ -871,23 +872,28 @@ void mpPushPauseDialog(void)
 			return;
 		}
 
+		/* Combat simulator (normmplayerisrunning): use ImGui pause menu.
+		 * If ImGui pause menu is already open, toggle it closed (resume).
+		 * Co-op / counter-op missions still use legacy pause menus. */
+		if (g_Vars.normmplayerisrunning) {
+			if (pdguiIsPauseMenuOpen()) {
+				pdguiPauseMenuClose();
+			} else {
+				pdguiPauseMenuOpen();
+			}
+			g_MpPlayerNum = prevplayernum;
+			return;
+		}
+
 		if (g_Menus[g_MpPlayerNum].openinhibit == 0) {
 			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
-			if (g_Vars.normmplayerisrunning) {
-				if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
-					menuPushRootDialog(&g_MpPauseTeamRankingsMenuDialog, MENUROOT_MPPAUSE);
-				} else {
-					menuPushRootDialog(&g_MpPausePlayerRankingMenuDialog, MENUROOT_MPPAUSE);
-				}
+			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
+				|| LOCALPLAYERCOUNT() >= 3
+			) {
+				menuPushRootDialog(&g_2PMissionPauseVMenuDialog, MENUROOT_MPPAUSE);
 			} else {
-				if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-					|| LOCALPLAYERCOUNT() >= 3
-				) {
-					menuPushRootDialog(&g_2PMissionPauseVMenuDialog, MENUROOT_MPPAUSE);
-				} else {
-					menuPushRootDialog(&g_2PMissionPauseHMenuDialog, MENUROOT_MPPAUSE);
-				}
+				menuPushRootDialog(&g_2PMissionPauseHMenuDialog, MENUROOT_MPPAUSE);
 			}
 		}
 

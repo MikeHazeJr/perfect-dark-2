@@ -9,7 +9,95 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
-## CRITICAL PATH — Build & Combat Stabilization (Sessions 12–19)
+## SESSION 22 — Active Work Queue (2026-03-22)
+
+### Priority Order (set by Mike)
+
+| # | Task | Type | Status |
+|---|------|------|--------|
+| 1 | **Combat Simulator ImGui Pause Menu + Hold-to-Show Scorecard** | New feature | CODE WRITTEN — needs build test |
+| 2 | **Paradox no-bots crash** | Bug fix | PENDING (needs logs from next build) |
+| 3 | **Paradox 24-bots crash** | Bug fix | PENDING (needs logs from next build) |
+| 4 | **Bot Customizer popup in match settings** | New feature | PENDING |
+| 5 | **Look inversion in controls settings** | New feature | PENDING |
+
+### Additional Items (not prioritized yet)
+
+- **Updater not finding GitHub releases** — Even with releases present, the updater found nothing. Mike has since trimmed to one release. Likely a tag-format mismatch in the GitHub API query (updater expects `client-v{M}.{m}.{p}` tags). Needs investigation in `port/src/updater.c`.
+- **Bot count is 24, not 31** — Confirmed by `chrslots=0xffffff01` from Session 21 log. 24 bots (bits 8–31 = 24 bits set). Consistent with `MAX_BOTS=24` in matchsetup.cpp. Not a bug — Mike's buddy miscounted.
+- **Base maps work well** — Positive confirmation. Combat sim on base stages is stable.
+- **End Game crash (Session 21)** — ACCESS_VIOLATION on selecting End Game from legacy pause menu. Will be superseded by the new ImGui pause menu (Task #1).
+
+### Rebuild Verification Still Needed
+Session 21 fixes (handicap force to 0x80, scale clamp removal, debug symbols) need a rebuild to confirm. These are in the pending build alongside all Session 22 code.
+
+---
+
+### Task #1: Combat Simulator ImGui Pause Menu + Hold-to-Show Scorecard
+
+**Status: CODE WRITTEN — NEEDS BUILD TEST**
+
+**What Was Built:**
+
+**A. Pause Menu (START button) — `pdgui_menu_pausemenu.cpp`**
+- `mpPushPauseDialog()` in ingame.c now redirects to `pdguiPauseMenuOpen()` when `normmplayerisrunning` (combat sim)
+- Co-op/counter-op missions still use legacy pause menus
+- Menu: centered ImGui dialog (50%×60%), PD red palette, dimmed background
+- Tab layout: **Rankings** (sorted scoreboard with kills/deaths/score) | **Settings** (read-only match info) | **End Game** (with confirmation)
+- Resume button at bottom + Escape/START closes
+- End Game: two-step confirm, calls `pdguiPauseSetPlayerAborted()` + `mainEndStage()`/`netDisconnect()`
+- Pauses game in local mode (`mpSetPaused`), toggles on re-press
+
+**B. Hold-to-Show Scorecard (Tab / Back button)**
+- Polls SDL keyboard state (`SDL_SCANCODE_TAB`) and ImGui gamepad (`ImGuiKey_GamepadBack`) each frame
+- Semi-transparent scoreboard overlay (75% alpha, top-center, 40% width)
+- Shows: rank, name, score, kills, deaths — one row per active chr
+- Local player highlighted in gold text
+- Team mode: team column with team colors
+- Match time in header
+- Does NOT pause game — purely visual overlay
+- Hidden when pause menu is open or during GAMEOVER
+
+**Files Created:**
+| File | Purpose |
+|------|---------|
+| `port/include/pdgui_pausemenu.h` | C-callable API for pause menu + scorecard |
+| `port/fast3d/pdgui_menu_pausemenu.cpp` | Full implementation (~650 LOC) |
+
+**Files Modified:**
+| File | Change |
+|------|--------|
+| `port/fast3d/pdgui_bridge.c` | Added 10 bridge functions for match state access (chrslots, options, scenario, stage, timelimit, scorelimit, paused, normmplayerisrunning, playerAborted, stageName) + includes for lang.h, mplayer.h, modmgr.h |
+| `port/fast3d/pdgui_backend.cpp` | Added `#include "pdgui_pausemenu.h"`, render calls for pause menu + scorecard, frame-start guards for pauseActive, input blocking when pause open |
+| `src/game/mplayer/ingame.c` | Added `#include "pdgui_pausemenu.h"`, redirected `mpPushPauseDialog()` to ImGui for combat sim (toggle open/close) |
+
+**Code Review Findings (fixed):**
+- Struct alignment: explicit padding added to `mpchrconfig_pm` to match types.h layout
+- Null safety: mpchr pointer checked before dereference in scoreboard builder
+- Type signature: `formatTime` second param corrected to `s32` (not `u32`)
+
+---
+
+### Task #2–3: Paradox Stage Crashes
+
+**Status: INVESTIGATING (code-side, no logs yet)**
+
+**Preliminary Findings:**
+Paradox is `STAGE_EXTRA25` (stageID `0x5e`, table index `0x55`). It's a mod-added stage that reuses WAR stage assets (`FILE_BG_STAT_SEG/TILES/PADS`).
+
+The `STAGEINDEX_*` constants in `constants.h` only go up to `0x3c` (STAGEINDEX_TEST_MP20). Mod stages at indices 0x3d+ have **no STAGEINDEX constant**. Several code paths in `bg.c`, `dlights.c`, and `dyntex.c` use hardcoded `g_StageIndex == STAGEINDEX_*` comparisons for stage-specific initialization (fog, rooms, dynamic lights, dynamic textures). When Paradox loads, none of these match, which could mean:
+- Missing stage-specific initialization that Paradox needs (inheriting from WAR)
+- Or the index falling through a switch/if-chain into unexpected behavior
+
+**With 0 bots**: crashes — this rules out bot-related causes. The stage itself fails to load or initialize properly.
+**With 24 bots**: also crashes — same root cause plus potential memory pressure from bot pool allocations.
+**Base maps**: work fine — these have proper `STAGEINDEX_*` constants.
+
+**Next steps**: Mike will capture `pd-client.log` + crash addresses from Paradox runs in next build. We'll then `addr2line` the crash to pinpoint the exact function.
+
+---
+
+## CRITICAL PATH — Build & Combat Stabilization (Sessions 12–21)
 
 ### Priority: BUILD ALL PENDING CHANGES AND TEST
 

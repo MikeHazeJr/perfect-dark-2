@@ -4,6 +4,46 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 22 — 2026-03-22
+
+**Focus**: New feature batch — combat sim pause menu, scorecard overlay, Paradox crash investigation, task reorganization
+
+### What Was Done
+
+1. **Task tracker reorganized** — Mike provided 5 new tasks with explicit priority ordering (2,5,4,3,1 → pause menu, Paradox no-bots crash, Paradox 24-bots crash, bot customizer, look inversion). All added to tasks.md with architecture plans.
+
+2. **Combat Sim ImGui Pause Menu — CODE WRITTEN** — `pdgui_menu_pausemenu.cpp` (~650 LOC). New ImGui menu replacing legacy `g_MpPauseControlMenuDialog` stack. Tab layout: Rankings (sorted scoreboard), Settings (read-only match info), End Game (with confirmation). Red PD palette, dimmed background, Resume button + Escape/START closes. `mpPushPauseDialog()` redirected in ingame.c — combat sim uses ImGui, co-op/counter-op keep legacy.
+
+3. **Hold-to-Show Scorecard Overlay — CODE WRITTEN** — Polls SDL Tab key + ImGui GamepadBack each frame. Semi-transparent overlay (top-center, 40% width). Shows rank, name, score, kills, deaths for all active chrs. Player highlighted in gold. Team colors in team mode. Match time in header.
+
+4. **Paradox crash investigation — PRELIMINARY** — Paradox is `STAGE_EXTRA25` (index 0x55). `STAGEINDEX_*` constants only go to 0x3c. Mod stages lack index constants, so stage-specific init code in bg.c/dlights.c/dyntex.c never matches. Crashes both with 0 bots and 24 bots, while base maps work fine. Needs log/crash data from next build.
+
+5. **Additional items logged** — Updater not finding GitHub releases (tag-format mismatch suspected). Bot count confirmed as 24 (not 31). End Game crash from Session 21 will be superseded by new ImGui pause menu.
+
+### Decisions Made
+- Pause menu: **new ImGui**, not fixing legacy menu
+- Scorecard: **hold-to-show overlay** during gameplay (not a pause menu tab)
+- Paradox crashes: investigate from code side, Mike will capture logs next build
+
+### Files Created
+- `port/include/pdgui_pausemenu.h` — C-callable API
+- `port/fast3d/pdgui_menu_pausemenu.cpp` — Full implementation (~650 LOC)
+
+### Files Modified
+- `port/fast3d/pdgui_bridge.c` — 10 bridge functions for match state access
+- `port/fast3d/pdgui_backend.cpp` — Render pipeline integration + frame guards
+- `src/game/mplayer/ingame.c` — Redirect mpPushPauseDialog to ImGui for combat sim
+- `context/tasks.md` — Rewrote with Session 22 priority queue
+- `context/session-log.md` — This entry
+
+### Next Steps
+- Build and test pause menu + scorecard
+- Investigate Paradox crashes (need log data from next build)
+- Bot customizer popup, look inversion (lower priority)
+- Updater GitHub release detection (separate investigation)
+
+---
+
 ## Session 21 — 2026-03-22
 
 **Focus**: Combat log analysis, crash confirmed fixed, player instant death bug diagnosed and fixed

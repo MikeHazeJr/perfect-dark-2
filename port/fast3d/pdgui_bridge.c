@@ -20,6 +20,9 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
+#include "game/lang.h"
+#include "game/mplayer/mplayer.h"
+#include "modmgr.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -283,6 +286,70 @@ void netServerKickClient(s32 clientId, const char *reason)
     sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
                  clientId, cl->settings.name, reason ? reason : "no reason");
     enet_peer_disconnect(cl->peer, 0);
+}
+
+/* ========================================================================
+ * Pause menu bridge functions (pdgui_menu_pausemenu.cpp)
+ * ======================================================================== */
+
+u32 pdguiPauseGetChrSlots(void)
+{
+    return g_MpSetup.chrslots;
+}
+
+u32 pdguiPauseGetOptions(void)
+{
+    return g_MpSetup.options;
+}
+
+u8 pdguiPauseGetScenario(void)
+{
+    return g_MpSetup.scenario;
+}
+
+u8 pdguiPauseGetStagenum(void)
+{
+    return g_MpSetup.stagenum;
+}
+
+u8 pdguiPauseGetTimelimit(void)
+{
+    return g_MpSetup.timelimit;
+}
+
+u8 pdguiPauseGetScorelimit(void)
+{
+    return g_MpSetup.scorelimit;
+}
+
+u8 pdguiPauseGetPaused(void)
+{
+    return g_MpSetup.paused;
+}
+
+s32 pdguiPauseGetNormMplayerIsRunning(void)
+{
+    return g_Vars.normmplayerisrunning ? 1 : 0;
+}
+
+void pdguiPauseSetPlayerAborted(void)
+{
+    if (g_Vars.currentplayer) {
+        g_Vars.currentplayer->aborted = true;
+    }
+}
+
+const char *pdguiPauseGetStageName(u8 stagenum)
+{
+    s32 count = modmgrGetTotalArenas();
+    for (s32 i = 0; i < count; i++) {
+        struct mparena *arena = modmgrGetArena(i);
+        if (arena && arena->stagenum == stagenum) {
+            return langGet(arena->name);
+        }
+    }
+
+    return "Unknown";
 }
 
 /* ========================================================================

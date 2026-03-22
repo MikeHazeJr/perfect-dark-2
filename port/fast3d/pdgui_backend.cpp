@@ -40,6 +40,9 @@ extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
 extern "C" void pdguiUpdateRender(void);
 extern "C" s32  pdguiUpdateIsActive(void);
 
+/* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
+#include "pdgui_pausemenu.h"
+
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
@@ -168,10 +171,12 @@ void pdguiInit(void *sdlWindow)
 void pdguiNewFrame(void)
 {
     bool networkActive = (netGetMode() != 0);
+    bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
 
     if (!g_PdguiInitialized ||
         (!g_PdguiActive && !pdguiStoryboardIsActive() &&
-         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() && !networkActive)) {
+         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+         !networkActive && !pauseActive)) {
         return;
     }
 
@@ -188,10 +193,12 @@ void pdguiRender(void)
 
     bool networkActive = (netGetMode() != 0);
     bool updateActive = (pdguiUpdateIsActive() != 0);
+    bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive && !networkActive && !updateActive)) {
+        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+         !networkActive && !updateActive && !pauseActive)) {
         return;
     }
 
@@ -236,6 +243,11 @@ void pdguiRender(void)
     /* D13: Update notification banner, version picker, download progress.
      * Renders as overlay — independent of hotswap and menu state. */
     pdguiUpdateRender();
+
+    /* Combat sim pause menu + hold-to-show scorecard overlay.
+     * Rendered independently of hotswap/menu state — active during gameplay. */
+    pdguiPauseMenuRender((s32)winW, (s32)winH);
+    pdguiScorecardRender((s32)winW, (s32)winH);
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */
@@ -467,6 +479,11 @@ s32 pdguiWantsInput(void)
         return 1;
     }
 
+    /* ImGui pause menu consumes all input when open */
+    if (pdguiIsPauseMenuOpen()) {
+        return 1;
+    }
+
     if (!g_PdguiActive) {
         return 0;
     }
@@ -477,8 +494,8 @@ s32 pdguiWantsInput(void)
 
 s32 pdguiIsActive(void)
 {
-    /* F12 debug overlay, F11 storyboard, or F8 hot-swapped menus */
-    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive()) ? 1 : 0;
+    /* F12 debug overlay, F11 storyboard, F8 hot-swapped menus, or ImGui pause menu */
+    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
 }
 
 void pdguiToggle(void)
