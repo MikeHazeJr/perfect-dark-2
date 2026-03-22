@@ -311,56 +311,9 @@ static void selectionSet(s32 idx)
     }
 }
 
-static void selectionToggle(s32 idx)
-{
-    if (idx < 0 || idx >= MATCH_MAX_SLOTS) return;
-    s_Selected[idx] = !s_Selected[idx];
-    s_SelectionCount += s_Selected[idx] ? 1 : -1;
-    if (s_Selected[idx]) {
-        s_PrimarySlot = idx;
-    } else if (s_PrimarySlot == idx) {
-        /* Find another selected slot as primary */
-        s_PrimarySlot = -1;
-        for (s32 i = 0; i < MATCH_MAX_SLOTS; i++) {
-            if (s_Selected[i]) { s_PrimarySlot = i; break; }
-        }
-    }
-    s_LastClickedSlot = idx;
-}
-
-static void selectionRange(s32 from, s32 to)
-{
-    /* Select all slots in range [from..to] inclusive */
-    s32 lo = from < to ? from : to;
-    s32 hi = from < to ? to : from;
-    for (s32 i = lo; i <= hi && i < MATCH_MAX_SLOTS; i++) {
-        if (!s_Selected[i]) {
-            s_Selected[i] = true;
-            s_SelectionCount++;
-        }
-    }
-    s_PrimarySlot = to;
-    s_LastClickedSlot = to;
-}
-
-static bool selectionHasBots(void)
-{
-    for (s32 i = 0; i < MATCH_MAX_SLOTS; i++) {
-        if (s_Selected[i] && i < g_MatchConfig.numSlots
-            && g_MatchConfig.slots[i].type == SLOT_BOT) return true;
-    }
-    return false;
-}
-
-static bool selectionAllBots(void)
-{
-    if (s_SelectionCount == 0) return false;
-    for (s32 i = 0; i < MATCH_MAX_SLOTS; i++) {
-        if (s_Selected[i] && i < g_MatchConfig.numSlots
-            && g_MatchConfig.slots[i].type != SLOT_BOT) return false;
-    }
-    return true;
-}
+/* selectionToggle, selectionRange, selectionHasBots, selectionAllBots
+ * removed — were used by the old renderSlotDetail multi-select panel,
+ * now replaced by per-bot popup editing in renderPlayersPanel. */
 
 /* ========================================================================
  * Helper: find arena index from stagenum
@@ -405,37 +358,40 @@ static bool PdCheckbox(const char *label, bool *v)
 }
 
 /* ========================================================================
- * Render: Slot list panel (left side)
+ * Render: Players panel (right side — per Mike's layout)
+ *
+ * Shows player/bot list, click a bot to open edit popup, +/- bot buttons
+ * docked to bottom.
  * ======================================================================== */
 
-static void renderSlotList(float scale, float panelW, float panelH)
+/* State for the bot edit popup */
+static bool s_BotPopupOpen = false;
+static s32 s_BotPopupSlot = -1;
+
+static void renderPlayersPanel(float scale, float panelW, float panelH)
 {
-    ImGui::BeginChild("##slot_list", ImVec2(panelW, panelH), true,
+    ImGui::BeginChild("##players_panel", ImVec2(panelW, panelH), true,
                       ImGuiChildFlags_NavFlattened);
 
-    /* Header with selection count */
-    if (s_SelectionCount > 1) {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
-                           "Characters (%d/%d) — %d selected",
-                           g_MatchConfig.numSlots, MATCH_MAX_SLOTS, s_SelectionCount);
-    } else {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Characters (%d/%d)",
-                           g_MatchConfig.numSlots, MATCH_MAX_SLOTS);
-    }
+    /* Header */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                       "Players (%d/%d)", g_MatchConfig.numSlots, MATCH_MAX_SLOTS);
     ImGui::Separator();
 
-    /* Selection hint */
-    if (s_SelectionCount == 0) {
-        ImGui::TextDisabled("Ctrl+click to multi-select, Shift+click for range");
-    }
-
     bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+
+    /* Scrollable player list — reserve space at bottom for +/- buttons */
+    float botBtnAreaH = 40.0f * scale;
+    float listH = panelH - botBtnAreaH - ImGui::GetCursorPosY()
+                  - ImGui::GetStyle().WindowPadding.y;
+
+    ImGui::BeginChild("##player_scroll", ImVec2(0, listH), false);
 
     for (s32 i = 0; i < g_MatchConfig.numSlots; i++) {
         struct matchslot *slot = &g_MatchConfig.slots[i];
         ImGui::PushID(i);
 
-        /* Slot type indicator */
+        /* Type tag */
         const char *typeStr = (slot->type == SLOT_PLAYER) ? "[P]" : "[B]";
         ImVec4 typeColor = (slot->type == SLOT_PLAYER)
             ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
@@ -444,57 +400,52 @@ static void renderSlotList(float scale, float panelW, float panelH)
         /* Team color dot */
         if (teamsOn) {
             s32 team = slot->team < 8 ? slot->team : 0;
-            ImGui::TextColored(s_TeamColors[team], "\xe2\x97\x8f"); /* filled circle */
+            ImGui::TextColored(s_TeamColors[team], "\xe2\x97\x8f");
             ImGui::SameLine();
         }
 
         ImGui::TextColored(typeColor, "%s", typeStr);
         ImGui::SameLine();
 
-        /* Selectable name — multi-select with Ctrl/Shift */
+        /* Name + difficulty for bots */
         char label[96];
         if (slot->type == SLOT_BOT) {
             const char *diffStr = (slot->botDifficulty < s_NumBotDiffs)
                 ? s_BotDiffNames[slot->botDifficulty] : "?";
-            snprintf(label, sizeof(label), "%s (%sSim)", slot->name, diffStr);
+            snprintf(label, sizeof(label), "%s (%sSim)##slot%d", slot->name, diffStr, i);
         } else {
-            snprintf(label, sizeof(label), "%s", slot->name);
+            snprintf(label, sizeof(label), "%s##slot%d", slot->name, i);
         }
 
+        /* Click selects; double-click (or single click on bot) opens edit popup */
         bool isSelected = s_Selected[i];
-        if (ImGui::Selectable(label, isSelected, 0, ImVec2(panelW - 80.0f * scale, 0))) {
-            ImGuiIO &io = ImGui::GetIO();
-
-            if (io.KeyShift && s_LastClickedSlot >= 0) {
-                /* Shift+click: range select from last clicked */
-                selectionRange(s_LastClickedSlot, i);
-            } else if (io.KeyCtrl) {
-                /* Ctrl+click: toggle this slot in/out of selection */
-                selectionToggle(i);
-            } else {
-                /* Plain click: select only this slot */
-                if (isSelected && s_SelectionCount == 1) {
-                    selectionClear(); /* Deselect if already sole selection */
-                } else {
-                    selectionSet(i);
-                }
-            }
+        if (ImGui::Selectable(label, isSelected,
+                              ImGuiSelectableFlags_AllowDoubleClick,
+                              ImVec2(0, 0)))
+        {
+            selectionSet(i);
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+
+            /* Open bot edit popup on click */
+            if (slot->type == SLOT_BOT) {
+                s_BotPopupOpen = true;
+                s_BotPopupSlot = i;
+                ImGui::OpenPopup("##bot_edit_popup");
+            }
         }
 
-        /* Remove button (not for slot 0 = local player) */
-        if (i > 0) {
+        /* Right-click context or remove button for bots */
+        if (i > 0 && slot->type == SLOT_BOT) {
             ImGui::SameLine(panelW - 32.0f * scale);
             if (ImGui::SmallButton("X")) {
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 s_Selected[i] = false;
                 matchConfigRemoveSlot(i);
-                /* Shift selection indices above the removed slot */
+                /* Shift selection indices */
                 for (s32 j = i; j < MATCH_MAX_SLOTS - 1; j++) {
                     s_Selected[j] = s_Selected[j + 1];
                 }
                 s_Selected[MATCH_MAX_SLOTS - 1] = false;
-                /* Recount */
                 s_SelectionCount = 0;
                 s_PrimarySlot = -1;
                 for (s32 j = 0; j < MATCH_MAX_SLOTS; j++) {
@@ -504,159 +455,149 @@ static void renderSlotList(float scale, float panelW, float panelH)
                     }
                 }
                 ImGui::PopID();
-                break; /* List changed, bail this frame */
+                break;
             }
         }
 
         ImGui::PopID();
     }
 
-    ImGui::Spacing();
+    /* ---- Bot edit popup ---- */
+    if (ImGui::BeginPopup("##bot_edit_popup")) {
+        if (s_BotPopupSlot >= 0 && s_BotPopupSlot < g_MatchConfig.numSlots
+            && g_MatchConfig.slots[s_BotPopupSlot].type == SLOT_BOT)
+        {
+            struct matchslot *bot = &g_MatchConfig.slots[s_BotPopupSlot];
 
-    /* Add Bot button */
-    if (g_MatchConfig.numSlots < MATCH_MAX_SLOTS) {
-        float addBtnW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
-        if (PdButton("+ Add Bot", ImVec2(addBtnW, 24.0f * scale))) {
-            /* Add a default bot */
-            s32 newIdx = matchConfigAddBot(
-                (u8)s_AddBotType, (u8)s_AddBotDiff,
-                0, BODY_DARK_COMBAT, NULL);
-            if (newIdx >= 0) {
-                selectionSet(newIdx);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Edit Bot");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            /* Name */
+            ImGui::InputText("Name", bot->name, sizeof(bot->name));
+
+            /* Character body */
+            {
+                u32 numBodies = mpGetNumBodies();
+                const char *bodyName = mpGetBodyName(bot->bodynum);
+                char bodyLabel[64];
+                snprintf(bodyLabel, sizeof(bodyLabel), "%s",
+                         bodyName ? bodyName : "???");
+
+                if (ImGui::BeginCombo("Character", bodyLabel)) {
+                    for (u32 b = 0; b < numBodies && b < 200; b++) {
+                        const char *bName = mpGetBodyName((u8)b);
+                        if (!bName || !bName[0]) continue;
+                        char itemLabel[64];
+                        snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
+                        bool isSel = (bot->bodynum == (u8)b);
+                        if (ImGui::Selectable(itemLabel, isSel)) {
+                            bot->bodynum = (u8)b;
+                            bot->headnum = (u8)b;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
+                        if (isSel) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
             }
-        }
-    }
 
-    ImGui::EndChild();
-}
-
-/* ========================================================================
- * Render: Slot detail panel (editing selected slot)
- * ======================================================================== */
-
-static void renderSlotDetail(float scale, float panelW, float panelH)
-{
-    ImGui::BeginChild("##slot_detail", ImVec2(panelW, panelH), true,
-                      ImGuiChildFlags_NavFlattened);
-
-    if (s_SelectionCount == 0 || s_PrimarySlot < 0
-        || s_PrimarySlot >= g_MatchConfig.numSlots) {
-        ImGui::TextDisabled("Select character slot(s) to edit");
-        ImGui::EndChild();
-        return;
-    }
-
-    bool multi = (s_SelectionCount > 1);
-    bool hasBots = selectionHasBots();
-    bool allBots = selectionAllBots();
-    struct matchslot *primary = &g_MatchConfig.slots[s_PrimarySlot];
-
-    /* Header */
-    if (multi) {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
-                           "Editing %d slots (changes apply to all)", s_SelectionCount);
-    } else {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Slot %d: %s",
-                           s_PrimarySlot,
-                           primary->type == SLOT_PLAYER ? "Player" : "Bot");
-    }
-    ImGui::Separator();
-
-    /* Name (only for single-select, and only editable for bots) */
-    if (!multi) {
-        if (primary->type == SLOT_BOT) {
-            ImGui::InputText("Name", primary->name, sizeof(primary->name));
-        } else {
-            ImGui::TextDisabled("Name: %s", primary->name);
-        }
-    }
-
-    /* Character body selection (single-select only for now) */
-    if (!multi) {
-        u32 numBodies = mpGetNumBodies();
-        const char *bodyName = mpGetBodyName(primary->bodynum);
-        char bodyLabel[64];
-        snprintf(bodyLabel, sizeof(bodyLabel), "%s (%d)",
-                 bodyName ? bodyName : "???", primary->bodynum);
-
-        if (ImGui::BeginCombo("Character", bodyLabel)) {
-            for (u32 b = 0; b < numBodies && b < 200; b++) {
-                const char *bName = mpGetBodyName((u8)b);
-                if (!bName || !bName[0]) continue;
-
-                char itemLabel[64];
-                snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
-                bool isSel = (primary->bodynum == (u8)b);
-                if (ImGui::Selectable(itemLabel, isSel)) {
-                    primary->bodynum = (u8)b;
-                    primary->headnum = (u8)b;
+            /* Bot type */
+            {
+                int botType = bot->botType;
+                if (ImGui::Combo("Type", &botType, s_BotTypeNames, s_NumBotTypes)) {
+                    bot->botType = (u8)botType;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
-                if (isSel) ImGui::SetItemDefaultFocus();
             }
-            ImGui::EndCombo();
-        }
-    }
 
-    /* ---- Team assignment (applies to ALL selected slots) ---- */
-    bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
-    if (teamsOn) {
-        static const char *teamNames[] = {
-            "Red", "Blue", "Yellow", "Green",
-            "Orange", "Purple", "Cyan", "Pink"
-        };
-        int team = primary->team;
-        if (team >= 8) team = 0;
-
-        const char *teamLabel = multi ? "Team (all selected)" : "Team";
-        if (ImGui::Combo(teamLabel, &team, teamNames, 8)) {
-            /* Apply to ALL selected slots */
-            for (s32 i = 0; i < g_MatchConfig.numSlots; i++) {
-                if (s_Selected[i]) {
-                    g_MatchConfig.slots[i].team = (u8)team;
+            /* Bot difficulty */
+            {
+                int botDiff = bot->botDifficulty;
+                if (ImGui::Combo("Difficulty", &botDiff, s_BotDiffNames, s_NumBotDiffs)) {
+                    bot->botDifficulty = (u8)botDiff;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
             }
-            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-        }
-    }
 
-    /* ---- Bot-specific settings (only shown if selection includes bots) ---- */
-    if (hasBots) {
-        ImGui::Spacing();
-        if (multi && !allBots) {
-            ImGui::TextDisabled("Bot Settings (applies to bots in selection only)");
-        } else {
-            ImGui::TextDisabled("Bot Settings");
-        }
-        ImGui::Separator();
-
-        /* Bot type — use primary bot's value as display, apply to all selected bots */
-        int botType = primary->type == SLOT_BOT ? primary->botType : BOTTYPE_GENERAL;
-        const char *typeLabel = multi ? "Type (all bots)" : "Type";
-        if (ImGui::Combo(typeLabel, &botType, s_BotTypeNames, s_NumBotTypes)) {
-            for (s32 i = 0; i < g_MatchConfig.numSlots; i++) {
-                if (s_Selected[i] && g_MatchConfig.slots[i].type == SLOT_BOT) {
-                    g_MatchConfig.slots[i].botType = (u8)botType;
+            /* Team (if teams enabled) */
+            if (g_MatchConfig.options & MPOPTION_TEAMSENABLED) {
+                static const char *teamNames[] = {
+                    "Red", "Blue", "Yellow", "Green",
+                    "Orange", "Purple", "Cyan", "Pink"
+                };
+                int team = bot->team;
+                if (team >= 8) team = 0;
+                if (ImGui::Combo("Team", &team, teamNames, 8)) {
+                    bot->team = (u8)team;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
             }
-            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-        }
 
-        /* Bot difficulty — same batch logic */
-        int botDiff = primary->type == SLOT_BOT ? primary->botDifficulty : BOTDIFF_NORMAL;
-        const char *diffLabel = multi ? "Difficulty (all bots)" : "Difficulty";
-        if (ImGui::Combo(diffLabel, &botDiff, s_BotDiffNames, s_NumBotDiffs)) {
-            for (s32 i = 0; i < g_MatchConfig.numSlots; i++) {
-                if (s_Selected[i] && g_MatchConfig.slots[i].type == SLOT_BOT) {
-                    g_MatchConfig.slots[i].botDifficulty = (u8)botDiff;
-                }
+            ImGui::Spacing();
+            if (PdButton("Done", ImVec2(80.0f * scale, 0))) {
+                ImGui::CloseCurrentPopup();
             }
-            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
+        ImGui::EndPopup();
     }
 
-    ImGui::EndChild();
+    ImGui::EndChild(); /* player_scroll */
+
+    /* ---- Bot +/- buttons docked to bottom ---- */
+    ImGui::Spacing();
+
+    /* Count current bots */
+    s32 botCount = 0;
+    for (s32 i = 0; i < g_MatchConfig.numSlots; i++) {
+        if (g_MatchConfig.slots[i].type == SLOT_BOT) botCount++;
+    }
+
+    float btnW = 32.0f * scale;
+    float btnH = 24.0f * scale;
+
+    /* Right-align the bot count + buttons */
+    float botLabelW = ImGui::CalcTextSize("Bots: 00").x;
+    float btnPad = 6.0f * scale;
+    float totalW = botLabelW + btnPad + btnW * 2 + 4.0f * scale;
+    ImGui::SetCursorPosX(panelW - totalW - ImGui::GetStyle().WindowPadding.x);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Bots: %02d", botCount);
+    ImGui::SameLine(0, btnPad);
+
+    /* + button */
+    bool canAdd = (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
+    if (!canAdd) ImGui::BeginDisabled();
+    if (PdButton("+##addbot", ImVec2(btnW, btnH))) {
+        s32 newIdx = matchConfigAddBot(
+            (u8)s_AddBotType, (u8)s_AddBotDiff,
+            0, BODY_DARK_COMBAT, NULL);
+        if (newIdx >= 0) selectionSet(newIdx);
+    }
+    if (!canAdd) ImGui::EndDisabled();
+
+    ImGui::SameLine(0, 2.0f * scale);
+
+    /* - button (remove last bot) */
+    bool canRemove = (botCount > 0);
+    if (!canRemove) ImGui::BeginDisabled();
+    if (PdButton("-##rmbot", ImVec2(btnW, btnH))) {
+        /* Remove last bot in the list */
+        for (s32 i = g_MatchConfig.numSlots - 1; i >= 0; i--) {
+            if (g_MatchConfig.slots[i].type == SLOT_BOT) {
+                matchConfigRemoveSlot(i);
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                break;
+            }
+        }
+    }
+    if (!canRemove) ImGui::EndDisabled();
+
+    ImGui::EndChild(); /* players_panel */
 }
+
+/* renderSlotDetail removed — bot editing now handled by popup in renderPlayersPanel */
 
 /* ========================================================================
  * Render: Match settings panel
@@ -732,43 +673,9 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
             ImGui::EndCombo();
         }
 
-        /* Per-slot weapon editing — shown when Custom weapon set is active */
-        if (g_MpWeaponSetNum == WEAPONSET_CUSTOM) {
-            ImGui::Indent(8.0f);
-            s32 numWeaponOptions = mpGetNumWeaponOptions();
-            static const char *slotLabels[NUM_MPWEAPONSLOTS] = {
-                "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6"
-            };
-
-            for (s32 slot = 0; slot < NUM_MPWEAPONSLOTS; slot++) {
-                s32 curWeapon = mpGetWeaponSlot(slot);
-                char *curWeaponName = mpGetWeaponLabel(curWeapon);
-
-                if (ImGui::BeginCombo(slotLabels[slot],
-                                      curWeaponName ? curWeaponName : "???")) {
-                    for (s32 w = 0; w < numWeaponOptions; w++) {
-                        char *wName = mpGetWeaponLabel(w);
-                        if (!wName || !wName[0]) continue;
-                        bool isSel = (w == curWeapon);
-                        char wLabel[64];
-                        snprintf(wLabel, sizeof(wLabel), "%s##ws%d_%d", wName, slot, w);
-                        if (ImGui::Selectable(wLabel, isSel)) {
-                            mpSetWeaponSlot(slot, w);
-                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        }
-                        if (isSel) ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
-            }
-            ImGui::Unindent(8.0f);
-        }
     }
 
-    ImGui::Spacing();
-    ImGui::TextDisabled("Limits");
-    ImGui::Separator();
-
+    /* ---- Length / Score (inline below the dropdowns, matching width) ---- */
     /* Time limit
      * Engine encoding: (value + 1) * 60 seconds.  >=60 means no limit.
      * We show the user-facing minutes: value+1 for 0-59, "No Limit" for >=60. */
@@ -780,7 +687,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         } else {
             snprintf(tlFmt, sizeof(tlFmt), "%d min", tl + 1);
         }
-        if (ImGui::SliderInt("Time Limit", &tl, 0, 60, tlFmt)) {
+        if (ImGui::SliderInt("Length", &tl, 0, 60, tlFmt)) {
             g_MatchConfig.timelimit = (u8)tl;
         }
     }
@@ -795,7 +702,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         } else {
             snprintf(slFmt, sizeof(slFmt), "%d kills", sl + 1);
         }
-        if (ImGui::SliderInt("Score Limit", &sl, 0, 100, slFmt)) {
+        if (ImGui::SliderInt("Score", &sl, 0, 100, slFmt)) {
             g_MatchConfig.scorelimit = (u8)sl;
         }
     }
@@ -814,12 +721,46 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         }
     }
 
+    /* ---- Weapon slots — always visible (Slot 1 – Slot 6) ---- */
     ImGui::Spacing();
-    ImGui::TextDisabled("Options");
-    ImGui::Separator();
-
-    /* Option checkboxes */
     {
+        s32 numWeaponOptions = mpGetNumWeaponOptions();
+        static const char *slotLabels[NUM_MPWEAPONSLOTS] = {
+            "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6"
+        };
+
+        /* When not Custom weapon set, slots reflect the preset but are still
+         * visible (read-only feel — selecting Custom unlocks full editing). */
+        bool isCustom = (g_MpWeaponSetNum == WEAPONSET_CUSTOM);
+
+        for (s32 slot = 0; slot < NUM_MPWEAPONSLOTS; slot++) {
+            s32 curWeapon = mpGetWeaponSlot(slot);
+            char *curWeaponName = mpGetWeaponLabel(curWeapon);
+
+            if (!isCustom) ImGui::BeginDisabled();
+            if (ImGui::BeginCombo(slotLabels[slot],
+                                  curWeaponName ? curWeaponName : "???")) {
+                for (s32 w = 0; w < numWeaponOptions; w++) {
+                    char *wName = mpGetWeaponLabel(w);
+                    if (!wName || !wName[0]) continue;
+                    bool isSel = (w == curWeapon);
+                    char wLabel[64];
+                    snprintf(wLabel, sizeof(wLabel), "%s##ws%d_%d", wName, slot, w);
+                    if (ImGui::Selectable(wLabel, isSel)) {
+                        mpSetWeaponSlot(slot, w);
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (isSel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            if (!isCustom) ImGui::EndDisabled();
+        }
+    }
+
+    /* ---- Options (collapsible section below weapon slots) ---- */
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Options", ImGuiTreeNodeFlags_DefaultOpen)) {
         bool v;
 
         v = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
@@ -942,25 +883,20 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     float contentH = dialogH - pdTitleH - 70.0f * scale;
 
     /* ---- Two-column layout ---- */
-    /* Left: Slot list + detail   Right: Match settings */
-    float leftW = dialogW * 0.55f;
-    float rightW = dialogW * 0.40f;
+    /* Left: Match settings (narrow)   Right: Players panel (wide) */
+    float leftW = dialogW * 0.42f;
+    float rightW = dialogW * 0.53f;
 
-    /* Left column — split into slot list (top) and detail (bottom) */
-    float slotListH = contentH * 0.55f;
-    float slotDetailH = contentH * 0.45f - pad;
-
+    /* Left column — match settings (full height, scrollable) */
     ImGui::BeginGroup();
     if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-    renderSlotList(scale, leftW, slotListH);
-    ImGui::Spacing();
-    renderSlotDetail(scale, leftW, slotDetailH);
+    renderMatchSettings(scale, leftW, contentH);
     ImGui::EndGroup();
 
     ImGui::SameLine(0, pad);
 
-    /* Right column — match settings (full height) */
-    renderMatchSettings(scale, rightW, contentH);
+    /* Right column — player/bot list with +/- buttons (full height) */
+    renderPlayersPanel(scale, rightW, contentH);
 
     /* ---- Footer: Start + Back buttons ---- */
     ImGui::SetCursorPosY(dialogH - 40.0f * scale);

@@ -38,8 +38,35 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 ### Remaining for Next Session
 - **12+ character crash**: Enable verbose logging, reproduce crash, check log for last BOT_ALLOC entry to identify exact failure point. May need debug symbols (.pdb) for the backtrace.
 - **Mods tab**: Create renderSettingsMods() function, add 7th tab to Settings
-- **Match Setup layout**: Widen players panel, dock +/- buttons, bot selection popup (per Mike's annotated screenshot)
 - **M2-M6**: Continue memory modernization phases after crash fix is resolved
+
+---
+
+## Session 16b — 2026-03-21
+
+**Focus**: Match Setup menu layout restructure per Mike's annotated screenshot
+
+### What Was Done
+
+1. **Match Setup layout restructure** — Complete rearrangement of `pdgui_menu_matchsetup.cpp` to match Mike's annotated screenshot reference:
+   - **Swapped column order**: Settings column now on LEFT (42% width), Players panel on RIGHT (53% width). Previously was inverted.
+   - **Removed `renderSlotDetail`**: The old multi-select detail panel (Name, Character, Team, Bot Type, Difficulty) is fully replaced by the per-bot edit popup in `renderPlayersPanel`. Click any bot in the player list → opens popup with Name, Character, Type, Difficulty, Team fields.
+   - **Always-visible weapon slots**: Slot 1–6 weapon dropdowns now always render below the Weapons preset dropdown. When using a preset (not Custom), slots show the preset weapons in a disabled/greyed state. When Custom is selected, slots become fully editable.
+   - **Renamed labels**: "Time Limit" → "Length", "Score Limit" → "Score" to match the screenshot labels.
+   - **Collapsible Options section**: Moved option checkboxes (Teams, One-Hit Kills, No Radar, etc.) below weapon slots into a CollapsingHeader so the main settings (Scenario/Arena/Length/Score/Weapons/Slots) are always visible first.
+   - **Removed unused multi-select helpers**: `selectionToggle`, `selectionRange`, `selectionHasBots`, `selectionAllBots` were only used by the deleted `renderSlotDetail` — removed to eliminate compiler warnings.
+   - **Fixed `pad` variable bug**: `renderPlayersPanel` referenced undefined `pad` variable in the bot button area; replaced with local `btnPad`.
+
+### Files Modified
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — Full layout restructure (all changes above)
+- `context/session-log.md` — This entry
+
+### Remaining
+- **Build verification**: Mike needs to rebuild client to verify compile
+- **Visual polish**: May need width/spacing tweaks once Mike sees the new layout in-game
+- **12+ character crash**: Still pending verbose log output from crash reproduction
+- **Mods tab**: Not started
+- **M2-M6**: Continue memory modernization phases
 
 ---
 
