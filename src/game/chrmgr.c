@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "memsizes.h"
 #include "game/game_00b820.h"
 #include "game/title.h"

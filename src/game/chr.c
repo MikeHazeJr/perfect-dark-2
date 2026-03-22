@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "lib/sched.h"
 #include "constants.h"
+#include "system.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -1092,7 +1093,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	prop->chr = chr;
 
 	if (chr == NULL) {
-		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) — cannot allocate", g_NumChrSlots);
+		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) - cannot allocate", g_NumChrSlots);
 		return;
 	}
 
@@ -1316,7 +1317,7 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 	chr = prop->chr;
 
 	if (chr == NULL) {
-		sysLogPrintf(LOG_ERROR, "chr0f020b14: chrInit failed (out of chr slots) — aborting");
+		sysLogPrintf(LOG_ERROR, "chr0f020b14: chrInit failed (out of chr slots) - aborting");
 		return NULL;
 	}
 
