@@ -18,7 +18,10 @@
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
 #define MAX_CHRWAYPOINTS       6
-#define MAX_EXPLOSIONS         6
+/* PC: Increased from 6 for 32-character combat. With rockets,
+ * grenades, proxy mines, Dragon bombs, and N-Bombs all going off
+ * simultaneously, 6 was often not enough even on N64 with 4 players. */
+#define MAX_EXPLOSIONS         24
 #define MAX_EYESPYDARTS        8
 /* PC: Proximity-triggered weapon tracking (proxy mines, Dragon prox bombs,
  * grenades). N64 original was 30 for 4 players. With 32 characters each
