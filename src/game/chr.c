@@ -4500,7 +4500,7 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 			 * computed yet (e.g. bot spawned but not yet animated). Skip hit
 			 * test entirely — can't determine bounding sphere position. */
 			if (!rootmtx) {
-				break;
+				return;
 			}
 
 			if (func0f06b39c(&shotdata->gunpos2d, &shotdata->gundir2d, (struct coord *)rootmtx->m[3], radius)) {
