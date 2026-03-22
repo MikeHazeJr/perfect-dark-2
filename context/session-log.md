@@ -4,6 +4,45 @@ Reverse-chronological. Each entry is a self-contained summary of what happened.
 
 ---
 
+## Session 16 — 2026-03-21
+
+**Focus**: Deeper crash audit for 12+ chars, bug pattern catalog, Debug tab polish, config persistence
+
+### What Was Done
+
+1. **Deep audit of 12+ character combat sim crash** — Comprehensive analysis of all MAX_PLAYERS-sized arrays (g_Menus, g_AmMenus, g_LaserSights, g_BgunAudioHandles, g_Pfses, g_PlayerExtCfg, g_FileLists, g_MpSelectedPlayersForStats). Key finding: `g_Vars.currentplayerstats->mpindex` is ALWAYS a local player index (0-3) because `setCurrentPlayerNum()` only receives local player indices. This means our Session 15 g_Menus fixes were correct for the paths they guard, but the 12+ character crash is a DIFFERENT bug — likely in the bot spawn/init path, not in menu array overflow. Added diagnostic logging to botmgrAllocateBot and mpReset to capture the exact crash site on next reproduction.
+
+   **Files modified:**
+   - `src/game/botmgr.c` — Added BOT_ALLOC logging at bodyAllocateModel and chrAllocate return points
+   - `src/game/mplayer/mplayer.c` — Added mpReset player enumeration logging
+
+2. **Bug pattern reference document** — Created `context/bug-patterns.md` cataloging 9 recurring bug patterns found during crash investigation: MAX_PLAYERS array overflow, AVOID_UB modulo hacks, g_PlayerExtCfg bounds, hardcoded magic numbers, large stack buffers, overlap decompression, IS4MB dead branches, untagged unions, config persistence gaps. Includes search commands for global codebase pass and priority ordering.
+
+3. **Debug tab button widths** — Increased base button width from 80px to 110px (scaled) so "Black & Gold" and "All Channels" text fits without truncation.
+
+4. **Theme button coloring** — Each theme selector button is now tinted to preview the theme it represents. Added `s_ThemeAccentColors[]` and `s_ThemeTextColors[]` arrays with representative colors for all 7 themes. Selected theme button gets brightened with a visible border in theme text color.
+
+5. **Verbose logging + channel mask persistence** — Registered `s_LogVerbose` and `s_LogChannelMask` as config entries via `configRegisterInt/UInt` in `sysInit()`. Values are now loaded from `pd.ini` on startup (Debug.VerboseLogging, Debug.LogChannelMask) and saved on every toggle in the Debug tab. CLI `--verbose` flag still overrides config value.
+
+6. **Task tracker update** — Added 11 new known issues to tasks.md: 12+ char crash, button widths, theme colors, verbose persistence, connect codes, offline servers, F11 storyboard removal, Mods tab, Match Setup layout, and their statuses.
+
+### Files Modified
+- `src/game/botmgr.c` — diagnostic logging
+- `src/game/mplayer/mplayer.c` — diagnostic logging
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — button widths (80→110), theme accent/text color arrays, colored theme buttons with border on selection, configSave on verbose/channel/theme changes
+- `port/src/system.c` — config.h include, configRegisterInt/UInt for verbose + channel mask
+- `context/bug-patterns.md` — NEW: 9-pattern bug reference for global codebase pass
+- `context/tasks.md` — 11 new known issues added
+- `context/session-log.md` — this entry
+
+### Remaining for Next Session
+- **12+ character crash**: Enable verbose logging, reproduce crash, check log for last BOT_ALLOC entry to identify exact failure point. May need debug symbols (.pdb) for the backtrace.
+- **Mods tab**: Create renderSettingsMods() function, add 7th tab to Settings
+- **Match Setup layout**: Widen players panel, dock +/- buttons, bot selection popup (per Mike's annotated screenshot)
+- **M2-M6**: Continue memory modernization phases after crash fix is resolved
+
+---
+
 ## Session 15 — 2026-03-21
 
 **Focus**: Combat sim crash fix, Debug tab in Settings, Memory modernization M1

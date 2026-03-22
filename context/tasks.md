@@ -599,6 +599,15 @@ User confirmed stationary jumping works. Full movement testing requires user at 
 | Simulants not spawning | chrslots bits or allocation | FIX-9b logging added | NEEDS LOG OUTPUT |
 | Blue geometry at Paradox | Visual bug at center pit | Not investigated | LOW PRIORITY |
 | Endscreen font/menu corruption | After match end, "Game Over" dialog renders correctly first then switches to blocky/different rendering. ENTIRE window changes — border style, proportions, gradient, font — not just font. Both renders are PD native menu system (no ImGui game menus exist). Suggests GBI state corruption or rendering resolution/scale change during endscreen transition. | Investigate g_ScaleX, viSetMode, GBI state persistence, TLUT | HIGH PRIORITY |
+| Combat sim crash 12+ chars | ACCESS_VIOLATION when starting match with 1 player + 11+ bots. 6 g_Menus overflow sites fixed (S15), but crash persists at different PC offsets. Diagnostic logging added to botmgrAllocateBot and mpReset (S16). Exact overflow site unknown — needs debug symbols or log output from crash. | Enable verbose logging, reproduce crash, check log for last BOT_ALLOC entry | HIGH PRIORITY |
+| Debug tab button widths | "Black & Gold" and "All Channels" buttons too narrow (80px * scale). Text truncated. | Increase btnW from 80.0f to ~120.0f, or use CalcTextSize auto-width | LOW PRIORITY |
+| Theme buttons not colored | Theme selector buttons are all same color. Should be tinted to preview the theme they represent. | Use ImGui::PushStyleColor per button with palette sample colors | LOW PRIORITY |
+| Verbose logging not persistent | sysLogSetVerbose() is runtime-only. Doesn't survive restart. | Add config file entry for verbose flag, read on startup, write on change | MEDIUM PRIORITY |
+| Network join screen missing connect codes | IP-dictionary (6 PD-themed words encode IP+port) not implemented in join screen. | Implement word↔IP encoder/decoder, add to pdgui_menu_network.cpp | MEDIUM PRIORITY |
+| Running servers show as Offline | Recent servers list marks running servers as 'Offline'. | Debug server status query/response in pdgui_menu_network.cpp | MEDIUM PRIORITY |
+| F11 Storyboard menu deprecated | Old F11 Storyboard menu still exists, should be removed. | Remove storyboard menu code and F11 keybind | LOW PRIORITY |
+| Mods tab in Settings | Need a Mods tab in Settings for mod manager/loader. Failing mods must never crash — log specifically and play error sound. | Create renderSettingsMods(), add 7th tab, mod error handling | FEATURE REQUEST |
+| Match Setup layout polish | Settings column (Scenario/Arena/Length/Score/Weapons) width should match weapon slots below. Players panel should widen into available space. Bot +/- buttons docked to bottom of players panel. Bot selection popup for name/character/type/difficulty. | Redesign pdgui_menu_matchsetup layout per Mike's screenshot | FEATURE REQUEST |
 
 ---
 

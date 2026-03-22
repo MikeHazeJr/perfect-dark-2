@@ -574,6 +574,9 @@ void mpReset(void)
 		}
 	}
 
+	sysLogPrintf(LOG_NOTE, "MATCH: mpReset player enum done: g_MpNumChrs=%d chrslots=0x%08x",
+		g_MpNumChrs, g_MpSetup.chrslots);
+
 	for (i = 0; i < MAX_MPCHRS; i++) {
 		struct mpchrconfig *mpchr = MPCHR(i);
 

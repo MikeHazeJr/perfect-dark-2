@@ -12,6 +12,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
+#include "config.h"
 #include "console.h"
 #include "system.h"
 
@@ -230,7 +231,14 @@ void sysInit(void)
 	strftime(timestr, sizeof(timestr), "%d %b %Y %H:%M:%S", localtime(&curtime));
 	sysLogPrintf(LOG_NOTE, "startup date: %s", timestr);
 
-	/* Enable verbose logging from command line */
+	/* Register log settings with config system — values will be loaded
+	 * from pd.ini when configInit() runs shortly after sysInit().
+	 * Cast through (s32*) is safe because s_LogVerbose is s32
+	 * and s_LogChannelMask is u32. */
+	configRegisterInt("Debug.VerboseLogging", &s_LogVerbose, 0, 1);
+	configRegisterUInt("Debug.LogChannelMask", &s_LogChannelMask, 0, 0xFFFF);
+
+	/* Enable verbose logging from command line (overrides config) */
 	if (sysArgCheck("--verbose")) {
 		s_LogVerbose = 1;
 	}

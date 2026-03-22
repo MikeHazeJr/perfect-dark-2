@@ -1121,6 +1121,26 @@ static const char *s_ThemeNames[] = {
 };
 #define PDGUI_NUM_THEMES 7
 
+/* Representative accent colors for each theme — used to tint theme selector buttons */
+static const ImVec4 s_ThemeAccentColors[] = {
+    ImVec4(0.45f, 0.45f, 0.50f, 0.85f), /* Grey */
+    ImVec4(0.15f, 0.30f, 0.70f, 0.85f), /* Blue */
+    ImVec4(0.70f, 0.12f, 0.12f, 0.85f), /* Red */
+    ImVec4(0.10f, 0.55f, 0.20f, 0.85f), /* Green */
+    ImVec4(0.70f, 0.70f, 0.75f, 0.85f), /* White */
+    ImVec4(0.55f, 0.55f, 0.60f, 0.85f), /* Silver */
+    ImVec4(0.20f, 0.18f, 0.10f, 0.85f), /* Black & Gold */
+};
+static const ImVec4 s_ThemeTextColors[] = {
+    ImVec4(0.90f, 0.90f, 0.90f, 1.0f),  /* Grey */
+    ImVec4(0.80f, 0.85f, 1.00f, 1.0f),  /* Blue */
+    ImVec4(1.00f, 0.80f, 0.80f, 1.0f),  /* Red */
+    ImVec4(0.80f, 1.00f, 0.80f, 1.0f),  /* Green */
+    ImVec4(0.15f, 0.15f, 0.20f, 1.0f),  /* White (dark text on light) */
+    ImVec4(0.10f, 0.10f, 0.15f, 1.0f),  /* Silver (dark text on light) */
+    ImVec4(0.90f, 0.78f, 0.35f, 1.0f),  /* Black & Gold (gold text) */
+};
+
 static void renderSettingsDebug(float scale)
 {
     /* ------ Log Channel Filters ------ */
@@ -1131,7 +1151,7 @@ static void renderSettingsDebug(float scale)
     u32 mask = sysLogGetChannelMask();
 
     /* Preset buttons: All / None */
-    float btnW = 80.0f * scale;
+    float btnW = 110.0f * scale;  /* wide enough for "All Channels" and "Black & Gold" */
     float btnH = 24.0f * scale;
     bool isAll = (mask == LOG_CH_ALL);
     bool isNone = (mask == LOG_CH_NONE);
@@ -1143,6 +1163,7 @@ static void renderSettingsDebug(float scale)
     if (ImGui::Button("All Channels", ImVec2(btnW, btnH))) {
         sysLogSetChannelMask(LOG_CH_ALL);
         mask = LOG_CH_ALL;
+        configSave("pd.ini");
     }
     if (isAll) ImGui::PopStyleColor();
 
@@ -1154,6 +1175,7 @@ static void renderSettingsDebug(float scale)
     if (ImGui::Button("None##ch", ImVec2(btnW, btnH))) {
         sysLogSetChannelMask(LOG_CH_NONE);
         mask = LOG_CH_NONE;
+        configSave("pd.ini");
     }
     if (isNone) ImGui::PopStyleColor();
 
@@ -1178,14 +1200,16 @@ static void renderSettingsDebug(float scale)
 
     if (changed) {
         sysLogSetChannelMask(mask);
+        configSave("pd.ini");
     }
 
     ImGui::Spacing();
 
-    /* Verbose toggle */
+    /* Verbose toggle — persisted to pd.ini via Debug.VerboseLogging */
     bool verbose = sysLogGetVerbose() != 0;
     if (ImGui::Checkbox("Verbose Logging", &verbose)) {
         sysLogSetVerbose(verbose ? 1 : 0);
+        configSave("pd.ini");
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
@@ -1202,18 +1226,37 @@ static void renderSettingsDebug(float scale)
 
     for (int i = 0; i < PDGUI_NUM_THEMES; i++) {
         bool selected = (i == currentPal);
+
+        /* Tint each button to preview the theme it represents */
+        ImVec4 btnCol = s_ThemeAccentColors[i];
+        ImVec4 btnHover = ImVec4(
+            btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
+        ImVec4 btnActive = ImVec4(
+            btnCol.x + 0.25f, btnCol.y + 0.25f, btnCol.z + 0.25f, 1.0f);
+
         if (selected) {
-            ImVec4 activeCol = ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered];
-            activeCol.w = 0.85f;
-            ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
+            /* Brighten selected button and add a visible border */
+            btnCol.x += 0.12f; btnCol.y += 0.12f; btnCol.z += 0.12f;
+            btnCol.w = 1.0f;
+            ImGui::PushStyleColor(ImGuiCol_Border, s_ThemeTextColors[i]);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f * scale);
         }
+
+        ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, s_ThemeTextColors[i]);
 
         if (ImGui::Button(s_ThemeNames[i], ImVec2(btnW, btnH))) {
             pdguiSetPalette(i);
+            configSave("pd.ini");
         }
 
+        ImGui::PopStyleColor(4); /* Text, Active, Hovered, Button */
+
         if (selected) {
-            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();   /* FrameBorderSize */
+            ImGui::PopStyleColor(); /* Border */
         }
 
         /* 3 buttons per row */

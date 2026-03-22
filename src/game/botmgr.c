@@ -57,11 +57,17 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 	model = bodyAllocateModel(bodynum, headnum, 0);
 
+	sysLogPrintf(LOG_NOTE, "BOT_ALLOC: bodyAllocateModel returned %p for chrnum=%d slot=%d",
+		(void *)model, chrnum, aibotnum);
+
 	if (model != NULL) {
 		struct coord pos = {0.0f, 0.0f, 0.0f};
 		u32 stack;
 
 		prop = chrAllocate(model, &pos, rooms, 0.0f, ailistFindById(GAILIST_AIBOT_INIT));
+
+		sysLogPrintf(LOG_NOTE, "BOT_ALLOC: chrAllocate returned prop=%p for chrnum=%d slot=%d g_BotCount=%d g_MpNumChrs=%d",
+			(void *)prop, chrnum, aibotnum, g_BotCount, g_MpNumChrs);
 
 		if (prop != NULL) {
 			propActivate(prop);
