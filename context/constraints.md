@@ -18,6 +18,7 @@ These are things we must still respect:
 - **MAX_LOCAL_PLAYERS = 4**: Maximum splitscreen players per machine. MAX_PLAYERS = 8 includes remote. Many arrays sized to these. Participant system uses `localslot` (0-3) per machine, `client_id` per network client.
 - **PLAYERCOUNT()**: Returns number of local human players (1-4), not total chrs.
 - **ROM data files**: Model/animation files come from ROM dump. Models not in ROM return NULL from fileLoadToNew (fixed Session 13). Mod content extends via mod loader.
+- **`bool` is `s32`, not `_Bool`**: Defined in `types.h` and `data.h` as `#define bool s32`. **Never include `<stdbool.h>`** in game code — it redefines `bool` to `_Bool` and causes type conflicts. New game headers should include `"types.h"` to get `bool`.
 - **C11 game code / C++ port code**: Game logic in C11, port/renderer in C++. Must not introduce C++ in `src/game/` or `src/lib/`.
 - **CMake + MinGW/GCC on Windows**: User compiles on Windows. AI cannot compile — code must be reviewed for correctness before delivery.
 - **ENet statically linked**: Along with SDL2, zlib, and libcurl.

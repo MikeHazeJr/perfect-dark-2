@@ -14,7 +14,7 @@
 #define _IN_GAME_MPLAYER_PARTICIPANT_H
 
 #include <ultra64.h>
-#include "constants.h"
+#include "types.h"
 
 /* Default pool capacity — can be expanded at runtime */
 #define PARTICIPANT_DEFAULT_CAPACITY  32
