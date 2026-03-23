@@ -5,6 +5,33 @@
 
 ---
 
+## Session 36 — 2026-03-23
+
+**Focus**: B-13 root cause analysis — GE prop scale pipeline investigation + model correction architecture decision
+
+### What Was Done
+
+1. **Full pipeline trace**: Traced prop spawning from `setupCreateProps()` → `setupCreateObject()` → `objInit()` → `modelSetScale()`. Identified the three-way `g_ModNum` switch at `propobj.c:2239-2245` that selects between `g_ModelStates[]`, `g_GexModelStates[]`, and `g_Goldfinger64ModelStates[]`.
+
+2. **Root cause confirmed**: The B-17 smart bgdata redirect (S32) bypasses `modConfigParseStage()`, which was responsible for setting `g_ModNum`. Without `g_ModNum == MOD_GEX`, `objInit()` falls through to base PD `g_ModelStates[0xc1].scale = 0x1000` (1.0×) instead of `g_GexModelStates[0xc1].scale = 0x0199` (≈0.1×). The ammo crate renders at 10× intended size.
+
+3. **Architecture decision**: Mike directed that model baselines should be physically correct — shipped models should render right at `model_scale = 1.0`, with `model_scale` in `.ini` serving as a creative modifier only. No corrective runtime scaling.
+
+4. **Model Correction Tool planned**: Added to D3R-7 scope. Tool renders mod model alongside PD reference at 1.0 scale, provides interactive scale adjustment, then rewrites the model binary with corrected `definition->scale` baked in.
+
+### Design Decisions
+
+- **Fix the asset, not the runtime**: Rather than adding catalog-based prop scale overrides or maintaining `g_ModNum` compensation, fix the model files themselves so they're correct at 1.0 scale. Eliminates an entire class of scale bugs.
+- **`model_scale` is creative, not corrective**: The `.ini` field exists for modders who intentionally want non-standard sizes. Default 1.0 means "use as-is."
+- **Interim fix needed**: Ensure `g_ModNum` is set during catalog-based stage loading so existing GEX compensation works until models are corrected.
+
+### Next Steps
+- Interim `g_ModNum` fix (ensure set during catalog stage load) — restores GEX scale compensation
+- D3R-5 Step 4 build test (still pending from S35)
+- Model Correction Tool design + implementation (D3R-7)
+
+---
+
 ## Session 35 — 2026-03-23
 
 **Focus**: D3R-5 Step 4 — Arena registration implementation + ImGui dropdown migration

@@ -65,17 +65,18 @@
 | Priority | Task | Depends On | Details |
 |----------|------|-----------|---------|
 | 1 | **B-12 Phase 2: Migrate chrslots callsites** | Phase 1 build test pass | 100+ locations across mplayer.c, setup.c, menu.c, challenge.c, filemgr.c. Replace chrslots reads/writes with participant API calls. |
-| 2 | **B-12 Phase 3: Remove chrslots** | Phase 2 complete | Delete u32 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v20. |
-| 3 | **Pause Menu Fixes** | — | B-14 START double-fire, B-16 back button, End Game overlay, Settings back-out, suppress OG Paused text. |
-| 4 | **Stage Decoupling Phase 2** — Dynamic stage table | Phase 1 verified | Heap-allocated `g_Stages`, `g_NumStages` counter. See [S23 session log](session-log.md). |
-| 5 | **Stage Decoupling Phase 3** — Index domain separation | Phase 2 | `soloStageGetIndex()` lookup, stagenum-keyed besttimes. |
-| 6 | **Starting Weapon Option** | Match setup UI | Toggle + weapon picker / random pool. New match setup field. |
-| 7 | **Spawn Scatter** | — | Distribute across map pads, face away from nearest wall. |
-| 8 | **Bot Customizer** | Build stable | Advanced options popup in match settings. Save as new bot type. Save/load match settings. |
-| 9 | **BotController Architecture** | Build stable | Wrapper around chr/aibot. Extension points for physics, combat telemetry, lifecycle. |
-| 10 | **Custom Post-Game Menu** | BotController | ImGui-based endscreen. Also fully resolves B-10. |
-| 11 | **D5: Settings/Graphics/QoL** | — | FOV slider, resolution, audio volumes (4-layer). See [d5-settings-plan.md](d5-settings-plan.md). |
-| 12 | **Memory Modernization M2+** | — | Stack→heap promotion. See [memory-modernization.md](memory-modernization.md). |
+| 2 | **B-13 Part 2: g_ModNum interim fix** | D3R-5 build test | Ensure `g_ModNum` is set during catalog-based stage loading so GEX scale compensation works. Stopgap until Model Correction Tool (D3R-7) fixes model baselines. |
+| 3 | **B-12 Phase 3: Remove chrslots** | Phase 2 complete | Delete u32 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v20. |
+| 4 | **Pause Menu Fixes** | — | B-14 START double-fire, B-16 back button, End Game overlay, Settings back-out, suppress OG Paused text. |
+| 5 | **Stage Decoupling Phase 2** — Dynamic stage table | Phase 1 verified | Heap-allocated `g_Stages`, `g_NumStages` counter. See [S23 session log](session-log.md). |
+| 6 | **Stage Decoupling Phase 3** — Index domain separation | Phase 2 | `soloStageGetIndex()` lookup, stagenum-keyed besttimes. |
+| 7 | **Starting Weapon Option** | Match setup UI | Toggle + weapon picker / random pool. New match setup field. |
+| 8 | **Spawn Scatter** | — | Distribute across map pads, face away from nearest wall. |
+| 9 | **Bot Customizer** | Build stable | Advanced options popup in match settings. Save as new bot type. Save/load match settings. |
+| 10 | **BotController Architecture** | Build stable | Wrapper around chr/aibot. Extension points for physics, combat telemetry, lifecycle. |
+| 11 | **Custom Post-Game Menu** | BotController | ImGui-based endscreen. Also fully resolves B-10. |
+| 12 | **D5: Settings/Graphics/QoL** | — | FOV slider, resolution, audio volumes (4-layer). See [d5-settings-plan.md](d5-settings-plan.md). |
+| 13 | **Memory Modernization M2+** | — | Stack→heap promotion. See [memory-modernization.md](memory-modernization.md). |
 
 ---
 
@@ -92,7 +93,7 @@
 | D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
 | D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Steps 1-4 ✓ (Step 4 coded S35, awaiting build test). B-17 fixed. **Next**: Build test Step 4, then Tier 1 easy callsites (~15 read-only display sites). See briefing below. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
-| D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |
+| D3R-7 | **INI Manager tool + Model Correction Tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. **Model Correction Tool**: dual-model renderer (mod vs base PD reference at 1.0), interactive scale slider, binary rewrite to bake corrected `definition->scale` into model file. All shipped models render correctly at `model_scale = 1.0`; `.ini` `model_scale` is creative modifier only. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
 | D3R-9 | **Network distribution** | D3R-4 | Delta packs, session-only downloads, lobby spectator combat log. |
 | D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |

@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-23, Session 35 (D3R-5 Steps 1-4 coded; Step 4 arena registration + ImGui dropdown migration awaiting build test)
+> **Last updated**: 2026-03-23, Session 36 (B-13 root cause confirmed: g_ModNum not set during catalog stage load; Model Correction Tool planned for D3R-7; D3R-5 Step 4 still awaiting build test)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
