@@ -21,6 +21,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
@@ -29,6 +33,8 @@
 extern "C" {
 #include "updater.h"
 #include "updateversion.h"
+#include "pdgui_pausemenu.h"
+s32 pdguiHotswapWasActive(void);
 }
 
 /* ========================================================================
@@ -91,11 +97,29 @@ static void renderNotificationBanner(void)
 		ImGui::SameLine();
 
 		float btnWidth = 80.0f;
+		float updateBtnWidth = 100.0f;
 		float dismissX = io.DisplaySize.x - btnWidth - 16;
 		float viewX = dismissX - btnWidth - 8;
+		float updateX = viewX - updateBtnWidth - 8;
 
+		ImGui::SetCursorPosX(updateX);
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.7f, 0.25f, 1.0f));
+		if (ImGui::SmallButton("Update Now")) {
+			/* Start downloading the latest release immediately */
+			const updater_release_t *latest = updaterGetLatest();
+			if (latest && latest->assetUrl[0]) {
+				s_DownloadFailed = false;
+				updaterDownloadAsync(latest);
+				s_DownloadActive = true;
+				s_NotificationDismissed = true;
+				s_ShowNotification = false;
+			}
+		}
+		ImGui::PopStyleColor(2);
+		ImGui::SameLine();
 		ImGui::SetCursorPosX(viewX);
-		if (ImGui::SmallButton("View")) {
+		if (ImGui::SmallButton("Details")) {
 			s_ShowVersionPicker = true;
 		}
 		ImGui::SameLine();
@@ -202,7 +226,22 @@ static void renderRestartPrompt(void)
 		ImGui::SetCursorPosX((ImGui::GetWindowWidth() - totalWidth) * 0.5f);
 
 		if (ImGui::Button("Restart Now", ImVec2(btnWidth, 0))) {
-			/* The update will be applied on next launch via updaterApplyPending() */
+			/* Re-launch the game, then exit this process.
+			 * updaterApplyPending() in the new process will apply the update. */
+#ifdef _WIN32
+			STARTUPINFOA si;
+			PROCESS_INFORMATION pi;
+			memset(&si, 0, sizeof(si));
+			memset(&pi, 0, sizeof(pi));
+			si.cb = sizeof(si);
+			char exePath[512];
+			GetModuleFileNameA(NULL, exePath, sizeof(exePath));
+			if (CreateProcessA(exePath, GetCommandLineA(),
+					NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+				CloseHandle(pi.hProcess);
+				CloseHandle(pi.hThread);
+			}
+#endif
 			SDL_Event quitEvent;
 			quitEvent.type = SDL_QUIT;
 			SDL_PushEvent(&quitEvent);
@@ -441,6 +480,53 @@ static void renderVersionPicker(void)
 }
 
 /* ========================================================================
+ * Version watermark — bottom-right corner, always visible
+ * ======================================================================== */
+
+static void renderVersionWatermark(void)
+{
+	/* Only show on main menu (hotswap active) or when paused */
+	if (!pdguiHotswapWasActive() && !pdguiIsPauseMenuOpen()) return;
+
+	const char *verStr = updaterGetVersionString();
+	if (!verStr || !verStr[0]) return;
+
+	char label[96];
+	update_channel_t ch = updaterGetChannel();
+	if (ch == UPDATE_CHANNEL_DEV) {
+		snprintf(label, sizeof(label), "v%s (dev)", verStr);
+	} else {
+		snprintf(label, sizeof(label), "v%s", verStr);
+	}
+
+	ImGuiIO &io = ImGui::GetIO();
+	ImVec2 textSize = ImGui::CalcTextSize(label);
+	float padding = 8.0f;
+	float x = io.DisplaySize.x - textSize.x - padding;
+	float y = io.DisplaySize.y - textSize.y - padding;
+
+	ImGui::SetNextWindowPos(ImVec2(x - padding, y - padding * 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(textSize.x + padding * 2, textSize.y + padding));
+	ImGui::SetNextWindowBgAlpha(0.35f);
+
+	ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoInputs |
+		ImGuiWindowFlags_NoNav;
+
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding * 0.5f));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+
+	if (ImGui::Begin("##version_watermark", nullptr, flags)) {
+		ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 0.6f), "%s", label);
+	}
+	ImGui::End();
+
+	ImGui::PopStyleVar(2);
+}
+
+/* ========================================================================
  * Public API — called from pdguiRender() every frame
  * ======================================================================== */
 
@@ -452,6 +538,9 @@ extern "C" {
 void pdguiUpdateRender(void)
 {
 	updater_status_t status = updaterGetStatus();
+
+	/* Version watermark — always visible in bottom-right corner */
+	renderVersionWatermark();
 
 	/* Show notification banner when update available */
 	if (status == UPDATER_CHECK_DONE && updaterIsUpdateAvailable() && !s_NotificationDismissed) {

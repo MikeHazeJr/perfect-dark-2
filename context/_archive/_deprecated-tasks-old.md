@@ -9,27 +9,52 @@ Track the current task, its steps, and progress. Updated at each step start/stop
 
 ---
 
-## SESSION 22 — Active Work Queue (2026-03-22)
+## SESSION 23 — Dynamic Stage Decoupling (2026-03-22)
 
-### Priority Order (set by Mike)
+### Active Task: Phase 1 — Safety Net for Mod Stage Indices
+
+| # | Step | Status |
+|---|------|--------|
+| 1a | Validate `g_StageSetup.intro` at load time (`setup.c`) | ✅ DONE |
+| 1b | Bounds-check `g_SpawnPoints[24]` in `playerreset.c` | ✅ DONE |
+| 1c | Safety guard on INTROCMD_CREDITOFFSET inner loop + player.c NULL check | ✅ DONE |
+| 1d | Guard `besttimes[]` writes in `endscreen.c`, reads in `training.c`, `mainmenu.c` | ✅ DONE |
+| 1e | Safety guard on intro loop in `scenarioReset()` (`scenarios.c`) | ✅ DONE |
+| 1f | Propagation check — scanned all INTROCMD loops, besttimes/g_SoloStages accesses | ✅ CLEAN |
+
+**Phase 1 complete — needs build test.**
+
+### Phase 2 — Dynamic Stage Table (PLANNED, not yet started)
+
+Architecture designed, not yet coded:
+- Replace `g_Stages[87]` with heap-allocated dynamic array + `g_NumStages` counter
+- Keep static 87-entry array as `g_StagesBase[]` (pristine copy for mod toggle restore)
+- Replace all `ARRAYCOUNT(g_Stages)` with `g_NumStages`
+- Mods can append new stages via `realloc`, not limited to 26 extra slots
+
+### Phase 3 — Index Domain Separation (PLANNED, not yet started)
+
+- `soloStageGetIndex(stagenum)` lookup function
+- All `besttimes[]` and `g_SoloStages[]` accesses go through validated lookup
+- Long-term: migrate `besttimes` to stagenum-keyed structure
+
+### Previous Session (22) — Completed Items
 
 | # | Task | Type | Status |
 |---|------|------|--------|
 | 1 | **Combat Simulator ImGui Pause Menu + Hold-to-Show Scorecard** | New feature | CODE WRITTEN — needs build test |
-| 2 | **Paradox no-bots crash** | Bug fix | PENDING (needs logs from next build) |
-| 3 | **Paradox 24-bots crash** | Bug fix | PENDING (needs logs from next build) |
+| 2 | **Paradox no-bots crash** | Bug fix | ✅ FIXED — `cheats.c` bounds check |
+| 3 | **Paradox 24-bots crash** | Bug fix | ✅ FIXED — same root cause |
 | 4 | **Bot Customizer popup in match settings** | New feature | PENDING |
-| 5 | **Look inversion in controls settings** | New feature | PENDING |
+| 5 | **Look inversion in controls settings** | New feature | ✅ IMPLEMENTED — needs gameplay test |
 
-### Additional Items (not prioritized yet)
+### Additional Items
 
-- **Updater not finding GitHub releases** — Even with releases present, the updater found nothing. Mike has since trimmed to one release. Likely a tag-format mismatch in the GitHub API query (updater expects `client-v{M}.{m}.{p}` tags). Needs investigation in `port/src/updater.c`.
-- **Bot count is 24, not 31** — Confirmed by `chrslots=0xffffff01` from Session 21 log. 24 bots (bits 8–31 = 24 bits set). Consistent with `MAX_BOTS=24` in matchsetup.cpp. Not a bug — Mike's buddy miscounted.
-- **Base maps work well** — Positive confirmation. Combat sim on base stages is stable.
-- **End Game crash (Session 21)** — ACCESS_VIOLATION on selecting End Game from legacy pause menu. Will be superseded by the new ImGui pause menu (Task #1).
-
-### Rebuild Verification Still Needed
-Session 21 fixes (handicap force to 0x80, scale clamp removal, debug symbols) need a rebuild to confirm. These are in the pending build alongside all Session 22 code.
+- **Updater + release pipeline** — ✅ FULLY ALIGNED. Dual-tag system (`client-v` / `server-v`). Two channels (Stable/Dev).
+- **Match hang on Paradox** — ROOT CAUSE FOUND (Session 23): `g_StageSetup.intro` pointer aliases into props data for mod stages. Intro cmd loop reads garbage, crashes before safety guard fires. **Fixed by Phase 1a** — intro validation at load time nulls invalid pointer.
+- **Decouple hardcoded stage/array sizes** — Phase 1 (safety net) COMPLETE. Phase 2 (dynamic table) and Phase 3 (index domain separation) designed, awaiting future session.
+- **Bot customizer expanded scope** — Mike requested: advanced options, save as new bot type, save/load match settings.
+- **Bot count is 24, not 31** — Confirmed. `MAX_BOTS=24` in matchsetup.cpp.
 
 ---
 
@@ -80,20 +105,17 @@ Session 21 fixes (handicap force to 0x80, scale clamp removal, debug symbols) ne
 
 ### Task #2–3: Paradox Stage Crashes
 
-**Status: INVESTIGATING (code-side, no logs yet)**
+**Status: ✅ FIXED — confirmed in 22 Mar build**
 
-**Preliminary Findings:**
-Paradox is `STAGE_EXTRA25` (stageID `0x5e`, table index `0x55`). It's a mod-added stage that reuses WAR stage assets (`FILE_BG_STAT_SEG/TILES/PADS`).
+**Root cause:** `cheatIsUnlocked()` in `cheats.c` accessed `g_GameFile.besttimes[cheat->stage_index]` where `besttimes` has `NUM_SOLOSTAGES=21` entries but Paradox maps to `stage_index=85` via `g_StageIndex`. This was a massive OOB read (index 85 into a 21-element array), causing immediate crash on the first frame.
 
-The `STAGEINDEX_*` constants in `constants.h` only go up to `0x3c` (STAGEINDEX_TEST_MP20). Mod stages at indices 0x3d+ have **no STAGEINDEX constant**. Several code paths in `bg.c`, `dlights.c`, and `dyntex.c` use hardcoded `g_StageIndex == STAGEINDEX_*` comparisons for stage-specific initialization (fog, rooms, dynamic lights, dynamic textures). When Paradox loads, none of these match, which could mean:
-- Missing stage-specific initialization that Paradox needs (inheriting from WAR)
-- Or the index falling through a switch/if-chain into unexpected behavior
+**Fix:** Added bounds check `if (cheat->stage_index >= NUM_SOLOSTAGES) return 0;` in both the `CHEATFLAG_COMPLETION` and timed-cheat branches of `cheatIsUnlocked()`.
 
-**With 0 bots**: crashes — this rules out bot-related causes. The stage itself fails to load or initialize properly.
-**With 24 bots**: also crashes — same root cause plus potential memory pressure from bot pool allocations.
-**Base maps**: work fine — these have proper `STAGEINDEX_*` constants.
+**Confirmed by log (22 Mar build):** Full load sequence completes cleanly:
+- `scenarioInitProps` ✓ → prop iteration (0 objects) ✓ → `stageAllocateBgChrs` ✓ → player spawn ✓
+- Paradox `stagenum=0x5e`, `g_StageIndex=85` loads without crash
 
-**Next steps**: Mike will capture `pd-client.log` + crash addresses from Paradox runs in next build. We'll then `addr2line` the crash to pinpoint the exact function.
+**Broader issue remains:** hardcoded stage array sizes (`besttimes[21]`, `g_SoloStages[21]`, etc.) need audit for mod stage safety. Logged under "Decouple hardcoded stage/array sizes" for dedicated session.
 
 ---
 

@@ -13,9 +13,9 @@ These are things we must still respect:
 
 - **Save file format compatibility**: Config values stored in `pd.ini` via configRegisterInt/UInt. Save migration framework (SAVE_VERSION) exists for future format changes.
 - **ENet protocol version**: Must match across clients. Currently v19 (bumped from 18: chrslots u16→u32 in SVC_STAGE_START).
-- **30 agent save slots**: Hardcoded in filelist struct layout (`g_MpSetup.chrslots` is a u32 bitmask — 32 bits max). Cannot increase without breaking save format.
-- **MAX_MPCHRS = 36**: Maximum multiplayer characters (4 human + 32 bots). Arrays sized to this.
-- **MAX_PLAYERS = 4**: Maximum local human players. Many arrays are sized to this.
+- **30 agent save slots**: Hardcoded in filelist struct layout. Cannot increase without breaking save format.
+- **chrslots bitmask**: Currently u32 (8 player + 24 bot bits). **Being replaced by dynamic participant system** (B-12). Phase 1 coded (S26): `participant.h`/`.c` with heap-allocated pool runs parallel. Phase 2: migrate callsites. Phase 3: remove chrslots + protocol bump to v20. Default capacity 32, cheat-expandable to arbitrary.
+- **MAX_LOCAL_PLAYERS = 4**: Maximum splitscreen players per machine. MAX_PLAYERS = 8 includes remote. Many arrays sized to these. Participant system uses `localslot` (0-3) per machine, `client_id` per network client.
 - **PLAYERCOUNT()**: Returns number of local human players (1-4), not total chrs.
 - **ROM data files**: Model/animation files come from ROM dump. Models not in ROM return NULL from fileLoadToNew (fixed Session 13). Mod content extends via mod loader.
 - **C11 game code / C++ port code**: Game logic in C11, port/renderer in C++. Must not introduce C++ in `src/game/` or `src/lib/`.
@@ -38,6 +38,20 @@ These constraints have been explicitly abandoned. If a task involves working aro
 - **2026-03-15: 4-player bot limit** — Original N64 supported ~8 bots max. PC port supports 32 bots (chrslots bitmask). Pool sizes expanded (Session 17): NUMTYPE1=70, NUMTYPE2=50, NUMTYPE3=48, NUMSPARE=80, weapons=100, hats=20, ammo=40, debris=30, projectiles=200, embedments=160.
 - **2026-03-18: N64 body/head restriction in MP** — `mpGetNumBodies` unrestricted. Full 63+ character roster available in network play.
 - **2026-03-20: `--log` CLI flag requirement** — Logging is now unconditional (always on). Log filename depends on mode: pd-server.log, pd-host.log, pd-client.log.
+
+---
+
+## Index Domain Warning
+
+Three separate index spaces exist and must not be confused:
+
+| Domain | Array | Size | Valid Range |
+|--------|-------|------|-------------|
+| Stage table index (`g_StageIndex`) | `g_Stages[87]` | 87 | 0–86 |
+| Solo stage index | `g_SoloStages[21]` / `besttimes[21][3]` | 21 | 0–20 |
+| Stagenum | Logical ID (e.g., 0x5e) | N/A | Arbitrary |
+
+Mod stages have stage table indices 61–86 but **no** solo stage index. Flowing a stage table index into `g_SoloStages[]` or `besttimes[]` is an OOB access. Phase 1 safety guards added (Session 23). Phase 2 will add `soloStageGetIndex()` lookup.
 
 ---
 

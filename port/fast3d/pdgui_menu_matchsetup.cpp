@@ -244,6 +244,110 @@ static const ImVec4 s_TeamColors[] = {
     ImVec4(0.9f, 0.5f, 0.7f, 1.0f),   /* Team 7: Pink */
 };
 
+/* ========================================================================
+ * Arena name fallback table
+ *
+ * The allinone mod ships its own LmpmenuE language file that overrides the
+ * compiled binary at runtime.  The mod's version still contains the original
+ * PerfectHead / Game Boy Camera UI strings for IDs 296-338, which means
+ * langGet() returns garbage like "Load A Saved Head" instead of "Frigate".
+ * This table provides the correct names keyed by text-ID so the ImGui UI
+ * always shows readable arena names regardless of the language file state.
+ * ======================================================================== */
+
+struct arenaNameOverride {
+    u16 textId;
+    const char *name;
+};
+
+static const struct arenaNameOverride s_ArenaNameOverrides[] = {
+    { 0x5128, "GoldenEye X" },           /* L_MPMENU_296 - group header */
+    { 0x5129, "GoldenEye X Bonus" },     /* L_MPMENU_297 - group header */
+    { 0x512a, "Frigate" },               /* L_MPMENU_298 */
+    { 0x512b, "Archives" },              /* L_MPMENU_299 */
+    { 0x512c, "Bunker" },                /* L_MPMENU_300 */
+    { 0x512d, "Labyrinth" },             /* L_MPMENU_301 */
+    { 0x512e, "Basement" },              /* L_MPMENU_302 */
+    { 0x512f, "Library" },               /* L_MPMENU_303 */
+    { 0x5130, "Cradle" },                /* L_MPMENU_304 */
+    { 0x5131, "Caverns" },               /* L_MPMENU_305 */
+    { 0x5132, "Caves" },                 /* L_MPMENU_306 */
+    { 0x5133, "Facility BZ" },           /* L_MPMENU_307 */
+    { 0x5134, "Citadel" },               /* L_MPMENU_308 */
+    { 0x5135, "Stack" },                 /* L_MPMENU_309 */
+    { 0x5136, "Train" },                 /* L_MPMENU_310 */
+    { 0x5137, "Facility" },              /* L_MPMENU_311 */
+    { 0x5138, "Egyptian" },              /* L_MPMENU_312 */
+    { 0x5139, "Aztec" },                 /* L_MPMENU_313 */
+    { 0x513a, "Archives 1F" },           /* L_MPMENU_314 */
+    { 0x513b, "Streets" },               /* L_MPMENU_315 */
+    { 0x513c, "Icicle Pyramid" },        /* L_MPMENU_316 */
+    { 0x513d, "Random GoldenEye X" },    /* L_MPMENU_317 */
+    { 0x513e, "Kakariko Village" },       /* L_MPMENU_318 */
+    { 0x513f, "Kakariko Village (Stormy)" }, /* L_MPMENU_319 */
+    { 0x5140, "Dark Noon" },             /* L_MPMENU_320 */
+    { 0x5141, "Dark Noon Valley" },      /* L_MPMENU_321 */
+    { 0x5142, "Archives BZ" },           /* L_MPMENU_322 */
+    { 0x5143, "Cliff Base" },            /* L_MPMENU_323 */
+    { 0x5144, "Suburb" },                /* L_MPMENU_324 */
+    { 0x5145, "Training Day" },          /* L_MPMENU_325 */
+    { 0x5146, "Bonus" },                 /* L_MPMENU_326 - group header */
+    { 0x5147, "Runway" },                /* L_MPMENU_327 */
+    { 0x5148, "Control" },               /* L_MPMENU_328 */
+    { 0x5149, "Tawfret Ruins" },         /* L_MPMENU_329 */
+    { 0x514a, "Targitzan's Temple" },    /* L_MPMENU_330 */
+    { 0x514b, "Junkyard" },              /* L_MPMENU_331 */
+    { 0x514c, "Steel Mill" },            /* L_MPMENU_332 */
+    { 0x514d, "Mall" },                  /* L_MPMENU_333 */
+    { 0x514e, "Tunnels" },               /* L_MPMENU_334 */
+    { 0x514f, "Rogue" },                 /* L_MPMENU_335 */
+    { 0x5150, "Paradox" },               /* L_MPMENU_336 */
+    { 0x5151, "War Colors" },            /* L_MPMENU_337 */
+    { 0x5152, "Grand Library" },         /* L_MPMENU_338 */
+};
+
+static const s32 s_NumArenaNameOverrides = sizeof(s_ArenaNameOverrides) / sizeof(s_ArenaNameOverrides[0]);
+
+/* Look up arena name: check override table first, then fall back to langGet() */
+static const char *arenaGetName(u16 textId)
+{
+    /* Check hardcoded overrides for the broken range */
+    for (s32 i = 0; i < s_NumArenaNameOverrides; i++) {
+        if (s_ArenaNameOverrides[i].textId == textId) {
+            return s_ArenaNameOverrides[i].name;
+        }
+    }
+    /* Fall back to the language system for base-game strings */
+    return langGet(textId);
+}
+
+/* ========================================================================
+ * Arena group definitions (mirrors setup.c's g_ArenaGroupDefs)
+ *
+ * Each group has a starting arena offset and a display name.  The ImGui
+ * arena dropdown renders collapsible TreeNode sections for each group.
+ * ======================================================================== */
+
+#define ARENA_NUM_GROUPS 7
+
+struct arenaGroupDef {
+    s32 offset;          /* first arena index in the flat arena array */
+    const char *name;    /* hardcoded group name (bypasses broken lang strings) */
+};
+
+static const struct arenaGroupDef s_ArenaGroups[ARENA_NUM_GROUPS] = {
+    {  0, "Dark" },
+    { 13, "Solo Missions" },
+    { 27, "Classic" },
+    { 32, "GoldenEye X" },
+    { 43, "GoldenEye X Bonus" },
+    { 55, "Bonus" },
+    { 71, "Random" },
+};
+
+/* Collapsed state: bit N = group N is collapsed */
+static u8 s_ArenaGroupCollapsed = 0;
+
 /* Arena list is populated dynamically from modmgrGetTotalArenas() / modmgrGetArena()
  * at init time. This includes base game MP arenas, solo mission stages used in MP,
  * GoldenEye X maps, bonus maps, and any mod-added arenas. */
@@ -263,7 +367,7 @@ extern "C" s32 matchSetupGetArenaInfo(s32 idx, u8 *stagenum, const char **name)
     if (idx < 0 || idx >= total) return 0;
     struct mparena *arena = modmgrGetArena(idx);
     if (stagenum) *stagenum = (u8)arena->stagenum;
-    if (name) *name = langGet(arena->name);
+    if (name) *name = arenaGetName(arena->name);
     return 1;
 }
 
@@ -604,30 +708,69 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         }
     }
 
-    /* Arena/Stage — dynamic list from modmgr (base + mod arenas) */
+    /* Arena/Stage — grouped, collapsible list from modmgr (base + mod arenas) */
     {
         s32 totalArenas = modmgrGetTotalArenas();
         struct mparena *curArena = modmgrGetArena(s_ArenaIndex);
-        const char *curArenaName = langGet(curArena->name);
+        const char *curArenaName = arenaGetName(curArena->name);
 
         if (ImGui::BeginCombo("Arena", curArenaName ? curArenaName : "???")) {
-            for (s32 i = 0; i < totalArenas; i++) {
-                struct mparena *arena = modmgrGetArena(i);
-                /* Skip arenas that are locked behind unlockable features */
-                if (!challengeIsFeatureUnlocked(arena->requirefeature)) continue;
+            for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+                s32 groupStart = s_ArenaGroups[g].offset;
+                s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS)
+                    ? s_ArenaGroups[g + 1].offset : totalArenas;
 
-                const char *arenaName = langGet(arena->name);
-                if (!arenaName || !arenaName[0]) continue;
+                /* Clamp to actual arena count in case mods change the total */
+                if (groupStart >= totalArenas) continue;
+                if (groupEnd > totalArenas) groupEnd = totalArenas;
 
-                bool isSel = (i == s_ArenaIndex);
-                char arenaLabel[96];
-                snprintf(arenaLabel, sizeof(arenaLabel), "%s##arena%d", arenaName, i);
-                if (ImGui::Selectable(arenaLabel, isSel)) {
-                    s_ArenaIndex = i;
-                    g_MatchConfig.stagenum = (u8)arena->stagenum;
-                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                /* Count unlocked arenas in this group */
+                s32 groupCount = 0;
+                for (s32 a = groupStart; a < groupEnd; a++) {
+                    struct mparena *arena = modmgrGetArena(a);
+                    if (challengeIsFeatureUnlocked(arena->requirefeature)) {
+                        groupCount++;
+                    }
                 }
-                if (isSel) ImGui::SetItemDefaultFocus();
+                if (groupCount == 0) continue;
+
+                /* Separator between groups (except before the first) */
+                if (g > 0) ImGui::Separator();
+
+                /* Group header — clickable to toggle collapsed state */
+                bool isCollapsed = (s_ArenaGroupCollapsed & (1 << g)) != 0;
+                char groupLabel[80];
+                snprintf(groupLabel, sizeof(groupLabel), "%c  %s (%d)##grp%d",
+                         isCollapsed ? '+' : '-',
+                         s_ArenaGroups[g].name, groupCount, g);
+
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
+                if (ImGui::Selectable(groupLabel, false, ImGuiSelectableFlags_DontClosePopups)) {
+                    s_ArenaGroupCollapsed ^= (1 << g);
+                    isCollapsed = !isCollapsed;
+                }
+                ImGui::PopStyleColor();
+
+                /* Render arenas in this group if expanded */
+                if (!isCollapsed) {
+                    for (s32 a = groupStart; a < groupEnd; a++) {
+                        struct mparena *arena = modmgrGetArena(a);
+                        if (!challengeIsFeatureUnlocked(arena->requirefeature)) continue;
+
+                        const char *arenaName = arenaGetName(arena->name);
+                        if (!arenaName || !arenaName[0]) continue;
+
+                        bool isSel = (a == s_ArenaIndex);
+                        char arenaLabel[96];
+                        snprintf(arenaLabel, sizeof(arenaLabel), "    %s##arena%d", arenaName, a);
+                        if (ImGui::Selectable(arenaLabel, isSel)) {
+                            s_ArenaIndex = a;
+                            g_MatchConfig.stagenum = (u8)arena->stagenum;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
+                        if (isSel) ImGui::SetItemDefaultFocus();
+                    }
+                }
             }
             ImGui::EndCombo();
         }

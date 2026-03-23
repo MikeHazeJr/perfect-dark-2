@@ -491,11 +491,13 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 
 	/* Parse version from tag, filtering by our prefix */
 	if (strncmp(tagStr, prefix, strlen(prefix)) != 0) {
+		sysLogPrintf(LOG_NOTE, "UPDATER: skipping release tag '%s' (expected prefix '%s')", tagStr, prefix);
 		return -1;  /* wrong prefix — skip this release */
 	}
 
 	char prefixbuf[32];
 	if (versionParseTag(tagStr, prefixbuf, sizeof(prefixbuf), &rel->version) != 0) {
+		sysLogPrintf(LOG_WARNING, "UPDATER: failed to parse version from tag '%s'", tagStr);
 		return -1;
 	}
 
@@ -538,6 +540,8 @@ static s32 parseReleasesJson(const char *json)
 			}
 		}
 	}
+
+	sysLogPrintf(LOG_NOTE, "UPDATER: parsed %d valid release(s) from API response", count);
 
 	/* Sort by version descending (newest first) — simple insertion sort */
 	for (s32 i = 1; i < count; i++) {
@@ -747,7 +751,8 @@ static int SDLCALL downloadThread(void *data)
 
 	char verstr[32];
 	versionFormat(&rel->version, verstr, sizeof(verstr));
-	sysLogPrintf(LOG_NOTE, "UPDATER: Downloaded v%s — restart to apply", verstr);
+	sysLogPrintf(LOG_NOTE, "UPDATER: Downloaded v%s to: %s — restart to apply",
+		verstr, s_Updater.updatePath);
 
 	SDL_UnlockMutex(s_Updater.mutex);
 	return 0;
@@ -982,12 +987,21 @@ s32 updaterApplyPending(void)
 {
 	detectExePath();
 
+	/* Diagnostics: always log what we're looking for, even before sysInit.
+	 * Use fprintf(stderr) as a reliable fallback since sysLogPrintf may
+	 * not be fully initialized this early in startup. */
+	fprintf(stderr, "UPDATER: Checking for pending update at: %s\n", s_Updater.updatePath);
+	fprintf(stderr, "UPDATER: Current exe path: %s\n", s_Updater.exePath);
+	sysLogPrintf(LOG_NOTE, "UPDATER: Checking for pending update at: %s", s_Updater.updatePath);
+
 	/* Clean up .old from previous update */
 	updaterCleanupOld();
 
 	/* Check for .update file */
 	FILE *test = fopen(s_Updater.updatePath, "rb");
 	if (!test) {
+		fprintf(stderr, "UPDATER: No pending update found (file does not exist)\n");
+		sysLogPrintf(LOG_NOTE, "UPDATER: No pending update found at %s", s_Updater.updatePath);
 		return 0;  /* no pending update */
 	}
 	fclose(test);

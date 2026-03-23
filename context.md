@@ -1323,6 +1323,64 @@ The N64 platform strip (Phase D1) is complete. Build compiles successfully. Firs
 
 **Key architecture lesson**: ImGui must render inside `gfx_run()` between `rapi->end_frame()` and `wapi->swap_buffers_begin()` because `SDL_GL_SwapWindow` is called by `swap_buffers_begin`, not by `gfx_end_frame`. CMake's `GLOB_RECURSE` may not detect changes to vendored files — always do a clean rebuild (`rm -rf build`) when modifying vendored code.
 
-### Immediate Next Step
-- Replace demo window with mod manager screen (modmenu.c)
+## Session: 2026-03-22 — Mod Texture Bleeding, Arena Names & Collapsible Groups
+
+### Status: COMPLETE (BUILD VERIFIED)
+
+### Fixes Applied
+
+#### 1. Mod Texture Bleeding Fix (`port/src/mod.c`)
+- **Root cause**: `modTextureLoad()` had NO `g_NotLoadMod` check — mod texture packs (GEX, kakariko, etc.) replaced textures globally for ALL stages, including CI main menu background and non-mod arenas
+- **Fix**: Added `extern s32 g_NotLoadMod;` guard at top of `modTextureLoad()`. When true (title, CI, solo), mod textures are suppressed; base-game originals load instead
+- **Completes**: The CI corruption fix from prior session (lv.c guard handled prop files; this handles textures)
+
+#### 2. Arena Name Override Table (`port/fast3d/pdgui_menu_matchsetup.cpp`)
+- **Root cause**: allinone mod ships `LmpmenuE` language file that overrides compiled binary at runtime. Mod's version has PerfectHead/Game Boy Camera UI strings for IDs 296-338 (e.g. "Load A Saved Head" instead of "Frigate")
+- **Fix**: Added `s_ArenaNameOverrides[]` table mapping text IDs 0x5128–0x5152 to correct hardcoded arena names. New `arenaGetName()` helper checks overrides first, falls back to `langGet()` for base-game strings
+- **Scope**: 43 entries covering all GEX, GEX Bonus, and Bonus arena names + group headers
+- **Also updated**: `matchSetupGetArenaInfo()` bridge function now uses `arenaGetName()` instead of raw `langGet()`
+
+#### 3. Collapsible Arena Groups (`port/fast3d/pdgui_menu_matchsetup.cpp`)
+- **Root cause**: Prior collapsible code was added to `mpArenaMenuHandler` in setup.c — the original PD menu handler. But the match setup screen is an ImGui UI in `pdgui_menu_matchsetup.cpp` that doesn't use that handler.
+- **Fix**: Replaced flat arena loop in ImGui combo with 7 collapsible groups (Dark, Solo Missions, Classic, GoldenEye X, GoldenEye X Bonus, Bonus, Random). Group headers show in cyan with +/- indicator and arena count. Uses `ImGuiSelectableFlags_DontClosePopups` so clicking a header toggles collapse without closing the dropdown.
+- **Group offsets**: 0, 13, 27, 32, 43, 55, 71 (mirrors setup.c's `g_ArenaGroupDefs`)
+- **Static state**: `s_ArenaGroupCollapsed` bitmask (u8, bit per group)
+
+#### 4. Bundled Mod ID Mismatch (`port/src/modmgr.c`) — from prior session
+- Fixed `"darknoon"` → `"dark_noon"`, `"goldfinger64"` → `"goldfinger_64"` at lines 62-63
+
+### Build Note
+- `build-gui.ps1` reports "Commit failed" — this is from its auto-commit feature (runs `git add -A` + `git commit` before every build). Not a compilation error. Likely no git user configured or nothing new to commit. Harmless — actual build succeeds.
+
+### Files Modified This Session
+- `port/src/mod.c` — `g_NotLoadMod` guard in `modTextureLoad()`
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — arena name overrides table, `arenaGetName()` helper, collapsible grouped arena dropdown
+- `src/game/lv.c` — `g_NotLoadMod` guard for CI/title stages (from prior session, verified working)
+- `src/game/mainmenu.c` — `g_NotLoadMod = true` initialization (from prior session, verified working)
+- `port/src/modmgr.c` — bundled mod ID fix (from prior session, verified working)
+
+### Immediate Next Steps
+
+#### D3e: Hot-Toggle — Decoupling Fixed Asset Tables (~150 LOC)
+The N64 assumed asset tables (stages, bodies, heads, arenas) are fixed at compile time — a hardware-era memory banking constraint that no longer applies. D3e decouples from this by making them runtime-restorable:
+- **Pristine backup**: Snapshot base-game `g_Stages[]`, `g_MpBodies[]`, `g_MpHeads[]`, `g_MpArenas[]` at init before any mod touches them
+- **`modmgrReload()`**: Restore pristine snapshots → clear shadow arrays → re-scan enabled mods → re-register mod assets → flush texture cache (today's `modTextureLoad` g_NotLoadMod guard is foundational to this)
+- **Hot-toggle flow**: User toggles mod in menu → Apply → save config → `modmgrReload()` → return to title for clean reload
+- **Key files**: `port/src/modmgr.c` (reload logic), `src/game/mplayer/setup.c` (arena backup), `src/game/mplayer/mplayer.c` (body/head backup)
+
+#### D3f: Network Mod Sync (~500 LOC)
+- New net messages: `SVC_MOD_MANIFEST`, `SVC_MOD_CHUNK`, `CLC_MOD_REQUEST`, `CLC_MOD_ACK`
+- LZ4-compressed mod transfer with progress bar
+- Protocol version bump to v19
+
+#### D3g: Cleanup (~100 LOC)
+- Remove dead `g_ModNum` paths and per-mod CLI arg remnants
+- Load order UI in mod manager
+- Conflict warnings when two mods provide the same file
+
+#### Other Pending
+- Replace ImGui demo window with mod manager screen (modmenu.c)
 - Create dynmenu.c builder API and pdgui_style.c as separate files
+- Bot Customizer popup (pending from Session 22)
+- Test look inversion + scorecard (needs gameplay test)
+- ImGui Pause Menu (code written Session 22, needs build test)

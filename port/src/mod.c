@@ -288,7 +288,11 @@ static char *modConfigParseStage(char *p, char *token)
 	// stage number
 	p = strParseToken(p, token, NULL);
 	const s32 stagenum = strtol(token, NULL, 0);
-	if (stagenum <= 0x01 || stagenum > 0x50) {
+	// PC: Upper bound was 0x50, which rejected extra stages 0x51-0x5f
+	// (Runway, Control, Tawfret, Targitzan, Junkyard, Steel Mill, Mall,
+	// Tunnels, Rogue, Paradox, War Colors). Use 0xFF as a safe upper bound;
+	// stageGetIndex() below will reject truly invalid stagenums.
+	if (stagenum <= 0x01 || stagenum > 0xFF) {
 		return NULL;
 	}
 
@@ -418,6 +422,16 @@ s32 modConfigLoad(const char *fname)
 
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
+	/* PC: When g_NotLoadMod is set (title screen, CI main menu, solo stages),
+	 * suppress mod texture overlay so base-game textures are used.  Without
+	 * this check, mod texture packs (GEX, kakariko, etc.) replace textures
+	 * globally for ALL stages, causing wrong textures on the CI background
+	 * environment and in non-mod multiplayer arenas. */
+	extern s32 g_NotLoadMod;
+	if (g_NotLoadMod) {
+		return -1;
+	}
+
 	static s32 dirExists = -1;
 	if (dirExists < 0) {
 		dirExists = (fsFileSize(MOD_TEXTURES_DIR "/") >= 0);

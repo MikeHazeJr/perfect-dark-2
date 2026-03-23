@@ -1331,6 +1331,27 @@ void setupLoadFiles(s32 stagenum)
 		g_StageSetup.paths = (struct path *)((uintptr_t)setup + (uintptr_t)setup->paths);
 		g_StageSetup.ailists = (struct ailist *)((uintptr_t)setup + (uintptr_t)setup->ailists);
 
+		// PC: Validate intro command data. Mod stages may have setup files where
+		// the intro offset doesn't point to valid intro command data (e.g. it lands
+		// inside the props section). Reading garbage as intro commands causes crashes
+		// in playerReset() and scenarioReset() — OOB writes, pointer chasing, etc.
+		//
+		// Detection: if the intro pointer is within 64 bytes of the props pointer,
+		// they're aliased into the same region and the intro data is garbage.
+		// Also reject if the first command word isn't a valid INTROCMD type.
+		if (g_StageSetup.intro) {
+			uintptr_t introAddr = (uintptr_t)g_StageSetup.intro;
+			uintptr_t propsAddr = (uintptr_t)g_StageSetup.props;
+			uintptr_t dist = introAddr > propsAddr ? introAddr - propsAddr : propsAddr - introAddr;
+			s32 firstCmd = *g_StageSetup.intro;
+
+			if (dist < 64 || firstCmd < 0 || firstCmd > INTROCMD_END) {
+				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
+					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
+				g_StageSetup.intro = NULL;
+			}
+		}
+
 		g_LoadType = LOADTYPE_PADS;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", g_Stages[g_StageIndex].padsfileid);
@@ -2127,9 +2148,12 @@ void setupCreateProps(s32 stagenum)
 			}
 
 			if (g_Vars.normmplayerisrunning) {
+				sysLogPrintf(LOG_NOTE, "SETUP: calling scenarioInitProps");
 				scenarioInitProps();
+				sysLogPrintf(LOG_NOTE, "SETUP: scenarioInitProps done");
 			}
 
+			sysLogPrintf(LOG_NOTE, "SETUP: iterating props (g_StageSetup.props=%p)", (void *)g_StageSetup.props);
 			obj = (struct defaultobj *)g_StageSetup.props;
 
 			while (obj->type != OBJTYPE_END) {
@@ -2308,10 +2332,13 @@ void setupCreateProps(s32 stagenum)
 				obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
 				index++;
 			}
+			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
 		}
 	} else {
 		chrmgrConfigure(0);
 	}
 
+	sysLogPrintf(LOG_NOTE, "SETUP: calling stageAllocateBgChrs");
 	stageAllocateBgChrs();
+	sysLogPrintf(LOG_NOTE, "SETUP: setupLoadStage complete");
 }

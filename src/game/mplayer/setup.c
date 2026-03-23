@@ -307,84 +307,146 @@ s16 mpChooseRandomGexStage(void)
 }
 
 
+// PC: Collapsible arena groups — group headers are selectable options.
+// Selecting a header toggles collapse/expand for that section.
+#define ARENA_NUM_GROUPS 7
+
+static const struct {
+	s32 offset; // first arena index in g_MpArenas
+	u16 name;   // string ID for group name
+} g_ArenaGroupDefs[ARENA_NUM_GROUPS] = {
+	{ 0,  L_MPMENU_116 }, // "Dark"
+	{ 13, L_OPTIONS_117 }, // "Solo Missions"
+	{ 27, L_MPMENU_117  }, // "Classic"
+	{ 32, L_MPMENU_296  }, // "GoldenEye X"
+	{ 43, L_MPMENU_297  }, // "GoldenEye X Bonus"
+	{ 55, L_MPMENU_326  }, // "Bonus"
+	{ 71, L_MPMENU_118  }, // "Random"
+};
+
+static u8 g_ArenaGroupCollapsed = 0; // bitmask — bit N = group N collapsed
+
+// Map a visible option index to either a group header or an arena.
+// Returns: 0 = group header (*outGroup set), 1 = arena (*outArena set), -1 = invalid.
+static s32 arenaMapIndex(s32 visidx, s32 *outGroup, s32 *outArena)
+{
+	s32 pos = 0;
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		// Group header occupies one slot
+		if (pos == visidx) {
+			*outGroup = g;
+			return 0;
+		}
+		pos++;
+
+		// If expanded, iterate the arenas in this group
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					if (pos == visidx) {
+						*outArena = a;
+						return 1;
+					}
+					pos++;
+				}
+			}
+		}
+	}
+
+	return -1;
+}
+
+// Count total visible options (headers + expanded arena items)
+static s32 arenaCountVisible(void)
+{
+	s32 count = ARENA_NUM_GROUPS; // one header per group always visible
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					count++;
+				}
+			}
+		}
+	}
+
+	return count;
+}
+
+// Find the visible index of the currently selected arena
+static s32 arenaFindSelected(s16 stagenum)
+{
+	s32 pos = 0;
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		pos++; // skip header
+
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					if (modmgrGetArena(a)->stagenum == stagenum) {
+						return pos;
+					}
+					pos++;
+				}
+			}
+		}
+	}
+
+	return 0; // fallback to first item
+}
+
 MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	struct optiongroup groups[] = {
-		{ 0,  L_MPMENU_116 }, // "Dark"
-		{ 13, L_OPTIONS_117 }, // "Solo Missions"
-		{ 27, L_MPMENU_117  }, // "Classic"
-		{ 32, L_MPMENU_296  }, // "GoldenEye X"
-		{ 43, L_MPMENU_297  }, // "GoldenEye X Bonus"
-		{ 55, L_MPMENU_326  }, // "Bonus"
-		{ 71, L_MPMENU_118  }, // "Random"
-	};
-
-	s32 i;
-	s32 count = 0;
-	s32 groupindex;
+	s32 group = 0;
+	s32 arena = 0;
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
-
-		data->list.value = count;
+		data->list.value = arenaCountVisible();
 		break;
+
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				if (count == data->list.value) {
-					return (uintptr_t)langGet(modmgrGetArena(i)->name);
-				}
-
-				count++;
-			}
+		switch (arenaMapIndex(data->list.value, &group, &arena)) {
+		case 0: // group header
+			sprintf(g_StringPointer, "%c %s",
+				(g_ArenaGroupCollapsed & (1 << group)) ? '+' : '-',
+				langGet(g_ArenaGroupDefs[group].name));
+			return (uintptr_t)g_StringPointer;
+		case 1: // arena
+			return (uintptr_t)langGet(modmgrGetArena(arena)->name);
 		}
 		break;
+
 	case MENUOP_SET:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				if (count == data->list.value) {
-					break;
-				}
-
-				count++;
-			}
+		switch (arenaMapIndex(data->list.value, &group, &arena)) {
+		case 0: // clicked group header — toggle collapse
+			g_ArenaGroupCollapsed ^= (1 << group);
+			break;
+		case 1: // clicked arena — select it
+			g_MpSetup.stagenum = modmgrGetArena(arena)->stagenum;
+			break;
 		}
-
-		g_MpSetup.stagenum = modmgrGetArena(i)->stagenum;
 		break;
+
 	case MENUOP_GETSELECTEDINDEX:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (g_MpSetup.stagenum == modmgrGetArena(i)->stagenum) {
-				data->list.value = count;
-			}
-
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
+		data->list.value = arenaFindSelected(g_MpSetup.stagenum);
 		break;
+
 	case MENUOP_GETOPTGROUPCOUNT:
-		data->list.value = 7;
-
-		break;
-	case MENUOP_GETOPTGROUPTEXT:
-		count = data->list.value;
-
-		return (uintptr_t)langGet(groups[count].name);
-	case MENUOP_GETGROUPSTARTINDEX:
-		groupindex = data->list.value;
-
-		for (i = 0; i < groups[groupindex].offset; i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
-		data->list.groupstartindex = count;
+		// Return 0 — we handle groups as selectable options ourselves
+		data->list.value = 0;
 		break;
 	}
 

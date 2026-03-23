@@ -13,6 +13,7 @@
 #include "game/lv.h"
 #include "game/music.h"
 #include "game/mplayer/setup.h"
+#include "game/mplayer/participant.h"
 #include "game/mplayer/scenarios.h"
 #include "game/mpstats.h"
 #include "game/challenge.h"
@@ -507,6 +508,11 @@ void mpStartMatch(void)
 	sysLogPrintf(LOG_NOTE, "STAGE: mpStartMatch: menu_stage=0x%02x, resolved_stage=0x%02x, g_ModNum=%d, numplayers=%d",
 		g_MpSetup.stagenum, stagenum, g_ModNum, numplayers);
 
+	/* B-12 Phase 1: Sync participant pool from chrslots (parallel system) */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
+	sysLogPrintf(LOG_NOTE, "PARTICIPANTS: synced from chrslots: %d active (%d players, %d bots)",
+		mpGetActiveParticipantCount(), mpGetActivePlayerCount(), mpGetActiveBotCount());
+
 	titleSetNextStage(stagenum);
 	mainChangeToStage(stagenum);
 	setNumPlayers(numplayers);
@@ -878,6 +884,9 @@ void mpInit(bool resetplayers)
 	}
 
 	g_MpSetup.chrslots = 0;
+
+	/* B-12 Phase 1: Initialize participant pool */
+	mpParticipantPoolInit(PARTICIPANT_DEFAULT_CAPACITY);
 
 	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
 		g_Menus[i].mpsetup.showpresets = 1;
@@ -3431,6 +3440,9 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	g_BotConfigsArray[botnum].base.mpheadnum = headnum;
 	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
+
+	/* B-12 Phase 1: Sync participant pool */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 }
 
 void mpSetBotDifficulty(s32 botnum, s32 difficulty)
@@ -3466,6 +3478,9 @@ void mpRemoveSimulant(s32 index)
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	func0f1881d4(index);
 	mpGenerateBotNames();
+
+	/* B-12 Phase 1: Sync participant pool */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 }
 
 void mpCopySimulant(s32 index)
@@ -3479,6 +3494,9 @@ void mpCopySimulant(s32 index)
 	g_BotConfigsArray[dest].type = g_BotConfigsArray[index].type;
 	g_BotConfigsArray[dest].difficulty = g_BotConfigsArray[index].difficulty;
 	mpGenerateBotNames();
+
+	/* B-12 Phase 1: Sync participant pool */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 }
 
 bool mpHasSimulants(void)
@@ -4165,6 +4183,9 @@ void mp0f18dec4(s32 slot)
 		}
 	}
 #endif
+
+	/* B-12 Phase 1: Sync participant pool after config load */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 }
 
 static u64 packWeaponSetRandomFilters()
@@ -4259,6 +4280,9 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 	}
 
 	challengeForceUnlockBotFeatures();
+
+	/* B-12 Phase 1: Sync participant pool after save load */
+	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 }
 
 void mpsetupfileSaveWad(struct savebuffer *buffer)

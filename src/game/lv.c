@@ -260,6 +260,21 @@ void lvReset(s32 stagenum)
 	g_Vars.paksneededformenu = 0;
 	g_Vars.stagenum = stagenum;
 
+	// PC: When loading the Carrington Institute (main menu background) or title
+	// screen, suppress mod file overlay so CI props, textures, and setup files
+	// remain base-game originals. Without this, enabled mods (GEX, kakariko, etc.)
+	// provide replacement files for CI props like Pcidoor1Z, Pci_liftdoorZ, and
+	// dozens of others, making the CI environment look corrupted with foreign map
+	// data overlaid. g_NotLoadMod is restored after lvReset completes via the
+	// menu handlers that transition to solo (sets true) or multiplayer (sets false).
+	if (stagenum == STAGE_CITRAINING
+			|| stagenum == STAGE_TITLE
+			|| stagenum == STAGE_BOOTPAKMENU
+			|| stagenum == STAGE_CREDITS
+			|| stagenum == STAGE_4MBMENU) {
+		g_NotLoadMod = true;
+	}
+
 	cheatsReset();
 
 	var80084040 = true;
@@ -392,6 +407,7 @@ void lvReset(s32 stagenum)
 	chrmgrReset();
 	bodiesReset(stagenum);
 	setupCreateProps(stagenum);
+	sysLogPrintf(LOG_NOTE, "LOAD: setupCreateProps done, calling reset functions");
 	tagsReset();
 	explosionsReset();
 	smokeReset();
@@ -443,8 +459,11 @@ void lvReset(s32 stagenum)
 			invReset();
 			bgunReset();
 			playerLoadDefaults();
+			sysLogPrintf(LOG_NOTE, "LOAD: playerLoadDefaults done for player %d, calling playerReset", i);
 			playerReset();
+			sysLogPrintf(LOG_NOTE, "LOAD: playerReset done for player %d, calling playerSpawn", i);
 			playerSpawn();
+			sysLogPrintf(LOG_NOTE, "LOAD: playerSpawn done for player %d, calling bheadReset", i);
 			bheadReset();
 
 			if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
@@ -456,6 +475,7 @@ void lvReset(s32 stagenum)
 		portalsReset();
 		lightsReset();
 		setCurrentPlayerNum(0);
+		sysLogPrintf(LOG_NOTE, "LOAD: player init loop complete");
 	}
 
 	if (g_Vars.lvmpbotlevel) {

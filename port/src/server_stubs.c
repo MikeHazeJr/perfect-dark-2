@@ -57,7 +57,7 @@ s32 g_MpPlayerNum = 0;
 u64 g_RngSeed = 0;                            /* data.h:583 */
 u64 g_Rng2Seed = 0;                           /* data.h:584 */
 u64 g_RngSeeds[2] = {0};
-s32 g_NotLoadMod = 0;
+s32 g_NotLoadMod = 1;
 char g_RomName[64] = "pd-server";
 s32 g_NumReasonsToEndMpMatch = 0;
 

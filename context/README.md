@@ -1,79 +1,79 @@
-# Perfect Dark Mike — Project Context
+# Perfect Dark Mike — Project Context Index
 
-## Onboarding Instructions (For AI Sessions)
+> **Last updated**: 2026-03-22, Session 25 (context reorganization)
+> This file is the master hub. Read it first every session. Everything links from here.
 
-You are working on a **PC port of Perfect Dark** (the N64 FPS by Rare, 2000). The project is called
-**perfect_dark-mike**. It is a C11 codebase — a decompilation/port of the original game, now PC-only.
+## Onboarding (For AI Sessions)
 
-**The user (Mike)** is the sole developer. He builds on his Windows PC using MSYS2/MinGW. You cannot
-compile this project — the build environment is Windows-only. You write code, Mike compiles and tests.
+**Project**: PC port of Perfect Dark (N64 FPS, Rare 2000). C11 codebase, CMake + MinGW/GCC.
+**Developer**: Mike (sole dev, builds on Windows via MSYS2). AI writes code, Mike compiles and tests.
+**Role**: Collaborative engineering partner. Depth over shortcuts. Root cause over patches.
 
-**Your role**: Collaborative engineering partner. Mike thinks in systems and phases. He values depth,
-correctness, and iterative progress. When writing code: prefer robustness over micro-optimization.
-When something is broken: diagnose root cause, don't patch symptoms. When unsure: say so.
+**Session start protocol**: Read this index → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last 3) → [tasks-current.md](tasks-current.md). Load domain files only when relevant to the active task.
 
-**To get up to speed on a new session:**
-1. Read **tasks.md** FIRST — it shows what was in progress and what's blocked
-2. Read the **system file(s)** relevant to the current task (collision.md, movement.md, etc.)
-3. Read **roadmap.md** if Mike asks about future work or planning
-4. Do NOT re-read every file every session — only read what's needed for the active task
-5. After reading, confirm what you understand and ask Mike what he'd like to do next
+---
 
-## IMPORTANT: Modern Hardware — No N64 Constraints
-This is a **PC-only port running on modern x86_64 hardware**. The original N64's computational
-constraints **do not apply**. Prefer correctness over micro-optimization. Legacy collision/physics
-workarounds exist because of N64 limits, not because they're good design. Use proper geometric
-solutions (per-triangle collision, BVH, runtime raycasts) rather than layering more hacks.
+## Quick Status
 
-## Project Overview
-Merged PC port combining:
-- **AllInOneMods**: GEX, Kakariko, Goldfinger 64, Dark Noon, extra stages (community mod content)
-- **Netplay**: ENet-based multiplayer (deathmatch, co-op campaign, counter-operative)
-- **PC-only**: All 672 N64 platform guards stripped (Phase D1 complete). Zero `PLATFORM_N64` references remain.
+| Area | Status | File |
+|------|--------|------|
+| **What to do next** | Active tasks + backlog | [tasks-current.md](tasks-current.md) |
+| **What's done** | Completed work archive | [tasks-archive.md](tasks-archive.md) |
+| **What we must respect** | Active/removed constraints | [constraints.md](constraints.md) |
+| **Infrastructure phases** | D1–D16 execution status | [infrastructure.md](infrastructure.md) |
+| **Long-term vision** | Priority ordering + dependency graph | [roadmap.md](roadmap.md) |
+| **Open bugs** | One-off issues (open/fixed) | [bugs.md](bugs.md) |
+| **Systemic patterns** | Architectural bug classes | [systemic-bugs.md](systemic-bugs.md) |
 
-**Language**: C11. **Build**: CMake + MinGW GCC. **Output**: `build/pd.x86_64.exe`
+---
 
-## File Index
+## Session History
 
-| File | System | What It Covers |
-|------|--------|----------------|
-| [tasks.md](tasks.md) | Task Tracker | **Read first.** Current task, step-by-step progress, blocked items, testing status |
-| [constraints.md](constraints.md) | Constraint Ledger | Active vs. removed constraints. Check before implementing anything complex. |
-| [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries, decisions, next steps |
-| [imgui.md](imgui.md) | ImGui & Styling | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu, font |
-| [collision.md](collision.md) | Collision | Capsule sweep, floor/ceiling detection, legacy cdTestVolume, geometry types |
-| [movement.md](movement.md) | Movement & Jump | Jump physics, vertical movement, ground detection, airborne logic |
-| [networking.md](networking.md) | Networking | All completed phases (1-10, C1-C12), message types, resync, damage authority |
-| [build.md](build.md) | Build & Infra | CMake, MSYS2/MinGW, Build Tool GUI, static linking, mod loading |
-| [roadmap.md](roadmap.md) | Modernization | Full D1-D15 phases, ImGui preview system, dependencies, TODOs |
-| [rendering-trace.md](rendering-trace.md) | Rendering Pipeline | Endscreen dialog call chain, file cross-references, g_ScaleX map, GBI translation, bug leads |
-| [menu-storyboard.md](menu-storyboard.md) | Menu Storyboard ADR | D4 architecture, 113-menu inventory, component library, design tokens, implementation phases |
-| [update-system.md](update-system.md) | Update System (D13) | Version scheme, GitHub API, SHA-256 verification, self-replacement, save migration, release channels |
-| [session-log.md](session-log.md) | Session Log | Reverse-chronological session summaries for continuity across AI sessions |
-| [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | ADR | Audit findings: strncpy fixes, protocol verification, architectural assessment |
-| [memory-modernization.md](memory-modernization.md) | Memory (D-MEM) | Full audit + 6-phase plan: magic numbers, stack→heap, IS4MB collapse, ALIGN16 strip, pool separation |
+Recent sessions are in [session-log.md](session-log.md). Archives below.
 
-## Key Architectural Facts
-- **Net modes**: `g_NetMode` — NETMODE_NONE(0), SERVER(1), CLIENT(2)
-- **Game modes**: `g_NetGameMode` — MP(0), COOP(1), ANTI(2)
-- **Protocol version**: 18. **Tick rate**: 60 Hz
-- **Channels**: Unreliable for position updates, reliable for state/events
-- **Props** identified by `syncid` (offset 0x48 on prop struct, PC-only)
-- **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`
-- **NPCs**: PROPTYPE_CHR with `chr->aibot == NULL` and not player-linked
-- **Player capsule**: radius ~30 units, height = vv_headheight
-- **Geometry types**: geotilei (s16 BG), geotilef (float lifts), geoblock (XZ poly + Y bounds), geocyl (cylinder)
-- **Room-based geo**: `g_TileFileData` + `g_TileRooms[roomnum]` offsets
-- **Build**: CMake + MSYS2/MinGW on Windows. User compiles — AI cannot.
+| Sessions | Period | Focus | File |
+|----------|--------|-------|------|
+| 22–25 | 2026-03-22 | Feature batch, stage decoupling, CI fix, context reorg | [session-log.md](session-log.md) |
+| 14–21 | 2026-03-21–22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
+| 7–13 | 2026-03-18–21 | Networking phases, model loading, dedicated server | [sessions-07-13.md](sessions-07-13.md) |
+| 1–6 | 2026-03-01–18 | N64 strip, mod manager, ImGui foundation, char select | [sessions-01-06.md](sessions-01-06.md) |
 
-## Working Conventions
-- Mike builds and tests. You write and review code.
-- Tasks proceed in phases. Each phase is self-contained and testable.
-- **Always update tasks.md** when starting, completing, or blocking on a step.
-- When writing new code: add it to the relevant system file (collision.md, movement.md, etc.)
-- The old monolithic `context.md` in the repo root is preserved as historical reference.
+---
 
-## Reference Codebases (for comparison/debugging)
-- `perfect_dark-netplay/perfect_dark-port-net/` — Unmodified netplay port
-- `perfect_dark-AllInOneMods/perfect_dark-allinone-latest/` — Mod content source
-- `perfect_dark-mike/` — This project (the merged working copy)
+## Domain Files (load when working on that system)
+
+| File | System | When to load |
+|------|--------|-------------|
+| [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
+| [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
+| [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |
+| [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu | Menu/UI work |
+| [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking, mod loading | Build system work |
+| [memory-modernization.md](memory-modernization.md) | Phase D-MEM: 6-phase plan, pool audit, magic numbers, stack→heap | Memory system work |
+| [server-architecture.md](server-architecture.md) | Dedicated server: protocol interface, CLI, GUI, headless mode | Server work |
+| [update-system.md](update-system.md) | D13: versioning, GitHub API, SHA-256, self-replace, save migration | Update system work |
+
+## Plan Files (load when starting that phase)
+
+| File | Phase | When to load |
+|------|-------|-------------|
+| [d5-settings-plan.md](d5-settings-plan.md) | D5: Audio volumes, graphics, controls, QoL | Starting D5 |
+| [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, server browser | Starting D16 |
+| [menu-storyboard.md](menu-storyboard.md) | D4: 113-menu inventory, component library, design tokens | Menu migration reference |
+| [rendering-trace.md](rendering-trace.md) | Endscreen rendering pipeline trace, GBI translation | Endscreen/rendering bugs |
+
+## Architecture Decision Records
+
+| File | Decision |
+|------|----------|
+| [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | Network protocol audit: strncpy fixes, protocol verification |
+
+---
+
+## Key Facts
+
+- **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
+- **Build**: CMake + MSYS2/MinGW on Windows. AI cannot compile.
+- **Net**: Protocol v19, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state
+- **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=24 (matchsetup.cpp)
+- **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.

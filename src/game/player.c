@@ -226,6 +226,50 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 	u8 badpads[MAX_MPCHRS];
 	f32 padsqdists[MAX_MPCHRS];
 
+	// PC: Guard against numpads == 0, which causes divide-by-zero at
+	// rngRandom() % numpads below. This happens on mod stages whose setup
+	// files have no valid intro data (so no INTROCMD_SPAWN populated
+	// g_SpawnPoints). Fall back to pad 0 so the player spawns somewhere valid.
+	// Probe 8 directions for the nearest wall and face away from it.
+	if (numpads <= 0) {
+		struct pad fallbackpad;
+		static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
+		static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
+		f32 wallX = 0, wallZ = 0;
+		s32 wallCount = 0;
+		s32 dir;
+
+		padUnpack(0, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+		dstpos->x = fallbackpad.pos.x;
+		dstpos->y = fallbackpad.pos.y;
+		dstpos->z = fallbackpad.pos.z;
+		dstrooms[0] = fallbackpad.room;
+		dstrooms[1] = -1;
+
+		for (dir = 0; dir < 8; dir++) {
+			struct coord probe;
+			probe.x = dstpos->x + dirX[dir] * 200.0f;
+			probe.y = dstpos->y;
+			probe.z = dstpos->z + dirZ[dir] * 200.0f;
+
+			if (cdExamCylMove01(dstpos, &probe, 30, dstrooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
+				wallX += dirX[dir];
+				wallZ += dirZ[dir];
+				wallCount++;
+			}
+		}
+
+		sysLogPrintf(LOG_WARNING, "SPAWN: no spawn pads available, using pad 0 fallback (room=%d, walls=%d)", fallbackpad.room, wallCount);
+
+		if (wallCount > 0) {
+			// Return value goes through M_BADTAU - result, so the actual look
+			// direction becomes (sin(result), cos(result)). To face away from
+			// wall vector (wallX, wallZ), we need look = (-wallX, -wallZ).
+			return atan2f(-wallX, -wallZ);
+		}
+		return 0;
+	}
+
 	u8 stack1[0x10];
 	f32 xdiff;
 	f32 ydiff;
@@ -493,7 +537,7 @@ f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *
 void playerStartNewLife(void)
 {
 	struct coord pos = {0, 0, 0};
-	RoomNum rooms[8];
+	RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 	f32 angle;
 	s32 *cmd = g_StageSetup.intro;
 	f32 groundy;
@@ -604,8 +648,9 @@ void playerStartNewLife(void)
 		if (cmd);
 		if (cmd);
 
-		if (g_Vars.antiplayernum < 0 || PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)) {
-			while (cmd[0] != INTROCMD_END) {
+		if (cmd && (g_Vars.antiplayernum < 0 || PLAYER_IS_NOT_ANTI(g_Vars.currentplayer))) {
+			s32 safety = 0;
+			while (cmd[0] != INTROCMD_END && ++safety < 10000) {
 				switch (cmd[0]) {
 				case INTROCMD_SPAWN:
 					cmd += 3;

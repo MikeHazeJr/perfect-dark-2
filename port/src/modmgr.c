@@ -59,8 +59,8 @@ static const char *g_BundledModIds[] = {
 	"allinone",
 	"gex",
 	"kakariko",
-	"darknoon",
-	"goldfinger64",
+	"dark_noon",
+	"goldfinger_64",
 };
 #define NUM_BUNDLED_MODS (sizeof(g_BundledModIds) / sizeof(g_BundledModIds[0]))
 
@@ -441,12 +441,28 @@ static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
 
-	// Try both "mods" (new layout) and "build/mods" (legacy layout) relative to exe
-	const char *modsdir = fsFullPath(MODMGR_MODS_DIR);
+	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
+	// mods live at ./mods/ relative to the working directory. Try CWD first,
+	// then exe dir, then the base dir fallback.
+	const char *modsdir = NULL;
+	DIR *dir = NULL;
+	const char *candidates[] = {
+		"./" MODMGR_MODS_DIR,
+		fsFullPath("$E/" MODMGR_MODS_DIR),
+		fsFullPath(MODMGR_MODS_DIR),
+	};
 
-	DIR *dir = opendir(modsdir);
+	for (s32 i = 0; i < 3; i++) {
+		dir = opendir(candidates[i]);
+		if (dir) {
+			modsdir = candidates[i];
+			break;
+		}
+	}
+
 	if (!dir) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory '%s'", modsdir);
+		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried ./%s, $E/%s, base/%s)",
+			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
 		return;
 	}
 

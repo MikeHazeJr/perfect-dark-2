@@ -43,9 +43,10 @@ if ($Version -eq "") {
     $Version = "$major.$minor.$patch"
 }
 
-$Tag = "v$Version"
-$ReleaseNotes = "RELEASE_$Tag.md"
-$DistDir = "dist/$Tag"
+$ClientTag = "client-v$Version"
+$ServerTag = "server-v$Version"
+$ReleaseNotes = "RELEASE_client-v$Version.md"
+$DistDir = "dist/client-v$Version"
 
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
@@ -69,7 +70,7 @@ $DllSearchPaths = @("build/client", "post-batch-addin")
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
-Write-Host "  Perfect Dark 2 -- Release $Tag" -ForegroundColor Cyan
+Write-Host "  Perfect Dark 2 -- Release v$Version" -ForegroundColor Cyan
 Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 
@@ -250,7 +251,7 @@ if ($hasMods) {
 Write-Host ""
 Write-Host "[2/6] Creating zip archive..." -ForegroundColor Yellow
 
-$zipName = "PerfectDark-$Tag-win64.zip"
+$zipName = "PerfectDark-v$Version-win64.zip"
 $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
@@ -303,14 +304,30 @@ Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 Write-Host ""
 Write-Host "[3/6] Git tagging..." -ForegroundColor Yellow
 
-$existingTag = git tag -l $Tag 2>$null
-if ($existingTag) {
-    Write-Host "  Tag $Tag already exists, skipping." -ForegroundColor Yellow
-} elseif ($DryRun) {
-    Write-Host "  [DRY RUN] Would create tag: $Tag" -ForegroundColor Magenta
-} else {
-    git tag -a $Tag -m "$Tag release"
-    Write-Host "  Created tag: $Tag" -ForegroundColor Green
+# Create client tag (always, if client build exists)
+if ($hasClient) {
+    $existingClientTag = git tag -l $ClientTag 2>$null
+    if ($existingClientTag) {
+        Write-Host "  Tag $ClientTag already exists, skipping." -ForegroundColor Yellow
+    } elseif ($DryRun) {
+        Write-Host "  [DRY RUN] Would create tag: $ClientTag" -ForegroundColor Magenta
+    } else {
+        git tag -a $ClientTag -m "$ClientTag release"
+        Write-Host "  Created tag: $ClientTag" -ForegroundColor Green
+    }
+}
+
+# Create server tag (if server build exists)
+if ($hasServer) {
+    $existingServerTag = git tag -l $ServerTag 2>$null
+    if ($existingServerTag) {
+        Write-Host "  Tag $ServerTag already exists, skipping." -ForegroundColor Yellow
+    } elseif ($DryRun) {
+        Write-Host "  [DRY RUN] Would create tag: $ServerTag" -ForegroundColor Magenta
+    } else {
+        git tag -a $ServerTag -m "$ServerTag release"
+        Write-Host "  Created tag: $ServerTag" -ForegroundColor Green
+    }
 }
 
 # ============================================================================
@@ -345,18 +362,25 @@ if ($SkipPush -or $DryRun) {
     }
     Write-Host "  Branch pushed." -ForegroundColor Green
 
-    Write-Host "  Pushing tags ..." -ForegroundColor Gray
-    $ErrorActionPreference = "Continue"
-    $tagOut = git push origin --tags --progress 2>&1
-    $tagExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
-    foreach ($line in $tagOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+    # Push ONLY the tags we just created — never use --tags (pushes all local tags)
+    $tagsToPush = @()
+    if ($hasClient) { $tagsToPush += $ClientTag }
+    if ($hasServer) { $tagsToPush += $ServerTag }
 
-    if ($tagExit -ne 0) {
-        Write-Host "  ERROR: Tag push failed (exit $tagExit)" -ForegroundColor Red
-        exit 1
+    foreach ($t in $tagsToPush) {
+        Write-Host "  Pushing tag '$t' ..." -ForegroundColor Gray
+        $ErrorActionPreference = "Continue"
+        $tagOut = git push origin $t --progress 2>&1
+        $tagExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedEAP
+        foreach ($line in $tagOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+
+        if ($tagExit -ne 0) {
+            Write-Host "  ERROR: Tag push failed for $t (exit $tagExit)" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  Tag $t pushed." -ForegroundColor Green
     }
-    Write-Host "  Tags pushed." -ForegroundColor Green
 }
 
 # ============================================================================
@@ -364,62 +388,85 @@ if ($SkipPush -or $DryRun) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[5/6] Creating GitHub release..." -ForegroundColor Yellow
+Write-Host "[5/6] Creating GitHub releases..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
-    Write-Host "  Skipping GitHub release ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
+    Write-Host "  Skipping GitHub releases ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
-    $ghArgs = @("release", "create", $Tag, "--title", "Perfect Dark 2 $Tag")
+    $savedEAP = $ErrorActionPreference
+    $channel = if ($Prerelease) { "Dev" } else { "Stable" }
 
-    if ($hasNotes) {
-        $ghArgs += "--notes-file"
-        $ghArgs += $ReleaseNotes
-    } else {
-        $ghArgs += "--generate-notes"
-    }
-
-    if ($Prerelease) {
-        $ghArgs += "--prerelease"
-    }
-
-    # Attach individual executables + hashes (for update system) and the full zip
+    # --- Client release (tag: client-v{M}.{m}.{p}) ---
     if ($hasClient) {
+        Write-Host "  Creating CLIENT release ($ClientTag) ..." -ForegroundColor Cyan
+        $ghArgs = @("release", "create", $ClientTag, "--title", "Perfect Dark 2 $ClientTag ($channel)")
+
+        if ($hasNotes) {
+            $ghArgs += "--notes-file"
+            $ghArgs += $ReleaseNotes
+        } else {
+            $ghArgs += "--generate-notes"
+        }
+
+        if ($Prerelease) { $ghArgs += "--prerelease" }
+
+        # Attach client exe + hash + full distribution zip
         $ghArgs += "$DistDir/PerfectDark.exe"
         $ghArgs += "$DistDir/PerfectDark.exe.sha256"
+        if (Test-Path $zipPath) { $ghArgs += $zipPath }
+
+        Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
+
+        $ErrorActionPreference = "Continue"
+        $ghOut = gh @ghArgs 2>&1
+        $ghExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedEAP
+        foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+
+        if ($ghExit -eq 0) {
+            Write-Host "  Client release created:" -ForegroundColor Green
+            Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ClientTag" -ForegroundColor Cyan
+        } else {
+            Write-Host "  ERROR: Client release creation failed (exit $ghExit)." -ForegroundColor Red
+            Write-Host "  Run 'gh auth status' to check authentication." -ForegroundColor Red
+        }
     }
+
+    # --- Server release (tag: server-v{M}.{m}.{p}) ---
     if ($hasServer) {
+        Write-Host ""
+        Write-Host "  Creating SERVER release ($ServerTag) ..." -ForegroundColor Cyan
+        $ghArgs = @("release", "create", $ServerTag, "--title", "Perfect Dark 2 Server $ServerTag ($channel)")
+
+        # Server release uses the same notes (or auto-generate)
+        if ($hasNotes) {
+            $ghArgs += "--notes-file"
+            $ghArgs += $ReleaseNotes
+        } else {
+            $ghArgs += "--generate-notes"
+        }
+
+        if ($Prerelease) { $ghArgs += "--prerelease" }
+
+        # Attach server exe + hash only (no zip — server operators don't need the full distribution)
         $ghArgs += "$DistDir/PerfectDarkServer.exe"
         $ghArgs += "$DistDir/PerfectDarkServer.exe.sha256"
-    }
-    if (Test-Path $zipPath) {
-        $ghArgs += $zipPath
-    }
 
-    Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
+        Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
 
-    # Count assets being uploaded
-    $assetCount = 0
-    if ($hasClient) { $assetCount += 2 }   # exe + sha256
-    if ($hasServer) { $assetCount += 2 }   # exe + sha256
-    if (Test-Path $zipPath) { $assetCount += 1 }
-    Write-Host "  Uploading $assetCount asset(s) to GitHub ..." -ForegroundColor Gray
+        $ErrorActionPreference = "Continue"
+        $ghOut = gh @ghArgs 2>&1
+        $ghExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedEAP
+        foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
-    $savedEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $ghOut = gh @ghArgs 2>&1
-    $ghExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
-    foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
-
-    if ($ghExit -eq 0) {
-        Write-Host ""
-        Write-Host "  Release created:" -ForegroundColor Green
-        Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
-    } else {
-        Write-Host ""
-        Write-Host "  ERROR: Release creation failed (exit $ghExit)." -ForegroundColor Red
-        Write-Host "  Run 'gh auth status' to check authentication." -ForegroundColor Red
+        if ($ghExit -eq 0) {
+            Write-Host "  Server release created:" -ForegroundColor Green
+            Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ServerTag" -ForegroundColor Cyan
+        } else {
+            Write-Host "  ERROR: Server release creation failed (exit $ghExit)." -ForegroundColor Red
+        }
     }
 }
 
@@ -455,7 +502,7 @@ if (-not $DryRun -and -not $SkipPush -and (Test-Path $zipPath)) {
 
 # Clean up any old dist/{tag} staging folders left from previous releases
 Get-ChildItem "dist" -Directory -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -match '^v\d+\.\d+\.\d+$'
+    $_.Name -match '^(client-)?v\d+\.\d+\.\d+'
 } | ForEach-Object {
     Write-Host "  Cleaning old staging: $($_.FullName)" -ForegroundColor Gray
     Remove-Item $_.FullName -Recurse -Force
@@ -467,7 +514,7 @@ Get-ChildItem "dist" -Directory -ErrorAction SilentlyContinue | Where-Object {
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Green
-Write-Host "  RELEASE $Tag -- COMPLETE" -ForegroundColor Green
+Write-Host "  RELEASE v$Version -- COMPLETE" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Green
 Write-Host ""
 
@@ -476,5 +523,10 @@ Write-Host "  Zip:    $zipName $zipSizeDisplay" -ForegroundColor White
 if (-not $Prerelease) {
     Write-Host "  Backup: backups/$zipName" -ForegroundColor White
 }
-Write-Host "  GitHub: https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$Tag" -ForegroundColor Cyan
+if ($hasClient) {
+    Write-Host "  Client: https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ClientTag" -ForegroundColor Cyan
+}
+if ($hasServer) {
+    Write-Host "  Server: https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ServerTag" -ForegroundColor Cyan
+}
 Write-Host ""

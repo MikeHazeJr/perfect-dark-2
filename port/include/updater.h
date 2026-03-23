@@ -82,9 +82,9 @@ typedef struct {
 #define UPDATER_TAG_CLIENT    "client-v"
 #define UPDATER_TAG_SERVER    "server-v"
 
-/* Asset filenames to look for in releases */
-#define UPDATER_ASSET_CLIENT  "pd.x86_64.exe"
-#define UPDATER_ASSET_SERVER  "pd-server.x86_64.exe"
+/* Asset filenames to look for in releases (must match CMake OUTPUT_NAME + .exe) */
+#define UPDATER_ASSET_CLIENT  "PerfectDark.exe"
+#define UPDATER_ASSET_SERVER  "PerfectDarkServer.exe"
 
 /* Staging file suffixes */
 #define UPDATER_SUFFIX_UPDATE ".update"

@@ -39,7 +39,7 @@
 /* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
 extern struct menudialogdef g_MatchSetupMenuDialog;
 
-bool g_NotLoadMod;
+bool g_NotLoadMod = true;
 
 u8 g_InventoryWeapon;
 
@@ -1182,7 +1182,11 @@ MenuItemHandlerResult menuhandlerPdMode(s32 operation, struct menuitem *item, un
 
 char *soloMenuTextBestTime(struct menuitem *item)
 {
-	u16 time = g_GameFile.besttimes[g_MissionConfig.stageindex][item->param];
+	u16 time;
+	if (g_MissionConfig.stageindex < 0 || g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+		return "--:--\n";
+	}
+	time = g_GameFile.besttimes[g_MissionConfig.stageindex][item->param];
 	s32 hours = time / 3600;
 
 	if (time == 0) {

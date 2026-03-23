@@ -431,7 +431,7 @@ $consoleW = 850 - $sideW - 6
 # --- Left Sidebar Panel ---
 $sidePanel = New-Object System.Windows.Forms.Panel
 $sidePanel.Location = New-Object System.Drawing.Point(10, 60)
-$sidePanel.Size = New-Object System.Drawing.Size($sideW, 414)
+$sidePanel.Size = New-Object System.Drawing.Size($sideW, 464)
 $sidePanel.BackColor = $script:ColorPanelBg
 $form.Controls.Add($sidePanel)
 
@@ -718,11 +718,32 @@ $sideSep4.Text = ""; $sideSep4.Location = New-Object System.Drawing.Point(8, 336
 $sideSep4.Size = New-Object System.Drawing.Size(204, 1); $sideSep4.BackColor = $script:ColorDimmer
 $sidePanel.Controls.Add($sideSep4)
 
+# --- Git Section ---
+$lblGitSection = New-Object System.Windows.Forms.Label
+$lblGitSection.Text = "GIT"
+$lblGitSection.Font = New-UIFont 9 -Bold
+$lblGitSection.ForeColor = $script:ColorDim
+$lblGitSection.Location = New-Object System.Drawing.Point(8, 342)
+$lblGitSection.AutoSize = $true
+$sidePanel.Controls.Add($lblGitSection)
+
+$script:GitChangeCount = 0
+
+$btnCommit = New-SideButton "Commit 0 changes" 358 204 28 $script:ColorPurple $sidePanel
+$btnCommit.Enabled = $false
+$btnCommit.ForeColor = $script:ColorDisabled
+
+# --- Separator ---
+$sideSep5 = New-Object System.Windows.Forms.Label
+$sideSep5.Text = ""; $sideSep5.Location = New-Object System.Drawing.Point(8, 392)
+$sideSep5.Size = New-Object System.Drawing.Size(204, 1); $sideSep5.BackColor = $script:ColorDimmer
+$sidePanel.Controls.Add($sideSep5)
+
 # Open GitHub button
-$btnGithub = New-SideButton "Open GitHub" 342 204 28 $script:ColorBlue $sidePanel
+$btnGithub = New-SideButton "Open GitHub" 398 204 28 $script:ColorBlue $sidePanel
 
 # Open Project button (opens project folder in Explorer)
-$btnOpenProject = New-SideButton "Open Project" 374 204 28 $script:ColorDim $sidePanel
+$btnOpenProject = New-SideButton "Open Project" 430 204 28 $script:ColorDim $sidePanel
 
 # ============================================================================
 # Right side: Console output + utility bar + progress
@@ -803,7 +824,7 @@ $script:BuildPercent = 0
 $script:HasErrors = $false
 
 # --- Build tool version label (lower-left, subtle) ---
-$script:BuildToolVersion = "3.1"
+$script:BuildToolVersion = "3.2"
 $lblBuildToolVer = New-Object System.Windows.Forms.Label
 $lblBuildToolVer.Text = "Build tool version $($script:BuildToolVersion)"
 $lblBuildToolVer.Font = New-UIFont 8
@@ -858,6 +879,9 @@ function Set-Buttons-Enabled($enabled) {
     $btnPushDev.Enabled = $enabled
     $btnPushStable.Enabled = $enabled
     $cmbBuildTarget.Enabled = $enabled
+    # Commit button: only enabled if idle AND there are changes
+    $btnCommit.Enabled = $enabled -and ($script:GitChangeCount -gt 0)
+    $btnCommit.ForeColor = if ($enabled -and ($script:GitChangeCount -gt 0)) { $script:ColorPurple } else { $script:ColorDisabled }
     # Stop button is inverse — active when running, disabled when idle
     $btnStop.Enabled = (-not $enabled)
     $btnStop.ForeColor = if (-not $enabled) { $script:ColorRed } else { $script:ColorDisabled }
@@ -1018,7 +1042,7 @@ function Fetch-GithubReleases {
                 $parsed = $json | ConvertFrom-Json
                 foreach ($rel in $parsed) {
                     $tag = $rel.tag_name
-                    if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)') {
+                    if ($tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
                         $releases += @{
                             Tag = $tag
                             Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]
@@ -1054,7 +1078,7 @@ function Fetch-GithubReleases {
 
 function Check-VersionWarning {
     $ver = Get-PushBarVersion
-    $tag = "v$($ver.Major).$($ver.Minor).$($ver.Revision)"
+    $tag = "client-v$($ver.Major).$($ver.Minor).$($ver.Revision)"
     $lblVerWarning.Text = ""
 
     try {
@@ -1229,17 +1253,204 @@ function Format-ReleaseNotes($sections, $version, $isStable) {
 }
 
 # ============================================================================
+# Git change tracking + manual commit
+# ============================================================================
+
+$script:LastGitCheck = [DateTime]::MinValue
+$script:GitBusy = $false
+
+function Update-GitChangeCount {
+    # Throttle: only check every 5 seconds
+    if (([DateTime]::Now - $script:LastGitCheck).TotalSeconds -lt 5) { return }
+    # Skip if another git operation (commit, push) is in progress
+    if ($script:GitBusy) { return }
+    $script:LastGitCheck = [DateTime]::Now
+
+    try {
+        $status = git -C $script:ProjectDir status --porcelain 2>$null
+        if ($status) {
+            $count = ($status | Measure-Object).Count
+        } else {
+            $count = 0
+        }
+    } catch {
+        $count = 0
+    }
+
+    $script:GitChangeCount = $count
+
+    if ($count -gt 0) {
+        $s = if ($count -eq 1) { "" } else { "s" }
+        $btnCommit.Text = "Commit $count change$s"
+        $btnCommit.Enabled = (-not $script:IsRunning)
+        $btnCommit.ForeColor = if (-not $script:IsRunning) { $script:ColorPurple } else { $script:ColorDisabled }
+    } else {
+        $btnCommit.Text = "No changes"
+        $btnCommit.Enabled = $false
+        $btnCommit.ForeColor = $script:ColorDisabled
+    }
+}
+
+function Start-ManualCommit {
+    if ($script:GitChangeCount -eq 0) { return }
+
+    Sound-MenuClick
+
+    # Show commit message dialog
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Commit Changes"
+    $dlg.Size = New-Object System.Drawing.Size(480, 200)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.FormBorderStyle = "FixedDialog"
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = $script:ColorPanelBg
+    $dlg.ForeColor = $script:ColorWhite
+
+    $lblMsg = New-Object System.Windows.Forms.Label
+    $lblMsg.Text = "Commit message ($($script:GitChangeCount) file(s)):"
+    $lblMsg.Font = New-UIFont 10
+    $lblMsg.ForeColor = $script:ColorWhite
+    $lblMsg.Location = New-Object System.Drawing.Point(12, 12)
+    $lblMsg.AutoSize = $true
+    $dlg.Controls.Add($lblMsg)
+
+    $txtMsg = New-Object System.Windows.Forms.TextBox
+    $txtMsg.Location = New-Object System.Drawing.Point(12, 38)
+    $txtMsg.Size = New-Object System.Drawing.Size(440, 24)
+    $txtMsg.BackColor = $script:ColorFieldBg
+    $txtMsg.ForeColor = $script:ColorWhite
+    $txtMsg.Font = New-Object System.Drawing.Font("Consolas", 10)
+    $txtMsg.BorderStyle = "FixedSingle"
+    $ver = Get-ProjectVersion
+    $txtMsg.Text = "v$($ver.String) -"
+    $dlg.Controls.Add($txtMsg)
+
+    $chkPush = New-Object System.Windows.Forms.CheckBox
+    $chkPush.Text = "Push to GitHub after commit"
+    $chkPush.Font = New-UIFont 9
+    $chkPush.ForeColor = $script:ColorDim
+    $chkPush.Location = New-Object System.Drawing.Point(12, 72)
+    $chkPush.AutoSize = $true
+    $chkPush.Checked = $true
+    $dlg.Controls.Add($chkPush)
+
+    $btnOk = New-Object System.Windows.Forms.Button
+    $btnOk.Text = "Commit"
+    $btnOk.Location = New-Object System.Drawing.Point(270, 120)
+    $btnOk.Size = New-Object System.Drawing.Size(86, 30)
+    $btnOk.FlatStyle = "Flat"
+    $btnOk.FlatAppearance.BorderColor = $script:ColorGreen
+    $btnOk.ForeColor = $script:ColorGreen
+    $btnOk.BackColor = $script:ColorFieldBg
+    $btnOk.Font = New-UIFont 10 -Bold
+    $btnOk.DialogResult = "OK"
+    $dlg.Controls.Add($btnOk)
+    $dlg.AcceptButton = $btnOk
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = New-Object System.Drawing.Point(366, 120)
+    $btnCancel.Size = New-Object System.Drawing.Size(86, 30)
+    $btnCancel.FlatStyle = "Flat"
+    $btnCancel.FlatAppearance.BorderColor = $script:ColorDim
+    $btnCancel.ForeColor = $script:ColorDim
+    $btnCancel.BackColor = $script:ColorFieldBg
+    $btnCancel.Font = New-UIFont 10 -Bold
+    $btnCancel.DialogResult = "Cancel"
+    $dlg.Controls.Add($btnCancel)
+    $dlg.CancelButton = $btnCancel
+
+    $result = $dlg.ShowDialog($form)
+    $commitMsg = $txtMsg.Text.Trim()
+    $shouldPush = $chkPush.Checked
+    $dlg.Dispose()
+
+    if ($result -ne "OK" -or $commitMsg -eq "") { return }
+
+    Write-Header "Git Commit"
+
+    # Lock out timer-based git status checks while we're committing
+    $script:GitBusy = $true
+
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
+    # Safety: remove stale index.lock if present (previous crash)
+    $lockFile = Join-Path $script:ProjectDir ".git\index.lock"
+    if (Test-Path $lockFile) {
+        Write-Output-Line "  Removing stale index.lock..." $script:ColorYellow
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    }
+
+    # Stage all
+    Write-Output-Line "  Staging all changes..." $script:ColorPurple
+    $addOut = git -C $script:ProjectDir add -A 2>&1
+    foreach ($line in $addOut) { Write-Output-Line "    $($line.ToString())" $script:ColorDim }
+
+    # Commit
+    $commitOut = git -C $script:ProjectDir commit -m $commitMsg 2>&1
+    $commitExit = $LASTEXITCODE
+    foreach ($line in $commitOut) { Write-Output-Line "    $($line.ToString())" $script:ColorDim }
+
+    if ($commitExit -ne 0) {
+        Write-Output-Line "  Commit failed (exit $commitExit)" $script:ColorRed
+        $ErrorActionPreference = $savedEAP
+        $script:GitBusy = $false
+        return
+    }
+    Write-Output-Line "  Committed: $commitMsg" $script:ColorGreen
+    Sound-ItemPickup
+
+    # Push
+    if ($shouldPush) {
+        Write-Output-Line "  Pushing to origin..." $script:ColorPurple
+        $pushOut = git -C $script:ProjectDir push origin 2>&1
+        $pushExit = $LASTEXITCODE
+        foreach ($line in $pushOut) { Write-Output-Line "    $($line.ToString())" $script:ColorDim }
+
+        if ($pushExit -ne 0) {
+            Write-Output-Line "  Push failed (exit $pushExit)" $script:ColorRed
+        } else {
+            Write-Output-Line "  Pushed to GitHub" $script:ColorGreen
+        }
+    }
+
+    $ErrorActionPreference = $savedEAP
+
+    # Unlock and reset change count immediately
+    $script:GitBusy = $false
+    $script:LastGitCheck = [DateTime]::MinValue
+    Update-GitChangeCount
+}
+
+$btnCommit.Add_Click({ Start-ManualCommit })
+
+# ============================================================================
 # Auto-commit (runs before every build and push)
 # ============================================================================
 
 function Auto-Commit {
+    # Lock out timer-based git status checks
+    $script:GitBusy = $true
+
     $savedEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+
+    # Safety: remove stale index.lock if present
+    $lockFile = Join-Path $script:ProjectDir ".git\index.lock"
+    if (Test-Path $lockFile) {
+        Write-Output-Line "  Removing stale index.lock..." $script:ColorYellow
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    }
 
     $status = git -C $script:ProjectDir status --porcelain 2>$null
     if (!$status) {
         Write-Output-Line "  No uncommitted changes." $script:ColorDim
         $ErrorActionPreference = $savedEAP
+        $script:GitBusy = $false
         return $true
     }
 
@@ -1260,6 +1471,7 @@ function Auto-Commit {
     foreach ($line in $commitOut) { Write-Output-Line "    $($line.ToString())" $script:ColorDim }
 
     $ErrorActionPreference = $savedEAP
+    $script:GitBusy = $false
 
     if ($commitExit -ne 0) {
         Write-Output-Line "  Commit failed (exit $commitExit)" $script:ColorRed
@@ -1864,9 +2076,9 @@ function Start-PushRelease {
         $confirmMsg += "Release notes will be auto-generated by GitHub.`n`n"
     }
     $confirmMsg += "This will:`n"
-    $confirmMsg += "  - Create git tag v$verStr`n"
+    $confirmMsg += "  - Create git tags: client-v$verStr + server-v$verStr`n"
     $confirmMsg += "  - Push to GitHub`n"
-    $confirmMsg += "  - Create GitHub Release ($channel)`n"
+    $confirmMsg += "  - Create GitHub Releases ($channel)`n"
 
     $confirm = [System.Windows.Forms.MessageBox]::Show(
         $confirmMsg, "Push Release v$verStr",
@@ -2409,6 +2621,7 @@ $gameTimer = New-Object System.Windows.Forms.Timer
 $gameTimer.Interval = 2000
 $gameTimer.Add_Tick({
     Update-GameStatus
+    Update-GitChangeCount
 
     # Post-release cleanup
     if ($script:PendingPostRelease -and -not $script:IsRunning) {
@@ -2433,6 +2646,7 @@ $gameTimer.Start()
 # ============================================================================
 
 Refresh-VersionDisplay
+Update-GitChangeCount
 
 $clientCheck = Join-Path $script:ClientBuildDir $script:ExeName
 $serverCheck = Join-Path $script:ServerBuildDir "PerfectDarkServer.exe"

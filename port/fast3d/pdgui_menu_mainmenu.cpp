@@ -105,6 +105,10 @@ s32 optionsGetMusicVolume(void);
 void optionsSetMusicVolume(s32 vol);
 void sndSetSfxVolume(s32 vol);
 
+/* Look inversion — options.c */
+s32 optionsGetForwardPitch(s32 mpchrnum);
+void optionsSetForwardPitch(s32 mpchrnum, s32 enable);
+
 /* Volume layer system — from port/include/audio.h */
 f32 audioGetMasterVolume(void);
 void audioSetMasterVolume(f32 vol);
@@ -744,6 +748,20 @@ static void renderSettingsControls(float scale)
         float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
         if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
             g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ---- Look Settings ---- */
+    ImGui::TextDisabled("Look");
+    ImGui::Separator();
+
+    {
+        bool invertY = optionsGetForwardPitch(0) == 0;
+        if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
+            optionsSetForwardPitch(0, invertY ? 0 : 1);
         }
     }
 
