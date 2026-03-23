@@ -461,6 +461,9 @@ s32 assetCatalogRegisterBaseGame(void)
 			e->bundled = 1;
 			e->enabled = 1;
 			e->runtime_index = idx;
+			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\"",
+				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
+				s_ArenaGroupMap[g].category);
 			arena_count++;
 		}
 	}

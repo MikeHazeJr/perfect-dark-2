@@ -262,6 +262,8 @@ struct arenaNameOverride {
 };
 
 static const struct arenaNameOverride s_ArenaNameOverrides[] = {
+    { 0x5126, "Random: PD Maps" },       /* L_MPMENU_294 - Random Multi */
+    { 0x5127, "Random: Solo Maps" },     /* L_MPMENU_295 - Random Solo */
     { 0x5128, "GoldenEye X" },           /* L_MPMENU_296 - group header */
     { 0x5129, "GoldenEye X Bonus" },     /* L_MPMENU_297 - group header */
     { 0x512a, "Frigate" },               /* L_MPMENU_298 */
@@ -380,6 +382,20 @@ static void rebuildArenaCache(void)
     }
     assetCatalogIterateByType(ASSET_ARENA, arenaCollectCb, NULL);
     s_ArenaCacheDirty = 0;
+
+    /* Diagnostic: dump arena cache contents to log */
+    sysLogPrintf(LOG_NOTE, "Arena cache rebuilt:");
+    for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+        sysLogPrintf(LOG_NOTE, "  Group %d [%s]: %d arenas",
+            g, s_ArenaGroupNames[g], s_ArenaGroupCache[g].count);
+        for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+            const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
+            const char *name = arenaGetName((u16)ae->ext.arena.name_langid);
+            sysLogPrintf(LOG_NOTE, "    [%d] ri=%d stagenum=0x%02x langid=0x%04x name=\"%s\" id=\"%s\"",
+                a, ae->runtime_index, ae->ext.arena.stagenum,
+                ae->ext.arena.name_langid, name ? name : "(null)", ae->id);
+        }
+    }
 }
 
 /* ========================================================================
@@ -800,6 +816,9 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                         if (ImGui::Selectable(arenaLabel, isSel)) {
                             s_ArenaIndex = ae->runtime_index;
                             g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
+                            sysLogPrintf(LOG_NOTE, "Arena selected: \"%s\" ri=%d stagenum=0x%02x langid=0x%04x id=\"%s\"",
+                                arenaName, ae->runtime_index, ae->ext.arena.stagenum,
+                                ae->ext.arena.name_langid, ae->id);
                             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                         }
                         if (isSel) ImGui::SetItemDefaultFocus();
