@@ -381,5 +381,24 @@ Full file manifests in [tasks-archive.md](tasks-archive.md).
 
 ### Known Issues
 - MOD_CONVERSION_GUIDE.md §2.1 Stage Slot Usage tables still use array indices and have confused GEX annotations
-- D3R-3/D3R-4 code needs full build test (syntax-checked structurally, not compiled)
 - Weapons not yet registered in D3R-3 (noted in task description as ~30 weapons; deferred)
+
+---
+
+## Session 31 — 2026-03-23
+
+**Focus**: Fix assetcatalog_scanner.c build failure
+
+### Build Error Root Cause
+The `/**` block comment at top of `assetcatalog_scanner.c` (lines 1–18) contained the path `mods/mod_*/_components/` on line 6. The `*/` in `mod_*/` is the C block comment terminator — it prematurely closed the comment at line 6, column 58. Everything after that point was parsed as code:
+- Line 6: `_components/)` → invalid C tokens
+- Line 14: `#` in `# comments` → stray preprocessor directive
+- All subsequent includes failed → cascading `u8`/`s32`/`size_t` type resolution failures throughout the entire include chain
+
+### Fix Applied
+Rewrote the block comment to eliminate all `*/` sequences within comment text. Paths like `mods/mod_*/_components/` replaced with plain English descriptions. `# comments` replaced with `Hash and semicolon comments`.
+
+`assetcatalog_base.c` was unaffected — its block comment had no `*/` sequences.
+
+### Files Modified
+- **MODIFIED**: `port/src/assetcatalog_scanner.c` (lines 1–18: block comment rewritten)

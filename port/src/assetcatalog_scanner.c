@@ -1,20 +1,20 @@
-/**
+/*
  * assetcatalog_scanner.c -- D3R-4: Component scanner + INI loader
  *
  * Scans mod component directories and registers assets in the catalog.
  * Two-pass approach:
- *   1. Enumerate mod directories (mods/mod_*/_components/)
- *   2. For each mod, scan category subdirectories (maps/, characters/, textures/)
+ *   1. Enumerate mod directories under mods/
+ *   2. For each mod, scan category subdirectories (maps, characters, textures)
  *   3. For each component folder, parse the .ini manifest
  *   4. Register a catalog entry based on the INI type and fields
  *
  * The INI parser is minimal but sufficient for the component .ini format:
  *   - One section per file: [map], [character], [textures], etc.
  *   - Key = value pairs, one per line
- *   - # comments, blank lines ignored
+ *   - Hash and semicolon comments, blank lines ignored
  *   - No multiline values, no escaping
  *
- * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
+ * Auto-discovered by CMake glob. No build system changes needed.
  */
 
 #include <PR/ultratypes.h>
