@@ -85,17 +85,65 @@
 
 | Phase | Task | Depends On | Details |
 |-------|------|-----------|---------|
-| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S29)**: 56 maps, 42 chars, 5 tex packs. Correct location (`post-batch-addin/mods/mod_*/_components/`). Real stagenums from bgdata→stage mapping. 5 stage_patch + 51 dedicated. Symlinks to originals. `docs/MOD_CONVERSION_GUIDE.md` written. Needs build test. |
-| D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)**: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. Needs build test. |
-| D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)**: `assetcatalog_base.c` — registers 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Uses `g_Stages[idx].id` (logical stage ID, not array index). Arenas deferred to callsite migration (D3R-5). Needs build test. |
-| D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)**: `assetcatalog_scanner.c` — INI parser (`iniParse/iniGet/iniGetInt/iniGetFloat`), category→type mapping, component registration with type-specific union fields. Two-pass scan of `mods/mod_*/_components/`. Header: `assetcatalog_scanner.h`. Also fixed all 56 map .ini stagenums (array index → stage ID) and corrected MOD_CONVERSION_GUIDE.md §2.2 mapping table. Needs build test. |
-| D3R-5 | **Callsite migration** | D3R-3 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. |
+| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S29)** ✓ BUILD PASS: 56 maps, 42 chars, 5 tex packs in `post-batch-addin/mods/mod_*/_components/`. |
+| D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
+| D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
+| D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
+| D3R-5 | **Callsite migration** ← NEXT | D3R-3, D3R-4 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. See D3R-5 briefing below. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
 | D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
 | D3R-9 | **Network distribution** | D3R-4 | Delta packs, session-only downloads, lobby spectator combat log. |
 | D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |
 | D3R-11 | **Legacy cleanup** | D3R-5 | Remove `g_ModNum`, `modconfig.txt` parsing, static array patching. |
+
+### D3R-5 Briefing: Callsite Migration
+
+**Goal**: Replace numeric array index lookups with `catalogResolve()` calls so the runtime actually *uses* the Asset Catalog instead of just populating it.
+
+**Approach**: Incremental, by subsystem. Each subsystem can be migrated and tested independently. The catalog is populated but currently inert — no game code reads from it yet.
+
+**Catalog API available** (from `assetcatalog.h`):
+
+| Function | Returns | Use case |
+|----------|---------|----------|
+| `assetCatalogResolve(id)` | `const asset_entry_t*` or NULL | General lookup by string ID |
+| `assetCatalogResolveBodyIndex(id)` | `s32` runtime_index or -1 | Body selection in character menus |
+| `assetCatalogResolveStageIndex(id)` | `s32` runtime_index or -1 | Stage/map selection |
+| `assetCatalogIterateByType(type, fn, ud)` | void (callback) | Building menu lists |
+| `assetCatalogIterateByCategory(cat, fn, ud)` | void (callback) | Mod manager grouping |
+| `assetCatalogGetSkinsForTarget(id, out, max)` | count | Skin variant queries |
+| `assetCatalogIsEnabled(id)` | `s32` bool | Toggle checks |
+
+**Subsystems to migrate** (suggested priority order):
+
+1. **Catalog initialization** — Wire `assetCatalogInit()` + `assetCatalogRegisterBaseGame()` + `assetCatalogScanComponents()` into the startup sequence. Without this, the catalog exists but is never populated. This is the prerequisite for everything else.
+
+2. **MP arena/stage selection** — `g_MpArenas[]` numeric indices → catalog queries. Arena entries reference stages by stagenum; the catalog already has all stages registered. Menu code in `mplayer.c` and setup UI.
+
+3. **MP body/head selection** — `g_MpBodies[]`/`g_MpHeads[]` numeric indices → catalog queries. Character select menu, network sync of character choices.
+
+4. **Stage loading** — `stageLoad()` and related callsites. The `g_Stages[]` array is still the runtime representation, but the *selection* of which stage to load should go through the catalog.
+
+5. **Weapon references** — ~30 weapons, not yet registered in D3R-3. Requires adding weapon registration to `assetcatalog_base.c` first, then migrating weapon selection/pickup callsites.
+
+**Key files to survey at session start**:
+- `src/game/mplayer/mplayer.c` — `g_MpBodies[]`, `g_MpHeads[]`, `g_MpArenas[]`, `mpGetNumBodies()`, `mpGetBody()`
+- `src/game/mplayer/setup.c` — `g_MpArenas[]` definition, arena selection
+- `src/game/stage.c` or `src/game/lv.c` — stage loading entry points
+- `port/src/modmgr.c` — current mod loading init sequence (where to hook catalog init)
+
+**Constraints to respect**:
+- `bool` is `s32`, never `<stdbool.h>`
+- Name-based resolution only (project constraint) — no new numeric lookups
+- C11 game code, C++ port code — catalog is in port/ (C++ OK) but callsites in src/game/ are C
+- Existing mod loader (`modmgr.c`) must continue working until D3R-11 legacy cleanup
+
+**What's NOT in scope for D3R-5**:
+- Weapons registration (deferred — add to D3R-3 scope when ready)
+- Mod Manager UI (D3R-6)
+- Removing legacy code (D3R-11)
+- Network sync changes (D3R-9)
 
 ### Key Architectural Decisions (S27)
 - **No numeric lookups** — project constraint. Everything through Asset Catalog.
