@@ -11,7 +11,8 @@
 |-------|------|--------|-------------|
 | D1 | N64 Strip | ✅ **DONE** | S1 |
 | D2 | Jump / Bot AI / Char Select | 🔶 Partial | S15 |
-| D3 | Mod Manager | 🔶 Partial (a–d done, e–g remain) | S24 |
+| D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
+| D3R | Component Mod Architecture | 📋 Designed (S27) — 11 phases | S27 |
 | D4 | Menu Migration | ♻️ Superseded (ongoing, no longer blocks) | S22 |
 | D5 | Settings / Graphics / QoL | 📋 Planned | — |
 | D6 | Persistent Stats | 📋 Planned | — |
@@ -43,13 +44,25 @@
 - **D2c Bot Jump AI**: Not started. Depends on D2b.
 - **D2d Custom Simulants**: Not started. Feeds D11.
 
-### D3: Mod Manager — 🔶 PARTIAL
-- **D3a–D3d**: ✅ Done. Core modmgr, shadow arrays, fs.c refactor, ImGui foundation.
-- **D3e Mod Menu**: Not started. Replace demo window with real manager.
-- **D3f Network Manifest**: Not started. Mod list serialization, mismatch rejection.
-- **D3g Cleanup**: Not started. Remove g_ModNum refs, Dr. Carroll sentinel.
+### D3: Mod Manager — ♻️ REDESIGNED as D3R (Session 27)
+- **D3a–D3d**: ✅ Done. Core modmgr, shadow arrays, fs.c refactor, ImGui foundation. (Legacy — will be replaced by D3R)
+- **D3e–D3g**: Superseded by D3R. See below.
 - **S23 fix**: Mod manager path resolution (CWD → exe dir → base dir). Stage range check widened.
 - **S24 fix**: Bundled mod ID mismatch corrected. `g_NotLoadMod` init fix.
+
+### D3R: Component Mod Architecture — 📋 DESIGNED (Session 27)
+Full design in [component-mod-architecture.md](component-mod-architecture.md). Replaces monolithic D3 with component-based system.
+- **D3R-1 Decompose mods**: Convert 5 bundled mods to `mods/{category}/{id}/asset.ini` format
+- **D3R-2 Asset Catalog**: String-keyed hash table, name-based resolution (no numeric lookups)
+- **D3R-3 Base game cataloging**: Register all base assets with `"base:"` prefix IDs
+- **D3R-4 Scanner + loader**: Two-pass category-first scan, `.ini` parsing, catalog build
+- **D3R-5 Callsite migration**: Replace numeric lookups with `catalogResolve()` (incremental)
+- **D3R-6 Mod Manager UI**: Browse by category/group, toggle, validate, apply
+- **D3R-7 INI Manager tool**: In-game schema-driven editor for component `.ini` files
+- **D3R-8 Bot Customizer**: Trait editor → saves as `bot_variants/` component
+- **D3R-9 Network distribution**: Delta packs, session-only downloads, lobby combat log
+- **D3R-10 Mod Pack export**: `.pdpack` creation and extraction
+- **D3R-11 Legacy cleanup**: Remove `g_ModNum`, `modconfig.txt`, static arrays
 
 ### D4: Menu Migration — ♻️ SUPERSEDED
 Original F11 storyboard plan superseded by direct ImGui hotswap. Component library evolves organically. Menus built as needed alongside other phases. See [menu-storyboard.md](menu-storyboard.md) for reference inventory.
@@ -104,11 +117,17 @@ D1 (N64 Strip) ─── DONE
   │     ├── D2c (Bot Jump AI) ─── needs D2b
   │     └── D2d (Custom Sims) ─── feeds D11
   │
-  ├── D3 (Mod Manager) ─── PARTIAL
-  │     ├── D3a-d ─── DONE
-  │     ├── D3e (Mod Menu) ─── NEXT
-  │     ├── D3f (Net Manifest) ─── planned
-  │     └── D3g (Cleanup) ─── planned
+  ├── D3 (Mod Manager legacy) ─── REDESIGNED → D3R
+  │     └── D3a-d ─── DONE (to be replaced)
+  ├── D3R (Component Mod Architecture) ─── DESIGNED
+  │     ├── D3R-1 (Decompose mods) ─── NEXT
+  │     ├── D3R-2 (Asset Catalog) ─── planned
+  │     ├── D3R-3 (Base game catalog) ─── planned
+  │     ├── D3R-4 (Scanner) ─── planned
+  │     ├── D3R-5 (Callsite migration) ─── planned
+  │     ├── D3R-6–8 (UI tools) ─── planned
+  │     ├── D3R-9–10 (Network + packs) ─── planned
+  │     └── D3R-11 (Legacy cleanup) ─── planned
   │
   ├── D9 (Server) ─── LARGELY DONE
   │     ├── D16 (Master Server) ─── after content tools

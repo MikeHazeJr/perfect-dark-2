@@ -28,9 +28,9 @@
 | **B-13: Prop Scale Fix** | Changed `model->scale` → `modelGetEffectiveScale(model)` at lines 857–858, 883–884 in model.c. | **CODED — needs build test** |
 | **B-12 Phase 1: Dynamic Participant System** | New `participant.h` / `participant.c` with heap-allocated pool (default 32, expandable). Parallel sync hooks in 6 locations in mplayer.c. Runs alongside legacy chrslots. | **CODED — needs build test** |
 | **Build Tool: Commit Button** (build-gui.ps1 v3.2) | GIT section in sidebar. Dynamic "Commit XX changes" button. Dialog with message field + push checkbox. Race condition fix, `--set-upstream` push, double-v prefix fix. | **TESTED — PASS** |
-| **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **CODED — needs build test** |
-| **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **CODED — needs build test** |
-| **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **CODED — needs build test** |
+| **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **TESTED — PASS** |
+| **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **TESTED — PASS** |
+| **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **TESTED — PASS** |
 
 ## Bugs Still Open
 
@@ -78,15 +78,46 @@
 
 ---
 
+## D3-Revised: Component Mod Architecture (Session 27 Design)
+
+> Full design: [component-mod-architecture.md](component-mod-architecture.md)
+> This replaces the original D3 monolithic mod plan. Implementation sequence below.
+
+| Phase | Task | Depends On | Details |
+|-------|------|-----------|---------|
+| D3R-1 | **Decompose existing mods** | — | Convert 5 bundled mods to component filesystem (`mods/{category}/{id}/asset.ini`). Document process in `docs/MOD_CONVERSION_GUIDE.md`. |
+| D3R-2 | **Asset Catalog core** | — | String-keyed hash table, `catalogResolve()` API, CRC32 identity. The translation layer. |
+| D3R-3 | **Base game cataloging** | D3R-2 | Register all 63 bodies, 76 heads, 87 stages, ~30 weapons with `"base:"` prefix IDs. |
+| D3R-4 | **Category scanner + loader** | D3R-1, D3R-2 | Two-pass scan: categories first, then components. Parse `.ini`, build catalog. Per-category logging. |
+| D3R-5 | **Callsite migration** | D3R-3 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. |
+| D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
+| D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |
+| D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
+| D3R-9 | **Network distribution** | D3R-4 | Delta packs, session-only downloads, lobby spectator combat log. |
+| D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |
+| D3R-11 | **Legacy cleanup** | D3R-5 | Remove `g_ModNum`, `modconfig.txt` parsing, static array patching. |
+
+### Key Architectural Decisions (S27)
+- **No numeric lookups** — project constraint. Everything through Asset Catalog.
+- **Components, not monoliths** — each asset is an independent folder + `.ini`.
+- **Category = grouping label** — `category` field in `.ini` enables mod manager group toggles.
+- **Soft dependencies** — `depends_on` field, graceful fallback to base assets.
+- **Skins as soft references** — `target` field references a character ID, resolved lazily.
+- **Dynamic memory only** — N64 shared pools removed, each component uses `malloc`.
+- **Temp downloads** — `mods/.temp/` with crash recovery (keep/disable/discard).
+- **Combat log for lobby** — server sends pre-resolved display names, not asset IDs.
+
+---
+
 ## Backlog (lower priority, do when relevant)
 
-- D3e: Mod Menu (replace demo window with real manager)
-- D3f: Network mod manifest (mismatch rejection)
-- D3g: Cleanup (remove g_ModNum refs, Dr. Carroll sentinel)
+- ~~D3e: Mod Menu~~ → superseded by D3R-6
+- ~~D3f: Network mod manifest~~ → superseded by D3R-9
+- ~~D3g: Cleanup~~ → superseded by D3R-11
 - Systemic bug audit: [SP-1](systemic-bugs.md) remaining files (activemenu.c, player.c, endscreen.c, menu.c)
 - rendering-trace.md header update (stale — claims no ImGui menus)
 - menu-storyboard.md review (partially superseded)
 - TODO-1: SDL2/zlib still DLL (low priority)
-- TODO-5: Dr. Carroll sentinel redesign (before D3g)
-- TODO-6: g_ModNum stragglers (D3g)
+- TODO-5: Dr. Carroll sentinel redesign (before D3R-11)
+- TODO-6: g_ModNum stragglers (D3R-11)
 - Update tab UX: version selection + version policy design

@@ -5,6 +5,66 @@
 
 ---
 
+## Session 27 — 2026-03-23
+
+**Focus**: Component Mod Architecture design (D3 Revised) — discussion only, no code written
+
+### What Was Designed
+
+Complete architectural redesign of the mod system from monolithic (one mod = one directory) to **component-based** (each asset = independent folder + `.ini` manifest). This is the foundational design for the future of the project's mod system, asset loading, and extensibility.
+
+### Key Design Decisions
+
+1. **Component-based architecture**: Every asset (map, character, skin, bot variant, weapon, prop, texture pack, etc.) lives in its own folder under `mods/{category}/{asset_id}/` with a self-describing `.ini` file.
+
+2. **Name-based asset resolution (PROJECT CONSTRAINT)**: No numeric lookups, ever. All asset references go through a string-keyed Asset Catalog. `catalogResolve("gf64_bond")` replaces `body[0x3A]`. Eliminates root cause of B-13, B-17, and the entire class of index-shift bugs.
+
+3. **Category = grouping label**: The `category` field in `.ini` (e.g., `category = goldfinger64`) groups related components in the Mod Manager. Toggling a category disables all its components. No explicit "mod registration" needed — grouping is emergent from tags.
+
+4. **Soft dependencies**: `depends_on` field lists required components (e.g., a map depending on a shared texture pack). Missing dependencies fall back to base game assets gracefully. Maps that can't fully load don't appear in menus.
+
+5. **Skins as soft references**: `target = gf64_bond` in a skin's `.ini` creates a lazy reference. If the target character doesn't exist, the skin silently doesn't appear. Works for any character (base or mod).
+
+6. **Dynamic memory only**: N64-era shared memory pools (modconfig.txt `alloc` values) stripped. Each component uses standard `malloc`. Advisory `hint_memory` for UI only.
+
+7. **One format, multiple interfaces**: `.ini` is the source of truth. Bot Customizer (in-game), Level Editor (future, in-game + external), INI Manager tool (in-game), and direct hand-editing all produce the same format.
+
+8. **Network: delta pack distribution**: Server identifies missing components, bundles only what's needed, streams to client. Options: Download (permanent), Download This Session Only (to `mods/.temp/`), Cancel (stay in lobby, spectate).
+
+9. **Lobby spectator experience**: Combat log with pre-resolved display names (not asset IDs) — server sends strings because spectators may not have the relevant mods. Kill feed with detail: "MeatSim1 killed MeatSim3 with a headshot using the Dragon."
+
+10. **Crash recovery for temp mods**: Graduated response — first crash: Keep/Disable/Discard prompt. Second crash: suspect mod flagged. Third crash: auto-disable all temp mods, launch clean.
+
+11. **Base game in the catalog**: All base assets registered with `"base:"` prefix. The entire game speaks the same lookup language — no special cases for base vs. mod content.
+
+12. **Category-first scanning**: Two-pass — enumerate categories first, then components within. Tolerates unknown categories. Errors logged per category.
+
+### New Constraints Added
+- **Name-based asset resolution only** (Active — see constraints.md)
+
+### Removed Constraints Added
+- Shared memory pools for mods (N64 pre-allocation)
+- Monolithic mod structure (single directory per mod)
+- Numeric asset lookups (ROM addresses, table indices)
+
+### Documents Created
+- `context/component-mod-architecture.md` — full design document (13 sections)
+
+### Documents Updated
+- `context/constraints.md` — new active + 3 new removed constraints
+- `context/tasks-current.md` — D3R implementation phases (11 steps)
+- `context/README.md` — new document references (pending)
+
+### No Code Written
+This was a design-only session. All work was architectural discussion and documentation.
+
+### Next Steps
+- D3R-1: Decompose existing 5 bundled mods to component filesystem
+- D3R-2: Build Asset Catalog core (hash table, string-keyed resolution)
+- Document conversion process in `docs/MOD_CONVERSION_GUIDE.md`
+
+---
+
 ## Session 26 — 2026-03-22
 
 **Focus**: Build test triage (S22–S24 cumulative), root cause analysis, new feature requests
