@@ -31,6 +31,7 @@
 | **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **TESTED — PASS** |
 | **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **TESTED — PASS** |
 | **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **TESTED — PASS** |
+| **Map Cycle Test Crash Fix** (S33) | Added `pdguiMapTestResetMatchState()` bridge function + CLEANUP state in map test state machine. Resets match flags between maps to prevent cumulative corruption. | **CODED — needs build test** |
 
 ## Bugs Still Open
 

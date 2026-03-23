@@ -339,6 +339,26 @@ void pdguiPauseSetPlayerAborted(void)
     }
 }
 
+/**
+ * D3R-5 DEBUG: Reset match state for the map cycle test.
+ *
+ * Called between consecutive matchStart() calls during the automated
+ * map test. Resets the "match running" flags so the game sees a clean
+ * "no match active" state — same as if we'd returned to the menu.
+ *
+ * This intentionally avoids mainEndStage()/mpEndMatch() because those
+ * trigger the OG endscreen which blocks for player input and can't be
+ * auto-dismissed yet.
+ */
+void pdguiMapTestResetMatchState(void)
+{
+    g_Vars.normmplayerisrunning = false;
+    g_Vars.mplayerisrunning = false;
+    g_Vars.lvmpbotlevel = 0;
+    g_MainIsEndscreen = false;
+    mpSetPaused(MPPAUSEMODE_UNPAUSED);
+}
+
 const char *pdguiPauseGetStageName(u8 stagenum)
 {
     s32 count = modmgrGetTotalArenas();

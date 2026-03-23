@@ -405,7 +405,7 @@ enum maptest_state {
     MAPTEST_START_NEXT,    /* In menu — pick next arena and start match */
     MAPTEST_WAIT_LOAD,     /* Match starting — wait for gameplay to be active */
     MAPTEST_LOADED,        /* Gameplay active — count frames then exit */
-    MAPTEST_WAIT_MENU,     /* Exiting — wait for return to menu */
+    MAPTEST_CLEANUP,       /* Between maps — reset match state, brief delay */
     MAPTEST_DONE,          /* All maps tested */
 };
 
@@ -1130,6 +1130,7 @@ extern "C" {
 s32 pdguiPauseGetNormMplayerIsRunning(void);
 void pdguiPauseSetPlayerAborted(void);
 void mainEndStage(void);
+void pdguiMapTestResetMatchState(void);
 }
 
 /**
@@ -1166,7 +1167,11 @@ static struct mparena *mapTestFindNextArena(void)
 
 /**
  * Launch the arena at s_MapTestArena. Configures match and starts.
- * Works both from menu (first map) and from gameplay (subsequent maps).
+ *
+ * IMPORTANT: For subsequent maps (not the first), the caller must have
+ * already called pdguiMapTestResetMatchState() to clean up the previous
+ * match. Without this, normmplayerisrunning stays true from the old match
+ * and cumulative state corruption causes crashes after a few transitions.
  */
 static void mapTestLaunchArena(struct mparena *arena)
 {
@@ -1186,6 +1191,14 @@ static void mapTestLaunchArena(struct mparena *arena)
     s_MapTestState = MAPTEST_WAIT_LOAD;
 }
 
+static void mapTestLogComplete(void)
+{
+    sysLogPrintf(LOG_NOTE,
+        "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
+        s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
+        s_MapTestMaxArena);
+}
+
 static void mapTestTick(void)
 {
     if (s_MapTestState == MAPTEST_IDLE || s_MapTestState == MAPTEST_DONE) {
@@ -1200,12 +1213,8 @@ static void mapTestTick(void)
         if (arena) {
             mapTestLaunchArena(arena);
         } else {
-            /* All arenas tested */
             s_MapTestState = MAPTEST_DONE;
-            sysLogPrintf(LOG_NOTE,
-                "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
-                s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
-                s_MapTestMaxArena);
+            mapTestLogComplete();
         }
         break;
     }
@@ -1223,25 +1232,15 @@ static void mapTestTick(void)
             s_MapTestState = MAPTEST_LOADED;
         }
 
-        /* Timeout */
+        /* Timeout — if load takes more than 600 ticks, skip this map */
         if (s_MapTestFrames > 600) {
             sysLogPrintf(LOG_ERROR,
                 "MAPTEST [%d/%d]: TIMEOUT waiting for load — FAIL",
                 s_MapTestArena + 1, s_MapTestMaxArena);
             s_MapTestFailed++;
             s_MapTestArena++;
-
-            /* Try to recover by launching next arena directly */
-            struct mparena *next = mapTestFindNextArena();
-            if (next) {
-                mapTestLaunchArena(next);
-            } else {
-                s_MapTestState = MAPTEST_DONE;
-                sysLogPrintf(LOG_NOTE,
-                    "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
-                    s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
-                    s_MapTestMaxArena);
-            }
+            s_MapTestFrames = 0;
+            s_MapTestState = MAPTEST_CLEANUP;
         }
         break;
     }
@@ -1250,12 +1249,41 @@ static void mapTestTick(void)
     {
         s_MapTestFrames++;
 
-        /* Wait a few frames for stage to stabilize, then seamlessly
-         * transition to the next arena by calling matchStart() directly.
-         * This skips the endscreen entirely — no menu return needed. */
+        /* Let the map run for a few frames to confirm stability,
+         * then move to cleanup before starting the next map. */
         if (s_MapTestFrames >= 30) {
             s_MapTestArena++;
+            s_MapTestFrames = 0;
+            s_MapTestState = MAPTEST_CLEANUP;
+        }
+        break;
+    }
 
+    case MAPTEST_CLEANUP:
+    {
+        /*
+         * Between-match cleanup. Reset the "match running" flags so the
+         * game sees a clean "no match active" state before the next
+         * matchStart() call. Without this, calling matchStart() during
+         * active gameplay causes cumulative state corruption and crashes.
+         *
+         * We intentionally skip mainEndStage()/mpEndMatch() because
+         * those trigger the OG endscreen which blocks for player input.
+         */
+        if (s_MapTestFrames == 0) {
+            sysLogPrintf(LOG_NOTE,
+                "MAPTEST: resetting match state for next arena");
+            pdguiMapTestResetMatchState();
+        }
+
+        s_MapTestFrames++;
+
+        /* Brief delay to let the game loop process the state reset.
+         * The stage teardown happens in the main game loop when it
+         * detects the pending titleSetNextStage from the next
+         * matchStart() call. 5 frames is enough for the flags to
+         * propagate through one full game tick cycle. */
+        if (s_MapTestFrames >= 5) {
             struct mparena *next = mapTestFindNextArena();
             if (next) {
                 sysLogPrintf(LOG_NOTE,
@@ -1263,11 +1291,8 @@ static void mapTestTick(void)
                     s_MapTestArena + 1, s_MapTestMaxArena);
                 mapTestLaunchArena(next);
             } else {
-                /* All done — need to properly exit gameplay */
-                sysLogPrintf(LOG_NOTE,
-                    "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
-                    s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
-                    s_MapTestMaxArena);
+                /* All done — exit gameplay cleanly */
+                mapTestLogComplete();
                 pdguiPauseSetPlayerAborted();
                 mainEndStage();
                 s_MapTestState = MAPTEST_DONE;

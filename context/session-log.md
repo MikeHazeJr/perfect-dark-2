@@ -5,6 +5,38 @@
 
 ---
 
+## Session 33 — 2026-03-23
+
+**Focus**: D3R-5 map cycle test crash fix
+
+### Diagnosis
+
+Map cycle test v2 crashed with 0xc0000005 (access violation) on the 5th arena (Sewers, stagenum 0x42). Log analysis revealed:
+- All 4 previous maps reported "LOADED in 1 frame" — `normmplayerisrunning` was **never reset** between maps
+- `matchStart()` was called during active gameplay without ending the previous match
+- `mpEndMatch()` (which resets match state) was never called; `mainEndStage()` was avoided because it triggers the broken OG endscreen
+- After 4 rapid match-starts without cleanup, cumulative state corruption → crash
+
+Root cause: The v2 state machine called `matchStart()` directly from gameplay. `normmplayerisrunning` stays `true` (only reset by `menutick.c` during endscreen→menu flow), so the game never saw a clean "no match active" state between maps.
+
+### Fix
+
+**New bridge function** `pdguiMapTestResetMatchState()` in `pdgui_bridge.c`:
+- Resets `normmplayerisrunning`, `mplayerisrunning`, `lvmpbotlevel` to false/0
+- Clears `g_MainIsEndscreen` flag
+- Resets pause mode to `MPPAUSEMODE_UNPAUSED`
+- Deliberately avoids `mainEndStage()`/`mpEndMatch()` which trigger the OG endscreen
+
+**New CLEANUP state** in the map test state machine:
+- LOADED (30 frames) → CLEANUP (reset match state) → 5-frame delay → launch next arena → WAIT_LOAD
+- WAIT_LOAD now works correctly: `normmplayerisrunning` starts as `false` (was reset), so it properly detects the new map loading when the flag goes `true`
+
+### Files Modified
+- `port/fast3d/pdgui_bridge.c` — added `pdguiMapTestResetMatchState()`
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — CLEANUP state, extern "C" decl, state machine rewrite
+
+---
+
 ## Session 32 — 2026-03-23
 
 **Focus**: D3R-5 — Catalog bootstrap, standalone resolution, and catalog-as-source-of-truth (B-17 fix)
