@@ -1323,7 +1323,7 @@ function Start-ManualCommit {
     $txtMsg.Font = New-Object System.Drawing.Font("Consolas", 10)
     $txtMsg.BorderStyle = "FixedSingle"
     $ver = Get-ProjectVersion
-    $txtMsg.Text = "v$($ver.String) -"
+    $txtMsg.Text = "$($ver.String) -"
     $dlg.Controls.Add($txtMsg)
 
     $chkPush = New-Object System.Windows.Forms.CheckBox
@@ -1406,7 +1406,15 @@ function Start-ManualCommit {
     # Push
     if ($shouldPush) {
         Write-Output-Line "  Pushing to origin..." $script:ColorPurple
-        $pushOut = git -C $script:ProjectDir push origin 2>&1
+        # Check if current branch has an upstream; if not, use --set-upstream
+        $upstream = git -C $script:ProjectDir rev-parse --abbrev-ref "@{upstream}" 2>$null
+        if ($LASTEXITCODE -ne 0 -or !$upstream) {
+            $branch = git -C $script:ProjectDir rev-parse --abbrev-ref HEAD 2>$null
+            Write-Output-Line "  Setting upstream for '$branch'..." $script:ColorDim
+            $pushOut = git -C $script:ProjectDir push --set-upstream origin $branch 2>&1
+        } else {
+            $pushOut = git -C $script:ProjectDir push origin 2>&1
+        }
         $pushExit = $LASTEXITCODE
         foreach ($line in $pushOut) { Write-Output-Line "    $($line.ToString())" $script:ColorDim }
 
