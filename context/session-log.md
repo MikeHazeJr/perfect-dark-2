@@ -5,6 +5,47 @@
 
 ---
 
+## Session 32 — 2026-03-23
+
+**Focus**: D3R-5 Steps 1 & 2 — Catalog bootstrap + standalone filesystem resolution
+
+### What Was Done
+
+1. **D3R-5 Step 1: Catalog Bootstrap** (from previous compacted session)
+   - Wired `assetCatalogInit()` + `assetCatalogRegisterBaseGame()` + `assetCatalogScanComponents()` into `main.c` startup sequence (after `modmgrInit()` and `catalogInit()`)
+   - Added `modmgrGetModsDir()` accessor to `modmgr.c/h` — stores the resolved mods directory path for use by the catalog scanner
+   - **BUILD PASS** confirmed
+
+2. **D3R-5 Step 2: Standalone Filesystem Resolution**
+   - **NEW**: `port/include/assetcatalog_resolve.h` — 4 functions: activate/deactivate stage, find map by stagenum, resolve path
+   - **NEW**: `port/src/assetcatalog_resolve.c` (~170 lines) — context-aware resolver. When a mod stage loads, checks its component directory for requested files before legacy mod system
+   - **MODIFIED**: `port/src/fs.c` — `fsFullPath()` calls `assetCatalogResolvePath()` as first-priority check before `modmgrResolvePath()`
+   - **MODIFIED**: `src/game/lv.c` — `lvReset()` calls `assetCatalogActivateStage(stagenum)` to set active component context
+   - **MODIFIED**: `port/src/server_stubs.c` — stubs for all 4 resolve functions (server doesn't compile the resolve module)
+   - **BUILD PASS** — client and server both green
+
+### Architecture: How It Works
+
+`lvReset()` → `assetCatalogActivateStage(stagenum)` → catalog finds matching mod map component → stores pointer to its directory. Then `fsFullPath()` → `assetCatalogResolvePath(relPath)` → strips "files/" prefix → checks `{component_dirpath}/{stripped_path}` via `stat()` → returns full path if found, NULL otherwise → falls through to `modmgrResolvePath()` if not found.
+
+For base game stages: activation is a no-op (no non-bundled entry found), so all legacy behavior untouched.
+
+### Code Review Findings (Fixed)
+
+- **Missing server stubs**: Only `assetCatalogResolvePath` was stubbed. Added stubs for `assetCatalogActivateStage`, `assetCatalogDeactivateStage`, `assetCatalogFindModMapByStagenum` with forward struct declaration.
+- **Type consistency**: Header uses `const struct asset_entry *` (avoids including assetcatalog.h) — confirmed compatible with `asset_entry_t` typedef. Deliberate design choice for minimal header dependencies.
+
+### B-17 Status
+
+The filesystem-level resolution infrastructure is now live. When a mod map component has the right files in its directory, this resolver will find them. **Limitation**: legacy `mod.c` still patches `g_Stages[]` file IDs, so the game requests filenames based on those patched IDs. If the patched IDs point to wrong files (B-17 root cause), the resolver looks for those wrong filenames and won't find them — falling through to legacy. **Full B-17 fix** requires stage loading to consult the catalog for which files to load, bypassing `g_Stages[]` patching entirely.
+
+### Next Steps
+- D3R-5 Step 3: Stage loading callsite — make stage loading consult catalog for file paths (deeper B-17 fix)
+- Or: Arena/body/head accessor migration to catalog (menu code)
+- Update tasks-current.md with D3R-5 progress
+
+---
+
 ## Session 29 — 2026-03-23
 
 **Focus**: D3R-1 redo — correct decomposition in persistent location, MOD_CONVERSION_GUIDE.md

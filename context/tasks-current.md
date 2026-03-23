@@ -89,7 +89,7 @@
 | D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
 | D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
 | D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
-| D3R-5 | **Callsite migration** ← NEXT | D3R-3, D3R-4 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. See D3R-5 briefing below. |
+| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Step 1 (catalog bootstrap) ✓ BUILD PASS. Step 2 (standalone filesystem resolution) ✓ BUILD PASS. Next: Step 3 (stage loading via catalog) for full B-17 fix. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
 | D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
