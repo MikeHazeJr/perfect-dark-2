@@ -393,6 +393,32 @@ static s32 s_AddBotDiff = BOTDIFF_NORMAL;
 static char s_AddBotName[MAX_PLAYER_NAME] = {0};
 
 /* ========================================================================
+ * D3R-5 DEBUG: Map Cycle Test
+ *
+ * Temporary debug feature. Cycles through all arenas, loading each one
+ * briefly to verify it loads correctly, then backs out to the next.
+ * Logs each map's result (PASS/FAIL) for bulk B-17 regression testing.
+ * ======================================================================== */
+
+enum maptest_state {
+    MAPTEST_IDLE = 0,      /* Not running */
+    MAPTEST_START_NEXT,    /* In menu — pick next arena and start match */
+    MAPTEST_WAIT_LOAD,     /* Match starting — wait for gameplay to be active */
+    MAPTEST_LOADED,        /* Gameplay active — count frames then exit */
+    MAPTEST_WAIT_MENU,     /* Exiting — wait for return to menu */
+    MAPTEST_DONE,          /* All maps tested */
+};
+
+static s32 s_MapTestState = MAPTEST_IDLE;
+static s32 s_MapTestArena = 0;      /* Current arena index being tested */
+static s32 s_MapTestFrames = 0;     /* Frame counter for delays */
+static s32 s_MapTestPassed = 0;     /* Count of maps that loaded OK */
+static s32 s_MapTestFailed = 0;     /* Count that failed/crashed */
+static s32 s_MapTestSkipped = 0;    /* Count skipped (random, locked) */
+static s32 s_MapTestTotal = 0;      /* Total arenas to test */
+static s32 s_MapTestMaxArena = 71;  /* Stop before Random entries (71-74) */
+
+/* ========================================================================
  * Selection helpers
  * ======================================================================== */
 
@@ -1059,8 +1085,182 @@ static s32 renderMatchSetup(struct menudialog *dialog,
         menuPopDialog();
     }
 
+    /* D3R-5 DEBUG: Test All Maps button (temporary) */
+    if (s_MapTestState == MAPTEST_IDLE) {
+        ImGui::SameLine(0, pad);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.4f, 0.7f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.5f, 0.8f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.6f, 0.9f, 1.0f));
+        if (PdButton("Test All Maps", ImVec2(footerBtnW, footerBtnH))) {
+            sysLogPrintf(LOG_NOTE, "MAPTEST: Starting cycle test of all arenas");
+            s_MapTestState = MAPTEST_START_NEXT;
+            s_MapTestArena = 0;
+            s_MapTestPassed = 0;
+            s_MapTestFailed = 0;
+            s_MapTestSkipped = 0;
+            s_MapTestTotal = s_MapTestMaxArena;
+            s_MapTestFrames = 0;
+            s_Initialized = false;
+        }
+        ImGui::PopStyleColor(3);
+    } else if (s_MapTestState == MAPTEST_DONE) {
+        ImGui::SameLine(0, pad);
+        ImGui::Text("Done: %d OK, %d fail, %d skip",
+            s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped);
+    }
+
     ImGui::End();
     return 1;
+}
+
+/* ========================================================================
+ * D3R-5 DEBUG: Map Cycle Tick — called every frame from pdgui_backend.
+ *
+ * State machine that drives the test cycle. Transitions:
+ *   IDLE → START_NEXT (button press)
+ *   START_NEXT → WAIT_LOAD (matchStart called)
+ *   WAIT_LOAD → LOADED (normmplayerisrunning becomes true)
+ *   LOADED → WAIT_MENU (mainEndStage called after delay)
+ *   WAIT_MENU → START_NEXT (normmplayerisrunning becomes false)
+ *   START_NEXT → DONE (all arenas tested)
+ * ======================================================================== */
+
+/* Bridge to pause/gameplay state — declared in pausemenu, we redeclare here */
+extern "C" {
+s32 pdguiPauseGetNormMplayerIsRunning(void);
+void pdguiPauseSetPlayerAborted(void);
+void mainEndStage(void);
+}
+
+static void mapTestTick(void)
+{
+    if (s_MapTestState == MAPTEST_IDLE || s_MapTestState == MAPTEST_DONE) {
+        return;
+    }
+
+    switch (s_MapTestState) {
+
+    case MAPTEST_START_NEXT:
+    {
+        /* Find the next valid arena to test */
+        while (s_MapTestArena < s_MapTestMaxArena) {
+            struct mparena *arena = modmgrGetArena(s_MapTestArena);
+            if (!arena) {
+                s_MapTestArena++;
+                s_MapTestSkipped++;
+                continue;
+            }
+
+            /* Skip locked arenas */
+            if (arena->requirefeature != 0 &&
+                !challengeIsFeatureUnlocked(arena->requirefeature)) {
+                sysLogPrintf(LOG_NOTE,
+                    "MAPTEST [%d/%d]: SKIP arena %d (locked, feature %d)",
+                    s_MapTestArena + 1, s_MapTestMaxArena,
+                    s_MapTestArena, arena->requirefeature);
+                s_MapTestArena++;
+                s_MapTestSkipped++;
+                continue;
+            }
+
+            /* Found a valid arena — configure and launch */
+            const char *name = arenaGetName(arena->name);
+            sysLogPrintf(LOG_NOTE,
+                "MAPTEST [%d/%d]: STARTING arena %d \"%s\" (stagenum 0x%02x)",
+                s_MapTestArena + 1, s_MapTestMaxArena,
+                s_MapTestArena, name ? name : "?", arena->stagenum);
+
+            /* Ensure match config has at least one player slot */
+            matchConfigInit();
+            g_MatchConfig.stagenum = (u8)arena->stagenum;
+            s_ArenaIndex = s_MapTestArena;
+            s_Initialized = false;
+            matchStart();
+
+            s_MapTestFrames = 0;
+            s_MapTestState = MAPTEST_WAIT_LOAD;
+            return;
+        }
+
+        /* All arenas tested */
+        s_MapTestState = MAPTEST_DONE;
+        sysLogPrintf(LOG_NOTE,
+            "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
+            s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
+            s_MapTestMaxArena);
+        break;
+    }
+
+    case MAPTEST_WAIT_LOAD:
+    {
+        s_MapTestFrames++;
+
+        /* Check if gameplay is now running */
+        if (pdguiPauseGetNormMplayerIsRunning()) {
+            sysLogPrintf(LOG_NOTE,
+                "MAPTEST [%d/%d]: LOADED in %d frames — PASS",
+                s_MapTestArena + 1, s_MapTestMaxArena, s_MapTestFrames);
+            s_MapTestPassed++;
+            s_MapTestFrames = 0;
+            s_MapTestState = MAPTEST_LOADED;
+        }
+
+        /* Timeout: if it takes too long, something is wrong */
+        if (s_MapTestFrames > 600) { /* ~10 seconds at 60fps */
+            sysLogPrintf(LOG_ERROR,
+                "MAPTEST [%d/%d]: TIMEOUT waiting for load — FAIL",
+                s_MapTestArena + 1, s_MapTestMaxArena);
+            s_MapTestFailed++;
+            s_MapTestArena++;
+            s_MapTestFrames = 0;
+            s_MapTestState = MAPTEST_WAIT_MENU;
+        }
+        break;
+    }
+
+    case MAPTEST_LOADED:
+    {
+        s_MapTestFrames++;
+
+        /* Wait a few frames to let the stage stabilize, then exit */
+        if (s_MapTestFrames >= 30) { /* ~0.5 seconds */
+            sysLogPrintf(LOG_NOTE,
+                "MAPTEST [%d/%d]: auto-exiting after %d frames",
+                s_MapTestArena + 1, s_MapTestMaxArena, s_MapTestFrames);
+            pdguiPauseSetPlayerAborted();
+            mainEndStage();
+            s_MapTestFrames = 0;
+            s_MapTestArena++;
+            s_MapTestState = MAPTEST_WAIT_MENU;
+        }
+        break;
+    }
+
+    case MAPTEST_WAIT_MENU:
+    {
+        s_MapTestFrames++;
+
+        /* Wait for gameplay to stop (we're back in menu) */
+        if (!pdguiPauseGetNormMplayerIsRunning()) {
+            /* Give the menu a moment to reinitialize */
+            if (s_MapTestFrames >= 15) {
+                s_MapTestState = MAPTEST_START_NEXT;
+                s_MapTestFrames = 0;
+            }
+        }
+
+        /* Safety timeout */
+        if (s_MapTestFrames > 600) {
+            sysLogPrintf(LOG_ERROR,
+                "MAPTEST: TIMEOUT waiting for menu return — aborting");
+            s_MapTestState = MAPTEST_DONE;
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
 }
 
 /* ========================================================================
@@ -1076,6 +1276,15 @@ void pdguiMenuMatchSetupRegister(void)
         s_Registered = true;
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_matchsetup: Registered Match Setup menu");
+}
+
+/**
+ * D3R-5 DEBUG: Tick the map cycle test state machine.
+ * Called every frame from pdgui_backend.cpp.
+ */
+void pdguiMapTestTick(void)
+{
+    mapTestTick();
 }
 
 } /* extern "C" */

@@ -41,6 +41,11 @@ s32 pdguiIsScorecardVisible(void);
 /** Render the scorecard overlay. Called from pdguiRender() pipeline. */
 void pdguiScorecardRender(s32 winW, s32 winH);
 
+/* --- D3R-5 DEBUG: Map Cycle Test (temporary) --- */
+
+/** Tick the map cycle test state machine. Called each frame from pdguiRender(). */
+void pdguiMapTestTick(void);
+
 #ifdef __cplusplus
 }
 #endif
