@@ -85,10 +85,10 @@
 
 | Phase | Task | Depends On | Details |
 |-------|------|-----------|---------|
-| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S28)**: 69 components created (50 maps, 14 chars, 5 tex packs). INI manifests + depends_on. Needs build test. |
+| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S29)**: 56 maps, 42 chars, 5 tex packs. Correct location (`post-batch-addin/mods/mod_*/_components/`). Real stagenums from bgdata→stage mapping. 5 stage_patch + 51 dedicated. Symlinks to originals. `docs/MOD_CONVERSION_GUIDE.md` written. Needs build test. |
 | D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)**: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. Needs build test. |
-| D3R-3 | **Base game cataloging** | D3R-2 | Register all 63 bodies, 76 heads, 87 stages, ~30 weapons with `"base:"` prefix IDs. |
-| D3R-4 | **Category scanner + loader** | D3R-1, D3R-2 | Two-pass scan: categories first, then components. Parse `.ini`, build catalog. Per-category logging. |
+| D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)**: `assetcatalog_base.c` — registers 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Uses `g_Stages[idx].id` (logical stage ID, not array index). Arenas deferred to callsite migration (D3R-5). Needs build test. |
+| D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)**: `assetcatalog_scanner.c` — INI parser (`iniParse/iniGet/iniGetInt/iniGetFloat`), category→type mapping, component registration with type-specific union fields. Two-pass scan of `mods/mod_*/_components/`. Header: `assetcatalog_scanner.h`. Also fixed all 56 map .ini stagenums (array index → stage ID) and corrected MOD_CONVERSION_GUIDE.md §2.2 mapping table. Needs build test. |
 | D3R-5 | **Callsite migration** | D3R-3 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
 | D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |

@@ -45,9 +45,9 @@ the single most important thing in this guide.
 iterates enabled mods in registry order and checks if the mod's directory
 contains a file matching the requested relative path. First hit wins.
 
-Example: when the game loads `bgdata/bg_arec.seg` for stage 0x03 (Ravine),
+Example: when the game loads `bgdata/bg_arec.seg` for stage 0x17 (Ravine),
 if `mod_gex/files/bgdata/bg_arec.seg` exists, the mod's version is loaded
-instead. The mod never declares anything about stage 0x03 — it just provides
+instead. The mod never declares anything about stage 0x17 — it just provides
 the replacement file and the resolver does the rest.
 
 This is how the vast majority of mod content works. A mod that provides 30
@@ -106,6 +106,13 @@ bgdata file, it is implicitly targeting that stage.
 ### 2.1 Base Game Stage Table (relevant entries)
 
 Extracted from `src/game/stagetable.c`. Format: `stagenum → STAGE_NAME → bgfile`
+
+> **TODO (D3R-3/S30):** The hex values in the Stage Slot Usage tables below are
+> ARRAY INDICES from stagetable.c, not logical stage IDs from constants.h.
+> The GEX stage_patch annotations also conflate which slots the mod actually
+> patches (EXTRA slots, not base game slots). These tables need a rewrite
+> using correct STAGE_* IDs. The bgdata-to-stagenum mapping in §2.2 has
+> already been corrected.
 
 **Solo/Coop stages:**
 
@@ -179,55 +186,55 @@ To find which stage a bgdata file belongs to, match the `bg_*` stem:
 
 | BG Stem | Base Stage | Hex |
 |---------|------------|-----|
-| bg_ame | DEFECTION | 0x1c |
-| bg_arec | MP_RAVINE | 0x03 |
-| bg_arch | TEST_ARCH | 0x04 |
-| bg_ark | EXTRACTION (pads) | 0x0e |
-| bg_azt | CRASHSITE | 0x08 |
-| bg_cat | STAGE_28 | 0x14 |
-| bg_cave | AIRBASE | 0x13 |
-| bg_crad | MP_PIPES | 0x15 |
-| bg_cryp | MP_G5BUILDING | 0x0c |
-| bg_dam | PELAGIC | 0x0d |
-| bg_depo | G5BUILDING | 0x0a |
-| bg_dest | TEST_DEST | 0x06 |
-| bg_dish | CITRAINING | 0x12 |
-| bg_ear | INVESTIGATION | 0x1f |
-| bg_eld | VILLA | 0x18 |
-| bg_jun | MP_TEMPLE | 0x11 |
-| bg_lam | TEST_LAM | 0x28 |
-| bg_lee | ATTACKSHIP | 0x20 |
-| bg_lue | INFILTRATION | 0x1b |
-| bg_mp1 | MP_BASE | 0x29 |
-| bg_mp2 | TEST_MP2 | 0x2a |
-| bg_mp3 | MP_AREA52 | 0x2b |
-| bg_mp4 | MP_WAREHOUSE | 0x2c |
-| bg_mp5 | MP_CARPARK | 0x2d |
-| bg_mp6 | TEST_MP6 | 0x2e |
-| bg_mp7 | TEST_MP7 | 0x2f |
-| bg_mp8 | TEST_MP8 | 0x30 |
-| bg_mp9 | MP_RUINS | 0x31 |
-| bg_mp10 | MP_SEWERS | 0x32 |
-| bg_mp11 | MP_FELICITY | 0x33 |
-| bg_mp12 | MP_FORTRESS | 0x34 |
-| bg_mp13 | MP_VILLA | 0x35 |
-| bg_mp14 | TEST_MP14 | 0x36 |
-| bg_mp15 | MP_GRID | 0x37 |
-| bg_mp16 | TEST_MP16 | 0x38 |
-| bg_mp17 | TEST_MP17 | 0x39 |
-| bg_mp18 | TEST_MP18 | 0x3a |
-| bg_mp19 | TEST_MP19 | 0x3b |
-| bg_mp20 | TEST_MP20 | 0x3c |
-| bg_oat | MP_SKEDAR | 0x1e |
-| bg_pam | DEEPSEA | 0x24 |
-| bg_pete | CHICAGO | 0x09 |
-| bg_ref | MP_COMPLEX | 0x0b |
-| bg_rit | AIRFORCEONE | 0x1d |
-| bg_run | TEST_RUN | 0x0f |
-| bg_sho | SKEDARRUINS | 0x16 |
-| bg_silo | TEST_SILO | 0x01 |
-| bg_stat | WAR | 0x02 |
-| bg_tra | ESCAPE (pads) | 0x05 |
+| bg_ame | DEFECTION | 0x30 |
+| bg_arec | MP_RAVINE | 0x17 |
+| bg_arch | TEST_ARCH | 0x18 |
+| bg_ark | EXTRACTION (pads) | 0x22 |
+| bg_azt | CRASHSITE | 0x1c |
+| bg_cat | STAGE_28 | 0x28 |
+| bg_cave | AIRBASE | 0x27 |
+| bg_crad | MP_PIPES | 0x29 |
+| bg_cryp | MP_G5BUILDING | 0x20 |
+| bg_dam | PELAGIC | 0x21 |
+| bg_depo | G5BUILDING | 0x1e |
+| bg_dest | TEST_DEST | 0x1a |
+| bg_dish | CITRAINING | 0x26 |
+| bg_ear | INVESTIGATION | 0x33 |
+| bg_eld | VILLA | 0x2c |
+| bg_jun | MP_TEMPLE | 0x25 |
+| bg_lam | TEST_LAM | 0x50 |
+| bg_lee | ATTACKSHIP | 0x34 |
+| bg_lue | INFILTRATION | 0x2f |
+| bg_mp1 | MP_BASE | 0x39 |
+| bg_mp2 | TEST_MP2 | 0x3a |
+| bg_mp3 | MP_AREA52 | 0x3b |
+| bg_mp4 | MP_WAREHOUSE | 0x3c |
+| bg_mp5 | MP_CARPARK | 0x3d |
+| bg_mp6 | TEST_MP6 | 0x3e |
+| bg_mp7 | TEST_MP7 | 0x3f |
+| bg_mp8 | TEST_MP8 | 0x40 |
+| bg_mp9 | MP_RUINS | 0x41 |
+| bg_mp10 | MP_SEWERS | 0x42 |
+| bg_mp11 | MP_FELICITY | 0x43 |
+| bg_mp12 | MP_FORTRESS | 0x44 |
+| bg_mp13 | MP_VILLA | 0x45 |
+| bg_mp14 | TEST_MP14 | 0x46 |
+| bg_mp15 | MP_GRID | 0x47 |
+| bg_mp16 | TEST_MP16 | 0x48 |
+| bg_mp17 | TEST_MP17 | 0x49 |
+| bg_mp18 | TEST_MP18 | 0x4a |
+| bg_mp19 | TEST_MP19 | 0x4b |
+| bg_mp20 | TEST_MP20 | 0x4c |
+| bg_oat | MP_SKEDAR | 0x32 |
+| bg_pam | DEEPSEA | 0x38 |
+| bg_pete | CHICAGO | 0x1d |
+| bg_ref | MP_COMPLEX | 0x1f |
+| bg_rit | AIRFORCEONE | 0x31 |
+| bg_run | TEST_RUN | 0x23 |
+| bg_sho | SKEDARRUINS | 0x2a |
+| bg_silo | TEST_SILO | 0x14 |
+| bg_stat | WAR | 0x16 |
+| bg_tra | ESCAPE (pads) | 0x19 |
 
 ---
 
@@ -242,8 +249,8 @@ for existing base game stages. They have **no explicit stage declaration**
 in `modconfig.txt`. Their stagenum is determined by which bgdata files they
 replace.
 
-Example: GoldenEye X provides `bg_arec.seg` (replaces 0x03 MP_RAVINE data),
-`bg_ref.seg` (replaces 0x0b MP_COMPLEX data), etc. When the game loads
+Example: GoldenEye X provides `bg_arec.seg` (replaces 0x17 MP_RAVINE data),
+`bg_ref.seg` (replaces 0x1f MP_COMPLEX data), etc. When the game loads
 stage 0x03, it finds the GEX version of bg_arec files via
 `modmgrResolvePath()`.
 
@@ -550,7 +557,7 @@ with the full weather config preserved. Others use dedicated EXTRA slots.
 
 **Key facts**:
 - Zero stage declarations in modconfig.txt
-- Only 1 bgdata set: bg_mp7 (replaces stage 0x2f TEST_MP7)
+- Only 1 bgdata set: bg_mp7 (replaces stage 0x3f TEST_MP7)
 - Uses EXTRA slot or direct file replacement of 0x2f
 - One setup file: Ump_setupmp7Z
 - Props: Pa51_crate1Z, Pa51_exp1Z

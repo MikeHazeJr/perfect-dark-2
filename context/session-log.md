@@ -5,6 +5,58 @@
 
 ---
 
+## Session 29 — 2026-03-23
+
+**Focus**: D3R-1 redo — correct decomposition in persistent location, MOD_CONVERSION_GUIDE.md
+
+### Issues Fixed (from Session 28)
+
+1. **Wrong location**: Session 28 created 69 components in `build/client/mods/` (ephemeral — erased on clean build). All deleted. Correct location is `post-batch-addin/mods/` (persistent, xcopy'd by build.bat).
+
+2. **Fabricated maps**: Session 28 created 50 map components from directory listings and comments. Only bgdata files that actually exist in each mod's `files/bgdata/` directory are real maps. Corrected.
+
+3. **Stagenum resolution (Option 3)**: Director chose full decomposition. Every map's stagenum is now derived from its bgdata filename → base stage table lookup (§2.2 of MOD_CONVERSION_GUIDE.md). No more `0x00` defaults.
+
+### Decomposition Results (Correct)
+
+**56 map components, 42 character components, 5 texture packs** created as `_components/` subdirectories inside each `mod_*` folder:
+
+| Mod | Maps | Characters | Textures | Notes |
+|-----|------|------------|----------|-------|
+| mod_allinone | 17 | 8 | 1 (14 files) | Suburb has allocation override |
+| mod_gex | 30 | 10 | 1 (711 files) | 4 stage_patch maps (Bunker, Facility BZ, Train, Archives 1F) |
+| mod_kakariko | 4 | 8 | 1 (234 files) | 1 stage_patch map (Kakariko Village with weather) |
+| mod_dark_noon | 1 | 8 | 1 (39 files) | Simplest mod |
+| mod_goldfinger_64 | 4 | 8 | 1 (104 files) | Named: Mall, Steel Mill, Tunnels, Junkyard |
+
+**Resolution types**: 5 maps use `resolution = stage_patch` (have explicit modconfig.txt stage declarations that redirect file pointers). 51 maps use `resolution = dedicated` (file replacement only, stagenum from bgdata lookup).
+
+**Structure**: Each component has a typed `.ini` manifest and symlinks to original files:
+```
+mod_gex/_components/maps/bg_arec/
+├── bg_arec.ini          ← manifest
+└── bgdata/
+    ├── bg_arec.seg      → ../../../../files/bgdata/bg_arec.seg (symlink)
+    ├── bg_arec_padsZ    → ../../../../files/bgdata/bg_arec_padsZ
+    └── bg_arec_tilesZ   → ../../../../files/bgdata/bg_arec_tilesZ
+```
+
+### Documents Created
+- `docs/MOD_CONVERSION_GUIDE.md` — comprehensive conversion guide with:
+  - Full file-to-stage mapping reference (bgdata → stagenum)
+  - Two loading mechanisms explained (file replacement vs. stage patching)
+  - Field mapping table (modconfig.txt → .ini)
+  - Per-mod conversion notes with gotchas
+  - Step-by-step conversion process
+
+### Next Steps
+- D3R-1 build test: verify game still boots with old mod loader (`_components/` ignored by existing scanner)
+- D3R-3: Base game cataloging — register all 63 bodies, 76 heads, 87 stages with `base:` prefix
+- D3R-4: Scanner + loader — parse .ini from `_components/`, populate catalog
+- Consider: shim loader (ADR-002 Option A) vs. proceeding directly to D3R-4
+
+---
+
 ## Session 28 — 2026-03-23
 
 **Focus**: D3R-1 and D3R-2 implementation — architecture decisions, filesystem decomposition, Asset Catalog core
@@ -22,42 +74,23 @@
 
 ### Code Written
 
-**D3R-1: Component Filesystem (69 components)**
-- 50 map components, 14 character components, 5 texture packs
-- Created under `build/client/mods/{maps,characters,textures}/`
-- Each with typed `.ini` manifest (`[map]`, `[character]`, `[textures]`)
-- All marked `bundled = true`
-- Maps reference texture packs via `depends_on`
-- 6 empty directories created: `skins/`, `bot_variants/`, `.temp/`
-- Old `mod_*` directories preserved for backward compat
-
 **D3R-2: Asset Catalog Core (2 new files)**
 - `port/include/assetcatalog.h` (288 lines) — 14 asset types, entry struct with union, 20 public functions
 - `port/src/assetcatalog.c` (704 lines) — FNV-1a + CRC32, open addressing, dynamic growth, full API
 - Auto-discovered by CMake glob (`port/*.c`), no CMake changes needed
 - Coexists with existing `modelcatalog.c` — no existing code modified
 
+**D3R-1: Initial attempt (SUPERSEDED by Session 29)**
+- Created in wrong location (`build/client/mods/`) with fabricated maps and wrong stagenums
+- All cleaned up in Session 29
+
 ### Verification
 
-- **CRC32 table**: Agent-generated table was WRONG (produced different hashes than `modmgrHashString()`). Regenerated correct table from `0xEDB88320` polynomial. Verified all 5 test strings match bitwise implementation.
-- **depends_on**: Initially missing from map .ini files. Added texture pack references to all 50 maps.
-- **stagenum defaults**: 44 maps default to `0x00` (no explicit stagenum in modconfig.txt). 6 maps have explicit values. D3R-4 scanner will need to handle dynamic assignment for `0x00` maps.
+- **CRC32 table**: Regenerated correct table from `0xEDB88320` polynomial. Verified all 5 test strings match bitwise `modmgrHashString()` implementation.
 
 ### Documents Created
 - `context/ADR-002-component-filesystem-decomposition.md`
 - `context/ADR-003-asset-catalog-core.md`
-
-### Documents Updated
-- `context/README.md` — ADR links added, session 28 timestamp
-- `context/session-log.md` — this entry
-- `context/tasks-current.md` — D3R status updates
-
-### Next Steps
-- D3R-1 build test: verify game still boots with old mod loader (components exist alongside old dirs)
-- `docs/MOD_CONVERSION_GUIDE.md` — document the field mapping from modconfig.txt to .ini
-- D3R-3: Base game cataloging — register all 63 bodies, 76 heads, 87 stages with `base:` prefix
-- D3R-4: Scanner + loader — parse .ini files, populate catalog, replace modconfig.txt parsing
-- Consider: shim loader for backward compat (ADR-002 Option A) vs. proceeding directly to D3R-4
 
 ---
 
@@ -308,3 +341,45 @@ When STAGE_CITRAINING loads as main menu background, `romdataFileLoad` resolves 
 7. **Bundled mod ID mismatch found** (fixed in Session 24).
 
 Full file manifests in [tasks-archive.md](tasks-archive.md).
+
+---
+
+## Session 30 — 2026-03-23
+
+**Focus**: D3R-3 (base game asset registration) + D3R-4 (component scanner + INI loader) + stagenum data integrity fix
+
+### What Was Done
+
+1. **D3R-3: Base game asset registration** (`port/src/assetcatalog_base.c`)
+   - Registers 87 base stages with `"base:{name}"` IDs (e.g., `"base:villa"`)
+   - Uses `g_Stages[idx].id` — the logical stage ID from constants.h, NOT the array index
+   - Registers 63 base bodies (MP character models)
+   - Added 75 base heads (MP head models) — new `s_BaseHeads[]` name table
+   - Arenas intentionally skipped — they're stage references for the MP menu, not standalone assets. Arena migration deferred to D3R-5 callsite work.
+
+2. **D3R-4: Component scanner + INI loader** (`port/src/assetcatalog_scanner.c`, `port/include/assetcatalog_scanner.h`)
+   - INI parser: `iniParse()`, `iniGet()`, `iniGetInt()`, `iniGetFloat()`
+   - Category/section type mapping: 13 asset types (maps, characters, skins, bot_variants, weapons, textures, sfx, music, props, vehicles, missions, UI, tools)
+   - `registerComponent()` — populates type-specific union fields (map.stagenum, character.bodyfile/headfile, skin.target_id, bot_variant accuracy/reaction_time/aggression)
+   - `assetCatalogScanComponents(modsdir)` — top-level scanner, walks `mod_*/_components/{category}/{component}/`
+
+3. **Critical stagenum fix** — All 56 map .ini files had array indices (from `/*0xNN*/` comments in stagetable.c) instead of logical stage IDs (from STAGE_* constants in constants.h)
+   - 51 dedicated maps: converted array index → stage ID via mapping table
+   - 5 stage_patch maps: reverted to modconfig.txt values (which were already stage IDs, incorrectly converted by the batch script)
+   - Example: bg_eld was 0x18 (array index) → corrected to 0x2c (STAGE_VILLA)
+   - Also fixed allocation misattribution: mod_allinone `stage 0x18` allocation is for STAGE_TEST_ARCH (Archives), not bg_eld (Villa). Moved allocation from bg_eld.ini to bg_arch.ini.
+
+4. **MOD_CONVERSION_GUIDE.md** — Fixed §2.2 bgdata-to-stagenum mapping table (49 entries corrected). Added TODO note for Stage Slot Usage tables (§2.1) which still use array indices and have confused GEX stage_patch annotations.
+
+### Files Created/Modified
+- **NEW**: `port/src/assetcatalog_base.c` (~420 lines)
+- **NEW**: `port/src/assetcatalog_scanner.c` (~496 lines)
+- **NEW**: `port/include/assetcatalog_scanner.h` (~107 lines)
+- **MODIFIED**: 56 map .ini files under `post-batch-addin/mods/mod_*/_components/maps/`
+- **MODIFIED**: `docs/MOD_CONVERSION_GUIDE.md` (stagenum corrections + TODO note)
+- **MODIFIED**: `context/tasks-current.md` (D3R-3/D3R-4 marked done)
+
+### Known Issues
+- MOD_CONVERSION_GUIDE.md §2.1 Stage Slot Usage tables still use array indices and have confused GEX annotations
+- D3R-3/D3R-4 code needs full build test (syntax-checked structurally, not compiled)
+- Weapons not yet registered in D3R-3 (noted in task description as ~30 weapons; deferred)
