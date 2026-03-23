@@ -155,6 +155,7 @@ static const s32 s_NumScenarios = sizeof(s_ScenarioNames) / sizeof(s_ScenarioNam
  * ======================================================================== */
 
 static bool s_PauseMenuOpen = false;
+static bool s_PauseJustOpened = false; /* B-14 fix: prevents same-frame open+close */
 static bool s_ScorecardVisible = false;
 static s32 s_PauseTab = 0;  /* 0=Rankings, 1=Stats, 2=Settings */
 static bool s_EndGameConfirm = false;
@@ -166,6 +167,7 @@ static bool s_EndGameConfirm = false;
 void pdguiPauseMenuOpen(void)
 {
     s_PauseMenuOpen = true;
+    s_PauseJustOpened = true; /* B-14: skip close checks this frame */
     s_PauseTab = 0;
     s_EndGameConfirm = false;
 
@@ -520,9 +522,28 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             pdguiPauseMenuClose();
         }
 
-        /* Also close on START or Escape */
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadStart)) {
-            pdguiPauseMenuClose();
+        /* B-14 fix: On the frame the menu opens, the legacy path (bondmove→
+         * mpPushPauseDialog→ingame.c) already opened us. ImGui also sees
+         * the same START press via polling. Skip close checks this frame
+         * to prevent open+close in one tick. */
+        if (s_PauseJustOpened) {
+            s_PauseJustOpened = false;
+        } else {
+            /* Close on START, Escape, or B button (when not in confirm dialog) */
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadStart)) {
+                pdguiPauseMenuClose();
+            }
+
+            /* B-16 fix: B button (GamepadFaceRight) navigates back.
+             * If in End Game confirm → cancel back to normal pause.
+             * Otherwise → close the pause menu (resume game). */
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+                if (s_EndGameConfirm) {
+                    s_EndGameConfirm = false;
+                } else {
+                    pdguiPauseMenuClose();
+                }
+            }
         }
     }
     ImGui::End();

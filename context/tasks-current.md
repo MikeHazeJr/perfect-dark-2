@@ -27,14 +27,16 @@
 |------|--------------|--------|
 | **B-13: Prop Scale Fix** | Changed `model->scale` → `modelGetEffectiveScale(model)` at lines 857–858, 883–884 in model.c. | **CODED — needs build test** |
 | **B-12 Phase 1: Dynamic Participant System** | New `participant.h` / `participant.c` with heap-allocated pool (default 32, expandable). Parallel sync hooks in 6 locations in mplayer.c. Runs alongside legacy chrslots. | **CODED — needs build test** |
-| **Build Tool: Commit Button** (build-gui.ps1 v3.2) | GIT section in sidebar. Dynamic "Commit XX changes" button. Dialog with message field + push checkbox. | **CODED — needs build test** |
+| **Build Tool: Commit Button** (build-gui.ps1 v3.2) | GIT section in sidebar. Dynamic "Commit XX changes" button. Dialog with message field + push checkbox. Race condition fix, `--set-upstream` push, double-v prefix fix. | **TESTED — PASS** |
+| **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **CODED — needs build test** |
+| **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **CODED — needs build test** |
+| **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **CODED — needs build test** |
 
 ## Bugs Still Open
 
 | Bug | Severity | Root Cause | Status |
 |-----|----------|-----------|--------|
-| [B-14](bugs.md) **START opens/closes pause** | MED | Input passthrough — both legacy + ImGui consume START in same frame | NEEDS DIAGNOSIS |
-| [B-16](bugs.md) **Back on controller noop** | MED | ImGui not mapping gamepad B to nav back | NEEDS DIAGNOSIS |
+| [B-17](bugs.md) **Mod stages load wrong maps** | HIGH | Stage ID → stagenum mapping mismatch in bonus entries. 4 garbage entries at end of list. Skedar Ruins texture issues. | NEEDS DEEPER DIAGNOSIS |
 
 ## Pause Menu UX Fixes (S26 feedback)
 

@@ -64,11 +64,35 @@
 ### Architecture Doc
 - `context/b12-participant-system.md` — Full design for dynamic participant system
 
+### Build Test Results (Mid-Session)
+- **Commit button**: PASS (after race condition fix, `--set-upstream` fix, double-v prefix fix)
+- **`<stdbool.h>` conflict**: Build failed — `participant.h` included `<stdbool.h>` which redefined `bool` to `_Bool`. Project uses `#define bool s32` in `types.h`. Fixed by replacing `<stdbool.h>` + `constants.h` with `types.h`. New constraint added.
+- **B-13 prop scale**: Some mod stages show fixed scale, but wrong maps are loading (B-17). Need to verify on correct maps.
+- **B-12 Phase 1**: No observable regression (expected — parallel system, no behavior change)
+- **Mod stages (B-17)**: Wrong maps loading for bonus stages. Kakariko selection loads different map. 4 entries at end of list with garbled names. Skedar Ruins has wrong textures. Needs deeper diagnosis.
+
+### Additional Code Written (Continuation)
+**B-14 Fix** (pdgui_menu_pausemenu.cpp):
+- Root cause: bondmove→ingame.c opens pause, then ImGui render sees same GamepadStart press and closes it — same frame.
+- Added `s_PauseJustOpened` frame guard: set on open, checked+cleared in render. Skips close checks on open frame.
+- Added `pauseActive` to `pdguiProcessEvent` input consumption (pdgui_backend.cpp) so keyboard events are consumed when pause is open.
+
+**B-16 Fix** (pdgui_menu_pausemenu.cpp):
+- Root cause: `ImGuiKey_GamepadFaceRight` (B button) was never handled.
+- Added B button handling: if End Game confirm is showing → cancel; otherwise → close pause menu.
+
+**Build Tool v3.3** (build-gui.ps1):
+- Commit dialog expanded (520×380) with read-only "Changes" detail area
+- Shows categorized summary: modified/added/deleted files grouped by area (Game, Port, Headers, Context, Build Tool, etc.)
+
+### Constraint Discovered
+- `bool` is `#define bool s32` in types.h/data.h. Never include `<stdbool.h>` in game code. Added to constraints.md.
+
 ### Next Steps
-- Build and test: B-13 prop scale + B-12 Phase 1 + commit button
+- Build and test: B-14 + B-16 controller fixes + commit dialog details
+- Deeper diagnosis of B-17 (mod stage loading — may be pre-existing stage table issue)
 - B-12 Phase 2: Migrate chrslots callsites to participant API
 - B-12 Phase 3: Remove chrslots entirely
-- Pause menu controller fixes (B-14, B-16)
 - Then resume stage decoupling Phase 2
 
 ---

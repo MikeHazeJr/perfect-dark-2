@@ -1296,10 +1296,75 @@ function Start-ManualCommit {
 
     Sound-MenuClick
 
+    # Gather change details for the dialog
+    $statusLines = git -C $script:ProjectDir status --porcelain 2>$null
+    $added = @(); $modified = @(); $deleted = @(); $renamed = @()
+    foreach ($line in $statusLines) {
+        $code = $line.Substring(0, 2).Trim()
+        $file = $line.Substring(3).Trim()
+        switch -Wildcard ($code) {
+            "A"  { $added += $file }
+            "M"  { $modified += $file }
+            "MM" { $modified += $file }
+            "D"  { $deleted += $file }
+            "R*" { $renamed += $file }
+            "??" { $added += $file }
+            default { $modified += $file }
+        }
+    }
+
+    # Build summary grouped by area
+    $detailLines = @()
+    function Group-ByArea($files) {
+        $grouped = @{}
+        foreach ($f in $files) {
+            $area = switch -Wildcard ($f) {
+                "src/game/*"    { "Game" }
+                "src/include/*" { "Headers" }
+                "src/lib/*"     { "Lib" }
+                "port/*"        { "Port/Renderer" }
+                "context/*"     { "Context" }
+                "build-gui*"    { "Build Tool" }
+                "CMake*"        { "Build System" }
+                default         { "Other" }
+            }
+            if (-not $grouped[$area]) { $grouped[$area] = @() }
+            $grouped[$area] += ($f -replace '^.+/', '')
+        }
+        return $grouped
+    }
+
+    if ($modified.Count -gt 0) {
+        $detailLines += "Modified ($($modified.Count)):"
+        $groups = Group-ByArea $modified
+        foreach ($area in ($groups.Keys | Sort-Object)) {
+            $detailLines += "  [$area] $($groups[$area] -join ', ')"
+        }
+    }
+    if ($added.Count -gt 0) {
+        $detailLines += "Added ($($added.Count)):"
+        $groups = Group-ByArea $added
+        foreach ($area in ($groups.Keys | Sort-Object)) {
+            $detailLines += "  [$area] $($groups[$area] -join ', ')"
+        }
+    }
+    if ($deleted.Count -gt 0) {
+        $detailLines += "Deleted ($($deleted.Count)):"
+        $groups = Group-ByArea $deleted
+        foreach ($area in ($groups.Keys | Sort-Object)) {
+            $detailLines += "  [$area] $($groups[$area] -join ', ')"
+        }
+    }
+    if ($renamed.Count -gt 0) {
+        $detailLines += "Renamed ($($renamed.Count)):"
+        foreach ($r in $renamed) { $detailLines += "  $r" }
+    }
+    $detailText = $detailLines -join "`r`n"
+
     # Show commit message dialog
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Commit Changes"
-    $dlg.Size = New-Object System.Drawing.Size(480, 200)
+    $dlg.Size = New-Object System.Drawing.Size(520, 380)
     $dlg.StartPosition = "CenterParent"
     $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false
@@ -1317,7 +1382,7 @@ function Start-ManualCommit {
 
     $txtMsg = New-Object System.Windows.Forms.TextBox
     $txtMsg.Location = New-Object System.Drawing.Point(12, 38)
-    $txtMsg.Size = New-Object System.Drawing.Size(440, 24)
+    $txtMsg.Size = New-Object System.Drawing.Size(480, 24)
     $txtMsg.BackColor = $script:ColorFieldBg
     $txtMsg.ForeColor = $script:ColorWhite
     $txtMsg.Font = New-Object System.Drawing.Font("Consolas", 10)
@@ -1326,18 +1391,41 @@ function Start-ManualCommit {
     $txtMsg.Text = "$($ver.String) -"
     $dlg.Controls.Add($txtMsg)
 
+    # Details area — read-only summary of changes
+    $lblDetails = New-Object System.Windows.Forms.Label
+    $lblDetails.Text = "Changes:"
+    $lblDetails.Font = New-UIFont 9
+    $lblDetails.ForeColor = $script:ColorDim
+    $lblDetails.Location = New-Object System.Drawing.Point(12, 70)
+    $lblDetails.AutoSize = $true
+    $dlg.Controls.Add($lblDetails)
+
+    $txtDetails = New-Object System.Windows.Forms.TextBox
+    $txtDetails.Location = New-Object System.Drawing.Point(12, 90)
+    $txtDetails.Size = New-Object System.Drawing.Size(480, 160)
+    $txtDetails.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 35)
+    $txtDetails.ForeColor = $script:ColorDim
+    $txtDetails.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $txtDetails.BorderStyle = "FixedSingle"
+    $txtDetails.Multiline = $true
+    $txtDetails.ReadOnly = $true
+    $txtDetails.ScrollBars = "Vertical"
+    $txtDetails.WordWrap = $false
+    $txtDetails.Text = $detailText
+    $dlg.Controls.Add($txtDetails)
+
     $chkPush = New-Object System.Windows.Forms.CheckBox
     $chkPush.Text = "Push to GitHub after commit"
     $chkPush.Font = New-UIFont 9
     $chkPush.ForeColor = $script:ColorDim
-    $chkPush.Location = New-Object System.Drawing.Point(12, 72)
+    $chkPush.Location = New-Object System.Drawing.Point(12, 260)
     $chkPush.AutoSize = $true
     $chkPush.Checked = $true
     $dlg.Controls.Add($chkPush)
 
     $btnOk = New-Object System.Windows.Forms.Button
     $btnOk.Text = "Commit"
-    $btnOk.Location = New-Object System.Drawing.Point(270, 120)
+    $btnOk.Location = New-Object System.Drawing.Point(310, 300)
     $btnOk.Size = New-Object System.Drawing.Size(86, 30)
     $btnOk.FlatStyle = "Flat"
     $btnOk.FlatAppearance.BorderColor = $script:ColorGreen
@@ -1350,7 +1438,7 @@ function Start-ManualCommit {
 
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = "Cancel"
-    $btnCancel.Location = New-Object System.Drawing.Point(366, 120)
+    $btnCancel.Location = New-Object System.Drawing.Point(406, 300)
     $btnCancel.Size = New-Object System.Drawing.Size(86, 30)
     $btnCancel.FlatStyle = "Flat"
     $btnCancel.FlatAppearance.BorderColor = $script:ColorDim

@@ -416,14 +416,16 @@ s32 pdguiProcessEvent(void *sdlEvent)
      * - Debug overlay (F12)
      * - Storyboard (F11)
      * - Hot-swapped menu (F8)
+     * - Pause menu (in-game)
      *
      * For hotswap, use pdguiHotswapWasActive() which persists from the
      * previous frame's render. pdguiHotswapHasQueued() would be 0 here
      * because events are processed BEFORE the GBI phase queues new dialogs. */
     bool overlayActive = g_PdguiActive || pdguiStoryboardIsActive();
     bool hotswapActive = pdguiHotswapWasActive() != 0 || pdguiHotswapHasQueued() != 0;
+    bool pauseActive = pdguiIsPauseMenuOpen() != 0;
 
-    if (!overlayActive && !hotswapActive) {
+    if (!overlayActive && !hotswapActive && !pauseActive) {
         return 0;
     }
 
@@ -439,9 +441,9 @@ s32 pdguiProcessEvent(void *sdlEvent)
         case SDL_KEYDOWN:
         case SDL_KEYUP:
         case SDL_TEXTINPUT:
-            /* When overlay or hot-swap is active, consume ALL keyboard input
-             * so the game doesn't act on keys meant for ImGui. */
-            if (overlayActive || hotswapActive) return 1;
+            /* When overlay, hot-swap, or pause menu is active, consume ALL
+             * keyboard input so the game doesn't act on keys meant for ImGui. */
+            if (overlayActive || hotswapActive || pauseActive) return 1;
             return 0;
 
         case SDL_CONTROLLERBUTTONDOWN:
