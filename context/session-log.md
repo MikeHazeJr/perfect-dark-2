@@ -19,20 +19,21 @@ Map cycle test v2 crashed with 0xc0000005 (access violation) on the 5th arena (S
 
 Root cause: The v2 state machine called `matchStart()` directly from gameplay. `normmplayerisrunning` stays `true` (only reset by `menutick.c` during endscreen→menu flow), so the game never saw a clean "no match active" state between maps.
 
-### Fix
+### Fix v1 (flag reset only — INSUFFICIENT)
 
-**New bridge function** `pdguiMapTestResetMatchState()` in `pdgui_bridge.c`:
-- Resets `normmplayerisrunning`, `mplayerisrunning`, `lvmpbotlevel` to false/0
-- Clears `g_MainIsEndscreen` flag
-- Resets pause mode to `MPPAUSEMODE_UNPAUSED`
-- Deliberately avoids `mainEndStage()`/`mpEndMatch()` which trigger the OG endscreen
+`pdguiMapTestResetMatchState()` — manually reset 5 flags. Maps cycled visually (4 maps worked) but **still crashed on 5th** at same offset 0x11accc. Flag-only reset misses `mpEndMatch()`'s internal cleanup (`func0f0f820c`, audio, dialog stack). User confirmed Sewers loads fine manually — crash is flow-specific.
 
-**New CLEANUP state** in the map test state machine:
-- LOADED (30 frames) → CLEANUP (reset match state) → 5-frame delay → launch next arena → WAIT_LOAD
-- WAIT_LOAD now works correctly: `normmplayerisrunning` starts as `false` (was reset), so it properly detects the new map loading when the flag goes `true`
+### Fix v2 (proper mainEndStage teardown)
+
+**`pdguiMapTestEndCurrentMatch()`** in `pdgui_bridge.c`:
+- Calls `mainEndStage()` for FULL cleanup chain (mpEndMatch, audio, dialog teardown)
+- Immediately suppresses the endscreen (`g_MainIsEndscreen = false`)
+- Resets match-running flags (mirrors menutick.c:668)
+
+**CLEANUP state** uses the full teardown, then 5-frame delay, then launches next arena.
 
 ### Files Modified
-- `port/fast3d/pdgui_bridge.c` — added `pdguiMapTestResetMatchState()`
+- `port/fast3d/pdgui_bridge.c` — `pdguiMapTestEndCurrentMatch()`, added includes for `lib/main.h`, `game/pdmode.h`, `game/title.h`
 - `port/fast3d/pdgui_menu_matchsetup.cpp` — CLEANUP state, extern "C" decl, state machine rewrite
 
 ---

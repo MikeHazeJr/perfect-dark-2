@@ -1130,7 +1130,7 @@ extern "C" {
 s32 pdguiPauseGetNormMplayerIsRunning(void);
 void pdguiPauseSetPlayerAborted(void);
 void mainEndStage(void);
-void pdguiMapTestResetMatchState(void);
+void pdguiMapTestEndCurrentMatch(void);
 }
 
 /**
@@ -1262,27 +1262,26 @@ static void mapTestTick(void)
     case MAPTEST_CLEANUP:
     {
         /*
-         * Between-match cleanup. Reset the "match running" flags so the
-         * game sees a clean "no match active" state before the next
-         * matchStart() call. Without this, calling matchStart() during
-         * active gameplay causes cumulative state corruption and crashes.
+         * Between-match cleanup. Uses mainEndStage() for the FULL
+         * teardown chain (mpEndMatch, audio, dialog/menu cleanup),
+         * then suppresses the endscreen and resets match-running flags.
          *
-         * We intentionally skip mainEndStage()/mpEndMatch() because
-         * those trigger the OG endscreen which blocks for player input.
+         * Without mainEndStage(), internal state (dialog stack, audio
+         * refs, func0f0f820c bookkeeping) accumulates across rapid
+         * transitions and crashes during the ~5th stage teardown.
          */
         if (s_MapTestFrames == 0) {
             sysLogPrintf(LOG_NOTE,
-                "MAPTEST: resetting match state for next arena");
-            pdguiMapTestResetMatchState();
+                "MAPTEST: ending current match (full teardown)");
+            pdguiMapTestEndCurrentMatch();
         }
 
         s_MapTestFrames++;
 
-        /* Brief delay to let the game loop process the state reset.
-         * The stage teardown happens in the main game loop when it
-         * detects the pending titleSetNextStage from the next
-         * matchStart() call. 5 frames is enough for the flags to
-         * propagate through one full game tick cycle. */
+        /* Brief delay to let the game loop process the teardown.
+         * mainEndStage runs synchronously (mpEndMatch, etc.) but
+         * the actual stage unload is deferred to the game loop.
+         * 5 frames gives one full tick cycle to settle. */
         if (s_MapTestFrames >= 5) {
             struct mparena *next = mapTestFindNextArena();
             if (next) {
@@ -1291,10 +1290,9 @@ static void mapTestTick(void)
                     s_MapTestArena + 1, s_MapTestMaxArena);
                 mapTestLaunchArena(next);
             } else {
-                /* All done — exit gameplay cleanly */
+                /* All done — we already called mainEndStage in cleanup,
+                 * so the match is properly ended. Just log and finish. */
                 mapTestLogComplete();
-                pdguiPauseSetPlayerAborted();
-                mainEndStage();
                 s_MapTestState = MAPTEST_DONE;
             }
         }
