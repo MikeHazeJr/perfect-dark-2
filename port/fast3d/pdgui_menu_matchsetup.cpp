@@ -1132,6 +1132,60 @@ void pdguiPauseSetPlayerAborted(void);
 void mainEndStage(void);
 }
 
+/**
+ * Find the next valid (non-null, non-locked, non-random) arena starting
+ * from s_MapTestArena. Returns the arena pointer or NULL if all done.
+ * Advances s_MapTestArena past skipped entries.
+ */
+static struct mparena *mapTestFindNextArena(void)
+{
+    while (s_MapTestArena < s_MapTestMaxArena) {
+        struct mparena *arena = modmgrGetArena(s_MapTestArena);
+        if (!arena) {
+            s_MapTestArena++;
+            s_MapTestSkipped++;
+            continue;
+        }
+
+        /* Skip locked arenas */
+        if (arena->requirefeature != 0 &&
+            !challengeIsFeatureUnlocked(arena->requirefeature)) {
+            sysLogPrintf(LOG_NOTE,
+                "MAPTEST [%d/%d]: SKIP arena %d (locked, feature %d)",
+                s_MapTestArena + 1, s_MapTestMaxArena,
+                s_MapTestArena, arena->requirefeature);
+            s_MapTestArena++;
+            s_MapTestSkipped++;
+            continue;
+        }
+
+        return arena;
+    }
+    return NULL;
+}
+
+/**
+ * Launch the arena at s_MapTestArena. Configures match and starts.
+ * Works both from menu (first map) and from gameplay (subsequent maps).
+ */
+static void mapTestLaunchArena(struct mparena *arena)
+{
+    const char *name = arenaGetName(arena->name);
+    sysLogPrintf(LOG_NOTE,
+        "MAPTEST [%d/%d]: STARTING arena %d \"%s\" (stagenum 0x%02x)",
+        s_MapTestArena + 1, s_MapTestMaxArena,
+        s_MapTestArena, name ? name : "?", arena->stagenum);
+
+    matchConfigInit();
+    g_MatchConfig.stagenum = (u8)arena->stagenum;
+    s_ArenaIndex = s_MapTestArena;
+    s_Initialized = false;
+    matchStart();
+
+    s_MapTestFrames = 0;
+    s_MapTestState = MAPTEST_WAIT_LOAD;
+}
+
 static void mapTestTick(void)
 {
     if (s_MapTestState == MAPTEST_IDLE || s_MapTestState == MAPTEST_DONE) {
@@ -1142,52 +1196,17 @@ static void mapTestTick(void)
 
     case MAPTEST_START_NEXT:
     {
-        /* Find the next valid arena to test */
-        while (s_MapTestArena < s_MapTestMaxArena) {
-            struct mparena *arena = modmgrGetArena(s_MapTestArena);
-            if (!arena) {
-                s_MapTestArena++;
-                s_MapTestSkipped++;
-                continue;
-            }
-
-            /* Skip locked arenas */
-            if (arena->requirefeature != 0 &&
-                !challengeIsFeatureUnlocked(arena->requirefeature)) {
-                sysLogPrintf(LOG_NOTE,
-                    "MAPTEST [%d/%d]: SKIP arena %d (locked, feature %d)",
-                    s_MapTestArena + 1, s_MapTestMaxArena,
-                    s_MapTestArena, arena->requirefeature);
-                s_MapTestArena++;
-                s_MapTestSkipped++;
-                continue;
-            }
-
-            /* Found a valid arena — configure and launch */
-            const char *name = arenaGetName(arena->name);
+        struct mparena *arena = mapTestFindNextArena();
+        if (arena) {
+            mapTestLaunchArena(arena);
+        } else {
+            /* All arenas tested */
+            s_MapTestState = MAPTEST_DONE;
             sysLogPrintf(LOG_NOTE,
-                "MAPTEST [%d/%d]: STARTING arena %d \"%s\" (stagenum 0x%02x)",
-                s_MapTestArena + 1, s_MapTestMaxArena,
-                s_MapTestArena, name ? name : "?", arena->stagenum);
-
-            /* Ensure match config has at least one player slot */
-            matchConfigInit();
-            g_MatchConfig.stagenum = (u8)arena->stagenum;
-            s_ArenaIndex = s_MapTestArena;
-            s_Initialized = false;
-            matchStart();
-
-            s_MapTestFrames = 0;
-            s_MapTestState = MAPTEST_WAIT_LOAD;
-            return;
+                "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
+                s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
+                s_MapTestMaxArena);
         }
-
-        /* All arenas tested */
-        s_MapTestState = MAPTEST_DONE;
-        sysLogPrintf(LOG_NOTE,
-            "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
-            s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
-            s_MapTestMaxArena);
         break;
     }
 
@@ -1195,7 +1214,6 @@ static void mapTestTick(void)
     {
         s_MapTestFrames++;
 
-        /* Check if gameplay is now running */
         if (pdguiPauseGetNormMplayerIsRunning()) {
             sysLogPrintf(LOG_NOTE,
                 "MAPTEST [%d/%d]: LOADED in %d frames — PASS",
@@ -1205,15 +1223,25 @@ static void mapTestTick(void)
             s_MapTestState = MAPTEST_LOADED;
         }
 
-        /* Timeout: if it takes too long, something is wrong */
-        if (s_MapTestFrames > 600) { /* ~10 seconds at 60fps */
+        /* Timeout */
+        if (s_MapTestFrames > 600) {
             sysLogPrintf(LOG_ERROR,
                 "MAPTEST [%d/%d]: TIMEOUT waiting for load — FAIL",
                 s_MapTestArena + 1, s_MapTestMaxArena);
             s_MapTestFailed++;
             s_MapTestArena++;
-            s_MapTestFrames = 0;
-            s_MapTestState = MAPTEST_WAIT_MENU;
+
+            /* Try to recover by launching next arena directly */
+            struct mparena *next = mapTestFindNextArena();
+            if (next) {
+                mapTestLaunchArena(next);
+            } else {
+                s_MapTestState = MAPTEST_DONE;
+                sysLogPrintf(LOG_NOTE,
+                    "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
+                    s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
+                    s_MapTestMaxArena);
+            }
         }
         break;
     }
@@ -1222,38 +1250,28 @@ static void mapTestTick(void)
     {
         s_MapTestFrames++;
 
-        /* Wait a few frames to let the stage stabilize, then exit */
-        if (s_MapTestFrames >= 30) { /* ~0.5 seconds */
-            sysLogPrintf(LOG_NOTE,
-                "MAPTEST [%d/%d]: auto-exiting after %d frames",
-                s_MapTestArena + 1, s_MapTestMaxArena, s_MapTestFrames);
-            pdguiPauseSetPlayerAborted();
-            mainEndStage();
-            s_MapTestFrames = 0;
+        /* Wait a few frames for stage to stabilize, then seamlessly
+         * transition to the next arena by calling matchStart() directly.
+         * This skips the endscreen entirely — no menu return needed. */
+        if (s_MapTestFrames >= 30) {
             s_MapTestArena++;
-            s_MapTestState = MAPTEST_WAIT_MENU;
-        }
-        break;
-    }
 
-    case MAPTEST_WAIT_MENU:
-    {
-        s_MapTestFrames++;
-
-        /* Wait for gameplay to stop (we're back in menu) */
-        if (!pdguiPauseGetNormMplayerIsRunning()) {
-            /* Give the menu a moment to reinitialize */
-            if (s_MapTestFrames >= 15) {
-                s_MapTestState = MAPTEST_START_NEXT;
-                s_MapTestFrames = 0;
+            struct mparena *next = mapTestFindNextArena();
+            if (next) {
+                sysLogPrintf(LOG_NOTE,
+                    "MAPTEST [%d/%d]: transitioning to next arena",
+                    s_MapTestArena + 1, s_MapTestMaxArena);
+                mapTestLaunchArena(next);
+            } else {
+                /* All done — need to properly exit gameplay */
+                sysLogPrintf(LOG_NOTE,
+                    "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
+                    s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
+                    s_MapTestMaxArena);
+                pdguiPauseSetPlayerAborted();
+                mainEndStage();
+                s_MapTestState = MAPTEST_DONE;
             }
-        }
-
-        /* Safety timeout */
-        if (s_MapTestFrames > 600) {
-            sysLogPrintf(LOG_ERROR,
-                "MAPTEST: TIMEOUT waiting for menu return — aborting");
-            s_MapTestState = MAPTEST_DONE;
         }
         break;
     }
