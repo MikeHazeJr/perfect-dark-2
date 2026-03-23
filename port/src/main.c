@@ -25,6 +25,8 @@
 #include "net/net.h"
 #include "updater.h"
 #include "savemigrate.h"
+#include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -178,6 +180,20 @@ int main(int argc, const char **argv)
 	// Model catalog: cache metadata from g_HeadsAndBodies (no heap needed).
 	// Actual model validation is deferred to catalogValidateAll() after heap init.
 	catalogInit();
+
+	// D3R: Asset Catalog — string-keyed resolution for all game assets.
+	// 1. Allocate hash table and entry pool
+	// 2. Register base game assets (87 stages, 63 bodies, 75 heads) with "base:" IDs
+	// 3. Scan mod _components/ directories and register INI-described assets
+	assetCatalogInit();
+	assetCatalogRegisterBaseGame();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			assetCatalogScanComponents(modsdir);
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
 
 	atexit(cleanup);
 

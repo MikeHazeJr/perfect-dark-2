@@ -40,6 +40,9 @@ static bool g_ModDirty = false;
 // Path buffer for file resolution
 static char g_ModPathBuf[FS_MAXPATH + 1];
 
+// Resolved mods directory path (set by modmgrScanDirectory)
+static char g_ModsDirPath[FS_MAXPATH + 1] = "";
+
 // ---------------------------------------------------------------------------
 // Shadow arrays for mod-added assets (D3b)
 // ---------------------------------------------------------------------------
@@ -465,6 +468,10 @@ static void modmgrScanDirectory(void)
 			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
 		return;
 	}
+
+	// Store resolved path for assetCatalogScanComponents() to use later
+	strncpy(g_ModsDirPath, modsdir, sizeof(g_ModsDirPath) - 1);
+	g_ModsDirPath[sizeof(g_ModsDirPath) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);
 
@@ -1014,4 +1021,9 @@ struct mparena *modmgrGetArena(s32 index)
 s32 modmgrGetModArenaCount(void)
 {
 	return g_ModArenaCount;
+}
+
+const char *modmgrGetModsDir(void)
+{
+	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
 }

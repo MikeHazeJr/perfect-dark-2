@@ -123,4 +123,8 @@ s32 modmgrGetModBodyCount(void);
 s32 modmgrGetModHeadCount(void);
 s32 modmgrGetModArenaCount(void);
 
+// Get resolved mods directory path (set by modmgrInit).
+// Returns NULL if no mods directory was found.
+const char *modmgrGetModsDir(void);
+
 #endif // _IN_MODMGR_H
