@@ -85,8 +85,8 @@
 
 | Phase | Task | Depends On | Details |
 |-------|------|-----------|---------|
-| D3R-1 | **Decompose existing mods** | — | Convert 5 bundled mods to component filesystem (`mods/{category}/{id}/asset.ini`). Document process in `docs/MOD_CONVERSION_GUIDE.md`. |
-| D3R-2 | **Asset Catalog core** | — | String-keyed hash table, `catalogResolve()` API, CRC32 identity. The translation layer. |
+| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S28)**: 69 components created (50 maps, 14 chars, 5 tex packs). INI manifests + depends_on. Needs build test. |
+| D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)**: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. Needs build test. |
 | D3R-3 | **Base game cataloging** | D3R-2 | Register all 63 bodies, 76 heads, 87 stages, ~30 weapons with `"base:"` prefix IDs. |
 | D3R-4 | **Category scanner + loader** | D3R-1, D3R-2 | Two-pass scan: categories first, then components. Parse `.ini`, build catalog. Per-category logging. |
 | D3R-5 | **Callsite migration** | D3R-3 | Replace numeric lookups with `catalogResolve()`. Incremental, by subsystem. |

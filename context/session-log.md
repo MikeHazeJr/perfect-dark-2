@@ -5,6 +5,62 @@
 
 ---
 
+## Session 28 — 2026-03-23
+
+**Focus**: D3R-1 and D3R-2 implementation — architecture decisions, filesystem decomposition, Asset Catalog core
+
+### Architecture Decision Records
+
+- **ADR-002** (D3R-1): Component filesystem decomposition with shim loader. Chose Option A — restructure filesystem + compatibility shim over deferring loading or building catalog first.
+- **ADR-003** (D3R-2): Asset Catalog core design. Extend modelcatalog (not replace), open addressing with linear probing, dynamic allocation (no hard caps).
+
+### Director Decisions (Open Questions Resolved)
+
+1. **Entry cap**: No cap — dynamic allocation, grows on demand.
+2. **Override behavior**: Mods can override `base:` assets. Total conversions are first-class. "The game itself is essentially a mod."
+3. **Hash function**: Dual-hash — FNV-1a for hash table distribution, CRC32 for network identity. Each entry stores both. No trade-off.
+
+### Code Written
+
+**D3R-1: Component Filesystem (69 components)**
+- 50 map components, 14 character components, 5 texture packs
+- Created under `build/client/mods/{maps,characters,textures}/`
+- Each with typed `.ini` manifest (`[map]`, `[character]`, `[textures]`)
+- All marked `bundled = true`
+- Maps reference texture packs via `depends_on`
+- 6 empty directories created: `skins/`, `bot_variants/`, `.temp/`
+- Old `mod_*` directories preserved for backward compat
+
+**D3R-2: Asset Catalog Core (2 new files)**
+- `port/include/assetcatalog.h` (288 lines) — 14 asset types, entry struct with union, 20 public functions
+- `port/src/assetcatalog.c` (704 lines) — FNV-1a + CRC32, open addressing, dynamic growth, full API
+- Auto-discovered by CMake glob (`port/*.c`), no CMake changes needed
+- Coexists with existing `modelcatalog.c` — no existing code modified
+
+### Verification
+
+- **CRC32 table**: Agent-generated table was WRONG (produced different hashes than `modmgrHashString()`). Regenerated correct table from `0xEDB88320` polynomial. Verified all 5 test strings match bitwise implementation.
+- **depends_on**: Initially missing from map .ini files. Added texture pack references to all 50 maps.
+- **stagenum defaults**: 44 maps default to `0x00` (no explicit stagenum in modconfig.txt). 6 maps have explicit values. D3R-4 scanner will need to handle dynamic assignment for `0x00` maps.
+
+### Documents Created
+- `context/ADR-002-component-filesystem-decomposition.md`
+- `context/ADR-003-asset-catalog-core.md`
+
+### Documents Updated
+- `context/README.md` — ADR links added, session 28 timestamp
+- `context/session-log.md` — this entry
+- `context/tasks-current.md` — D3R status updates
+
+### Next Steps
+- D3R-1 build test: verify game still boots with old mod loader (components exist alongside old dirs)
+- `docs/MOD_CONVERSION_GUIDE.md` — document the field mapping from modconfig.txt to .ini
+- D3R-3: Base game cataloging — register all 63 bodies, 76 heads, 87 stages with `base:` prefix
+- D3R-4: Scanner + loader — parse .ini files, populate catalog, replace modconfig.txt parsing
+- Consider: shim loader for backward compat (ADR-002 Option A) vs. proceeding directly to D3R-4
+
+---
+
 ## Session 27 — 2026-03-23
 
 **Focus**: Component Mod Architecture design (D3 Revised) — discussion only, no code written

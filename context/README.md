@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-23, Session 27 (D3-Revised component mod architecture design)
+> **Last updated**: 2026-03-23, Session 28 (ADR-002/003: D3R-1 and D3R-2 architecture decisions)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -33,7 +33,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| 22–27 | 2026-03-22–23 | Feature batch, stage decoupling, CI fix, context reorg, D3R mod architecture | [session-log.md](session-log.md) |
+| 22–28 | 2026-03-22–23 | Feature batch, stage decoupling, CI fix, context reorg, D3R design + implementation | [session-log.md](session-log.md) |
 | 14–21 | 2026-03-21–22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
 | 7–13 | 2026-03-18–21 | Networking phases, model loading, dedicated server | [sessions-07-13.md](sessions-07-13.md) |
 | 1–6 | 2026-03-01–18 | N64 strip, mod manager, ImGui foundation, char select | [sessions-01-06.md](sessions-01-06.md) |
@@ -74,6 +74,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | File | Decision |
 |------|----------|
 | [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | Network protocol audit: strncpy fixes, protocol verification |
+| [ADR-002-component-filesystem-decomposition.md](ADR-002-component-filesystem-decomposition.md) | D3R-1: Convert 5 bundled mods to component filesystem + shim loader |
+| [ADR-003-asset-catalog-core.md](ADR-003-asset-catalog-core.md) | D3R-2: String-keyed hash table, catalogResolve() API, dynamic growth |
 
 ---
 
