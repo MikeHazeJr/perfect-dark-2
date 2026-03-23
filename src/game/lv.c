@@ -100,6 +100,7 @@
 #include "net/netmsg.h"
 #include "video.h"
 #include "system.h"
+#include "assetcatalog_resolve.h"
 
 struct sndstate *g_MiscSfxAudioHandles[3];
 u32 var800aa5bc;
@@ -259,6 +260,11 @@ void lvReset(s32 stagenum)
 	g_Vars.paksneededforgame = 0;
 	g_Vars.paksneededformenu = 0;
 	g_Vars.stagenum = stagenum;
+
+	// D3R-5: Activate catalog component for this stage (if a mod map exists).
+	// This gives the catalog's file resolver priority over the legacy mod system.
+	// For base game stages, this is a no-op (deactivates the resolver).
+	assetCatalogActivateStage(stagenum);
 
 	// PC: When loading the Carrington Institute (main menu background) or title
 	// screen, suppress mod file overlay so CI props, textures, and setup files

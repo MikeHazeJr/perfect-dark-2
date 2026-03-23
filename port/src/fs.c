@@ -14,6 +14,7 @@
 #include "utils.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "assetcatalog_resolve.h"
 #ifdef PLATFORM_WIN32
 #include <direct.h>
 #endif
@@ -92,7 +93,16 @@ const char *fsFullPath(const char *relPath)
 	}
 
 	// path relative to mod or base dir; this will be a read request, so check where the file actually is
-	// Try modmgr registry first (iterates all enabled mods in load order)
+
+	// D3R-5: Check catalog component first (standalone, priority over legacy)
+	const char *catResolved = assetCatalogResolvePath(relPath);
+	if (catResolved) {
+		strncpy(pathBuf, catResolved, FS_MAXPATH);
+		pathBuf[FS_MAXPATH] = '\0';
+		return pathBuf;
+	}
+
+	// Try modmgr registry (iterates all enabled mods in load order)
 	const char *modResolved = modmgrResolvePath(relPath);
 	if (modResolved) {
 		strncpy(pathBuf, modResolved, FS_MAXPATH);

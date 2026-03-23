@@ -243,6 +243,13 @@ void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
 const char *modmgrResolvePath(const char *path) { return path; }
 void modmgrInit(void) {}
 
+/* assetcatalog_resolve stubs — fs.c and lv.c reference these */
+const char *assetCatalogResolvePath(const char *path) { (void)path; return NULL; }
+void assetCatalogActivateStage(s32 stagenum) { (void)stagenum; }
+void assetCatalogDeactivateStage(void) {}
+struct asset_entry; /* forward decl for return type */
+const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void)stagenum; return NULL; }
+
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}
 void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
