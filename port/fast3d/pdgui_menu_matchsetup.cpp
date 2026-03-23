@@ -24,6 +24,7 @@
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
+#include "assetcatalog.h"
 #include "system.h"
 
 /* ========================================================================
@@ -322,35 +323,64 @@ static const char *arenaGetName(u16 textId)
 }
 
 /* ========================================================================
- * Arena group definitions (mirrors setup.c's g_ArenaGroupDefs)
+ * Arena group cache (catalog-backed, replaces hardcoded offset table)
  *
- * Each group has a starting arena offset and a display name.  The ImGui
- * arena dropdown renders collapsible TreeNode sections for each group.
+ * Arena entries are registered in the Asset Catalog with their group name
+ * as the category field.  The cache is built once from catalog iteration
+ * and rebuilt when the catalog changes (mod toggle, etc.).
+ *
+ * The ImGui arena dropdown renders collapsible sections per group.
  * ======================================================================== */
 
 #define ARENA_NUM_GROUPS 7
+#define MAX_ARENAS_PER_GROUP 32
 
-struct arenaGroupDef {
-    s32 offset;          /* first arena index in the flat arena array */
-    const char *name;    /* hardcoded group name (bypasses broken lang strings) */
+/* Group names in display order — must match categories in assetcatalog_base.c */
+static const char *s_ArenaGroupNames[ARENA_NUM_GROUPS] = {
+    "Dark",
+    "Solo Missions",
+    "Classic",
+    "GoldenEye X",
+    "GoldenEye X Bonus",
+    "Bonus",
+    "Random",
 };
 
-static const struct arenaGroupDef s_ArenaGroups[ARENA_NUM_GROUPS] = {
-    {  0, "Dark" },
-    { 13, "Solo Missions" },
-    { 27, "Classic" },
-    { 32, "GoldenEye X" },
-    { 43, "GoldenEye X Bonus" },
-    { 55, "Bonus" },
-    { 71, "Random" },
-};
+/* Per-group cache of catalog entry pointers */
+static struct {
+    const asset_entry_t *entries[MAX_ARENAS_PER_GROUP];
+    s32 count;
+} s_ArenaGroupCache[ARENA_NUM_GROUPS];
+
+static s32 s_ArenaCacheDirty = 1;
 
 /* Collapsed state: bit N = group N is collapsed */
 static u8 s_ArenaGroupCollapsed = 0;
 
-/* Arena list is populated dynamically from modmgrGetTotalArenas() / modmgrGetArena()
- * at init time. This includes base game MP arenas, solo mission stages used in MP,
- * GoldenEye X maps, bonus maps, and any mod-added arenas. */
+/* Callback: bucket each ASSET_ARENA entry into the right group by category */
+static void arenaCollectCb(const asset_entry_t *entry, void *userdata)
+{
+    (void)userdata;
+    for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+        if (strcmp(entry->category, s_ArenaGroupNames[g]) == 0) {
+            if (s_ArenaGroupCache[g].count < MAX_ARENAS_PER_GROUP) {
+                s_ArenaGroupCache[g].entries[s_ArenaGroupCache[g].count++] = entry;
+            }
+            break;
+        }
+    }
+}
+
+/* Rebuild the group cache from the catalog.  Called lazily on first use
+ * or when s_ArenaCacheDirty is set (e.g. after mod toggle). */
+static void rebuildArenaCache(void)
+{
+    for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+        s_ArenaGroupCache[g].count = 0;
+    }
+    assetCatalogIterateByType(ASSET_ARENA, arenaCollectCb, NULL);
+    s_ArenaCacheDirty = 0;
+}
 
 /* ========================================================================
  * Arena bridge functions (C callable)
@@ -391,32 +421,6 @@ static s32 s_PrimarySlot = -1;       /* Last-clicked slot (for detail display) *
 static s32 s_AddBotType = BOTTYPE_GENERAL;
 static s32 s_AddBotDiff = BOTDIFF_NORMAL;
 static char s_AddBotName[MAX_PLAYER_NAME] = {0};
-
-/* ========================================================================
- * D3R-5 DEBUG: Map Cycle Test
- *
- * Temporary debug feature. Cycles through all arenas, loading each one
- * briefly to verify it loads correctly, then backs out to the next.
- * Logs each map's result (PASS/FAIL) for bulk B-17 regression testing.
- * ======================================================================== */
-
-enum maptest_state {
-    MAPTEST_IDLE = 0,      /* Not running */
-    MAPTEST_START_NEXT,    /* In menu — pick next arena and start match */
-    MAPTEST_WAIT_LOAD,     /* Match starting — wait for gameplay to be active */
-    MAPTEST_LOADED,        /* Gameplay active — count frames then exit */
-    MAPTEST_CLEANUP,       /* Between maps — reset match state, brief delay */
-    MAPTEST_DONE,          /* All maps tested */
-};
-
-static s32 s_MapTestState = MAPTEST_IDLE;
-static s32 s_MapTestArena = 0;      /* Current arena index being tested */
-static s32 s_MapTestFrames = 0;     /* Frame counter for delays */
-static s32 s_MapTestPassed = 0;     /* Count of maps that loaded OK */
-static s32 s_MapTestFailed = 0;     /* Count that failed/crashed */
-static s32 s_MapTestSkipped = 0;    /* Count skipped (random, locked) */
-static s32 s_MapTestTotal = 0;      /* Total arenas to test */
-static s32 s_MapTestMaxArena = 71;  /* Stop before Random entries (71-74) */
 
 /* ========================================================================
  * Selection helpers
@@ -734,27 +738,30 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         }
     }
 
-    /* Arena/Stage — grouped, collapsible list from modmgr (base + mod arenas) */
+    /* Arena/Stage — grouped, collapsible list from Asset Catalog */
     {
-        s32 totalArenas = modmgrGetTotalArenas();
-        struct mparena *curArena = modmgrGetArena(s_ArenaIndex);
-        const char *curArenaName = arenaGetName(curArena->name);
+        if (s_ArenaCacheDirty) {
+            rebuildArenaCache();
+        }
+
+        /* Find current arena entry for the combo preview label */
+        const char *curArenaName = "???";
+        for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+            for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaIndex) {
+                    curArenaName = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
+                    goto found_current;
+                }
+            }
+        }
+        found_current:
 
         if (ImGui::BeginCombo("Arena", curArenaName ? curArenaName : "???")) {
             for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
-                s32 groupStart = s_ArenaGroups[g].offset;
-                s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS)
-                    ? s_ArenaGroups[g + 1].offset : totalArenas;
-
-                /* Clamp to actual arena count in case mods change the total */
-                if (groupStart >= totalArenas) continue;
-                if (groupEnd > totalArenas) groupEnd = totalArenas;
-
                 /* Count unlocked arenas in this group */
                 s32 groupCount = 0;
-                for (s32 a = groupStart; a < groupEnd; a++) {
-                    struct mparena *arena = modmgrGetArena(a);
-                    if (challengeIsFeatureUnlocked(arena->requirefeature)) {
+                for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                    if (challengeIsFeatureUnlocked(s_ArenaGroupCache[g].entries[a]->ext.arena.requirefeature)) {
                         groupCount++;
                     }
                 }
@@ -768,7 +775,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                 char groupLabel[80];
                 snprintf(groupLabel, sizeof(groupLabel), "%c  %s (%d)##grp%d",
                          isCollapsed ? '+' : '-',
-                         s_ArenaGroups[g].name, groupCount, g);
+                         s_ArenaGroupNames[g], groupCount, g);
 
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
                 if (ImGui::Selectable(groupLabel, false, ImGuiSelectableFlags_DontClosePopups)) {
@@ -779,19 +786,20 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
 
                 /* Render arenas in this group if expanded */
                 if (!isCollapsed) {
-                    for (s32 a = groupStart; a < groupEnd; a++) {
-                        struct mparena *arena = modmgrGetArena(a);
-                        if (!challengeIsFeatureUnlocked(arena->requirefeature)) continue;
+                    for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                        const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
+                        if (!challengeIsFeatureUnlocked(ae->ext.arena.requirefeature)) continue;
 
-                        const char *arenaName = arenaGetName(arena->name);
+                        const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
                         if (!arenaName || !arenaName[0]) continue;
 
-                        bool isSel = (a == s_ArenaIndex);
+                        bool isSel = (ae->runtime_index == s_ArenaIndex);
                         char arenaLabel[96];
-                        snprintf(arenaLabel, sizeof(arenaLabel), "    %s##arena%d", arenaName, a);
+                        snprintf(arenaLabel, sizeof(arenaLabel), "    %s##arena%d",
+                                 arenaName, ae->runtime_index);
                         if (ImGui::Selectable(arenaLabel, isSel)) {
-                            s_ArenaIndex = a;
-                            g_MatchConfig.stagenum = (u8)arena->stagenum;
+                            s_ArenaIndex = ae->runtime_index;
+                            g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
                             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                         }
                         if (isSel) ImGui::SetItemDefaultFocus();
@@ -1085,223 +1093,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
         menuPopDialog();
     }
 
-    /* D3R-5 DEBUG: Test All Maps button (temporary) */
-    if (s_MapTestState == MAPTEST_IDLE) {
-        ImGui::SameLine(0, pad);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.4f, 0.7f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.5f, 0.8f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.6f, 0.9f, 1.0f));
-        if (PdButton("Test All Maps", ImVec2(footerBtnW, footerBtnH))) {
-            sysLogPrintf(LOG_NOTE, "MAPTEST: Starting cycle test of all arenas");
-            s_MapTestState = MAPTEST_START_NEXT;
-            s_MapTestArena = 0;
-            s_MapTestPassed = 0;
-            s_MapTestFailed = 0;
-            s_MapTestSkipped = 0;
-            s_MapTestTotal = s_MapTestMaxArena;
-            s_MapTestFrames = 0;
-            s_Initialized = false;
-        }
-        ImGui::PopStyleColor(3);
-    } else if (s_MapTestState == MAPTEST_DONE) {
-        ImGui::SameLine(0, pad);
-        ImGui::Text("Done: %d OK, %d fail, %d skip",
-            s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped);
-    }
-
     ImGui::End();
     return 1;
-}
-
-/* ========================================================================
- * D3R-5 DEBUG: Map Cycle Tick — called every frame from pdgui_backend.
- *
- * State machine that drives the test cycle. Transitions:
- *   IDLE → START_NEXT (button press)
- *   START_NEXT → WAIT_LOAD (matchStart called)
- *   WAIT_LOAD → LOADED (normmplayerisrunning becomes true)
- *   LOADED → WAIT_MENU (mainEndStage called after delay)
- *   WAIT_MENU → START_NEXT (normmplayerisrunning becomes false)
- *   START_NEXT → DONE (all arenas tested)
- * ======================================================================== */
-
-/* Bridge to pause/gameplay state — declared in pausemenu, we redeclare here */
-extern "C" {
-s32 pdguiPauseGetNormMplayerIsRunning(void);
-void pdguiPauseSetPlayerAborted(void);
-void mainEndStage(void);
-void pdguiMapTestEndCurrentMatch(void);
-}
-
-/**
- * Find the next valid (non-null, non-locked, non-random) arena starting
- * from s_MapTestArena. Returns the arena pointer or NULL if all done.
- * Advances s_MapTestArena past skipped entries.
- */
-static struct mparena *mapTestFindNextArena(void)
-{
-    while (s_MapTestArena < s_MapTestMaxArena) {
-        struct mparena *arena = modmgrGetArena(s_MapTestArena);
-        if (!arena) {
-            s_MapTestArena++;
-            s_MapTestSkipped++;
-            continue;
-        }
-
-        /* Skip locked arenas */
-        if (arena->requirefeature != 0 &&
-            !challengeIsFeatureUnlocked(arena->requirefeature)) {
-            sysLogPrintf(LOG_NOTE,
-                "MAPTEST [%d/%d]: SKIP arena %d (locked, feature %d)",
-                s_MapTestArena + 1, s_MapTestMaxArena,
-                s_MapTestArena, arena->requirefeature);
-            s_MapTestArena++;
-            s_MapTestSkipped++;
-            continue;
-        }
-
-        return arena;
-    }
-    return NULL;
-}
-
-/**
- * Launch the arena at s_MapTestArena. Configures match and starts.
- *
- * IMPORTANT: For subsequent maps (not the first), the caller must have
- * already called pdguiMapTestResetMatchState() to clean up the previous
- * match. Without this, normmplayerisrunning stays true from the old match
- * and cumulative state corruption causes crashes after a few transitions.
- */
-static void mapTestLaunchArena(struct mparena *arena)
-{
-    const char *name = arenaGetName(arena->name);
-    sysLogPrintf(LOG_NOTE,
-        "MAPTEST [%d/%d]: STARTING arena %d \"%s\" (stagenum 0x%02x)",
-        s_MapTestArena + 1, s_MapTestMaxArena,
-        s_MapTestArena, name ? name : "?", arena->stagenum);
-
-    matchConfigInit();
-    g_MatchConfig.stagenum = (u8)arena->stagenum;
-    s_ArenaIndex = s_MapTestArena;
-    s_Initialized = false;
-    matchStart();
-
-    s_MapTestFrames = 0;
-    s_MapTestState = MAPTEST_WAIT_LOAD;
-}
-
-static void mapTestLogComplete(void)
-{
-    sysLogPrintf(LOG_NOTE,
-        "MAPTEST COMPLETE: %d passed, %d failed, %d skipped (of %d)",
-        s_MapTestPassed, s_MapTestFailed, s_MapTestSkipped,
-        s_MapTestMaxArena);
-}
-
-static void mapTestTick(void)
-{
-    if (s_MapTestState == MAPTEST_IDLE || s_MapTestState == MAPTEST_DONE) {
-        return;
-    }
-
-    switch (s_MapTestState) {
-
-    case MAPTEST_START_NEXT:
-    {
-        struct mparena *arena = mapTestFindNextArena();
-        if (arena) {
-            mapTestLaunchArena(arena);
-        } else {
-            s_MapTestState = MAPTEST_DONE;
-            mapTestLogComplete();
-        }
-        break;
-    }
-
-    case MAPTEST_WAIT_LOAD:
-    {
-        s_MapTestFrames++;
-
-        if (pdguiPauseGetNormMplayerIsRunning()) {
-            sysLogPrintf(LOG_NOTE,
-                "MAPTEST [%d/%d]: LOADED in %d frames — PASS",
-                s_MapTestArena + 1, s_MapTestMaxArena, s_MapTestFrames);
-            s_MapTestPassed++;
-            s_MapTestFrames = 0;
-            s_MapTestState = MAPTEST_LOADED;
-        }
-
-        /* Timeout — if load takes more than 600 ticks, skip this map */
-        if (s_MapTestFrames > 600) {
-            sysLogPrintf(LOG_ERROR,
-                "MAPTEST [%d/%d]: TIMEOUT waiting for load — FAIL",
-                s_MapTestArena + 1, s_MapTestMaxArena);
-            s_MapTestFailed++;
-            s_MapTestArena++;
-            s_MapTestFrames = 0;
-            s_MapTestState = MAPTEST_CLEANUP;
-        }
-        break;
-    }
-
-    case MAPTEST_LOADED:
-    {
-        s_MapTestFrames++;
-
-        /* Let the map run for a few frames to confirm stability,
-         * then move to cleanup before starting the next map. */
-        if (s_MapTestFrames >= 30) {
-            s_MapTestArena++;
-            s_MapTestFrames = 0;
-            s_MapTestState = MAPTEST_CLEANUP;
-        }
-        break;
-    }
-
-    case MAPTEST_CLEANUP:
-    {
-        /*
-         * Between-match cleanup. Uses mainEndStage() for the FULL
-         * teardown chain (mpEndMatch, audio, dialog/menu cleanup),
-         * then suppresses the endscreen and resets match-running flags.
-         *
-         * Without mainEndStage(), internal state (dialog stack, audio
-         * refs, func0f0f820c bookkeeping) accumulates across rapid
-         * transitions and crashes during the ~5th stage teardown.
-         */
-        if (s_MapTestFrames == 0) {
-            sysLogPrintf(LOG_NOTE,
-                "MAPTEST: ending current match (full teardown)");
-            pdguiMapTestEndCurrentMatch();
-        }
-
-        s_MapTestFrames++;
-
-        /* Brief delay to let the game loop process the teardown.
-         * mainEndStage runs synchronously (mpEndMatch, etc.) but
-         * the actual stage unload is deferred to the game loop.
-         * 5 frames gives one full tick cycle to settle. */
-        if (s_MapTestFrames >= 5) {
-            struct mparena *next = mapTestFindNextArena();
-            if (next) {
-                sysLogPrintf(LOG_NOTE,
-                    "MAPTEST [%d/%d]: transitioning to next arena",
-                    s_MapTestArena + 1, s_MapTestMaxArena);
-                mapTestLaunchArena(next);
-            } else {
-                /* All done — we already called mainEndStage in cleanup,
-                 * so the match is properly ended. Just log and finish. */
-                mapTestLogComplete();
-                s_MapTestState = MAPTEST_DONE;
-            }
-        }
-        break;
-    }
-
-    default:
-        break;
-    }
 }
 
 /* ========================================================================
@@ -1317,15 +1110,6 @@ void pdguiMenuMatchSetupRegister(void)
         s_Registered = true;
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_matchsetup: Registered Match Setup menu");
-}
-
-/**
- * D3R-5 DEBUG: Tick the map cycle test state machine.
- * Called every frame from pdgui_backend.cpp.
- */
-void pdguiMapTestTick(void)
-{
-    mapTestTick();
 }
 
 } /* extern "C" */

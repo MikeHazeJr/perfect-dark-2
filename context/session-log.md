@@ -5,36 +5,70 @@
 
 ---
 
-## Session 33 — 2026-03-23
+## Session 35 — 2026-03-23
 
-**Focus**: D3R-5 map cycle test crash fix
+**Focus**: D3R-5 Step 4 — Arena registration implementation + ImGui dropdown migration
 
-### Diagnosis
+### What Was Done
 
-Map cycle test v2 crashed with 0xc0000005 (access violation) on the 5th arena (Sewers, stagenum 0x42). Log analysis revealed:
-- All 4 previous maps reported "LOADED in 1 frame" — `normmplayerisrunning` was **never reset** between maps
-- `matchStart()` was called during active gameplay without ending the previous match
-- `mpEndMatch()` (which resets match state) was never called; `mainEndStage()` was avoided because it triggers the broken OG endscreen
-- After 4 rapid match-starts without cleanup, cumulative state corruption → crash
+1. **`assetcatalog.h`**: Added `ASSET_ARENA` to `asset_type_e` enum. Added `ext.arena` struct to the entry union (stagenum, requirefeature, name_langid). Added `assetCatalogRegisterArena()` wrapper declaration.
 
-Root cause: The v2 state machine called `matchStart()` directly from gameplay. `normmplayerisrunning` stays `true` (only reset by `menutick.c` during endscreen→menu flow), so the game never saw a clean "no match active" state between maps.
+2. **`assetcatalog.c`**: Implemented `assetCatalogRegisterArena()` — follows same pattern as other registration wrappers. Sets ext.arena fields after calling base `assetCatalogRegister()`.
 
-### Fix v1 (flag reset only — INSUFFICIENT)
+3. **`assetcatalog_base.c`**: Replaced the "NOTE: Arenas not registered" comment (line 416) with full arena registration. Uses `s_ArenaGroupMap[]` table that maps group boundaries to category strings. Registration loop reads stagenum, requirefeature, and name directly from `g_MpArenas[]` (preserves VERSION-conditional lang IDs without duplication). All 75 base arenas registered with `"base:arena_N"` IDs and group category strings.
 
-`pdguiMapTestResetMatchState()` — manually reset 5 flags. Maps cycled visually (4 maps worked) but **still crashed on 5th** at same offset 0x11accc. Flag-only reset misses `mpEndMatch()`'s internal cleanup (`func0f0f820c`, audio, dialog stack). User confirmed Sewers loads fine manually — crash is flow-specific.
+4. **`pdgui_menu_matchsetup.cpp`**: Migrated ImGui arena dropdown from hardcoded `s_ArenaGroups[7]` offset table to catalog-backed `s_ArenaGroupCache[]`. Added `#include "assetcatalog.h"` (safe — no types.h contamination via fs.h). Removed `arenaGroupDef` struct, old `s_ArenaGroups[]` array. Added `arenaCollectCb()` callback, `rebuildArenaCache()`, and lazy dirty-flag rebuild. Dropdown now reads all data from catalog entries instead of `modmgrGetArena()`.
 
-### Fix v2 (proper mainEndStage teardown)
+### Design Decisions
 
-**`pdguiMapTestEndCurrentMatch()`** in `pdgui_bridge.c`:
-- Calls `mainEndStage()` for FULL cleanup chain (mpEndMatch, audio, dialog teardown)
-- Immediately suppresses the endscreen (`g_MainIsEndscreen = false`)
-- Resets match-running flags (mirrors menutick.c:668)
-
-**CLEANUP state** uses the full teardown, then 5-frame delay, then launches next arena.
+- **Arena IDs**: `"base:arena_N"` (flat index) rather than stage-derived names. Avoids collisions with existing `"base:{stage}"` map entries. Human-readable arena names come from `ext.arena.name_langid` at render time.
+- **No data duplication**: Registration reads directly from `g_MpArenas[]` rather than duplicating the 75-entry table. Group mapping is a tiny 7-entry struct.
+- **Lazy cache rebuild**: `s_ArenaCacheDirty` flag avoids per-frame catalog iteration. Set on catalog changes (mod toggle future work).
+- **`goto found_current`**: Used in dropdown for early break from nested loop. Safe in C++ — no variable declarations crossed.
+- **Explicit u16 casts**: `arenaGetName()` takes `u16`, catalog stores `s32`. Explicit casts at both call sites prevent narrowing warnings.
 
 ### Files Modified
-- `port/fast3d/pdgui_bridge.c` — `pdguiMapTestEndCurrentMatch()`, added includes for `lib/main.h`, `game/pdmode.h`, `game/title.h`
-- `port/fast3d/pdgui_menu_matchsetup.cpp` — CLEANUP state, extern "C" decl, state machine rewrite
+- `port/include/assetcatalog.h` — ASSET_ARENA enum, ext.arena struct, wrapper decl
+- `port/src/assetcatalog.c` — wrapper implementation
+- `port/src/assetcatalog_base.c` — arena registration loop (replaces NOTE comment)
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — catalog include, group cache, dropdown migration
+
+### Verification
+- Code review: 20/20 checks passed (constraints, type safety, memory safety, logic, cascades)
+- Propagation check: No references to removed `arenaGroupDef`/`s_ArenaGroups` elsewhere in codebase
+- `g_ArenaGroupDefs` in setup.c (C-side) intentionally untouched — legacy code remains functional until D3R-11
+
+### Next Steps
+- Build test for Step 4 changes
+- D3R-5 Tier 1: ~15 read-only display callsites (arena names, stage lookups)
+- D3R-5 Tier 3 (deferred D3R-9): Network sync — body/head u8 indices over wire
+
+---
+
+## Session 34 — 2026-03-23
+
+**Focus**: D3R-5 map cycle test removal + arena registration planning
+
+### Map Cycle Test — Removed
+
+Map cycle test crashed on 5th arena transition (0xc0000005 in `portalSetXluFrac`). Root cause: `g_PortalXluFracs` allocated from `MEMPOOL_STAGE` gets freed during rapid match transitions while glass objects still reference it. Fundamental to stage lifecycle — not fixable without reimplementing transition state machine. **Removed as rabbit hole.**
+
+Files cleaned: `pdgui_menu_matchsetup.cpp` (enum, statics, state machine, button, tick), `pdgui_bridge.c` (`pdguiMapTestEndCurrentMatch()` + 3 unused includes), `pdgui_backend.cpp` (tick call), `pdgui_pausemenu.h` (declaration). Grep-verified zero references remain.
+
+### D3R-5 Arena Registration — Planned (Not Coded)
+
+Full callsite survey completed. Accessor layer already done (all access through `modmgrGetArena/Body/Head()`). What remains is catalog integration.
+
+**Arena group structure** (`g_MpArenas[75]` in `setup.c`):
+- 0–12: "Dark" (13), 13–26: "Solo Missions" (14), 27–31: "Classic" (5), 32–54: "GoldenEye X" (23), 55–70: "Bonus" (16), 71–74: "Random" (4)
+
+**Approved design for next session**:
+1. Add `ASSET_ARENA` type to `assetcatalog.h` with `ext.arena` struct (stagenum, requirefeature, name_langid)
+2. Add `assetCatalogRegisterArena()` wrapper
+3. Register all 75 base arenas in `assetcatalog_base.c` with group as `category` field
+4. Migrate ImGui arena dropdown (`pdgui_menu_matchsetup.cpp:711-777`) from hardcoded `s_ArenaGroups[]` offsets to `assetCatalogIterateByCategory()`
+5. Tier 1 easy callsites (~15 read-only display sites) next
+6. Network sync (body/head u8 indices) deferred to D3R-9
 
 ---
 

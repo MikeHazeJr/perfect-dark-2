@@ -513,6 +513,21 @@ asset_entry_t *assetCatalogRegisterBotVariant(const char *id,
     return entry;
 }
 
+asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
+                                          u8 requirefeature, s32 name_langid)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_ARENA);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.arena.stagenum = stagenum;
+    entry->ext.arena.requirefeature = requirefeature;
+    entry->ext.arena.name_langid = name_langid;
+
+    return entry;
+}
+
 /* ========================================================================
  * Public API: Resolution
  * ======================================================================== */

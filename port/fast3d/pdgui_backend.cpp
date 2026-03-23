@@ -249,8 +249,6 @@ void pdguiRender(void)
     pdguiPauseMenuRender((s32)winW, (s32)winH);
     pdguiScorecardRender((s32)winW, (s32)winH);
 
-    /* D3R-5 DEBUG: Map cycle test — auto-loads/exits each arena */
-    pdguiMapTestTick();
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */

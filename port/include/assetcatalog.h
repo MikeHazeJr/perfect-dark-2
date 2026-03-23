@@ -63,6 +63,7 @@ typedef enum {
     ASSET_MISSION,
     ASSET_UI,
     ASSET_TOOL,
+    ASSET_ARENA,
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -113,6 +114,11 @@ typedef struct asset_entry {
             f32 reaction_time;
             f32 aggression;
         } bot_variant;
+        struct {
+            s32 stagenum;              /* logical stage ID this arena loads */
+            u8  requirefeature;        /* unlock check (0 = always available) */
+            s32 name_langid;           /* language string ID for display name */
+        } arena;
     } ext;
 
     /* Catalog internals */
@@ -201,6 +207,15 @@ asset_entry_t *assetCatalogRegisterBotVariant(const char *id,
                                               f32 accuracy,
                                               f32 reaction_time,
                                               f32 aggression);
+
+/**
+ * Register an arena asset.
+ * Convenience wrapper that sets ext.arena fields.
+ * An arena is a stage reference used in the MP arena selection menu,
+ * with an unlock requirement and a display name (language string ID).
+ */
+asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
+                                          u8 requirefeature, s32 name_langid);
 
 /* ========================================================================
  * Resolution API

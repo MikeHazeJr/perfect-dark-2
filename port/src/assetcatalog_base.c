@@ -413,12 +413,62 @@ s32 assetCatalogRegisterBaseGame(void)
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads", head_count);
 	count += head_count;
 
-	/* NOTE: Arenas (g_MpArenas[]) are not registered as separate catalog
-	 * entries. An arena is just a stage reference + unlock requirement for
-	 * the MP arena selection menu. The underlying maps are already in the
-	 * catalog. Arena list construction will be migrated during D3R-5+
-	 * callsite work to query the catalog instead of iterating g_MpArenas[].
+	/* ---- Register arenas ---- */
+	/*
+	 * Arenas are stage references for the MP arena selection menu.
+	 * Group mapping reads stagenum, requirefeature, and name directly
+	 * from g_MpArenas[] (preserves VERSION-conditional lang IDs).
+	 * Category field stores the arena group name for dropdown grouping.
 	 */
+	static const struct {
+		s32 first;           /* first index in g_MpArenas[] */
+		s32 count;           /* number of arenas in this group */
+		const char *category;
+	} s_ArenaGroupMap[] = {
+		{  0, 13, "Dark" },
+		{ 13, 14, "Solo Missions" },
+		{ 27,  5, "Classic" },
+		{ 32, 11, "GoldenEye X" },
+		{ 43, 12, "GoldenEye X Bonus" },
+		{ 55, 16, "Bonus" },
+		{ 71,  4, "Random" },
+	};
+	#define NUM_ARENA_GROUPS (sizeof(s_ArenaGroupMap) / sizeof(s_ArenaGroupMap[0]))
+
+	s32 arena_count = 0;
+	for (s32 g = 0; g < (s32)NUM_ARENA_GROUPS; g++) {
+		for (s32 j = 0; j < s_ArenaGroupMap[g].count; j++) {
+			s32 idx = s_ArenaGroupMap[g].first + j;
+			if (idx < 0 || idx >= 75) {
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf), "base:arena_%d", idx);
+
+			asset_entry_t *e = assetCatalogRegisterArena(
+				idbuf,
+				g_MpArenas[idx].stagenum,
+				g_MpArenas[idx].requirefeature,
+				(s32)g_MpArenas[idx].name
+			);
+
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base arena %s", idbuf);
+				continue;
+			}
+
+			strncpy(e->category, s_ArenaGroupMap[g].category, CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			e->runtime_index = idx;
+			arena_count++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base arenas", arena_count);
+	count += arena_count;
+
+	#undef NUM_ARENA_GROUPS
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
 	return count;

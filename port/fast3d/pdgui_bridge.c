@@ -22,9 +22,6 @@
 #include "net/netlobby.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
-#include "game/pdmode.h"
-#include "game/title.h"
-#include "lib/main.h"
 #include "modmgr.h"
 
 /**
@@ -340,36 +337,6 @@ void pdguiPauseSetPlayerAborted(void)
     if (g_Vars.currentplayer) {
         g_Vars.currentplayer->aborted = true;
     }
-}
-
-/**
- * D3R-5 DEBUG: Properly end the current match for the map cycle test.
- *
- * Called between consecutive matchStart() calls during the automated
- * map test. Uses mainEndStage() for the FULL cleanup chain (mpEndMatch,
- * audio, dialog teardown via func0f0f820c, etc.), then immediately
- * suppresses the endscreen it activates and resets the "match running"
- * flags — same as what menutick.c:668 does when leaving the endscreen.
- *
- * Without mainEndStage(), critical internal state (dialog stack, audio,
- * menu refs) accumulates across rapid match transitions and eventually
- * causes an access violation during stage teardown on the ~5th load.
- */
-void pdguiMapTestEndCurrentMatch(void)
-{
-    /* Full cleanup: mpEndMatch() + dialog/audio teardown */
-    mainEndStage();
-
-    /* Suppress the endscreen that mainEndStage just activated.
-     * Without this, the OG endscreen renders and blocks for input. */
-    g_MainIsEndscreen = false;
-
-    /* Reset match-running flags (mirrors menutick.c:668 on
-     * normal endscreen→menu return) */
-    mpSetPaused(MPPAUSEMODE_UNPAUSED);
-    g_Vars.mplayerisrunning = false;
-    g_Vars.normmplayerisrunning = false;
-    g_Vars.lvmpbotlevel = 0;
 }
 
 const char *pdguiPauseGetStageName(u8 stagenum)

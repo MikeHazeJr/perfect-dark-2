@@ -31,7 +31,7 @@
 | **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **TESTED — PASS** |
 | **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **TESTED — PASS** |
 | **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **TESTED — PASS** |
-| **Map Cycle Test Crash Fix** (S33) | Added `pdguiMapTestResetMatchState()` bridge function + CLEANUP state in map test state machine. Resets match flags between maps to prevent cumulative corruption. | **CODED — needs build test** |
+| **Map Cycle Test** (S33/34) | Attempted automated arena cycling — crashed on 5th transition due to MEMPOOL_STAGE lifecycle conflict. Feature removed; maps tested manually. | **REMOVED** |
 
 ## Bugs Still Open
 
@@ -90,7 +90,7 @@
 | D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
 | D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
 | D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
-| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Step 1 (bootstrap) ✓ Step 2 (resolution) ✓ Step 3 (catalog-as-truth smart redirect) ✓ BUILD PASS — Paradox correct, Kakariko loaded. B-17 structurally fixed. Arena/body/head migration remaining. |
+| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Steps 1-4 ✓ (Step 4 coded S35, awaiting build test). B-17 fixed. **Next**: Build test Step 4, then Tier 1 easy callsites (~15 read-only display sites). See briefing below. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
 | D3R-7 | **INI Manager tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
@@ -102,49 +102,31 @@
 
 **Goal**: Replace numeric array index lookups with `catalogResolve()` calls so the runtime actually *uses* the Asset Catalog instead of just populating it.
 
-**Approach**: Incremental, by subsystem. Each subsystem can be migrated and tested independently. The catalog is populated but currently inert — no game code reads from it yet.
+**Completed steps**:
+- Step 1 ✓: Catalog bootstrap — wired init into startup sequence
+- Step 2 ✓: Standalone filesystem resolution — `assetcatalog_resolve.c` intercepts at `fsFullPath()`
+- Step 3 ✓: Catalog-as-truth smart redirect — B-17 structurally fixed, Paradox confirmed correct
 
-**Catalog API available** (from `assetcatalog.h`):
+**Step 4: Arena Registration — CODED (S35, awaiting build test)**
 
-| Function | Returns | Use case |
-|----------|---------|----------|
-| `assetCatalogResolve(id)` | `const asset_entry_t*` or NULL | General lookup by string ID |
-| `assetCatalogResolveBodyIndex(id)` | `s32` runtime_index or -1 | Body selection in character menus |
-| `assetCatalogResolveStageIndex(id)` | `s32` runtime_index or -1 | Stage/map selection |
-| `assetCatalogIterateByType(type, fn, ud)` | void (callback) | Building menu lists |
-| `assetCatalogIterateByCategory(cat, fn, ud)` | void (callback) | Mod manager grouping |
-| `assetCatalogGetSkinsForTarget(id, out, max)` | count | Skin variant queries |
-| `assetCatalogIsEnabled(id)` | `s32` bool | Toggle checks |
+All 4 files modified:
+- `assetcatalog.h` — `ASSET_ARENA` enum, `ext.arena` struct, `assetCatalogRegisterArena()` decl
+- `assetcatalog.c` — wrapper implementation
+- `assetcatalog_base.c` — 75 base arenas registered via `s_ArenaGroupMap[]` + loop reading from `g_MpArenas[]`
+- `pdgui_menu_matchsetup.cpp` — `#include "assetcatalog.h"`, removed `arenaGroupDef`/`s_ArenaGroups[]`, added `s_ArenaGroupCache[]` + `rebuildArenaCache()` + callback, dropdown reads from catalog entries
 
-**Subsystems to migrate** (suggested priority order):
+**Migration tiers** (from S34 callsite survey):
+- **Tier 1 (easy, ~15 sites)**: Read-only display — arena names, stage lookups. NEXT after build test.
+- ~~**Tier 2 (medium, big win)**: ImGui arena dropdown~~ — **DONE (S35)**
+- **Tier 3 (deferred D3R-9)**: Network sync — body/head u8 indices over wire
 
-1. **Catalog initialization** — Wire `assetCatalogInit()` + `assetCatalogRegisterBaseGame()` + `assetCatalogScanComponents()` into the startup sequence. Without this, the catalog exists but is never populated. This is the prerequisite for everything else.
-
-2. **MP arena/stage selection** — `g_MpArenas[]` numeric indices → catalog queries. Arena entries reference stages by stagenum; the catalog already has all stages registered. Menu code in `mplayer.c` and setup UI.
-
-3. **MP body/head selection** — `g_MpBodies[]`/`g_MpHeads[]` numeric indices → catalog queries. Character select menu, network sync of character choices.
-
-4. **Stage loading** — `stageLoad()` and related callsites. The `g_Stages[]` array is still the runtime representation, but the *selection* of which stage to load should go through the catalog.
-
-5. **Weapon references** — ~30 weapons, not yet registered in D3R-3. Requires adding weapon registration to `assetcatalog_base.c` first, then migrating weapon selection/pickup callsites.
-
-**Key files to survey at session start**:
-- `src/game/mplayer/mplayer.c` — `g_MpBodies[]`, `g_MpHeads[]`, `g_MpArenas[]`, `mpGetNumBodies()`, `mpGetBody()`
-- `src/game/mplayer/setup.c` — `g_MpArenas[]` definition, arena selection
-- `src/game/stage.c` or `src/game/lv.c` — stage loading entry points
-- `port/src/modmgr.c` — current mod loading init sequence (where to hook catalog init)
-
-**Constraints to respect**:
+**Constraints**:
 - `bool` is `s32`, never `<stdbool.h>`
-- Name-based resolution only (project constraint) — no new numeric lookups
-- C11 game code, C++ port code — catalog is in port/ (C++ OK) but callsites in src/game/ are C
-- Existing mod loader (`modmgr.c`) must continue working until D3R-11 legacy cleanup
+- Name-based resolution only — no new numeric lookups
+- C11 game code, C++ port code
+- `modmgr.c` must keep working until D3R-11
 
-**What's NOT in scope for D3R-5**:
-- Weapons registration (deferred — add to D3R-3 scope when ready)
-- Mod Manager UI (D3R-6)
-- Removing legacy code (D3R-11)
-- Network sync changes (D3R-9)
+**Not in scope**: Weapons registration, Mod Manager UI (D3R-6), legacy removal (D3R-11), network sync (D3R-9)
 
 ### Key Architectural Decisions (S27)
 - **No numeric lookups** — project constraint. Everything through Asset Catalog.
