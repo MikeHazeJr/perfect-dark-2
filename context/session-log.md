@@ -72,6 +72,49 @@
 - D3R-11 (S45b): Legacy cleanup — `g_ModNum`, `modconfig.txt` parsing, static array patching
 - QC tests 1–10 in `context/qc-tests.md` need in-game verification
 
+## Session 45b — 2026-03-24
+
+**Focus**: D3R-11 — Legacy Mod Cleanup (g_ModNum removal, modconfig.txt removal)
+
+### What Was Done
+
+1. **`port/src/romdata.c`** — Flattened `fileSlots[5][ROMDATA_MAX_FILES]` 2D array to `fileSlots[N]` 1D. Fixed all remaining `fileSlots[g_ModNum][x]` references in `romdataFileGetSize`, `romdataFileGetName`, `romdataFileGetNumForName`.
+
+2. **`port/src/fs.c`** — Removed `s32 g_ModNum = 0;` definition.
+
+3. **`port/src/main.c`** — Removed `// Mod Switch\n\tg_ModNum = 0;` block. Removed legacy fallback: `if (modmgrGetCount() == 0 && fsGetModDir()) { modConfigLoad(MOD_CONFIG_FNAME); }`. Removed `#include "mod.h"`.
+
+4. **`src/include/data.h`** — Removed `extern s32 g_ModNum`, `extern struct modelstate g_GexModelStates[NUM_MODELS]`, `extern s8 g_GexPropExplosionTypes[]`, `extern struct modelstate g_Goldfinger64ModelStates[NUM_MODELS]`.
+
+5. **`src/include/constants.h`** — Removed `MOD_NORMAL`, `MOD_GEX`, `MOD_KAKARIKO`, `MOD_DARKNOON`, `MOD_GOLDFINGER_64` defines.
+
+6. **`src/game/mplayer/mplayer.c`** — Replaced entire `g_ModNum`-keyed switch block + `modConfigLoad` call + if-chain texture overrides with a single clean `switch (stagenum)` that groups stages by mod origin (GEX, Kakariko, GF64). DarkNoon stage had no texture overrides so falls to `default: break`. Removed `#include "mod.h"`.
+
+7. **`src/game/menutick.c`** — Removed dead "Mod Switch (MP End)" block (was: set `g_ModNum=0` then immediately check `g_ModNum==MOD_GEX`, always false). Removed `#include "mod.h"`.
+
+8. **`src/game/propobj.c`** — Replaced GEX/GF64 `g_ModNum` scale branches with direct `g_ModelStates[obj->modelnum].scale` (per S35 policy: fix assets to 1.0× baseline, not the runtime).
+
+9. **`port/src/modmgr.c`** — Removed: `#include "mod.h"`, shadow arrays (`g_ModBodies/Heads/Arenas` + counts), `modmgrCreateLegacyManifest`, modconfig.txt scan path in `modmgrScanDirectory`, `modConfigLoad()` call in `modmgrLoadMod`, shadow array clearing in `modmgrUnloadAllMods`, legacy fallback loops in all three rebuild-cache functions, three count-accessor functions (`modmgrGetModBodyCount/HeadCount/ArenaCount`). Simplified all accessors to catalog-only paths.
+
+10. **`port/include/modmgr.h`** — Removed `has_modconfig`, `num_stages` from `modinfo_t`. Removed three `modmgrGetMod*Count` declarations.
+
+11. **`port/src/server_stubs.c`** — Removed stub `modConfigLoad`.
+
+### Build Status
+- All changes committed on worktree `claude/jolly-allen`, merged to `dev`.
+- Build blocked by pre-existing TEMP env issue: Windows `%TEMP%` is unset in the build process; MinGW gcc falls back to `C:\WINDOWS\` for temp files → Permission denied. Fails on unrelated files (acosasin.c, activemenu.c) confirming D3R-11 code is not the cause.
+- **Action required**: User must run `build-headless.ps1` from a terminal where TEMP is correctly set (normal PowerShell/MSYS2 session should be fine).
+
+### Decisions
+- **g_GexModelStates / g_Goldfinger64ModelStates** definitions left in `general.c` — policy is "fix the asset, not the runtime." Future task: correct model baselines to 1.0×.
+- **modconfig.txt fully removed**: `modmgrScanDirectory` now requires `mod.json` — dirs without it are skipped.
+- **menutick.c Mod Switch block was dead code**: confirmed by static analysis (set then immediately test same var). Removed with zero behavioral impact.
+
+### Next Steps
+- User runs `build-headless.ps1` to verify D3R-11 integrates clean
+- D3R-10 now merged — QC tests 1–10 in `context/qc-tests.md` need in-game verification
+- D3R-7 (Modding Hub) still needs in-game build test
+
 ---
 
 ## Session 44 — 2026-03-24

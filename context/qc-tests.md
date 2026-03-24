@@ -32,6 +32,23 @@
 | 9 | Enter a non-existent path and click Preview | Preview area stays hidden; no crash | untested |
 | 10 | All/None buttons in export component list | All: selects all checkboxes; None: clears all | untested |
 
+## D3R-11 Legacy Cleanup (S45b) — Awaiting Build + Test
+
+**Pre-requisite**: `build-headless.ps1` must pass (blocked by TEMP env issue — run from normal PowerShell session).
+
+| # | Test | Expected Result | Status | Notes |
+|---|------|----------------|--------|-------|
+| 1 | Launch game normally | No crash; title screen loads | [ ] | Baseline smoke test |
+| 2 | Start a GEX-mod multiplayer match (GEX stage) | Match loads; GEX textures have correct surface types (no footstep audio weirdness) | [ ] | mplayer.c stagenum switch |
+| 3 | Start a Kakariko multiplayer match | Match loads; Kakariko textures have correct surface types | [ ] | |
+| 4 | Start a GF64 multiplayer match (STAGE_EXTRA20-23) | Match loads; correct texture surface assignments | [ ] | |
+| 5 | Start a DarkNoon multiplayer match (STAGE_TEST_MP7) | Match loads; no crash (no texture overrides needed — default:break) | [ ] | |
+| 6 | Start a vanilla PD stage multiplayer match | Match loads; no regression to texture surface types | [ ] | |
+| 7 | Props spawn in GEX stage | Props use `g_ModelStates[].scale` (not GEX override). May need asset correction later. | [ ] | Per S35 policy |
+| 8 | `mods/` dir with `mod.json` mod | Mod loads normally | [ ] | |
+| 9 | `mods/` dir WITHOUT `mod.json` | Dir silently skipped; log says "no mod.json, skipping" | [ ] | Legacy modconfig.txt dirs ignored |
+| 10 | Dedicated server launches | No crash on startup (`modConfigLoad` stub removed) | [ ] | server_stubs.c |
+
 ---
 
 ## D3R-9 Network Distribution (S44) — Awaiting Test
