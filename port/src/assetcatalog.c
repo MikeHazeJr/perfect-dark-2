@@ -559,6 +559,76 @@ asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
     return entry;
 }
 
+asset_entry_t *assetCatalogRegisterWeapon(const char *id, s16 weapon_id)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_WEAPON);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.weapon.weapon_id = weapon_id;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterTextures(const char *id)
+{
+    return assetCatalogRegister(id, ASSET_TEXTURES);
+}
+
+asset_entry_t *assetCatalogRegisterSfx(const char *id)
+{
+    return assetCatalogRegister(id, ASSET_SFX);
+}
+
+asset_entry_t *assetCatalogRegisterProp(const char *id, s16 prop_id)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_PROP);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.prop.prop_id = prop_id;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterGameMode(const char *id, s16 scenario_id,
+                                             u8 max_players, u8 min_players)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_GAMEMODE);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.gamemode.scenario_id = scenario_id;
+    entry->ext.gamemode.max_players = max_players;
+    entry->ext.gamemode.min_players = min_players;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterAnimation(const char *id,
+                                              const char *target_type)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_ANIMATION);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    if (target_type != NULL) {
+        strncpy(entry->ext.animation.target_type, target_type, 31);
+        entry->ext.animation.target_type[31] = '\0';
+    }
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterHud(const char *id)
+{
+    return assetCatalogRegister(id, ASSET_HUD);
+}
+
 /* ========================================================================
  * Public API: Resolution
  * ======================================================================== */

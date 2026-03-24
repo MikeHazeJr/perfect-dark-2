@@ -30,6 +30,88 @@
 #include "game/stagetable.h"
 
 /* ========================================================================
+ * Weapon Name Table
+ * ======================================================================== */
+
+/*
+ * Maps MPWEAPON_* constant -> catalog name.
+ * These become "base:{name}" entries (e.g., "base:weapon_falcon2").
+ * weapon_id is the MPWEAPON_* constant value from constants.h.
+ * TODO: full enumeration; remaining MPWEAPON_* constants can be added here.
+ */
+static const struct {
+	s16 weapon_id;
+	const char *name;
+	const char *desc;
+} s_BaseWeapons[] = {
+	{ 0x01, "weapon_falcon2",        "Falcon 2" },
+	{ 0x02, "weapon_falcon2_sil",    "Falcon 2 (Silencer)" },
+	{ 0x03, "weapon_falcon2_scope",  "Falcon 2 (Scope)" },
+	{ 0x04, "weapon_magsec4",        "MagSec 4" },
+	{ 0x05, "weapon_mauler",         "Mauler" },
+	{ 0x06, "weapon_phoenix",        "Phoenix" },
+	{ 0x07, "weapon_dy357",          "DY357 Magnum" },
+	{ 0x08, "weapon_dy357lx",        "DY357-LX" },
+	{ 0x09, "weapon_cmp150",         "CMP150" },
+	{ 0x0a, "weapon_cyclone",        "Cyclone" },
+	{ 0x0b, "weapon_callisto",       "Callisto NTG" },
+	{ 0x0c, "weapon_rcp120",         "RCP-120" },
+	{ 0x0d, "weapon_laptopgun",      "Laptop Gun" },
+	{ 0x0e, "weapon_dragon",         "Dragon" },
+	{ 0x0f, "weapon_k7avenger",      "K7 Avenger" },
+	{ 0x10, "weapon_ar34",           "AR34" },
+	{ 0x11, "weapon_superdragon",    "SuperDragon" },
+	{ 0x12, "weapon_shotgun",        "Shotgun" },
+	{ 0x13, "weapon_reaper",         "Reaper" },
+	{ 0x14, "weapon_sniperrifle",    "Sniper Rifle" },
+	{ 0x15, "weapon_farsight",       "Farsight XR-20" },
+	{ 0x16, "weapon_devastator",     "Devastator" },
+	{ 0x17, "weapon_rocketlauncher", "Rocket Launcher" },
+	{ 0x18, "weapon_slayer",         "Slayer" },
+	{ 0x19, "weapon_combatknife",    "Combat Knife" },
+	{ 0x1a, "weapon_crossbow",       "Crossbow" },
+	{ 0x1b, "weapon_tranquilizer",   "Tranquilizer" },
+	{ 0x1c, "weapon_grenade",        "Grenade" },
+	{ 0x1d, "weapon_nbomb",          "N-Bomb" },
+	{ 0x1e, "weapon_timedmine",      "Timed Mine" },
+	{ 0x1f, "weapon_proximitymine",  "Proximity Mine" },
+	{ 0x20, "weapon_remotemine",     "Remote Mine" },
+	{ 0x21, "weapon_laser",          "Laser" },
+	{ 0x22, "weapon_xrayscanner",    "X-Ray Scanner" },
+	{ 0x25, "weapon_cloakingdevice", "Cloaking Device" },
+	{ 0x26, "weapon_combatboost",    "Combat Boost" },
+	{ 0x2f, "weapon_shield",         "Shield" },
+};
+
+#define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))
+
+/* ========================================================================
+ * Game Mode Name Table
+ * ======================================================================== */
+
+/*
+ * Maps MPSCENARIO_* constant -> catalog name.
+ * These become "base:{name}" entries (e.g., "base:gamemode_combat").
+ * scenario_id is the MPSCENARIO_* constant from constants.h.
+ */
+static const struct {
+	s16 scenario_id;
+	const char *name;
+	const char *desc;
+	u8 max_players;
+	u8 min_players;
+} s_BaseGameModes[] = {
+	{ 0, "gamemode_combat",           "Combat Simulator", 4, 2 },
+	{ 1, "gamemode_holdthebriefcase", "Hold the Briefcase", 4, 2 },
+	{ 2, "gamemode_hackercentral",    "Hacker Central", 4, 2 },
+	{ 3, "gamemode_popacap",          "Pop a Cap", 4, 2 },
+	{ 4, "gamemode_kingofthehill",    "King of the Hill", 4, 2 },
+	{ 5, "gamemode_capturethecase",   "Capture the Case", 4, 2 },
+};
+
+#define NUM_BASE_GAMEMODES (sizeof(s_BaseGameModes) / sizeof(s_BaseGameModes[0]))
+
+/* ========================================================================
  * Stage Name Table
  * ======================================================================== */
 
@@ -486,6 +568,66 @@ s32 assetCatalogRegisterBaseGame(void)
 	count += arena_count;
 
 	#undef NUM_ARENA_GROUPS
+
+	/* ---- Register weapons ---- */
+	/*
+	 * Base game weapons are registered as ASSET_WEAPON with the MPWEAPON_*
+	 * constant stored in ext.weapon.weapon_id. This allows mod overrides to
+	 * replace a specific weapon's model/sound by targeting its catalog ID.
+	 */
+	s32 weapon_count = 0;
+	for (s32 i = 0; i < (s32)NUM_BASE_WEAPONS; i++) {
+		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseWeapons[i].name);
+
+		asset_entry_t *e = assetCatalogRegisterWeapon(
+			idbuf,
+			s_BaseWeapons[i].weapon_id
+		);
+		if (!e) {
+			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base weapon %s", idbuf);
+			continue;
+		}
+
+		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+		e->bundled = 1;
+		e->enabled = 1;
+		e->runtime_index = (s32)s_BaseWeapons[i].weapon_id;
+		weapon_count++;
+	}
+
+	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base weapons", weapon_count);
+	count += weapon_count;
+
+	/* ---- Register game modes ---- */
+	/*
+	 * MP game modes / scenarios. Registered as ASSET_GAMEMODE with
+	 * ext.gamemode.scenario_id = MPSCENARIO_* constant.
+	 * These are always bundled and always enabled.
+	 */
+	s32 gamemode_count = 0;
+	for (s32 i = 0; i < (s32)NUM_BASE_GAMEMODES; i++) {
+		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseGameModes[i].name);
+
+		asset_entry_t *e = assetCatalogRegisterGameMode(
+			idbuf,
+			s_BaseGameModes[i].scenario_id,
+			s_BaseGameModes[i].max_players,
+			s_BaseGameModes[i].min_players
+		);
+		if (!e) {
+			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base game mode %s", idbuf);
+			continue;
+		}
+
+		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+		e->bundled = 1;
+		e->enabled = 1;
+		e->runtime_index = (s32)s_BaseGameModes[i].scenario_id;
+		gamemode_count++;
+	}
+
+	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base game modes", gamemode_count);
+	count += gamemode_count;
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
 	return count;

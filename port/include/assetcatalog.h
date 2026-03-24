@@ -66,6 +66,9 @@ typedef enum {
     ASSET_ARENA,
     ASSET_BODY,                /* MP body entry (base game g_MpBodies[] or mod) */
     ASSET_HEAD,                /* MP head entry (base game g_MpHeads[] or mod) */
+    ASSET_ANIMATION,           /* animation set (player, NPC, prop) */
+    ASSET_GAMEMODE,            /* MP game mode / scenario definition */
+    ASSET_HUD,                 /* HUD skin / overlay replacement */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -131,6 +134,20 @@ typedef struct asset_entry {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
             u8  requirefeature;        /* unlock check (0 = always available) */
         } head;
+        struct {
+            s16 weapon_id;             /* MPWEAPON_* constant (0 = unmapped) */
+        } weapon;
+        struct {
+            char target_type[32];      /* "player", "npc", "prop", "all" */
+        } animation;
+        struct {
+            s16 prop_id;               /* game prop type ID (0 = unmapped) */
+        } prop;
+        struct {
+            s16 scenario_id;           /* MPSCENARIO_* constant */
+            u8  max_players;           /* 0 = no limit */
+            u8  min_players;           /* minimum players required */
+        } gamemode;
     } ext;
 
     /* Catalog internals */
@@ -246,6 +263,54 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
  */
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature);
+
+/**
+ * Register a weapon asset.
+ * Convenience wrapper that sets ext.weapon.weapon_id.
+ * weapon_id should be an MPWEAPON_* constant, or 0 if not mapped.
+ */
+asset_entry_t *assetCatalogRegisterWeapon(const char *id, s16 weapon_id);
+
+/**
+ * Register a textures asset (texture pack / replacement set).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterTextures(const char *id);
+
+/**
+ * Register an SFX asset (sound effect pack).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterSfx(const char *id);
+
+/**
+ * Register a prop asset.
+ * Convenience wrapper that sets ext.prop.prop_id.
+ * prop_id is the game's prop type ID, or 0 if not mapped.
+ */
+asset_entry_t *assetCatalogRegisterProp(const char *id, s16 prop_id);
+
+/**
+ * Register a game mode asset.
+ * Convenience wrapper that sets ext.gamemode fields.
+ * scenario_id should be an MPSCENARIO_* constant.
+ */
+asset_entry_t *assetCatalogRegisterGameMode(const char *id, s16 scenario_id,
+                                             u8 max_players, u8 min_players);
+
+/**
+ * Register an animation set asset.
+ * Convenience wrapper that sets ext.animation.target_type.
+ * target_type describes what this animation applies to: "player", "npc", "prop", "all".
+ */
+asset_entry_t *assetCatalogRegisterAnimation(const char *id,
+                                              const char *target_type);
+
+/**
+ * Register a HUD skin asset (in-game overlay replacement).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterHud(const char *id);
 
 /* ========================================================================
  * Resolution API

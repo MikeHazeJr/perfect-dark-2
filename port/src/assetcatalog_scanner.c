@@ -165,6 +165,9 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "missions") == 0)    return ASSET_MISSION;
 	if (strcmp(dirname, "ui") == 0)          return ASSET_UI;
 	if (strcmp(dirname, "tools") == 0)       return ASSET_TOOL;
+	if (strcmp(dirname, "animations") == 0)  return ASSET_ANIMATION;
+	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
+	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
 	return ASSET_NONE;
 }
 
@@ -186,6 +189,9 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "mission") == 0)      return ASSET_MISSION;
 	if (strcmp(section, "ui") == 0)           return ASSET_UI;
 	if (strcmp(section, "tool") == 0)         return ASSET_TOOL;
+	if (strcmp(section, "animation") == 0)    return ASSET_ANIMATION;
+	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
+	if (strcmp(section, "hud") == 0)          return ASSET_HUD;
 	return ASSET_NONE;
 }
 
@@ -279,8 +285,31 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_WEAPON:
+		e->ext.weapon.weapon_id = (s16)iniGetInt(ini, "weapon_id", 0);
+		break;
+
+	case ASSET_PROP:
+		e->ext.prop.prop_id = (s16)iniGetInt(ini, "prop_id", 0);
+		break;
+
+	case ASSET_ANIMATION:
+		{
+			const char *tt = iniGet(ini, "target_type", "all");
+			strncpy(e->ext.animation.target_type, tt, 31);
+			e->ext.animation.target_type[31] = '\0';
+		}
+		break;
+
+	case ASSET_GAMEMODE:
+		e->ext.gamemode.scenario_id = (s16)iniGetInt(ini, "scenario_id", -1);
+		e->ext.gamemode.max_players = (u8)iniGetInt(ini, "max_players", 0);
+		e->ext.gamemode.min_players = (u8)iniGetInt(ini, "min_players", 2);
+		break;
+
 	default:
-		/* ASSET_TEXTURES, ASSET_SFX, etc. -- no extra fields needed */
+		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
+		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
 		break;
 	}
 
