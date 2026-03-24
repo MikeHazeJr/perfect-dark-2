@@ -6,7 +6,7 @@
  *
  * Save path: {modsdir}/bot_variants/{slug}/bot.ini
  *
- * Unlike mod components (which live under mod_*/_components/), bot variants
+ * Unlike mod components (nested under mod_{name}/_components/), bot variants
  * created by the in-game customizer live directly under mods/bot_variants/.
  * The scanner picks them up at next launch via assetCatalogScanBotVariants().
  * The catalog hot-register makes them available immediately in the same session.
