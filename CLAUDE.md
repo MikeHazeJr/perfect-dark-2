@@ -100,7 +100,7 @@ The goal: if context is cleared right now, the next session picks up in under a 
 - **Memory**: `mempAlloc(size, MEMPOOL_STAGE)` for stage-lifetime. `IS4MB()` is compile-time `0`.
 - **Modern HW**: Prefer correctness over micro-optimization. Legacy workarounds exist because of N64 limits.
 - **Dead code removed**: N64 assembly, ultra/os, ultra/libc all removed.
-- **AI cannot compile**: Mike builds on Windows via MSYS2/MinGW. Code must be reviewed for correctness before delivery.
+- **AI builds via `build-headless.ps1`**: Game director tests in-game via playtest dashboard.
 
 ## Architecture
 - `src/` — Original decompiled game code (C). `src/game/`, `src/lib/`, `src/include/`
