@@ -601,7 +601,6 @@ function Render-QcPanel {
     $script:QcCheckboxes  = @{}
     $script:QcStatusDrops = @{}
 
-    $rowH     = 30
     $yPos     = 6
     $panelW   = $mainW - 22   # account for scrollbar
 
@@ -609,24 +608,47 @@ function Render-QcPanel {
     $colStW   = 90
     $colExpW  = 200
     $colTestW = $panelW - $colNumW - $colStW - $colExpW - 20
+    $minRowH  = 30
+    $rowPad   = 10   # top + bottom padding for row content
+
+    # Pre-create fonts for measuring and display (shared across all rows)
+    $fmtFlags    = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::Left
+    $testFont    = New-UIFont 9
+    $expFont     = New-UIFont 8
+    $secBoldFont = New-UIFont 9 -Bold
 
     foreach ($section in $script:QcSections) {
         if ($section.Rows.Count -eq 0) { continue }
 
-        # Section header label
+        # Section header - measure text height so long titles don't get clipped
+        $secMeasureSize = New-Object System.Drawing.Size(($panelW - 16), 65535)
+        $secSz = [System.Windows.Forms.TextRenderer]::MeasureText(
+            $section.Title, $secBoldFont, $secMeasureSize, $fmtFlags)
+        $secH = [Math]::Max(22, [int]$secSz.Height + 8)
+
         $secLbl = New-Object System.Windows.Forms.Label
         $secLbl.Text = $section.Title
-        $secLbl.Font = New-UIFont 9 -Bold
+        $secLbl.Font = $secBoldFont
         $secLbl.ForeColor = $script:ColorGold
         $secLbl.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
         $secLbl.Location = New-Object System.Drawing.Point(0, $yPos)
-        $secLbl.Size = New-Object System.Drawing.Size($panelW, 22)
+        $secLbl.Size = New-Object System.Drawing.Size($panelW, $secH)
         $secLbl.Padding = New-Object System.Windows.Forms.Padding(8, 4, 0, 0)
         $qcScrollPanel.Controls.Add($secLbl)
-        $yPos += 24
+        $yPos += $secH + 2
 
         foreach ($row in $section.Rows) {
             $rowNum = $row.Num
+
+            # Measure both text columns to determine the required row height
+            $testMeasureSize = New-Object System.Drawing.Size($colTestW, 65535)
+            $expMeasureSize  = New-Object System.Drawing.Size($colExpW,  65535)
+            $testSz = [System.Windows.Forms.TextRenderer]::MeasureText(
+                $row.Test, $testFont, $testMeasureSize, $fmtFlags)
+            $expSz  = [System.Windows.Forms.TextRenderer]::MeasureText(
+                $row.Expected, $expFont, $expMeasureSize, $fmtFlags)
+            $textH = [Math]::Max([int]$testSz.Height, [int]$expSz.Height)
+            $rowH  = [Math]::Max($minRowH, $textH + $rowPad)
 
             # Alternate row background
             $rowBg = if (([int]$rowNum % 2) -eq 0) {
@@ -635,7 +657,7 @@ function Render-QcPanel {
                 [System.Drawing.Color]::FromArgb(35, 35, 35)
             }
 
-            # Row container
+            # Row container - height is now dynamic
             $rowPanel = New-Object System.Windows.Forms.Panel
             $rowPanel.Location = New-Object System.Drawing.Point(0, $yPos)
             $rowPanel.Size = New-Object System.Drawing.Size($panelW, $rowH)
@@ -706,25 +728,25 @@ function Render-QcPanel {
             $script:QcStatusDrops[$rowNum] = $cmb
             $xPos += $colStW + 8
 
-            # Test description
+            # Test description - fills computed row height, wraps long text
             $lblTest = New-Object System.Windows.Forms.Label
             $lblTest.Text = $row.Test
-            $lblTest.Font = New-UIFont 9
+            $lblTest.Font = $testFont
             $lblTest.ForeColor = $script:ColorText
-            $lblTest.Location = New-Object System.Drawing.Point($xPos, 7)
-            $lblTest.Size = New-Object System.Drawing.Size($colTestW, 18)
-            $lblTest.TextAlign = "MiddleLeft"
+            $lblTest.Location = New-Object System.Drawing.Point($xPos, 5)
+            $lblTest.Size = New-Object System.Drawing.Size($colTestW, ($rowH - 6))
+            $lblTest.TextAlign = "TopLeft"
             $rowPanel.Controls.Add($lblTest)
             $xPos += $colTestW + 8
 
-            # Expected result (truncated, dimmer)
+            # Expected result - fills computed row height, wraps long text
             $lblExp = New-Object System.Windows.Forms.Label
             $lblExp.Text = $row.Expected
-            $lblExp.Font = New-UIFont 8
+            $lblExp.Font = $expFont
             $lblExp.ForeColor = $script:ColorDim
-            $lblExp.Location = New-Object System.Drawing.Point($xPos, 7)
-            $lblExp.Size = New-Object System.Drawing.Size($colExpW, 18)
-            $lblExp.TextAlign = "MiddleLeft"
+            $lblExp.Location = New-Object System.Drawing.Point($xPos, 5)
+            $lblExp.Size = New-Object System.Drawing.Size($colExpW, ($rowH - 6))
+            $lblExp.TextAlign = "TopLeft"
             $rowPanel.Controls.Add($lblExp)
 
             $yPos += $rowH
