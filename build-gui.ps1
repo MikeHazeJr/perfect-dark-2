@@ -1917,12 +1917,15 @@ function Copy-AddinFiles {
         Write-Output-Line "  data\" $script:ColorPurple
         $copied++
     }
-    $modsDir = Join-Path $script:AddinDir "mods"
-    if (Test-Path $modsDir) {
-        Copy-Item $modsDir -Destination $script:BuildDir -Recurse -Force
-        Write-Output-Line "  mods\" $script:ColorPurple
-        $copied++
-    }
+    # NOTE: Legacy flat-file mods disabled (S37). They use filename-shadowing
+    # that corrupts base game stages via modconfig.txt patching and modmgr
+    # file resolution. Mods will be reintroduced in D3R-6+ component format.
+    # $modsDir = Join-Path $script:AddinDir "mods"
+    # if (Test-Path $modsDir) {
+    #     Copy-Item $modsDir -Destination $script:BuildDir -Recurse -Force
+    #     Write-Output-Line "  mods\" $script:ColorPurple
+    #     $copied++
+    # }
     Write-Output-Line "Copied $copied items." $script:ColorGreen
 }
 
@@ -1942,7 +1945,8 @@ function Launch-Game($mode) {
     } else {
         $launchDir = $script:ClientBuildDir
         $launchExe = Join-Path $launchDir $script:ExeName
-        $gameArgs = "--moddir mods/mod_allinone --gexmoddir mods/mod_gex --kakarikomoddir mods/mod_kakariko --darknoonmoddir mods/mod_dark_noon --goldfinger64moddir mods/mod_goldfinger_64"
+        # Legacy mod args disabled (S37) — mods will use D3R component format
+        $gameArgs = ""
         $label = "Client"
         $labelColor = $script:ColorGreen
     }

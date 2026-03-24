@@ -38,16 +38,27 @@ The compiled `g_Stages[87]` array contains GEX EXTRA stage entries that reuse th
 
 This is by design: GEX mods REPLACE the bgdata files on disk, so the GEX stages point to the same FILE constants but expect mod files at those paths. Without mods, these entries just load the base PD geometry. The stage lookup uses stagenum (id field), not array index, so duplicates don't cause collisions.
 
+### Log Analysis — Root Cause Confirmed
+
+Build test revealed ALL THREE contamination vectors active simultaneously:
+
+1. **Startup modconfig patching**: All five mod configs loaded at boot (mod_allinone 1950B, mod_gex 2378B, etc.) — patching `g_Stages[]` with GEX file IDs at startup
+2. **Per-match modconfig reload**: `modconfig.txt` (1950B, allinone) reloaded on every match start via `--moddir` legacy arg
+3. **MODMGR file shadowing**: `bg_mp11.seg` resolved via `MODMGR -> ./mods/mod_gex/files/bgdata/bg_mp11.seg` instead of base game
+
+Corrupted Felicity entry: `stage[51] bgfile=51 tiles=524 pads=523` (524/523 are GEX extended file IDs, should be 52/53)
+
+**Root cause**: `build-gui.ps1` had two hardcoded legacy mod integrations:
+- Line 1920: Copies `mods/` from addin directory into every build output
+- Line 1945: Passes `--moddir mods/mod_allinone --gexmoddir mods/mod_gex ...` as launch args
+
+Both disabled in S37. Manual deletion of `build/client/mods/` required for existing builds.
+
 ### Files Modified
 - `port/src/fs.c` — fsFullPath diagnostic logging for bgdata files
 - `port/src/mod.c` — modConfigLoad found/not-found logging
 - `src/game/bg.c` — bgReset stage entry dump (all file IDs)
-
-### Awaiting Build Test
-The three diagnostic log points need Mike to build, load Felicity, and check the log. Expected findings:
-- If modconfig.txt is being loaded → stale modconfig is corrupting g_Stages
-- If FSPATH shows MODMGR or MODDIR → file resolution is still being redirected
-- If file IDs differ from expected (bgfile=51, tiles=52, pads=53) → g_Stages was corrupted
+- `build-gui.ps1` — Disabled mods/ copy block (line 1920) and legacy --moddir launch args (line 1945)
 
 ---
 
