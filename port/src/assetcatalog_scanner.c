@@ -493,3 +493,74 @@ s32 assetCatalogScanComponents(const char *modsdir)
 		total);
 	return total;
 }
+
+/* ========================================================================
+ * D3R-8: Flat Bot Variant Scanner
+ * ======================================================================== */
+
+/**
+ * Scan the flat bot_variants/ directory directly under modsdir.
+ *
+ * Unlike assetCatalogScanComponents(), bot variants created by the in-game
+ * customizer are stored directly at:
+ *   {modsdir}/bot_variants/{component_name}/bot.ini
+ *
+ * This function is called at startup after assetCatalogScanComponents() so
+ * variants saved in a previous session are available immediately.
+ * New variants saved this session are hot-registered via botVariantSave().
+ *
+ * @param modsdir  Path to the mods directory (e.g., "mods/")
+ * @return Number of bot variants registered, or 0 if directory doesn't exist.
+ */
+s32 assetCatalogScanBotVariants(const char *modsdir)
+{
+	if (!modsdir || !modsdir[0]) {
+		return 0;
+	}
+
+	char bot_variants_dir[FS_MAXPATH];
+	snprintf(bot_variants_dir, sizeof(bot_variants_dir), "%s/bot_variants", modsdir);
+
+	DIR *dp = opendir(bot_variants_dir);
+	if (!dp) {
+		/* Directory doesn't exist yet — created on first save, not an error */
+		return 0;
+	}
+
+	s32 count = 0;
+	struct dirent *ent;
+	char pathbuf[FS_MAXPATH];
+
+	while ((ent = readdir(dp)) != NULL) {
+		if (ent->d_name[0] == '.') {
+			continue;
+		}
+
+		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", bot_variants_dir, ent->d_name);
+
+		if (!isDirectory(pathbuf)) {
+			continue;
+		}
+
+		ini_section_t ini;
+		if (!findAndParseIni(pathbuf, &ini)) {
+			sysLogPrintf(LOG_WARNING,
+				"assetcatalog_scanner: no valid .ini in bot_variants/%s",
+				ent->d_name);
+			continue;
+		}
+
+		/* Use "custom" as the mod_id for user-created variants */
+		if (registerComponent(&ini, pathbuf, "custom")) {
+			count++;
+		}
+	}
+
+	closedir(dp);
+
+	if (count > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog_scanner: bot_variants: %d variant(s) registered", count);
+	}
+	return count;
+}

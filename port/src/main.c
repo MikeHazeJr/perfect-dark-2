@@ -191,6 +191,8 @@ int main(int argc, const char **argv)
 		const char *modsdir = modmgrGetModsDir();
 		if (modsdir) {
 			assetCatalogScanComponents(modsdir);
+			// D3R-8: Also scan flat bot_variants/ for user-created presets
+			assetCatalogScanBotVariants(modsdir);
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());

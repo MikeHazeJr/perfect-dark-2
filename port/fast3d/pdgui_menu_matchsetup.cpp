@@ -19,6 +19,7 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -26,6 +27,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "assetcatalog.h"
+#include "botvariant.h"
 #include "system.h"
 
 /* ========================================================================
@@ -519,6 +521,76 @@ static bool PdCheckbox(const char *label, bool *v)
 static bool s_BotPopupOpen = false;
 static s32 s_BotPopupSlot = -1;
 
+/* ========================================================================
+ * D3R-8: Bot Customizer state
+ * ======================================================================== */
+
+/* Per-slot trait overrides (parallel to g_MatchConfig.slots[], UI state only) */
+struct BotTraits {
+    float accuracy;
+    float reactionTime;
+    float aggression;
+    char  baseType[32];
+};
+
+static BotTraits s_BotTraits[MATCH_MAX_SLOTS];
+static bool      s_BotTraitsInitialized = false;
+
+/* Whether the Advanced section is expanded in the current bot edit popup */
+static bool s_BotPopupShowAdvanced = false;
+
+/* Bot preset cache — ASSET_BOT_VARIANT entries from catalog */
+#define MAX_BOT_PRESETS 64
+static const asset_entry_t *s_BotPresets[MAX_BOT_PRESETS];
+static s32                  s_BotPresetCount      = 0;
+static s32                  s_BotPresetCacheDirty = 1;
+static s32                  s_BotPresetSelected   = -1; /* index into s_BotPresets */
+
+/* Save-preset popup state */
+static char s_SavePresetName[MAX_PLAYER_NAME] = {0};
+
+/* Known base type strings — matching PD's simulant type naming */
+static const char *s_BaseTypeNames[] = {
+    "NormalSim", "MeatSim",  "EasySim",  "HardSim",
+    "PerfectSim","DarkSim",  "PeaceSim", "ShieldSim",
+    "RocketSim", "KazeSim",  "FistSim",  "PreySim",
+    "CowardSim", "JudgeSim", "FeudSim",  "SpeedSim",
+    "TurtleSim", "VengeSim",
+};
+static const s32 s_NumBaseTypes = 18;
+
+/* ========================================================================
+ * Bot preset cache helpers
+ * ======================================================================== */
+
+static void botPresetCacheCb(const asset_entry_t *entry, void *userdata)
+{
+    (void)userdata;
+    if (s_BotPresetCount < MAX_BOT_PRESETS) {
+        s_BotPresets[s_BotPresetCount++] = entry;
+    }
+}
+
+static void rebuildBotPresetCache(void)
+{
+    s_BotPresetCount = 0;
+    assetCatalogIterateByType(ASSET_BOT_VARIANT, botPresetCacheCb, NULL);
+    s_BotPresetCacheDirty = 0;
+}
+
+/* Initialize default traits for all slots (called once per session) */
+static void initBotTraits(void)
+{
+    for (s32 i = 0; i < MATCH_MAX_SLOTS; i++) {
+        s_BotTraits[i].accuracy    = 0.5f;
+        s_BotTraits[i].reactionTime = 0.5f;
+        s_BotTraits[i].aggression  = 0.5f;
+        strncpy(s_BotTraits[i].baseType, "NormalSim", sizeof(s_BotTraits[i].baseType) - 1);
+        s_BotTraits[i].baseType[sizeof(s_BotTraits[i].baseType) - 1] = '\0';
+    }
+    s_BotTraitsInitialized = true;
+}
+
 static void renderPlayersPanel(float scale, float panelW, float panelH)
 {
     ImGui::BeginChild("##players_panel", ImVec2(panelW, panelH), true,
@@ -685,8 +757,132 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
                 }
             }
 
+            /* ---- Advanced / Simple toggle ---- */
+            ImGui::Spacing();
+            ImGui::Separator();
+
+            const char *advLabel = s_BotPopupShowAdvanced ? "- Simple -" : "+ Advanced";
+            if (PdButton(advLabel, ImVec2(120.0f * scale, 0))) {
+                s_BotPopupShowAdvanced = !s_BotPopupShowAdvanced;
+                if (s_BotPopupShowAdvanced && s_BotPresetCacheDirty) {
+                    rebuildBotPresetCache();
+                    s_BotPresetSelected = -1;
+                }
+            }
+
+            /* ---- Advanced section ---- */
+            if (s_BotPopupShowAdvanced && s_BotPopupSlot >= 0
+                && s_BotPopupSlot < MATCH_MAX_SLOTS)
+            {
+                BotTraits *traits = &s_BotTraits[s_BotPopupSlot];
+
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Custom Traits");
+                ImGui::Separator();
+
+                /* Load Preset combo */
+                {
+                    const char *previewLabel = (s_BotPresetSelected >= 0
+                        && s_BotPresetSelected < s_BotPresetCount)
+                        ? s_BotPresets[s_BotPresetSelected]->id
+                        : "-- None --";
+
+                    if (ImGui::BeginCombo("Load Preset", previewLabel)) {
+                        if (ImGui::Selectable("-- None --", s_BotPresetSelected == -1)) {
+                            s_BotPresetSelected = -1;
+                        }
+                        for (s32 p = 0; p < s_BotPresetCount; p++) {
+                            const asset_entry_t *preset = s_BotPresets[p];
+                            char pLabel[96];
+                            snprintf(pLabel, sizeof(pLabel), "%s##prs%d",
+                                     preset->id, p);
+                            bool isSel = (p == s_BotPresetSelected);
+                            if (ImGui::Selectable(pLabel, isSel)) {
+                                s_BotPresetSelected = p;
+                                /* Apply preset values to trait editor */
+                                traits->accuracy    = preset->ext.bot_variant.accuracy;
+                                traits->reactionTime = preset->ext.bot_variant.reaction_time;
+                                traits->aggression  = preset->ext.bot_variant.aggression;
+                                strncpy(traits->baseType,
+                                        preset->ext.bot_variant.base_type,
+                                        sizeof(traits->baseType) - 1);
+                                traits->baseType[sizeof(traits->baseType) - 1] = '\0';
+                                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                            }
+                            if (isSel) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+
+                /* Base Type */
+                {
+                    s32 curIdx = 0;
+                    for (s32 i = 0; i < s_NumBaseTypes; i++) {
+                        if (strcmp(traits->baseType, s_BaseTypeNames[i]) == 0) {
+                            curIdx = i;
+                            break;
+                        }
+                    }
+                    if (ImGui::Combo("Base Type", &curIdx,
+                                     s_BaseTypeNames, s_NumBaseTypes)) {
+                        strncpy(traits->baseType, s_BaseTypeNames[curIdx],
+                                sizeof(traits->baseType) - 1);
+                        traits->baseType[sizeof(traits->baseType) - 1] = '\0';
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                }
+
+                /* Trait sliders */
+                ImGui::SliderFloat("Accuracy",  &traits->accuracy,    0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Reaction",  &traits->reactionTime, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Aggression",&traits->aggression,   0.0f, 1.0f, "%.2f");
+
+                ImGui::Spacing();
+
+                /* Save as Preset button */
+                if (PdButton("Save as Preset...", ImVec2(160.0f * scale, 0))) {
+                    s_SavePresetName[0] = '\0';
+                    ImGui::OpenPopup("##save_preset");
+                }
+
+                /* Save preset nested popup */
+                if (ImGui::BeginPopup("##save_preset")) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Save Bot Preset");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::SetNextItemWidth(200.0f * scale);
+                    ImGui::InputText("Name##psname", s_SavePresetName,
+                                     sizeof(s_SavePresetName));
+                    ImGui::Spacing();
+
+                    bool canSave = (s_SavePresetName[0] != '\0');
+                    if (!canSave) ImGui::BeginDisabled();
+                    if (PdButton("Save##pssave", ImVec2(80.0f * scale, 0))) {
+                        if (botVariantSave(s_SavePresetName,
+                                           traits->baseType,
+                                           traits->accuracy,
+                                           traits->reactionTime,
+                                           traits->aggression,
+                                           "custom", "", "")) {
+                            /* Dirty cache so next open shows the new preset */
+                            s_BotPresetCacheDirty = 1;
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (!canSave) ImGui::EndDisabled();
+
+                    ImGui::SameLine();
+                    if (PdButton("Cancel##pscancel", ImVec2(80.0f * scale, 0))) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+            } /* end Advanced section */
+
             ImGui::Spacing();
             if (PdButton("Done", ImVec2(80.0f * scale, 0))) {
+                s_BotPopupShowAdvanced = false;
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -1006,6 +1202,11 @@ static s32 renderMatchSetup(struct menudialog *dialog,
         selectionClear();
         s_Tab = 0;
         s_Initialized = true;
+    }
+
+    /* Initialize bot trait defaults once per session */
+    if (!s_BotTraitsInitialized) {
+        initBotTraits();
     }
 
     float scale = pdguiScaleFactor();
