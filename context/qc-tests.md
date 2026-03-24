@@ -3,6 +3,54 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## SPF-1 — Server Platform Foundation (hub/room/identity/phonetic)
+**Added:** 2026-03-24  **Build:** commit `fb5450b` (dev)
+
+### Hub Lifecycle
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 1 | Launch server (GUI mode), check log | `HUB: initialised, state=Lounge` in log | untested |
+| 2 | Start a match from server GUI | Log shows `HUB: state Lounge -> Active`; Hub tab shows room 0 in "Match" state (blue) | untested |
+| 3 | End match, return to lobby | Log shows `HUB: state Active -> Lounge`; Hub tab shows room 0 in "Lobby" state (green) | untested |
+| 4 | Ctrl+C / close server window | Log shows `HUB: shutting down` before process exits | untested |
+
+### Room System
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 5 | Open Hub tab in server GUI | Room table shows room 0 "Lounge" in Lobby state; 3 remaining rows show CLOSED or absent | untested |
+| 6 | Start match, observe Hub tab | Room 0 transitions: LOBBY → MATCH during gameplay | untested |
+| 7 | End match, observe Hub tab | Room 0 shows POSTGAME briefly (1 frame), then LOBBY | untested |
+| 8 | Check log for room transitions | `ROOM 0: LOBBY -> MATCH`, `ROOM 0: MATCH -> POSTGAME`, `ROOM 0: POSTGAME -> LOBBY` sequence | untested |
+
+### Player Identity
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 9  | Launch server fresh (no pd-identity.dat) | File `pd-identity.dat` created in home dir; default profile "Agent" created | untested |
+| 10 | Launch server again (identity.dat exists) | Log shows identity loaded; no "default" message | untested |
+| 11 | Corrupt pd-identity.dat (e.g. truncate it), relaunch | Server logs warning, rebuilds default identity, file overwritten with valid data | untested |
+
+### Phonetic Encoding
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 12 | Server logs phonetic code on startup (if implemented in GUI) | Code displayed in format `XXXX-XXXX-XXXX-XXXX` (4 groups, each 4 chars) | untested |
+| 13 | Verify encode→decode round-trip (unit: `phoneticEncode` then `phoneticDecode`) | Decoded IP + port match original input exactly | untested |
+
+### Server GUI — Hub Tab
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 14 | Server GUI: verify two tabs in middle panel | "Server" tab and "Hub" tab both visible and clickable | untested |
+| 15 | "Server" tab content intact | Player list + match controls unchanged from pre-SPF-1 behavior | untested |
+| 16 | "Hub" tab: hub state label | Shows "Lounge" (blue) when idle, "Active" (green) when match running | untested |
+| 17 | "Hub" tab: room table columns | Shows ID, Name, State, Players columns; room 0 row always present | untested |
+| 18 | Log panel: HUB: prefix color | Lines starting with `HUB:` rendered in purple in the log panel | untested |
+
+---
+
 ## B-12 Phase 2 — Participant API Migration
 **Added:** 2026-03-24  **Build:** commit `94a2b1e` (dev)
 

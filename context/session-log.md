@@ -5,6 +5,67 @@
 
 ---
 
+## Session 47d — 2026-03-24
+
+**Focus**: SPF-1 — Server Platform Foundation (hub lifecycle, room system, identity, phonetic encoding)
+
+### What Was Done
+
+Implemented the server platform foundation layer on top of the existing ENet dedicated server.
+Four new module pairs + wiring into server_main.c + server_gui.cpp tab bar.
+
+**New files (8):**
+
+1. **`port/include/phonetic.h`** / **`port/src/phonetic.c`** — CV syllable IP:port encoding.
+   16 consonants × 4 vowels = 6 bits/syllable × 8 syllables = 48 bits (IPv4 + port).
+   Format: `"BALE-GIFE-NOME-RIVA"` — shorter than word-based connect codes. Both coexist.
+2. **`port/include/identity.h`** / **`port/src/identity.c`** — `pd-identity.dat` persistence.
+   Magic `PDID`, version byte, 16-byte UUID (xorshift128 seeded from SDL perf counter + time),
+   up to 4 profiles (name/head/body/flags). Validates on load, rebuilds default on corruption.
+3. **`port/include/room.h`** / **`port/src/room.c`** — Room struct + 5-state lifecycle.
+   Pool of 4 rooms. Room 0 permanently wraps the existing match lifecycle (never truly closes).
+   States: LOBBY→LOADING→MATCH→POSTGAME→CLOSED. Transitions logged via `sysLogPrintf`.
+4. **`port/include/hub.h`** / **`port/src/hub.c`** — Hub singleton owning rooms + identity.
+   `hubTick()` reads `g_Lobby.inGame` each frame → drives room 0 state machine.
+   One-frame POSTGAME bridge on match end. Derives hub state from aggregate room states.
+
+**Modified files (3):**
+
+5. **`port/src/server_main.c`** — Added `hubInit()` / `hubTick()` / `hubShutdown()` calls.
+6. **`port/fast3d/server_gui.cpp`** — Middle panel converted to tabbed layout.
+   "Server" tab: existing player list + match controls. "Hub" tab: hub state + room table
+   with color-coded states. Log panel: HUB: prefix highlighted purple.
+7. **`context/server-architecture.md`** — SPF-1 section added (hub/room diagram, phonetic,
+   GUI changes, new file table).
+
+**Commit**: `fb5450b feat(SPF-1): hub lifecycle, room system, player identity, phonetic encoding`
+
+### Decisions Made
+
+- **Backward compatibility**: Room 0 driven by `g_Lobby.inGame` observation — zero changes
+  to `net.c` or `netlobby.c`. Existing single-match path unchanged.
+- **Protocol**: v21 unchanged. No new ENet messages. Both phonetic and word connect codes
+  remain available.
+- **`HUB_MAX_CLIENTS`**: Defined directly in `room.h` (= 8) rather than including `net/net.h`
+  to keep hub modules standalone and avoid the full game header chain.
+- **Boolean fields**: Used `int` not `_Bool`/`bool` in new C modules (port/ files, but
+  matching the project convention of `s32` for boolean-like values).
+- **Room 0 persistence**: `roomDestroy()` on room 0 resets to LOBBY instead of CLOSED —
+  room 0 is the permanent lounge for the existing server lifecycle.
+
+### Dev Build Status
+
+**UNVERIFIED** — Build environment broken in session (GCC TEMP path issue in sandbox).
+`build-headless.ps1` TEMP/TMP fix committed. User to verify build from local environment.
+
+### Next Steps
+
+- Build and QC test SPF-1 modules (see qc-tests.md)
+- SPF-2: Room federation / multi-room support
+- D5: Settings persistence for server configuration
+
+---
+
 ## Session 47b — 2026-03-24
 
 **Focus**: B-12 Phase 2 — Migrate chrslots callsites to participant API
