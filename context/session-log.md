@@ -5,6 +5,60 @@
 
 ---
 
+## Session 47b — 2026-03-24
+
+**Focus**: B-12 Phase 2 — Migrate chrslots callsites to participant API
+
+### What Was Done
+
+Completed the Phase 2 migration of all chrslots bitmask read/write sites across 5 files.
+Phase 1 bulk-sync calls (`mpParticipantsFromLegacyChrslots`) replaced with targeted
+`mpAddParticipantAt`/`mpRemoveParticipant` at each write site.
+
+**Key design established:**
+- Pool capacity is `MAX_MPCHRS` (40), not the Phase 1 default 32
+- Pool slot `i` == chrslots bit `i` (players 0–7, bots 8–39)
+- `mpIsParticipantActive(i)` is a direct drop-in for `chrslots & (1ull << i)`
+- New `mpAddParticipantAt(slot, type, ...)` API for exact-slot placement
+
+**Files changed (7):**
+
+1. **`src/include/game/mplayer/participant.h`** — Added `mpAddParticipantAt()` declaration
+2. **`src/game/mplayer/participant.c`** — Added `mpAddParticipantAt()` impl; rewrote
+   `mpParticipantsToLegacyChrslots` (slot index IS bit index) and
+   `mpParticipantsFromLegacyChrslots` (use `mpAddParticipantAt` for exact placement)
+3. **`src/game/mplayer/mplayer.c`** — ~25 sites: mpInit, match lifecycle, bot create/copy/
+   remove, score, team assignment, name generation, save/load config and WAD
+4. **`src/game/mplayer/setup.c`** — 10 sites: handicap CHECKHIDDEN, team loop ×3,
+   bot slot UI, simulant name display, player file availability
+5. **`src/game/challenge.c`** — Read check + fix `1u`→`1ull` write bug + add participant
+   calls alongside chrslots writes in `challengePerformSanityChecks`
+6. **`src/game/filemgr.c`** — 2 player-file presence checks
+7. **`port/src/net/matchsetup.c`** — `mpClearAllParticipants()` + `mpAddParticipantAt`
+   at each player/bot write site
+
+**Commit**: `94a2b1e feat(B-12-P2): migrate chrslots callsites to participant API`
+
+### Dev Build Status
+
+**PASS** — `cmake --build --target pd` clean (exit 0). All 7 files compiled without errors.
+
+### Decisions Made
+
+- `challengeIsAvailableToAnyPlayer` reads `chrslots & 0x000F` as a bitmask for challenge
+  availability computation — left as-is (no clean participant API equivalent, chrslots
+  still dual-written in Phase 2)
+- `mp0f18dec4` VERSION guard retained (PC builds are >= JPN_FINAL, always included)
+- `setup.c` fixes applied via line-by-line PowerShell replace (Edit tool had CRLF mismatch)
+
+### Next Steps
+
+- B-12 Phase 3: Remove `chrslots` field + legacy shims + BOT_SLOT_OFFSET
+- Protocol version bump to v21 (SVC_STAGE_START uses participant list)
+- QC: in-game bot add/remove, match start/end, save/load bot config
+
+---
+
 ## Session 47c — 2026-03-24
 
 **Focus**: Stage Decoupling Phase 2 (Dynamic stage table) + Phase 3 (Index domain separation)

@@ -74,7 +74,7 @@
 
 | Priority | Task | Depends On | Details |
 |----------|------|-----------|---------|
-| 1 | **B-12 Phase 2: Migrate chrslots callsites** | Phase 1 build test pass | 100+ locations across mplayer.c, setup.c, menu.c, challenge.c, filemgr.c. Replace chrslots reads/writes with participant API calls. |
+| 1 | ~~**B-12 Phase 2: Migrate chrslots callsites**~~ | — | **DONE (S47b)** ✓ BUILD PASS: 7 files, ~25 mplayer.c sites + setup.c + challenge.c + filemgr.c + matchsetup.c. Commit `94a2b1e`. |
 | 2 | **B-13 Part 2: g_ModNum interim fix** | D3R-5 build test | Ensure `g_ModNum` is set during catalog-based stage loading so GEX scale compensation works. Stopgap until Model Correction Tool (D3R-7) fixes model baselines. |
 | 3 | **B-12 Phase 3: Remove chrslots** | Phase 2 complete | Delete u32 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v20. |
 | 4 | **Pause Menu Fixes** | — | B-14 START double-fire, B-16 back button, End Game overlay, Settings back-out, suppress OG Paused text. |

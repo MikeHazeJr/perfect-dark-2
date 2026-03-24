@@ -3,6 +3,22 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## B-12 Phase 2 — Participant API Migration
+**Added:** 2026-03-24  **Build:** commit `94a2b1e` (dev)
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 1 | Open match setup, add 4 bots, start match | All 4 bots spawn, scores/names work, no crash | untested |
+| 2 | Add bots, remove one, start match | Removed bot absent; remaining bots spawn correctly | untested |
+| 3 | Save a bot setup (WAD save), quit, reload | Bot configuration restored correctly; names appear in setup UI | untested |
+| 4 | Start match, end game, return to lobby | No stale participants; participant count resets to players only | untested |
+| 5 | Challenge mode: enter a challenge | Correct bots populate for the challenge (sanity check function) | untested |
+| 6 | Bot name generation with 3+ of same type (e.g. 3 MeatSims) | Names show "MeatSim:1", "MeatSim:2", "MeatSim:3" | untested |
+| 7 | Copy simulant (add same sim type again) | Copy adds correctly; both show correct names | untested |
+| 8 | Team assignment (Maximum Teams, Humans vs Sims) | Teams assigned correctly to all active participants | untested |
+
+---
+
 ## 31-Bot Spawn Fix — Awaiting Test
 
 **Build**: claude/affectionate-nash (merged to dev 2026-03-24)

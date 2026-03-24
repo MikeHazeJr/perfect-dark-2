@@ -1,8 +1,8 @@
 # B-12: Dynamic Participant System — Architecture Design
 
 > Replaces: fixed u32 chrslots bitmask + MAX_PLAYERS/MAX_BOTS split
-> Status: DESIGN (not yet implemented)
-> Session: S26
+> Status: Phase 2 COMPLETE — Phase 3 (remove chrslots) pending
+> Sessions: S26 (design), S47a (Phase 1), S47b (Phase 2)
 
 ---
 
