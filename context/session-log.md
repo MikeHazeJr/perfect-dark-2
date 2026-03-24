@@ -58,8 +58,24 @@ Four new module pairs + wiring into server_main.c + server_gui.cpp tab bar.
 **UNVERIFIED** — Build environment broken in session (GCC TEMP path issue in sandbox).
 `build-headless.ps1` TEMP/TMP fix committed. User to verify build from local environment.
 
+### Session 47e Follow-up — 2026-03-24
+
+**Focus**: Fix server build — SPF-1 symbols undefined in pd-server
+
+**Root cause**: SRC_SERVER in CMakeLists.txt is a manually curated list; the 4 new SPF-1
+files (hub.c, room.c, identity.c, phonetic.c) were not added when coded in S47d.
+Client uses GLOB_RECURSE so it picked them up automatically; server did not.
+
+**Fix**: Added 4 entries to SRC_SERVER block in CMakeLists.txt (lines 478–482).
+Commit `c788486`. Pushed to dev.
+
+**Build status**: Cannot verify in sandbox (GCC DLL loading issue — cc1.exe needs
+libmpfr-6.dll via Windows PATH, not POSIX PATH). Run `.\devtools\build-headless.ps1 -Target server`
+from PowerShell to confirm.
+
 ### Next Steps
 
+- Run `.\devtools\build-headless.ps1 -Target server` from PowerShell to confirm fix
 - Build and QC test SPF-1 modules (see qc-tests.md)
 - SPF-2: Room federation / multi-room support
 - D5: Settings persistence for server configuration
