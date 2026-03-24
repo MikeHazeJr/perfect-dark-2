@@ -55,14 +55,20 @@ Four new module pairs + wiring into server_main.c + server_gui.cpp tab bar.
 
 ### Dev Build Status
 
-**UNVERIFIED** — Build environment broken in session (GCC TEMP path issue in sandbox).
-`build-headless.ps1` TEMP/TMP fix committed. User to verify build from local environment.
+**PASS** — Server and client both build clean (2026-03-24, commit `3ca4b40`).
+
+**Bug found and fixed**: `hub.c`, `room.c`, `identity.c`, `phonetic.c` were missing
+from `SRC_SERVER` in CMakeLists.txt. The client uses `GLOB_RECURSE` (auto-discovers
+all `port/*.c`), but the server target has an explicit source list. All 4 files were
+added under a `# SPF-1` comment block. Linker errors on `hubInit`, `hubTick`,
+`roomGetActiveCount`, etc. are resolved.
 
 ### Next Steps
 
-- Build and QC test SPF-1 modules (see qc-tests.md)
+- QC test SPF-1 modules in-game (see qc-tests.md)
 - SPF-2: Room federation / multi-room support
 - D5: Settings persistence for server configuration
+- **Pattern note**: Any future `port/src/*.c` file used by the server must be added to `SRC_SERVER` in CMakeLists.txt manually — it is NOT auto-discovered.
 
 ---
 

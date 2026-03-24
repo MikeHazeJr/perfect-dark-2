@@ -210,3 +210,23 @@
 | 23 | Dashboard commit button | Click Commit — window stays responsive during git add + commit. Spinner/status shows "Committing...", then "Committed" | [ ] |  |
 | 24 | Dashboard commit freeze (push) | Check "Push to GitHub" — window still responsive during push operation | [ ] |  |
 | 25 | QC notes TextChanged | Type a note in any QC row — save to disk immediately (not on focus-leave). Verify by closing + reopening dashboard | [ ] |  |
+
+
+## SPF-1 — Hub Lifecycle, Room System, Identity, Phonetic (S47d) — Awaiting Test
+
+**Build**: claude/serene-booth commit `3ca4b40` (2026-03-24) — server + client both PASS
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 33 | Server startup log: hub init | Log shows "HUB: initialised, state=LOUNGE" | [ ] |
+| 34 | Server startup log: room 0 open | Log shows "HUB ROOM: subsystem initialised, room 0 open" | [ ] |
+| 35 | Server startup log: identity | Log shows "IDENTITY: loaded, UUID=..." or "IDENTITY: no valid pd-identity.dat, creating new identity" | [ ] |
+| 36 | Server GUI: Hub tab visible | "Hub" tab appears in the server GUI middle panel alongside "Server" tab | [ ] |
+| 37 | Hub tab: state display | Hub tab shows state "Lounge" when no match running | [ ] |
+| 38 | Hub tab: room table | Room table shows room 0 "Lounge" in Lobby state | [ ] |
+| 39 | Hub tab: state transitions | Start a match → Hub tab shows state "Active" and room 0 shows "Match" | [ ] |
+| 40 | Hub tab: postgame transition | Match ends → room 0 briefly shows "Postgame", then returns to "Lobby" | [ ] |
+| 41 | Log panel: HUB prefix | Log panel in server GUI highlights HUB: prefix lines in purple | [ ] |
+| 42 | Phonetic encode round-trip | Encode 192.168.1.100:27100 → decode → same IP and port back | [ ] |
+| 43 | pd-identity.dat created | After first server run, pd-identity.dat exists in home dir | [ ] |
+| 44 | pd-identity.dat persists UUID | Stop and restart server — same UUID logged both times | [ ] |
