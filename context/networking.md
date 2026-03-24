@@ -1,16 +1,42 @@
 # Networking System
 
-## Status: COMPLETE (All Phases)
-ENet-based multiplayer, co-op, and counter-op networking fully implemented across Phases 1-10 and C1-C12.
+## Status: COMPLETE (All Phases) + D3R-9 Distribution
+ENet-based multiplayer, co-op, and counter-op networking fully implemented across Phases 1-10 and C1-C12. D3R-9 mod distribution added S44.
 
 ## Architecture
 - **Transport**: ENet (UDP-based, reliable + unreliable channels)
 - **Authority model**: Server-authoritative for all gameplay state
 - **Tick rate**: 60 Hz
-- **Channels**: Unreliable for position updates, reliable for state/events
-- **Protocol version**: 19 (bumped from 18: chrslots u16→u32 in SVC_STAGE_START)
+- **Channels**: `NETCHAN_DEFAULT`(0) unreliable positions, `NETCHAN_CONTROL`(1) reliable state/events, `NETCHAN_TRANSFER`(2) reliable mod distribution
+- **Protocol version**: 20 (bumped from 19: NETCHAN_TRANSFER + D3R-9 distribution messages)
 - **Modes**: `g_NetMode` — NETMODE_NONE(0), NETMODE_SERVER(1), NETMODE_CLIENT(2)
 - **Game modes**: `g_NetGameMode` — NETGAMEMODE_MP(0), NETGAMEMODE_COOP(1), NETGAMEMODE_ANTI(2)
+
+## D3R-9: Mod Distribution (DONE — S44, BUILD PASS)
+
+**Files**: `net/netdistrib.h` (NEW), `net/netdistrib.c` (NEW, ~1100 lines), `net/netmsg.c` (+10 encode/decode), `net/net.c` (routing + lifecycle), `fast3d/pdgui_lobby_distrib.cpp` (NEW, UI)
+
+**Wire protocol**:
+- `SVC_CATALOG_INFO` (0x70): server→client, list of non-bundled enabled entries (net_hash + id + category)
+- `CLC_CATALOG_DIFF` (0x09): client→server, missing net_hashes + temporary flag
+- `SVC_DISTRIB_BEGIN` (0x71): start transfer — net_hash, id, category, total_chunks, total_bytes
+- `SVC_DISTRIB_CHUNK` (0x72): 16KB chunk of zlib-compressed PDCA archive, with `compression_type` byte (0=none, 1=deflate)
+- `SVC_DISTRIB_END` (0x73): end of component transfer + success/fail byte
+- `SVC_LOBBY_KILL_FEED` (0x74): pre-resolved kill event (attacker, victim, weapon strings + flags byte)
+
+**PDCA archive format** (before compression): magic 0x41434450 (`"PDCA"`) + u16 file_count + per-file: u16 path_len + char path[] + u32 data_len + u8 data[]
+
+**Server flow**: `netDistribInit()` called at server start → on client auth: `netDistribServerSendCatalogInfo()` → on `CLC_CATALOG_DIFF`: `netDistribServerHandleDiff()` queues transfers → `netDistribServerTick()` streams one component per frame
+
+**Client flow**: receives `SVC_CATALOG_INFO` → diffs → sends `CLC_CATALOG_DIFF` → receives BEGIN/CHUNK/END → decompresses → extracts to `mods/.temp/` (session) or `mods/{category}/{id}/` (permanent) → hot-registers
+
+**Crash recovery**: `mods/.temp/.crash_state` INI — increments crash_count on each launch, cleared on clean exit. `netCrashRecoveryCheck()` reads state; `netCrashRecoveryApply(action)` handles keep/keep-disabled/discard.
+
+**Kill feed**: `killfeed_entry_t` ring (16 entries). `netDistribClientGetKillFeed()` for UI polling.
+
+**UI**: `pdguiDistribOverlayRender()` — DIFFING spinner + first-connect prompt (Download / This Session / Skip) + RECEIVING progress bar. `pdguiKillFeedRender()` — top-right panel, headshot=yellow, explosion=orange.
+
+---
 
 ## Completed Phases — Multiplayer
 
