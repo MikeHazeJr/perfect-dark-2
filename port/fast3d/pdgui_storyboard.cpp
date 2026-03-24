@@ -35,6 +35,7 @@
 #include "pdgui_storyboard.h"
 #include "pdgui_menubuilder.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "system.h"
 
 /* ========================================================================
@@ -919,8 +920,9 @@ void pdguiStoryboardRender(s32 winW, s32 winH)
         ImGui::End();
     }
 
-    /* Restore font scale for other ImGui usage */
-    io.FontGlobalScale = 1.0f;
+    /* Restore frame-level font scale (set by pdguiNewFrame) so subsequent
+     * renderers (lobby, pause, update) use the correct resolution-scaled value. */
+    io.FontGlobalScale = pdguiScaleFactor();
 }
 
 } /* extern "C" */

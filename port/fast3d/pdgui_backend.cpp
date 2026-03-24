@@ -53,6 +53,9 @@ extern "C" s32 netGetMode(void);
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
 
+/* Resolution-independent scaling helpers */
+#include "pdgui_scaling.h"
+
 /* Logging */
 #include "system.h"
 
@@ -130,10 +133,16 @@ void pdguiInit(void *sdlWindow)
         ImFontConfig cfg;
         cfg.FontDataOwnedByAtlas = true;  /* ImGui will free fontCopy */
         snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
+        cfg.OversampleV = 2;  /* Extra vertical rasterization quality */
+
+        /* Extra atlas padding so descenders (q, y, p, g) aren't clipped
+         * at the glyph boundary in the texture. Default is 1. */
+        io.Fonts->TexGlyphPadding = 2;
 
         /* Load at a higher base size (24pt) so the font atlas has enough
-         * detail for game-relative scaling at 1080p+. The debug menu then
-         * scales down via FontGlobalScale for 480p-relative layout. */
+         * detail for game-relative scaling at 1080p+. FontGlobalScale is
+         * set each frame (pdguiNewFrame) to scale proportionally with
+         * display height, keeping text within scaled button/row heights. */
         ImFont *font = io.Fonts->AddFontFromMemoryTTF(
             fontCopy, (int)g_HandelGothicFont_size, 24.0f, &cfg);
 
@@ -187,6 +196,14 @@ void pdguiNewFrame(void)
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
+
+    /* Scale font with display height so the 24pt atlas renders proportionally
+     * at all resolutions. At 720p scale=1.0 (24pt effective). At 800x600
+     * scale≈0.83 → ~20pt effective, fitting within scaled button heights.
+     * Subsystems that override this (debug menu, storyboard) must restore
+     * to pdguiScaleFactor() — NOT 1.0f — so subsequent renderers stay correct. */
+    ImGui::GetIO().FontGlobalScale = pdguiScaleFactor();
+
     ImGui::NewFrame();
 }
 

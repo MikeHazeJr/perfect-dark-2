@@ -772,6 +772,14 @@ function Render-QcPanel {
 
             $capturedNotesNum = $rowNum
             $capturedTxt = $txtNotes
+            # Save on every keystroke so notes survive crashes (not just on focus-leave).
+            $txtNotes.Add_TextChanged({
+                $newNotes = $capturedTxt.Text
+                foreach ($r in $script:QcAllRows) {
+                    if ($r.Num -eq $capturedNotesNum) { $r.Notes = $newNotes; break }
+                }
+                Save-QcFile
+            })
             $txtNotes.Add_Leave({
                 $newNotes = $capturedTxt.Text
                 foreach ($r in $script:QcAllRows) {
@@ -1074,53 +1082,85 @@ function Start-ManualCommit {
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Log "  Staging all changes..." $script:ColorPurple
-    $addOut = git -C $script:ProjectDir add -A 2>&1
-    foreach ($l in $addOut) { Write-Log "    $($l.ToString())" $script:ColorDim }
+    # Disable commit button and show pending status while background work runs.
+    # git add + commit + push run in a background Runspace so the UI thread
+    # stays responsive. A WinForms timer polls for completion every 200 ms.
+    Write-Log "  Staging and committing (background)..." $script:ColorPurple
+    $lblStatus.Text = "Committing..."
+    $lblStatus.ForeColor = $script:ColorDim
+    $btnCommit.Enabled = $false
+    $btnCommit.ForeColor = $script:ColorDisabled
 
-    $commitOut = git -C $script:ProjectDir commit -m $commitMsg 2>&1
-    $commitExit = $LASTEXITCODE
-    foreach ($l in $commitOut) { Write-Log "    $($l.ToString())" $script:ColorDim }
+    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $rs.Open()
+    $rs.SessionStateProxy.SetVariable('BgProjectDir', $script:ProjectDir)
+    $rs.SessionStateProxy.SetVariable('BgCommitMsg',  $commitMsg)
+    $rs.SessionStateProxy.SetVariable('BgShouldPush', $shouldPush)
 
-    if ($commitExit -ne 0) {
-        Write-Log "  Commit failed (exit $commitExit)" $script:ColorRed
-        $lblStatus.Text = "Commit failed"
-        $lblStatus.ForeColor = $script:ColorRed
-        $ErrorActionPreference = $savedEAP
-        $script:GitBusy = $false
-        return
-    }
-    Write-Log "  Committed: $commitMsg" $script:ColorGreen
-    $lblStatus.Text = "Committed"
-    $lblStatus.ForeColor = $script:ColorGreen
-
-    if ($shouldPush) {
-        Write-Log "  Pushing to origin..." $script:ColorPurple
-        $upstream = git -C $script:ProjectDir rev-parse --abbrev-ref "@{upstream}" 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $upstream) {
-            $branch = git -C $script:ProjectDir rev-parse --abbrev-ref HEAD 2>$null
-            Write-Log "  Setting upstream for '$branch'..." $script:ColorDim
-            $pushOut = git -C $script:ProjectDir push --set-upstream origin $branch 2>&1
-        } else {
-            $pushOut = git -C $script:ProjectDir push origin 2>&1
+    $ps = [System.Management.Automation.PowerShell]::Create()
+    $ps.Runspace = $rs
+    [void]$ps.AddScript({
+        $r = @{ AddLog = @(); CommitLog = @(); CommitExit = 1; PushLog = @(); PushExit = 0 }
+        $r.AddLog     = git -C $BgProjectDir add -A 2>&1
+        $r.CommitLog  = git -C $BgProjectDir commit -m $BgCommitMsg 2>&1
+        $r.CommitExit = $LASTEXITCODE
+        if ($r.CommitExit -eq 0 -and $BgShouldPush) {
+            $upstream = git -C $BgProjectDir rev-parse --abbrev-ref "@{upstream}" 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $upstream) {
+                $branch = git -C $BgProjectDir rev-parse --abbrev-ref HEAD 2>$null
+                $r.PushLog = git -C $BgProjectDir push --set-upstream origin $branch 2>&1
+            } else {
+                $r.PushLog = git -C $BgProjectDir push origin 2>&1
+            }
+            $r.PushExit = $LASTEXITCODE
         }
-        $pushExit = $LASTEXITCODE
-        foreach ($l in $pushOut) { Write-Log "    $($l.ToString())" $script:ColorDim }
-        if ($pushExit -ne 0) {
-            Write-Log "  Push failed (exit $pushExit)" $script:ColorRed
-            $lblStatus.Text = "Push failed"
+        return $r
+    })
+    $asyncHandle = $ps.BeginInvoke()
+
+    # Poll on the UI thread — no blocking, no freeze.
+    $pollTimer = New-Object System.Windows.Forms.Timer
+    $pollTimer.Interval = 200
+    $pollTimer.Add_Tick({
+        if (-not $asyncHandle.IsCompleted) { return }
+        $pollTimer.Stop()
+        $pollTimer.Dispose()
+
+        $gitR = ($ps.EndInvoke($asyncHandle))[0]
+        $ps.Dispose(); $rs.Close(); $rs.Dispose()
+
+        foreach ($l in $gitR.AddLog)    { Write-Log "    $($l.ToString())" $script:ColorDim }
+        foreach ($l in $gitR.CommitLog) { Write-Log "    $($l.ToString())" $script:ColorDim }
+
+        if ($gitR.CommitExit -ne 0) {
+            Write-Log "  Commit failed (exit $($gitR.CommitExit))" $script:ColorRed
+            $lblStatus.Text = "Commit failed"
             $lblStatus.ForeColor = $script:ColorRed
         } else {
-            Write-Log "  Pushed to GitHub" $script:ColorGreen
-            $lblStatus.Text = "Pushed"
+            Write-Log "  Committed: $commitMsg" $script:ColorGreen
+            $lblStatus.Text = "Committed"
             $lblStatus.ForeColor = $script:ColorGreen
-        }
-    }
 
-    $ErrorActionPreference = $savedEAP
-    $script:GitBusy = $false
-    $script:LastGitCheck = [DateTime]::MinValue
-    Update-GitChangeCount
+            if ($shouldPush) {
+                foreach ($l in $gitR.PushLog) { Write-Log "    $($l.ToString())" $script:ColorDim }
+                if ($gitR.PushExit -ne 0) {
+                    Write-Log "  Push failed (exit $($gitR.PushExit))" $script:ColorRed
+                    $lblStatus.Text = "Push failed"
+                    $lblStatus.ForeColor = $script:ColorRed
+                } else {
+                    Write-Log "  Pushed to GitHub" $script:ColorGreen
+                    $lblStatus.Text = "Pushed"
+                    $lblStatus.ForeColor = $script:ColorGreen
+                }
+            }
+        }
+
+        $ErrorActionPreference = $savedEAP
+        $script:GitBusy = $false
+        $script:LastGitCheck = [DateTime]::MinValue
+        Update-GitChangeCount
+    })
+    $pollTimer.Start()
 }
 
 $btnCommit.Add_Click({ Start-ManualCommit })

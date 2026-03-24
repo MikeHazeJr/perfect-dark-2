@@ -21,6 +21,7 @@
 
 /* PD-authentic drawing functions */
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 
 /* Logging */
 #include "system.h"
@@ -494,6 +495,7 @@ extern "C" void pdguiDebugMenuRender(s32 winW, s32 winH)
     style.FramePadding  = origFrmPad;
     style.ItemSpacing   = origItmSpc;
 
-    /* Reset font scale for any other ImGui rendering that might follow */
-    io.FontGlobalScale = 1.0f;
+    /* Restore frame-level font scale (set by pdguiNewFrame) so subsequent
+     * renderers (lobby, pause, update) use the correct resolution-scaled value. */
+    io.FontGlobalScale = pdguiScaleFactor();
 }
