@@ -25,6 +25,7 @@
 
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 #include "assetcatalog.h"
@@ -654,8 +655,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
 
 static void renderModdingHub(s32 winW, s32 winH)
 {
-    float scale = (float)winH / 480.0f;
-    if (scale < 0.5f) scale = 0.5f;
+    float scale = pdguiScaleFactor();
 
     /* Full-screen transparent backing window */
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -674,10 +674,12 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
-    float dialogW = HUB_DIALOG_W * scale;
-    float dialogH = HUB_DIALOG_H * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    /* Viewport-relative dialog area — ultrawide-clamped via pdguiMenuWidth() */
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
     /* PD-style border */
     ImDrawList *drawList = ImGui::GetForegroundDrawList();

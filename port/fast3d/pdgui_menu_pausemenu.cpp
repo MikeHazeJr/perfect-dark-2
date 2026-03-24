@@ -17,6 +17,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_pausemenu.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -421,16 +422,17 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
     /* Red palette for combat simulator */
     pdguiSetPalette(2);
 
-    /* Center the pause menu — 50% width, 60% height */
-    float menuW = winW * 0.50f;
-    float menuH = winH * 0.60f;
-    float menuX = (winW - menuW) * 0.5f;
-    float menuY = (winH - menuH) * 0.5f;
+    /* Center the pause menu — 50% width, 60% height (viewport-relative) */
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    float menuW = disp.x * 0.50f;
+    float menuH = disp.y * 0.60f;
+    float menuX = (disp.x - menuW) * 0.5f;
+    float menuY = (disp.y - menuH) * 0.5f;
+    float scale = pdguiScaleFactor();
 
     /* Dim the background */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), ImVec2((float)winW, (float)winH),
-        IM_COL32(0, 0, 0, 140));
+        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 140));
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
@@ -446,16 +448,16 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "PAUSED", 1);
 
         /* Inset content area */
-        float padX = 16.0f;
-        float padY = 40.0f; /* below title */
+        float padX = pdguiScale(16.0f);
+        float padY = pdguiScale(40.0f); /* below title */
 
         ImGui::SetCursorPos(ImVec2(padX, padY));
 
         /* Tab buttons across the top */
-        float tabW = (menuW - padX * 2 - 8.0f * 2) / 3.0f;
-        ImVec2 tabSize(tabW, 28.0f);
+        float tabW = (menuW - padX * 2 - pdguiScale(8.0f) * 2) / 3.0f;
+        ImVec2 tabSize(tabW, pdguiScale(28.0f));
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(8.0f), pdguiScale(8.0f)));
 
         if (PdPauseButton("Rankings", tabSize)) { s_PauseTab = 0; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
@@ -608,14 +610,16 @@ void pdguiScorecardRender(s32 winW, s32 winH)
     bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
 
     /* Size: centered, ~40% width, auto-height based on row count */
-    float boardW = winW * 0.40f;
-    if (boardW < 360.0f) boardW = 360.0f;
-    float rowH = 22.0f;
-    float headerH = 30.0f;
-    float padding = 8.0f;
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    float boardW = disp.x * 0.40f;
+    float minW = pdguiScale(360.0f);
+    if (boardW < minW) boardW = minW;
+    float rowH    = pdguiScale(22.0f);
+    float headerH = pdguiScale(30.0f);
+    float padding = pdguiScale(8.0f);
     float boardH = headerH + (count * rowH) + padding * 2;
-    float boardX = (winW - boardW) * 0.5f;
-    float boardY = winH * 0.08f; /* near top of screen */
+    float boardX = (disp.x - boardW) * 0.5f;
+    float boardY = disp.y * 0.08f; /* near top of screen */
 
     ImGui::SetNextWindowPos(ImVec2(boardX, boardY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(boardW, boardH), ImGuiCond_Always);

@@ -32,6 +32,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 #include "assetcatalog.h"
@@ -780,7 +781,7 @@ static void renderValidationModal(float scale)
 {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(500.0f * scale, 400.0f * scale), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(500.0f), pdguiScale(400.0f)), ImGuiCond_Always);
 
     if (!ImGui::BeginPopupModal("Validation Results", NULL,
                                 ImGuiWindowFlags_NoResize |
@@ -961,8 +962,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
 
 static void renderModManager(s32 winW, s32 winH)
 {
-    float scale = (float)winH / 480.0f;
-    if (scale < 0.5f) scale = 0.5f;
+    float scale = pdguiScaleFactor();
 
     /* Full-screen window */
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -981,11 +981,12 @@ static void renderModManager(s32 winW, s32 winH)
         return;
     }
 
-    /* Title bar */
-    float dialogW = 900.0f * scale;
-    float dialogH = 560.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    /* Viewport-relative dialog area — ultrawide-clamped via pdguiMenuWidth() */
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
     /* Draw PD-style frame around the inner dialog area */
     ImDrawList *dl = ImGui::GetForegroundDrawList();

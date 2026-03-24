@@ -495,8 +495,9 @@ function Load-QcFile {
             $testCell     = $cells[1]
             $expectedCell = $cells[2]
             $statusCell   = $cells[3]
+            $notesCell    = if ($cells.Count -ge 5) { $cells[4] } else { "" }
 
-            # Skip the header row (# | Test | Expected | Status)
+            # Skip the header row (# | Test | Expected | Status | Notes)
             if ($numCell -eq '#' -or $testCell -eq 'Test') { continue }
 
             # Must look like a numbered row
@@ -510,6 +511,7 @@ function Load-QcFile {
                 Expected      = $expectedCell
                 StatusRaw     = $statusCell
                 Status        = $statusParsed
+                Notes         = $notesCell
                 SectionTitle  = if ($currentSection) { $currentSection.Title } else { "" }
             }
 
@@ -527,10 +529,12 @@ function Save-QcFile {
     # Read raw lines, then rewrite status cells in-place
     $lines = Get-Content $script:QcFile -Encoding UTF8
 
-    # Build a lookup: num -> status
+    # Build lookups: num -> status, num -> notes
     $statusMap = @{}
+    $notesMap  = @{}
     foreach ($row in $script:QcAllRows) {
         $statusMap[$row.Num] = $row.Status
+        $notesMap[$row.Num]  = if ($row.Notes) { $row.Notes } else { "" }
     }
 
     $outLines = @()
@@ -538,14 +542,16 @@ function Save-QcFile {
         if ($line -match '^\|' -and $line -notmatch '^\|\s*[-:]+') {
             $cells = $line -split '\|'
             # cells[0] is empty (before first |), cells[1..n] are data, cells[-1] empty after last |
+            # Status is always the 4th data cell = cells[4]; Notes is cells[5] when present
             if ($cells.Count -ge 5) {
                 $numCell = $cells[1].Trim()
                 if ($numCell -match '^\d+$' -and $statusMap.ContainsKey($numCell)) {
                     $newMarker = StatusToMdMarker $statusMap[$numCell]
-                    # Replace last data cell (status) - cells[-2] when trailing | creates empty last
-                    $lastDataIdx = $cells.Count - 2
-                    # Keep leading/trailing space consistent
-                    $cells[$lastDataIdx] = " $newMarker "
+                    $cells[4] = " $newMarker "
+                    # Write notes back if a notes column exists in this row
+                    if ($cells.Count -ge 7 -and $notesMap.ContainsKey($numCell)) {
+                        $cells[5] = " $($notesMap[$numCell]) "
+                    }
                     $line = $cells -join '|'
                 }
             }
@@ -560,8 +566,9 @@ function Save-QcFile {
 # QC UI rendering
 # ============================================================================
 
-$script:QcCheckboxes = @{}   # num -> checkbox control
-$script:QcStatusDrops = @{}  # num -> combobox
+$script:QcCheckboxes  = @{}   # num -> checkbox control
+$script:QcStatusDrops = @{}   # num -> combobox
+$script:QcNotesFields = @{}   # num -> textbox
 
 function Get-StatusColor($status) {
     switch ($status) {
@@ -600,14 +607,16 @@ function Render-QcPanel {
 
     $script:QcCheckboxes  = @{}
     $script:QcStatusDrops = @{}
+    $script:QcNotesFields = @{}
 
-    $yPos     = 6
-    $panelW   = $mainW - 22   # account for scrollbar
+    $yPos      = 6
+    $panelW    = $mainW - 22   # account for scrollbar
 
-    $colNumW  = 36
-    $colStW   = 90
-    $colExpW  = 200
-    $colTestW = $panelW - $colNumW - $colStW - $colExpW - 20
+    $colNumW   = 36
+    $colStW    = 90
+    $colExpW   = 160
+    $colNotesW = 140
+    $colTestW  = $panelW - $colNumW - $colStW - $colExpW - $colNotesW - 28
     $minRowH  = 30
     $rowPad   = 10   # top + bottom padding for row content
 
@@ -748,6 +757,34 @@ function Render-QcPanel {
             $lblExp.Size = New-Object System.Drawing.Size($colExpW, ($rowH - 6))
             $lblExp.TextAlign = "TopLeft"
             $rowPanel.Controls.Add($lblExp)
+            $xPos += $colExpW + 8
+
+            # Notes text field — editable, writes back on focus-leave
+            $txtNotes = New-Object System.Windows.Forms.TextBox
+            $txtNotes.Text = if ($row.Notes) { $row.Notes } else { "" }
+            $txtNotes.Font = $expFont
+            $txtNotes.ForeColor = $script:ColorDim
+            $txtNotes.BackColor = $script:ColorFieldBg
+            $txtNotes.Location = New-Object System.Drawing.Point($xPos, 4)
+            $txtNotes.Size = New-Object System.Drawing.Size($colNotesW, ($rowH - 8))
+            $txtNotes.BorderStyle = "FixedSingle"
+            $txtNotes.Multiline = $true
+
+            $capturedNotesNum = $rowNum
+            $capturedTxt = $txtNotes
+            $txtNotes.Add_Leave({
+                $newNotes = $capturedTxt.Text
+                foreach ($r in $script:QcAllRows) {
+                    if ($r.Num -eq $capturedNotesNum) {
+                        $r.Notes = $newNotes
+                        break
+                    }
+                }
+                Save-QcFile
+            })
+
+            $rowPanel.Controls.Add($txtNotes)
+            $script:QcNotesFields[$rowNum] = $txtNotes
 
             $yPos += $rowH
         }

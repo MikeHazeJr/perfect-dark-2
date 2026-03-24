@@ -22,6 +22,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -151,13 +152,14 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     pdguiSetPalette(paletteIdx);
 
     /* ---- Layout ---- */
-    float scale = (float)winH / 480.0f;
-    float dialogW = 380.0f * scale;
-    float dialogH = 220.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiScale(380.0f);
+    float dialogH = pdguiScale(220.0f);
+    ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
+    float dialogX = dlgPos.x;
+    float dialogY = dlgPos.y;
 
-    float pdTitleH = 24.0f * scale;
+    float pdTitleH = pdguiScale(24.0f);
     if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
