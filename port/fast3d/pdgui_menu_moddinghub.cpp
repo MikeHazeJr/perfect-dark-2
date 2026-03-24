@@ -31,6 +31,7 @@
 #include "assetcatalog.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
+#include "modpack.h"
 
 /* ========================================================================
  * Forward declarations for C symbols
@@ -650,6 +651,334 @@ static void renderScaleTool(float contentW, float contentH, float scale)
 }
 
 /* ========================================================================
+ * Mod Pack Tool — state
+ * ======================================================================== */
+
+struct PackEntry {
+    char         id[CATALOG_ID_LEN];
+    char         category[CATALOG_CATEGORY_LEN];
+    asset_type_e type;
+};
+
+static PackEntry s_PackEntries[HUB_MAX_ENTRIES];
+static int       s_PackNumEntries    = 0;
+static bool      s_PackSelected[HUB_MAX_ENTRIES];
+
+/* Export fields */
+static char      s_PackName[128]      = "";
+static char      s_PackAuthor[64]     = "";
+static char      s_PackVersion[32]    = "1.0.0";
+static char      s_PackOutputPath[FS_MAXPATH] = "";
+
+/* Import fields */
+static char      s_ImportPath[FS_MAXPATH] = "";
+static bool      s_ImportSessionOnly      = false;
+static bool      s_ImportManifestLoaded   = false;
+static modpack_manifest_t s_ImportManifest;
+
+/* Shared status line */
+static char      s_PackStatusMsg[256]  = "";
+static bool      s_PackStatusOk        = true;
+
+/* ========================================================================
+ * Mod Pack Tool — collect non-bundled entries from catalog
+ * ======================================================================== */
+
+static void packCollectCallback(const asset_entry_t *e, void *ud)
+{
+    int *n = (int *)ud;
+    if (*n >= HUB_MAX_ENTRIES) return;
+    if (e->bundled) return;   /* skip base-game entries */
+    PackEntry &pe = s_PackEntries[*n];
+    strncpy(pe.id,       e->id,       CATALOG_ID_LEN - 1);
+    strncpy(pe.category, e->category, CATALOG_CATEGORY_LEN - 1);
+    pe.id[CATALOG_ID_LEN - 1]             = '\0';
+    pe.category[CATALOG_CATEGORY_LEN - 1] = '\0';
+    pe.type = e->type;
+    (*n)++;
+}
+
+static void packRefreshEntries(void)
+{
+    s_PackNumEntries = 0;
+    for (int t = 0; t < s_NumAllTypes; t++) {
+        assetCatalogIterateByType(s_AllTypes[t], packCollectCallback, &s_PackNumEntries);
+    }
+    memset(s_PackSelected, 0, sizeof(s_PackSelected));
+    s_PackStatusMsg[0]       = '\0';
+    s_ImportManifestLoaded   = false;
+    memset(&s_ImportManifest, 0, sizeof(s_ImportManifest));
+}
+
+/* ========================================================================
+ * Mod Pack Tool — helpers
+ * ======================================================================== */
+
+static const char *packTypeShortName(asset_type_e t)
+{
+    switch (t) {
+        case ASSET_MAP:          return "Map";
+        case ASSET_CHARACTER:    return "Character";
+        case ASSET_SKIN:         return "Skin";
+        case ASSET_BOT_VARIANT:  return "Bot";
+        case ASSET_WEAPON:       return "Weapon";
+        case ASSET_TEXTURES:     return "Textures";
+        case ASSET_SFX:          return "SFX";
+        case ASSET_MUSIC:        return "Music";
+        case ASSET_PROP:         return "Prop";
+        case ASSET_VEHICLE:      return "Vehicle";
+        case ASSET_MISSION:      return "Mission";
+        case ASSET_UI:           return "UI";
+        case ASSET_TOOL:         return "Tool";
+        default:                 return "Other";
+    }
+}
+
+/* ========================================================================
+ * Mod Pack Tool — renderer
+ * ======================================================================== */
+
+static void renderPackTool(float contentW, float contentH, float scale)
+{
+    /* Split content: ~58% export, ~42% import */
+    float exportH = contentH * 0.58f;
+    float importH = contentH - exportH
+                    - ImGui::GetStyle().ItemSpacing.y * 2.0f
+                    - ImGui::GetStyle().SeparatorTextBorderSize * 2.0f;
+
+    /* ================================================================
+     * EXPORT PANEL
+     * ============================================================== */
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::TextUnformatted("EXPORT");
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+
+    /* Pack metadata row: Name / Author / Version */
+    {
+        float fieldW = (contentW - ImGui::GetStyle().ItemSpacing.x * 4.0f) / 3.0f
+                       - 50.0f * scale;
+        ImGui::SetNextItemWidth(fieldW);
+        ImGui::InputText("##pkname",   s_PackName,    sizeof(s_PackName));
+        ImGui::SameLine(); ImGui::TextDisabled("Name");
+        ImGui::SameLine(contentW / 3.0f + 8.0f * scale);
+        ImGui::SetNextItemWidth(fieldW);
+        ImGui::InputText("##pkauthor", s_PackAuthor,  sizeof(s_PackAuthor));
+        ImGui::SameLine(); ImGui::TextDisabled("Author");
+        ImGui::SameLine(contentW * 2.0f / 3.0f + 8.0f * scale);
+        ImGui::SetNextItemWidth(fieldW);
+        ImGui::InputText("##pkver",    s_PackVersion, sizeof(s_PackVersion));
+        ImGui::SameLine(); ImGui::TextDisabled("Ver");
+    }
+
+    /* Output path row */
+    ImGui::SetNextItemWidth(contentW - 80.0f * scale);
+    ImGui::InputText("##pkout", s_PackOutputPath, sizeof(s_PackOutputPath));
+    ImGui::SameLine(); ImGui::TextDisabled("Output");
+
+    /* Select All / Clear / count */
+    int selectedCount = 0;
+    for (int i = 0; i < s_PackNumEntries; i++) {
+        if (s_PackSelected[i]) selectedCount++;
+    }
+    if (PdButton("All", ImVec2(42.0f * scale, 22.0f * scale))) {
+        for (int i = 0; i < s_PackNumEntries; i++) s_PackSelected[i] = true;
+    }
+    ImGui::SameLine();
+    if (PdButton("None", ImVec2(48.0f * scale, 22.0f * scale))) {
+        memset(s_PackSelected, 0, sizeof(s_PackSelected));
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("  %d / %d selected", selectedCount, s_PackNumEntries);
+
+    /* Component list — scrollable */
+    {
+        float headerH = ImGui::GetCursorPosY();      /* current cursor inside child */
+        float btnH    = 28.0f * scale;
+        float listH   = exportH - headerH - btnH
+                        - ImGui::GetStyle().ItemSpacing.y * 3.0f;
+        if (listH < 48.0f * scale) listH = 48.0f * scale;
+
+        ImGui::BeginChild("##pk_list", ImVec2(contentW, listH), true,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+        if (s_PackNumEntries == 0) {
+            ImGui::TextDisabled("No mod components installed (nothing to export).");
+        } else {
+            for (int i = 0; i < s_PackNumEntries; i++) {
+                char chkId[32];
+                snprintf(chkId, sizeof(chkId), "##pksel%d", i);
+                ImGui::Checkbox(chkId, &s_PackSelected[i]);
+                ImGui::SameLine(32.0f * scale);
+                ImGui::TextUnformatted(s_PackEntries[i].id);
+                ImGui::SameLine(contentW * 0.48f);
+                ImGui::TextDisabled("%s", packTypeShortName(s_PackEntries[i].type));
+                ImGui::SameLine(contentW * 0.62f);
+                ImGui::TextDisabled("%s", s_PackEntries[i].category);
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    /* Export button — right-aligned, disabled when nothing selected or no path */
+    {
+        bool canExport = (selectedCount > 0)
+                         && (s_PackOutputPath[0] != '\0')
+                         && (s_PackName[0] != '\0');
+        float btnW = 120.0f * scale;
+        float btnH = 26.0f * scale;
+        ImGui::SetCursorPosX(contentW - btnW);
+
+        if (!canExport) ImGui::BeginDisabled();
+        if (PdButton("Export Pack", ImVec2(btnW, btnH))) {
+            /* Build ID array from selection */
+            const char *exportIds[HUB_MAX_ENTRIES];
+            int exportCount = 0;
+            for (int j = 0; j < s_PackNumEntries; j++) {
+                if (s_PackSelected[j])
+                    exportIds[exportCount++] = s_PackEntries[j].id;
+            }
+            char errBuf[MODPACK_ERROR_LEN] = "";
+            s32 ret = modpackExport(
+                (const char * const *)exportIds, exportCount,
+                s_PackName, s_PackAuthor, s_PackVersion,
+                s_PackOutputPath, errBuf, sizeof(errBuf));
+            if (ret == 0) {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Exported %d component(s) to %s",
+                         exportCount, s_PackOutputPath);
+                s_PackStatusOk = true;
+            } else {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Export failed: %s",
+                         errBuf[0] ? errBuf : "unknown error");
+                s_PackStatusOk = false;
+            }
+        }
+        if (!canExport) ImGui::EndDisabled();
+    }
+
+    /* ================================================================
+     * IMPORT PANEL
+     * ============================================================== */
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::TextUnformatted("IMPORT");
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+
+    /* File path + Preview button */
+    {
+        float prevW = 80.0f * scale;
+        ImGui::SetNextItemWidth(contentW - prevW
+                                - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+        ImGui::InputText("##imppath", s_ImportPath, sizeof(s_ImportPath));
+        ImGui::SameLine();
+        if (PdButton("Preview", ImVec2(prevW, 0.0f))) {
+            memset(&s_ImportManifest, 0, sizeof(s_ImportManifest));
+            s_ImportManifestLoaded =
+                modpackReadManifest(s_ImportPath, &s_ImportManifest) != 0;
+            if (s_ImportManifestLoaded) {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Pack: \"%s\" by %s — %d component(s)",
+                         s_ImportManifest.name,
+                         s_ImportManifest.author,
+                         s_ImportManifest.component_count);
+                s_PackStatusOk = true;
+            } else {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Cannot read .pdpack — check path and file format");
+                s_PackStatusOk = false;
+            }
+        }
+    }
+
+    /* Manifest preview (shown after Preview) */
+    if (s_ImportManifestLoaded) {
+        /* Calculate height for preview area */
+        float previewH = importH
+                         - 28.0f * scale    /* session-only checkbox + import btn */
+                         - ImGui::GetStyle().ItemSpacing.y * 3.0f;
+        if (previewH < 40.0f * scale) previewH = 40.0f * scale;
+
+        ImGui::BeginChild("##pk_mf", ImVec2(contentW, previewH), true,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+        ImGui::TextDisabled("Pack:    "); ImGui::SameLine();
+        ImGui::TextUnformatted(s_ImportManifest.name);
+        ImGui::TextDisabled("Author:  "); ImGui::SameLine();
+        ImGui::TextUnformatted(s_ImportManifest.author);
+        ImGui::TextDisabled("Version: "); ImGui::SameLine();
+        ImGui::TextUnformatted(s_ImportManifest.version);
+        ImGui::Separator();
+
+        for (int i = 0; i < s_ImportManifest.component_count; i++) {
+            const modpack_component_info_t &ci = s_ImportManifest.components[i];
+            s32 already = assetCatalogHasEntry(ci.id);
+            if (already) {
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.1f, 1.0f),
+                                   "[installed]");
+            } else {
+                ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.35f, 1.0f),
+                                   "[new]      ");
+            }
+            ImGui::SameLine();
+            ImGui::Text("%-36s  %s", ci.id, ci.category);
+        }
+
+        ImGui::EndChild();
+    } else {
+        ImGui::TextDisabled("Enter a .pdpack path and click Preview to inspect.");
+    }
+
+    /* Session-only checkbox + Import button on same row */
+    {
+        ImGui::Checkbox("Session Only (mods/.temp/)", &s_ImportSessionOnly);
+        float btnW = 112.0f * scale;
+        ImGui::SameLine(contentW - btnW);
+
+        bool canImport = s_ImportManifestLoaded && s_ImportPath[0] != '\0';
+        if (!canImport) ImGui::BeginDisabled();
+        if (PdButton("Import Pack", ImVec2(btnW, 26.0f * scale))) {
+            modpack_import_result_t result;
+            s32 imported = modpackImport(s_ImportPath,
+                                         s_ImportSessionOnly ? 1 : 0,
+                                         &result);
+            if (imported >= 0) {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Imported %d component(s). Use Apply Changes to reload.",
+                         imported);
+                s_PackStatusOk        = true;
+                s_ImportManifestLoaded = false;
+                memset(&s_ImportManifest, 0, sizeof(s_ImportManifest));
+            } else {
+                snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
+                         "Import failed: %s",
+                         result.error_msg[0] ? result.error_msg : "unknown error");
+                s_PackStatusOk = false;
+            }
+        }
+        if (!canImport) ImGui::EndDisabled();
+    }
+
+    /* ================================================================
+     * Status line
+     * ============================================================== */
+    ImGui::Separator();
+    if (s_PackStatusMsg[0]) {
+        if (s_PackStatusOk) {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                               "%s", s_PackStatusMsg);
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "%s", s_PackStatusMsg);
+        }
+    } else {
+        ImGui::TextDisabled("Mod Pack — export/import .pdpack files");
+    }
+}
+
+/* ========================================================================
  * Hub renderer
  * ======================================================================== */
 
@@ -712,14 +1041,14 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     /* ---- Tool selector bar ---- */
     {
-        const float btnW = 160.0f * scale;
+        const float btnW = 140.0f * scale;
         const float btnH = 28.0f * scale;
 
         static const char *toolNames[] = {
-            "Mod Manager", "INI Editor", "Model Scale Tool"
+            "Mod Manager", "INI Editor", "Model Scale Tool", "Mod Pack"
         };
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             if (i > 0) ImGui::SameLine();
 
             bool active = (s_ActiveTool == i);
@@ -737,6 +1066,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     if (i == 0) pdguiModManagerRefreshSnapshot();
                     else if (i == 1) iniRefreshEntries();
                     else if (i == 2) scaleRefreshEntries();
+                    else if (i == 3) packRefreshEntries();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -769,6 +1099,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         renderIniEditor(dialogW, contentH, scale);
     } else if (s_ActiveTool == 2) {
         renderScaleTool(dialogW, contentH, scale);
+    } else if (s_ActiveTool == 3) {
+        renderPackTool(dialogW, contentH, scale);
     }
 
     /* ---- Hub footer ---- */
@@ -779,7 +1111,8 @@ static void renderModdingHub(s32 winW, s32 winH)
     const char *toolDescs[] = {
         "Enable/disable mod components",
         "Edit mod .ini manifests",
-        "Bake model scale to file"
+        "Bake model scale to file",
+        "Export/import .pdpack files"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
