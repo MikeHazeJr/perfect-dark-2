@@ -36,7 +36,7 @@ echo Starting server...
 echo.
 
 REM --- Launch the game in host mode ---
-cd /d "%~dp0build\server"
+cd /d "%~dp0..\build\server"
 PerfectDarkServer.exe --port %PORT% --maxclients %MAX_CLIENTS%
 
 echo.
