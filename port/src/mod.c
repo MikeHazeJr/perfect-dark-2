@@ -390,9 +390,11 @@ s32 modConfigLoad(const char *fname)
 	u32 dataLen = 0;
 	char *data = fsFileLoad(fname, &dataLen);
 	if (!data) {
+		sysLogPrintf(LOG_NOTE, "MODCONFIG: \"%s\" not found (OK for base game)", fname);
 		return false;
 	}
 
+	sysLogPrintf(LOG_WARNING, "MODCONFIG: LOADED \"%s\" (%u bytes) — will patch g_Stages!", fname, dataLen);
 	s32 success = true;
 	char token[UTIL_MAX_TOKEN + 1] = { 0 };
 	char *end = data + dataLen;

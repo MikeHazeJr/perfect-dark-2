@@ -1488,7 +1488,11 @@ void bgReset(s32 stagenum)
 		g_StageIndex = 0;
 	}
 
-	sysLogPrintf(LOG_NOTE, "LOAD: bg file id=%d, about to load header", g_Stages[g_StageIndex].bgfileid);
+	sysLogPrintf(LOG_NOTE, "LOAD: stage[%d] id=0x%02x bgfile=%d tiles=%d pads=%d setup=%d mpsetup=%d",
+		g_StageIndex, g_Stages[g_StageIndex].id,
+		g_Stages[g_StageIndex].bgfileid, g_Stages[g_StageIndex].tilefileid,
+		g_Stages[g_StageIndex].padsfileid, g_Stages[g_StageIndex].setupfileid,
+		g_Stages[g_StageIndex].mpsetupfileid);
 
 	// Copy section 1 header to stack and parse into variables
 	header = (u8 *)ALIGN16((uintptr_t)headerbuffer);

@@ -99,6 +99,9 @@ const char *fsFullPath(const char *relPath)
 	if (catResolved) {
 		strncpy(pathBuf, catResolved, FS_MAXPATH);
 		pathBuf[FS_MAXPATH] = '\0';
+		if (strstr(relPath, "bgdata/")) {
+			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> CATALOG -> \"%s\"", relPath, pathBuf);
+		}
 		return pathBuf;
 	}
 
@@ -107,6 +110,9 @@ const char *fsFullPath(const char *relPath)
 	if (modResolved) {
 		strncpy(pathBuf, modResolved, FS_MAXPATH);
 		pathBuf[FS_MAXPATH] = '\0';
+		if (strstr(relPath, "bgdata/")) {
+			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODMGR -> \"%s\"", relPath, pathBuf);
+		}
 		return pathBuf;
 	}
 
@@ -114,12 +120,18 @@ const char *fsFullPath(const char *relPath)
 	if (modDir[0]) {
 		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDir, relPath);
 		if (fsFileSize(pathBuf) >= 0) {
+			if (strstr(relPath, "bgdata/")) {
+				sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODDIR -> \"%s\"", relPath, pathBuf);
+			}
 			return pathBuf;
 		}
 	}
 
 	// fall back to basedir
 	snprintf(pathBuf, FS_MAXPATH, "%s/%s", baseDir, relPath);
+	if (strstr(relPath, "bgdata/")) {
+		sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> BASEDIR -> \"%s\"", relPath, pathBuf);
+	}
 	return pathBuf;
 }
 

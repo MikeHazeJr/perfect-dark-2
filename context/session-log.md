@@ -5,6 +5,52 @@
 
 ---
 
+## Session 37 — 2026-03-23
+
+**Focus**: Felicity wrong-map investigation + diagnostic logging infrastructure
+
+### What Was Done
+
+1. **Full stagenum trace**: Traced Felicity arena selection through the entire pipeline: ImGui dropdown → `g_MatchConfig.stagenum` (0x43) → `matchsetup.c:228` copy to `g_MpSetup.stagenum` → `mplayer.c:263` mod switch (falls through to `MOD_NORMAL`) → `lvReset()` → `assetCatalogActivateStage()` (no mod map, deactivates) → `bgReset()` → `bgGetStageIndex(0x43)` returns index 51 → `g_Stages[51].bgfileid` = `FILE_BG_MP11_SEG` (0x33) → `fsFullPath("bgdata/bg_mp11.seg")`.
+
+2. **Identified three suspect resolution layers** in `fsFullPath`:
+   - Catalog resolver (`assetCatalogResolvePath`) — should be inactive for base stages
+   - modmgr registry (`modmgrResolvePath`) — may still have stale entries after mod directory removal
+   - Legacy modDir — could still point to a directory with bgdata files
+
+3. **Identified modconfig.txt risk**: `modConfigLoad()` is called at every match start (mplayer.c:329). If a stale modconfig.txt survives anywhere in the file search path, it patches `g_Stages[]` file IDs directly — corrupting the base stage table for ALL subsequent matches.
+
+4. **Added diagnostic logging** to three critical points:
+   - **`fs.c` / `fsFullPath`**: Logs resolution source (CATALOG/MODMGR/MODDIR/BASEDIR) for every bgdata file request
+   - **`mod.c` / `modConfigLoad`**: Logs whether modconfig.txt was found and loaded (WARNING level if found)
+   - **`bg.c` / `bgReset`**: Logs all file IDs from the actual `g_Stages[index]` entry being loaded (bgfile, tiles, pads, setup, mpsetup) — will reveal if g_Stages was corrupted
+
+5. **Removed old mod directories** (S36): Confirmed mods/ directory is empty. All five legacy mods removed (mod_gex, mod_goldfinger_64, mod_allinone, mod_dark_noon, mod_kakariko).
+
+6. **Fixed Random arena name display** (S36): Added missing `s_ArenaNameOverrides` entries for L_MPMENU_294 (0x5126 → "Random: PD Maps") and L_MPMENU_295 (0x5127 → "Random: Solo Maps").
+
+### Key Discovery: Stage Table has GEX Duplicate Entries
+
+The compiled `g_Stages[87]` array contains GEX EXTRA stage entries that reuse the SAME bgdata FILE constants as base PD maps:
+- `g_Stages[51]` (STAGE_MP_FELICITY, 0x43) → `FILE_BG_MP11_SEG`
+- `g_Stages[74]` (STAGE_EXTRA14, 0x13) → `FILE_BG_MP11_SEG` (same!)
+- `g_Stages[80]` (STAGE_EXTRA20, 0x55) → `FILE_BG_MP11_SEG` (same!)
+
+This is by design: GEX mods REPLACE the bgdata files on disk, so the GEX stages point to the same FILE constants but expect mod files at those paths. Without mods, these entries just load the base PD geometry. The stage lookup uses stagenum (id field), not array index, so duplicates don't cause collisions.
+
+### Files Modified
+- `port/src/fs.c` — fsFullPath diagnostic logging for bgdata files
+- `port/src/mod.c` — modConfigLoad found/not-found logging
+- `src/game/bg.c` — bgReset stage entry dump (all file IDs)
+
+### Awaiting Build Test
+The three diagnostic log points need Mike to build, load Felicity, and check the log. Expected findings:
+- If modconfig.txt is being loaded → stale modconfig is corrupting g_Stages
+- If FSPATH shows MODMGR or MODDIR → file resolution is still being redirected
+- If file IDs differ from expected (bgfile=51, tiles=52, pads=53) → g_Stages was corrupted
+
+---
+
 ## Session 36 — 2026-03-23
 
 **Focus**: B-13 root cause analysis — GE prop scale pipeline investigation + model correction architecture decision
