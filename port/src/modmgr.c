@@ -357,8 +357,7 @@ static bool modmgrParseModJson(modinfo_t *mod)
 							else if (tok.type == JTOK_LBRACE && depth == 1) count++;
 							else if (tok.type == JTOK_EOF) break;
 						}
-						if (json_key_eq(&ckey, "stages")) mod->num_stages = count;
-						else if (json_key_eq(&ckey, "bodies")) mod->num_bodies = count;
+						if (json_key_eq(&ckey, "bodies")) mod->num_bodies = count;
 						else if (json_key_eq(&ckey, "heads")) mod->num_heads = count;
 						else if (json_key_eq(&ckey, "arenas")) mod->num_arenas = count;
 					} else {
@@ -375,9 +374,9 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	free(buf);
 	mod->has_modjson = true;
 
-	sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d stages, %d bodies, %d heads, %d arenas",
+	sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas",
 		mod->id, mod->name, mod->version, mod->author,
-		mod->num_stages, mod->num_bodies, mod->num_heads, mod->num_arenas);
+		mod->num_bodies, mod->num_heads, mod->num_arenas);
 
 	return true;
 }
