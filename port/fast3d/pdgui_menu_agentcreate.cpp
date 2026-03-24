@@ -26,6 +26,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
 #include "system.h"
@@ -262,11 +263,12 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     if (s_SelectedHead < 0) s_SelectedHead = 0;
 
     /* ---- Layout ---- */
-    float scale = (float)winH / 480.0f;
-    float dialogW = 450.0f * scale;
-    float dialogH = 380.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
     /* PD-authentic title bar height */
     float pdTitleH = dialogH * 0.07f;

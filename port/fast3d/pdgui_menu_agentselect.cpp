@@ -23,6 +23,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
 #include "system.h"
@@ -162,11 +163,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     if (s_SelectedIdx >= totalEntries) s_SelectedIdx = totalEntries - 1;
     if (s_SelectedIdx < 0) s_SelectedIdx = 0;
 
-    float scale = (float)winH / 480.0f;
-    float dialogW = 480.0f * scale;
-    float dialogH = 400.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
     float pdTitleH = dialogH * 0.06f;
     if (pdTitleH < 20.0f) pdTitleH = 20.0f;

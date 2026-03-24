@@ -27,6 +27,7 @@
 
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -72,7 +73,7 @@ static void renderNotificationBanner(void)
 	versionFormat(&latest->version, verstr, sizeof(verstr));
 
 	ImGuiIO &io = ImGui::GetIO();
-	float barHeight = 40.0f;
+	float barHeight = pdguiScale(40.0f);
 	ImVec2 barPos(0, 0);
 	ImVec2 barSize(io.DisplaySize.x, barHeight);
 
@@ -81,7 +82,7 @@ static void renderNotificationBanner(void)
 	ImGui::SetNextWindowBgAlpha(0.92f);
 
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.35f, 0.12f, 1.0f));
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 8));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pdguiScale(16.0f), pdguiScale(8.0f)));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
@@ -164,7 +165,7 @@ static void renderDownloadProgress(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(400, 160));
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(400.0f), pdguiScale(160.0f)));
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
 		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -208,7 +209,7 @@ static void renderRestartPrompt(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(380, 140));
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(380.0f), pdguiScale(140.0f)));
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
 		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -348,7 +349,7 @@ static void renderVersionPickerContent(float tableH)
 		if (count > 0 && ImGui::BeginTable("versions", 4,
 			ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
-			ImVec2(0, tableH > 0 ? tableH : 280))) {
+			ImVec2(0, tableH > 0 ? tableH : pdguiScale(280.0f)))) {
 
 			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 100);
 			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60);
@@ -414,7 +415,7 @@ static void renderVersionPickerContent(float tableH)
 			if (sel && sel->body[0]) {
 				ImGui::Spacing();
 				ImGui::Text("Changelog:");
-				ImGui::BeginChild("changelog", ImVec2(0, 80), true);
+				ImGui::BeginChild("changelog", ImVec2(0, pdguiScale(80.0f)), true);
 				ImGui::TextWrapped("%s", sel->body);
 				ImGui::EndChild();
 			}
@@ -431,7 +432,7 @@ static void renderVersionPickerContent(float tableH)
 			    status != UPDATER_DOWNLOADING) {
 				const char *btnLabel = s_DownloadFailed
 					? "Retry Download" : "Download & Install";
-				if (ImGui::Button(btnLabel, ImVec2(160, 0))) {
+				if (ImGui::Button(btnLabel, ImVec2(pdguiScale(160.0f), 0))) {
 					s_DownloadFailed = false;
 					updaterDownloadAsync(sel);
 					s_DownloadActive = true;
@@ -463,13 +464,13 @@ static void renderVersionPicker(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_Appearing);
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(600.0f), pdguiScale(500.0f)), ImGuiCond_Appearing);
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
-		renderVersionPickerContent(280);
+		renderVersionPickerContent(pdguiScale(280.0f));
 	}
 	ImGui::End();
 

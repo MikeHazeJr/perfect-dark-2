@@ -24,6 +24,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -102,13 +103,14 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 {
     lobbyUpdate();
 
-    float scale = (float)winH / 480.0f;
-    float dialogW = 560.0f * scale;
-    float dialogH = 440.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
-    float pdTitleH = 26.0f * scale;
+    float pdTitleH = pdguiScale(26.0f);
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
     ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));

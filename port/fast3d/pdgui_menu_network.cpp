@@ -18,6 +18,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 #include "connectcode.h"
@@ -90,12 +91,13 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
                                   struct menu *menu,
                                   s32 winW, s32 winH)
 {
-    float scale = (float)winH / 480.0f;
-    float dialogW = 480.0f * scale;
-    float dialogH = 380.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
-    float pdTitleH = 26.0f * scale;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
+    float pdTitleH = pdguiScale(26.0f);
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove
