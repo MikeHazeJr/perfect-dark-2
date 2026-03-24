@@ -429,10 +429,25 @@ void playerReset(void)
 		// PC: Mod stages may have setup files with no valid intro data, leaving
 		// g_NumSpawnPoints at 0. Without a spawn location, rooms[] is uninitialized
 		// garbage and cdFindGroundInfoAtCyl will crash reading invalid room numbers.
-		// Use pad 0 as an emergency fallback — every stage has at least one pad.
+		// Scan pads for the first one with a valid (non-negative) room number —
+		// pad 0 may be a non-player pad with room < 0, which causes CD queries
+		// to fail silently and leaves the player spawning in the void.
 		// Then probe 8 directions for the nearest wall and face away from it.
 		struct pad fallbackpad;
-		padUnpack(0, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+		s32 fallbackpadnum = 0;
+		{
+			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
+			s32 pi;
+			for (pi = 0; pi < maxpads && pi < 64; pi++) {
+				struct pad probePad;
+				padUnpack(pi, PADFIELD_ROOM, &probePad);
+				if (probePad.room >= 0) {
+					fallbackpadnum = pi;
+					break;
+				}
+			}
+		}
+		padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
 		pos.x = fallbackpad.pos.x;
 		pos.y = fallbackpad.pos.y;
 		pos.z = fallbackpad.pos.z;
@@ -469,7 +484,7 @@ void playerReset(void)
 			// else turnanglerad stays 0 — no walls nearby, any direction is fine
 		}
 
-		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad 0 fallback (room=%d, angle=%.1f)", fallbackpad.room, turnanglerad);
+		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad %d fallback (room=%d, angle=%.1f)", fallbackpadnum, fallbackpad.room, turnanglerad);
 	}
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,

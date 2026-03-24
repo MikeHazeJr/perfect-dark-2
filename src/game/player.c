@@ -229,17 +229,32 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 	// PC: Guard against numpads == 0, which causes divide-by-zero at
 	// rngRandom() % numpads below. This happens on mod stages whose setup
 	// files have no valid intro data (so no INTROCMD_SPAWN populated
-	// g_SpawnPoints). Fall back to pad 0 so the player spawns somewhere valid.
+	// g_SpawnPoints). Scan pads for the first one with a valid (non-negative)
+	// room number — pad 0 may be a non-player pad with room < 0, which causes
+	// CD queries to fail silently and leaves the player spawning in the void.
 	// Probe 8 directions for the nearest wall and face away from it.
 	if (numpads <= 0) {
 		struct pad fallbackpad;
+		s32 fallbackpadnum = 0;
 		static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
 		static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
 		f32 wallX = 0, wallZ = 0;
 		s32 wallCount = 0;
 		s32 dir;
 
-		padUnpack(0, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+		{
+			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
+			s32 pi;
+			for (pi = 0; pi < maxpads && pi < 64; pi++) {
+				struct pad probePad;
+				padUnpack(pi, PADFIELD_ROOM, &probePad);
+				if (probePad.room >= 0) {
+					fallbackpadnum = pi;
+					break;
+				}
+			}
+		}
+		padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
 		dstpos->x = fallbackpad.pos.x;
 		dstpos->y = fallbackpad.pos.y;
 		dstpos->z = fallbackpad.pos.z;
@@ -259,7 +274,7 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 			}
 		}
 
-		sysLogPrintf(LOG_WARNING, "SPAWN: no spawn pads available, using pad 0 fallback (room=%d, walls=%d)", fallbackpad.room, wallCount);
+		sysLogPrintf(LOG_WARNING, "SPAWN: no spawn pads available, using pad %d fallback (room=%d, walls=%d)", fallbackpadnum, fallbackpad.room, wallCount);
 
 		if (wallCount > 0) {
 			// Return value goes through M_BADTAU - result, so the actual look
