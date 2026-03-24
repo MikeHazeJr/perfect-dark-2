@@ -45,6 +45,33 @@
 - Update `context/constraints.md`: chrslots active constraint now says u64; protocol v21
 - B-12 Phase 3 plan: bump to v22 (not v20) when chrslots removed
 
+## Session 45a — 2026-03-24
+
+**Focus**: D3R-10 — Mod Pack export/import (.pdpack format) [parallel with S45b D3R-11]
+
+### What Was Done
+
+1. **`port/include/modpack.h`** — NEW. PDPK binary container spec (`0x4B504450` magic, v1). Types: `modpack_component_info_t`, `modpack_manifest_t`, `modpack_import_result_t`, `modpack_validate_result_t`. API: `modpackExport`, `modpackReadManifest`, `modpackValidate`, `modpackImport`.
+
+2. **`port/src/modpack.c`** — NEW (~380 lines). PDCA archive builder/extractor adapted from D3R-9 `netdistrib.c` (kept as file-local statics, independent from D3R-9). Per-component zlib `compress2` compression. Hot-registration via `assetCatalogRegister()` + INI name probe loop (same pattern as `netDistribClientHandleEnd`). INI-style manifest text for pack metadata. `catalogFindByIdAny()` iterates all types ignoring enabled state. Session-only import lands in `mods/.temp/{category}/{id}/`; permanent in `mods/{category}/{id}/`.
+
+3. **`port/fast3d/pdgui_menu_moddinghub.cpp`** — 4th "Mod Pack" tab added to Modding Hub. `PackEntry` struct, state vars, `packRefreshEntries()`, `packTypeShortName()`, `renderPackTool()` (~240 lines). Tool selector expanded 3→4 buttons (160px→140px). Export panel: metadata row, output path, component checklist with All/None, Export button. Import panel: file path, Preview, manifest with [installed]/[new] badges, Session Only checkbox, Import button. Shared status line.
+
+### Key Decisions
+
+- PDCA builder/extractor duplicated (not coupled to netdistrib.c) — keeps modpack.c independent. No D3R-9 files touched.
+- No `modmgrCatalogChanged()` in modpack.c — avoids modmgr.h dependency; D3R-11 is modifying modmgr.c in parallel. UI prompts user to "Use Apply Changes to reload."
+- Version read from component `.ini` at export time — not stored in `asset_entry_t`.
+
+### Build Result
+
+**PASS** — `Built target pd` 100%, zero errors. Pre-existing warnings in legacy game code only.
+
+### Next Steps
+
+- D3R-11 (S45b): Legacy cleanup — `g_ModNum`, `modconfig.txt` parsing, static array patching
+- QC tests 1–10 in `context/qc-tests.md` need in-game verification
+
 ---
 
 ## Session 44 — 2026-03-24

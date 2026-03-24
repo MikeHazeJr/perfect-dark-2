@@ -1,4 +1,4 @@
-﻿# QC Test Checklist
+# QC Test Checklist
 
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
@@ -14,6 +14,23 @@
 | 3 | Start a match with 1 player + 24 bots (prior max) | 24 bots spawn, no regression | untested |
 | 4 | Start a match with 8 players + 0 bots | All 8 players present, no crash | untested |
 | 5 | Network: server host 1 player + 10 bots, client connects | Client receives correct chrslots (u64 v21), match starts | untested |
+
+## D3R-10 Mod Pack export/import (S45a) — Awaiting Test
+
+**Build:** main branch, 2026-03-24
+
+| # | Test | Expected Result | Status |
+|---|------|----------------|--------|
+| 1 | Open Modding Hub → click "Mod Pack" tab | 4th tab appears, Export panel at top with Name/Author/Ver fields and output path | untested |
+| 2 | Install ≥1 mod component; open Mod Pack tab | Component checklist shows installed components with category and type label | untested |
+| 3 | Check 2–3 components, fill Name/Author/Version, set output path (e.g. `mods/test.pdpack`), click Export Pack | File created at output path; status line shows "Exported N component(s)" | untested |
+| 4 | Export with no components selected | Export Pack button disabled (greyed out) | untested |
+| 5 | Enter path to exported `.pdpack` in Import panel, click Preview | Manifest preview shows Pack/Author/Version and component list with [installed] or [new] badge | untested |
+| 6 | Click Import Pack (permanent) | Components extracted to `mods/{category}/{id}/`; status shows "Imported N component(s). Use Apply Changes to reload." | untested |
+| 7 | Click Import Pack with Session Only checked | Components land in `mods/.temp/{category}/{id}/` instead | untested |
+| 8 | Try importing a `.pdpack` where all components already installed | All badges show [installed]; import still succeeds (overwrite) | untested |
+| 9 | Enter a non-existent path and click Preview | Preview area stays hidden; no crash | untested |
+| 10 | All/None buttons in export component list | All: selects all checkboxes; None: clears all | untested |
 
 ---
 
