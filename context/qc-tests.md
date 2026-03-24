@@ -3,6 +3,28 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## D3R-9 Network Distribution (S44) — Awaiting Test
+
+**Setup needed**: two machines (or two instances) — one as server (has mod components), one as client (missing some components).
+
+| # | Test | Expected Result | Status | Notes |
+|---|------|----------------|--------|-------|
+| 1 | Server hosts; client connects with same mod catalog | Client connects to lobby normally; no download prompt | [ ] | Baseline — no diff |
+| 2 | Server has extra mod component client lacks; client joins | Download prompt appears in lobby: "Server requires N mod component(s)" with Download / This Session / Skip buttons | [ ] | |
+| 3 | Click "Download" in prompt | Progress bar appears at bottom; component name + bytes shown; no crash | [ ] | |
+| 4 | Transfer completes | `DISTRIB_CSTATE_DONE`; `mods/{category}/{id}/` directory created; files present | [ ] | Permanent download |
+| 5 | Restart → component persists | Component still in `mods/{category}/{id}/`; catalog has it | [ ] | |
+| 6 | Click "This Session" | Download proceeds; component lands in `mods/.temp/{id}/` | [ ] | Session-only |
+| 7 | Restart after session-only download | `mods/.temp/` present; crash state file present; no prompt on clean exit | [ ] | |
+| 8 | Click "Skip" | Download prompt closes; client joins without the component | [ ] | |
+| 9 | Kill feed: start match, get a kill | Kill feed entry appears top-right: "attacker > victim (weapon)" | [ ] | |
+| 10 | Kill feed headshot | Entry shows yellow text with "[HS]" indicator | [ ] | |
+| 11 | Crash recovery: force-kill process while `mods/.temp/` non-empty | On next launch, recovery prompt appears | [ ] | Simulate crash |
+| 12 | Recovery prompt → Keep | Temp components load normally | [ ] | |
+| 13 | Recovery prompt → Discard | `mods/.temp/` cleared; no components loaded | [ ] | |
+
+---
+
 ## D3R-8 Bot Customizer (S43) — Awaiting Test
 
 | # | Test | Expected Result | Status | Notes |

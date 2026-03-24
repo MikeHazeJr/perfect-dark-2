@@ -5,6 +5,49 @@
 
 ---
 
+## Session 44 — 2026-03-24
+
+**Focus**: D3R-9 — Network Mod Distribution (protocol v20)
+
+### What Was Done
+
+1. **`port/include/net/net.h`** — Protocol bump v19→v20. `NETCHAN_TRANSFER=2`, `NETCHAN_COUNT=3`. Distribution limit constants (16KB chunk, 50MB max component, 200MB session).
+
+2. **`port/include/net/netmsg.h`** — New message opcodes: `SVC_CATALOG_INFO` (0x70), `SVC_DISTRIB_BEGIN` (0x71), `SVC_DISTRIB_CHUNK` (0x72), `SVC_DISTRIB_END` (0x73), `SVC_LOBBY_KILL_FEED` (0x74), `CLC_CATALOG_DIFF` (0x09). Function declarations for all 10 new encode/decode pairs.
+
+3. **`port/include/net/netdistrib.h`** — NEW. Full public API: kill feed flags, `DISTRIB_CSTATE_*`, `distrib_client_status_t`, `killfeed_entry_t`, `crash_recovery_state_t`. Server API (init/tick/sendCatalog/handleDiff/killFeed), Client API (handleCatalogInfo/Begin/Chunk/End/KillFeed/GetStatus/GetKillFeed/SetTemporary), Crash Recovery API (check/apply/markLaunching/markClean).
+
+4. **`port/src/net/netdistrib.c`** — NEW (~1100 lines). PDCA archive format (magic 0x41434450). Server: 64-entry queue, `buildArchiveDir()` recursive walk, `streamComponentToClient()` zlib deflate + 16KB chunking. Client: 4 concurrent receive slots, `extractArchive()` → `mods/.temp/` or `mods/`, hot-register via `assetCatalogRegister()`. Kill feed ring buffer. Crash recovery: `mods/.temp/.crash_state` INI (launch count, clean exit flag, suspect component ID).
+
+5. **`port/src/net/netmsg.c`** — All 10 encode/decode functions. Module-static `s_CatalogCollectBuf[256]` + file-scope `catalogInfoCollectCb` for C-compatible iteration. `SVC_DISTRIB_CHUNK` read uses direct pointer into packet buffer (no stack copy). Added `netDistribServerSendCatalogInfo(srccl)` call after `srccl->state = CLSTATE_LOBBY` in auth handler.
+
+6. **`port/src/net/net.c`** — Added `netdistrib.h` include. `netDistribInit()` called in `netStartServer()`. `netDistribServerTick()` called from `netEndFrame()` (server-only, runs in lobby + game). `CLC_CATALOG_DIFF` added to `netServerEvReceive` switch. Five D3R-9 SVC_* cases added to `netClientEvReceive` switch.
+
+7. **`port/fast3d/pdgui_lobby_distrib.cpp`** — NEW. `pdguiDistribOverlayRender()`: bottom-bar download progress (DIFFING spinner, RECEIVING progress bar with component name + byte counter + fraction bar). First-connect prompt modal when missing_count > 0 (Download / This Session / Skip buttons, calls `netDistribClientSetTemporary()`). Error state notice. `pdguiKillFeedRender()`: top-right kill feed panel with coloured entries (headshot=yellow, explosion=orange).
+
+8. **`port/fast3d/pdgui_lobby.cpp`** — Forward declarations for both new functions. Called from `pdguiLobbyRender()`: distrib overlay when in lobby, kill feed when in game.
+
+9. **`CMakeLists.txt`** — Added `netdistrib.c`, `assetcatalog.c`, `assetcatalog_scanner.c` to `SRC_SERVER` (server needs them to enumerate and serve components).
+
+### Build Status
+- Client: PASS (exit 0). Server: PASS (exit 0).
+- Commits: `f28be5d` (D3R-9 feature on worktree), `c6a8565` (CMakeLists server target fix on dev)
+- Build note: TEMP must be set to a writable user path (C:\Users\mikeh\AppData\Local\Temp) — Windows system TEMP was unset in this session, causing gcc to try C:\WINDOWS\. Use PowerShell with `[Environment]::SetEnvironmentVariable("TEMP",...)`.
+
+### Decisions
+- LZ4 not vendored in project; used zlib deflate (already linked). Added `compression_type` byte (0=none, 1=deflate) in wire format for future upgrade without protocol break.
+- Protocol v20 is a one-way door: new ENet channel count (3 vs 2) breaks backward compat. Accepted per Mike's blanket auth through D3R-11.
+- `SVC_DISTRIB_CHUNK` read handler points directly into packet buffer to avoid 16KB stack allocation.
+- Server enumeration uses module-static collect buffer + file-scope callback (C has no closures).
+
+### Next Steps
+- Test: connect client to server; verify catalog diff appears in lobby; download prompt shows; components arrive in `mods/.temp/`; kill feed shows during match
+- D3R-7 (Modding Hub, coded S40) still needs build test
+- D3R-10: Mod Pack export/import
+- D3R-11: Legacy cleanup (g_ModNum, modconfig.txt)
+
+---
+
 ## Session 43 — 2026-03-24
 
 **Focus**: D3R-8 — Bot Customizer (trait editor + bot_variants/ persistence)
