@@ -765,3 +765,176 @@ s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout
 
     return count;
 }
+
+asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
+                                           const char *name,
+                                           const char *model_file,
+                                           f32 damage, f32 fire_rate,
+                                           s32 ammo_type, s32 dual_wieldable)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_WEAPON);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.weapon.weapon_id = weapon_id;
+    if (name != NULL) {
+        strncpy(entry->ext.weapon.name, name, 63);
+        entry->ext.weapon.name[63] = '\0';
+    }
+    if (model_file != NULL) {
+        strncpy(entry->ext.weapon.model_file, model_file, 127);
+        entry->ext.weapon.model_file[127] = '\0';
+    }
+    entry->ext.weapon.damage = damage;
+    entry->ext.weapon.fire_rate = fire_rate;
+    entry->ext.weapon.ammo_type = ammo_type;
+    entry->ext.weapon.dual_wieldable = dual_wieldable;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterAnimation(const char *id, s32 anim_id,
+                                              const char *name,
+                                              s32 frame_count,
+                                              const char *target_body)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_ANIMATION);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.anim.anim_id = anim_id;
+    if (name != NULL) {
+        strncpy(entry->ext.anim.name, name, 63);
+        entry->ext.anim.name[63] = '\0';
+    }
+    entry->ext.anim.frame_count = frame_count;
+    if (target_body != NULL) {
+        strncpy(entry->ext.anim.target_body, target_body, 63);
+        entry->ext.anim.target_body[63] = '\0';
+    }
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
+                                            s32 width, s32 height, s32 format,
+                                            const char *file_path)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_TEXTURE);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.texture.texture_id = texture_id;
+    entry->ext.texture.width = width;
+    entry->ext.texture.height = height;
+    entry->ext.texture.format = format;
+    if (file_path != NULL) {
+        strncpy(entry->ext.texture.file_path, file_path, 127);
+        entry->ext.texture.file_path[127] = '\0';
+    }
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
+                                         const char *name,
+                                         const char *model_file,
+                                         u32 flags, f32 health)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_PROP);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.prop.prop_type = prop_type;
+    if (name != NULL) {
+        strncpy(entry->ext.prop.name, name, 63);
+        entry->ext.prop.name[63] = '\0';
+    }
+    if (model_file != NULL) {
+        strncpy(entry->ext.prop.model_file, model_file, 127);
+        entry->ext.prop.model_file[127] = '\0';
+    }
+    entry->ext.prop.flags = flags;
+    entry->ext.prop.health = health;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterGameMode(const char *id, s32 mode_id,
+                                             const char *name,
+                                             const char *description,
+                                             s32 min_players, s32 max_players,
+                                             s32 team_based)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_GAMEMODE);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.gamemode.mode_id = mode_id;
+    if (name != NULL) {
+        strncpy(entry->ext.gamemode.name, name, 63);
+        entry->ext.gamemode.name[63] = '\0';
+    }
+    if (description != NULL) {
+        strncpy(entry->ext.gamemode.description, description, 255);
+        entry->ext.gamemode.description[255] = '\0';
+    }
+    entry->ext.gamemode.min_players = min_players;
+    entry->ext.gamemode.max_players = max_players;
+    entry->ext.gamemode.team_based = team_based;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
+                                          const char *name, s32 category,
+                                          s32 duration_ms,
+                                          const char *file_path)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_AUDIO);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.audio.sound_id = sound_id;
+    if (name != NULL) {
+        strncpy(entry->ext.audio.name, name, 63);
+        entry->ext.audio.name[63] = '\0';
+    }
+    entry->ext.audio.category = category;
+    entry->ext.audio.duration_ms = duration_ms;
+    if (file_path != NULL) {
+        strncpy(entry->ext.audio.file_path, file_path, 127);
+        entry->ext.audio.file_path[127] = '\0';
+    }
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
+                                        const char *name, s32 element_type,
+                                        const char *texture_file)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_HUD);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.hud.hud_id = hud_id;
+    if (name != NULL) {
+        strncpy(entry->ext.hud.name, name, 63);
+        entry->ext.hud.name[63] = '\0';
+    }
+    entry->ext.hud.element_type = element_type;
+    if (texture_file != NULL) {
+        strncpy(entry->ext.hud.texture_file, texture_file, 127);
+        entry->ext.hud.texture_file[127] = '\0';
+    }
+
+    return entry;
+}

@@ -66,8 +66,30 @@ typedef enum {
     ASSET_ARENA,
     ASSET_BODY,                /* MP body entry (base game g_MpBodies[] or mod) */
     ASSET_HEAD,                /* MP head entry (base game g_MpHeads[] or mod) */
+    ASSET_ANIMATION,           /* animation set (body animation) */
+    ASSET_TEXTURE,             /* individual texture entry (not a pack) */
+    ASSET_GAMEMODE,            /* multiplayer game mode (scenario) */
+    ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
+    ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
     ASSET_TYPE_COUNT
 } asset_type_e;
+
+/* ========================================================================
+ * Asset Sub-type Constants
+ * ======================================================================== */
+
+/* Audio category constants for ext.audio.category */
+#define AUDIO_CAT_SFX   0   /* sound effect */
+#define AUDIO_CAT_MUSIC 1   /* music track */
+#define AUDIO_CAT_VOICE 2   /* voice / dialogue */
+
+/* HUD element type constants for ext.hud.element_type */
+#define HUD_ELEM_CROSSHAIR 0   /* aiming reticle */
+#define HUD_ELEM_AMMO      1   /* ammo counter */
+#define HUD_ELEM_RADAR     2   /* proximity radar */
+#define HUD_ELEM_HEALTH    3   /* health bar */
+#define HUD_ELEM_TIMER     4   /* game timer */
+#define HUD_ELEM_SCORE     5   /* score display */
 
 /* ========================================================================
  * Asset Entry Structure
@@ -131,6 +153,56 @@ typedef struct asset_entry {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
             u8  requirefeature;        /* unlock check (0 = always available) */
         } head;
+        struct {
+            s32 weapon_id;             /* MPWEAPON_* constant */
+            char name[64];             /* human-readable display name */
+            char model_file[128];      /* model file path (empty for base game) */
+            f32  damage;               /* base damage value (0 = unknown) */
+            f32  fire_rate;            /* rounds per second (0 = unknown) */
+            s32  ammo_type;            /* ammo category constant */
+            s32  dual_wieldable;       /* bool: can be dual-wielded */
+        } weapon;
+        struct {
+            s32 anim_id;               /* animation table index */
+            char name[64];             /* human-readable display name */
+            s32 frame_count;           /* number of frames (0 = unknown) */
+            char target_body[64];      /* body type this animation targets (empty = generic) */
+        } anim;
+        struct {
+            s32 texture_id;            /* texture table index */
+            s32 width;                 /* width in pixels (0 = unknown) */
+            s32 height;                /* height in pixels (0 = unknown) */
+            s32 format;                /* texture format constant (0 = unknown) */
+            char file_path[128];       /* path to texture file */
+        } texture;
+        struct {
+            s32 prop_type;             /* PROPTYPE_* constant */
+            char name[64];             /* human-readable display name */
+            char model_file[128];      /* model file path (empty for base game) */
+            u32  flags;                /* prop flags bitmask */
+            f32  health;               /* base health value (0 = indestructible) */
+        } prop;
+        struct {
+            s32 mode_id;               /* MPSCENARIO_* constant */
+            char name[64];             /* human-readable display name */
+            char description[256];     /* longer description for UI */
+            s32 min_players;           /* minimum players required */
+            s32 max_players;           /* maximum players supported */
+            s32 team_based;            /* bool: requires teams */
+        } gamemode;
+        struct {
+            s32 sound_id;              /* SFX enum value or music track index */
+            char name[64];             /* human-readable display name */
+            s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
+            s32 duration_ms;           /* duration in milliseconds (0 = unknown) */
+            char file_path[128];       /* path to audio file (empty = ROM-embedded) */
+        } audio;
+        struct {
+            s32 hud_id;                /* HUD element ID */
+            char name[64];             /* human-readable display name */
+            s32 element_type;          /* HUD_ELEM_* constant */
+            char texture_file[128];    /* texture file path (empty = uses default) */
+        } hud;
     } ext;
 
     /* Catalog internals */
@@ -246,6 +318,83 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
  */
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature);
+
+/**
+ * Register a weapon asset.
+ * Convenience wrapper that sets ext.weapon fields.
+ * weapon_id should be an MPWEAPON_* constant.
+ * model_file, damage, fire_rate may be NULL/"" / 0.0f for base game entries.
+ */
+asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
+                                           const char *name,
+                                           const char *model_file,
+                                           f32 damage, f32 fire_rate,
+                                           s32 ammo_type, s32 dual_wieldable);
+
+/**
+ * Register an animation asset.
+ * Convenience wrapper that sets ext.anim fields.
+ * anim_id is the index in the animation table (matches animations.json order).
+ * target_body may be NULL or "" for generic animations.
+ */
+asset_entry_t *assetCatalogRegisterAnimation(const char *id, s32 anim_id,
+                                              const char *name,
+                                              s32 frame_count,
+                                              const char *target_body);
+
+/**
+ * Register an individual texture asset.
+ * Convenience wrapper that sets ext.texture fields.
+ * Distinct from ASSET_TEXTURES (texture pack): this is one named texture.
+ * width, height, format may be 0 for base game entries (loaded from ROM).
+ */
+asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
+                                            s32 width, s32 height, s32 format,
+                                            const char *file_path);
+
+/**
+ * Register a prop asset.
+ * Convenience wrapper that sets ext.prop fields.
+ * prop_type should be a PROPTYPE_* constant.
+ * model_file may be NULL/"" for base game entries.
+ */
+asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
+                                         const char *name,
+                                         const char *model_file,
+                                         u32 flags, f32 health);
+
+/**
+ * Register a game mode asset.
+ * Convenience wrapper that sets ext.gamemode fields.
+ * mode_id should be an MPSCENARIO_* constant.
+ * description may be NULL/"" for terse entries.
+ */
+asset_entry_t *assetCatalogRegisterGameMode(const char *id, s32 mode_id,
+                                             const char *name,
+                                             const char *description,
+                                             s32 min_players, s32 max_players,
+                                             s32 team_based);
+
+/**
+ * Register an audio asset.
+ * Convenience wrapper that sets ext.audio fields.
+ * category: AUDIO_CAT_SFX, AUDIO_CAT_MUSIC, or AUDIO_CAT_VOICE.
+ * file_path may be NULL/"" for ROM-embedded sounds.
+ */
+asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
+                                          const char *name, s32 category,
+                                          s32 duration_ms,
+                                          const char *file_path);
+
+/**
+ * Register a HUD element asset.
+ * Convenience wrapper that sets ext.hud fields.
+ * element_type: HUD_ELEM_CROSSHAIR, HUD_ELEM_AMMO, etc.
+ * texture_file may be NULL/"" for elements using the default renderer.
+ */
+asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
+                                        const char *name, s32 element_type,
+                                        const char *texture_file);
 
 /* ========================================================================
  * Resolution API

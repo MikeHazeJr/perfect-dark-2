@@ -38,6 +38,15 @@ extern "C" {
  */
 s32 assetCatalogRegisterBaseGame(void);
 
+/**
+ * Register extended base game assets (weapons, animations, textures, props,
+ * game modes, audio, HUD elements). Called at the end of
+ * assetCatalogRegisterBaseGame().
+ *
+ * Returns number of extended assets registered.
+ */
+s32 assetCatalogRegisterBaseGameExtended(void);
+
 /* ========================================================================
  * D3R-4: Component Scanner
  * ======================================================================== */

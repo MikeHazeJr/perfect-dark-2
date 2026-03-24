@@ -488,5 +488,13 @@ s32 assetCatalogRegisterBaseGame(void)
 	#undef NUM_ARENA_GROUPS
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
+
+	/* Register extended types: weapons, animations, textures, props, game modes, audio, HUD */
+	s32 ext_count = assetCatalogRegisterBaseGameExtended();
+	if (ext_count > 0) {
+		count += ext_count;
+		sysLogPrintf(LOG_NOTE, "assetcatalog: extended registration added %d entries (%d total)", ext_count, count);
+	}
+
 	return count;
 }
