@@ -66,7 +66,9 @@ struct matchslot {
 	char name[MAX_PLAYER_NAME];  /* display name (PC: 32 chars, no N64 limit) */
 };
 
-#define MATCH_MAX_SLOTS MAX_MPCHRS
+/* Total match slots = participant pool size (players + bots combined).
+ * Must match the #define in pdgui_menu_matchsetup.cpp. */
+#define MATCH_MAX_SLOTS PARTICIPANT_DEFAULT_CAPACITY
 
 struct matchconfig {
 	struct matchslot slots[MATCH_MAX_SLOTS];
@@ -250,7 +252,7 @@ s32 matchStart(void)
 
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
 			/* Configure player — use catalog for safe body/head indices */
-			g_MpSetup.chrslots |= (1u << playerSlot);
+			g_MpSetup.chrslots |= (1ull << playerSlot);
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 			cfg->mpheadnum = catalogGetSafeHead(ms->headnum);
@@ -268,7 +270,7 @@ s32 matchStart(void)
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
 			/* Configure bot — use catalog for safe body/head indices */
-			g_MpSetup.chrslots |= (1u << (botSlot + BOT_SLOT_OFFSET));
+			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 			bot->base.mpheadnum = catalogGetSafeHead(ms->headnum);
@@ -288,8 +290,8 @@ s32 matchStart(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: chrslots=0x%08x (%d players, %d bots)",
-	             g_MpSetup.chrslots, playerSlot, botSlot);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: chrslots=0x%016llx (%d players, %d bots)",
+	             (unsigned long long)g_MpSetup.chrslots, playerSlot, botSlot);
 
 	if (playerSlot == 0) {
 		sysLogPrintf(LOG_WARNING, "MATCHSETUP: no players configured — aborting");

@@ -518,7 +518,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
-		netbufWriteU32(dst, g_MpSetup.chrslots);
+		netbufWriteU64(dst, g_MpSetup.chrslots);  /* u64 since protocol v21: 8 players + 32 bots */
 		netbufWriteU32(dst, g_MpSetup.options);
 		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 	}
@@ -589,7 +589,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
-		g_MpSetup.chrslots = netbufReadU32(src);
+		g_MpSetup.chrslots = netbufReadU64(src);  /* u64 since protocol v21 */
 		g_MpSetup.options = netbufReadU32(src);
 		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");

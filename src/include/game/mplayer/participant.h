@@ -16,8 +16,7 @@
 #include <ultra64.h>
 #include "types.h"
 
-/* Default pool capacity — can be expanded at runtime */
-#define PARTICIPANT_DEFAULT_CAPACITY  32
+/* Default pool capacity — defined in constants.h as PARTICIPANT_DEFAULT_CAPACITY */
 
 /* Maximum local splitscreen players per machine (hardware-bound) */
 #define PARTICIPANT_MAX_LOCAL         MAX_LOCAL_PLAYERS
@@ -175,15 +174,15 @@ s32 mpParticipantNextOfType(s32 current, ParticipantType type);
 /**
  * Generate a u32 chrslots bitmask from the current participant pool.
  * Used by code not yet migrated to the participant API.
- * Players occupy bits 0-7, bots occupy bits 8-31.
- * Participants beyond the legacy 32-slot limit are silently excluded.
+ * Players occupy bits 0-7, bots occupy bits 8-39 (u64).
+ * Participants beyond the 40-slot limit are silently excluded.
  */
-u32 mpParticipantsToLegacyChrslots(void);
+u64 mpParticipantsToLegacyChrslots(void);
 
 /**
  * Populate the participant pool from a legacy chrslots bitmask.
  * Used when loading saved setups.
  */
-void mpParticipantsFromLegacyChrslots(u32 chrslots);
+void mpParticipantsFromLegacyChrslots(u64 chrslots);
 
 #endif /* _IN_GAME_MPLAYER_PARTICIPANT_H */

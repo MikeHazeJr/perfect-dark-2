@@ -4085,10 +4085,11 @@ struct mpsetup {
 
 	/**
 	 * Each bit signifies that a player or sim is participating.
-	 * u32 bitmask: bits 0-7 = players, bits 8-31 = bots.
-	 * Supports up to 8 players + 24 bots = 32 characters.
+	 * u64 bitmask: bits 0-7 = players, bits 8-39 = bots.
+	 * Supports up to 8 players + 32 bots = 40 characters.
+	 * Use 1ull shifts for all bit operations on this field.
 	 */
-	/*0x800acb9e*/ u32 chrslots;
+	/*0x800acb9e*/ u64 chrslots;
 	/*0x800acba0*/ u8 weapons[NUM_MPWEAPONSLOTS];
 	/*0x800acba6*/ u8 paused;
 	/*0x800acba8*/ struct fileguid fileguid;
