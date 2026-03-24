@@ -3,6 +3,20 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## 31-Bot Spawn Fix — Awaiting Test
+
+**Build**: claude/affectionate-nash (merged to dev 2026-03-24)
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 1 | Open match setup lobby, add 1 player + 31 bots, start match | All 31 bots spawn and are active in-game | untested |
+| 2 | Log check: `MATCHSETUP: chrslots=` after starting with 31 bots | `chrslots` shows bits 8-38 set (31 bots), botSlot=31 in log | untested |
+| 3 | Start a match with 1 player + 24 bots (prior max) | 24 bots spawn, no regression | untested |
+| 4 | Start a match with 8 players + 0 bots | All 8 players present, no crash | untested |
+| 5 | Network: server host 1 player + 10 bots, client connects | Client receives correct chrslots (u64 v21), match starts | untested |
+
+---
+
 ## D3R-9 Network Distribution (S44) — Awaiting Test
 
 **Setup needed**: two machines (or two instances) — one as server (has mod components), one as client (missing some components).

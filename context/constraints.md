@@ -12,9 +12,9 @@ from a constraint that has already been removed.
 These are things we must still respect:
 
 - **Save file format compatibility**: Config values stored in `pd.ini` via configRegisterInt/UInt. Save migration framework (SAVE_VERSION) exists for future format changes.
-- **ENet protocol version**: Must match across clients. Currently v19 (bumped from 18: chrslots u16→u32 in SVC_STAGE_START).
+- **ENet protocol version**: Must match across clients. Currently v21 (v20: D3R-9 NETCHAN_TRANSFER; v21: chrslots u32→u64 in SVC_STAGE_START). B-12 Phase 3 will bump to v22 when chrslots is removed entirely.
 - **30 agent save slots**: Hardcoded in filelist struct layout. Cannot increase without breaking save format.
-- **chrslots bitmask**: Currently u32 (8 player + 24 bot bits). **Being replaced by dynamic participant system** (B-12). Phase 1 coded (S26): `participant.h`/`.c` with heap-allocated pool runs parallel. Phase 2: migrate callsites. Phase 3: remove chrslots + protocol bump to v20. Default capacity 32, cheat-expandable to arbitrary.
+- **chrslots bitmask**: Currently **u64** (8 player + 32 bot bits, bits 0-7 players, bits 8-39 bots). **Being replaced by dynamic participant system** (B-12). Phase 1 coded (S26): `participant.h`/`.c` with heap-allocated pool runs parallel. Phase 2: migrate callsites. Phase 3: remove chrslots + protocol bump to v22. Default capacity 32. Expanded from u32 in S45 to support 31-bot matches. Use `1ull <<` for all chrslots bit operations.
 - **MAX_LOCAL_PLAYERS = 4**: Maximum splitscreen players per machine. MAX_PLAYERS = 8 includes remote. Many arrays sized to these. Participant system uses `localslot` (0-3) per machine, `client_id` per network client.
 - **PLAYERCOUNT()**: Returns number of local human players (1-4), not total chrs.
 - **ROM data files**: Model/animation files come from ROM dump. Models not in ROM return NULL from fileLoadToNew (fixed Session 13). Mod content extends via mod loader.
@@ -37,7 +37,7 @@ These constraints have been explicitly abandoned. If a task involves working aro
 - **2026-03-05: N64 micro-optimization** — Modern x86_64 HW. Prefer correctness over cycle-counting. Hand-rolled sorts, manual bit-packing, fixed-point math — replace with standard approaches.
 - **2026-03-10: Host-based multiplayer** — Dedicated-server-only model adopted (Phase D9). Server runs headless or with ImGui GUI.
 - **2026-03-12: N64 collision workarounds** — Legacy cdTestVolume/cdFindGroundInfoAtCyl hacks replaced by capsule sweep system (capsule.c). Use proper geometric solutions.
-- **2026-03-15: 4-player bot limit** — Original N64 supported ~8 bots max. PC port supports 32 bots (chrslots bitmask). Pool sizes expanded (Session 17): NUMTYPE1=70, NUMTYPE2=50, NUMTYPE3=48, NUMSPARE=80, weapons=100, hats=20, ammo=40, debris=30, projectiles=200, embedments=160.
+- **2026-03-15: 4-player bot limit** — Original N64 supported ~8 bots max. PC port supports up to 31 bots + 1 player = 32 total (participant pool). `MAX_BOTS=32` (S45, was 24), `chrslots u64` (S45, was u32). Pool sizes expanded (Session 17): NUMTYPE1=70, NUMTYPE2=50, NUMTYPE3=48, NUMSPARE=80, weapons=100, hats=20, ammo=40, debris=30, projectiles=200, embedments=160.
 - **2026-03-18: N64 body/head restriction in MP** — `mpGetNumBodies` unrestricted. Full 63+ character roster available in network play.
 - **2026-03-20: `--log` CLI flag requirement** — Logging is now unconditional (always on). Log filename depends on mode: pd-server.log, pd-host.log, pd-client.log.
 - **2026-03-23: Shared memory pools for mods** — N64-era pre-allocated pools (modconfig.txt `alloc` values) replaced by dynamic `malloc`-based allocation. Each component manages its own memory. Advisory `hint_memory` field in `.ini` for UI display only.
