@@ -121,6 +121,20 @@
 | 17 | Scroll indicators in tall content | Mod manager component list and update version list show visible scrollbars when content overflows | [ ] |  |
 | 18 | Font scaling | Menu text remains legible at 720p baseline and larger; minimum 12px floor prevents invisible text | [ ] |  |
 
+## Asset Catalog Expansion — 7 New Types (S46a) — Awaiting Test
+
+**Build**: dev 28d5233 (2026-03-24)
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 26 | Startup log: weapon count | Log shows "assetcatalog: weapons: 47 entries" | [ ] |
+| 27 | Startup log: prop count | Log shows "assetcatalog: props: 8 entries" | [ ] |
+| 28 | Startup log: gamemode count | Log shows "assetcatalog: gamemodes: 6 entries" | [ ] |
+| 29 | Startup log: hud count | Log shows "assetcatalog: hud elements: 6 entries" | [ ] |
+| 30 | Startup log: extended total | Log shows "extended registration added N entries (N >= 67)" | [ ] |
+| 31 | No crash on startup | Game reaches main menu without crash after asset catalog expansion | [ ] |
+| 32 | Weapon INI scanner | `[weapon]` INI in mod `_components/weapons/` dir — registers without error in log | [ ] |
+
 ## Death Loop + Font Descenders + Dashboard (S42) — Awaiting Test
 
 | # | Test | Expected Result | Status | Notes |

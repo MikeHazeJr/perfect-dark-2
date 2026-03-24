@@ -72,6 +72,42 @@
 - D3R-11 (S45b): Legacy cleanup — `g_ModNum`, `modconfig.txt` parsing, static array patching
 - QC tests 1–10 in `context/qc-tests.md` need in-game verification
 
+## Session 46a — 2026-03-24
+
+**Focus**: S46a — Asset Catalog expansion: 7 new asset types registered
+
+### What Was Done
+
+1. **`port/include/assetcatalog.h`** — Added 5 new enum values (`ASSET_ANIMATION`, `ASSET_TEXTURE`, `ASSET_GAMEMODE`, `ASSET_AUDIO`, `ASSET_HUD`) before `ASSET_TYPE_COUNT`. Added ext union structs for all 7 types (weapon/anim/texture/prop/gamemode/audio/hud) — note `ASSET_WEAPON` and `ASSET_PROP` existed in enum without ext structs, now have them. Added `AUDIO_CAT_*` and `HUD_ELEM_*` constants. Declared 7 new registration wrappers.
+
+2. **`port/src/assetcatalog.c`** — Implemented 7 new wrapper functions: `assetCatalogRegisterWeapon`, `assetCatalogRegisterAnimation`, `assetCatalogRegisterTexture`, `assetCatalogRegisterProp`, `assetCatalogRegisterGameMode`, `assetCatalogRegisterAudio`, `assetCatalogRegisterHud`.
+
+3. **`port/src/assetcatalog_base_extended.c`** — NEW FILE. Registers 47 weapons (all MPWEAPON_*), 8 prop types, 6 game modes (all MPSCENARIO_*), 6 HUD element categories, plus 10 stub entries each for animations/textures/audio (TODO S46b: full enumeration). Entry point: `assetCatalogRegisterBaseGameExtended()`.
+
+4. **`port/src/assetcatalog_base.c`** — Call `assetCatalogRegisterBaseGameExtended()` at end of `assetCatalogRegisterBaseGame()`.
+
+5. **`port/include/assetcatalog_scanner.h`** — Declared `assetCatalogRegisterBaseGameExtended()`.
+
+6. **`port/src/assetcatalog_scanner.c`** — Added `animations/hud/gamemodes/audio` to `categoryToType()`; added `animation/hud/gamemode/audio/texture` to `sectionToType()`; added full ext field parsing for weapon/prop/anim/texture/gamemode/audio/hud cases in `registerComponent()` switch.
+
+### Build Status
+
+- Committed to dev (28d5233). Build: cmake `--build` exit 0, `PerfectDark.exe` rebuilt 2026-03-24 13:23. **PASS**.
+
+### Decisions Made
+
+- New ext structs for `ASSET_WEAPON` and `ASSET_PROP` are additive — enum values existed, structs added without renumbering.
+- `ASSET_TEXTURE` (individual texture) is distinct from `ASSET_TEXTURES` (texture pack) — different semantics.
+- `ASSET_AUDIO` unifies SFX/music/voice via `category` sub-field; old `ASSET_SFX`/`ASSET_MUSIC` types remain for backward scanner compatibility.
+- Full enumeration of ~1000 animations, 1545 SFX, and texture table deferred to TODO S46b.
+
+### Next Steps
+
+- S46b: Full enumeration of animation table from JSON, SFX table from sfx.h, texture table from ROM metadata
+- In-game QC: startup log should show extended registration counts (weapons: 47, props: 8, etc.)
+
+---
+
 ## Session 45b — 2026-03-24
 
 **Focus**: D3R-11 — Legacy Mod Cleanup (g_ModNum removal, modconfig.txt removal)
