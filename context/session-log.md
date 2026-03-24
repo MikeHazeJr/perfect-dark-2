@@ -5,6 +5,52 @@
 
 ---
 
+## Session 46 — 2026-03-24
+
+**Focus**: Catalog expansion — 7 new asset types + wrappers + base game entries
+
+### What Was Done
+
+Completed catalog type expansion that stalled in the previous session. A stuck session
+had intended to add types but didn't write the wrapper implementations.
+
+**Files changed** (4 files, committed to worktree claude/charming-goodall):
+
+1. **`port/include/assetcatalog.h`** — Added 3 new enum values: `ASSET_ANIMATION`,
+   `ASSET_GAMEMODE`, `ASSET_HUD`. Added 4 ext union members: `weapon` (weapon_id),
+   `animation` (target_type[32]), `prop` (prop_id), `gamemode` (scenario_id,
+   max/min_players). Added 7 new wrapper function declarations.
+2. **`port/src/assetcatalog.c`** — 7 new wrapper implementations: RegisterWeapon,
+   RegisterTextures, RegisterSfx, RegisterProp, RegisterGameMode, RegisterAnimation,
+   RegisterHud. Each follows the existing body/head pattern exactly.
+3. **`port/src/assetcatalog_base.c`** — 36 base weapons (MPWEAPON_* constants 0x01–0x2f)
+   + 6 base game modes (MPSCENARIO_* 0–5) registered as bundled base entries.
+4. **`port/src/assetcatalog_scanner.c`** — Added animations/gamemodes/hud to
+   `categoryToType()`; animation/gamemode/hud to `sectionToType()`; ASSET_WEAPON,
+   ASSET_PROP, ASSET_ANIMATION, ASSET_GAMEMODE get INI field parsing in switch.
+
+### Decisions Made
+
+- ASSET_TEXTURE / ASSET_AUDIO / ASSET_HUD: task listed these names but codebase had
+  ASSET_TEXTURES / ASSET_SFX+MUSIC / ASSET_UI. Added only ASSET_HUD as genuinely new.
+  ASSET_TEXTURES and ASSET_SFX/MUSIC already existed and cover those concepts.
+- Wrappers for ASSET_TEXTURES, ASSET_SFX, ASSET_HUD are thin (no ext fields needed).
+- Weapons registered with runtime_index = weapon_id for direct MPWEAPON_* mapping.
+- Props: no base game prop table is enumerable from constants alone — deferred.
+- Animations/HUD: no base game entries registered (sparse types, mod-only for now).
+
+### Dev Build Status
+
+- worktree build (claude/charming-goodall): **PASS** — both `pd` and `pd-server` targets
+
+### Next Steps
+
+- Merge to dev, run build test from main working directory
+- Props base game registration: needs prop type table discovery
+- Wire ASSET_WEAPON / ASSET_GAMEMODE into match setup UI (replaces hardcoded lists)
+
+---
+
 ## Session 45 — 2026-03-24
 
 **Focus**: Bug fix — 31 bots not spawning (only 24 spawned)

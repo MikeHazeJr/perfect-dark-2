@@ -98,6 +98,7 @@
 | D3R-9 | ~~**Network distribution**~~ | D3R-4 | **DONE (S44)** ✓ BUILD PASS: Protocol v20, PDCA archives, zlib chunks, crash recovery, kill feed, download prompt UI. |
 | D3R-10 | ~~**Mod Pack export/import**~~ | D3R-9 | **DONE (S45a)** ✓ BUILD PASS: `modpack.h/c`, PDPK format, zlib compression, hot-register. 4th tab "Mod Pack" in Modding Hub. |
 | D3R-11 | ~~**Legacy cleanup**~~ | D3R-5 | **DONE (S45b)** ✓ MERGED: `g_ModNum` removed, `modconfig.txt` removed, shadow arrays removed, all modmgr accessors catalog-only. Build test pending (TEMP env issue — run manually). |
+| D3R-12 | ~~**Catalog type expansion**~~ | D3R-2 | **DONE (S46)** ✓ BUILD PASS: 7 new types. ASSET_ANIMATION, ASSET_GAMEMODE, ASSET_HUD added to enum. Ext union members for weapon/prop/animation/gamemode. 7 wrappers in assetcatalog.c. 36 base weapons + 6 game modes in assetcatalog_base.c. Scanner handles all 3 new dirs/sections. |
 
 ### D3R-7 Coded — Awaiting Build Test (S40)
 
