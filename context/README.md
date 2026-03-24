@@ -24,6 +24,7 @@
 | **Long-term vision** | Priority ordering + dependency graph | [roadmap.md](roadmap.md) |
 | **Open bugs** | One-off issues (open/fixed) | [bugs.md](bugs.md) |
 | **Systemic patterns** | Architectural bug classes | [systemic-bugs.md](systemic-bugs.md) |
+| **QC test checklist** | In-game verification items per build | [qc-tests.md](qc-tests.md) |
 
 ---
 
