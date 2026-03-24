@@ -364,6 +364,18 @@ asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
                                          u32 flags, f32 health);
 
 /**
+ * Register a textures asset (texture pack / replacement set).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterTextures(const char *id);
+
+/**
+ * Register an SFX asset (sound effect pack).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterSfx(const char *id);
+
+/**
  * Register a game mode asset.
  * Convenience wrapper that sets ext.gamemode fields.
  * mode_id should be an MPSCENARIO_* constant.

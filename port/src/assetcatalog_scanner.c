@@ -346,7 +346,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	default:
-		/* ASSET_TEXTURES, ASSET_SFX, etc. -- no extra fields needed */
+		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
+		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
 		break;
 	}
 

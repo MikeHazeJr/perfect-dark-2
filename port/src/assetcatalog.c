@@ -559,6 +559,16 @@ asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
     return entry;
 }
 
+asset_entry_t *assetCatalogRegisterTextures(const char *id)
+{
+    return assetCatalogRegister(id, ASSET_TEXTURES);
+}
+
+asset_entry_t *assetCatalogRegisterSfx(const char *id)
+{
+    return assetCatalogRegister(id, ASSET_SFX);
+}
+
 /* ========================================================================
  * Public API: Resolution
  * ======================================================================== */

@@ -98,7 +98,7 @@
 | D3R-9 | ~~**Network distribution**~~ | D3R-4 | **DONE (S44)** ✓ BUILD PASS: Protocol v20, PDCA archives, zlib chunks, crash recovery, kill feed, download prompt UI. |
 | D3R-10 | ~~**Mod Pack export/import**~~ | D3R-9 | **DONE (S45a)** ✓ BUILD PASS: `modpack.h/c`, PDPK format, zlib compression, hot-register. 4th tab "Mod Pack" in Modding Hub. |
 | D3R-11 | ~~**Legacy cleanup**~~ | D3R-5 | **DONE (S45b)** ✓ MERGED: `g_ModNum` removed, `modconfig.txt` removed, shadow arrays removed, all modmgr accessors catalog-only. Build test pending (TEMP env issue — run manually). |
-| S46a | ~~**Asset Catalog expansion (7 types)**~~ | D3R-2 | **DONE (S46a)** ✓ BUILD PASS: `ASSET_ANIMATION/TEXTURE/GAMEMODE/AUDIO/HUD` + ext structs for `ASSET_WEAPON/PROP`. 47 weapons, 8 props, 6 gamemodes, 6 HUD elements registered at startup. Full anim/SFX/texture enumeration deferred to S46b. |
+| S46a | ~~**Asset Catalog expansion (7 types)**~~ | D3R-2 | **DONE (S46a+S46)** ✓ MERGED: `ASSET_ANIMATION/TEXTURE/GAMEMODE/AUDIO/HUD` + rich ext structs. 47 weapons, 8 props, 6 gamemodes, 6 HUD elements registered. `RegisterTextures`/`RegisterSfx` wrappers added. Full anim/SFX/texture enumeration deferred to S46b. |
 | S46b | **Asset Catalog — full enumeration** | S46a | TODO: full animation table (~1000 entries from JSON), full SFX table (1545 entries from sfx.h), full texture table from ROM metadata. |
 
 ### D3R-7 Coded — Awaiting Build Test (S40)
