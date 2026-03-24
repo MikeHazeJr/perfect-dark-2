@@ -22,6 +22,7 @@
 | **What we must respect** | Active/removed constraints | [constraints.md](constraints.md) |
 | **Infrastructure phases** | D1–D16 execution status | [infrastructure.md](infrastructure.md) |
 | **Long-term vision** | Priority ordering + dependency graph | [roadmap.md](roadmap.md) |
+| **Release milestones** | Planned stable release builds | [milestones.md](milestones.md) |
 | **Open bugs** | One-off issues (open/fixed) | [bugs.md](bugs.md) |
 | **Systemic patterns** | Architectural bug classes | [systemic-bugs.md](systemic-bugs.md) |
 | **QC test checklist** | In-game verification items per build | [qc-tests.md](qc-tests.md) |
