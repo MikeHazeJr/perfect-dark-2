@@ -477,6 +477,12 @@ set(SRC_SERVER
 
   # Connect code (IP:port ↔ word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
+
+  # SPF-1: Hub lifecycle, room system, player identity, phonetic encoding
+  ${CMAKE_SOURCE_DIR}/port/src/hub.c
+  ${CMAKE_SOURCE_DIR}/port/src/room.c
+  ${CMAKE_SOURCE_DIR}/port/src/identity.c
+  ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
 )
 
 # ImGui sources for server GUI
