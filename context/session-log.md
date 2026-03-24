@@ -5,6 +5,48 @@
 
 ---
 
+## Session 45 — 2026-03-24
+
+**Focus**: Bug fix — 31 bots not spawning (only 24 spawned)
+
+### What Was Done
+
+**Root cause**: Three compounding limits: `MAX_BOTS=24` hard-capped `g_BotConfigsArray` and the matchsetup.c bot-processing loop; `chrslots u32` had only bits 8-31 for bots (24 bits); all `1u <<` shifts in chrslots operations would invoke UB if MAX_BOTS exceeded 23.
+
+**Files changed** (12 files, merged to dev):
+
+1. **`src/include/constants.h`** — Added `PARTICIPANT_DEFAULT_CAPACITY=32`; raised `MAX_BOTS` to `PARTICIPANT_DEFAULT_CAPACITY`; updated `CHRSLOTS_PLAYER_MASK`/`CHRSLOTS_BOT_MASK` to use `1ull` literals
+2. **`src/include/types.h`** — `struct mpsetup.chrslots` u32 → u64
+3. **`src/game/mplayer/mplayer.c`** — All `1u <<` in chrslots ops → `1ull <<`; `u16 chrslots` local → `u64`; log `%08x` → `%016llx` with `(unsigned long long)` casts
+4. **`src/game/mplayer/setup.c`** — All `1u <<` in chrslots ops → `1ull <<`
+5. **`src/game/filemgr.c`** — `1u <<` → `1ull <<` for chrslots player bits
+6. **`port/src/net/matchsetup.c`** — `MATCH_MAX_SLOTS` changed from `MAX_MPCHRS` → `PARTICIPANT_DEFAULT_CAPACITY` (stays 32, avoids ABI mismatch); `1u <<` → `1ull <<`; log format fixed
+7. **`port/fast3d/pdgui_menu_matchsetup.cpp`** — `MAX_BOTS=32`, `MATCH_MAX_SLOTS=32` (hardcoded, no ABI mismatch with matchsetup.c)
+8. **`port/src/net/netmsg.c`** — SVC_STAGE_START `chrslots` WriteU32/ReadU32 → WriteU64/ReadU64
+9. **`port/include/net/net.h`** — `NET_PROTOCOL_VER 20→21` (wire format change for chrslots)
+10. **`src/include/game/mplayer/participant.h`** — Legacy shim signatures u32→u64; removed duplicate `PARTICIPANT_DEFAULT_CAPACITY` (now in constants.h)
+11. **`src/game/mplayer/participant.c`** — `mpParticipantsToLegacyChrslots` returns u64; `mpParticipantsFromLegacyChrslots` takes u64; bit limit updated; `1u <<` → `1ull <<`
+
+### Decisions Made
+
+- `PARTICIPANT_DEFAULT_CAPACITY=32` moved to `constants.h` as the authoritative capacity constant
+- `MATCH_MAX_SLOTS` decoupled from `MAX_MPCHRS` (which is now 40) — stays at 32 (pool size) in both C and .cpp, preventing ABI mismatch
+- Protocol bumped to v21 for chrslots u64 wire format change
+- B-12 Phase 3 plan note: when chrslots is removed, protocol will bump to v22 (not v20 as originally planned — v20 was used by D3R-9, v21 by this fix)
+
+### Dev Build Status
+
+- worktree build (claude/affectionate-nash): **PASS** — both `pd` and `pd-server` targets
+- dev build after merge: **PARTIAL** — our files compile clean; 2 pre-existing errors in `modmgr.c` (D3R-11's in-progress work, not related to this fix)
+
+### Next Steps
+
+- In-game test: 1 player + 31 bots, verify all 31 spawn (see qc-tests.md)
+- Update `context/constraints.md`: chrslots active constraint now says u64; protocol v21
+- B-12 Phase 3 plan: bump to v22 (not v20) when chrslots removed
+
+---
+
 ## Session 44 — 2026-03-24
 
 **Focus**: D3R-9 — Network Mod Distribution (protocol v20)
