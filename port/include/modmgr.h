@@ -36,9 +36,7 @@ typedef struct modinfo {
 	s32  enabled;                        // user preference (persisted)
 	s32  loaded;                         // assets currently registered in tables
 	s32  bundled;                        // shipped with the game
-	s32  has_modconfig;                  // has legacy modconfig.txt
 	s32  has_modjson;                    // has mod.json manifest
-	s32  num_stages;                     // stages configured in modconfig
 	s32  num_bodies;                     // bodies declared in mod.json
 	s32  num_heads;                      // heads declared in mod.json
 	s32  num_arenas;                     // arenas declared in mod.json
@@ -54,8 +52,8 @@ void modmgrInit(void);
 void modmgrShutdown(void);
 
 // Rebuild asset tables from currently enabled mods (hot-toggle).
-// Clears mod shadow arrays, restores base stage table, re-registers enabled mods,
-// flushes texture cache. Caller should return to title screen after this.
+// Re-registers enabled mods, invalidates caches, flushes texture cache.
+// Caller should return to title screen after this.
 void modmgrReload(void);
 
 // ---- Registry queries ----
@@ -110,33 +108,24 @@ s32  modmgrReadManifest(const u8 *buf, s32 len, char *missing, s32 misslen);
 // This is called by the new fsFullPath() mod resolution path.
 const char *modmgrResolvePath(const char *relPath);
 
-// Get the directory path for a specific mod (for modConfigLoad).
+// Get the directory path for a specific mod.
 const char *modmgrGetModDir(s32 index);
 
 // ---- Dynamic asset table accessors ----
-// These transparently handle base game arrays + mod-added shadow arrays.
-// Index 0..base_count-1 returns from base array, base_count..total-1 from mod array.
+// All entries come from the Asset Catalog. Index 0..total-1 is valid.
 
 struct mpbody;
 struct mphead;
 struct mparena;
 
-// Bodies: base array is g_MpBodies[63], mod additions in shadow array
 s32             modmgrGetTotalBodies(void);
 struct mpbody  *modmgrGetBody(s32 index);
 
-// Heads: base array is g_MpHeads[76], mod additions in shadow array
 s32             modmgrGetTotalHeads(void);
 struct mphead  *modmgrGetHead(s32 index);
 
-// Arenas: base array is g_MpArenas[75], mod additions in shadow array
 s32             modmgrGetTotalArenas(void);
 struct mparena *modmgrGetArena(s32 index);
-
-// Get counts of mod-added entries only
-s32 modmgrGetModBodyCount(void);
-s32 modmgrGetModHeadCount(void);
-s32 modmgrGetModArenaCount(void);
 
 // Get resolved mods directory path (set by modmgrInit).
 // Returns NULL if no mods directory was found.

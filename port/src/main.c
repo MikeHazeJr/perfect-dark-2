@@ -15,7 +15,6 @@
 #include "fs.h"
 #include "romdata.h"
 #include "config.h"
-#include "mod.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
@@ -168,14 +167,8 @@ int main(int argc, const char **argv)
 
 	gameInit();
 
-	// Dynamic mod manager: scans mods/ directory, loads manifests, applies config,
-	// and loads modconfig.txt for each enabled mod. Replaces the old single-mod path.
+	// Dynamic mod manager: scans mods/ directory, loads manifests, applies config.
 	modmgrInit();
-
-	// Legacy fallback: if no mods found by modmgr, try the old single-mod path
-	if (modmgrGetCount() == 0 && fsGetModDir()) {
-		modConfigLoad(MOD_CONFIG_FNAME);
-	}
 
 	// Model catalog: cache metadata from g_HeadsAndBodies (no heap needed).
 	// Actual model validation is deferred to catalogValidateAll() after heap init.
@@ -264,8 +257,6 @@ int main(int argc, const char **argv)
 		sysLogPrintf(LOG_NOTE, "player profile set to %d", g_FileAutoSelect);
 	}
 
-	// Mod Switch
-	g_ModNum = 0;
 
 	/* Set FORWARDPITCH on by default for all players if not already set. */
 	for (s32 i = 0; i < MAX_PLAYERS; ++i) {

@@ -98,12 +98,8 @@ static const struct romfilepatch filePatches[] = {
 	{ 0x92b0, 1, "\x6c", "\x99" },
 };
 
-static struct romfile fileSlots[5][ROMDATA_MAX_FILES] = {
-	{ [FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 } },
-	{ [FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 } }, // GoldenEye X Mod
-	{ [FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 } }, // Kakariko Village Mod
-	{ [FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 } }, // Dark Moon Mod
-	{ [FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 } }, // Goldfinger 64 Mod
+static struct romfile fileSlots[ROMDATA_MAX_FILES] = {
+	[FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 },
 };
 
 #define ROMSEG_START(n) _ ## n ## SegmentRomStart
@@ -395,7 +391,7 @@ static inline s32 romdataLoadExternalFileList(void)
 			if (*p) {
 				*p++ = '\0';
 			}
-			fileSlots[g_ModNum][n++].name = start;
+			fileSlots[n++].name = start;
 		}
 	}
 
@@ -419,26 +415,10 @@ static inline void romdataInitFiles(void)
 		if (offsets + i + 1 < (u32 *)(romDataSeg + romDataSegSize)) {
 			const u32 nextofs = PD_BE32(offsets[i + 1]);
 			const u32 ofs = PD_BE32(offsets[i]);
-			fileSlots[MOD_NORMAL][i].data = g_RomFile + ofs;
-			fileSlots[MOD_NORMAL][i].size = nextofs - ofs;
-			fileSlots[MOD_NORMAL][i].source = SRC_UNLOADED;
-			fileSlots[MOD_NORMAL][i].preprocessed = 0;
-			fileSlots[MOD_GEX][i].data = g_RomFile + ofs;
-			fileSlots[MOD_GEX][i].size = nextofs - ofs;
-			fileSlots[MOD_GEX][i].source = SRC_UNLOADED;
-			fileSlots[MOD_GEX][i].preprocessed = 0;
-			fileSlots[MOD_KAKARIKO][i].data = g_RomFile + ofs;
-			fileSlots[MOD_KAKARIKO][i].size = nextofs - ofs;
-			fileSlots[MOD_KAKARIKO][i].source = SRC_UNLOADED;
-			fileSlots[MOD_KAKARIKO][i].preprocessed = 0;
-			fileSlots[MOD_DARKNOON][i].data = g_RomFile + ofs;
-			fileSlots[MOD_DARKNOON][i].size = nextofs - ofs;
-			fileSlots[MOD_DARKNOON][i].source = SRC_UNLOADED;
-			fileSlots[MOD_DARKNOON][i].preprocessed = 0;
-			fileSlots[MOD_GOLDFINGER_64][i].data = g_RomFile + ofs;
-			fileSlots[MOD_GOLDFINGER_64][i].size = nextofs - ofs;
-			fileSlots[MOD_GOLDFINGER_64][i].source = SRC_UNLOADED;
-			fileSlots[MOD_GOLDFINGER_64][i].preprocessed = 0;
+			fileSlots[i].data = g_RomFile + ofs;
+			fileSlots[i].size = nextofs - ofs;
+			fileSlots[i].source = SRC_UNLOADED;
+			fileSlots[i].preprocessed = 0;
 		}
 	}
 
@@ -446,54 +426,33 @@ static inline void romdataInitFiles(void)
 	const u32 *nameOffsets = (u32 *)(g_RomFile + PD_BE32(offsets[i - 1]));
 	for (i = 1; nameOffsets[i]; ++i) {
 		const u32 ofs = PD_BE32(nameOffsets[i]);
-		fileSlots[MOD_NORMAL][i].name = (const char *)nameOffsets + ofs;
-		fileSlots[MOD_GEX][i].name = (const char *)nameOffsets + ofs;
-		fileSlots[MOD_KAKARIKO][i].name = (const char *)nameOffsets + ofs;
-		fileSlots[MOD_DARKNOON][i].name = (const char *)nameOffsets + ofs;
-		fileSlots[MOD_GOLDFINGER_64][i].name = (const char *)nameOffsets + ofs;
+		fileSlots[i].name = (const char *)nameOffsets + ofs;
 	}
 
-	// Model Slot Expansion
-	// Dr. Caroll Body (PD Plus Mod)
-	fileSlots[MOD_NORMAL][FILE_CDRCARROLL2].data = 0;
-	fileSlots[MOD_NORMAL][FILE_CDRCARROLL2].size = 0;
-	fileSlots[MOD_NORMAL][FILE_CDRCARROLL2].source = SRC_UNLOADED;
-	fileSlots[MOD_NORMAL][FILE_CDRCARROLL2].preprocessed = 0;
-	fileSlots[MOD_NORMAL][FILE_CDRCARROLL2].name = "Ccarroll2Z";
-	fileSlots[MOD_GEX][FILE_CDRCARROLL2] = fileSlots[MOD_NORMAL][FILE_CDRCARROLL2];
-	fileSlots[MOD_KAKARIKO][FILE_CDRCARROLL2] = fileSlots[MOD_NORMAL][FILE_CDRCARROLL2];
-	fileSlots[MOD_DARKNOON][FILE_CDRCARROLL2] = fileSlots[MOD_NORMAL][FILE_CDRCARROLL2];
-	fileSlots[MOD_GOLDFINGER_64][FILE_CDRCARROLL2] = fileSlots[MOD_NORMAL][FILE_CDRCARROLL2];
-	// Skedar Body (PD Plus Mod)
-	fileSlots[MOD_NORMAL][FILE_CSKEDAR2].data = 0;
-	fileSlots[MOD_NORMAL][FILE_CSKEDAR2].size = 0;
-	fileSlots[MOD_NORMAL][FILE_CSKEDAR2].source = SRC_UNLOADED;
-	fileSlots[MOD_NORMAL][FILE_CSKEDAR2].preprocessed = 0;
-	fileSlots[MOD_NORMAL][FILE_CSKEDAR2].name = "Cskedar2Z";
-	fileSlots[MOD_GEX][FILE_CSKEDAR2] = fileSlots[MOD_NORMAL][FILE_CSKEDAR2];
-	fileSlots[MOD_KAKARIKO][FILE_CSKEDAR2] = fileSlots[MOD_NORMAL][FILE_CSKEDAR2];
-	fileSlots[MOD_DARKNOON][FILE_CSKEDAR2] = fileSlots[MOD_NORMAL][FILE_CSKEDAR2];
-	fileSlots[MOD_GOLDFINGER_64][FILE_CSKEDAR2] = fileSlots[MOD_NORMAL][FILE_CSKEDAR2];
-	// Dr. Caroll Hand (PD Plus Mod)
-	fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL].data = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL].size = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL].source = SRC_UNLOADED;
-	fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL].preprocessed = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL].name = "Ghand_carollZ";
-	fileSlots[MOD_GEX][FILE_GHAND_DRCARROLL] = fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL];
-	fileSlots[MOD_KAKARIKO][FILE_GHAND_DRCARROLL] = fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL];
-	fileSlots[MOD_DARKNOON][FILE_GHAND_DRCARROLL] = fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL];
-	fileSlots[MOD_GOLDFINGER_64][FILE_GHAND_DRCARROLL] = fileSlots[MOD_NORMAL][FILE_GHAND_DRCARROLL];
-	// Skedar Hand (PD Plus Mod)
-	fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR].data = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR].size = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR].source = SRC_UNLOADED;
-	fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR].preprocessed = 0;
-	fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR].name = "Ghand_skedarZ";
-	fileSlots[MOD_GEX][FILE_GHAND_SKEDAR] = fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR];
-	fileSlots[MOD_KAKARIKO][FILE_GHAND_SKEDAR] = fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR];
-	fileSlots[MOD_DARKNOON][FILE_GHAND_SKEDAR] = fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR];
-	fileSlots[MOD_GOLDFINGER_64][FILE_GHAND_SKEDAR] = fileSlots[MOD_NORMAL][FILE_GHAND_SKEDAR];
+	// Model Slot Expansion (PD Plus Mod extra character slots)
+	fileSlots[FILE_CDRCARROLL2].data = 0;
+	fileSlots[FILE_CDRCARROLL2].size = 0;
+	fileSlots[FILE_CDRCARROLL2].source = SRC_UNLOADED;
+	fileSlots[FILE_CDRCARROLL2].preprocessed = 0;
+	fileSlots[FILE_CDRCARROLL2].name = "Ccarroll2Z";
+
+	fileSlots[FILE_CSKEDAR2].data = 0;
+	fileSlots[FILE_CSKEDAR2].size = 0;
+	fileSlots[FILE_CSKEDAR2].source = SRC_UNLOADED;
+	fileSlots[FILE_CSKEDAR2].preprocessed = 0;
+	fileSlots[FILE_CSKEDAR2].name = "Cskedar2Z";
+
+	fileSlots[FILE_GHAND_DRCARROLL].data = 0;
+	fileSlots[FILE_GHAND_DRCARROLL].size = 0;
+	fileSlots[FILE_GHAND_DRCARROLL].source = SRC_UNLOADED;
+	fileSlots[FILE_GHAND_DRCARROLL].preprocessed = 0;
+	fileSlots[FILE_GHAND_DRCARROLL].name = "Ghand_carollZ";
+
+	fileSlots[FILE_GHAND_SKEDAR].data = 0;
+	fileSlots[FILE_GHAND_SKEDAR].size = 0;
+	fileSlots[FILE_GHAND_SKEDAR].source = SRC_UNLOADED;
+	fileSlots[FILE_GHAND_SKEDAR].preprocessed = 0;
+	fileSlots[FILE_GHAND_SKEDAR].name = "Ghand_skedarZ";
 }
 
 static inline struct romfile *romdataGetSeg(const char *name)
@@ -583,7 +542,7 @@ s32 romdataFileGetSize(s32 fileNum)
 
 	// ensure any external files are loaded and we use their size
 	if (romdataFileLoad(fileNum, NULL)) {
-		return fileSlots[g_ModNum][fileNum].size;
+		return fileSlots[fileNum].size;
 	}
 
 	sysLogPrintf(LOG_ERROR, "romdataFileGetSize: could not load file num %d", fileNum);
@@ -605,36 +564,36 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	u8 *out = NULL;
 
 	// try to load external file
-	if (fileSlots[g_ModNum][fileNum].source == SRC_UNLOADED) {
+	if (fileSlots[fileNum].source == SRC_UNLOADED) {
 		char tmp[FS_MAXPATH] = { 0 };
-		snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[g_ModNum][fileNum].name);
+		snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
 
 		// All Solos in Multi Mod: do not load in solo, coop, counter-op (excluding playable skedar model)
 		if (fsFileSize(tmp) > 0 && (!g_NotLoadMod || fileNum == FILE_CSKEDAR2 || fileNum == FILE_GHAND_SKEDAR)) {
 			u32 size = 0;
 			out = fsFileLoad(tmp, &size);
 			if (out && size) {
-				sysLogPrintf(LOG_NOTE, "file %d (%s) loaded externally (g_ModNum: %d)", fileNum, fileSlots[g_ModNum][fileNum].name, g_ModNum);
-				fileSlots[g_ModNum][fileNum].data = out;
-				fileSlots[g_ModNum][fileNum].size = size;
-				fileSlots[g_ModNum][fileNum].source = SRC_EXTERNAL;
+				sysLogPrintf(LOG_NOTE, "file %d (%s) loaded externally", fileNum, fileSlots[fileNum].name);
+				fileSlots[fileNum].data = out;
+				fileSlots[fileNum].size = size;
+				fileSlots[fileNum].source = SRC_EXTERNAL;
 				// external file; do not apply patches to this
-				fileSlots[g_ModNum][fileNum].numpatches = 0;
+				fileSlots[fileNum].numpatches = 0;
 			}
 		}
 
-		if (fileSlots[g_ModNum][fileNum].source == SRC_UNLOADED) {
+		if (fileSlots[fileNum].source == SRC_UNLOADED) {
 			// tried and failed, fall back to ROM
-			fileSlots[g_ModNum][fileNum].source = SRC_ROM;
+			fileSlots[fileNum].source = SRC_ROM;
 		}
 	}
 
 	if (!out) {
-		out = fileSlots[g_ModNum][fileNum].data;
+		out = fileSlots[fileNum].data;
 	}
 
 	if (out && outSize) {
-		*outSize = fileSlots[g_ModNum][fileNum].size;
+		*outSize = fileSlots[fileNum].size;
 	}
 
 	return out;
@@ -647,19 +606,18 @@ void romdataFilePreprocess(s32 fileNum, s32 loadType, u8 *data, u32 size, u32 *o
 		return;
 	}
 
-	if (data && size /* && !fileSlots[g_ModNum][fileNum].preprocessed*/) {
+	if (data && size) {
 		if (loadType && loadType < (u32)ARRAYCOUNT(filePreprocFuncs) && filePreprocFuncs[loadType]) {
 			// apply patches
-			for (u32 i = 0; i < fileSlots[g_ModNum][fileNum].numpatches; ++i) {
-				const struct romfilepatch *p = &fileSlots[g_ModNum][fileNum].patches[i];
+			for (u32 i = 0; i < fileSlots[fileNum].numpatches; ++i) {
+				const struct romfilepatch *p = &fileSlots[fileNum].patches[i];
 				if (!memcmp(data + p->ofs, p->src, p->len)) {
 					memcpy(data + p->ofs, p->dst, p->len);
-					sysLogPrintf(LOG_NOTE, "file %d (%s) patched at offset 0x%x", fileNum, fileSlots[g_ModNum][fileNum].name, p->ofs);
+					sysLogPrintf(LOG_NOTE, "file %d (%s) patched at offset 0x%x", fileNum, fileSlots[fileNum].name, p->ofs);
 				}
 			}
 			// then preprocess
 			filePreprocFuncs[loadType](data, size, outSize);
-			// fileSlots[fileNum].preprocessed = 1;
 		}
 	}
 }
@@ -671,12 +629,12 @@ void romdataFileFree(s32 fileNum)
 		return;
 	}
 
-	if (fileSlots[g_ModNum][fileNum].source == SRC_EXTERNAL) {
-		sysMemFree(fileSlots[g_ModNum][fileNum].data);
-		fileSlots[g_ModNum][fileNum].data = NULL;
+	if (fileSlots[fileNum].source == SRC_EXTERNAL) {
+		sysMemFree(fileSlots[fileNum].data);
+		fileSlots[fileNum].data = NULL;
 	}
 
-	fileSlots[g_ModNum][fileNum].source = SRC_UNLOADED;
+	fileSlots[fileNum].source = SRC_UNLOADED;
 }
 
 static inline void romdataResetFile(s32 fileNum)
@@ -686,10 +644,10 @@ static inline void romdataResetFile(s32 fileNum)
 	if (offsets + fileNum + 1 < (u32 *)(romDataSeg + romDataSegSize)) {
 		const u32 nextofs = PD_BE32(offsets[fileNum + 1]);
 		const u32 ofs = PD_BE32(offsets[fileNum]);
-		fileSlots[g_ModNum][fileNum].data = g_RomFile + ofs;
-		fileSlots[g_ModNum][fileNum].size = nextofs - ofs;
-		fileSlots[g_ModNum][fileNum].source = SRC_UNLOADED;
-		fileSlots[g_ModNum][fileNum].preprocessed = 0;
+		fileSlots[fileNum].data = g_RomFile + ofs;
+		fileSlots[fileNum].size = nextofs - ofs;
+		fileSlots[fileNum].source = SRC_UNLOADED;
+		fileSlots[fileNum].preprocessed = 0;
 	}
 }
 
@@ -745,7 +703,7 @@ const char *romdataFileGetName(s32 fileNum)
 	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {
 		return NULL;
 	}
-	return fileSlots[g_ModNum][fileNum].name;
+	return fileSlots[fileNum].name;
 }
 
 s32 romdataFileGetNumForName(const char *name)
@@ -755,7 +713,7 @@ s32 romdataFileGetNumForName(const char *name)
 	}
 
 	for (s32 i = 0; i < ROMDATA_MAX_FILES; ++i) {
-		if (fileSlots[g_ModNum][i].name && !strcmp(fileSlots[g_ModNum][i].name, name)) {
+		if (fileSlots[i].name && !strcmp(fileSlots[i].name, name)) {
 			return i;
 		}
 	}

@@ -234,9 +234,6 @@ void romdataFileFreeForSolo(void) {}
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }
 u32 mpGetNumBodies(void) { return 0; }
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum) { (void)bodynum; return 0; }
-/* netClientSettingsChanged is defined in net.c — do NOT stub it here */
-void modConfigLoad(const char *fname) { (void)fname; }
-
 /* modmgr stubs — fs.c references these */
 s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
