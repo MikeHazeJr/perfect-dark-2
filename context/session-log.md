@@ -48,6 +48,8 @@
 
 ---
 
+---
+
 ## Session 43 — 2026-03-24
 
 **Focus**: D3R-8 — Bot Customizer (trait editor + bot_variants/ persistence)
