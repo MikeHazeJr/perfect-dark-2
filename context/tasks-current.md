@@ -91,13 +91,35 @@
 | D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
 | D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
 | D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
-| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Steps 1-4 ✓ (build-tested S37). **Step 5: Full accessor rewire** ✓ (S38) — all 6 modmgr accessors (arena/body/head get + total) now catalog-backed via unified cache. 62 callsites covered, zero caller changes. **NEEDS BUILD TEST.** See briefing below. |
-| D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
-| D3R-7 | **INI Manager tool + Model Correction Tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. **Model Correction Tool**: dual-model renderer (mod vs base PD reference at 1.0), interactive scale slider, binary rewrite to bake corrected `definition->scale` into model file. All shipped models render correctly at `model_scale = 1.0`; `.ini` `model_scale` is creative modifier only. |
+| D3R-5 | ~~**Callsite migration**~~ | D3R-3, D3R-4 | **DONE (S38/S39)** ✓ BUILD PASS: All 6 modmgr accessors catalog-backed, 62 callsites covered, zero caller changes. |
+| D3R-6 | ~~**Mod Manager UI**~~ | D3R-4 | **MERGED (S39/S40)** ✓ — 8 files. Snapshot browse/toggle, validation, `.modstate` persistence, Apply→title. Now embedded in Modding Hub. |
+| D3R-7 | **Modding Hub** ← IN PROGRESS | D3R-6 | **CODED (S40)** — 6 files. Needs build test. Hub with Mod Manager, INI Editor, Model Scale Tool. Rotating charpreview. Binary bake at offset 0x10. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
 | D3R-9 | **Network distribution** | D3R-4 | Delta packs, session-only downloads, lobby spectator combat log. |
 | D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |
 | D3R-11 | **Legacy cleanup** | D3R-5 | Remove `g_ModNum`, `modconfig.txt` parsing, static array patching. |
+
+### D3R-7 Coded — Awaiting Build Test (S40)
+
+6 files changed/created:
+- `port/fast3d/pdgui_charpreview.c` — `pdguiCharPreviewSetRotY()` + rotation state
+- `port/include/pdgui_charpreview.h` — `pdguiCharPreviewSetRotY()` declaration
+- `port/fast3d/pdgui_menu_modmgr.cpp` — `renderModManagerBody()` extract, `pdguiModManagerRefreshSnapshot/RenderContent` public API
+- `port/fast3d/pdgui_menu_moddinghub.cpp` — **NEW** hub window, 3 tools, B/Escape, controller nav
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — "Modding..." button, hub API calls
+- `port/fast3d/pdgui_backend.cpp` — hub render + `hubActive` guard
+
+### D3R-6 Merged (S39)
+
+8 files changed/created:
+- `port/include/assetcatalog.h` — `assetCatalogSetEnabled()`, `assetCatalogGetUniqueCategories()` declarations
+- `port/src/assetcatalog.c` — implementations appended
+- `port/include/modmgr.h` — `modmgrSaveComponentState()`, `modmgrLoadComponentState()` declarations
+- `port/src/modmgr.c` — `.modstate` persistence, `modmgrApplyChanges()` rewrite (removed old reload path, added `mainChangeToStage(STAGE_TITLE)`)
+- `port/src/main.c` — `modmgrLoadComponentState()` after scan
+- `port/fast3d/pdgui_menu_modmgr.cpp` — **NEW** (~530 lines) full Mod Manager UI
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — "Mod Manager..." button, `s_MenuView==3`, B/Escape, title
+- `port/fast3d/pdgui_backend.cpp` — `pdguiModManagerRender()` in render loop, `modmgrActive` early-exit guard
 
 ### D3R-5 Briefing: Callsite Migration
 

@@ -5,6 +5,132 @@
 
 ---
 
+## Session 40 — 2026-03-23
+
+**Focus**: D3R-7 — Modding Hub (INI Editor + Model Scale Tool + embedded Mod Manager)
+
+### What Was Done
+
+1. **`pdgui_charpreview.c/.h`** — Added rotation support:
+   - New state `s_PreviewRotY` (f32)
+   - New `pdguiCharPreviewSetRotY(f32 rotY)` — sets the angle
+   - `pdguiCharPreviewRequest()` now applies `newroty = curroty = s_PreviewRotY` to bypass animation interpolation
+   - Declared in header with proper `extern "C"` guards
+
+2. **`pdgui_menu_modmgr.cpp`** — Refactored for hub embedding:
+   - Extracted inner content (`renderModManagerBody`) as static function with `(dialogW, dialogH, scale, s32 *outClose)` signature
+   - Close and Apply Changes now set `*outClose = 1` instead of `s_Visible = false`; caller decides visibility
+   - B/Escape also sets `*outClose = 1` in the body function
+   - `renderModManager()` still works standalone (calls body, checks outClose → s_Visible)
+   - Added public C API: `pdguiModManagerRefreshSnapshot()` + `pdguiModManagerRenderContent(w, h, scale, *outClose)`
+
+3. **`pdgui_menu_moddinghub.cpp`** — NEW FILE (~450 lines), the Modding Hub:
+   - Standalone window pattern (same 900×560, PD-style border)
+   - Tool selector bar: [Mod Manager] [INI Editor] [Model Scale Tool]
+   - Active tool highlighted with blue button style
+   - Tool 0 (Mod Manager): embeds via `pdguiModManagerRenderContent()` within `BeginChild`
+   - Tool 1 (INI Editor): browse catalog entries by type, parse .ini into key-value list, edit via `InputText`, Save button writes back. Non-editable lines (comments, blanks) preserved in round-trip.
+   - Tool 2 (Model Scale): browse `ASSET_CHARACTER` entries, read scale at binary offset 0x10 (big-endian byteswap), slider 0.1–5.0, charpreview with continuous Y rotation, "Bake Scale to File" writes back
+   - Hub footer: Close button + B/Escape (when Mod Manager not active)
+   - Public C API: `pdguiModdingHubShow/Hide/IsVisible/Render`
+
+4. **`pdgui_menu_mainmenu.cpp`** — Updated:
+   - Forward decls: `pdguiModdingHubShow/Hide/IsVisible` (replacing modmgr)
+   - "Mod Manager..." button → "Modding..."
+   - Title "Mod Manager" → "Modding" for view 3
+   - B/Escape in view 3 calls `pdguiModdingHubHide()` (was modmgr)
+   - View 3 keep-alive checks `pdguiModdingHubIsVisible()` (was modmgr)
+
+5. **`pdgui_backend.cpp`** — Updated:
+   - Extern decls updated to hub (`pdguiModdingHubRender/IsVisible`)
+   - `modmgrActive` guard → `hubActive` in both `pdguiNewFrame()` and `pdguiRender()`
+   - `pdguiModdingHubRender()` called in render loop
+
+### Files Modified/Created
+- `port/fast3d/pdgui_charpreview.c` — rotation state + `pdguiCharPreviewSetRotY()`
+- `port/include/pdgui_charpreview.h` — `pdguiCharPreviewSetRotY()` declaration
+- `port/fast3d/pdgui_menu_modmgr.cpp` — refactor + `pdguiModManagerRefreshSnapshot/RenderContent` public API
+- `port/fast3d/pdgui_menu_moddinghub.cpp` — **NEW FILE**
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — hub integration
+- `port/fast3d/pdgui_backend.cpp` — hub render + guard swap
+
+### Design Decisions
+- **Hub owns the window chrome**: hub creates full-screen backing + centered dialog. Tools render content within an allocated child area.
+- **Modmgr standalone API unchanged**: `pdguiModManagerRender/Show/Hide/IsVisible` still exist for backward compat; just not called from mainmenu/backend anymore.
+- **Binary scale offset 0x10**: `n64_modeldef.scale` = big-endian f32 at byte offset 0x10 in model binary. Read/write with `byteswap32()` helper.
+- **INI round-trip**: Parser preserves blank lines and comment lines verbatim in save; only `key = value` lines are editable.
+- **Controller support**: B/Escape closes hub (when not in Mod Manager tool, which handles its own B key). D-pad nav via `ImGuiConfigFlags_NavEnableGamepad`. Selectables and buttons are nav-focusable.
+
+### Next Steps
+- Build test D3R-7
+- If pass: update D3R-6 status in tasks-current.md to COMPLETE BUILD PASS, D3R-7 to CODED
+
+---
+
+## Session 39 — 2026-03-23
+
+**Focus**: D3R-5 build test confirmed PASS → D3R-6 implementation (Mod Manager UI)
+
+### What Was Done
+
+1. **Context update**: Marked D3R-5 COMPLETE in tasks-current.md (build test passed before this session).
+
+2. **Asset Catalog write API** — new functions added to `assetcatalog.h` + `assetcatalog.c`:
+   - `assetCatalogSetEnabled(id, enabled)` — mutates `s_EntryPool[slot].enabled` directly (same `findSlot()` as resolve path, but writes)
+   - `assetCatalogGetUniqueCategories(out, maxout)` — iterates pool, deduplicates category strings, skips "base" and empty
+
+3. **Component state persistence** — `mods/.modstate` file (one disabled component ID per line, `#` = comment):
+   - `modmgrSaveComponentState()` — iterates all non-bundled entries, writes disabled IDs to file
+   - `modmgrLoadComponentState()` — reads file, calls `assetCatalogSetEnabled(id, 0)` for each line
+   - Added to `modmgr.h` and implemented in `modmgr.c`
+   - `modmgrApplyChanges()` now: saves component state → saves config → calls `modmgrCatalogChanged()` → `mainChangeToStage(STAGE_TITLE)` (removed old `modmgrReload()` call)
+   - `main.c`: `modmgrLoadComponentState()` called after `assetCatalogScanComponents()` so entries exist before state is applied
+
+4. **`pdgui_menu_modmgr.cpp`** — new file (~530 lines), full Mod Manager UI:
+   - Snapshot-based: `s_Entries[512]` populated at open time from catalog (no live writes during browsing)
+   - Two tabs: **By Category** (collapsible per-type sections, tri-state group checkboxes) and **By Mod** (collapsible per-category groups, sub-grouped by type)
+   - Base game assets in a collapsible "Base Game Assets" section (collapsed by default)
+   - Details panel: reads live `.ini` for name/author/version/description/depends_on
+   - Full validation: `stat()` on dirpath, `stat()` on `{dirpath}/{type}.ini`, `iniParse()` + `depends_on` resolution per entry
+   - Apply Changes: commits changed entries via `assetCatalogSetEnabled()`, calls `modmgrApplyChanges()` → returns to title
+   - Public API: `pdguiModManagerShow()`, `pdguiModManagerHide()`, `pdguiModManagerIsVisible()`, `pdguiModManagerRender(winW, winH)`
+
+5. **`pdgui_menu_mainmenu.cpp`** — Mod Manager entry point:
+   - Added `pdguiModManagerShow/Hide/IsVisible` forward declarations inside extern "C"
+   - Added "Mod Manager..." button at bottom of top-level view (after "Change Agent...")
+   - `s_MenuView = 3` when Mod Manager opens
+   - Title shows "Mod Manager" for view 3
+   - B/Escape in view 3 calls `pdguiModManagerHide()` then returns to view 0
+   - View 3 branch: checks `pdguiModManagerIsVisible()` and auto-returns to view 0 if dismissed
+
+6. **`pdgui_backend.cpp`** — render loop integration:
+   - Added `pdguiModManagerRender/IsVisible` extern "C" forward declarations
+   - `pdguiModManagerRender()` called after `pdguiHotswapRenderQueued()` in `pdguiRender()`
+   - `modmgrActive` flag added to both `pdguiNewFrame()` and `pdguiRender()` early-exit guards
+
+### Files Modified/Created
+- `port/include/assetcatalog.h` — `assetCatalogSetEnabled()`, `assetCatalogGetUniqueCategories()` declarations
+- `port/src/assetcatalog.c` — both implementations appended
+- `port/include/modmgr.h` — `modmgrSaveComponentState()`, `modmgrLoadComponentState()` declarations
+- `port/src/modmgr.c` — `.modstate` read/write implementations, `modmgrApplyChanges()` rewrite
+- `port/src/main.c` — `modmgrLoadComponentState()` call after scan
+- `port/fast3d/pdgui_menu_modmgr.cpp` — **NEW FILE** (~530 lines)
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — Mod Manager button + view 3 + B/Escape handling
+- `port/fast3d/pdgui_backend.cpp` — `pdguiModManagerRender()` integration + early-exit guards
+
+### Design Decisions
+- **Snapshot pattern**: Local `s_Entries[]` copied at open time. User changes modify snapshot only. Apply commits to catalog. Prevents partial-apply bugs.
+- **`.modstate` not `.ini`**: Component enable state goes in a separate file, not inside the component's own `.ini` (which belongs to the mod author). Avoids modifying mod files.
+- **Standalone window**: Mod Manager renders as its own `ImGui::Begin` window alongside the main menu dialog (which stays "open" with view 3 to keep `hotswapQueued = true`).
+- **`modmgrApplyChanges()` simplified**: Removed `modmgrReload()` (old shadow array path). Now just saves state, invalidates caches, and returns to title. Cleaner — title screen re-init does a full catalog re-read via `modmgrCatalogChanged()`.
+
+### Next Steps
+- **Build test** all 8 files (3 modified existing, 1 new .cpp, 3 .c/.h, 1 main.c)
+- **D3R-6 COMPLETE** pending build pass
+- **D3R-7**: INI Manager tool + Model Correction Tool
+
+---
+
 ## Session 38 — 2026-03-23
 
 **Focus**: D3R-5 Tier 1 — Arena accessor rewire (catalog as single source of truth)
