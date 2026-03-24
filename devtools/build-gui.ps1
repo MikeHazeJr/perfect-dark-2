@@ -93,7 +93,7 @@ public class DarkMenuColorTable : ProfessionalColorTable
 # Configuration
 # ============================================================================
 
-$script:ProjectDir      = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:ProjectDir      = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $script:ClientBuildDir  = Join-Path $script:ProjectDir "build\client"
 $script:ServerBuildDir  = Join-Path $script:ProjectDir "build\server"
 $script:BuildDir        = $script:ClientBuildDir

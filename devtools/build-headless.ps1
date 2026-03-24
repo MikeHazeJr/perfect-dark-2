@@ -40,7 +40,7 @@ $ErrorActionPreference = "Stop"
 # Configuration  -  mirrors build-gui.ps1 exactly
 # ============================================================================
 
-$ProjectDir     = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ClientBuildDir = Join-Path $ProjectDir "build\client"
 $ServerBuildDir = Join-Path $ProjectDir "build\server"
 $AddinDir       = Join-Path $ProjectDir "..\post-batch-addin"

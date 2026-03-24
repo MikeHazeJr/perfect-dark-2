@@ -10,12 +10,15 @@ $root = Split-Path $PSScriptRoot -Parent
 # --- Collect docs ---
 $docFolders = @("docs", "context")
 $files = @()
+$missingFolders = @()
 foreach ($folder in $docFolders) {
     $path = Join-Path $root $folder
     if (Test-Path $path) {
         Get-ChildItem -Path $path -Include "*.md","*.txt" -Recurse | ForEach-Object {
             $files += $_
         }
+    } else {
+        $missingFolders += $path
     }
 }
 # Also include root-level .md files
@@ -82,8 +85,15 @@ $listBox.add_SelectedIndexChanged({
     }
 })
 
-# Select first item
-if ($listBox.Items.Count -gt 0) {
+# Show startup errors / select first item
+if ($missingFolders.Count -gt 0 -and $files.Count -eq 0) {
+    $textBox.Text = "ERROR: Could not find documentation folders.`r`n`r`nSearched in:`r`n" +
+                    ($missingFolders -join "`r`n") +
+                    "`r`n`r`nProject root resolved to:`r`n$root`r`n`r`nCheck that this script is in the devtools/ folder."
+} elseif ($listBox.Items.Count -gt 0) {
+    if ($missingFolders.Count -gt 0) {
+        $textBox.Text = "Note: Some folders were not found: $($missingFolders -join ', ')`r`n`r`nSelect a file from the list."
+    }
     $listBox.SelectedIndex = 0
 }
 
