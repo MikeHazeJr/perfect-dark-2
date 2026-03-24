@@ -5,6 +5,52 @@
 
 ---
 
+## Session 42 — 2026-03-24
+
+**Focus**: Death loop fix merge + font descender clipping + dashboard commit freeze + notes TextChanged
+
+### What Was Done
+
+1. **Death loop fix** (src/game/player.c + playerreset.c) — found in `hardcore-easley` worktree (uncommitted). Dev already had both files fixed (same change). Committed directly on dev. Both spawn paths covered:
+   - `playerChooseSpawnLocation` (multiplayer spawn) — scans pads[0..min(numpads,64)] for first pad with `room >= 0`
+   - `playerReset` (respawn/load) — same scan, same fix
+   - Root cause: pad 0 on mod stages may be a non-player pad with `room < 0`, causing `cdFindGroundInfo` to fail silently and leaving the player in the void → death loop
+
+2. **Font descender clipping** (pdgui_backend.cpp + debugmenu.cpp + storyboard.cpp):
+   - `OversampleV = 2` on font load — better vertical rasterization
+   - `TexGlyphPadding = 2` (was 1) — 1px extra padding around each atlas glyph
+   - `FontGlobalScale = pdguiScaleFactor()` set in `pdguiNewFrame()` before `NewFrame()` — font now scales proportionally with resolution. At 800x600 (scale≈0.83) effective size ≈ 20pt, fitting within scaled button heights
+   - Debug menu and storyboard now restore to `pdguiScaleFactor()` (not hardcoded `1.0f`) so lobby/pause/update renderers inherit the correct scale
+
+3. **Dashboard commit freeze** (playtest-dashboard.ps1):
+   - `git add + commit + push` moved to background Runspace
+   - WinForms timer polls every 200ms — UI thread never blocks
+   - Button disabled during operation, log output appears after completion
+   - Notes `TextChanged` added alongside existing `Leave` — notes written to disk on every keystroke, survive crashes
+
+### Files Modified
+- `src/game/player.c` — fallback spawn scan (both paths)
+- `src/game/playerreset.c` — fallback spawn scan
+- `port/fast3d/pdgui_backend.cpp` — OversampleV, TexGlyphPadding, FontGlobalScale per-frame
+- `port/fast3d/pdgui_debugmenu.cpp` — restore to pdguiScaleFactor() not 1.0
+- `port/fast3d/pdgui_storyboard.cpp` — restore to pdguiScaleFactor() not 1.0
+- `playtest-dashboard.ps1` — async commit, TextChanged notes
+
+### Build Status
+- Client: PASS (exit 0). Server: PASS (exit 0).
+- Commits: `3229b17` (death loop), `f13bed5` (font + dashboard)
+
+### Decisions
+- Death loop: dev branch had both player.c and playerreset.c already fixed (uncommitted from prior stuck session). Used dev version since it covers both paths, not just the worktree's player.c-only fix.
+- Font scaling: `FontGlobalScale` set globally per-frame rather than per-menu. Cleaner than patching each menu; debug/storyboard already had the override pattern.
+
+### Next Steps
+- Test: death loop on mod stage, descenders at 800x600, dashboard commit button
+- D3R-7 still needs build test (Modding Hub — coded in S40, not yet verified in-game)
+- B-12 Phase 2 (chrslots migration) — next major task
+
+---
+
 ## Session 40 — 2026-03-23
 
 **Focus**: D3R-7 — Modding Hub (INI Editor + Model Scale Tool + embedded Mod Manager)

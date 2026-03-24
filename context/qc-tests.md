@@ -35,3 +35,15 @@
 | 16 | Ultrawide clamping (21:9 / 32:9) | Large menus cap at 70% viewport width; no edge-to-edge stretch | [ ] |  |
 | 17 | Scroll indicators in tall content | Mod manager component list and update version list show visible scrollbars when content overflows | [ ] |  |
 | 18 | Font scaling | Menu text remains legible at 720p baseline and larger; minimum 12px floor prevents invisible text | [ ] |  |
+
+## Death Loop + Font Descenders + Dashboard (S42) — Awaiting Test
+
+| # | Test | Expected Result | Status | Notes |
+|---|------|----------------|--------|-------|
+| 19 | Death loop — mod stage with no spawn pads | Load a mod stage with no INTROCMD_SPAWN. Player should spawn at a valid pad (room >= 0), not loop-die in void | [ ] |  |
+| 20 | Death loop — log check | Console log shows "SPAWN: no spawn pads available, using pad N fallback (room=X)" with room >= 0 | [ ] |  |
+| 21 | Font descenders at 800x600 | Letters q, y, p, g fully visible in all menus — no bottom clipping | [ ] |  |
+| 22 | Font descenders at 1080p | Same letters fully visible and proportionally sized at 1080p | [ ] |  |
+| 23 | Dashboard commit button | Click Commit — window stays responsive during git add + commit. Spinner/status shows "Committing...", then "Committed" | [ ] |  |
+| 24 | Dashboard commit freeze (push) | Check "Push to GitHub" — window still responsive during push operation | [ ] |  |
+| 25 | QC notes TextChanged | Type a note in any QC row — save to disk immediately (not on focus-leave). Verify by closing + reopening dashboard | [ ] |  |
