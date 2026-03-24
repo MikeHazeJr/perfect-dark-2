@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-23, Session 38 (D3R-5 arena accessor rewire: modmgrGetArena/TotalArenas now catalog-backed via cache array. Bodies/heads next — need ext.body/ext.head schema extension)
+> **Last updated**: 2026-03-23, Session 38 (D3R-5 full accessor rewire: all 6 modmgr accessors catalog-backed via unified cache. ASSET_BODY/ASSET_HEAD types added. 62 callsites covered, zero caller changes. Needs build test.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)

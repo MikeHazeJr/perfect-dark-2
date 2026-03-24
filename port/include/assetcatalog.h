@@ -64,6 +64,8 @@ typedef enum {
     ASSET_UI,
     ASSET_TOOL,
     ASSET_ARENA,
+    ASSET_BODY,                /* MP body entry (base game g_MpBodies[] or mod) */
+    ASSET_HEAD,                /* MP head entry (base game g_MpHeads[] or mod) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -119,6 +121,16 @@ typedef struct asset_entry {
             u8  requirefeature;        /* unlock check (0 = always available) */
             s32 name_langid;           /* language string ID for display name */
         } arena;
+        struct {
+            s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */
+            s16 name_langid;           /* language string ID for display name */
+            s16 headnum;               /* default head ID for this body */
+            u8  requirefeature;        /* unlock check (0 = always available) */
+        } body;
+        struct {
+            s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
+            u8  requirefeature;        /* unlock check (0 = always available) */
+        } head;
     } ext;
 
     /* Catalog internals */
@@ -216,6 +228,24 @@ asset_entry_t *assetCatalogRegisterBotVariant(const char *id,
  */
 asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
                                           u8 requirefeature, s32 name_langid);
+
+/**
+ * Register a body asset.
+ * Convenience wrapper that sets ext.body fields.
+ * A body is an MP-selectable character body with a display name,
+ * a default head, and an optional unlock requirement.
+ */
+asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
+                                         s16 name_langid, s16 headnum,
+                                         u8 requirefeature);
+
+/**
+ * Register a head asset.
+ * Convenience wrapper that sets ext.head fields.
+ * A head is an MP-selectable character head with an optional unlock requirement.
+ */
+asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
+                                         u8 requirefeature);
 
 /* ========================================================================
  * Resolution API

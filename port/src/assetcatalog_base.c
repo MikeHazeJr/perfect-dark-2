@@ -354,6 +354,12 @@ s32 assetCatalogRegisterBaseGame(void)
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base stages", count);
 
 	/* ---- Register bodies ---- */
+	/*
+	 * Bodies are registered as ASSET_BODY with ext.body fields populated
+	 * directly from g_MpBodies[]. This makes the catalog the authoritative
+	 * source for body data — modmgrGetBody() reads from the catalog cache
+	 * instead of the static arrays.
+	 */
 	s32 body_count = 0;
 	for (s32 i = 0; i < (s32)NUM_BASE_BODIES; i++) {
 		const s32 idx = s_BaseBodies[i].index;
@@ -363,7 +369,13 @@ s32 assetCatalogRegisterBaseGame(void)
 
 		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseBodies[i].name);
 
-		asset_entry_t *e = assetCatalogRegisterCharacter(idbuf, "", "");
+		asset_entry_t *e = assetCatalogRegisterBody(
+			idbuf,
+			g_MpBodies[idx].bodynum,
+			g_MpBodies[idx].name,
+			g_MpBodies[idx].headnum,
+			g_MpBodies[idx].requirefeature
+		);
 		if (!e) {
 			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base body %s", idbuf);
 			continue;
@@ -381,6 +393,10 @@ s32 assetCatalogRegisterBaseGame(void)
 	count += body_count;
 
 	/* ---- Register heads ---- */
+	/*
+	 * Heads are registered as ASSET_HEAD with ext.head fields populated
+	 * from g_MpHeads[]. Same catalog-as-truth pattern as bodies and arenas.
+	 */
 	s32 head_count = 0;
 	for (s32 i = 0; i < (s32)NUM_BASE_HEADS; i++) {
 		const s32 idx = s_BaseHeads[i].index;
@@ -390,13 +406,11 @@ s32 assetCatalogRegisterBaseGame(void)
 
 		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseHeads[i].name);
 
-		/*
-		 * Heads are registered as characters with empty body/head files.
-		 * The runtime_index links them back to g_MpHeads[].
-		 * During callsite migration, head lookups will use the catalog
-		 * to find the head entry and retrieve the runtime_index.
-		 */
-		asset_entry_t *e = assetCatalogRegisterCharacter(idbuf, "", "");
+		asset_entry_t *e = assetCatalogRegisterHead(
+			idbuf,
+			g_MpHeads[idx].headnum,
+			g_MpHeads[idx].requirefeature
+		);
 		if (!e) {
 			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base head %s", idbuf);
 			continue;

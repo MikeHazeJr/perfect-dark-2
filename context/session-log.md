@@ -34,18 +34,31 @@
 - **Cache array, not direct catalog access**: Callers expect `struct mparena*` pointers. Catalog stores `asset_entry_t` with different layout. Cache converts catalog data into game structs, returning stable pointers (one per array slot — no aliasing).
 - **Lazy rebuild via dirty flag**: Avoids rebuild on every accessor call. One rebuild serves all subsequent calls until next catalog mutation.
 - **Legacy bridge in rebuild**: Shadow arenas from `g_ModArenas[]` (old modconfig path) appended at indices 75+ to maintain backward compatibility until mod arenas are registered through catalog scanner.
-- **Bodies/heads deferred**: Catalog currently stores bodies/heads as `ASSET_CHARACTER` with only `runtime_index` — still depends on `g_MpBodies[]`/`g_MpHeads[]` for field data (name, headnum, requirefeature). Need catalog schema extension (add `ext.body`/`ext.head` structs) before rewiring those accessors.
+- **`ASSET_BODY`/`ASSET_HEAD` vs `ASSET_CHARACTER`**: Base game bodies and heads are separate arrays with different struct layouts. Mod characters from the scanner remain `ASSET_CHARACTER` (body+head pairs). No conflict — different types for different data models.
+
+### Body/Head Schema Extension + Accessor Rewire (same session)
+
+5. **Catalog schema extension**: Added `ASSET_BODY` and `ASSET_HEAD` to enum. Added `ext.body` (bodynum, name_langid, headnum, requirefeature) and `ext.head` (headnum, requirefeature) to the union.
+
+6. **Registration wrappers**: `assetCatalogRegisterBody()` and `assetCatalogRegisterHead()` in `assetcatalog.c`.
+
+7. **Base registration updated**: `assetcatalog_base.c` populates ext.body/ext.head from `g_MpBodies[]`/`g_MpHeads[]`. No longer uses `assetCatalogRegisterCharacter()` with empty fields.
+
+8. **All 6 accessors rewired**: Unified `s_CatalogCacheDirty` flag, `modmgrEnsureCaches()` → `modmgrRebuildAllCaches()` rebuilds body + head + arena caches in one pass. Legacy shadow array bridges included for all three.
 
 ### Files Modified
-- `port/src/modmgr.c` — `#include "assetcatalog.h"`, cache infrastructure, rewired arena accessors, `modmgrCatalogChanged()`, hook in `modmgrReload()`
+- `port/include/assetcatalog.h` — `ASSET_BODY`, `ASSET_HEAD` enum, `ext.body`/`ext.head` structs, wrapper declarations
+- `port/src/assetcatalog.c` — `assetCatalogRegisterBody()`, `assetCatalogRegisterHead()` implementations
+- `port/src/assetcatalog_base.c` — body/head registration with full ext field population
+- `port/src/modmgr.c` — `#include "assetcatalog.h"`, unified cache infrastructure (3 types), rewired all 6 accessors, `modmgrCatalogChanged()`
 - `port/include/modmgr.h` — `modmgrCatalogChanged()` declaration
 - `port/src/main.c` — `modmgrCatalogChanged()` call after catalog population
 - `port/src/server_stubs.c` — `modmgrCatalogChanged()` stub
 
 ### Next Steps
-- **Build test** this session's changes
-- **Body/head catalog schema extension**: Add `ext.body` (bodynum, name, headnum, requirefeature) and `ext.head` (headnum, requirefeature) to `asset_entry_t` union. Update `assetcatalog_base.c` registration to populate these fields. Then rewire body/head accessors with same cache pattern.
-- **D3R-5 Tier 1 continued**: Once body/head accessors are rewired, all 62 read-only display sites are catalog-backed with zero callsite changes.
+- **Build test** this session's changes (all 7 files)
+- **D3R-5 Tier 1 COMPLETE**: All 62 accessor callsites (24 arena, 21 body, 17 head) are now catalog-backed with zero callsite changes. The internal rewire approach delivered the full migration in one session.
+- **D3R-6**: Mod Manager UI — toggling components in the catalog + calling `modmgrCatalogChanged()` now automatically propagates to all game accessors
 
 ---
 

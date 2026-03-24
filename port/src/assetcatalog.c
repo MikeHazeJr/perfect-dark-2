@@ -528,6 +528,37 @@ asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
     return entry;
 }
 
+asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
+                                         s16 name_langid, s16 headnum,
+                                         u8 requirefeature)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_BODY);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.body.bodynum = bodynum;
+    entry->ext.body.name_langid = name_langid;
+    entry->ext.body.headnum = headnum;
+    entry->ext.body.requirefeature = requirefeature;
+
+    return entry;
+}
+
+asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
+                                         u8 requirefeature)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_HEAD);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.head.headnum = headnum;
+    entry->ext.head.requirefeature = requirefeature;
+
+    return entry;
+}
+
 /* ========================================================================
  * Public API: Resolution
  * ======================================================================== */
