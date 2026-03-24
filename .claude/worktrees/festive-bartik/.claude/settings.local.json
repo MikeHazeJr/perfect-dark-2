@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/.claude/worktrees/festive-bartik\" status --short)",
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/.claude/worktrees/festive-bartik\" branch --show-current)",
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike\" branch --show-current)",
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike\" worktree list)",
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike\" branch -a)",
+      "Bash(git -C \"/c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike\" merge --no-ff claude/festive-bartik)",
+      "Read(//c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/**)",
+      "Bash(TEMP=\"$HOME/tmp\" PATH=\"/c/msys64/mingw64/bin:$PATH\" powershell.exe -File build-headless.ps1 -Target client)",
+      "Bash(powershell.exe -File build-headless.ps1 -Target client)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(powershell.exe -File build-headless.ps1 -Target client -Verbose)",
+      "Bash(cmake ../.. -G \"MinGW Makefiles\")",
+      "Bash(cmake --build . --target PerfectDark -j8)",
+      "Bash(cmake --build \"C:/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/build/client\" --target PerfectDark -j8)",
+      "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client && cmake --build . --target PerfectDark -j8 2>&1\")",
+      "Bash(cmd.exe /c \"cmake --build C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client --target PerfectDark -j8\")",
+      "Bash(cmd.exe /c \"cmake --build C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client --target PerfectDark -j8 > C:\\\\Users\\\\mikeh\\\\tmp\\\\build_out.txt 2>&1 && echo SUCCESS || echo FAILED\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client''; $result = cmake --build . --target PerfectDark -j8 2>&1; $result | Out-File ''C:\\\\Users\\\\mikeh\\\\AppData\\\\Local\\\\Temp\\\\pd_build.txt''; Write-Host ''ExitCode:'' $LASTEXITCODE\")",
+      "Bash(powershell.exe -NoProfile -Command \"Get-Content ''C:\\\\Users\\\\mikeh\\\\AppData\\\\Local\\\\Temp\\\\pd_build.txt'' | Select-Object -Last 15\")",
+      "Bash(powershell.exe -NoProfile -Command \"if \\(Test-Path ''C:\\\\Users\\\\mikeh\\\\AppData\\\\Local\\\\Temp\\\\pd_build.txt''\\) { Get-Content ''C:\\\\Users\\\\mikeh\\\\AppData\\\\Local\\\\Temp\\\\pd_build.txt'' -Tail 15 | ForEach-Object { Write-Output $_ } } else { Write-Output ''file not found'' }\")",
+      "Bash(powershell.exe -NoProfile -Command \"cmake --build ''C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client'' --target PerfectDark -j8; exit $LASTEXITCODE\")",
+      "Bash(echo \"BASH_EXIT:$?\")",
+      "Bash(BUILDDIR='C:/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/build/client')",
+      "Bash(cmake --build \"$BUILDDIR\" --target PerfectDark -j8)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-Item ''C:\\\\Users\\\\mikeh\\\\OneDrive\\\\Desktop\\\\PDU\\\\perfect_dark-mike\\\\build\\\\client\\\\PerfectDark.exe'' | Select-Object Name, LastWriteTime, Length | Format-List\")"
+    ]
+  }
+}

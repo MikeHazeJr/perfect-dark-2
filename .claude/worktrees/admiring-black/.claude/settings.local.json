@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/mikeh/OneDrive/Desktop/PDU/perfect_dark-mike/**)",
+      "Bash(export TEMP=\"C:/Users/mikeh/AppData/Local/Temp\")",
+      "Bash(export TMP=\"C:/Users/mikeh/AppData/Local/Temp\")",
+      "Bash(export MSYSTEM=MINGW64)",
+      "Bash(export PATH=\"/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH\")",
+      "Bash(cmake --build build/client --target pd -- -j8 -k)",
+      "Bash(cmake -G \"Unix Makefiles\" -DCMAKE_MAKE_PROGRAM=C:/msys64/usr/bin/make.exe -DCMAKE_C_COMPILER=C:/msys64/mingw64/bin/cc.exe -B build/server -S .)",
+      "Bash(cmake --build build/server --target pd-server -- -j8 -k)"
+    ]
+  }
+}
