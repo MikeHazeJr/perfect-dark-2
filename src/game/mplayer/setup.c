@@ -1,4 +1,4 @@
-#include <ultra64.h>
+﻿#include <ultra64.h>
 #include "constants.h"
 #include "game/camdraw.h"
 #include "game/tex.h"
@@ -27,6 +27,7 @@
 #include "system.h"
 #include "input.h"
 #include "mpsetups.h"
+#include "game/mplayer/participant.h"
 #include "net/net.h"
 #include "modmgr.h"
 
@@ -2640,7 +2641,7 @@ MenuItemHandlerResult mpLoadPlayerMenuHandler(s32 operation, struct menuitem *it
 		for (i = 0; i < MAX_PLAYERS; i++) {
 			if (file->fileid == g_PlayerConfigsArray[i].fileguid.fileid
 					&& file->deviceserial == g_PlayerConfigsArray[i].fileguid.deviceserial) {
-				if ((g_MpSetup.chrslots & (1ull << i)) == 0) {
+				if (!mpIsParticipantActive(i)) { /* B-12 Phase 2 */
 					mpPlayerSetDefaults(i, true);
 				} else {
 					available = false;
@@ -2747,7 +2748,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if ((g_MpSetup.chrslots & (1ull << item->param)) == 0) {
+		if (!mpIsParticipantActive(item->param)) { /* B-12 Phase 2 */
 			return 1;
 		}
 		break;
@@ -2767,7 +2768,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 
 char *mpMenuTextHandicapPlayerName(struct menuitem *item)
 {
-	if (g_MpSetup.chrslots & (1ull << item->param)) {
+	if (mpIsParticipantActive(item->param)) { /* B-12 Phase 2 */
 		if (g_NetMode) {
 			// use client names directly, as the config names are not set yet
 			struct netclient *cl = netClientForPlayerNum(item->param);
@@ -3285,7 +3286,7 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		if (botnum < 0) {
 			botnum = mpGetSlotForNewBot();
 			creating = 1;
-		} else if ((g_MpSetup.chrslots & (1ull << (botnum + BOT_SLOT_OFFSET))) == 0) {
+		} else if (!mpIsParticipantActive(botnum + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 			creating = 1;
 		}
 
@@ -3541,7 +3542,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = item->param;
 
-		if ((g_MpSetup.chrslots & (1ull << (item->param + BOT_SLOT_OFFSET))) == 0) {
+		if (!mpIsParticipantActive(item->param + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
 		} else if (IS4MB()) {
 			menuPushDialog(&g_MpEditSimulant4MbMenuDialog);
@@ -3568,7 +3569,7 @@ char *mpMenuTextSimulantName(struct menuitem *item)
 {
 	s32 index = item->param;
 
-	if (g_BotConfigsArray[index].base.name[0] == '\0' || (g_MpSetup.chrslots & (1ull << (index + BOT_SLOT_OFFSET))) == 0) {
+	if (g_BotConfigsArray[index].base.name[0] == '\0' || !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 		return "";
 	}
 
@@ -3580,7 +3581,7 @@ char *func0f17d3dc(struct menuitem *item)
 	s32 index = item->param;
 
 	if (g_BotConfigsArray[index].base.name[0] == '\0'
-			|| ((g_MpSetup.chrslots & (1ull << (index + BOT_SLOT_OFFSET))) == 0)) {
+			|| !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 		return "";
 	}
 
@@ -3949,8 +3950,8 @@ MenuItemHandlerResult menuhandlerMpMaximumTeams(s32 operation, struct menuitem *
 		s32 i;
 		u8 team = 0;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1ull << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = team++;
@@ -3972,8 +3973,8 @@ MenuItemHandlerResult menuhandlerMpHumansVsSimulants(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		s32 i;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1ull << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = i < 4 ? 0 : 1;
@@ -3994,8 +3995,8 @@ MenuItemHandlerResult menuhandlerMpHumanSimulantPairs(s32 operation, struct menu
 		s32 playerindex = 0;
 		s32 simindex = 0;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1ull << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (i < 4) {

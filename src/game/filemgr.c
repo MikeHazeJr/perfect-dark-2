@@ -19,6 +19,7 @@
 #include "lib/str.h"
 #include "data.h"
 #include "types.h"
+#include "game/mplayer/participant.h"
 
 // bss
 struct fileguid g_FilemgrFileToCopy;
@@ -1875,7 +1876,7 @@ bool filemgrIsFileInUse(struct filelistfile *file)
 	}
 
 	for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
-		if ((g_MpSetup.chrslots & (1ull << i))
+		if (mpIsParticipantActive(i) /* B-12 Phase 2 */
 				&& g_PlayerConfigsArray[i].fileguid.fileid == file->fileid
 				&& g_PlayerConfigsArray[i].fileguid.deviceserial == file->deviceserial) {
 			return true;
@@ -2013,7 +2014,7 @@ bool filemgrIsFileInUse(struct filelistfile *file)
 	}
 
 	for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
-		if ((g_MpSetup.chrslots & (1ull << i))
+		if (mpIsParticipantActive(i) /* B-12 Phase 2 */
 				&& g_PlayerConfigsArray[i].fileguid.fileid == file->fileid
 				&& g_PlayerConfigsArray[i].fileguid.deviceserial == file->deviceserial) {
 			return true;

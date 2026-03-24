@@ -120,6 +120,29 @@ s32 mpAddParticipant(ParticipantType type, u8 team, s8 client_id, u8 localslot)
 	return index;
 }
 
+s32 mpAddParticipantAt(s32 slot, ParticipantType type, u8 team, s8 client_id, u8 localslot)
+{
+	if (slot < 0 || slot >= g_MpParticipants.capacity || g_MpParticipants.slots == NULL) {
+		return -1;
+	}
+
+	/* Only bump count if the slot was previously empty */
+	if (g_MpParticipants.slots[slot].type == PARTICIPANT_NONE) {
+		g_MpParticipants.count++;
+	}
+
+	MpParticipant *p = &g_MpParticipants.slots[slot];
+	p->type       = type;
+	p->team       = team;
+	p->localslot  = localslot;
+	p->client_id  = client_id;
+	p->legacy_slot = -1;
+	p->config     = NULL;
+	p->chr        = NULL;
+
+	return slot;
+}
+
 void mpRemoveParticipant(s32 index)
 {
 	if (index < 0 || index >= g_MpParticipants.capacity) {
@@ -348,25 +371,13 @@ u64 mpParticipantsToLegacyChrslots(void)
 		return 0;
 	}
 
-	for (s32 i = 0; i < g_MpParticipants.capacity; i++) {
-		MpParticipant *p = &g_MpParticipants.slots[i];
-
-		if (p->type == PARTICIPANT_NONE) {
-			continue;
-		}
-
-		s32 bit = p->legacy_slot;
-
-		if (bit < 0) {
-			continue;
-		}
-
-		if (p->type == PARTICIPANT_BOT) {
-			bit += BOT_SLOT_OFFSET;
-		}
-
-		if (bit >= 0 && bit < 64) {
-			chrslots |= (1ull << bit);
+	/*
+	 * With a slot-indexed pool (capacity = MAX_MPCHRS, players at 0-7,
+	 * bots at BOT_SLOT_OFFSET..MAX_MPCHRS-1) the pool slot IS the bit index.
+	 */
+	for (s32 i = 0; i < g_MpParticipants.capacity && i < 64; i++) {
+		if (g_MpParticipants.slots[i].type != PARTICIPANT_NONE) {
+			chrslots |= (1ull << i);
 		}
 	}
 
@@ -377,23 +388,23 @@ void mpParticipantsFromLegacyChrslots(u64 chrslots)
 {
 	mpClearAllParticipants();
 
-	/* Reconstruct player slots (bits 0-7) */
+	/*
+	 * Place each participant at the slot that matches the chrslots bit so
+	 * that mpIsParticipantActive(i) is a direct substitute for
+	 * (chrslots & (1ull << i)) once callsites are migrated.
+	 */
+
+	/* Players: bits 0 .. MAX_PLAYERS-1, pool slots 0 .. MAX_PLAYERS-1 */
 	for (s32 i = 0; i < MAX_PLAYERS; i++) {
 		if (chrslots & (1ull << i)) {
-			s32 idx = mpAddParticipant(PARTICIPANT_LOCAL, 0, 0, (u8)i);
-			if (idx >= 0) {
-				g_MpParticipants.slots[idx].legacy_slot = i;
-			}
+			mpAddParticipantAt(i, PARTICIPANT_LOCAL, 0, 0, (u8)i);
 		}
 	}
 
-	/* Reconstruct bot slots (bits 8-39) */
+	/* Bots: bits BOT_SLOT_OFFSET .. MAX_MPCHRS-1, same pool slots */
 	for (s32 i = 0; i < MAX_BOTS; i++) {
 		if (chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
-			s32 idx = mpAddParticipant(PARTICIPANT_BOT, 0, -1, 0xFF);
-			if (idx >= 0) {
-				g_MpParticipants.slots[idx].legacy_slot = i;
-			}
+			mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF);
 		}
 	}
 }

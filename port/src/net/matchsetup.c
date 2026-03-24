@@ -25,6 +25,7 @@
 #include "game/challenge.h"
 #include "romdata.h"
 #include "modelcatalog.h"
+#include "game/mplayer/participant.h"
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -244,6 +245,7 @@ s32 matchStart(void)
 
 	/* --- Build chrslots bitmask and configure player/bot arrays --- */
 	g_MpSetup.chrslots = 0;
+	mpClearAllParticipants(); /* B-12 Phase 2 */
 	s32 playerSlot = 0;
 	s32 botSlot = 0;
 
@@ -253,6 +255,7 @@ s32 matchStart(void)
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
 			/* Configure player — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << playerSlot);
+			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 			cfg->mpheadnum = catalogGetSafeHead(ms->headnum);
@@ -271,6 +274,7 @@ s32 matchStart(void)
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
 			/* Configure bot — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
+			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 			bot->base.mpheadnum = catalogGetSafeHead(ms->headnum);
