@@ -3,7 +3,7 @@
  *
  * Unified match configuration screen for both local play and network lobby.
  * The party leader (or local player in offline mode) configures:
- *   - Character slots (players + bots, up to 32: 8 players + 24 bots)
+ *   - Character slots (players + bots, up to 32 total: 8 players + up to 31 bots)
  *   - Match settings (scenario, stage, options, weapons)
  *   - Team assignments
  *
@@ -62,14 +62,15 @@ char *langGet(s32 textid);
 /* Match config (from matchsetup.c — must match layout exactly) */
 #define MAX_PLAYER_NAME 32
 #define MAX_PLAYERS     8
-#define MAX_BOTS        24
-#define MAX_MPCHRS      (MAX_PLAYERS + MAX_BOTS)
+#define MAX_BOTS        32  /* = PARTICIPANT_DEFAULT_CAPACITY — raised from 24 */
 
 #define SLOT_EMPTY    0
 #define SLOT_PLAYER   1
 #define SLOT_BOT      2
 
-#define MATCH_MAX_SLOTS MAX_MPCHRS  /* 32 — must match matchsetup.c */
+/* Total slots = participant pool capacity (not MAX_PLAYERS + MAX_BOTS which is 40).
+ * Must match MATCH_MAX_SLOTS in matchsetup.c. */
+#define MATCH_MAX_SLOTS 32
 
 struct matchslot {
     u8 type;

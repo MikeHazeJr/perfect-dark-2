@@ -340,9 +340,9 @@ s32 mpParticipantNextOfType(s32 current, ParticipantType type)
  * Legacy Compatibility (Phase 1 only — removed in Phase 3)
  * ======================================================================== */
 
-u32 mpParticipantsToLegacyChrslots(void)
+u64 mpParticipantsToLegacyChrslots(void)
 {
-	u32 chrslots = 0;
+	u64 chrslots = 0;
 
 	if (g_MpParticipants.slots == NULL) {
 		return 0;
@@ -365,21 +365,21 @@ u32 mpParticipantsToLegacyChrslots(void)
 			bit += BOT_SLOT_OFFSET;
 		}
 
-		if (bit >= 0 && bit < 32) {
-			chrslots |= (1u << bit);
+		if (bit >= 0 && bit < 64) {
+			chrslots |= (1ull << bit);
 		}
 	}
 
 	return chrslots;
 }
 
-void mpParticipantsFromLegacyChrslots(u32 chrslots)
+void mpParticipantsFromLegacyChrslots(u64 chrslots)
 {
 	mpClearAllParticipants();
 
 	/* Reconstruct player slots (bits 0-7) */
 	for (s32 i = 0; i < MAX_PLAYERS; i++) {
-		if (chrslots & (1u << i)) {
+		if (chrslots & (1ull << i)) {
 			s32 idx = mpAddParticipant(PARTICIPANT_LOCAL, 0, 0, (u8)i);
 			if (idx >= 0) {
 				g_MpParticipants.slots[idx].legacy_slot = i;
@@ -387,9 +387,9 @@ void mpParticipantsFromLegacyChrslots(u32 chrslots)
 		}
 	}
 
-	/* Reconstruct bot slots (bits 8-31) */
+	/* Reconstruct bot slots (bits 8-39) */
 	for (s32 i = 0; i < MAX_BOTS; i++) {
-		if (chrslots & (1u << (i + BOT_SLOT_OFFSET))) {
+		if (chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
 			s32 idx = mpAddParticipant(PARTICIPANT_BOT, 0, -1, 0xFF);
 			if (idx >= 0) {
 				g_MpParticipants.slots[idx].legacy_slot = i;

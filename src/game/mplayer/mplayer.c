@@ -201,13 +201,13 @@ void mpStartMatch(void)
 		s32 slot = 1;
 		for (s32 i = 1; i < g_NetMaxClients; ++i) {
 			if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-				g_MpSetup.chrslots |= (1u << slot);
+				g_MpSetup.chrslots |= (1ull << slot);
 				++slot;
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server chrslots=0x%08x players=%d",
-			g_MpSetup.chrslots, slot);
+		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server chrslots=0x%016llx players=%d",
+			(unsigned long long)g_MpSetup.chrslots, slot);
 	}
 
 	if (g_NetMode != NETMODE_CLIENT) {
@@ -219,11 +219,11 @@ void mpStartMatch(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: pre-quickteam chrslots=0x%08x hasSim=%d netmode=%d",
-		g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
+	sysLogPrintf(LOG_NOTE, "MATCH: pre-quickteam chrslots=0x%016llx hasSim=%d netmode=%d",
+		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
 	mpConfigureQuickTeamSimulants();
-	sysLogPrintf(LOG_NOTE, "MATCH: post-quickteam chrslots=0x%08x hasSim=%d",
-		g_MpSetup.chrslots, mpHasSimulants());
+	sysLogPrintf(LOG_NOTE, "MATCH: post-quickteam chrslots=0x%016llx hasSim=%d",
+		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants());
 
 	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
 		g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;
@@ -254,7 +254,7 @@ void mpStartMatch(void)
 		g_PlayerConfigsArray[0].handicap);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			numplayers++;
 		}
 	}
@@ -519,9 +519,9 @@ void mpReset(void)
 		g_Vars.normmplayerisrunning = true;
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d chrslots=0x%08x hasSim=%d netmode=%d",
+	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d chrslots=0x%016llx hasSim=%d netmode=%d",
 		g_Vars.normmplayerisrunning, g_Vars.mplayerisrunning,
-		g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
+		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
 
 	g_Vars.perfectbuddynum = 0;
 
@@ -569,7 +569,7 @@ void mpReset(void)
 		g_MpNumChrs = 2;
 	} else {
 		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (g_MpSetup.chrslots & (1ull << i)) {
 				g_Vars.playerstats[mpindex].mpindex = i;
 
 				g_PlayerConfigsArray[i].contpad1 = i;
@@ -584,8 +584,8 @@ void mpReset(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: mpReset player enum done: g_MpNumChrs=%d chrslots=0x%08x",
-		g_MpNumChrs, g_MpSetup.chrslots);
+	sysLogPrintf(LOG_NOTE, "MATCH: mpReset player enum done: g_MpNumChrs=%d chrslots=0x%016llx",
+		g_MpNumChrs, (unsigned long long)g_MpSetup.chrslots);
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
 		struct mpchrconfig *mpchr = MPCHR(i);
@@ -944,7 +944,7 @@ s32 mpCalculateTeamScoreLimit(void)
 		s32 numchrs = 0;
 
 		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (g_MpSetup.chrslots & (1ull << i)) {
 				numchrs++;
 			}
 		}
@@ -1021,7 +1021,7 @@ s32 mpGetPlayerRankings(struct ranking *rankings)
 
 	// Populate 4 arrays with player info, sorted by highest score descending
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			mpchr = MPCHR(i);
 
 			scenarioCalculatePlayerScore(mpchr, i, &score, &deaths);
@@ -1140,7 +1140,7 @@ s32 mpCalculateTeamScore(s32 teamnum, s32 *result)
 	s32 deaths;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			mpchr = MPCHR(i);
 
 			if (mpchr->team == teamnum) {
@@ -2450,7 +2450,7 @@ void mpCalculateAwards(void)
 
 					for (j = 0; j < MAX_MPCHRS; j++) {
 #if VERSION >= VERSION_NTSC_1_0
-						if (g_MpSetup.chrslots & (1u << j))
+						if (g_MpSetup.chrslots & (1ull << j))
 #endif
 						{
 							struct mpchrconfig *othermpchr = MPCHR(j);
@@ -2479,7 +2479,7 @@ void mpCalculateAwards(void)
 
 					for (j = 0; j < MAX_MPCHRS; j++) {
 #if VERSION >= VERSION_NTSC_1_0
-						if (g_MpSetup.chrslots & (1u << j))
+						if (g_MpSetup.chrslots & (1ull << j))
 #endif
 						{
 							struct mpchrconfig *othermpchr = MPCHR(j);
@@ -2666,7 +2666,7 @@ void mpCalculateAwards(void)
 		s32 k;
 
 		for (k = 0; k < MAX_MPCHRS; k++) {
-			if (g_MpSetup.chrslots & (1u << k)) {
+			if (g_MpSetup.chrslots & (1ull << k)) {
 				s32 totalkills = 0;
 				struct mpchrconfig *mpchr = MPCHR(k);
 
@@ -2930,7 +2930,7 @@ void mpFindUnusedHeadAndBody(u8 *mpheadnum, u8 *mpbodynum)
 		trympbodynum = rngRandom() % modmgrGetTotalBodies();
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (g_MpSetup.chrslots & (1ull << i)) {
 				mpchr = MPCHR(i);
 
 				if (mpchr->mpheadnum == trympheadnum) {
@@ -2956,7 +2956,7 @@ s32 mpChooseRandomLockPlayer(void)
 	s32 i;
 
 	for (i = (start + 1) % 4;; i = (i + 1) % 4) {
-		if ((g_MpSetup.chrslots & (1u << i)) || i == start) {
+		if ((g_MpSetup.chrslots & (1ull << i)) || i == start) {
 			break;
 		}
 	}
@@ -3012,7 +3012,7 @@ void mpCalculateLockIfLastWinnerOrLoser(void)
 
 	if (g_MpLockInfo.lockedplayernum >= 0
 			&& g_BossFile.locktype != MPLOCKTYPE_CHALLENGE
-			&& (g_MpSetup.chrslots & (1u << g_MpLockInfo.lockedplayernum)) == 0) {
+			&& (g_MpSetup.chrslots & (1ull << g_MpLockInfo.lockedplayernum)) == 0) {
 		g_MpLockInfo.lastwinner = g_MpLockInfo.lastloser = -1;
 		g_MpLockInfo.lockedplayernum = mpChooseRandomLockPlayer();
 	}
@@ -3309,7 +3309,7 @@ struct mpchrconfig *mpGetChrConfigBySlotNum(s32 slot)
 	s32 i;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			if (count == slot) {
 				result = MPCHR(i);
 				break;
@@ -3330,7 +3330,7 @@ s32 mpGetChrIndexBySlotNum(s32 slot)
 	s32 i;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			if (count == slot) {
 				result = i;
 				break;
@@ -3350,7 +3350,7 @@ s32 mpGetNumChrs(void)
 	s32 i;
 
 	for (i = 0; i != MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			count++;
 		}
 	}
@@ -3368,7 +3368,7 @@ u8 mpFindUnusedTeamNum(void)
 		available = true;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (g_MpSetup.chrslots & (1ull << i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (mpchr->team == teamnum) {
@@ -3403,7 +3403,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
 	}
 
-	g_MpSetup.chrslots |= 1u << (botnum + BOT_SLOT_OFFSET);
+	g_MpSetup.chrslots |= 1ull << (botnum + BOT_SLOT_OFFSET);
 	strcpy(g_BotConfigsArray[botnum].base.name, "Sim\n");
 	g_BotConfigsArray[botnum].base.team = team;
 
@@ -3412,7 +3412,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		available = true;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (g_MpSetup.chrslots & (1ull << i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (mpchr->mpheadnum == headnum) {
@@ -3449,7 +3449,7 @@ s32 mpGetSlotForNewBot(void)
 {
 	s32 i = 0;
 
-	while (i < MAX_BOTS - 1 && g_MpSetup.chrslots & (1u << (i + BOT_SLOT_OFFSET))) {
+	while (i < MAX_BOTS - 1 && g_MpSetup.chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
 		i++;
 	}
 
@@ -3458,7 +3458,7 @@ s32 mpGetSlotForNewBot(void)
 
 void mpRemoveSimulant(s32 index)
 {
-	g_MpSetup.chrslots &= ~(1u << (index + BOT_SLOT_OFFSET));
+	g_MpSetup.chrslots &= ~(1ull << (index + BOT_SLOT_OFFSET));
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	func0f1881d4(index);
 	mpGenerateBotNames();
@@ -3471,7 +3471,7 @@ void mpCopySimulant(s32 index)
 {
 	s32 dest = mpGetSlotForNewBot();
 
-	g_MpSetup.chrslots |= 1u << (dest + BOT_SLOT_OFFSET);
+	g_MpSetup.chrslots |= 1ull << (dest + BOT_SLOT_OFFSET);
 	g_BotConfigsArray[dest].base.name[0] = g_BotConfigsArray[index].base.name[0];
 	g_BotConfigsArray[dest].base.mpheadnum = g_BotConfigsArray[index].base.mpheadnum;
 	g_BotConfigsArray[dest].base.mpbodynum = g_BotConfigsArray[index].base.mpbodynum;
@@ -3498,7 +3498,7 @@ bool mpHasUnusedBotSlots(void)
 	s32 i;
 
 	for (i = BOT_SLOT_OFFSET; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			numvacant--;
 		}
 	}
@@ -3515,9 +3515,9 @@ bool mpIsSimSlotEnabled(s32 slot)
 	s32 numfree = MAX_BOTS;
 	s32 i;
 
-	if ((g_MpSetup.chrslots & (1u << (slot + BOT_SLOT_OFFSET))) == 0) {
+	if ((g_MpSetup.chrslots & (1ull << (slot + BOT_SLOT_OFFSET))) == 0) {
 		for (i = 0; i < MAX_BOTS; i++) {
-			if (g_MpSetup.chrslots & (1u << (i + BOT_SLOT_OFFSET))) {
+			if (g_MpSetup.chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
 				numfree--;
 			}
 		}
@@ -3564,8 +3564,8 @@ void mpGenerateBotNames(void)
 	s32 i;
 	char name[16];
 
-	sysLogPrintf(LOG_NOTE, "BOT_NAMES: generating, chrslots=0x%08x BOT_OFFSET=%d MAX_MPCHRS=%d",
-		g_MpSetup.chrslots, BOT_SLOT_OFFSET, MAX_MPCHRS);
+	sysLogPrintf(LOG_NOTE, "BOT_NAMES: generating, chrslots=0x%016llx BOT_OFFSET=%d MAX_MPCHRS=%d",
+		(unsigned long long)g_MpSetup.chrslots, BOT_SLOT_OFFSET, MAX_MPCHRS);
 
 	for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
 		counts[i] = 0;
@@ -3573,7 +3573,7 @@ void mpGenerateBotNames(void)
 
 	// Count the number of bots using each profile (MeatSim, TurtleSim etc)
 	for (i = BOT_SLOT_OFFSET; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
 
 			if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
@@ -3594,7 +3594,7 @@ void mpGenerateBotNames(void)
 	}
 
 	for (i = BOT_SLOT_OFFSET; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1u << i)) {
+		if (g_MpSetup.chrslots & (1ull << i)) {
 			profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
 
 			if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
@@ -4083,7 +4083,7 @@ void mpApplyConfig(struct mpconfigfull *config)
 {
 	s32 i;
 	s32 j;
-	u16 chrslots;
+	u64 chrslots;
 
 	g_MpSetup.scenario = config->config.setup.scenario;
 
@@ -4163,7 +4163,7 @@ void mp0f18dec4(s32 slot)
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1u << (i + BOT_SLOT_OFFSET);
+			g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET);
 		}
 	}
 #endif
@@ -4232,7 +4232,7 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		}
 
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1u << (i + BOT_SLOT_OFFSET);
+			g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET);
 		}
 
 		g_BotConfigsArray[i].base.mpheadnum = savebufferReadBits(buffer, 7);
@@ -4278,7 +4278,7 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 	savebufferWriteString_ext(buffer, g_MpSetup.name, MPSETUP_MAXNAME + 1);
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		if (g_MpSetup.chrslots & (1u << (i + BOT_SLOT_OFFSET))) {
+		if (g_MpSetup.chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
 			numsims++;
 		}
 	}
@@ -4294,7 +4294,7 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 	for (i = 0; i < MAX_BOTS; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
-		if (g_MpSetup.chrslots & (1u << (i + BOT_SLOT_OFFSET))) {
+		if (g_MpSetup.chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
 			savebufferOr(buffer, g_BotConfigsArray[i].difficulty, 3);
 		} else {
 			savebufferOr(buffer, BOTDIFF_DISABLED, 3);

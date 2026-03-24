@@ -14,7 +14,15 @@
 #define true  1
 
 #define MAX_ARTIFACTS          120
-#define MAX_BOTS               24
+
+/* Total match participant pool size (players + bots).
+ * This is the authoritative capacity constant — all other limits derive from it.
+ * Matches PARTICIPANT_DEFAULT_CAPACITY in participant.h. */
+#define PARTICIPANT_DEFAULT_CAPACITY  32
+
+/* Maximum bots in an all-bot match (worst case: 0 human players).
+ * In practice the usable bot count is PARTICIPANT_DEFAULT_CAPACITY - actual_player_count. */
+#define MAX_BOTS               PARTICIPANT_DEFAULT_CAPACITY
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
 #define MAX_CHRWAYPOINTS       6
@@ -35,15 +43,16 @@
 #define MAX_LOCAL_PLAYERS      4
 #define MAX_PLAYERS            8
 
-/* PC: Bot slot offset in chrslots bitmask (u32).
+/* PC: Bot slot offset in chrslots bitmask (u64).
  * Bots occupy bits BOT_SLOT_OFFSET through (BOT_SLOT_OFFSET + MAX_BOTS - 1).
- * With MAX_PLAYERS=8 and MAX_BOTS=24 this means bits 8-31.
- * Total capacity: 8 players + 24 bots = 32 characters (one per bit).
+ * With MAX_PLAYERS=8 and MAX_BOTS=32 this means bits 8-39.
+ * Total capacity: 8 players + 32 bots = 40 characters (one per bit).
  * CHRSLOTS_PLAYER_MASK selects only human player bits (0-7).
- * CHRSLOTS_BOT_MASK selects only bot/simulant bits (8-31). */
+ * CHRSLOTS_BOT_MASK selects only bot/simulant bits (8-39).
+ * chrslots field is u64 — use 1ull shifts for all chrslots bit operations. */
 #define BOT_SLOT_OFFSET        MAX_PLAYERS
-#define CHRSLOTS_PLAYER_MASK   ((1u << MAX_PLAYERS) - 1u)
-#define CHRSLOTS_BOT_MASK      (((1u << MAX_BOTS) - 1u) << BOT_SLOT_OFFSET)
+#define CHRSLOTS_PLAYER_MASK   ((1ull << MAX_PLAYERS) - 1ull)
+#define CHRSLOTS_BOT_MASK      (((1ull << MAX_BOTS) - 1ull) << BOT_SLOT_OFFSET)
 #define MAX_PROPSPERROOMCHUNK  7
 #define MAX_ROOMPROPLISTCHUNKS 256
 #define MAX_SQUADRONS          16
