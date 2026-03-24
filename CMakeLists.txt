@@ -475,6 +475,12 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
 
+  # SPF-1: Server Platform Foundation (hub lifecycle, room system, identity, phonetic)
+  ${CMAKE_SOURCE_DIR}/port/src/hub.c
+  ${CMAKE_SOURCE_DIR}/port/src/room.c
+  ${CMAKE_SOURCE_DIR}/port/src/identity.c
+  ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
+
   # Connect code (IP:port ↔ word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
