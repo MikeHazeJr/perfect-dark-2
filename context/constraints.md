@@ -43,6 +43,10 @@ These constraints have been explicitly abandoned. If a task involves working aro
 - **2026-03-23: Shared memory pools for mods** — N64-era pre-allocated pools (modconfig.txt `alloc` values) replaced by dynamic `malloc`-based allocation. Each component manages its own memory. Advisory `hint_memory` field in `.ini` for UI display only.
 - **2026-03-23: Monolithic mod structure** — Mods are no longer single directories loaded/unloaded as a unit. Replaced by component-based architecture where each asset (map, character, skin, etc.) is an independent folder with its own `.ini` manifest. See [component-mod-architecture.md](component-mod-architecture.md).
 - **2026-03-23: Numeric asset lookups** — ROM addresses, table indices, and array offsets for asset identity are abandoned. All asset references go through the string-keyed Asset Catalog. This eliminates the root cause of B-13 (scale), B-17 (stage ID mismatch), and the entire class of index-shift bugs when mods change.
+- **2026-03-24: g_ModNum integer mod selector** — `g_ModNum` (0=Normal, 1=GEX, 2=Kakariko, 3=DarkNoon, 4=GF64) fully removed. MOD_NORMAL/MOD_GEX/etc. constants removed. Asset Catalog is sole mod authority. (D3R-11, S45)
+- **2026-03-24: modconfig.txt parsing** — `modConfigLoad()` and all parsing logic removed. Mods require `mod.json`. Dirs without `mod.json` are skipped by `modmgrScanDirectory`. (D3R-11, S45)
+- **2026-03-24: Shadow asset arrays** — `g_ModBodies[]`, `g_ModHeads[]`, `g_ModArenas[]` static shadow arrays in modmgr.c removed. Catalog-backed caches (`s_CatalogBodies/Heads/Arenas`) are the only backing store. (D3R-11, S45)
+- **2026-03-24: fileSlots 2D array** — `fileSlots[5][ROMDATA_MAX_FILES]` (per-mod file slot banks) flattened to `fileSlots[ROMDATA_MAX_FILES]`. Only slot 0 was ever active. (D3R-11, S45)
 
 ---
 
