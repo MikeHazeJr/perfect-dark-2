@@ -55,6 +55,20 @@ s32 assetCatalogRegisterBaseGame(void);
 s32 assetCatalogScanComponents(const char *modsdir);
 
 /**
+ * Scan the flat bot_variants/ directory directly under modsdir.
+ *
+ * Handles user-created bot variants saved by the in-game Bot Customizer:
+ *   {modsdir}/bot_variants/{slug}/bot.ini
+ *
+ * Call after assetCatalogScanComponents() at startup. New variants saved
+ * during a session are hot-registered immediately via botVariantSave() and
+ * do not require this scan to be called again.
+ *
+ * Returns number of variants registered, or 0 if the directory doesn't exist.
+ */
+s32 assetCatalogScanBotVariants(const char *modsdir);
+
+/**
  * INI key-value pair (parsed from .ini file).
  */
 typedef struct ini_pair {
