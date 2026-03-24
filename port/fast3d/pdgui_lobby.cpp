@@ -87,6 +87,10 @@ s32 netLocalClientInLobby(void);
 /* Lobby state management */
 void lobbyUpdate(void);
 
+/* D3R-9: Distribution overlay and kill feed (pdgui_lobby_distrib.cpp) */
+void pdguiDistribOverlayRender(s32 winW, s32 winH);
+void pdguiKillFeedRender(s32 winW, s32 winH);
+
 /* Lobby player data (from netlobby.h, simplified for C++) */
 struct lobbyplayer_view {
     u8 active;
@@ -333,9 +337,13 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             /* In lobby: the full lobby screen handles everything.
              * No sidebar — pdguiLobbyScreenRender shows the player list. */
             pdguiLobbyScreenRender(winW, winH);
+            /* D3R-9: download progress overlay on top of lobby screen */
+            pdguiDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
             /* In game (or transitioning): show minimal sidebar overlay */
             renderInGameSidebar(winW, winH);
+            /* D3R-9: kill feed for spectating clients */
+            pdguiKillFeedRender(winW, winH);
         }
         return;
     }
