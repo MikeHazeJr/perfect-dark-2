@@ -23,11 +23,13 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
-#define NUMTYPE1() (IS4MB() ? 0 : 35)
-#define NUMTYPE2() (IS4MB() ? 24 : 25)
-#define NUMTYPE3() (IS4MB() ? 0 : 20)
-#define NUMSPARE() (IS4MB() ? 40 : 60)
+/* PC port: Match increased pool sizes from modelmgr.c */
+#define NUMTYPE1() (IS4MB() ? 0 : 70)
+#define NUMTYPE2() (IS4MB() ? 24 : 50)
+#define NUMTYPE3() (IS4MB() ? 0 : 48)
+#define NUMSPARE() (IS4MB() ? 40 : 80)
 
 void modelmgrReset(void)
 {
@@ -96,6 +98,11 @@ void modelmgrAllocateSlots(s32 numobjs, s32 numchrs)
 	g_ModelRwdataBindings[0] = NULL;
 	g_ModelRwdataBindings[1] = NULL;
 	g_ModelRwdataBindings[2] = NULL;
+
+	sysLogPrintf(LOG_NOTE, "MODELMGR: AllocateSlots numobjs=%d numchrs=%d => g_MaxModels=%d g_MaxAnims=%d",
+		numobjs, numchrs, g_MaxModels, g_MaxAnims);
+	sysLogPrintf(LOG_NOTE, "MODELMGR: Pool sizes type1=%d type2=%d type3=%d spare=%d totalsize=%d bytes",
+		NUMTYPE1(), NUMTYPE2(), NUMTYPE3(), numspare, totalsize);
 
 	ptr = mempAlloc(totalsize, MEMPOOL_STAGE);
 

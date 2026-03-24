@@ -75,6 +75,21 @@ void modmgrApplyChanges(void);         // save + reload + return to title
 void modmgrSaveConfig(void);
 void modmgrLoadConfig(void);
 
+// ---- Component-level enable state (D3R-6) ----
+//
+// These persist per-component enabled/disabled state for the Asset Catalog.
+// State file: mods/.modstate  (one disabled component ID per line; # = comment)
+// Only non-bundled entries are ever written (bundled = base game, always on).
+
+// Write current catalog disabled-component list to mods/.modstate.
+// Call before modmgrApplyChanges() so user choices survive across sessions.
+void modmgrSaveComponentState(void);
+
+// Read mods/.modstate and mark matching catalog entries disabled.
+// Silently ignores unknown IDs (component may have been removed).
+// Call after assetCatalogScanComponents() in main.c startup.
+void modmgrLoadComponentState(void);
+
 // ---- Network ----
 
 // Combined CRC32 of all enabled mod IDs+versions, for quick manifest compare
@@ -122,5 +137,16 @@ struct mparena *modmgrGetArena(s32 index);
 s32 modmgrGetModBodyCount(void);
 s32 modmgrGetModHeadCount(void);
 s32 modmgrGetModArenaCount(void);
+
+// Get resolved mods directory path (set by modmgrInit).
+// Returns NULL if no mods directory was found.
+const char *modmgrGetModsDir(void);
+
+// Signal that the Asset Catalog contents have changed.
+// Causes all catalog-backed caches (arenas, future: bodies, heads)
+// to lazily rebuild on next accessor call.
+// Call after assetCatalogRegisterBaseGame(), assetCatalogScanComponents(),
+// assetCatalogClearMods(), or any catalog mutation.
+void modmgrCatalogChanged(void);
 
 #endif // _IN_MODMGR_H

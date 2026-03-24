@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -42,6 +43,39 @@
 struct chrdata *g_MpBotChrPtrs[MAX_BOTS];
 
 u8 g_BotCount = 0;
+
+/**
+ * Async bot tick scheduler.
+ * With many bots, full AI (botTickUnpaused) is expensive. Instead of ticking
+ * all bots every frame, we distribute them across frame groups:
+ *   <=8 bots: tick all every frame (original behavior)
+ *   9-16 bots: 2 groups, each ticked every other frame (30 Hz AI)
+ *   17-24 bots: 3 groups, each ticked every 3rd frame (20 Hz AI)
+ * Movement, physics, and rendering still run every frame via chrTick.
+ */
+static inline bool botShouldTickAI(struct chrdata *chr)
+{
+	if (g_BotCount <= 8) {
+		return true; /* original behavior for small matches */
+	}
+
+	/* Determine group count based on active bot count */
+	s32 groups = (g_BotCount <= 16) ? 2 : 3;
+
+	/* Use the chr's slot index for deterministic distribution */
+	s32 slot = -1;
+	for (s32 i = 0; i < MAX_BOTS; i++) {
+		if (g_MpBotChrPtrs[i] == chr) {
+			slot = i;
+			break;
+		}
+	}
+	if (slot < 0) {
+		return true; /* safety: tick if not found in array */
+	}
+
+	return (slot % groups) == (g_Vars.lvframe60 % groups);
+}
 
 struct botdifficulty g_BotDifficulties[] = {
 	//           shootdelay
@@ -110,7 +144,7 @@ void botReset(struct chrdata *chr, u8 respawning)
 			chr->lift = NULL;
 			chr->height = 185;
 
-			for (i = 0; i < 33; i++) {
+			for (i = 0; i < AMMO_TYPE_COUNT; i++) {
 				aibot->ammoheld[i] = 0;
 			}
 
@@ -930,7 +964,9 @@ s32 botTick(struct prop *prop)
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {
-			botTickUnpaused(chr);
+			if (botShouldTickAI(chr)) {
+				botTickUnpaused(chr);
+			}
 
 			// Calculate cheap
 			aibot->cheap = true;

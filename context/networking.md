@@ -8,7 +8,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 - **Authority model**: Server-authoritative for all gameplay state
 - **Tick rate**: 60 Hz
 - **Channels**: Unreliable for position updates, reliable for state/events
-- **Protocol version**: 18
+- **Protocol version**: 19 (bumped from 18: chrslots u16→u32 in SVC_STAGE_START)
 - **Modes**: `g_NetMode` — NETMODE_NONE(0), NETMODE_SERVER(1), NETMODE_CLIENT(2)
 - **Game modes**: `g_NetGameMode` — NETGAMEMODE_MP(0), NETGAMEMODE_COOP(1), NETGAMEMODE_ANTI(2)
 

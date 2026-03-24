@@ -17,11 +17,16 @@
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
+#include "modelcatalog.h"
 #include "pdgui.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "updater.h"
+#include "savemigrate.h"
+#include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -97,6 +102,7 @@ static void cleanup(void)
 	mempPCValidate("shutdown");
 	mempPCFreeAll();
 
+	updaterShutdown();
 	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
@@ -110,6 +116,13 @@ static void cleanup(void)
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
+
+	/* D13: Apply pending update VERY EARLY — before any subsystem init.
+	 * If an update was downloaded previously, this renames the .update file
+	 * into place and re-execs. If no pending update, this is a no-op.
+	 * NOTE: sysLogPrintf is safe to call before sysInit (uses static buffers).
+	 * detectExePath uses only stdlib — no SDL or game init required. */
+	updaterApplyPending();
 
 	if (!sysArgCheck("--no-crash-handler")) {
 		crashInit();
@@ -125,6 +138,15 @@ int main(int argc, const char **argv)
 	sysInit();
 	fsInit();
 	configInit();
+
+	/* D13: Initialize update system + save migration after filesystem is ready */
+	updaterInit();
+	saveMigrateInit();
+
+	/* D13: Start background update check (non-blocking) */
+	if (!sysArgCheck("--no-update-check")) {
+		updaterCheckAsync();
+	}
 	videoInit();
 	pdguiInit(videoGetWindowHandle());
 	inputInit();
@@ -155,6 +177,32 @@ int main(int argc, const char **argv)
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
 
+	// Model catalog: cache metadata from g_HeadsAndBodies (no heap needed).
+	// Actual model validation is deferred to catalogValidateAll() after heap init.
+	catalogInit();
+
+	// D3R: Asset Catalog — string-keyed resolution for all game assets.
+	// 1. Allocate hash table and entry pool
+	// 2. Register base game assets (87 stages, 63 bodies, 75 heads) with "base:" IDs
+	// 3. Scan mod _components/ directories and register INI-described assets
+	assetCatalogInit();
+	assetCatalogRegisterBaseGame();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			assetCatalogScanComponents(modsdir);
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+
+	// D3R-6: Restore per-component enable state from mods/.modstate.
+	// Must run after scan so entries exist in the catalog to be disabled.
+	modmgrLoadComponentState();
+
+	// Signal modmgr that catalog is populated — rebuilds accessor caches
+	// so modmgrGetArena() etc. read from catalog instead of static arrays.
+	modmgrCatalogChanged();
+
 	atexit(cleanup);
 
 	bootCreateSched();
@@ -169,6 +217,12 @@ int main(int argc, const char **argv)
 
 	sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
 	sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
+
+	/* NOTE: catalogValidateAll() was previously here, but it calls
+	 * modeldefLoadToNew() -> mempAlloc() which requires the pool system.
+	 * mempSetHeap() isn't called until mainInit() (pdmain.c), so loading
+	 * models here crashed with access violations on every entry.
+	 * Moved to pdmain.c after mempSetHeap(). */
 
 	g_SndDisabled = sysArgCheck("--no-sound");
 

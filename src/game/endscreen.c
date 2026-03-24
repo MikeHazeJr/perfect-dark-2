@@ -1570,6 +1570,8 @@ void endscreenPrepare(void)
 				}
 
 				// Set best time
+				// PC: Guard besttimes write — mod stages have stageindex >= NUM_SOLOSTAGES
+				if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
 				prevbest = g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty];
 
 				if (prevbest == 0) {
@@ -1579,11 +1581,15 @@ void endscreenPrepare(void)
 				if (secs < prevbest || prevbest == 0) {
 					g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty] = secs;
 				}
+				}
 #else
+				// PC: Guard besttimes write — mod stages have stageindex >= NUM_SOLOSTAGES
+				if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
 				prevbest = g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty];
 
 				if (secs < prevbest || prevbest == 0) {
 					g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty] = secs;
+				}
 				}
 #endif
 

@@ -36,6 +36,7 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
+#include "net/netlobby.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -239,6 +240,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	// for now use settings from our own client, remote is supposed to send CLC_SETTINGS after CLC_AUTH
 	srccl->settings = g_NetLocalClient->settings;
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
@@ -395,6 +397,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
 	srccl->settings.bodynum = bodynum;
 	srccl->settings.headnum = headnum;
@@ -510,7 +513,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
-		netbufWriteU16(dst, g_MpSetup.chrslots);
+		netbufWriteU32(dst, g_MpSetup.chrslots);
 		netbufWriteU32(dst, g_MpSetup.options);
 		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 	}
@@ -581,10 +584,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
-		g_MpSetup.chrslots = netbufReadU16(src);
+		g_MpSetup.chrslots = netbufReadU32(src);
 		g_MpSetup.options = netbufReadU32(src);
 		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
-		strcpy(g_MpSetup.name, "server");
+		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
 	if (src->error) {
@@ -622,6 +625,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			char *name = netbufReadStr(src);
 			if (name) {
 				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
 			} else {
 				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
 				return 3;
@@ -3149,6 +3153,165 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
 	g_InCutscene = active ? 1 : 0;
 	/* Setting g_InCutscene is sufficient — the input gating macro in constants.h
 	 * checks this flag and suppresses player input automatically. */
+
+	return src->error;
+}
+
+/* ========================================================================
+ * CLC_LOBBY_START - Lobby leader requests match start
+ *
+ * Sent by the lobby leader client to the dedicated server when they've
+ * chosen a game mode and are ready to start. The server validates that
+ * the sender is actually the lobby leader, then starts the match.
+ *
+ * Payload: gamemode (u8), stagenum (u8), difficulty (u8)
+ * ======================================================================== */
+
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty)
+{
+	netbufWriteU8(dst, CLC_LOBBY_START);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, difficulty);
+	return dst->error;
+}
+
+u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode   = netbufReadU8(src);
+	const u8 stagenum   = netbufReadU8(src);
+	const u8 difficulty = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	/* Only process on server */
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received but not server");
+		return src->error;
+	}
+
+	/* Validate sender is the lobby leader */
+	u8 leaderSlot = lobbyGetLeader();
+	bool isLeader = false;
+	if (leaderSlot < LOBBY_MAX_PLAYERS) {
+		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+			isLeader = true;
+		}
+	}
+
+	if (!isLeader) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START from non-leader client %d (%s) — rejected",
+		             srccl->id, srccl->settings.name);
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u",
+	             srccl->settings.name, gamemode, stagenum, difficulty);
+
+	/* Apply settings */
+	g_NetGameMode = gamemode;
+
+	/* Start the match based on game mode.
+	 * For Combat Sim: load the requested stage and start.
+	 * For Co-op/Counter-op: load the solo stage and start. */
+	if (gamemode == 0) {
+		/* Combat Simulator */
+		mainChangeToStage(stagenum);
+		netServerStageStart();
+	} else {
+		/* Co-op or Counter-op — uses mission config */
+		g_MissionConfig.stagenum = stagenum;
+		g_MissionConfig.difficulty = difficulty;
+		mainChangeToStage(stagenum);
+		netServerCoopStageStart(stagenum, difficulty);
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_LEADER - Server announces authoritative lobby leader
+ *
+ * Sent to all clients when the leader changes (first join, leader
+ * disconnect, manual reassignment). Clients apply this via lobbySetLeader().
+ *
+ * Payload: leaderClientId (u8) — the netclient ID of the new leader.
+ *          0xFF = no leader.
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId)
+{
+	netbufWriteU8(dst, SVC_LOBBY_LEADER);
+	netbufWriteU8(dst, leaderClientId);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 leaderClientId = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_LEADER: leader is client %u", leaderClientId);
+
+	/* Find the lobby slot for this client ID and set as leader */
+	if (leaderClientId == 0xFF) {
+		lobbySetLeader(0xFF);
+	} else {
+		for (s32 i = 0; i < g_Lobby.numPlayers; i++) {
+			if (g_Lobby.players[i].active &&
+			    g_Lobby.players[i].clientId == leaderClientId) {
+				lobbySetLeader(i);
+				break;
+			}
+		}
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_STATE - Server broadcasts lobby state update
+ *
+ * Sent to all clients when the lobby state changes (game mode selected,
+ * stage changed, match starting/ending). Clients update their local
+ * lobby display accordingly.
+ *
+ * Payload: gamemode (u8), stagenum (u8), status (u8)
+ * Status: 0=waiting, 1=starting, 2=in-game
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status)
+{
+	netbufWriteU8(dst, SVC_LOBBY_STATE);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, status);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode = netbufReadU8(src);
+	const u8 stagenum = netbufReadU8(src);
+	const u8 status   = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_STATE: mode=%u stage=%u status=%u",
+	             gamemode, stagenum, status);
+
+	g_NetGameMode = gamemode;
+	g_Lobby.settings.scenario = gamemode;
+	g_Lobby.settings.stagenum = stagenum;
+	g_Lobby.inGame = (status >= 2) ? 1 : 0;
 
 	return src->error;
 }

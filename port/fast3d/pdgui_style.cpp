@@ -209,24 +209,37 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
     float frac = pdguiGetShimmerFrac();
     bool horizontal = ((y2 - y1) < (x2 - x1));
 
-    /* v0 calculation -- exact match of original integer math */
+    /* Compute edge length and use it as the modulo cycle instead of fixed 600.
+     * Original N64 used 600 which was fine at 240p. At PC resolutions the dialog
+     * can exceed 600px, so the shimmer would never reach the far end. */
+    int edgeLen = horizontal ? (int)(x2 - x1) : (int)(y2 - y1);
+    if (edgeLen < 100) edgeLen = 100; /* minimum cycle to avoid degenerate cases */
+
+    /* v0 calculation -- adapted from original, scaled to edge length */
     int v0;
     if (reverse) {
-        v0 = (int)(6.0f * frac * 600.0f);
+        v0 = (int)(6.0f * frac * (float)edgeLen);
     } else {
-        v0 = (int)((1.0f - frac) * 6.0f * 600.0f);
+        v0 = (int)((1.0f - frac) * 6.0f * (float)edgeLen);
     }
 
     v0 += (int)((int)y1 + (int)x1);
-    v0 %= 600;
-    if (v0 < 0) v0 += 600;  /* safety for negative modulo */
+    v0 %= edgeLen;
+    if (v0 < 0) v0 += edgeLen;
+
+    /* Intensity boost: scale width and alpha for PC.
+     * Original shimmer was subtle at 240p; at higher res the 10px width
+     * is barely visible. Scale width by ~2x and boost alpha by 1.8x. */
+    int scaledWidth = width * 2;
+    int boostedAlpha = (baseAlpha * 180) / 100;
+    if (boostedAlpha > 255) boostedAlpha = 255;
 
     if (horizontal) {
         int ix1 = (int)x1;
         int ix2 = (int)x2;
 
-        int shimmerleft = ix1 + v0 - width;
-        int shimmerright = shimmerleft + width;
+        int shimmerleft = ix1 + v0 - scaledWidth;
+        int shimmerright = shimmerleft + scaledWidth;
 
         int alpha = 0;
         int minalpha = 0;
@@ -243,13 +256,13 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
             alpha = minalpha;
         }
 
-        alpha = alpha * 255 / width;
+        alpha = alpha * 255 / scaledWidth;
         if (alpha > 255) alpha = 255;
 
         if (ix1 > shimmerright || ix2 < shimmerleft) return;
 
-        /* tailcolour alpha = (baseAlpha * (255 - alpha)) / 255 */
-        int tailA = (baseAlpha * (255 - alpha)) / 255;
+        /* tailcolour alpha = (boostedAlpha * (255 - alpha)) / 255 */
+        int tailA = (boostedAlpha * (255 - alpha)) / 255;
         if (tailA < 0) tailA = 0;
         if (tailA > 255) tailA = 255;
 
@@ -257,12 +270,10 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
         ImU32 dim    = IM_COL32(255, 255, 255, 0);
 
         if (reverse) {
-            /* Left to right: dim on left, bright on right */
             dl->AddRectFilledMultiColor(
                 ImVec2((float)shimmerleft, y1), ImVec2((float)shimmerright, y2),
                 dim, bright, bright, dim);
         } else {
-            /* Right to left: bright on left, dim on right */
             dl->AddRectFilledMultiColor(
                 ImVec2((float)shimmerleft, y1), ImVec2((float)shimmerright, y2),
                 bright, dim, dim, bright);
@@ -272,8 +283,8 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
         int iy1 = (int)y1;
         int iy2 = (int)y2;
 
-        int shimmertop = iy1 + v0 - width;
-        int shimmerbottom = shimmertop + width;
+        int shimmertop = iy1 + v0 - scaledWidth;
+        int shimmerbottom = shimmertop + scaledWidth;
 
         int alpha = 0;
         int minalpha = 0;
@@ -290,12 +301,12 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
             alpha = minalpha;
         }
 
-        alpha = alpha * 255 / width;
+        alpha = alpha * 255 / scaledWidth;
         if (alpha > 255) alpha = 255;
 
         if (iy1 > shimmerbottom || iy2 < shimmertop) return;
 
-        int tailA = (baseAlpha * (255 - alpha)) / 255;
+        int tailA = (boostedAlpha * (255 - alpha)) / 255;
         if (tailA < 0) tailA = 0;
         if (tailA > 255) tailA = 255;
 
@@ -303,12 +314,10 @@ static void pdguiDrawShimmerExact(ImDrawList *dl, float x1, float y1, float x2, 
         ImU32 dim    = IM_COL32(255, 255, 255, 0);
 
         if (reverse) {
-            /* Top to bottom: dim on top, bright on bottom */
             dl->AddRectFilledMultiColor(
                 ImVec2(x1, (float)shimmertop), ImVec2(x2, (float)shimmerbottom),
                 dim, dim, bright, bright);
         } else {
-            /* Bottom to top: bright on top, dim on bottom */
             dl->AddRectFilledMultiColor(
                 ImVec2(x1, (float)shimmertop), ImVec2(x2, (float)shimmerbottom),
                 bright, bright, dim, dim);
@@ -408,23 +417,111 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         ImVec2(x + w - 1, y + h),
         PdColor(pal->dialog_bodybg));
 
-    /* === Border lines with shimmer ===
-     * Original order (menugfxRenderDialogBackground lines 197-200):
-     *   Right:  (x2-1, y1, x2, y2) using border2
-     *   Left:   (x1, y1, x1+1, y2) using border1
-     *   Bottom: (x1, y2-1, x2, y2) using border1 (left side) blending to border2 (right)
-     *
-     * For the bottom border, original passes (border1, border2) to DrawLine then
-     * calls DrawShimmer with border1's alpha. We approximate by using border1. */
-
+    /* === Border lines (solid color) === */
     /* Right border */
-    pdguiDrawBorderLine(dl, x + w - 1, bodyTop, x + w, y + h, pal->dialog_border2);
-
+    dl->AddRectFilled(ImVec2(x + w - 1, bodyTop), ImVec2(x + w, y + h), PdColor(pal->dialog_border2));
     /* Left border */
-    pdguiDrawBorderLine(dl, x, bodyTop, x + 1, y + h, pal->dialog_border1);
-
+    dl->AddRectFilled(ImVec2(x, bodyTop), ImVec2(x + 1, y + h), PdColor(pal->dialog_border1));
     /* Bottom border */
-    pdguiDrawBorderLine(dl, x, y + h - 1, x + w, y + h, pal->dialog_border1);
+    dl->AddRectFilled(ImVec2(x, y + h - 1), ImVec2(x + w, y + h), PdColor(pal->dialog_border1));
+
+    /* === Perimeter-aware shimmer ===
+     * Instead of independent per-edge shimmers, compute a single shimmer
+     * position that travels the full perimeter. Each edge renders its
+     * portion of that perimeter shimmer, so when one exits a corner the
+     * next edge picks up seamlessly.
+     *
+     * Perimeter path (clockwise from top-left of body):
+     *   Segment 0: Left border   (top→bottom)  length = bodyH
+     *   Segment 1: Bottom border (left→right)   length = w
+     *   Segment 2: Right border  (bottom→top)   length = bodyH
+     * Total perimeter = 2*bodyH + w */
+    {
+        float bodyH = (y + h) - bodyTop;
+        float perim = 2.0f * bodyH + w;
+        if (perim < 100.0f) perim = 100.0f;
+
+        /* Shimmer position: travels full perimeter in ~5 seconds */
+        float frac = (float)fmod(ImGui::GetTime() / 5.0, 1.0);
+        float shimPos = frac * perim;  /* 0..perim */
+
+        int shimWidth = 20;  /* pixels */
+        int borderAlpha = pal->dialog_border1 & 0xFF;
+        int boostedAlpha = (borderAlpha * 180) / 100;
+        if (boostedAlpha > 255) boostedAlpha = 255;
+
+        /* Segment 0: Left border (top→bottom), offset 0..bodyH */
+        {
+            float segStart = 0.0f;
+            float segLen = bodyH;
+            /* shimPos relative to this segment */
+            float localPos = shimPos - segStart;
+            /* Also check wrapped position (shimmer may straddle the seam) */
+            float localPosWrap = (shimPos + perim) - segStart;
+            /* Use fmod for wrap */
+            float lp = fmodf(shimPos - segStart + perim, perim);
+
+            float shimTop = bodyTop + lp - (float)shimWidth;
+            float shimBot = shimTop + (float)shimWidth;
+
+            /* Clip to segment bounds */
+            if (shimBot > bodyTop && shimTop < bodyTop + segLen) {
+                if (shimTop < bodyTop) shimTop = bodyTop;
+                if (shimBot > bodyTop + segLen) shimBot = bodyTop + segLen;
+
+                float fracInShim = 1.0f;
+                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)(boostedAlpha * fracInShim));
+                ImU32 dim    = IM_COL32(255, 255, 255, 0);
+
+                dl->AddRectFilledMultiColor(
+                    ImVec2(x, shimTop), ImVec2(x + 1, shimBot),
+                    bright, bright, dim, dim);
+            }
+        }
+
+        /* Segment 1: Bottom border (left→right), offset bodyH..(bodyH+w) */
+        {
+            float segStart = bodyH;
+            float lp = fmodf(shimPos - segStart + perim, perim);
+
+            float shimLeft = x + lp - (float)shimWidth;
+            float shimRight = shimLeft + (float)shimWidth;
+
+            if (shimRight > x && shimLeft < x + w) {
+                if (shimLeft < x) shimLeft = x;
+                if (shimRight > x + w) shimRight = x + w;
+
+                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)boostedAlpha);
+                ImU32 dim    = IM_COL32(255, 255, 255, 0);
+
+                dl->AddRectFilledMultiColor(
+                    ImVec2(shimLeft, y + h - 1), ImVec2(shimRight, y + h),
+                    bright, dim, dim, bright);
+            }
+        }
+
+        /* Segment 2: Right border (bottom→top), offset (bodyH+w)..(2*bodyH+w) */
+        {
+            float segStart = bodyH + w;
+            float lp = fmodf(shimPos - segStart + perim, perim);
+
+            /* This segment goes bottom→top, so position is measured from bottom */
+            float shimBot = (y + h) - lp + (float)shimWidth;
+            float shimTop = shimBot - (float)shimWidth;
+
+            if (shimBot > bodyTop && shimTop < y + h) {
+                if (shimTop < bodyTop) shimTop = bodyTop;
+                if (shimBot > y + h) shimBot = y + h;
+
+                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)boostedAlpha);
+                ImU32 dim    = IM_COL32(255, 255, 255, 0);
+
+                dl->AddRectFilledMultiColor(
+                    ImVec2(x + w - 1, shimTop), ImVec2(x + w, shimBot),
+                    dim, dim, bright, bright);
+            }
+        }
+    }
 }
 
 /* -----------------------------------------------------------------------
@@ -487,7 +584,9 @@ extern "C" void pdguiApplyPdStyle(void)
     /* Text -- title uses titlefg (white), items use item_unfocused (cyan) */
     colors[ImGuiCol_Text]              = C(pal->item_unfocused);
     colors[ImGuiCol_TextDisabled]      = C(pal->item_disabled);
-    colors[ImGuiCol_TextSelectedBg]    = C((pal->item_focused_outer & 0xFFFFFF00) | 0x59);
+    /* Text selection highlight — use border2 (bright accent) instead of the dark
+     * item_focused_outer, which is too dim to see against dark frame backgrounds. */
+    colors[ImGuiCol_TextSelectedBg]    = C((pal->dialog_border2 & 0xFFFFFF00) | 0x99);
 
     /* Buttons -- dark body background, border accent on hover/active.
      * PD's menu items sit on the dark body, not on bright colored backgrounds.
@@ -793,4 +892,70 @@ extern "C" void pdguiDrawTextGlow(float x, float y, float textW, float textH)
             IM_COL32(gr, gg, gb, alpha),
             expand * 0.5f);  /* rounded corners for glow softness */
     }
+}
+
+/* -----------------------------------------------------------------------
+ * Button Edge Glow -- animated shimmer on hovered/active button edges
+ *
+ * Draws a pulsing glow along each edge of the button rect, using the
+ * palette's border accent color. The pulse breathes via sin(time) and
+ * individual edge shimmers travel along the border for that classic PD feel.
+ * ----------------------------------------------------------------------- */
+
+extern "C" void pdguiDrawButtonEdgeGlow(float x, float y, float w, float h, int isActive)
+{
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const struct pdgui_palette *pal = s_ActivePalette;
+
+    /* Extract accent color from border2 (bright accent) */
+    unsigned int gc = pal->dialog_border2;
+    unsigned char gr = (gc >> 24) & 0xFF;
+    unsigned char gg = (gc >> 16) & 0xFF;
+    unsigned char gb = (gc >>  8) & 0xFF;
+
+    /* Pulsing alpha: breathing effect via sin wave */
+    float t = (float)ImGui::GetTime();
+    float pulse = 0.5f + 0.5f * sinf(t * 4.0f);  /* 0..1, ~4 Hz breathing */
+    float baseAlphaF = isActive ? (0.6f + 0.4f * pulse) : (0.3f + 0.4f * pulse);
+    unsigned char baseAlpha = (unsigned char)(baseAlphaF * 255.0f);
+
+    /* Outer glow: 2 passes at increasing expansion, decreasing alpha */
+    for (int pass = 0; pass < 2; pass++) {
+        float expand = (float)(pass + 1) * 1.5f;
+        unsigned char alpha = (unsigned char)(baseAlpha / (pass + 1));
+
+        /* Top edge */
+        dl->AddRectFilled(
+            ImVec2(x - expand, y - expand),
+            ImVec2(x + w + expand, y),
+            IM_COL32(gr, gg, gb, alpha));
+        /* Bottom edge */
+        dl->AddRectFilled(
+            ImVec2(x - expand, y + h),
+            ImVec2(x + w + expand, y + h + expand),
+            IM_COL32(gr, gg, gb, alpha));
+        /* Left edge */
+        dl->AddRectFilled(
+            ImVec2(x - expand, y),
+            ImVec2(x, y + h),
+            IM_COL32(gr, gg, gb, alpha));
+        /* Right edge */
+        dl->AddRectFilled(
+            ImVec2(x + w, y),
+            ImVec2(x + w + expand, y + h),
+            IM_COL32(gr, gg, gb, alpha));
+    }
+
+    /* Traveling shimmer along each edge */
+    int shimAlpha = (int)(baseAlphaF * 200.0f);
+    if (shimAlpha > 255) shimAlpha = 255;
+
+    /* Top edge shimmer (horizontal) */
+    pdguiDrawShimmerExact(dl, x, y - 1, x + w, y, shimAlpha, 20, false);
+    /* Bottom edge shimmer (horizontal, reverse) */
+    pdguiDrawShimmerExact(dl, x, y + h, x + w, y + h + 1, shimAlpha, 20, true);
+    /* Left edge shimmer (vertical) */
+    pdguiDrawShimmerExact(dl, x - 1, y, x, y + h, shimAlpha, 20, false);
+    /* Right edge shimmer (vertical, reverse) */
+    pdguiDrawShimmerExact(dl, x + w, y, x + w + 1, y + h, shimAlpha, 20, true);
 }

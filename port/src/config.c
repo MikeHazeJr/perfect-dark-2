@@ -175,7 +175,11 @@ static void configSetFromString(const char *key, const char *val)
 			*(u32*)cfg->ptr = tmp_u32;
 			break;
 		case CFG_STR:
-			strncpy(cfg->ptr, val, cfg->max_str ? cfg->max_str - 1 : 4096);
+			{
+				const size_t maxlen = cfg->max_str ? cfg->max_str - 1 : 4095;
+				strncpy(cfg->ptr, val, maxlen);
+				((char *)cfg->ptr)[maxlen] = '\0';
+			}
 			break;
 		default:
 			break;
@@ -228,7 +232,8 @@ s32 configSave(const char *fname)
 		configGetSection(tmpSec, cfg);
 		if (strncmp(curSec, tmpSec, CONFIG_MAX_SECNAME) != 0) {
 			fprintf(f, "\n[%s]\n", tmpSec);
-			strncpy(curSec, tmpSec, CONFIG_MAX_SECNAME);
+			strncpy(curSec, tmpSec, CONFIG_MAX_SECNAME - 1);
+			curSec[CONFIG_MAX_SECNAME - 1] = '\0';
 		}
 		configSaveEntry(cfg, f);
 	}
@@ -263,7 +268,8 @@ s32 configLoad(const char *fname)
 				sysLogPrintf(LOG_ERROR, "configLoad: malformed section line: %s", lineBuf);
 				continue;
 			}
-			strncpy(curSec, token, CONFIG_MAX_SECNAME);
+			strncpy(curSec, token, CONFIG_MAX_SECNAME - 1);
+			curSec[CONFIG_MAX_SECNAME - 1] = '\0';
 			// eat ]
 			line = strParseToken(line, token, NULL);
 			if (token[0] != ']' || token[1] != '\0') {

@@ -67,7 +67,7 @@ bool challengeIsAvailable(s32 challengeindex)
 
 bool challengeIsAvailableToPlayer(s32 chrnum, s32 challengeindex)
 {
-	if ((g_MpSetup.chrslots & (1 << chrnum)) == 0) {
+	if ((g_MpSetup.chrslots & (1u << chrnum)) == 0) {
 		return 0;
 	}
 
@@ -222,18 +222,8 @@ void challengeDetermineUnlockedFeatures(void)
 
 	func0f1895e8();
 
-	// If the ability to have 8 simulants hasn't been unlocked, limit them to 4
-	if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-		for (k = 4; k < MAX_BOTS; k++) {
-			if (g_MpSetup.chrslots & (1 << (MAX_PLAYERS + k))) {
-				mpRemoveSimulant(k);
-			}
-		}
-
-		if (g_Vars.mpquickteamnumsims > 4) {
-			g_Vars.mpquickteamnumsims = 4;
-		}
-	}
+	/* PC: All bot slots are always available — no unlock gate.
+	 * Original N64 limited to 4 simulants unless MPFEATURE_8BOTS was earned. */
 }
 
 void challengePerformSanityChecks(void)
@@ -244,7 +234,7 @@ void challengePerformSanityChecks(void)
 
 		// Reset player handicaps
 		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (g_MpSetup.chrslots & (1u << i)) {
 				g_PlayerConfigsArray[i].handicap = 0x80;
 				numplayers++;
 			}
@@ -258,17 +248,15 @@ void challengePerformSanityChecks(void)
 			g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][numplayers - 1];
 
 			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-				g_MpSetup.chrslots |= 1 << (i + MAX_PLAYERS);
+				g_MpSetup.chrslots |= 1u << (i + MAX_PLAYERS);
 			}
 		}
 
 		if (g_MpSetup.scenario == MPSCENARIO_KINGOFTHEHILL) {
 			g_Vars.mphilltime = 10;
 		}
-	} else if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-		// Limit to 4 players and 4 simulants in local games
-		g_MpSetup.chrslots &= (g_NetMode ? (CHRSLOTS_PLAYER_MASK | 0x0F00) : (0x000F | 0x0F00));
 	}
+	/* PC: No bot slot limit — all slots available regardless of unlock state. */
 }
 
 s32 challengeGetNumAvailable(void)
@@ -671,9 +659,9 @@ void challengeRemoveForceUnlocks(void)
 void challengeApply(void)
 {
 	s32 i;
-	u8 buffer[0x1ca];
+	u8 buffer[sizeof(struct mpconfigfull) + 16];
 
-	mpApplyConfig(challengeLoadCurrent(buffer, 0x1ca));
+	mpApplyConfig(challengeLoadCurrent(buffer, sizeof(buffer)));
 	mpSetLock(MPLOCKTYPE_CHALLENGE, 5);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {

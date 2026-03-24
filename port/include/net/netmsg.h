@@ -38,6 +38,8 @@
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
 #define SVC_CUTSCENE      0x53 // cutscene state change (co-op only, start/end)
+#define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
+#define SVC_LOBBY_STATE   0x61 // server broadcasts lobby state (game mode, stage, etc.)
 
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
@@ -47,6 +49,7 @@
 #define CLC_SETTINGS    0x05 // player settings changed
 #define CLC_RESYNC_REQ  0x06 // client requests full state resync from server
 #define CLC_COOP_READY  0x07 // client signals ready for co-op mission start
+#define CLC_LOBBY_START 0x08 // lobby leader requests match start {gamemode, stagenum, difficulty}
 
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
@@ -126,5 +129,13 @@ u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
+
+/* Lobby protocol messages (Phase 3) */
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty);
+u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
+u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status);
+u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 
 #endif

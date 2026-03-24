@@ -208,13 +208,11 @@ static const MenuCatalogEntry s_Catalog[] = {
     { "g_ExtendedBindKeyMenuDialog",                  "Bind Key",                   DLGTYPE_SUCCESS, CAT_EXT_OPTIONS,  false },
     { "g_ExtendedSelectPlayerMenuDialog",             "Select Player",              DLGTYPE_DEFAULT, CAT_EXT_OPTIONS,  false },
 
-    /* ---- CAT_NETWORK (8) ---- */
-    { "g_NetMenuDialog",                              "Network Game",               DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetHostMenuDialog",                          "Host Network Game",          DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetCoopHostMenuDialog",                      "Host Co-op Mission",         DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetJoinMenuDialog",                          "Join Network Game",          DLGTYPE_DEFAULT, CAT_NETWORK,      true  },
+    /* ---- CAT_NETWORK (6) ---- */
+    { "g_NetMenuDialog",                              "Multiplayer",                DLGTYPE_DEFAULT, CAT_NETWORK,      false },
+    { "g_NetCoopHostMenuDialog",                      "Co-op Mission Setup",        DLGTYPE_DEFAULT, CAT_NETWORK,      false },
     { "g_NetJoinAddressDialog",                       "Enter Address",              DLGTYPE_SUCCESS, CAT_NETWORK,      false },
-    { "g_NetJoiningDialog",                           "Joining Game...",            DLGTYPE_SUCCESS, CAT_NETWORK,      false },
+    { "g_NetJoiningDialog",                           "Connecting...",              DLGTYPE_SUCCESS, CAT_NETWORK,      false },
     { "g_NetPauseControlsMenuDialog",                 "Net Controls",               DLGTYPE_DEFAULT, CAT_NETWORK,      false },
     { "g_NetRecentServersMenuDialog",                 "Recent Servers",             DLGTYPE_DEFAULT, CAT_NETWORK,      true  },
 

@@ -1,13 +1,19 @@
 /**
- * pdgui_lobby.cpp -- Network lobby player list sidebar overlay.
+ * pdgui_lobby.cpp -- Network lobby overlay controller.
  *
- * Renders a small sidebar window showing connected players when in a
- * networked session. Displays each player's agent name, character thumbnail,
- * and connection state.
+ * Manages two distinct rendering modes:
  *
- * This overlay renders independently of the hotswap system — it appears
- * whenever a network session is active (host or client) and the player
- * is in the lobby state (Combat Simulator setup).
+ * 1. LOBBY STATE (CLSTATE_LOBBY): Renders the full lobby screen via
+ *    pdguiLobbyScreenRender() from pdgui_menu_lobby.cpp. The sidebar
+ *    does NOT render — the lobby screen already shows the player list.
+ *
+ * 2. IN-GAME STATE (CLSTATE_GAME): Renders a minimal sidebar overlay
+ *    showing "Connected: X players" with a compact player list. This is
+ *    the only time the sidebar is visible for game clients.
+ *
+ * 3. DEDICATED SERVER (g_NetDedicated): Always shows the server info
+ *    overlay (IP, port, player count, log). Only the dedicated server
+ *    process should ever be in NETMODE_SERVER — game clients never are.
  *
  * Called from pdguiRender() in the ImGui overlay phase.
  *
@@ -24,6 +30,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "system.h"
+#include "connectcode.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -88,7 +95,7 @@ struct lobbyplayer_view {
     u8 headnum;
     u8 bodynum;
     u8 team;
-    char name[16];
+    char name[32];  /* matches LOBBY_NAME_LEN */
     s32 isLocal;
     s32 state; /* CLSTATE_* */
 };
@@ -141,7 +148,22 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
         const char *publicIP = netGetPublicIP();
 
         if (publicIP && publicIP[0]) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", publicIP, port);
+            /* Build connect code from public IP + port */
+            char connectCode[256];
+            u32 ipAddr = 0;
+            {
+                u32 a, b, c, d;
+                if (sscanf(publicIP, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                    ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+                }
+            }
+            connectCodeEncode(ipAddr, (u16)port, connectCode, sizeof(connectCode));
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) {
+                SDL_SetClipboardText(connectCode);
+            }
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", publicIP, port);
         } else {
             ImGui::Text("Port: %u (UPnP inactive)", port);
         }
@@ -190,53 +212,27 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
 }
 
 /**
- * Render the lobby player list sidebar.
- * Called from pdguiRender() every frame. Only draws if a network session
- * is active. Safe to call when not networked (will no-op).
+ * Render the in-game sidebar — minimal player list overlay.
+ * Only shown during CLSTATE_GAME when the full lobby screen is NOT visible.
  */
-void pdguiLobbyRender(s32 winW, s32 winH)
+static void renderInGameSidebar(s32 winW, s32 winH)
 {
-    s32 mode = netGetMode();
-    /* Window title is managed by videoEndFrame() — single authority. */
-
-    if (mode == NETMODE_NONE) {
-        return;  /* Not in a network session */
-    }
-
-    s32 clientCount = netLobbyGetClientCount();
-    if (clientCount <= 0 && !g_NetDedicated) {
-        return;
-    }
-
-    /* Dedicated server: show server info overlay in top-left */
-    if (g_NetDedicated && mode == NETMODE_SERVER) {
-        renderDedicatedServerOverlay(winW, winH, clientCount);
-    }
-
-    /* Unified lobby screen — shown for:
-     * - Clients waiting in lobby (not the host who's configuring)
-     * - Dedicated servers (always show the lobby view)
-     * Host players use the PD native Combat Sim menus to configure. */
-    if (g_NetDedicated && mode == NETMODE_SERVER) {
-        pdguiLobbyScreenRender(winW, winH);
-    } else if (mode == NETMODE_CLIENT && netLocalClientInLobby()) {
-        pdguiLobbyScreenRender(winW, winH);
-    }
-
-    /* ---- Layout: small sidebar on the right ---- */
     float scale = (float)winH / 480.0f;
+
+    s32 playerCount = lobbyGetPlayerCount();
+    if (playerCount <= 0) return;
+
     float sideW = 200.0f * scale;
-    float extraH = (mode == NETMODE_SERVER) ? 36.0f : 0.0f;
-    float sideH = (40.0f * clientCount + 34.0f + extraH) * scale;
+    float sideH = (28.0f * playerCount + 30.0f) * scale;
     float sideX = (float)winW - sideW - 10.0f * scale;
     float sideY = 10.0f * scale;
 
     /* Clamp height */
-    if (sideH > (float)winH * 0.5f) sideH = (float)winH * 0.5f;
+    if (sideH > (float)winH * 0.4f) sideH = (float)winH * 0.4f;
 
     ImGui::SetNextWindowPos(ImVec2(sideX, sideY));
     ImGui::SetNextWindowSize(ImVec2(sideW, sideH));
-    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::SetNextWindowBgAlpha(0.65f);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
                            | ImGuiWindowFlags_NoMove
@@ -246,100 +242,109 @@ void pdguiLobbyRender(s32 winW, s32 winH)
                            | ImGuiWindowFlags_NoNav
                            | ImGuiWindowFlags_NoTitleBar;
 
-    if (!ImGui::Begin("##lobby_players", nullptr, flags)) {
+    if (!ImGui::Begin("##ingame_players", nullptr, flags)) {
         ImGui::End();
         return;
     }
 
-    /* Header */
-    const char *header = (mode == NETMODE_SERVER) ? "Lobby (Host)" : "Lobby";
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", header);
-
-    /* Show server connection info for the host */
-    if (mode == NETMODE_SERVER) {
-        u32 port = netGetServerPort();
-        const char *publicIP = netGetPublicIP();
-        if (publicIP && publicIP[0]) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s:%u", publicIP, port);
-        } else {
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Port: %u", port);
-        }
-    }
-
+    /* Compact header */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Connected: %d", playerCount);
     ImGui::Separator();
 
-    /* Player entries — using lobby state system */
+    /* Compact player entries */
     ImDrawList *dl = ImGui::GetWindowDrawList();
 
-    s32 playerCount = lobbyGetPlayerCount();
     for (s32 i = 0; i < playerCount; i++) {
         struct lobbyplayer_view pv;
         memset(&pv, 0, sizeof(pv));
         if (!lobbyGetPlayerInfo(i, &pv)) continue;
         if (!pv.active) continue;
 
-        /* State indicator color */
+        /* State indicator dot */
         ImU32 stateColor;
-        const char *stateText;
         switch (pv.state) {
             case CLSTATE_CONNECTING:
-                stateColor = IM_COL32(255, 200, 0, 255);
-                stateText = "connecting";
-                break;
             case CLSTATE_AUTH:
                 stateColor = IM_COL32(255, 200, 0, 255);
-                stateText = "auth";
                 break;
             case CLSTATE_LOBBY:
                 stateColor = IM_COL32(100, 255, 100, 255);
-                stateText = "lobby";
                 break;
             case CLSTATE_GAME:
                 stateColor = IM_COL32(100, 200, 255, 255);
-                stateText = "in-game";
                 break;
             default:
                 stateColor = IM_COL32(128, 128, 128, 255);
-                stateText = "?";
                 break;
         }
 
-        /* Player row */
         ImVec2 cursor = ImGui::GetCursorScreenPos();
-
-        /* Small colored dot for state */
-        float dotR = 4.0f * scale;
+        float dotR = 3.0f * scale;
         dl->AddCircleFilled(
-            ImVec2(cursor.x + dotR + 2.0f, cursor.y + 10.0f * scale),
+            ImVec2(cursor.x + dotR + 2.0f, cursor.y + 8.0f * scale),
             dotR, stateColor, 12);
 
-        /* Name with leader/local indicators */
-        char displayName[48];
-        const char *suffix = "";
-        if (pv.isLocal && pv.isLeader) {
-            suffix = " (you, leader)";
-        } else if (pv.isLocal) {
-            suffix = " (you)";
-        } else if (pv.isLeader) {
-            suffix = " (leader)";
-        }
-        snprintf(displayName, sizeof(displayName), "%s%s", pv.name, suffix);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotR * 2 + 6.0f);
 
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotR * 2 + 8.0f);
-
-        /* Leader name in gold, others in white */
+        /* Name — gold for leader, green for local, white for others */
         if (pv.isLeader) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", displayName);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", pv.name);
+        } else if (pv.isLocal) {
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", pv.name);
         } else {
-            ImGui::Text("%s", displayName);
+            ImGui::Text("%s", pv.name);
         }
-
-        /* State text */
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), " [%s]", stateText);
     }
 
     ImGui::End();
+}
+
+/**
+ * Render the network lobby overlay.
+ * Called from pdguiRender() every frame. Only draws if a network session
+ * is active. Safe to call when not networked (will no-op).
+ *
+ * Rendering logic:
+ * - Dedicated server process: server info overlay + lobby screen (always)
+ * - Client in CLSTATE_LOBBY: full lobby screen only (no sidebar)
+ * - Client in CLSTATE_GAME: minimal in-game sidebar only
+ * - Client in other states: nothing (connecting/auth handled by join dialog)
+ */
+void pdguiLobbyRender(s32 winW, s32 winH)
+{
+    s32 mode = netGetMode();
+
+    if (mode == NETMODE_NONE) {
+        return;  /* Not in a network session */
+    }
+
+    s32 clientCount = netLobbyGetClientCount();
+
+    /* === Dedicated server process === */
+    if (g_NetDedicated && mode == NETMODE_SERVER) {
+        renderDedicatedServerOverlay(winW, winH, clientCount);
+        pdguiLobbyScreenRender(winW, winH);
+        return;
+    }
+
+    /* === Game client === */
+    if (mode == NETMODE_CLIENT) {
+        if (netLocalClientInLobby()) {
+            /* In lobby: the full lobby screen handles everything.
+             * No sidebar — pdguiLobbyScreenRender shows the player list. */
+            pdguiLobbyScreenRender(winW, winH);
+        } else if (clientCount > 0) {
+            /* In game (or transitioning): show minimal sidebar overlay */
+            renderInGameSidebar(winW, winH);
+        }
+        return;
+    }
+
+    /* NETMODE_SERVER without g_NetDedicated = debug local server.
+     * Show a minimal sidebar so the developer knows it's active. */
+    if (mode == NETMODE_SERVER && clientCount > 0) {
+        renderInGameSidebar(winW, winH);
+    }
 }
 
 } /* extern "C" */
