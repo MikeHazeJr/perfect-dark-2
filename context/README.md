@@ -85,8 +85,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol v19, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state
-- **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=24 (matchsetup.cpp)
+- **Net**: Protocol v21, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state
+- **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.
 - **Mod architecture**: Component-based (S27). Each asset = own folder + `.ini`. See [component-mod-architecture.md](component-mod-architecture.md).
