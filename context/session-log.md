@@ -5,6 +5,59 @@
 
 ---
 
+## Session 43 — 2026-03-24
+
+**Focus**: D3R-8 — Bot Customizer (trait editor + bot_variants/ persistence)
+
+### What Was Done
+
+1. **`port/include/botvariant.h`** — New C header with `extern "C"` guards. Declares `botVariantSave(name, base_type, accuracy, reaction_time, aggression, category, description, author)` → `s32`.
+
+2. **`port/src/botvariant.c`** — New implementation:
+   - Slug derivation: lowercase, spaces→underscores, strip non-alnum
+   - Trait clamping to [0.0, 1.0]
+   - Directory creation: `{modsdir}/bot_variants/{slug}/` via `fsCreateDir()`
+   - INI write: `{slug}/bot.ini` with all fields
+   - Hot-register: calls `assetCatalogRegisterBotVariant()` immediately, sets `enabled/bundled/category/dirpath`
+
+3. **`port/src/assetcatalog_scanner.c`** — Added `assetCatalogScanBotVariants(modsdir)`: scans flat `{modsdir}/bot_variants/` directory, parses `bot.ini`, registers each variant with `mod_id="custom"`.
+
+4. **`port/include/assetcatalog_scanner.h`** — Added declaration + doc comment for `assetCatalogScanBotVariants()`.
+
+5. **`port/src/main.c`** — Added `assetCatalogScanBotVariants(modsdir)` call after `assetCatalogScanComponents()` in startup sequence.
+
+6. **`port/fast3d/pdgui_menu_matchsetup.cpp`** — Bot edit popup extended:
+   - `BotTraits` C++ struct (accuracy, reactionTime, aggression, baseType[32])
+   - `s_BotTraits[MATCH_MAX_SLOTS]` parallel state array
+   - 18 simulant type strings in `s_BaseTypeNames[]`
+   - "Advanced/Simple" toggle; expanded section with: Load Preset combo (catalog), Base Type combo, three `SliderFloat` controls, "Save as Preset…" button
+   - Save popup: `InputText` for name → `botVariantSave()` → dirties preset cache
+
+### Files Modified/Created
+- `port/include/botvariant.h` — NEW
+- `port/src/botvariant.c` — NEW (comment `*/` bug fixed: `mod_*/_components/` → `mod_{name}/_components/`)
+- `port/src/assetcatalog_scanner.c` — `assetCatalogScanBotVariants()` added
+- `port/include/assetcatalog_scanner.h` — declaration added
+- `port/src/main.c` — startup scan call
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — trait editor UI
+
+### Build Status
+- Client: PASS (exit 0). Server: PASS (exit 0).
+- Commits: `2bb962c` (D3R-8 feature), `822507e` (comment fix on dev), `bfc2b8b` (comment fix on worktree branch)
+- Build note: must run with `C:\msys64\mingw64\bin` first in PATH (cc1.exe DLL search path); `build-headless.ps1` handles this correctly when run from PowerShell
+
+### Decisions
+- Bot variants saved flat in `mods/bot_variants/{slug}/` (not inside `mod_*/`). Dedicated scanner handles this path; hot-register makes new presets immediately available without restart.
+- Trait UI lives in the bot edit popup as an inline toggle section — avoids ImGui popup stacking complexity.
+- `BotTraits` struct stays in C++ UI state only; does not modify C-side `matchslot` struct.
+
+### Next Steps
+- Test: open match setup → select bot slot → Advanced → adjust traits → Save as Preset → verify `mods/bot_variants/{slug}/bot.ini` created; restart and confirm preset appears in Load Preset combo
+- D3R-7 still needs build test (Modding Hub — coded S40, unverified)
+- D3R-9 (Network distribution) or B-12 Phase 2 (chrslots migration) — next major task
+
+---
+
 ## Session 42 — 2026-03-24
 
 **Focus**: Death loop fix merge + font descender clipping + dashboard commit freeze + notes TextChanged

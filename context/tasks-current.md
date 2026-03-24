@@ -94,7 +94,7 @@
 | D3R-5 | ~~**Callsite migration**~~ | D3R-3, D3R-4 | **DONE (S38/S39)** ✓ BUILD PASS: All 6 modmgr accessors catalog-backed, 62 callsites covered, zero caller changes. |
 | D3R-6 | ~~**Mod Manager UI**~~ | D3R-4 | **MERGED (S39/S40)** ✓ — 8 files. Snapshot browse/toggle, validation, `.modstate` persistence, Apply→title. Now embedded in Modding Hub. |
 | D3R-7 | **Modding Hub** ← IN PROGRESS | D3R-6 | **CODED (S40)** — 6 files. Needs build test. Hub with Mod Manager, INI Editor, Model Scale Tool. Rotating charpreview. Binary bake at offset 0x10. |
-| D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
+| D3R-8 | ~~**Bot Customizer**~~ | D3R-7 | **DONE (S43)** ✓ BUILD PASS: Trait editor in match setup. `botvariant.c/h`, `assetCatalogScanBotVariants()`, save-as-preset popup, hot-register. |
 | D3R-9 | **Network distribution** | D3R-4 | Delta packs, session-only downloads, lobby spectator combat log. |
 | D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |
 | D3R-11 | **Legacy cleanup** | D3R-5 | Remove `g_ModNum`, `modconfig.txt` parsing, static array patching. |
