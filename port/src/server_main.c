@@ -29,6 +29,7 @@
 #include "net/net.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
+#include "hub.h"
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
@@ -231,6 +232,7 @@ int main(int argc, char **argv)
 
     netInit();
     lobbyInit();
+    hubInit();
 
     /* Minimal memory setup */
     g_OsMemSize = 64 * 1024 * 1024;
@@ -319,6 +321,7 @@ int main(int argc, char **argv)
         /* Network tick */
         netStartFrame();
         lobbyUpdate();
+        hubTick();
         netEndFrame();
 
         /* Update window title periodically */
@@ -350,6 +353,7 @@ int main(int argc, char **argv)
     /* Cleanup */
     sysLogPrintf(LOG_NOTE, "SERVER: Shutting down%s...",
                  s_ShutdownRequested ? " (signal received)" : "");
+    hubShutdown();
     netDisconnect();
 
     if (!s_Headless) {

@@ -104,6 +104,12 @@ function Invoke-BuildStep {
     $psi.EnvironmentVariables["PATH"]         = $env:PATH
     $psi.EnvironmentVariables["MSYSTEM"]      = "MINGW64"
     $psi.EnvironmentVariables["MINGW_PREFIX"] = "/mingw64"
+    # Ensure GCC has a writable temp dir; the system TEMP may point to a
+    # restricted location (e.g. C:\Windows) in some sandbox environments.
+    $goodTemp = if ($env:TEMP -and (Test-Path $env:TEMP)) { $env:TEMP } `
+                else { "C:\Users\mikeh\AppData\Local\Temp" }
+    $psi.EnvironmentVariables["TEMP"]         = $goodTemp
+    $psi.EnvironmentVariables["TMP"]          = $goodTemp
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
