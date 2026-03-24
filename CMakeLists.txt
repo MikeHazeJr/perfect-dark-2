@@ -446,6 +446,11 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netupnp.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netdistrib.c
+
+  # Asset catalog -- server needs it to enumerate/serve mod components (D3R-9)
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
 
   # UPnP library
   ${SRC_SERVER_MINIUPNPC}
