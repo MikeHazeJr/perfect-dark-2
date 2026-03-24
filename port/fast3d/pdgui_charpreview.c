@@ -41,6 +41,7 @@ static u8  s_PreviewHeadnum = 0;     /* Head to render */
 static u8  s_PreviewBodynum = 0;     /* Body to render */
 static u32 s_PreviewTexId = 0;       /* GL texture ID of the rendered preview */
 static s32 s_PreviewReady = 0;       /* Non-zero if texture has valid content */
+static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
 
 /* ========================================================================
  * Init / Shutdown
@@ -102,6 +103,19 @@ void pdguiCharPreviewRequest(u8 headnum, u8 bodynum)
         | ((u32)bodynum << 24);
 
     g_Menus[playernum].menumodel.newparams = params;
+
+    /* Apply rotation directly so the next render uses the caller's angle. */
+    g_Menus[playernum].menumodel.newroty = s_PreviewRotY;
+    g_Menus[playernum].menumodel.curroty = s_PreviewRotY;
+}
+
+/**
+ * Set the Y rotation angle (radians) used by the next preview request.
+ * Call this each frame before pdguiCharPreviewRequest to animate rotation.
+ */
+void pdguiCharPreviewSetRotY(f32 rotY)
+{
+    s_PreviewRotY = rotY;
 }
 
 /**

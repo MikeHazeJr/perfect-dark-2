@@ -195,6 +195,10 @@ int main(int argc, const char **argv)
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
 
+	// D3R-6: Restore per-component enable state from mods/.modstate.
+	// Must run after scan so entries exist in the catalog to be disabled.
+	modmgrLoadComponentState();
+
 	// Signal modmgr that catalog is populated — rebuilds accessor caches
 	// so modmgrGetArena() etc. read from catalog instead of static arrays.
 	modmgrCatalogChanged();

@@ -22,6 +22,10 @@ void pdguiCharPreviewInit(void);
  * The render happens during the next GBI frame. */
 void pdguiCharPreviewRequest(u8 headnum, u8 bodynum);
 
+/* Set Y rotation angle (radians) applied on the next pdguiCharPreviewRequest.
+ * Call each frame before pdguiCharPreviewRequest to animate rotation. */
+void pdguiCharPreviewSetRotY(f32 rotY);
+
 /* Get the GL texture ID of the rendered preview (0 if not ready).
  * Cast to ImTextureID for use with ImGui::Image. */
 u32 pdguiCharPreviewGetTextureId(void);

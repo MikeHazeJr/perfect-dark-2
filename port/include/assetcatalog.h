@@ -326,6 +326,29 @@ s32 assetCatalogIsEnabled(const char *id);
 s32 assetCatalogGetSkinsForTarget(const char *target_id,
                                    const asset_entry_t **out, s32 maxout);
 
+/* ========================================================================
+ * Write API (D3R-6)
+ * ======================================================================== */
+
+/**
+ * Set the enabled state of an asset entry by string ID.
+ * Does nothing if the ID is not found or the catalog is not initialized.
+ * This is the only write operation exposed outside the catalog internals.
+ * Note: base game (bundled) entries can be disabled via this call for
+ * temporary UI purposes, but they re-enable on catalog reset/reload.
+ */
+void assetCatalogSetEnabled(const char *id, s32 enabled);
+
+/**
+ * Enumerate unique category strings across all registered entries.
+ * Fills out[][CATALOG_CATEGORY_LEN] with up to maxout distinct strings.
+ * Skips the "base" category and empty categories (not user-manageable).
+ * Returns number of unique categories found (may be 0 if no mod entries).
+ *
+ * Typical usage: build the "By Mod" tree in the Mod Manager UI.
+ */
+s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout);
+
 #ifdef __cplusplus
 }
 #endif
