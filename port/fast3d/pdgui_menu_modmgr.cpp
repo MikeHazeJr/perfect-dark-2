@@ -30,6 +30,7 @@
 #include <sys/stat.h>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
 #include "system.h"
