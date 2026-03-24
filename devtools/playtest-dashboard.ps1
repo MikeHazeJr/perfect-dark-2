@@ -1,4 +1,4 @@
-Add-Type -AssemblyName System.Windows.Forms
+﻿Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # --- Hide the PowerShell console window so only the GUI appears ---
@@ -63,7 +63,7 @@ public class DarkMenuColors : ProfessionalColorTable
 # Configuration
 # ============================================================================
 
-$script:ProjectDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$script:ProjectDir     = Split-Path -Parent $PSScriptRoot
 $script:ClientBuildDir = Join-Path $script:ProjectDir "build\client"
 $script:ServerBuildDir = Join-Path $script:ProjectDir "build\server"
 $script:QcFile         = Join-Path $script:ProjectDir "context\qc-tests.md"
@@ -1289,4 +1289,15 @@ $form.Add_FormClosed({
     $gitTimer.Dispose()
 })
 
-[System.Windows.Forms.Application]::Run($form)
+try {
+    [System.Windows.Forms.Application]::Run($form)
+} catch {
+    $msg = "[$([datetime]::Now)] playtest-dashboard.ps1 fatal error:`r`n$_`r`n$($_.ScriptStackTrace)"
+    $msg | Out-File -FilePath (Join-Path $PSScriptRoot "error.log") -Append
+    [System.Windows.Forms.MessageBox]::Show(
+        "Fatal error:`n$_`n`nFull details written to devtools\error.log",
+        "PD Playtest Dashboard — Error",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+}

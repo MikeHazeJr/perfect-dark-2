@@ -92,6 +92,31 @@ typedef enum {
 #define HUD_ELEM_SCORE     5   /* score display */
 
 /* ========================================================================
+ * Asset Load State
+ * ======================================================================== */
+
+/**
+ * Lifecycle state of an asset entry.
+ *
+ * REGISTERED  -- entry exists in catalog, not yet enabled or loaded
+ * ENABLED     -- user/system has enabled the asset; eligible for loading
+ * LOADED      -- asset data is resident in memory (loaded_data != NULL)
+ * ACTIVE      -- asset is actively referenced by the running game
+ *
+ * Bundled (base game) assets are initialized at LOADED with
+ * ref_count = ASSET_REF_BUNDLED and are never evicted.
+ */
+typedef enum {
+    ASSET_STATE_REGISTERED = 0,
+    ASSET_STATE_ENABLED,
+    ASSET_STATE_LOADED,
+    ASSET_STATE_ACTIVE
+} asset_load_state_t;
+
+/** Sentinel ref_count for bundled assets: never evicted from memory. */
+#define ASSET_REF_BUNDLED 0x7FFFFFFF
+
+/* ========================================================================
  * Asset Entry Structure
  * ======================================================================== */
 
@@ -204,6 +229,12 @@ typedef struct asset_entry {
             char texture_file[128];    /* texture file path (empty = uses default) */
         } hud;
     } ext;
+
+    /* Load state tracking (MEM-1) */
+    asset_load_state_t load_state;     /* lifecycle state of this entry */
+    void              *loaded_data;    /* pointer to loaded asset data (NULL if not loaded) */
+    u32                data_size_bytes;/* size of loaded_data in bytes (0 if not loaded) */
+    s32                ref_count;      /* reference count; ASSET_REF_BUNDLED = never evict */
 
     /* Catalog internals */
     s32 occupied;                      /* bool: hash table slot in use */
@@ -509,6 +540,26 @@ void assetCatalogSetEnabled(const char *id, s32 enabled);
  * Typical usage: build the "By Mod" tree in the Mod Manager UI.
  */
 s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout);
+
+/* ========================================================================
+ * Load State API (MEM-1)
+ * ======================================================================== */
+
+/**
+ * Get the current load state of an asset entry by string ID.
+ * Returns ASSET_STATE_REGISTERED if the ID is not found.
+ */
+asset_load_state_t assetCatalogGetLoadState(const char *id);
+
+/**
+ * Set the load state of an asset entry by string ID.
+ * Does nothing if the ID is not found or the catalog is not initialized.
+ * Callers should use this to advance an entry through the lifecycle
+ * (ENABLED → LOADED → ACTIVE) as asset data is managed.
+ * Note: bundled entries have ref_count = ASSET_REF_BUNDLED; callers must
+ * not decrement below that sentinel or force eviction of bundled data.
+ */
+void assetCatalogSetLoadState(const char *id, asset_load_state_t state);
 
 #ifdef __cplusplus
 }

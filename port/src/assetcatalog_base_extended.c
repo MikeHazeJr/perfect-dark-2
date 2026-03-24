@@ -299,6 +299,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			}
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1; e->runtime_index = i;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base weapons", n);
@@ -321,6 +322,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseAnimations[i].anim_id;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base animations (partial -- TODO S46b)", n);
@@ -342,6 +344,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseTextures[i].texture_id;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base textures (stub -- TODO S46b)", n);
@@ -364,6 +367,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseProps[i].prop_type;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base props", n);
@@ -389,6 +393,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseGameModes[i].mode_id;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base game modes", n);
@@ -411,6 +416,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseAudio[i].sound_id;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries (partial -- TODO S46b)", n);
@@ -433,6 +439,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseHud[i].hud_id;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base HUD elements", n);

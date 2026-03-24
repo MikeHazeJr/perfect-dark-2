@@ -1,3 +1,5 @@
 @echo off
-rem Launch the PD Documentation reader without showing a CMD window.
-start "" /b powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0doc-reader.ps1"
+rem Launch the PD Documentation reader.
+rem 'pause' keeps this window open so any startup errors are visible.
+powershell -ExecutionPolicy Bypass -File "%~dp0doc-reader.ps1"
+pause

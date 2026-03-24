@@ -1,4 +1,4 @@
-Add-Type -AssemblyName System.Windows.Forms
+﻿Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # --- Hide the PowerShell console window so only the GUI appears in the taskbar ---
@@ -93,7 +93,7 @@ public class DarkMenuColorTable : ProfessionalColorTable
 # Configuration
 # ============================================================================
 
-$script:ProjectDir      = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$script:ProjectDir      = Split-Path -Parent $PSScriptRoot
 $script:ClientBuildDir  = Join-Path $script:ProjectDir "build\client"
 $script:ServerBuildDir  = Join-Path $script:ProjectDir "build\server"
 $script:BuildDir        = $script:ClientBuildDir
@@ -2765,4 +2765,15 @@ $form.Add_FormClosing({
     }
 })
 
-[void]$form.ShowDialog()
+try {
+    [void]$form.ShowDialog()
+} catch {
+    $msg = "[$([datetime]::Now)] build-gui.ps1 fatal error:`r`n$_`r`n$($_.ScriptStackTrace)"
+    $msg | Out-File -FilePath (Join-Path $PSScriptRoot "error.log") -Append
+    [System.Windows.Forms.MessageBox]::Show(
+        "Fatal error:`n$_`n`nFull details written to devtools\error.log",
+        "PD Build Tool — Error",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+}

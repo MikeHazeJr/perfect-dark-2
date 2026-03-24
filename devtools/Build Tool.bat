@@ -1,5 +1,6 @@
 @echo off
-rem Launch the PD Build Tool GUI without showing a CMD window.
-rem We use 'start /b' with powershell -WindowStyle Hidden so the console
-rem closes immediately and only the WinForms GUI remains visible.
-start "" /b powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0build-gui.ps1"
+rem Launch the PD Build Tool GUI.
+rem The script hides its own console via ConsoleHelper::HideConsole().
+rem 'pause' keeps this window open so any startup errors are visible.
+powershell -ExecutionPolicy Bypass -File "%~dp0build-gui.ps1"
+pause

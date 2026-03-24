@@ -1,4 +1,4 @@
-# Perfect Dark 2 — Documentation Reader
+﻿# Perfect Dark 2 — Documentation Reader
 # Simple WinForms markdown/text viewer for project docs.
 # Scans the docs/ and context/ folders and lets you browse them in a GUI.
 
@@ -97,4 +97,15 @@ if ($missingFolders.Count -gt 0 -and $files.Count -eq 0) {
     $listBox.SelectedIndex = 0
 }
 
-[System.Windows.Forms.Application]::Run($form)
+try {
+    [System.Windows.Forms.Application]::Run($form)
+} catch {
+    $msg = "[$([datetime]::Now)] doc-reader.ps1 fatal error:`r`n$_`r`n$($_.ScriptStackTrace)"
+    $msg | Out-File -FilePath (Join-Path $PSScriptRoot "error.log") -Append
+    [System.Windows.Forms.MessageBox]::Show(
+        "Fatal error:`n$_`n`nFull details written to devtools\error.log",
+        "PD Doc Reader — Error",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+}

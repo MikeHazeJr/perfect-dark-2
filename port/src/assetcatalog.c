@@ -430,6 +430,10 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->temporary = 0;
     entry->bundled = 0;
     entry->runtime_index = -1;
+    entry->load_state = ASSET_STATE_REGISTERED;
+    entry->loaded_data = NULL;
+    entry->data_size_bytes = 0;
+    entry->ref_count = 0;
     entry->occupied = 1;
 
     return entry;
@@ -735,6 +739,11 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
     if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
         s_EntryPool[pool_idx].occupied) {
         s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
+        /* Advance REGISTERED → ENABLED on first enable */
+        if (enabled &&
+            s_EntryPool[pool_idx].load_state == ASSET_STATE_REGISTERED) {
+            s_EntryPool[pool_idx].load_state = ASSET_STATE_ENABLED;
+        }
     }
 }
 
@@ -774,6 +783,52 @@ s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout
     }
 
     return count;
+}
+
+/* ========================================================================
+ * Public API: Load State (MEM-1)
+ * ======================================================================== */
+
+asset_load_state_t assetCatalogGetLoadState(const char *id)
+{
+    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
+        return ASSET_STATE_REGISTERED;
+    }
+
+    u32 id_hash = fnv1a(id);
+    s32 pool_idx = 0;
+    s32 slot = findSlot(id_hash, id, &pool_idx);
+
+    if (slot < 0 || pool_idx == SENTINEL) {
+        return ASSET_STATE_REGISTERED;  /* not found */
+    }
+
+    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
+        s_EntryPool[pool_idx].occupied) {
+        return s_EntryPool[pool_idx].load_state;
+    }
+
+    return ASSET_STATE_REGISTERED;
+}
+
+void assetCatalogSetLoadState(const char *id, asset_load_state_t state)
+{
+    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
+        return;
+    }
+
+    u32 id_hash = fnv1a(id);
+    s32 pool_idx = 0;
+    s32 slot = findSlot(id_hash, id, &pool_idx);
+
+    if (slot < 0 || pool_idx == SENTINEL) {
+        return;  /* not found */
+    }
+
+    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
+        s_EntryPool[pool_idx].occupied) {
+        s_EntryPool[pool_idx].load_state = state;
+    }
 }
 
 asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,

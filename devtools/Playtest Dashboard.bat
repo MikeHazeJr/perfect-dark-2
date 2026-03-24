@@ -1,3 +1,6 @@
 @echo off
-rem Launch the PD Playtest Dashboard without showing a CMD window.
-start "" /b powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0playtest-dashboard.ps1"
+rem Launch the PD Playtest Dashboard.
+rem The script hides its own console via ConsoleSuppressor::HideConsole().
+rem 'pause' keeps this window open so any startup errors are visible.
+powershell -ExecutionPolicy Bypass -File "%~dp0playtest-dashboard.ps1"
+pause
