@@ -235,6 +235,11 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 /* Update UI — from pdgui_menu_update.cpp */
 void pdguiUpdateRenderSettingsTab(void);
 
+/* Mod Manager UI — declared in pdgui_menu_modmgr.cpp */
+void pdguiModManagerShow(void);
+void pdguiModManagerHide(void);
+s32  pdguiModManagerIsVisible(void);
+
 /* Persistent memory diagnostics — from memp.c */
 void *mempPCAlloc(u32 size, const char *tag);
 s32 mempPCValidate(const char *context);
@@ -1462,6 +1467,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     const char *windowTitle = "Perfect Dark";
     if (s_MenuView == 1) windowTitle = "Play";
     else if (s_MenuView == 2) windowTitle = "Settings";
+    else if (s_MenuView == 3) windowTitle = "Mod Manager";
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -1484,6 +1490,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
+            if (s_MenuView == 3) {
+                pdguiModManagerHide();
+            }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         } else {
@@ -1532,6 +1541,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Change Agent link at bottom */
         if (PdButton("Change Agent...", ImVec2(buttonW, 28.0f * scale))) {
             menuPushDialog(&g_ChangeAgentMenuDialog);
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Mod Manager — browse and toggle mod components */
+        if (PdButton("Mod Manager...", ImVec2(buttonW, 28.0f * scale))) {
+            pdguiModManagerShow();
+            s_MenuView = 3;
         }
 
     } else if (s_MenuView == 1) {
@@ -1589,6 +1606,19 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * ================================================================ */
         float contentH = dialogH - pdTitleH - 40.0f * scale;
         renderSettingsView(scale, contentH);
+
+    } else if (s_MenuView == 3) {
+        /* ================================================================
+         * MOD MANAGER
+         * The Mod Manager is a standalone ImGui window rendered separately
+         * by pdguiModManagerRender() in pdgui_backend.cpp. This dialog stays
+         * "open" so hotswapQueued remains true and pdguiRender() keeps running.
+         * If the mod manager was closed externally (its Close button), return
+         * to top-level on the next frame.
+         * ================================================================ */
+        if (!pdguiModManagerIsVisible()) {
+            s_MenuView = 0;
+        }
     }
 
     /* Sound on view switches + auto-focus flag */

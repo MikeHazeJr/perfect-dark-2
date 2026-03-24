@@ -24,6 +24,10 @@
 #include "mod.h"
 #include "data.h"
 
+/* Forward declaration — defined in src/lib/main.c */
+extern void mainChangeToStage(s32 stagenum);
+#define MODMGR_STAGE_TITLE 0x5a  /* STAGE_TITLE */
+
 // ---------------------------------------------------------------------------
 // Globals
 // ---------------------------------------------------------------------------
@@ -835,11 +839,120 @@ s32 modmgrIsDirty(void)
 	return g_ModDirty;
 }
 
+// ---------------------------------------------------------------------------
+// Component-level enable state (D3R-6)
+// ---------------------------------------------------------------------------
+// State file: mods/.modstate — one disabled component ID per line.
+// Lines beginning with '#' are comments.  Blank lines are ignored.
+// Only non-bundled (mod) entries are ever written here; base game entries
+// are always enabled and are never listed.
+// ---------------------------------------------------------------------------
+
+// Iteration callback: writes disabled non-bundled entry IDs to a FILE*.
+typedef struct { FILE *f; s32 *count; } SaveStateCtx;
+
+static void saveStateCallback(const asset_entry_t *entry, void *userdata)
+{
+	SaveStateCtx *ctx = (SaveStateCtx *)userdata;
+	if (!entry->enabled && !entry->bundled) {
+		fprintf(ctx->f, "%s\n", entry->id);
+		(*ctx->count)++;
+	}
+}
+
+void modmgrSaveComponentState(void)
+{
+	const char *modsdir = modmgrGetModsDir();
+	if (!modsdir) {
+		sysLogPrintf(LOG_NOTE, "modmgr: no mods dir, skipping component state save");
+		return;
+	}
+
+	char statepath[FS_MAXPATH + 1];
+	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
+
+	FILE *f = fopen(statepath, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not write component state to %s", statepath);
+		return;
+	}
+
+	fprintf(f, "# mods/.modstate -- disabled component IDs\n");
+	fprintf(f, "# Written by Mod Manager. One ID per line. # = comment.\n");
+
+	s32 count = 0;
+	SaveStateCtx ctx = { f, &count };
+
+	// Iterate all user-manageable asset types (non-bundled entries only matter)
+	static const asset_type_e types[] = {
+		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
+		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
+	};
+	for (s32 i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
+		assetCatalogIterateByType(types[i], saveStateCallback, &ctx);
+	}
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "modmgr: saved component state (%d disabled)", count);
+}
+
+void modmgrLoadComponentState(void)
+{
+	const char *modsdir = modmgrGetModsDir();
+	if (!modsdir) {
+		return;
+	}
+
+	char statepath[FS_MAXPATH + 1];
+	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
+
+	FILE *f = fopen(statepath, "r");
+	if (!f) {
+		return;  /* no .modstate file = everything enabled, that's fine */
+	}
+
+	char line[CATALOG_ID_LEN + 4];
+	s32 count = 0;
+	while (fgets(line, sizeof(line), f)) {
+		/* Strip trailing newline/carriage-return */
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+			line[--len] = '\0';
+		}
+
+		/* Skip comments and blank lines */
+		if (line[0] == '#' || line[0] == '\0') {
+			continue;
+		}
+
+		assetCatalogSetEnabled(line, 0);
+		count++;
+	}
+
+	fclose(f);
+	if (count > 0) {
+		sysLogPrintf(LOG_NOTE, "modmgr: loaded component state (%d disabled from .modstate)", count);
+	}
+}
+
 void modmgrApplyChanges(void)
 {
+	sysLogPrintf(LOG_NOTE, "modmgr: applying changes...");
+
+	/* Persist catalog enable state to .modstate (read at next scan) */
+	modmgrSaveComponentState();
+
+	/* Persist legacy modinfo enables */
 	modmgrSaveConfig();
-	modmgrReload();
-	// TODO (D3e): trigger return to title screen
+
+	/* Invalidate catalog-backed caches so accessors pick up new state */
+	modmgrCatalogChanged();
+
+	/* Return to title screen — clean slate for the new mod configuration */
+	mainChangeToStage(MODMGR_STAGE_TITLE);
+
+	sysLogPrintf(LOG_NOTE, "modmgr: apply complete — returning to title");
 }
 
 // ---------------------------------------------------------------------------

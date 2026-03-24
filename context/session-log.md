@@ -5,6 +5,70 @@
 
 ---
 
+## Session 39 — 2026-03-23
+
+**Focus**: D3R-5 build test confirmed PASS → D3R-6 implementation (Mod Manager UI)
+
+### What Was Done
+
+1. **Context update**: Marked D3R-5 COMPLETE in tasks-current.md (build test passed before this session).
+
+2. **Asset Catalog write API** — new functions added to `assetcatalog.h` + `assetcatalog.c`:
+   - `assetCatalogSetEnabled(id, enabled)` — mutates `s_EntryPool[slot].enabled` directly (same `findSlot()` as resolve path, but writes)
+   - `assetCatalogGetUniqueCategories(out, maxout)` — iterates pool, deduplicates category strings, skips "base" and empty
+
+3. **Component state persistence** — `mods/.modstate` file (one disabled component ID per line, `#` = comment):
+   - `modmgrSaveComponentState()` — iterates all non-bundled entries, writes disabled IDs to file
+   - `modmgrLoadComponentState()` — reads file, calls `assetCatalogSetEnabled(id, 0)` for each line
+   - Added to `modmgr.h` and implemented in `modmgr.c`
+   - `modmgrApplyChanges()` now: saves component state → saves config → calls `modmgrCatalogChanged()` → `mainChangeToStage(STAGE_TITLE)` (removed old `modmgrReload()` call)
+   - `main.c`: `modmgrLoadComponentState()` called after `assetCatalogScanComponents()` so entries exist before state is applied
+
+4. **`pdgui_menu_modmgr.cpp`** — new file (~530 lines), full Mod Manager UI:
+   - Snapshot-based: `s_Entries[512]` populated at open time from catalog (no live writes during browsing)
+   - Two tabs: **By Category** (collapsible per-type sections, tri-state group checkboxes) and **By Mod** (collapsible per-category groups, sub-grouped by type)
+   - Base game assets in a collapsible "Base Game Assets" section (collapsed by default)
+   - Details panel: reads live `.ini` for name/author/version/description/depends_on
+   - Full validation: `stat()` on dirpath, `stat()` on `{dirpath}/{type}.ini`, `iniParse()` + `depends_on` resolution per entry
+   - Apply Changes: commits changed entries via `assetCatalogSetEnabled()`, calls `modmgrApplyChanges()` → returns to title
+   - Public API: `pdguiModManagerShow()`, `pdguiModManagerHide()`, `pdguiModManagerIsVisible()`, `pdguiModManagerRender(winW, winH)`
+
+5. **`pdgui_menu_mainmenu.cpp`** — Mod Manager entry point:
+   - Added `pdguiModManagerShow/Hide/IsVisible` forward declarations inside extern "C"
+   - Added "Mod Manager..." button at bottom of top-level view (after "Change Agent...")
+   - `s_MenuView = 3` when Mod Manager opens
+   - Title shows "Mod Manager" for view 3
+   - B/Escape in view 3 calls `pdguiModManagerHide()` then returns to view 0
+   - View 3 branch: checks `pdguiModManagerIsVisible()` and auto-returns to view 0 if dismissed
+
+6. **`pdgui_backend.cpp`** — render loop integration:
+   - Added `pdguiModManagerRender/IsVisible` extern "C" forward declarations
+   - `pdguiModManagerRender()` called after `pdguiHotswapRenderQueued()` in `pdguiRender()`
+   - `modmgrActive` flag added to both `pdguiNewFrame()` and `pdguiRender()` early-exit guards
+
+### Files Modified/Created
+- `port/include/assetcatalog.h` — `assetCatalogSetEnabled()`, `assetCatalogGetUniqueCategories()` declarations
+- `port/src/assetcatalog.c` — both implementations appended
+- `port/include/modmgr.h` — `modmgrSaveComponentState()`, `modmgrLoadComponentState()` declarations
+- `port/src/modmgr.c` — `.modstate` read/write implementations, `modmgrApplyChanges()` rewrite
+- `port/src/main.c` — `modmgrLoadComponentState()` call after scan
+- `port/fast3d/pdgui_menu_modmgr.cpp` — **NEW FILE** (~530 lines)
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — Mod Manager button + view 3 + B/Escape handling
+- `port/fast3d/pdgui_backend.cpp` — `pdguiModManagerRender()` integration + early-exit guards
+
+### Design Decisions
+- **Snapshot pattern**: Local `s_Entries[]` copied at open time. User changes modify snapshot only. Apply commits to catalog. Prevents partial-apply bugs.
+- **`.modstate` not `.ini`**: Component enable state goes in a separate file, not inside the component's own `.ini` (which belongs to the mod author). Avoids modifying mod files.
+- **Standalone window**: Mod Manager renders as its own `ImGui::Begin` window alongside the main menu dialog (which stays "open" with view 3 to keep `hotswapQueued = true`).
+- **`modmgrApplyChanges()` simplified**: Removed `modmgrReload()` (old shadow array path). Now just saves state, invalidates caches, and returns to title. Cleaner — title screen re-init does a full catalog re-read via `modmgrCatalogChanged()`.
+
+### Next Steps
+- **Build test** all 8 files (3 modified existing, 1 new .cpp, 3 .c/.h, 1 main.c)
+- **D3R-6 COMPLETE** pending build pass
+- **D3R-7**: INI Manager tool + Model Correction Tool
+
+---
+
 ## Session 38 — 2026-03-23
 
 **Focus**: D3R-5 Tier 1 — Arena accessor rewire (catalog as single source of truth)

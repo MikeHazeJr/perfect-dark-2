@@ -40,6 +40,10 @@ extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
 extern "C" void pdguiUpdateRender(void);
 extern "C" s32  pdguiUpdateIsActive(void);
 
+/* D3R-6: Mod Manager standalone window — declared in pdgui_menu_modmgr.cpp */
+extern "C" void pdguiModManagerRender(s32 winW, s32 winH);
+extern "C" s32  pdguiModManagerIsVisible(void);
+
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
 
@@ -172,11 +176,12 @@ void pdguiNewFrame(void)
 {
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
+    bool modmgrActive = (pdguiModManagerIsVisible() != 0);
 
     if (!g_PdguiInitialized ||
         (!g_PdguiActive && !pdguiStoryboardIsActive() &&
          !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
-         !networkActive && !pauseActive)) {
+         !networkActive && !pauseActive && !modmgrActive)) {
         return;
     }
 
@@ -194,11 +199,12 @@ void pdguiRender(void)
     bool networkActive = (netGetMode() != 0);
     bool updateActive = (pdguiUpdateIsActive() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
+    bool modmgrActive = (pdguiModManagerIsVisible() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
         (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
-         !networkActive && !updateActive && !pauseActive)) {
+         !networkActive && !updateActive && !pauseActive && !modmgrActive)) {
         return;
     }
 
@@ -232,6 +238,9 @@ void pdguiRender(void)
      * the lobby sidebar active), the flag stays stale from the last menu
      * frame and pdguiIsActive/pdguiWantsInput block all game input. */
     pdguiHotswapRenderQueued((s32)winW, (s32)winH);
+
+    /* D3R-6: Mod Manager standalone window — renders when opened from main menu */
+    pdguiModManagerRender((s32)winW, (s32)winH);
 
     /* F8 hot-swap status badge (always visible when menus have replacements) */
     pdguiHotswapRenderBadge((s32)winW, (s32)winH);

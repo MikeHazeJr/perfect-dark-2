@@ -703,3 +703,65 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
 
     return count;
 }
+
+/* ========================================================================
+ * Public API: Write (D3R-6)
+ * ======================================================================== */
+
+void assetCatalogSetEnabled(const char *id, s32 enabled)
+{
+    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
+        return;
+    }
+
+    u32 id_hash = fnv1a(id);
+    s32 pool_idx = 0;
+    s32 slot = findSlot(id_hash, id, &pool_idx);
+
+    if (slot < 0 || pool_idx == SENTINEL) {
+        return;  /* not found */
+    }
+
+    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
+        s_EntryPool[pool_idx].occupied) {
+        s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
+    }
+}
+
+s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout)
+{
+    if (out == NULL || maxout <= 0 || s_EntryPool == NULL) {
+        return 0;
+    }
+
+    s32 count = 0;
+    for (s32 i = 0; i < s_EntryPoolSize; i++) {
+        if (!s_EntryPool[i].occupied) {
+            continue;
+        }
+
+        const char *cat = s_EntryPool[i].category;
+
+        /* Skip base category and empty — not user-manageable */
+        if (cat[0] == '\0' || strcmp(cat, "base") == 0) {
+            continue;
+        }
+
+        /* Skip if already in output list */
+        s32 found = 0;
+        for (s32 j = 0; j < count; j++) {
+            if (strcmp(out[j], cat) == 0) {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found && count < maxout) {
+            strncpy(out[count], cat, CATALOG_CATEGORY_LEN - 1);
+            out[count][CATALOG_CATEGORY_LEN - 1] = '\0';
+            count++;
+        }
+    }
+
+    return count;
+}
