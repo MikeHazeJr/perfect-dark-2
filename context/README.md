@@ -83,7 +83,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 ## Key Facts
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
-- **Build**: CMake + MSYS2/MinGW on Windows. AI cannot compile.
+- **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
 - **Net**: Protocol v19, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=24 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
