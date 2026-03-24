@@ -52,7 +52,10 @@ extern MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem
 
 char *menuTextCurrentStageName(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s\n", langGet(g_SoloStages[g_MissionConfig.stageindex].name3));
+	// PC: guard — stageindex may be out of solo range for mod stages
+	char *name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
+		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
+	sprintf(g_StringPointer, "%s\n", name);
 	return g_StringPointer;
 }
 
@@ -791,9 +794,10 @@ char *soloMenuTitleStageOverview(struct menudialogdef *dialogdef)
 		return langGet(L_OPTIONS_273); // "Overview"
 	}
 
-	sprintf(g_StringPointer, "%s: %s\n",
-			langGet(g_SoloStages[g_MissionConfig.stageindex].name3),
-			langGet(L_OPTIONS_273));
+	// PC: guard — stageindex may be out of solo range for mod stages
+	char *sname = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
+		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
+	sprintf(g_StringPointer, "%s: %s\n", sname, langGet(L_OPTIONS_273));
 
 	return g_StringPointer;
 }
@@ -990,6 +994,11 @@ bool isStageDifficultyUnlocked(s32 stageindex, s32 difficulty)
 {
 	s32 s;
 	s32 d;
+
+	// PC: guard — mod stages have no solo stage index; treat as unlocked to avoid OOB
+	if (stageindex < 0 || stageindex >= NUM_SOLOSTAGES) {
+		return true;
+	}
 
 	// Handle special missions
 	if (stageindex > SOLOSTAGEINDEX_SKEDARRUINS) {
@@ -4502,9 +4511,10 @@ char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 		return langGet(L_OPTIONS_172); // "Status"
 	}
 
-	sprintf(g_StringPointer, "%s: %s\n",
-			langGet(g_SoloStages[g_MissionConfig.stageindex].name3),
-			langGet(L_OPTIONS_172));
+	// PC: guard — stageindex may be out of solo range for mod stages
+	char *sname2 = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
+		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
+	sprintf(g_StringPointer, "%s: %s\n", sname2, langGet(L_OPTIONS_172));
 
 	return g_StringPointer;
 }

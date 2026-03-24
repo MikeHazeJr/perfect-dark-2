@@ -396,7 +396,7 @@ static const struct {
  * Implementation
  * ======================================================================== */
 
-extern struct stagetableentry g_Stages[];
+/* g_Stages / g_NumStages declared in data.h (included above) */
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 extern struct mparena g_MpArenas[];
@@ -409,7 +409,7 @@ s32 assetCatalogRegisterBaseGame(void)
 	/* ---- Register stages ---- */
 	for (s32 i = 0; i < (s32)NUM_BASE_STAGES; i++) {
 		const s32 idx = s_BaseStages[i].index;
-		if (idx < 0 || idx >= 87) {
+		if (idx < 0 || idx >= g_NumStages) {
 			continue;
 		}
 
@@ -430,6 +430,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->bundled = 1;
 		e->enabled = 1;
 		e->runtime_index = idx;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
 		count++;
 	}
 
@@ -468,6 +470,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->enabled = 1;
 		e->runtime_index = idx;
 		e->model_scale = 1.0f;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
 		body_count++;
 	}
 
@@ -503,6 +507,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->enabled = 1;
 		e->runtime_index = idx;
 		e->model_scale = 1.0f;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
 		head_count++;
 	}
 
@@ -557,6 +563,8 @@ s32 assetCatalogRegisterBaseGame(void)
 			e->bundled = 1;
 			e->enabled = 1;
 			e->runtime_index = idx;
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
 			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\"",
 				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
 				s_ArenaGroupMap[g].category);

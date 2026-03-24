@@ -6,6 +6,16 @@
 
 ---
 
+## Memory Modernization Track (Phase D-MEM)
+
+| Task | Status |
+|------|--------|
+| **MEM-1**: Add `asset_load_state_t` + 4 fields to `asset_entry_t` | **CODED S47a** — needs `build-headless.ps1` test |
+| **MEM-2**: `assetCatalogLoad()` / `assetCatalogUnload()` — allocate/free `loaded_data` | PENDING |
+| **MEM-3**: `ref_count` acquire/release + eviction policy | PENDING |
+
+---
+
 ## Build Test Results (S26)
 
 **Passed:**
@@ -68,8 +78,8 @@
 | 2 | **B-13 Part 2: g_ModNum interim fix** | D3R-5 build test | Ensure `g_ModNum` is set during catalog-based stage loading so GEX scale compensation works. Stopgap until Model Correction Tool (D3R-7) fixes model baselines. |
 | 3 | **B-12 Phase 3: Remove chrslots** | Phase 2 complete | Delete u32 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v20. |
 | 4 | **Pause Menu Fixes** | — | B-14 START double-fire, B-16 back button, End Game overlay, Settings back-out, suppress OG Paused text. |
-| 5 | **Stage Decoupling Phase 2** — Dynamic stage table | Phase 1 verified | Heap-allocated `g_Stages`, `g_NumStages` counter. See [S23 session log](session-log.md). |
-| 6 | **Stage Decoupling Phase 3** — Index domain separation | Phase 2 | `soloStageGetIndex()` lookup, stagenum-keyed besttimes. |
+| 5 | ~~**Stage Decoupling Phase 2**~~ — Dynamic stage table | ✓ **DONE (S47c)** | Heap-allocated `g_Stages`, `g_NumStages`, accessor functions, `stageTableInit()`. Build pass. |
+| 6 | ~~**Stage Decoupling Phase 3**~~ — Index domain separation | ✓ **DONE (S47c)** | `soloStageGetIndex()`, bounds guards in `endscreen.c` + `mainmenu.c`. Build pass. |
 | 7 | **Starting Weapon Option** | Match setup UI | Toggle + weapon picker / random pool. New match setup field. |
 | 8 | **Spawn Scatter** | — | Distribute across map pads, face away from nearest wall. |
 | 9 | **Bot Customizer** | Build stable | Advanced options popup in match settings. Save as new bot type. Save/load match settings. |

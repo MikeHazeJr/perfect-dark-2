@@ -5,6 +5,98 @@
 
 ---
 
+## Session 47c — 2026-03-24
+
+**Focus**: Stage Decoupling Phase 2 (Dynamic stage table) + Phase 3 (Index domain separation)
+
+### What Was Done
+
+**Phase 2 — Dynamic stage table** (7 files):
+
+1. **`src/game/stagetable.c`** — Renamed static array to `s_StagesInit[]`, added heap pointer `g_Stages` + `g_NumStages`. `stageTableInit()` mallocs+memcpys. `stageGetEntry(index)` bounds-checked accessor. `stageTableAppend(entry)` realloc-based. Both `stageGetCurrent()` and `stageGetIndex()` rewritten to use `g_NumStages`. `soloStageGetIndex(stagenum)` iterates `g_SoloStages[0..NUM_SOLOSTAGES-1]`.
+2. **`src/include/data.h`** — `extern struct stagetableentry *g_Stages` + `extern s32 g_NumStages` (was array).
+3. **`src/include/game/stagetable.h`** — Full declaration set for all Phase 2 + 3 functions.
+4. **`src/game/bg.c`** — `ARRAYCOUNT(g_Stages)` replaced with `g_NumStages` (2 occurrences).
+5. **`port/src/assetcatalog_base.c`** — Removed local `extern struct stagetableentry g_Stages[]` (conflicted with pointer decl). Bounds check `idx >= 87` → `idx >= g_NumStages`.
+6. **`port/src/main.c`** — Added `stageTableInit()` call before `assetCatalogRegisterBaseGame()`.
+
+**Phase 3 — Index domain guards** (2 files):
+
+7. **`src/game/endscreen.c`** — 9 guard sites: `endscreenMenuTitleRetryMission`, `endscreenMenuTitleNextMission`, `endscreenMenuTitleStageCompleted`, `endscreenMenuTextCurrentStageName3`, `endscreenMenuTitleStageFailed`, `endscreenHandleReplayPreviousMission` (underflow), `endscreenAdvance()` (overflow), `endscreenHandleReplayLastLevel`, `endscreenContinue` DEEPSEA (2 paths, both guarded).
+8. **`src/game/mainmenu.c`** — 4 guard sites: `menuTextCurrentStageName`, `soloMenuTitleStageOverview`, `soloMenuTitlePauseStatus`, `isStageDifficultyUnlocked` (top guard returns true for out-of-range — mod stages treated as unlocked).
+
+**Bonus fix**: Restored `src/game/mplayer/setup.c` and `src/game/setup.c` from commit `4704eab` after auto-commit `0a36981` corrupted them (all tabs replaced with literal `\t`). Pre-existing bug revealed by full rebuild.
+
+### Decisions Made
+
+- `soloStageGetIndex()` lives in `stagetable.c` (iterates `g_SoloStages[]`). It is the Phase 3 domain translation function.
+- `isStageDifficultyUnlocked(stageindex < 0 || >= NUM_SOLOSTAGES)` returns `true` — mod stages are "unlocked" by definition (no solo-stage-based unlock system applies to them).
+- `ARRAYCOUNT(g_Stages)` was eliminated. Any future code must use `g_NumStages`.
+
+### Dev Build Status
+
+**PASS** — `build-headless.ps1 -Target client` clean (exit 0). All modified files compiled without errors. Warnings in bg.c are pre-existing.
+
+### Next Steps
+
+- MEM-2: `assetCatalogLoad()` / `assetCatalogUnload()`
+- MEM-1 build test: full cmake pass confirms `assetcatalog.h` struct changes are stable
+- S46b: Full asset catalog enumeration (animations, SFX, textures)
+
+---
+
+## Session 47a — 2026-03-24
+
+**Focus**: MEM-1 — Asset Catalog load state tracking fields
+
+### What Was Done
+
+Added lifecycle state tracking to `asset_entry_t` as the foundation for Phase D-MEM
+memory management. This is purely additive — no existing behavior changes.
+
+**Files changed (4 files):**
+
+1. **`port/include/assetcatalog.h`** — Added `asset_load_state_t` enum
+   (`REGISTERED`/`ENABLED`/`LOADED`/`ACTIVE`). Added `#define ASSET_REF_BUNDLED 0x7FFFFFFF`.
+   Added 4 fields to `asset_entry_t`: `load_state`, `loaded_data`, `data_size_bytes`,
+   `ref_count`. Added `assetCatalogGetLoadState()` and `assetCatalogSetLoadState()`
+   declarations in new "Load State API (MEM-1)" section.
+
+2. **`port/src/assetcatalog.c`** — `assetCatalogRegister()` initializes new fields:
+   `ASSET_STATE_REGISTERED`, `loaded_data=NULL`, `data_size_bytes=0`, `ref_count=0`.
+   `assetCatalogSetEnabled()` now advances `REGISTERED→ENABLED` on first enable.
+   Added `assetCatalogGetLoadState()` and `assetCatalogSetLoadState()` implementations.
+
+3. **`port/src/assetcatalog_base.c`** — All 4 bundled registration sites (stages, bodies,
+   heads, arenas) now set `load_state=ASSET_STATE_LOADED` and `ref_count=ASSET_REF_BUNDLED`.
+
+4. **`port/src/assetcatalog_base_extended.c`** — All 7 bundled registration sites (weapons,
+   animations, textures, props, gamemodes, audio, HUD) now set `ASSET_STATE_LOADED` and
+   `ref_count=ASSET_REF_BUNDLED`.
+
+### Decisions Made
+
+- `ASSET_REF_BUNDLED = 0x7FFFFFFF` (S32_MAX) as documented in MEM-1 spec.
+- `REGISTERED→ENABLED` transition happens in `setEnabled(id, 1)`. If load_state is already
+  LOADED or ACTIVE (bundled assets), setEnabled does not downgrade state.
+- `assetCatalogSetLoadState()` is a raw setter — callers own the validity of transitions.
+  Future eviction logic will use `ref_count` to guard bundled assets.
+- `loaded_data` / `data_size_bytes` fields left at NULL/0 for all existing entries —
+  wired for the future loader, not populated yet.
+
+### Dev Build Status
+
+- Syntax-check (MinGW gcc -fsyntax-only): **PASS** on all 3 modified .c files
+- Full cmake build: needs Mike's `build-headless.ps1` run (cmake env not available in session)
+
+### Next Steps
+
+- MEM-2: Implement `assetCatalogLoad()` / `assetCatalogUnload()` (allocate/free loaded_data)
+- MEM-3: ref_count acquire/release + eviction policy (skip if `ref_count == ASSET_REF_BUNDLED`)
+- Wire load state into mod manager UI (show loaded/active indicators)
+
+---
+
 ## Session 46 — 2026-03-24
 
 **Focus**: Catalog expansion — 7 new asset types + wrappers + base game entries

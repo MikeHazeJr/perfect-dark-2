@@ -26,6 +26,7 @@
 #include "savemigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "game/stagetable.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -174,9 +175,13 @@ int main(int argc, const char **argv)
 	// Actual model validation is deferred to catalogValidateAll() after heap init.
 	catalogInit();
 
+	// Phase 2: Initialise heap-allocated stage table (copied from static initialiser).
+	// Must run before assetCatalogRegisterBaseGame() which reads g_Stages[].
+	stageTableInit();
+
 	// D3R: Asset Catalog — string-keyed resolution for all game assets.
 	// 1. Allocate hash table and entry pool
-	// 2. Register base game assets (87 stages, 63 bodies, 75 heads) with "base:" IDs
+	// 2. Register base game assets (stages, bodies, heads) with "base:" IDs
 	// 3. Scan mod _components/ directories and register INI-described assets
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
