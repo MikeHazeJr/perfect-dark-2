@@ -36,7 +36,6 @@
 #include "mpsetups.h"
 
 #include "system.h"
-#include "mod.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -273,7 +272,7 @@ void mpStartMatch(void)
 		stagenum = mpChooseRandomGexStage();
 	}
 
-	// Mod Switch (MP Start)
+	// Set textures surfacetype based on stagenum (Resets when multiplayer ends)
 	switch (stagenum) {
 	case STAGE_TEST_SILO:
 	case STAGE_TEST_LAM:
@@ -303,32 +302,6 @@ void mpStartMatch(void)
 	case STAGE_EXTRA17:
 	case STAGE_EXTRA24:
 	case STAGE_EXTRA25:
-		g_ModNum = MOD_GEX;
-		break;
-	case STAGE_24:
-	case STAGE_EXTRA18:
-	case STAGE_EXTRA19:
-	case STAGE_EXTRA26:
-		g_ModNum = MOD_KAKARIKO;
-		break;
-	case STAGE_TEST_MP7:
-		g_ModNum = MOD_DARKNOON;
-		break;
-	case STAGE_EXTRA20:
-	case STAGE_EXTRA21:
-	case STAGE_EXTRA22:
-	case STAGE_EXTRA23:
-		g_ModNum = MOD_GOLDFINGER_64;
-		break;
-	default:
-		g_ModNum = MOD_NORMAL;
-		break;
-	}
-
-	sysLogPrintf(LOG_NOTE, "stagenum: %02x, g_ModNum: %d", stagenum, g_ModNum);
-	modConfigLoad(MOD_CONFIG_FNAME);
-	// Set textures surfacetype (Resets when multiplayer ends)
-	if (g_ModNum == MOD_GEX) {
 		g_Textures[0x073c].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x073d].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x073e].soundsurfacetype = SURFACETYPE_METAL;
@@ -354,7 +327,11 @@ void mpStartMatch(void)
 		g_Textures[0x06fc].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x065a].surfacetype = SURFACETYPE_METAL;
 		g_Textures[0x065a].soundsurfacetype = SURFACETYPE_METAL;
-	} else if (g_ModNum == MOD_KAKARIKO) {
+		break;
+	case STAGE_24:
+	case STAGE_EXTRA18:
+	case STAGE_EXTRA19:
+	case STAGE_EXTRA26:
 		g_Textures[0x0c31].soundsurfacetype = SURFACETYPE_DIRT;
 		g_Textures[0x0c3b].soundsurfacetype = SURFACETYPE_MUD;
 		g_Textures[0x0c3c].soundsurfacetype = SURFACETYPE_MUD;
@@ -500,13 +477,20 @@ void mpStartMatch(void)
 		g_Textures[0x0065].surfacetype = SURFACETYPE_WOOD;
 		g_Textures[0x0067].surfacetype = SURFACETYPE_WOOD;
 		g_Textures[0x0068].surfacetype = SURFACETYPE_WOOD;
-	} else if (g_ModNum == MOD_GOLDFINGER_64) {
+		break;
+	case STAGE_EXTRA20:
+	case STAGE_EXTRA21:
+	case STAGE_EXTRA22:
+	case STAGE_EXTRA23:
 		g_Textures[0x0281].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x0281].soundsurfacetype = SURFACETYPE_DEFAULT;
+		break;
+	default:
+		break;
 	}
 
-	sysLogPrintf(LOG_NOTE, "STAGE: mpStartMatch: menu_stage=0x%02x, resolved_stage=0x%02x, g_ModNum=%d, numplayers=%d",
-		g_MpSetup.stagenum, stagenum, g_ModNum, numplayers);
+	sysLogPrintf(LOG_NOTE, "STAGE: mpStartMatch: menu_stage=0x%02x, resolved_stage=0x%02x, numplayers=%d",
+		g_MpSetup.stagenum, stagenum, numplayers);
 
 	/* B-12 Phase 1: Sync participant pool from chrslots (parallel system) */
 	mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);

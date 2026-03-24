@@ -30,7 +30,6 @@ static char exeDir[FS_MAXPATH + 1];  // replaces $E
 // Per-mod directories removed — modmgr now handles dynamic mod resolution
 // via modmgrResolvePath() which iterates enabled mods in load order.
 
-s32 g_ModNum = 0;
 
 static s32 fsPathIsWritable(const char *path)
 {

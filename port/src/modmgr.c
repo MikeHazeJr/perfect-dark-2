@@ -21,7 +21,6 @@
 #include "fs.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
-#include "mod.h"
 #include "data.h"
 
 /* Forward declaration — defined in src/lib/main.c */
@@ -47,20 +46,6 @@ static char g_ModPathBuf[FS_MAXPATH + 1];
 
 // Resolved mods directory path (set by modmgrScanDirectory)
 static char g_ModsDirPath[FS_MAXPATH + 1] = "";
-
-// ---------------------------------------------------------------------------
-// Shadow arrays for mod-added assets (D3b)
-// ---------------------------------------------------------------------------
-// These extend the base game arrays. Accessor functions handle the split.
-
-static struct mpbody  g_ModBodies[MODMGR_MAX_MOD_BODIES];
-static s32            g_ModBodyCount = 0;
-
-static struct mphead  g_ModHeads[MODMGR_MAX_MOD_HEADS];
-static s32            g_ModHeadCount = 0;
-
-static struct mparena g_ModArenas[MODMGR_MAX_MOD_ARENAS];
-static s32            g_ModArenaCount = 0;
 
 // ---------------------------------------------------------------------------
 // Catalog-backed accessor caches (D3R-5 rewire)
@@ -105,7 +90,6 @@ static const char *g_BundledModIds[] = {
 
 static void modmgrScanDirectory(void);
 static bool modmgrParseModJson(modinfo_t *mod);
-static void modmgrCreateLegacyManifest(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static bool modmgrIsBundled(const char *id);
@@ -399,46 +383,6 @@ static bool modmgrParseModJson(modinfo_t *mod)
 }
 
 // ---------------------------------------------------------------------------
-// Legacy manifest generation (for mods with modconfig.txt but no mod.json)
-// ---------------------------------------------------------------------------
-
-static void modmgrCreateLegacyManifest(modinfo_t *mod)
-{
-	// Derive ID from directory name, stripping "mod_" prefix if present
-	const char *dirname = strrchr(mod->dirpath, '/');
-	if (!dirname) dirname = strrchr(mod->dirpath, '\\');
-	if (dirname) dirname++;
-	else dirname = mod->dirpath;
-
-	if (strncmp(dirname, "mod_", 4) == 0) {
-		dirname += 4;
-	}
-
-	strncpy(mod->id, dirname, MODMGR_ID_LEN - 1);
-	mod->id[MODMGR_ID_LEN - 1] = '\0';
-
-	// Clean up: replace hyphens/spaces with underscores for ID
-	for (char *c = mod->id; *c; c++) {
-		if (*c == '-' || *c == ' ') *c = '_';
-		else *c = tolower((unsigned char)*c);
-	}
-
-	// Prettify name from ID
-	strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
-	mod->name[MODMGR_NAME_LEN - 1] = '\0';
-	mod->name[0] = toupper((unsigned char)mod->name[0]);
-
-	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN - 1);
-	mod->version[MODMGR_VERSION_LEN - 1] = '\0';
-	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN - 1);
-	mod->author[MODMGR_AUTHOR_LEN - 1] = '\0';
-	mod->description[0] = '\0';
-	mod->has_modjson = false;
-
-	sysLogPrintf(LOG_NOTE, "modmgr: legacy mod '%s' at %s (no mod.json, using modconfig.txt)", mod->id, mod->dirpath);
-}
-
-// ---------------------------------------------------------------------------
 // Bundled mod detection
 // ---------------------------------------------------------------------------
 
@@ -522,23 +466,17 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
-		// Check if it has mod.json or modconfig.txt
+		// Check if it has mod.json
 		char checkpath[FS_MAXPATH + 1];
 		bool has_modjson = false;
-		bool has_modconfig = false;
 
 		snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
 		if (fsFileSize(checkpath) > 0) {
 			has_modjson = true;
 		}
 
-		snprintf(checkpath, sizeof(checkpath), "%s/" MOD_CONFIG_FNAME, fullpath);
-		if (fsFileSize(checkpath) > 0) {
-			has_modconfig = true;
-		}
-
-		if (!has_modjson && !has_modconfig) {
-			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json or modconfig.txt)", ent->d_name);
+		if (!has_modjson) {
+			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json)", ent->d_name);
 			continue;
 		}
 
@@ -547,19 +485,10 @@ static void modmgrScanDirectory(void)
 		memset(mod, 0, sizeof(modinfo_t));
 		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
 		mod->dirpath[FS_MAXPATH - 1] = '\0';
-		mod->has_modconfig = has_modconfig;
 
-		if (has_modjson) {
-			if (!modmgrParseModJson(mod)) {
-				// mod.json parse failed, try legacy
-				if (has_modconfig) {
-					modmgrCreateLegacyManifest(mod);
-				} else {
-					continue; // skip this mod entirely
-				}
-			}
-		} else {
-			modmgrCreateLegacyManifest(mod);
+		if (!modmgrParseModJson(mod)) {
+			sysLogPrintf(LOG_WARNING, "modmgr: skipping '%s' (mod.json parse failed)", ent->d_name);
+			continue;
 		}
 
 		// Detect bundled status
@@ -673,15 +602,8 @@ static void modmgrLoadMod(modinfo_t *mod)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
-	// Load modconfig.txt if present (stage configs, allocations, music, weather)
-	if (mod->has_modconfig) {
-		char configpath[FS_MAXPATH + 1];
-		snprintf(configpath, sizeof(configpath), "%s/" MOD_CONFIG_FNAME, mod->dirpath);
-		modConfigLoad(configpath);
-	}
-
 	// TODO (D3b): Parse mod.json content sections for bodies, heads, arenas
-	// and register into shadow arrays
+	// and register into catalog
 
 	mod->loaded = true;
 }
@@ -691,14 +613,6 @@ static void modmgrUnloadAllMods(void)
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		g_ModRegistry[i].loaded = false;
 	}
-
-	// Clear mod shadow arrays
-	memset(g_ModBodies, 0, sizeof(g_ModBodies));
-	g_ModBodyCount = 0;
-	memset(g_ModHeads, 0, sizeof(g_ModHeads));
-	g_ModHeadCount = 0;
-	memset(g_ModArenas, 0, sizeof(g_ModArenas));
-	g_ModArenaCount = 0;
 
 	// TODO (D3e): Restore pristine base stage table
 }
@@ -1139,16 +1053,6 @@ static void modmgrRebuildBodyCache(void)
 	s_CatalogBodyCount = 0;
 
 	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, NULL);
-
-	// Bridge: legacy shadow bodies
-	for (s32 i = 0; i < g_ModBodyCount; i++) {
-		s32 idx = MODMGR_BASE_BODIES + i;
-		if (idx >= MODMGR_MAX_CATALOG_BODIES) break;
-		s_CatalogBodies[idx] = g_ModBodies[i];
-		if (idx + 1 > s_CatalogBodyCount) {
-			s_CatalogBodyCount = idx + 1;
-		}
-	}
 }
 
 // ---- Head collect callback + rebuild ----
@@ -1179,16 +1083,6 @@ static void modmgrRebuildHeadCache(void)
 	s_CatalogHeadCount = 0;
 
 	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, NULL);
-
-	// Bridge: legacy shadow heads
-	for (s32 i = 0; i < g_ModHeadCount; i++) {
-		s32 idx = MODMGR_BASE_HEADS + i;
-		if (idx >= MODMGR_MAX_CATALOG_HEADS) break;
-		s_CatalogHeads[idx] = g_ModHeads[i];
-		if (idx + 1 > s_CatalogHeadCount) {
-			s_CatalogHeadCount = idx + 1;
-		}
-	}
 }
 
 // ---- Arena collect callback + rebuild ----
@@ -1220,16 +1114,6 @@ static void modmgrRebuildArenaCache(void)
 	s_CatalogArenaCount = 0;
 
 	assetCatalogIterateByType(ASSET_ARENA, modmgrArenaCollectCb, NULL);
-
-	// Bridge: legacy shadow arenas
-	for (s32 i = 0; i < g_ModArenaCount; i++) {
-		s32 idx = MODMGR_BASE_ARENAS + i;
-		if (idx >= MODMGR_MAX_CATALOG_ARENAS) break;
-		s_CatalogArenas[idx] = g_ModArenas[i];
-		if (idx + 1 > s_CatalogArenaCount) {
-			s_CatalogArenaCount = idx + 1;
-		}
-	}
 }
 
 // ---- Unified rebuild ----
@@ -1242,9 +1126,8 @@ static void modmgrRebuildAllCaches(void)
 
 	s_CatalogCacheDirty = 0;
 
-	sysLogPrintf(LOG_NOTE, "modmgr: rebuilt catalog caches — bodies=%d heads=%d arenas=%d (legacy mod: %d/%d/%d)",
-		s_CatalogBodyCount, s_CatalogHeadCount, s_CatalogArenaCount,
-		g_ModBodyCount, g_ModHeadCount, g_ModArenaCount);
+	sysLogPrintf(LOG_NOTE, "modmgr: rebuilt catalog caches — bodies=%d heads=%d arenas=%d",
+		s_CatalogBodyCount, s_CatalogHeadCount, s_CatalogArenaCount);
 }
 
 // ---- Bodies (catalog-backed) ----
@@ -1252,30 +1135,15 @@ static void modmgrRebuildAllCaches(void)
 s32 modmgrGetTotalBodies(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogBodyCount > 0) return s_CatalogBodyCount;
-	return MODMGR_BASE_BODIES + g_ModBodyCount;
+	return s_CatalogBodyCount > 0 ? s_CatalogBodyCount : MODMGR_BASE_BODIES;
 }
 
 struct mpbody *modmgrGetBody(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogBodyCount > 0) {
-		if (index < 0) return &s_CatalogBodies[0];
-		if (index < s_CatalogBodyCount) return &s_CatalogBodies[index];
-		return &s_CatalogBodies[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_BODIES;
-	if (index < 0) return &g_MpBodies[0];
-	if (index < basecount) return &g_MpBodies[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModBodyCount) return &g_ModBodies[modidx];
-	return &g_MpBodies[0];
-}
-
-s32 modmgrGetModBodyCount(void)
-{
-	return g_ModBodyCount;
+	if (index < 0) return &s_CatalogBodies[0];
+	if (index < s_CatalogBodyCount) return &s_CatalogBodies[index];
+	return &s_CatalogBodies[0];
 }
 
 // ---- Heads (catalog-backed) ----
@@ -1283,30 +1151,15 @@ s32 modmgrGetModBodyCount(void)
 s32 modmgrGetTotalHeads(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogHeadCount > 0) return s_CatalogHeadCount;
-	return MODMGR_BASE_HEADS + g_ModHeadCount;
+	return s_CatalogHeadCount > 0 ? s_CatalogHeadCount : MODMGR_BASE_HEADS;
 }
 
 struct mphead *modmgrGetHead(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogHeadCount > 0) {
-		if (index < 0) return &s_CatalogHeads[0];
-		if (index < s_CatalogHeadCount) return &s_CatalogHeads[index];
-		return &s_CatalogHeads[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_HEADS;
-	if (index < 0) return &g_MpHeads[0];
-	if (index < basecount) return &g_MpHeads[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModHeadCount) return &g_ModHeads[modidx];
-	return &g_MpHeads[0];
-}
-
-s32 modmgrGetModHeadCount(void)
-{
-	return g_ModHeadCount;
+	if (index < 0) return &s_CatalogHeads[0];
+	if (index < s_CatalogHeadCount) return &s_CatalogHeads[index];
+	return &s_CatalogHeads[0];
 }
 
 // ---- Arenas (catalog-backed) ----
@@ -1314,30 +1167,15 @@ s32 modmgrGetModHeadCount(void)
 s32 modmgrGetTotalArenas(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogArenaCount > 0) return s_CatalogArenaCount;
-	return MODMGR_BASE_ARENAS + g_ModArenaCount;
+	return s_CatalogArenaCount > 0 ? s_CatalogArenaCount : MODMGR_BASE_ARENAS;
 }
 
 struct mparena *modmgrGetArena(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogArenaCount > 0) {
-		if (index < 0) return &s_CatalogArenas[0];
-		if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
-		return &s_CatalogArenas[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_ARENAS;
-	if (index < 0) return &g_MpArenas[0];
-	if (index < basecount) return &g_MpArenas[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModArenaCount) return &g_ModArenas[modidx];
-	return &g_MpArenas[0];
-}
-
-s32 modmgrGetModArenaCount(void)
-{
-	return g_ModArenaCount;
+	if (index < 0) return &s_CatalogArenas[0];
+	if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
+	return &s_CatalogArenas[0];
 }
 
 // ---- Catalog change signal ----

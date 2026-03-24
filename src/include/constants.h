@@ -4038,13 +4038,6 @@
 #define STAGE_EXTRA25 0x5e // Paradox
 #define STAGE_EXTRA26 0x5f // War Colors
 
-// Mod Switch
-// 0: Normal, 1: GoldenEye X, 2: Kakariko, 3: Dark Noon, 4: Goldfinger 64
-#define MOD_NORMAL       0
-#define MOD_GEX          1
-#define MOD_KAKARIKO     2
-#define MOD_DARKNOON     3
-#define MOD_GOLDFINGER_64 4
 
 #define STAGE_TEST_RUN      0x23
 #define STAGE_24            0x24

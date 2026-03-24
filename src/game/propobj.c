@@ -2236,13 +2236,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		obj->model->obj = obj;
 		obj->model->unk01 = 0;
 
-		if (g_ModNum == MOD_GEX) {
-			modelSetScale(obj->model, g_GexModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		} else if (g_ModNum == MOD_GOLDFINGER_64) {
-			modelSetScale(obj->model, g_Goldfinger64ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		} else {
-			modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		}
+		modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
 
 		prop->type = PROPTYPE_OBJ;
 		prop->obj = obj;
