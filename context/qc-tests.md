@@ -3,6 +3,21 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## D3R-8 Bot Customizer (S43) — Awaiting Test
+
+| # | Test | Expected Result | Status | Notes |
+|---|------|----------------|--------|-------|
+| 1 | Match setup → select bot slot → edit bot | Bot edit popup opens | [ ] |  |
+| 2 | Bot edit popup has Advanced toggle | "Advanced" / "Simple" toggle button visible at bottom of popup | [ ] |  |
+| 3 | Toggle Advanced → expanded section appears | Shows: Load Preset combo, Base Type combo, Accuracy/Reaction/Aggression sliders | [ ] |  |
+| 4 | Adjust sliders (e.g. Accuracy 0.9) → Done | Slot shows updated bot config (visual feedback TBD) | [ ] |  |
+| 5 | "Save as Preset…" button → name popup | Small popup with text input for preset name | [ ] |  |
+| 6 | Type name → Save | No crash; log shows `botVariantSave: '{slug}' → '{path}'` | [ ] |  |
+| 7 | Check filesystem after save | `{modsdir}/bot_variants/{slug}/bot.ini` exists with correct fields | [ ] |  |
+| 8 | Preset appears immediately in Load Preset combo | New preset visible without restart (hot-register works) | [ ] |  |
+| 9 | Restart game → preset still in combo | Scanner picks up `mods/bot_variants/` at startup | [ ] |  |
+| 10 | Load Preset selects saved preset | Sliders update to saved accuracy/reaction/aggression values | [ ] |  |
+
 ## D3R-7 Build (S40) — Awaiting Test
 
 | # | Test | Expected Result | Status | Notes |
