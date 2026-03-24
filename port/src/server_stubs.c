@@ -242,6 +242,7 @@ s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
 const char *modmgrResolvePath(const char *path) { return path; }
 void modmgrInit(void) {}
+void modmgrCatalogChanged(void) {}
 
 /* assetcatalog_resolve stubs — fs.c and lv.c reference these */
 const char *assetCatalogResolvePath(const char *path) { (void)path; return NULL; }

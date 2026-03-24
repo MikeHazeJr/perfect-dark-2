@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-23, Session 37 (Felicity wrong-map investigation: diagnostic logging added to fsFullPath, modConfigLoad, bgReset; all legacy mods removed; awaiting build test to identify resolution layer)
+> **Last updated**: 2026-03-23, Session 38 (D3R-5 arena accessor rewire: modmgrGetArena/TotalArenas now catalog-backed via cache array. Bodies/heads next — need ext.body/ext.head schema extension)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)

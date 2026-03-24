@@ -5,6 +5,50 @@
 
 ---
 
+## Session 38 — 2026-03-23
+
+**Focus**: D3R-5 Tier 1 — Arena accessor rewire (catalog as single source of truth)
+
+### What Was Done
+
+1. **Full callsite survey**: Identified 62 `modmgrGet*` callsites across 5 files (setup.c, mplayer.c, challenge.c, modelcatalog.c, pdgui_bridge.c). Categorized into arenas (24), bodies (21), heads (17).
+
+2. **Strategic approach decision**: Chose Option C (hybrid) — internal rewire of modmgr accessors to read from catalog cache, rather than migrating 62 individual callsites. Highest leverage single change.
+
+3. **Arena accessor rewire** — `modmgrGetArena()` and `modmgrGetTotalArenas()` now read from catalog-backed cache:
+   - Added `s_CatalogArenas[256]` cache array in `modmgr.c` populated via `assetCatalogIterateByType(ASSET_ARENA, ...)`
+   - Rebuild callback uses `runtime_index` to preserve original `g_MpArenas[]` ordering (critical — setup.c has hardcoded range checks like `i<=12`, `i>=27`)
+   - Lazy dirty-flag rebuild: first accessor call after `modmgrCatalogChanged()` triggers rebuild
+   - Legacy fallback preserved for early startup (before catalog init)
+   - Compatibility bridge: legacy shadow arenas (from modconfig.txt) appended after catalog entries
+
+4. **`modmgrCatalogChanged()`** — new API to signal catalog mutations. Called from:
+   - `main.c` after catalog population (startup)
+   - `modmgrReload()` (hot-toggle)
+   - Doc comment lists all points where callers must invoke it
+
+5. **Server stub** added for `modmgrCatalogChanged()`.
+
+### Design Decisions
+
+- **Cache array, not direct catalog access**: Callers expect `struct mparena*` pointers. Catalog stores `asset_entry_t` with different layout. Cache converts catalog data into game structs, returning stable pointers (one per array slot — no aliasing).
+- **Lazy rebuild via dirty flag**: Avoids rebuild on every accessor call. One rebuild serves all subsequent calls until next catalog mutation.
+- **Legacy bridge in rebuild**: Shadow arenas from `g_ModArenas[]` (old modconfig path) appended at indices 75+ to maintain backward compatibility until mod arenas are registered through catalog scanner.
+- **Bodies/heads deferred**: Catalog currently stores bodies/heads as `ASSET_CHARACTER` with only `runtime_index` — still depends on `g_MpBodies[]`/`g_MpHeads[]` for field data (name, headnum, requirefeature). Need catalog schema extension (add `ext.body`/`ext.head` structs) before rewiring those accessors.
+
+### Files Modified
+- `port/src/modmgr.c` — `#include "assetcatalog.h"`, cache infrastructure, rewired arena accessors, `modmgrCatalogChanged()`, hook in `modmgrReload()`
+- `port/include/modmgr.h` — `modmgrCatalogChanged()` declaration
+- `port/src/main.c` — `modmgrCatalogChanged()` call after catalog population
+- `port/src/server_stubs.c` — `modmgrCatalogChanged()` stub
+
+### Next Steps
+- **Build test** this session's changes
+- **Body/head catalog schema extension**: Add `ext.body` (bodynum, name, headnum, requirefeature) and `ext.head` (headnum, requirefeature) to `asset_entry_t` union. Update `assetcatalog_base.c` registration to populate these fields. Then rewire body/head accessors with same cache pattern.
+- **D3R-5 Tier 1 continued**: Once body/head accessors are rewired, all 62 read-only display sites are catalog-backed with zero callsite changes.
+
+---
+
 ## Session 37 — 2026-03-23
 
 **Focus**: Felicity wrong-map investigation + diagnostic logging infrastructure

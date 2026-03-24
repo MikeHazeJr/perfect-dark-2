@@ -20,6 +20,7 @@
 #include "config.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 #include "mod.h"
 #include "data.h"
 
@@ -56,6 +57,21 @@ static s32            g_ModHeadCount = 0;
 
 static struct mparena g_ModArenas[MODMGR_MAX_MOD_ARENAS];
 static s32            g_ModArenaCount = 0;
+
+// ---------------------------------------------------------------------------
+// Catalog-backed arena cache (D3R-5 rewire)
+// ---------------------------------------------------------------------------
+// The Asset Catalog is the single source of truth for arena data.
+// This cache converts catalog entries back into struct mparena for ABI
+// compatibility with 62+ existing callsites. Rebuilds lazily on dirty flag.
+
+#define MODMGR_MAX_CATALOG_ARENAS 256
+
+static struct mparena s_CatalogArenas[MODMGR_MAX_CATALOG_ARENAS];
+static s32            s_CatalogArenaCount = 0;
+static s32            s_CatalogArenasDirty = 1; // dirty at startup
+
+static void modmgrRebuildArenaCache(void);
 
 // Bundled mod IDs (these are the 5 original mods shipped with the game)
 static const char *g_BundledModIds[] = {
@@ -758,6 +774,9 @@ void modmgrReload(void)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: reload complete");
 
+	// Invalidate catalog-backed caches so accessors pick up new state
+	modmgrCatalogChanged();
+
 	// TODO (D3e): flush texture cache, return to title
 }
 
@@ -1001,15 +1020,94 @@ s32 modmgrGetModHeadCount(void)
 	return g_ModHeadCount;
 }
 
-// ---- Arenas ----
+// ---- Arenas (catalog-backed, D3R-5) ----
+
+// Callback for assetCatalogIterateByType — collects arenas into cache.
+// Uses runtime_index to preserve original g_MpArenas[] ordering, which
+// setup.c callsites depend on (hardcoded range checks like i<=12, i>=27).
+static void modmgrArenaCollectCb(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	s32 idx = entry->runtime_index;
+
+	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_ARENAS) {
+		sysLogPrintf(LOG_WARNING, "modmgr: arena \"%s\" runtime_index %d out of cache range",
+			entry->id, idx);
+		return;
+	}
+
+	struct mparena *a = &s_CatalogArenas[idx];
+	a->stagenum = (s16)entry->ext.arena.stagenum;
+	a->requirefeature = (u8)entry->ext.arena.requirefeature;
+	a->name = (u16)entry->ext.arena.name_langid;
+
+	// Track the highest index + 1 as count
+	if (idx + 1 > s_CatalogArenaCount) {
+		s_CatalogArenaCount = idx + 1;
+	}
+}
+
+static void modmgrRebuildArenaCache(void)
+{
+	// Zero the cache and count
+	memset(s_CatalogArenas, 0, sizeof(s_CatalogArenas));
+	s_CatalogArenaCount = 0;
+
+	// Phase 1: Populate from catalog — base arenas placed at runtime_index slots
+	assetCatalogIterateByType(ASSET_ARENA, modmgrArenaCollectCb, NULL);
+
+	// Phase 2: Bridge — append legacy shadow arenas not yet in catalog.
+	// These come from modconfig.txt loading (old mod path) and occupy indices
+	// starting at MODMGR_BASE_ARENAS (75+). Once mod arenas are registered
+	// through the catalog scanner (D3R-4+), this bridge becomes unused.
+	for (s32 i = 0; i < g_ModArenaCount; i++) {
+		s32 idx = MODMGR_BASE_ARENAS + i;
+		if (idx >= MODMGR_MAX_CATALOG_ARENAS) break;
+		s_CatalogArenas[idx] = g_ModArenas[i];
+		if (idx + 1 > s_CatalogArenaCount) {
+			s_CatalogArenaCount = idx + 1;
+		}
+	}
+
+	s_CatalogArenasDirty = 0;
+
+	if (s_CatalogArenaCount > 0) {
+		sysLogPrintf(LOG_NOTE, "modmgr: rebuilt arena cache from catalog (%d entries, %d legacy mod)",
+			s_CatalogArenaCount, g_ModArenaCount);
+	}
+}
 
 s32 modmgrGetTotalArenas(void)
 {
+	// Lazy rebuild if catalog has changed
+	if (s_CatalogArenasDirty) {
+		modmgrRebuildArenaCache();
+	}
+
+	// Catalog-backed path (normal operation after init)
+	if (s_CatalogArenaCount > 0) {
+		return s_CatalogArenaCount;
+	}
+
+	// Legacy fallback (before catalog is initialized during early startup)
 	return MODMGR_BASE_ARENAS + g_ModArenaCount;
 }
 
 struct mparena *modmgrGetArena(s32 index)
 {
+	// Lazy rebuild if catalog has changed
+	if (s_CatalogArenasDirty) {
+		modmgrRebuildArenaCache();
+	}
+
+	// Catalog-backed path
+	if (s_CatalogArenaCount > 0) {
+		if (index < 0) return &s_CatalogArenas[0];
+		if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
+		return &s_CatalogArenas[0]; // fallback to first
+	}
+
+	// Legacy fallback (before catalog is initialized)
 	s32 basecount = MODMGR_BASE_ARENAS;
 	if (index < 0) return &g_MpArenas[0];
 	if (index < basecount) return &g_MpArenas[index];
@@ -1021,6 +1119,14 @@ struct mparena *modmgrGetArena(s32 index)
 s32 modmgrGetModArenaCount(void)
 {
 	return g_ModArenaCount;
+}
+
+void modmgrCatalogChanged(void)
+{
+	s_CatalogArenasDirty = 1;
+
+	// Future: s_CatalogBodiesDirty = 1;
+	// Future: s_CatalogHeadsDirty = 1;
 }
 
 const char *modmgrGetModsDir(void)

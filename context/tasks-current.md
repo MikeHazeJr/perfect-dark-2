@@ -91,7 +91,7 @@
 | D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
 | D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
 | D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
-| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Steps 1-4 ✓ (Step 4 coded S35, awaiting build test). B-17 fixed. **Next**: Build test Step 4, then Tier 1 easy callsites (~15 read-only display sites). See briefing below. |
+| D3R-5 | **Callsite migration** ← IN PROGRESS | D3R-3, D3R-4 | Steps 1-4 ✓ (build-tested S37). **Step 5: Arena accessor rewire** ✓ (S38) — `modmgrGetArena()`/`modmgrGetTotalArenas()` now catalog-backed via cache. **Next**: Body/head schema extension + accessor rewire, then remaining Tier 1 display sites. See briefing below. |
 | D3R-6 | **Mod Manager UI** | D3R-4 | Browse by category or mod group, toggle, validate, apply (hot-toggle). |
 | D3R-7 | **INI Manager tool + Model Correction Tool** | D3R-6 | In-game editor: browse/edit/create/validate. Schema-driven forms. **Model Correction Tool**: dual-model renderer (mod vs base PD reference at 1.0), interactive scale slider, binary rewrite to bake corrected `definition->scale` into model file. All shipped models render correctly at `model_scale = 1.0`; `.ini` `model_scale` is creative modifier only. |
 | D3R-8 | **Bot Customizer** | D3R-7 | Trait editor in match setup → saves as `bot_variants/` component. |
@@ -108,7 +108,7 @@
 - Step 2 ✓: Standalone filesystem resolution — `assetcatalog_resolve.c` intercepts at `fsFullPath()`
 - Step 3 ✓: Catalog-as-truth smart redirect — B-17 structurally fixed, Paradox confirmed correct
 
-**Step 4: Arena Registration — CODED (S35, awaiting build test)**
+**Step 4: Arena Registration — BUILD TESTED (S37, PASS)**
 
 All 4 files modified:
 - `assetcatalog.h` — `ASSET_ARENA` enum, `ext.arena` struct, `assetCatalogRegisterArena()` decl
@@ -116,9 +116,11 @@ All 4 files modified:
 - `assetcatalog_base.c` — 75 base arenas registered via `s_ArenaGroupMap[]` + loop reading from `g_MpArenas[]`
 - `pdgui_menu_matchsetup.cpp` — `#include "assetcatalog.h"`, removed `arenaGroupDef`/`s_ArenaGroups[]`, added `s_ArenaGroupCache[]` + `rebuildArenaCache()` + callback, dropdown reads from catalog entries
 
-**Migration tiers** (from S34 callsite survey):
-- **Tier 1 (easy, ~15 sites)**: Read-only display — arena names, stage lookups. NEXT after build test.
-- ~~**Tier 2 (medium, big win)**: ImGui arena dropdown~~ — **DONE (S35)**
+**Migration approach** (S38 decision — Option C hybrid):
+- **Internal rewire**: modmgr accessors read from catalog cache instead of static arrays. Zero callsite changes needed.
+- **Arena rewire** ✓ (S38): `modmgrGetArena()`/`modmgrGetTotalArenas()` catalog-backed. 24 callsites covered.
+- **Body/head rewire** NEXT: Need `ext.body`/`ext.head` structs in `asset_entry_t`, then same cache pattern. Covers remaining 38 callsites.
+- ~~**Tier 2 (medium, big win)**: ImGui arena dropdown~~ — **DONE (S35)** (direct catalog migration)
 - **Tier 3 (deferred D3R-9)**: Network sync — body/head u8 indices over wire
 
 **Constraints**:

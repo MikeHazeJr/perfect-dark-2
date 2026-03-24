@@ -127,4 +127,11 @@ s32 modmgrGetModArenaCount(void);
 // Returns NULL if no mods directory was found.
 const char *modmgrGetModsDir(void);
 
+// Signal that the Asset Catalog contents have changed.
+// Causes all catalog-backed caches (arenas, future: bodies, heads)
+// to lazily rebuild on next accessor call.
+// Call after assetCatalogRegisterBaseGame(), assetCatalogScanComponents(),
+// assetCatalogClearMods(), or any catalog mutation.
+void modmgrCatalogChanged(void);
+
 #endif // _IN_MODMGR_H

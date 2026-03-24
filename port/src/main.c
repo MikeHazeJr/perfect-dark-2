@@ -195,6 +195,10 @@ int main(int argc, const char **argv)
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
 
+	// Signal modmgr that catalog is populated — rebuilds accessor caches
+	// so modmgrGetArena() etc. read from catalog instead of static arrays.
+	modmgrCatalogChanged();
+
 	atexit(cleanup);
 
 	bootCreateSched();
