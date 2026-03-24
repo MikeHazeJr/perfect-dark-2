@@ -10,6 +10,7 @@
 #include "net/netmsg.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
+#include "net/netdistrib.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -526,6 +527,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 	netUpnpSetup(port);
 
 	lobbyInit();
+	netDistribInit();
 
 	return 0;
 }
@@ -1012,7 +1014,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
-			case CLC_LOBBY_START: rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
+			case CLC_LOBBY_START:  rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
+			case CLC_CATALOG_DIFF: rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1082,8 +1085,14 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
-			case SVC_LOBBY_LEADER: rc = netmsgSvcLobbyLeaderRead(&cl->in, cl); break;
-			case SVC_LOBBY_STATE: rc = netmsgSvcLobbyStateRead(&cl->in, cl); break;
+			case SVC_LOBBY_LEADER:   rc = netmsgSvcLobbyLeaderRead(&cl->in, cl); break;
+			case SVC_LOBBY_STATE:    rc = netmsgSvcLobbyStateRead(&cl->in, cl); break;
+			/* D3R-9: Network Distribution */
+			case SVC_CATALOG_INFO:    rc = netmsgSvcCatalogInfoRead(&cl->in, cl); break;
+			case SVC_DISTRIB_BEGIN:   rc = netmsgSvcDistribBeginRead(&cl->in, cl); break;
+			case SVC_DISTRIB_CHUNK:   rc = netmsgSvcDistribChunkRead(&cl->in, cl); break;
+			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
+			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1336,6 +1345,11 @@ void netEndFrame(void)
 				g_NetPendingResyncFlags = 0;
 			}
 		}
+	}
+
+	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
+	if (g_NetMode == NETMODE_SERVER) {
+		netDistribServerTick();
 	}
 
 	// send position updates
