@@ -36,6 +36,9 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
+#include "net/netlobby.h"
+#include "net/netdistrib.h"
+#include "assetcatalog.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -239,6 +242,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	// for now use settings from our own client, remote is supposed to send CLC_SETTINGS after CLC_AUTH
 	srccl->settings = g_NetLocalClient->settings;
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
@@ -256,6 +260,9 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	srccl->state = CLSTATE_LOBBY;
+
+	/* D3R-9: send catalog info so the client can diff and request missing components */
+	netDistribServerSendCatalogInfo(srccl);
 
 	netbufStartWrite(&srccl->out);
 	netmsgSvcAuthWrite(&srccl->out, srccl);
@@ -395,6 +402,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
 	srccl->settings.bodynum = bodynum;
 	srccl->settings.headnum = headnum;
@@ -510,7 +518,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
-		netbufWriteU16(dst, g_MpSetup.chrslots);
+		netbufWriteU32(dst, g_MpSetup.chrslots);
 		netbufWriteU32(dst, g_MpSetup.options);
 		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 	}
@@ -581,10 +589,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
-		g_MpSetup.chrslots = netbufReadU16(src);
+		g_MpSetup.chrslots = netbufReadU32(src);
 		g_MpSetup.options = netbufReadU32(src);
 		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
-		strcpy(g_MpSetup.name, "server");
+		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
 	if (src->error) {
@@ -622,6 +630,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			char *name = netbufReadStr(src);
 			if (name) {
 				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
 			} else {
 				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
 				return 3;
@@ -3150,5 +3159,405 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
 	/* Setting g_InCutscene is sufficient — the input gating macro in constants.h
 	 * checks this flag and suppresses player input automatically. */
 
+	return src->error;
+}
+
+/* ========================================================================
+ * CLC_LOBBY_START - Lobby leader requests match start
+ *
+ * Sent by the lobby leader client to the dedicated server when they've
+ * chosen a game mode and are ready to start. The server validates that
+ * the sender is actually the lobby leader, then starts the match.
+ *
+ * Payload: gamemode (u8), stagenum (u8), difficulty (u8)
+ * ======================================================================== */
+
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty)
+{
+	netbufWriteU8(dst, CLC_LOBBY_START);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, difficulty);
+	return dst->error;
+}
+
+u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode   = netbufReadU8(src);
+	const u8 stagenum   = netbufReadU8(src);
+	const u8 difficulty = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	/* Only process on server */
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received but not server");
+		return src->error;
+	}
+
+	/* Validate sender is the lobby leader */
+	u8 leaderSlot = lobbyGetLeader();
+	bool isLeader = false;
+	if (leaderSlot < LOBBY_MAX_PLAYERS) {
+		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+			isLeader = true;
+		}
+	}
+
+	if (!isLeader) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START from non-leader client %d (%s) — rejected",
+		             srccl->id, srccl->settings.name);
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u",
+	             srccl->settings.name, gamemode, stagenum, difficulty);
+
+	/* Apply settings */
+	g_NetGameMode = gamemode;
+
+	/* Start the match based on game mode.
+	 * For Combat Sim: load the requested stage and start.
+	 * For Co-op/Counter-op: load the solo stage and start. */
+	if (gamemode == 0) {
+		/* Combat Simulator */
+		mainChangeToStage(stagenum);
+		netServerStageStart();
+	} else {
+		/* Co-op or Counter-op — uses mission config */
+		g_MissionConfig.stagenum = stagenum;
+		g_MissionConfig.difficulty = difficulty;
+		mainChangeToStage(stagenum);
+		netServerCoopStageStart(stagenum, difficulty);
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_LEADER - Server announces authoritative lobby leader
+ *
+ * Sent to all clients when the leader changes (first join, leader
+ * disconnect, manual reassignment). Clients apply this via lobbySetLeader().
+ *
+ * Payload: leaderClientId (u8) — the netclient ID of the new leader.
+ *          0xFF = no leader.
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId)
+{
+	netbufWriteU8(dst, SVC_LOBBY_LEADER);
+	netbufWriteU8(dst, leaderClientId);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 leaderClientId = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_LEADER: leader is client %u", leaderClientId);
+
+	/* Find the lobby slot for this client ID and set as leader */
+	if (leaderClientId == 0xFF) {
+		lobbySetLeader(0xFF);
+	} else {
+		for (s32 i = 0; i < g_Lobby.numPlayers; i++) {
+			if (g_Lobby.players[i].active &&
+			    g_Lobby.players[i].clientId == leaderClientId) {
+				lobbySetLeader(i);
+				break;
+			}
+		}
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_STATE - Server broadcasts lobby state update
+ *
+ * Sent to all clients when the lobby state changes (game mode selected,
+ * stage changed, match starting/ending). Clients update their local
+ * lobby display accordingly.
+ *
+ * Payload: gamemode (u8), stagenum (u8), status (u8)
+ * Status: 0=waiting, 1=starting, 2=in-game
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status)
+{
+	netbufWriteU8(dst, SVC_LOBBY_STATE);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, status);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode = netbufReadU8(src);
+	const u8 stagenum = netbufReadU8(src);
+	const u8 status   = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_STATE: mode=%u stage=%u status=%u",
+	             gamemode, stagenum, status);
+
+	g_NetGameMode = gamemode;
+	g_Lobby.settings.scenario = gamemode;
+	g_Lobby.settings.stagenum = stagenum;
+	g_Lobby.inGame = (status >= 2) ? 1 : 0;
+
+	return src->error;
+}
+
+/* ============================================================
+ * D3R-9: Network Distribution (protocol v20)
+ * ============================================================ */
+
+/* ---- Catalog entry collector (shared by SvcCatalogInfoWrite) ---- */
+
+#define CATALOG_COLLECT_MAX 256
+
+static const asset_entry_t *s_CatalogCollectBuf[CATALOG_COLLECT_MAX];
+static s32 s_CatalogCollectN = 0;
+
+static void catalogInfoCollectCb(const asset_entry_t *e, void *ud)
+{
+	(void)ud;
+	if (!e->bundled && e->enabled && s_CatalogCollectN < CATALOG_COLLECT_MAX) {
+		s_CatalogCollectBuf[s_CatalogCollectN++] = e;
+	}
+}
+
+/* ---- SVC_CATALOG_INFO ---- */
+
+u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
+{
+	/* Collect all non-bundled enabled entries from the catalog */
+	static const asset_type_e s_types[] = {
+		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
+		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI,
+		ASSET_NONE  /* sentinel */
+	};
+
+	s_CatalogCollectN = 0;
+	for (s32 ti = 0; s_types[ti] != ASSET_NONE; ti++) {
+		assetCatalogIterateByType(s_types[ti], catalogInfoCollectCb, NULL);
+	}
+
+	netbufWriteU8(dst, SVC_CATALOG_INFO);
+	netbufWriteU16(dst, (u16)s_CatalogCollectN);
+	for (s32 i = 0; i < s_CatalogCollectN; i++) {
+		const asset_entry_t *e = s_CatalogCollectBuf[i];
+		netbufWriteU32(dst, e->net_hash);
+		netbufWriteStr(dst, e->id);
+		netbufWriteStr(dst, e->category);
+	}
+	return dst->error;
+}
+
+u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u16 count = netbufReadU16(src);
+	if (count > CATALOG_COLLECT_MAX) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_CATALOG_INFO count %u exceeds limit", count);
+		return 1;
+	}
+
+	/* Collect hashes + strings while buffer is live */
+	u32     hashes[CATALOG_COLLECT_MAX];
+	char    ids[CATALOG_COLLECT_MAX][64];
+	char    cats[CATALOG_COLLECT_MAX][64];
+
+	for (u16 i = 0; i < count; i++) {
+		hashes[i] = netbufReadU32(src);
+		char *id  = netbufReadStr(src);
+		char *cat = netbufReadStr(src);
+		strncpy(ids[i],  id  ? id  : "", 63);  ids[i][63]  = '\0';
+		strncpy(cats[i], cat ? cat : "", 63);  cats[i][63] = '\0';
+	}
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleCatalogInfo(hashes,
+	                                  (const char (*)[64])ids,
+	                                  (const char (*)[64])cats,
+	                                  count);
+	return src->error;
+}
+
+/* ---- CLC_CATALOG_DIFF ---- */
+
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes,
+                               u16 count, u8 temporary)
+{
+	netbufWriteU8(dst, CLC_CATALOG_DIFF);
+	netbufWriteU8(dst, temporary);
+	netbufWriteU16(dst, count);
+	for (u16 i = 0; i < count; i++) {
+		netbufWriteU32(dst, missing_hashes[i]);
+	}
+	return dst->error;
+}
+
+u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8  temporary = netbufReadU8(src);
+	u16 count     = netbufReadU16(src);
+	if (count > 256) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_CATALOG_DIFF count %u exceeds limit", count);
+		return 1;
+	}
+
+	u32 hashes[256];
+	for (u16 i = 0; i < count; i++) {
+		hashes[i] = netbufReadU32(src);
+	}
+
+	if (src->error) return src->error;
+
+	netDistribServerHandleDiff(srccl, hashes, count, temporary);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_BEGIN ---- */
+
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+                                const char *category, u32 total_chunks, u32 archive_bytes)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_BEGIN);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteStr(dst, id);
+	netbufWriteStr(dst, category);
+	netbufWriteU32(dst, total_chunks);
+	netbufWriteU32(dst, archive_bytes);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32  net_hash     = netbufReadU32(src);
+	char *id          = netbufReadStr(src);
+	char *category    = netbufReadStr(src);
+	u32  total_chunks = netbufReadU32(src);
+	u32  archive_bytes = netbufReadU32(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleBegin(net_hash,
+	                             id       ? id       : "",
+	                             category ? category : "",
+	                             total_chunks, archive_bytes, 0);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_CHUNK ---- */
+/*
+ * Note: large chunks are sent as direct ENet packets where this function's
+ * format also applies. The first byte is SVC_DISTRIB_CHUNK, followed by
+ * the fields below. The read handler reads directly from the packet data
+ * without copying to avoid large stack allocations.
+ */
+
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+                                u8 compression, const u8 *data, u16 data_len)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_CHUNK);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteU16(dst, chunk_idx);
+	netbufWriteU8(dst, compression);
+	netbufWriteU16(dst, data_len);
+	netbufWriteData(dst, data, (u32)data_len);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32  net_hash   = netbufReadU32(src);
+	u16  chunk_idx  = netbufReadU16(src);
+	u8   compression = netbufReadU8(src);
+	u16  data_len   = netbufReadU16(src);
+
+	/* Sanity bound: compressed data can't exceed 2× chunk size */
+	if (data_len > NET_DISTRIB_CHUNK_SIZE * 2) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_CHUNK data_len %u too large", data_len);
+		return 1;
+	}
+
+	/* Point directly into the packet buffer — valid for the duration of this handler */
+	const u8 *data = (const u8 *)(src->data + src->rp);
+	netbufReadSkip(src, (u32)data_len);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleChunk(net_hash, chunk_idx, compression, data, data_len);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_END ---- */
+
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_END);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteU8(dst, success);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32 net_hash = netbufReadU32(src);
+	u8  success  = netbufReadU8(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleEnd(net_hash, success);
+	return src->error;
+}
+
+/* ---- SVC_LOBBY_KILL_FEED ---- */
+
+u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker,
+                                 const char *victim, const char *weapon, u8 flags)
+{
+	netbufWriteU8(dst, SVC_LOBBY_KILL_FEED);
+	netbufWriteStr(dst, attacker ? attacker : "");
+	netbufWriteStr(dst, victim   ? victim   : "");
+	netbufWriteStr(dst, weapon   ? weapon   : "");
+	netbufWriteU8(dst, flags);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	char *attacker = netbufReadStr(src);
+	char *victim   = netbufReadStr(src);
+	char *weapon   = netbufReadStr(src);
+	u8    flags    = netbufReadU8(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleKillFeed(
+		attacker ? attacker : "",
+		victim   ? victim   : "",
+		weapon   ? weapon   : "",
+		flags);
 	return src->error;
 }

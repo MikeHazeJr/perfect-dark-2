@@ -32,6 +32,9 @@
 #include "net/net.h"
 #include "mod.h"
 
+/* PC port: redirect post-match menu to our new Match Setup lobby */
+extern struct menudialogdef g_MatchSetupMenuDialog;
+
 u8 g_FileState = 0;
 u8 var80062944 = 0;
 u8 var80062948 = 0;
@@ -236,7 +239,7 @@ void menuTick(void)
 				for (i = 0; i < maxplayers; i++) {
 					g_Vars.waitingtojoin[i] = false;
 
-					if (g_MpSetup.chrslots & (1 << i)) {
+					if (g_MpSetup.chrslots & (1u << i)) {
 						g_MpPlayerNum = i;
 
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
@@ -248,7 +251,7 @@ void menuTick(void)
 							if (IS4MB()) {
 								menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
 							} else {
-								menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+								menuPushRootDialog(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
 							}
 						} else {
 							g_Vars.waitingtojoin[i] = true;
@@ -310,7 +313,7 @@ void menuTick(void)
 					g_Menus[i].playernum = g_MpNumJoined++;
 
 					if (g_MenuData.prevmenuroot == -1) {
-						g_MpSetup.chrslots |= (1 << i);
+						g_MpSetup.chrslots |= (1u << i);
 					}
 				}
 			}
@@ -319,7 +322,7 @@ void menuTick(void)
 				s32 slot = 1;
 				for (i = 1; i < g_NetMaxClients; ++i) {
 					if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-						g_MpSetup.chrslots |= (1 << slot);
+						g_MpSetup.chrslots |= (1u << slot);
 						++slot;
 					}
 				}
@@ -531,7 +534,8 @@ void menuTick(void)
 				g_MenuData.prevmenudialog = &g_MainMenu4MbMenuDialog;
 			} else {
 				g_MenuData.prevmenuroot = MENUROOT_MPSETUP;
-				g_MenuData.prevmenudialog = &g_CombatSimulatorMenuDialog;
+				/* PC port: return to Match Setup lobby */
+				g_MenuData.prevmenudialog = &g_MatchSetupMenuDialog;
 			}
 		}
 
@@ -554,7 +558,7 @@ void menuTick(void)
 				}
 
 				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (g_MpSetup.chrslots & (1 << i)) {
+					if (g_MpSetup.chrslots & (1u << i)) {
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
@@ -919,7 +923,7 @@ void menuTick(void)
 			mpindex = 0;
 		}
 
-		if (mpindex >= 0 && g_Vars.players[i]) {
+		if (mpindex >= 0 && mpindex < MAX_PLAYERS && g_Vars.players[i]) {
 			if (g_MenuData.nextbg != 255U
 					|| g_MenuData.bg
 					|| g_MenuData.unk5d5_05

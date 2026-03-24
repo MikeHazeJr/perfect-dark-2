@@ -57,7 +57,7 @@ s32 g_MpPlayerNum = 0;
 u64 g_RngSeed = 0;                            /* data.h:583 */
 u64 g_Rng2Seed = 0;                           /* data.h:584 */
 u64 g_RngSeeds[2] = {0};
-s32 g_NotLoadMod = 0;
+s32 g_NotLoadMod = 1;
 char g_RomName[64] = "pd-server";
 s32 g_NumReasonsToEndMpMatch = 0;
 
@@ -242,6 +242,14 @@ s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
 const char *modmgrResolvePath(const char *path) { return path; }
 void modmgrInit(void) {}
+void modmgrCatalogChanged(void) {}
+
+/* assetcatalog_resolve stubs — fs.c and lv.c reference these */
+const char *assetCatalogResolvePath(const char *path) { (void)path; return NULL; }
+void assetCatalogActivateStage(s32 stagenum) { (void)stagenum; }
+void assetCatalogDeactivateStage(void) {}
+struct asset_entry; /* forward decl for return type */
+const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void)stagenum; return NULL; }
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}

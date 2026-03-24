@@ -76,6 +76,7 @@
 #include "console.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "modelcatalog.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -302,33 +303,65 @@ void mainInit(void)
 
 	mempSetHeap(g_MempHeap, g_MempHeapSize);
 
+	/* NOTE: catalogValidateAll() was previously called here, but model
+	 * loading depends on subsystems initialized later in this function
+	 * (texInit, langInit, etc.). Loading at this point triggers ACCESS
+	 * VIOLATION for ALL 151 models because the texture/skeleton systems
+	 * aren't ready yet. Validation is deferred to on-demand: models are
+	 * validated lazily via catalogGetSafeBody/Head() when first accessed
+	 * during gameplay, by which point all subsystems are initialized. */
+
+	sysLogPrintf(LOG_VERBOSE, "INIT: mempResetPool...");
 	mempResetPool(MEMPOOL_8);
 	mempResetPool(MEMPOOL_PERMANENT);
+	sysLogPrintf(LOG_VERBOSE, "INIT: crashReset...");
 	crashReset();
+	sysLogPrintf(LOG_VERBOSE, "INIT: challengesInit...");
 	challengesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: utilsInit...");
 	utilsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: texInit...");
 	texInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: langInit...");
 	langInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: lvInit...");
 	lvInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: cheatsInit...");
 	cheatsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: textInit...");
 	textInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: dhudInit...");
 	dhudInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: playermgrInit...");
 	playermgrInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: frametimeInit...");
 	frametimeInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: profileInit...");
 	profileInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: smokesInit...");
 	smokesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: mpInit...");
 	mpInit(true);
+	sysLogPrintf(LOG_VERBOSE, "INIT: pheadInit...");
 	pheadInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: paksInit...");
 	paksInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: pheadInit2...");
 	pheadInit2();
+	sysLogPrintf(LOG_VERBOSE, "INIT: animsInit...");
 	animsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: racesInit...");
 	racesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: bodiesInit...");
 	bodiesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: titleInit...");
 	titleInit();
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainInit - titleInit() done, g_StageNum=0x%02x", g_StageNum);
 
 	modelSetDistanceChecksDisabled(true); // don't use LODs
 
 	g_MainIsBooting = 0;
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainInit complete, g_MainIsBooting=0");
 }
 
 void mainProc(void)
@@ -377,13 +410,17 @@ void mainLoop(void)
 
 	var8005d9c4 = 0;
 	argGetLevel(&g_StageNum);
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - after argGetLevel, g_StageNum=0x%02x, g_DoBootPakMenu=%d",
+		g_StageNum, g_DoBootPakMenu);
 
 	if (g_DoBootPakMenu) {
 		g_Vars.pakstocheck = 0xfd;
 		g_StageNum = STAGE_BOOTPAKMENU;
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - boot pak menu override, g_StageNum=BOOTPAKMENU");
 	}
 
 	if (g_StageNum != STAGE_TITLE) {
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - g_StageNum != STAGE_TITLE, calling titleSetNextStage");
 		titleSetNextStage(g_StageNum);
 
 		if (STAGE_IS_GAMEPLAY(g_StageNum)) {
@@ -541,7 +578,7 @@ void mainLoop(void)
 			g_MpSetup.chrslots = 1;
 
 			for (s32 i = 1; i < numplayers; ++i) {
-				g_MpSetup.chrslots |= 1 << i;
+				g_MpSetup.chrslots |= 1u << i;
 			}
 
 			g_MpSetup.stagenum = g_StageNum;
@@ -554,6 +591,8 @@ void mainLoop(void)
 		zbufReset(g_StageNum);
 		lvReset(g_StageNum);
 		viReset(g_StageNum);
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - entering tick loop with g_StageNum=0x%02x, g_Vars.stagenum=0x%02x",
+			g_StageNum, g_Vars.stagenum);
 		frametimeCalculate();
 		profileReset();
 

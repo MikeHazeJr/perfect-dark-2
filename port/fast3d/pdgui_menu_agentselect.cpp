@@ -23,6 +23,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
 #include "system.h"
@@ -31,6 +32,10 @@ extern "C" {
 
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
 extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
+
+/* Config system — for storing default agent */
+s32 configSave(const char *fname);
+void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
 
 struct filelistfile {
     s32 fileid;
@@ -109,6 +114,9 @@ u8  mpPlayerConfigGetBody(s32 playernum);
 static s32 s_SelectedIdx = 0;
 static s32 s_PrevSelectedIdx = -1;
 static bool s_Registered = false;
+static s32 s_DefaultAgentFileId = -1; /* file ID of the default agent (-1 = none) */
+static bool s_DefaultAgentConfigured = false;
+static bool s_AutoLoadTriggered = false;
 
 /* Confirmation prompt state — rendered inline, no nested windows */
 #define CONFIRM_NONE   0
@@ -155,11 +163,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     if (s_SelectedIdx >= totalEntries) s_SelectedIdx = totalEntries - 1;
     if (s_SelectedIdx < 0) s_SelectedIdx = 0;
 
-    float scale = (float)winH / 480.0f;
-    float dialogW = 480.0f * scale;
-    float dialogH = 400.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
     float pdTitleH = dialogH * 0.06f;
     if (pdTitleH < 20.0f) pdTitleH = 20.0f;
@@ -184,6 +193,20 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
+
+        /* Auto-load default agent on first appearance */
+        if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {
+            s_AutoLoadTriggered = true;
+            for (s32 i = 0; i < fl->numfiles; i++) {
+                if (fl->files[i].fileid == s_DefaultAgentFileId) {
+                    g_GameFileGuid.fileid = fl->files[i].fileid;
+                    g_GameFileGuid.deviceserial = fl->files[i].deviceserial;
+                    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+                    s_SelectedIdx = i;
+                    break;
+                }
+            }
+        }
     }
 
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, "Perfect Dark", 1);
@@ -226,7 +249,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         /* Prompt text — centered in the dialog */
         char promptLine1[128];
         snprintf(promptLine1, sizeof(promptLine1), "%s agent \"%s\"?", actionWord, cfName);
-        const char *promptLine2 = "Press A to confirm, B to cancel";
+        const char *promptLine2 = "A/Enter to confirm, B/Esc to cancel";
 
         ImVec2 sz1 = ImGui::CalcTextSize(promptLine1);
         ImVec2 sz2 = ImGui::CalcTextSize(promptLine2);
@@ -281,8 +304,9 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    /* A = load/select */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)) {
+    /* A / Enter = load/select */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             gamefileLoadDefaults(&g_GameFile);
@@ -295,21 +319,49 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
         }
     }
-    /* X = copy (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+    /* X / C = copy (with confirmation) */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_C, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
             s_ConfirmMode = CONFIRM_COPY;
             s_ConfirmIdx = s_SelectedIdx;
         }
     }
-    /* Y = delete (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false)) {
+    /* Y / Delete = delete (with confirmation) */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
             s_ConfirmIdx = s_SelectedIdx;
         }
+    }
+    /* D / RB = set as default agent */
+    if (ImGui::IsKeyPressed(ImGuiKey_D, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
+            struct filelistfile *file = &fl->files[s_SelectedIdx];
+            if (s_DefaultAgentFileId == file->fileid) {
+                /* Toggle off default */
+                s_DefaultAgentFileId = -1;
+            } else {
+                s_DefaultAgentFileId = file->fileid;
+            }
+            configSave("pd.ini");
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+    }
+    /* Arrow key navigation for MKB */
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+        s_SelectedIdx++;
+        if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+        s_SelectedIdx--;
+        if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
     }
 
     /* ================================================================
@@ -409,6 +461,13 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
                 dl->AddText(ImVec2(textX, lineY), IM_COL32(255, 255, 255, 255), name);
 
+                /* Show [DEFAULT] tag if this agent is the default */
+                if (file->fileid == s_DefaultAgentFileId) {
+                    ImVec2 nameSize = ImGui::CalcTextSize(name);
+                    dl->AddText(ImVec2(textX + nameSize.x + 8.0f * scale, lineY),
+                                IM_COL32(100, 255, 180, 200), "[DEFAULT]");
+                }
+
                 lineY += 18.0f * scale;
                 char infoLine[256];
                 snprintf(infoLine, sizeof(infoLine), "%s  |  %s", stageName, diffName);
@@ -448,9 +507,9 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * ================================================================ */
     ImGui::Separator();
     if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-        ImGui::TextDisabled("A: Load   X: Copy   Y: Delete   D-Pad: Navigate");
+        ImGui::TextDisabled("A/Enter: Load  X/C: Copy  Y/Del: Delete  D/RB: Default");
     } else {
-        ImGui::TextDisabled("A: Select   D-Pad: Navigate");
+        ImGui::TextDisabled("A/Enter: Select   D-Pad/Arrows: Navigate");
     }
 
     ImGui::End();
@@ -463,8 +522,17 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
 extern "C" {
 
+void pdguiMenuAgentSelectInitConfig(void)
+{
+    if (!s_DefaultAgentConfigured) {
+        configRegisterInt("Agent.DefaultFileId", &s_DefaultAgentFileId, -1, 9999);
+        s_DefaultAgentConfigured = true;
+    }
+}
+
 void pdguiMenuAgentSelectRegister(void)
 {
+    pdguiMenuAgentSelectInitConfig();
     if (s_Registered) return;
 
     pdguiHotswapRegister(

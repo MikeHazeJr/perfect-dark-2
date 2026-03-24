@@ -57,9 +57,9 @@ Write-Host "  Router: forward UDP port $Port to local IP $localIP" -ForegroundCo
 Write-Host ""
 
 # Check if build exists
-$exePath = Join-Path $PSScriptRoot "build\pd.x86_64.exe"
+$exePath = Join-Path $PSScriptRoot "build\server\PerfectDarkServer.exe"
 if (-not (Test-Path $exePath)) {
-    Write-Host "  ERROR: build\pd.x86_64.exe not found!" -ForegroundColor Red
+    Write-Host "  ERROR: build\server\PerfectDarkServer.exe not found!" -ForegroundColor Red
     Write-Host "  Build the project first, then re-run this script." -ForegroundColor Red
     Read-Host "  Press Enter to exit"
     exit 1
@@ -78,8 +78,8 @@ Write-Host "  (Close this window or press Ctrl+C to stop)" -ForegroundColor Gray
 Write-Host ""
 
 # Launch
-Push-Location (Join-Path $PSScriptRoot "build")
-& ".\pd.x86_64.exe" --host --port $Port --maxclients $MaxClients --file $Profile
+Push-Location (Join-Path $PSScriptRoot "build\server")
+& ".\PerfectDarkServer.exe" --port $Port --maxclients $MaxClients
 Pop-Location
 
 Write-Host ""

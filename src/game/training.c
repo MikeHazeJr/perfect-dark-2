@@ -174,6 +174,10 @@ void frSetWeaponFound(s32 weaponnum)
 
 s32 ciIsStageComplete(s32 stageindex)
 {
+	if (stageindex < 0 || stageindex >= NUM_SOLOSTAGES) {
+		return 0;
+	}
+
 	return g_GameFile.besttimes[stageindex][0]
 		|| g_GameFile.besttimes[stageindex][1]
 		|| g_GameFile.besttimes[stageindex][2];

@@ -263,16 +263,19 @@ static inline void osEepromSetPath(void)
 	const char *extPath = sysArgGetString("--eeprom-file");
 	if (extPath && extPath[0]) {
 		if (extPath[0] == '$' || fsPathIsAbsolute(extPath) || fsPathIsCwdRelative(extPath)) {
-			strncpy(eepromPath, extPath, FS_MAXPATH);
+			strncpy(eepromPath, extPath, FS_MAXPATH - 1);
+			eepromPath[FS_MAXPATH - 1] = '\0';
 		} else {
 			snprintf(eepromPath, FS_MAXPATH, "$S/%s", extPath);
 		}
 	} else if (g_NetDedicated) {
 		/* Dedicated server: use separate save file so server and client
 		 * saves don't interfere with each other. */
-		strncpy(eepromPath, "$S/eeprom-server.bin", FS_MAXPATH);
+		strncpy(eepromPath, "$S/eeprom-server.bin", FS_MAXPATH - 1);
+		eepromPath[FS_MAXPATH - 1] = '\0';
 	} else {
-		strncpy(eepromPath, EEPROM_PATH, FS_MAXPATH);
+		strncpy(eepromPath, EEPROM_PATH, FS_MAXPATH - 1);
+		eepromPath[FS_MAXPATH - 1] = '\0';
 	}
 }
 

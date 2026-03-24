@@ -1875,7 +1875,7 @@ bool filemgrIsFileInUse(struct filelistfile *file)
 	}
 
 	for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
-		if ((g_MpSetup.chrslots & (1 << i))
+		if ((g_MpSetup.chrslots & (1u << i))
 				&& g_PlayerConfigsArray[i].fileguid.fileid == file->fileid
 				&& g_PlayerConfigsArray[i].fileguid.deviceserial == file->deviceserial) {
 			return true;
@@ -2013,7 +2013,7 @@ bool filemgrIsFileInUse(struct filelistfile *file)
 	}
 
 	for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
-		if ((g_MpSetup.chrslots & (1 << i))
+		if ((g_MpSetup.chrslots & (1u << i))
 				&& g_PlayerConfigsArray[i].fileguid.fileid == file->fileid
 				&& g_PlayerConfigsArray[i].fileguid.deviceserial == file->deviceserial) {
 			return true;

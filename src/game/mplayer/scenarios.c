@@ -848,7 +848,8 @@ void scenarioReset(void)
 	}
 
 	if (cmd) {
-		while (cmd[0] != INTROCMD_END) {
+		s32 safety = 0;
+		while (cmd[0] != INTROCMD_END && ++safety < 10000) {
 			switch (cmd[0]) {
 			case INTROCMD_SPAWN:
 				cmd += 3;

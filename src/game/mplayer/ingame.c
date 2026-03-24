@@ -22,6 +22,7 @@
 #include "types.h"
 #include "net/net.h"
 #include "system.h"
+#include "pdgui_pausemenu.h"
 
 struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;
@@ -43,7 +44,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		data->list.value = 0;
 
 		for (v0 = 0; v0 < MAX_MPCHRS; v0++) {
-			if (g_MpSetup.chrslots & (1 << v0)) {
+			if (g_MpSetup.chrslots & (1u << v0)) {
 				data->list.value++;
 			}
 		}
@@ -52,7 +53,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1 << a1)) {
+			if (g_MpSetup.chrslots & (1u << a1)) {
 				mpchr = MPCHR(a1);
 
 				if (v0 == data->list.value) {
@@ -68,7 +69,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1 << a1)) {
+			if (g_MpSetup.chrslots & (1u << a1)) {
 				if (v0);
 
 				if (data->list.value == v0) {
@@ -84,7 +85,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (v1 = 0; v1 < MAX_MPCHRS; v1++) {
-			if (g_MpSetup.chrslots & (1 << v1)) {
+			if (g_MpSetup.chrslots & (1u << v1)) {
 				if (v0);
 
 				if (g_MpSelectedPlayersForStats[g_MpPlayerNum] == v1) {
@@ -864,23 +865,35 @@ void mpPushPauseDialog(void)
 	{
 		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
 
+		/* Bots (mpindex >= MAX_PLAYERS) don't have menus — skip the
+		 * entire pause dialog push to avoid g_Menus[] overflow. */
+		if (g_MpPlayerNum >= MAX_PLAYERS) {
+			g_MpPlayerNum = prevplayernum;
+			return;
+		}
+
+		/* Combat simulator (normmplayerisrunning): use ImGui pause menu.
+		 * If ImGui pause menu is already open, toggle it closed (resume).
+		 * Co-op / counter-op missions still use legacy pause menus. */
+		if (g_Vars.normmplayerisrunning) {
+			if (pdguiIsPauseMenuOpen()) {
+				pdguiPauseMenuClose();
+			} else {
+				pdguiPauseMenuOpen();
+			}
+			g_MpPlayerNum = prevplayernum;
+			return;
+		}
+
 		if (g_Menus[g_MpPlayerNum].openinhibit == 0) {
 			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
-			if (g_Vars.normmplayerisrunning) {
-				if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
-					menuPushRootDialog(&g_MpPauseTeamRankingsMenuDialog, MENUROOT_MPPAUSE);
-				} else {
-					menuPushRootDialog(&g_MpPausePlayerRankingMenuDialog, MENUROOT_MPPAUSE);
-				}
+			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
+				|| LOCALPLAYERCOUNT() >= 3
+			) {
+				menuPushRootDialog(&g_2PMissionPauseVMenuDialog, MENUROOT_MPPAUSE);
 			} else {
-				if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-					|| LOCALPLAYERCOUNT() >= 3
-				) {
-					menuPushRootDialog(&g_2PMissionPauseVMenuDialog, MENUROOT_MPPAUSE);
-				} else {
-					menuPushRootDialog(&g_2PMissionPauseHMenuDialog, MENUROOT_MPPAUSE);
-				}
+				menuPushRootDialog(&g_2PMissionPauseHMenuDialog, MENUROOT_MPPAUSE);
 			}
 		}
 
@@ -892,6 +905,13 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 {
 	u32 prevplayernum = g_MpPlayerNum;
 	g_MpPlayerNum = playernum;
+
+	/* Bots don't have endscreen menus — restore and bail to avoid
+	 * g_Menus[] / g_PlayerConfigsArray[] overflow. */
+	if (g_MpPlayerNum >= MAX_PLAYERS) {
+		g_MpPlayerNum = prevplayernum;
+		return;
+	}
 
 	sysLogPrintf(LOG_NOTE, "ENDSCREEN_DIAG: mpPushEndscreenDialog player=%d slot=%d "
 		"g_FontHandelGothicSm=%p g_CharsHandelGothicSm=%p "

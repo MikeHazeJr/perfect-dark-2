@@ -51,6 +51,10 @@ void titleTickNoController(void);
 Gfx *titleRenderNoController(Gfx *gdl);
 void titleSetNextMode(s32 mode);
 void titleTick(void);
+
+/* Port: real-time skip guard — see port/src/titleguard.c */
+void titleGuardReset(void);
+s32 titleGuardCanSkip(u32 minMs);
 bool titleIsChangingMode(void);
 bool titleIsKeepingMode(void);
 void titleExit(void);

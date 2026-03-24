@@ -10,6 +10,7 @@
 #include "net/netmsg.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
+#include "net/netdistrib.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -526,6 +527,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 	netUpnpSetup(port);
 
 	lobbyInit();
+	netDistribInit();
 
 	return 0;
 }
@@ -707,7 +709,8 @@ s32 netStartClient(const char *addr)
 	enet_host_set_intercept_callback(g_NetHost, NULL);
 
 	// save the address since it appears to be valid
-	strncpy(g_NetLastJoinAddr, addr, NET_MAX_ADDR);
+	strncpy(g_NetLastJoinAddr, addr, NET_MAX_ADDR - 1);
+	g_NetLastJoinAddr[NET_MAX_ADDR - 1] = '\0';
 	netRecentServerAdd(addr);
 
 	// we'll use the whole array to store what we know of other clients
@@ -835,6 +838,7 @@ void netServerPreservePlayer(struct netclient *cl)
 	}
 
 	strncpy(pp->name, cl->settings.name, NET_MAX_NAME - 1);
+	pp->name[NET_MAX_NAME - 1] = '\0';
 	pp->playernum = cl->playernum;
 	pp->team = cl->settings.team;
 
@@ -1010,6 +1014,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
+			case CLC_LOBBY_START:  rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
+			case CLC_CATALOG_DIFF: rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1079,6 +1085,14 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
+			case SVC_LOBBY_LEADER:   rc = netmsgSvcLobbyLeaderRead(&cl->in, cl); break;
+			case SVC_LOBBY_STATE:    rc = netmsgSvcLobbyStateRead(&cl->in, cl); break;
+			/* D3R-9: Network Distribution */
+			case SVC_CATALOG_INFO:    rc = netmsgSvcCatalogInfoRead(&cl->in, cl); break;
+			case SVC_DISTRIB_BEGIN:   rc = netmsgSvcDistribBeginRead(&cl->in, cl); break;
+			case SVC_DISTRIB_CHUNK:   rc = netmsgSvcDistribChunkRead(&cl->in, cl); break;
+			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
+			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1333,6 +1347,11 @@ void netEndFrame(void)
 		}
 	}
 
+	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
+	if (g_NetMode == NETMODE_SERVER) {
+		netDistribServerTick();
+	}
+
 	// send position updates
 	netFlushSendBuffers();
 
@@ -1564,7 +1583,8 @@ void netRecentServerAdd(const char *addr)
 	}
 
 	memset(srv, 0, sizeof(*srv));
-	strncpy(srv->addr, addr, NET_MAX_ADDR);
+	strncpy(srv->addr, addr, NET_MAX_ADDR - 1);
+	srv->addr[NET_MAX_ADDR - 1] = '\0';
 }
 
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
@@ -1595,6 +1615,7 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 			char *hostname = netbufReadStr(&buf);
 			if (hostname) {
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
+				srv->hostname[NET_MAX_NAME - 1] = '\0';
 			}
 			srv->lastresponse = g_NetTick;
 			srv->online = true;

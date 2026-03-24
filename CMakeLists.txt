@@ -121,7 +121,16 @@ if((VERSION_BRANCH STREQUAL "") OR (VERSION_BRANCH STREQUAL "HEAD"))
   set(VERSION_BRANCH "port-custom")
 endif()
 
-message(STATUS "Version: ${VERSION_ROMID}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
+# Semantic version (D13 Update System)
+# Version is Major.Minor.Revision. Channel (stable/dev) is determined by the
+# GitHub release prerelease flag, not by the version number itself.
+set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
+set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
+set(VERSION_SEM_PATCH 1 CACHE STRING "Semantic version revision")
+
+set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
+
+message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
 
@@ -169,6 +178,10 @@ if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   add_compile_options(-Og)
 endif()
 
+# Debug info — explicit -g ensures DWARF symbols are embedded regardless
+# of CMAKE_BUILD_TYPE. Without this, addr2line returns ?? on MinGW.
+add_compile_options(-g)
+
 # Common CFLAGS
 add_compile_options(
   -fno-inline-functions
@@ -211,24 +224,80 @@ endif()
 
 set(LIBS )
 
-# SDL2
+# SDL2 -- static on Windows so no SDL2.dll is needed at runtime
+# MSYS2: pacman -S mingw-w64-x86_64-SDL2
 find_package(SDL2 REQUIRED)
 if(NINTENDO_SWITCH)
   if(NOT SDL2_LIBRARY OR NOT SDL2_INCLUDE_DIR)
-    # sometimes FindSDL2 just wants us to suffer and does not set these
     set(SDL2_LIBRARY "SDL2")
     set(SDL2_INCLUDE_DIR "${DEVKITPRO}/portlibs/switch/include/SDL2")
   endif()
 endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
-list(APPEND LIBS "${SDL2_LIBRARY}")
+set(_msys_lib "C:/msys64/mingw64/lib")
+if(WIN32)
+  # Direct file check for static .a (find_library can resolve to .dll.a stubs)
+  if(EXISTS "${_msys_lib}/libSDL2.a" AND EXISTS "${_msys_lib}/libSDL2main.a")
+    message(STATUS "SDL2: Static linking via ${_msys_lib}/libSDL2.a")
+    list(APPEND LIBS mingw32 "${_msys_lib}/libSDL2main.a" "${_msys_lib}/libSDL2.a")
+    list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm)
+  elseif(SDL2_INCLUDE_DIR)
+    get_filename_component(_sdl2_lib "${SDL2_INCLUDE_DIR}/../lib" ABSOLUTE)
+    if(EXISTS "${_sdl2_lib}/libSDL2.a" AND EXISTS "${_sdl2_lib}/libSDL2main.a")
+      message(STATUS "SDL2: Static linking via ${_sdl2_lib}/libSDL2.a")
+      list(APPEND LIBS mingw32 "${_sdl2_lib}/libSDL2main.a" "${_sdl2_lib}/libSDL2.a")
+      list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm)
+    else()
+      message(WARNING "SDL2: No libSDL2.a at ${_sdl2_lib} or ${_msys_lib}, falling back to dynamic")
+      list(APPEND LIBS "${SDL2_LIBRARY}")
+    endif()
+  else()
+    message(WARNING "SDL2: Static .a not found, falling back to dynamic (will need SDL2.dll)")
+    list(APPEND LIBS "${SDL2_LIBRARY}")
+  endif()
+else()
+  list(APPEND LIBS "${SDL2_LIBRARY}")
+endif()
 
-# ZLib
+# ZLib -- static on Windows so no zlib1.dll is needed at runtime
+# MSYS2: pacman -S mingw-w64-x86_64-zlib
 find_package(ZLIB REQUIRED)
 if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
 endif()
-list(APPEND LIBS "${ZLIB_LIBRARY}")
+if(WIN32)
+  if(EXISTS "${_msys_lib}/libz.a")
+    message(STATUS "ZLIB: Static linking via ${_msys_lib}/libz.a")
+    list(APPEND LIBS "${_msys_lib}/libz.a")
+  elseif(ZLIB_INCLUDE_DIR AND EXISTS "${ZLIB_INCLUDE_DIR}/../lib/libz.a")
+    get_filename_component(_z_a "${ZLIB_INCLUDE_DIR}/../lib/libz.a" ABSOLUTE)
+    message(STATUS "ZLIB: Static linking via ${_z_a}")
+    list(APPEND LIBS "${_z_a}")
+  else()
+    message(WARNING "ZLIB: No libz.a at ${_msys_lib}, falling back to dynamic (will need zlib1.dll)")
+    list(APPEND LIBS "${ZLIB_LIBRARY}")
+  endif()
+else()
+  list(APPEND LIBS "${ZLIB_LIBRARY}")
+endif()
+
+# libcurl -- dynamic linking on Windows (ships libcurl-4.dll with the game).
+# Static linking of curl + OpenSSL + 30 transitive deps causes the Windows GDI
+# subsystem to initialize before the GPU's OpenGL ICD, resulting in GL 1.1
+# fallback. Dynamic linking avoids this entirely and curl handles its own SSL
+# via the system-installed OpenSSL DLLs or Windows Schannel.
+# MSYS2: pacman -S mingw-w64-x86_64-curl
+find_package(CURL REQUIRED)
+if(CURL_INCLUDE_DIRS)
+  include_directories(SYSTEM "${CURL_INCLUDE_DIRS}")
+elseif(CURL_INCLUDE_DIR)
+  include_directories(SYSTEM "${CURL_INCLUDE_DIR}")
+endif()
+if(CURL_LIBRARIES)
+  list(APPEND LIBS "${CURL_LIBRARIES}")
+elseif(CURL_LIBRARY)
+  list(APPEND LIBS "${CURL_LIBRARY}")
+endif()
 
 # GL
 if(NOT GL_LIBRARY)
@@ -316,8 +385,11 @@ set(SRC_LIB
 )
 list(PREPEND SRC_LIB "${CMAKE_SOURCE_DIR}")
 
-# Exclude server_main.c from client sources (it has its own main/globals)
+# Exclude server-only files from client sources (they have their own main/globals/stubs)
 list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_main\\.c$")
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_stubs\\.c$")
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_bridge\\.c$")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*/server_gui\\.cpp$")
 
 set(SRC
   ${SRC_GAME}
@@ -330,7 +402,7 @@ set(SRC
   ${SRC_LIB}
 )
 
-if(WIN32)
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
   list(APPEND SRC "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
 endif()
 
@@ -347,7 +419,7 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game client target
 
-set(BIN_NAME "pd${BIN_REGION}.${TARGET_ARCH}")
+set(BIN_NAME "PerfectDark")
 add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})
@@ -356,7 +428,7 @@ if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-# Dedicated server target — MINIMAL source list, decoupled from game rendering.
+# Dedicated server target -- MINIMAL source list, decoupled from game rendering.
 # Only includes: networking, system, filesystem, server GUI, and stubs.
 
 file(GLOB SRC_SERVER_MINIUPNPC "${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src/*.c")
@@ -365,48 +437,62 @@ set(SRC_SERVER
   # Server entry point + comprehensive stubs for ALL game dependencies
   ${CMAKE_SOURCE_DIR}/port/src/server_main.c
   ${CMAKE_SOURCE_DIR}/port/src/server_stubs.c
+  ${CMAKE_SOURCE_DIR}/port/src/server_bridge.c
   ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
 
-  # Core networking ONLY (not netmenu.c — that's client UI)
+  # Core networking ONLY (not netmenu.c -- that's client UI)
   ${CMAKE_SOURCE_DIR}/port/src/net/net.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netmsg.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netupnp.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netdistrib.c
+
+  # Asset catalog -- server needs it to enumerate/serve mod components (D3R-9)
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
 
   # UPnP library
   ${SRC_SERVER_MINIUPNPC}
 
   # Minimal system (no pdsched, no console, no mpsetups, no romdata,
-  # no modmgr, no libultra — all stubbed in server_stubs.c)
+  # no modmgr, no libultra -- all stubbed in server_stubs.c)
   ${CMAKE_SOURCE_DIR}/port/src/system.c
   ${CMAKE_SOURCE_DIR}/port/src/config.c
   ${CMAKE_SOURCE_DIR}/port/src/fs.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/crash.c
 
-  # Server GUI (ImGui, SDL2, OpenGL — self-contained)
+  # Server GUI (ImGui, SDL2, OpenGL -- self-contained)
   ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c
 
   # ENet (external library)
   ${CMAKE_SOURCE_DIR}/port/external/enet.c
+
+  # Update system (D13) -- server has its own update path + --check-update CLI
+  ${CMAKE_SOURCE_DIR}/port/src/updater.c
+  ${CMAKE_SOURCE_DIR}/port/src/sha256.c
+  ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
+
+  # Connect code (IP:port ↔ word-based codes)
+  ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
 
 # ImGui sources for server GUI
 file(GLOB SRC_SERVER_IMGUI "${CMAKE_SOURCE_DIR}/port/fast3d/imgui/*.cpp")
 list(APPEND SRC_SERVER ${SRC_SERVER_IMGUI})
 
-if(WIN32)
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
   list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
 endif()
 
-set(SERVER_BIN_NAME "pd-server.${TARGET_ARCH}")
+set(SERVER_BIN_NAME "PerfectDarkServer")
 add_executable(pd-server ${SRC_SERVER})
 add_dependencies(pd-server pd_headers)
 target_link_libraries(pd-server ${LIBS})
 set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
-# Server defines — used by shared headers
+# Server defines -- used by shared headers
 target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
 
 # Additional commands for specific platforms.
@@ -417,4 +503,44 @@ if(NINTENDO_SWITCH)
     COMMAND aarch64-none-elf-strip -o ${CMAKE_BINARY_DIR}/${BIN_NAME}.stripped.elf ${CMAKE_BINARY_DIR}/${BIN_NAME}.elf
     COMMAND elf2nro ${CMAKE_BINARY_DIR}/${BIN_NAME}.stripped.elf ${CMAKE_BINARY_DIR}/${BIN_NAME}.nro --icon=${CMAKE_SOURCE_DIR}/dist/nswitch/icon.jpg --nacp=${BIN_NAME}.nacp
   )
+endif()
+
+# Windows: copy required runtime DLLs next to the executables after build.
+# Release packaging (release.ps1) handles DLLs separately for distribution.
+if(WIN32)
+  get_filename_component(_MINGW_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
+  set(_RUNTIME_DLLS
+    "libcurl-4.dll"
+    # libcurl transitive dependencies (MSYS2 MinGW64 dynamic curl):
+    "libnghttp2-14.dll"
+    "libnghttp3-9.dll"
+    "libidn2-0.dll"
+    "libbrotlidec.dll"
+    "libbrotlicommon.dll"
+    "libpsl-5.dll"
+    "libssh2-1.dll"
+    "libngtcp2-16.dll"
+    "libngtcp2_crypto_ossl-0.dll"
+    "libzstd.dll"
+    "libssl-3-x64.dll"
+    "libcrypto-3-x64.dll"
+    "libunistring-5.dll"
+    "libintl-8.dll"
+    "libiconv-2.dll"
+    "zlib1.dll"
+  )
+  foreach(_dll ${_RUNTIME_DLLS})
+    if(EXISTS "${_MINGW_BIN}/${_dll}")
+      add_custom_command(TARGET pd POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd>"
+        COMMENT "Copying ${_dll} to client build output")
+      add_custom_command(TARGET pd-server POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd-server>"
+        COMMENT "Copying ${_dll} to server build output")
+    else()
+      message(WARNING "${_dll} not found in ${_MINGW_BIN} -- game will not run without it")
+    endif()
+  endforeach()
 endif()

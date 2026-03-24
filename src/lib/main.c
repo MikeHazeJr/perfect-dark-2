@@ -24,6 +24,7 @@
 #include "game/stubs/game_00b200.h"
 #include "game/challenge.h"
 #include "game/title.h"
+#include "audio.h"
 #include "game/pdmode.h"
 #include "game/objectives.h"
 #include "game/endscreen.h"
@@ -811,6 +812,7 @@ void mainProc(void)
 	mainInit();
 	rdpInit();
 	sndInit();
+	audioNotifyEngineReady(); /* Port: safe to write volumes now that sndInit is done */
 
 	while (true) {
 		mainLoop();
@@ -1024,15 +1026,15 @@ void mainLoop(void)
 			g_MpSetup.chrslots = 1;
 
 			if (numplayers >= 2) {
-				g_MpSetup.chrslots |= 1 << 1;
+				g_MpSetup.chrslots |= 1u << 1;
 			}
 
 			if (numplayers >= 3) {
-				g_MpSetup.chrslots |= 1 << 2;
+				g_MpSetup.chrslots |= 1u << 2;
 			}
 
 			if (numplayers >= 4) {
-				g_MpSetup.chrslots |= 1 << 3;
+				g_MpSetup.chrslots |= 1u << 3;
 			}
 
 			g_MpSetup.stagenum = g_StageNum;

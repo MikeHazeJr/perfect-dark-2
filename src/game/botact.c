@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -267,6 +268,15 @@ bool botactShootFarsight(struct chrdata *chr, s32 arg1, struct coord *vector, st
 					}
 
 					chrEmitSparks(oppchr, oppprop, hitpart, &oppprop->pos, vector, chr);
+
+					/* Combat debug: bot hit an opponent */
+					sysLogPrintf(LOG_NOTE, "COMBAT: BOT_HIT attacker_pos=(%.0f,%.0f,%.0f) "
+						"target=%s pos=(%.0f,%.0f,%.0f) dmg=%.2f weapon=%d",
+						chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z,
+						oppprop->type == PROPTYPE_PLAYER ? "PLAYER" : "CHR",
+						oppprop->pos.x, oppprop->pos.y, oppprop->pos.z,
+						damage, gset.weaponnum);
+
 					func0f0341dc(oppchr, damage, vector, &gset, chr->prop, HITPART_GENERAL, oppprop, node, model, side, 0);
 				}
 			}

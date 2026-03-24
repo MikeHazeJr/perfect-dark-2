@@ -4,6 +4,11 @@
  * Renders as a persistent overlay when in a network session (CLSTATE_LOBBY).
  * NOT tied to any specific PD dialog — works for Combat Sim, Co-op, Counter-Op.
  *
+ * Architecture: Dedicated-server-only model.
+ * All players are clients connected to a dedicated server. The first player
+ * to join becomes the lobby leader and can choose the game mode.
+ * Players are identified by their Agent name (from their save profile).
+ *
  * Called from pdguiLobbyRender() in pdgui_lobby.cpp.
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
@@ -19,6 +24,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -36,8 +42,11 @@ s32 netDisconnect(void);
 #define NETMODE_SERVER 1
 #define NETMODE_CLIENT 2
 
-#define CLSTATE_LOBBY 3
-#define CLSTATE_GAME  4
+#define CLSTATE_DISCONNECTED 0
+#define CLSTATE_CONNECTING   1
+#define CLSTATE_AUTH         2
+#define CLSTATE_LOBBY        3
+#define CLSTATE_GAME         4
 
 /* Lobby state */
 void lobbyUpdate(void);
@@ -51,21 +60,28 @@ struct lobbyplayer_view {
     u8 headnum;
     u8 bodynum;
     u8 team;
-    char name[16];
+    char name[32];  /* matches LOBBY_NAME_LEN */
     s32 isLocal;
     s32 state;
 };
 s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 
-/* Game mode triggers */
+/* Game mode constants */
+#define GAMEMODE_MP   0
+#define GAMEMODE_COOP 1
+#define GAMEMODE_ANTI 2
+
+/* Menu stack (for co-op config dialog) */
 void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 
-typedef s32 MenuItemHandlerResult;
-#define MENUOP_SET 6
-MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
-
 extern struct menudialogdef g_NetCoopHostMenuDialog;
+
+/* Bridge function: send CLC_LOBBY_START to the dedicated server */
+s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
+
+/* Default MP stage (Complex) for quick-start Combat Sim */
+#define STAGE_MP_COMPLEX 0x1f
 
 /* Character accessor */
 char *mpGetBodyName(u8 mpbodynum);
@@ -73,6 +89,9 @@ u32 mpGetNumBodies(void);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
+
+/* Agent name */
+const char *mpPlayerConfigGetName(s32 playernum);
 
 } /* extern "C" */
 
@@ -84,14 +103,14 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 {
     lobbyUpdate();
 
-    float scale = (float)winH / 480.0f;
-    float dialogW = 520.0f * scale;
-    float dialogH = 420.0f * scale;
-    float dialogX = ((float)winW - dialogW) * 0.5f;
-    float dialogY = ((float)winH - dialogH) * 0.5f;
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
 
-    float pdTitleH = 26.0f * scale;
-    s32 mode = netGetMode();
+    float pdTitleH = pdguiScale(26.0f);
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
     ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
@@ -120,14 +139,14 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                           IM_COL32(8, 8, 16, 255));
     }
 
-    const char *title = (mode == NETMODE_SERVER) ? "Network Lobby (Host)" : "Network Lobby";
-    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, "Lobby", 1);
 
     /* Title */
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();
         pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
                           dialogW - 16.0f, pdTitleH - 4.0f);
+        const char *title = "Lobby";
         ImVec2 titleSize = ImGui::CalcTextSize(title);
         dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
                            dialogY + (pdTitleH - titleSize.y) * 0.5f),
@@ -136,28 +155,18 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    /* Connection info */
-    if (mode == NETMODE_SERVER) {
-        const char *ip = netGetPublicIP();
-        u32 port = netGetServerPort();
-        if (ip && ip[0]) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Server: %s:%u", ip, port);
-        } else {
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Server: port %u (UPnP pending...)", port);
-        }
-    } else {
-        ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Connected to server");
-    }
+    /* Connection status */
+    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Connected to dedicated server");
 
     ImGui::Separator();
 
     /* Two-column layout */
     float pad = 8.0f * scale;
-    float leftW = dialogW * 0.45f;
-    float rightW = dialogW * 0.45f;
-    float contentH = dialogH - pdTitleH - 80.0f * scale;
+    float leftW = dialogW * 0.50f;
+    float rightW = dialogW * 0.40f;
+    float contentH = dialogH - pdTitleH - 100.0f * scale;
 
-    /* Left: Player list */
+    /* ---- Left column: Player list with Agent names ---- */
     ImGui::BeginChild("##lobby_players_col", ImVec2(leftW, contentH), true);
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Players");
     ImGui::Separator();
@@ -170,6 +179,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
         ImGui::PushID(i);
 
+        /* Agent name with role indicators */
         char label[64];
         const char *suffix = "";
         if (pv.isLocal && pv.isLeader) suffix = " (you, leader)";
@@ -177,6 +187,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         else if (pv.isLeader) suffix = " (leader)";
         snprintf(label, sizeof(label), "%s%s", pv.name, suffix);
 
+        /* Color code: leader=gold, local=green, others=white */
         if (pv.isLeader) {
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
         } else if (pv.isLocal) {
@@ -185,55 +196,95 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
             ImGui::Text("%s", label);
         }
 
+        /* Character name in muted text */
         if (pv.bodynum < (u8)mpGetNumBodies()) {
             const char *bodyName = mpGetBodyName(pv.bodynum);
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), " [%s]", bodyName ? bodyName : "?");
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), " [%s]",
+                               bodyName ? bodyName : "?");
+        }
+
+        /* Connection state indicator */
+        const char *stateStr = "";
+        ImVec4 stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
+        switch (pv.state) {
+            case CLSTATE_CONNECTING:
+                stateStr = "connecting...";
+                stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
+                break;
+            case CLSTATE_AUTH:
+                stateStr = "authenticating...";
+                stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
+                break;
+            case CLSTATE_LOBBY:
+                stateStr = "ready";
+                stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
+                break;
+            case CLSTATE_GAME:
+                stateStr = "in game";
+                stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
+                break;
+        }
+        if (stateStr[0]) {
+            ImGui::SameLine();
+            ImGui::TextColored(stateColor, "  %s", stateStr);
         }
 
         ImGui::PopID();
     }
 
+    if (playerCount == 0) {
+        ImGui::TextDisabled("Waiting for players...");
+    }
+
     ImGui::EndChild();
     ImGui::SameLine(0, pad);
 
-    /* Right: Game settings (leader controls) */
+    /* ---- Right column: Game mode selection (leader controls) ---- */
     ImGui::BeginChild("##lobby_settings_col", ImVec2(rightW, contentH), true);
 
     bool isLeader = lobbyIsLocalLeader() != 0;
 
     if (isLeader) {
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Game Settings");
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Game Setup");
     } else {
-        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Game Settings (leader controls)");
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 0.9f), "Game Setup");
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.7f), "(Leader controls)");
     }
     ImGui::Separator();
 
     if (!isLeader) ImGui::BeginDisabled();
 
     ImGui::Spacing();
-    ImGui::Text("Start a game mode:");
+    ImGui::Text("Choose a game mode:");
     ImGui::Spacing();
 
     float btnW = rightW - ImGui::GetStyle().WindowPadding.x * 2;
-    float btnH = 30.0f * scale;
+    float btnH = 32.0f * scale;
 
     if (ImGui::Button("Combat Simulator", ImVec2(btnW, btnH))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
-        menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);
+        /* Send CLC_LOBBY_START to the dedicated server.
+         * Uses Complex as default stage. Server will load and broadcast
+         * SVC_STAGE_START to all clients. */
+        netLobbyRequestStart(GAMEMODE_MP, STAGE_MP_COMPLEX, 0);
     }
 
     ImGui::Spacing();
 
     if (ImGui::Button("Co-op Campaign", ImVec2(btnW, btnH))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
+        /* Push co-op config dialog for mission/difficulty selection.
+         * The config dialog's "Start" button sends CLC_LOBBY_START
+         * with the chosen stage and difficulty. */
         menuPushDialog(&g_NetCoopHostMenuDialog);
     }
 
     ImGui::Spacing();
 
-    if (ImGui::Button("Counter-Op", ImVec2(btnW, btnH))) {
+    if (ImGui::Button("Counter-Operative", ImVec2(btnW, btnH))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
+        /* Counter-op uses the same config dialog as co-op */
         menuPushDialog(&g_NetCoopHostMenuDialog);
     }
 
@@ -241,16 +292,22 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     ImGui::EndChild();
 
-    /* Footer */
+    /* ---- Footer ---- */
     ImGui::Separator();
     if (isLeader) {
-        ImGui::TextDisabled("You are the lobby leader. Choose a game mode to configure and start.");
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.5f, 0.9f),
+                           "You are the lobby leader. Choose a game mode to start.");
     } else {
         ImGui::TextDisabled("Waiting for the lobby leader to start a game...");
     }
 
-    /* B = disconnect */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+    ImGui::Spacing();
+
+    /* Disconnect button */
+    float discBtnW = 120.0f * scale;
+    ImGui::SetCursorPosX((dialogW - discBtnW) * 0.5f);
+    if (ImGui::Button("Disconnect", ImVec2(discBtnW, 26.0f * scale)) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         netDisconnect();

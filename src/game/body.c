@@ -200,18 +200,28 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| bodymodeldef->skel == NULL
 		|| bodymodeldef->rootnode == NULL
 		|| bodymodeldef->numparts <= 0
-		|| bodymodeldef->numparts > 500
-		|| bodymodeldef->scale <= 0.0f
-		|| bodymodeldef->scale > 100.0f) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: invalid bodymodeldef for bodynum %d (file 0x%04x) "
-		             "ptr=%p skel=%p root=%p parts=%d scale=%.2f — skipping",
+		|| bodymodeldef->numparts > 500) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
+		             "ptr=%p skel=%p root=%p parts=%d — skipping",
 		             bodynum, g_HeadsAndBodies[bodynum].filenum,
 		             (void *)bodymodeldef,
 		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
 		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
-		             bodymodeldef ? bodymodeldef->numparts : -1,
-		             bodymodeldef ? bodymodeldef->scale : -1.0f);
+		             bodymodeldef ? bodymodeldef->numparts : -1);
 		return model;
+	}
+
+	/* Log modeldef scale for diagnostics. Values of 700-2000 are normal for
+	 * AllInOneMods replacement models — do NOT clamp. The previous clamp to
+	 * 1.0 destroyed model geometry, hit radii, and animation positions.
+	 * Only reject truly degenerate values (zero/negative). */
+	if (bodymodeldef->scale <= 0.0f) {
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) — setting to 1.0",
+		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum);
+		bodymodeldef->scale = 1.0f;
+	} else {
+		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale);
 	}
 
 	modelAllocateRwData(bodymodeldef);

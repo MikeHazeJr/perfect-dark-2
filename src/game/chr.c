@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "lib/sched.h"
 #include "constants.h"
+#include "system.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -1090,6 +1091,12 @@ void chrInit(struct prop *prop, u8 *ailist)
 	}
 
 	prop->chr = chr;
+
+	if (chr == NULL) {
+		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) - cannot allocate", g_NumChrSlots);
+		return;
+	}
+
 	chr->chrnum = chrsGetNextUnusedChrnum();
 	chrRegister(chr->chrnum, i);
 
@@ -1309,6 +1316,11 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 
 	chr = prop->chr;
 
+	if (chr == NULL) {
+		sysLogPrintf(LOG_ERROR, "chr0f020b14: chrInit failed (out of chr slots) - aborting");
+		return NULL;
+	}
+
 	modelSetAnim70(model, chr0f01f378);
 	model->chr = chr;
 	model->unk01 = 1;
@@ -1355,6 +1367,10 @@ struct prop *chrAllocate(struct model *model, struct coord *pos, RoomNum *rooms,
 
 	if (prop) {
 		prop = chr0f020b14(prop, model, pos, rooms, faceangle, ailist);
+
+		if (prop == NULL) {
+			return NULL;
+		}
 
 		if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
 			chrSetShield(prop->chr, 8);
@@ -4447,8 +4463,23 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 	struct coord spd0;
 	struct chrdata *chr = prop->chr;
 
+	/* Combat debug: log if chr is skipped entirely */
+	if ((chr->chrflags & CHRCFLAG_HIDDEN) || !(prop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
+		sysLogPrintf(LOG_VERBOSE, "COMBAT: chrTestHit SKIP chr=%p hidden=%d onscreen=%d",
+			(void *)chr, (chr->chrflags & CHRCFLAG_HIDDEN) != 0,
+			(prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) != 0);
+	}
+
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0 && (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
 		f32 radius = chrGetHitRadius(chr);
+
+		/* Combat diagnostic: log hit radius components so we can verify modeldef->scale */
+		if (chr->model && chr->model->definition) {
+			sysLogPrintf(LOG_VERBOSE, "COMBAT: chrGetHitRadius chr=%p modeldef_scale=%.4f "
+				"model_scale=%.4f effective=%.4f hitradius=%.4f",
+				(void *)chr, chr->model->definition->scale, chr->model->scale,
+				chr->model->definition->scale * chr->model->scale, radius);
+		}
 
 		if (prop->z - radius < shotdata->distance) {
 			struct model *model = chr->model;
@@ -4458,17 +4489,33 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 			struct hitthing sp88;
 			s32 sp84 = 0;
 			struct modelnode *sp80 = NULL;
-			Mtxf *rootmtx = modelGetRootMtx(model);
 			struct prop *next;
 			struct prop *child;
 			f32 sp70;
 			Mtxf *mtx;
 			f32 sp68;
 
+			/* Safety: modelGetRootMtx can return NULL or an invalid pointer
+			 * if model matrices aren't allocated yet (bot spawned but not
+			 * yet animated). Check model->matrices first. */
+			if (!model->matrices) {
+				return;
+			}
+
+			Mtxf *rootmtx = modelGetRootMtx(model);
+
 			if (func0f06b39c(&shotdata->gunpos2d, &shotdata->gundir2d, (struct coord *)rootmtx->m[3], radius)) {
 				spb8 = 1;
 				hitpart = 1;
 			}
+
+			/* Combat debug: log bounding sphere test result for this chr */
+			sysLogPrintf(LOG_VERBOSE, "COMBAT: chrTestHit chr=%p aibot=%d proppos=(%.0f,%.0f,%.0f) "
+				"modelpos=(%.0f,%.0f,%.0f) radius=%.1f bsphere=%s",
+				(void *)chr, chr->aibot != NULL,
+				prop->pos.x, prop->pos.y, prop->pos.z,
+				rootmtx->m[3][0], rootmtx->m[3][1], rootmtx->m[3][2],
+				radius, spb8 ? "HIT" : "MISS");
 
 			if (hitpart) {
 				if (chrGetShield(chr) > 0.0f) {
@@ -4582,6 +4629,14 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 		sp90[2] = hit->hitthing.pos.z;
 
 		shield = chrGetShield(chr);
+
+		/* Combat debug: player bullet hit a chr */
+		sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT chr=%p aibot=%d pos=(%.0f,%.0f,%.0f) "
+			"weapon=%d dmg=%.2f shield=%.2f hp=%.2f/%.2f hitpart=%d",
+			(void *)chr, chr->aibot != NULL,
+			prop->pos.x, prop->pos.y, prop->pos.z,
+			shotdata->gset.weaponnum, gsetGetDamage(&shotdata->gset),
+			shield, chr->damage, chr->maxdamage, hit->hitpart);
 
 		func0f0341dc(chr, gsetGetDamage(&shotdata->gset), &shotdata->gundir3d, &shotdata->gset,
 				g_Vars.currentplayer->prop, hit->hitpart, hit->prop, hit->bboxnode,
@@ -4926,6 +4981,14 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 		if (g_Vars.useperimshoot) {
 			chr->geo.radius = 15;
 		}
+
+		/* NOTE: POS_DESYNC diagnostic was here (Sessions 18-20) but removed.
+		 * chrUpdateGeometry is called from the collision system (cdCollectGeoForCyl)
+		 * for ALL nearby props during the player's walk tick, including bots whose
+		 * models may not yet have valid matrices. This is not a safe place to inspect
+		 * model root matrices. Position desync can still be detected in chrTestHit
+		 * (shot processing path) where PROPFLAG_ONTHISSCREENTHISTICK guarantees
+		 * valid model state. */
 
 		*start = (void *) &chr->geo;
 		*end = *start + sizeof(struct geocyl);

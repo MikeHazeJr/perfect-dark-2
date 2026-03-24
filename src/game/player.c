@@ -217,14 +217,73 @@ s32 g_NumDeathAnimations = 0;
  * chrs and room visibility. A shortlist of 4 pads is then created based on the
  * best pads, and a random pad is selected from the shortlist.
  *
- * @dangerous: If there are too many pads (24+) in the setup then array
- * overflows may occur.
+ * Arrays sized to MAX_MPCHRS (32) to support stock maps (max 21 pads)
+ * and future custom maps with up to 32 spawn points.
  */
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
-	u8 verybadpads[24];
-	u8 badpads[24];
-	f32 padsqdists[24];
+	u8 verybadpads[MAX_MPCHRS];
+	u8 badpads[MAX_MPCHRS];
+	f32 padsqdists[MAX_MPCHRS];
+
+	// PC: Guard against numpads == 0, which causes divide-by-zero at
+	// rngRandom() % numpads below. This happens on mod stages whose setup
+	// files have no valid intro data (so no INTROCMD_SPAWN populated
+	// g_SpawnPoints). Scan pads for the first one with a valid (non-negative)
+	// room number — pad 0 may be a non-player pad with room < 0, which causes
+	// CD queries to fail silently and leaves the player spawning in the void.
+	// Probe 8 directions for the nearest wall and face away from it.
+	if (numpads <= 0) {
+		struct pad fallbackpad;
+		s32 fallbackpadnum = 0;
+		static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
+		static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
+		f32 wallX = 0, wallZ = 0;
+		s32 wallCount = 0;
+		s32 dir;
+
+		{
+			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
+			s32 pi;
+			for (pi = 0; pi < maxpads && pi < 64; pi++) {
+				struct pad probePad;
+				padUnpack(pi, PADFIELD_ROOM, &probePad);
+				if (probePad.room >= 0) {
+					fallbackpadnum = pi;
+					break;
+				}
+			}
+		}
+		padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+		dstpos->x = fallbackpad.pos.x;
+		dstpos->y = fallbackpad.pos.y;
+		dstpos->z = fallbackpad.pos.z;
+		dstrooms[0] = fallbackpad.room;
+		dstrooms[1] = -1;
+
+		for (dir = 0; dir < 8; dir++) {
+			struct coord probe;
+			probe.x = dstpos->x + dirX[dir] * 200.0f;
+			probe.y = dstpos->y;
+			probe.z = dstpos->z + dirZ[dir] * 200.0f;
+
+			if (cdExamCylMove01(dstpos, &probe, 30, dstrooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
+				wallX += dirX[dir];
+				wallZ += dirZ[dir];
+				wallCount++;
+			}
+		}
+
+		sysLogPrintf(LOG_WARNING, "SPAWN: no spawn pads available, using pad %d fallback (room=%d, walls=%d)", fallbackpadnum, fallbackpad.room, wallCount);
+
+		if (wallCount > 0) {
+			// Return value goes through M_BADTAU - result, so the actual look
+			// direction becomes (sin(result), cos(result)). To face away from
+			// wall vector (wallX, wallZ), we need look = (-wallX, -wallZ).
+			return atan2f(-wallX, -wallZ);
+		}
+		return 0;
+	}
 
 	u8 stack1[0x10];
 	f32 xdiff;
@@ -493,7 +552,7 @@ f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *
 void playerStartNewLife(void)
 {
 	struct coord pos = {0, 0, 0};
-	RoomNum rooms[8];
+	RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 	f32 angle;
 	s32 *cmd = g_StageSetup.intro;
 	f32 groundy;
@@ -604,8 +663,9 @@ void playerStartNewLife(void)
 		if (cmd);
 		if (cmd);
 
-		if (g_Vars.antiplayernum < 0 || PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)) {
-			while (cmd[0] != INTROCMD_END) {
+		if (cmd && (g_Vars.antiplayernum < 0 || PLAYER_IS_NOT_ANTI(g_Vars.currentplayer))) {
+			s32 safety = 0;
+			while (cmd[0] != INTROCMD_END && ++safety < 10000) {
 				switch (cmd[0]) {
 				case INTROCMD_SPAWN:
 					cmd += 3;
@@ -721,6 +781,14 @@ void playerLoadDefaults(void)
 	} else {
 		g_Vars.currentplayer->bondhealth = 1;
 	}
+
+	sysLogPrintf(LOG_NOTE, "PLAYER_SPAWN: bondhealth=%.4f stageindex=%d mplay=%d normmplay=%d options=0x%08x onehitkills=%d",
+		g_Vars.currentplayer->bondhealth,
+		stageGetIndex(g_Vars.stagenum),
+		g_Vars.mplayerisrunning,
+		g_Vars.normmplayerisrunning,
+		g_Vars.mplayerisrunning ? g_MpSetup.options : 0,
+		g_Vars.mplayerisrunning ? (g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0 : 0);
 
 	g_Vars.currentplayer->oldhealth = 1;
 	g_Vars.currentplayer->oldarmour = 0;
@@ -1534,10 +1602,30 @@ void playerTickChrBody(void)
 
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
-			if (bodymodeldef == NULL) {
-				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL (multi) for bodynum=%d filenum=0x%04x",
+			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
+			 * missing file, etc.). If the player's configured body is broken,
+			 * fall back to the default combat body. NOTE: we no longer reject
+			 * models with bad scale here — body0f02ce8c will clamp the scale
+			 * instead of rejecting, preventing cascading failures. */
+			if (bodymodeldef == NULL
+				|| bodymodeldef->skel == NULL
+				|| bodymodeldef->rootnode == NULL
+				|| bodymodeldef->numparts <= 0
+				|| bodymodeldef->numparts > 500) {
+				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
 					bodynum, g_HeadsAndBodies[bodynum].filenum);
-				return;
+				bodynum = BODY_DARK_COMBAT;
+				headnum = HEAD_DARK_COMBAT;
+
+				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
+					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				}
+				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+
+				if (bodymodeldef == NULL) {
+					sysLogPrintf(LOG_WARNING, "PLAYER: fallback bodymodeldef also NULL — giving up");
+					return;
+				}
 			}
 
 			if (g_HeadsAndBodies[bodynum].unk00_01) {
@@ -1559,6 +1647,32 @@ void playerTickChrBody(void)
 		}
 
 		g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+
+		/* If body failed to load (corrupt modeldef, missing file, etc.),
+		 * try falling back to default combat body before giving up. */
+		if (g_Vars.currentplayer->model00d4 == NULL) {
+			sysLogPrintf(LOG_WARNING, "PLAYER: body0f02ce8c returned NULL for bodynum=%d, trying fallback BODY_DARK_COMBAT", bodynum);
+			bodynum = BODY_DARK_COMBAT;
+			headnum = HEAD_DARK_COMBAT;
+
+			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			}
+			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+
+			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
+				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+			}
+			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+
+			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+		}
+
+		if (g_Vars.currentplayer->model00d4 == NULL) {
+			sysLogPrintf(LOG_WARNING, "PLAYER: fallback body also failed — player will be invisible");
+			g_Vars.currentplayer->haschrbody = false;
+			return;
+		}
 
 		chr0f020b14(g_Vars.currentplayer->prop, g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms, turnangle, 0);

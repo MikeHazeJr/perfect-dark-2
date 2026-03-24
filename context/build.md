@@ -44,11 +44,14 @@ cmake --build build -- -j%NUMBER_OF_PROCESSORS%
 ## Important: Cannot Compile from Linux VM
 The build requires MSYS2/MinGW on Windows. The AI sandbox runs Linux and cannot compile this project. All compilation must be done by the user on their Windows machine.
 
+## Important: No GitHub Push Access from Linux VM
+The AI sandbox has READ-ONLY access to the Git repository (fetch/clone works, push does not). `gh` CLI is not authenticated here. All git push, tag deletion, release management, and GitHub operations that require write access must be done by the user on their Windows machine where `gh auth login` has been completed. Do NOT attempt to install or authenticate gh in the sandbox — it will fail. Instead, provide the user with ready-to-run commands for their PowerShell.
+
 ## Static Linking
 - `-static-libgcc` — prevents `libgcc_s_seh-1.dll` dependency (FIX-1)
 - `-static-libstdc++` — prevents libstdc++ DLL dependency
 - `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` — statically links libwinpthread (FIX-5)
-- **Still distributing as DLLs**: SDL2 (`libSDL2.dll`), zlib (`libz.dll`) — static linking deferred (TODO-1)
+- **SDL2, zlib, libcurl**: Now statically linked on Windows (no DLLs needed at runtime). CMakeLists.txt uses find_library to locate .a files in MSYS2 paths.
 
 ## Directory Structure
 ```
@@ -89,7 +92,7 @@ perfect_dark-mike/
 - **ENet**: Networking (statically linked)
 
 ## Known Issues
-- SDL2 and zlib still distributed as DLLs (TODO-1: investigate static linking)
+- None currently
 
 ## Session Fixes (Build-Related)
 - **FIX-1**: Added `-static-libgcc` to prevent DLL dependency

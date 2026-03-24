@@ -9,6 +9,8 @@
 #include "config.h"
 #include "system.h"
 #include "video.h"
+#include "versioninfo.h"
+#include "updateversion.h"
 
 extern s32 g_NetDedicated;
 
@@ -169,15 +171,15 @@ void videoEndFrame(void)
 				const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
 				if (ip && ip[0]) {
 					snprintf(titleBuf, sizeof(titleBuf),
-					         "PD2 Dedicated Server - %s:%u - %d/%d connected",
+					         "PD2 Server v" VERSION_STRING " - %s:%u - %d/%d connected",
 					         ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
 				} else {
 					snprintf(titleBuf, sizeof(titleBuf),
-					         "PD2 Dedicated Server - port %u - %d/%d connected",
+					         "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
 					         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
 				}
 			} else {
-				snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 - Client (v0.0.2)");
+				snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 - v" VERSION_STRING);
 			}
 			videoSetWindowTitle(titleBuf);
 		}

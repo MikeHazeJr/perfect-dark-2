@@ -20,8 +20,13 @@
 #include "config.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 #include "mod.h"
 #include "data.h"
+
+/* Forward declaration — defined in src/lib/main.c */
+extern void mainChangeToStage(s32 stagenum);
+#define MODMGR_STAGE_TITLE 0x5a  /* STAGE_TITLE */
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -40,6 +45,9 @@ static bool g_ModDirty = false;
 // Path buffer for file resolution
 static char g_ModPathBuf[FS_MAXPATH + 1];
 
+// Resolved mods directory path (set by modmgrScanDirectory)
+static char g_ModsDirPath[FS_MAXPATH + 1] = "";
+
 // ---------------------------------------------------------------------------
 // Shadow arrays for mod-added assets (D3b)
 // ---------------------------------------------------------------------------
@@ -54,13 +62,40 @@ static s32            g_ModHeadCount = 0;
 static struct mparena g_ModArenas[MODMGR_MAX_MOD_ARENAS];
 static s32            g_ModArenaCount = 0;
 
+// ---------------------------------------------------------------------------
+// Catalog-backed accessor caches (D3R-5 rewire)
+// ---------------------------------------------------------------------------
+// The Asset Catalog is the single source of truth for arena, body, and head
+// data. These caches convert catalog entries back into game structs for ABI
+// compatibility with 62+ existing callsites. Rebuild lazily on dirty flag.
+
+#define MODMGR_MAX_CATALOG_ARENAS 256
+#define MODMGR_MAX_CATALOG_BODIES 256
+#define MODMGR_MAX_CATALOG_HEADS  256
+
+static struct mparena s_CatalogArenas[MODMGR_MAX_CATALOG_ARENAS];
+static s32            s_CatalogArenaCount = 0;
+
+static struct mpbody  s_CatalogBodies[MODMGR_MAX_CATALOG_BODIES];
+static s32            s_CatalogBodyCount = 0;
+
+static struct mphead  s_CatalogHeads[MODMGR_MAX_CATALOG_HEADS];
+static s32            s_CatalogHeadCount = 0;
+
+static s32            s_CatalogCacheDirty = 1; // dirty at startup
+
+static void modmgrRebuildArenaCache(void);
+static void modmgrRebuildBodyCache(void);
+static void modmgrRebuildHeadCache(void);
+static void modmgrRebuildAllCaches(void);
+
 // Bundled mod IDs (these are the 5 original mods shipped with the game)
 static const char *g_BundledModIds[] = {
 	"allinone",
 	"gex",
 	"kakariko",
-	"darknoon",
-	"goldfinger64",
+	"dark_noon",
+	"goldfinger_64",
 };
 #define NUM_BUNDLED_MODS (sizeof(g_BundledModIds) / sizeof(g_BundledModIds[0]))
 
@@ -390,10 +425,13 @@ static void modmgrCreateLegacyManifest(modinfo_t *mod)
 
 	// Prettify name from ID
 	strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
+	mod->name[MODMGR_NAME_LEN - 1] = '\0';
 	mod->name[0] = toupper((unsigned char)mod->name[0]);
 
-	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN);
-	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN);
+	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN - 1);
+	mod->version[MODMGR_VERSION_LEN - 1] = '\0';
+	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN - 1);
+	mod->author[MODMGR_AUTHOR_LEN - 1] = '\0';
 	mod->description[0] = '\0';
 	mod->has_modjson = false;
 
@@ -438,14 +476,34 @@ static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
 
-	// Try both "mods" (new layout) and "build/mods" (legacy layout) relative to exe
-	const char *modsdir = fsFullPath(MODMGR_MODS_DIR);
+	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
+	// mods live at ./mods/ relative to the working directory. Try CWD first,
+	// then exe dir, then the base dir fallback.
+	const char *modsdir = NULL;
+	DIR *dir = NULL;
+	const char *candidates[] = {
+		"./" MODMGR_MODS_DIR,
+		fsFullPath("$E/" MODMGR_MODS_DIR),
+		fsFullPath(MODMGR_MODS_DIR),
+	};
 
-	DIR *dir = opendir(modsdir);
+	for (s32 i = 0; i < 3; i++) {
+		dir = opendir(candidates[i]);
+		if (dir) {
+			modsdir = candidates[i];
+			break;
+		}
+	}
+
 	if (!dir) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory '%s'", modsdir);
+		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried ./%s, $E/%s, base/%s)",
+			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
 		return;
 	}
+
+	// Store resolved path for assetCatalogScanComponents() to use later
+	strncpy(g_ModsDirPath, modsdir, sizeof(g_ModsDirPath) - 1);
+	g_ModsDirPath[sizeof(g_ModsDirPath) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);
 
@@ -487,7 +545,8 @@ static void modmgrScanDirectory(void)
 		// Initialize mod entry
 		modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
 		memset(mod, 0, sizeof(modinfo_t));
-		strncpy(mod->dirpath, fullpath, FS_MAXPATH);
+		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
+		mod->dirpath[FS_MAXPATH - 1] = '\0';
 		mod->has_modconfig = has_modconfig;
 
 		if (has_modjson) {
@@ -731,6 +790,9 @@ void modmgrReload(void)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: reload complete");
 
+	// Invalidate catalog-backed caches so accessors pick up new state
+	modmgrCatalogChanged();
+
 	// TODO (D3e): flush texture cache, return to title
 }
 
@@ -777,11 +839,120 @@ s32 modmgrIsDirty(void)
 	return g_ModDirty;
 }
 
+// ---------------------------------------------------------------------------
+// Component-level enable state (D3R-6)
+// ---------------------------------------------------------------------------
+// State file: mods/.modstate — one disabled component ID per line.
+// Lines beginning with '#' are comments.  Blank lines are ignored.
+// Only non-bundled (mod) entries are ever written here; base game entries
+// are always enabled and are never listed.
+// ---------------------------------------------------------------------------
+
+// Iteration callback: writes disabled non-bundled entry IDs to a FILE*.
+typedef struct { FILE *f; s32 *count; } SaveStateCtx;
+
+static void saveStateCallback(const asset_entry_t *entry, void *userdata)
+{
+	SaveStateCtx *ctx = (SaveStateCtx *)userdata;
+	if (!entry->enabled && !entry->bundled) {
+		fprintf(ctx->f, "%s\n", entry->id);
+		(*ctx->count)++;
+	}
+}
+
+void modmgrSaveComponentState(void)
+{
+	const char *modsdir = modmgrGetModsDir();
+	if (!modsdir) {
+		sysLogPrintf(LOG_NOTE, "modmgr: no mods dir, skipping component state save");
+		return;
+	}
+
+	char statepath[FS_MAXPATH + 1];
+	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
+
+	FILE *f = fopen(statepath, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not write component state to %s", statepath);
+		return;
+	}
+
+	fprintf(f, "# mods/.modstate -- disabled component IDs\n");
+	fprintf(f, "# Written by Mod Manager. One ID per line. # = comment.\n");
+
+	s32 count = 0;
+	SaveStateCtx ctx = { f, &count };
+
+	// Iterate all user-manageable asset types (non-bundled entries only matter)
+	static const asset_type_e types[] = {
+		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
+		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
+	};
+	for (s32 i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
+		assetCatalogIterateByType(types[i], saveStateCallback, &ctx);
+	}
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "modmgr: saved component state (%d disabled)", count);
+}
+
+void modmgrLoadComponentState(void)
+{
+	const char *modsdir = modmgrGetModsDir();
+	if (!modsdir) {
+		return;
+	}
+
+	char statepath[FS_MAXPATH + 1];
+	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
+
+	FILE *f = fopen(statepath, "r");
+	if (!f) {
+		return;  /* no .modstate file = everything enabled, that's fine */
+	}
+
+	char line[CATALOG_ID_LEN + 4];
+	s32 count = 0;
+	while (fgets(line, sizeof(line), f)) {
+		/* Strip trailing newline/carriage-return */
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+			line[--len] = '\0';
+		}
+
+		/* Skip comments and blank lines */
+		if (line[0] == '#' || line[0] == '\0') {
+			continue;
+		}
+
+		assetCatalogSetEnabled(line, 0);
+		count++;
+	}
+
+	fclose(f);
+	if (count > 0) {
+		sysLogPrintf(LOG_NOTE, "modmgr: loaded component state (%d disabled from .modstate)", count);
+	}
+}
+
 void modmgrApplyChanges(void)
 {
+	sysLogPrintf(LOG_NOTE, "modmgr: applying changes...");
+
+	/* Persist catalog enable state to .modstate (read at next scan) */
+	modmgrSaveComponentState();
+
+	/* Persist legacy modinfo enables */
 	modmgrSaveConfig();
-	modmgrReload();
-	// TODO (D3e): trigger return to title screen
+
+	/* Invalidate catalog-backed caches so accessors pick up new state */
+	modmgrCatalogChanged();
+
+	/* Return to title screen — clean slate for the new mod configuration */
+	mainChangeToStage(MODMGR_STAGE_TITLE);
+
+	sysLogPrintf(LOG_NOTE, "modmgr: apply complete — returning to title");
 }
 
 // ---------------------------------------------------------------------------
@@ -925,26 +1096,181 @@ const char *modmgrGetModDir(s32 index)
 }
 
 // ---------------------------------------------------------------------------
-// Public API: Dynamic asset table accessors (D3b)
+// Public API: Dynamic asset table accessors (catalog-backed, D3R-5)
 // ---------------------------------------------------------------------------
-// These provide unified access to base game arrays + mod shadow arrays.
-// Index < base count → base array; index >= base count → mod shadow array.
+// The Asset Catalog is the single source of truth. These accessors read from
+// cache arrays populated by catalog iteration, falling back to legacy static
+// arrays only during early startup before the catalog is initialized.
+// All caches rebuild lazily when s_CatalogCacheDirty is set.
 
-// ---- Bodies ----
+static void modmgrEnsureCaches(void)
+{
+	if (!s_CatalogCacheDirty) return;
+	modmgrRebuildAllCaches();
+}
+
+// ---- Body collect callback + rebuild ----
+
+static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	s32 idx = entry->runtime_index;
+
+	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_BODIES) {
+		sysLogPrintf(LOG_WARNING, "modmgr: body \"%s\" runtime_index %d out of cache range",
+			entry->id, idx);
+		return;
+	}
+
+	struct mpbody *b = &s_CatalogBodies[idx];
+	b->bodynum = entry->ext.body.bodynum;
+	b->name = entry->ext.body.name_langid;
+	b->headnum = entry->ext.body.headnum;
+	b->requirefeature = entry->ext.body.requirefeature;
+
+	if (idx + 1 > s_CatalogBodyCount) {
+		s_CatalogBodyCount = idx + 1;
+	}
+}
+
+static void modmgrRebuildBodyCache(void)
+{
+	memset(s_CatalogBodies, 0, sizeof(s_CatalogBodies));
+	s_CatalogBodyCount = 0;
+
+	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, NULL);
+
+	// Bridge: legacy shadow bodies
+	for (s32 i = 0; i < g_ModBodyCount; i++) {
+		s32 idx = MODMGR_BASE_BODIES + i;
+		if (idx >= MODMGR_MAX_CATALOG_BODIES) break;
+		s_CatalogBodies[idx] = g_ModBodies[i];
+		if (idx + 1 > s_CatalogBodyCount) {
+			s_CatalogBodyCount = idx + 1;
+		}
+	}
+}
+
+// ---- Head collect callback + rebuild ----
+
+static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	s32 idx = entry->runtime_index;
+
+	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_HEADS) {
+		sysLogPrintf(LOG_WARNING, "modmgr: head \"%s\" runtime_index %d out of cache range",
+			entry->id, idx);
+		return;
+	}
+
+	struct mphead *h = &s_CatalogHeads[idx];
+	h->headnum = entry->ext.head.headnum;
+	h->requirefeature = entry->ext.head.requirefeature;
+
+	if (idx + 1 > s_CatalogHeadCount) {
+		s_CatalogHeadCount = idx + 1;
+	}
+}
+
+static void modmgrRebuildHeadCache(void)
+{
+	memset(s_CatalogHeads, 0, sizeof(s_CatalogHeads));
+	s_CatalogHeadCount = 0;
+
+	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, NULL);
+
+	// Bridge: legacy shadow heads
+	for (s32 i = 0; i < g_ModHeadCount; i++) {
+		s32 idx = MODMGR_BASE_HEADS + i;
+		if (idx >= MODMGR_MAX_CATALOG_HEADS) break;
+		s_CatalogHeads[idx] = g_ModHeads[i];
+		if (idx + 1 > s_CatalogHeadCount) {
+			s_CatalogHeadCount = idx + 1;
+		}
+	}
+}
+
+// ---- Arena collect callback + rebuild ----
+
+static void modmgrArenaCollectCb(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	s32 idx = entry->runtime_index;
+
+	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_ARENAS) {
+		sysLogPrintf(LOG_WARNING, "modmgr: arena \"%s\" runtime_index %d out of cache range",
+			entry->id, idx);
+		return;
+	}
+
+	struct mparena *a = &s_CatalogArenas[idx];
+	a->stagenum = (s16)entry->ext.arena.stagenum;
+	a->requirefeature = (u8)entry->ext.arena.requirefeature;
+	a->name = (u16)entry->ext.arena.name_langid;
+
+	if (idx + 1 > s_CatalogArenaCount) {
+		s_CatalogArenaCount = idx + 1;
+	}
+}
+
+static void modmgrRebuildArenaCache(void)
+{
+	memset(s_CatalogArenas, 0, sizeof(s_CatalogArenas));
+	s_CatalogArenaCount = 0;
+
+	assetCatalogIterateByType(ASSET_ARENA, modmgrArenaCollectCb, NULL);
+
+	// Bridge: legacy shadow arenas
+	for (s32 i = 0; i < g_ModArenaCount; i++) {
+		s32 idx = MODMGR_BASE_ARENAS + i;
+		if (idx >= MODMGR_MAX_CATALOG_ARENAS) break;
+		s_CatalogArenas[idx] = g_ModArenas[i];
+		if (idx + 1 > s_CatalogArenaCount) {
+			s_CatalogArenaCount = idx + 1;
+		}
+	}
+}
+
+// ---- Unified rebuild ----
+
+static void modmgrRebuildAllCaches(void)
+{
+	modmgrRebuildBodyCache();
+	modmgrRebuildHeadCache();
+	modmgrRebuildArenaCache();
+
+	s_CatalogCacheDirty = 0;
+
+	sysLogPrintf(LOG_NOTE, "modmgr: rebuilt catalog caches — bodies=%d heads=%d arenas=%d (legacy mod: %d/%d/%d)",
+		s_CatalogBodyCount, s_CatalogHeadCount, s_CatalogArenaCount,
+		g_ModBodyCount, g_ModHeadCount, g_ModArenaCount);
+}
+
+// ---- Bodies (catalog-backed) ----
 
 s32 modmgrGetTotalBodies(void)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogBodyCount > 0) return s_CatalogBodyCount;
 	return MODMGR_BASE_BODIES + g_ModBodyCount;
 }
 
 struct mpbody *modmgrGetBody(s32 index)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogBodyCount > 0) {
+		if (index < 0) return &s_CatalogBodies[0];
+		if (index < s_CatalogBodyCount) return &s_CatalogBodies[index];
+		return &s_CatalogBodies[0];
+	}
+	// Legacy fallback
 	s32 basecount = MODMGR_BASE_BODIES;
 	if (index < 0) return &g_MpBodies[0];
 	if (index < basecount) return &g_MpBodies[index];
 	s32 modidx = index - basecount;
 	if (modidx < g_ModBodyCount) return &g_ModBodies[modidx];
-	return &g_MpBodies[0]; // fallback to first entry
+	return &g_MpBodies[0];
 }
 
 s32 modmgrGetModBodyCount(void)
@@ -952,21 +1278,30 @@ s32 modmgrGetModBodyCount(void)
 	return g_ModBodyCount;
 }
 
-// ---- Heads ----
+// ---- Heads (catalog-backed) ----
 
 s32 modmgrGetTotalHeads(void)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogHeadCount > 0) return s_CatalogHeadCount;
 	return MODMGR_BASE_HEADS + g_ModHeadCount;
 }
 
 struct mphead *modmgrGetHead(s32 index)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogHeadCount > 0) {
+		if (index < 0) return &s_CatalogHeads[0];
+		if (index < s_CatalogHeadCount) return &s_CatalogHeads[index];
+		return &s_CatalogHeads[0];
+	}
+	// Legacy fallback
 	s32 basecount = MODMGR_BASE_HEADS;
 	if (index < 0) return &g_MpHeads[0];
 	if (index < basecount) return &g_MpHeads[index];
 	s32 modidx = index - basecount;
 	if (modidx < g_ModHeadCount) return &g_ModHeads[modidx];
-	return &g_MpHeads[0]; // fallback
+	return &g_MpHeads[0];
 }
 
 s32 modmgrGetModHeadCount(void)
@@ -974,24 +1309,45 @@ s32 modmgrGetModHeadCount(void)
 	return g_ModHeadCount;
 }
 
-// ---- Arenas ----
+// ---- Arenas (catalog-backed) ----
 
 s32 modmgrGetTotalArenas(void)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogArenaCount > 0) return s_CatalogArenaCount;
 	return MODMGR_BASE_ARENAS + g_ModArenaCount;
 }
 
 struct mparena *modmgrGetArena(s32 index)
 {
+	modmgrEnsureCaches();
+	if (s_CatalogArenaCount > 0) {
+		if (index < 0) return &s_CatalogArenas[0];
+		if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
+		return &s_CatalogArenas[0];
+	}
+	// Legacy fallback
 	s32 basecount = MODMGR_BASE_ARENAS;
 	if (index < 0) return &g_MpArenas[0];
 	if (index < basecount) return &g_MpArenas[index];
 	s32 modidx = index - basecount;
 	if (modidx < g_ModArenaCount) return &g_ModArenas[modidx];
-	return &g_MpArenas[0]; // fallback
+	return &g_MpArenas[0];
 }
 
 s32 modmgrGetModArenaCount(void)
 {
 	return g_ModArenaCount;
+}
+
+// ---- Catalog change signal ----
+
+void modmgrCatalogChanged(void)
+{
+	s_CatalogCacheDirty = 1;
+}
+
+const char *modmgrGetModsDir(void)
+{
+	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
 }

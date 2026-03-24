@@ -180,12 +180,16 @@ void propsReset(void)
 		g_Lifts[i] = NULL;
 	}
 
-	g_MaxWeaponSlots = 50;
-	g_MaxHatSlots = 10;
-	g_MaxAmmoCrates = 20;
-	g_MaxDebrisSlots = 15;
-	g_MaxProjectiles = IS4MB() ? 20 : 100;
-	g_MaxEmbedments = IS4MB() ? 40 : 80;
+	/* PC port: Increase object pool limits for 32 simultaneous characters.
+	 * Original N64 values were tuned for 4 players max. With 32 chars
+	 * all fighting, weapon drops and projectiles can easily exceed the
+	 * original limits. */
+	g_MaxWeaponSlots = 100;
+	g_MaxHatSlots = 20;
+	g_MaxAmmoCrates = 40;
+	g_MaxDebrisSlots = 30;
+	g_MaxProjectiles = IS4MB() ? 20 : 200;
+	g_MaxEmbedments = IS4MB() ? 40 : 160;
 
 	if (STAGE_IS_SYSTEM(g_Vars.stagenum)) {
 		g_MaxWeaponSlots = 0;
@@ -1327,6 +1331,27 @@ void setupLoadFiles(s32 stagenum)
 		g_StageSetup.paths = (struct path *)((uintptr_t)setup + (uintptr_t)setup->paths);
 		g_StageSetup.ailists = (struct ailist *)((uintptr_t)setup + (uintptr_t)setup->ailists);
 
+		// PC: Validate intro command data. Mod stages may have setup files where
+		// the intro offset doesn't point to valid intro command data (e.g. it lands
+		// inside the props section). Reading garbage as intro commands causes crashes
+		// in playerReset() and scenarioReset() — OOB writes, pointer chasing, etc.
+		//
+		// Detection: if the intro pointer is within 64 bytes of the props pointer,
+		// they're aliased into the same region and the intro data is garbage.
+		// Also reject if the first command word isn't a valid INTROCMD type.
+		if (g_StageSetup.intro) {
+			uintptr_t introAddr = (uintptr_t)g_StageSetup.intro;
+			uintptr_t propsAddr = (uintptr_t)g_StageSetup.props;
+			uintptr_t dist = introAddr > propsAddr ? introAddr - propsAddr : propsAddr - introAddr;
+			s32 firstCmd = *g_StageSetup.intro;
+
+			if (dist < 64 || firstCmd < 0 || firstCmd > INTROCMD_END) {
+				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
+					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
+				g_StageSetup.intro = NULL;
+			}
+		}
+
 		g_LoadType = LOADTYPE_PADS;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", g_Stages[g_StageIndex].padsfileid);
@@ -1435,6 +1460,20 @@ void setupLoadFiles(s32 stagenum)
 			numobjs += scenarioNumProps();
 		}
 
+		/* PC: Account for simulant bots in model slot allocation.
+		 * Same logic as the chrslots fix below - without this, numchrs=0
+		 * on MP maps with no map-embedded NPCs, causing g_MaxAnims to be
+		 * too small for 20+ bots (each bot needs an anim slot). */
+		if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
+			s32 k;
+			for (k = 0; k < MAX_BOTS; k++) {
+				if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+					numchrs++;
+				}
+			}
+			sysLogPrintf(LOG_NOTE, "MODELMGR: added simulant bot count to numchrs=%d for model slot allocation", numchrs);
+		}
+
 		modelmgrAllocateSlots(numobjs, numchrs);
 	} else {
 		// cover isn't set to NULL here... I guess it's not important
@@ -1501,6 +1540,21 @@ void setupCreateProps(s32 stagenum)
 					&& g_MissionConfig.iscoop
 					&& g_Vars.numaibuddies > 0) {
 				numchrs += g_Vars.numaibuddies;
+			}
+
+			/* PC: Account for simulant bots in chr slot allocation.
+			 * Original N64 only had 8 total characters so the +10 buffer
+			 * in chrmgrConfigure was always enough. With up to 24 bots
+			 * the slot pool must be sized to fit all of them. */
+			if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
+				s32 k;
+				for (k = 0; k < MAX_BOTS; k++) {
+					if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+						numchrs++;
+					}
+				}
+				sysLogPrintf(LOG_NOTE, "CHRSLOTS: added %d simulant slots (total numchrs=%d)",
+					numchrs - (s32)setupCountCommandType(OBJTYPE_CHR), numchrs);
 			}
 
 			chrmgrConfigure(numchrs);
@@ -2056,13 +2110,9 @@ void setupCreateProps(s32 stagenum)
 				s32 maxsimulants;
 				s32 slotnum;
 
-				if (challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-					maxsimulants = MAX_BOTS;
-				} else {
-					maxsimulants = 4;
-				}
+				maxsimulants = MAX_BOTS; /* PC: all bot slots available */
 
-				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started chrslots=0x%04x maxsim=%d",
+				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started chrslots=0x%08x maxsim=%d",
 					g_MpSetup.chrslots, maxsimulants);
 
 				for (i = 0; i < MAX_BOTS; i++) {
@@ -2076,7 +2126,7 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1 << (slotnum + MAX_PLAYERS)))
+					if ((g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS)))
 							&& mpIsSimSlotEnabled(slotnum)) {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
 						botmgrAllocateBot(chrnum, slotnum);
@@ -2084,7 +2134,7 @@ void setupCreateProps(s32 stagenum)
 					} else {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d chrslots_bit=%d isEnabled=%d",
 							slotnum,
-							(g_MpSetup.chrslots & (1 << (slotnum + MAX_PLAYERS))) ? 1 : 0,
+							(g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS))) ? 1 : 0,
 							mpIsSimSlotEnabled(slotnum));
 					}
 
@@ -2093,14 +2143,17 @@ void setupCreateProps(s32 stagenum)
 
 				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning done total=%d", chrnum);
 			} else {
-				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%04x",
+				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%08x",
 					g_Vars.normmplayerisrunning, mpHasSimulants(), g_MpSetup.chrslots);
 			}
 
 			if (g_Vars.normmplayerisrunning) {
+				sysLogPrintf(LOG_NOTE, "SETUP: calling scenarioInitProps");
 				scenarioInitProps();
+				sysLogPrintf(LOG_NOTE, "SETUP: scenarioInitProps done");
 			}
 
+			sysLogPrintf(LOG_NOTE, "SETUP: iterating props (g_StageSetup.props=%p)", (void *)g_StageSetup.props);
 			obj = (struct defaultobj *)g_StageSetup.props;
 
 			while (obj->type != OBJTYPE_END) {
@@ -2279,10 +2332,13 @@ void setupCreateProps(s32 stagenum)
 				obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
 				index++;
 			}
+			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
 		}
 	} else {
 		chrmgrConfigure(0);
 	}
 
+	sysLogPrintf(LOG_NOTE, "SETUP: calling stageAllocateBgChrs");
 	stageAllocateBgChrs();
+	sysLogPrintf(LOG_NOTE, "SETUP: setupLoadStage complete");
 }

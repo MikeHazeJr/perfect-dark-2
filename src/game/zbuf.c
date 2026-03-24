@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "lib/sched.h"
 #include "game/player.h"
 #include "game/zbuf.h"
@@ -68,8 +69,8 @@ void zbufAllocate(void)
 		}
 	}
 
-	g_ZbufPtr1 = mempAlloc(g_ZbufWidth * g_ZbufHeight * sizeof(u16) + 0x40, MEMPOOL_STAGE);
-	g_ZbufPtr1 = (void *) (((uintptr_t) g_ZbufPtr1 + 0x3f) & ~0x3f);
+	g_ZbufPtr1 = mempAlloc(g_ZbufWidth * g_ZbufHeight * sizeof(u16) + ZBUF_ALIGN_PAD, MEMPOOL_STAGE);
+	g_ZbufPtr1 = (void *) (((uintptr_t) g_ZbufPtr1 + ZBUF_ALIGN_MASK) & ~(uintptr_t)ZBUF_ALIGN_MASK);
 	g_ZbufPtr2 = g_ZbufPtr1;
 }
 

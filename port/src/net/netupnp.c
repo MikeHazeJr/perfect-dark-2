@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "types.h"
@@ -22,6 +23,7 @@
 #include "miniupnpc.h"
 #include "upnpcommands.h"
 #include "upnperrors.h"
+#include "connectcode.h"
 
 /* Status values */
 #define UPNP_STATUS_IDLE      0
@@ -109,6 +111,18 @@ static void *upnpWorkerThread(void *param)
 
     sysLogPrintf(LOG_NOTE, "UPNP: [thread] Port %s/UDP mapped! Connect to %s:%s",
                  s_MappedPort, s_ExternalIP, s_MappedPort);
+
+    /* Log connect code for easy sharing */
+    {
+        u32 a, b, c, d;
+        if (sscanf(s_ExternalIP, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+            u32 ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+            u16 port = (u16)atoi(s_MappedPort);
+            char code[256];
+            connectCodeEncode(ipAddr, port, code, sizeof(code));
+            sysLogPrintf(LOG_NOTE, "UPNP: Connect code: %s", code);
+        }
+    }
 
     s_UpnpActive = 1;
     s_UpnpStatus = UPNP_STATUS_SUCCESS;
