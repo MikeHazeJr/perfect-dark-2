@@ -136,9 +136,11 @@ $script:GhAuthOk           = $false
 $script:LatestRelease      = $null
 
 $script:Settings = @{
-    GitHubRepo   = ""
-    FontSize     = 10
-    EnableSounds = $true
+    GitHubRepo     = ""
+    ButtonFontSize = 22
+    DetailFontSize = 10
+    EnableSounds   = $true
+    PostBuildCopy  = @()
 }
 
 # ============================================================================
@@ -174,9 +176,13 @@ function Load-Settings {
     if (Test-Path $script:SettingsPath) {
         try {
             $json = Get-Content $script:SettingsPath -Raw | ConvertFrom-Json
-            if ($json.GitHubRepo)             { $script:Settings.GitHubRepo   = $json.GitHubRepo }
-            if ($json.FontSize)               { $script:Settings.FontSize      = [int]$json.FontSize }
-            if ($null -ne $json.EnableSounds) { $script:Settings.EnableSounds  = [bool]$json.EnableSounds }
+            if ($json.GitHubRepo)               { $script:Settings.GitHubRepo     = $json.GitHubRepo }
+            if ($json.ButtonFontSize)           { $script:Settings.ButtonFontSize = [int]$json.ButtonFontSize }
+            elseif ($json.FontSize)             { $script:Settings.ButtonFontSize = [int]$json.FontSize }
+            if ($json.DetailFontSize)           { $script:Settings.DetailFontSize = [int]$json.DetailFontSize }
+            elseif ($json.FontSize)             { $script:Settings.DetailFontSize = [int]$json.FontSize }
+            if ($null -ne $json.EnableSounds)   { $script:Settings.EnableSounds   = [bool]$json.EnableSounds }
+            if ($null -ne $json.PostBuildCopy)  { $script:Settings.PostBuildCopy  = @($json.PostBuildCopy) }
         } catch {}
     }
     if ($script:Settings.GitHubRepo -eq "") {
@@ -261,6 +267,30 @@ function Get-ExePath($name) {
 
 function Test-ExeExists($name) { return Test-Path (Get-ExePath $name) }
 
+# Cached fonts for paint handlers (avoid per-frame allocation + GC pressure)
+$script:CachedTabFont     = New-UIFont $script:Settings.DetailFontSize -Bold
+$script:CachedSectionFont = New-UIFont 9 -Bold
+
+function Refresh-AllFonts {
+    # Rebuild cached fonts and apply to all controls. Called when font settings change.
+    if ($null -ne $script:CachedTabFont) { try { $script:CachedTabFont.Dispose() } catch {} }
+    $script:CachedTabFont = New-UIFont $script:Settings.DetailFontSize -Bold
+    $btnFont = New-UIFont $script:Settings.ButtonFontSize -Bold
+    $detFont = New-UIFont $script:Settings.DetailFontSize
+    $detFontBold = New-UIFont $script:Settings.DetailFontSize -Bold
+    # Hero buttons
+    if ($null -ne $script:BtnBuild)     { $script:BtnBuild.Font     = $btnFont }
+    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Font = $btnFont }
+    if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Font = $btnFont }
+    # Bottom bar
+    if ($null -ne $script:BtnRunServer) { $script:BtnRunServer.Font = New-UIFont 14 -Bold }
+    if ($null -ne $script:BtnRunGame)   { $script:BtnRunGame.Font   = New-UIFont 14 -Bold }
+    # Detail labels/buttons
+    if ($null -ne $script:Form) { $script:Form.Font = $detFont }
+    # Force tab repaint
+    if ($null -ne $script:TabControl) { $script:TabControl.Invalidate() }
+}
+
 # ============================================================================
 # Section 9: Form creation
 # ============================================================================
@@ -274,7 +304,7 @@ $script:Form.MinimumSize   = New-Object System.Drawing.Size(700, 500)
 $script:Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $script:Form.BackColor     = $script:ColorBg
 $script:Form.ForeColor     = $script:ColorText
-$script:Form.Font          = New-UIFont $script:Settings.FontSize
+$script:Form.Font          = New-UIFont $script:Settings.DetailFontSize
 
 $iconPath = Join-Path $script:ProjectRoot "dist\windows\icon.ico"
 if (Test-Path $iconPath) { try { $script:Form.Icon = New-Object System.Drawing.Icon($iconPath) } catch {} }
@@ -317,9 +347,13 @@ $miExit.Add_Click({ $script:Form.Close() })
 
 [void]$menuStrip.Items.Add($menuFile)
 $script:Form.MainMenuStrip = $menuStrip
-$script:Form.Controls.Add($menuStrip)
+# MenuStrip added to form LAST (after TabControl + BottomBar) for correct dock order
 
-# Tab control
+# Tab control -- wrapped in a dark panel to eliminate the white strip behind tab headers
+$script:TabPanel = New-Object System.Windows.Forms.Panel
+$script:TabPanel.Dock      = [System.Windows.Forms.DockStyle]::Fill
+$script:TabPanel.BackColor = $script:ColorBg
+
 $script:TabControl = New-Object System.Windows.Forms.TabControl
 $script:TabControl.Dock     = [System.Windows.Forms.DockStyle]::Fill
 $script:TabControl.DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed
@@ -334,12 +368,17 @@ $script:TabControl.Add_DrawItem({
         $bg = $(if ($isSel) { $script:ColorBgAlt } else { $script:ColorBg })
         $fg = $(if ($isSel) { $script:ColorGold  } else { $script:ColorTextDim })
         $e.Graphics.FillRectangle((New-Object System.Drawing.SolidBrush($bg)), $rect)
+        # Paint the empty area to the right of the last tab
+        if ($e.Index -eq ($sender.TabCount - 1)) {
+            $lastRight = $rect.Right
+            $stripRect = New-Object System.Drawing.Rectangle($lastRight, $rect.Top, ($sender.Width - $lastRight), $rect.Height)
+            $e.Graphics.FillRectangle((New-Object System.Drawing.SolidBrush($script:ColorBg)), $stripRect)
+        }
         $sf = New-Object System.Drawing.StringFormat
         $sf.Alignment     = [System.Drawing.StringAlignment]::Center
         $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $fnt = New-UIFont $script:Settings.FontSize -Bold
-        $e.Graphics.DrawString($tab.Text, $fnt, (New-Object System.Drawing.SolidBrush($fg)), [System.Drawing.RectangleF]$rect, $sf)
-        $fnt.Dispose(); $sf.Dispose()
+        $e.Graphics.DrawString($tab.Text, $script:CachedTabFont, (New-Object System.Drawing.SolidBrush($fg)), [System.Drawing.RectangleF]$rect, $sf)
+        $sf.Dispose()
         if ($isSel) {
             $pen = New-Object System.Drawing.Pen($script:ColorGold, 2)
             $e.Graphics.DrawLine($pen, $rect.Left, ($rect.Bottom - 1), ($rect.Right - 1), ($rect.Bottom - 1))
@@ -356,8 +395,13 @@ $script:TabPlaytest = New-Object System.Windows.Forms.TabPage
 $script:TabPlaytest.Text      = "Playtest"
 $script:TabPlaytest.BackColor = $script:ColorBg
 
+$script:TabDocs = New-Object System.Windows.Forms.TabPage
+$script:TabDocs.Text      = "Docs"
+$script:TabDocs.BackColor = $script:ColorBg
+
 [void]$script:TabControl.TabPages.Add($script:TabBuild)
 [void]$script:TabControl.TabPages.Add($script:TabPlaytest)
+[void]$script:TabControl.TabPages.Add($script:TabDocs)
 
 # Bottom bar (docked before TabControl so Fill gets remaining space)
 $script:BottomBar = New-Object System.Windows.Forms.Panel
@@ -390,8 +434,10 @@ $script:BtnRunGame.Cursor    = [System.Windows.Forms.Cursors]::Hand
 
 $script:BottomBar.Controls.Add($script:BtnRunGame)
 $script:BottomBar.Controls.Add($script:BtnRunServer)
+$script:TabPanel.Controls.Add($script:TabControl)
+$script:Form.Controls.Add($script:TabPanel)
 $script:Form.Controls.Add($script:BottomBar)
-$script:Form.Controls.Add($script:TabControl)
+$script:Form.Controls.Add($menuStrip)
 
 # ============================================================================
 # Section 10: Build tab controls
@@ -408,40 +454,94 @@ $script:BtnBuild.FlatAppearance.BorderColor = $script:ColorGreen
 $script:BtnBuild.FlatAppearance.BorderSize  = 2
 $script:BtnBuild.ForeColor = $script:ColorGreen
 $script:BtnBuild.BackColor = $script:ColorBgAlt
-$script:BtnBuild.Font      = New-UIFont 22 -Bold
+$script:BtnBuild.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
 $script:BtnBuild.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:HeroPanel.Controls.Add($script:BtnBuild)
 
-$script:BtnPush = New-Object System.Windows.Forms.Button
-$script:BtnPush.Text      = "PUSH"
-$script:BtnPush.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnPush.FlatAppearance.BorderColor = $script:ColorGold
-$script:BtnPush.FlatAppearance.BorderSize  = 2
-$script:BtnPush.ForeColor = $script:ColorGold
-$script:BtnPush.BackColor = $script:ColorBgAlt
-$script:BtnPush.Font      = New-UIFont 22 -Bold
-$script:BtnPush.Cursor    = [System.Windows.Forms.Cursors]::Hand
-$script:HeroPanel.Controls.Add($script:BtnPush)
+# Right side: stacked Release Client + Release Server (each half the hero height)
+$script:BtnPushClient = New-Object System.Windows.Forms.Button
+$script:BtnPushClient.Text      = "RELEASE CLIENT"
+$script:BtnPushClient.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnPushClient.FlatAppearance.BorderColor = $script:ColorGold
+$script:BtnPushClient.FlatAppearance.BorderSize  = 2
+$script:BtnPushClient.ForeColor = $script:ColorGold
+$script:BtnPushClient.BackColor = $script:ColorBgAlt
+$script:BtnPushClient.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
+$script:BtnPushClient.Cursor    = [System.Windows.Forms.Cursors]::Hand
+$script:HeroPanel.Controls.Add($script:BtnPushClient)
+
+$script:BtnPushServer = New-Object System.Windows.Forms.Button
+$script:BtnPushServer.Text      = "RELEASE SERVER"
+$script:BtnPushServer.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnPushServer.FlatAppearance.BorderColor = $script:ColorOrange
+$script:BtnPushServer.FlatAppearance.BorderSize  = 2
+$script:BtnPushServer.ForeColor = $script:ColorOrange
+$script:BtnPushServer.BackColor = $script:ColorBgAlt
+$script:BtnPushServer.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
+$script:BtnPushServer.Cursor    = [System.Windows.Forms.Cursors]::Hand
+$script:HeroPanel.Controls.Add($script:BtnPushServer)
+
+# Bottom of build tab: GitHub + Folder buttons (full-width, matching hero button style)
+$script:LinkPanel = New-Object System.Windows.Forms.Panel
+$script:LinkPanel.BackColor = $script:ColorBg
+$script:TabBuild.Controls.Add($script:LinkPanel)
+
+$script:BtnOpenGitHub = New-Object System.Windows.Forms.Button
+$script:BtnOpenGitHub.Text = "GITHUB"
+$script:BtnOpenGitHub.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnOpenGitHub.FlatAppearance.BorderColor = $script:ColorBlue
+$script:BtnOpenGitHub.FlatAppearance.BorderSize = 1
+$script:BtnOpenGitHub.ForeColor = $script:ColorBlue
+$script:BtnOpenGitHub.BackColor = $script:ColorBgAlt
+$script:BtnOpenGitHub.Font = New-UIFont 12 -Bold
+$script:BtnOpenGitHub.Cursor = [System.Windows.Forms.Cursors]::Hand
+$script:BtnOpenGitHub.Add_Click({
+    $r = $script:Settings.GitHubRepo
+    if ($r -ne "") { Start-Process ("https://github.com/" + $r) }
+})
+$script:LinkPanel.Controls.Add($script:BtnOpenGitHub)
+
+$script:BtnOpenFolder = New-Object System.Windows.Forms.Button
+$script:BtnOpenFolder.Text = "PROJECT FOLDER"
+$script:BtnOpenFolder.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnOpenFolder.FlatAppearance.BorderColor = $script:ColorTextDim
+$script:BtnOpenFolder.FlatAppearance.BorderSize = 1
+$script:BtnOpenFolder.ForeColor = $script:ColorTextDim
+$script:BtnOpenFolder.BackColor = $script:ColorBgAlt
+$script:BtnOpenFolder.Font = New-UIFont 12 -Bold
+$script:BtnOpenFolder.Cursor = [System.Windows.Forms.Cursors]::Hand
+$script:BtnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectRoot })
+$script:LinkPanel.Controls.Add($script:BtnOpenFolder)
 
 $script:StatusPanel = New-Object System.Windows.Forms.Panel
 $script:StatusPanel.BackColor = $script:ColorBg
 $script:TabBuild.Controls.Add($script:StatusPanel)
 
 $script:LblClientStatus = New-Object System.Windows.Forms.Label
-$script:LblClientStatus.Text      = "client: --"
 $script:LblClientStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
-$script:LblClientStatus.ForeColor = $script:ColorTextDim
 $script:LblClientStatus.AutoSize  = $true
 $script:LblClientStatus.Location  = New-Object System.Drawing.Point(0, 4)
 $script:StatusPanel.Controls.Add($script:LblClientStatus)
 
 $script:LblServerStatus = New-Object System.Windows.Forms.Label
-$script:LblServerStatus.Text      = "server: --"
 $script:LblServerStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
-$script:LblServerStatus.ForeColor = $script:ColorTextDim
 $script:LblServerStatus.AutoSize  = $true
 $script:LblServerStatus.Location  = New-Object System.Drawing.Point(0, 28)
 $script:StatusPanel.Controls.Add($script:LblServerStatus)
+
+function Update-BuildStatusLabels {
+    # Show initial build status based on exe existence
+    if ($null -eq $script:LblClientStatus -or $null -eq $script:LblServerStatus) { return }
+    if ($null -ne $script:ClientBuildResult) { return }
+    $cExists = Test-ExeExists "client"
+    $script:LblClientStatus.Text      = $(if ($cExists) { "client: ready" } else { "client: not built" })
+    $script:LblClientStatus.ForeColor = $(if ($cExists) { $script:ColorGreen } else { $script:ColorTextDim })
+    if ($null -ne $script:ServerBuildResult) { return }
+    $sExists = Test-ExeExists "server"
+    $script:LblServerStatus.Text      = $(if ($sExists) { "server: ready" } else { "server: not built" })
+    $script:LblServerStatus.ForeColor = $(if ($sExists) { $script:ColorGreen } else { $script:ColorTextDim })
+}
+Update-BuildStatusLabels
 
 $script:LblBuildActivity = New-Object System.Windows.Forms.Label
 $script:LblBuildActivity.Text      = ""
@@ -527,79 +627,113 @@ $lblVerLabel.ForeColor = $script:ColorTextDim; $lblVerLabel.AutoSize = $true
 $lblVerLabel.Location = New-Object System.Drawing.Point(0, 4)
 $script:VersionPanel.Controls.Add($lblVerLabel)
 
-$script:TxtVerMajor = New-Object System.Windows.Forms.TextBox
-$script:TxtVerMajor.Size = New-Object System.Drawing.Size(36, 22)
-$script:TxtVerMajor.Location = New-Object System.Drawing.Point(0, 24)
-$script:TxtVerMajor.BackColor = $script:ColorBgInput; $script:TxtVerMajor.ForeColor = $script:ColorText
-$script:TxtVerMajor.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
-$script:TxtVerMajor.TextAlign = [System.Windows.Forms.HorizontalAlignment]::Center
-$script:TxtVerMajor.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$script:VersionPanel.Controls.Add($script:TxtVerMajor)
+# Helper: create a version field column (label, [-], textbox, [+]) at given X offset
+function New-VersionField($label, $x, $y) {
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = $label; $lbl.Font = New-UIFont 7
+    $lbl.ForeColor = $script:ColorTextDim; $lbl.AutoSize = $true
+    $lbl.Location = New-Object System.Drawing.Point(($x + 2), $y)
+    $script:VersionPanel.Controls.Add($lbl)
 
-$lblD1 = New-Object System.Windows.Forms.Label
-$lblD1.Text = "."; $lblD1.Font = New-UIFont 12 -Bold
-$lblD1.ForeColor = $script:ColorGold; $lblD1.AutoSize = $true
-$lblD1.Location = New-Object System.Drawing.Point(38, 26)
-$script:VersionPanel.Controls.Add($lblD1)
+    $btnDown = New-Object System.Windows.Forms.Button
+    $btnDown.Text = "-"; $btnDown.Size = New-Object System.Drawing.Size(20, 20)
+    $btnDown.Location = New-Object System.Drawing.Point($x, ($y + 16))
+    $btnDown.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnDown.FlatAppearance.BorderColor = $script:ColorBorder
+    $btnDown.ForeColor = $script:ColorText; $btnDown.BackColor = $script:ColorBgAlt
+    $btnDown.Font = New-UIFont 8 -Bold; $btnDown.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $script:VersionPanel.Controls.Add($btnDown)
 
-$script:TxtVerMinor = New-Object System.Windows.Forms.TextBox
-$script:TxtVerMinor.Size = New-Object System.Drawing.Size(36, 22)
-$script:TxtVerMinor.Location = New-Object System.Drawing.Point(48, 24)
-$script:TxtVerMinor.BackColor = $script:ColorBgInput; $script:TxtVerMinor.ForeColor = $script:ColorText
-$script:TxtVerMinor.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
-$script:TxtVerMinor.TextAlign = [System.Windows.Forms.HorizontalAlignment]::Center
-$script:TxtVerMinor.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$script:VersionPanel.Controls.Add($script:TxtVerMinor)
+    $txt = New-Object System.Windows.Forms.TextBox
+    $txt.Size = New-Object System.Drawing.Size(30, 20)
+    $txt.Location = New-Object System.Drawing.Point(($x + 22), ($y + 16))
+    $txt.BackColor = $script:ColorBgInput; $txt.ForeColor = $script:ColorText
+    $txt.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+    $txt.TextAlign = [System.Windows.Forms.HorizontalAlignment]::Center
+    $txt.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $script:VersionPanel.Controls.Add($txt)
 
-$lblD2 = New-Object System.Windows.Forms.Label
-$lblD2.Text = "."; $lblD2.Font = New-UIFont 12 -Bold
-$lblD2.ForeColor = $script:ColorGold; $lblD2.AutoSize = $true
-$lblD2.Location = New-Object System.Drawing.Point(86, 26)
-$script:VersionPanel.Controls.Add($lblD2)
+    $btnUp = New-Object System.Windows.Forms.Button
+    $btnUp.Text = "+"; $btnUp.Size = New-Object System.Drawing.Size(20, 20)
+    $btnUp.Location = New-Object System.Drawing.Point(($x + 54), ($y + 16))
+    $btnUp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnUp.FlatAppearance.BorderColor = $script:ColorBorder
+    $btnUp.ForeColor = $script:ColorText; $btnUp.BackColor = $script:ColorBgAlt
+    $btnUp.Font = New-UIFont 8 -Bold; $btnUp.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $script:VersionPanel.Controls.Add($btnUp)
 
-$script:TxtVerPatch = New-Object System.Windows.Forms.TextBox
-$script:TxtVerPatch.Size = New-Object System.Drawing.Size(36, 22)
-$script:TxtVerPatch.Location = New-Object System.Drawing.Point(96, 24)
-$script:TxtVerPatch.BackColor = $script:ColorBgInput; $script:TxtVerPatch.ForeColor = $script:ColorText
-$script:TxtVerPatch.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
-$script:TxtVerPatch.TextAlign = [System.Windows.Forms.HorizontalAlignment]::Center
-$script:TxtVerPatch.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$script:VersionPanel.Controls.Add($script:TxtVerPatch)
+    return @{ Txt = $txt; Down = $btnDown; Up = $btnUp }
+}
 
-$script:BtnVerDown = New-Object System.Windows.Forms.Button
-$script:BtnVerDown.Text = "-"; $script:BtnVerDown.Size = New-Object System.Drawing.Size(24, 22)
-$script:BtnVerDown.Location = New-Object System.Drawing.Point(0, 50)
-$script:BtnVerDown.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnVerDown.FlatAppearance.BorderColor = $script:ColorBorder
-$script:BtnVerDown.ForeColor = $script:ColorText; $script:BtnVerDown.BackColor = $script:ColorBgAlt
-$script:BtnVerDown.Font = New-UIFont 10 -Bold; $script:BtnVerDown.Cursor = [System.Windows.Forms.Cursors]::Hand
-$script:VersionPanel.Controls.Add($script:BtnVerDown)
+$fMajor = New-VersionField "major" 0 20
+$script:TxtVerMajor = $fMajor.Txt
+$fMajor.Down.Add_Click({ try { $v = [int]$script:TxtVerMajor.Text; if ($v -gt 0) { $script:TxtVerMajor.Text = "" + ($v - 1) }; Update-ReleaseButtonText } catch {} })
+$fMajor.Up.Add_Click({   try { $v = [int]$script:TxtVerMajor.Text; $script:TxtVerMajor.Text = "" + ($v + 1); Update-ReleaseButtonText } catch {} })
 
-$script:BtnVerUp = New-Object System.Windows.Forms.Button
-$script:BtnVerUp.Text = "+"; $script:BtnVerUp.Size = New-Object System.Drawing.Size(24, 22)
-$script:BtnVerUp.Location = New-Object System.Drawing.Point(28, 50)
-$script:BtnVerUp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnVerUp.FlatAppearance.BorderColor = $script:ColorBorder
-$script:BtnVerUp.ForeColor = $script:ColorText; $script:BtnVerUp.BackColor = $script:ColorBgAlt
-$script:BtnVerUp.Font = New-UIFont 10 -Bold; $script:BtnVerUp.Cursor = [System.Windows.Forms.Cursors]::Hand
-$script:VersionPanel.Controls.Add($script:BtnVerUp)
+$fMinor = New-VersionField "minor" 80 20
+$script:TxtVerMinor = $fMinor.Txt
+$fMinor.Down.Add_Click({ try { $v = [int]$script:TxtVerMinor.Text; if ($v -gt 0) { $script:TxtVerMinor.Text = "" + ($v - 1) }; Update-ReleaseButtonText } catch {} })
+$fMinor.Up.Add_Click({   try { $v = [int]$script:TxtVerMinor.Text; $script:TxtVerMinor.Text = "" + ($v + 1); Update-ReleaseButtonText } catch {} })
 
-$lblPatch = New-Object System.Windows.Forms.Label
-$lblPatch.Text = "patch"; $lblPatch.Font = New-UIFont 8
-$lblPatch.ForeColor = $script:ColorTextDim; $lblPatch.AutoSize = $true
-$lblPatch.Location = New-Object System.Drawing.Point(56, 54)
-$script:VersionPanel.Controls.Add($lblPatch)
+$fPatch = New-VersionField "patch" 160 20
+$script:TxtVerPatch = $fPatch.Txt
+$fPatch.Down.Add_Click({ try { $v = [int]$script:TxtVerPatch.Text; if ($v -gt 0) { $script:TxtVerPatch.Text = "" + ($v - 1) }; Update-ReleaseButtonText } catch {} })
+$fPatch.Up.Add_Click({   try { $v = [int]$script:TxtVerPatch.Text; $script:TxtVerPatch.Text = "" + ($v + 1); Update-ReleaseButtonText } catch {} })
 
-$script:LblAuthStatus = New-Object System.Windows.Forms.Label
-$script:LblAuthStatus.Text = "auth: --"; $script:LblAuthStatus.Font = New-UIFont 9
-$script:LblAuthStatus.ForeColor = $script:ColorTextDim; $script:LblAuthStatus.AutoSize = $true
-$script:LblAuthStatus.Location = New-Object System.Drawing.Point(0, 80)
-$script:VersionPanel.Controls.Add($script:LblAuthStatus)
+# Stable checkbox
+$script:ChkStable = New-Object System.Windows.Forms.CheckBox
+$script:ChkStable.Text = "Stable"
+$script:ChkStable.Font = New-UIFont 9 -Bold
+$script:ChkStable.ForeColor = $script:ColorGold
+$script:ChkStable.AutoSize = $true
+$script:ChkStable.Location = New-Object System.Drawing.Point(0, 62)
+$script:ChkStable.Add_CheckedChanged({ Update-ReleaseButtonText })
+$script:VersionPanel.Controls.Add($script:ChkStable)
+
+function Update-ReleaseButtonText {
+    $ver = Get-UiVersion
+    $vs = "v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
+    $kind = $(if ($script:ChkStable.Checked) { "Stable" } else { "Dev" })
+    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Text = "RELEASE CLIENT`n" + $kind + " " + $vs }
+    if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Text = "RELEASE SERVER`n" + $kind + " " + $vs }
+}
+
+# Auth status -- clickable: runs "gh auth login" if not authenticated
+$script:BtnAuthStatus = New-Object System.Windows.Forms.Button
+$script:BtnAuthStatus.Text = "auth: --"
+$script:BtnAuthStatus.Font = New-UIFont 9
+$script:BtnAuthStatus.ForeColor = $script:ColorTextDim
+$script:BtnAuthStatus.BackColor = $script:ColorBg
+$script:BtnAuthStatus.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnAuthStatus.FlatAppearance.BorderSize = 0
+$script:BtnAuthStatus.FlatAppearance.MouseOverBackColor = $script:ColorBgAlt
+$script:BtnAuthStatus.Location = New-Object System.Drawing.Point(0, 80)
+$script:BtnAuthStatus.AutoSize = $true
+$script:BtnAuthStatus.Cursor = [System.Windows.Forms.Cursors]::Hand
+$script:BtnAuthStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$script:BtnAuthStatus.Add_Click({
+    if ($script:GhAuthOk) { return }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = "-NoExit -Command `"gh auth login`""
+        $psi.UseShellExecute = $true
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Could not launch gh auth login. Make sure GitHub CLI (gh) is installed.",
+            "Auth Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+    }
+})
+$script:VersionPanel.Controls.Add($script:BtnAuthStatus)
 
 $script:LblLatestRelease = New-Object System.Windows.Forms.Label
 $script:LblLatestRelease.Text = "latest: --"; $script:LblLatestRelease.Font = New-UIFont 9
 $script:LblLatestRelease.ForeColor = $script:ColorTextDim; $script:LblLatestRelease.AutoSize = $true
-$script:LblLatestRelease.Location = New-Object System.Drawing.Point(0, 100)
+$script:LblLatestRelease.Location = New-Object System.Drawing.Point(0, 104)
 $script:VersionPanel.Controls.Add($script:LblLatestRelease)
 
 $script:BuildTimer = New-Object System.Windows.Forms.Timer
@@ -677,8 +811,9 @@ $script:QcGrid.GridColor                   = $script:ColorBorder
 $script:QcGrid.BorderStyle                 = [System.Windows.Forms.BorderStyle]::None
 $script:QcGrid.RowHeadersVisible           = $false
 $script:QcGrid.ColumnHeadersHeightSizeMode = [System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode]::DisableResizing
-$script:QcGrid.ColumnHeadersHeight         = 28
-$script:QcGrid.RowTemplate.Height          = 28
+$script:QcGrid.ColumnHeadersHeight         = 30
+$script:QcGrid.RowTemplate.Height          = 48
+$script:QcGrid.AutoSizeRowsMode           = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::AllCells
 $script:QcGrid.ScrollBars                  = [System.Windows.Forms.ScrollBars]::Vertical
 $script:QcGrid.AutoSizeColumnsMode         = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::None
 $script:QcGrid.ClipboardCopyMode           = [System.Windows.Forms.DataGridViewClipboardCopyMode]::Disable
@@ -740,7 +875,75 @@ $script:TabPlaytest.Controls.Add($script:QcGrid)
 $script:NotesSaveTimer = New-Object System.Windows.Forms.Timer
 $script:NotesSaveTimer.Interval = 500
 $script:NotesSaveTimer.Add_Tick({
-    try { $this.Stop(); $this.Dispose(); $script:NotesSaveTimer = $null; Save-QcFile } catch {}
+    try { $this.Stop(); Save-QcFile } catch {}
+})
+
+# ============================================================================
+# Section 11b: Documentation tab controls
+# ============================================================================
+
+$script:DocSplit = New-Object System.Windows.Forms.SplitContainer
+$script:DocSplit.Dock              = [System.Windows.Forms.DockStyle]::Fill
+$script:DocSplit.SplitterDistance   = 240
+$script:DocSplit.BackColor         = $script:ColorBorder
+$script:DocSplit.SplitterWidth     = 3
+
+$script:DocList = New-Object System.Windows.Forms.ListBox
+$script:DocList.Dock      = [System.Windows.Forms.DockStyle]::Fill
+$script:DocList.BackColor = $script:ColorBg
+$script:DocList.ForeColor = $script:ColorText
+$script:DocList.Font      = New-Object System.Drawing.Font("Consolas", 9)
+$script:DocList.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+
+$script:DocContent = New-Object System.Windows.Forms.RichTextBox
+$script:DocContent.Dock       = [System.Windows.Forms.DockStyle]::Fill
+$script:DocContent.BackColor  = [System.Drawing.Color]::FromArgb(25, 25, 25)
+$script:DocContent.ForeColor  = $script:ColorText
+$script:DocContent.Font       = New-Object System.Drawing.Font("Consolas", 10)
+$script:DocContent.ReadOnly   = $true
+$script:DocContent.WordWrap   = $true
+$script:DocContent.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+$script:DocContent.ScrollBars = [System.Windows.Forms.RichTextBoxScrollBars]::Vertical
+
+$script:DocSplit.Panel1.Controls.Add($script:DocList)
+$script:DocSplit.Panel2.Controls.Add($script:DocContent)
+$script:TabDocs.Controls.Add($script:DocSplit)
+
+$script:DocFileMap = @{}
+
+function Populate-DocList {
+    if ($null -eq $script:DocList) { return }
+    $script:DocList.Items.Clear()
+    $script:DocFileMap = @{}
+    $folders = @("docs", "context")
+    foreach ($folder in $folders) {
+        $fp = Join-Path $script:ProjectRoot $folder
+        if (Test-Path $fp) {
+            Get-ChildItem -Path $fp -Include "*.md","*.txt" -Recurse | Sort-Object FullName | ForEach-Object {
+                $rel = $_.FullName.Substring($script:ProjectRoot.Length).TrimStart('\', '/')
+                [void]$script:DocList.Items.Add($rel)
+                $script:DocFileMap[$rel] = $_.FullName
+            }
+        }
+    }
+    # Root-level md files
+    Get-ChildItem -Path $script:ProjectRoot -Filter "*.md" -File | Sort-Object Name | ForEach-Object {
+        $rel = $_.Name
+        if (-not $script:DocFileMap.ContainsKey($rel)) {
+            [void]$script:DocList.Items.Add($rel)
+            $script:DocFileMap[$rel] = $_.FullName
+        }
+    }
+}
+
+$script:DocList.Add_SelectedIndexChanged({
+    try {
+        $key = $script:DocList.SelectedItem
+        if ($null -ne $key -and $script:DocFileMap.ContainsKey($key)) {
+            $script:DocContent.Text = (Get-Content -Path $script:DocFileMap[$key] -Raw -Encoding UTF8 -ErrorAction Stop)
+            $script:DocContent.SelectionStart = 0
+        }
+    } catch {}
 })
 
 # ============================================================================
@@ -833,7 +1036,7 @@ function Populate-QcGrid {
     $script:QcGrid.SuspendLayout()
     $script:QcGrid.Rows.Clear()
     $secBg  = [System.Drawing.Color]::FromArgb(48, 40, 20)
-    $secFnt = New-UIFont 9 -Bold
+    $secFnt = $script:CachedSectionFont
     foreach ($row in $script:QcData) {
         if ($row.Type -eq "section") {
             $ri = $script:QcGrid.Rows.Add()
@@ -906,14 +1109,9 @@ $script:QcGrid.Add_CellValueChanged({
         } elseif ($colName -eq "Notes") {
             $v = $r.Cells["Notes"].Value
             $tgt.Notes = $(if ($null -ne $v) { $v.ToString() } else { "" })
-            if ($null -eq $script:NotesSaveTimer) {
-                $script:NotesSaveTimer = New-Object System.Windows.Forms.Timer
-                $script:NotesSaveTimer.Interval = 500
-                $script:NotesSaveTimer.Add_Tick({
-                    try { $this.Stop(); $this.Dispose(); $script:NotesSaveTimer = $null; Save-QcFile } catch {}
-                })
+            if ($null -ne $script:NotesSaveTimer) {
+                $script:NotesSaveTimer.Stop(); $script:NotesSaveTimer.Start()
             }
-            $script:NotesSaveTimer.Stop(); $script:NotesSaveTimer.Start()
         }
     } catch {}
 })
@@ -927,13 +1125,12 @@ $script:QcGrid.Add_CellPainting({
         $e.PaintBackground($e.CellBounds, $true)
         if ($e.ColumnIndex -eq 2) {
             $br  = New-Object System.Drawing.SolidBrush($script:ColorGold)
-            $fnt = New-UIFont 9 -Bold
             $sf  = New-Object System.Drawing.StringFormat
             $sf.Alignment = [System.Drawing.StringAlignment]::Near
             $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
             $rc  = New-Object System.Drawing.RectangleF(($e.CellBounds.X + 4), $e.CellBounds.Y, ($e.CellBounds.Width - 8), $e.CellBounds.Height)
-            $e.Graphics.DrawString($e.Value, $fnt, $br, $rc, $sf)
-            $br.Dispose(); $fnt.Dispose(); $sf.Dispose()
+            $e.Graphics.DrawString($e.Value, $script:CachedSectionFont, $br, $rc, $sf)
+            $br.Dispose(); $sf.Dispose()
         }
         $e.Handled = $true
     } catch {}
@@ -984,6 +1181,7 @@ function Refresh-VersionDisplay {
     $script:TxtVerMajor.Text = "" + $ver.Major
     $script:TxtVerMinor.Text = "" + $ver.Minor
     $script:TxtVerPatch.Text = "" + $ver.Patch
+    Update-ReleaseButtonText
 }
 
 function Load-ReleaseCache {
@@ -997,11 +1195,18 @@ function Save-ReleaseCache($data) {
 
 function Update-ReleaseCacheUI($data) {
     if ($null -eq $script:LblLatestRelease) { return }
-    if ($null -eq $data) { $script:LblLatestRelease.Text = "latest: --"; return }
+    if ($null -eq $data) {
+        $script:LblLatestRelease.Text = "latest: --"
+        $script:LblLatestRelease.ForeColor = $script:ColorTextDim
+        return
+    }
     try {
         $tag = $data.tag_name
         if ($null -eq $tag) { $tag = "unknown" }
-        $script:LblLatestRelease.Text = "latest: " + $tag
+        $pre = $data.prerelease
+        $kind = $(if ($pre) { "dev" } else { "stable" })
+        $script:LblLatestRelease.Text = "latest: " + $tag + " (" + $kind + ")"
+        $script:LblLatestRelease.ForeColor = $(if ($pre) { $script:ColorBlue } else { $script:ColorGreen })
         $script:LatestRelease = $data
     } catch {}
 }
@@ -1011,30 +1216,64 @@ function Update-ReleaseCacheUI($data) {
 # ============================================================================
 
 function Update-GitChangeCount {
+    # Runs git status in a background runspace so the UI thread never blocks
     if ($script:GitBusy) { return }
     if (([DateTime]::Now - $script:LastGitCheck).TotalSeconds -lt 5) { return }
     $script:LastGitCheck = [DateTime]::Now
+    $script:GitBusy = $true
     try {
-        $st = git -C $script:ProjectRoot status --porcelain 2>$null
-        $script:GitChangeCount = $(if ($st) { ($st | Measure-Object).Count } else { 0 })
-    } catch { $script:GitChangeCount = 0 }
+        $root = $script:ProjectRoot
+        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $rs.Open()
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $ps.Runspace = $rs
+        [void]$ps.AddScript({
+            param($projRoot)
+            try {
+                $st = git -C $projRoot status --porcelain 2>$null
+                if ($st) { return ($st | Measure-Object).Count } else { return 0 }
+            } catch { return 0 }
+        }).AddArgument($root)
+        $handle = $ps.BeginInvoke()
+        $gitPollTimer = New-Object System.Windows.Forms.Timer
+        $gitPollTimer.Interval = 300
+        $gitPollTimer.Add_Tick({
+            try {
+                if (-not $handle.IsCompleted) { return }
+                $this.Stop(); $this.Dispose()
+                $result = $ps.EndInvoke($handle)
+                $script:GitChangeCount = $(if ($null -ne $result -and $result.Count -gt 0) { [int]$result[0] } else { 0 })
+                try { $ps.Dispose() } catch {}
+                try { $rs.Close(); $rs.Dispose() } catch {}
+                $script:GitBusy = $false
+            } catch { $script:GitBusy = $false }
+        })
+        $gitPollTimer.Start()
+    } catch { $script:GitBusy = $false }
+}
+
+function Auto-Commit-Sync {
+    # Synchronous version -- only called from background runspaces, never the UI thread
+    $lock = Join-Path $script:ProjectRoot ".git\index.lock"
+    if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+    $st = git -C $script:ProjectRoot status --porcelain 2>$null
+    if (-not $st) { return $true }
+    $ver = Get-ProjectVersion
+    $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
+    git -C $script:ProjectRoot add -A 2>$null | Out-Null
+    git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
+    $script:LastGitCheck = [DateTime]::MinValue
+    return ($LASTEXITCODE -eq 0)
 }
 
 function Auto-Commit {
+    # Kept for compatibility -- runs synchronously but should only be called from build pipeline
+    # which itself should tolerate a brief block (build hasn't started yet)
     $script:GitBusy = $true
     $savedEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        $lock = Join-Path $script:ProjectRoot ".git\index.lock"
-        if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
-        $st = git -C $script:ProjectRoot status --porcelain 2>$null
-        if (-not $st) { return $true }
-        $ver = Get-ProjectVersion
-        $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-        git -C $script:ProjectRoot add -A 2>$null | Out-Null
-        git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
-        $script:LastGitCheck = [DateTime]::MinValue
-        return ($LASTEXITCODE -eq 0)
+        return (Auto-Commit-Sync)
     } finally {
         $ErrorActionPreference = $savedEAP
         $script:GitBusy = $false
@@ -1101,9 +1340,22 @@ function Start-ManualCommit {
 
 function Copy-AddinFiles {
     if ($script:CurrentBuildTarget -eq "server") { return }
+    # Mandatory: always copy post-batch-addin/data into client build
     $dataDir = Join-Path $script:AddinDir "data"
     if (Test-Path $dataDir) {
         try { Copy-Item $dataDir -Destination $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } catch {}
+    }
+    # User-configured additional copies (from settings)
+    if ($null -ne $script:Settings.PostBuildCopy) {
+        foreach ($entry in $script:Settings.PostBuildCopy) {
+            try {
+                $src = $entry
+                if (-not [System.IO.Path]::IsPathRooted($src)) { $src = Join-Path $script:ProjectRoot $src }
+                if (Test-Path $src) {
+                    Copy-Item $src -Destination $script:ClientBuildDir -Recurse -Force -ErrorAction Stop
+                }
+            } catch {}
+        }
     }
 }
 
@@ -1113,7 +1365,7 @@ function Stop-Build {
     $script:BuildTimer.Stop()
     $script:IsBuilding = $false; $script:IsPushing = $false
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-    if ($null -ne $script:BtnPush)  { $script:BtnPush.Enabled  = $true }
+    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
     if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
     if ($null -ne $script:ProgressBack) { $script:ProgressBack.Visible = $false }
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Stopped." }
@@ -1147,7 +1399,7 @@ function Start-Build-Step($step) {
     } catch {
         $script:IsBuilding = $false; $script:IsPushing = $false
         if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-        if ($null -ne $script:BtnPush)  { $script:BtnPush.Enabled  = $true }
+        if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
         if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
         if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "ERROR starting: " + $step.Exe }
     }
@@ -1173,7 +1425,7 @@ function Start-Build {
     if ($null -ne $script:LblClientStatus) { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
     if ($null -ne $script:LblServerStatus) { $script:LblServerStatus.Text = "server: --"; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
-    if ($null -ne $script:BtnPush)  { $script:BtnPush.Enabled  = $false }
+    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $false }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $false }
     if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $true }
     if ($null -ne $script:BtnCopyErrors) { $script:BtnCopyErrors.Visible = $false }
     if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $false }
@@ -1277,7 +1529,7 @@ $script:BuildTimer.Add_Tick({
                 if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $true }
                 $script:IsBuilding = $false; $script:IsPushing = $false
                 if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-                if ($null -ne $script:BtnPush)  { $script:BtnPush.Enabled  = $true }
+                if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
                 if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
                 Refresh-VersionDisplay; Update-RunButtons
             }
@@ -1289,7 +1541,7 @@ $script:BuildTimer.Add_Tick({
 # Section 16: Push pipeline
 # ============================================================================
 
-function Start-PushRelease {
+function Start-PushRelease($releaseTarget) {
     if ($script:IsPushing -or $script:IsBuilding) { return }
     $releaseScript = Join-Path $script:ProjectRoot "release.ps1"
     if (-not (Test-Path $releaseScript)) {
@@ -1298,16 +1550,19 @@ function Start-PushRelease {
     }
     $ver = Get-UiVersion
     $vs  = "" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
+    $label = $(if ($releaseTarget -eq "server") { "Server" } else { "Client" })
+    $isStable = $script:ChkStable.Checked
+    $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        "Push release v" + $vs + " to GitHub?`n`nThis will write version to CMakeLists.txt, auto-commit, tag and push via release.ps1.",
-        "Push Release v" + $vs,
+        ("Release " + $label + " v" + $vs + " (" + $kind + ") to GitHub?`n`nThis will write version to CMakeLists.txt, auto-commit, tag and push via release.ps1."),
+        ($kind + " Release: " + $label + " v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     )
     if ($ok -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     $script:IsPushing = $true
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
-    if ($null -ne $script:BtnPush)  { $script:BtnPush.Enabled  = $false }
+    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $false }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $false }
     Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
     Auto-Commit | Out-Null
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
@@ -1315,12 +1570,14 @@ function Start-PushRelease {
     $script:BuildStepQueue.Clear()
     if ($null -ne $script:ProgressBack)     { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:BtnStop)          { $script:BtnStop.Visible       = $true }
-    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Pushing v" + $vs + "..." }
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing " + $label + " v" + $vs + " (" + $kind + ")..." }
+    $targetArg = $(if ($releaseTarget -eq "server") { " -Target server" } else { "" })
+    $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
     $step = @{
-        Name   = "Push Release v" + $vs
+        Name   = $kind + " Release " + $label + " v" + $vs
         Exe    = "powershell.exe"
-        Args   = "-ExecutionPolicy Bypass -Command `"& { . '" + $releaseScript + "' -Version '" + $vs + "' -Prerelease } *>&1`""
-        Target = "client"
+        Args   = "-ExecutionPolicy Bypass -Command `"& { . '" + $releaseScript + "' -Version '" + $vs + "'" + $targetArg + $prerelArg + " } *>&1`""
+        Target = $releaseTarget
     }
     $script:IsBuilding = $true
     Start-Build-Step $step
@@ -1406,26 +1663,37 @@ function Show-SettingsDialog {
     $tRepo.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     $dlg.Controls.Add($tRepo)
 
-    $l2 = New-Object System.Windows.Forms.Label; $l2.Text = "Font Size (8-16):"
+    $l2 = New-Object System.Windows.Forms.Label; $l2.Text = "Button Font Size (12-36):"
     $l2.Font = New-UIFont 9; $l2.ForeColor = $script:ColorTextDim
     $l2.Location = New-Object System.Drawing.Point(12, 74); $l2.AutoSize = $true
     $dlg.Controls.Add($l2)
-    $tFont = New-Object System.Windows.Forms.TextBox; $tFont.Text = "" + $script:Settings.FontSize
-    $tFont.Location = New-Object System.Drawing.Point(12, 94); $tFont.Size = New-Object System.Drawing.Size(60, 24)
-    $tFont.BackColor = $script:ColorBgInput; $tFont.ForeColor = $script:ColorText
-    $tFont.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $tFont.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $dlg.Controls.Add($tFont)
+    $tBtnFont = New-Object System.Windows.Forms.TextBox; $tBtnFont.Text = "" + $script:Settings.ButtonFontSize
+    $tBtnFont.Location = New-Object System.Drawing.Point(12, 94); $tBtnFont.Size = New-Object System.Drawing.Size(60, 24)
+    $tBtnFont.BackColor = $script:ColorBgInput; $tBtnFont.ForeColor = $script:ColorText
+    $tBtnFont.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $tBtnFont.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $dlg.Controls.Add($tBtnFont)
+
+    $l3 = New-Object System.Windows.Forms.Label; $l3.Text = "Detail Font Size (8-16):"
+    $l3.Font = New-UIFont 9; $l3.ForeColor = $script:ColorTextDim
+    $l3.Location = New-Object System.Drawing.Point(12, 124); $l3.AutoSize = $true
+    $dlg.Controls.Add($l3)
+    $tDetFont = New-Object System.Windows.Forms.TextBox; $tDetFont.Text = "" + $script:Settings.DetailFontSize
+    $tDetFont.Location = New-Object System.Drawing.Point(12, 144); $tDetFont.Size = New-Object System.Drawing.Size(60, 24)
+    $tDetFont.BackColor = $script:ColorBgInput; $tDetFont.ForeColor = $script:ColorText
+    $tDetFont.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $tDetFont.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $dlg.Controls.Add($tDetFont)
 
     $chkSnd = New-Object System.Windows.Forms.CheckBox; $chkSnd.Text = "Enable sounds"
     $chkSnd.Checked = $script:Settings.EnableSounds; $chkSnd.Font = New-UIFont 9
     $chkSnd.ForeColor = $script:ColorText
-    $chkSnd.Location = New-Object System.Drawing.Point(12, 130); $chkSnd.AutoSize = $true
+    $chkSnd.Location = New-Object System.Drawing.Point(12, 180); $chkSnd.AutoSize = $true
     $dlg.Controls.Add($chkSnd)
 
     $bSave = New-Object System.Windows.Forms.Button; $bSave.Text = "Save"
     $bSave.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $bSave.Location = New-Object System.Drawing.Point(196, 176); $bSave.Size = New-Object System.Drawing.Size(80, 30)
+    $bSave.Location = New-Object System.Drawing.Point(196, 220); $bSave.Size = New-Object System.Drawing.Size(80, 30)
     $bSave.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $bSave.FlatAppearance.BorderColor = $script:ColorGreen
     $bSave.ForeColor = $script:ColorGreen; $bSave.BackColor = $script:ColorBgAlt
@@ -1434,20 +1702,25 @@ function Show-SettingsDialog {
 
     $bCan = New-Object System.Windows.Forms.Button; $bCan.Text = "Cancel"
     $bCan.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $bCan.Location = New-Object System.Drawing.Point(290, 176); $bCan.Size = New-Object System.Drawing.Size(80, 30)
+    $bCan.Location = New-Object System.Drawing.Point(290, 220); $bCan.Size = New-Object System.Drawing.Size(80, 30)
     $bCan.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $bCan.FlatAppearance.BorderColor = $script:ColorTextDim
     $bCan.ForeColor = $script:ColorTextDim; $bCan.BackColor = $script:ColorBgAlt
     $bCan.Font = New-UIFont 10 -Bold
     $dlg.Controls.Add($bCan); $dlg.CancelButton = $bCan
 
+    $dlg.Size = New-Object System.Drawing.Size(400, 300)
     if ($dlg.ShowDialog($script:Form) -eq [System.Windows.Forms.DialogResult]::OK) {
         $script:Settings.GitHubRepo = $tRepo.Text.Trim()
-        $fs = 10; try { $fs = [int]$tFont.Text } catch {}
-        if ($fs -lt 8) { $fs = 8 } ; if ($fs -gt 16) { $fs = 16 }
-        $script:Settings.FontSize    = $fs
-        $script:Settings.EnableSounds = $chkSnd.Checked
+        $bf = 22; try { $bf = [int]$tBtnFont.Text } catch {}
+        if ($bf -lt 12) { $bf = 12 }; if ($bf -gt 36) { $bf = 36 }
+        $df = 10; try { $df = [int]$tDetFont.Text } catch {}
+        if ($df -lt 8) { $df = 8 }; if ($df -gt 16) { $df = 16 }
+        $script:Settings.ButtonFontSize = $bf
+        $script:Settings.DetailFontSize = $df
+        $script:Settings.EnableSounds   = $chkSnd.Checked
         Save-Settings
+        Refresh-AllFonts
     }
     $dlg.Dispose()
 }
@@ -1457,7 +1730,8 @@ function Show-SettingsDialog {
 # ============================================================================
 
 $script:BtnBuild.Add_Click({ Start-Build })
-$script:BtnPush.Add_Click({  Start-PushRelease })
+$script:BtnPushClient.Add_Click({ Start-PushRelease "client" })
+$script:BtnPushServer.Add_Click({ Start-PushRelease "server" })
 $script:BtnStop.Add_Click({  Stop-Build })
 
 $script:BtnCopyErrors.Add_Click({
@@ -1475,14 +1749,6 @@ $script:BtnCopyLog.Add_Click({
     } catch {}
 })
 
-$script:BtnVerDown.Add_Click({
-    try { $v = 0; try { $v = [int]$script:TxtVerPatch.Text } catch {}; if ($v -gt 0) { $script:TxtVerPatch.Text = "" + ($v - 1) } } catch {}
-})
-
-$script:BtnVerUp.Add_Click({
-    try { $v = 0; try { $v = [int]$script:TxtVerPatch.Text } catch {}; $script:TxtVerPatch.Text = "" + ($v + 1) } catch {}
-})
-
 $script:BtnRunServer.Add_Click({ Toggle-Server })
 $script:BtnRunGame.Add_Click({   Toggle-Game })
 $script:BtnQcRefresh.Add_Click({ Refresh-QcGrid })
@@ -1498,7 +1764,8 @@ function Invoke-FormResize {
         $tw   = $script:TabBuild.ClientSize.Width
         $th   = $script:TabBuild.ClientSize.Height
         $pad  = 8
-        $heroH = [math]::Max(120, [math]::Floor($th * 0.40))
+        $linkH = 36
+        $heroH = [math]::Max(120, [math]::Floor(($th - $linkH - $pad) * 0.40))
         $heroW = $tw - ($pad * 2)
         if ($null -ne $script:HeroPanel) {
             $script:HeroPanel.Location = New-Object System.Drawing.Point($pad, $pad)
@@ -1506,19 +1773,40 @@ function Invoke-FormResize {
         }
         $btnW = [math]::Floor($heroW * 0.48)
         $gap  = $heroW - ($btnW * 2)
-        if ($null -ne $script:BtnBuild) { $script:BtnBuild.Location = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $heroH) }
-        if ($null -ne $script:BtnPush)  { $script:BtnPush.Location  = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnPush.Size = New-Object System.Drawing.Size($btnW, $heroH) }
+        $halfH = [math]::Floor(($heroH - 4) / 2)
+        # Build button (left, full height)
+        if ($null -ne $script:BtnBuild)      { $script:BtnBuild.Location      = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $heroH) }
+        # Release Client (right, top half)
+        if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Location = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnPushClient.Size = New-Object System.Drawing.Size($btnW, $halfH) }
+        # Release Server (right, bottom half)
+        if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Location = New-Object System.Drawing.Point(($btnW + $gap), ($halfH + 4)); $script:BtnPushServer.Size = New-Object System.Drawing.Size($btnW, $halfH) }
+        # Status area
         $statusY = $heroH + ($pad * 2)
-        $statusH = $th - $statusY - $pad
+        $statusH = $th - $statusY - $linkH - ($pad * 2)
         $statusW = [math]::Floor($heroW * 0.60)
         $versionW = $heroW - $statusW - ($pad * 2)
-        if ($null -ne $script:StatusPanel)  { $script:StatusPanel.Location  = New-Object System.Drawing.Point($pad, $statusY); $script:StatusPanel.Size = New-Object System.Drawing.Size($statusW, $statusH) }
+        if ($null -ne $script:StatusPanel)  { $script:StatusPanel.Location  = New-Object System.Drawing.Point($pad, $statusY); $script:StatusPanel.Size = New-Object System.Drawing.Size($statusW, [math]::Max(40, $statusH)) }
         if ($null -ne $script:ProgressBack) { $script:ProgressBack.Size = New-Object System.Drawing.Size(($statusW - 4), 18) }
-        if ($null -ne $script:VersionPanel) { $script:VersionPanel.Location = New-Object System.Drawing.Point(($pad + $statusW + $pad), $statusY); $script:VersionPanel.Size = New-Object System.Drawing.Size($versionW, $statusH) }
+        if ($null -ne $script:VersionPanel) { $script:VersionPanel.Location = New-Object System.Drawing.Point(($pad + $statusW + $pad), $statusY); $script:VersionPanel.Size = New-Object System.Drawing.Size($versionW, [math]::Max(40, $statusH)) }
+        # Link panel (GitHub + Folder, docked to bottom of build tab)
+        if ($null -ne $script:LinkPanel) {
+            $lpY = $th - $linkH
+            $script:LinkPanel.Location = New-Object System.Drawing.Point($pad, $lpY)
+            $script:LinkPanel.Size     = New-Object System.Drawing.Size($heroW, $linkH)
+            $lbw = [math]::Floor($heroW * 0.48)
+            $lgap = $heroW - ($lbw * 2)
+            if ($null -ne $script:BtnOpenGitHub)  { $script:BtnOpenGitHub.Location  = New-Object System.Drawing.Point(0, 4); $script:BtnOpenGitHub.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
+            if ($null -ne $script:BtnOpenFolder) { $script:BtnOpenFolder.Location = New-Object System.Drawing.Point(($lbw + $lgap), 4); $script:BtnOpenFolder.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
+        }
+        # Playtest header buttons
         if ($null -ne $script:QcHeaderPanel) {
             $hw = $script:TabPlaytest.ClientSize.Width
             if ($null -ne $script:BtnQcReset)   { $script:BtnQcReset.Location   = New-Object System.Drawing.Point(($hw - 68),  8) }
             if ($null -ne $script:BtnQcRefresh) { $script:BtnQcRefresh.Location = New-Object System.Drawing.Point(($hw - 140), 8) }
+        }
+        # Docs split: 30% list / 70% content
+        if ($null -ne $script:DocSplit -and $script:DocSplit.Width -gt 0) {
+            try { $script:DocSplit.SplitterDistance = [math]::Floor($script:DocSplit.Width * 0.30) } catch {}
         }
     } catch {}
 }
@@ -1526,17 +1814,24 @@ function Invoke-FormResize {
 $script:Form.Add_Resize({ Invoke-FormResize })
 $script:TabBuild.Add_Resize({ Invoke-FormResize })
 $script:TabPlaytest.Add_Resize({ Invoke-FormResize })
+$script:TabDocs.Add_Resize({ Invoke-FormResize })
 
 # ============================================================================
-# Section 21: Main timer (2s)
+# Section 21: Main timer (3s) + window activation git check
 # ============================================================================
 
 $mainTimer = New-Object System.Windows.Forms.Timer
-$mainTimer.Interval = 2000
+$mainTimer.Interval = 3000
 $mainTimer.Add_Tick({
     try {
         Update-RunButtons
-        if (-not $script:IsBuilding -and -not $script:GitBusy) { Update-GitChangeCount }
+    } catch {}
+})
+
+# Git change count: refresh once when the window gains focus, not on a poll loop
+$script:Form.Add_Activated({
+    try {
+        if (-not $script:IsBuilding) { Update-GitChangeCount }
     } catch {}
 })
 
@@ -1553,7 +1848,7 @@ $script:Form.Add_Shown({
         $mainTimer.Start()
 
         $t1 = New-Object System.Windows.Forms.Timer; $t1.Interval = 50
-        $t1.Add_Tick({ try { $this.Stop(); $this.Dispose(); Load-QcFile; Populate-QcGrid } catch {} })
+        $t1.Add_Tick({ try { $this.Stop(); $this.Dispose(); Load-QcFile; Populate-QcGrid; Populate-DocList } catch {} })
         $t1.Start()
 
         $t2 = New-Object System.Windows.Forms.Timer; $t2.Interval = 100
@@ -1561,52 +1856,90 @@ $script:Form.Add_Shown({
         $t2.Start()
 
         # Background: gh auth check
-        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-        $rs.Open()
-        $ps = [System.Management.Automation.PowerShell]::Create()
-        $ps.Runspace = $rs
-        [void]$ps.AddScript({ try { $o = gh auth status 2>&1; ($o | ForEach-Object { $_.ToString() }) -join " " } catch { "" } })
-        $h = $ps.BeginInvoke()
-        $ap = New-Object System.Windows.Forms.Timer; $ap.Interval = 400
-        $ap.Add_Tick({
-            try {
-                if (-not $h.IsCompleted) { return }
-                $this.Stop(); $this.Dispose()
-                $res = $ps.EndInvoke($h)
-                $ok  = ($res -join " ") -match 'Logged in'
-                $script:GhAuthOk = $ok
-                if ($null -ne $script:LblAuthStatus) {
-                    $script:LblAuthStatus.Text = $(if ($ok) { "auth: ok" } else { "auth: --" })
-                    $script:LblAuthStatus.ForeColor = $(if ($ok) { $script:ColorGreen } else { $script:ColorRed })
-                }
-                try { $ps.Dispose() } catch {}; try { $rs.Close(); $rs.Dispose() } catch {}
-            } catch {}
-        })
-        $ap.Start()
+        try {
+            $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+            $rs.Open()
+            $ps = [System.Management.Automation.PowerShell]::Create()
+            $ps.Runspace = $rs
+            [void]$ps.AddScript({
+                try {
+                    $ghPath = Get-Command gh -ErrorAction SilentlyContinue
+                    if ($null -eq $ghPath) { return "NOT_INSTALLED" }
+                    $o = gh auth status 2>&1
+                    return (($o | ForEach-Object { $_.ToString() }) -join " ")
+                } catch { return "ERROR" }
+            })
+            $h = $ps.BeginInvoke()
+            $ap = New-Object System.Windows.Forms.Timer; $ap.Interval = 400
+            $ap.Add_Tick({
+                try {
+                    if (-not $h.IsCompleted) { return }
+                    $this.Stop(); $this.Dispose()
+                    $res = $ps.EndInvoke($h)
+                    $txt = ($res -join " ")
+                    $ok = $txt -match 'Logged in'
+                    $notInstalled = $txt -match 'NOT_INSTALLED'
+                    $script:GhAuthOk = $ok
+                    if ($null -ne $script:BtnAuthStatus) {
+                        if ($notInstalled) {
+                            $script:BtnAuthStatus.Text = "gh: not installed"
+                            $script:BtnAuthStatus.ForeColor = $script:ColorRed
+                        } elseif ($ok) {
+                            $script:BtnAuthStatus.Text = "auth: ok"
+                            $script:BtnAuthStatus.ForeColor = $script:ColorGreen
+                        } else {
+                            $script:BtnAuthStatus.Text = "auth: -- (click to login)"
+                            $script:BtnAuthStatus.ForeColor = $script:ColorRed
+                        }
+                    }
+                    try { $ps.Dispose() } catch {}; try { $rs.Close(); $rs.Dispose() } catch {}
+                } catch {}
+            })
+            $ap.Start()
+        } catch {
+            if ($null -ne $script:BtnAuthStatus) {
+                $script:BtnAuthStatus.Text = "auth: error"
+                $script:BtnAuthStatus.ForeColor = $script:ColorRed
+            }
+        }
 
         # Background: fetch latest release
         $repo = $script:Settings.GitHubRepo
         if ($repo -ne "") {
-            $rs2 = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-            $rs2.Open()
-            $ps2 = [System.Management.Automation.PowerShell]::Create()
-            $ps2.Runspace = $rs2
-            [void]$ps2.AddScript({ param($rp); try { $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null; if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) } } catch {}; return $null }).AddArgument($repo)
-            $h2 = $ps2.BeginInvoke()
-            $rp = New-Object System.Windows.Forms.Timer; $rp.Interval = 600
-            $rp.Add_Tick({
-                try {
-                    if (-not $h2.IsCompleted) { return }
-                    $this.Stop(); $this.Dispose()
-                    $data = $ps2.EndInvoke($h2)
-                    if ($null -ne $data -and $data.Count -gt 0) {
-                        $rel = $data[0]; Save-ReleaseCache $rel
-                        $script:Form.Invoke([Action]{ Update-ReleaseCacheUI $rel })
-                    }
-                    try { $ps2.Dispose() } catch {}; try { $rs2.Close(); $rs2.Dispose() } catch {}
-                } catch {}
-            })
-            $rp.Start()
+            try {
+                $rs2 = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+                $rs2.Open()
+                $ps2 = [System.Management.Automation.PowerShell]::Create()
+                $ps2.Runspace = $rs2
+                [void]$ps2.AddScript({ param($rp); try { $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null; if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) } } catch {}; return $null }).AddArgument($repo)
+                $h2 = $ps2.BeginInvoke()
+                $rp = New-Object System.Windows.Forms.Timer; $rp.Interval = 600
+                $rp.Add_Tick({
+                    try {
+                        if (-not $h2.IsCompleted) { return }
+                        $this.Stop(); $this.Dispose()
+                        $data = $ps2.EndInvoke($h2)
+                        if ($null -ne $data -and $data.Count -gt 0) {
+                            $rel = $data[0]; Save-ReleaseCache $rel
+                            $script:Form.Invoke([Action]{ Update-ReleaseCacheUI $rel })
+                        } else {
+                            $script:Form.Invoke([Action]{
+                                if ($null -ne $script:LblLatestRelease) {
+                                    $script:LblLatestRelease.Text = "latest: no releases"
+                                    $script:LblLatestRelease.ForeColor = $script:ColorTextDim
+                                }
+                            })
+                        }
+                        try { $ps2.Dispose() } catch {}; try { $rs2.Close(); $rs2.Dispose() } catch {}
+                    } catch {}
+                })
+                $rp.Start()
+            } catch {}
+        } else {
+            if ($null -ne $script:LblLatestRelease) {
+                $script:LblLatestRelease.Text = "latest: no repo configured"
+                $script:LblLatestRelease.ForeColor = $script:ColorTextDim
+            }
         }
     } catch {}
 })
@@ -1626,6 +1959,8 @@ $script:Form.Add_FormClosing({
         if ($null -ne $script:ServerProcess)  { try { if (-not $script:ServerProcess.HasExited) { $script:ServerProcess.Kill() } } catch {} }
         try { $mainTimer.Dispose() } catch {}
         try { $script:BuildTimer.Dispose() } catch {}
+        if ($null -ne $script:CachedTabFont)     { try { $script:CachedTabFont.Dispose() } catch {} }
+        if ($null -ne $script:CachedSectionFont) { try { $script:CachedSectionFont.Dispose() } catch {} }
         if ($null -ne $script:FontCollection) { try { $script:FontCollection.Dispose() } catch {} }
     } catch {}
 })
@@ -1646,3 +1981,4 @@ try {
 } finally {
     try { $script:Form.Dispose() } catch {}
 }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               

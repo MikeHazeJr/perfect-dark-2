@@ -1,4 +1,4 @@
-# QC Test Checklist
+﻿# QC Test Checklist
 
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
@@ -10,44 +10,44 @@
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 1 | Launch server (GUI mode), check log | `HUB: initialised, state=Lounge` in log | untested |
-| 2 | Start a match from server GUI | Log shows `HUB: state Lounge -> Active`; Hub tab shows room 0 in "Match" state (blue) | untested |
-| 3 | End match, return to lobby | Log shows `HUB: state Active -> Lounge`; Hub tab shows room 0 in "Lobby" state (green) | untested |
-| 4 | Ctrl+C / close server window | Log shows `HUB: shutting down` before process exits | untested |
+| 1 | Launch server (GUI mode), check log | `HUB: initialised, state=Lounge` in log | [ ] |
+| 2 | Start a match from server GUI | Log shows `HUB: state Lounge -> Active`; Hub tab shows room 0 in "Match" state (blue) | [ ] |
+| 3 | End match, return to lobby | Log shows `HUB: state Active -> Lounge`; Hub tab shows room 0 in "Lobby" state (green) | [ ] |
+| 4 | Ctrl+C / close server window | Log shows `HUB: shutting down` before process exits | [ ] |
 
 ### Room System
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 5 | Open Hub tab in server GUI | Room table shows room 0 "Lounge" in Lobby state; 3 remaining rows show CLOSED or absent | untested |
-| 6 | Start match, observe Hub tab | Room 0 transitions: LOBBY → MATCH during gameplay | untested |
-| 7 | End match, observe Hub tab | Room 0 shows POSTGAME briefly (1 frame), then LOBBY | untested |
-| 8 | Check log for room transitions | `ROOM 0: LOBBY -> MATCH`, `ROOM 0: MATCH -> POSTGAME`, `ROOM 0: POSTGAME -> LOBBY` sequence | untested |
+| 5 | Open Hub tab in server GUI | Room table shows room 0 "Lounge" in Lobby state; 3 remaining rows show CLOSED or absent | [ ] |
+| 6 | Start match, observe Hub tab | Room 0 transitions: LOBBY → MATCH during gameplay | [ ] |
+| 7 | End match, observe Hub tab | Room 0 shows POSTGAME briefly (1 frame), then LOBBY | [ ] |
+| 8 | Check log for room transitions | `ROOM 0: LOBBY -> MATCH`, `ROOM 0: MATCH -> POSTGAME`, `ROOM 0: POSTGAME -> LOBBY` sequence | [ ] |
 
 ### Player Identity
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 9  | Launch server fresh (no pd-identity.dat) | File `pd-identity.dat` created in home dir; default profile "Agent" created | untested |
-| 10 | Launch server again (identity.dat exists) | Log shows identity loaded; no "default" message | untested |
-| 11 | Corrupt pd-identity.dat (e.g. truncate it), relaunch | Server logs warning, rebuilds default identity, file overwritten with valid data | untested |
+| 9  | Launch server fresh (no pd-identity.dat) | File `pd-identity.dat` created in home dir; default profile "Agent" created | [ ] |
+| 10 | Launch server again (identity.dat exists) | Log shows identity loaded; no "default" message | [ ] |
+| 11 | Corrupt pd-identity.dat (e.g. truncate it), relaunch | Server logs warning, rebuilds default identity, file overwritten with valid data | [ ] |
 
 ### Phonetic Encoding
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 12 | Server logs phonetic code on startup (if implemented in GUI) | Code displayed in format `XXXX-XXXX-XXXX-XXXX` (4 groups, each 4 chars) | untested |
-| 13 | Verify encode→decode round-trip (unit: `phoneticEncode` then `phoneticDecode`) | Decoded IP + port match original input exactly | untested |
+| 12 | Server logs phonetic code on startup (if implemented in GUI) | Code displayed in format `XXXX-XXXX-XXXX-XXXX` (4 groups, each 4 chars) | [ ] |
+| 13 | Verify encode→decode round-trip (unit: `phoneticEncode` then `phoneticDecode`) | Decoded IP + port match original input exactly | [ ] |
 
 ### Server GUI — Hub Tab
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 14 | Server GUI: verify two tabs in middle panel | "Server" tab and "Hub" tab both visible and clickable | untested |
-| 15 | "Server" tab content intact | Player list + match controls unchanged from pre-SPF-1 behavior | untested |
-| 16 | "Hub" tab: hub state label | Shows "Lounge" (blue) when idle, "Active" (green) when match running | untested |
-| 17 | "Hub" tab: room table columns | Shows ID, Name, State, Players columns; room 0 row always present | untested |
-| 18 | Log panel: HUB: prefix color | Lines starting with `HUB:` rendered in purple in the log panel | untested |
+| 14 | Server GUI: verify two tabs in middle panel | "Server" tab and "Hub" tab both visible and clickable | [ ] |
+| 15 | "Server" tab content intact | Player list + match controls unchanged from pre-SPF-1 behavior | [ ] |
+| 16 | "Hub" tab: hub state label | Shows "Lounge" (blue) when idle, "Active" (green) when match running | [ ] |
+| 17 | "Hub" tab: room table columns | Shows ID, Name, State, Players columns; room 0 row always present | [ ] |
+| 18 | Log panel: HUB: prefix color | Lines starting with `HUB:` rendered in purple in the log panel | [ ] |
 
 ---
 
@@ -56,14 +56,14 @@
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 1 | Open match setup, add 4 bots, start match | All 4 bots spawn, scores/names work, no crash | untested |
-| 2 | Add bots, remove one, start match | Removed bot absent; remaining bots spawn correctly | untested |
-| 3 | Save a bot setup (WAD save), quit, reload | Bot configuration restored correctly; names appear in setup UI | untested |
-| 4 | Start match, end game, return to lobby | No stale participants; participant count resets to players only | untested |
-| 5 | Challenge mode: enter a challenge | Correct bots populate for the challenge (sanity check function) | untested |
-| 6 | Bot name generation with 3+ of same type (e.g. 3 MeatSims) | Names show "MeatSim:1", "MeatSim:2", "MeatSim:3" | untested |
-| 7 | Copy simulant (add same sim type again) | Copy adds correctly; both show correct names | untested |
-| 8 | Team assignment (Maximum Teams, Humans vs Sims) | Teams assigned correctly to all active participants | untested |
+| 1 | Open match setup, add 4 bots, start match | All 4 bots spawn, scores/names work, no crash | [ ] |
+| 2 | Add bots, remove one, start match | Removed bot absent; remaining bots spawn correctly | [ ] |
+| 3 | Save a bot setup (WAD save), quit, reload | Bot configuration restored correctly; names appear in setup UI | [ ] |
+| 4 | Start match, end game, return to lobby | No stale participants; participant count resets to players only | [ ] |
+| 5 | Challenge mode: enter a challenge | Correct bots populate for the challenge (sanity check function) | [ ] |
+| 6 | Bot name generation with 3+ of same type (e.g. 3 MeatSims) | Names show "MeatSim:1", "MeatSim:2", "MeatSim:3" | [ ] |
+| 7 | Copy simulant (add same sim type again) | Copy adds correctly; both show correct names | [ ] |
+| 8 | Team assignment (Maximum Teams, Humans vs Sims) | Teams assigned correctly to all active participants | [ ] |
 
 ---
 
@@ -73,11 +73,11 @@
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 1 | Open match setup lobby, add 1 player + 31 bots, start match | All 31 bots spawn and are active in-game | untested |
-| 2 | Log check: `MATCHSETUP: chrslots=` after starting with 31 bots | `chrslots` shows bits 8-38 set (31 bots), botSlot=31 in log | untested |
-| 3 | Start a match with 1 player + 24 bots (prior max) | 24 bots spawn, no regression | untested |
-| 4 | Start a match with 8 players + 0 bots | All 8 players present, no crash | untested |
-| 5 | Network: server host 1 player + 10 bots, client connects | Client receives correct chrslots (u64 v21), match starts | untested |
+| 1 | Open match setup lobby, add 1 player + 31 bots, start match | All 31 bots spawn and are active in-game | [ ] |
+| 2 | Log check: `MATCHSETUP: chrslots=` after starting with 31 bots | `chrslots` shows bits 8-38 set (31 bots), botSlot=31 in log | [ ] |
+| 3 | Start a match with 1 player + 24 bots (prior max) | 24 bots spawn, no regression | [ ] |
+| 4 | Start a match with 8 players + 0 bots | All 8 players present, no crash | [ ] |
+| 5 | Network: server host 1 player + 10 bots, client connects | Client receives correct chrslots (u64 v21), match starts | [ ] |
 
 ## D3R-10 Mod Pack export/import (S45a) — Awaiting Test
 
@@ -85,16 +85,16 @@
 
 | # | Test | Expected Result | Status |
 |---|------|----------------|--------|
-| 1 | Open Modding Hub → click "Mod Pack" tab | 4th tab appears, Export panel at top with Name/Author/Ver fields and output path | untested |
-| 2 | Install ≥1 mod component; open Mod Pack tab | Component checklist shows installed components with category and type label | untested |
-| 3 | Check 2–3 components, fill Name/Author/Version, set output path (e.g. `mods/test.pdpack`), click Export Pack | File created at output path; status line shows "Exported N component(s)" | untested |
-| 4 | Export with no components selected | Export Pack button disabled (greyed out) | untested |
-| 5 | Enter path to exported `.pdpack` in Import panel, click Preview | Manifest preview shows Pack/Author/Version and component list with [installed] or [new] badge | untested |
-| 6 | Click Import Pack (permanent) | Components extracted to `mods/{category}/{id}/`; status shows "Imported N component(s). Use Apply Changes to reload." | untested |
-| 7 | Click Import Pack with Session Only checked | Components land in `mods/.temp/{category}/{id}/` instead | untested |
-| 8 | Try importing a `.pdpack` where all components already installed | All badges show [installed]; import still succeeds (overwrite) | untested |
-| 9 | Enter a non-existent path and click Preview | Preview area stays hidden; no crash | untested |
-| 10 | All/None buttons in export component list | All: selects all checkboxes; None: clears all | untested |
+| 1 | Open Modding Hub → click "Mod Pack" tab | 4th tab appears, Export panel at top with Name/Author/Ver fields and output path | [ ] |
+| 2 | Install ≥1 mod component; open Mod Pack tab | Component checklist shows installed components with category and type label | [ ] |
+| 3 | Check 2–3 components, fill Name/Author/Version, set output path (e.g. `mods/test.pdpack`), click Export Pack | File created at output path; status line shows "Exported N component(s)" | [ ] |
+| 4 | Export with no components selected | Export Pack button disabled (greyed out) | [ ] |
+| 5 | Enter path to exported `.pdpack` in Import panel, click Preview | Manifest preview shows Pack/Author/Version and component list with [installed] or [new] badge | [ ] |
+| 6 | Click Import Pack (permanent) | Components extracted to `mods/{category}/{id}/`; status shows "Imported N component(s). Use Apply Changes to reload." | [ ] |
+| 7 | Click Import Pack with Session Only checked | Components land in `mods/.temp/{category}/{id}/` instead | [ ] |
+| 8 | Try importing a `.pdpack` where all components already installed | All badges show [installed]; import still succeeds (overwrite) | [ ] |
+| 9 | Enter a non-existent path and click Preview | Preview area stays hidden; no crash | [ ] |
+| 10 | All/None buttons in export component list | All: selects all checkboxes; None: clears all | [ ] |
 
 ## D3R-11 Legacy Cleanup (S45b) — Awaiting Build + Test
 
@@ -102,16 +102,16 @@
 
 | # | Test | Expected Result | Status | Notes |
 |---|------|----------------|--------|-------|
-| 1 | Launch game normally | No crash; title screen loads | [ ] | Baseline smoke test |
-| 2 | Start a GEX-mod multiplayer match (GEX stage) | Match loads; GEX textures have correct surface types (no footstep audio weirdness) | [ ] | mplayer.c stagenum switch |
-| 3 | Start a Kakariko multiplayer match | Match loads; Kakariko textures have correct surface types | [ ] | |
-| 4 | Start a GF64 multiplayer match (STAGE_EXTRA20-23) | Match loads; correct texture surface assignments | [ ] | |
-| 5 | Start a DarkNoon multiplayer match (STAGE_TEST_MP7) | Match loads; no crash (no texture overrides needed — default:break) | [ ] | |
-| 6 | Start a vanilla PD stage multiplayer match | Match loads; no regression to texture surface types | [ ] | |
-| 7 | Props spawn in GEX stage | Props use `g_ModelStates[].scale` (not GEX override). May need asset correction later. | [ ] | Per S35 policy |
-| 8 | `mods/` dir with `mod.json` mod | Mod loads normally | [ ] | |
-| 9 | `mods/` dir WITHOUT `mod.json` | Dir silently skipped; log says "no mod.json, skipping" | [ ] | Legacy modconfig.txt dirs ignored |
-| 10 | Dedicated server launches | No crash on startup (`modConfigLoad` stub removed) | [ ] | server_stubs.c |
+| 1 | Launch game normally | No crash; title screen loads | [ ] |  |
+| 2 | Start a GEX-mod multiplayer match (GEX stage) | Match loads; GEX textures have correct surface types (no footstep audio weirdness) | [ ] |  |
+| 3 | Start a Kakariko multiplayer match | Match loads; Kakariko textures have correct surface types | [ ] |  |
+| 4 | Start a GF64 multiplayer match (STAGE_EXTRA20-23) | Match loads; correct texture surface assignments | [ ] |  |
+| 5 | Start a DarkNoon multiplayer match (STAGE_TEST_MP7) | Match loads; no crash (no texture overrides needed — default:break) | [ ] |  |
+| 6 | Start a vanilla PD stage multiplayer match | Match loads; no regression to texture surface types | [ ] |  |
+| 7 | Props spawn in GEX stage | Props use `g_ModelStates[].scale` (not GEX override). May need asset correction later. | [ ] |  |
+| 8 | `mods/` dir with `mod.json` mod | Mod loads normally | [ ] |  |
+| 9 | `mods/` dir WITHOUT `mod.json` | Dir silently skipped; log says "no mod.json, skipping" | [ ] |  |
+| 10 | Dedicated server launches | No crash on startup (`modConfigLoad` stub removed) | [ ] |  |
 
 ---
 
@@ -121,19 +121,19 @@
 
 | # | Test | Expected Result | Status | Notes |
 |---|------|----------------|--------|-------|
-| 1 | Server hosts; client connects with same mod catalog | Client connects to lobby normally; no download prompt | [ ] | Baseline — no diff |
-| 2 | Server has extra mod component client lacks; client joins | Download prompt appears in lobby: "Server requires N mod component(s)" with Download / This Session / Skip buttons | [ ] | |
-| 3 | Click "Download" in prompt | Progress bar appears at bottom; component name + bytes shown; no crash | [ ] | |
-| 4 | Transfer completes | `DISTRIB_CSTATE_DONE`; `mods/{category}/{id}/` directory created; files present | [ ] | Permanent download |
-| 5 | Restart → component persists | Component still in `mods/{category}/{id}/`; catalog has it | [ ] | |
-| 6 | Click "This Session" | Download proceeds; component lands in `mods/.temp/{id}/` | [ ] | Session-only |
-| 7 | Restart after session-only download | `mods/.temp/` present; crash state file present; no prompt on clean exit | [ ] | |
-| 8 | Click "Skip" | Download prompt closes; client joins without the component | [ ] | |
-| 9 | Kill feed: start match, get a kill | Kill feed entry appears top-right: "attacker > victim (weapon)" | [ ] | |
-| 10 | Kill feed headshot | Entry shows yellow text with "[HS]" indicator | [ ] | |
-| 11 | Crash recovery: force-kill process while `mods/.temp/` non-empty | On next launch, recovery prompt appears | [ ] | Simulate crash |
-| 12 | Recovery prompt → Keep | Temp components load normally | [ ] | |
-| 13 | Recovery prompt → Discard | `mods/.temp/` cleared; no components loaded | [ ] | |
+| 1 | Server hosts; client connects with same mod catalog | Client connects to lobby normally; no download prompt | [ ] |  |
+| 2 | Server has extra mod component client lacks; client joins | Download prompt appears in lobby: "Server requires N mod component(s)" with Download / This Session / Skip buttons | [ ] |  |
+| 3 | Click "Download" in prompt | Progress bar appears at bottom; component name + bytes shown; no crash | [ ] |  |
+| 4 | Transfer completes | `DISTRIB_CSTATE_DONE`; `mods/{category}/{id}/` directory created; files present | [ ] |  |
+| 5 | Restart → component persists | Component still in `mods/{category}/{id}/`; catalog has it | [ ] |  |
+| 6 | Click "This Session" | Download proceeds; component lands in `mods/.temp/{id}/` | [ ] |  |
+| 7 | Restart after session-only download | `mods/.temp/` present; crash state file present; no prompt on clean exit | [ ] |  |
+| 8 | Click "Skip" | Download prompt closes; client joins without the component | [ ] |  |
+| 9 | Kill feed: start match, get a kill | Kill feed entry appears top-right: "attacker > victim (weapon)" | [ ] |  |
+| 10 | Kill feed headshot | Entry shows yellow text with "[HS]" indicator | [ ] |  |
+| 11 | Crash recovery: force-kill process while `mods/.temp/` non-empty | On next launch, recovery prompt appears | [ ] |  |
+| 12 | Recovery prompt → Keep | Temp components load normally | [ ] |  |
+| 13 | Recovery prompt → Discard | `mods/.temp/` cleared; no components loaded | [ ] |  |
 
 ---
 
