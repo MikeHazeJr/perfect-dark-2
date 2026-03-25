@@ -1169,6 +1169,8 @@ $script:GhReleaseCacheFile = Join-Path $script:ProjectDir ".build-release-cache.
 $script:GhReleaseCache     = $null
 $script:GhReleaseCacheTime = [DateTime]::MinValue
 $script:GhOnline           = $false
+$script:GhAuthOk           = $false
+$script:LastAuthCheck      = [DateTime]::MinValue
 
 function Load-ReleaseCache {
     if (Test-Path $script:GhReleaseCacheFile) {
@@ -1865,8 +1867,10 @@ function Check-Auth {
 }
 
 $lblAuth.Add_Click({
-    if ($lblAuth.Text -ne "auth ok") {
+    if (-not $script:GhAuthOk) {
         Start-Process "cmd.exe" -ArgumentList "/k gh auth login"
+        # Force re-check sooner after user clicks
+        $script:LastAuthCheck = [DateTime]::MinValue
     }
 })
 
@@ -2047,6 +2051,22 @@ $mainTimer.Add_Tick({
             $script:PendingServerBuild = $false
             Start-Build-Server-After-Client
         }
+
+        # Re-check auth every 30s if not yet authenticated
+        if (-not $script:GhAuthOk -and ([DateTime]::Now - $script:LastAuthCheck).TotalSeconds -gt 30) {
+            $script:LastAuthCheck = [DateTime]::Now
+            try {
+                $authOut = gh auth status 2>&1
+                $authStr = ($authOut | ForEach-Object { $_.ToString() }) -join "`n"
+                if ($null -ne $lblAuth) {
+                    if ($authStr -match 'Logged in to') {
+                        $lblAuth.Text = "auth ok"; $lblAuth.ForeColor = $script:ColorGreen
+                        $lblAuth.Cursor = [System.Windows.Forms.Cursors]::Default
+                        $script:GhAuthOk = $true
+                    }
+                }
+            } catch {}
+        }
     } catch {}
 })
 $mainTimer.Start()
@@ -2163,8 +2183,12 @@ $form.Add_Shown({
             if ($null -ne $lblAuth) {
                 if ($null -ne $str -and $str -match 'Logged in to') {
                     $lblAuth.Text = "auth ok"; $lblAuth.ForeColor = $script:ColorGreen
+                    $lblAuth.Cursor = [System.Windows.Forms.Cursors]::Default
+                    $script:GhAuthOk = $true
                 } else {
                     $lblAuth.Text = "authenticate"; $lblAuth.ForeColor = $script:ColorRed
+                    $lblAuth.Cursor = [System.Windows.Forms.Cursors]::Hand
+                    $script:GhAuthOk = $false
                 }
             }
         } catch {
@@ -2244,4 +2268,4 @@ try {
         "Fatal error - see devtools/error.log",
         "PD Dev Window", [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error)
-}
+}                                                                                                                                                                                                                                                                                                                               
