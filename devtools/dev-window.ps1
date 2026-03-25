@@ -265,6 +265,8 @@ function Test-ExeExists($name) { return Test-Path (Get-ExePath $name) }
 # Section 9: Form creation
 # ============================================================================
 
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
 $script:Form = New-Object System.Windows.Forms.Form
 $script:Form.Text          = "Perfect Dark 2 - Dev Window"
 $script:Form.Size          = New-Object System.Drawing.Size(900, 700)
@@ -356,9 +358,8 @@ $script:TabPlaytest.BackColor = $script:ColorBg
 
 [void]$script:TabControl.TabPages.Add($script:TabBuild)
 [void]$script:TabControl.TabPages.Add($script:TabPlaytest)
-$script:Form.Controls.Add($script:TabControl)
 
-# Bottom bar (docked last so it renders above tabcontrol)
+# Bottom bar (docked before TabControl so Fill gets remaining space)
 $script:BottomBar = New-Object System.Windows.Forms.Panel
 $script:BottomBar.Dock      = [System.Windows.Forms.DockStyle]::Bottom
 $script:BottomBar.Height    = 58
@@ -390,6 +391,7 @@ $script:BtnRunGame.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:BottomBar.Controls.Add($script:BtnRunGame)
 $script:BottomBar.Controls.Add($script:BtnRunServer)
 $script:Form.Controls.Add($script:BottomBar)
+$script:Form.Controls.Add($script:TabControl)
 
 # ============================================================================
 # Section 10: Build tab controls
@@ -1633,7 +1635,6 @@ $script:Form.Add_FormClosing({
 # ============================================================================
 
 try {
-    [System.Windows.Forms.Application]::EnableVisualStyles()
     [System.Windows.Forms.Application]::Run($script:Form)
 } catch {
     [System.Windows.Forms.MessageBox]::Show(
