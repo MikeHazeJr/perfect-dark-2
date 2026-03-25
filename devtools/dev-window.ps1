@@ -415,7 +415,7 @@ $tabControl.Font      = New-UIFont 10 -Bold
 
 # Style tab headers
 $tabControl.DrawMode = "OwnerDrawFixed"
-$tabControl.ItemSize = New-Object System.Drawing.Size(120, 28)
+$tabControl.ItemSize = New-Object System.Drawing.Size(140, 30)
 $tabControl.Add_DrawItem({
     param($s, $e)
     $tab   = $tabControl.TabPages[$e.Index]
@@ -434,6 +434,10 @@ $tabControl.Add_DrawItem({
     $textBrush = New-Object System.Drawing.SolidBrush($tc)
     $e.Graphics.DrawString($tab.Text, (New-UIFont 10 -Bold), $textBrush, [System.Drawing.RectangleF]$rect, $sf)
     $textBrush.Dispose()
+})
+$tabControl.Add_Paint({
+    param($s, $e)
+    $e.Graphics.Clear($script:ColorBg)
 })
 
 $tabBuild    = New-Object System.Windows.Forms.TabPage
@@ -491,6 +495,16 @@ $btnPush.Cursor     = "Hand"
 $btnPush.Font       = New-UIFont 18 -Bold
 $btnPush.Anchor     = "Top,Right"
 $buildPanel.Controls.Add($btnPush)
+
+$chkStable = New-Object System.Windows.Forms.CheckBox
+$chkStable.Text      = "Stable"
+$chkStable.Font      = New-UIFont 10
+$chkStable.ForeColor = $script:ColorGold
+$chkStable.BackColor = $script:ColorBg
+$chkStable.Location  = New-Object System.Drawing.Point(496, 226)
+$chkStable.AutoSize  = $true
+$chkStable.Checked   = $false
+$buildPanel.Controls.Add($chkStable)
 
 # Stop button - hidden during idle, shown during builds
 $btnStop = New-Object System.Windows.Forms.Button
@@ -1800,12 +1814,6 @@ function Start-PushRelease {
     $lInfo.Location = New-Object System.Drawing.Point(16,16); $lInfo.Size = New-Object System.Drawing.Size(380,80)
     $dlg.Controls.Add($lInfo)
 
-    $chkStable = New-Object System.Windows.Forms.CheckBox
-    $chkStable.Text = "Mark as Stable release (not prerelease)"
-    $chkStable.Font = New-UIFont 10; $chkStable.ForeColor = $script:ColorWhite
-    $chkStable.Location = New-Object System.Drawing.Point(16, 106); $chkStable.AutoSize = $true; $chkStable.Checked = $false
-    $dlg.Controls.Add($chkStable)
-
     $lTags = New-Object System.Windows.Forms.Label
     $lTags.Text = "Will create tags: client-v$verStr + server-v$verStr and push to GitHub."
     $lTags.Font = New-UIFont 11; $lTags.ForeColor = $script:ColorDim
@@ -2091,6 +2099,9 @@ function Invoke-FormResize {
     if ($null -ne $btnPush) {
         $btnPush.Location  = New-Object System.Drawing.Point((8 + $half + $heroGap), 8)
         $btnPush.Size      = New-Object System.Drawing.Size(($tabW - 8 - $half - $heroGap - 8), $heroH)
+    }
+    if ($null -ne $chkStable) {
+        $chkStable.Location = New-Object System.Drawing.Point((8 + $half + $heroGap), ($heroH + 16))
     }
 
     # Version panel - right side below hero buttons
