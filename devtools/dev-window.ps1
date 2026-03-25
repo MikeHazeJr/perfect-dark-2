@@ -1902,13 +1902,15 @@ $script:Form.Add_Shown({
             $script:AuthPS = [System.Management.Automation.PowerShell]::Create()
             $script:AuthPS.Runspace = $script:AuthRS
             [void]$script:AuthPS.AddScript({
+                param($envPath)
                 try {
+                    $env:PATH = $envPath
                     $ghPath = Get-Command gh -ErrorAction SilentlyContinue
                     if ($null -eq $ghPath) { return "NOT_INSTALLED" }
                     $o = gh auth status 2>&1
                     return (($o | ForEach-Object { $_.ToString() }) -join " ")
                 } catch { return "ERROR" }
-            })
+            }).AddArgument($env:PATH)
             $script:AuthHandle = $script:AuthPS.BeginInvoke()
             $ap = New-Object System.Windows.Forms.Timer; $ap.Interval = 400
             $ap.Add_Tick({
