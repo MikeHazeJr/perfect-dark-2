@@ -397,24 +397,37 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     $savedEAP = $ErrorActionPreference
     $channel = $(if ($Prerelease) { "Dev" } else { "Stable" })
 
-    # --- Client release (tag: client-v{M}.{m}.{p}) ---
-    if ($hasClient) {
-        Write-Host "  Creating CLIENT release ($ClientTag) ..." -ForegroundColor Cyan
-        $ghArgs = @("release", "create", $ClientTag, "--title", "Perfect Dark 2 $ClientTag ($channel)")
+    # --- Helper: create or overwrite a GitHub release ---
+    function Push-GhRelease($tag, $title, $assets, $useNotes) {
+        # Check if release already exists
+        $ErrorActionPreference = "Continue"
+        $existCheck = gh release view $tag 2>&1
+        $exists = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = $savedEAP
 
-        if ($hasNotes) {
+        if ($exists) {
+            Write-Host "  Release $tag already exists -- deleting and recreating..." -ForegroundColor Yellow
+            [System.Media.SystemSounds]::Exclamation.Play()
+            $ErrorActionPreference = "Continue"
+            gh release delete $tag --yes 2>&1 | Out-Null
+            # Also delete the git tag so we can recreate it at the current commit
+            gh api -X DELETE "repos/MikeHazeJr/perfect-dark-2/git/refs/tags/$tag" 2>&1 | Out-Null
+            git tag -d $tag 2>&1 | Out-Null
+            $ErrorActionPreference = $savedEAP
+            Write-Host "  Old release deleted." -ForegroundColor Gray
+        }
+
+        $ghArgs = @("release", "create", $tag, "--title", $title)
+        if ($useNotes -and $hasNotes) {
             $ghArgs += "--notes-file"
             $ghArgs += $ReleaseNotes
         } else {
             $ghArgs += "--generate-notes"
         }
-
         if ($Prerelease) { $ghArgs += "--prerelease" }
-
-        # Attach client exe + hash + full distribution zip
-        $ghArgs += "$DistDir/PerfectDark.exe"
-        $ghArgs += "$DistDir/PerfectDark.exe.sha256"
-        if (Test-Path $zipPath) { $ghArgs += $zipPath }
+        foreach ($a in $assets) {
+            if (Test-Path $a) { $ghArgs += $a }
+        }
 
         Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
 
@@ -424,12 +437,24 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
         $ErrorActionPreference = $savedEAP
         foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
+        return $ghExit
+    }
+
+    # --- Client release (tag: client-v{M}.{m}.{p}) ---
+    if ($hasClient) {
+        Write-Host "  Creating CLIENT release ($ClientTag) ..." -ForegroundColor Cyan
+        $clientAssets = @("$DistDir/PerfectDark.exe", "$DistDir/PerfectDark.exe.sha256")
+        if (Test-Path $zipPath) { $clientAssets += $zipPath }
+        $ghExit = Push-GhRelease $ClientTag "Perfect Dark 2 $ClientTag ($channel)" $clientAssets $true
+
         if ($ghExit -eq 0) {
             Write-Host "  Client release created:" -ForegroundColor Green
             Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ClientTag" -ForegroundColor Cyan
+            [System.Media.SystemSounds]::Asterisk.Play()
         } else {
             Write-Host "  ERROR: Client release creation failed (exit $ghExit)." -ForegroundColor Red
             Write-Host "  Run 'gh auth status' to check authentication." -ForegroundColor Red
+            [System.Media.SystemSounds]::Hand.Play()
         }
     }
 
@@ -437,35 +462,16 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if ($hasServer) {
         Write-Host ""
         Write-Host "  Creating SERVER release ($ServerTag) ..." -ForegroundColor Cyan
-        $ghArgs = @("release", "create", $ServerTag, "--title", "Perfect Dark 2 Server $ServerTag ($channel)")
-
-        # Server release uses the same notes (or auto-generate)
-        if ($hasNotes) {
-            $ghArgs += "--notes-file"
-            $ghArgs += $ReleaseNotes
-        } else {
-            $ghArgs += "--generate-notes"
-        }
-
-        if ($Prerelease) { $ghArgs += "--prerelease" }
-
-        # Attach server exe + hash only (no zip -- server operators don't need the full distribution)
-        $ghArgs += "$DistDir/PerfectDarkServer.exe"
-        $ghArgs += "$DistDir/PerfectDarkServer.exe.sha256"
-
-        Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
-
-        $ErrorActionPreference = "Continue"
-        $ghOut = gh @ghArgs 2>&1
-        $ghExit = $LASTEXITCODE
-        $ErrorActionPreference = $savedEAP
-        foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+        $serverAssets = @("$DistDir/PerfectDarkServer.exe", "$DistDir/PerfectDarkServer.exe.sha256")
+        $ghExit = Push-GhRelease $ServerTag "Perfect Dark 2 Server $ServerTag ($channel)" $serverAssets $true
 
         if ($ghExit -eq 0) {
             Write-Host "  Server release created:" -ForegroundColor Green
             Write-Host "  https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/$ServerTag" -ForegroundColor Cyan
+            [System.Media.SystemSounds]::Asterisk.Play()
         } else {
             Write-Host "  ERROR: Server release creation failed (exit $ghExit)." -ForegroundColor Red
+            [System.Media.SystemSounds]::Hand.Play()
         }
     }
 }
