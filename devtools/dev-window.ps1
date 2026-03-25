@@ -1019,11 +1019,13 @@ function Populate-QcGrid {
 $script:NotesSaveTimer = New-Object System.Windows.Forms.Timer
 $script:NotesSaveTimer.Interval = 500
 $script:NotesSaveTimer.Add_Tick({
-    $script:NotesSaveTimer.Stop()
-    if ($script:QcDirtyNums.Count -gt 0) {
-        Save-QcFile
-        $script:QcDirtyNums.Clear()
-    }
+    try {
+        $script:NotesSaveTimer.Stop()
+        if ($script:QcDirtyNums.Count -gt 0) {
+            Save-QcFile
+            $script:QcDirtyNums.Clear()
+        }
+    } catch {}
 })
 
 $qcGrid.Add_CellValueChanged({
@@ -1435,21 +1437,36 @@ function Start-ManualCommit {
     $asyncHandle = $ps.BeginInvoke()
     $pollTimer = New-Object System.Windows.Forms.Timer; $pollTimer.Interval = 200
     $pollTimer.Add_Tick({
-        if (-not $asyncHandle.IsCompleted) { return }
-        $pollTimer.Stop(); $pollTimer.Dispose()
-        $gitR = ($ps.EndInvoke($asyncHandle))[0]; $ps.Dispose(); $rs.Close(); $rs.Dispose()
-        if ($gitR.CommitExit -ne 0) {
-            $lblBuildStatus.Text = "Commit failed"; $lblBuildStatus.ForeColor = $script:ColorRed
-        } else {
-            if ($shouldPush -and $gitR.PushExit -ne 0) {
-                $lblBuildStatus.Text = "Push failed"; $lblBuildStatus.ForeColor = $script:ColorRed
-            } else {
-                $lblBuildStatus.Text = $(if ($shouldPush) { "Committed + pushed" } else { "Committed" })
-                $lblBuildStatus.ForeColor = $script:ColorGreen
+        try {
+            if ($null -eq $asyncHandle -or -not $asyncHandle.IsCompleted) { return }
+            if ($null -ne $pollTimer) { $pollTimer.Stop(); $pollTimer.Dispose() }
+            if ($null -eq $ps) { $script:GitBusy = $false; return }
+            $invResult = $ps.EndInvoke($asyncHandle)
+            try { $ps.Dispose() } catch {}
+            if ($null -ne $rs) { try { $rs.Close() } catch {}; try { $rs.Dispose() } catch {} }
+            $gitR = $(if ($null -ne $invResult -and $invResult.Count -gt 0) { $invResult[0] } else { $null })
+            if ($null -eq $gitR) {
+                if ($null -ne $lblBuildStatus) { $lblBuildStatus.Text = "Commit error (no result)"; $lblBuildStatus.ForeColor = $script:ColorRed }
+                $script:GitBusy = $false; return
             }
+            if ($gitR.CommitExit -ne 0) {
+                if ($null -ne $lblBuildStatus) { $lblBuildStatus.Text = "Commit failed"; $lblBuildStatus.ForeColor = $script:ColorRed }
+            } else {
+                if ($shouldPush -and $gitR.PushExit -ne 0) {
+                    if ($null -ne $lblBuildStatus) { $lblBuildStatus.Text = "Push failed"; $lblBuildStatus.ForeColor = $script:ColorRed }
+                } else {
+                    if ($null -ne $lblBuildStatus) {
+                        $lblBuildStatus.Text = $(if ($shouldPush) { "Committed + pushed" } else { "Committed" })
+                        $lblBuildStatus.ForeColor = $script:ColorGreen
+                    }
+                }
+            }
+            if ($null -ne $savedEAP) { $ErrorActionPreference = $savedEAP }
+            $script:GitBusy = $false; $script:LastGitCheck = [DateTime]::MinValue
+            Update-GitChangeCount
+        } catch {
+            try { $script:GitBusy = $false } catch {}
         }
-        $ErrorActionPreference = $savedEAP; $script:GitBusy = $false; $script:LastGitCheck = [DateTime]::MinValue
-        Update-GitChangeCount
     })
     $pollTimer.Start()
 }
@@ -1513,9 +1530,11 @@ $script:BuildTimer = New-Object System.Windows.Forms.Timer
 $script:BuildTimer.Interval = 100
 
 $script:BuildTimer.Add_Tick({
+  try {
     $linesThisTick = 0
     $line = $null
     while ($linesThisTick -lt 80 -and $script:OutputQueue.TryDequeue([ref]$line)) {
+        if ($null -eq $line -or $line.Length -lt 4) { $linesThisTick++; continue }
         $text  = $line.Substring(4)
         $class = Classify-Line $text
         Accumulate-Line $text $class
@@ -1601,6 +1620,7 @@ $script:BuildTimer.Add_Tick({
             Refresh-VersionDisplay
         }
     }
+  } catch {}
 })
 
 function Start-Build-Step($stepName, $exe, $argList) {
@@ -2014,19 +2034,21 @@ $btnRunServer.Add_Click({ Launch-Game "server" })
 $mainTimer = New-Object System.Windows.Forms.Timer
 $mainTimer.Interval = 2000
 $mainTimer.Add_Tick({
-    Update-GameStatus
-    Update-GitChangeCount
-    Update-RunButtons
+    try {
+        Update-GameStatus
+        Update-GitChangeCount
+        Update-RunButtons
 
-    if ($script:PendingPostRelease -and -not $script:IsRunning) {
-        $script:PendingPostRelease = $false
-        if ($script:BuildSucceeded) { Clear-ChangesForRelease }
-    }
+        if ($script:PendingPostRelease -and -not $script:IsRunning) {
+            $script:PendingPostRelease = $false
+            if ($script:BuildSucceeded) { Clear-ChangesForRelease }
+        }
 
-    if ($script:PendingServerBuild -and -not $script:IsRunning) {
-        $script:PendingServerBuild = $false
-        Start-Build-Server-After-Client
-    }
+        if ($script:PendingServerBuild -and -not $script:IsRunning) {
+            $script:PendingServerBuild = $false
+            Start-Build-Server-After-Client
+        }
+    } catch {}
 })
 $mainTimer.Start()
 
@@ -2035,37 +2057,52 @@ $mainTimer.Start()
 # ============================================================================
 
 function Invoke-FormResize {
+  try {
+    if ($null -eq $buildPanel) { return }
     $tabW = $buildPanel.Width
 
     # Hero buttons - fill top area side by side (~45% each)
     $heroH = 210
     $heroGap = 8
     $half = [int](($tabW - 24 - $heroGap) / 2)
-    $btnBuild.Size     = New-Object System.Drawing.Size($half, $heroH)
-    $btnBuild.Location = New-Object System.Drawing.Point(8, 8)
-    $btnPush.Location  = New-Object System.Drawing.Point((8 + $half + $heroGap), 8)
-    $btnPush.Size      = New-Object System.Drawing.Size(($tabW - 8 - $half - $heroGap - 8), $heroH)
+    if ($null -ne $btnBuild) {
+        $btnBuild.Size     = New-Object System.Drawing.Size($half, $heroH)
+        $btnBuild.Location = New-Object System.Drawing.Point(8, 8)
+    }
+    if ($null -ne $btnPush) {
+        $btnPush.Location  = New-Object System.Drawing.Point((8 + $half + $heroGap), 8)
+        $btnPush.Size      = New-Object System.Drawing.Size(($tabW - 8 - $half - $heroGap - 8), $heroH)
+    }
 
     # Version panel - right side below hero buttons
     $vpW = 400
     $vpX = $tabW - $vpW - 8
     if ($vpX -lt 420) { $vpX = 420 }
-    $verPanel.Location   = New-Object System.Drawing.Point($vpX, 226)
-    $progressOuter.Width = $tabW - 24
+    if ($null -ne $verPanel)      { $verPanel.Location   = New-Object System.Drawing.Point($vpX, 226) }
+    if ($null -ne $progressOuter) { $progressOuter.Width = $tabW - 24 }
 
     # Bottom bar - split Run Server / Run Game 50/50
-    $bbW = $bottomBar.Width
-    $halfBar = [int]($bbW / 2)
-    $btnRunServer.Size     = New-Object System.Drawing.Size(($halfBar - 2), 50)
-    $btnRunServer.Location = New-Object System.Drawing.Point(0, 4)
-    $btnRunGame.Location   = New-Object System.Drawing.Point(($halfBar + 2), 4)
-    $btnRunGame.Size       = New-Object System.Drawing.Size(($bbW - $halfBar - 2), 50)
+    if ($null -ne $bottomBar) {
+        $bbW = $bottomBar.Width
+        $halfBar = [int]($bbW / 2)
+        if ($null -ne $btnRunServer) {
+            $btnRunServer.Size     = New-Object System.Drawing.Size(($halfBar - 2), 50)
+            $btnRunServer.Location = New-Object System.Drawing.Point(0, 4)
+        }
+        if ($null -ne $btnRunGame) {
+            $btnRunGame.Location   = New-Object System.Drawing.Point(($halfBar + 2), 4)
+            $btnRunGame.Size       = New-Object System.Drawing.Size(($bbW - $halfBar - 2), 50)
+        }
+    }
 
     # Reposition QC header buttons
-    $qhW = $qcHeaderPanel.Width
-    $btnQcRefresh.Location = New-Object System.Drawing.Point(($qhW - 80), 5)
-    $btnResetAll.Location  = New-Object System.Drawing.Point(($qhW - 164), 5)
-    $btnQcCommit.Location  = New-Object System.Drawing.Point(($qhW - 318), 5)
+    if ($null -ne $qcHeaderPanel) {
+        $qhW = $qcHeaderPanel.Width
+        if ($null -ne $btnQcRefresh) { $btnQcRefresh.Location = New-Object System.Drawing.Point(($qhW - 80), 5) }
+        if ($null -ne $btnResetAll)  { $btnResetAll.Location  = New-Object System.Drawing.Point(($qhW - 164), 5) }
+        if ($null -ne $btnQcCommit)  { $btnQcCommit.Location  = New-Object System.Drawing.Point(($qhW - 318), 5) }
+    }
+  } catch {}
 }
 
 $form.Add_Resize({ Invoke-FormResize })
@@ -2091,17 +2128,21 @@ $form.Add_Shown({
     # Deferred: Load QC file + populate grid (can be slow with large files)
     $qcTimer = New-Object System.Windows.Forms.Timer; $qcTimer.Interval = 50
     $qcTimer.Add_Tick({
-        $qcTimer.Stop(); $qcTimer.Dispose()
-        Load-QcFile
-        Populate-QcGrid -filter "All"
+        try {
+            if ($null -ne $qcTimer) { $qcTimer.Stop(); $qcTimer.Dispose() }
+            Load-QcFile
+            Populate-QcGrid -filter "All"
+        } catch {}
     })
     $qcTimer.Start()
 
     # Deferred: Git change count (runs git status)
     $gitInitTimer = New-Object System.Windows.Forms.Timer; $gitInitTimer.Interval = 100
     $gitInitTimer.Add_Tick({
-        $gitInitTimer.Stop(); $gitInitTimer.Dispose()
-        Update-GitChangeCount
+        try {
+            if ($null -ne $gitInitTimer) { $gitInitTimer.Stop(); $gitInitTimer.Dispose() }
+            Update-GitChangeCount
+        } catch {}
     })
     $gitInitTimer.Start()
 
@@ -2113,16 +2154,23 @@ $form.Add_Shown({
     $ah2 = $ps2.BeginInvoke()
     $authPoll = New-Object System.Windows.Forms.Timer; $authPoll.Interval = 300
     $authPoll.Add_Tick({
-        if (-not $ah2.IsCompleted) { return }
-        $authPoll.Stop(); $authPoll.Dispose()
         try {
-            $str = ($ps2.EndInvoke($ah2))[0]; $ps2.Dispose(); $rs2.Close(); $rs2.Dispose()
-            if ($str -match 'Logged in to') {
-                $lblAuth.Text = "auth ok"; $lblAuth.ForeColor = $script:ColorGreen
-            } else {
-                $lblAuth.Text = "authenticate"; $lblAuth.ForeColor = $script:ColorRed
+            if ($null -eq $ah2 -or -not $ah2.IsCompleted) { return }
+            if ($null -ne $authPoll) { $authPoll.Stop(); $authPoll.Dispose() }
+            $invStr = $(if ($null -ne $ps2) { $ps2.EndInvoke($ah2) } else { $null })
+            if ($null -ne $ps2) { try { $ps2.Dispose() } catch {} }
+            if ($null -ne $rs2) { try { $rs2.Close() } catch {}; try { $rs2.Dispose() } catch {} }
+            $str = $(if ($null -ne $invStr -and $invStr.Count -gt 0) { $invStr[0] } else { $null })
+            if ($null -ne $lblAuth) {
+                if ($null -ne $str -and $str -match 'Logged in to') {
+                    $lblAuth.Text = "auth ok"; $lblAuth.ForeColor = $script:ColorGreen
+                } else {
+                    $lblAuth.Text = "authenticate"; $lblAuth.ForeColor = $script:ColorRed
+                }
             }
-        } catch { $lblAuth.Text = "gh error"; $lblAuth.ForeColor = $script:ColorRed }
+        } catch {
+            try { if ($null -ne $lblAuth) { $lblAuth.Text = "gh error"; $lblAuth.ForeColor = $script:ColorRed } } catch {}
+        }
     })
     $authPoll.Start()
 
@@ -2142,16 +2190,19 @@ $form.Add_Shown({
     $ah3 = $ps3.BeginInvoke()
     $relPoll = New-Object System.Windows.Forms.Timer; $relPoll.Interval = 500
     $relPoll.Add_Tick({
-        if (-not $ah3.IsCompleted) { return }
-        $relPoll.Stop(); $relPoll.Dispose()
         try {
-            $result = ($ps3.EndInvoke($ah3))[0]; $ps3.Dispose(); $rs3.Close(); $rs3.Dispose()
-            if ($result -ne "none" -and $result) {
+            if ($null -eq $ah3 -or -not $ah3.IsCompleted) { return }
+            if ($null -ne $relPoll) { $relPoll.Stop(); $relPoll.Dispose() }
+            $invResult3 = $(if ($null -ne $ps3) { $ps3.EndInvoke($ah3) } else { $null })
+            if ($null -ne $ps3) { try { $ps3.Dispose() } catch {} }
+            if ($null -ne $rs3) { try { $rs3.Close() } catch {}; try { $rs3.Dispose() } catch {} }
+            $result = $(if ($null -ne $invResult3 -and $invResult3.Count -gt 0) { $invResult3[0] } else { $null })
+            if ($null -ne $result -and $result -ne "none") {
                 $parsed = $result | ConvertFrom-Json
                 $releases = @()
                 foreach ($rel in $parsed) {
                     $tag = $rel.tag_name
-                    if ($tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
+                    if ($null -ne $tag -and $tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
                         $releases += @{
                             Tag = $tag; Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]
                             Prerelease = [bool]$rel.prerelease
