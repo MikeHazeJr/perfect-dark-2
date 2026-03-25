@@ -588,6 +588,14 @@ $script:BtnStop.Visible   = $false
 $script:BtnStop.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:StatusPanel.Controls.Add($script:BtnStop)
 
+$script:ChkCleanBuild = New-Object System.Windows.Forms.CheckBox
+$script:ChkCleanBuild.Text = "Clean Build"
+$script:ChkCleanBuild.Font = New-UIFont 9
+$script:ChkCleanBuild.ForeColor = $script:ColorTextDim
+$script:ChkCleanBuild.AutoSize = $true
+$script:ChkCleanBuild.Location = New-Object System.Drawing.Point(90, 102)
+$script:StatusPanel.Controls.Add($script:ChkCleanBuild)
+
 $script:BtnCopyErrors = New-Object System.Windows.Forms.Button
 $script:BtnCopyErrors.Text      = "Copy Errors"
 $script:BtnCopyErrors.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -1431,6 +1439,12 @@ function Start-Build {
     if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $false }
     if ($null -ne $script:ProgressBack)  { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:ProgressFill)  { $script:ProgressFill.BackColor = $script:ColorProgress }
+    # Clean build: wipe build directories before configure
+    if ($null -ne $script:ChkCleanBuild -and $script:ChkCleanBuild.Checked) {
+        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Cleaning build directories..." }
+        try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+        try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    }
     Auto-Commit | Out-Null
     $script:BuildStepQueue.Clear()
     foreach ($s in (Get-BuildSteps)) { [void]$script:BuildStepQueue.Add($s) }
