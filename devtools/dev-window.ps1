@@ -436,8 +436,13 @@ $tabControl.Add_DrawItem({
     $textBrush.Dispose()
 })
 $tabControl.Add_Paint({
-    param($s, $e)
-    $e.Graphics.Clear($script:ColorBg)
+    param($sender, $e)
+    try {
+        $headerRect = New-Object System.Drawing.Rectangle(0, 0, $sender.Width, $sender.ItemSize.Height + 4)
+        $brush = New-Object System.Drawing.SolidBrush($script:ColorBg)
+        $e.Graphics.FillRectangle($brush, $headerRect)
+        $brush.Dispose()
+    } catch {}
 })
 
 $tabBuild    = New-Object System.Windows.Forms.TabPage
