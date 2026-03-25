@@ -340,6 +340,22 @@ $menuEditQc.Add_Click({
 
 [void]$menuFile.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
+$menuOpenGithub = New-Object System.Windows.Forms.ToolStripMenuItem("Open GitHub")
+$menuOpenGithub.ForeColor = $script:ColorText
+$menuOpenGithub.Add_Click({
+    $repo = $script:Settings.GithubRepo
+    if ($repo -ne "") { Start-Process ("https://github.com/" + $repo) }
+    else { [System.Windows.Forms.MessageBox]::Show("No repository configured. Go to Edit > Settings.", "GitHub", "OK", [System.Windows.Forms.MessageBoxIcon]::Information) }
+})
+[void]$menuFile.DropDownItems.Add($menuOpenGithub)
+
+$menuOpenFolder = New-Object System.Windows.Forms.ToolStripMenuItem("Open Project Folder")
+$menuOpenFolder.ForeColor = $script:ColorText
+$menuOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectDir })
+[void]$menuFile.DropDownItems.Add($menuOpenFolder)
+
+[void]$menuFile.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
 $menuExit = New-Object System.Windows.Forms.ToolStripMenuItem("Exit")
 $menuExit.ForeColor = $script:ColorText
 $menuExit.Add_Click({ $form.Close() })
@@ -362,7 +378,7 @@ $form.Controls.Add($menuStrip)
 # ============================================================================
 
 $bottomBar = New-Object System.Windows.Forms.Panel
-$bottomBar.Height    = 42
+$bottomBar.Height    = 58
 $bottomBar.Dock      = "Bottom"
 $bottomBar.BackColor = $script:ColorPanelBg
 $form.Controls.Add($bottomBar)
@@ -370,31 +386,28 @@ $form.Controls.Add($bottomBar)
 function New-BottomBtn($text, $x, $w, $color) {
     $btn = New-Object System.Windows.Forms.Button
     $btn.Text     = $text
-    $btn.Location = New-Object System.Drawing.Point($x, 5)
-    $btn.Size     = New-Object System.Drawing.Size($w, 30)
+    $btn.Location = New-Object System.Drawing.Point($x, 4)
+    $btn.Size     = New-Object System.Drawing.Size($w, 50)
     $btn.FlatStyle = "Flat"
     $btn.FlatAppearance.BorderColor = $color
-    $btn.FlatAppearance.BorderSize  = 1
+    $btn.FlatAppearance.BorderSize  = 2
     $btn.ForeColor = $color
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor    = "Hand"
-    $btn.Font      = New-UIFont 10 -Bold
+    $btn.Font      = New-UIFont 14 -Bold
     $bottomBar.Controls.Add($btn)
     return $btn
 }
 
-$btnRunServer  = New-BottomBtn "Run Server"      6  110 $script:ColorOrange
-$btnRunGame    = New-BottomBtn "Run Game"       120  110 $script:ColorGreen
-$btnOpenGithub = New-BottomBtn "GitHub"         244   76 $script:ColorBlue
-$btnOpenFolder = New-BottomBtn "Project Folder" 324   110 $script:ColorDim
+$btnRunServer = New-BottomBtn "Run Server"   0  400 $script:ColorOrange
+$btnRunGame   = New-BottomBtn "Run Game"   404  400 $script:ColorGreen
 
 $lblGameStatus = New-Object System.Windows.Forms.Label
 $lblGameStatus.Text      = ""
 $lblGameStatus.Font      = New-UIFont 9
 $lblGameStatus.ForeColor = $script:ColorDim
-$lblGameStatus.Location  = New-Object System.Drawing.Point(440, 12)
 $lblGameStatus.AutoSize  = $true
-$bottomBar.Controls.Add($lblGameStatus)
+$lblGameStatus.Visible   = $false
 
 # ============================================================================
 # TabControl
@@ -449,57 +462,58 @@ $buildPanel.Dock      = "Fill"
 $buildPanel.BackColor = $script:ColorBg
 $tabBuild.Controls.Add($buildPanel)
 
-# --- Large action buttons (top row) ---
+# --- Hero action buttons (top, fill ~40% of tab height, side by side) ---
 $btnBuild = New-Object System.Windows.Forms.Button
 $btnBuild.Text      = "BUILD"
-$btnBuild.Location  = New-Object System.Drawing.Point(12, 12)
-$btnBuild.Size      = New-Object System.Drawing.Size(220, 60)
+$btnBuild.Location  = New-Object System.Drawing.Point(8, 8)
+$btnBuild.Size      = New-Object System.Drawing.Size(480, 210)
 $btnBuild.FlatStyle = "Flat"
 $btnBuild.FlatAppearance.BorderColor = $script:ColorGreen
 $btnBuild.FlatAppearance.BorderSize  = 2
 $btnBuild.ForeColor  = $script:ColorGreen
 $btnBuild.BackColor  = $script:ColorFieldBg
 $btnBuild.Cursor     = "Hand"
-$btnBuild.Font       = New-UIFont 14 -Bold
+$btnBuild.Font       = New-UIFont 18 -Bold
 $btnBuild.Anchor     = "Top,Left"
 $buildPanel.Controls.Add($btnBuild)
 
 $btnPush = New-Object System.Windows.Forms.Button
 $btnPush.Text      = "PUSH"
-$btnPush.Location  = New-Object System.Drawing.Point(244, 12)
-$btnPush.Size      = New-Object System.Drawing.Size(220, 60)
+$btnPush.Location  = New-Object System.Drawing.Point(496, 8)
+$btnPush.Size      = New-Object System.Drawing.Size(480, 210)
 $btnPush.FlatStyle = "Flat"
 $btnPush.FlatAppearance.BorderColor = $script:ColorGold
 $btnPush.FlatAppearance.BorderSize  = 2
 $btnPush.ForeColor  = $script:ColorGold
 $btnPush.BackColor  = [System.Drawing.Color]::FromArgb(50, 45, 20)
 $btnPush.Cursor     = "Hand"
-$btnPush.Font       = New-UIFont 14 -Bold
-$btnPush.Anchor     = "Top,Left"
+$btnPush.Font       = New-UIFont 18 -Bold
+$btnPush.Anchor     = "Top,Right"
 $buildPanel.Controls.Add($btnPush)
 
-# Stop button (hidden during idle)
+# Stop button - hidden during idle, shown during builds
 $btnStop = New-Object System.Windows.Forms.Button
 $btnStop.Text      = "Stop"
-$btnStop.Location  = New-Object System.Drawing.Point(476, 12)
-$btnStop.Size      = New-Object System.Drawing.Size(80, 60)
+$btnStop.Location  = New-Object System.Drawing.Point(8, 228)
+$btnStop.Size      = New-Object System.Drawing.Size(80, 28)
 $btnStop.FlatStyle = "Flat"
 $btnStop.FlatAppearance.BorderColor = $script:ColorRed
 $btnStop.FlatAppearance.BorderSize  = 1
 $btnStop.ForeColor  = $script:ColorDisabled
 $btnStop.BackColor  = $script:ColorFieldBg
 $btnStop.Cursor     = "Hand"
-$btnStop.Font       = New-UIFont 10 -Bold
+$btnStop.Font       = New-UIFont 9 -Bold
 $btnStop.Enabled    = $false
+$btnStop.Visible    = $false
 $btnStop.Anchor     = "Top,Left"
 $buildPanel.Controls.Add($btnStop)
 
-# --- Status labels (left side) ---
+# --- Status labels (left side, below hero buttons) ---
 $lblClientStatus = New-Object System.Windows.Forms.Label
 $lblClientStatus.Text      = "client: --"
 $lblClientStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
 $lblClientStatus.ForeColor = $script:ColorDim
-$lblClientStatus.Location  = New-Object System.Drawing.Point(12, 86)
+$lblClientStatus.Location  = New-Object System.Drawing.Point(12, 232)
 $lblClientStatus.AutoSize  = $true
 $lblClientStatus.Anchor    = "Top,Left"
 $buildPanel.Controls.Add($lblClientStatus)
@@ -508,7 +522,7 @@ $lblServerStatus = New-Object System.Windows.Forms.Label
 $lblServerStatus.Text      = "server: --"
 $lblServerStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
 $lblServerStatus.ForeColor = $script:ColorDim
-$lblServerStatus.Location  = New-Object System.Drawing.Point(12, 110)
+$lblServerStatus.Location  = New-Object System.Drawing.Point(12, 256)
 $lblServerStatus.AutoSize  = $true
 $lblServerStatus.Anchor    = "Top,Left"
 $buildPanel.Controls.Add($lblServerStatus)
@@ -518,14 +532,19 @@ $lblBuildStatus = New-Object System.Windows.Forms.Label
 $lblBuildStatus.Text      = "Ready"
 $lblBuildStatus.Font      = New-UIFont 9
 $lblBuildStatus.ForeColor = $script:ColorDim
-$lblBuildStatus.Location  = New-Object System.Drawing.Point(12, 136)
+$lblBuildStatus.Location  = New-Object System.Drawing.Point(12, 280)
 $lblBuildStatus.Size      = New-Object System.Drawing.Size(460, 20)
 $lblBuildStatus.Anchor    = "Top,Left"
 $buildPanel.Controls.Add($lblBuildStatus)
 
+# Game status label (launch feedback)
+$buildPanel.Controls.Add($lblGameStatus)
+$lblGameStatus.Location = New-Object System.Drawing.Point(12, 304)
+$lblGameStatus.Visible  = $true
+
 # --- Progress bar ---
 $progressOuter = New-Object System.Windows.Forms.Panel
-$progressOuter.Location  = New-Object System.Drawing.Point(12, 162)
+$progressOuter.Location  = New-Object System.Drawing.Point(12, 390)
 $progressOuter.Size      = New-Object System.Drawing.Size(750, 16)
 $progressOuter.BackColor = $script:ColorPanelBg
 $progressOuter.Anchor    = "Top,Left,Right"
@@ -547,9 +566,9 @@ $progressLabel.AutoSize  = $true
 $progressOuter.Controls.Add($progressLabel)
 $progressLabel.BringToFront()
 
-# --- Version section (right side) ---
+# --- Version section (right side, below hero buttons) ---
 $verPanel = New-Object System.Windows.Forms.Panel
-$verPanel.Location  = New-Object System.Drawing.Point(580, 12)
+$verPanel.Location  = New-Object System.Drawing.Point(580, 226)
 $verPanel.Size      = New-Object System.Drawing.Size(400, 148)
 $verPanel.BackColor = $script:ColorPanelBg
 $verPanel.Anchor    = "Top,Right"
@@ -651,7 +670,7 @@ $verPanel.Controls.Add($lblAuth)
 # Error buttons (hidden until build produces errors)
 $btnCopyErrors = New-Object System.Windows.Forms.Button
 $btnCopyErrors.Text      = "Copy Errors"
-$btnCopyErrors.Location  = New-Object System.Drawing.Point(12, 190)
+$btnCopyErrors.Location  = New-Object System.Drawing.Point(12, 420)
 $btnCopyErrors.Size      = New-Object System.Drawing.Size(110, 26)
 $btnCopyErrors.FlatStyle = "Flat"
 $btnCopyErrors.FlatAppearance.BorderColor = $script:ColorRed
@@ -666,7 +685,7 @@ $buildPanel.Controls.Add($btnCopyErrors)
 
 $btnCopyFullLog = New-Object System.Windows.Forms.Button
 $btnCopyFullLog.Text      = "Copy Full Log"
-$btnCopyFullLog.Location  = New-Object System.Drawing.Point(128, 190)
+$btnCopyFullLog.Location  = New-Object System.Drawing.Point(128, 420)
 $btnCopyFullLog.Size      = New-Object System.Drawing.Size(120, 26)
 $btnCopyFullLog.FlatStyle = "Flat"
 $btnCopyFullLog.FlatAppearance.BorderColor = $script:ColorDim
@@ -683,7 +702,7 @@ $lblErrorCount = New-Object System.Windows.Forms.Label
 $lblErrorCount.Text      = ""
 $lblErrorCount.Font      = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
 $lblErrorCount.ForeColor = $script:ColorRed
-$lblErrorCount.Location  = New-Object System.Drawing.Point(256, 195)
+$lblErrorCount.Location  = New-Object System.Drawing.Point(256, 425)
 $lblErrorCount.AutoSize  = $true
 $lblErrorCount.Visible   = $false
 $buildPanel.Controls.Add($lblErrorCount)
@@ -1335,9 +1354,9 @@ function Start-ManualCommit {
         }
     }
     $detail = @()
-    if ($modified.Count -gt 0) { $detail += "Modified ($($modified.Count)): $($modified -join ', ')" }
-    if ($added.Count    -gt 0) { $detail += "Added    ($($added.Count)):    $($added -join ', ')" }
-    if ($deleted.Count  -gt 0) { $detail += "Deleted  ($($deleted.Count)):  $($deleted -join ', ')" }
+    if ($modified.Count -gt 0) { $detail += "Modified (" + $modified.Count + "): " + ($modified -join ', ') }
+    if ($added.Count    -gt 0) { $detail += "Added    (" + $added.Count + "):    " + ($added -join ', ') }
+    if ($deleted.Count  -gt 0) { $detail += "Deleted  (" + $deleted.Count + "):  " + ($deleted -join ', ') }
 
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Commit Changes"; $dlg.Size = New-Object System.Drawing.Size(520, 360)
@@ -1345,14 +1364,14 @@ function Start-ManualCommit {
     $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
     $dlg.BackColor = $script:ColorPanelBg; $dlg.ForeColor = $script:ColorWhite
 
-    $lMsg = New-Object System.Windows.Forms.Label; $lMsg.Text = "Commit message ($($script:GitChangeCount) file(s)):"
+    $lMsg = New-Object System.Windows.Forms.Label; $lMsg.Text = "Commit message (" + $script:GitChangeCount + " files):"
     $lMsg.Font = New-UIFont 10; $lMsg.ForeColor = $script:ColorWhite
     $lMsg.Location = New-Object System.Drawing.Point(12,12); $lMsg.AutoSize = $true; $dlg.Controls.Add($lMsg)
 
     $tMsg = New-Object System.Windows.Forms.TextBox; $tMsg.Location = New-Object System.Drawing.Point(12,36)
     $tMsg.Size = New-Object System.Drawing.Size(480,24); $tMsg.BackColor = $script:ColorFieldBg
     $tMsg.ForeColor = $script:ColorWhite; $tMsg.Font = New-Object System.Drawing.Font("Consolas",10)
-    $tMsg.BorderStyle = "FixedSingle"; $tMsg.Text = "$($(Get-ProjectVersion).String) -"; $dlg.Controls.Add($tMsg)
+    $tMsg.BorderStyle = "FixedSingle"; $ver = Get-ProjectVersion; $tMsg.Text = $ver.String + " -"; $dlg.Controls.Add($tMsg)
 
     $lDet = New-Object System.Windows.Forms.Label; $lDet.Text = "Changes:"; $lDet.Font = New-UIFont 9
     $lDet.ForeColor = $script:ColorDim; $lDet.Location = New-Object System.Drawing.Point(12,68); $lDet.AutoSize = $true; $dlg.Controls.Add($lDet)
@@ -1476,7 +1495,8 @@ function Set-BuildUI-Running($running) {
     $btnBuild.ForeColor = $(if (-not $running) { $script:ColorGreen }   else { $script:ColorDisabled })
     $btnPush.ForeColor  = $(if (-not $running) { $script:ColorGold }    else { $script:ColorDisabled })
     $btnStop.Enabled    = $running
-    $btnStop.ForeColor  = $(if ($running)      { $script:ColorRed }     else { $script:ColorDisabled })
+    $btnStop.Visible    = $running
+    $btnStop.ForeColor  = $(if ($running) { $script:ColorRed } else { $script:ColorDisabled })
     Update-RunButtons
 }
 
@@ -1574,7 +1594,7 @@ $script:BuildTimer.Add_Tick({
             Update-BuildStatusLabels
             if ($anyErrors) { Show-ErrorButtons }
             if ($anyErrors) { Sound-Fail } else { Sound-Success }
-            $lblBuildStatus.Text    = $(if ($anyErrors) { "Build complete — see errors" } else { "Build complete" })
+            $lblBuildStatus.Text    = $(if ($anyErrors) { "Build complete - see errors" } else { "Build complete" })
             $lblBuildStatus.ForeColor = $(if ($anyErrors) { $script:ColorOrange } else { $script:ColorGreen })
             $script:BuildSucceeded  = -not $anyErrors
             Set-BuildUI-Running $false
@@ -1624,19 +1644,19 @@ function Start-Build-Step($stepName, $exe, $argList) {
 function Update-BuildStatusLabels {
     if ($script:ClientBuildTime -gt 0 -or $script:ClientBuildFailed) {
         if ($script:ClientBuildFailed) {
-            $lblClientStatus.Text = "client: FAILED ($($script:ClientBuildTime)s)"
+            $lblClientStatus.Text = "client: FAILED (" + $script:ClientBuildTime + "s)"
             $lblClientStatus.ForeColor = $script:ColorRed
         } else {
-            $lblClientStatus.Text = "client: SUCCESS ($($script:ClientBuildTime)s)"
+            $lblClientStatus.Text = "client: SUCCESS (" + $script:ClientBuildTime + "s)"
             $lblClientStatus.ForeColor = $script:ColorGreen
         }
     }
     if ($script:ServerBuildTime -gt 0 -or $script:ServerBuildFailed) {
         if ($script:ServerBuildFailed) {
-            $lblServerStatus.Text = "server: FAILED ($($script:ServerBuildTime)s)"
+            $lblServerStatus.Text = "server: FAILED (" + $script:ServerBuildTime + "s)"
             $lblServerStatus.ForeColor = $script:ColorRed
         } else {
-            $lblServerStatus.Text = "server: SUCCESS ($($script:ServerBuildTime)s)"
+            $lblServerStatus.Text = "server: SUCCESS (" + $script:ServerBuildTime + "s)"
             $lblServerStatus.ForeColor = $script:ColorGreen
         }
     }
@@ -1891,8 +1911,8 @@ function Show-SettingsDialog {
     SLbl "GitHub Repository (owner/repo):" 16 16
     $tRepo = STxt $script:Settings.GithubRepo 16 40 350
 
-    SLbl "Font Size (8–16):" 16 80
-    $tFont = STxt "$($script:Settings.FontSize)" 16 104 60
+    SLbl "Font Size (8-16):" 16 80
+    $tFont = STxt ("" + $script:Settings.FontSize) 16 104 60
 
     $chkSnd = New-Object System.Windows.Forms.CheckBox; $chkSnd.Text = "Enable sounds"
     $chkSnd.Font = New-UIFont 10; $chkSnd.ForeColor = $script:ColorWhite
@@ -1955,11 +1975,12 @@ $btnCopyErrors.Add_Click({
     $text = ""
     $hc = $script:ClientErrorLines.Count -gt 0
     $hs = $script:ServerErrorLines.Count -gt 0
-    if ($hc) { $text += "Client Build Errors ($($script:ClientErrorLines.Count)):`r`n``````r`n"; foreach ($l in $script:ClientErrorLines) { $text += "$l`r`n" }; $text += "```````r`n`r`n" }
-    if ($hs) { $text += "Server Build Errors ($($script:ServerErrorLines.Count)):`r`n``````r`n"; foreach ($l in $script:ServerErrorLines) { $text += "$l`r`n" }; $text += "```````r`n" }
+    $cc = $script:ClientErrorLines.Count; $sc = $script:ServerErrorLines.Count; $ec = $script:ErrorLines.Count
+    if ($hc) { $text += "Client Build Errors (" + $cc + "):`r`n``````r`n"; foreach ($l in $script:ClientErrorLines) { $text += "$l`r`n" }; $text += "```````r`n`r`n" }
+    if ($hs) { $text += "Server Build Errors (" + $sc + "):`r`n``````r`n"; foreach ($l in $script:ServerErrorLines) { $text += "$l`r`n" }; $text += "```````r`n" }
     if (-not $hc -and -not $hs) { $text += "Build errors:`r`n``````r`n"; foreach ($l in $script:ErrorLines) { $text += "$l`r`n" }; $text += "```````r`n" }
     [System.Windows.Forms.Clipboard]::SetText($text)
-    $lblBuildStatus.Text = "$($script:ErrorLines.Count) error(s) copied"; $lblBuildStatus.ForeColor = $script:ColorOrange
+    $lblBuildStatus.Text = "" + $ec + " errors copied"; $lblBuildStatus.ForeColor = $script:ColorOrange
 })
 
 $btnCopyFullLog.Add_Click({
@@ -1985,12 +2006,6 @@ $txtVerRevision.Add_TextChanged({ Check-VersionWarning })
 # Bottom bar
 $btnRunGame.Add_Click({   Launch-Game "client" })
 $btnRunServer.Add_Click({ Launch-Game "server" })
-$btnOpenGithub.Add_Click({
-    $repo = $script:Settings.GithubRepo
-    if ($repo -ne "") { Start-Process "https://github.com/$repo" }
-    else { [System.Windows.Forms.MessageBox]::Show("No repository configured. Go to Edit > Settings.", "GitHub", "OK", [System.Windows.Forms.MessageBoxIcon]::Information) }
-})
-$btnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectDir })
 
 # ============================================================================
 # Main timer (game status + git count + pending builds)
@@ -2021,11 +2036,30 @@ $mainTimer.Start()
 
 function Invoke-FormResize {
     $tabW = $buildPanel.Width
-    $vpW  = 400
-    $vpX  = $tabW - $vpW - 12
-    if ($vpX -lt 480) { $vpX = 480 }
-    $verPanel.Location   = New-Object System.Drawing.Point($vpX, 12)
+
+    # Hero buttons - fill top area side by side (~45% each)
+    $heroH = 210
+    $heroGap = 8
+    $half = [int](($tabW - 24 - $heroGap) / 2)
+    $btnBuild.Size     = New-Object System.Drawing.Size($half, $heroH)
+    $btnBuild.Location = New-Object System.Drawing.Point(8, 8)
+    $btnPush.Location  = New-Object System.Drawing.Point((8 + $half + $heroGap), 8)
+    $btnPush.Size      = New-Object System.Drawing.Size(($tabW - 8 - $half - $heroGap - 8), $heroH)
+
+    # Version panel - right side below hero buttons
+    $vpW = 400
+    $vpX = $tabW - $vpW - 8
+    if ($vpX -lt 420) { $vpX = 420 }
+    $verPanel.Location   = New-Object System.Drawing.Point($vpX, 226)
     $progressOuter.Width = $tabW - 24
+
+    # Bottom bar - split Run Server / Run Game 50/50
+    $bbW = $bottomBar.Width
+    $halfBar = [int]($bbW / 2)
+    $btnRunServer.Size     = New-Object System.Drawing.Size(($halfBar - 2), 50)
+    $btnRunServer.Location = New-Object System.Drawing.Point(0, 4)
+    $btnRunGame.Location   = New-Object System.Drawing.Point(($halfBar + 2), 4)
+    $btnRunGame.Size       = New-Object System.Drawing.Size(($bbW - $halfBar - 2), 50)
 
     # Reposition QC header buttons
     $qhW = $qcHeaderPanel.Width
@@ -2042,27 +2076,42 @@ $form.Add_Resize({ Invoke-FormResize })
 
 $form.Add_Shown({
     $form.Activate()
+    Invoke-FormResize
 
-    # Load release cache and version
+    # Version from CMakeLists.txt (local, instant)
+    Refresh-VersionDisplay
     Load-ReleaseCache
     Update-LatestVersionLabels
-    Refresh-VersionDisplay
 
-    # Load QC
-    Load-QcFile
-    Populate-QcGrid -filter "All"
-
-    # Check exe existence for run buttons
+    # Run buttons (local file check, instant)
     Update-RunButtons
-    Update-GitChangeCount
 
-    # Auth check in background
+    # === Everything below is deferred so the window appears immediately ===
+
+    # Deferred: Load QC file + populate grid (can be slow with large files)
+    $qcTimer = New-Object System.Windows.Forms.Timer; $qcTimer.Interval = 50
+    $qcTimer.Add_Tick({
+        $qcTimer.Stop(); $qcTimer.Dispose()
+        Load-QcFile
+        Populate-QcGrid -filter "All"
+    })
+    $qcTimer.Start()
+
+    # Deferred: Git change count (runs git status)
+    $gitInitTimer = New-Object System.Windows.Forms.Timer; $gitInitTimer.Interval = 100
+    $gitInitTimer.Add_Tick({
+        $gitInitTimer.Stop(); $gitInitTimer.Dispose()
+        Update-GitChangeCount
+    })
+    $gitInitTimer.Start()
+
+    # Background: Auth check (network call)
     $rs2 = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
     $rs2.Open()
     $ps2 = [System.Management.Automation.PowerShell]::Create(); $ps2.Runspace = $rs2
     [void]$ps2.AddScript({ $out = gh auth status 2>&1; return ($out | ForEach-Object { $_.ToString() }) -join "`n" })
     $ah2 = $ps2.BeginInvoke()
-    $authPoll = New-Object System.Windows.Forms.Timer; $authPoll.Interval = 200
+    $authPoll = New-Object System.Windows.Forms.Timer; $authPoll.Interval = 300
     $authPoll.Add_Tick({
         if (-not $ah2.IsCompleted) { return }
         $authPoll.Stop(); $authPoll.Dispose()
@@ -2077,18 +2126,58 @@ $form.Add_Shown({
     })
     $authPoll.Start()
 
-    # Trigger first resize to position version panel
-    Invoke-FormResize
+    # Background: GitHub release fetch (network call — move off UI thread)
+    $rs3 = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $rs3.Open()
+    $rs3.SessionStateProxy.SetVariable('BgRepo', $script:Settings.GithubRepo)
+    $ps3 = [System.Management.Automation.PowerShell]::Create(); $ps3.Runspace = $rs3
+    [void]$ps3.AddScript({
+        if ($BgRepo -eq "") { return "none" }
+        try {
+            $json = gh api "repos/$BgRepo/releases" --paginate 2>$null
+            if ($LASTEXITCODE -eq 0 -and $json) { return $json }
+        } catch {}
+        return "none"
+    })
+    $ah3 = $ps3.BeginInvoke()
+    $relPoll = New-Object System.Windows.Forms.Timer; $relPoll.Interval = 500
+    $relPoll.Add_Tick({
+        if (-not $ah3.IsCompleted) { return }
+        $relPoll.Stop(); $relPoll.Dispose()
+        try {
+            $result = ($ps3.EndInvoke($ah3))[0]; $ps3.Dispose(); $rs3.Close(); $rs3.Dispose()
+            if ($result -ne "none" -and $result) {
+                $parsed = $result | ConvertFrom-Json
+                $releases = @()
+                foreach ($rel in $parsed) {
+                    $tag = $rel.tag_name
+                    if ($tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
+                        $releases += @{
+                            Tag = $tag; Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]
+                            Prerelease = [bool]$rel.prerelease
+                        }
+                    }
+                }
+                $script:GhReleaseCache = $releases
+                $script:GhReleaseCacheTime = [DateTime]::Now
+                $script:GhOnline = $true
+                Save-ReleaseCache $releases
+                Update-LatestVersionLabels
+                Check-VersionWarning
+            }
+        } catch {}
+    })
+    $relPoll.Start()
 })
 
 $form.Add_FormClosing({
-    $script:BuildTimer.Stop()
-    $mainTimer.Stop()
-    $script:NotesSaveTimer.Stop()
+    try { $script:BuildTimer.Stop() } catch {}
+    try { $mainTimer.Stop() } catch {}
+    if ($null -ne $script:NotesSaveTimer) { try { $script:NotesSaveTimer.Stop() } catch {} }
     if ($null -ne $script:Process -and !$script:Process.HasExited) {
         try { $script:Process.Kill() } catch {}
     }
-    if ($script:QcDirtyNums.Count -gt 0) { try { Save-QcFile } catch {} }
+    if ($null -ne $script:QcDirtyNums -and $script:QcDirtyNums.Count -gt 0) { try { Save-QcFile } catch {} }
 })
 
 # ============================================================================
@@ -2098,10 +2187,10 @@ $form.Add_FormClosing({
 try {
     [System.Windows.Forms.Application]::Run($form)
 } catch {
-    $msg = "[$([datetime]::Now)] dev-window.ps1 fatal error:`r`n$_`r`n$($_.ScriptStackTrace)"
+    $msg = "[" + [datetime]::Now + "] dev-window.ps1 fatal error:`r`n" + $_ + "`r`n" + $_.ScriptStackTrace
     $msg | Out-File -FilePath (Join-Path $PSScriptRoot "error.log") -Append
     [System.Windows.Forms.MessageBox]::Show(
         "Fatal error:`n$_`n`nDetails written to devtools\error.log",
-        "PD Dev Window — Error", [System.Windows.Forms.MessageBoxButtons]::OK,
+        "PD Dev Window - Error", [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error)
 }
