@@ -4,6 +4,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
@@ -197,8 +202,40 @@ static inline void romdataWrongRomError(const char *fmt, ...)
  * Uses SDL_ShowMessageBox with custom buttons so users can quickly
  * navigate to the data directory where the ROM needs to be placed.
  */
+static void romdataEnsureDataDir(const char *dataDir, const char *romName)
+{
+	/* Create the data directory if it doesn't exist */
+#ifdef _WIN32
+	_mkdir(dataDir);
+#else
+	mkdir(dataDir, 0755);
+#endif
+
+	/* Write a readme explaining what ROM file is needed */
+	char readmePath[FS_MAXPATH];
+	snprintf(readmePath, sizeof(readmePath), "%s/README.txt", dataDir);
+
+	FILE *f = fopen(readmePath, "w");
+	if (f) {
+		fprintf(f, "Perfect Dark 2 - Data Directory\n");
+		fprintf(f, "===============================\n\n");
+		fprintf(f, "Place your Perfect Dark N64 ROM in this folder with the exact name:\n\n");
+		fprintf(f, "    %s\n\n", romName);
+		fprintf(f, "Requirements:\n");
+		fprintf(f, "  - Must be the NTSC v1.0 (final) ROM\n");
+		fprintf(f, "  - Must be in uncompressed z64 format\n");
+		fprintf(f, "  - File size must be exactly 32 MB (33,554,432 bytes)\n");
+		fprintf(f, "  - Do NOT use .v64 or .n64 format\n");
+		fprintf(f, "  - Do NOT leave it in a zip/rar/7z archive\n");
+		fclose(f);
+	}
+}
+
 static void romdataShowMissingRomDialog(const char *romName, const char *dataDir)
 {
+	/* Ensure the data directory exists and has a readme */
+	romdataEnsureDataDir(dataDir, romName);
+
 	char msg[1024];
 	snprintf(msg, sizeof(msg),
 		"Perfect Dark N64 ROM not found.\n\n"
