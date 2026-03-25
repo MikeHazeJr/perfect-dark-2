@@ -1585,7 +1585,13 @@ $script:BuildTimer.Add_Tick({
         $totalElapsed = [math]::Floor(([DateTime]::Now - $script:StepStartTime).TotalSeconds)
         $silentSec    = [math]::Floor(([DateTime]::Now - $script:LastOutputTime).TotalSeconds)
         $spin = $script:SpinnerChars[$script:SpinnerIndex % 4]; $script:SpinnerIndex++
-        $lblBuildStatus.Text = $(if ($silentSec -gt 2) { "$($script:CurrentStep) $spin ${totalElapsed}s" } else { "$($script:CurrentStep) (${totalElapsed}s)" })
+        if ($silentSec -gt 2) {
+            $lblBuildStatus.Text = "$($script:CurrentStep) $spin (${totalElapsed}s)"
+        } elseif ($script:BuildPercent -gt 0) {
+            $lblBuildStatus.Text = "$($script:CurrentStep): $($script:BuildPercent)% (${totalElapsed}s)"
+        } else {
+            $lblBuildStatus.Text = "$($script:CurrentStep) (${totalElapsed}s)"
+        }
         return
     }
 
@@ -1726,6 +1732,7 @@ function Hide-ErrorButtons {
 
 function Start-Build {
     if ($script:IsRunning) { return }
+    $script:IsRunning = $true
 
     # Reset state
     $script:ErrorLines.Clear(); $script:AllOutput.Clear()
@@ -1739,23 +1746,82 @@ function Start-Build {
     $lblServerStatus.Text="server: waiting...";  $lblServerStatus.ForeColor=$script:ColorDim
     Hide-ErrorButtons
 
-    # Clean both build dirs
-    foreach ($dir in @($script:ClientBuildDir, $script:ServerBuildDir)) {
-        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
-    }
+    # Disable buttons during commit phase; stop button stays hidden until build starts
+    $btnBuild.Enabled   = $false
+    $btnPush.Enabled    = $false
+    $btnBuild.ForeColor = $script:ColorDisabled
+    $btnPush.ForeColor  = $script:ColorDisabled
+    $btnStop.Visible    = $false
+    $btnStop.Enabled    = $false
+    $lblBuildStatus.Text      = "Committing..."
+    $lblBuildStatus.ForeColor = $script:ColorPurple
+    Update-RunButtons
 
-    Auto-Commit
+    # Remove stale git lock if present
+    $bgLockFile = Join-Path $script:ProjectDir ".git\index.lock"
+    if (Test-Path $bgLockFile) { Remove-Item $bgLockFile -Force -ErrorAction SilentlyContinue }
 
-    $script:BuildDir = $script:ClientBuildDir
-    $progressFill.Size      = New-Object System.Drawing.Size(0, 16)
-    $progressFill.BackColor = $script:ColorBlue
-    $progressLabel.Text     = ""
+    $bgVer = Get-ProjectVersion
+    $bgMsg = "Build " + $bgVer.String + " - auto-commit before build"
 
-    Set-BuildUI-Running $true
-    $script:StepQueue.Clear()
-    $script:StepQueue.Enqueue((Get-BuildStep "client"))
-    $step = Get-ConfigureStep
-    Start-Build-Step $step.Name $step.Exe $step.Args
+    $bgRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $bgRs.Open()
+    $bgRs.SessionStateProxy.SetVariable('BgProjectDir', $script:ProjectDir)
+    $bgRs.SessionStateProxy.SetVariable('BgCommitMsg',  $bgMsg)
+    $bgPs = [System.Management.Automation.PowerShell]::Create()
+    $bgPs.Runspace = $bgRs
+    [void]$bgPs.AddScript({
+        $st = git -C $BgProjectDir status --porcelain 2>$null
+        if ($st) {
+            git -C $BgProjectDir add -A 2>&1 | Out-Null
+            git -C $BgProjectDir commit -m $BgCommitMsg 2>&1 | Out-Null
+        }
+    })
+    $bgHandle = $bgPs.BeginInvoke()
+
+    $bgPollTimer = New-Object System.Windows.Forms.Timer
+    $bgPollTimer.Interval = 200
+    $bgPollTimer.Add_Tick({
+        try {
+            if (-not $bgHandle.IsCompleted) { return }
+            $bgPollTimer.Stop()
+            $bgPollTimer.Dispose()
+            try { $bgPs.EndInvoke($bgHandle) } catch {}
+            try { $bgPs.Dispose() } catch {}
+            try { $bgRs.Close(); $bgRs.Dispose() } catch {}
+
+            # Clean both build dirs
+            foreach ($dir in @($script:ClientBuildDir, $script:ServerBuildDir)) {
+                if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            }
+
+            $script:BuildDir        = $script:ClientBuildDir
+            $progressFill.Size      = New-Object System.Drawing.Size(0, 16)
+            $progressFill.BackColor = $script:ColorBlue
+            $progressLabel.Text     = ""
+
+            $script:IsRunning = $false
+            Set-BuildUI-Running $true
+            $script:StepQueue.Clear()
+            $script:StepQueue.Enqueue((Get-BuildStep "client"))
+            $step = Get-ConfigureStep
+            Start-Build-Step $step.Name $step.Exe $step.Args
+        } catch {
+            try {
+                $script:IsRunning   = $false
+                $btnBuild.Enabled   = $true
+                $btnBuild.ForeColor = $script:ColorGreen
+                $btnPush.Enabled    = $true
+                $btnPush.ForeColor  = $script:ColorGold
+                $btnStop.Visible    = $false
+                if ($null -ne $lblBuildStatus) {
+                    $lblBuildStatus.Text      = "Commit error"
+                    $lblBuildStatus.ForeColor = $script:ColorRed
+                }
+            } catch {}
+        }
+    })
+    $bgPollTimer.Start()
 }
 
 function Start-Build-Server-After-Client {
