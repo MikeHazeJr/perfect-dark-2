@@ -225,7 +225,7 @@ if (Test-Path $fontPath) {
 function New-UIFont($size, [switch]$Bold) {
     $scale  = $script:Settings.FontSize / 10.0
     $scaled = [Math]::Round($size * $scale, 1)
-    $style  = if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+    $style  = $(if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular })
     if ($script:UseHandelGothic) {
         return New-Object System.Drawing.Font($script:HandelFamily, $scaled, $style, [System.Drawing.GraphicsUnit]::Point)
     }
@@ -412,14 +412,14 @@ $tabControl.Add_DrawItem({
     param($s, $e)
     $tab   = $tabControl.TabPages[$e.Index]
     $rect  = $e.Bounds
-    $brush = if ($e.Index -eq $tabControl.SelectedIndex) {
+    $brush = $(if ($e.Index -eq $tabControl.SelectedIndex) {
         New-Object System.Drawing.SolidBrush($script:ColorPanelBg)
     } else {
         New-Object System.Drawing.SolidBrush($script:ColorBg)
-    }
+    })
     $e.Graphics.FillRectangle($brush, $rect)
     $brush.Dispose()
-    $tc = if ($e.Index -eq $tabControl.SelectedIndex) { $script:ColorGold } else { $script:ColorDim }
+    $tc = $(if ($e.Index -eq $tabControl.SelectedIndex) { $script:ColorGold } else { $script:ColorDim })
     $sf = New-Object System.Drawing.StringFormat
     $sf.Alignment     = [System.Drawing.StringAlignment]::Center
     $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
@@ -875,7 +875,7 @@ function Load-QcFile {
             $cells = $line -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
             if ($cells.Count -lt 4) { continue }
             $numCell = $cells[0]; $testCell = $cells[1]; $expCell = $cells[2]; $stCell = $cells[3]
-            $notes   = if ($cells.Count -ge 5) { $cells[4] } else { "" }
+            $notes   = $(if ($cells.Count -ge 5) { $cells[4] } else { "" })
             if ($numCell -eq '#' -or $testCell -eq 'Test') { continue }
             if ($numCell -notmatch '^\d+$') { continue }
             $script:QcAllRows += @{
@@ -1201,15 +1201,15 @@ function Update-LatestVersionLabels {
     if ($null -eq $releases -or $releases.Count -eq 0) {
         $lblLatestDev.Text = "dev: ---"; $lblLatestStable.Text = "stable: ---"; return
     }
-    $src = if ($script:GhOnline) { "" } else { "*" }
+    $src = $(if ($script:GhOnline) { "" } else { "*" })
     $hd = $null; $hdv = -1; $hs = $null; $hsv = -1
     foreach ($rel in $releases) {
         $val = $rel.Major*1000000 + $rel.Minor*1000 + $rel.Revision
         if ($rel.Prerelease) { if ($val -gt $hdv) { $hdv = $val; $hd = $rel } }
         else                 { if ($val -gt $hsv) { $hsv = $val; $hs = $rel } }
     }
-    $lblLatestDev.Text    = if ($hd) { "dev: $($hd.Major).$($hd.Minor).$($hd.Revision)$src" } else { "dev: ---" }
-    $lblLatestStable.Text = if ($hs) { "stable: $($hs.Major).$($hs.Minor).$($hs.Revision)$src" } else { "stable: ---" }
+    $lblLatestDev.Text    = $(if ($hd) { "dev: $($hd.Major).$($hd.Minor).$($hd.Revision)$src" } else { "dev: ---" })
+    $lblLatestStable.Text = $(if ($hs) { "stable: $($hs.Major).$($hs.Minor).$($hs.Revision)$src" } else { "stable: ---" })
 }
 
 function Check-VersionWarning {
@@ -1220,7 +1220,7 @@ function Check-VersionWarning {
         if ($releases.Count -eq 0) { return }
         foreach ($rel in $releases) {
             if ($rel.Major -eq $ver.Major -and $rel.Minor -eq $ver.Minor -and $rel.Revision -eq $ver.Revision) {
-                $src = if ($script:GhOnline) { "" } else { " (cached)" }
+                $src = $(if ($script:GhOnline) { "" } else { " (cached)" })
                 $lblVerWarning.Text = "WARNING: $($ver.String) already released$src"
                 $lblVerWarning.ForeColor = $script:ColorOrange; return
             }
@@ -1232,7 +1232,7 @@ function Check-VersionWarning {
             if ($v -gt $highest) { $highest = $v; $highTag = $rel.Tag }
         }
         if ($highest -gt 0 -and $curVal -lt $highest) {
-            $src = if ($script:GhOnline) { "" } else { " (cached)" }
+            $src = $(if ($script:GhOnline) { "" } else { " (cached)" })
             $lblVerWarning.Text = "WARNING: < latest $highTag$src"
             $lblVerWarning.ForeColor = $script:ColorRed
         }
@@ -1293,10 +1293,10 @@ function Update-GitChangeCount {
     $script:LastGitCheck = [DateTime]::Now
     try {
         $status = git -C $script:ProjectDir status --porcelain 2>$null
-        $count  = if ($status) { ($status | Measure-Object).Count } else { 0 }
+        $count  = $(if ($status) { ($status | Measure-Object).Count } else { 0 })
     } catch { $count = 0 }
     $script:GitChangeCount = $count
-    $s = if ($count -eq 1) { "" } else { "s" }
+    $s = $(if ($count -eq 1) { "" } else { "s" })
     if ($count -gt 0) {
         $btnQcCommit.Text = "Commit $count change$s"; $btnQcCommit.Enabled = $true
         $btnQcCommit.ForeColor = $script:ColorPurple
@@ -1425,7 +1425,7 @@ function Start-ManualCommit {
             if ($shouldPush -and $gitR.PushExit -ne 0) {
                 $lblBuildStatus.Text = "Push failed"; $lblBuildStatus.ForeColor = $script:ColorRed
             } else {
-                $lblBuildStatus.Text = if ($shouldPush) { "Committed + pushed" } else { "Committed" }
+                $lblBuildStatus.Text = $(if ($shouldPush) { "Committed + pushed" } else { "Committed" })
                 $lblBuildStatus.ForeColor = $script:ColorGreen
             }
         }
@@ -1473,10 +1473,10 @@ function Set-BuildUI-Running($running) {
     $script:IsRunning = $running
     $btnBuild.Enabled = (-not $running)
     $btnPush.Enabled  = (-not $running)
-    $btnBuild.ForeColor = if (-not $running) { $script:ColorGreen }   else { $script:ColorDisabled }
-    $btnPush.ForeColor  = if (-not $running) { $script:ColorGold }    else { $script:ColorDisabled }
+    $btnBuild.ForeColor = $(if (-not $running) { $script:ColorGreen }   else { $script:ColorDisabled })
+    $btnPush.ForeColor  = $(if (-not $running) { $script:ColorGold }    else { $script:ColorDisabled })
     $btnStop.Enabled    = $running
-    $btnStop.ForeColor  = if ($running)      { $script:ColorRed }     else { $script:ColorDisabled }
+    $btnStop.ForeColor  = $(if ($running)      { $script:ColorRed }     else { $script:ColorDisabled })
     Update-RunButtons
 }
 
@@ -1485,8 +1485,8 @@ function Update-RunButtons {
     $se = Test-Path (Join-Path $script:ServerBuildDir "PerfectDarkServer.exe")
     $btnRunGame.Enabled   = (-not $script:IsRunning) -and $ce
     $btnRunServer.Enabled = (-not $script:IsRunning) -and $se
-    $btnRunGame.ForeColor   = if ((-not $script:IsRunning) -and $ce) { $script:ColorGreen  } else { $script:ColorDisabled }
-    $btnRunServer.ForeColor = if ((-not $script:IsRunning) -and $se) { $script:ColorOrange } else { $script:ColorDisabled }
+    $btnRunGame.ForeColor   = $(if ((-not $script:IsRunning) -and $ce) { $script:ColorGreen  } else { $script:ColorDisabled })
+    $btnRunServer.ForeColor = $(if ((-not $script:IsRunning) -and $se) { $script:ColorOrange } else { $script:ColorDisabled })
 }
 
 $script:BuildTimer = New-Object System.Windows.Forms.Timer
@@ -1522,7 +1522,7 @@ $script:BuildTimer.Add_Tick({
         $totalElapsed = [math]::Floor(([DateTime]::Now - $script:StepStartTime).TotalSeconds)
         $silentSec    = [math]::Floor(([DateTime]::Now - $script:LastOutputTime).TotalSeconds)
         $spin = $script:SpinnerChars[$script:SpinnerIndex % 4]; $script:SpinnerIndex++
-        $lblBuildStatus.Text = if ($silentSec -gt 2) { "$($script:CurrentStep) $spin ${totalElapsed}s" } else { "$($script:CurrentStep) (${totalElapsed}s)" }
+        $lblBuildStatus.Text = $(if ($silentSec -gt 2) { "$($script:CurrentStep) $spin ${totalElapsed}s" } else { "$($script:CurrentStep) (${totalElapsed}s)" })
         return
     }
 
@@ -1554,7 +1554,7 @@ $script:BuildTimer.Add_Tick({
         }
 
         $progressFill.Size      = New-Object System.Drawing.Size($progressOuter.Width, 16)
-        $progressFill.BackColor = if ($script:HasErrors) { [System.Drawing.Color]::FromArgb(191,0,0) } else { $script:ColorBlue }
+        $progressFill.BackColor = $(if ($script:HasErrors) { [System.Drawing.Color]::FromArgb(191,0,0) } else { $script:ColorBlue })
         $progressLabel.Text     = "100%"
         $lblBuildStatus.Text    = "$($script:CurrentStep) OK (${elapsed}s)"
 
@@ -1567,15 +1567,15 @@ $script:BuildTimer.Add_Tick({
             else                                   { $script:ClientBuildTime = $finalTime }
 
             $anyErrors = $script:HasErrors -or $script:ClientBuildFailed -or $script:ServerBuildFailed
-            $progressFill.BackColor = if ($anyErrors) { [System.Drawing.Color]::FromArgb(191,0,0) } else { [System.Drawing.Color]::FromArgb(0,191,96) }
-            $progressLabel.Text     = if ($anyErrors) { "DONE (errors)" } else { "BUILD OK" }
+            $progressFill.BackColor = $(if ($anyErrors) { [System.Drawing.Color]::FromArgb(191,0,0) } else { [System.Drawing.Color]::FromArgb(0,191,96) })
+            $progressLabel.Text     = $(if ($anyErrors) { "DONE (errors)" } else { "BUILD OK" })
 
             Copy-AddinFiles
             Update-BuildStatusLabels
             if ($anyErrors) { Show-ErrorButtons }
             if ($anyErrors) { Sound-Fail } else { Sound-Success }
-            $lblBuildStatus.Text    = if ($anyErrors) { "Build complete — see errors" } else { "Build complete" }
-            $lblBuildStatus.ForeColor = if ($anyErrors) { $script:ColorOrange } else { $script:ColorGreen }
+            $lblBuildStatus.Text    = $(if ($anyErrors) { "Build complete — see errors" } else { "Build complete" })
+            $lblBuildStatus.ForeColor = $(if ($anyErrors) { $script:ColorOrange } else { $script:ColorGreen })
             $script:BuildSucceeded  = -not $anyErrors
             Set-BuildUI-Running $false
             Refresh-VersionDisplay
