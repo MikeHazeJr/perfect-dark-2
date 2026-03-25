@@ -1575,6 +1575,8 @@ $script:BuildTimer.Add_Tick({
 # ============================================================================
 
 function Start-PushRelease($releaseTarget) {
+    # release.ps1 always creates both client + server releases in one run
+    # The $releaseTarget param is just for the UI label
     if ($script:IsPushing -or $script:IsBuilding) { return }
     $releaseScript = Join-Path $script:ProjectRoot "release.ps1"
     if (-not (Test-Path $releaseScript)) {
@@ -1583,12 +1585,11 @@ function Start-PushRelease($releaseTarget) {
     }
     $ver = Get-UiVersion
     $vs  = "" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
-    $label = $(if ($releaseTarget -eq "server") { "Server" } else { "Client" })
     $isStable = $script:ChkStable.Checked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        ("Release " + $label + " v" + $vs + " (" + $kind + ") to GitHub?`n`nThis will write version to CMakeLists.txt, auto-commit, tag and push via release.ps1."),
-        ($kind + " Release: " + $label + " v" + $vs),
+        ("Release Client + Server v" + $vs + " (" + $kind + ") to GitHub?`n`nThis will write version to CMakeLists.txt, auto-commit, tag and push via release.ps1.`n`nBoth client and server releases are created in one run."),
+        ($kind + " Release v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -1604,16 +1605,15 @@ function Start-PushRelease($releaseTarget) {
     if ($null -ne $script:ProgressBack)     { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:BtnStop)          { $script:BtnStop.Visible       = $true }
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing " + $label + " v" + $vs + " (" + $kind + ")..." }
-    $targetArg = $(if ($releaseTarget -eq "server") { " -Target server" } else { "" })
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
-    # Use pwsh (PS7) if available, fall back to powershell (PS5)
-    # release.ps1 uses PS7 syntax (= if (...)) that fails in PS5
+    # release.ps1 creates both client+server releases in one run (no -Target param)
+    # It uses PS7 syntax (= if (...)), so prefer pwsh over powershell
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
     $step = @{
-        Name   = $kind + " Release " + $label + " v" + $vs
+        Name   = $kind + " Release v" + $vs
         Exe    = $psExe
-        Args   = "-ExecutionPolicy Bypass -NonInteractive -Command `"Set-Location '" + $script:ProjectRoot + "'; & '" + $releaseScript + "' -Version '" + $vs + "'" + $targetArg + $prerelArg + " *>&1`""
-        Target = $releaseTarget
+        Args   = "-ExecutionPolicy Bypass -NonInteractive -Command `"Set-Location '" + $script:ProjectRoot + "'; & '" + $releaseScript + "' -Version '" + $vs + "'" + $prerelArg + " *>&1`""
+        Target = "client"
     }
     $script:IsBuilding = $true
     Start-Build-Step $step
@@ -1895,13 +1895,13 @@ $script:Form.Add_Shown({
         $t2.Add_Tick({ try { $this.Stop(); $this.Dispose(); $script:LastGitCheck = [DateTime]::MinValue; Update-GitChangeCount } catch {} })
         $t2.Start()
 
-        # Background: gh auth check
+        # Background: gh auth check (use script-scoped vars so timer closures can access them)
         try {
-            $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-            $rs.Open()
-            $ps = [System.Management.Automation.PowerShell]::Create()
-            $ps.Runspace = $rs
-            [void]$ps.AddScript({
+            $script:AuthRS = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+            $script:AuthRS.Open()
+            $script:AuthPS = [System.Management.Automation.PowerShell]::Create()
+            $script:AuthPS.Runspace = $script:AuthRS
+            [void]$script:AuthPS.AddScript({
                 try {
                     $ghPath = Get-Command gh -ErrorAction SilentlyContinue
                     if ($null -eq $ghPath) { return "NOT_INSTALLED" }
@@ -1909,13 +1909,13 @@ $script:Form.Add_Shown({
                     return (($o | ForEach-Object { $_.ToString() }) -join " ")
                 } catch { return "ERROR" }
             })
-            $h = $ps.BeginInvoke()
+            $script:AuthHandle = $script:AuthPS.BeginInvoke()
             $ap = New-Object System.Windows.Forms.Timer; $ap.Interval = 400
             $ap.Add_Tick({
                 try {
-                    if (-not $h.IsCompleted) { return }
+                    if (-not $script:AuthHandle.IsCompleted) { return }
                     $this.Stop(); $this.Dispose()
-                    $res = $ps.EndInvoke($h)
+                    $res = $script:AuthPS.EndInvoke($script:AuthHandle)
                     $txt = ($res -join " ")
                     $ok = $txt -match 'Logged in'
                     $notInstalled = $txt -match 'NOT_INSTALLED'
@@ -1932,7 +1932,7 @@ $script:Form.Add_Shown({
                             $script:BtnAuthStatus.ForeColor = $script:ColorRed
                         }
                     }
-                    try { $ps.Dispose() } catch {}; try { $rs.Close(); $rs.Dispose() } catch {}
+                    try { $script:AuthPS.Dispose() } catch {}; try { $script:AuthRS.Close(); $script:AuthRS.Dispose() } catch {}
                 } catch {}
             })
             $ap.Start()
@@ -1943,34 +1943,32 @@ $script:Form.Add_Shown({
             }
         }
 
-        # Background: fetch latest release
+        # Background: fetch latest release (script-scoped for timer closure access)
         $repo = $script:Settings.GitHubRepo
         if ($repo -ne "") {
             try {
-                $rs2 = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-                $rs2.Open()
-                $ps2 = [System.Management.Automation.PowerShell]::Create()
-                $ps2.Runspace = $rs2
-                [void]$ps2.AddScript({ param($rp); try { $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null; if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) } } catch {}; return $null }).AddArgument($repo)
-                $h2 = $ps2.BeginInvoke()
+                $script:RelRS = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+                $script:RelRS.Open()
+                $script:RelPS = [System.Management.Automation.PowerShell]::Create()
+                $script:RelPS.Runspace = $script:RelRS
+                [void]$script:RelPS.AddScript({ param($rp); try { $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null; if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) } } catch {}; return $null }).AddArgument($repo)
+                $script:RelHandle = $script:RelPS.BeginInvoke()
                 $rp = New-Object System.Windows.Forms.Timer; $rp.Interval = 600
                 $rp.Add_Tick({
                     try {
-                        if (-not $h2.IsCompleted) { return }
+                        if (-not $script:RelHandle.IsCompleted) { return }
                         $this.Stop(); $this.Dispose()
-                        $data = $ps2.EndInvoke($h2)
+                        $data = $script:RelPS.EndInvoke($script:RelHandle)
                         if ($null -ne $data -and $data.Count -gt 0) {
                             $rel = $data[0]; Save-ReleaseCache $rel
-                            $script:Form.Invoke([Action]{ Update-ReleaseCacheUI $rel })
+                            Update-ReleaseCacheUI $rel
                         } else {
-                            $script:Form.Invoke([Action]{
-                                if ($null -ne $script:LblLatestRelease) {
-                                    $script:LblLatestRelease.Text = "latest: no releases"
-                                    $script:LblLatestRelease.ForeColor = $script:ColorTextDim
-                                }
-                            })
+                            if ($null -ne $script:LblLatestRelease) {
+                                $script:LblLatestRelease.Text = "latest: no releases"
+                                $script:LblLatestRelease.ForeColor = $script:ColorTextDim
+                            }
                         }
-                        try { $ps2.Dispose() } catch {}; try { $rs2.Close(); $rs2.Dispose() } catch {}
+                        try { $script:RelPS.Dispose() } catch {}; try { $script:RelRS.Close(); $script:RelRS.Dispose() } catch {}
                     } catch {}
                 })
                 $rp.Start()
