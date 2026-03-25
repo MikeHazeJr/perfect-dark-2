@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+﻿cmake_minimum_required(VERSION 3.16)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 if(APPLE)
@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 1 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 2 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -178,7 +178,7 @@ if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   add_compile_options(-Og)
 endif()
 
-# Debug info — explicit -g ensures DWARF symbols are embedded regardless
+# Debug info â€” explicit -g ensures DWARF symbols are embedded regardless
 # of CMAKE_BUILD_TYPE. Without this, addr2line returns ?? on MinGW.
 add_compile_options(-g)
 
@@ -481,7 +481,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/identity.c
   ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
 
-  # Connect code (IP:port ↔ word-based codes)
+  # Connect code (IP:port â†” word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
 
