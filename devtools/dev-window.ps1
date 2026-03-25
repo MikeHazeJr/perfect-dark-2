@@ -1953,7 +1953,15 @@ $script:Form.Add_Shown({
                 $script:RelRS.Open()
                 $script:RelPS = [System.Management.Automation.PowerShell]::Create()
                 $script:RelPS.Runspace = $script:RelRS
-                [void]$script:RelPS.AddScript({ param($rp); try { $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null; if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) } } catch {}; return $null }).AddArgument($repo)
+                [void]$script:RelPS.AddScript({
+                    param($rp, $envPath)
+                    try {
+                        $env:PATH = $envPath
+                        $j = gh api ("repos/" + $rp + "/releases/latest") 2>$null
+                        if ($LASTEXITCODE -eq 0 -and $j) { return ($j | ConvertFrom-Json) }
+                    } catch {}
+                    return $null
+                }).AddArgument($repo).AddArgument($env:PATH)
                 $script:RelHandle = $script:RelPS.BeginInvoke()
                 $rp = New-Object System.Windows.Forms.Timer; $rp.Interval = 600
                 $rp.Add_Tick({

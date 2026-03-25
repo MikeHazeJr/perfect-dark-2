@@ -7,7 +7,7 @@
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #
-# Package contents (game zip — "PerfectDark-v{X.Y.Z}-win64.zip"):
+# Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client)
 #   - PerfectDarkServer.exe (dedicated server)
 #   - data/ folder (game data, EXCLUDING *.z64 ROM files)
@@ -15,7 +15,7 @@
 #   - Runtime DLLs
 #   - SHA-256 hashes for update system verification
 #
-# Source code is NOT included — GitHub auto-generates source archives.
+# Source code is NOT included -- GitHub auto-generates source archives.
 #
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
@@ -37,9 +37,9 @@ $ErrorActionPreference = "Stop"
 
 if ($Version -eq "") {
     $cmake = Get-Content "CMakeLists.txt" -Raw
-    $major = if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" }
-    $minor = if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" }
-    $patch = if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" }
+    $major = $(if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" })
+    $minor = $(if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" })
+    $patch = $(if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" })
     $Version = "$major.$minor.$patch"
 }
 
@@ -50,20 +50,20 @@ $DistDir = "dist/client-v$Version"
 
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
-$ClientExe = if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
-             elseif (Test-Path "build/PerfectDark.exe")    { "build/PerfectDark.exe" }
-             else { "" }
-$ServerExe = if (Test-Path "build/server/PerfectDarkServer.exe") { "build/server/PerfectDarkServer.exe" }
-             elseif (Test-Path "build/PerfectDarkServer.exe")    { "build/PerfectDarkServer.exe" }
-             else { "" }
+$ClientExe = $(if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
+               elseif (Test-Path "build/PerfectDark.exe")    { "build/PerfectDark.exe" }
+               else { "" })
+$ServerExe = $(if (Test-Path "build/server/PerfectDarkServer.exe") { "build/server/PerfectDarkServer.exe" }
+               elseif (Test-Path "build/PerfectDarkServer.exe")    { "build/PerfectDarkServer.exe" }
+               else { "" })
 
 # Data and mods -- prefer build/client/ copies, fall back to post-batch-addin
-$DataSource = if (Test-Path "build/client/data") { "build/client/data" }
-              elseif (Test-Path "post-batch-addin/data") { "post-batch-addin/data" }
-              else { "" }
-$ModsSource = if (Test-Path "build/client/mods") { "build/client/mods" }
-              elseif (Test-Path "post-batch-addin/mods") { "post-batch-addin/mods" }
-              else { "" }
+$DataSource = $(if (Test-Path "build/client/data") { "build/client/data" }
+                elseif (Test-Path "post-batch-addin/data") { "post-batch-addin/data" }
+                else { "" })
+$ModsSource = $(if (Test-Path "build/client/mods") { "build/client/mods" }
+                elseif (Test-Path "post-batch-addin/mods") { "post-batch-addin/mods" }
+                else { "" })
 
 # DLLs -- check build/client first, then post-batch-addin
 $DllSearchPaths = @("build/client", "post-batch-addin")
@@ -109,7 +109,7 @@ $hasMods = $ModsSource -ne ""
 $hasNotes = Test-Path $ReleaseNotes
 
 if ($hasGh) {
-    $ghPath = if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source }
+    $ghPath = $(if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source })
     Write-Host "  gh CLI:      FOUND ($ghPath)" -ForegroundColor Green
     # Configure git to use gh's auth token for HTTPS push (prevents hang on credential prompt)
     Write-Host "  Setting up gh credential helper for git..." -ForegroundColor Gray
@@ -178,7 +178,7 @@ if ($hasServer) {
 
 # --- Runtime DLLs ---
 
-# Runtime DLLs — must match the set in CMakeLists.txt _RUNTIME_DLLS
+# Runtime DLLs -- must match the set in CMakeLists.txt _RUNTIME_DLLS
 $dllNames = @(
     "SDL2.dll", "zlib1.dll", "libwinpthread-1.dll",
     "libcurl-4.dll", "libnghttp2-14.dll", "libnghttp3-9.dll",
@@ -294,7 +294,7 @@ foreach ($file in $allFiles) {
 $zipStream.Dispose()
 
 $zipSize = (Get-Item $zipFullPath).Length
-$zipSizeStr = if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) }
+$zipSizeStr = $(if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) })
 Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 
 # ============================================================================
@@ -362,7 +362,7 @@ if ($SkipPush -or $DryRun) {
     }
     Write-Host "  Branch pushed." -ForegroundColor Green
 
-    # Push ONLY the tags we just created — never use --tags (pushes all local tags)
+    # Push ONLY the tags we just created -- never use --tags (pushes all local tags)
     $tagsToPush = @()
     if ($hasClient) { $tagsToPush += $ClientTag }
     if ($hasServer) { $tagsToPush += $ServerTag }
@@ -391,11 +391,11 @@ Write-Host ""
 Write-Host "[5/6] Creating GitHub releases..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
-    $reason = if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" }
+    $reason = $(if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" })
     Write-Host "  Skipping GitHub releases ($reason)." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
 } else {
     $savedEAP = $ErrorActionPreference
-    $channel = if ($Prerelease) { "Dev" } else { "Stable" }
+    $channel = $(if ($Prerelease) { "Dev" } else { "Stable" })
 
     # --- Client release (tag: client-v{M}.{m}.{p}) ---
     if ($hasClient) {
@@ -449,7 +449,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 
         if ($Prerelease) { $ghArgs += "--prerelease" }
 
-        # Attach server exe + hash only (no zip — server operators don't need the full distribution)
+        # Attach server exe + hash only (no zip -- server operators don't need the full distribution)
         $ghArgs += "$DistDir/PerfectDarkServer.exe"
         $ghArgs += "$DistDir/PerfectDarkServer.exe.sha256"
 
@@ -488,13 +488,13 @@ if (-not $Prerelease -and (Test-Path $zipPath)) {
     Write-Host "  Stable backup: $backupDest" -ForegroundColor Green
 }
 
-# Remove the staging directory (executables, data, mods, DLLs) — GitHub has them
+# Remove the staging directory (executables, data, mods, DLLs) -- GitHub has them
 if (Test-Path $DistDir) {
     Remove-Item $DistDir -Recurse -Force
     Write-Host "  Cleaned staging: $DistDir" -ForegroundColor Gray
 }
 
-# Remove the zip too — GitHub is the source of truth, stable backup is saved above
+# Remove the zip too -- GitHub is the source of truth, stable backup is saved above
 if (-not $DryRun -and -not $SkipPush -and (Test-Path $zipPath)) {
     Remove-Item $zipPath -Force
     Write-Host "  Cleaned zip: $zipPath" -ForegroundColor Gray
@@ -518,7 +518,7 @@ Write-Host "  RELEASE v$Version -- COMPLETE" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Green
 Write-Host ""
 
-$zipSizeDisplay = if (Test-Path $zipPath) { $zipSizeStr } else { "(uploaded + cleaned)" }
+$zipSizeDisplay = $(if (Test-Path $zipPath) { $zipSizeStr } else { "(uploaded + cleaned)" })
 Write-Host "  Zip:    $zipName $zipSizeDisplay" -ForegroundColor White
 if (-not $Prerelease) {
     Write-Host "  Backup: backups/$zipName" -ForegroundColor White
