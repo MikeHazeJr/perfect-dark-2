@@ -588,13 +588,31 @@ $script:BtnStop.Visible   = $false
 $script:BtnStop.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:StatusPanel.Controls.Add($script:BtnStop)
 
-$script:ChkCleanBuild = New-Object System.Windows.Forms.CheckBox
-$script:ChkCleanBuild.Text = "Clean Build"
-$script:ChkCleanBuild.Font = New-UIFont 9
-$script:ChkCleanBuild.ForeColor = $script:ColorTextDim
-$script:ChkCleanBuild.AutoSize = $true
-$script:ChkCleanBuild.Location = New-Object System.Drawing.Point(90, 102)
-$script:StatusPanel.Controls.Add($script:ChkCleanBuild)
+# Clean Build toggle -- implemented as a flat button that toggles state (checkbox rendering is broken in dark WinForms)
+$script:CleanBuildActive = $false
+$script:BtnCleanBuild = New-Object System.Windows.Forms.Button
+$script:BtnCleanBuild.Text = "CLEAN BUILD: OFF"
+$script:BtnCleanBuild.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorBorder
+$script:BtnCleanBuild.FlatAppearance.BorderSize = 1
+$script:BtnCleanBuild.ForeColor = $script:ColorTextDim
+$script:BtnCleanBuild.BackColor = $script:ColorBgAlt
+$script:BtnCleanBuild.Font = New-UIFont 9
+$script:BtnCleanBuild.Cursor = [System.Windows.Forms.Cursors]::Hand
+$script:BtnCleanBuild.Add_Click({
+    $script:CleanBuildActive = -not $script:CleanBuildActive
+    if ($script:CleanBuildActive) {
+        $script:BtnCleanBuild.Text = "CLEAN BUILD: ON"
+        $script:BtnCleanBuild.ForeColor = $script:ColorGold
+        $script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorGold
+    } else {
+        $script:BtnCleanBuild.Text = "CLEAN BUILD: OFF"
+        $script:BtnCleanBuild.ForeColor = $script:ColorTextDim
+        $script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorBorder
+    }
+})
+# Placed in HeroPanel, positioned by resize handler beneath Build button
+$script:HeroPanel.Controls.Add($script:BtnCleanBuild)
 
 $script:BtnCopyErrors = New-Object System.Windows.Forms.Button
 $script:BtnCopyErrors.Text      = "Copy Errors"
@@ -1393,9 +1411,10 @@ function Start-Build-Step($step) {
     $psi.WorkingDirectory = $script:ProjectRoot
     $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
-    $psi.EnvironmentVariables["PATH"]         = $env:PATH
-    $psi.EnvironmentVariables["MSYSTEM"]      = "MINGW64"
-    $psi.EnvironmentVariables["MINGW_PREFIX"] = "/mingw64"
+    $psi.EnvironmentVariables["PATH"]                 = $env:PATH
+    $psi.EnvironmentVariables["MSYSTEM"]              = "MINGW64"
+    $psi.EnvironmentVariables["MINGW_PREFIX"]         = "/mingw64"
+    $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"]  = "0"
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     try {
@@ -1440,7 +1459,7 @@ function Start-Build {
     if ($null -ne $script:ProgressBack)  { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:ProgressFill)  { $script:ProgressFill.BackColor = $script:ColorProgress }
     # Clean build: wipe build directories before configure
-    if ($null -ne $script:ChkCleanBuild -and $script:ChkCleanBuild.Checked) {
+    if ($script:CleanBuildActive) {
         if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Cleaning build directories..." }
         try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
         try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
@@ -1587,10 +1606,13 @@ function Start-PushRelease($releaseTarget) {
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing " + $label + " v" + $vs + " (" + $kind + ")..." }
     $targetArg = $(if ($releaseTarget -eq "server") { " -Target server" } else { "" })
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
+    # Use pwsh (PS7) if available, fall back to powershell (PS5)
+    # release.ps1 uses PS7 syntax (= if (...)) that fails in PS5
+    $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
     $step = @{
         Name   = $kind + " Release " + $label + " v" + $vs
-        Exe    = "powershell.exe"
-        Args   = "-ExecutionPolicy Bypass -Command `"& { . '" + $releaseScript + "' -Version '" + $vs + "'" + $targetArg + $prerelArg + " } *>&1`""
+        Exe    = $psExe
+        Args   = "-ExecutionPolicy Bypass -NonInteractive -Command `"Set-Location '" + $script:ProjectRoot + "'; & '" + $releaseScript + "' -Version '" + $vs + "'" + $targetArg + $prerelArg + " *>&1`""
         Target = $releaseTarget
     }
     $script:IsBuilding = $true
@@ -1787,9 +1809,13 @@ function Invoke-FormResize {
         }
         $btnW = [math]::Floor($heroW * 0.48)
         $gap  = $heroW - ($btnW * 2)
+        $cleanH = 28
+        $buildH = $heroH - $cleanH - 4
         $halfH = [math]::Floor(($heroH - 4) / 2)
-        # Build button (left, full height)
-        if ($null -ne $script:BtnBuild)      { $script:BtnBuild.Location      = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $heroH) }
+        # Build button (left, above clean build)
+        if ($null -ne $script:BtnBuild)      { $script:BtnBuild.Location      = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $buildH) }
+        # Clean Build toggle (left, beneath build button)
+        if ($null -ne $script:BtnCleanBuild) { $script:BtnCleanBuild.Location = New-Object System.Drawing.Point(0, ($buildH + 4)); $script:BtnCleanBuild.Size = New-Object System.Drawing.Size($btnW, $cleanH) }
         # Release Client (right, top half)
         if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Location = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnPushClient.Size = New-Object System.Drawing.Size($btnW, $halfH) }
         # Release Server (right, bottom half)
