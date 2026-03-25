@@ -177,7 +177,6 @@ $script:GitBusy         = $false
 $script:Settings = @{
     GithubRepo    = ""
     SoundsEnabled = $true
-    FontSize      = 10
 }
 
 function Load-Settings {
@@ -186,9 +185,6 @@ function Load-Settings {
             $json = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json
             if ($json.GithubRepo)               { $script:Settings.GithubRepo    = $json.GithubRepo }
             if ($null -ne $json.SoundsEnabled)  { $script:Settings.SoundsEnabled = [bool]$json.SoundsEnabled }
-            if ($json.FontSize -and $json.FontSize -ge 8 -and $json.FontSize -le 16) {
-                $script:Settings.FontSize = [int]$json.FontSize
-            }
         } catch {}
     }
     if ($script:Settings.GithubRepo -eq "") {
@@ -223,13 +219,11 @@ if (Test-Path $fontPath) {
 }
 
 function New-UIFont($size, [switch]$Bold) {
-    $scale  = $script:Settings.FontSize / 10.0
-    $scaled = [Math]::Round($size * $scale, 1)
-    $style  = $(if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular })
+    $style = $(if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular })
     if ($script:UseHandelGothic) {
-        return New-Object System.Drawing.Font($script:HandelFamily, $scaled, $style, [System.Drawing.GraphicsUnit]::Point)
+        return New-Object System.Drawing.Font($script:HandelFamily, $size, $style, [System.Drawing.GraphicsUnit]::Point)
     }
-    return New-Object System.Drawing.Font("Segoe UI", $scaled, $style)
+    return New-Object System.Drawing.Font("Segoe UI", $size, $style)
 }
 
 # ============================================================================
@@ -371,7 +365,7 @@ $menuSettings.Add_Click({ Show-SettingsDialog })
 [void]$menuStrip.Items.Add($menuEdit)
 
 $form.MainMenuStrip = $menuStrip
-$form.Controls.Add($menuStrip)
+# MenuStrip added AFTER bottomBar and tabControl so Dock order is correct
 
 # ============================================================================
 # Bottom Bar (always visible)
@@ -404,7 +398,7 @@ $btnRunGame   = New-BottomBtn "Run Game"   404  400 $script:ColorGreen
 
 $lblGameStatus = New-Object System.Windows.Forms.Label
 $lblGameStatus.Text      = ""
-$lblGameStatus.Font      = New-UIFont 9
+$lblGameStatus.Font      = New-UIFont 11
 $lblGameStatus.ForeColor = $script:ColorDim
 $lblGameStatus.AutoSize  = $true
 $lblGameStatus.Visible   = $false
@@ -416,6 +410,7 @@ $lblGameStatus.Visible   = $false
 $tabControl = New-Object System.Windows.Forms.TabControl
 $tabControl.Dock      = "Fill"
 $tabControl.BackColor = $script:ColorBg
+$tabControl.Padding   = New-Object System.Drawing.Point(0, 4)
 $tabControl.Font      = New-UIFont 10 -Bold
 
 # Style tab headers
@@ -451,7 +446,13 @@ $tabPlaytest.BackColor = $script:ColorBg
 
 [void]$tabControl.TabPages.Add($tabBuild)
 [void]$tabControl.TabPages.Add($tabPlaytest)
+# Force dark background on tab pages (WinForms ignores BackColor unless UseVisualStyleBackColor is off)
+$tabBuild.UseVisualStyleBackColor    = $false
+$tabPlaytest.UseVisualStyleBackColor = $false
+# Add order matters for WinForms docking: last added = first docked.
+# TabControl (Fill) must be added BEFORE MenuStrip (Top) so the menu gets top priority.
 $form.Controls.Add($tabControl)
+$form.Controls.Add($menuStrip)
 
 # ============================================================================
 # BUILD TAB
@@ -502,7 +503,7 @@ $btnStop.FlatAppearance.BorderSize  = 1
 $btnStop.ForeColor  = $script:ColorDisabled
 $btnStop.BackColor  = $script:ColorFieldBg
 $btnStop.Cursor     = "Hand"
-$btnStop.Font       = New-UIFont 9 -Bold
+$btnStop.Font       = New-UIFont 11 -Bold
 $btnStop.Enabled    = $false
 $btnStop.Visible    = $false
 $btnStop.Anchor     = "Top,Left"
@@ -530,7 +531,7 @@ $buildPanel.Controls.Add($lblServerStatus)
 # Build status label (step/timing)
 $lblBuildStatus = New-Object System.Windows.Forms.Label
 $lblBuildStatus.Text      = "Ready"
-$lblBuildStatus.Font      = New-UIFont 9
+$lblBuildStatus.Font      = New-UIFont 11
 $lblBuildStatus.ForeColor = $script:ColorDim
 $lblBuildStatus.Location  = New-Object System.Drawing.Point(12, 280)
 $lblBuildStatus.Size      = New-Object System.Drawing.Size(460, 20)
@@ -558,7 +559,7 @@ $progressOuter.Controls.Add($progressFill)
 
 $progressLabel = New-Object System.Windows.Forms.Label
 $progressLabel.Text      = ""
-$progressLabel.Font      = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$progressLabel.Font      = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
 $progressLabel.ForeColor = $script:ColorWhite
 $progressLabel.BackColor = [System.Drawing.Color]::Transparent
 $progressLabel.Location  = New-Object System.Drawing.Point(4, 1)
@@ -576,7 +577,7 @@ $buildPanel.Controls.Add($verPanel)
 
 $lblVerTitle = New-Object System.Windows.Forms.Label
 $lblVerTitle.Text      = "VERSION"
-$lblVerTitle.Font      = New-UIFont 9 -Bold
+$lblVerTitle.Font      = New-UIFont 11 -Bold
 $lblVerTitle.ForeColor = $script:ColorDim
 $lblVerTitle.Location  = New-Object System.Drawing.Point(8, 6)
 $lblVerTitle.AutoSize  = $true
@@ -607,7 +608,7 @@ function New-SmallBtn($text, $x, $y, $parent) {
     $btn.ForeColor = $script:ColorGold
     $btn.BackColor = $script:ColorFieldBg
     $btn.Cursor    = "Hand"
-    $btn.Font      = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+    $btn.Font      = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
     $btn.Padding   = New-Object System.Windows.Forms.Padding(0)
     $parent.Controls.Add($btn)
     return $btn
@@ -635,7 +636,7 @@ $btnIncRevision = New-SmallBtn "+" ($vx3+24) $vby $verPanel
 
 $lblLatestDev = New-Object System.Windows.Forms.Label
 $lblLatestDev.Text      = "dev: ---"
-$lblLatestDev.Font      = New-UIFont 8
+$lblLatestDev.Font      = New-UIFont 10
 $lblLatestDev.ForeColor = $script:ColorOrange
 $lblLatestDev.Location  = New-Object System.Drawing.Point(8, 74)
 $lblLatestDev.AutoSize  = $true
@@ -643,7 +644,7 @@ $verPanel.Controls.Add($lblLatestDev)
 
 $lblLatestStable = New-Object System.Windows.Forms.Label
 $lblLatestStable.Text      = "stable: ---"
-$lblLatestStable.Font      = New-UIFont 8
+$lblLatestStable.Font      = New-UIFont 10
 $lblLatestStable.ForeColor = $script:ColorGreen
 $lblLatestStable.Location  = New-Object System.Drawing.Point(120, 74)
 $lblLatestStable.AutoSize  = $true
@@ -651,7 +652,7 @@ $verPanel.Controls.Add($lblLatestStable)
 
 $lblVerWarning = New-Object System.Windows.Forms.Label
 $lblVerWarning.Text      = ""
-$lblVerWarning.Font      = New-UIFont 8 -Bold
+$lblVerWarning.Font      = New-UIFont 10 -Bold
 $lblVerWarning.ForeColor = $script:ColorRed
 $lblVerWarning.Location  = New-Object System.Drawing.Point(8, 90)
 $lblVerWarning.Size      = New-Object System.Drawing.Size(380, 18)
@@ -660,7 +661,7 @@ $verPanel.Controls.Add($lblVerWarning)
 # Auth label
 $lblAuth = New-Object System.Windows.Forms.Label
 $lblAuth.Text      = "checking auth..."
-$lblAuth.Font      = New-UIFont 9
+$lblAuth.Font      = New-UIFont 11
 $lblAuth.ForeColor = $script:ColorDim
 $lblAuth.Location  = New-Object System.Drawing.Point(8, 114)
 $lblAuth.AutoSize  = $true
@@ -678,7 +679,7 @@ $btnCopyErrors.FlatAppearance.BorderSize  = 1
 $btnCopyErrors.ForeColor = $script:ColorRed
 $btnCopyErrors.BackColor = $script:ColorFieldBg
 $btnCopyErrors.Cursor    = "Hand"
-$btnCopyErrors.Font      = New-UIFont 9 -Bold
+$btnCopyErrors.Font      = New-UIFont 11 -Bold
 $btnCopyErrors.Visible   = $false
 $btnCopyErrors.Anchor    = "Top,Left"
 $buildPanel.Controls.Add($btnCopyErrors)
@@ -693,14 +694,14 @@ $btnCopyFullLog.FlatAppearance.BorderSize  = 1
 $btnCopyFullLog.ForeColor = $script:ColorDim
 $btnCopyFullLog.BackColor = $script:ColorFieldBg
 $btnCopyFullLog.Cursor    = "Hand"
-$btnCopyFullLog.Font      = New-UIFont 9 -Bold
+$btnCopyFullLog.Font      = New-UIFont 11 -Bold
 $btnCopyFullLog.Visible   = $false
 $btnCopyFullLog.Anchor    = "Top,Left"
 $buildPanel.Controls.Add($btnCopyFullLog)
 
 $lblErrorCount = New-Object System.Windows.Forms.Label
 $lblErrorCount.Text      = ""
-$lblErrorCount.Font      = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$lblErrorCount.Font      = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
 $lblErrorCount.ForeColor = $script:ColorRed
 $lblErrorCount.Location  = New-Object System.Drawing.Point(256, 425)
 $lblErrorCount.AutoSize  = $true
@@ -739,14 +740,14 @@ $cmbQcFilter.DropDownStyle = "DropDownList"
 $cmbQcFilter.BackColor     = $script:ColorFieldBg
 $cmbQcFilter.ForeColor     = $script:ColorWhite
 $cmbQcFilter.FlatStyle     = "Flat"
-$cmbQcFilter.Font          = New-UIFont 9
+$cmbQcFilter.Font          = New-UIFont 11
 [void]$cmbQcFilter.Items.AddRange(@("All","Pending","Pass","Fail","Skip"))
 $cmbQcFilter.SelectedIndex = 0
 $qcHeaderPanel.Controls.Add($cmbQcFilter)
 
 $lblQcSummary = New-Object System.Windows.Forms.Label
 $lblQcSummary.Text      = ""
-$lblQcSummary.Font      = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+$lblQcSummary.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
 $lblQcSummary.ForeColor = $script:ColorDim
 $lblQcSummary.Location  = New-Object System.Drawing.Point(310, 12)
 $lblQcSummary.AutoSize  = $true
@@ -761,7 +762,7 @@ function New-QcBtn($text, $color) {
     $btn.ForeColor  = $color
     $btn.BackColor  = $script:ColorFieldBg
     $btn.Cursor     = "Hand"
-    $btn.Font       = New-UIFont 9 -Bold
+    $btn.Font       = New-UIFont 11 -Bold
     $btn.Height     = 28
     $btn.Anchor     = "Top,Right"
     $qcHeaderPanel.Controls.Add($btn)
@@ -802,12 +803,12 @@ $qcGrid.ReadOnly                      = $false
 $qcGrid.EnableHeadersVisualStyles     = $false
 $qcGrid.AutoSizeRowsMode              = "None"
 $qcGrid.ScrollBars                    = "Vertical"
-$qcGrid.Font                          = New-UIFont 9
+$qcGrid.Font                          = New-UIFont 11
 
 # Header style
 $qcGrid.ColumnHeadersDefaultCellStyle.BackColor  = [System.Drawing.Color]::FromArgb(50,50,50)
 $qcGrid.ColumnHeadersDefaultCellStyle.ForeColor  = $script:ColorGold
-$qcGrid.ColumnHeadersDefaultCellStyle.Font       = New-UIFont 9 -Bold
+$qcGrid.ColumnHeadersDefaultCellStyle.Font       = New-UIFont 11 -Bold
 $qcGrid.ColumnHeadersDefaultCellStyle.Padding    = New-Object System.Windows.Forms.Padding(4,0,0,0)
 $qcGrid.ColumnHeadersHeight                      = 26
 
@@ -856,6 +857,13 @@ $colNotes.DefaultCellStyle.WrapMode = "True"
 
 $playtestPanel.Controls.Add($qcGrid)
 $qcGrid.BringToFront()
+
+# Enable double-buffering on DataGridView via reflection (protected property)
+try {
+    $dgvType = $qcGrid.GetType()
+    $pi = $dgvType.GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance,NonPublic')
+    $pi.SetValue($qcGrid, $true, $null)
+} catch {}
 
 # ============================================================================
 # QC data model
@@ -985,7 +993,7 @@ function Populate-QcGrid {
                 $hr.ReadOnly   = $true
                 $hr.DefaultCellStyle.BackColor  = [System.Drawing.Color]::FromArgb(50, 48, 25)
                 $hr.DefaultCellStyle.ForeColor  = $script:ColorGold
-                $hr.DefaultCellStyle.Font       = New-UIFont 9 -Bold
+                $hr.DefaultCellStyle.Font       = New-UIFont 11 -Bold
                 $hr.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(50,48,25)
                 $hr.DefaultCellStyle.SelectionForeColor = $script:ColorGold
             }
@@ -1008,7 +1016,7 @@ function Populate-QcGrid {
         $sc = Get-StatusColor $row.Status
         $gr.DefaultCellStyle.ForeColor = $script:ColorText
         $gr.Cells["Status"].Style.ForeColor = $sc
-        $gr.Cells["Status"].Style.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+        $gr.Cells["Status"].Style.Font = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
         $dataRowIdx++
     }
     $qcGrid.ResumeLayout()
@@ -1375,17 +1383,17 @@ function Start-ManualCommit {
     $tMsg.ForeColor = $script:ColorWhite; $tMsg.Font = New-Object System.Drawing.Font("Consolas",10)
     $tMsg.BorderStyle = "FixedSingle"; $ver = Get-ProjectVersion; $tMsg.Text = $ver.String + " -"; $dlg.Controls.Add($tMsg)
 
-    $lDet = New-Object System.Windows.Forms.Label; $lDet.Text = "Changes:"; $lDet.Font = New-UIFont 9
+    $lDet = New-Object System.Windows.Forms.Label; $lDet.Text = "Changes:"; $lDet.Font = New-UIFont 11
     $lDet.ForeColor = $script:ColorDim; $lDet.Location = New-Object System.Drawing.Point(12,68); $lDet.AutoSize = $true; $dlg.Controls.Add($lDet)
 
     $tDet = New-Object System.Windows.Forms.TextBox; $tDet.Location = New-Object System.Drawing.Point(12,88)
     $tDet.Size = New-Object System.Drawing.Size(480,130); $tDet.BackColor = [System.Drawing.Color]::FromArgb(30,30,35)
-    $tDet.ForeColor = $script:ColorDim; $tDet.Font = New-Object System.Drawing.Font("Consolas",9)
+    $tDet.ForeColor = $script:ColorDim; $tDet.Font = New-Object System.Drawing.Font("Consolas",11)
     $tDet.Multiline = $true; $tDet.ReadOnly = $true; $tDet.ScrollBars = "Vertical"; $tDet.WordWrap = $false
     $tDet.BorderStyle = "FixedSingle"; $tDet.Text = ($detail -join "`r`n"); $dlg.Controls.Add($tDet)
 
     $chkPush = New-Object System.Windows.Forms.CheckBox; $chkPush.Text = "Push to GitHub after commit"
-    $chkPush.Font = New-UIFont 9; $chkPush.ForeColor = $script:ColorDim
+    $chkPush.Font = New-UIFont 11; $chkPush.ForeColor = $script:ColorDim
     $chkPush.Location = New-Object System.Drawing.Point(12,230); $chkPush.AutoSize = $true; $chkPush.Checked = $true
     $dlg.Controls.Add($chkPush)
 
@@ -1798,7 +1806,7 @@ function Start-PushRelease {
 
     $lTags = New-Object System.Windows.Forms.Label
     $lTags.Text = "Will create tags: client-v$verStr + server-v$verStr and push to GitHub."
-    $lTags.Font = New-UIFont 9; $lTags.ForeColor = $script:ColorDim
+    $lTags.Font = New-UIFont 11; $lTags.ForeColor = $script:ColorDim
     $lTags.Location = New-Object System.Drawing.Point(16, 136); $lTags.Size = New-Object System.Drawing.Size(380, 40)
     $dlg.Controls.Add($lTags)
 
@@ -1910,7 +1918,7 @@ function Update-GameStatus {
 
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Settings"; $dlg.Size = New-Object System.Drawing.Size(460, 300)
+    $dlg.Text = "Settings"; $dlg.Size = New-Object System.Drawing.Size(460, 240)
     $dlg.StartPosition = "CenterParent"; $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
     $dlg.BackColor = $script:ColorBg; $dlg.ForeColor = $script:ColorWhite
@@ -1924,40 +1932,31 @@ function Show-SettingsDialog {
         $t=New-Object System.Windows.Forms.TextBox; $t.Text=$val
         $t.Location=New-Object System.Drawing.Point($x,$y); $t.Size=New-Object System.Drawing.Size($w,24)
         $t.BackColor=$script:ColorFieldBg; $t.ForeColor=$script:ColorWhite
-        $t.Font=New-Object System.Drawing.Font("Consolas",9); $t.BorderStyle="FixedSingle"
+        $t.Font=New-Object System.Drawing.Font("Consolas",11); $t.BorderStyle="FixedSingle"
         $dlg.Controls.Add($t); return $t
     }
 
     SLbl "GitHub Repository (owner/repo):" 16 16
     $tRepo = STxt $script:Settings.GithubRepo 16 40 350
 
-    SLbl "Font Size (8-16):" 16 80
-    $tFont = STxt ("" + $script:Settings.FontSize) 16 104 60
-
     $chkSnd = New-Object System.Windows.Forms.CheckBox; $chkSnd.Text = "Enable sounds"
     $chkSnd.Font = New-UIFont 10; $chkSnd.ForeColor = $script:ColorWhite
-    $chkSnd.Location = New-Object System.Drawing.Point(16,144); $chkSnd.AutoSize=$true; $chkSnd.Checked=$script:Settings.SoundsEnabled
+    $chkSnd.Location = New-Object System.Drawing.Point(16, 80); $chkSnd.AutoSize=$true; $chkSnd.Checked=$script:Settings.SoundsEnabled
     $dlg.Controls.Add($chkSnd)
 
-    $lNote = New-Object System.Windows.Forms.Label; $lNote.Text = "Font size change takes effect on next launch."
-    $lNote.Font = New-UIFont 8; $lNote.ForeColor = $script:ColorDim
-    $lNote.Location = New-Object System.Drawing.Point(88,107); $lNote.AutoSize=$true; $dlg.Controls.Add($lNote)
-
     $bSave = New-Object System.Windows.Forms.Button; $bSave.Text = "Save"
-    $bSave.Location = New-Object System.Drawing.Point(340,218); $bSave.Size = New-Object System.Drawing.Size(80,30)
+    $bSave.Location = New-Object System.Drawing.Point(340,160); $bSave.Size = New-Object System.Drawing.Size(80,30)
     $bSave.FlatStyle="Flat"; $bSave.FlatAppearance.BorderColor=$script:ColorGold; $bSave.ForeColor=$script:ColorGold
     $bSave.BackColor=$script:ColorFieldBg; $bSave.Font=New-UIFont 10 -Bold
     $bSave.Add_Click({
         $script:Settings.GithubRepo    = $tRepo.Text.Trim()
         $script:Settings.SoundsEnabled = $chkSnd.Checked
-        $fs = 10; try { $fs = [int]$tFont.Text } catch {}
-        if ($fs -ge 8 -and $fs -le 16) { $script:Settings.FontSize = $fs }
         Save-Settings; $dlg.Close()
     })
     $dlg.Controls.Add($bSave)
 
     $bCan = New-Object System.Windows.Forms.Button; $bCan.Text = "Cancel"
-    $bCan.Location = New-Object System.Drawing.Point(250,218); $bCan.Size = New-Object System.Drawing.Size(80,30)
+    $bCan.Location = New-Object System.Drawing.Point(250,160); $bCan.Size = New-Object System.Drawing.Size(80,30)
     $bCan.FlatStyle="Flat"; $bCan.FlatAppearance.BorderColor=$script:ColorDim; $bCan.ForeColor=$script:ColorDim
     $bCan.BackColor=$script:ColorFieldBg; $bCan.Font=New-UIFont 10 -Bold; $bCan.DialogResult="Cancel"
     $dlg.Controls.Add($bCan); $dlg.CancelButton=$bCan
@@ -2192,29 +2191,28 @@ $form.Add_Shown({
     $relPoll.Add_Tick({
         try {
             if ($null -eq $ah3 -or -not $ah3.IsCompleted) { return }
-            if ($null -ne $relPoll) { $relPoll.Stop(); $relPoll.Dispose() }
-            $invResult3 = $(if ($null -ne $ps3) { $ps3.EndInvoke($ah3) } else { $null })
+            $relPoll.Stop(); $relPoll.Dispose()
+            $result = $null
+            try { $result = ($ps3.EndInvoke($ah3))[0] } catch {}
             if ($null -ne $ps3) { try { $ps3.Dispose() } catch {} }
-            if ($null -ne $rs3) { try { $rs3.Close() } catch {}; try { $rs3.Dispose() } catch {} }
-            $result = $(if ($null -ne $invResult3 -and $invResult3.Count -gt 0) { $invResult3[0] } else { $null })
+            if ($null -ne $rs3) { try { $rs3.Close(); $rs3.Dispose() } catch {} }
             if ($null -ne $result -and $result -ne "none") {
-                $parsed = $result | ConvertFrom-Json
-                $releases = @()
-                foreach ($rel in $parsed) {
-                    $tag = $rel.tag_name
-                    if ($null -ne $tag -and $tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
-                        $releases += @{
-                            Tag = $tag; Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]
-                            Prerelease = [bool]$rel.prerelease
+                try {
+                    $parsed = $result | ConvertFrom-Json
+                    $releases = @()
+                    foreach ($rel in $parsed) {
+                        $tag = $rel.tag_name
+                        if ($tag -match '(?:client-|server-)?v?(\d+)\.(\d+)\.(\d+)') {
+                            $releases += @{ Tag = $tag; Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Revision = [int]$Matches[3]; Prerelease = [bool]$rel.prerelease }
                         }
                     }
-                }
-                $script:GhReleaseCache = $releases
-                $script:GhReleaseCacheTime = [DateTime]::Now
-                $script:GhOnline = $true
-                Save-ReleaseCache $releases
-                Update-LatestVersionLabels
-                Check-VersionWarning
+                    $script:GhReleaseCache = $releases
+                    $script:GhReleaseCacheTime = [DateTime]::Now
+                    $script:GhOnline = $true
+                    Save-ReleaseCache $releases
+                    Update-LatestVersionLabels
+                    Check-VersionWarning
+                } catch {}
             }
         } catch {}
     })
@@ -2222,13 +2220,15 @@ $form.Add_Shown({
 })
 
 $form.Add_FormClosing({
-    try { $script:BuildTimer.Stop() } catch {}
-    try { $mainTimer.Stop() } catch {}
-    if ($null -ne $script:NotesSaveTimer) { try { $script:NotesSaveTimer.Stop() } catch {} }
+    try { if ($null -ne $script:BuildTimer) { $script:BuildTimer.Stop() } } catch {}
+    try { if ($null -ne $mainTimer) { $mainTimer.Stop() } } catch {}
+    try { if ($null -ne $script:NotesSaveTimer) { $script:NotesSaveTimer.Stop() } } catch {}
     if ($null -ne $script:Process -and !$script:Process.HasExited) {
         try { $script:Process.Kill() } catch {}
     }
-    if ($null -ne $script:QcDirtyNums -and $script:QcDirtyNums.Count -gt 0) { try { Save-QcFile } catch {} }
+    if ($null -ne $script:QcDirtyNums -and $script:QcDirtyNums.Count -gt 0) {
+        try { Save-QcFile } catch {}
+    }
 })
 
 # ============================================================================
@@ -2241,7 +2241,7 @@ try {
     $msg = "[" + [datetime]::Now + "] dev-window.ps1 fatal error:`r`n" + $_ + "`r`n" + $_.ScriptStackTrace
     $msg | Out-File -FilePath (Join-Path $PSScriptRoot "error.log") -Append
     [System.Windows.Forms.MessageBox]::Show(
-        "Fatal error:`n$_`n`nDetails written to devtools\error.log",
-        "PD Dev Window - Error", [System.Windows.Forms.MessageBoxButtons]::OK,
+        "Fatal error - see devtools/error.log",
+        "PD Dev Window", [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error)
 }
