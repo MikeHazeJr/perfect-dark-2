@@ -280,8 +280,7 @@ function Refresh-AllFonts {
     $detFontBold = New-UIFont $script:Settings.DetailFontSize -Bold
     # Hero buttons
     if ($null -ne $script:BtnBuild)     { $script:BtnBuild.Font     = $btnFont }
-    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Font = $btnFont }
-    if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Font = $btnFont }
+    if ($null -ne $script:BtnRelease) { $script:BtnRelease.Font = $btnFont }
     # Bottom bar
     if ($null -ne $script:BtnRunServer) { $script:BtnRunServer.Font = New-UIFont 14 -Bold }
     if ($null -ne $script:BtnRunGame)   { $script:BtnRunGame.Font   = New-UIFont 14 -Bold }
@@ -458,28 +457,17 @@ $script:BtnBuild.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
 $script:BtnBuild.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:HeroPanel.Controls.Add($script:BtnBuild)
 
-# Right side: stacked Release Client + Release Server (each half the hero height)
-$script:BtnPushClient = New-Object System.Windows.Forms.Button
-$script:BtnPushClient.Text      = "RELEASE CLIENT"
-$script:BtnPushClient.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnPushClient.FlatAppearance.BorderColor = $script:ColorGold
-$script:BtnPushClient.FlatAppearance.BorderSize  = 2
-$script:BtnPushClient.ForeColor = $script:ColorGold
-$script:BtnPushClient.BackColor = $script:ColorBgAlt
-$script:BtnPushClient.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
-$script:BtnPushClient.Cursor    = [System.Windows.Forms.Cursors]::Hand
-$script:HeroPanel.Controls.Add($script:BtnPushClient)
-
-$script:BtnPushServer = New-Object System.Windows.Forms.Button
-$script:BtnPushServer.Text      = "RELEASE SERVER"
-$script:BtnPushServer.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnPushServer.FlatAppearance.BorderColor = $script:ColorOrange
-$script:BtnPushServer.FlatAppearance.BorderSize  = 2
-$script:BtnPushServer.ForeColor = $script:ColorOrange
-$script:BtnPushServer.BackColor = $script:ColorBgAlt
-$script:BtnPushServer.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
-$script:BtnPushServer.Cursor    = [System.Windows.Forms.Cursors]::Hand
-$script:HeroPanel.Controls.Add($script:BtnPushServer)
+# Right side: single RELEASE button (full hero height, matches BUILD)
+$script:BtnRelease = New-Object System.Windows.Forms.Button
+$script:BtnRelease.Text      = "RELEASE"
+$script:BtnRelease.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnRelease.FlatAppearance.BorderColor = $script:ColorGold
+$script:BtnRelease.FlatAppearance.BorderSize  = 2
+$script:BtnRelease.ForeColor = $script:ColorGold
+$script:BtnRelease.BackColor = $script:ColorBgAlt
+$script:BtnRelease.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
+$script:BtnRelease.Cursor    = [System.Windows.Forms.Cursors]::Hand
+$script:HeroPanel.Controls.Add($script:BtnRelease)
 
 # Bottom of build tab: GitHub + Folder buttons (full-width, matching hero button style)
 $script:LinkPanel = New-Object System.Windows.Forms.Panel
@@ -720,8 +708,7 @@ function Update-ReleaseButtonText {
     $ver = Get-UiVersion
     $vs = "v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
     $kind = $(if ($script:ChkStable.Checked) { "Stable" } else { "Dev" })
-    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Text = "RELEASE CLIENT`n" + $kind + " " + $vs }
-    if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Text = "RELEASE SERVER`n" + $kind + " " + $vs }
+    if ($null -ne $script:BtnRelease) { $script:BtnRelease.Text = "RELEASE`n" + $kind + " " + $vs }
 }
 
 # Auth status -- clickable: runs "gh auth login" if not authenticated
@@ -1391,7 +1378,7 @@ function Stop-Build {
     $script:BuildTimer.Stop()
     $script:IsBuilding = $false; $script:IsPushing = $false
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
+    if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $true }
     if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
     if ($null -ne $script:ProgressBack) { $script:ProgressBack.Visible = $false }
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Stopped." }
@@ -1426,7 +1413,7 @@ function Start-Build-Step($step) {
     } catch {
         $script:IsBuilding = $false; $script:IsPushing = $false
         if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-        if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
+        if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $true }
         if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
         if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "ERROR starting: " + $step.Exe }
     }
@@ -1452,7 +1439,7 @@ function Start-Build {
     if ($null -ne $script:LblClientStatus) { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
     if ($null -ne $script:LblServerStatus) { $script:LblServerStatus.Text = "server: --"; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
-    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $false }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $false }
+    if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $false }
     if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $true }
     if ($null -ne $script:BtnCopyErrors) { $script:BtnCopyErrors.Visible = $false }
     if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $false }
@@ -1562,7 +1549,7 @@ $script:BuildTimer.Add_Tick({
                 if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $true }
                 $script:IsBuilding = $false; $script:IsPushing = $false
                 if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $true }
-                if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $true }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $true }
+                if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $true }
                 if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
                 Refresh-VersionDisplay; Update-RunButtons
             }
@@ -1574,13 +1561,11 @@ $script:BuildTimer.Add_Tick({
 # Section 16: Push pipeline
 # ============================================================================
 
-function Start-PushRelease($releaseTarget) {
-    # release.ps1 always creates both client + server releases in one run
-    # The $releaseTarget param is just for the UI label
+function Start-PushRelease {
     if ($script:IsPushing -or $script:IsBuilding) { return }
     $releaseScript = Join-Path $script:ProjectRoot "release.ps1"
     if (-not (Test-Path $releaseScript)) {
-        [System.Windows.Forms.MessageBox]::Show("release.ps1 not found in project root.", "Push Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("release.ps1 not found in project root.", "Release Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
         return
     }
     $ver = Get-UiVersion
@@ -1588,7 +1573,7 @@ function Start-PushRelease($releaseTarget) {
     $isStable = $script:ChkStable.Checked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        ("Release Client + Server v" + $vs + " (" + $kind + ") to GitHub?`n`nThis will write version to CMakeLists.txt, auto-commit, tag and push via release.ps1.`n`nBoth client and server releases are created in one run."),
+        ("Release v" + $vs + " (" + $kind + ") to GitHub?`n`nThis packages client + server into one release, writes version to CMakeLists.txt, auto-commits, tags and pushes."),
         ($kind + " Release v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -1596,7 +1581,7 @@ function Start-PushRelease($releaseTarget) {
     if ($ok -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     $script:IsPushing = $true
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
-    if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Enabled = $false }; if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Enabled = $false }
+    if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $false }
     Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
     Auto-Commit | Out-Null
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
@@ -1604,10 +1589,8 @@ function Start-PushRelease($releaseTarget) {
     $script:BuildStepQueue.Clear()
     if ($null -ne $script:ProgressBack)     { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:BtnStop)          { $script:BtnStop.Visible       = $true }
-    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing " + $label + " v" + $vs + " (" + $kind + ")..." }
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing v" + $vs + " (" + $kind + ")..." }
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
-    # release.ps1 creates both client+server releases in one run (no -Target param)
-    # It uses PS7 syntax (= if (...)), so prefer pwsh over powershell
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
     $step = @{
         Name   = $kind + " Release v" + $vs
@@ -1766,8 +1749,7 @@ function Show-SettingsDialog {
 # ============================================================================
 
 $script:BtnBuild.Add_Click({ Start-Build })
-$script:BtnPushClient.Add_Click({ Start-PushRelease "client" })
-$script:BtnPushServer.Add_Click({ Start-PushRelease "server" })
+$script:BtnRelease.Add_Click({ Start-PushRelease })
 $script:BtnStop.Add_Click({  Stop-Build })
 
 $script:BtnCopyErrors.Add_Click({
@@ -1811,15 +1793,12 @@ function Invoke-FormResize {
         $gap  = $heroW - ($btnW * 2)
         $cleanH = 28
         $buildH = $heroH - $cleanH - 4
-        $halfH = [math]::Floor(($heroH - 4) / 2)
         # Build button (left, above clean build)
         if ($null -ne $script:BtnBuild)      { $script:BtnBuild.Location      = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $buildH) }
         # Clean Build toggle (left, beneath build button)
         if ($null -ne $script:BtnCleanBuild) { $script:BtnCleanBuild.Location = New-Object System.Drawing.Point(0, ($buildH + 4)); $script:BtnCleanBuild.Size = New-Object System.Drawing.Size($btnW, $cleanH) }
-        # Release Client (right, top half)
-        if ($null -ne $script:BtnPushClient) { $script:BtnPushClient.Location = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnPushClient.Size = New-Object System.Drawing.Size($btnW, $halfH) }
-        # Release Server (right, bottom half)
-        if ($null -ne $script:BtnPushServer) { $script:BtnPushServer.Location = New-Object System.Drawing.Point(($btnW + $gap), ($halfH + 4)); $script:BtnPushServer.Size = New-Object System.Drawing.Size($btnW, $halfH) }
+        # Release button (right, full height)
+        if ($null -ne $script:BtnRelease)    { $script:BtnRelease.Location    = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnRelease.Size = New-Object System.Drawing.Size($btnW, $heroH) }
         # Status area
         $statusY = $heroH + ($pad * 2)
         $statusH = $th - $statusY - $linkH - ($pad * 2)
