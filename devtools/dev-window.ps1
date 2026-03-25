@@ -1,3 +1,27 @@
+# ============================================================================
+# Error logging — must be FIRST, before any Add-Type or form code
+# ============================================================================
+
+$script:LogPath = Join-Path $PSScriptRoot "error.log"
+
+trap {
+    $ts  = [datetime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+    $msg = "[$ts] UNCAUGHT ERROR:`r`n$_`r`nStack: $($_.ScriptStackTrace)`r`n---`r`n"
+    try { $msg | Out-File -FilePath $script:LogPath -Append -Encoding UTF8 } catch {}
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        [System.Windows.Forms.MessageBox]::Show(
+            "Fatal Error:`n$_`n`nSee devtools\error.log for details",
+            "PD Dev Window Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+    } catch {}
+    Write-Host "FATAL: $_" -ForegroundColor Red
+    Write-Host "Details written to: $script:LogPath"
+    Read-Host "Press Enter to exit"
+    break
+}
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -5,7 +29,9 @@ Add-Type -AssemblyName System.Drawing
 # Console hide
 # ============================================================================
 
-Add-Type -Language CSharp @"
+if (-not ([System.Management.Automation.PSTypeName]'ConsoleHelper').Type) {
+    try {
+        Add-Type -Language CSharp @"
 using System;
 using System.Runtime.InteropServices;
 public class ConsoleHelper {
@@ -18,12 +44,20 @@ public class ConsoleHelper {
     }
 }
 "@
-[ConsoleHelper]::HideConsole()
+    } catch {
+        $ts = [datetime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+        "[$ts] ERROR in [Add-Type ConsoleHelper]: $_`r`n---`r`n" |
+            Out-File -FilePath $script:LogPath -Append -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+}
+try { [ConsoleHelper]::HideConsole() } catch {}
 
 # ============================================================================
 # Inline C# helpers
 # ============================================================================
 
+if (-not ([System.Management.Automation.PSTypeName]'DarkMenuColorTable').Type) {
+try {
 Add-Type -Language CSharp -ReferencedAssemblies System.Windows.Forms,System.Drawing @"
 using System;
 using System.IO;
@@ -70,6 +104,17 @@ public class DarkMenuColorTable : ProfessionalColorTable {
     public override Color CheckPressedBackground             { get { return highlight; } }
 }
 "@
+} catch {
+    $ts = [datetime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+    "[$ts] ERROR in [Add-Type AsyncLineReader/DarkMenuColorTable]: $_`r`n---`r`n" |
+        Out-File -FilePath $script:LogPath -Append -Encoding UTF8 -ErrorAction SilentlyContinue
+    [System.Windows.Forms.MessageBox]::Show(
+        "C# compilation failed:`n$_`n`nSee devtools\error.log",
+        "PD Dev Window Error",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+}
+} # end if -not DarkMenuColorTable
 
 # ============================================================================
 # Configuration
@@ -1974,12 +2019,12 @@ $mainTimer.Start()
 # Form resize: reposition version panel
 # ============================================================================
 
-$form.Add_Resize({
+function Invoke-FormResize {
     $tabW = $buildPanel.Width
     $vpW  = 400
     $vpX  = $tabW - $vpW - 12
     if ($vpX -lt 480) { $vpX = 480 }
-    $verPanel.Location = New-Object System.Drawing.Point($vpX, 12)
+    $verPanel.Location   = New-Object System.Drawing.Point($vpX, 12)
     $progressOuter.Width = $tabW - 24
 
     # Reposition QC header buttons
@@ -1987,7 +2032,9 @@ $form.Add_Resize({
     $btnQcRefresh.Location = New-Object System.Drawing.Point(($qhW - 80), 5)
     $btnResetAll.Location  = New-Object System.Drawing.Point(($qhW - 164), 5)
     $btnQcCommit.Location  = New-Object System.Drawing.Point(($qhW - 318), 5)
-})
+}
+
+$form.Add_Resize({ Invoke-FormResize })
 
 # ============================================================================
 # Initialization
@@ -2031,7 +2078,7 @@ $form.Add_Shown({
     $authPoll.Start()
 
     # Trigger first resize to position version panel
-    $form.OnResize([System.EventArgs]::Empty)
+    Invoke-FormResize
 })
 
 $form.Add_FormClosing({
