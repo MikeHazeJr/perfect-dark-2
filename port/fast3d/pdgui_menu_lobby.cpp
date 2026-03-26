@@ -28,6 +28,8 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
+#include "hub.h"
+#include "room.h"
 
 extern "C" {
 
@@ -272,9 +274,44 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     ImGui::EndChild();
     ImGui::SameLine(0, pad);
 
-    /* ---- Right column: Game mode selection (leader controls) ---- */
+    /* ---- Right column: Rooms + Game mode selection ---- */
     ImGui::BeginChild("##lobby_settings_col", ImVec2(rightW, contentH), true);
 
+    /* Hub state + room list */
+    {
+        hub_state_t hubState = hubGetState();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Server: %s", hubGetStateName(hubState));
+        ImGui::Separator();
+
+        s32 roomCount = roomGetActiveCount();
+        for (s32 ri = 0; ri < HUB_MAX_ROOMS; ri++) {
+            hub_room_t *room = roomGetByIndex(ri);
+            if (!room) continue;
+
+            const char *stateName = roomStateName(room->state);
+            ImVec4 stateColor;
+            switch (room->state) {
+                case ROOM_STATE_LOBBY:    stateColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f); break;
+                case ROOM_STATE_LOADING:  stateColor = ImVec4(1.0f, 0.8f, 0.2f, 1.0f); break;
+                case ROOM_STATE_MATCH:    stateColor = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
+                case ROOM_STATE_POSTGAME: stateColor = ImVec4(0.8f, 0.5f, 1.0f, 1.0f); break;
+                default:                  stateColor = ImVec4(0.4f, 0.4f, 0.4f, 0.6f); break;
+            }
+
+            ImGui::TextColored(stateColor, "Room %d: %s (%s) [%d players]",
+                room->id, room->name[0] ? room->name : "Untitled",
+                stateName, room->client_count);
+        }
+
+        if (roomCount == 0) {
+            ImGui::TextDisabled("No active rooms");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+    }
+
+    /* Game mode selection (leader controls) */
     bool isLeader = lobbyIsLocalLeader() != 0;
 
     if (isLeader) {

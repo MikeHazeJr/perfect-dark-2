@@ -62,9 +62,9 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **Multiplayer Infrastructure Plan** | Design doc for server-as-hub, rooms, federation, player profiles, phonetic layer. See context/multiplayer-plan.md. |
-| 2 | **Menu System (SPF-2a)** | **CODED** -- menumgr.c/h, time-based 100ms cooldown (frame-independent). Pause + modding hub wired. Console non-blocking overlay. Needs build test. |
-| 3 | **Asset Catalog Audit** | **PHASE 1 DONE** -- failure logging at all 14 fileLoadToNew sites + modeldef + body (4 sites) + tiles + pads + lang. Phase 2: filenum-to-catalog-ID bridge in romdataFileGetData. |
+| 1 | **SPF-2a Menu Manager** | **BUILD PASS** -- menumgr.c/h with extern "C" guards, 100ms cooldown. Pause + modding hub + join screen wired. |
+| 2 | **SPF-3a/3b Lobby + Join** | **CODED** -- lobby shows hub rooms + phonetic code. Join-by-code screen (view 4) decodes phonetic or direct IP. |
+| 3 | **Asset Catalog Audit** | **PHASE 1 DONE** -- failure logging at all critical load points. Phase 2: filenum-to-catalog bridge. |
 | 4 | **Collision Rewrite Design** | Proper design for jump physics, ceiling detection, prop surfaces, slope behavior. HIGH PRIORITY but design-first. |
 | 5 | **B-19: Bot spawn stacking** | Investigate pad distribution on Skedar Ruins. |
 | 6 | **B-20: Mission 1 crash** | Objective completion triggers loading that may bypass catalog. |

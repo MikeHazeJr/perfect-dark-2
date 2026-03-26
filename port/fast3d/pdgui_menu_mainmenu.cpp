@@ -242,7 +242,13 @@ void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
 s32  pdguiModdingHubIsVisible(void);
 
-/* Persistent memory diagnostics — from memp.c */
+/* Phonetic connect code (phonetic.c) */
+s32 phoneticDecode(const char *str, u32 *out_ip, u16 *out_port);
+
+/* Network connect (net.c) */
+s32 netStartClient(const char *addr);
+
+/* Persistent memory diagnostics -- from memp.c */
 void *mempPCAlloc(u32 size, const char *tag);
 s32 mempPCValidate(const char *context);
 u32 mempPCGetTotalAllocated(void);
@@ -1496,6 +1502,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             if (s_MenuView == 3) {
                 pdguiModdingHubHide();
                 if (menuGetCurrent() == MENU_MODDING) menuPop();
+            } else if (s_MenuView == 4) {
+                if (menuGetCurrent() == MENU_JOIN) menuPop();
             }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1606,6 +1614,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
             menuPushDialog(&g_NetMenuDialog);
         }
 
+        /* Join by Phonetic Code */
+        if (PdButton("Join by Code", ImVec2(buttonW, buttonH))) {
+            if (!menuIsInCooldown()) {
+                s_MenuView = 4;
+                menuPush(MENU_JOIN);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+
     } else if (s_MenuView == 2) {
         /* ================================================================
          * SETTINGS SUB-MENU
@@ -1617,15 +1634,75 @@ static s32 renderMainMenu(struct menudialog *dialog,
     } else if (s_MenuView == 3) {
         /* ================================================================
          * MODDING HUB
-         * The Modding Hub is a standalone ImGui window rendered separately
-         * by pdguiModdingHubRender() in pdgui_backend.cpp. This dialog stays
-         * "open" so hotswapQueued remains true and pdguiRender() keeps running.
-         * If the hub was closed externally (Close button, B/Escape), return
-         * to top-level on the next frame.
          * ================================================================ */
         if (!pdguiModdingHubIsVisible()) {
             s_MenuView = 0;
         }
+
+    } else if (s_MenuView == 4) {
+        /* ================================================================
+         * JOIN BY CODE
+         * Decode a phonetic connect code and connect to the server.
+         * ================================================================ */
+        static char s_JoinCodeInput[64] = "";
+        static char s_JoinStatus[128] = "";
+        static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server by Code");
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        ImGui::Text("Enter the connect code shared by the server host:");
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        ImGui::SetNextItemWidth(buttonW);
+        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+        ImGui::InputText("##joincode", s_JoinCodeInput, sizeof(s_JoinCodeInput));
+
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        if (PdButton("Connect", ImVec2(buttonW, 32.0f * scale))) {
+            if (s_JoinCodeInput[0]) {
+                u32 ip = 0;
+                u16 port = 0;
+                if (phoneticDecode(s_JoinCodeInput, &ip, &port) == 0 && ip && port) {
+                    /* Build IP:port string from decoded values */
+                    char addrStr[64];
+                    snprintf(addrStr, sizeof(addrStr), "%u.%u.%u.%u:%u",
+                        (ip >> 24) & 0xff, (ip >> 16) & 0xff,
+                        (ip >> 8) & 0xff, ip & 0xff, port);
+                    sysLogPrintf(LOG_NOTE, "JOIN: decoded '%s' -> %s", s_JoinCodeInput, addrStr);
+
+                    if (netStartClient(addrStr) == 0) {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting to %s...", addrStr);
+                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+                    } else {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connection failed");
+                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    }
+                } else {
+                    /* Try as direct IP:port */
+                    sysLogPrintf(LOG_NOTE, "JOIN: phonetic decode failed, trying as direct IP: '%s'", s_JoinCodeInput);
+                    if (netStartClient(s_JoinCodeInput) == 0) {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting to %s...", s_JoinCodeInput);
+                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+                    } else {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Invalid code or address");
+                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    }
+                }
+            }
+        }
+
+        if (s_JoinStatus[0]) {
+            ImGui::Dummy(ImVec2(0, 4.0f * scale));
+            ImGui::TextColored(s_JoinStatusColor, "%s", s_JoinStatus);
+        }
+
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::TextDisabled("Codes look like: BALE-GIFE-NOME-RIVA");
+        ImGui::TextDisabled("You can also enter a direct IP:port (e.g., 192.168.1.5:27100)");
     }
 
     /* Sound on view switches + auto-focus flag */
