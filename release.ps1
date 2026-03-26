@@ -4,6 +4,7 @@
 # Usage:
 #   .\release.ps1                    # Uses version from CMakeLists.txt
 #   .\release.ps1 -Version "0.0.3a" # Override version string
+#   .\release.ps1 -Nightly           # Nightly dev build (date-based tag, prerelease)
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #
@@ -24,6 +25,7 @@
 
 param(
     [string]$Version = "",
+    [switch]$Nightly,
     [switch]$SkipPush,
     [switch]$DryRun,
     [switch]$Prerelease
@@ -32,20 +34,29 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Resolve version from CMakeLists.txt
+# Resolve version / nightly date code
 # ============================================================================
 
-if ($Version -eq "") {
-    $cmake = Get-Content "CMakeLists.txt" -Raw
-    $major = $(if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" })
-    $minor = $(if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" })
-    $patch = $(if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" })
-    $Version = "$major.$minor.$patch"
+if ($Nightly) {
+    $DateCode = (Get-Date).ToString("yyyy-MM-dd")
+    $ReleaseTag = "nightly-$DateCode"
+    $ReleaseTitle = "Nightly Build - $DateCode"
+    $DistDir = "dist/nightly-$DateCode"
+    $Prerelease = $true
+} else {
+    if ($Version -eq "") {
+        $cmake = Get-Content "CMakeLists.txt" -Raw
+        $major = $(if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" })
+        $minor = $(if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" })
+        $patch = $(if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" })
+        $Version = "$major.$minor.$patch"
+    }
+    $ReleaseTag = "v$Version"
+    $ReleaseTitle = "Perfect Dark 2 v$Version ($(if ($Prerelease) { 'Dev' } else { 'Stable' }))"
+    $DistDir = "dist/v$Version"
 }
 
-$ReleaseTag = "v$Version"
 $ReleaseNotes = "UNRELEASED.md"
-$DistDir = "dist/v$Version"
 
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
@@ -69,7 +80,7 @@ $DllSearchPaths = @("build/client", "../post-batch-addin")
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
-Write-Host "  Perfect Dark 2 -- Release v$Version" -ForegroundColor Cyan
+Write-Host "  Perfect Dark 2 -- $ReleaseTitle" -ForegroundColor Cyan
 Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 
@@ -250,7 +261,7 @@ if ($hasMods) {
 Write-Host ""
 Write-Host "[2/6] Creating zip archive..." -ForegroundColor Yellow
 
-$zipName = "PerfectDark-v$Version-win64.zip"
+$zipName = $(if ($Nightly) { "PerfectDark-nightly-$DateCode-win64.zip" } else { "PerfectDark-v$Version-win64.zip" })
 $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
@@ -429,7 +440,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     $assets = @()
     if (Test-Path $zipPath) { $assets += $zipPath }
 
-    $ghExit = Push-GhRelease $ReleaseTag "Perfect Dark 2 $ReleaseTag ($channel)" $assets $true
+    $ghExit = Push-GhRelease $ReleaseTag $ReleaseTitle $assets $true
 
     if ($ghExit -eq 0) {
         Write-Host "  Release created:" -ForegroundColor Green
@@ -486,7 +497,7 @@ Get-ChildItem "dist" -Directory -ErrorAction SilentlyContinue | Where-Object {
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Green
-Write-Host "  RELEASE v$Version -- COMPLETE" -ForegroundColor Green
+Write-Host "  $ReleaseTitle -- COMPLETE" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Green
 Write-Host ""
 
