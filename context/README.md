@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-23, Session 38 (D3R-5 full accessor rewire: all 6 modmgr accessors catalog-backed via unified cache. ASSET_BODY/ASSET_HEAD types added. 62 callsites covered, zero caller changes. Needs build test.)
+> **Last updated**: 2026-03-25, Session 48 (Mesh collision system active, dev window overhaul, project cleanup, debug visualization, unified release pipeline)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,10 +35,11 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| 22–31 | 2026-03-22–23 | Feature batch, stage decoupling, CI fix, context reorg, D3R design + D3R-1–4 implementation | [session-log.md](session-log.md) |
-| 14–21 | 2026-03-21–22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
-| 7–13 | 2026-03-18–21 | Networking phases, model loading, dedicated server | [sessions-07-13.md](sessions-07-13.md) |
-| 1–6 | 2026-03-01–18 | N64 strip, mod manager, ImGui foundation, char select | [sessions-01-06.md](sessions-01-06.md) |
+| 47a-48 | 2026-03-24-25 | MEM-1, B-12 P2, stage decoupling, SPF-1, mesh collision, dev window, cleanup | [session-log.md](session-log.md) |
+| 22-46 | 2026-03-22-24 | D3R component mod architecture, asset catalog, participant system, bot customizer, network distribution | [sessions-22-46.md](sessions-22-46.md) |
+| 14-21 | 2026-03-21-22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
+| 7-13 | 2026-03-18-21 | Networking phases, model loading, dedicated server | [sessions-07-13.md](sessions-07-13.md) |
+| 1-6 | 2026-03-01-18 | N64 strip, mod manager, ImGui foundation, char select | [sessions-01-06.md](sessions-01-06.md) |
 
 ---
 
