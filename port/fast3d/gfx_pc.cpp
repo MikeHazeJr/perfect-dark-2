@@ -135,6 +135,11 @@ static struct RSP {
     const struct NormalColor *vertex_colors; //[MAX_VERTEX_COLORS];
 } rsp;
 
+/* Mesh debug: tint rendered geometry by surface normal direction (F9 toggle) */
+extern "C" int meshDebugIsEnabled(void);
+static int s_meshDebugEnabledCache = 0;
+static inline int meshDebugIsEnabled_fast(void) { return s_meshDebugEnabledCache; }
+
 struct RawTexMetadata {
     uint16_t width, height;
     float h_byte_scale = 1, v_pixel_scale = 1;
@@ -1124,6 +1129,34 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.r = vcn->r;
             d->color.g = vcn->g;
             d->color.b = vcn->b;
+        }
+
+        /* Mesh debug: tint vertex colors based on surface normal direction */
+        if (meshDebugIsEnabled_fast()) {
+            /* vcn contains the vertex normal in model space (s8 x,y,z).
+             * Y component: positive = floor, negative = ceiling, near zero = wall.
+             * We need to transform through the modelview to get world-space orientation. */
+            float ny = vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][0]
+                     + vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][1]
+                     + vcn->z * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][2];
+            ny /= 127.0f;
+
+            if (ny > 0.5f) {
+                /* Floor: green tint */
+                d->color.r = (uint8_t)(d->color.r * 0.3f);
+                d->color.g = (uint8_t)(d->color.g * 0.3f + 180);
+                d->color.b = (uint8_t)(d->color.b * 0.3f);
+            } else if (ny < -0.5f) {
+                /* Ceiling: blue tint */
+                d->color.r = (uint8_t)(d->color.r * 0.3f);
+                d->color.g = (uint8_t)(d->color.g * 0.3f);
+                d->color.b = (uint8_t)(d->color.b * 0.3f + 180);
+            } else {
+                /* Wall: red tint */
+                d->color.r = (uint8_t)(d->color.r * 0.3f + 180);
+                d->color.g = (uint8_t)(d->color.g * 0.3f);
+                d->color.b = (uint8_t)(d->color.b * 0.3f);
+            }
         }
 
         d->u = U;
@@ -2651,15 +2684,14 @@ uint32_t num_dls = 0;
 /* D3d: ImGui overlay — rendered after PD scene, before buffer swap */
 extern "C" void pdguiNewFrame(void);
 extern "C" void pdguiRender(void);
-extern "C" void meshDebugRenderGL(float proj[4][4], float mv[4][4], int width, int height);
 
-static float gfx_last_p_matrix[4][4];
-static float gfx_last_mv_matrix[4][4];
 extern "C" void gfx_opengl_reset_for_overlay(int width, int height);
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     gfx_sp_reset();
+    /* Refresh mesh debug flag once per frame (not per vertex) */
+    s_meshDebugEnabledCache = meshDebugIsEnabled();
 
     // puts("New frame");
 
@@ -2702,21 +2734,11 @@ extern "C" void gfx_run(Gfx* commands) {
         }
     }
 
-    /* Save the final MVP matrix for debug rendering before end_frame clears state */
-    memcpy(gfx_last_p_matrix, rsp.P_matrix, sizeof(gfx_last_p_matrix));
-    memcpy(gfx_last_mv_matrix, rsp.modelview_matrix_stack[0], sizeof(gfx_last_mv_matrix));
-
     gfx_rapi->end_frame();
 
     /* D3d: Reset GL state to full window and render ImGui overlay */
     gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
                                  gfx_current_window_dimensions.height);
-
-    /* Debug: render collision mesh wireframe (needs depth buffer + projection) */
-    meshDebugRenderGL(gfx_last_p_matrix, gfx_last_mv_matrix,
-                      gfx_current_window_dimensions.width,
-                      gfx_current_window_dimensions.height);
-
     pdguiNewFrame();
     pdguiRender();
 

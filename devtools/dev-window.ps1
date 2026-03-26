@@ -1352,16 +1352,21 @@ function Start-ManualCommit {
 # ============================================================================
 
 function Copy-AddinFiles {
-    if ($script:CurrentBuildTarget -eq "server") { return }
-    # Mandatory: always copy post-batch-addin/data/ into build/client/data/
+    # Always copy post-batch-addin/data/ into build/client/data/
+    # This runs after ALL build steps complete (client + server),
+    # so $CurrentBuildTarget will be "server" -- that's fine, we always copy to client.
     $srcData = Join-Path $script:AddinDir "data"
     $dstData = Join-Path $script:ClientBuildDir "data"
     if (Test-Path $srcData) {
         try {
-            # Remove existing data dir to avoid stale files, then copy fresh
             if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
             Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
-        } catch {}
+            if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Data files copied to build/client/data/" }
+        } catch {
+            if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "ERROR: failed to copy data files" }
+        }
+    } else {
+        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "WARNING: post-batch-addin/data not found" }
     }
     # User-configured additional copies (from settings)
     if ($null -ne $script:Settings.PostBuildCopy) {

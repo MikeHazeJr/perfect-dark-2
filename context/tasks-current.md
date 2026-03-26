@@ -6,10 +6,12 @@
 
 ---
 
-## Awaiting Build Test
+## Awaiting Build Test / Playtest
 
 | Item | Status |
 |------|--------|
+| **Collision Rewrite** (S48) | Built + running. 7,110 tris extracted. Floor detection working. Ceiling slack fix applied -- needs retest. Debug vis (F9) coded. |
+| **Data copy fix** (S48) | Copy-AddinFiles server guard removed. Needs verify ROM lands in build/client/data/. |
 | **SPF-1**: Hub lifecycle, room system, identity, phonetic encoding (S47d) | Run `.\devtools\build-headless.ps1 -Target server` |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
 | **MEM-1**: Asset load state fields in asset_entry_t (S47a) | Needs full cmake pass |
