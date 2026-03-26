@@ -101,7 +101,7 @@ GEOTYPE_TILE_I = 0, GEOTYPE_TILE_F = 1, GEOTYPE_BLOCK = 2, GEOTYPE_CYL = 3
 - **Player data**: playerGetBbox provides capsule dimensions
 - **Room system**: roomsCopy, bmoveFindEnteredRoomsByPos, func0f065e74 for room tracking
 
-## Mesh Collision System (S48 -- ACTIVE)
+## Mesh Collision System (S48 -- DISABLED, HIGH PRIORITY RETURN)
 
 New files: `src/lib/meshcollision.c` + `src/include/lib/meshcollision.h`
 Modified: `src/lib/capsule.c`, `src/game/lv.c`, `src/include/types.h`

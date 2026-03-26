@@ -84,13 +84,54 @@
 - dev-window.ps1: Copy-AddinFiles server guard removed (was blocking all copies)
 - release.ps1: unified tag, auto-overwrite, PS5 compat, all em dashes fixed
 
+### Session 48 continued -- Collision Disabled + Multiplayer Planning
+
+**Collision rewrite DISABLED**: original system fully restored. Mesh collision code preserved
+in meshcollision.c/h for Phase 2 redesign. Needs proper design accounting for: no original
+ceiling colliders, jump-from-prop detection (simple downward raycast), slope behavior,
+Thrown Laptop Gun as ceiling detection reference. HIGH PRIORITY return.
+
+**ASSET_EFFECT type** added to catalog: 6 effect types (tint, glow, shimmer, darken, screen,
+particle), 6 targets (scene, player, chr, prop, weapon, level). First effect mod pending.
+
+**Live console**: backtick toggle, 256-line ring buffer, color-coded ImGui window.
+
+**Multiplayer infrastructure vision confirmed (Mike)**: server = social hub with persistent
+connections. Players connect and exist as presence regardless of activity (solo campaign,
+MP match, co-op, splitscreen, level editor). Rooms for concurrent activities. Server mesh/
+federation for load distribution. Player profiles with stats/achievements/shared content.
+Menu system audit needed (double-press issues, hierarchy).
+
+### Session 48 continued -- Menu Manager + Multiplayer Plan
+
+**Menu State Manager (SPF-2a)**:
+- New files: `port/src/menumgr.c` + `port/include/menumgr.h`
+- Stack-based (8 deep), 2-frame input cooldown on push/pop
+- Initialized in main.c, ticks in mainTick() (src/lib/main.c)
+- pdguiProcessEvent blocks all key/button input during cooldown
+- Pause menu wired: open checks cooldown, pushes MENU_PAUSE; close pops
+- Modding hub wired: open pushes MENU_MODDING, back pops
+- End Game confirm button now uses pdguiPauseMenuClose() instead of direct flag set
+- Legacy PD menus (g_MenuData.root) not yet wrapped -- separate task
+
+**Multiplayer Plan** (context/multiplayer-plan.md):
+- Full design doc written covering server-as-hub, rooms, federation, profiles, phonetic
+- Confirmed decisions: all MP through dedicated server, campaign = co-op (offline OK),
+  automatic federation routing, stats framework first, editor pre-1.0 but lower priority
+- Splitscreen works offline, treated as group when connected to server
+- Campaign has dual authority: local (offline) or server (online)
+
+**ASSET_EFFECT** added to catalog enum (12th asset type). Effect types + targets defined.
+Release script updated: only zip attached (no separate exe files).
+Collision mesh system disabled, original restored. Code preserved for Phase 2.
+
 ### Next Steps
-- Verify ceiling collision after slack fix
-- Verify data copy lands ROM in build/client/data/
-- Test F9 debug visualization
-- B-19: investigate bot spawn pad distribution
-- S46b: Full asset catalog enumeration
-- Multiplayer playtest target: host server, friend connects, 30-bot match
+- SPF-2b: verify SPF-1 build (hub/room/identity/phonetic)
+- SPF-3a: lobby ImGui screen design + implementation
+- ASSET_EFFECT mod creation + mods copy pipeline
+- Wire remaining menus through menu manager (settings, etc.)
+- B-19, B-20, B-18 bug investigation
+- Collision Phase 2 design (HIGH PRIORITY)
 
 ---
 

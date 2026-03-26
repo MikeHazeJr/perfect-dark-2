@@ -23,6 +23,7 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 struct skeleton *g_Skeletons[] = {
 	&g_SkelChr,
@@ -195,10 +196,11 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 
 	if (modeldef == NULL) {
 		/* fileLoadToNew returned NULL (file not in ROM data). Clear
-		 * g_LoadType since fileLoad never ran to reset it — leaving it
+		 * g_LoadType since fileLoad never ran to reset it -- leaving it
 		 * stale would cause the next fileLoad to misapply model
 		 * preprocessing to unrelated data. */
 		g_LoadType = LOADTYPE_NONE;
+		sysLogPrintf(LOG_ERROR, "MODELDEF: failed to load fileid=%d (NULL from fileLoad)", fileid);
 		return NULL;
 	}
 

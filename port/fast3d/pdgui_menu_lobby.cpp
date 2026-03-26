@@ -27,6 +27,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "menumgr.h"
 
 extern "C" {
 
@@ -35,6 +36,10 @@ s32 netGetMode(void);
 s32 netGetMaxClients(void);
 u32 netGetServerPort(void);
 const char *netGetPublicIP(void);
+
+/* Phonetic encoding (phonetic.c) */
+s32 phoneticEncode(u32 ip, u16 port, char *out, s32 outlen);
+s32 phoneticDecode(const char *code, u32 *out_ip, u16 *out_port);
 extern s32 g_NetDedicated;
 s32 netDisconnect(void);
 
@@ -155,8 +160,35 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    /* Connection status */
+    /* Connection status + phonetic code */
     ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Connected to dedicated server");
+
+    /* Display phonetic connect code for server hosts */
+    if (netGetMode() == NETMODE_SERVER) {
+        static char s_PhoneticCode[64] = "";
+        static bool s_PhoneticGenerated = false;
+        if (!s_PhoneticGenerated) {
+            const char *ip = netGetPublicIP();
+            u16 port = (u16)netGetServerPort();
+            /* Parse IP string to u32 */
+            u32 ipAddr = 0;
+            if (ip) {
+                u32 a=0,b=0,c=0,d=0;
+                if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                    ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+                }
+            }
+            if (ipAddr && port) {
+                phoneticEncode(ipAddr, port, s_PhoneticCode, sizeof(s_PhoneticCode));
+                s_PhoneticGenerated = true;
+                sysLogPrintf(LOG_NOTE, "LOBBY: phonetic code generated: %s", s_PhoneticCode);
+            }
+        }
+        if (s_PhoneticCode[0]) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "  Code: %s", s_PhoneticCode);
+        }
+    }
 
     ImGui::Separator();
 

@@ -160,6 +160,10 @@ bool bodyLoad(s32 bodynum)
 {
 	if (!g_HeadsAndBodies[bodynum].modeldef) {
 		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+		if (!g_HeadsAndBodies[bodynum].modeldef) {
+			sysLogPrintf(LOG_ERROR, "BODY: bodyLoad failed for bodynum=%d filenum=%d",
+				bodynum, g_HeadsAndBodies[bodynum].filenum);
+		}
 		return true;
 	}
 
@@ -187,6 +191,10 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	if (bodymodeldef == NULL) {
 		if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
 			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			if (!g_HeadsAndBodies[bodynum].modeldef) {
+				sysLogPrintf(LOG_ERROR, "BODY: body0f02ce8c failed to load bodynum=%d filenum=%d",
+					bodynum, g_HeadsAndBodies[bodynum].filenum);
+			}
 		}
 
 		bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
@@ -238,12 +246,20 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					if (headmodeldef == NULL) {
 						if (g_Vars.normmplayerisrunning && !IS4MB()) {
 							headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+							if (!headmodeldef) {
+								sysLogPrintf(LOG_ERROR, "BODY: head load failed headnum=%d filenum=%d (mp path)",
+									headnum, g_HeadsAndBodies[headnum].filenum);
+							}
 							g_HeadsAndBodies[headnum].modeldef = headmodeldef;
 							g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
 							bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 						} else {
 							if (g_HeadsAndBodies[headnum].modeldef == NULL) {
 								g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+								if (!g_HeadsAndBodies[headnum].modeldef) {
+									sysLogPrintf(LOG_ERROR, "BODY: head load failed headnum=%d filenum=%d (solo path)",
+										headnum, g_HeadsAndBodies[headnum].filenum);
+								}
 							}
 
 							headmodeldef = g_HeadsAndBodies[headnum].modeldef;

@@ -19,7 +19,6 @@
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/capsule.h"
-#include "lib/meshcollision.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
@@ -54,40 +53,6 @@ f32 capsuleSweep(struct capsulecast *cast)
 	if (movelen2 < 0.001f) {
 		return 1.0f;
 	}
-
-	/* Try mesh-based collision first (if world mesh is built) */
-	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-		f32 halfheight = (cast->ymax_offset - cast->ymin_offset) * 0.5f;
-		struct coord meshNormal, meshHitPos;
-		f32 meshFrac = meshSweepCapsuleWorld(&cast->start, &cast->move,
-			cast->radius, halfheight, &meshNormal, &meshHitPos);
-
-		if (meshFrac < 1.0f) {
-			cast->hitfrac = meshFrac;
-			cast->hitpos = meshHitPos;
-			cast->hitnormal = meshNormal;
-			cast->hitprop = NULL;
-			cast->hitgeoflags = 0;
-
-			/* Classify hit from normal */
-			if (meshNormal.y > 0.7f) {
-				cast->hittype = CAPSULE_HIT_FLOOR;
-				cast->hitgeoflags = GEOFLAG_FLOOR1;
-			} else if (meshNormal.y < -0.7f) {
-				cast->hittype = CAPSULE_HIT_CEILING;
-				cast->hitgeoflags = GEOFLAG_FLOOR2;
-			} else {
-				cast->hittype = CAPSULE_HIT_WALL;
-				cast->hitgeoflags = GEOFLAG_WALL;
-			}
-
-			return meshFrac;
-		}
-		/* Mesh is active but found no hit -- return clean (no legacy fallback) */
-		return 1.0f;
-	}
-
-	/* Legacy sweep -- only runs if mesh world is NOT built (e.g. title screen) */
 
 	/* Disable own perim so we don't collide with ourselves */
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
@@ -174,18 +139,11 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 	if (out_prop) *out_prop = NULL;
 	if (out_flags) *out_flags = 0;
 
-	/* Mesh floor detection for level geometry */
-	f32 meshFloor = -30000.0f;
-	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-		f32 normalY = 1.0f;
-		meshFloor = meshFindFloor(pos, radius, &normalY);
-	}
-
-	/* Legacy floor detection -- always runs for prop surfaces (desks, crates, walls).
-	 * Mesh covers level geometry (BG tiles), but props aren't in the mesh world yet.
-	 * Return the higher of the two: mesh floor (level) or legacy floor (props). */
+	/* Legacy floor detection */
 	struct coord testpos;
 	RoomNum testrooms[8];
+	f32 bgGround;
+	f32 propFloor = -30000.0f;
 	u16 floorcol = 0;
 	u8 floortype = 0;
 	u16 floorflags = 0;
@@ -195,17 +153,62 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 
 	testpos = *pos;
 	roomsCopy(rooms, testrooms);
-	f32 legacyFloor = cdFindGroundInfoAtCyl(&testpos, radius, testrooms,
+	bgGround = cdFindGroundInfoAtCyl(&testpos, radius, testrooms,
 			&floorcol, &floortype, &floorflags, &floorroom, &inlift, &lift);
 
-	/* Use whichever floor is higher (closer to the player's feet) */
-	if (meshFloor > legacyFloor) {
-		if (out_flags) *out_flags = GEOFLAG_FLOOR1;
-		return meshFloor;
+	if (out_flags) *out_flags = floorflags;
+
+	/* Probe downward with capsule volume to find prop surfaces */
+	f32 feetY = pos->y + ymin_off;
+
+	if (feetY > bgGround + 2.0f) {
+		f32 top = feetY;
+		f32 bot = bgGround;
+
+		propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+
+		f32 mid = (top + bot) * 0.5f;
+		testpos.x = pos->x;
+		testpos.y = mid - ymin_off;
+		testpos.z = pos->z;
+		roomsCopy(rooms, testrooms);
+		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+
+		s32 midResult = cdTestVolume(&testpos, radius, testrooms,
+				cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
+
+		if (midResult == CDRESULT_COLLISION) {
+			for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
+				f32 test = (top + bot) * 0.5f;
+				testpos.y = test - ymin_off;
+				roomsCopy(rooms, testrooms);
+				bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+
+				s32 r = cdTestVolume(&testpos, radius, testrooms,
+						cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
+
+				if (r == CDRESULT_COLLISION) {
+					bot = test;
+				} else {
+					top = test;
+				}
+			}
+
+			propFloor = top;
+
+			if (out_prop) {
+				*out_prop = cdGetObstacleProp();
+			}
+		}
+
+		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 	}
 
-	if (out_flags) *out_flags = floorflags;
-	return legacyFloor;
+	if (propFloor > bgGround + 1.0f) {
+		return propFloor;
+	}
+
+	return bgGround;
 }
 
 f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
@@ -214,17 +217,65 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 {
 	if (out_prop) *out_prop = NULL;
 
-	/* Mesh ceiling for level geometry */
-	f32 meshCeil = 99999.0f;
-	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-		meshCeil = meshFindCeiling(pos, radius);
-	}
-
-	/* Legacy ceiling -- always runs for prop surfaces (overhangs, shelves) */
+	/* Legacy ceiling detection */
 	f32 bgCeiling = 99999.0f;
-	struct coord testpos = *pos;
+	f32 propCeiling = 99999.0f;
+	struct coord testpos;
+	RoomNum testrooms[8];
+
+	testpos = *pos;
 	cdFindCeilingRoomYColourFlagsAtPos(&testpos, rooms, &bgCeiling, NULL, NULL);
 
-	/* Return the lower ceiling (closer to the player's head) */
-	return (meshCeil < bgCeiling) ? meshCeil : bgCeiling;
+	/* Probe upward with capsule volume for prop/wall ceilings */
+	f32 headY = pos->y + ymax_off;
+	f32 maxProbe = headY + CAPSULE_CEILING_PROBE;
+
+	if (maxProbe > headY + 10.0f) {
+		f32 bot = headY;
+		f32 top = (bgCeiling < maxProbe) ? bgCeiling : maxProbe;
+
+		if (top > bot + 5.0f) {
+			propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+
+			f32 probeY = bot + 10.0f;
+			testpos.x = pos->x;
+			testpos.y = probeY - ymax_off;
+			testpos.z = pos->z;
+			roomsCopy(rooms, testrooms);
+			bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+
+			s32 probeResult = cdTestVolume(&testpos, radius, testrooms,
+					cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
+
+			if (probeResult == CDRESULT_COLLISION) {
+				propCeiling = headY;
+				if (out_prop) *out_prop = cdGetObstacleProp();
+			} else {
+				for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
+					f32 test = (bot + top) * 0.5f;
+					testpos.y = test - ymax_off;
+					roomsCopy(rooms, testrooms);
+					bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+
+					s32 r = cdTestVolume(&testpos, radius, testrooms,
+							cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
+
+					if (r == CDRESULT_COLLISION) {
+						top = test;
+					} else {
+						bot = test;
+					}
+				}
+
+				if (top < bgCeiling - 1.0f) {
+					propCeiling = top;
+					if (out_prop) *out_prop = cdGetObstacleProp();
+				}
+			}
+
+			propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+		}
+	}
+
+	return (propCeiling < bgCeiling) ? propCeiling : bgCeiling;
 }

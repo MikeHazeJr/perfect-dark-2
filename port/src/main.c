@@ -18,6 +18,7 @@
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
+#include "menumgr.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
@@ -149,6 +150,7 @@ int main(int argc, const char **argv)
 	}
 	videoInit();
 	pdguiInit(videoGetWindowHandle());
+	menuMgrInit();
 	inputInit();
 	audioInit();
 

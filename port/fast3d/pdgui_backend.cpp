@@ -50,6 +50,10 @@ extern "C" s32  pdguiModdingHubIsVisible(void);
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
+/* Menu state manager (menumgr.c) */
+extern "C" s32 menuIsInCooldown(void);
+extern "C" s32 menuIsOpen(void);
+
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
 
@@ -221,9 +225,17 @@ static void pdguiConsoleRender(void)
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::SetNextWindowBgAlpha(0.7f);
 
-    if (ImGui::Begin("Console", &s_ConsoleVisible, ImGuiWindowFlags_NoCollapse)) {
+    /* NoFocusOnAppearing + NoNavFocus + NoNavInputs = overlay that doesn't steal input.
+     * Player can still move, shoot, jump while the console is visible. */
+    ImGuiWindowFlags consoleFlags = ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoFocusOnAppearing
+        | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoNavInputs
+        | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (ImGui::Begin("Console", &s_ConsoleVisible, consoleFlags)) {
         s32 count = sysLogRingGetCount();
         ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
         for (s32 i = 0; i < count; i++) {
@@ -456,6 +468,18 @@ s32 pdguiProcessEvent(void *sdlEvent)
 {
     if (!g_PdguiInitialized) {
         return 0;
+    }
+
+    /* Menu manager cooldown: consume ALL input during transition frames
+     * to prevent double-press when opening/closing menus. */
+    if (menuIsInCooldown()) {
+        const SDL_Event *cooldownEv = (const SDL_Event *)sdlEvent;
+        /* Still forward to ImGui for state tracking, but consume from game */
+        ImGui_ImplSDL2_ProcessEvent(cooldownEv);
+        if (cooldownEv->type == SDL_KEYDOWN || cooldownEv->type == SDL_KEYUP ||
+            cooldownEv->type == SDL_CONTROLLERBUTTONDOWN || cooldownEv->type == SDL_CONTROLLERBUTTONUP) {
+            return 1;
+        }
     }
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;

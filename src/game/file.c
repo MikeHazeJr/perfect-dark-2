@@ -229,6 +229,7 @@ void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
 		 * crash dereferencing NULL fields inside the "loaded" struct.
 		 * This also prevents leaking MEMPOOL_STAGE allocations. */
 		if (romdataFileGetData(filenum) == NULL) {
+			sysLogPrintf(LOG_ERROR, "FILELOAD: filenum=%d not found in ROM data (loadtype=%d)", filenum, loadtype);
 			return NULL;
 		}
 

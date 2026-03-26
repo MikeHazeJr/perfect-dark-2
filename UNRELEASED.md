@@ -34,6 +34,7 @@
 - Ceiling proximity jump damping: jumps naturally weaken near ceilings instead of abrupt head-bonking
 - Pre-jump arc sweep: upward sphere cast predicts collisions and clamps jump height
 - Unified release system: client + server ship together in one package
+- Menu state manager: stack-based navigation with input cooldown prevents double-press issues
 
 ## Bug Fixes
 
@@ -45,6 +46,8 @@
 - Fixed post-build data copy not running (was blocked by server target guard)
 - Fixed release script PS5 compatibility (7 syntax fixes)
 - Fixed release script hanging on duplicate tags (auto-overwrite with notification)
+- B-20: Fixed crash on Mission 1 objective completion (NULL modeldef guard in modelmgr)
+- Asset loading failure logging at all critical load points (fileLoadToNew, modeldef, body, tiles, pads, lang)
 
 ## Technical
 

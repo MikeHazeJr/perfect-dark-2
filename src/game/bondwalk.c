@@ -26,7 +26,6 @@
 #include "lib/anim.h"
 #include "lib/collision.h"
 #include "lib/capsule.h"
-#include "lib/meshcollision.h"
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
@@ -936,70 +935,6 @@ void bwalkUpdateVertical(void)
 			g_Vars.currentplayer->inlift = false;
 			g_Vars.currentplayer->isfalling = false;
 
-			/* --- Ceiling proximity jump damping ---
-			 * Query the ceiling height above the player. As the gap between
-			 * the player's head and the ceiling shrinks, reduce the jump
-			 * impulse proportionally. This prevents head-bonking and makes
-			 * jumps look natural in low-ceiling areas.
-			 *
-			 * gradientDist: distance over which damping ramps from 0% to 100%.
-			 * A value of ~200 means damping starts ~200 units below the ceiling. */
-			{
-				f32 headY = g_Vars.currentplayer->vv_manground
-					+ g_Vars.currentplayer->vv_headheight;
-				f32 ceilY = meshFindCeiling(&g_Vars.currentplayer->prop->pos, radius);
-
-				/* Also check legacy ceiling for props */
-				f32 legacyCeil = 99999.0f;
-				cdFindCeilingRoomYColourFlagsAtPos(
-					&g_Vars.currentplayer->prop->pos,
-					g_Vars.currentplayer->prop->rooms,
-					&legacyCeil, NULL, NULL);
-				if (legacyCeil < ceilY) {
-					ceilY = legacyCeil;
-				}
-
-				f32 headroom = ceilY - headY;
-				f32 gradientDist = 200.0f;
-
-				if (headroom < gradientDist) {
-					/* Lerp: 0 headroom = 0 impulse, gradientDist = full impulse */
-					f32 damping = headroom / gradientDist;
-					if (damping < 0.0f) damping = 0.0f;
-					if (damping > 1.0f) damping = 1.0f;
-					impulse *= damping;
-
-					sysLogPrintf(LOG_NOTE, "JUMP: ceiling damping headroom=%.1f "
-						"ceilY=%.1f headY=%.1f damping=%.2f impulse=%.1f",
-						headroom, ceilY, headY, damping, impulse);
-				}
-			}
-
-			/* --- Pre-jump arc sweep ---
-			 * Cast a sphere upward along the predicted jump arc to check
-			 * if we'll hit anything. If so, clamp the impulse. */
-			if (impulse > 0.5f && g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-				struct coord sweepStart = g_Vars.currentplayer->prop->pos;
-				/* Predict the apex height: v^2 / (2*gravity). Gravity ~0.14/frame */
-				f32 apexHeight = (impulse * impulse) / (2.0f * 0.14f);
-				struct coord sweepMove = { 0.0f, apexHeight, 0.0f };
-				struct coord hitNormal, hitPos;
-				f32 frac = meshSweepCapsuleWorld(&sweepStart, &sweepMove,
-					radius, g_Vars.currentplayer->vv_headheight * 0.5f,
-					&hitNormal, &hitPos);
-
-				if (frac < 1.0f) {
-					/* Would hit something -- clamp impulse to reach only the safe fraction */
-					f32 safeApex = apexHeight * frac * 0.9f; /* 90% of safe height */
-					f32 safeImpulse = sqrtf(2.0f * 0.14f * safeApex);
-					if (safeImpulse < impulse) {
-						sysLogPrintf(LOG_NOTE, "JUMP: arc sweep clamped impulse %.1f -> %.1f "
-							"(frac=%.2f apexH=%.1f)", impulse, safeImpulse, frac, apexHeight);
-						impulse = safeImpulse;
-					}
-				}
-			}
-
 			g_Vars.currentplayer->bdeltapos.y = impulse;
 
 			/* Nudge manground above vv_ground so the airborne branch
@@ -1058,15 +993,6 @@ void bwalkUpdateVertical(void)
 			&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 			&newinlift, &lift);
 	ground += g_Vars.currentplayer->bondonground;
-
-	/* Mesh floor: check if the mesh system finds a higher floor (level geometry).
-	 * This ensures the player is grounded on mesh-detected floors, not just legacy BG. */
-	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-		f32 meshGround = meshFindFloor(&testpos, g_Vars.currentplayer->bond2.radius, NULL);
-		if (meshGround > ground) {
-			ground = meshGround;
-		}
-	}
 
 	if (ground < -30000) {
 		ground = -30000;

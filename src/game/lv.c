@@ -354,22 +354,18 @@ void lvReset(s32 stagenum)
 		}
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
-		meshWorldShutdown(); /* free previous stage's collision mesh */
+		/* Mesh collision disabled (S48) -- needs proper design before re-enable.
+		 * See context/collision.md for the plan. Files remain in the build
+		 * (meshcollision.c, meshcollision.h) ready for Phase 2.
+		 * meshWorldShutdown();
+		 * meshWorldInit(); meshWorldAddRoomGeo(); meshWorldFinalize();
+		 */
 		tilesReset();
 		bgReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");
 		bgBuildTables(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgBuildTables done");
-
-		/* Build the mesh collision world from stage geometry */
-		meshWorldInit();
-		for (i = 0; i < g_TileNumRooms; i++) {
-			meshWorldAddRoomGeo(i);
-		}
-		meshWorldFinalize();
-		sysLogPrintf(LOG_NOTE, "LOAD: meshWorldFinalize done");
-		sysLogPrintf(LOG_NOTE, "MESHCOL: ACTIVE -- level collision via mesh (%d tris), prop collision via legacy",
-			g_WorldMesh.numtris);
+		sysLogPrintf(LOG_NOTE, "MESHCOL: DISABLED -- using original collision system");
 
 		skyReset(g_Vars.stagenum);
 

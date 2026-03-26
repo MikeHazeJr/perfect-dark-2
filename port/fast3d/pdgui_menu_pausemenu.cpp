@@ -20,6 +20,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -167,12 +168,16 @@ static bool s_EndGameConfirm = false;
 
 void pdguiPauseMenuOpen(void)
 {
+    if (menuIsInCooldown()) return; /* prevent double-press */
+
     s_PauseMenuOpen = true;
-    s_PauseJustOpened = true; /* B-14: skip close checks this frame */
+    s_PauseJustOpened = true;
     s_PauseTab = 0;
     s_EndGameConfirm = false;
 
-    /* Pause the game (single-player combat sim only — network handles differently) */
+    menuPush(MENU_PAUSE); /* register with menu manager for cooldown */
+
+    /* Pause the game (single-player combat sim only -- network handles differently) */
     if (g_NetMode == NETMODE_NONE) {
         mpSetPaused(MPPAUSEMODE_PAUSED);
     }
@@ -182,6 +187,8 @@ void pdguiPauseMenuClose(void)
 {
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
+
+    menuPop(); /* deregister from menu manager */
 
     /* Unpause */
     if (g_NetMode == NETMODE_NONE) {
@@ -487,8 +494,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 } else {
                     mainEndStage();
                 }
-                s_PauseMenuOpen = false;
-                s_EndGameConfirm = false;
+                pdguiPauseMenuClose();
             }
             ImGui::PopStyleColor(3);
             ImGui::SameLine();

@@ -28,6 +28,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -1494,6 +1495,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (s_MenuView != 0) {
             if (s_MenuView == 3) {
                 pdguiModdingHubHide();
+                if (menuGetCurrent() == MENU_MODDING) menuPop();
             }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1547,10 +1549,13 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Modding Hub — mod manager, INI editor, model scale tool */
+        /* Modding Hub -- mod manager, INI editor, model scale tool */
         if (PdButton("Modding...", ImVec2(buttonW, 28.0f * scale))) {
-            pdguiModdingHubShow();
-            s_MenuView = 3;
+            if (!menuIsInCooldown()) {
+                pdguiModdingHubShow();
+                menuPush(MENU_MODDING);
+                s_MenuView = 3;
+            }
         }
 
     } else if (s_MenuView == 1) {

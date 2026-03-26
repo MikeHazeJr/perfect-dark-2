@@ -1356,6 +1356,10 @@ void setupLoadFiles(s32 stagenum)
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", g_Stages[g_StageIndex].padsfileid);
 		g_StageSetup.padfiledata = fileLoadToNew(g_Stages[g_StageIndex].padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+		if (!g_StageSetup.padfiledata) {
+			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",
+				g_Stages[g_StageIndex].padsfileid, g_StageIndex);
+		}
 
 		g_StageSetup.waypoints = NULL;
 		g_StageSetup.waygroups = NULL;

@@ -10,7 +10,7 @@
 
 | Item | Status |
 |------|--------|
-| **Collision Rewrite** (S48) | Mesh+legacy hybrid (highest floor, lowest ceiling). Ceiling damping + arc sweep added. Ground detection in bondwalk.c patched for mesh floors. Jump-from-props fix. |
+| **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
 | **SPF-1**: Hub lifecycle, room system, identity, phonetic encoding (S47d) | Run `.\devtools\build-headless.ps1 -Target server` |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
@@ -26,6 +26,9 @@
 |-----|----------|--------|
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing across all mod maps. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Possible missing texture or clear color issue. Needs investigation. |
+| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | Investigated: mod stages lack INTROCMD_SPAWN entries in setup file. Fallback picks pad 0. Needs g_SpawnPoints population from arena pad data. |
+| B-20 Mission 1 objective crash | HIGH | **FIXED (S48)** -- NULL modeldef guard added in modelmgrInstantiateModel. Root cause: objective completion spawns chr whose body filenum fails to load. |
+| B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
 
 ---
 
@@ -59,16 +62,16 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **Collision Rewrite (D2b+)** | **CODED S48** -- mesh primary for movement, legacy fallback for damage. 7,110 tris on Skedar. Needs build test + playtesting. Remaining: prop mesh extraction, horizontal sweep. |
-| 2 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
-| 3 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
-| 4 | **B-13 Part 2** | g_ModNum interim fix for GEX scale during catalog-based stage loading. |
-| 5 | **Pause Menu Fixes** | End Game overlay, Settings back-out, suppress OG Paused text. |
-| 6 | **Starting Weapon Option** | Toggle + weapon picker / random pool in match setup. |
-| 7 | **Spawn Scatter** | Distribute across map pads, face away from nearest wall. |
-| 8 | **BotController Architecture** | Wrapper around chr/aibot. Extension points for physics, combat, lifecycle. |
-| 9 | **Custom Post-Game Menu** | ImGui-based endscreen. Also fully resolves B-10. |
-| 10 | **D5: Settings/Graphics/QoL** | FOV slider, resolution, audio volumes. See [d5-settings-plan.md](d5-settings-plan.md). |
+| 1 | **Multiplayer Infrastructure Plan** | Design doc for server-as-hub, rooms, federation, player profiles, phonetic layer. See context/multiplayer-plan.md. |
+| 2 | **Menu System (SPF-2a)** | **CODED** -- menumgr.c/h, time-based 100ms cooldown (frame-independent). Pause + modding hub wired. Console non-blocking overlay. Needs build test. |
+| 3 | **Asset Catalog Audit** | **PHASE 1 DONE** -- failure logging at all 14 fileLoadToNew sites + modeldef + body (4 sites) + tiles + pads + lang. Phase 2: filenum-to-catalog-ID bridge in romdataFileGetData. |
+| 4 | **Collision Rewrite Design** | Proper design for jump physics, ceiling detection, prop surfaces, slope behavior. HIGH PRIORITY but design-first. |
+| 5 | **B-19: Bot spawn stacking** | Investigate pad distribution on Skedar Ruins. |
+| 6 | **B-20: Mission 1 crash** | Objective completion triggers loading that may bypass catalog. |
+| 7 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
+| 8 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
+| 9 | **Bot Customizer Integration** | Wire into lobby flow (D3R-8 already coded). |
+| 10 | **D5: Settings/Graphics/QoL** | FOV slider, resolution, audio volumes. |
 
 ---
 
