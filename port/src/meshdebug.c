@@ -23,16 +23,12 @@ static GLuint s_VBO = 0;
 static int s_VertexCount = 0;
 static int s_NeedsRebuild = 1;
 
-static const char *s_ModeNames[] = { "OFF", "TINT", "MESH ONLY" };
-
 void meshDebugToggle(void)
 {
-	s_DebugMode = (s_DebugMode + 1) % 3;
-	sysLogPrintf(LOG_NOTE, "MESHCOL: debug mode = %s (%d tris)",
-		s_ModeNames[s_DebugMode], g_WorldMesh.numtris);
-	if (s_DebugMode == 2) {
-		s_NeedsRebuild = 1;
-	}
+	/* For now, F9 just logs collision mesh stats. Visual debug modes disabled
+	 * pending correct VP matrix / overlay rendering work. */
+	sysLogPrintf(LOG_NOTE, "MESHCOL: world mesh has %d tris, grid %dx%d, ready=%d",
+		g_WorldMesh.numtris, g_WorldMesh.cellsx, g_WorldMesh.cellsz, g_WorldMesh.ready);
 }
 
 int meshDebugIsEnabled(void)

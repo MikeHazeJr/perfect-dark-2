@@ -1352,21 +1352,30 @@ function Start-ManualCommit {
 # ============================================================================
 
 function Copy-AddinFiles {
-    # Always copy post-batch-addin/data/ into build/client/data/
-    # This runs after ALL build steps complete (client + server),
-    # so $CurrentBuildTarget will be "server" -- that's fine, we always copy to client.
-    $srcData = Join-Path $script:AddinDir "data"
+    # Copy post-batch-addin\data\ into build\client\data\
+    # Use Split-Path to go up from ProjectRoot to Perfect-Dark-2, then into post-batch-addin
+    $parentDir = Split-Path $script:ProjectRoot -Parent
+    $srcData = Join-Path $parentDir "post-batch-addin" | Join-Path -ChildPath "data"
     $dstData = Join-Path $script:ClientBuildDir "data"
-    if (Test-Path $srcData) {
-        try {
-            if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
-            Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
-            if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Data files copied to build/client/data/" }
-        } catch {
-            if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "ERROR: failed to copy data files" }
+
+    if (-not (Test-Path $srcData)) {
+        $msg = "post-batch-addin\data not found at: " + $srcData
+        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "WARNING: " + $msg }
+        [System.Windows.Forms.MessageBox]::Show($msg, "Copy Warning", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        return
+    }
+
+    try {
+        if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
+        Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
+        $fileCount = (Get-ChildItem $dstData -Recurse -File -ErrorAction SilentlyContinue).Count
+        if ($null -ne $script:LblBuildActivity) {
+            $script:LblBuildActivity.Text = "Copied " + $fileCount + " file(s) to build\client\data\"
         }
-    } else {
-        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "WARNING: post-batch-addin/data not found" }
+    } catch {
+        $errMsg = "Failed to copy data:`n" + $_.Exception.Message + "`n`nFrom: " + $srcData + "`nTo: " + $dstData
+        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "ERROR copying data files" }
+        [System.Windows.Forms.MessageBox]::Show($errMsg, "Copy Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     }
     # User-configured additional copies (from settings)
     if ($null -ne $script:Settings.PostBuildCopy) {
@@ -1548,12 +1557,13 @@ $script:BuildTimer.Add_Tick({
                 Start-Build-Step $next; $script:BuildTimer.Start()
             } else {
                 $anyErr = $script:HasBuildErrors -or ($script:ClientBuildResult -eq "FAILED") -or ($script:ServerBuildResult -eq "FAILED")
-                if (-not $anyErr) { Copy-AddinFiles; Play-SuccessSound } else { Play-FailureSound }
+                if (-not $anyErr) { Play-SuccessSound; Copy-AddinFiles } else { Play-FailureSound }
                 if ($null -ne $script:ProgressFill) {
                     $script:ProgressFill.BackColor = $(if ($anyErr) { $script:ColorRed } else { $script:ColorGreen })
                     if ($null -ne $script:ProgressBack) { $script:ProgressFill.Size = New-Object System.Drawing.Size($script:ProgressBack.Width, 18) }
                 }
-                if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = $(if ($anyErr) { "Build complete (with errors)" } else { "Build complete" }) }
+                # Don't overwrite Copy-AddinFiles status -- it already set LblBuildActivity
+                if ($anyErr -and $null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Build complete (with errors)" }
                 $errCnt = $script:ClientErrors.Count + $script:ServerErrors.Count
                 if ($null -ne $script:BtnCopyErrors) { $script:BtnCopyErrors.Visible = ($errCnt -gt 0) }
                 if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $true }

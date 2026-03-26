@@ -1133,33 +1133,30 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.b = vcn->b;
         }
 
-        /* Mesh debug mode 1: tint vertex colors based on surface normal direction */
-        if (s_meshDebugModeCache == 1) {
-            /* vcn contains the vertex normal in model space (s8 x,y,z).
-             * Y component: positive = floor, negative = ceiling, near zero = wall.
-             * We need to transform through the modelview to get world-space orientation. */
+        /* SAVED EFFECT: "Normal Tint" -- tints rendered geometry by surface normal direction.
+         * Looks cool but classification doesn't match collision mesh normals (these are
+         * lighting normals, not collision normals). Saved for future use as a visual effect.
+         * To re-enable: change condition to check a shader effect toggle instead of mesh debug.
+        if (some_shader_effect_flag) {
             float ny = vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][0]
                      + vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][1]
                      + vcn->z * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][2];
             ny /= 127.0f;
-
             if (ny > 0.5f) {
-                /* Floor: green tint */
                 d->color.r = (uint8_t)(d->color.r * 0.3f);
                 d->color.g = (uint8_t)(d->color.g * 0.3f + 180);
                 d->color.b = (uint8_t)(d->color.b * 0.3f);
             } else if (ny < -0.5f) {
-                /* Ceiling: blue tint */
                 d->color.r = (uint8_t)(d->color.r * 0.3f);
                 d->color.g = (uint8_t)(d->color.g * 0.3f);
                 d->color.b = (uint8_t)(d->color.b * 0.3f + 180);
             } else {
-                /* Wall: red tint */
                 d->color.r = (uint8_t)(d->color.r * 0.3f + 180);
                 d->color.g = (uint8_t)(d->color.g * 0.3f);
                 d->color.b = (uint8_t)(d->color.b * 0.3f);
             }
         }
+        */
 
         d->u = U;
         d->v = V;
@@ -1227,10 +1224,9 @@ static inline int gfx_lod_tile_offset(const int i) {
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
-    /* Mode 2: suppress all game rendering (collision mesh only view) */
-    if (s_meshDebugModeCache == 2 && !is_rect) {
-        return;
-    }
+    /* Mode 2: collision mesh only -- disabled pending correct VP matrix work
+    if (s_meshDebugModeCache == 2 && !is_rect) { return; }
+    */
 
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
