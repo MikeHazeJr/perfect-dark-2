@@ -52,6 +52,17 @@ void hubShutdown(void);
 /** Return the current hub state. */
 hub_state_t hubGetState(void);
 
+/** Get/set the total player slot pool for the server.
+ *  Rooms allocate slots from this pool. Default: 32. */
+s32 hubGetMaxSlots(void);
+void hubSetMaxSlots(s32 maxSlots);
+
+/** Get the number of currently allocated (in-use) slots across all rooms. */
+s32 hubGetUsedSlots(void);
+
+/** Get the number of available (free) slots. */
+s32 hubGetFreeSlots(void);
+
 /** Human-readable hub state name. */
 const char *hubGetStateName(hub_state_t state);
 

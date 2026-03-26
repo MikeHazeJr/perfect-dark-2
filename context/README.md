@@ -68,6 +68,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | File | Phase | When to load |
 |------|-------|-------------|
 | [multiplayer-plan.md](multiplayer-plan.md) | SPF-2+: Server-as-hub, rooms, federation, profiles, phonetic, menus | Starting any multiplayer infrastructure work |
+| [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog as single source of truth for all asset loading | Any asset loading / catalog work |
+| [menu-replacement-plan.md](menu-replacement-plan.md) | Full ImGui replacement of all 240 legacy menus | Any menu migration work |
 | [d5-settings-plan.md](d5-settings-plan.md) | D5: Audio volumes, graphics, controls, QoL | Starting D5 |
 | [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, server browser | Starting D16 |
 | [menu-storyboard.md](menu-storyboard.md) | D4: 113-menu inventory, component library, design tokens | Menu migration reference |

@@ -35,6 +35,9 @@
 - Pre-jump arc sweep: upward sphere cast predicts collisions and clamps jump height
 - Unified release system: client + server ship together in one package
 - Menu state manager: stack-based navigation with input cooldown prevents double-press issues
+- Player stats tracking: kills, deaths, shots, matches persisted to playerstats.json
+- Join by Code screen: phonetic code input decodes to IP:port for server connection
+- Lobby screen shows hub room list with state colors and player counts
 
 ## Bug Fixes
 

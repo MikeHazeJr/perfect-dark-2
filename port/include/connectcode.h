@@ -1,12 +1,14 @@
 /**
- * connectcode.h -- Encode/decode IP:port as Perfect Dark-themed word codes.
+ * connectcode.h -- Encode/decode IP as a memorable 4-word sentence.
  *
- * An IPv4 address (4 bytes) + port (2 bytes) = 6 bytes is encoded as
- * 6 words from a 256-word vocabulary drawn from Perfect Dark lore.
- * Example: "JOANNA FALCON CARRINGTON SKEDAR PHOENIX DATADYNE"
+ * An IPv4 address (4 bytes) is encoded as 4 words in sentence structure:
+ *   [adjective] [noun] [verb] [noun]
+ *   Example: "sneaky falcon chasing castle"
  *
- * This provides light obfuscation of raw IP addresses for sharing
- * server connection info between players.
+ * Port is assumed to be the default (CONNECT_DEFAULT_PORT).
+ * If a non-standard port is needed, append ":PORT" to the decoded IP.
+ *
+ * Case-insensitive decode. Separators: spaces, hyphens, dots.
  */
 
 #ifndef _IN_CONNECTCODE_H
@@ -18,25 +20,26 @@
 extern "C" {
 #endif
 
+#define CONNECT_DEFAULT_PORT 27100
+#define CONNECT_CODE_MAX     128
+
 /**
- * Encode an IPv4 address and port into a word-based connect code.
- * @param ip   IPv4 address in network byte order (big-endian).
- * @param port Port number in host byte order.
- * @param buf  Output buffer (must be at least 256 bytes).
+ * Encode an IPv4 address into a 4-word sentence code.
+ * @param ip      IPv4 address in network byte order (big-endian).
+ * @param buf     Output buffer (at least CONNECT_CODE_MAX bytes).
  * @param bufsize Size of output buffer.
  * @return Number of characters written (excluding null), or -1 on error.
  */
-s32 connectCodeEncode(u32 ip, u16 port, char *buf, s32 bufsize);
+s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
 
 /**
- * Decode a word-based connect code into IP and port.
+ * Decode a 4-word sentence code back to an IPv4 address.
  * Case-insensitive. Words separated by spaces, hyphens, or dots.
- * @param code The connect code string.
+ * @param code   The sentence code string.
  * @param outIp  Output: IPv4 address in network byte order.
- * @param outPort Output: port number in host byte order.
  * @return 0 on success, -1 on parse failure.
  */
-s32 connectCodeDecode(const char *code, u32 *outIp, u16 *outPort);
+s32 connectCodeDecode(const char *code, u32 *outIp);
 
 #ifdef __cplusplus
 }

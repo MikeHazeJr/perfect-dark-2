@@ -256,26 +256,20 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             }
         }
 
-        if (isConnectCode) {
-            /* Decode connect code to IP:port */
+        /* All join attempts must go through connect code decode.
+         * Raw IP addresses are not accepted -- the code is a security
+         * layer that prevents exposing public IPs. */
+        {
             u32 ip = 0;
-            u16 port = 0;
-            if (connectCodeDecode(s_JoinAddress, &ip, &port) == 0) {
+            if (connectCodeDecode(s_JoinAddress, &ip) == 0 && ip) {
                 snprintf(g_NetJoinAddr, NET_MAX_ADDR, "%u.%u.%u.%u:%u",
                          ip & 0xFF, (ip >> 8) & 0xFF,
-                         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+                         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
                 if (netStartClient(g_NetJoinAddr) == 0) {
                     menuPushDialog(&g_NetJoiningDialog);
                 }
             }
-            /* Invalid code — silently ignore (field stays, user can retry) */
-        } else {
-            /* Raw IP:port — pass through directly */
-            strncpy(g_NetJoinAddr, s_JoinAddress, NET_MAX_ADDR);
-            g_NetJoinAddr[NET_MAX_ADDR] = '\0';
-            if (netStartClient(g_NetJoinAddr) == 0) {
-                menuPushDialog(&g_NetJoiningDialog);
-            }
+            /* Invalid code -- field stays, user can retry */
         }
     }
 

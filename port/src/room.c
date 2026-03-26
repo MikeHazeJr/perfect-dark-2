@@ -159,3 +159,42 @@ const char *roomStateName(room_state_t state)
         default:                  return "?";
     }
 }
+
+/* -------------------------------------------------------------------------
+ * Room name generator -- adjective + noun combo
+ * Short, fun, memorable names for rooms.
+ * ------------------------------------------------------------------------- */
+
+static const char *s_RoomAdj[] = {
+    "Fat","Tiny","Big","Red","Blue","Green","Purple","Golden",
+    "Sneaky","Lazy","Wild","Brave","Jolly","Angry","Happy","Shy",
+    "Fast","Slow","Loud","Quiet","Fuzzy","Shiny","Rusty","Dusty",
+    "Cosmic","Magic","Frozen","Burning","Ancient","Modern","Secret","Dark",
+    "Jumpy","Bouncy","Salty","Spicy","Smooth","Rough","Electric","Mystic",
+    "Funky","Crispy","Wobbly","Dizzy","Grumpy","Silly","Fancy","Slippery",
+    "Sparkly","Fluffy","Crunchy","Turbo","Mega","Ultra","Hyper","Super",
+    "Neon","Retro","Toxic","Atomic","Radical","Extreme","Epic","Legendary",
+};
+
+static const char *s_RoomNoun[] = {
+    "Monkey","Penguin","Tiger","Dragon","Robot","Wizard","Pirate","Ninja",
+    "Cheese","Pizza","Taco","Waffle","Donut","Pickle","Muffin","Cookie",
+    "Falcon","Eagle","Cobra","Phoenix","Parrot","Lobster","Walrus","Panda",
+    "Castle","Rocket","Hammer","Crystal","Tornado","Volcano","Comet","Glacier",
+    "Dinosaur","Viking","Cowboy","Astronaut","Clown","Chef","Ghost","Zombie",
+    "Banana","Mushroom","Cactus","Pumpkin","Potato","Onion","Pretzel","Biscuit",
+    "Van","Bus","Tank","Submarine","Blimp","Sled","Canoe","Skateboard",
+    "Hat","Boot","Sock","Mitten","Crown","Trophy","Medal","Badge",
+};
+
+#define ROOM_ADJ_COUNT  (sizeof(s_RoomAdj) / sizeof(s_RoomAdj[0]))
+#define ROOM_NOUN_COUNT (sizeof(s_RoomNoun) / sizeof(s_RoomNoun[0]))
+
+void roomGenerateName(char *buf, s32 bufsize)
+{
+    extern u32 rngRandom(void);
+    u32 r = rngRandom();
+    s32 ai = r % ROOM_ADJ_COUNT;
+    s32 ni = (r >> 8) % ROOM_NOUN_COUNT;
+    snprintf(buf, bufsize, "%s %s", s_RoomAdj[ai], s_RoomNoun[ni]);
+}

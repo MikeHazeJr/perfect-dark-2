@@ -242,8 +242,9 @@ void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
 s32  pdguiModdingHubIsVisible(void);
 
-/* Phonetic connect code (phonetic.c) */
-s32 phoneticDecode(const char *str, u32 *out_ip, u16 *out_port);
+/* Connect codes (connectcode.c) */
+s32 connectCodeDecode(const char *code, u32 *outIp);
+#define CONNECT_DEFAULT_PORT 27100
 
 /* Network connect (net.c) */
 s32 netStartClient(const char *addr);
@@ -1474,9 +1475,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* Determine title based on current view */
     const char *windowTitle = "Perfect Dark";
-    if (s_MenuView == 1) windowTitle = "Play";
+    if (s_MenuView == 1) windowTitle = "Solo Play";
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
+    else if (s_MenuView == 4) windowTitle = "Online Play";
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -1516,18 +1518,35 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     if (s_MenuView == 0) {
         /* ================================================================
-         * TOP LEVEL: Play / Settings / Quit Game
+         * TOP LEVEL: Solo Play / Online Play / Change Agent / Settings
+         * Quit Game docked to bottom-right with confirmation.
          * ================================================================ */
+        static bool s_QuitConfirm = false;
+
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 
-        ImGui::TextDisabled("Carrington Institute");
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, spacing * 2));
-
-        /* Play — give nav focus on first appearance or view switch */
+        /* Solo Play -- opens local lobby (no server connection) */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-        if (PdButton("Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 1;
+        if (PdButton("Solo Play", ImVec2(buttonW, buttonH * 1.2f))) {
+            s_MenuView = 1; /* Solo play sub-menu for now; will become local lobby */
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Online Play */
+        if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
+            if (!menuIsInCooldown()) {
+                s_MenuView = 4;
+                menuPush(MENU_JOIN);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Change Agent */
+        if (PdButton("Change Agent", ImVec2(buttonW, buttonH * 1.2f))) {
+            menuPushDialog(&g_ChangeAgentMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -1537,42 +1556,48 @@ static s32 renderMainMenu(struct menudialog *dialog,
             s_MenuView = 2;
         }
 
-        ImGui::Dummy(ImVec2(0, spacing));
+        /* Quit Game -- docked to bottom-right with confirmation */
+        {
+            float quitBtnW = 100.0f * scale;
+            float quitBtnH = 28.0f * scale;
+            float quitX = dialogX + dialogW - quitBtnW - ImGui::GetStyle().WindowPadding.x;
+            float quitY = dialogY + dialogH - quitBtnH - ImGui::GetStyle().WindowPadding.y - 4.0f * scale;
 
-        /* Quit Game */
-        if (PdButton("Quit Game", ImVec2(buttonW, buttonH * 1.2f))) {
-            /* SDL_Quit event to cleanly shut down */
-            SDL_Event quitEvent;
-            quitEvent.type = SDL_QUIT;
-            SDL_PushEvent(&quitEvent);
-        }
+            ImGui::SetCursorPos(ImVec2(quitX - dialogX, quitY - dialogY));
 
-        ImGui::Dummy(ImVec2(0, spacing * 3));
-        ImGui::Separator();
+            if (!s_QuitConfirm) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.15f, 0.15f, 0.9f));
+                if (ImGui::Button("Quit Game", ImVec2(quitBtnW, quitBtnH))) {
+                    s_QuitConfirm = true;
+                }
+                ImGui::PopStyleColor(2);
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
+                if (ImGui::Button("Confirm Quit", ImVec2(quitBtnW, quitBtnH))) {
+                    SDL_Event quitEvent;
+                    quitEvent.type = SDL_QUIT;
+                    SDL_PushEvent(&quitEvent);
+                }
+                ImGui::PopStyleColor(2);
 
-        /* Change Agent link at bottom */
-        if (PdButton("Change Agent...", ImVec2(buttonW, 28.0f * scale))) {
-            menuPushDialog(&g_ChangeAgentMenuDialog);
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Modding Hub -- mod manager, INI editor, model scale tool */
-        if (PdButton("Modding...", ImVec2(buttonW, 28.0f * scale))) {
-            if (!menuIsInCooldown()) {
-                pdguiModdingHubShow();
-                menuPush(MENU_MODDING);
-                s_MenuView = 3;
+                ImGui::SetCursorPos(ImVec2(quitX - dialogX - quitBtnW - 8.0f * scale, quitY - dialogY));
+                if (ImGui::Button("Cancel", ImVec2(quitBtnW * 0.7f, quitBtnH))) {
+                    s_QuitConfirm = false;
+                }
             }
         }
 
     } else if (s_MenuView == 1) {
         /* ================================================================
-         * PLAY SUB-MENU
+         * SOLO PLAY SUB-MENU
+         * Campaign missions, local combat sim, co-op, counter-op.
+         * Online play is accessed from the top-level "Online Play" button.
          * ================================================================ */
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
-        /* Solo Missions — give nav focus on view switch */
+        /* Solo Missions -- campaign */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
             menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
@@ -1580,22 +1605,22 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Local Play — opens new match setup lobby */
-        if (PdButton("Local Play", ImVec2(buttonW, buttonH))) {
+        /* Combat Simulator -- local match with bots */
+        if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
             matchConfigInit();
             menuPushDialog(&g_MatchSetupMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Co-Operative */
+        /* Co-Operative -- local co-op campaign */
         if (PdButton("Co-Operative", ImVec2(buttonW, buttonH))) {
             menuhandlerMainMenuCooperative(MENUOP_SET, nullptr, nullptr);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Counter-Operative */
+        /* Counter-Operative -- requires 2 controllers */
         {
             bool disabled = ((joyGetConnectedControllers() & ~0x1) == 0);
             if (disabled) ImGui::BeginDisabled();
@@ -1605,22 +1630,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             }
 
             if (disabled) ImGui::EndDisabled();
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Network Play */
-        if (PdButton("Network Play", ImVec2(buttonW, buttonH))) {
-            menuPushDialog(&g_NetMenuDialog);
-        }
-
-        /* Join by Phonetic Code */
-        if (PdButton("Join by Code", ImVec2(buttonW, buttonH))) {
-            if (!menuIsInCooldown()) {
-                s_MenuView = 4;
-                menuPush(MENU_JOIN);
-                pdguiPlaySound(PDGUI_SND_SELECT);
-            }
         }
 
     } else if (s_MenuView == 2) {
@@ -1641,15 +1650,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     } else if (s_MenuView == 4) {
         /* ================================================================
-         * JOIN BY CODE
-         * Decode a phonetic connect code and connect to the server.
+         * ONLINE PLAY
+         * Join a server by connect code or direct IP.
+         * After connecting, transitions to the server lobby.
          * ================================================================ */
         static char s_JoinCodeInput[64] = "";
         static char s_JoinStatus[128] = "";
         static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server by Code");
+        ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server");
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
@@ -1665,32 +1675,29 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (PdButton("Connect", ImVec2(buttonW, 32.0f * scale))) {
             if (s_JoinCodeInput[0]) {
                 u32 ip = 0;
-                u16 port = 0;
-                if (phoneticDecode(s_JoinCodeInput, &ip, &port) == 0 && ip && port) {
-                    /* Build IP:port string from decoded values */
+
+                /* Connect code is the ONLY accepted input.
+                 * Must be exactly 4 valid words from the dictionaries.
+                 * No direct IP addresses allowed -- the code is a security layer
+                 * that prevents sharing raw public IPs. */
+                if (connectCodeDecode(s_JoinCodeInput, &ip) == 0 && ip) {
+                    /* Code validated -- resolve internally and connect */
                     char addrStr[64];
                     snprintf(addrStr, sizeof(addrStr), "%u.%u.%u.%u:%u",
                         (ip >> 24) & 0xff, (ip >> 16) & 0xff,
-                        (ip >> 8) & 0xff, ip & 0xff, port);
-                    sysLogPrintf(LOG_NOTE, "JOIN: decoded '%s' -> %s", s_JoinCodeInput, addrStr);
+                        (ip >> 8) & 0xff, ip & 0xff, CONNECT_DEFAULT_PORT);
+                    sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
 
                     if (netStartClient(addrStr) == 0) {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting to %s...", addrStr);
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
                     } else {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connection failed");
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
                         s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
                     }
                 } else {
-                    /* Try as direct IP:port */
-                    sysLogPrintf(LOG_NOTE, "JOIN: phonetic decode failed, trying as direct IP: '%s'", s_JoinCodeInput);
-                    if (netStartClient(s_JoinCodeInput) == 0) {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting to %s...", s_JoinCodeInput);
-                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
-                    } else {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Invalid code or address");
-                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-                    }
+                    snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Invalid connect code");
+                    s_JoinStatusColor = ImVec4(1.0f, 0.5f, 0.2f, 1.0f);
                 }
             }
         }
@@ -1701,8 +1708,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
         }
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::TextDisabled("Codes look like: BALE-GIFE-NOME-RIVA");
-        ImGui::TextDisabled("You can also enter a direct IP:port (e.g., 192.168.1.5:27100)");
+        ImGui::TextDisabled("Enter a 4-word connect code from the server host");
+        ImGui::TextDisabled("Example: fat vampire running to the park");
+
+        /* Server History */
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Recent Servers");
+
+        /* TODO: populate from persistent server history (serverhistory.json)
+         * Each entry: { name, connectCode, lastConnected, lastStatus }
+         * Ping button sends a lightweight UDP probe, returns Online/Offline */
+        ImGui::TextDisabled("(Server history coming soon)");
     }
 
     /* Sound on view switches + auto-focus flag */

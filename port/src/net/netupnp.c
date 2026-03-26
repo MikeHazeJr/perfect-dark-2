@@ -119,7 +119,7 @@ static void *upnpWorkerThread(void *param)
             u32 ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
             u16 port = (u16)atoi(s_MappedPort);
             char code[256];
-            connectCodeEncode(ipAddr, port, code, sizeof(code));
+            connectCodeEncode(ipAddr, code, sizeof(code));
             sysLogPrintf(LOG_NOTE, "UPNP: Connect code: %s", code);
         }
     }

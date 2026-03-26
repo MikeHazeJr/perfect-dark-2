@@ -39,9 +39,10 @@ s32 netGetMaxClients(void);
 u32 netGetServerPort(void);
 const char *netGetPublicIP(void);
 
-/* Phonetic encoding (phonetic.c) */
-s32 phoneticEncode(u32 ip, u16 port, char *out, s32 outlen);
-s32 phoneticDecode(const char *code, u32 *out_ip, u16 *out_port);
+/* Connect codes (connectcode.c) */
+s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
+s32 connectCodeDecode(const char *code, u32 *outIp);
+#define CONNECT_DEFAULT_PORT 27100
 extern s32 g_NetDedicated;
 s32 netDisconnect(void);
 
@@ -165,14 +166,12 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     /* Connection status + phonetic code */
     ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Connected to dedicated server");
 
-    /* Display phonetic connect code for server hosts */
+    /* Display connect code for server hosts */
     if (netGetMode() == NETMODE_SERVER) {
-        static char s_PhoneticCode[64] = "";
-        static bool s_PhoneticGenerated = false;
-        if (!s_PhoneticGenerated) {
+        static char s_ConnectCode[128] = "";
+        static bool s_CodeGenerated = false;
+        if (!s_CodeGenerated) {
             const char *ip = netGetPublicIP();
-            u16 port = (u16)netGetServerPort();
-            /* Parse IP string to u32 */
             u32 ipAddr = 0;
             if (ip) {
                 u32 a=0,b=0,c=0,d=0;
@@ -180,15 +179,19 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                     ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
                 }
             }
-            if (ipAddr && port) {
-                phoneticEncode(ipAddr, port, s_PhoneticCode, sizeof(s_PhoneticCode));
-                s_PhoneticGenerated = true;
-                sysLogPrintf(LOG_NOTE, "LOBBY: phonetic code generated: %s", s_PhoneticCode);
+            if (ipAddr) {
+                connectCodeEncode(ipAddr, s_ConnectCode, sizeof(s_ConnectCode));
+                s_CodeGenerated = true;
+                sysLogPrintf(LOG_NOTE, "LOBBY: connect code: %s", s_ConnectCode);
             }
         }
-        if (s_PhoneticCode[0]) {
+        if (s_ConnectCode[0]) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Code: %s", s_ConnectCode);
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "  Code: %s", s_PhoneticCode);
+            if (ImGui::SmallButton("Copy")) {
+                SDL_SetClipboardText(s_ConnectCode);
+                sysLogPrintf(LOG_NOTE, "LOBBY: connect code copied to clipboard");
+            }
         }
     }
 

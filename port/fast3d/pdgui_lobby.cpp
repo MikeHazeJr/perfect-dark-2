@@ -161,13 +161,14 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
                     ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
                 }
             }
-            connectCodeEncode(ipAddr, (u16)port, connectCode, sizeof(connectCode));
+            connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy")) {
                 SDL_SetClipboardText(connectCode);
             }
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", publicIP, port);
+            /* IP address intentionally not displayed -- connect code is the
+             * only sharing mechanism to prevent exposing public IPs. */
         } else {
             ImGui::Text("Port: %u (UPnP inactive)", port);
         }

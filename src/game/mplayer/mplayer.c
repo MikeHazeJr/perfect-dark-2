@@ -37,6 +37,10 @@
 
 #include "system.h"
 
+/* PC: persistent stats */
+extern void statIncrement(const char *key, u64 amount);
+extern void statsSave(void);
+
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
 struct mpchrconfig *g_MpAllChrConfigPtrs[MAX_MPCHRS];
@@ -2764,6 +2768,10 @@ void mpEndMatch(void)
 	s32 playercount = PLAYERCOUNT();
 	s32 prevplayernum;
 	s32 i;
+
+	/* PC: track match completion in persistent stats */
+	statIncrement("matches.played", 1);
+	statsSave(); /* save stats at match end for safety */
 
 	musicStartMenu();
 	mpSetPaused(MPPAUSEMODE_GAMEOVER);

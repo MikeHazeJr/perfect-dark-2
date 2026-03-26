@@ -200,7 +200,8 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 		 * stale would cause the next fileLoad to misapply model
 		 * preprocessing to unrelated data. */
 		g_LoadType = LOADTYPE_NONE;
-		sysLogPrintf(LOG_ERROR, "MODELDEF: failed to load fileid=%d (NULL from fileLoad)", fileid);
+		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
+			"asset not in catalog or ROM data missing", fileid);
 		return NULL;
 	}
 

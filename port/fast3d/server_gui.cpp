@@ -431,7 +431,7 @@ extern "C" void serverGuiFrame(SDL_Window *window)
                     ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
                 }
             }
-            connectCodeEncode(ipAddr, (u16)g_NetServerPort, connectCode, sizeof(connectCode));
+            connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy Code")) {

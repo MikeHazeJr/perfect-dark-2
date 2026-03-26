@@ -62,11 +62,14 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **SPF-2a Menu Manager** | **BUILD PASS** -- menumgr.c/h with extern "C" guards, 100ms cooldown. Pause + modding hub + join screen wired. |
-| 2 | **SPF-3a/3b Lobby + Join** | **CODED** -- lobby shows hub rooms + phonetic code. Join-by-code screen (view 4) decodes phonetic or direct IP. |
-| 3 | **Asset Catalog Audit** | **PHASE 1 DONE** -- failure logging at all critical load points. Phase 2: filenum-to-catalog bridge. |
-| 4 | **Collision Rewrite Design** | Proper design for jump physics, ceiling detection, prop surfaces, slope behavior. HIGH PRIORITY but design-first. |
-| 5 | **B-19: Bot spawn stacking** | Investigate pad distribution on Skedar Ruins. |
+| 1 | **Menu Replacement Group 1** | Solo mission flow (11 menus). See [menu-replacement-plan.md](context/menu-replacement-plan.md). |
+| 2 | **Catalog Phase C-1/C-2** | ROM hash + base game catalog population. See [catalog-loading-plan.md](context/catalog-loading-plan.md). |
+| 3 | **Catalog Phase C-4** | Intercept fileLoadToNew — catalog resolve before ROM load. Critical gateway. |
+| 4 | **Menu Replacement Group 2** | End screens (13 menus). |
+| 5 | **Menu Replacement Group 4** | Multiplayer setup (68 menus, largest group). |
+| 6 | **Catalog Phase C-8** | Mod diff-based re-cataloging. |
+| 7 | **Collision Rewrite Design** | Proper design. HIGH PRIORITY but design-first. |
+| 8 | **B-19: Bot spawn stacking** | Populate g_SpawnPoints from arena pad data. |
 | 6 | **B-20: Mission 1 crash** | Objective completion triggers loading that may bypass catalog. |
 | 7 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
 | 8 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |

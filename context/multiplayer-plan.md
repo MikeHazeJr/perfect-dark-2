@@ -73,6 +73,26 @@ it as "local players sharing one network seat."
   tracking, and presence visibility to other connected players. Same game logic, different
   authority routing.
 
+### 2.2b Room Access & Slots
+
+**Server slot pool**: the server has a configurable total player slot count (e.g., 32).
+When a room is created, it requests slots from the server pool. The server issues
+available slots to the room. This prevents over-allocation — if the server has 32 slots
+and Room 0 takes 8, Room 1 can take up to 24.
+
+**Room access modes**:
+- **Open**: anyone connected to the server can join
+- **Password**: requires a password to enter (set by room creator)
+- **Invite-only**: room creator selects from a list of connected players to invite.
+  Friends are prioritized in the list and shown with a distinct color.
+
+**Friends system**:
+- Players can add each other as Friends (mutual, persisted locally)
+- Friends appear with a different name color in all player lists
+- Friends are prioritized (sorted to top) in invite lists and server player lists
+- Distinguishes same-name players: "Agent Dark" (friend, gold) vs "Agent Dark" (stranger, white)
+- Agent name is the primary identifier; Friends is a local relationship layer on top
+
 ### 2.3 Room Lifecycle
 
 ```
@@ -99,14 +119,44 @@ EMPTY -> LOBBY -> LOADING -> ACTIVE -> POSTGAME -> LOBBY (loop)
 
 ---
 
-## 3. Phonetic Connection Layer
+## 3. Connection Layer
 
-### 3.1 How It Works (SPF-1, already coded)
+### 3.1 Sentence Connect Codes (IMPLEMENTED, S48)
 
-IP:port encoded as 8 CV syllables using 16 consonants x 4 vowels = 6 bits per syllable.
-48 bits total = full IPv4 (32) + port (16).
+IPv4 address encoded as a 4-word memorable sentence:
+`[adjective] [creature/object] [action phrase] [place]`
 
-Format: `BALE-GIFE-NOME-RIVA`
+Examples:
+- "fat vampire running to the park"
+- "tiny cheese skipping around space"
+- "heroic flea hiding in a mall"
+
+256 words per slot (8 bits each), 4 slots = 32 bits = full IPv4 address.
+Port assumed as default (27100). Case-insensitive decode.
+Replaces the phonetic syllable system entirely.
+
+### 3.2 Server History & Ping
+
+- Servers the player has connected to are saved in a local history list
+- History entries store: server name, connect code, last connected timestamp
+- Players can ping a server from history or from a new code: returns Online/Offline
+- Server responds to ping with: name, player count, room count, version
+
+### 3.3 Security: Code-Only Joining
+
+Connect codes serve a dual purpose — convenience AND security:
+- **No raw IP addresses are ever displayed** in any UI surface
+- **No direct IP input is accepted** in any join flow
+- The connect code is the SOLE mechanism for sharing connection info
+- Input validation: exactly 4 words, each must exist in its respective dictionary slot
+- Invalid input = no connection attempt (fail before network)
+- IP addresses are resolved internally from the code and never shown to players
+
+### 3.4 Copy Connect Code
+
+- Server host has a "Copy Code" button in the lobby UI
+- Copies the sentence code to clipboard for easy sharing
+- Also displayed prominently in the lobby screen
 
 ### 3.2 User Flow
 

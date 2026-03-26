@@ -46,6 +46,13 @@ typedef enum {
     ROOM_STATE_CLOSED   = 4, /**< Room destroyed, slot available.          */
 } room_state_t;
 
+/** Room access mode. */
+typedef enum {
+    ROOM_ACCESS_OPEN     = 0, /**< Anyone on the server can join. */
+    ROOM_ACCESS_PASSWORD = 1, /**< Requires a password to enter.  */
+    ROOM_ACCESS_INVITE   = 2, /**< Invite-only, creator selects from player list. */
+} room_access_t;
+
 /** One room in the hub. */
 typedef struct hub_room_s {
     u8           id;                          /**< Unique room index (0-3). */
@@ -54,10 +61,15 @@ typedef struct hub_room_s {
 
     u8           clients[HUB_MAX_CLIENTS];    /**< clientId of each member. */
     u8           client_count;
+    u8           max_players;                 /**< Slots allocated from server pool. */
 
     u8           stagenum;
     u8           scenario;
     u32          rng_seed;
+
+    room_access_t access;                     /**< Open, password, or invite-only. */
+    char         password[32];                /**< Password if access == PASSWORD. */
+    u8           creator_client_id;           /**< Client who created this room. */
 
     u32          created_tick;                /**< g_NetTick when created.  */
     u32          state_enter_tick;            /**< g_NetTick of last transition. */
@@ -71,12 +83,28 @@ typedef struct hub_room_s {
 void roomsInit(void);
 
 /**
- * Create a new room with the given name.
- * Returns the room pointer, or NULL if HUB_MAX_ROOMS are already active.
+ * Create a new room with the given name and slot count.
+ * Allocates playerSlots from the server's slot pool.
+ * Returns the room pointer, or NULL if no room slots or player slots available.
  */
 hub_room_t *roomCreate(const char *name);
 
-/** Destroy a room and free its slot.  Room 0 is never truly destroyed — it
+/**
+ * Create a room with full configuration (name, max players, access mode, password).
+ * Returns the room pointer, or NULL if no room slots or player slots available.
+ */
+hub_room_t *roomCreateConfigured(const char *name, u8 maxPlayers,
+                                  room_access_t access, const char *password,
+                                  u8 creatorClientId);
+
+/**
+ * Generate a random room name (adjective + noun).
+ * Examples: "Fat Monkey", "Purple Dinosaur", "Jumpy Van"
+ * Writes into buf (at least 64 bytes).
+ */
+void roomGenerateName(char *buf, s32 bufsize);
+
+/** Destroy a room and free its slot.  Room 0 is never truly destroyed --
  *  transitions to ROOM_STATE_LOBBY instead. */
 void roomDestroy(hub_room_t *room);
 

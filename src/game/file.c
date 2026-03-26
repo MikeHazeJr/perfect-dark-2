@@ -229,7 +229,12 @@ void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
 		 * crash dereferencing NULL fields inside the "loaded" struct.
 		 * This also prevents leaking MEMPOOL_STAGE allocations. */
 		if (romdataFileGetData(filenum) == NULL) {
-			sysLogPrintf(LOG_ERROR, "FILELOAD: filenum=%d not found in ROM data (loadtype=%d)", filenum, loadtype);
+			/* Catalog single source of truth: if a filenum isn't in ROM,
+			 * this is a CRITICAL error for base game assets (should never
+			 * happen if the catalog was populated correctly) or a MOD_LOADER
+			 * error if a mod references a non-existent asset. */
+			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: filenum=%d not found in ROM data (loadtype=%d) -- "
+				"this asset should be in the catalog but is missing", filenum, loadtype);
 			return NULL;
 		}
 
