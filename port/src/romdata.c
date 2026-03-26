@@ -267,8 +267,13 @@ static void romdataShowMissingRomDialog(const char *romName, const char *dataDir
 	if (buttonId == 0) {
 		/* Open the data folder in the system file manager */
 #ifdef _WIN32
+		char winpath[1024];
+		strncpy(winpath, dataDir, sizeof(winpath) - 1);
+		winpath[sizeof(winpath) - 1] = '\0';
+		/* Normalize forward slashes to backslashes for explorer */
+		for (char *p = winpath; *p; p++) { if (*p == '/') *p = '\\'; }
 		char cmd[1024];
-		snprintf(cmd, sizeof(cmd), "explorer \"%s\"", dataDir);
+		snprintf(cmd, sizeof(cmd), "explorer \"%s\"", winpath);
 		system(cmd);
 #elif defined(__APPLE__)
 		char cmd[1024];
@@ -291,8 +296,13 @@ static inline void romdataLoadRom(void)
 	g_RomFile = fsFileLoad(g_RomName, &g_RomFileSize);
 
 	if (!g_RomFile) {
-		sysLogPrintf(LOG_ERROR, "ROM: Could not open %s in %s", g_RomName, fsFullPath(""));
-		romdataShowMissingRomDialog(g_RomName, fsFullPath(""));
+		/* Build the expected data path relative to the exe directory */
+		char exePath[FS_MAXPATH];
+		char exeDataDir[FS_MAXPATH];
+		sysGetExecutablePath(exePath, FS_MAXPATH);
+		snprintf(exeDataDir, FS_MAXPATH, "%s/data", exePath);
+		sysLogPrintf(LOG_ERROR, "ROM: Could not open %s in %s", g_RomName, exeDataDir);
+		romdataShowMissingRomDialog(g_RomName, exeDataDir);
 	}
 
 	// zips are not guaranteed to start with PK, but might as well at least try

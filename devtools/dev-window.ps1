@@ -1353,10 +1353,14 @@ function Start-ManualCommit {
 
 function Copy-AddinFiles {
     if ($script:CurrentBuildTarget -eq "server") { return }
-    # Mandatory: always copy post-batch-addin/data into client build
-    $dataDir = Join-Path $script:AddinDir "data"
-    if (Test-Path $dataDir) {
-        try { Copy-Item $dataDir -Destination $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } catch {}
+    # Mandatory: always copy post-batch-addin/data into build/client/data
+    $srcData = Join-Path $script:AddinDir "data"
+    $dstData = Join-Path $script:ClientBuildDir "data"
+    if (Test-Path $srcData) {
+        try {
+            if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
+            Copy-Item (Join-Path $srcData "*") -Destination $dstData -Recurse -Force -ErrorAction Stop
+        } catch {}
     }
     # User-configured additional copies (from settings)
     if ($null -ne $script:Settings.PostBuildCopy) {

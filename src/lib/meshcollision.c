@@ -611,8 +611,10 @@ s32 meshCapsuleVsTriangle(struct coord *capsuleA, struct coord *capsuleB,
 	f32 u = (d11 * d20 - d01 * d21) * invdet;
 	f32 v = (d00 * d21 - d01 * d20) * invdet;
 
-	/* Allow some slack for the capsule radius */
-	f32 slack = radius / sqrtf(d00 > d11 ? d00 : d11);
+	/* Slack proportional to capsule radius vs triangle size */
+	f32 avgEdge = sqrtf((d00 + d11) * 0.5f);
+	f32 slack = (avgEdge > 0.1f) ? (radius / avgEdge) : 0.1f;
+	if (slack < 0.05f) slack = 0.05f;
 	if (u >= -slack && v >= -slack && (u + v) <= 1.0f + slack) {
 		*out_fraction = t;
 		*out_normal = tri->normal;
@@ -835,8 +837,10 @@ f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY)
 				f32 u = (d11 * d20 - d01 * d21) * inv;
 				f32 v = (d00 * d21 - d01 * d20) * inv;
 
-				/* Allow radius slack for near-edge cases */
-				f32 slack = radius * 0.5f / sqrtf(d00 > d11 ? d00 : d11);
+				/* Slack proportional to player radius vs triangle size */
+				f32 avgEdge = sqrtf((d00 + d11) * 0.5f);
+				f32 slack = (avgEdge > 0.1f) ? (radius / avgEdge) : 0.1f;
+				if (slack < 0.05f) slack = 0.05f;
 				if (u < -slack || v < -slack || (u + v) > 1.0f + slack) continue;
 
 				/* Compute Y on the triangle plane at this XZ */
@@ -884,8 +888,6 @@ f32 meshFindCeiling(struct coord *pos, f32 radius)
 			for (s32 ci = 0; ci < cell->count; ci++) {
 				struct meshtri *tri = &g_WorldMesh.tris[cell->triindices[ci]];
 
-				/* Ceiling = normal pointing down, OR any surface above us */
-				/* Also check floor surfaces that are above us (overhangs) */
 				f32 x = pos->x, z = pos->z;
 				f32 x0 = tri->v0.x, z0 = tri->v0.z;
 				f32 x1 = tri->v1.x, z1 = tri->v1.z;
@@ -903,7 +905,12 @@ f32 meshFindCeiling(struct coord *pos, f32 radius)
 				f32 u = (d11 * d20 - d01 * d21) * inv;
 				f32 v = (d00 * d21 - d01 * d20) * inv;
 
-				f32 slack = radius * 0.5f / sqrtf(d00 > d11 ? d00 : d11);
+				/* Use a generous slack based on player radius vs triangle size.
+				 * The barycentric coords range [0,1], so slack = radius / avg_edge_length
+				 * gives us the right proportional tolerance. */
+				f32 avgEdge = sqrtf((d00 + d11) * 0.5f);
+				f32 slack = (avgEdge > 0.1f) ? (radius / avgEdge) : 0.1f;
+				if (slack < 0.05f) slack = 0.05f;
 				if (u < -slack || v < -slack || (u + v) > 1.0f + slack) continue;
 
 				/* Compute Y at this XZ on the triangle plane */
