@@ -203,10 +203,10 @@
 
 | # | Test | Expected Result | Status | Notes |
 |---|------|----------------|--------|-------|
-| 19 | Death loop — mod stage with no spawn pads | Load a mod stage with no INTROCMD_SPAWN. Player should spawn at a valid pad (room >= 0), not loop-die in void | [ ] |  |
-| 20 | Death loop — log check | Console log shows "SPAWN: no spawn pads available, using pad N fallback (room=X)" with room >= 0 | [ ] |  |
+| 19 | Death loop — mod stage with no spawn pads | Load a mod stage with no INTROCMD_SPAWN. Player should spawn at a valid pad (room >= 0), not loop-die in void | [x] | We removed modded maps for now and will re-add them when we have a conversion tool for existing mod maps, and level editor for our own custom ones, native. |
+| 20 | Death loop — log check | Console log shows "SPAWN: no spawn pads available, using pad N fallback (room=X)" with room >= 0 | [-] |  |
 | 21 | Font descenders at 800x600 | Letters q, y, p, g fully visible in all menus — no bottom clipping | [ ] |  |
 | 22 | Font descenders at 1080p | Same letters fully visible and proportionally sized at 1080p | [ ] |  |
-| 23 | Dashboard commit button | Click Commit — window stays responsive during git add + commit. Spinner/status shows "Committing...", then "Committed" | [ ] |  |
-| 24 | Dashboard commit freeze (push) | Check "Push to GitHub" — window still responsive during push operation | [ ] |  |
-| 25 | QC notes TextChanged | Type a note in any QC row — save to disk immediately (not on focus-leave). Verify by closing + reopening dashboard | [ ] |  |
+| 23 | Dashboard commit button | Click Commit — window stays responsive during git add + commit. Spinner/status shows "Committing...", then "Committed" | [-] | No commit button, decided against it. Still, committing seems to work when we build / push. |
+| 24 | Dashboard commit freeze (push) | Check "Push to GitHub" — window still responsive during push operation | [-] | We do not have a commit button, we opted not to. |
+| 25 | QC notes TextChanged | Type a note in any QC row — save to disk immediately (not on focus-leave). Verify by closing + reopening dashboard | [x] | QC Note, here it is. |

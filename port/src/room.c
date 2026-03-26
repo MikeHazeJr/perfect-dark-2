@@ -13,6 +13,7 @@
 #include "room.h"
 #include "system.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -192,8 +193,8 @@ static const char *s_RoomNoun[] = {
 
 void roomGenerateName(char *buf, s32 bufsize)
 {
-    extern u32 rngRandom(void);
-    u32 r = rngRandom();
+    /* Use stdlib rand -- rngRandom is game code, not available in server build */
+    u32 r = (u32)rand();
     s32 ai = r % ROOM_ADJ_COUNT;
     s32 ni = (r >> 8) % ROOM_NOUN_COUNT;
     snprintf(buf, bufsize, "%s %s", s_RoomAdj[ai], s_RoomNoun[ni]);
