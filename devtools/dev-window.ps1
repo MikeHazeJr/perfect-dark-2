@@ -1593,7 +1593,7 @@ function Start-PushRelease {
     $isStable = $script:ChkStable.Checked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        ("Release v" + $vs + " (" + $kind + ") to GitHub?`n`nThis packages client + server into one release, writes version to CMakeLists.txt, auto-commits, tags and pushes."),
+        ("Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub"),
         ($kind + " Release v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -1602,24 +1602,43 @@ function Start-PushRelease {
     $script:IsPushing = $true
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
     if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $false }
+
+    # Step 1: Set version in CMakeLists.txt
     Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Release v" + $vs + ": setting version..." }
+
+    # Step 2: Auto-commit the version change
     Auto-Commit | Out-Null
+
+    # Step 3: Build client + server, then release
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
+    $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
+    $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
     $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $script:BuildStepQueue.Clear()
     if ($null -ne $script:ProgressBack)     { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:BtnStop)          { $script:BtnStop.Visible       = $true }
-    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Releasing v" + $vs + " (" + $kind + ")..." }
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Release v" + $vs + ": building..." }
+    if ($null -ne $script:LblClientStatus)  { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
+    if ($null -ne $script:LblServerStatus)  { $script:LblServerStatus.Text = "server: pending..."; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
+
+    # Queue: build client, build server, then release script
+    foreach ($s in (Get-BuildSteps)) { [void]$script:BuildStepQueue.Add($s) }
+
+    # Append the release step after all build steps
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
-    $step = @{
+    [void]$script:BuildStepQueue.Add(@{
         Name   = $kind + " Release v" + $vs
         Exe    = $psExe
         Args   = "-ExecutionPolicy Bypass -NonInteractive -Command `"Set-Location '" + $script:ProjectRoot + "'; & '" + $releaseScript + "' -Version '" + $vs + "'" + $prerelArg + " *>&1`""
         Target = "client"
-    }
+    })
+
+    # Start the first build step (configure client)
     $script:IsBuilding = $true
-    Start-Build-Step $step
+    $first = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
+    Start-Build-Step $first
 }
 
 # ============================================================================

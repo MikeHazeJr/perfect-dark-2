@@ -340,11 +340,22 @@ s32 versionParseTag(const char *tag, char *prefixbuf, s32 prefixbufsize, pdversi
 {
 	if (!tag || !ver) return -1;
 
-	/* Find the "-v" separator */
+	/* Unified tag format: "v0.1.1" (starts with 'v', no prefix)
+	 * Legacy format: "client-v0.1.1" or "server-v0.1.1" (prefix before "-v")
+	 * Handle both. */
+
+	if (tag[0] == 'v') {
+		/* Unified format: no prefix, version starts at position 0 */
+		if (prefixbuf && prefixbufsize > 0) {
+			prefixbuf[0] = '\0';
+		}
+		return versionParse(tag, ver); /* versionParse skips the 'v' */
+	}
+
+	/* Legacy format: find the "-v" separator */
 	const char *vp = strstr(tag, "-v");
 	if (!vp) return -1;
 
-	/* Extract prefix */
 	if (prefixbuf) {
 		s32 plen = (s32)(vp - tag);
 		if (plen >= prefixbufsize) plen = prefixbufsize - 1;
@@ -352,8 +363,7 @@ s32 versionParseTag(const char *tag, char *prefixbuf, s32 prefixbufsize, pdversi
 		prefixbuf[plen] = '\0';
 	}
 
-	/* Parse version after "-v" */
-	return versionParse(vp + 1, ver);  /* +1 to skip the '-', versionParse skips 'v' */
+	return versionParse(vp + 1, ver);
 }
 
 /* ========================================================================
