@@ -101,7 +101,40 @@ GEOTYPE_TILE_I = 0, GEOTYPE_TILE_F = 1, GEOTYPE_BLOCK = 2, GEOTYPE_CYL = 3
 - **Player data**: playerGetBbox provides capsule dimensions
 - **Room system**: roomsCopy, bmoveFindEnteredRoomsByPos, func0f065e74 for room tracking
 
+## Mesh Collision System (Phase 1 -- S48, CODED)
+
+New files: `src/lib/meshcollision.c` + `src/include/lib/meshcollision.h`
+
+**Architecture**: two collision worlds running in parallel:
+- **Legacy** (`cdTestVolume`, `cdFindGroundInfoAtCyl`): stays active for damage/weapons
+- **Mesh** (`meshSweepCapsuleWorld`, `meshSweepCapsuleDynamic`): used for movement
+
+**Triangle extraction**: walks model node tree, finds DL nodes (type 0x18), parses GBI
+display lists (G_TRI1, G_TRI4) to extract vertex positions from Vtx arrays. Handles
+PC port vertex index convention (divide by 10). Auto-classifies triangles as floor/wall/ceiling.
+
+**Static world mesh**: all immovable geometry merged into one spatial grid (256-unit cells).
+Built at stage load after `bgBuildTables()`. Lifecycle: `meshWorldInit()` -> add meshes ->
+`meshWorldFinalize()` -> queries during gameplay -> `meshWorldShutdown()` on stage change.
+
+**Dynamic meshes**: per-prop triangle arrays for movable objects (doors, lifts, platforms).
+Transformed by prop's world matrix at query time. API stubbed, needs `colmesh*` field on prop.
+
+**Capsule-vs-triangle**: swept sphere approximation against triangle plane with barycentric
+inside test + radius tolerance. Returns earliest fraction [0..1] and contact normal.
+
+**Stage lifecycle hooks** (lv.c):
+- `meshWorldShutdown()` before `tilesReset()` (free previous stage)
+- `meshWorldInit()` + `meshWorldFinalize()` after `bgBuildTables()` (build new stage)
+
+**Status**: Phase 1 compiles (496 objects, zero errors). TODO:
+- Wire room geometry extraction into `meshWorldAddRoomGeo()` (read g_TileRooms data)
+- Extract static prop meshes at prop spawn and add to world grid
+- Add `colmesh*` field to prop struct for dynamic mesh attachment
+- Phase 2: replace `cdTestVolume` in capsuleSweep with `meshSweepCapsuleWorld`
+- Phase 3: integrate into bondwalk.c movement pipeline
+
 ## Planned Upgrades
 - Extend capsule sweep to **horizontal movement** (wall sliding, fast-move clipping)
-- Replace room-based brute-force iteration with **spatial partitioning** (see roadmap.md)
-- Full **capsule-vs-triangle** intersection for precise contact normals
+- BVH acceleration for very large levels (if grid becomes a bottleneck)
+- Convex decomposition for complex prop shapes

@@ -3,6 +3,68 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 48 -- 2026-03-25
+
+**Focus**: Dev Window overhaul, project cleanup, infrastructure hardening
+
+### What Was Done
+
+**Dev Window (dev-window.ps1)**:
+- Fixed UI thread hang: git status moved to background runspace, then to Activated event
+- NotesSaveTimer race condition fixed (no more dispose-in-tick)
+- Font caching in paint handlers (no per-frame allocation)
+- Tab background white strip eliminated (dark panel wrapper)
+- Auth label: clickable button, opens `gh auth login` if unauthenticated
+- GitHub + Folder buttons moved to main UI (bottom of Build tab)
+- Two font size settings (Button + Detail) with live refresh
+- Stable/Dev toggle checkbox for releases
+- Documentation tab (split pane: file list + content reader, 30/70 ratio)
+- Clean Build toggle button (beneath BUILD, wipes build dirs before configure)
+- Post-build copy list configurable via settings
+- Client/server status labels show exe existence on startup
+- Latest release label shows tag + dev/stable + color
+- Background runspaces now pass PATH for gh CLI access
+
+**Release pipeline (release.ps1)**:
+- All 7 PS7-only syntax violations fixed for PS5 compatibility
+- All em dashes replaced with ASCII
+- Unified release: single tag (v0.0.1) with both client + server attached
+- Auto-overwrite existing releases (delete + recreate with sound notification)
+- GIT_TERMINAL_PROMPT=0 in subprocess environment
+
+**Project cleanup**:
+- Deleted: 6 runbuild scripts, fix_endscreen, phase3 docs, context-recovery.skill, mods folder info, PROMPT.md, context.md (106KB monolithic), ROADMAP.md, pd-port-director-SKILL.md, CHANGES.md, old devtools (build-gui, playtest-dashboard, doc-reader + .bat launchers)
+- Deleted: 4.3GB of abandoned Claude Code worktrees
+- Created: UNRELEASED.md (player-facing changelog), dist/windows/icon.ico + icon.rc
+- Session log archived (S22-46 to sessions-22-46.md, active trimmed to 229 lines)
+- tasks-current.md cleaned (completed items removed)
+- COWORK_START.md rewritten as lean bootstrap pointer
+
+**Code fixes**:
+- fs.c: data directory search priority fixed (exe dir first, then cwd, then AppData)
+- romdata.c: creates data/ dir + README.txt when ROM missing, then opens correct folder
+- .build-settings.json: ROM path updated to new project location
+
+**Skill + context**:
+- game-port-director skill updated with Sections 8-9 (design principles, tool patterns)
+- Skill packaged as .skill for reinstallation
+- Context canonical location documented in CLAUDE.md
+- 6 memories saved (profile, event-driven, clean structure, no worktrees, ACK messages, no ambiguous intent)
+
+### Decisions Made
+- Event-driven over polling (standing principle)
+- Unified release tag (v0.0.1) replaces split client/server tags
+- context/ is canonical location, parent copies are convenience mirrors
+- No worktrees: all code changes in working copy
+
+### Bugs Noted
+- B-18: Pink sky on Skedar Ruins (possible texture/clear color issue)
+
+### Next Steps
+- Collision system rewrite (mesh-based, capsule for movement, original for damage)
+- S46b: Full asset catalog enumeration
+- Multiplayer playtest target: host server, friend connects, 30-bot match
+
 ---
 
 ## Session 47d — 2026-03-24

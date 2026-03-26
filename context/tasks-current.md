@@ -23,6 +23,7 @@
 | Bug | Severity | Status |
 |-----|----------|--------|
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing across all mod maps. |
+| B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Possible missing texture or clear color issue. Needs investigation. |
 
 ---
 
@@ -56,14 +57,16 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
-| 2 | **B-13 Part 2** | g_ModNum interim fix for GEX scale during catalog-based stage loading. |
-| 3 | **Pause Menu Fixes** | End Game overlay, Settings back-out, suppress OG Paused text. |
-| 4 | **Starting Weapon Option** | Toggle + weapon picker / random pool in match setup. |
-| 5 | **Spawn Scatter** | Distribute across map pads, face away from nearest wall. |
-| 6 | **BotController Architecture** | Wrapper around chr/aibot. Extension points for physics, combat, lifecycle. |
-| 7 | **Custom Post-Game Menu** | ImGui-based endscreen. Also fully resolves B-10. |
-| 8 | **D5: Settings/Graphics/QoL** | FOV slider, resolution, audio volumes. See [d5-settings-plan.md](d5-settings-plan.md). |
+| 1 | **Collision Rewrite (D2b+)** | Capsule for movement (walk/jump/land), original collision for damage/weapons. Mesh-polygon collision for all objects. |
+| 2 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
+| 3 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
+| 4 | **B-13 Part 2** | g_ModNum interim fix for GEX scale during catalog-based stage loading. |
+| 5 | **Pause Menu Fixes** | End Game overlay, Settings back-out, suppress OG Paused text. |
+| 6 | **Starting Weapon Option** | Toggle + weapon picker / random pool in match setup. |
+| 7 | **Spawn Scatter** | Distribute across map pads, face away from nearest wall. |
+| 8 | **BotController Architecture** | Wrapper around chr/aibot. Extension points for physics, combat, lifecycle. |
+| 9 | **Custom Post-Game Menu** | ImGui-based endscreen. Also fully resolves B-10. |
+| 10 | **D5: Settings/Graphics/QoL** | FOV slider, resolution, audio volumes. See [d5-settings-plan.md](d5-settings-plan.md). |
 
 ---
 

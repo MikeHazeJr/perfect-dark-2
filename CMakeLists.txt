@@ -350,6 +350,7 @@ set(SRC_LIB
   src/lib/base.c
   src/lib/capsule.c
   src/lib/collision.c
+  src/lib/meshcollision.c
   src/lib/debughud.c
   src/lib/dma.c
   src/lib/fault.c

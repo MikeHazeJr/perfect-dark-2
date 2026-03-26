@@ -266,6 +266,7 @@ struct g_vars {
 struct weaponobj;
 struct prop;
 struct explosion;
+struct colmesh;
 
 /**
  * Most, if not all, entity types (chrs, objs, weapons etc) have a pointer to a
@@ -313,6 +314,8 @@ struct prop {
 	/*0x40*/ struct wallhit *opawallhits; // opaque
 	/*0x44*/ struct wallhit *xluwallhits; // translucent
 	/*0x48*/ u32 syncid;
+	/* PC: mesh collision data for this prop (NULL if not extracted) */
+	struct colmesh *colmesh;
 };
 
 struct packedpad {

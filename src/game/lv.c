@@ -40,6 +40,7 @@
 #include "game/inv.h"
 #include "game/lang.h"
 #include "game/lv.h"
+#include "lib/meshcollision.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
@@ -353,11 +354,21 @@ void lvReset(s32 stagenum)
 		}
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
+		meshWorldShutdown(); /* free previous stage's collision mesh */
 		tilesReset();
 		bgReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");
 		bgBuildTables(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgBuildTables done");
+
+		/* Build the mesh collision world from stage geometry */
+		meshWorldInit();
+		for (i = 0; i < g_TileNumRooms; i++) {
+			meshWorldAddRoomGeo(i);
+		}
+		meshWorldFinalize();
+		sysLogPrintf(LOG_NOTE, "LOAD: meshWorldFinalize done");
+
 		skyReset(g_Vars.stagenum);
 
 		if (g_Vars.normmplayerisrunning) {

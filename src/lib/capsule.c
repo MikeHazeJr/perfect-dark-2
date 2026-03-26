@@ -19,6 +19,7 @@
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/capsule.h"
+#include "lib/meshcollision.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
@@ -53,6 +54,38 @@ f32 capsuleSweep(struct capsulecast *cast)
 	if (movelen2 < 0.001f) {
 		return 1.0f;
 	}
+
+	/* Try mesh-based collision first (if world mesh is built) */
+	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
+		f32 halfheight = (cast->ymax_offset - cast->ymin_offset) * 0.5f;
+		struct coord meshNormal, meshHitPos;
+		f32 meshFrac = meshSweepCapsuleWorld(&cast->start, &cast->move,
+			cast->radius, halfheight, &meshNormal, &meshHitPos);
+
+		if (meshFrac < 1.0f) {
+			cast->hitfrac = meshFrac;
+			cast->hitpos = meshHitPos;
+			cast->hitnormal = meshNormal;
+			cast->hitprop = NULL;
+			cast->hitgeoflags = 0;
+
+			/* Classify hit from normal */
+			if (meshNormal.y > 0.7f) {
+				cast->hittype = CAPSULE_HIT_FLOOR;
+				cast->hitgeoflags = GEOFLAG_FLOOR1;
+			} else if (meshNormal.y < -0.7f) {
+				cast->hittype = CAPSULE_HIT_CEILING;
+				cast->hitgeoflags = GEOFLAG_FLOOR2;
+			} else {
+				cast->hittype = CAPSULE_HIT_WALL;
+				cast->hitgeoflags = GEOFLAG_WALL;
+			}
+
+			return meshFrac;
+		}
+	}
+
+	/* Fall back to legacy stepped cdTestVolume sweep */
 
 	/* Disable own perim so we don't collide with ourselves */
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
