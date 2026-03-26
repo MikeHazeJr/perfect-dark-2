@@ -1,9 +1,9 @@
 ﻿{
-    "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302066026",
-    "assets_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302066026/assets",
-    "upload_url":  "https://uploads.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302066026/assets{?name,label}",
-    "html_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/v0.0.9",
-    "id":  302066026,
+    "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302067940",
+    "assets_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302067940/assets",
+    "upload_url":  "https://uploads.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302067940/assets{?name,label}",
+    "html_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/v0.1.0",
+    "id":  302067940,
     "author":  {
                    "login":  "MikeHazeJr",
                    "id":  7763200,
@@ -25,22 +25,22 @@
                    "user_view_type":  "public",
                    "site_admin":  false
                },
-    "node_id":  "RE_kwDORp4h_84SASlq",
-    "tag_name":  "v0.0.9",
+    "node_id":  "RE_kwDORp4h_84SATDk",
+    "tag_name":  "v0.1.0",
     "target_commitish":  "main",
-    "name":  "Perfect Dark 2 v0.0.9 (Stable)",
+    "name":  "Perfect Dark 2 v0.1.0 (Stable)",
     "draft":  false,
     "immutable":  false,
     "prerelease":  false,
-    "created_at":  "2026-03-26T19:39:27Z",
-    "updated_at":  "2026-03-26T19:39:38Z",
-    "published_at":  "2026-03-26T19:39:38Z",
+    "created_at":  "2026-03-26T19:29:57Z",
+    "updated_at":  "2026-03-26T19:44:34Z",
+    "published_at":  "2026-03-26T19:44:34Z",
     "assets":  [
                    {
-                       "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/assets/382343636",
-                       "id":  382343636,
-                       "node_id":  "RA_kwDORp4h_84WyhnU",
-                       "name":  "PerfectDark-v0.0.9-win64.zip",
+                       "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/assets/382346098",
+                       "id":  382346098,
+                       "node_id":  "RA_kwDORp4h_84WyiNy",
+                       "name":  "PerfectDark-v0.1.0-win64.zip",
                        "label":  "",
                        "uploader":  {
                                         "login":  "MikeHazeJr",
@@ -65,15 +65,15 @@
                                     },
                        "content_type":  "application/zip",
                        "state":  "uploaded",
-                       "size":  24942716,
-                       "digest":  "sha256:8dcdaa4866b8dfec8806b03279e06c1c4f8da5d3a39cd5162a2bb8b47a7d5daa",
+                       "size":  24942731,
+                       "digest":  "sha256:d7f3ace8fcafe29095fd410d476d2409d3db6e747d68a5a51764dd0a76b211cb",
                        "download_count":  0,
-                       "created_at":  "2026-03-26T19:39:31Z",
-                       "updated_at":  "2026-03-26T19:39:38Z",
-                       "browser_download_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/download/v0.0.9/PerfectDark-v0.0.9-win64.zip"
+                       "created_at":  "2026-03-26T19:44:27Z",
+                       "updated_at":  "2026-03-26T19:44:34Z",
+                       "browser_download_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/download/v0.1.0/PerfectDark-v0.1.0-win64.zip"
                    }
                ],
-    "tarball_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/tarball/v0.0.9",
-    "zipball_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/zipball/v0.0.9",
+    "tarball_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/tarball/v0.1.0",
+    "zipball_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/zipball/v0.1.0",
     "body":  "# Unreleased Changes\n\n\u003e Player-facing changelog for the next release. Written in plain language.\n\u003e When a stable release is pushed, this content becomes the release notes body,\n\u003e then this file is cleared for the next cycle.\n\n## New Features\n\n- Mesh-based collision system: real polygon collision for player movement instead of simplified bounding boxes\n- Component-based mod system with per-asset folders and INI manifests\n- Modding Hub with Mod Manager, INI Editor, and Model Scale Tool\n- Bot Customizer with trait editing and save-as-preset in match setup\n- Network mod distribution (PDCA archives, zlib chunks, download prompt)\n- Mod Pack export/import (PDPK format with compression)\n- Dynamic participant system replacing fixed chrslots bitmask\n- Dynamic stage table with heap allocation and bounds-checked accessors\n- Server Platform Foundation: hub lifecycle, room system, player identity\n- Phonetic connect codes (shorter than word-based codes)\n- Asset Catalog with 11 asset types and string-keyed lookups\n\n## Improvements\n\n- Pause menu: START double-fire fix, B button navigation\n- 31-bot support (up from 8 on N64)\n- Full 63+ character roster available in multiplayer\n- Logging always on (no --log flag needed)\n- Stage index domain separation prevents out-of-bounds crashes on mod stages\n- Game now looks for data folder next to the executable first, not in AppData\n- Missing ROM dialog creates the data folder and a readme explaining what\u0027s needed\n- Missing ROM dialog opens the correct folder in Explorer\n- Visual effects system: new ASSET_EFFECT type in Asset Catalog for moddable shader effects\n- Collision debug visualization (F9) logs mesh stats\n- Live console overlay (backtick key) with color-coded log output\n- Ceiling proximity jump damping: jumps naturally weaken near ceilings instead of abrupt head-bonking\n- Pre-jump arc sweep: upward sphere cast predicts collisions and clamps jump height\n- Unified release system: client + server ship together in one package\n- Menu state manager: stack-based navigation with input cooldown prevents double-press issues\n- Player stats tracking: kills, deaths, shots, matches persisted to playerstats.json\n- Join by Code screen: phonetic code input decodes to IP:port for server connection\n- Lobby screen shows hub room list with state colors and player counts\n\n## Bug Fixes\n\n- B-17: Mod stages loading wrong maps (catalog smart redirect)\n- B-14: START button opening and immediately closing pause menu\n- B-16: B button not working for menu navigation\n- CI corruption at boot and after MP return\n- Fixed data directory search order (exe dir first, then working dir, then AppData)\n- Fixed post-build data copy not running (was blocked by server target guard)\n- Fixed release script PS5 compatibility (7 syntax fixes)\n- Fixed release script hanging on duplicate tags (auto-overwrite with notification)\n- B-20: Fixed crash on Mission 1 objective completion (NULL modeldef guard in modelmgr)\n- Asset loading failure logging at all critical load points (fileLoadToNew, modeldef, body, tiles, pads, lang)\n\n## Technical\n\n- Legacy g_ModNum system fully removed\n- modconfig.txt parsing removed (mods require mod.json)\n- Shadow asset arrays removed (catalog-backed caches only)\n- fileSlots 2D array flattened to single dimension\n- Protocol version 21 (chrslots u64 in SVC_STAGE_START)\n- EXE icon embedded via dist/windows/icon.rc\n- CMakeLists.txt: fixed missing endif() for WIN32 DLL copy block\n"
 }
