@@ -122,6 +122,8 @@ $script:LastOutputTime     = [DateTime]::Now
 $script:OutputQueue        = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:CurrentStepName    = ""
 
+$script:BuildVersion       = $null
+
 $script:GameProcess        = $null
 $script:ServerProcess      = $null
 $script:GitChangeCount     = 0
@@ -576,31 +578,6 @@ $script:BtnStop.Visible   = $false
 $script:BtnStop.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:StatusPanel.Controls.Add($script:BtnStop)
 
-# Clean Build toggle -- implemented as a flat button that toggles state (checkbox rendering is broken in dark WinForms)
-$script:CleanBuildActive = $false
-$script:BtnCleanBuild = New-Object System.Windows.Forms.Button
-$script:BtnCleanBuild.Text = "CLEAN BUILD: OFF"
-$script:BtnCleanBuild.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorBorder
-$script:BtnCleanBuild.FlatAppearance.BorderSize = 1
-$script:BtnCleanBuild.ForeColor = $script:ColorTextDim
-$script:BtnCleanBuild.BackColor = $script:ColorBgAlt
-$script:BtnCleanBuild.Font = New-UIFont 9
-$script:BtnCleanBuild.Cursor = [System.Windows.Forms.Cursors]::Hand
-$script:BtnCleanBuild.Add_Click({
-    $script:CleanBuildActive = -not $script:CleanBuildActive
-    if ($script:CleanBuildActive) {
-        $script:BtnCleanBuild.Text = "CLEAN BUILD: ON"
-        $script:BtnCleanBuild.ForeColor = $script:ColorGold
-        $script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorGold
-    } else {
-        $script:BtnCleanBuild.Text = "CLEAN BUILD: OFF"
-        $script:BtnCleanBuild.ForeColor = $script:ColorTextDim
-        $script:BtnCleanBuild.FlatAppearance.BorderColor = $script:ColorBorder
-    }
-})
-# Placed in HeroPanel, positioned by resize handler beneath Build button
-$script:HeroPanel.Controls.Add($script:BtnCleanBuild)
 
 $script:BtnCopyErrors = New-Object System.Windows.Forms.Button
 $script:BtnCopyErrors.Text      = "Copy Errors"
@@ -1438,12 +1415,13 @@ function Start-Build-Step($step) {
     }
 }
 
-function Get-BuildSteps {
+function Get-BuildSteps($ver) {
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
+    $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
-    [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`""})
+    [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     [void]$steps.Add(@{Name="Build (client)";     Exe=$script:CMake; Target="client"; Args="--build `"" + $script:ClientBuildDir + "`" --target pd -- -j" + $cores + " -k"})
-    [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`""})
+    [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     [void]$steps.Add(@{Name="Build (server)";     Exe=$script:CMake; Target="server"; Args="--build `"" + $script:ServerBuildDir + "`" --target pd-server -- -j" + $cores + " -k"})
     return $steps
 }
@@ -1464,15 +1442,15 @@ function Start-Build {
     if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $false }
     if ($null -ne $script:ProgressBack)  { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:ProgressFill)  { $script:ProgressFill.BackColor = $script:ColorProgress }
-    # Clean build: wipe build directories before configure
-    if ($script:CleanBuildActive) {
-        if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Cleaning build directories..." }
-        try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
-        try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
-    }
+    # Always clean: wipe build directories before configure
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Cleaning build directories..." }
+    try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    # Read version from UI boxes -- single source of truth for this build
+    $script:BuildVersion = Get-UiVersion
     Auto-Commit | Out-Null
     $script:BuildStepQueue.Clear()
-    foreach ($s in (Get-BuildSteps)) { [void]$script:BuildStepQueue.Add($s) }
+    foreach ($s in (Get-BuildSteps $script:BuildVersion)) { [void]$script:BuildStepQueue.Add($s) }
     $first = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
     Start-Build-Step $first
 }
@@ -1557,7 +1535,13 @@ $script:BuildTimer.Add_Tick({
                 Start-Build-Step $next; $script:BuildTimer.Start()
             } else {
                 $anyErr = $script:HasBuildErrors -or ($script:ClientBuildResult -eq "FAILED") -or ($script:ServerBuildResult -eq "FAILED")
-                if (-not $anyErr) { Play-SuccessSound; Copy-AddinFiles } else { Play-FailureSound }
+                if (-not $anyErr) {
+                    Play-SuccessSound; Copy-AddinFiles
+                    # Update CMakeLists.txt to match the version that was built
+                    if ($null -ne $script:BuildVersion) {
+                        Set-ProjectVersion $script:BuildVersion.Major $script:BuildVersion.Minor $script:BuildVersion.Patch
+                    }
+                } else { Play-FailureSound }
                 if ($null -ne $script:ProgressFill) {
                     $script:ProgressFill.BackColor = $(if ($anyErr) { $script:ColorRed } else { $script:ColorGreen })
                     if ($null -ne $script:ProgressBack) { $script:ProgressFill.Size = New-Object System.Drawing.Size($script:ProgressBack.Width, 18) }
@@ -1622,8 +1606,13 @@ function Start-PushRelease {
     if ($null -ne $script:LblClientStatus)  { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
     if ($null -ne $script:LblServerStatus)  { $script:LblServerStatus.Text = "server: pending..."; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
 
+    # Always clean before release build
+    try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    $script:BuildVersion = $ver
+
     # Queue: build client, build server, then release script
-    foreach ($s in (Get-BuildSteps)) { [void]$script:BuildStepQueue.Add($s) }
+    foreach ($s in (Get-BuildSteps $ver)) { [void]$script:BuildStepQueue.Add($s) }
 
     # Append the release step after all build steps
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
@@ -1830,14 +1819,10 @@ function Invoke-FormResize {
         }
         $btnW = [math]::Floor($heroW * 0.48)
         $gap  = $heroW - ($btnW * 2)
-        $cleanH = 28
-        $buildH = $heroH - $cleanH - 4
-        # Build button (left, above clean build)
-        if ($null -ne $script:BtnBuild)      { $script:BtnBuild.Location      = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $buildH) }
-        # Clean Build toggle (left, beneath build button)
-        if ($null -ne $script:BtnCleanBuild) { $script:BtnCleanBuild.Location = New-Object System.Drawing.Point(0, ($buildH + 4)); $script:BtnCleanBuild.Size = New-Object System.Drawing.Size($btnW, $cleanH) }
+        # Build button (left, full height -- always-clean, no toggle beneath)
+        if ($null -ne $script:BtnBuild)   { $script:BtnBuild.Location   = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $heroH) }
         # Release button (right, full height)
-        if ($null -ne $script:BtnRelease)    { $script:BtnRelease.Location    = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnRelease.Size = New-Object System.Drawing.Size($btnW, $heroH) }
+        if ($null -ne $script:BtnRelease) { $script:BtnRelease.Location = New-Object System.Drawing.Point(($btnW + $gap), 0); $script:BtnRelease.Size = New-Object System.Drawing.Size($btnW, $heroH) }
         # Status area
         $statusY = $heroH + ($pad * 2)
         $statusH = $th - $statusY - $linkH - ($pad * 2)

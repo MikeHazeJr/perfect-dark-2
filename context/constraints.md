@@ -24,6 +24,8 @@ These are things we must still respect:
 - **ENet statically linked**: Along with SDL2, zlib, and libcurl.
 - **60 Hz tick rate**: Game logic runs at 60 ticks per second. Network sync frequencies are multiples of this.
 - **Name-based asset resolution only**: All asset references must use string IDs resolved through the Asset Catalog. No numeric ROM addresses, table indices, or array offsets for asset identity. The catalog returns runtime indices internally, but no code outside the catalog may hardcode or assume those indices. See [component-mod-architecture.md](component-mod-architecture.md) §5. Added Session 27.
+- **No raw IP in any UI surface**: Players join via 4-word sentence connect codes only. No UI element may display or accept a raw IP address. Connect codes are the sole mechanism for sharing/entering server addresses. The IP is resolved internally and never shown. `g_NetLastJoinAddr` and `g_NetRecentServers` store raw IPs internally — must never be exposed in UI. Future server history must encode stored IPs back to connect codes for display. Added Session 49.
+- **Connect code byte order**: `connectCodeEncode()/connectCodeDecode()` use host byte order (little-endian on Windows), NOT network byte order despite the header comment. Both sides use the same convention so round-trips are consistent. Do not apply `htonl()` before passing to these functions. Added Session 49.
 
 ---
 

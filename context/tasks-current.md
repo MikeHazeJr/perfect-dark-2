@@ -12,7 +12,8 @@
 |------|--------|
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
-| **SPF-1**: Hub lifecycle, room system, identity, phonetic encoding (S47d) | Run `.\devtools\build-headless.ps1 -Target server` |
+| **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
+| **Player Stats** (playerstats.c): String-keyed counters, JSON persistence (S49) | Needs client build test. `port/src/playerstats.c` |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
 | **MEM-1**: Asset load state fields in asset_entry_t (S47a) | Needs full cmake pass |
 | **B-13**: Prop scale fix -- modelGetEffectiveScale (S26) | Needs build test |
@@ -29,6 +30,9 @@
 | B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | Investigated: mod stages lack INTROCMD_SPAWN entries in setup file. Fallback picks pad 0. Needs g_SpawnPoints population from arena pad data. |
 | B-20 Mission 1 objective crash | HIGH | **FIXED (S48)** -- NULL modeldef guard added in modelmgrInstantiateModel. Root cause: objective completion spawns chr whose body filenum fails to load. |
 | B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
+| B-24 Connect code byte-order reversal | CRITICAL | **FIXED (S49)** -- `pdgui_menu_mainmenu.cpp` byte extraction corrected (MSB→LSB order). |
+| B-25 Server max clients = 8 | MEDIUM | **FIXED (S49)** -- `NET_MAX_CLIENTS` decoupled from `MAX_PLAYERS`, now 32. |
+| B-26 Player name shows "Player1" | HIGH | **FIXED (S49)** -- `netClientReadConfig()` falls back to identity profile name. |
 
 ---
 
@@ -50,6 +54,20 @@
 | Phase 2: Callsite migration | DONE (S47b) -- build pass |
 | Phase 3: Remove chrslots + protocol v22 | READY -- depends on Phase 2 QC |
 
+### Join Flow (J-series) — Next Steps
+
+| Phase | Task | Details |
+|-------|------|---------|
+| J-1 | **Verify end-to-end join** | Build server target, start server, enter code in client, verify CLSTATE_LOBBY + match start. |
+| J-2 | **Server GUI connect code** | Add connect code display + Copy button to server_gui.cpp Server tab. |
+| J-3 | **SVC_ROOM_LIST protocol** | Broadcast room state from server to clients so lobby UI shows real room data. |
+| J-4 | **Server history UI** | Populate Recent Servers section. Display connect codes (re-encode), not raw IPs. |
+| J-5 | **Lobby handoff polish** | Verify main menu → lobby overlay transition. Progress indicator during CONNECTING/AUTH. |
+
+See [join-flow-plan.md](join-flow-plan.md) for full audit.
+
+---
+
 ### Asset Catalog Expansion
 
 | Task | Status |
@@ -62,7 +80,9 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **Menu Replacement Group 1** | Solo mission flow (11 menus). See [menu-replacement-plan.md](context/menu-replacement-plan.md). |
+| 1 | **J-1: Verify end-to-end join** | Build server target + end-to-end test. See join-flow-plan.md. |
+| 2 | **J-2: Server GUI connect code** | Add code display to server_gui.cpp. |
+| 3 | **Menu Replacement Group 1** | Solo mission flow (11 menus). See [menu-replacement-plan.md](context/menu-replacement-plan.md). |
 | 2 | **Catalog Phase C-1/C-2** | ROM hash + base game catalog population. See [catalog-loading-plan.md](context/catalog-loading-plan.md). |
 | 3 | **Catalog Phase C-4** | Intercept fileLoadToNew — catalog resolve before ROM load. Critical gateway. |
 | 4 | **Menu Replacement Group 2** | End screens (13 menus). |
@@ -93,5 +113,7 @@
 
 - Systemic bug audit: SP-1 remaining files (activemenu.c, player.c, endscreen.c, menu.c)
 - S46b: Full asset catalog enumeration
-- Update tab UX: version selection + version policy design
+- ~~Update tab UX: button sizing~~ **DONE S49** -- CalcTextSize-based buttons, per-row Download/Rollback, staged release "Switch" support. Version policy design still pending.
+- ~~Version baking~~ **DONE S49** -- always-clean builds, version from UI boxes, -DVERSION_SEM_* flags injected every build
+- **Network benchmark → dynamic player cap**: Measure bandwidth/latency at server start, call `hubSetMaxSlots()` to lower `g_NetMaxClients` below 32. Do not hardcode player counts.
 - TODO-1: SDL2/zlib still DLL (low priority)

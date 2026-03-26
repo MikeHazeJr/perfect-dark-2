@@ -161,22 +161,27 @@ Connect codes serve a dual purpose — convenience AND security:
 ### 3.2 User Flow
 
 **Hosting:**
-1. Player starts a server (dedicated or client-hosted)
-2. Server generates phonetic code from its public IP:port
-3. Code displayed prominently on the lobby screen
-4. Player shares code with friends (text, voice, etc.)
+1. Server starts (dedicated process)
+2. Server generates sentence connect code from public IP (UPnP first, HTTP fallback)
+3. Code displayed in lobby screen (large, with Copy button) and in server log
+4. Server operator shares code with players (text, voice, Discord, etc.)
 
 **Joining:**
-1. Player opens "Join Server" screen
-2. Types the phonetic code (or direct IP)
-3. Code decoded to IP:port, ENet connect initiated
-4. On success, player enters the server hub
+1. Player opens "Online Play" from main menu (view 4)
+2. Enters 4-word sentence code in text field — ONLY accepted input (no raw IP)
+3. `connectCodeDecode()` validates → resolves IP internally
+4. `netStartClient(ip:port)` → ENet connect → CLC_AUTH → CLSTATE_LOBBY
+5. Lobby UI appears with player list, room list, game mode buttons
 
-### 3.3 Remaining Work
-- Display phonetic code on lobby screen (large, copyable)
-- "Join by Code" input field on join screen
-- Wire decode -> ENet connect path
-- NAT traversal consideration (future: STUN/relay for players behind NAT)
+### 3.3 Remaining Work (S49 audit)
+- ✅ Sentence codes: DONE (connectcode.c)
+- ✅ Lobby screen code display + Copy button: DONE (pdgui_menu_lobby.cpp)
+- ✅ Join screen with sentence code input: DONE (pdgui_menu_mainmenu.cpp view 4)
+- ✅ Decode → ENet connect path: DONE (netStartClient)
+- ⬜ Server GUI connect code display — J-2 (server_gui.cpp)
+- ⬜ SVC_ROOM_LIST — clients need server-authoritative room list — J-3
+- ⬜ Server history UI — J-4 (display codes, not raw IPs)
+- ⬜ NAT traversal — future (STUN/relay for NAT-blocked players)
 
 ---
 

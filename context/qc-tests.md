@@ -3,6 +3,22 @@
 > Items for in-game verification. Check off as tested. Add new items after each build.
 > Back to [index](README.md)
 
+## SPF-3 — Lobby Hub Rooms + Join by Code (S49)
+**Added:** 2026-03-26  **Build:** commit `3b588c1` (dev)
+
+| # | Test | Expected | Status |
+|---|------|----------|--------|
+| 1 | Launch client, connect to server, open Lobby screen | Lobby shows hub state (Lounge/Active) + room list with color-coded states and player counts | [ ] |
+| 2 | Server running a match: client opens Lobby | Room 0 shows "Match" state (blue), player count > 0 | [ ] |
+| 3 | Server in lobby (no match): client opens Lobby | Room 0 shows "Lobby" state (green) | [ ] |
+| 4 | Lobby shows phonetic code | Code displayed in sentence format when hosting ("fat vampire running to the park") | [ ] |
+| 5 | Main menu → Play → "Join by Code" | Menu view 4 appears with text input for phonetic or IP code | [ ] |
+| 6 | Enter a valid sentence code in Join by Code | Decoded IP:port shown; connect button becomes active | [ ] |
+| 7 | Enter direct IP:port in Join by Code | Accepted as-is; phonetic decode fails gracefully and falls back to IP:port | [ ] |
+| 8 | Press Back from Join by Code screen | Returns to Play submenu (menu manager pop) | [ ] |
+
+---
+
 ## SPF-1 — Server Platform Foundation (hub/room/identity/phonetic)
 **Added:** 2026-03-24  **Build:** commit `fb5450b` (dev)
 

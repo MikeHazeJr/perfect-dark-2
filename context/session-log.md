@@ -3,6 +3,200 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 49 -- 2026-03-26
+
+**Focus**: Bug fixes — version baking and Quit Game clipping
+
+### What Was Done
+
+**B-22 FIXED — Version not baking into exe (third report)**:
+- Root cause: `Get-BuildSteps` in `devtools/dev-window.ps1` built cmake configure args with no `-DVERSION_SEM_*` flags
+- CMake used the cached value from a previous run (0.0.7), or after clean build, the hardcoded default `set(VERSION_SEM_PATCH 7 CACHE STRING ...)` in CMakeLists.txt
+- Fix: added `Get-UiVersion` call inside `Get-BuildSteps`, appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to both Configure (client) and Configure (server) steps
+- Clean Build toggle was already working correctly (deletes build dirs). Version fix works regardless — the -D flags override cache on every configure
+
+**B-23 FIXED — Quit Game button clipped on right edge**:
+- Root cause: fixed `quitBtnW = 100 * scale` placed button's right edge exactly at the ImGui content clip boundary (no margin). "Confirm Quit" text also wider than the fixed 100px.
+- Fix in `port/fast3d/pdgui_menu_mainmenu.cpp`: width now `CalcTextSize("Confirm Quit").x + FramePadding*2`, position now `dialogW - WindowPadding.x - quitBtnW - 4*scale` margin. Cancel button cursor updated to use new local `cursorX/cursorY`.
+
+### Decisions Made
+- Version boxes in the Dev Window are the single source of truth for ALL builds, not just releases. `Get-BuildSteps` is the authoritative cmake path — version flags go there.
+
+### Next Steps
+- (unchanged from S48)
+- SPF-2b: verify SPF-1 server build
+- SPF-3a: lobby ImGui screen
+- Wire remaining menus through menu manager
+- Collision Phase 2 design (HIGH PRIORITY)
+
+---
+
+## Session 49b — 2026-03-26
+
+**Focus**: SPF-3 lobby+join, catalog audit, plan docs, stats, connect codes, IP fallback, updater
+
+### What Was Done
+
+**SPF-2a Build Pass**: menumgr.h was missing `extern "C"` guards → undefined reference errors in C++ TUs. Fix applied (`5e55e62`). SPF-2a (menumgr.c/h, 100ms cooldown) now builds.
+
+**Release Pipeline**: `-Nightly` flag added to release.ps1: nightly builds use `nightly-YYYY-MM-DD` tag. Fixed post-batch-addin path (Split-Path parent traversal).
+
+**SPF-3 — Lobby + Join by Code** (commit `3b588c1`): `pdgui_menu_lobby.cpp` integrated hub.h/room.h — lobby shows server state, room list with color-coded states and player counts. `pdgui_menu_mainmenu.cpp`: new menu view 4 "Join by Code" with phonetic code input + decode via `phoneticDecode()` (falls back to direct IP). Wired through menu manager (MENU_JOIN push/pop).
+
+**Asset Catalog Audit Phase 1** (commit `3b588c1`): Failure logging at all critical asset load points: `fileLoadToNew`, `modeldefLoad`, `bodyLoad`, `tilesReset`, setup pad loading, lang bank loading.
+
+**New Plan Documents** (commit `636b404`): `context/catalog-loading-plan.md` (C-1–C-9 phases). `context/menu-replacement-plan.md` (240 legacy menus → 9 ImGui groups, Group 1 highest priority).
+
+**Player Stats System**: New `port/include/playerstats.h` + `port/src/playerstats.c`. `statIncrement(key, amount)` — named counter system, JSON persistence.
+
+**Connect Code System Rewrite**: Sentence-based codes ("fat vampire running to the park") replace phonetic syllables as primary connect method. 256 words per slot × 4 slots = 32-bit IPv4.
+
+**HTTP Public IP Fallback**: `netGetPublicIP()` tries UPnP first, then `curl` → `api.ipify.org`. Result cached after first success.
+
+**Updater Unified Tag Format**: `versionParseTag()` now handles `"v0.1.1"` (unified) in addition to `"client-v0.1.1"` (legacy).
+
+### Decisions Made
+- Sentence-based connect codes are primary (phonetic module remains for lobby display)
+- Menu replacement: Group 1 (Solo Mission Flow, 11 menus) first
+- Stats: named counters (not fixed schema) for forward compatibility
+
+### Next Steps
+- SPF-3 playtest: lobby rooms, join-by-code
+- Catalog Phase C-1/C-2; Menu Replacement Group 1
+
+---
+
+## Session 49c — 2026-03-26
+
+**Focus**: Join flow audit, S49 architecture documentation, context hardening
+
+### What Was Done
+
+**Context audit — S49 architectural decisions captured**: Sentence-based connect codes, menu replacement plan, rooms + slot allocation, asset catalog as single source of truth (C-1–C-9 phases), campaign as co-op, player stats, HTTP IP fallback, updater unified tag format.
+
+**Join flow audit — `context/join-flow-plan.md` created**: Full end-to-end flow mapped: code input → decode → netStartClient → ENet → CLC_AUTH → SVC_AUTH_OK → CLSTATE_LOBBY → lobby UI → netLobbyRequestStart → match. Gaps found: room state not synced to clients (SVC_ROOM_LIST needed), server GUI missing connect code display, recent server history stubbed.
+
+**Plan: J-1 verify end-to-end, J-2 server GUI code display, J-3 SVC_ROOM_LIST protocol, J-4 server history UI, J-5 lobby handoff polish.**
+
+Context files updated: networking.md (protocol v21, HTTP IP fallback), update-system.md (unified tag format), constraints.md (no raw IP in UI), infrastructure.md, tasks-current.md.
+
+### Decisions Made
+- Recent server history MUST encode IPs to codes, not store raw IP
+- Server GUI should display connect code (currently only in logs)
+
+### Next Steps
+- J-1: Build server target, verify end-to-end join → match flow
+- J-2: Add connect code display to server_gui.cpp
+
+---
+
+## Session 49d — 2026-03-26
+
+**Focus**: Cross-machine multiplayer bug fixes (3 regressions from real playtest)
+
+### What Was Done
+
+**B-24 (was B-22) — Connect code byte-order reversal (CRITICAL, FIXED)**: `pdgui_menu_mainmenu.cpp` extracted bytes MSB-first `(ip>>24, ip>>16, ip>>8, ip)` while encoder + all other decode callers use LSB-first `(ip, ip>>8, ip>>16, ip>>24)`. Fix: 3-line change to LSB-first extraction.
+
+**B-25 (was B-23) — Server max clients hardcoded to 8 (FIXED)**: `NET_MAX_CLIENTS` was `MAX_PLAYERS` (=8). Fixed: `NET_MAX_CLIENTS 32` in `net.h`, independent of `MAX_PLAYERS`. `PDGUI_NET_MAX_CLIENTS 32` in debug menu.
+
+**B-26 (was B-24) — Player name shows "Player1" (FIXED)**: `netClientReadConfig()` reads from legacy N64 save field; empty on fresh PC client. Fix: identity profile fallback in `netClientReadConfig()` — copies from `identityGetActiveProfile()->name` when legacy name is empty.
+
+### Decisions Made
+- `NET_MAX_CLIENTS` = 32, decoupled from `MAX_PLAYERS` = 8. Server accepts 32 connections; match caps at 8 active slots.
+- Identity profile is the authoritative source of local player display name. Legacy g_PlayerConfigsArray is fallback only.
+
+---
+
+## Session 49e — 2026-03-26
+
+**Focus**: Version system full audit + fix
+
+### What Was Done
+
+**Root cause found**: CMake's `CACHE` variable behavior — when `CMakeCache.txt` exists, `set(VERSION_SEM_PATCH N CACHE STRING ...)` is silently ignored. `Set-ProjectVersion` edited CMakeLists.txt correctly but cmake configure didn't override the stale cache.
+
+**Fixes**: `Get-BuildSteps` accepts `$ver` param, appends `-DVERSION_SEM_MAJOR/MINOR/PATCH` flags to BOTH configure steps. `Start-PushRelease` passes `$ver` to `Get-BuildSteps`. `port/src/video.c:91`: replaced hardcoded `"Perfect Dark 2.0 - Client (v0.0.2)"` with `"Perfect Dark 2.0 - v" VERSION_STRING`.
+
+**`context/build.md`**: Added full Version System section documenting the CACHE pitfall and fix.
+
+### Decisions Made
+- (Note: later superseded by S49i — ALL builds now use version flags, not just releases)
+
+---
+
+## Session 49f — 2026-03-26
+
+**Focus**: Updater UI — banner fix, per-row actions, server update mechanism
+
+### What Was Done
+
+**Client update banner (`pdgui_menu_update.cpp`)**: Replaced `SmallButton` with `Button` sized via `pdguiScale`; right-aligned via `SameLine(GetContentRegionMax().x - totalW)`. Added `s_DownloadingIndex` + `s_StagedReleaseIndex` state for per-release tracking.
+
+**Settings > Updates tab**: 5-column table (added Action column). Per-row buttons: Download, Switch (staged), % (in-progress). Error message moved below table. Table shown during active download.
+
+**Server update mechanism**: `server_main.c` added `updaterTick()` per frame, logs update availability. `server_gui.cpp`: "Updates (*)" tab with per-row Download/Switch buttons, progress display, Restart & Update button.
+
+### Decisions Made
+- `SameLine(GetContentRegionMax().x - totalW)` is the canonical ImGui right-align pattern
+- Server headless update path: log URL + manual restart
+
+---
+
+## Session 49g — 2026-03-26
+
+**Focus**: F8 hotswap hint removal
+
+### What Was Done
+- Removed deprecated F8 footer hint ("F8: toggle OLD/NEW") from `pdgui_menu_mainmenu.cpp` (footer block at bottom of `renderMainMenu`).
+
+---
+
+## Session 49h — 2026-03-26
+
+**Focus**: Update tab button sizing audit
+
+### What Was Done
+
+**`pdgui_menu_update.cpp` button sizing overhaul**:
+- `renderNotificationBanner`: `CalcTextSize()`-based widths for "Update Now", "Details", "Dismiss". Explicit `btnH = GetFontSize() + FramePadding.y * 2` — descender-safe.
+- `renderVersionPickerContent`: `CalcTextSize("Check Now")` for "Check Now" button. Action column width from `CalcTextSize("Download")`.
+- `TableSetupScrollFreeze(0, 1)` — header stays visible on scroll. Column widths use `pdguiScale()`. `ImGuiSelectableFlags_AllowOverlap` so per-row buttons receive input.
+- Removed below-table "Download & Install" button (was off-screen, invisible).
+- Download = green, Rollback = amber styling.
+
+### Decisions Made
+- Action buttons live in table rows (always visible), not below table (was off-screen)
+- `AllowOverlap` is the correct pattern for interactive items in `SpanAllColumns` rows
+
+---
+
+## Session 49i — 2026-03-26
+
+**Focus**: Build pipeline overhaul — always-clean, version baking on every build
+
+### What Was Done
+
+**`devtools/dev-window.ps1` overhaul**:
+- **Always-clean builds**: `Start-Build` unconditionally deletes `build/client` + `build/server` before every build. No stale CMakeCache possible.
+- **Version from UI on every build**: `Start-Build` reads `Get-UiVersion` → `$script:BuildVersion`, passes to `Get-BuildSteps $script:BuildVersion`. Version boxes are single source of truth.
+- **Get-BuildSteps**: Accepts `$ver` parameter, injects `-DVERSION_SEM_MAJOR/MINOR/PATCH` flags into BOTH configure steps.
+- **CMakeLists.txt updated after build**: On successful completion, `Set-ProjectVersion` called from `$script:BuildVersion` — file always reflects what was actually built.
+- **`Start-PushRelease` updated**: Also cleans before queuing, sets `$script:BuildVersion = $ver`, passes to `Get-BuildSteps`.
+- **Removed**: `$script:CleanBuildActive`, `$script:BtnCleanBuild` toggle, associated handler. BUILD button now full hero height.
+
+### Decisions Made
+- All builds are clean builds. "Incremental" option removed entirely.
+- Version boxes initialize from CMakeLists.txt at startup (reflects last built state).
+- CMakeLists.txt updated END of build; -D flags are authoritative during build, file updated after.
+- For releases: CMakeLists.txt still updated BEFORE build (pre-release auto-commit).
+
+### Next Steps
+- Test full build to verify version bakes correctly
+- Verify Release flow (clean → configure with -D → build → release.ps1)
+
+---
+
 ## Session 48 -- 2026-03-25
 
 **Focus**: Dev Window overhaul, project cleanup, infrastructure hardening

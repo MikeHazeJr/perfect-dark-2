@@ -136,9 +136,14 @@ saveMigrateRegister(2, 3, saveMigrate_agent_2to3);
 
 Same infrastructure, different version constant and tag prefix:
 - Checks `server-v*` tags instead of `client-v*`
-- `--check-update` CLI flag: prints available version to stdout and exits
-  - Useful for scripted server management
-- Server GUI shows update notification in status bar
+- `--check-update` CLI flag: prints available version to stdout and exits (scripted ops)
+- `updaterTick()` called each frame in `server_main.c` main loop
+- When check completes, logs result via `sysLogPrintf` (both headless and GUI)
+- **Server GUI (server_gui.cpp)**:
+  - Status bar (column 4) shows "Update: vX.X.X" badge when available
+  - "Updates (*)" tab in middle panel with version list + per-row Download/Switch buttons
+  - Restart & Update button downloads and re-launches server binary
+- **Headless**: logs download URL; operator restarts manually or uses `--check-update` flag
 
 ### Data Preservation
 
@@ -159,6 +164,21 @@ Updates ONLY replace:
 pacman -S mingw-w64-x86_64-curl
 ```
 
+### Client Update UI (pdgui_menu_update.cpp)
+
+- **Notification banner**: Full-width green bar at top when update available
+  - Buttons right-aligned via `SameLine(GetContentRegionMax().x - totalW)` pattern
+  - "Update Now" → immediately downloads latest, tracks `s_DownloadingIndex`
+  - "Details" → opens floating version picker dialog
+  - "Dismiss" → hides for this session
+- **Settings > Updates tab**: per-row action buttons in version table (5 columns)
+  - "Download" button per non-current version with assetUrl
+  - "Switch" button on staged version (downloaded, pending restart) → triggers restart prompt
+  - Progress % shown in action column during active download
+  - Rollback tooltip for older versions
+  - Download failure shown below table
+- `s_DownloadingIndex` / `s_StagedReleaseIndex` track which release is in each state
+
 ## Status
 - Created: 2026-03-20
-- Status: Implementation in progress
+- Status: Implemented (S49) — needs build test

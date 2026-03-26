@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-25, Session 48 (Mesh collision system active, dev window overhaul, project cleanup, debug visualization, unified release pipeline)
+> **Last updated**: 2026-03-26, Session 49 (Join flow audit, S49 architecture capture, context hardening)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 49 | 2026-03-26 | Join flow audit, S49 architecture capture, context hardening | [session-log.md](session-log.md) |
 | 47a-48 | 2026-03-24-25 | MEM-1, B-12 P2, stage decoupling, SPF-1, mesh collision, dev window, cleanup | [session-log.md](session-log.md) |
 | 22-46 | 2026-03-22-24 | D3R component mod architecture, asset catalog, participant system, bot customizer, network distribution | [sessions-22-46.md](sessions-22-46.md) |
 | 14-21 | 2026-03-21-22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
@@ -68,6 +69,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | File | Phase | When to load |
 |------|-------|-------------|
 | [multiplayer-plan.md](multiplayer-plan.md) | SPF-2+: Server-as-hub, rooms, federation, profiles, phonetic, menus | Starting any multiplayer infrastructure work |
+| [join-flow-plan.md](join-flow-plan.md) | Server/client join flow: connect codes → ENet → lobby → match. Audit + gap plan | Any join/connect/lobby work |
 | [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog as single source of truth for all asset loading | Any asset loading / catalog work |
 | [menu-replacement-plan.md](menu-replacement-plan.md) | Full ImGui replacement of all 240 legacy menus | Any menu migration work |
 | [d5-settings-plan.md](d5-settings-plan.md) | D5: Audio volumes, graphics, controls, QoL | Starting D5 |
@@ -89,7 +91,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol v21, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state
+- **Net**: Protocol v21, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). B-12 Phase 3 → v22.
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.

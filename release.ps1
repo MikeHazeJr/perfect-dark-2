@@ -44,6 +44,7 @@ if ($Nightly) {
     $DistDir = "dist/nightly-$DateCode"
     $Prerelease = $true
 } else {
+    $ExplicitVersion = ($Version -ne "")
     if ($Version -eq "") {
         $cmake = Get-Content "CMakeLists.txt" -Raw
         $major = $(if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" })
@@ -54,6 +55,24 @@ if ($Nightly) {
     $ReleaseTag = "v$Version"
     $ReleaseTitle = "Perfect Dark 2 v$Version ($(if ($Prerelease) { 'Dev' } else { 'Stable' }))"
     $DistDir = "dist/v$Version"
+
+    # When -Version is explicitly provided, sync CMakeLists.txt so it matches the release tag.
+    # This keeps the file in sync for subsequent builds. Only applies when all parts are numeric.
+    if ($ExplicitVersion) {
+        $parts = $Version -split '\.'
+        if ($parts.Count -ge 3 -and $parts[0] -match '^\d+$' -and $parts[1] -match '^\d+$' -and $parts[2] -match '^\d+$') {
+            try {
+                $cmake = Get-Content "CMakeLists.txt" -Raw -ErrorAction Stop
+                $cmake = $cmake -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $parts[0])
+                $cmake = $cmake -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $parts[1])
+                $cmake = $cmake -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $parts[2])
+                Set-Content "CMakeLists.txt" -Value $cmake -NoNewline -Encoding UTF8 -ErrorAction Stop
+                Write-Host "  Synced CMakeLists.txt to v$Version" -ForegroundColor Gray
+            } catch {
+                Write-Host "  Warning: Could not sync CMakeLists.txt: $_" -ForegroundColor Yellow
+            }
+        }
+    }
 }
 
 $ReleaseNotes = "UNRELEASED.md"

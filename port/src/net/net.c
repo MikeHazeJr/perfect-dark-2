@@ -9,6 +9,7 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netupnp.h"
+#include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
 #include "types.h"
@@ -311,6 +312,14 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 	char *newline = strrchr(g_NetLocalClient->settings.name, '\n');
 	if (newline) {
 		*newline = '\0';
+	}
+	// If legacy config has no name, use the identity profile (authoritative for PC)
+	if (!cl->settings.name[0]) {
+		identity_profile_t *profile = identityGetActiveProfile();
+		if (profile && profile->name[0]) {
+			strncpy(cl->settings.name, profile->name, sizeof(cl->settings.name) - 1);
+			cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+		}
 	}
 }
 

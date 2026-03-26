@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-03-24, Session 47e
+> **Last updated**: 2026-03-26, Session 49
 
 ---
 
@@ -18,7 +18,7 @@
 | D3R | Component Mod Architecture | ✅ **D3R-1–11 ALL DONE**, S46a done, S46b TODO | S46 |
 | D4 | Menu Migration | ♻️ Superseded (ongoing, no longer blocks) | S22 |
 | D5 | Settings / Graphics / QoL | 📋 Planned | — |
-| D6 | Persistent Stats | 📋 Planned | — |
+| D6 | Persistent Stats | 🔶 Partial | S49 |
 | D7 | Discord Rich Presence | 📋 Planned | — |
 | D8 | NAT Traversal / LAN | 📋 Planned | — |
 | D9 | Dedicated Server | 🔶 Largely done | S47d |
@@ -33,7 +33,7 @@
 | D-MEM | Memory Modernization | 🔶 M0–M1 done, MEM-1 coded, M2–M6 remain | S47a |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | 🔶 Phase 1–2 done, Phase 3 (remove chrslots) next | S47b |
-| SPF | Server Platform Foundation | 🔶 SPF-1 coded, needs build test | S47d |
+| SPF | Server Platform Foundation | 🔶 SPF-1 builds, SPF-2a pass, SPF-3 coded, QC pending | S49 |
 
 ---
 
@@ -78,13 +78,24 @@ Original F11 storyboard plan superseded by direct ImGui hotswap. Component libra
 ### D5: Settings / Graphics / QoL — 📋 PLANNED
 FOV slider, resolution, fullscreen, VSync, 4-layer audio (Master/Music/Gameplay/UI), rebindable controls. Full plan in [d5-settings-plan.md](d5-settings-plan.md).
 
+### D6: Persistent Stats — 🔶 PARTIAL (S49)
+- `port/src/playerstats.c` — string-keyed hash table of counters, JSON persistence to `$S/playerstats.json`. CODED, needs build test.
+- Stats are incremented per gameplay event (kill, death, shot, mode played, weapon used, etc.)
+- Wired into: mpstats.c + mplayer.c (planned but not yet done)
+- Achievements are a future query layer on top of stats (D6 Phase 2)
+
 ### D9: Dedicated Server — 🔶 LARGELY DONE
-Server process with CLI args, signal handling, 4-panel ImGui GUI (now tabbed: Server + Hub), lobby/leader election, CLC_LOBBY_START protocol, connect code system.
+Server process with CLI args, signal handling, 4-panel ImGui GUI (now tabbed: Server + Hub), lobby/leader election, CLC_LOBBY_START protocol, sentence-based connect code system.
+
+**Connect codes**: `port/src/connectcode.c` — 4-word sentence encoding of IPv4. Public IP via UPnP (async) with HTTP fallback (`curl`→`api.ipify.org`). Code displayed in lobby + clipboard copy. No raw IP in any UI. See [join-flow-plan.md](join-flow-plan.md).
 
 **SPF-1 additions (S47d)**: Hub lifecycle, room system (4-room pool, 5-state machine), player identity (`pd-identity.dat`), phonetic IP encoding. See SPF section below.
 
 **Remaining**:
-- End-to-end playtest (Connect → Lobby → Start → Play → Endscreen)
+- End-to-end playtest (Connect → Lobby → Start → Play → Endscreen) — J-1
+- Connect code display in server_gui.cpp — J-2
+- SVC_ROOM_LIST: broadcast room state from server to clients — J-3
+- Recent server history UI (display codes, not raw IPs) — J-4
 - Combat Sim stage selection (currently hardcoded to Complex)
 - SVC_LOBBY_LEADER broadcast on leader change
 - "Quick Play" button (auto-launch server + connect to localhost)
@@ -120,18 +131,28 @@ See [constraints.md](constraints.md) — Index Domain Warning section.
 - **Phase 2 Callsite Migration**: ✅ Done (S47b). 7 files, ~25 mplayer.c sites + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()` API. Build pass.
 - **Phase 3 Remove chrslots**: NEXT. Delete u64 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22.
 
-### SPF: Server Platform Foundation — 🔶 SPF-1 CODED (S47d)
+### SPF: Server Platform Foundation — 🔶 SPF-1–3 IN PROGRESS (S49)
 New track building the community platform layer on top of the dedicated server.
 
-- **SPF-1 Hub/Room/Identity/Phonetic**: ✅ CODED (S47d), needs build test. 8 new files + 3 modified.
+- **SPF-1 Hub/Room/Identity/Phonetic**: ✅ BUILDS (S47d coded, S49 confirmed via SPF-3 build).
   - `hub.h/c` — Hub singleton, owns rooms + identity, `hubTick()` drives room 0 from `g_Lobby.inGame`
-  - `room.h/c` — Room struct, 5-state lifecycle (LOBBY→LOADING→MATCH→POSTGAME→CLOSED), pool of 4
+  - `room.h/c` — Room struct, 5-state lifecycle (LOBBY→LOADING→MATCH→POSTGAME→CLOSED), pool of 4; `roomGenerateName()` for auto-naming (adjective+noun)
   - `identity.h/c` — `pd-identity.dat` persistence, 16-byte UUID, up to 4 profiles
-  - `phonetic.h/c` — CV syllable IP:port encoding (48-bit, "BALE-GIFE-NOME-RIVA" format)
+  - `phonetic.h/c` — CV syllable IP:port encoding (still available, coexists with sentence codes)
+  - `connectcode.h/c` — **Primary join mechanism**: 4-word sentence codes (adjective+noun+action+place = IPv4). Code-only joining enforced. No raw IP in UI.
   - `server_main.c` — hubInit/Tick/Shutdown wired in
   - `server_gui.cpp` — Tabbed layout (Server + Hub tabs), color-coded room states
   - `CMakeLists.txt` — 4 new files added to SRC_SERVER (S47e fix)
-- **SPF-2 Room Federation**: PLANNED. Multi-room support, concurrent independent sessions.
+  - **QC PENDING** — needs end-to-end server playtest
+- **SPF-2a Menu Manager**: ✅ BUILD PASS (S48 coded, S49 extern C fix). menumgr.c/h, 100ms cooldown. Pause + modding hub + join screen wired.
+- **SPF-3 Lobby + Join-by-Code**: ✅ CODED (S49, commit `3b588c1`). Awaiting playtest.
+  - Lobby: shows hub state + room list with color-coded states and player counts
+  - Join screen: menu view 4, phonetic or direct IP input, MENU_JOIN push/pop
+- **SPF Asset Catalog Audit Phase 1**: ✅ DONE (S49). Failure logging at all critical load points.
+- **SPF Player Stats**: ✅ CODED (S49). `playerstats.h/c`, `statIncrement()`, JSON persistence. Needs wiring at gameplay sites.
+- **SPF Connect Codes**: ✅ REWRITTEN (S49). Sentence-based codes replace phonetic syllables as primary connect method. 256-word vocabulary × 4 slots = 32-bit IPv4.
+- **Join Flow**: See [join-flow-plan.md](join-flow-plan.md). Gaps: room state not yet synced to clients (SVC_ROOM_LIST needed), server GUI missing connect code display.
+- **SPF-2 Room Federation**: PLANNED. Multi-room support, slot pool, access modes, friends system designed in multiplayer-plan.md.
 - **SPF-3+**: Social hub, content sharing, whitelists, mesh networking (milestones v0.3–v0.4).
 
 Architecture doc: [server-architecture.md](server-architecture.md)
@@ -162,8 +183,13 @@ D1 (N64 Strip) ─── DONE
   │
   ├── D9 (Server) ─── LARGELY DONE
   │     └── SPF (Server Platform) ─── SPF-1 coded, SPF-2+ planned
+  │           ├── J-1 (verify join) ─── NEXT
+  │           ├── J-2 (server GUI code) ─── after J-1
+  │           ├── J-3 (SVC_ROOM_LIST) ─── after J-1
   │           ├── SPF → D16 (Master Server) ─── after content tools
   │           └── SPF → D10 (Spectator)
+  │
+  ├── D6 (Stats) ─── playerstats.c CODED (needs wire-in)
   │
   ├── D13 (Updater) ─── code written, needs build
   │

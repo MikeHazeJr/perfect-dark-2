@@ -9,7 +9,7 @@
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
-#define NET_MAX_CLIENTS MAX_PLAYERS
+#define NET_MAX_CLIENTS 32  /* max simultaneous connections; independent of MAX_PLAYERS (match slots) */
 #define NET_MAX_NAME MAX_PLAYERNAME
 #define NET_MAX_ADDR 256
 

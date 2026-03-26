@@ -1558,12 +1558,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         /* Quit Game -- docked to bottom-right with confirmation */
         {
-            float quitBtnW = 100.0f * scale;
+            /* Width sized to fit the widest label ("Confirm Quit") so both states match */
+            float quitBtnW = ImGui::CalcTextSize("Confirm Quit").x + ImGui::GetStyle().FramePadding.x * 2.0f;
             float quitBtnH = 28.0f * scale;
-            float quitX = dialogX + dialogW - quitBtnW - ImGui::GetStyle().WindowPadding.x;
-            float quitY = dialogY + dialogH - quitBtnH - ImGui::GetStyle().WindowPadding.y - 4.0f * scale;
+            float margin = 4.0f * scale;
+            /* Cursor pos is relative to window origin; subtract padding + margin so
+               the button right edge sits margin pixels inside the content clip rect */
+            float cursorX = dialogW - ImGui::GetStyle().WindowPadding.x - quitBtnW - margin;
+            float cursorY = dialogH - ImGui::GetStyle().WindowPadding.y - quitBtnH - margin;
 
-            ImGui::SetCursorPos(ImVec2(quitX - dialogX, quitY - dialogY));
+            ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
 
             if (!s_QuitConfirm) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
@@ -1582,7 +1586,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 }
                 ImGui::PopStyleColor(2);
 
-                ImGui::SetCursorPos(ImVec2(quitX - dialogX - quitBtnW - 8.0f * scale, quitY - dialogY));
+                ImGui::SetCursorPos(ImVec2(cursorX - quitBtnW * 0.7f - 8.0f * scale, cursorY));
                 if (ImGui::Button("Cancel", ImVec2(quitBtnW * 0.7f, quitBtnH))) {
                     s_QuitConfirm = false;
                 }
@@ -1681,11 +1685,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
                  * No direct IP addresses allowed -- the code is a security layer
                  * that prevents sharing raw public IPs. */
                 if (connectCodeDecode(s_JoinCodeInput, &ip) == 0 && ip) {
-                    /* Code validated -- resolve internally and connect */
+                    /* Code validated -- resolve internally and connect.
+                     * Bytes are packed little-endian (a=LSB, d=MSB) by the encoder. */
                     char addrStr[64];
                     snprintf(addrStr, sizeof(addrStr), "%u.%u.%u.%u:%u",
-                        (ip >> 24) & 0xff, (ip >> 16) & 0xff,
-                        (ip >> 8) & 0xff, ip & 0xff, CONNECT_DEFAULT_PORT);
+                        ip & 0xff, (ip >> 8) & 0xff,
+                        (ip >> 16) & 0xff, (ip >> 24) & 0xff, CONNECT_DEFAULT_PORT);
                     sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
 
                     if (netStartClient(addrStr) == 0) {
@@ -1735,10 +1740,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
         s_NeedsFocus = true;  /* focus first widget when tab changes */
     }
     s_PrevSubTab = s_SettingsSubTab;
-
-    /* ---- Footer ---- */
-    ImGui::SetCursorPosY(dialogH - 20.0f * scale);
-    ImGui::TextDisabled("F8: toggle OLD/NEW");
 
     ImGui::End();
     return 1;  /* Handled */

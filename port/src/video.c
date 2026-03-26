@@ -88,7 +88,7 @@ s32 videoInit(void)
 		.wapi = wmAPI,
 		.rapi = renderingAPI,
 		.window_settings = {
-			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - Client (v0.0.2)",
+			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - v" VERSION_STRING,
 			.width = g_NetDedicated ? 800 : vidWidth,
 			.height = g_NetDedicated ? 500 : vidHeight,
 			.x = 100,

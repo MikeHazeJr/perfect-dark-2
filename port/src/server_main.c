@@ -64,6 +64,7 @@ extern void serverGuiShutdown(void);
  * ======================================================================== */
 
 static volatile s32 s_ShutdownRequested = 0;
+static s32 s_UpdateCheckLogged = 0;  /* set once after first check completes */
 
 #ifdef _WIN32
 static BOOL WINAPI serverConsoleHandler(DWORD type)
@@ -315,6 +316,34 @@ int main(int argc, char **argv)
                     running = 0;
                 }
                 serverGuiProcessEvent(&ev);
+            }
+        }
+
+        /* D13: Tick update system + log if check just completed */
+        updaterTick();
+        if (!s_UpdateCheckLogged) {
+            updater_status_t us = updaterGetStatus();
+            if (us == UPDATER_CHECK_DONE || us == UPDATER_CHECK_FAILED) {
+                s_UpdateCheckLogged = 1;
+                if (us == UPDATER_CHECK_DONE) {
+                    if (updaterIsUpdateAvailable()) {
+                        const updater_release_t *lat = updaterGetLatest();
+                        char verstr[64];
+                        versionFormat(&lat->version, verstr, sizeof(verstr));
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Update available: v%s (current: v%s)",
+                            verstr, updaterGetVersionString());
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Download: %s", lat->assetUrl);
+                        if (s_Headless) {
+                            sysLogPrintf(LOG_NOTE,
+                                "SERVER: Use --check-update flag or open server GUI to update.");
+                        }
+                    } else {
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Up to date (v%s)", updaterGetVersionString());
+                    }
+                }
             }
         }
 

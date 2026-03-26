@@ -19,6 +19,10 @@
 #include <string.h>
 #include <PR/ultratypes.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "glad/glad.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
@@ -30,6 +34,8 @@ extern "C" {
 #include "connectcode.h"
 #include "hub.h"
 #include "room.h"
+#include "updater.h"
+#include "updateversion.h"
 
 /* Net state */
 extern s32 g_NetMode;
@@ -97,6 +103,13 @@ extern u32 netGetClientPing(s32 clientId);
 
 static bool s_Initialized = false;
 
+/* Update tab state */
+static bool s_SrvDownloadActive      = false;
+static bool s_SrvRestartPending      = false;
+static bool s_SrvDownloadFailed      = false;
+static int  s_SrvDownloadingIndex    = -1;
+static int  s_SrvStagedReleaseIndex  = -1;
+
 /* ========================================================================
  * Helpers
  * ======================================================================== */
@@ -161,6 +174,248 @@ extern "C" void serverGuiProcessEvent(SDL_Event *ev)
     if (s_Initialized) {
         ImGui_ImplSDL2_ProcessEvent(ev);
     }
+}
+
+/* ========================================================================
+ * Tab: Updates
+ * ======================================================================== */
+
+static void drawTabUpdate(float panelW, float panelH)
+{
+    if (ImGui::BeginChild("##update_panel", ImVec2(panelW, panelH), false)) {
+        /* Header row: current version + channel */
+        const pdversion_t *cur = updaterGetCurrentVersion();
+        char curstr[64];
+        if (cur) {
+            versionFormat(cur, curstr, sizeof(curstr));
+        } else {
+            snprintf(curstr, sizeof(curstr), "(unknown)");
+        }
+        ImGui::Text("Server version: %s", curstr);
+        ImGui::SameLine(0, 16);
+
+        update_channel_t channel = updaterGetChannel();
+        const char *channelLabels[] = { "Stable", "Dev / Test" };
+        ImGui::SetNextItemWidth(120);
+        int channelInt = (int)channel;
+        if (ImGui::Combo("Channel##srv_upd", &channelInt, channelLabels, 2)) {
+            updaterSetChannel((update_channel_t)channelInt);
+            updaterCheckAsync();
+        }
+
+        ImGui::Separator();
+
+        /* Status line + check button */
+        updater_status_t status = updaterGetStatus();
+
+        /* Tick download state transitions */
+        if (s_SrvDownloadActive) {
+            if (status == UPDATER_DOWNLOAD_DONE) {
+                s_SrvDownloadActive  = false;
+                s_SrvRestartPending  = true;
+                s_SrvStagedReleaseIndex = s_SrvDownloadingIndex;
+            } else if (status == UPDATER_DOWNLOAD_FAILED) {
+                s_SrvDownloadActive   = false;
+                s_SrvDownloadFailed   = true;
+                s_SrvDownloadingIndex = -1;
+            }
+        }
+
+        switch (status) {
+        case UPDATER_IDLE:
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1), "Not checked yet");
+            break;
+        case UPDATER_CHECKING:
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1), "Checking for updates...");
+            break;
+        case UPDATER_CHECK_DONE: {
+            s32 count = updaterGetReleaseCount();
+            if (updaterIsUpdateAvailable()) {
+                const updater_release_t *lat = updaterGetLatest();
+                char latstr[64];
+                versionFormat(&lat->version, latstr, sizeof(latstr));
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
+                    "Update available: v%s  (%d versions found)", latstr, count);
+            } else {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
+                    "Up to date  (%d versions found)", count);
+            }
+            break;
+        }
+        case UPDATER_CHECK_FAILED:
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
+                "Check failed: %s", updaterGetError());
+            break;
+        case UPDATER_DOWNLOADING:
+            if (s_SrvDownloadActive) {
+                updater_progress_t prog = updaterGetProgress();
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1),
+                    "Downloading... %.0f%%", (double)prog.percent);
+            }
+            break;
+        case UPDATER_DOWNLOAD_DONE:
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1),
+                "Download complete -- restart server to apply");
+            break;
+        case UPDATER_DOWNLOAD_FAILED:
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
+                "Download failed: %s", updaterGetError());
+            break;
+        }
+
+        ImGui::SameLine();
+        if (status != UPDATER_CHECKING && status != UPDATER_DOWNLOADING) {
+            if (ImGui::SmallButton("Check Now##srv")) {
+                updaterCheckAsync();
+            }
+        }
+
+        ImGui::Spacing();
+
+        /* Version list */
+        if (status == UPDATER_CHECK_DONE || status == UPDATER_DOWNLOAD_DONE ||
+            status == UPDATER_DOWNLOAD_FAILED || s_SrvDownloadActive) {
+
+            s32 count = updaterGetReleaseCount();
+
+            float tableH = panelH
+                - ImGui::GetCursorPosY()
+                - ImGui::GetStyle().WindowPadding.y * 2.0f
+                - 60.0f;  /* leave room for restart prompt below */
+            if (tableH < 60.0f) tableH = 60.0f;
+
+            if (count > 0 && ImGui::BeginTable("srv_versions", 5,
+                ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
+                ImVec2(0, tableH))) {
+
+                ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 100);
+                ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed, 60);
+                ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed, 70);
+                ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed, 110);
+                ImGui::TableHeadersRow();
+
+                for (s32 i = 0; i < count; i++) {
+                    const updater_release_t *rel = updaterGetRelease(i);
+                    if (!rel) continue;
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+
+                    char verstr[64];
+                    versionFormat(&rel->version, verstr, sizeof(verstr));
+
+                    bool isCurrent   = cur && (versionCompare(&rel->version, cur) == 0);
+                    bool isNewer     = cur && (versionCompare(&rel->version, cur) > 0);
+
+                    ImGui::TextUnformatted(verstr);
+                    if (isCurrent) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(cur)");
+                    } else if (isNewer) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "*");
+                    }
+
+                    ImGui::TableNextColumn();
+                    if (rel->isPrerelease) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dev");
+                    } else {
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Stable");
+                    }
+
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(rel->name[0] ? rel->name : "(no title)");
+
+                    ImGui::TableNextColumn();
+                    if (rel->assetSize > 0) {
+                        ImGui::Text("%.1f MB", (double)rel->assetSize / (1024.0 * 1024.0));
+                    } else {
+                        ImGui::TextDisabled("--");
+                    }
+
+                    ImGui::TableNextColumn();
+                    ImGui::PushID(i);
+
+                    bool isDownloading = (s_SrvDownloadingIndex == i) && s_SrvDownloadActive;
+                    bool isStaged      = (s_SrvStagedReleaseIndex == i);
+                    bool canDownload   = !isCurrent && !s_SrvDownloadActive && rel->assetUrl[0];
+
+                    if (isCurrent) {
+                        /* no action */
+                    } else if (isDownloading) {
+                        updater_progress_t p = updaterGetProgress();
+                        ImGui::Text("%.0f%%", (double)p.percent);
+                    } else if (isStaged) {
+                        if (ImGui::SmallButton("Switch")) {
+                            s_SrvRestartPending = true;
+                        }
+                    } else if (canDownload) {
+                        if (ImGui::SmallButton("Download")) {
+                            s_SrvDownloadFailed    = false;
+                            s_SrvDownloadingIndex  = i;
+                            updaterDownloadAsync(rel);
+                            s_SrvDownloadActive = true;
+                        }
+                    } else if (s_SrvDownloadActive) {
+                        ImGui::TextDisabled("...");
+                    }
+
+                    ImGui::PopID();
+                }
+
+                ImGui::EndTable();
+            }
+
+            if (s_SrvDownloadFailed) {
+                const char *errMsg = updaterGetError();
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
+                    "Download failed: %s",
+                    (errMsg && errMsg[0]) ? errMsg : "unknown error");
+            }
+        }
+
+        /* Restart prompt */
+        if (s_SrvRestartPending) {
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                "Update downloaded. Restart server to apply.");
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.2f, 0.55f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.7f, 0.25f, 1.0f));
+            if (ImGui::Button("Restart & Update", ImVec2(160, 0))) {
+#ifdef _WIN32
+                {
+                    STARTUPINFOA si;
+                    PROCESS_INFORMATION pi;
+                    memset(&si, 0, sizeof(si));
+                    memset(&pi, 0, sizeof(pi));
+                    si.cb = sizeof(si);
+                    char exePath[512];
+                    GetModuleFileNameA(NULL, exePath, sizeof(exePath));
+                    if (CreateProcessA(exePath, GetCommandLineA(),
+                            NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                    }
+                }
+#endif
+                SDL_Event quitEvent;
+                quitEvent.type = SDL_QUIT;
+                SDL_PushEvent(&quitEvent);
+            }
+            ImGui::PopStyleColor(2);
+
+            ImGui::SameLine(0, 16);
+            if (ImGui::Button("Later##srv", ImVec2(80, 0))) {
+                s_SrvRestartPending = false;
+            }
+        }
+    }
+    ImGui::EndChild();
 }
 
 /* ========================================================================
@@ -400,6 +655,8 @@ extern "C" void serverGuiFrame(SDL_Window *window)
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
+    updaterTick();
+
     float margin    = 10.0f;
     float statusH   = 80.0f;
     float tabBarH   = 28.0f;
@@ -456,12 +713,26 @@ extern "C" void serverGuiFrame(SDL_Window *window)
         ImGui::NextColumn();
         ImGui::Text("Mode: %s", gameModeStr(g_NetGameMode));
 
-        /* Column 4: Online status */
+        /* Column 4: Online status + update notification */
         ImGui::NextColumn();
         if (g_NetMode == NETMODE_SERVER) {
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "ONLINE");
         } else {
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "OFFLINE");
+        }
+        if (updaterIsUpdateAvailable()) {
+            const updater_release_t *lat = updaterGetLatest();
+            if (lat) {
+                char latstr[64];
+                versionFormat(&lat->version, latstr, sizeof(latstr));
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                    "Update: v%s", latstr);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Open the Updates tab to download");
+                }
+            }
+        } else if (s_SrvRestartPending) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Restart to apply");
         }
 
         ImGui::Columns(1);
@@ -493,6 +764,30 @@ extern "C" void serverGuiFrame(SDL_Window *window)
                 float innerW = fullW - ImGui::GetStyle().WindowPadding.x * 2.0f;
                 drawTabHub(innerW, innerH);
                 ImGui::EndTabItem();
+            }
+
+            /* "Updates" tab — version list + download */
+            {
+                /* Badge the tab label when an update is available */
+                const char *updateTabLabel = updaterIsUpdateAvailable()
+                    ? "Updates (*)" : "Updates";
+                if (ImGui::BeginTabItem(updateTabLabel)) {
+                    float innerH = middleH - tabBarH - ImGui::GetStyle().WindowPadding.y * 2.0f;
+                    float innerW = fullW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+
+                    /* Auto-trigger check on first view */
+                    static bool s_TabChecked = false;
+                    if (!s_TabChecked) {
+                        s_TabChecked = true;
+                        updater_status_t st = updaterGetStatus();
+                        if (st == UPDATER_IDLE || st == UPDATER_CHECK_FAILED) {
+                            updaterCheckAsync();
+                        }
+                    }
+
+                    drawTabUpdate(innerW, innerH);
+                    ImGui::EndTabItem();
+                }
             }
 
             ImGui::EndTabBar();

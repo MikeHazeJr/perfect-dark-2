@@ -91,6 +91,29 @@ perfect_dark-mike/
 - **zlib**: Compression (currently DLL)
 - **ENet**: Networking (statically linked)
 
+## Version System
+
+Version numbers flow: **Dev Window UI** → `CMakeLists.txt` (via `Set-ProjectVersion`) → **cmake configure** → `build/*/port/include/versioninfo.h` (via `configure_file`) → C preprocessor macros `VERSION_MAJOR/MINOR/PATCH` → `VERSION_STRING` macro → window title, updater user-agent, server title.
+
+### CMake CACHE pitfall (fixed 2026-03-26)
+Version variables are declared as `CACHE STRING` in CMakeLists.txt:
+```cmake
+set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
+```
+CMake rule: if a CACHE entry already exists, `set(... CACHE ...)` is **silently ignored** on reconfigure. So editing CMakeLists.txt version numbers does NOT take effect on incremental builds — the old CMakeCache.txt values win.
+
+**Fix**: `Get-BuildSteps -Ver $ver` now appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to BOTH cmake configure commands (client and server). Command-line `-D` flags always override the cache and update it.
+
+Only release builds (`Start-PushRelease`) pass the version. Regular BUILD button builds use the cache as-is (consistent with expectation that the cache reflects the last deliberate change).
+
+### Files involved
+- `devtools/dev-window.ps1` — `Get-BuildSteps` (cmake args), `Set-ProjectVersion` (edits CMakeLists.txt), `Start-PushRelease` (orchestration)
+- `CMakeLists.txt` — declares CACHE vars, runs `configure_file` → `versioninfo.h`
+- `port/include/versioninfo.h.in` — template: `@VERSION_SEM_MAJOR@` etc.
+- `port/include/updateversion.h` — `VERSION_STRING` macro (string concatenation of `VERSION_MAJOR/MINOR/PATCH`)
+- `port/src/video.c` — window title uses `VERSION_STRING`; initial title was hardcoded `v0.0.2` (fixed 2026-03-26)
+- `port/src/server_main.c`, `updater.c` — also use `VERSION_STRING`
+
 ## Known Issues
 - None currently
 
