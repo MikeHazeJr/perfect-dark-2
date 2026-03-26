@@ -57,7 +57,7 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **Collision Rewrite (D2b+)** | Capsule for movement (walk/jump/land), original collision for damage/weapons. Mesh-polygon collision for all objects. |
+| 1 | **Collision Rewrite (D2b+)** | **CODED S48** -- mesh primary for movement, legacy fallback for damage. 7,110 tris on Skedar. Needs build test + playtesting. Remaining: prop mesh extraction, horizontal sweep. |
 | 2 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
 | 3 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
 | 4 | **B-13 Part 2** | g_ModNum interim fix for GEX scale during catalog-based stage loading. |

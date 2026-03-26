@@ -101,40 +101,43 @@ GEOTYPE_TILE_I = 0, GEOTYPE_TILE_F = 1, GEOTYPE_BLOCK = 2, GEOTYPE_CYL = 3
 - **Player data**: playerGetBbox provides capsule dimensions
 - **Room system**: roomsCopy, bmoveFindEnteredRoomsByPos, func0f065e74 for room tracking
 
-## Mesh Collision System (Phase 1 -- S48, CODED)
+## Mesh Collision System (S48 -- ACTIVE)
 
 New files: `src/lib/meshcollision.c` + `src/include/lib/meshcollision.h`
+Modified: `src/lib/capsule.c`, `src/game/lv.c`, `src/include/types.h`
 
-**Architecture**: two collision worlds running in parallel:
-- **Legacy** (`cdTestVolume`, `cdFindGroundInfoAtCyl`): stays active for damage/weapons
-- **Mesh** (`meshSweepCapsuleWorld`, `meshSweepCapsuleDynamic`): used for movement
+**Architecture**: mesh collision is PRIMARY for player movement. Legacy is fallback only.
+- **Mesh** (`meshSweepCapsuleWorld`, `meshFindFloor`, `meshFindCeiling`): all player movement
+- **Legacy** (`cdTestVolume`, `cdFindGroundInfoAtCyl`): damage/weapons only, fallback if mesh empty
 
 **Triangle extraction**: walks model node tree, finds DL nodes (type 0x18), parses GBI
 display lists (G_TRI1, G_TRI4) to extract vertex positions from Vtx arrays. Handles
 PC port vertex index convention (divide by 10). Auto-classifies triangles as floor/wall/ceiling.
 
-**Static world mesh**: all immovable geometry merged into one spatial grid (256-unit cells).
-Built at stage load after `bgBuildTables()`. Lifecycle: `meshWorldInit()` -> add meshes ->
-`meshWorldFinalize()` -> queries during gameplay -> `meshWorldShutdown()` on stage change.
+**Room geometry extraction**: `meshWorldAddRoomGeo()` reads packed tile data from
+g_TileFileData/g_TileRooms per room. Handles geotilei (s16 BG), geotilef (float lifts),
+geoblock (prop bounding boxes). Fan-triangulates polygon tiles.
 
-**Dynamic meshes**: per-prop triangle arrays for movable objects (doors, lifts, platforms).
-Transformed by prop's world matrix at query time. API stubbed, needs `colmesh*` field on prop.
+**Static world mesh**: all room geometry merged into one spatial grid (256-unit cells).
+Built at stage load after `bgBuildTables()`. All rooms iterated. Skedar Ruins: 7,110 tris,
+33x52 grid. Lifecycle: `meshWorldInit()` -> add rooms -> `meshWorldFinalize()` -> gameplay -> `meshWorldShutdown()`.
 
-**Capsule-vs-triangle**: swept sphere approximation against triangle plane with barycentric
-inside test + radius tolerance. Returns earliest fraction [0..1] and contact normal.
+**Dynamic meshes**: `struct colmesh *colmesh` field added to `struct prop` in types.h.
+`meshAttachToProp()` / `meshGetFromProp()` for per-prop mesh data. Dynamic objects
+keep their own triangle array, transformed by world matrix at query time.
 
-**Stage lifecycle hooks** (lv.c):
-- `meshWorldShutdown()` before `tilesReset()` (free previous stage)
-- `meshWorldInit()` + `meshWorldFinalize()` after `bgBuildTables()` (build new stage)
+**Capsule integration** (capsule.c):
+- `capsuleSweep()`: tries `meshSweepCapsuleWorld()` first, legacy cdTestVolume as fallback
+- `capsuleFindFloor()`: tries `meshFindFloor()` first, legacy cdFindGroundInfoAtCyl as fallback
+- `capsuleFindCeiling()`: tries `meshFindCeiling()` first, legacy cdFindCeilingRoomY as fallback
 
-**Status**: Phase 1 compiles (496 objects, zero errors). TODO:
-- Wire room geometry extraction into `meshWorldAddRoomGeo()` (read g_TileRooms data)
+**Stage coverage**: all stages except TITLE/BOOTPAKMENU/CREDITS/4MBMENU get mesh collision.
+Carrington Institute menu map is included.
+
+**Verified**: Skedar Ruins extracted 7,110 tris successfully. Compiles clean (496 objects, 0 errors).
+
+## Remaining Work
 - Extract static prop meshes at prop spawn and add to world grid
-- Add `colmesh*` field to prop struct for dynamic mesh attachment
-- Phase 2: replace `cdTestVolume` in capsuleSweep with `meshSweepCapsuleWorld`
-- Phase 3: integrate into bondwalk.c movement pipeline
-
-## Planned Upgrades
-- Extend capsule sweep to **horizontal movement** (wall sliding, fast-move clipping)
-- BVH acceleration for very large levels (if grid becomes a bottleneck)
-- Convex decomposition for complex prop shapes
+- Extract dynamic prop meshes (doors, lifts) and attach to props
+- Horizontal capsule sweep for wall sliding
+- BVH acceleration for very large levels (if grid becomes bottleneck)

@@ -113,8 +113,13 @@ f32 meshSweepCapsuleDynamic(struct coord *start, struct coord *move,
                             struct colmesh *mesh, Mtxf *transform,
                             struct coord *hitnormal, struct coord *hitpos);
 
-/* Point-in-triangle test (for floor detection) */
-s32 meshPointOnTriangle(struct coord *point, struct meshtri *tri);
+/* Find floor height below a position using mesh triangles.
+ * Returns Y of highest floor surface below pos, or -30000 if none. */
+f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
+
+/* Find ceiling height above a position using mesh triangles.
+ * Returns Y of lowest ceiling surface above pos, or 99999 if none. */
+f32 meshFindCeiling(struct coord *pos, f32 radius);
 
 /* ---- API: per-prop dynamic mesh ---- */
 

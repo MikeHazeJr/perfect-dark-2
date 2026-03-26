@@ -778,3 +778,146 @@ struct colmesh *meshGetFromProp(struct prop *prop)
 	}
 	return NULL;
 }
+
+/* ======================================================================== */
+/* Mesh-based floor and ceiling queries                                      */
+/* ======================================================================== */
+
+/**
+ * Find the floor height below a position by casting a ray downward against
+ * all floor-classified triangles in the nearby grid cells.
+ * Returns the Y coordinate of the highest floor surface below pos.
+ */
+f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY)
+{
+	if (!g_WorldMesh.ready || g_WorldMesh.numtris == 0) {
+		if (out_normalY) *out_normalY = 1.0f;
+		return -30000.0f;
+	}
+
+	/* Find the grid cell at this XZ position */
+	s32 cx = (s32)((pos->x - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
+	s32 cz = (s32)((pos->z - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
+
+	f32 bestFloorY = -30000.0f;
+	f32 bestNormalY = 1.0f;
+
+	/* Check a 3x3 neighborhood of cells for nearby floor triangles */
+	for (s32 dz = -1; dz <= 1; dz++) {
+		for (s32 dx = -1; dx <= 1; dx++) {
+			s32 gx = cx + dx;
+			s32 gz = cz + dz;
+			if (gx < 0 || gz < 0 || gx >= g_WorldMesh.cellsx || gz >= g_WorldMesh.cellsz) continue;
+
+			struct meshgridcell *cell = &g_WorldMesh.cells[gz * g_WorldMesh.cellsx + gx];
+			for (s32 ci = 0; ci < cell->count; ci++) {
+				struct meshtri *tri = &g_WorldMesh.tris[cell->triindices[ci]];
+
+				/* Only test floor-like triangles (normal pointing up) */
+				if (tri->normal.y < 0.5f) continue;
+
+				/* Check if XZ position is within the triangle (projected) */
+				/* Barycentric test in XZ plane */
+				f32 x = pos->x, z = pos->z;
+				f32 x0 = tri->v0.x, z0 = tri->v0.z;
+				f32 x1 = tri->v1.x, z1 = tri->v1.z;
+				f32 x2 = tri->v2.x, z2 = tri->v2.z;
+
+				f32 d00 = (x1-x0)*(x1-x0) + (z1-z0)*(z1-z0);
+				f32 d01 = (x1-x0)*(x2-x0) + (z1-z0)*(z2-z0);
+				f32 d11 = (x2-x0)*(x2-x0) + (z2-z0)*(z2-z0);
+				f32 d20 = (x-x0)*(x1-x0)  + (z-z0)*(z1-z0);
+				f32 d21 = (x-x0)*(x2-x0)  + (z-z0)*(z2-z0);
+
+				f32 det = d00 * d11 - d01 * d01;
+				if (fabsf(det) < 0.001f) continue;
+				f32 inv = 1.0f / det;
+				f32 u = (d11 * d20 - d01 * d21) * inv;
+				f32 v = (d00 * d21 - d01 * d20) * inv;
+
+				/* Allow radius slack for near-edge cases */
+				f32 slack = radius * 0.5f / sqrtf(d00 > d11 ? d00 : d11);
+				if (u < -slack || v < -slack || (u + v) > 1.0f + slack) continue;
+
+				/* Compute Y on the triangle plane at this XZ */
+				/* Plane equation: N.x*(X-V0.x) + N.y*(Y-V0.y) + N.z*(Z-V0.z) = 0 */
+				/* Solve for Y: Y = V0.y - (N.x*(X-V0.x) + N.z*(Z-V0.z)) / N.y */
+				if (fabsf(tri->normal.y) < 0.001f) continue;
+				f32 floorY = tri->v0.y - (tri->normal.x * (x - tri->v0.x) + tri->normal.z * (z - tri->v0.z)) / tri->normal.y;
+
+				/* Must be below the query position */
+				if (floorY <= pos->y && floorY > bestFloorY) {
+					bestFloorY = floorY;
+					bestNormalY = tri->normal.y;
+				}
+			}
+		}
+	}
+
+	if (out_normalY) *out_normalY = bestNormalY;
+	return bestFloorY;
+}
+
+/**
+ * Find the ceiling height above a position by checking all ceiling-classified
+ * triangles in the nearby grid cells.
+ * Returns the Y coordinate of the lowest ceiling surface above pos.
+ */
+f32 meshFindCeiling(struct coord *pos, f32 radius)
+{
+	if (!g_WorldMesh.ready || g_WorldMesh.numtris == 0) {
+		return 99999.0f;
+	}
+
+	s32 cx = (s32)((pos->x - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
+	s32 cz = (s32)((pos->z - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
+
+	f32 bestCeilY = 99999.0f;
+
+	for (s32 dz = -1; dz <= 1; dz++) {
+		for (s32 dx = -1; dx <= 1; dx++) {
+			s32 gx = cx + dx;
+			s32 gz = cz + dz;
+			if (gx < 0 || gz < 0 || gx >= g_WorldMesh.cellsx || gz >= g_WorldMesh.cellsz) continue;
+
+			struct meshgridcell *cell = &g_WorldMesh.cells[gz * g_WorldMesh.cellsx + gx];
+			for (s32 ci = 0; ci < cell->count; ci++) {
+				struct meshtri *tri = &g_WorldMesh.tris[cell->triindices[ci]];
+
+				/* Ceiling = normal pointing down, OR any surface above us */
+				/* Also check floor surfaces that are above us (overhangs) */
+				f32 x = pos->x, z = pos->z;
+				f32 x0 = tri->v0.x, z0 = tri->v0.z;
+				f32 x1 = tri->v1.x, z1 = tri->v1.z;
+				f32 x2 = tri->v2.x, z2 = tri->v2.z;
+
+				f32 d00 = (x1-x0)*(x1-x0) + (z1-z0)*(z1-z0);
+				f32 d01 = (x1-x0)*(x2-x0) + (z1-z0)*(z2-z0);
+				f32 d11 = (x2-x0)*(x2-x0) + (z2-z0)*(z2-z0);
+				f32 d20 = (x-x0)*(x1-x0)  + (z-z0)*(z1-z0);
+				f32 d21 = (x-x0)*(x2-x0)  + (z-z0)*(z2-z0);
+
+				f32 det = d00 * d11 - d01 * d01;
+				if (fabsf(det) < 0.001f) continue;
+				f32 inv = 1.0f / det;
+				f32 u = (d11 * d20 - d01 * d21) * inv;
+				f32 v = (d00 * d21 - d01 * d20) * inv;
+
+				f32 slack = radius * 0.5f / sqrtf(d00 > d11 ? d00 : d11);
+				if (u < -slack || v < -slack || (u + v) > 1.0f + slack) continue;
+
+				/* Compute Y at this XZ on the triangle plane */
+				f32 ny = tri->normal.y;
+				if (fabsf(ny) < 0.001f) continue;
+				f32 surfY = tri->v0.y - (tri->normal.x * (x - tri->v0.x) + tri->normal.z * (z - tri->v0.z)) / ny;
+
+				/* Must be above the query position */
+				if (surfY >= pos->y && surfY < bestCeilY) {
+					bestCeilY = surfY;
+				}
+			}
+		}
+	}
+
+	return bestCeilY;
+}

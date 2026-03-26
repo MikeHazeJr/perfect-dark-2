@@ -6,6 +6,7 @@
 
 ## New Features
 
+- Mesh-based collision system: real polygon collision for player movement instead of simplified bounding boxes
 - Component-based mod system with per-asset folders and INI manifests
 - Modding Hub with Mod Manager, INI Editor, and Model Scale Tool
 - Bot Customizer with trait editing and save-as-preset in match setup
