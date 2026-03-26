@@ -13,6 +13,7 @@
 extern "C" {
     signed int pdguiProcessEvent(void *sdlEvent);  /* s32 = signed int */
     void meshDebugToggle(void);
+    void pdguiConsoleToggle(void);
     signed int pdguiIsActive(void);
 }
 
@@ -315,6 +316,8 @@ static void gfx_sdl_handle_events(void) {
                     set_fullscreen(!fullscreen_state, true);
                 } else if (event.key.keysym.sym == SDLK_F9) {
                     meshDebugToggle();
+                } else if (event.key.keysym.sym == SDLK_BACKQUOTE) {
+                    pdguiConsoleToggle();
                 }
                 break;
             case SDL_WINDOWEVENT:

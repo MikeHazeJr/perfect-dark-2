@@ -368,6 +368,8 @@ void lvReset(s32 stagenum)
 		}
 		meshWorldFinalize();
 		sysLogPrintf(LOG_NOTE, "LOAD: meshWorldFinalize done");
+		sysLogPrintf(LOG_NOTE, "MESHCOL: ACTIVE -- level collision via mesh (%d tris), prop collision via legacy",
+			g_WorldMesh.numtris);
 
 		skyReset(g_Vars.stagenum);
 

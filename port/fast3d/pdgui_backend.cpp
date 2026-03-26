@@ -207,8 +207,58 @@ void pdguiNewFrame(void)
     ImGui::NewFrame();
 }
 
+/* ---- Live Console (backtick toggle) ---- */
+static bool s_ConsoleVisible = false;
+
+void pdguiConsoleToggle(void)
+{
+    s_ConsoleVisible = !s_ConsoleVisible;
+}
+
+static void pdguiConsoleRender(void)
+{
+    if (!s_ConsoleVisible || !g_PdguiInitialized) return;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.85f);
+
+    if (ImGui::Begin("Console", &s_ConsoleVisible, ImGuiWindowFlags_NoCollapse)) {
+        s32 count = sysLogRingGetCount();
+        ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        for (s32 i = 0; i < count; i++) {
+            const char *line = sysLogRingGetLine(i);
+            /* Color-code by prefix */
+            if (strstr(line, "ERROR:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            } else if (strstr(line, "WARNING:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            } else if (strstr(line, "MESHCOL:") || strstr(line, "JUMP:") || strstr(line, "CAPSULE")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 0.4f, 1.0f));
+            } else if (strstr(line, "LOAD:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.7f, 1.0f, 1.0f));
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, 1.0f));
+            }
+            ImGui::TextUnformatted(line);
+            ImGui::PopStyleColor();
+        }
+        /* Auto-scroll to bottom */
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
 void pdguiRender(void)
 {
+    /* Console renders independently of the debug overlay */
+    if (s_ConsoleVisible && g_PdguiInitialized) {
+        pdguiConsoleRender();
+    }
+
     bool storyboardActive = pdguiStoryboardIsActive() != 0;
     bool hotswapQueued = pdguiHotswapHasQueued() != 0;
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
@@ -220,7 +270,7 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+        (!g_PdguiActive && !s_ConsoleVisible && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }

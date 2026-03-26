@@ -10,7 +10,7 @@
 
 | Item | Status |
 |------|--------|
-| **Collision Rewrite** (S48) | Mesh for level geo, legacy for prop surfaces (both run, highest floor / lowest ceiling wins). Fixed fall-death on props. |
+| **Collision Rewrite** (S48) | Mesh+legacy hybrid (highest floor, lowest ceiling). Ceiling damping + arc sweep added. Ground detection in bondwalk.c patched for mesh floors. Jump-from-props fix. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
 | **SPF-1**: Hub lifecycle, room system, identity, phonetic encoding (S47d) | Run `.\devtools\build-headless.ps1 -Target server` |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |

@@ -55,6 +55,10 @@ void sysLogSetVerbose(s32 enabled);
 extern const char *sysLogChannelNames[LOG_CH_COUNT];
 extern const u32   sysLogChannelBits[LOG_CH_COUNT];
 
+/* Log ring buffer for live console */
+s32  sysLogRingGetCount(void);
+const char *sysLogRingGetLine(s32 idx);
+
 void sysInitArgs(s32 argc, const char **argv);
 void sysInit(void);
 

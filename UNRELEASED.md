@@ -30,6 +30,9 @@
 - Missing ROM dialog opens the correct folder in Explorer
 - Visual effects system: new ASSET_EFFECT type in Asset Catalog for moddable shader effects
 - Collision debug visualization (F9) logs mesh stats
+- Live console overlay (backtick key) with color-coded log output
+- Ceiling proximity jump damping: jumps naturally weaken near ceilings instead of abrupt head-bonking
+- Pre-jump arc sweep: upward sphere cast predicts collisions and clamps jump height
 - Unified release system: client + server ship together in one package
 
 ## Bug Fixes
