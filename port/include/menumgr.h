@@ -23,6 +23,10 @@
 
 #include <ultra64.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     MENU_NONE = 0,       /* no menu -- gameplay */
     MENU_MAIN,           /* main menu / title */
@@ -99,5 +103,9 @@ void menuMgrTick(void);
  * Get the name of a menu state (for logging/debug).
  */
 const char *menuGetName(menu_state_e menu);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MENUMGR_H */
