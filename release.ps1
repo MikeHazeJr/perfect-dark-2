@@ -58,14 +58,14 @@ $ServerExe = $(if (Test-Path "build/server/PerfectDarkServer.exe") { "build/serv
 
 # Data and mods -- prefer build/client/ copies, fall back to post-batch-addin
 $DataSource = $(if (Test-Path "build/client/data") { "build/client/data" }
-                elseif (Test-Path "post-batch-addin/data") { "post-batch-addin/data" }
+                elseif (Test-Path "../post-batch-addin/data") { "../post-batch-addin/data" }
                 else { "" })
 $ModsSource = $(if (Test-Path "build/client/mods") { "build/client/mods" }
-                elseif (Test-Path "post-batch-addin/mods") { "post-batch-addin/mods" }
+                elseif (Test-Path "../post-batch-addin/mods") { "../post-batch-addin/mods" }
                 else { "" })
 
-# DLLs -- check build/client first, then post-batch-addin
-$DllSearchPaths = @("build/client", "post-batch-addin")
+# DLLs -- check build/client first, then post-batch-addin (parent dir)
+$DllSearchPaths = @("build/client", "../post-batch-addin")
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
