@@ -127,9 +127,12 @@ Built at stage load after `bgBuildTables()`. All rooms iterated. Skedar Ruins: 7
 keep their own triangle array, transformed by world matrix at query time.
 
 **Capsule integration** (capsule.c):
-- `capsuleSweep()`: tries `meshSweepCapsuleWorld()` first, legacy cdTestVolume as fallback
-- `capsuleFindFloor()`: tries `meshFindFloor()` first, legacy cdFindGroundInfoAtCyl as fallback
-- `capsuleFindCeiling()`: tries `meshFindCeiling()` first, legacy cdFindCeilingRoomY as fallback
+- `capsuleSweep()`: mesh sweep only when world mesh is built, legacy only when not
+- `capsuleFindFloor()`: runs BOTH mesh and legacy, returns the higher floor. Mesh covers
+  level geometry (BG tiles), legacy covers prop surfaces (desks, crates, walls) until
+  prop meshes are extracted into the world grid.
+- `capsuleFindCeiling()`: runs BOTH mesh and legacy, returns the lower ceiling. Same
+  rationale -- props acting as ceilings need legacy until prop mesh extraction.
 
 **Stage coverage**: all stages except TITLE/BOOTPAKMENU/CREDITS/4MBMENU get mesh collision.
 Carrington Institute menu map is included.

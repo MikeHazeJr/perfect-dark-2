@@ -71,6 +71,7 @@ typedef enum {
     ASSET_GAMEMODE,            /* multiplayer game mode (scenario) */
     ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
     ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
+    ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -88,6 +89,22 @@ typedef enum {
 #define HUD_ELEM_AMMO      1   /* ammo counter */
 #define HUD_ELEM_RADAR     2   /* proximity radar */
 #define HUD_ELEM_HEALTH    3   /* health bar */
+
+/* Effect type constants for ext.effect.effect_type */
+#define EFFECT_TYPE_TINT        0   /* color tint applied to vertices */
+#define EFFECT_TYPE_GLOW        1   /* emissive glow on object */
+#define EFFECT_TYPE_SHIMMER     2   /* animated shimmer/sparkle */
+#define EFFECT_TYPE_DARKEN      3   /* darken/shadow entire scene */
+#define EFFECT_TYPE_SCREEN      4   /* full-screen post-process */
+#define EFFECT_TYPE_PARTICLE    5   /* particle emitter attached to target */
+
+/* Effect target constants for ext.effect.target */
+#define EFFECT_TARGET_SCENE     0   /* applies to full rendered scene */
+#define EFFECT_TARGET_PLAYER    1   /* applies to a specific player */
+#define EFFECT_TARGET_CHR       2   /* applies to a character/bot */
+#define EFFECT_TARGET_PROP      3   /* applies to a prop/object */
+#define EFFECT_TARGET_WEAPON    4   /* applies to a weapon model */
+#define EFFECT_TARGET_LEVEL     5   /* applies to all level geometry */
 #define HUD_ELEM_TIMER     4   /* game timer */
 #define HUD_ELEM_SCORE     5   /* score display */
 
@@ -228,6 +245,14 @@ typedef struct asset_entry {
             s32 element_type;          /* HUD_ELEM_* constant */
             char texture_file[128];    /* texture file path (empty = uses default) */
         } hud;
+        struct {
+            char name[64];             /* human-readable display name */
+            s32 effect_type;           /* EFFECT_TYPE_* constant */
+            s32 target;                /* EFFECT_TARGET_* constant */
+            char shader_id[64];        /* shader identifier for the renderer */
+            f32 intensity;             /* effect strength 0.0-1.0 */
+            f32 params[4];             /* generic effect parameters */
+        } effect;
     } ext;
 
     /* Load state tracking (MEM-1) */

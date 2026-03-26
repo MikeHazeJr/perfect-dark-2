@@ -28,7 +28,8 @@
 - Game now looks for data folder next to the executable first, not in AppData
 - Missing ROM dialog creates the data folder and a readme explaining what's needed
 - Missing ROM dialog opens the correct folder in Explorer
-- Collision debug visualization (F9) shows floor/wall/ceiling surfaces color-coded
+- Visual effects system: new ASSET_EFFECT type in Asset Catalog for moddable shader effects
+- Collision debug visualization (F9) logs mesh stats
 - Unified release system: client + server ship together in one package
 
 ## Bug Fixes

@@ -83,9 +83,11 @@ f32 capsuleSweep(struct capsulecast *cast)
 
 			return meshFrac;
 		}
+		/* Mesh is active but found no hit -- return clean (no legacy fallback) */
+		return 1.0f;
 	}
 
-	/* Fall back to legacy stepped cdTestVolume sweep */
+	/* Legacy sweep -- only runs if mesh world is NOT built (e.g. title screen) */
 
 	/* Disable own perim so we don't collide with ourselves */
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
@@ -172,18 +174,16 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 	if (out_prop) *out_prop = NULL;
 	if (out_flags) *out_flags = 0;
 
-	/* Mesh-based floor detection (primary) */
+	/* Mesh floor detection for level geometry */
+	f32 meshFloor = -30000.0f;
 	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
 		f32 normalY = 1.0f;
-		f32 meshFloor = meshFindFloor(pos, radius, &normalY);
-
-		if (meshFloor > -29000.0f) {
-			if (out_flags) *out_flags = GEOFLAG_FLOOR1;
-			return meshFloor;
-		}
+		meshFloor = meshFindFloor(pos, radius, &normalY);
 	}
 
-	/* Legacy fallback: cdFindGroundInfoAtCyl for BG + binary search for props */
+	/* Legacy floor detection -- always runs for prop surfaces (desks, crates, walls).
+	 * Mesh covers level geometry (BG tiles), but props aren't in the mesh world yet.
+	 * Return the higher of the two: mesh floor (level) or legacy floor (props). */
 	struct coord testpos;
 	RoomNum testrooms[8];
 	u16 floorcol = 0;
@@ -195,11 +195,17 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 
 	testpos = *pos;
 	roomsCopy(rooms, testrooms);
-	f32 bgGround = cdFindGroundInfoAtCyl(&testpos, radius, testrooms,
+	f32 legacyFloor = cdFindGroundInfoAtCyl(&testpos, radius, testrooms,
 			&floorcol, &floortype, &floorflags, &floorroom, &inlift, &lift);
 
+	/* Use whichever floor is higher (closer to the player's feet) */
+	if (meshFloor > legacyFloor) {
+		if (out_flags) *out_flags = GEOFLAG_FLOOR1;
+		return meshFloor;
+	}
+
 	if (out_flags) *out_flags = floorflags;
-	return bgGround;
+	return legacyFloor;
 }
 
 f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
@@ -208,17 +214,17 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 {
 	if (out_prop) *out_prop = NULL;
 
-	/* Mesh-based ceiling detection (primary) */
+	/* Mesh ceiling for level geometry */
+	f32 meshCeil = 99999.0f;
 	if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
-		f32 meshCeil = meshFindCeiling(pos, radius);
-		if (meshCeil < 90000.0f) {
-			return meshCeil;
-		}
+		meshCeil = meshFindCeiling(pos, radius);
 	}
 
-	/* Legacy fallback */
+	/* Legacy ceiling -- always runs for prop surfaces (overhangs, shelves) */
 	f32 bgCeiling = 99999.0f;
 	struct coord testpos = *pos;
 	cdFindCeilingRoomYColourFlagsAtPos(&testpos, rooms, &bgCeiling, NULL, NULL);
-	return bgCeiling;
+
+	/* Return the lower ceiling (closer to the player's head) */
+	return (meshCeil < bgCeiling) ? meshCeil : bgCeiling;
 }

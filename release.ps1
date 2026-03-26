@@ -422,16 +422,11 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     }
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
+    # Only the zip is attached. Separate exe files are not needed --
+    # the zip contains everything (client, server, data, mods, DLLs).
+    # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
-    if ($hasClient) {
-        $assets += "$DistDir/PerfectDark.exe"
-        $assets += "$DistDir/PerfectDark.exe.sha256"
-    }
-    if ($hasServer) {
-        $assets += "$DistDir/PerfectDarkServer.exe"
-        $assets += "$DistDir/PerfectDarkServer.exe.sha256"
-    }
     if (Test-Path $zipPath) { $assets += $zipPath }
 
     $ghExit = Push-GhRelease $ReleaseTag "Perfect Dark 2 $ReleaseTag ($channel)" $assets $true
