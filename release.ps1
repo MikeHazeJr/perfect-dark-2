@@ -357,15 +357,25 @@ if ($SkipPush -or $DryRun) {
     }
     Write-Host "  Branch pushed." -ForegroundColor Green
 
-    # Push the release tag -- never use --tags (pushes all local tags)
+    # Push the release tag -- force-replace if it already exists on remote
     $tagsToPush = @($ReleaseTag)
     foreach ($t in $tagsToPush) {
         Write-Host "  Pushing tag '$t' ..." -ForegroundColor Gray
         $ErrorActionPreference = "Continue"
-        $tagOut = git push origin $t --progress 2>&1
+        $tagOut = git push origin $t --force --progress 2>&1
         $tagExit = $LASTEXITCODE
         $ErrorActionPreference = $savedEAP
         foreach ($line in $tagOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+
+        if ($tagExit -ne 0) {
+            Write-Host "  Tag $t may already exist, deleting and retrying..." -ForegroundColor Yellow
+            $ErrorActionPreference = "Continue"
+            git push origin ":refs/tags/$t" 2>&1 | Out-Null
+            $tagOut = git push origin $t --progress 2>&1
+            $tagExit = $LASTEXITCODE
+            $ErrorActionPreference = $savedEAP
+            foreach ($line in $tagOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+        }
 
         if ($tagExit -ne 0) {
             Write-Host "  ERROR: Tag push failed for $t (exit $tagExit)" -ForegroundColor Red
