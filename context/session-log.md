@@ -59,9 +59,36 @@
 
 ### Bugs Noted
 - B-18: Pink sky on Skedar Ruins (possible texture/clear color issue)
+- B-19: Bot spawn stacking on Skedar Ruins (all bots spawn at same pad)
+
+### Session 48 continued -- Collision Rewrite + Debug Vis
+
+**Collision system** (meshcollision.c + meshcollision.h):
+- Triangle extraction from model DL nodes (G_TRI1, G_TRI4) -- WORKING
+- Room geometry extraction (geotilei, geotilef, geoblock) -- WORKING, 7,110 tris on Skedar
+- Static world mesh with spatial grid (256-unit cells) -- WORKING
+- Dynamic mesh attachment via colmesh* field on struct prop -- CODED
+- capsuleSweep: mesh primary, legacy fallback -- ACTIVE
+- capsuleFindFloor: mesh primary -- ACTIVE, confirmed in logs
+- capsuleFindCeiling: mesh primary -- FIXED slack formula, needs retest
+- Stage lifecycle hooks in lv.c -- ACTIVE on all gameplay stages
+
+**Debug visualization** (meshdebug.c):
+- F9 toggles surface tinting in the GBI vertex pipeline
+- Green=floor, Red=wall, Blue=ceiling based on vertex normals
+- Zero overhead when off (cached flag check per frame)
+
+**Data path fixes**:
+- fs.c: exe dir searched first for data/ folder
+- romdata.c: creates data/ dir + README.txt when ROM missing, opens correct folder
+- dev-window.ps1: Copy-AddinFiles server guard removed (was blocking all copies)
+- release.ps1: unified tag, auto-overwrite, PS5 compat, all em dashes fixed
 
 ### Next Steps
-- Collision system rewrite (mesh-based, capsule for movement, original for damage)
+- Verify ceiling collision after slack fix
+- Verify data copy lands ROM in build/client/data/
+- Test F9 debug visualization
+- B-19: investigate bot spawn pad distribution
 - S46b: Full asset catalog enumeration
 - Multiplayer playtest target: host server, friend connects, 30-bot match
 

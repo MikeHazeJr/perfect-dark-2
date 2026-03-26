@@ -1,52 +1,60 @@
 /**
- * meshdebug.c -- Debug wireframe rendering of the collision mesh
+ * meshdebug.c -- Debug visualization of the collision mesh
  *
- * Renders the world collision mesh as colored wireframe lines using
- * modern GL3+ (no fixed-function pipeline). Uses a minimal shader program.
+ * F9 cycles through modes:
+ *   0 = OFF (normal rendering)
+ *   1 = TINT (rendered geometry colored by surface normal)
+ *   2 = MESH ONLY (game rendering suppressed, collision mesh shown as colored triangles)
  *
  * Colors: Green=floor, Red=wall, Blue=ceiling
- * Toggle with F9.
  */
 
 #include "../fast3d/glad/glad.h"
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "lib/meshcollision.h"
 #include "system.h"
 
-static int s_MeshDebugEnabled = 0;
+static int s_DebugMode = 0; /* 0=off, 1=tint, 2=mesh only */
 static GLuint s_ShaderProgram = 0;
 static GLuint s_VAO = 0;
 static GLuint s_VBO = 0;
-static GLint s_UnifProjMat = -1;
-static GLint s_UnifMvMat = -1;
 static int s_VertexCount = 0;
 static int s_NeedsRebuild = 1;
 
+static const char *s_ModeNames[] = { "OFF", "TINT", "MESH ONLY" };
+
 void meshDebugToggle(void)
 {
-	s_MeshDebugEnabled = !s_MeshDebugEnabled;
-	sysLogPrintf(LOG_NOTE, "MESHCOL: debug wireframe %s (%d tris)",
-		s_MeshDebugEnabled ? "ON" : "OFF", g_WorldMesh.numtris);
-	if (s_MeshDebugEnabled) {
+	s_DebugMode = (s_DebugMode + 1) % 3;
+	sysLogPrintf(LOG_NOTE, "MESHCOL: debug mode = %s (%d tris)",
+		s_ModeNames[s_DebugMode], g_WorldMesh.numtris);
+	if (s_DebugMode == 2) {
 		s_NeedsRebuild = 1;
 	}
 }
 
 int meshDebugIsEnabled(void)
 {
-	return s_MeshDebugEnabled;
+	return s_DebugMode > 0;
 }
+
+int meshDebugGetMode(void)
+{
+	return s_DebugMode;
+}
+
+/* ---- Shader for collision mesh rendering ---- */
 
 static const char *s_VertSrc =
 	"#version 130\n"
-	"uniform mat4 u_Proj;\n"
-	"uniform mat4 u_MV;\n"
+	"uniform mat4 u_VP;\n"
 	"in vec3 a_Pos;\n"
 	"in vec4 a_Color;\n"
 	"out vec4 v_Color;\n"
 	"void main() {\n"
-	"  gl_Position = u_Proj * u_MV * vec4(a_Pos, 1.0);\n"
+	"  gl_Position = u_VP * vec4(a_Pos, 1.0);\n"
 	"  v_Color = a_Color;\n"
 	"}\n";
 
@@ -80,14 +88,11 @@ static void buildShader(void)
 	glDeleteShader(vs);
 	glDeleteShader(fs);
 
-	s_UnifProjMat = glGetUniformLocation(s_ShaderProgram, "u_Proj");
-	s_UnifMvMat = glGetUniformLocation(s_ShaderProgram, "u_MV");
-
 	sysLogPrintf(LOG_NOTE, "MESHCOL: debug shader built (prog=%u)", s_ShaderProgram);
 }
 
 /* Vertex layout: 3 floats pos + 4 floats color = 7 floats per vertex */
-#define MESHDBG_STRIDE (7 * sizeof(float))
+#define MESHDBG_FLOATS_PER_VERT 7
 
 static void rebuildVBO(void)
 {
@@ -97,8 +102,8 @@ static void rebuildVBO(void)
 	}
 
 	s_VertexCount = g_WorldMesh.numtris * 3;
-	int bufSize = s_VertexCount * 7;
-	float *verts = (float *)malloc(bufSize * sizeof(float));
+	int bufFloats = s_VertexCount * MESHDBG_FLOATS_PER_VERT;
+	float *verts = (float *)malloc(bufFloats * sizeof(float));
 	if (!verts) return;
 
 	int vi = 0;
@@ -107,11 +112,11 @@ static void rebuildVBO(void)
 
 		float r, g, b, a;
 		if (tri->normal.y > 0.7f) {
-			r = 0.0f; g = 0.9f; b = 0.0f; a = 0.4f;
+			r = 0.1f; g = 0.8f; b = 0.1f; a = 0.85f;
 		} else if (tri->normal.y < -0.7f) {
-			r = 0.3f; g = 0.3f; b = 1.0f; a = 0.4f;
+			r = 0.2f; g = 0.2f; b = 0.9f; a = 0.85f;
 		} else {
-			r = 0.9f; g = 0.2f; b = 0.2f; a = 0.3f;
+			r = 0.8f; g = 0.15f; b = 0.15f; a = 0.75f;
 		}
 
 		/* v0 */
@@ -130,23 +135,27 @@ static void rebuildVBO(void)
 
 	glBindVertexArray(s_VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, s_VBO);
-	glBufferData(GL_ARRAY_BUFFER, bufSize * sizeof(float), verts, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, bufFloats * sizeof(float), verts, GL_STATIC_DRAW);
 
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, MESHDBG_STRIDE, (void *)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, MESHDBG_FLOATS_PER_VERT * sizeof(float), (void *)0);
 	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, MESHDBG_STRIDE, (void *)(3 * sizeof(float)));
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, MESHDBG_FLOATS_PER_VERT * sizeof(float), (void *)(3 * sizeof(float)));
 
 	glBindVertexArray(0);
 	free(verts);
 
 	s_NeedsRebuild = 0;
-	sysLogPrintf(LOG_NOTE, "MESHCOL: debug VBO built (%d verts)", s_VertexCount);
+	sysLogPrintf(LOG_NOTE, "MESHCOL: debug VBO built (%d verts, %d tris)", s_VertexCount, g_WorldMesh.numtris);
 }
 
-void meshDebugRenderGL(float proj[4][4], float mv[4][4], int width, int height)
+/**
+ * Render the collision mesh as colored triangles using the game's VP matrix.
+ * Called from gfx_pc.cpp after end_frame, before ImGui.
+ * vp is the View*Projection matrix computed from RSP state.
+ */
+void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height)
 {
-	if (!s_MeshDebugEnabled) return;
 	if (!g_WorldMesh.ready || g_WorldMesh.numtris == 0) return;
 
 	buildShader();
@@ -155,34 +164,46 @@ void meshDebugRenderGL(float proj[4][4], float mv[4][4], int width, int height)
 	if (s_NeedsRebuild) rebuildVBO();
 	if (s_VertexCount == 0) return;
 
-	/* Save current program to restore after */
 	GLint prevProgram = 0;
 	glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
 
+	/* Clear to dark background since game rendering is suppressed */
+	glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 	glViewport(0, 0, width, height);
 	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_FALSE);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
 	glDisable(GL_CULL_FACE);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	glLineWidth(1.0f);
-	glEnable(GL_POLYGON_OFFSET_LINE);
-	glPolygonOffset(-1.0f, -1.0f);
 
+	/* Draw filled triangles first */
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glUseProgram(s_ShaderProgram);
-	glUniformMatrix4fv(s_UnifProjMat, 1, GL_FALSE, (const float *)proj);
-	glUniformMatrix4fv(s_UnifMvMat, 1, GL_FALSE, (const float *)mv);
+
+	GLint vpLoc = glGetUniformLocation(s_ShaderProgram, "u_VP");
+	glUniformMatrix4fv(vpLoc, 1, GL_FALSE, (const float *)vp);
 
 	glBindVertexArray(s_VAO);
 	glDrawArrays(GL_TRIANGLES, 0, s_VertexCount);
+
+	/* Draw wireframe on top for edge visibility */
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	glEnable(GL_POLYGON_OFFSET_LINE);
+	glPolygonOffset(-1.0f, -1.0f);
+	glLineWidth(1.0f);
+
+	/* Darken colors for wireframe edges */
+	/* Re-render with same data -- the edges will be slightly visible */
+	glDrawArrays(GL_TRIANGLES, 0, s_VertexCount);
+
 	glBindVertexArray(0);
 
 	/* Restore */
 	glDisable(GL_POLYGON_OFFSET_LINE);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDepthMask(GL_TRUE);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
 	glUseProgram(prevProgram);
