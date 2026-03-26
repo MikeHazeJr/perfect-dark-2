@@ -78,9 +78,9 @@ typedef struct {
 #define UPDATER_GITHUB_OWNER  "MikeHazeJr"
 #define UPDATER_GITHUB_REPO   "perfect-dark-2"
 
-/* Tag prefixes */
-#define UPDATER_TAG_CLIENT    "client-v"
-#define UPDATER_TAG_SERVER    "server-v"
+/* Tag prefix -- unified for both client and server (single release per version) */
+#define UPDATER_TAG_CLIENT    "v"
+#define UPDATER_TAG_SERVER    "v"
 
 /* Asset filenames to look for in releases (must match CMake OUTPUT_NAME + .exe) */
 #define UPDATER_ASSET_CLIENT  "PerfectDark.exe"

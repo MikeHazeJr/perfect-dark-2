@@ -115,10 +115,35 @@ const char *netGetPublicIP(void)
 {
     extern const char *netUpnpGetExternalIP(void);
     extern s32 netUpnpIsActive(void);
+
+    /* Try UPnP first */
     if (netUpnpIsActive()) {
-        return netUpnpGetExternalIP();
+        const char *upnpIP = netUpnpGetExternalIP();
+        if (upnpIP && upnpIP[0]) {
+            return upnpIP;
+        }
     }
-    return "";
+
+    /* Fallback: query external IP via HTTP (cached after first success).
+     * Uses curl to query a lightweight IP echo service. */
+    static char s_CachedIP[64] = "";
+    static s32 s_Tried = 0;
+
+    if (s_CachedIP[0]) {
+        return s_CachedIP;
+    }
+
+    if (!s_Tried) {
+        s_Tried = 1;
+        extern s32 netHttpGetPublicIP(char *buf, s32 bufsize);
+        if (netHttpGetPublicIP(s_CachedIP, sizeof(s_CachedIP)) == 0) {
+            sysLogPrintf(LOG_NOTE, "NET: public IP resolved via HTTP fallback");
+        } else {
+            sysLogPrintf(LOG_WARNING, "NET: failed to resolve public IP (UPnP and HTTP both failed)");
+        }
+    }
+
+    return s_CachedIP;
 }
 
 /**
