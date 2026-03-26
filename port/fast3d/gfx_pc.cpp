@@ -2651,6 +2651,10 @@ uint32_t num_dls = 0;
 /* D3d: ImGui overlay — rendered after PD scene, before buffer swap */
 extern "C" void pdguiNewFrame(void);
 extern "C" void pdguiRender(void);
+extern "C" void meshDebugRenderGL(float proj[4][4], float mv[4][4], int width, int height);
+
+static float gfx_last_p_matrix[4][4];
+static float gfx_last_mv_matrix[4][4];
 extern "C" void gfx_opengl_reset_for_overlay(int width, int height);
 
 extern "C" void gfx_run(Gfx* commands) {
@@ -2698,11 +2702,21 @@ extern "C" void gfx_run(Gfx* commands) {
         }
     }
 
+    /* Save the final MVP matrix for debug rendering before end_frame clears state */
+    memcpy(gfx_last_p_matrix, rsp.P_matrix, sizeof(gfx_last_p_matrix));
+    memcpy(gfx_last_mv_matrix, rsp.modelview_matrix_stack[0], sizeof(gfx_last_mv_matrix));
+
     gfx_rapi->end_frame();
 
     /* D3d: Reset GL state to full window and render ImGui overlay */
     gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
                                  gfx_current_window_dimensions.height);
+
+    /* Debug: render collision mesh wireframe (needs depth buffer + projection) */
+    meshDebugRenderGL(gfx_last_p_matrix, gfx_last_mv_matrix,
+                      gfx_current_window_dimensions.width,
+                      gfx_current_window_dimensions.height);
+
     pdguiNewFrame();
     pdguiRender();
 
