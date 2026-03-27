@@ -3,28 +3,196 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
-## Session 49 -- 2026-03-26
+## Session 53 — 2026-03-26
 
-**Focus**: Bug fixes — version baking and Quit Game clipping
+**Focus**: Two bugs blocking clients from reaching lobby after connecting to dedicated server
 
 ### What Was Done
 
-**B-22 FIXED — Version not baking into exe (third report)**:
-- Root cause: `Get-BuildSteps` in `devtools/dev-window.ps1` built cmake configure args with no `-DVERSION_SEM_*` flags
-- CMake used the cached value from a previous run (0.0.7), or after clean build, the hardcoded default `set(VERSION_SEM_PATCH 7 CACHE STRING ...)` in CMakeLists.txt
-- Fix: added `Get-UiVersion` call inside `Get-BuildSteps`, appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to both Configure (client) and Configure (server) steps
-- Clean Build toggle was already working correctly (deletes build dirs). Version fix works regardless — the -D flags override cache on every configure
+**B-31 FIXED — SVC_AUTH malformed on client** (`port/src/net/netmsg.c`):
+- Root cause: `netmsgSvcAuthRead` had guard `|| id == 0` that was correct pre-B-28 (slot 0 = server's own local client, never assigned to remote clients). After B-28 (S52), dedicated servers start slot search at `i=0`, so the first real client legitimately gets `g_NetClients[0]`, making `authcl - g_NetClients = 0`. The old guard rejected this valid ID.
+- Fix: removed `|| id == 0` from the malformed-message check in `netmsgSvcAuthRead`. Applied to both main repo and worktree.
+- Secondary fix: `netmsgClcAuthRead` (server side) previously called `netDistribServerSendCatalogInfo` BEFORE sending `SVC_AUTH`. Client was in `CLSTATE_AUTH` when catalog info arrived, which is incorrect ordering. Reordered so `SVC_AUTH` is sent first (client transitions to `CLSTATE_LOBBY`), then catalog info follows. Applied to both repos.
 
-**B-23 FIXED — Quit Game button clipped on right edge**:
-- Root cause: fixed `quitBtnW = 100 * scale` placed button's right edge exactly at the ImGui content clip boundary (no margin). "Confirm Quit" text also wider than the fixed 100px.
-- Fix in `port/fast3d/pdgui_menu_mainmenu.cpp`: width now `CalcTextSize("Confirm Quit").x + FramePadding*2`, position now `dialogW - WindowPadding.x - quitBtnW - 4*scale` margin. Cancel button cursor updated to use new local `cursorX/cursorY`.
+**B-26 fully fixed — Player name sends identity profile name** (`port/src/net/netmsg.c`, `port/src/net/net.c`):
+- S49 fix was incomplete: identity was only used as empty-name fallback. "Player 1" (the N64 default) is non-empty, so identity was never consulted.
+- Fix 1: `netClientReadConfig()` in `net.c` — identity profile is now the PRIMARY source; legacy N64 config is fallback only. (Main repo already had this; applied to worktree.)
+- Fix 2: `netmsgClcAuthWrite()` in `netmsg.c` — directly reads `identityGetActiveProfile()->name` when available, so the wire packet uses the profile name regardless of what's in `settings.name`. Applied to both repos.
+- Added `#include "identity.h"` to `netmsg.c`.
 
 ### Decisions Made
-- Version boxes in the Dev Window are the single source of truth for ALL builds, not just releases. `Get-BuildSteps` is the authoritative cmake path — version flags go there.
+- `id == 0` guard removal is correct and safe: `NET_NULL_CLIENT = 0xFF` remains the "no client" sentinel. Slot 0 being valid is the correct post-B-28 state.
+- Identity profile name is authoritative on PC; legacy N64 config name is a fallback only.
 
 ### Next Steps
-- (unchanged from S48)
-- SPF-2b: verify SPF-1 server build
+- Build and run end-to-end join test to confirm client reaches lobby (B-31 and B-26 are testable together)
+- R-2: Room lifecycle after lobby is confirmed working
+
+---
+
+## Session 52 — 2026-03-26
+
+**Focus**: Phase R-1 implementation — hub slot pool API, dedicated server slot fix, IP scrubbing
+
+### What Was Done
+
+**R-1a: Hub slot pool API implemented** (`port/src/hub.c`):
+- Added `#include "net/net.h"` so hub.c can read `g_NetMaxClients` / `g_NetNumClients`
+- Implemented all 4 stubs declared in `hub.h` but missing in `hub.c`:
+  - `hubGetMaxSlots()` → returns `g_NetMaxClients`
+  - `hubSetMaxSlots(s32)` → clamps to [1, NET_MAX_CLIENTS], writes `g_NetMaxClients`
+  - `hubGetUsedSlots()` → returns `g_NetNumClients`
+  - `hubGetFreeSlots()` → returns `max - used`, clamped to 0
+
+**R-1b: Dedicated server no longer occupies slot 0** (`port/src/net/net.c`, B-28 FIXED):
+- `netStartServer()`: when `g_NetDedicated`, sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` (slot 0 stays free). When not dedicated, existing listen-server path unchanged.
+- `netServerEvConnect()` slot search: changed from always starting at `i=1` to `i = g_NetDedicated ? 0 : 1`, so slot 0 is assignable to real players on dedicated servers.
+- NULL guards added to `netServerStageStart()` for lines that unconditionally wrote `g_NetLocalClient->state` and called `netClientReadConfig(g_NetLocalClient, 0)` (two sites).
+- NULL guard added to `netServerStageEnd()` for `g_NetLocalClient->state = CLSTATE_LOBBY`.
+- Verified `netServerEvConnect()` line 942 already had NULL guard: `const bool ingame = (g_NetLocalClient && ...)`.
+
+**R-1c: Raw IP removed from server GUI status bar** (`port/fast3d/server_gui.cpp`, B-29 FIXED):
+- Line 695: Replaced `ImGui::TextColored(..., "%s:%u", ip, g_NetServerPort)` with `"Port %u"` (port only, no IP).
+- Line 707: Fixed `displayClients` — dedicated servers now show `g_NetNumClients` directly (no `-1` compensation needed since slot 0 is no longer occupied by the server).
+
+**R-1d: IP-bearing log lines replaced** (`port/src/net/net.c`, B-30 FIXED):
+- `netServerEvConnect()`: Removed `addrstr = netFormatPeerAddr(peer)`. Connection event logs show "incoming connection", rejection logs show reason only (no IP).
+- `netServerEvDisconnect()`: `"disconnect event from %s"` → `"disconnect event from client %u"` using `cl->id`.
+- Spurious-peer logs (no attached client): replaced `netFormatPeerAddr(ev.peer)` with generic "unknown peer" messages.
+- UPnP IP logs in `netupnp.c` left intact (internal infrastructure — not user-facing).
+
+### Decisions Made
+- `g_NetNumClients = 0` set when dedicated (not left at 1 from `netClientResetAll()`), so player count is accurate from the start.
+- `hubSetMaxSlots` clamps to `[1, NET_MAX_CLIENTS]` — no silent negative or overflow.
+- UPnP log lines (`UPNP: [thread] External IP: ...`) are classified as internal infrastructure and left as-is per R-1 design.
+
+### Next Steps
+- Build dedicated server target and run end-to-end join test (J-1) to verify R-1 changes
+- Confirm slot 0 is now available (expect `Players: 1/32` with one client vs old `1/32` that was really `0/31`)
+- R-2: Room lifecycle (expand HUB_MAX_ROOMS/CLIENTS, add `leader_client_id`, demand-driven rooms)
+
+---
+
+## Session 51 — 2026-03-26
+
+**Focus**: Room architecture plan — code audit, struct corrections, message IDs, phase file refs
+
+### What Was Done
+
+**Code audit against draft `context/room-architecture-plan.md`** (created S50):
+
+**Key findings from reading hub.h/hub.c, room.h/room.c, net.h, net.c, netmsg.h, server_gui.cpp, netlobby.c**:
+
+1. **hub.h slot pool API not implemented**: `hubGetMaxSlots/SetMaxSlots/GetUsedSlots/GetFreeSlots` are declared but have no implementation in `hub.c`. Phase R-1 must add these.
+
+2. **g_NetLocalClient = &g_NetClients[0] on server CONFIRMED**: `netStartServer()` lines 519-521 unconditionally claims slot 0 for the server. `lobbyUpdate()` already has a dedicated-server guard skipping slot 0, and `server_gui.cpp` compensates with `g_NetNumClients - 1`. Fix in R-1: set `g_NetLocalClient = NULL` when `g_NetDedicated`. (B-28)
+
+3. **IP in server GUI status bar CONFIRMED**: `server_gui.cpp:695` shows raw `"%s:%u"` IP/port in gray below the connect code. Connect code display already exists (lines 689-693). Remove gray IP line. (B-29)
+
+4. **IPs in log output CONFIRMED**: `netFormatClientAddr()` returns raw `"IP:port"` strings used in connection log calls. (B-30)
+
+5. **hub_room_t struct**: `id` is `u8` (not `s32`). No `leader_client_id` field — needs to be added. `creator_client_id` exists. Types verified. Draft plan struct was close but types wrong.
+
+6. **HUB_MAX_CLIENTS = 8** in room.h stale — `NET_MAX_CLIENTS` is 32. Must expand.
+
+7. **HUB_MAX_ROOMS = 4** — needs expansion (plan: 16).
+
+8. **Message ID ranges confirmed**: SVC free from `0x75`, CLC free from `0x0A`. Plan assigns SVC 0x75-0x77, CLC 0x0A-0x0F.
+
+9. **roomsInit() creates room 0 permanently** — conflicts with demand-driven design. Phase R-2 removes this.
+
+10. **Draft B-28 (player name)** = already B-26 (fixed). Removed from plan. Bugs renumbered: B-28 = slot 0, B-29 = server GUI IP, B-30 = log IPs.
+
+**Plan revised**: `context/room-architecture-plan.md` rewritten with all corrections, specific code locations, and phase-level file references.
+
+**Context files updated**:
+- `context/room-architecture-plan.md`: full code-verified rewrite
+- `context/tasks-current.md`: R-1 through R-5 added to Active Work Tracks + Prioritized Next Up
+- `context/bugs.md`: B-28, B-29, B-30 added (all OPEN, part of R-1)
+- `context/session-log.md`: this entry
+- `context/infrastructure.md`: SPF section updated with R-series
+- `context/README.md`: last-updated bumped
+
+### Decisions Made
+- `room_id` on `struct netclient` uses `s32` with `-1` as sentinel (not 0 — room IDs are 0-based)
+- `CLC_LOBBY_START (0x08)` remains for backward compat; `CLC_ROOM_START (0x0F)` is the new primary; deprecated in R-4 but not removed until tested
+- B-28/29/30 grouped into Phase R-1 (no protocol change required for any of them)
+
+### Next Steps
+- R-1: Start with hub slot pool stubs + `g_NetLocalClient = NULL` fix in `net.c`
+- Continue J-1: Build server target, verify end-to-end join flow
+
+---
+
+## Session 50 — 2026-03-26/27
+
+**Focus**: Server crash fix (B-27, 9 fixes), multiplayer regressions, build system hardening, v0.0.7 release
+
+### What Was Done
+
+**B-27 FIXED — Dedicated server crash on first client connect (9 fixes, 6 files)**:
+
+Nine separate bugs all in the server connect path, discovered via real cross-machine playtest:
+
+1. **`g_RomName` type mismatch** (`port/src/server_stubs.c`): stub declared `char g_RomName[64]` but `port/include/versioninfo.h` declared `const char *g_RomName`. Fix: changed stub to `const char *g_RomName = "pd-server"`.
+
+2. **ROM/mod check not gated on dedicated** (`port/src/net/net.c`): The ROM hash + mod check ran unconditionally in `CLC_AUTH`, rejecting all real clients connecting to a dedicated server (which has no valid ROM). Fix: wrapped behind `!g_NetDedicated` guard.
+
+3. **`SVC_AUTH` rejecting `id == 0`** (`port/src/net/net.c`): Handler had `if (id == 0) reject`. Now that dedicated servers assign slot 0 to real players (not reserved for server), this guard wrongly rejected the first player. Fix: removed the `id == 0` check.
+
+4. **Hardcoded `g_NetClients[0].state` assumption** (`port/src/net/netmsg.c`): `netmsgClcAuthRead()` unconditionally read `g_NetLocalClient->state` instead of the connecting client's state. Fix: use `cl->state` directly.
+
+5. **NULL guard missing on `g_NetLocalClient`** (`port/src/net/netmsg.c`): Dedicated server has `g_NetLocalClient = NULL`; dereference in `netmsgClcAuthRead` crashed. Fix: NULL guard added.
+
+6. **`ev.packet` NULL check missing** (`port/src/net/net.c`): ENet receive callback could deliver an event with `ev.packet = NULL`; crash on `enet_packet_destroy`. Fix: NULL check added.
+
+7. **`LOBBY_MAX_PLAYERS = 8` mismatch** (`port/src/net/netlobby.c`): Lobby capacity was still 8 while `NET_MAX_CLIENTS` was 32. Fix: `LOBBY_MAX_PLAYERS` updated to 32.
+
+8. **Stale `#define NET_MAX_CLIENTS 8`** (`port/fast3d/server_gui.cpp`): Server GUI had its own local define shadowing the updated value in `net.h`. Fix: removed local define.
+
+9. **GUI ping/kick used loop index instead of `clientId`** (`port/fast3d/server_gui.cpp`): Server action commands (ping/kick) passed the iteration index `i` instead of `cl->id`. Fix: use `cl->id`.
+
+**B-22 FIXED — Version not baking into exe (third report)**:
+- Root cause: `Get-BuildSteps` in `devtools/dev-window.ps1` built cmake configure args with no `-DVERSION_SEM_*` flags
+- CMake used its cached value (from prior run) or the hardcoded CACHE default — Dev Window version boxes had no effect
+- Fix: added `Get-UiVersion` call inside `Get-BuildSteps`; appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to both Configure steps (client + server)
+
+**B-23 FIXED — Quit Game button clipped on right edge**:
+- Root cause: fixed `quitBtnW = 100 * scale` placed button's right edge at the ImGui clip boundary with no margin; "Confirm Quit" label also wider than 100px
+- Fix in `port/fast3d/pdgui_menu_mainmenu.cpp`: width now `CalcTextSize("Confirm Quit").x + FramePadding*2`; position now `dialogW - WindowPadding.x - quitBtnW - 4*scale`; Cancel button cursor updated
+
+**F8 hotswap badge removed from main menu** (`port/fast3d/pdgui_menu_mainmenu.cpp`):
+- Removed the F8 indicator badge from the main menu corner. The toggle (F8 / R3) still works — badge was visual noise.
+
+**Always-clean build enforced** (`devtools/dev-window.ps1`):
+- "Clean Build" toggle removed from Dev Window GUI. Every build now unconditionally deletes build directories before configure.
+- Rationale: stale CMake CACHE caused B-22 and an entire class of version-baking/config-drift bugs. Clean builds eliminate this class.
+
+**Auto-commit version from UI boxes** (`devtools/dev-window.ps1`):
+- Auto-commit message (triggered before release builds) now reads version from the Dev Window boxes, not from CMakeLists.txt defaults.
+- Ensures the auto-commit label always matches the actual binary being built.
+
+**Update tab — cross-session staged version persistence** (`port/src/updater.c`, `port/include/updater.h`):
+- Downloads now write a `.update.ver` sidecar file alongside the staged binary.
+- `updaterGetStagedVersion()` reads this sidecar on startup.
+- "Switch" button now appears immediately on reopen without requiring a re-download.
+
+**Update tab button sizing** (`port/fast3d/pdgui_menu_update.cpp`):
+- Download/Rollback/Switch buttons now use `CalcTextSize`-based widths instead of fixed pixel values.
+- Per-row layout: each version row gets its own Download/Rollback/Switch button inline.
+
+**v0.0.7 released to GitHub**:
+- Built and tested as v0.0.6, released as v0.0.7.
+- Includes all changes from S27–S50 (component mod architecture, room system, connect codes, participant system, update tab, all multiplayer regression fixes from S49d).
+
+### Decisions Made
+- Version boxes in the Dev Window are the single source of truth for ALL builds (not just releases). `Get-BuildSteps` is the authoritative cmake path.
+- All builds are clean builds. No toggle. No exceptions. Stale CMake CACHE is eliminated by design.
+- ROM/mod check is skipped on dedicated server via `!g_NetDedicated`. No hack guards.
+- `id == 0` is a valid player slot on dedicated servers. The SVC_AUTH guard that rejected slot 0 is gone.
+
+### Next Steps
+- SPF-2b: verify SPF-1 server build end-to-end (J-1)
 - SPF-3a: lobby ImGui screen
 - Wire remaining menus through menu manager
 - Collision Phase 2 design (HIGH PRIORITY)
@@ -194,6 +362,41 @@ Context files updated: networking.md (protocol v21, HTTP IP fallback), update-sy
 ### Next Steps
 - Test full build to verify version bakes correctly
 - Verify Release flow (clean → configure with -D → build → release.ps1)
+
+---
+
+## Session 50 — 2026-03-26
+
+**Focus**: Update tab — cross-session staged version persistence
+
+### What Was Done
+
+**Staged version sidecar** (`updater.c`, `updater.h`):
+- Added `versionPath` field to state (`exePath.update.ver`)
+- `detectExePath()` now computes `versionPath` for both Win32 and Unix paths
+- `writeStagedVersionFile()` / `readStagedVersionFile()` helpers — tiny text file, one version string
+- `downloadThread()`: on DOWNLOAD_DONE, writes version sidecar outside mutex, then sets `stagedVersion` + `stagedVersionValid` in state
+- `updaterInit()`: if `.update` file exists on disk, reads sidecar to restore staged version
+- `updaterApplyPending()`: removes `.update.ver` after successful rename (both Win32 + Unix paths)
+- New public API: `updaterGetStagedVersion()` — returns `&stagedVersion` if valid, NULL otherwise
+
+**UI fix** (`pdgui_menu_update.cpp`):
+- `isStaged` check now queries `updaterGetStagedVersion()` in addition to `s_StagedReleaseIndex`
+- Cross-session staged version: if `.update.ver` matches this row's version, shows amber "Switch to this version" button immediately on launch
+- Syncs `s_StagedReleaseIndex` from disk-persisted version so same-session Switch/restart flow works
+
+**context/update-system.md**: Updated Self-Replacement section with sidecar file details and cross-session staged version note.
+
+### Why This Matters
+Before: if you downloaded a version then closed the game without restarting, reopening the Update tab showed no "Switch" button — you had to re-download. After: the sidecar file persists the staged version across sessions; the Switch button appears immediately.
+
+### Decisions Made
+- Sidecar is cleaned up by `updaterApplyPending()` so it's never stale post-apply
+- `updaterGetStagedVersion()` is the cross-session source of truth; `s_StagedReleaseIndex` remains for same-session download tracking
+
+### Next Steps
+- Build test: Download a version, close without restarting, reopen — verify Switch button appears
+- (Unchanged from S49) SPF-3 playtest, catalog C-1/C-2, menu replacement Group 1
 
 ---
 

@@ -1,9 +1,9 @@
 ﻿{
-    "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302142154",
-    "assets_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302142154/assets",
-    "upload_url":  "https://uploads.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302142154/assets{?name,label}",
+    "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302146559",
+    "assets_url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302146559/assets",
+    "upload_url":  "https://uploads.github.com/repos/MikeHazeJr/perfect-dark-2/releases/302146559/assets{?name,label}",
     "html_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/v0.0.7",
-    "id":  302142154,
+    "id":  302146559,
     "author":  {
                    "login":  "MikeHazeJr",
                    "id":  7763200,
@@ -25,7 +25,7 @@
                    "user_view_type":  "public",
                    "site_admin":  false
                },
-    "node_id":  "RE_kwDORp4h_84SAlLK",
+    "node_id":  "RE_kwDORp4h_84SAmP_",
     "tag_name":  "v0.0.7",
     "target_commitish":  "main",
     "name":  "Perfect Dark 2 v0.0.7 (Stable)",
@@ -33,13 +33,13 @@
     "immutable":  false,
     "prerelease":  false,
     "created_at":  "2026-03-26T23:52:53Z",
-    "updated_at":  "2026-03-26T23:53:04Z",
-    "published_at":  "2026-03-26T23:53:04Z",
+    "updated_at":  "2026-03-27T00:15:10Z",
+    "published_at":  "2026-03-27T00:15:10Z",
     "assets":  [
                    {
-                       "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/assets/382486365",
-                       "id":  382486365,
-                       "node_id":  "RA_kwDORp4h_84WzEdd",
+                       "url":  "https://api.github.com/repos/MikeHazeJr/perfect-dark-2/releases/assets/382499997",
+                       "id":  382499997,
+                       "node_id":  "RA_kwDORp4h_84WzHyd",
                        "name":  "PerfectDark-v0.0.7-win64.zip",
                        "label":  "",
                        "uploader":  {
@@ -66,10 +66,10 @@
                        "content_type":  "application/zip",
                        "state":  "uploaded",
                        "size":  24956247,
-                       "digest":  "sha256:7d7e7b1cb01d6a19c4a44468894867b239377dcab72788299da4a3127b346361",
-                       "download_count":  0,
-                       "created_at":  "2026-03-26T23:52:57Z",
-                       "updated_at":  "2026-03-26T23:53:03Z",
+                       "digest":  "sha256:b308bb1d176dd8e40e7fd136f60bc1c48396f80c3a49a5e0457354dde637fd4e",
+                       "download_count":  4,
+                       "created_at":  "2026-03-27T00:15:04Z",
+                       "updated_at":  "2026-03-27T00:15:10Z",
                        "browser_download_url":  "https://github.com/MikeHazeJr/perfect-dark-2/releases/download/v0.0.7/PerfectDark-v0.0.7-win64.zip"
                    }
                ],

@@ -307,18 +307,17 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
-	memcpy(cl->settings.name, g_PlayerConfigsArray[playernum].base.name, sizeof(cl->settings.name));
-	// the \n will be readded in the playerconfig
-	char *newline = strrchr(g_NetLocalClient->settings.name, '\n');
-	if (newline) {
-		*newline = '\0';
-	}
-	// If legacy config has no name, use the identity profile (authoritative for PC)
-	if (!cl->settings.name[0]) {
-		identity_profile_t *profile = identityGetActiveProfile();
-		if (profile && profile->name[0]) {
-			strncpy(cl->settings.name, profile->name, sizeof(cl->settings.name) - 1);
-			cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+	// Identity profile is the authoritative name source on PC.
+	// Fall back to legacy N64 config only if no profile is available.
+	identity_profile_t *profile = identityGetActiveProfile();
+	if (profile && profile->name[0]) {
+		strncpy(cl->settings.name, profile->name, sizeof(cl->settings.name) - 1);
+		cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+	} else {
+		memcpy(cl->settings.name, g_PlayerConfigsArray[playernum].base.name, sizeof(cl->settings.name));
+		char *newline = strrchr(cl->settings.name, '\n');
+		if (newline) {
+			*newline = '\0';
 		}
 	}
 }
@@ -516,10 +515,16 @@ s32 netStartServer(u16 port, s32 maxclients)
 	netClientResetAll();
 	g_NetMaxClients = maxclients;
 
-	// the server's local client is client 0
-	g_NetLocalClient = &g_NetClients[0];
-	g_NetLocalClient->state = CLSTATE_LOBBY; // local client doesn't need auth
-	netClientReadConfig(g_NetLocalClient, 0);
+	if (g_NetDedicated) {
+		/* Dedicated server has no local player — slot 0 is free for real players. */
+		g_NetLocalClient = NULL;
+		g_NetNumClients = 0;
+	} else {
+		/* Listen server: the host occupies slot 0. */
+		g_NetLocalClient = &g_NetClients[0];
+		g_NetLocalClient->state = CLSTATE_LOBBY;
+		netClientReadConfig(g_NetLocalClient, 0);
+	}
 
 	g_NetMode = NETMODE_SERVER;
 
@@ -548,12 +553,16 @@ void netServerStageStart(void)
 	}
 
 	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
-		g_NetLocalClient->state = CLSTATE_LOBBY;
+		if (g_NetLocalClient) {
+			g_NetLocalClient->state = CLSTATE_LOBBY;
+		}
 		return;
 	}
 
 	// re-read the player config in case it changed
-	netClientReadConfig(g_NetLocalClient, 0);
+	if (g_NetLocalClient) {
+		netClientReadConfig(g_NetLocalClient, 0);
+	}
 
 	/* Transition ALL connected clients to CLSTATE_GAME.
 	 * The server must do this before stage initialization code runs,
@@ -619,8 +628,10 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	}
 
 	// re-read the player config
-	netClientReadConfig(g_NetLocalClient, 0);
-	g_NetLocalClient->state = CLSTATE_GAME;
+	if (g_NetLocalClient) {
+		netClientReadConfig(g_NetLocalClient, 0);
+		g_NetLocalClient->state = CLSTATE_GAME;
+	}
 
 	// clear preserved players from previous rounds
 	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
@@ -675,7 +686,9 @@ void netServerStageEnd(void)
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
-	g_NetLocalClient->state = CLSTATE_LOBBY;
+	if (g_NetLocalClient) {
+		g_NetLocalClient->state = CLSTATE_LOBBY;
+	}
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageEndWrite(&g_NetMsgRel);
@@ -929,12 +942,10 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 
 static void netServerEvConnect(ENetPeer *peer, const u32 data)
 {
-	const char *addrstr = netFormatPeerAddr(peer);
-
-	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection attempt from %s", addrstr);
+	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: incoming connection");
 
 	if (data != NET_PROTOCOL_VER) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: protocol mismatch", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: protocol mismatch (got %u, expected %u)", data, NET_PROTOCOL_VER);
 		enet_peer_disconnect(peer, DISCONNECT_VERSION);
 		return;
 	}
@@ -943,8 +954,10 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 
 	struct netclient *cl = NULL;
 
-	// id 0 is the local client
-	for (s32 i = 1; i < g_NetMaxClients; ++i) {
+	/* Dedicated server: slot 0 is free for real players.
+	 * Listen server: slot 0 is the host, start at 1. */
+	s32 slotStart = g_NetDedicated ? 0 : 1;
+	for (s32 i = slotStart; i < g_NetMaxClients; ++i) {
 		if (!g_NetClients[i].state) {
 			cl = &g_NetClients[i];
 			break;
@@ -952,13 +965,13 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	}
 
 	if (!cl) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: server is full", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: server full");
 		enet_peer_disconnect(peer, DISCONNECT_FULL);
 		return;
 	}
 
 	if (ingame && g_NetNumPreserved == 0) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: game in progress, no preserved slots", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: game in progress, no preserved slots");
 		enet_peer_disconnect(peer, DISCONNECT_LATE);
 		return;
 	}
@@ -970,11 +983,12 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	cl->peer = peer;
 	cl->flags = ingame ? CLFLAG_ABSENT : 0; // mark as pending reconnect if mid-game
 	enet_peer_set_data(peer, cl);
+	sysLogPrintf(LOG_NOTE, "NET: client slot %d assigned to peer", (int)(cl - g_NetClients));
 }
 
 static void netServerEvDisconnect(struct netclient *cl)
 {
-	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: disconnect event from %s", netFormatClientAddr(cl));
+	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: disconnect event from client %u", cl->id);
 
 	if (cl->peer) {
 		enet_peer_reset(cl->peer);
@@ -1173,7 +1187,7 @@ void netStartFrame(void)
 					} else {
 						// No attached client — spurious disconnect from peer that never completed auth.
 						// Do NOT decrement g_NetNumClients here: it was never incremented for this peer.
-						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: disconnect from %s without attached client (ignored)", netFormatPeerAddr(ev.peer));
+						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: spurious disconnect (no attached client — peer never completed auth)");
 					}
 				}
 				break;
@@ -1181,7 +1195,7 @@ void netStartFrame(void)
 				if (ev.peer) {
 					struct netclient *cl = (g_NetMode == NETMODE_CLIENT) ? g_NetLocalClient : enet_peer_get_data(ev.peer);
 					if (cl && cl->state) {
-						if (ev.packet->data && ev.packet->dataLength) {
+						if (ev.packet && ev.packet->data && ev.packet->dataLength) {
 							netbufStartReadData(&cl->in, ev.packet->data, ev.packet->dataLength);
 							if (isClient) {
 								netClientEvReceive(cl);
@@ -1191,7 +1205,7 @@ void netStartFrame(void)
 							netbufReset(&cl->in);
 						}
 					} else if (!isClient) {
-						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: receive from %s without attached client", netFormatPeerAddr(ev.peer));
+						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: spurious receive (no attached client)");
 					}
 				}
 				enet_packet_dispose(ev.packet);
@@ -1217,7 +1231,7 @@ void netEndFrame(void)
 	// send whatever messages have accumulated so far
 	netFlushSendBuffers();
 
-	if (g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
+	if (g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
 		if (g_NetMode == NETMODE_CLIENT) {
 			if (g_NetTick > 100) {
 				netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
@@ -1700,10 +1714,4 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
 	// register recent server addresses for persistence
-	static char recentKeys[NET_MAX_RECENT_SERVERS][32];
-	for (s32 i = 0; i < NET_MAX_RECENT_SERVERS; ++i) {
-		snprintf(recentKeys[i], sizeof(recentKeys[i]), "Net.RecentServer.%d", i);
-		configRegisterString(recentKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
-	}
-	configRegisterInt("Net.RecentServerCount", &g_NetNumRecentServers, 0, NET_MAX_RECENT_SERVERS);
-}
+	static char recentKeys[NET_MAX_RECENT_SERVERS

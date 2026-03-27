@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-03-26, Session 49
+> **Last updated**: 2026-03-27, Session 52
 
 ---
 
@@ -33,7 +33,7 @@
 | D-MEM | Memory Modernization | 🔶 M0–M1 done, MEM-1 coded, M2–M6 remain | S47a |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | 🔶 Phase 1–2 done, Phase 3 (remove chrslots) next | S47b |
-| SPF | Server Platform Foundation | 🔶 SPF-1 builds, SPF-2a pass, SPF-3 coded, QC pending | S49 |
+| SPF | Server Platform Foundation | 🔶 SPF-1–3 coded, R-series planned (R-1 next), QC pending | S51 |
 
 ---
 
@@ -131,17 +131,17 @@ See [constraints.md](constraints.md) — Index Domain Warning section.
 - **Phase 2 Callsite Migration**: ✅ Done (S47b). 7 files, ~25 mplayer.c sites + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()` API. Build pass.
 - **Phase 3 Remove chrslots**: NEXT. Delete u64 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22.
 
-### SPF: Server Platform Foundation — 🔶 SPF-1–3 IN PROGRESS (S49)
+### SPF: Server Platform Foundation — 🔶 SPF-1–3 IN PROGRESS, R-series PLANNED (S51)
 New track building the community platform layer on top of the dedicated server.
 
 - **SPF-1 Hub/Room/Identity/Phonetic**: ✅ BUILDS (S47d coded, S49 confirmed via SPF-3 build).
-  - `hub.h/c` — Hub singleton, owns rooms + identity, `hubTick()` drives room 0 from `g_Lobby.inGame`
-  - `room.h/c` — Room struct, 5-state lifecycle (LOBBY→LOADING→MATCH→POSTGAME→CLOSED), pool of 4; `roomGenerateName()` for auto-naming (adjective+noun)
+  - `hub.h/c` — Hub singleton, owns rooms + identity, `hubTick()` drives room 0 from `g_Lobby.inGame`. **Note**: `hubGetMaxSlots/SetMaxSlots/GetUsedSlots/GetFreeSlots` declared in hub.h but NOT implemented in hub.c — R-1 implements them.
+  - `room.h/c` — Room struct, 5-state lifecycle (LOBBY→LOADING→MATCH→POSTGAME→CLOSED), pool of 4 (`HUB_MAX_ROOMS`), client array capped at 8 (`HUB_MAX_CLIENTS` — stale, must expand to 32); `roomGenerateName()` for auto-naming (adjective+noun)
   - `identity.h/c` — `pd-identity.dat` persistence, 16-byte UUID, up to 4 profiles
   - `phonetic.h/c` — CV syllable IP:port encoding (still available, coexists with sentence codes)
   - `connectcode.h/c` — **Primary join mechanism**: 4-word sentence codes (adjective+noun+action+place = IPv4). Code-only joining enforced. No raw IP in UI.
   - `server_main.c` — hubInit/Tick/Shutdown wired in
-  - `server_gui.cpp` — Tabbed layout (Server + Hub tabs), color-coded room states
+  - `server_gui.cpp` — Tabbed layout (Server + Hub tabs), color-coded room states. **B-29**: raw IP shown in status bar (line 695) — remove in R-1.
   - `CMakeLists.txt` — 4 new files added to SRC_SERVER (S47e fix)
   - **QC PENDING** — needs end-to-end server playtest
 - **SPF-2a Menu Manager**: ✅ BUILD PASS (S48 coded, S49 extern C fix). menumgr.c/h, 100ms cooldown. Pause + modding hub + join screen wired.
@@ -152,7 +152,12 @@ New track building the community platform layer on top of the dedicated server.
 - **SPF Player Stats**: ✅ CODED (S49). `playerstats.h/c`, `statIncrement()`, JSON persistence. Needs wiring at gameplay sites.
 - **SPF Connect Codes**: ✅ REWRITTEN (S49). Sentence-based codes replace phonetic syllables as primary connect method. 256-word vocabulary × 4 slots = 32-bit IPv4.
 - **Join Flow**: See [join-flow-plan.md](join-flow-plan.md). Gaps: room state not yet synced to clients (SVC_ROOM_LIST needed), server GUI missing connect code display.
-- **SPF-2 Room Federation**: PLANNED. Multi-room support, slot pool, access modes, friends system designed in multiplayer-plan.md.
+- **R-series Room Architecture**: PLANNED (S51). See [room-architecture-plan.md](room-architecture-plan.md).
+  - **R-1** Foundation: hub slot pool, g_NetLocalClient=NULL for dedicated, IP scrub (B-28/29/30). No protocol change.
+  - **R-2** Room lifecycle: demand-driven rooms, leader_client_id, room_id on netclient, HUB_MAX_ROOMS=16/HUB_MAX_CLIENTS=32.
+  - **R-3** Room sync protocol: SVC_ROOM_LIST/UPDATE/ASSIGN (0x75-0x77), CLC_ROOM_JOIN/LEAVE (0x0A-0x0B).
+  - **R-4** Match start: CLC_ROOM_SETTINGS/KICK/TRANSFER/START (0x0C-0x0F), room-scoped stage start.
+  - **R-5** Server GUI redesign: Players + Rooms panels, operator actions (move/kick/set-leader/close).
 - **SPF-3+**: Social hub, content sharing, whitelists, mesh networking (milestones v0.3–v0.4).
 
 Architecture doc: [server-architecture.md](server-architecture.md)

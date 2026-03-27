@@ -17,6 +17,7 @@
 #include "room.h"
 #include "identity.h"
 #include "system.h"
+#include "net/net.h"
 #include "net/netlobby.h"
 
 /* -------------------------------------------------------------------------
@@ -71,7 +72,6 @@ void hubInit(void)
 void hubTick(void)
 {
     if (!s_Initialised) return;
-
     /* Sync room 0 state from the existing lobby flag. */
     int inGame = (int)g_Lobby.inGame;
     hub_room_t *room0 = roomGetById(0);
@@ -120,6 +120,32 @@ const char *hubGetStateName(hub_state_t state)
     switch (state) {
         case HUB_STATE_LOUNGE: return "Lounge";
         case HUB_STATE_ACTIVE: return "Active";
-        default:               return "?";
+        default:               return "Unknown";
     }
+}
+
+/* -------------------------------------------------------------------------
+ * Slot pool API
+ * ------------------------------------------------------------------------- */
+
+s32 hubGetMaxSlots(void)
+{
+    return g_NetMaxClients;
+}
+
+void hubSetMaxSlots(s32 max)
+{
+    if (max < 1) max = 1;
+    if (max > NET_MAX_CLIENTS) max = NET_MAX_CLIENTS;
+    g_NetMaxClients = max;
+}
+
+s32 hubGetUsedSlots(void)
+{
+    return g_NetNumClients;
+}
+
+s32 hubGetFreeSlots(void)
+{
+    return g_NetMaxClients - g_NetNumClients;
 }

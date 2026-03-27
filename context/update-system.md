@@ -101,13 +101,19 @@ Game Launch
 Windows allows renaming (but not deleting/overwriting) a running executable.
 
 1. Download completes → `pd.x86_64.exe.update` written + verified
+   - Version sidecar `pd.x86_64.exe.update.ver` written (plain text version string)
 2. Player closes game (or game prompts restart)
 3. On next launch, `updaterApplyPending()` runs before anything else:
    - Rename `pd.x86_64.exe` → `pd.x86_64.exe.old`
    - Rename `pd.x86_64.exe.update` → `pd.x86_64.exe`
    - Delete `pd.x86_64.exe.old`
+   - Delete `pd.x86_64.exe.update.ver` (sidecar no longer needed)
    - If any step fails: attempt rollback, log error
 4. Game continues launching with new binary
+
+**Cross-session staged version**: On `updaterInit()`, if `.update` exists, reads `.update.ver`
+to restore the staged version in memory. `updaterGetStagedVersion()` returns it. The UI
+uses this to show the "Switch to this version" amber button even after a game restart.
 
 ### Save Migration
 
@@ -177,8 +183,9 @@ pacman -S mingw-w64-x86_64-curl
   - Progress % shown in action column during active download
   - Rollback tooltip for older versions
   - Download failure shown below table
-- `s_DownloadingIndex` / `s_StagedReleaseIndex` track which release is in each state
+- `s_DownloadingIndex` / `s_StagedReleaseIndex` track which release is in each state (session)
+- Cross-session staged detection: `updaterGetStagedVersion()` + `.update.ver` sidecar file
 
 ## Status
 - Created: 2026-03-20
-- Status: Implemented (S49) — needs build test
+- Status: Implemented + cross-session staged version persistence added (S49/S50) — needs build test

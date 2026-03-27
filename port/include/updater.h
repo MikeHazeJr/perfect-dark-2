@@ -179,6 +179,13 @@ updater_progress_t updaterGetProgress(void);
  */
 const char *updaterGetError(void);
 
+/**
+ * Get the version of the staged update waiting to be applied.
+ * Returns NULL if no update is staged on disk (.update file absent).
+ * Valid after updaterInit(). Survives across sessions via a sidecar file.
+ */
+const pdversion_t *updaterGetStagedVersion(void);
+
 /* ========================================================================
  * Self-replacement
  * ======================================================================== */

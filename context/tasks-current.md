@@ -13,6 +13,7 @@
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
 | **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
+| **Update tab — cross-session staged version** (S50) | Build client. Download a version, close without restarting. Reopen Update tab → Switch button should appear without re-downloading. |
 | **Player Stats** (playerstats.c): String-keyed counters, JSON persistence (S49) | Needs client build test. `port/src/playerstats.c` |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
 | **MEM-1**: Asset load state fields in asset_entry_t (S47a) | Needs full cmake pass |
@@ -68,6 +69,18 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 ---
 
+### Room Architecture (R-series) — See [room-architecture-plan.md](room-architecture-plan.md)
+
+| Phase | Task | Details |
+|-------|------|---------|
+| R-1 | **Foundation (no protocol change)** | ~~Implement hub slot pool stubs (`hub.c`). Fix `g_NetLocalClient = NULL` for dedicated server (`net.c` B-28). Remove raw IP from server GUI status bar (`server_gui.cpp:695` B-29). Replace IP-bearing log lines with client index/name (B-30).~~ **DONE (S52)** — needs server build test. |
+| R-2 | **Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id` to `hub_room_t`. Add `room_id` to `struct netclient`. On-demand room creation per connect (`hubOnClientConnect/Disconnect`). Remove permanent room 0. |
+| R-3 | **Room sync (protocol)** | `SVC_ROOM_LIST 0x75`, `SVC_ROOM_UPDATE 0x76`, `SVC_ROOM_ASSIGN 0x77`. `CLC_ROOM_JOIN 0x0A`, `CLC_ROOM_LEAVE 0x0B`. Client lobby UI reads server-authoritative room list (closes join-flow gap J-3). |
+| R-4 | **Match start (room-scoped)** | `CLC_ROOM_SETTINGS 0x0C`, `CLC_ROOM_KICK 0x0D`, `CLC_ROOM_TRANSFER 0x0E`, `CLC_ROOM_START 0x0F`. Stage start scoped to room members. Room state transitions. |
+| R-5 | **Server GUI redesign** | New Players + Rooms panel layout. Move/Kick/Set Leader/Close Room actions. No raw IP anywhere. Replace Hub tab with Rooms panel. |
+
+---
+
 ### Asset Catalog Expansion
 
 | Task | Status |
@@ -81,7 +94,8 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 | # | Task | Details |
 |---|------|---------|
 | 1 | **J-1: Verify end-to-end join** | Build server target + end-to-end test. See join-flow-plan.md. |
-| 2 | **J-2: Server GUI connect code** | Add code display to server_gui.cpp. |
+| 2 | **R-1: Room foundation** | Hub slot pool stubs, g_NetLocalClient=NULL for dedicated, IP scrub (B-28/29/30). No protocol change. See room-architecture-plan.md. |
+| 3 | **J-2: Server GUI connect code** | Add code display to server_gui.cpp (superseded by R-5, but R-1 partially covers). |
 | 3 | **Menu Replacement Group 1** | Solo mission flow (11 menus). See [menu-replacement-plan.md](context/menu-replacement-plan.md). |
 | 2 | **Catalog Phase C-1/C-2** | ROM hash + base game catalog population. See [catalog-loading-plan.md](context/catalog-loading-plan.md). |
 | 3 | **Catalog Phase C-4** | Intercept fileLoadToNew — catalog resolve before ROM load. Critical gateway. |
@@ -114,6 +128,7 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 - Systemic bug audit: SP-1 remaining files (activemenu.c, player.c, endscreen.c, menu.c)
 - S46b: Full asset catalog enumeration
 - ~~Update tab UX: button sizing~~ **DONE S49** -- CalcTextSize-based buttons, per-row Download/Rollback, staged release "Switch" support. Version policy design still pending.
-- ~~Version baking~~ **DONE S49** -- always-clean builds, version from UI boxes, -DVERSION_SEM_* flags injected every build
+- ~~Update tab — cross-session staged version~~ **DONE S50** -- `.update.ver` sidecar, `updaterGetStagedVersion()`, Switch button persists across restarts.
+- ~~Version baking~~ **DONE S50** -- always-clean builds (Clean Build toggle removed), version from UI boxes, `-DVERSION_SEM_*` flags injected every build via `Get-BuildSteps`
 - **Network benchmark → dynamic player cap**: Measure bandwidth/latency at server start, call `hubSetMaxSlots()` to lower `g_NetMaxClients` below 32. Do not hardcode player counts.
 - TODO-1: SDL2/zlib still DLL (low priority)

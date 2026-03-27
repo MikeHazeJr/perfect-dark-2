@@ -11,7 +11,7 @@
 
 #include <PR/ultratypes.h>
 
-#define LOBBY_MAX_PLAYERS 8
+#define LOBBY_MAX_PLAYERS 32  /* matches NET_MAX_CLIENTS */
 #define LOBBY_NAME_LEN    32  /* PC port: longer names, no N64 constraint */
 
 /* Lobby player slot */

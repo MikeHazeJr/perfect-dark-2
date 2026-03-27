@@ -59,6 +59,11 @@ static struct {
 	char exePath[512];     /* full path to current executable */
 	char updatePath[512];  /* exePath + ".update" */
 	char oldPath[512];     /* exePath + ".old" */
+	char versionPath[512]; /* exePath + ".update.ver" — version sidecar for staged update */
+
+	/* Staged version — persisted across sessions via versionPath sidecar */
+	pdversion_t stagedVersion;
+	s32         stagedVersionValid;
 
 	/* curl */
 	s32 curlInitialized;
@@ -634,6 +639,8 @@ static int SDLCALL checkThread(void *data)
  * Background thread: download
  * ======================================================================== */
 
+static void writeStagedVersionFile(const pdversion_t *ver);
+
 static int SDLCALL downloadThread(void *data)
 {
 	const updater_release_t *rel = (const updater_release_t *)data;
@@ -756,6 +763,14 @@ static int SDLCALL downloadThread(void *data)
 		sysLogPrintf(LOG_WARNING, "UPDATER: No SHA-256 sidecar — download not verified");
 	}
 
+	/* Write version sidecar so the staged version survives across sessions.
+	 * Do the file I/O outside the mutex to avoid blocking the main thread. */
+	SDL_UnlockMutex(s_Updater.mutex);
+	writeStagedVersionFile(&rel->version);
+	SDL_LockMutex(s_Updater.mutex);
+
+	s_Updater.stagedVersion = rel->version;
+	s_Updater.stagedVersionValid = 1;
 	s_Updater.progress.percent = 100.0f;
 	s_Updater.status = UPDATER_DOWNLOAD_DONE;
 
@@ -772,6 +787,42 @@ static int SDLCALL downloadThread(void *data)
  * Executable path detection
  * ======================================================================== */
 
+/* ========================================================================
+ * Version sidecar helpers — track which version is staged on disk
+ * ======================================================================== */
+
+/**
+ * Write the version of the staged update to a small sidecar file.
+ * Called after a successful download so the staged version survives restarts.
+ */
+static void writeStagedVersionFile(const pdversion_t *ver)
+{
+	char verstr[32];
+	versionFormat(ver, verstr, sizeof(verstr));
+	FILE *fp = fopen(s_Updater.versionPath, "w");
+	if (fp) {
+		fprintf(fp, "%s\n", verstr);
+		fclose(fp);
+	}
+}
+
+/**
+ * Read the staged version sidecar. Returns 1 on success, 0 if absent or invalid.
+ */
+static s32 readStagedVersionFile(pdversion_t *out)
+{
+	FILE *fp = fopen(s_Updater.versionPath, "r");
+	if (!fp) return 0;
+	char buf[32];
+	if (!fgets(buf, sizeof(buf), fp)) { fclose(fp); return 0; }
+	fclose(fp);
+	/* Strip newline */
+	for (s32 i = 0; buf[i]; i++) {
+		if (buf[i] == '\n' || buf[i] == '\r') { buf[i] = '\0'; break; }
+	}
+	return (versionParse(buf, out) == 0) ? 1 : 0;
+}
+
 #ifdef _WIN32
 #include <windows.h>
 static void detectExePath(void)
@@ -781,6 +832,8 @@ static void detectExePath(void)
 		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
 	snprintf(s_Updater.oldPath, sizeof(s_Updater.oldPath),
 		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_OLD);
+	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath),
+		"%s%s.ver", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
 }
 #else
 #include <unistd.h>
@@ -797,6 +850,8 @@ static void detectExePath(void)
 		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
 	snprintf(s_Updater.oldPath, sizeof(s_Updater.oldPath),
 		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_OLD);
+	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath),
+		"%s%s.ver", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
 }
 #endif
 
@@ -821,6 +876,23 @@ void updaterInit(void)
 #endif
 
 	detectExePath();
+
+	/* Restore staged version if a .update file already exists on disk.
+	 * This covers the case where the user downloaded an update in a
+	 * previous session but hasn't restarted yet. */
+	s_Updater.stagedVersionValid = 0;
+	{
+		FILE *updateTest = fopen(s_Updater.updatePath, "rb");
+		if (updateTest) {
+			fclose(updateTest);
+			if (readStagedVersionFile(&s_Updater.stagedVersion)) {
+				s_Updater.stagedVersionValid = 1;
+				char verstr[32];
+				versionFormat(&s_Updater.stagedVersion, verstr, sizeof(verstr));
+				sysLogPrintf(LOG_NOTE, "UPDATER: Found staged update on disk: v%s", verstr);
+			}
+		}
+	}
 
 	/* Initialize curl globally (once) */
 	if (!s_Updater.curlInitialized) {
@@ -989,6 +1061,14 @@ const char *updaterGetError(void)
 	return s_Updater.errorMsg;
 }
 
+const pdversion_t *updaterGetStagedVersion(void)
+{
+	SDL_LockMutex(s_Updater.mutex);
+	const pdversion_t *r = s_Updater.stagedVersionValid ? &s_Updater.stagedVersion : NULL;
+	SDL_UnlockMutex(s_Updater.mutex);
+	return r;
+}
+
 /* ========================================================================
  * Public API — Self-replacement
  * ======================================================================== */
@@ -1038,6 +1118,9 @@ s32 updaterApplyPending(void)
 		return -1;
 	}
 
+	/* Clean up version sidecar — update has been applied */
+	remove(s_Updater.versionPath);
+
 	sysLogPrintf(LOG_NOTE, "UPDATER: Update applied successfully — restarting...");
 
 	/* Step 3: Re-launch the new binary */
@@ -1070,6 +1153,9 @@ s32 updaterApplyPending(void)
 		sysLogPrintf(LOG_ERROR, "UPDATER: Failed to rename .update to exe");
 		return -1;
 	}
+
+	/* Clean up version sidecar — update has been applied */
+	remove(s_Updater.versionPath);
 
 	sysLogPrintf(LOG_NOTE, "UPDATER: Update applied — re-execing...");
 

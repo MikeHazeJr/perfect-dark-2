@@ -448,7 +448,20 @@ static void renderVersionPickerContent(float tableH)
 				ImGui::PushID(i);
 
 				bool isDownloading = (s_DownloadingIndex == i) && s_DownloadActive;
-				bool isStaged      = (s_StagedReleaseIndex == i);
+
+				/* isStaged: downloaded this session, or .update file already exists
+				 * on disk from a previous session (restored via version sidecar). */
+				bool isStaged = (s_StagedReleaseIndex == i);
+				if (!isStaged && !s_DownloadActive) {
+					const pdversion_t *staged = updaterGetStagedVersion();
+					if (staged && versionCompare(staged, &rel->version) == 0) {
+						isStaged = true;
+						/* Sync session index so Switch/restart paths work */
+						if (s_StagedReleaseIndex < 0) {
+							s_StagedReleaseIndex = i;
+						}
+					}
+				}
 
 				if (isCurrent) {
 					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
@@ -456,9 +469,15 @@ static void renderVersionPickerContent(float tableH)
 					updater_progress_t p = updaterGetProgress();
 					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%.0f%%", (double)p.percent);
 				} else if (isStaged) {
-					if (ImGui::SmallButton("Switch##staged")) {
+					float cellW = ImGui::GetContentRegionAvail().x;
+					ImGui::PushStyleColor(ImGuiCol_Button,
+						ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+						ImVec4(0.60f, 0.48f, 0.05f, 1.0f));
+					if (ImGui::Button("Switch##staged", ImVec2(cellW, rowBtnH))) {
 						s_RestartPrompt = true;
 					}
+					ImGui::PopStyleColor(2);
 					if (ImGui::IsItemHovered()) {
 						ImGui::SetTooltip("Restart now to apply this update");
 					}
@@ -478,9 +497,9 @@ static void renderVersionPickerContent(float tableH)
 
 					if (isRollback) {
 						ImGui::PushStyleColor(ImGuiCol_Button,
-							ImVec4(0.45f, 0.25f, 0.05f, 1.0f));
+							ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-							ImVec4(0.55f, 0.35f, 0.10f, 1.0f));
+							ImVec4(0.60f, 0.48f, 0.05f, 1.0f));
 					} else {
 						ImGui::PushStyleColor(ImGuiCol_Button,
 							ImVec4(0.15f, 0.45f, 0.15f, 1.0f));

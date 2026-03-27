@@ -321,9 +321,6 @@ void pdguiRender(void)
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
 
-    /* F8 hot-swap status badge (always visible when menus have replacements) */
-    pdguiHotswapRenderBadge((s32)winW, (s32)winH);
-
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);

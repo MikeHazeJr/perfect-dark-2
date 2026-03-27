@@ -79,19 +79,18 @@ extern s32 lobbyGetPlayerCount(void);
 #define UPNP_STATUS_SUCCESS 2
 #define UPNP_STATUS_FAILED  3
 
-#define NET_MAX_CLIENTS 8
-
-/* Lobby player view — matches pdgui_bridge.c definition */
+/* Lobby player view — layout must match server_bridge.c lobbyGetPlayerInfo writes */
 struct lobbyplayer_view {
-    u8 active;
-    u8 isLeader;
-    u8 isReady;
-    u8 headnum;
-    u8 bodynum;
-    u8 team;
-    char name[32];  /* matches LOBBY_NAME_LEN */
-    s32 isLocal;
-    s32 state;
+    u8 active;      /* offset 0 */
+    u8 isLeader;    /* offset 1 */
+    u8 isReady;     /* offset 2 */
+    u8 headnum;     /* offset 3 */
+    u8 bodynum;     /* offset 4 */
+    u8 team;        /* offset 5 */
+    char name[32];  /* offset 6, matches LOBBY_NAME_LEN */
+    s32 isLocal;    /* offset 40 (aligned) */
+    s32 state;      /* offset 44 */
+    u8 clientId;    /* offset 48 */
 };
 
 extern s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
@@ -430,7 +429,6 @@ static void drawTabServer(float playerW, float controlW, float panelH)
         ImGui::Separator();
 
         s32 playerCount = lobbyGetPlayerCount();
-
         if (playerCount == 0) {
             ImGui::TextDisabled("No players connected.");
         } else {
@@ -472,7 +470,7 @@ static void drawTabServer(float playerW, float controlW, float panelH)
                 ImGui::TextColored(stateCol, "%s", clientStateStr(pv.state));
                 ImGui::NextColumn();
 
-                u32 ping = netGetClientPing(pv.isLocal ? 0 : i);
+                u32 ping = netGetClientPing((s32)pv.clientId);
                 if (ping > 0) {
                     ImVec4 pingCol = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
                     if (ping > 100) pingCol = ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
@@ -488,8 +486,8 @@ static void drawTabServer(float playerW, float controlW, float panelH)
                 char kickLabel[32];
                 snprintf(kickLabel, sizeof(kickLabel), "Kick##%d", i);
                 if (ImGui::SmallButton(kickLabel)) {
-                    sysLogPrintf(LOG_NOTE, "SERVER GUI: kicking player %d (%s)", i, pv.name);
-                    netServerKickClient(pv.isLocal ? 0 : i, "Kicked by server operator");
+                    sysLogPrintf(LOG_NOTE, "SERVER GUI: kicking player %d (%s)", (s32)pv.clientId, pv.name);
+                    netServerKickClient((s32)pv.clientId, "Kicked by server operator");
                 }
                 ImGui::PopStyleColor(2);
                 ImGui::NextColumn();
@@ -694,7 +692,7 @@ extern "C" void serverGuiFrame(SDL_Window *window)
             if (ImGui::SmallButton("Copy Code")) {
                 SDL_SetClipboardText(connectCode);
             }
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", ip, g_NetServerPort);
+            ImGui::TextColored(ImVec4(0.4f, 0.4f, 0.4f, 1.0f), "Port %u", g_NetServerPort);
         } else {
             s32 upnpStatus = netUpnpGetStatus();
             if (upnpStatus == UPNP_STATUS_WORKING) {
@@ -706,7 +704,9 @@ extern "C" void serverGuiFrame(SDL_Window *window)
 
         /* Column 2: Players */
         ImGui::NextColumn();
-        s32 displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0;
+        /* Dedicated server: g_NetNumClients counts only real players (slot 0 is free).
+         * Listen server: slot 0 is the host, so subtract 1 to get remote player count. */
+        s32 displayClients = g_NetDedicated ? g_NetNumClients : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0);
         ImGui::Text("Players: %d / %d", displayClients, g_NetMaxClients);
 
         /* Column 3: Game mode */

@@ -39,6 +39,7 @@
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
 #include "assetcatalog.h"
+#include "identity.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -195,8 +196,15 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 		modDir = "";
 	}
 
+	// Use identity profile name (authoritative for PC); fall back to settings name
+	const char *name = g_NetLocalClient->settings.name;
+	identity_profile_t *profile = identityGetActiveProfile();
+	if (profile && profile->name[0]) {
+		name = profile->name;
+	}
+
 	netbufWriteU8(dst, CLC_AUTH);
-	netbufWriteStr(dst, g_NetLocalClient->settings.name);
+	netbufWriteStr(dst, name);
 	netbufWriteStr(dst, g_RomName); // TODO: use a CRC or something
 	netbufWriteStr(dst, modDir);
 	netbufWriteU8(dst, 1); // TODO: number of local players
@@ -222,33 +230,42 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	if (strcasecmp(romName, g_RomName) != 0) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong ROM, disconnecting", srccl->id);
-		netServerKick(srccl, DISCONNECT_FILES);
-		return src->error;
+	/* Dedicated servers have no ROM or mods loaded — skip file checks entirely.
+	 * Only a listen server (client hosting) validates ROM and mod agreement. */
+	if (!g_NetDedicated) {
+		if (romName && strcasecmp(romName, g_RomName) != 0) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong ROM, disconnecting", srccl->id);
+			netServerKick(srccl, DISCONNECT_FILES);
+			return src->error;
+		}
+
+		if (modDir && modDir[0] == '\0') {
+			modDir = NULL;
+		}
+
+		const char *myModDir = fsGetModDir();
+		if ((!myModDir != !modDir) || (myModDir && modDir && strcasecmp(modDir, myModDir) != 0)) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong mod, disconnecting", srccl->id);
+			netServerKick(srccl, DISCONNECT_FILES);
+			return src->error;
+		}
 	}
 
-	if (modDir[0] == '\0') {
-		modDir = NULL;
+	// zero-init client settings as a baseline (remote will send CLC_SETTINGS after CLC_AUTH)
+	if (g_NetLocalClient) {
+		srccl->settings = g_NetLocalClient->settings;
+	} else {
+		memset(&srccl->settings, 0, sizeof(srccl->settings));
+		srccl->settings.team = 0xff;
 	}
-
-	const char *myModDir = fsGetModDir();
-	if ((!myModDir != !modDir) || (myModDir && modDir && strcasecmp(modDir, myModDir) != 0)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong mod, disconnecting", srccl->id);
-		netServerKick(srccl, DISCONNECT_FILES);
-		return src->error;
-	}
-
-	// for now use settings from our own client, remote is supposed to send CLC_SETTINGS after CLC_AUTH
-	srccl->settings = g_NetLocalClient->settings;
-	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	strncpy(srccl->settings.name, name ? name : "Player", sizeof(srccl->settings.name) - 1);
 	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
 	// check if this is a mid-game reconnection
 	struct netpreservedplayer *pp = NULL;
-	const bool ingame = (g_NetLocalClient->state >= CLSTATE_GAME);
+	const bool ingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 	if (ingame) {
 		pp = netServerFindPreserved(name);
 		if (!pp) {
@@ -261,12 +278,16 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 
 	srccl->state = CLSTATE_LOBBY;
 
-	/* D3R-9: send catalog info so the client can diff and request missing components */
-	netDistribServerSendCatalogInfo(srccl);
-
+	/* Send SVC_AUTH first so the client transitions to CLSTATE_LOBBY before receiving
+	 * any further messages. Catalog info must come after auth — the client must be
+	 * authenticated before it can meaningfully respond to catalog requests. */
 	netbufStartWrite(&srccl->out);
 	netmsgSvcAuthWrite(&srccl->out, srccl);
 	netSend(srccl, NULL, true, NETCHAN_CONTROL);
+
+	/* D3R-9: send catalog info so the client can diff and request missing components.
+	 * Sent after SVC_AUTH so the client is in CLSTATE_LOBBY when it processes this. */
+	netDistribServerSendCatalogInfo(srccl);
 
 	if (pp) {
 		// reconnecting player: restore identity, scores, and send full state
@@ -441,7 +462,7 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u8 id = netbufReadU8(src);
 	const u8 maxclients = netbufReadU8(src);
 	g_NetTick = netbufReadU32(src);
-	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || id == 0 || maxclients == 0) {
+	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || maxclients == 0) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server");
 		return 1;
 	}
@@ -462,9 +483,6 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	g_NetClients[NET_MAX_CLIENTS].id = NET_MAX_CLIENTS;
 	g_NetClients[NET_MAX_CLIENTS].state = 0;
 	g_NetClients[NET_MAX_CLIENTS].peer = NULL;
-
-	// the server's client probably is in the lobby state by now
-	g_NetClients[0].state = CLSTATE_LOBBY;
 
 	g_NetLocalClient->state = CLSTATE_LOBBY;
 

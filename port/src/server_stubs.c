@@ -58,7 +58,7 @@ u64 g_RngSeed = 0;                            /* data.h:583 */
 u64 g_Rng2Seed = 0;                           /* data.h:584 */
 u64 g_RngSeeds[2] = {0};
 s32 g_NotLoadMod = 1;
-char g_RomName[64] = "pd-server";
+const char *g_RomName = "";  /* dedicated server has no ROM — empty skips the ROM check in netmsgClcAuthRead */
 s32 g_NumReasonsToEndMpMatch = 0;
 
 /* Bot / chr */
