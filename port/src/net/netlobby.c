@@ -138,7 +138,18 @@ void lobbyUpdate(void)
         g_Lobby.players[i].isLeader = (i == g_Lobby.leaderSlot) ? 1 : 0;
     }
 
-    g_Lobby.inGame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME) ? 1 : 0;
+    /* g_NetLocalClient is NULL on dedicated server, so checking it directly always yields inGame=0.
+     * Walk g_NetClients[] instead to check if any client is actively in a match. */
+    {
+        u8 anyInGame = 0;
+        for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+            if (g_NetClients[i].state >= CLSTATE_GAME) {
+                anyInGame = 1;
+                break;
+            }
+        }
+        g_Lobby.inGame = anyInGame;
+    }
 }
 
 void lobbySetLeader(u8 slot)

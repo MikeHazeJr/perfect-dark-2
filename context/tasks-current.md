@@ -11,6 +11,7 @@
 | Item | Status |
 |------|--------|
 | **Room interior UX + Match Start** (S57–S60) | **BUILD VERIFIED (S60)** — Five playtest fixes applied: Leave Room now calls pdguiSetInRoom(0) not netDisconnect; Start Match now sends via netSend (CLC_LOBBY_START was silently dropped); bot modal labels left-aligned; score slider 1-based; lobby shows Players: X/Y. Needs full playtest: Leave Room → social lobby, Start Match → match loads. |
+| **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed: (1) CLC_RESYNC_REQ was silently dropped (netStartFrame resets g_NetMsgRel after dispatch — fixed via g_NetPendingResyncReqFlags); (2) g_Lobby.inGame always 0 on dedicated server (fixed: walk g_NetClients[]); (3) NPC broadcast guard always false on dedicated server (fixed: g_NetNumClients > 0). Desync recovery now functional. |
 | **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |

@@ -1244,6 +1244,13 @@ void netEndFrame(void)
 			if (g_NetNextUpdate <= g_NetTick) {
 				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
 			}
+			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
+			// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
+			// making any direct write inside a recv handler silently dropped.
+			if (g_NetPendingResyncReqFlags) {
+				netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
+				g_NetPendingResyncReqFlags = 0;
+			}
 		} else {
 			for (s32 i = 0; i < g_NetMaxClients; ++i) {
 				struct netclient *cl = &g_NetClients[i];
@@ -1291,8 +1298,11 @@ void netEndFrame(void)
 			// Co-op NPC replication: broadcast NPC positions and state
 			// NPCs are server-authoritative in co-op mode (AI runs only on server)
 			if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
-				// Ensure we're in GAME state to prevent sending NPCs during stage load
-				if (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME) {
+				// Ensure we're in GAME state to prevent sending NPCs during stage load.
+				// Do NOT use g_NetLocalClient here — it is NULL on dedicated server, making
+				// the original guard always false (NPC broadcasts silently dropped, CRIT-1).
+				// Check g_NetNumClients instead: if any client is connected, the stage is running.
+				if (g_NetNumClients > 0) {
 					static bool s_npcBroadcastStarted = false;
 					if (!s_npcBroadcastStarted) {
 						sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());

@@ -25,7 +25,8 @@
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
 
-extern u8 g_NetPendingResyncFlags;
+extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
+extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */
 
 #define CLFLAG_ABSENT    (1 << 0) // player disconnected mid-game, slot preserved for reconnect
 #define CLFLAG_COOPREADY (1 << 1) // client is ready to start co-op mission

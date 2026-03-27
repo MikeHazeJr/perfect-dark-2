@@ -3,6 +3,49 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 61 — 2026-03-27
+
+**Focus**: netSend usage audit + three critical netcode bug fixes (CLC_RESYNC_REQ dropped, g_Lobby.inGame always 0, NPC broadcast guard)
+
+### What Was Done
+
+**Audit — `context/netsend-audit.md` created (NEW)**:
+- Full audit of every buffer write + netSend call across 6 files: `net.c`, `netmsg.c`, `netlobby.c`, `netmenu.c`, `pdgui_bridge.c`, `netdistrib.c`.
+- Documented 4 message send patterns (per-client out, accumulate-flush, immediate standalone, local buffer).
+- Found 3 bugs (CRIT-0, CRIT-1, CRIT-2) — all fixed this session.
+- Documented polling patterns: `lobbyUpdate()` called 2–3x/frame (intentional, S55 race fix), `g_Lobby.inGame` always 0 (bug — fixed).
+- Finding: SVC_LOBBY_LEADER IS sent (network-audit.md said "NEVER SENT" — corrected).
+
+**Bug-1 (CRITICAL) — CLC_RESYNC_REQ silently dropped** (`port/src/net/netmsg.c`, `net.c`, `net.h`):
+- Root cause: handlers for SVC_CHR_SYNC, SVC_PROP_SYNC, SVC_NPC_SYNC wrote resync requests directly to `g_NetMsgRel`. But `netStartFrame()` calls `netbufStartWrite(&g_NetMsgRel)` *after* the event dispatch loop — silently wiping any write made during dispatch. Desync recovery was completely non-functional.
+- Fix: Added `g_NetPendingResyncReqFlags` (mirrors server-side `g_NetPendingResyncFlags` pattern). Handlers now set flags; `netEndFrame()` writes the CLC_RESYNC_REQ message before flush.
+- Files changed: `net.h` (extern), `netmsg.c` (global + 3 handler fixes), `net.c` (consumer in netEndFrame CLSTATE_GAME block).
+
+**Bug-2 (CRIT-2) — `g_Lobby.inGame` always 0 on dedicated server** (`port/src/net/netlobby.c`):
+- Root cause: `g_Lobby.inGame` was set from `g_NetLocalClient->state`. On dedicated server `g_NetLocalClient == NULL`, so check was always false → `inGame` always 0.
+- Fix: Walk `g_NetClients[]` array, set `inGame` if any client is `>= CLSTATE_GAME`. Used in `hub.c` room state machine and server GUI.
+
+**Bug-3 (CRIT-1) — NPC broadcast guard never fires on dedicated server** (`port/src/net/net.c`):
+- Root cause: Co-op path checked `if (g_NetLocalClient && ...)` before broadcasting SVC_NPC_SYNC. Always false on dedicated server.
+- Fix: Changed guard to `if (g_NetNumClients > 0)`.
+
+**`context/network-audit.md` updated**:
+- §8 Recommendations: marked CRIT-0 (new, CLC_RESYNC_REQ), CRIT-1, CRIT-2 as Fixed S61. Updated HIGH-1 (SVC_LOBBY_LEADER) — IS sent on join via per-client out buffer; audited correctly.
+
+### Build Result
+- **Client**: PASS (`pd` target, 0 errors, verified via `make -C build/client`)
+- **Server**: PASS (`pd-server` target, 0 errors, verified via `make -C build/client`)
+
+### Decisions Made
+- **`g_NetPendingResyncReqFlags` pattern** is now the canonical way for client recv handlers to send messages back to the server. Direct writes to `g_NetMsgRel` inside event handlers are silently dropped (netStartFrame resets after dispatch).
+- **`g_NetLocalClient == NULL` guard is a systemic hazard**: dedicated server has NULL local client, so any `g_NetLocalClient &&` check is a silent bug on server. Use `g_NetNumClients > 0` or walk `g_NetClients[]` instead.
+
+### Next Steps
+- Playtest: verify desync recovery actually fires (requires a desync to trigger) — hard to test directly.
+- Continue with J-1 end-to-end join verification or R-2 room lifecycle.
+
+---
+
 ## Session 60 — 2026-03-27
 
 **Focus**: Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal UX, score slider, lobby player count

@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 60 (five playtest fixes: Leave Room, Start Match netSend bug, bot modal labels, score slider, lobby player count)
+> **Last updated**: 2026-03-27, Session 61 (netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 61 | 2026-03-27 | netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard | [session-log.md](session-log.md) |
 | 60 | 2026-03-27 | Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal labels, score slider, lobby player count | [session-log.md](session-log.md) |
 | 59 | 2026-03-27 | Match Start root cause (SVC_STAGE_START async g_MainChangeToStageNum), UX audit | [session-log.md](session-log.md) |
 | 58 | 2026-03-27 | Build pipeline architecture, S57 worktree merge (pdgui_lobby.cpp), §3 CRITICAL-PROCEDURES | [session-log.md](session-log.md) |
@@ -58,6 +59,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |
 | [network-audit.md](network-audit.md) | Deep audit: connection lifecycle, full message catalog, tick model, gaps, races, recommendations | Netcode debugging or planning new protocol work |
+| [netsend-audit.md](netsend-audit.md) | netSend usage audit: every write site, send patterns, bugs found (S61) | Debugging missing sends, verifying message delivery |
 | [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu | Menu/UI work |
 | [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking, mod loading | Build system work |
 | [memory-modernization.md](memory-modernization.md) | Phase D-MEM: 6-phase plan, pool audit, magic numbers, stack→heap | Memory system work |

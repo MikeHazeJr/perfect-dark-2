@@ -56,6 +56,12 @@ static u32 g_NetNpcResyncLastReq = 0;
 /* Server-side resync request tracking (set by CLC_RESYNC_REQ, consumed by netEndFrame in net.c) */
 u8 g_NetPendingResyncFlags = 0;
 
+/* Client-side resync request tracking (set by SVC_CHR/PROP/NPC_SYNC handlers on desync, consumed by netEndFrame).
+ * These flags CANNOT be written directly to g_NetMsgRel inside netStartFrame() recv handlers because
+ * netStartFrame() resets g_NetMsgRel after the event loop — any write during dispatch is silently dropped.
+ * The fix mirrors the server-side pattern: set a flag in the handler, write the message in netEndFrame. */
+u8 g_NetPendingResyncReqFlags = 0;
+
 /* utils */
 
 static inline u32 netbufReadHidden(struct netbuf *buf)
@@ -2153,11 +2159,14 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Use the pending-flag pattern (not a direct write to g_NetMsgRel) because this handler runs
+	// inside netStartFrame()'s recv dispatch — netStartFrame resets g_NetMsgRel after the loop,
+	// so any direct write here would be silently dropped. netEndFrame consumes the flag instead.
 	if (g_NetChrDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetChrResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting chr resync after %u consecutive desyncs", g_NetChrDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_CHRS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_CHRS;
 		g_NetChrResyncLastReq = g_NetTick;
 		g_NetChrDesyncCount = 0;
 	}
@@ -2244,11 +2253,12 @@ u32 netmsgSvcPropSyncRead(struct netbuf *src, struct netclient *srccl)
 		g_NetPropDesyncCount = 0;
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Same pending-flag pattern as chr sync above — direct write here would be dropped by netStartFrame.
 	if (g_NetPropDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetPropResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting prop resync after %u consecutive desyncs", g_NetPropDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_PROPS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_PROPS;
 		g_NetPropResyncLastReq = g_NetTick;
 		g_NetPropDesyncCount = 0;
 	}
@@ -2909,11 +2919,12 @@ u32 netmsgSvcNpcSyncRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Same pending-flag pattern as chr/prop sync above — direct write here would be dropped by netStartFrame.
 	if (g_NetNpcDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetNpcResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting npc resync after %u consecutive desyncs", g_NetNpcDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_NPCS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
 		g_NetNpcResyncLastReq = g_NetTick;
 		g_NetNpcDesyncCount = 0;
 	}

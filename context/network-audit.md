@@ -542,23 +542,28 @@ Protocol version is passed as ENet's `data` field at connect time (`enet_host_co
 
 Prioritized by risk and impact:
 
+> **S61 update**: CRIT-0 (new), CRIT-1, and CRIT-2 were all fixed in session 61. HIGH-1 is partially resolved. See netsend-audit.md for full details.
+
+### CRIT-0: CLC_RESYNC_REQ Silently Dropped — Desync Recovery Non-Functional (NEW, S61)
+**Bug**: `netmsgSvcChrSyncRead`, `netmsgSvcPropSyncRead`, `netmsgSvcNpcSyncRead` all wrote `CLC_RESYNC_REQ` directly to `g_NetMsgRel` inside `netStartFrame()`'s recv dispatch. `netStartFrame()` resets `g_NetMsgRel` AFTER the event loop (lines 1219-1220), silently dropping any write made during dispatch. Desync recovery was completely broken on the client.
+**Fix**: Added `g_NetPendingResyncReqFlags` (client-side, in net.h / netmsg.c). Sync handlers now set the flag; `netEndFrame()` consumes it and writes `CLC_RESYNC_REQ` to `g_NetMsgRel` before the final flush.
+**Status**: ✅ Fixed S61. See netsend-audit.md for full analysis.
+
 ### CRIT-1: NPC Broadcast Never Fires on Dedicated Server (§7.3)
 **Bug**: Co-op NPC positions are silently dropped on dedicated server. The guard `g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME` is always false when `g_NetLocalClient == NULL`.
-**Fix**: Replace with a stage-active check that doesn't depend on the local client slot:
-```c
-if (g_NetMode == NETMODE_SERVER && g_StageNum != STAGE_TITLE && g_StageNum != STAGE_CITRAINING) {
-```
-Or introduce a dedicated `g_NetStageActive` flag set in `netServerStageStart()` and cleared in `netServerStageEnd()`.
-**Priority**: Fix before any co-op playtesting on dedicated server.
+**Fix**: Replaced guard with `g_NetNumClients > 0` — broadcasts when any client is connected (net.c co-op NPC path).
+**Status**: ✅ Fixed S61.
 
 ### CRIT-2: g_Lobby.inGame Always False on Dedicated Server (§7.5)
 **Bug**: Server GUI and any code checking `g_Lobby.inGame` to determine match state will see "not in game" always on dedicated server.
-**Fix**: The `lobbyUpdate()` line computing `g_Lobby.inGame` needs a dedicated-server-aware path. Check `g_NetNumClients > 0 && any client is CLSTATE_GAME` instead.
-**Priority**: Fix as part of R-2 or sooner if server GUI accuracy matters.
+**Fix**: `lobbyUpdate()` now walks `g_NetClients[]` to check if any client is `>= CLSTATE_GAME` instead of checking `g_NetLocalClient`.
+**Status**: ✅ Fixed S61.
 
-### HIGH-1: SVC_LOBBY_LEADER and SVC_LOBBY_STATE Are Dead (§6.1)
-Both messages are fully implemented but never sent. The current shared-computation approach works for single-room, but the moment multi-room or explicit leader transfer arrives (Room Architecture phase R-3+), leader state must be explicitly synced.
-**Action**: Add callers in `lobbyUpdate()` (server path) when the leader slot changes. Send `SVC_LOBBY_LEADER` to all CLSTATE_LOBBY clients. This is low-cost (single u8 message) and makes the architecture correct for future work.
+### HIGH-1: SVC_LOBBY_LEADER Partial — No Re-Send on Leader Change (§6.1)
+**S61 update**: `SVC_LOBBY_LEADER` IS now sent on every client join/reconnect in `netmsgClcAuthRead()`. The "NEVER SENT" description in §6.1 was accurate at audit time (S57) but is now stale. The remaining gap: if the current leader disconnects, `SVC_LOBBY_LEADER` is NOT re-sent to update remaining clients. They continue using local election logic (which produces the same result, so it's currently benign).
+**SVC_LOBBY_STATE** is still never sent.
+**Action**: Send `SVC_LOBBY_LEADER` from within `lobbyUpdate()` (server path) when `g_Lobby.leaderSlot` changes. Needed when room architecture (R-3) requires explicit leader sync.
+**Status**: Partially resolved. Re-send on leader change still needed for R-3.
 
 ### HIGH-2: Room State Not Synced to Clients (§6.2)
 Clients read stale local room data. Already tracked as J-3 in join-flow-plan.md and R-3 in room-architecture-plan.md.
