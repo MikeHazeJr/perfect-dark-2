@@ -7,6 +7,7 @@
 #include "lib/mtx.h"
 #include "lib/model.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/prop.h"
@@ -723,6 +724,30 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #endif
 	} else {
 		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players", g_MpSetup.stagenum, numplayers);
+
+		/* Rebuild the participant pool from the server-provided chrslots.
+		 * The server branch of mpStartMatch() does this for itself, but
+		 * the client branch has no equivalent.  Without it, mpHasSimulants()
+		 * returns false and bots are never spawned on the client. */
+		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
+
+		/* Initialize bot configs for any slots the server activated.
+		 * The server sends chrslots bits but not individual bot configs.
+		 * Set difficulty to NORMAL (non-DISABLED) so botmgr's difficulty
+		 * switch doesn't hit an unhandled case, and give each bot a name
+		 * so botmgrAllocateBot's log output is readable. */
+		for (s32 bi = 0; bi < MAX_BOTS; bi++) {
+			if (g_MpSetup.chrslots & (1ull << (bi + BOT_SLOT_OFFSET))) {
+				if (g_BotConfigsArray[bi].difficulty == BOTDIFF_DISABLED) {
+					g_BotConfigsArray[bi].difficulty = BOTDIFF_NORMAL;
+				}
+				if (g_BotConfigsArray[bi].base.name[0] == '\0') {
+					snprintf(g_BotConfigsArray[bi].base.name,
+					         sizeof(g_BotConfigsArray[bi].base.name),
+					         "Sim%d\n", bi + 1);
+				}
+			}
+		}
 
 		mpStartMatch();
 		menuStop();
@@ -3304,6 +3329,19 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			g_BotConfigsArray[bi].difficulty = 2; /* Normal as default per-bot difficulty */
 		}
 		g_Lobby.settings.numSimulants = clampedSims;
+
+		/* Register bot participants so mpHasSimulants() returns true when
+		 * setup.c checks at stage load time.  Without this, the participant
+		 * pool has no bots, mpGetActiveBotCount() returns 0, and the bot
+		 * spawning block in setup.c is skipped entirely. */
+		for (s32 bi = 0; bi < clampedSims; bi++) {
+			mpAddParticipantAt(bi + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF);
+			/* Set a default name; mpGenerateBotNames() needs langGet which may
+			 * not be available on a headless dedicated server. */
+			snprintf(g_BotConfigsArray[bi].base.name, sizeof(g_BotConfigsArray[bi].base.name),
+			         "Sim%d\n", bi + 1);
+		}
+
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
 		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
 
