@@ -3,6 +3,36 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 63 — 2026-03-27
+
+**Focus**: B-36 — Client crash on Combat Sim stage load (after skyReset, in music init)
+
+### What Was Done
+
+**Root cause analysis** (`src/game/music.c`, `src/game/lv.c`):
+- Trace: `lvReset` → `skyReset` done → `musicSetStageAndStartMusic` (because `normmplayerisrunning=true`) → `musicStartPrimary` then `musicStartAmbient` for stages with ambient tracks → `musicIsAnyPlayerInAmbientRoom()` → `g_Vars.players[i]->prop` without NULL check on `players[i]` → crash.
+- During stage load, `PLAYERCOUNT()` can return >0 while `players[0]` is NULL (e.g., prior match cleaned up slot 0 but not slot 1, or player slots in partial state). `PLAYERCOUNT()` macro counts non-null entries but loop iterates by index — slot 0 can be NULL while count is 1.
+- `musicStartPrimary` also called `PRIMARYTRACK()` twice, running `mpChooseTrack()` twice (double side-effects on `g_MpLockInfo` and `g_MusicLife60`).
+
+**Fixes applied**:
+- `musicIsAnyPlayerInAmbientRoom`: added `g_Vars.players[i]` NULL check before `->prop` dereference. Players not yet spawned correctly return "not in any room".
+- `musicStartPrimary`: cache `PRIMARYTRACK()` in local `track` var, call `mpChooseTrack` once only.
+- `musicSetStageAndStartMusic`: added step-by-step log lines (enter, before primary, before ambient, done).
+- `lv.c` skyReset block: added log with `players[0..3]` null-ness to confirm the scenario.
+- Added `#include "system.h"` to `music.c` for `sysLogPrintf`.
+
+**Build result**: Both `lv.c` and `music.c` compile cleanly (verified via direct gcc invocation). Full link blocked by TEMP directory environment issue in current shell context — not a code issue (same build env limitation seen before).
+
+### Decisions Made
+- NULL check in `musicIsAnyPlayerInAmbientRoom` is the correct fix: if no player is spawned, no player is in an ambient room, so returning `false` is semantically correct. Ambient track will start naturally once player is in-room during the first tick.
+- This is a class of bug: any code that iterates `for (i = 0; i < PLAYERCOUNT(); i++)` and then accesses `players[i]->anything` without a NULL check can crash if slots are sparse. See systemic-bugs.md.
+
+### Next Steps
+- Build and playtest: run Combat Sim match on a stage with ambient music (MBR/DD Tower, Maian SOS, Skedar Ruins). Confirm "MUSIC: calling musicStartAmbient" appears in log without crash.
+- If crash still occurs: check the new logs for which specific call in `musicSetStageAndStartMusic` is the last one seen — may indicate a different path (e.g., `musicStartPrimary` for stages with no ambient).
+
+---
+
 ## Session 61 — 2026-03-27
 
 **Focus**: netSend usage audit + three critical netcode bug fixes (CLC_RESYNC_REQ dropped, g_Lobby.inGame always 0, NPC broadcast guard)

@@ -51,6 +51,31 @@
 
 ---
 
+## SP-6: PLAYERCOUNT() Iteration with Sparse Player Slots
+
+**Severity**: HIGH — null pointer dereference crash
+**Root cause**: `PLAYERCOUNT()` counts non-null entries in `g_Vars.players[]` but loops iterate by sequential index. If slot 0 is NULL and slot 1 is non-null, PLAYERCOUNT()=1 and the loop runs for i=0, accessing `g_Vars.players[0]->anything` → crash.
+
+**When it happens**: During stage load (`lvReset`), player objects aren't spawned yet. After a match that ends without clean teardown, some slots may be non-null while others are null from cleanup.
+
+**Pattern to audit**:
+```c
+for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+    g_Vars.players[i]->anything  // DANGER: players[i] may be NULL
+```
+
+**Correct pattern**: Always null-check `g_Vars.players[i]` in any such loop:
+```c
+for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+    if (g_Vars.players[i] && g_Vars.players[i]->prop && ...) {
+```
+
+**Fixed**: `music.c:musicIsAnyPlayerInAmbientRoom` (S63, B-36)
+
+**Search command**: `grep -n "players\[i\]->" src/game/music.c src/game/mplayer/ src/game/bondview.c`
+
+---
+
 ## SP-4: Hardcoded Stage Index Domains
 
 **Severity**: HIGH — OOB crashes with mod stages
