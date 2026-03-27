@@ -1714,4 +1714,10 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
 	// register recent server addresses for persistence
-	static char recentKeys[NET_MAX_RECENT_SERVERS
+	static char recentKeys[NET_MAX_RECENT_SERVERS][32];
+	for (s32 i = 0; i < NET_MAX_RECENT_SERVERS; ++i) {
+		snprintf(recentKeys[i], sizeof(recentKeys[i]), "Net.RecentServer.%d", i);
+		configRegisterString(recentKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
+	}
+	configRegisterInt("Net.RecentServerCount", &g_NetNumRecentServers, 0, NET_MAX_RECENT_SERVERS);
+}
