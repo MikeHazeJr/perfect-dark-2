@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 61 (netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard)
+> **Last updated**: 2026-03-27, Session 62 (definitive network-system-audit.md created, supersedes network-audit.md + netsend-audit.md)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 62 | 2026-03-27 | Definitive network-system-audit.md: full protocol catalog, lifecycle trace, multi-room impossibility, security, recommendations | [session-log.md](session-log.md) |
 | 61 | 2026-03-27 | netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard | [session-log.md](session-log.md) |
 | 60 | 2026-03-27 | Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal labels, score slider, lobby player count | [session-log.md](session-log.md) |
 | 59 | 2026-03-27 | Match Start root cause (SVC_STAGE_START async g_MainChangeToStageNum), UX audit | [session-log.md](session-log.md) |
@@ -58,8 +59,10 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |
-| [network-audit.md](network-audit.md) | Deep audit: connection lifecycle, full message catalog, tick model, gaps, races, recommendations | Netcode debugging or planning new protocol work |
-| [netsend-audit.md](netsend-audit.md) | netSend usage audit: every write site, send patterns, bugs found (S61) | Debugging missing sends, verifying message delivery |
+| [network-system-audit.md](network-system-audit.md) | **Definitive** networking audit (S62): full protocol catalog (39 SVC + 10 CLC), connection lifecycle, tick model, lobby/bot/room sync, multi-room impossibility finding, mod distribution, performance, security, prioritized recommendations. Supersedes network-audit.md + netsend-audit.md. | Netcode debugging, planning protocol work, architecture decisions |
+| [network-audit.md](network-audit.md) | ~~Superseded by network-system-audit.md~~ (S57 deep audit — kept for historical reference) | — |
+| [netsend-audit.md](netsend-audit.md) | ~~Superseded by network-system-audit.md~~ (S61 send-site audit — kept for historical reference) | — |
+| [menu-asset-audit.md](menu-asset-audit.md) | **S62 deep audit**: menu architecture, hotswap registry (22 entries), controller support per screen, asset loading gateway status (C-4 through C-7 PENDING), 8 bugs identified | Menu/UI work or asset loading work |
 | [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu | Menu/UI work |
 | [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking, mod loading | Build system work |
 | [memory-modernization.md](memory-modernization.md) | Phase D-MEM: 6-phase plan, pool audit, magic numbers, stack→heap | Memory system work |
