@@ -1,8 +1,9 @@
-# Roadmap Synthesis — Network + Menu + Asset Audits
+# Roadmap Synthesis — Unified Implementation Plan
 
 > Synthesized from: network-system-audit.md (S62), menu-asset-audit.md (S62)
-> Purpose: Single prioritized action plan derived from both audits
-> Created: 2026-03-27
+> Updated: 2026-03-27 (S62) — multi-room phase integrated, ARCH-1 decision recorded
+> Purpose: Single prioritized action plan. Read this before deciding what to work on next.
+> Back to [index](README.md)
 
 ---
 
@@ -15,14 +16,32 @@ intercepts. The networking layer works end-to-end for single-room play but can't
 multi-room or live score updates. The menu system has 8 of 240 menus replaced. Controller
 support works where ImGui menus exist but legacy menus have none.
 
-The critical path to a playable networked Combat Sim match is short. The critical path to
-a polished, multi-room, mod-aware server is long but well-mapped.
+**The critical path to a releasable v0.x is:**
+> Immediate fixes → playable match → room lifecycle → room sync → room-scoped match start
+
+**After v0.x, multi-room is the next networking phase**, followed by asset catalog
+activation, menu replacement, and polish.
 
 ---
 
-## Phase 0: Immediate Fixes (Tonight)
+## Release Gating — What Must Ship vs. What Comes After
 
-These are bugs that affect the current build and should be fixed before any new feature work.
+### For Current Build Release (v0.x — "Two Players Can Play")
+Phases 0 and 1 must be complete. Everything after Phase 1 is post-release work.
+
+### v0.x Stretch Goal (Full Room Lifecycle)
+Phases 2–4 complete the room model. These are important but not required for a first
+playable release. Complete them as quickly as possible after Phase 1.
+
+### v1.0 Target (Multi-Room + Asset Catalog + Menu Polish)
+Phase 5 onwards. The sequential model established in Phase 5 carries through v0.x.
+Process-per-room (true multi-room concurrency) is designed for v1.0+.
+
+---
+
+## Phase 0: Immediate Fixes (Tonight — Current Build Blockers)
+
+These are bugs that affect the current build and must be fixed before any new feature work.
 
 | # | Issue | Source | Impact |
 |---|-------|--------|--------|
@@ -33,7 +52,7 @@ These are bugs that affect the current build and should be fixed before any new 
 
 ---
 
-## Phase 1: Playable Combat Sim (Milestone: Two Players in a Match)
+## Phase 1: Playable Combat Sim ← CURRENT BUILD RELEASE TARGET
 
 Goal: Two networked players connect, set up a Combat Sim with bots, start the match, play.
 
@@ -50,9 +69,11 @@ Goal: Two networked players connect, set up a Combat Sim with bots, start the ma
 **Exit criteria**: Two PCs connect, configure Combat Sim, add bots, start match, both
 players spawn on the map with bots.
 
+> **After Phase 1 passes exit criteria: release v0.x. Everything below is post-release.**
+
 ---
 
-## Phase 2: Room Lifecycle (R-2)
+## Phase 2: Room Lifecycle (v0.x Stretch — R-2)
 
 Goal: Rooms are demand-driven. No pre-generated rooms. Players create and join rooms properly.
 
@@ -74,7 +95,7 @@ No room exists without players.
 
 ---
 
-## Phase 3: Room Sync Protocol (R-3)
+## Phase 3: Room Sync Protocol (v0.x Stretch — R-3)
 
 Goal: Clients see real server room state. Join/leave rooms works.
 
@@ -95,7 +116,7 @@ and join rooms. Room list updates in real-time.
 
 ---
 
-## Phase 4: Room Match Start (R-4)
+## Phase 4: Room-Scoped Match Start (v0.x Stretch — R-4)
 
 Goal: Room leader starts match scoped to room members only.
 
@@ -112,52 +133,65 @@ Goal: Room leader starts match scoped to room members only.
 
 ---
 
-## Phase 5: Asset Catalog Activation (C-4 through C-7)
+## Phase 5: Multi-Room Division — Sequential Model (v1.0 — Next Networking Phase)
+
+**ARCH-1 Decision (recorded S62):** Global singletons `g_StageNum`, `g_MpSetup`,
+`g_Vars`, and `g_PlayerConfigsArray` make it architecturally impossible to run two
+stages simultaneously. Multi-room multi-stage requires one of:
+
+| Option | Scope | Decision |
+|--------|-------|----------|
+| **A: Sequential Model** | Minimal | **Chosen for v0.x.** One active match at a time. Other rooms wait in lobby state. Works with current globals, zero engine rework. |
+| B: Process-Per-Room | Large | Each room = child process. Hub is coordinator only. True concurrency. **Designed for v1.0+.** |
+| C: Instance Isolation | Massive | Refactor all globals into per-room context struct. Touches most of the decompiled N64 codebase. Not planned. |
+
+**What the sequential model looks like in v0.x:**
+- Server maintains a single `g_ActiveMatchRoomId`
+- `CLC_ROOM_START` is blocked when another room has an active match
+- All other rooms receive `SVC_ROOM_UPDATE` with `ROOM_STATE_WAITING`
+- When match ends, server clears `g_ActiveMatchRoomId`; all waiting rooms return to `ROOM_STATE_LOBBY`
+- Social Lobby shows "Match in progress" for waiting rooms with live timer
+
+**What "designed for v1.0+" means:**
+- Document the process-per-room interface contract in `context/server-architecture.md`
+- When sequential-only is the blocker for a feature, log it as a v1.0 blocker (not a bug)
+  so it doesn't get patched around in ways that make process-per-room harder later
+
+**Implementation tasks:**
+
+| # | Task | Files |
+|---|------|-------|
+| 5-1 | Add g_ActiveMatchRoomId to server state | net.h, net.c |
+| 5-2 | Block CLC_ROOM_START when another room has active match | netmsg.c |
+| 5-3 | Broadcast ROOM_STATE_WAITING to all non-active rooms on match start | hub.c |
+| 5-4 | Broadcast ROOM_STATE_LOBBY to all waiting rooms on match end | hub.c |
+| 5-5 | UI: show "Match in progress — waiting" state in Social Lobby | pdgui_menu_lobby.cpp |
+| 5-6 | Document v1.0 process-per-room interface contract | context/server-architecture.md |
+
+**Exit criteria**: Multiple rooms coexist. One room's match blocks others gracefully.
+When the match ends, all rooms return to lobby state without manual intervention.
+
+---
+
+## Phase 6: Asset Catalog Activation (v1.0 — C-4 through C-7)
 
 Goal: All asset loading goes through the catalog. No bypass paths.
 
 | # | Task | Files |
 |---|------|-------|
-| 5-1 | C-4: Intercept fileLoadToNew — catalog resolve before ROM load | file.c |
-| 5-2 | C-5: Intercept texLoad — catalog resolve for textures | tex.c |
-| 5-3 | C-6: Intercept animLoadFrame — catalog resolve for animations | anim.c |
-| 5-4 | C-7: Intercept sndStart — catalog resolve for audio | audio.c |
-| 5-5 | Verify all CATALOG_CRITICAL log points work | file.c, modeldef.c, body.c |
-| 5-6 | Add loading overlay for stage transitions | pdgui_backend.cpp |
+| 6-1 | C-4: Intercept fileLoadToNew — catalog resolve before ROM load | file.c |
+| 6-2 | C-5: Intercept texLoad — catalog resolve for textures | tex.c |
+| 6-3 | C-6: Intercept animLoadFrame — catalog resolve for animations | anim.c |
+| 6-4 | C-7: Intercept sndStart — catalog resolve for audio | audio.c |
+| 6-5 | Verify all CATALOG_CRITICAL log points work | file.c, modeldef.c, body.c |
+| 6-6 | Add loading overlay for stage transitions | pdgui_backend.cpp |
 
 **Exit criteria**: Every asset load goes through the catalog. Missing assets are logged
 with CATALOG_CRITICAL. Loading has a visible progress indicator.
 
 ---
 
-## Phase 6: Multi-Room Architecture Decision
-
-Goal: Decide and document the multi-room model.
-
-**The problem**: `g_StageNum`, `g_MpSetup`, `g_Vars`, `g_PlayerConfigsArray` are all
-global singletons. The engine cannot run two stages simultaneously. Two rooms on different
-maps is architecturally impossible without one of:
-
-**Option A: Sequential Model** (recommended near-term)
-- One match active at a time across the entire server
-- Other rooms wait in lobby state until the current match ends
-- Simple, works with current globals, no engine rework
-
-**Option B: Process-Per-Room**
-- Each room spawns a child process with its own game state
-- Server hub is a coordinator, not a game engine
-- Complex but enables true multi-room multi-map
-
-**Option C: Instance Isolation**
-- Refactor all global state into a per-room context struct
-- Game tick takes a context parameter instead of reading globals
-- Massive refactor of the decompiled N64 codebase
-
-**Recommendation**: Option A for v0.x, design Option B for v1.0+.
-
----
-
-## Phase 7: Menu Replacement (Ongoing)
+## Phase 7: Menu Replacement (Ongoing — v1.0)
 
 Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 
@@ -175,7 +209,7 @@ Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 
 ---
 
-## Phase 8: Controller + Accessibility
+## Phase 8: Controller + Accessibility (v1.0)
 
 | # | Task | Source |
 |---|------|--------|
@@ -187,7 +221,7 @@ Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 
 ---
 
-## Phase 9: Performance + Polish
+## Phase 9: Performance + Polish (v1.0)
 
 | # | Task | Source |
 |---|------|--------|
@@ -204,13 +238,15 @@ Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 
 ## Decision Log
 
-Decisions needed from the game director before implementation can proceed:
-
-1. **Multi-room model** (Phase 6): Option A (sequential) for now? Or design Option B immediately?
-2. **Dead callback infrastructure** (ARCH-2): Wire it up as the true decoupling boundary, or delete it?
-3. **Connect code security**: Sufficient for now, or invest in a proper auth token system?
-4. **Menu replacement priority**: Stay with the current group ordering, or reprioritize?
+| # | Decision | Status |
+|---|----------|--------|
+| 1 | **Multi-room model**: Sequential (one active match) for v0.x; process-per-room designed for v1.0+ | **DECIDED — S62** |
+| 2 | **Dead callback infrastructure** (ARCH-2): Wire it up as decoupling boundary, or delete it? | Open |
+| 3 | **Connect code security**: Sufficient for now, or invest in a proper auth token system? | Open |
+| 4 | **Menu replacement priority**: Stay with current group ordering, or reprioritize? | Open |
 
 ---
 
-*Synthesized: 2026-03-27, Session 62*
+*Synthesized: 2026-03-27, Session 62. Updated same session: multi-room added as Phase 5
+between room-scoped match start and asset catalog; ARCH-1 decision recorded; release
+gating section added to clarify v0.x vs v1.0 scope.*
