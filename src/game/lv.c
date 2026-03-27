@@ -370,6 +370,11 @@ void lvReset(s32 stagenum)
 		skyReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: skyReset done");
 
+		sysLogPrintf(LOG_NOTE, "LOAD: music init normmplay=%d stagenum=0x%02x players=%d/%d/%d/%d",
+			g_Vars.normmplayerisrunning, stagenum,
+			g_Vars.players[0] != NULL, g_Vars.players[1] != NULL,
+			g_Vars.players[2] != NULL, g_Vars.players[3] != NULL);
+
 		if (g_Vars.normmplayerisrunning) {
 			musicSetStageAndStartMusic(stagenum);
 		} else {
