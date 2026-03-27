@@ -552,12 +552,13 @@ void netServerStageStart(void)
 		return;
 	}
 
-	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
-		if (g_NetLocalClient) {
-			g_NetLocalClient->state = CLSTATE_LOBBY;
-		}
-		return;
-	}
+	/* NOTE: do NOT guard on g_StageNum == STAGE_CITRAINING here.
+	 * The server lobby runs on STAGE_CITRAINING, and mainChangeToStage() is
+	 * deferred — g_StageNum still equals STAGE_CITRAINING when this function
+	 * runs.  Guarding on it prevented SVC_STAGE_START from ever being sent,
+	 * so clients never received the map-load signal.  This function is only
+	 * called from the CLC_LOBBY_START handler after leader validation, so
+	 * there is no need for a stage-num guard. */
 
 	// re-read the player config in case it changed
 	if (g_NetLocalClient) {

@@ -84,6 +84,9 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 #define GAMEMODE_COOP 1
 #define GAMEMODE_ANTI 2
 
+/* Max human players (must match constants.h MAX_PLAYERS) */
+#define MAX_PLAYERS 8
+
 /* Bridge: send CLC_LOBBY_START */
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
 s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
@@ -131,6 +134,7 @@ struct matchconfig {
     u8 weapons[NUM_MPWEAPONSLOTS];
     s8 weaponSetIndex;
     u8 numSlots;
+    u8 spawnWeaponNum; /* 0xFF = Random; weapon enum value otherwise (future R-4 wiring) */
 };
 
 extern struct matchconfig g_MatchConfig;
@@ -246,6 +250,52 @@ static const char *s_SimDiffNames[] = {
 static const int s_NumSimDiffs = 6;
 
 /* ========================================================================
+ * Spawn-with-weapon picker — weapon names for the dropdown
+ * Only combat weapons that make sense as a spawn weapon in MP.
+ * ======================================================================== */
+
+struct spawnweapon_entry { const char *name; u8 weaponnum; };
+
+static const spawnweapon_entry s_SpawnWeapons[] = {
+    { "Random",              0xFF },
+    { "Unarmed",             1  },
+    { "Falcon 2",            2  },
+    { "Falcon 2 (Silenced)", 3  },
+    { "Falcon 2 (Scope)",    4  },
+    { "MagSec 4",            5  },
+    { "Mauler",              6  },
+    { "Phoenix",             7  },
+    { "DY357 Magnum",        8  },
+    { "DY357-LX",            9  },
+    { "CMP 150",             10 },
+    { "Cyclone",             11 },
+    { "Callisto NTG",        12 },
+    { "RCP-120",             13 },
+    { "Laptop Gun",          14 },
+    { "Dragon",              15 },
+    { "K7 Avenger",          16 },
+    { "AR34",                17 },
+    { "SuperDragon",         18 },
+    { "Shotgun",             19 },
+    { "Reaper",              20 },
+    { "Sniper Rifle",        21 },
+    { "Farsight XR-20",      22 },
+    { "Devastator",          23 },
+    { "Rocket Launcher",     24 },
+    { "Slayer",              25 },
+    { "Combat Knife",        26 },
+    { "Crossbow",            27 },
+    { "Tranquilizer",        28 },
+    { "Laser",               29 },
+    { "Grenade",             30 },
+    { "N-Bomb",              31 },
+    { "Timed Mine",          32 },
+    { "Proximity Mine",      33 },
+    { "Remote Mine",         34 },
+};
+static const int s_NumSpawnWeapons = (int)(sizeof(s_SpawnWeapons) / sizeof(s_SpawnWeapons[0]));
+
+/* ========================================================================
  * Scenario names
  * ======================================================================== */
 
@@ -287,8 +337,13 @@ static int s_CounterOpPlayer   = 0;  /* index into lobby player list = the count
 /* Arena picker state (index into s_Arenas) */
 static int s_SelectedArena = 0;
 
-/* Bot count mirror — used to drive add/remove to g_MatchConfig.slots */
-static int s_NumBots = 1;
+/* Bot management state */
+static int  s_SelectedBotSlot = -1; /* g_MatchConfig.slots index; -1 = none selected */
+static bool s_BotModalOpen    = false;
+static int  s_EditBotSlotIdx  = -1; /* slot index being edited in the modal */
+
+/* Spawn weapon picker — index into s_SpawnWeapons (0 = Random) */
+static int s_SpawnWeaponIdx = 0;
 
 /* Connect code cache (server host display) */
 static char s_ConnectCode[128]  = "";
@@ -368,32 +423,44 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
 }
 
 /* ========================================================================
- * Right panel: room player list
+ * Right panel: room player list + bot management
  * ======================================================================== */
 
-static void renderPlayerPanel(float panelW, float panelH)
+static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 {
-    ImGui::BeginChild("##room_players", ImVec2(panelW, panelH), true);
+    int humanCount = lobbyGetPlayerCount();
+    int curBots    = countBots();
+    /* Max bots = remaining player slots (MAX_PLAYERS - humans), also bounded
+     * by MATCH_MAX_SLOTS capacity. */
+    int maxBots = MAX_PLAYERS - humanCount;
+    if (maxBots < 0) maxBots = 0;
+
+    float btnH   = pdguiScale(26.0f);
+    float listH  = panelH - btnH
+                   - ImGui::GetStyle().ItemSpacing.y * 3.0f
+                   - ImGui::GetStyle().WindowPadding.y * 2.0f;
+
+    /* Outer panel (bordered) */
+    ImGui::BeginChild("##room_panel_outer", ImVec2(panelW, panelH), true);
+
+    /* Scrollable list */
+    ImGui::BeginChild("##room_players_list", ImVec2(0, listH), false);
 
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Players in Room");
     ImGui::Separator();
 
-    s32 count = lobbyGetPlayerCount();
-    for (s32 i = 0; i < count; i++) {
+    /* Human player rows */
+    for (s32 i = 0; i < humanCount; i++) {
         struct lobbyplayer_view pv;
         memset(&pv, 0, sizeof(pv));
         if (!lobbyGetPlayerInfo(i, &pv)) continue;
 
         ImGui::PushID(i);
 
-        /* Role suffix */
         char label[80];
-        const char *suffix = "";
-        if (pv.isLocal && pv.isLeader) suffix = " *";
-        else if (pv.isLeader) suffix = " *";
+        const char *suffix = pv.isLeader ? " *" : "";
         snprintf(label, sizeof(label), "%s%s", pv.name, suffix);
 
-        /* Color: leader = gold, local = green, others = white */
         if (pv.isLeader && pv.isLocal) {
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
             ImGui::SameLine();
@@ -410,7 +477,6 @@ static void renderPlayerPanel(float panelW, float panelH)
             ImGui::Text("%s", label);
         }
 
-        /* Body character in muted text */
         if (pv.bodynum < (u8)mpGetNumBodies()) {
             const char *bodyName = mpGetBodyName(pv.bodynum);
             if (bodyName && bodyName[0]) {
@@ -419,21 +485,20 @@ static void renderPlayerPanel(float panelW, float panelH)
             }
         }
 
-        /* State dot */
-        const char *stateStr = "";
-        ImVec4 stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
+        const char *stateStr  = "";
+        ImVec4      stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
         switch (pv.state) {
             case CLSTATE_CONNECTING:
             case CLSTATE_AUTH:
-                stateStr = "connecting...";
+                stateStr  = "connecting...";
                 stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
                 break;
             case CLSTATE_LOBBY:
-                stateStr = "ready";
+                stateStr  = "ready";
                 stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
                 break;
             case CLSTATE_GAME:
-                stateStr = "in game";
+                stateStr  = "in game";
                 stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
                 break;
         }
@@ -445,11 +510,102 @@ static void renderPlayerPanel(float panelW, float panelH)
         ImGui::PopID();
     }
 
-    if (count == 0) {
+    if (humanCount == 0) {
         ImGui::TextDisabled("Waiting for players...");
     }
 
-    ImGui::EndChild();
+    /* Bot rows */
+    if (curBots > 0) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 0.9f), "Bots");
+    }
+
+    /* X-button width so we can right-justify it */
+    float xBtnW  = pdguiScale(20.0f);
+    float rowW   = panelW
+                   - ImGui::GetStyle().WindowPadding.x * 2.0f
+                   - xBtnW
+                   - ImGui::GetStyle().ItemSpacing.x * 2.0f
+                   - 4.0f; /* border */
+
+    int removeSlot = -1; /* deferred removal — can't remove while iterating */
+    for (int i = 1; i < g_MatchConfig.numSlots; i++) {
+        struct matchslot *sl = &g_MatchConfig.slots[i];
+        if (sl->type != SLOT_BOT) continue;
+
+        ImGui::PushID(i);
+
+        bool selected = (s_SelectedBotSlot == i);
+
+        char rowLabel[80];
+        snprintf(rowLabel, sizeof(rowLabel), "[BOT] %s", sl->name);
+
+        /* Selectable row — single-click selects, double-click opens modal */
+        if (ImGui::Selectable(rowLabel, selected,
+                              ImGuiSelectableFlags_AllowDoubleClick,
+                              ImVec2(rowW, 0.0f))) {
+            s_SelectedBotSlot = selected ? -1 : i;
+            if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
+                s_EditBotSlotIdx = i;
+                s_BotModalOpen   = true;
+            }
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.4f, 0.8f),
+                           "[%s]", s_SimDiffNames[sl->botDifficulty]);
+
+        /* X remove button — right-aligned */
+        ImGui::SameLine(panelW
+                        - ImGui::GetStyle().WindowPadding.x * 2.0f
+                        - xBtnW
+                        - 4.0f);
+        if (!isLeader) ImGui::BeginDisabled();
+        char xLabel[16];
+        snprintf(xLabel, sizeof(xLabel), "X##bx%d", i);
+        if (ImGui::SmallButton(xLabel)) {
+            removeSlot = i;
+            if (s_SelectedBotSlot == i) s_SelectedBotSlot = -1;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        if (!isLeader) ImGui::EndDisabled();
+
+        ImGui::PopID();
+    }
+
+    /* Deferred removal */
+    if (removeSlot >= 1) {
+        matchConfigRemoveSlot(removeSlot);
+    }
+
+    ImGui::EndChild(); /* ##room_players_list */
+
+    ImGui::Separator();
+
+    /* Add Bot button + slot count */
+    bool canAdd = isLeader
+                  && (curBots < maxBots)
+                  && (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
+    if (!canAdd) ImGui::BeginDisabled();
+    if (ImGui::Button("Add Bot", ImVec2(-1.0f, btnH))) {
+        /* If a bot is currently selected, copy its settings to the new bot */
+        u8   headnum = 0, bodynum = 0, diff = 2 /* NormalSim */;
+        if (s_SelectedBotSlot >= 1
+            && s_SelectedBotSlot < g_MatchConfig.numSlots
+            && g_MatchConfig.slots[s_SelectedBotSlot].type == SLOT_BOT) {
+            struct matchslot *src = &g_MatchConfig.slots[s_SelectedBotSlot];
+            headnum = src->headnum;
+            bodynum = src->bodynum;
+            diff    = src->botDifficulty;
+        }
+        matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, diff, headnum, bodynum, nullptr);
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    if (!canAdd) ImGui::EndDisabled();
+
+    ImGui::EndChild(); /* ##room_panel_outer */
 }
 
 /* ========================================================================
@@ -581,6 +737,25 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggle        ("Friendly Fire",   MPOPTION_FRIENDLYFIRE,      leader);
     optToggle        ("Fast Movement",   MPOPTION_FASTMOVEMENT,      leader);
     optToggle        ("Spawn w/ Weapon", MPOPTION_SPAWNWITHWEAPON,   leader);
+    /* Weapon selector — only visible when spawn-with-weapon is on */
+    if (g_MatchConfig.options & MPOPTION_SPAWNWITHWEAPON) {
+        if (!leader) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(comboW * 0.9f);
+        const char *curSpawnName = s_SpawnWeapons[s_SpawnWeaponIdx].name;
+        if (ImGui::BeginCombo("Spawn Weapon##spawnwep", curSpawnName)) {
+            for (int wi = 0; wi < s_NumSpawnWeapons; wi++) {
+                bool sel = (wi == s_SpawnWeaponIdx);
+                if (ImGui::Selectable(s_SpawnWeapons[wi].name, sel)) {
+                    s_SpawnWeaponIdx = wi;
+                    g_MatchConfig.spawnWeaponNum = s_SpawnWeapons[wi].weaponnum;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (!leader) ImGui::EndDisabled();
+    }
     optToggleInverted("Player Highlight",MPOPTION_NOPLAYERHIGHLIGHT, leader);
     optToggleInverted("Pickup Highlight",MPOPTION_NOPICKUPHIGHLIGHT, leader);
 
@@ -610,111 +785,6 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Pop a Cap");
         optToggle("Highlight Target", MPOPTION_PAC_HIGHLIGHTTARGET, leader);
         optToggle("Show on Radar",    MPOPTION_PAC_SHOWONRADAR,     leader);
-    }
-
-    ImGui::Spacing();
-    ImGui::Separator();
-
-    /* --- Bot Settings --- */
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Bots");
-
-    /* Bot count slider — drives add/remove from g_MatchConfig.slots */
-    if (!leader) ImGui::BeginDisabled();
-    {
-        int curBots = countBots();
-        int newBots = curBots;
-        ImGui::SetNextItemWidth(comboW * 0.6f);
-        if (ImGui::SliderInt("Count", &newBots, 0, 31)) {
-            /* Clamp */
-            if (newBots < 0) newBots = 0;
-            if (newBots > 31) newBots = 31;
-
-            /* Add bots */
-            while (countBots() < newBots && g_MatchConfig.numSlots < MATCH_MAX_SLOTS) {
-                matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, 0, 0, nullptr);
-            }
-            /* Remove bots (remove from end) */
-            while (countBots() > newBots && g_MatchConfig.numSlots > 1) {
-                /* Find last bot slot */
-                for (int i = g_MatchConfig.numSlots - 1; i >= 1; i--) {
-                    if (g_MatchConfig.slots[i].type == SLOT_BOT) {
-                        matchConfigRemoveSlot(i);
-                        break;
-                    }
-                }
-            }
-            s_NumBots = countBots();
-        }
-    }
-    if (!leader) ImGui::EndDisabled();
-
-    ImGui::Spacing();
-
-    /* Per-bot configuration rows */
-    int botRowIdx = 0;
-    for (int i = 1; i < g_MatchConfig.numSlots; i++) {
-        struct matchslot *sl = &g_MatchConfig.slots[i];
-        if (sl->type != SLOT_BOT) continue;
-
-        ImGui::PushID(i);
-
-        char rowLabel[32];
-        snprintf(rowLabel, sizeof(rowLabel), "Bot %d", botRowIdx + 1);
-
-        if (ImGui::TreeNodeEx(rowLabel,
-            ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth)) {
-
-            /* Name */
-            if (!leader) ImGui::BeginDisabled();
-            ImGui::SetNextItemWidth(comboW * 0.8f);
-            ImGui::InputText("Name", sl->name, MAX_PLAYER_NAME);
-            if (!leader) ImGui::EndDisabled();
-
-            /* Difficulty */
-            if (!leader) ImGui::BeginDisabled();
-            ImGui::SetNextItemWidth(comboW * 0.7f);
-            if (ImGui::BeginCombo("Difficulty", s_SimDiffNames[sl->botDifficulty])) {
-                for (int d = 0; d < s_NumSimDiffs; d++) {
-                    bool sel = (d == (int)sl->botDifficulty);
-                    if (ImGui::Selectable(s_SimDiffNames[d], sel)) {
-                        sl->botDifficulty = (u8)d;
-                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                    }
-                    if (sel) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            if (!leader) ImGui::EndDisabled();
-
-            /* Body */
-            if (!leader) ImGui::BeginDisabled();
-            u32 numBodies = mpGetNumBodies();
-            const char *curBody = (sl->bodynum < (u8)numBodies)
-                                  ? mpGetBodyName(sl->bodynum) : "?";
-            ImGui::SetNextItemWidth(comboW * 0.7f);
-            if (ImGui::BeginCombo("Character", curBody ? curBody : "?")) {
-                for (u32 b = 0; b < numBodies; b++) {
-                    char *bodyName = mpGetBodyName((u8)b);
-                    if (!bodyName || !bodyName[0]) continue;
-                    bool sel = (b == (u32)sl->bodynum);
-                    char bLabel[64];
-                    snprintf(bLabel, sizeof(bLabel), "%s##b%u", bodyName, b);
-                    if (ImGui::Selectable(bLabel, sel)) {
-                        sl->bodynum = (u8)b;
-                        sl->headnum = (u8)b; /* head = body for simplicity */
-                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                    }
-                    if (sel) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            if (!leader) ImGui::EndDisabled();
-
-            ImGui::TreePop();
-        }
-
-        ImGui::PopID();
-        botRowIdx++;
     }
 
     ImGui::EndChild();
@@ -891,8 +961,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     if (!s_MatchConfigInited) {
         matchConfigInit();
         syncArenaFromConfig();
-        s_NumBots     = countBots();
-        s_CodeGenerated = false;
+        s_SelectedBotSlot = -1;
+        s_SpawnWeaponIdx  = 0;
+        s_CodeGenerated   = false;
         s_MatchConfigInited = true;
     }
 
@@ -1022,7 +1093,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::SameLine(0.0f, pad);
 
     /* Right panel */
-    renderPlayerPanel(rightW, contentH);
+    renderPlayerPanel(rightW, contentH, isLeader);
 
     /* ---- Footer ---- */
     ImGui::Separator();
@@ -1086,6 +1157,87 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         netDisconnect();
     }
 
+    /* ---- Bot settings modal ---- */
+    if (s_BotModalOpen) {
+        ImGui::OpenPopup("Bot Settings##botmodal");
+        s_BotModalOpen = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(300.0f), 0.0f));
+    if (ImGui::BeginPopupModal("Bot Settings##botmodal", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (s_EditBotSlotIdx >= 1
+            && s_EditBotSlotIdx < g_MatchConfig.numSlots
+            && g_MatchConfig.slots[s_EditBotSlotIdx].type == SLOT_BOT) {
+
+            struct matchslot *sl = &g_MatchConfig.slots[s_EditBotSlotIdx];
+            float mw = pdguiScale(260.0f);
+
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Bot Settings");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            /* Name */
+            ImGui::SetNextItemWidth(mw);
+            ImGui::InputText("Name##botmodalname", sl->name, MAX_PLAYER_NAME);
+
+            /* Difficulty */
+            ImGui::SetNextItemWidth(mw);
+            if (ImGui::BeginCombo("Difficulty##botmodaldiff",
+                                   s_SimDiffNames[sl->botDifficulty])) {
+                for (int d = 0; d < s_NumSimDiffs; d++) {
+                    bool sel = (d == (int)sl->botDifficulty);
+                    if (ImGui::Selectable(s_SimDiffNames[d], sel)) {
+                        sl->botDifficulty = (u8)d;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            /* Character */
+            u32 numBodies = mpGetNumBodies();
+            const char *curBody = (sl->bodynum < (u8)numBodies)
+                                   ? mpGetBodyName(sl->bodynum) : "?";
+            ImGui::SetNextItemWidth(mw);
+            if (ImGui::BeginCombo("Character##botmodalchar",
+                                   curBody ? curBody : "?")) {
+                for (u32 b = 0; b < numBodies; b++) {
+                    char *bodyName = mpGetBodyName((u8)b);
+                    if (!bodyName || !bodyName[0]) continue;
+                    bool sel = (b == (u32)sl->bodynum);
+                    char bLabel[64];
+                    snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
+                    if (ImGui::Selectable(bLabel, sel)) {
+                        sl->bodynum = (u8)b;
+                        sl->headnum = (u8)b;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::Button("Done", ImVec2(pdguiScale(80.0f), 0.0f))) {
+                s_EditBotSlotIdx = -1;
+                ImGui::CloseCurrentPopup();
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        } else {
+            ImGui::TextDisabled("No bot selected.");
+            if (ImGui::Button("Close")) {
+                s_EditBotSlotIdx = -1;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     ImGui::End();
 }
 
@@ -1104,5 +1256,8 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpDiff     = DIFF_A;
     s_CounterOpPlayer   = 0;
     s_SelectedArena     = 0;
-    s_NumBots           = 1;
+    s_SelectedBotSlot   = -1;
+    s_BotModalOpen      = false;
+    s_EditBotSlotIdx    = -1;
+    s_SpawnWeaponIdx    = 0;
 }

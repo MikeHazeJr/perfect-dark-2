@@ -82,6 +82,7 @@ struct matchconfig {
 	u8 weapons[NUM_MPWEAPONSLOTS];  /* weapon set (6 slots) */
 	s8 weaponSetIndex;              /* -1 = custom, 0+ = preset index */
 	u8 numSlots;                    /* number of active slots */
+	u8 spawnWeaponNum;              /* 0xFF = Random; weapon enum value otherwise */
 };
 
 struct matchconfig g_MatchConfig;
@@ -113,6 +114,7 @@ void matchConfigInit(void)
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
 	g_MatchConfig.options = 0;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
 	g_MatchConfig.numSlots = 0;
 
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
