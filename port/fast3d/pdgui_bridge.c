@@ -408,7 +408,7 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
  * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
  * ======================================================================== */
 
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -417,8 +417,13 @@ s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
         return -2;
     }
 
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u",
-                 gamemode, stagenum, difficulty);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u",
+                 gamemode, stagenum, difficulty, numSims, simType);
     return 0;
+}
+
+s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+{
+    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0);
 }

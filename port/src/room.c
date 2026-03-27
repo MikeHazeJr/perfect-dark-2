@@ -130,6 +130,7 @@ hub_room_t *roomGetById(u8 id)
 
 hub_room_t *roomGetByIndex(s32 idx)
 {
+    if (!s_Initialised) return NULL;
     s32 count = 0;
     for (int i = 0; i < HUB_MAX_ROOMS; i++) {
         if (s_Rooms[i].state != ROOM_STATE_CLOSED) {
@@ -142,6 +143,7 @@ hub_room_t *roomGetByIndex(s32 idx)
 
 s32 roomGetActiveCount(void)
 {
+    if (!s_Initialised) return 0;
     s32 n = 0;
     for (int i = 0; i < HUB_MAX_ROOMS; i++) {
         if (s_Rooms[i].state != ROOM_STATE_CLOSED) n++;

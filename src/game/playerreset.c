@@ -25,6 +25,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "net/net.h"
 
 void playerInitEyespy(void)
 {
@@ -264,6 +265,27 @@ void playerReset(void)
 			default:
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 4);
 			}
+		}
+	}
+
+	/* PC: If no spawn points were set by INTROCMD_SPAWN (e.g. mod stages or MP
+	 * maps without a proper intro/setup sequence), populate g_SpawnPoints from
+	 * all pads with valid room numbers so the dispersal algorithm can work.
+	 * Only do this in network MP mode; solo missions always define their own
+	 * player placement explicitly and should not be overridden here. */
+	if (g_NumSpawnPoints == 0 && g_NetMode != NETMODE_NONE && g_PadsFile != NULL) {
+		s32 maxpads = g_PadsFile->numpads;
+		s32 added   = 0;
+		for (s32 pi = 0; pi < maxpads && added < 24; pi++) {
+			struct pad probePad;
+			padUnpack(pi, PADFIELD_ROOM, &probePad);
+			if (probePad.room >= 0) {
+				g_SpawnPoints[g_NumSpawnPoints++] = (s16)pi;
+				added++;
+			}
+		}
+		if (added > 0) {
+			sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from pad file (B-19 fallback)", added);
 		}
 	}
 

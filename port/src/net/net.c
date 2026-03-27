@@ -569,7 +569,7 @@ void netServerStageStart(void)
 	 * because the init code assumes all clients are in GAME state.
 	 * Remote clients will also transition on their end when they
 	 * receive and process SVC_STAGE_START. */
-	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state == CLSTATE_LOBBY) {
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
@@ -579,7 +579,7 @@ void netServerStageStart(void)
 	             g_StageNum, g_MpSetup.scenario, g_NetNumClients);
 
 	// Log each connected client's state for debugging
-	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state != CLSTATE_DISCONNECTED) {
 			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head=%u body=%u team=%u",
 			             g_NetClients[ci].id, g_NetClients[ci].settings.name,

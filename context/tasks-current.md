@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
 | **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
@@ -28,7 +29,7 @@
 |-----|----------|--------|
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing across all mod maps. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Possible missing texture or clear color issue. Needs investigation. |
-| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | Investigated: mod stages lack INTROCMD_SPAWN entries in setup file. Fallback picks pad 0. Needs g_SpawnPoints population from arena pad data. |
+| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — playerreset.c now scans pads file and populates g_SpawnPoints when none set and in net mode. Needs test to confirm dispersal works. |
 | B-20 Mission 1 objective crash | HIGH | **FIXED (S48)** -- NULL modeldef guard added in modelmgrInstantiateModel. Root cause: objective completion spawns chr whose body filenum fails to load. |
 | B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
 | B-24 Connect code byte-order reversal | CRITICAL | **FIXED (S49)** -- `pdgui_menu_mainmenu.cpp` byte extraction corrected (MSB→LSB order). |

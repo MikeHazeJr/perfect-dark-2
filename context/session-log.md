@@ -3,6 +3,56 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 54 — 2026-03-27
+
+**Focus**: Full implementation to get two players into a working Combat Simulator match
+
+### What Was Done
+
+**lobbyUpdate() B-28 regression fixed** (`port/src/net/netlobby.c`):
+- `i == 0` skip guard replaced with `cl == g_NetLocalClient` — which is `NULL` on dedicated servers, so no slot is ever skipped. First real player (slot 0) now appears in `g_Lobby.players[]`.
+- Off-by-one: `i <= NET_MAX_CLIENTS` → `i < NET_MAX_CLIENTS`.
+- Root cause: B-28 (S52) set `g_NetLocalClient = NULL` for dedicated servers but didn't update lobbyUpdate's hardcoded slot-0 skip. Leader validation in `netmsgClcLobbyStartRead()` always failed because the leader (slot 0) was invisible.
+
+**Duplicate Room 0 display fixed** (`port/src/room.c`):
+- Added `if (!s_Initialised) return 0/NULL;` guards to `roomGetActiveCount()` and `roomGetByIndex()`.
+- Root cause: `s_Rooms[]` is a C static array zero-initialized to `ROOM_STATE_LOBBY=0`, so all 4 slots appeared "active" on the client (which never calls `hubInit()`).
+
+**g_MpSetup configured for Combat Sim** (`port/src/net/netmsg.c`):
+- `netmsgClcLobbyStartRead()` now sets `g_MpSetup.stagenum`, `scenario=0` (MPSCENARIO_COMBAT), `timelimit=0`, `chrslots` with bits 0..n-1 for n connected players.
+- Assigns sequential `playernum` values to each connected client before calling `netServerStageStart()`.
+- Without this, `SVC_STAGE_START` broadcast `chrslots=0` and `playernum=0` for everyone, so `mpStartMatch()` never spawned players.
+
+**Off-by-one in netServerStageStart()** (`port/src/net/net.c`):
+- Two loops `i <= NET_MAX_CLIENTS` → `i < NET_MAX_CLIENTS`.
+
+**Simulant settings in lobby UI** (`port/fast3d/pdgui_menu_lobby.cpp`, `port/fast3d/pdgui_bridge.c`, `port/include/net/netmsg.h`, `port/src/net/netmsg.c`):
+- CLC_LOBBY_START payload extended: `gamemode, stagenum, difficulty, numSims, simType` (added 2 bytes).
+- Server reads numSims/simType, populates `g_BotConfigsArray[]` and bits 8+ of `g_MpSetup.chrslots`.
+- Lobby UI: arena selector (20 maps), simulant count slider (0-8), difficulty dropdown (Meat/Easy/Normal/Hard/Perfect/Dark).
+- `netLobbyRequestStartWithSims()` bridge function added; original `netLobbyRequestStart()` wraps it with zeros.
+
+**Spawn point fallback for MP maps without INTROCMD_SPAWN** (`src/game/playerreset.c`):
+- After intro cmd loop, if `g_NumSpawnPoints == 0` and `g_NetMode != NETMODE_NONE`, scans `g_PadsFile` for pads with valid room numbers and populates `g_SpawnPoints`.
+- Fixes B-19 (bot spawn stacking) for mod stages and MP maps without proper setup sequences.
+- Added `#include "net/net.h"` to playerreset.c.
+
+### Decisions Made
+- CLC_LOBBY_START protocol extension is backward-compatible within a single session (client/server always built together). No protocol version bump needed yet.
+- Spawn fallback uses `g_NetMode != NETMODE_NONE` guard so solo missions are unaffected.
+- Arena selector uses hardcoded stage numbers (0x1f..0x32) matching known PD MP maps. No stage table dependency.
+
+### Bugs Fixed
+- **B-28 regression in lobbyUpdate()** (unlabeled): `i == 0` skip broke leader detection after B-28.
+- **B-19** (partial): spawn stacking reduced by pre-populating g_SpawnPoints from pad data.
+
+### Next Steps
+- Build and run end-to-end 2-player test: start dedicated server, both clients connect, leader hits Combat Simulator button.
+- Verify `mpStartMatch()` fires on both clients with correct playernum and chrslots.
+- R-2: Room lifecycle expansion if first match test passes.
+
+---
+
 ## Session 53 — 2026-03-26
 
 **Focus**: Two bugs blocking clients from reaching lobby after connecting to dedicated server
