@@ -252,4 +252,4 @@ const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}
-void conPrintLn(s32 showmsg, const 
+void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
