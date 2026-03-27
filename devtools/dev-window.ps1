@@ -1462,6 +1462,9 @@ function Get-BuildSteps($ver) {
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
+    # Async cleanup: wipe both build dirs via cmd.exe so the UI thread is never blocked
+    $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & (if exist `"" + $script:ServerBuildDir + "`" rmdir /s /q `"" + $script:ServerBuildDir + "`") & exit 0"
+    [void]$steps.Add(@{Name="Cleaning build dirs"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
     [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     [void]$steps.Add(@{Name="Build (client)";     Exe=$script:CMake; Target="client"; Args="--build `"" + $script:ClientBuildDir + "`" --target pd -- -j" + $cores + " -k"})
     [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
@@ -1485,21 +1488,35 @@ function Start-Build {
     if ($null -ne $script:BtnCopyLog)    { $script:BtnCopyLog.Visible    = $false }
     if ($null -ne $script:ProgressBack)  { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:ProgressFill)  { $script:ProgressFill.BackColor = $script:ColorProgress }
-    # Always clean: wipe build directories before configure
-    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Cleaning build directories..." }
-    try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
-    try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Starting build..." }
     # Read version from UI boxes -- single source of truth for this build
     $script:BuildVersion = Get-UiVersion
-    Auto-Commit | Out-Null
+    Auto-Commit | Out-Null  # Brief git ops -- tolerated on UI thread (< 1s normally)
+    # Queue all steps (cleanup first, then cmake) and let the timer drive execution.
+    # Never call Start-Build-Step here -- that would block the UI thread during cleanup.
+    $script:BuildProcess = $null
     $script:BuildStepQueue.Clear()
     foreach ($s in (Get-BuildSteps $script:BuildVersion)) { [void]$script:BuildStepQueue.Add($s) }
-    $first = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
-    Start-Build-Step $first
+    $script:BuildTimer.Start()
 }
 
 $script:BuildTimer.Add_Tick({
     try {
+        # No active process: start next queued step (timer-driven launch keeps UI responsive)
+        if ($null -eq $script:BuildProcess) {
+            if ($script:BuildStepQueue.Count -gt 0 -and $script:IsBuilding) {
+                $next = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
+                if ($next.Target -eq "server" -and $null -ne $script:LblServerStatus) {
+                    $script:LblServerStatus.Text = "server: building..."; $script:LblServerStatus.ForeColor = $script:ColorBlue
+                }
+                if ($null -ne $script:ProgressFill) { $script:ProgressFill.BackColor = $script:ColorProgress }
+                Start-Build-Step $next
+            } else {
+                $script:BuildTimer.Stop()
+            }
+            return
+        }
+
         $maxPer = 80; $count = 0; $line = $null
         while ($count -lt $maxPer -and $script:OutputQueue.TryDequeue([ref]$line)) {
             $text = $line.Substring(4)
@@ -1641,7 +1658,6 @@ function Start-PushRelease {
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
     $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
-    $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $script:BuildStepQueue.Clear()
     if ($null -ne $script:ProgressBack)     { $script:ProgressBack.Visible  = $true }
     if ($null -ne $script:BtnStop)          { $script:BtnStop.Visible       = $true }
@@ -1649,12 +1665,10 @@ function Start-PushRelease {
     if ($null -ne $script:LblClientStatus)  { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
     if ($null -ne $script:LblServerStatus)  { $script:LblServerStatus.Text = "server: pending..."; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
 
-    # Always clean before release build
-    try { if (Test-Path $script:ClientBuildDir) { Remove-Item $script:ClientBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
-    try { if (Test-Path $script:ServerBuildDir) { Remove-Item $script:ServerBuildDir -Recurse -Force -ErrorAction Stop } } catch {}
     $script:BuildVersion = $ver
 
-    # Queue: build client, build server, then release script
+    # Queue: cleanup (async, in background) then build client + server + release script.
+    # Get-BuildSteps includes the cleanup step -- no synchronous Remove-Item on the UI thread.
     foreach ($s in (Get-BuildSteps $ver)) { [void]$script:BuildStepQueue.Add($s) }
 
     # Append the release step after all build steps
@@ -1667,10 +1681,10 @@ function Start-PushRelease {
         Target = "client"
     })
 
-    # Start the first build step (configure client)
+    # Let the timer drive execution -- never call Start-Build-Step on the UI thread.
     $script:IsBuilding = $true
-    $first = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
-    Start-Build-Step $first
+    $script:BuildProcess = $null
+    $script:BuildTimer.Start()
 }
 
 # ============================================================================

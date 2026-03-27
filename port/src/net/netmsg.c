@@ -546,9 +546,20 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	netbufWriteU64(dst, g_RngSeed);
 	netbufWriteU64(dst, g_Rng2Seed);
 
-	netbufWriteU8(dst, g_StageNum);
+	/* mainChangeToStage() is async: it sets g_MainChangeToStageNum but g_StageNum
+	 * isn't updated until the next frame.  When called from netServerStageStart()
+	 * immediately after mainChangeToStage(), g_StageNum is still STAGE_CITRAINING,
+	 * which would cause the client to think the server returned to lobby.
+	 * Use the pending stage when available; fall back to g_StageNum mid-game
+	 * (g_MainChangeToStageNum is reset to -1 once the stage actually loads). */
+	extern s32 g_MainChangeToStageNum;
+	const u8 effectiveStage = (g_MainChangeToStageNum >= 0)
+	                          ? (u8)g_MainChangeToStageNum
+	                          : g_StageNum;
 
-	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
+	netbufWriteU8(dst, effectiveStage);
+
+	if (effectiveStage == STAGE_TITLE || effectiveStage == STAGE_CITRAINING) {
 		// going back to lobby, don't need anything else
 		return dst->error;
 	}

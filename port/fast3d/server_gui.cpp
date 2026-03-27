@@ -656,7 +656,7 @@ extern "C" void serverGuiFrame(SDL_Window *window)
     updaterTick();
 
     float margin    = 10.0f;
-    float statusH   = 80.0f;
+    float statusH   = 110.0f;
     float tabBarH   = 28.0f;
     float middleTop = margin + statusH + margin;
     float middleH   = ((float)winH - middleTop - margin) * 0.55f;
@@ -687,8 +687,9 @@ extern "C" void serverGuiFrame(SDL_Window *window)
                 }
             }
             connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+            ImGui::PushTextWrapPos(0.0f);
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
-            ImGui::SameLine();
+            ImGui::PopTextWrapPos();
             if (ImGui::SmallButton("Copy Code")) {
                 SDL_SetClipboardText(connectCode);
             }

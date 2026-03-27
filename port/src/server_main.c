@@ -370,7 +370,7 @@ int main(int argc, char **argv)
                     char connectCode[256] = "";
                     u32 a = 0, b = 0, c = 0, d = 0;
                     if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-                        u32 ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+                        u32 ipAddr = a | (b << 8) | (c << 16) | (d << 24);
                         connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
                     }
                     if (connectCode[0]) {
@@ -380,6 +380,9 @@ int main(int argc, char **argv)
                         snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
                                  g_NetServerPort, displayClients, g_NetMaxClients);
                     }
+                } else if (netUpnpGetStatus() == UPNP_STATUS_WORKING) {
+                    snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - resolving... - %d/%d connected",
+                             displayClients, g_NetMaxClients);
                 } else {
                     snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
                              g_NetServerPort, displayClients, g_NetMaxClients);
