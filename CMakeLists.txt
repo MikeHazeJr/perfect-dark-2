@@ -178,7 +178,7 @@ if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   add_compile_options(-Og)
 endif()
 
-# Debug info ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â explicit -g ensures DWARF symbols are embedded regardless
+# Debug info ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â explicit -g ensures DWARF symbols are embedded regardless
 # of CMAKE_BUILD_TYPE. Without this, addr2line returns ?? on MinGW.
 add_compile_options(-g)
 
@@ -482,7 +482,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/identity.c
   ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
 
-  # Connect code (IP:port ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬Â word-based codes)
+  # Connect code (IP:port ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
 
