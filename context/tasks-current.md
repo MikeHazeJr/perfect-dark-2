@@ -10,7 +10,7 @@
 
 | Item | Status |
 |------|--------|
-| **Room interior UX + Match Start** (S57/S58/S59) | **BUILD VERIFIED (S58)** -- Needs playtest from Mike's MSYS2 terminal. Match Start bug fixed (S59): SVC_STAGE_START was encoding STAGE_CITRAINING due to async mainChangeToStage(). Bot list + spawn weapon UI confirmed fully implemented in main project. J-1 test: connect client → enter code → room interior → Start Match → verify game loads. |
+| **Room interior UX + Match Start** (S57–S60) | **BUILD VERIFIED (S60)** — Five playtest fixes applied: Leave Room now calls pdguiSetInRoom(0) not netDisconnect; Start Match now sends via netSend (CLC_LOBBY_START was silently dropped); bot modal labels left-aligned; score slider 1-based; lobby shows Players: X/Y. Needs full playtest: Leave Room → social lobby, Start Match → match loads. |
 | **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |

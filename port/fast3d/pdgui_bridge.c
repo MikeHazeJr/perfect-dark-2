@@ -417,7 +417,14 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 num
         return -2;
     }
 
+    /* Write to a fresh out-buffer then send immediately.
+     * g_NetLocalClient->out is the per-client reliable send buffer; calling
+     * netSend(cl, NULL, reliable, chan) flushes it via enet_peer_send to the
+     * server.  Without the explicit netSend the packet sits unsent — the
+     * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
+    netbufStartWrite(&g_NetLocalClient->out);
     netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType);
+    netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
     sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u",
                  gamemode, stagenum, difficulty, numSims, simType);
     return 0;

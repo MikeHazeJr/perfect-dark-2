@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 58 (build pipeline architecture; pdgui_lobby.cpp merged; §3 CRITICAL-PROCEDURES)
+> **Last updated**: 2026-03-27, Session 60 (five playtest fixes: Leave Room, Start Match netSend bug, bot modal labels, score slider, lobby player count)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 60 | 2026-03-27 | Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal labels, score slider, lobby player count | [session-log.md](session-log.md) |
+| 59 | 2026-03-27 | Match Start root cause (SVC_STAGE_START async g_MainChangeToStageNum), UX audit | [session-log.md](session-log.md) |
 | 58 | 2026-03-27 | Build pipeline architecture, S57 worktree merge (pdgui_lobby.cpp), §3 CRITICAL-PROCEDURES | [session-log.md](session-log.md) |
 | 57 | 2026-03-27 | Room interior UX -- pdgui_menu_room.cpp (3-tab match setup), lobby-flow-plan.md created | [session-log.md](session-log.md) |
 | 52–56 | 2026-03-27 | R-1 Foundation, hub/lobby fixes B-28–35, network audit, room architecture plan | [session-log.md](session-log.md) |

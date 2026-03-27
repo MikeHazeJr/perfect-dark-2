@@ -52,6 +52,7 @@ extern "C" {
 
 s32 netGetMode(void);
 s32 netDisconnect(void);
+void pdguiSetInRoom(s32 inRoom);  /* pdgui_lobby.cpp — transition back to social lobby */
 extern s32 g_NetMode;
 extern s32 g_NetDedicated;
 extern u8 g_NetCoopDifficulty;
@@ -678,19 +679,20 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::EndDisabled();
     }
 
-    /* Score limit: 0–99 = (val+1) kills; 100+ = no limit */
+    /* Score limit: slider shows 1–100 kills directly.
+     * Stored as 0-based (scorelimit = kills - 1); 100 = no limit. */
     {
         if (!leader) ImGui::BeginDisabled();
-        int sl = (int)g_MatchConfig.scorelimit;
+        int sl = (int)g_MatchConfig.scorelimit + 1;  /* convert to 1-based for display */
         ImGui::SetNextItemWidth(comboW * 0.6f);
-        if (ImGui::SliderInt("Score", &sl, 0, 100)) {
-            g_MatchConfig.scorelimit = (u8)sl;
+        if (ImGui::SliderInt("Score", &sl, 1, 100)) {
+            g_MatchConfig.scorelimit = (u8)(sl - 1);  /* store 0-based */
         }
         ImGui::SameLine();
-        if (g_MatchConfig.scorelimit >= 100) {
+        if (g_MatchConfig.scorelimit >= 99) {  /* 99+1=100: show "No limit" */
             ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
         } else {
-            ImGui::Text("%d kills", g_MatchConfig.scorelimit + 1);
+            ImGui::Text("%d kills", sl);  /* sl already equals scorelimit+1 */
         }
         if (!leader) ImGui::EndDisabled();
     }
@@ -1154,7 +1156,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
-        netDisconnect();
+        pdguiSetInRoom(0);  /* return to social lobby, stay connected */
     }
 
     /* ---- Bot settings modal ---- */
@@ -1177,13 +1179,20 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::Separator();
             ImGui::Spacing();
 
+            /* Fixed label column offset keeps controls left-aligned */
+            float labelCol = 110.0f * scale;
+
             /* Name */
-            ImGui::SetNextItemWidth(mw);
-            ImGui::InputText("Name##botmodalname", sl->name, MAX_PLAYER_NAME);
+            ImGui::Text("Name:");
+            ImGui::SameLine(labelCol);
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputText("##botmodalname", sl->name, MAX_PLAYER_NAME);
 
             /* Difficulty */
-            ImGui::SetNextItemWidth(mw);
-            if (ImGui::BeginCombo("Difficulty##botmodaldiff",
+            ImGui::Text("Difficulty:");
+            ImGui::SameLine(labelCol);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##botmodaldiff",
                                    s_SimDiffNames[sl->botDifficulty])) {
                 for (int d = 0; d < s_NumSimDiffs; d++) {
                     bool sel = (d == (int)sl->botDifficulty);
@@ -1200,8 +1209,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             u32 numBodies = mpGetNumBodies();
             const char *curBody = (sl->bodynum < (u8)numBodies)
                                    ? mpGetBodyName(sl->bodynum) : "?";
-            ImGui::SetNextItemWidth(mw);
-            if (ImGui::BeginCombo("Character##botmodalchar",
+            ImGui::Text("Character:");
+            ImGui::SameLine(labelCol);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##botmodalchar",
                                    curBody ? curBody : "?")) {
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);

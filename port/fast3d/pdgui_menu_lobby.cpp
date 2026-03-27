@@ -159,8 +159,16 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    /* Connection status */
-    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Connected to dedicated server");
+    /* Connection status + player count */
+    {
+        s32 numPlayers = lobbyGetPlayerCount();
+        s32 maxPlayers = netGetMaxClients();
+        ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f),
+                           "Connected to dedicated server");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.5f, 1.0f),
+                           "  Players: %d / %d", numPlayers, maxPlayers);
+    }
 
     /* Connect code (server host view only) */
     if (netGetMode() == NETMODE_SERVER) {

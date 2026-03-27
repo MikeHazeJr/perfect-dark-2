@@ -3,6 +3,47 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 60 — 2026-03-27
+
+**Focus**: Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal UX, score slider, lobby player count
+
+### What Was Done
+
+**Fix 1 — Leave Room returns to social lobby** (`port/fast3d/pdgui_menu_room.cpp`):
+- Leave Room button was calling `netDisconnect()` instead of `pdguiSetInRoom(0)`.
+- Added forward declaration for `pdguiSetInRoom()` in the extern "C" block.
+- Now correctly returns to social lobby while staying connected.
+
+**Fix 2 — Start Match actually sends CLC_LOBBY_START** (`port/fast3d/pdgui_bridge.c`, `port/src/net/netmenu.c`):
+- Root cause: `netLobbyRequestStartWithSims` wrote to `g_NetLocalClient->out` but never called `netSend()`. On the client, only `g_NetMsgRel`/`g_NetMsg` are auto-flushed by `netFlushSendBuffers()`; per-client `->out` buffers are only sent when `netSend(cl, NULL, ...)` is called explicitly. The packet sat unsent every time.
+- Fix: added `netbufStartWrite(&g_NetLocalClient->out)` before the write, then `netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL)` after.
+- Same bug in legacy `menuhandlerCoopConfigStart` (`netmenu.c`) — patched there too (propagation check).
+
+**Fix 3 — Bot modal left-aligned labels** (`port/fast3d/pdgui_menu_room.cpp`):
+- Name / Difficulty / Character labels now sit on the LEFT with `ImGui::Text(...)` + `ImGui::SameLine(110.0f * scale)` before the control.
+- Controls use `SetNextItemWidth(-1)` to fill the remaining width. No clipping.
+
+**Fix 4 — Score limit slider 1-based** (`port/fast3d/pdgui_menu_room.cpp`):
+- Slider now shows 1–100; `g_MatchConfig.scorelimit` still stored 0-based (val-1) for wire compatibility.
+- Label shows `sl` directly (no +1) — "9 kills" slider = label "9 kills", not "10 kills".
+- "No limit" triggered at scorelimit ≥ 99 (displayed as 100 on slider).
+
+**Fix 5 — Social lobby player count** (`port/fast3d/pdgui_menu_lobby.cpp`):
+- Added "Players: X / Y" next to "Connected to dedicated server" in the header.
+- X = `lobbyGetPlayerCount()`, Y = `netGetMaxClients()`. Yellow text for visibility.
+
+### Build Result
+- **Client**: PASS (PerfectDark.exe, 0 errors)
+- **Server**: PASS (PerfectDarkServer.exe, 0 errors)
+
+### Decisions Made
+- The `g_NetLocalClient->out` pattern for sending client→server is now documented: **must call `netSend(g_NetLocalClient, NULL, reliable, chan)` explicitly** — the auto-flush path only covers `g_NetMsgRel`/`g_NetMsg`.
+
+### Next Steps
+- **Playtest**: Leave Room → verify stays in social lobby. Start Match → verify CLC_LOBBY_START reaches server + match loads. Bot modal → verify labels readable.
+
+---
+
 ## Session 59 — 2026-03-27
 
 **Focus**: Match Start bug root cause (SVC_STAGE_START) + UX status audit
