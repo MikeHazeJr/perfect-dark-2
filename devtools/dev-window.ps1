@@ -1248,7 +1248,7 @@ function Auto-Commit-Sync {
     if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
     $st = git -C $script:ProjectRoot status --porcelain 2>$null
     if (-not $st) { return $true }
-    $ver = Get-ProjectVersion
+    $ver = if ($null -ne $script:BuildVersion) { $script:BuildVersion } else { Get-ProjectVersion }
     $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
     git -C $script:ProjectRoot add -A 2>$null | Out-Null
     git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
