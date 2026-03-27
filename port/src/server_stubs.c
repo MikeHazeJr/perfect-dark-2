@@ -60,6 +60,7 @@ u64 g_RngSeeds[2] = {0};
 s32 g_NotLoadMod = 1;
 const char *g_RomName = "";  /* dedicated server has no ROM — empty skips the ROM check in netmsgClcAuthRead */
 s32 g_NumReasonsToEndMpMatch = 0;
+s32 g_MainChangeToStageNum = -1;
 
 /* Bot / chr */
 u8 g_BotCount = 0;
@@ -251,4 +252,4 @@ const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}
-void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
+void conPrintLn(s32 showmsg, const 
