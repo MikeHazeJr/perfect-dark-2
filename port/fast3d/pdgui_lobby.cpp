@@ -118,6 +118,38 @@ s32 viGetHeight(void);
 } /* extern "C" */
 
 /* ========================================================================
+ * Room routing state
+ *
+ * s_InRoom tracks whether the local client is inside a room (true) or
+ * browsing the social lobby (false). The social lobby shows all players
+ * and all active rooms with a "Create Room" button. The room interior
+ * (pdgui_menu_room.cpp) shows once the player creates or joins a room.
+ *
+ * Resets to false on disconnect (detected by mode transitioning to NONE).
+ * ======================================================================== */
+
+static bool s_InRoom   = false;
+static s32  s_LastMode = 0; /* NETMODE_NONE */
+
+/**
+ * Set whether the local client is inside a room.
+ * Called from pdgui_menu_lobby.cpp ("Create Room") and
+ * pdgui_menu_room.cpp ("Leave Room").
+ */
+extern "C" void pdguiSetInRoom(s32 inRoom)
+{
+    s_InRoom = (inRoom != 0);
+}
+
+/**
+ * Query whether the local client is inside a room.
+ */
+extern "C" s32 pdguiIsInRoom(void)
+{
+    return s_InRoom ? 1 : 0;
+}
+
+/* ========================================================================
  * Public API
  * ======================================================================== */
 
@@ -322,6 +354,12 @@ void pdguiLobbyRender(s32 winW, s32 winH)
 {
     s32 mode = netGetMode();
 
+    /* Reset room state on disconnect */
+    if (s_LastMode != NETMODE_NONE && mode == NETMODE_NONE) {
+        s_InRoom = false;
+    }
+    s_LastMode = mode;
+
     if (mode == NETMODE_NONE) {
         return;  /* Not in a network session */
     }
@@ -338,11 +376,14 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* === Game client === */
     if (mode == NETMODE_CLIENT) {
         if (netLocalClientInLobby()) {
-            /* In lobby: show the room interior (tab-based UX).
-             * pdguiRoomScreenRender replaces pdguiLobbyScreenRender for clients.
-             * Until R-2/R-3, all clients are in a single implicit room. */
-            pdguiRoomScreenRender(winW, winH);
-            /* D3R-9: download progress overlay on top of room screen */
+            if (s_InRoom) {
+                /* Inside a room: show room interior (tab-based game setup UX) */
+                pdguiRoomScreenRender(winW, winH);
+            } else {
+                /* Social lobby: browse players and rooms, create/join */
+                pdguiLobbyScreenRender(winW, winH);
+            }
+            /* D3R-9: download progress overlay on top of either screen */
             pdguiDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
             /* In game (or transitioning): show minimal sidebar overlay */

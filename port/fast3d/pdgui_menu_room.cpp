@@ -176,6 +176,9 @@ s32 matchStart(void);
 #define DIFF_SA 1
 #define DIFF_PA 2
 
+/* Routing: return to social lobby (pdgui_lobby.cpp) */
+void pdguiSetInRoom(s32 inRoom);
+
 /* Agent name (for connect code display) */
 const char *mpPlayerConfigGetName(s32 playernum);
 
@@ -1074,7 +1077,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::TextDisabled("Waiting for the room leader to start...");
     }
 
-    /* Leave Room (right-aligned) */
+    /* Leave Room (right-aligned) — returns to Social Lobby, stays connected */
     float leaveW = pdguiScale(120.0f);
     ImGui::SameLine(dialogW - leaveW - ImGui::GetStyle().WindowPadding.x * 2);
     if (ImGui::Button("Leave Room", ImVec2(leaveW, btnH)) ||
@@ -1083,7 +1086,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
-        netDisconnect();
+        /* Return to Social Lobby — do NOT disconnect from server */
+        pdguiSetInRoom(0);
     }
 
     ImGui::End();

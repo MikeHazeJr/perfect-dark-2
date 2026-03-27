@@ -3,6 +3,49 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 59 — 2026-03-27
+
+**Focus**: L-1 Social Lobby — restructure `pdgui_menu_lobby.cpp` into the social lobby screen
+
+### What Was Done
+
+**`port/fast3d/pdgui_menu_lobby.cpp`** (complete restructure):
+- Removed: arena picker, simulant slider, difficulty combo, mode buttons (Combat Sim / Co-op / Counter-Op), Game Setup header, "You are the lobby leader" messaging
+- Removed: `s_SelectedArena`, `s_NumSims`, `s_SimType` state vars; `arena_entry` struct; `netLobbyRequestStart` / `netLobbyRequestStartWithSims` externs; `menuPushDialog` / `g_NetCoopHostMenuDialog`
+- **Left panel**: Connected Players (name, character, status — "In Lobby" / "In Match")
+- **Right panel**: Active Rooms list (name, state color-coded badge, player count) + "Create Room" button (hidden on dedicated server)
+- Room "Join" buttons present but `BeginDisabled` with "Coming soon (R-3)" tooltip — wired visually, not functional until R-3
+- **Footer**: Server chat stub label (frame only) + Disconnect button
+- On "Create Room": calls `pdguiSetInRoom(1)` to transition to room interior
+
+**`port/fast3d/pdgui_lobby.cpp`** (routing update):
+- Added `static bool s_InRoom = false` and `static s32 s_LastMode = 0` for room routing state
+- Added `extern "C" void pdguiSetInRoom(s32)` and `pdguiIsInRoom(void)` as public API
+- `s_InRoom` resets to false on disconnect (detected by mode transition → NETMODE_NONE)
+- Game client CLSTATE_LOBBY path: if `!s_InRoom` → `pdguiLobbyScreenRender()` (social lobby); if `s_InRoom` → `pdguiRoomScreenRender()` (room interior)
+- Dedicated server path unchanged (always shows `pdguiLobbyScreenRender`)
+
+**`port/fast3d/pdgui_menu_room.cpp`** (Leave Room fix):
+- "Leave Room" previously called `netDisconnect()` — changed to `pdguiSetInRoom(0)`
+- Player now returns to Social Lobby without disconnecting from the server
+- Added `void pdguiSetInRoom(s32 inRoom)` declaration in extern "C" block
+
+### Result
+Flow is now: **Connect → Social Lobby → Create Room → Room Interior → Leave Room → Social Lobby**. Join buttons present but disabled (R-3 dependency). Build check blocked by worktree redirect in build-headless.ps1 (by design) — code reviewed, wiring confirmed clean.
+
+### Decisions Made
+- `s_InRoom` lives in `pdgui_lobby.cpp` (the router); lobby and room files call `pdguiSetInRoom()` to change it
+- Dedicated server's Create Room button hidden (`g_NetDedicated` guard) — server operator view is informational only
+- Join buttons rendered but disabled until R-3 (SVC_ROOM_LIST + CLC_ROOM_JOIN wired server-side)
+- "Leave Room" no longer disconnects — critical UX fix enabling social hub model
+
+### Next Steps
+- **Playtest L-1**: Connect client → verify Social Lobby appears with player list + room list + Create Room button. Click Create Room → verify Room Interior appears. Click Leave Room → verify return to Social Lobby (still connected).
+- **R-2**: Room lifecycle — expand hub slot pool, on-demand room creation per connect.
+- **R-3**: Room sync protocol — SVC_ROOM_LIST/ASSIGN, CLC_ROOM_JOIN — then wire L-2 (real join/create flow).
+
+---
+
 ## Session 58 — 2026-03-27
 
 **Focus**: Headless build pipeline architecture + merge S57 worktree changes

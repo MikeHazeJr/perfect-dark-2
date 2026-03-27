@@ -10,7 +10,8 @@
 
 | Item | Status |
 |------|--------|
-| **Room interior UX** (S57/S58) | **BUILD VERIFIED (S58)** -- pdgui_menu_room.cpp (1108 lines) compiles clean. pdgui_lobby.cpp merged. Needs playtest: connect client, verify room interior tab screen appears (3 tabs), Start Match launches game. |
+| **Social Lobby + Room routing** (S59) | **CODED (S59)** -- pdgui_menu_lobby.cpp restructured as Social Lobby (player list, room list, Create Room). pdgui_lobby.cpp routes connect → Social Lobby → Room Interior via s_InRoom flag. Leave Room returns to Social Lobby (no disconnect). Needs playtest: Connect → verify Social Lobby; Create Room → verify Room Interior; Leave Room → verify back to Social Lobby. |
+| **Room interior UX** (S57/S58) | **BUILD VERIFIED (S58)** -- pdgui_menu_room.cpp (1108 lines) compiles clean. pdgui_lobby.cpp merged. Playtest now requires Social Lobby first (S59 flow). |
 | **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
@@ -90,7 +91,7 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 | Phase | Task | Details |
 |-------|------|---------|
-| L-1 | **Social Lobby** | Rewrite `pdgui_menu_lobby.cpp`: strip game mode selection, add room list with Join buttons and Create Room. No game mode picker on this screen. Depends on R-3. |
+| L-1 | **Social Lobby** | **DONE (S59)** — `pdgui_menu_lobby.cpp` restructured. Player list + room list + Create/Join UI. s_InRoom routing in pdgui_lobby.cpp. Leave Room returns to social lobby. Join buttons disabled until R-3. |
 | L-2 | **Room Create/Join** | Wire Create Room + Join Room buttons to `CLC_ROOM_JOIN`. Handle `SVC_ROOM_ASSIGN` → transition to Room Interior screen. Password dialog for protected rooms. Depends on R-3. |
 | L-3 | **Room Interior + Mode Selection** | New `pdgui_menu_room.cpp`. Leader: mode buttons + room player list. Non-leader: read-only mode display. Leave Room → `CLC_ROOM_LEAVE`. Depends on R-4. |
 | L-4 | **Combat Sim Setup** | Extend `pdgui_menu_matchsetup.cpp` with network path: settings send `CLC_ROOM_SETTINGS`, Start sends `CLC_ROOM_START`. Non-leader: read-only preview. Depends on R-4. |
