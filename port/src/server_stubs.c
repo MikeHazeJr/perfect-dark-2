@@ -151,7 +151,14 @@ void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
 /* --- Match / Stage --- */
 void mpStartMatch(void) { sysLogPrintf(LOG_NOTE, "STUB: mpStartMatch"); }
 void mpSetPaused(s32 mode) { (void)mode; }
-void mainChangeToStage(s32 stagenum) { sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum); }
+void mainChangeToStage(s32 stagenum) {
+    sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum);
+    /* netmsgSvcStageStartWrite reads g_MainChangeToStageNum to determine the
+     * effective stage (falls back to g_StageNum when -1). On the game client
+     * the real mainChangeToStage sets this; the stub must do the same so
+     * SVC_STAGE_START carries the correct arena instead of 0x00. */
+    g_MainChangeToStageNum = stagenum;
+}
 void mainEndStage(void) { sysLogPrintf(LOG_NOTE, "STUB: mainEndStage"); }
 void titleSetNextStage(s32 stagenum) { (void)stagenum; }
 void titleSetNextMode(s32 mode) { (void)mode; }
@@ -249,6 +256,12 @@ void assetCatalogActivateStage(s32 stagenum) { (void)stagenum; }
 void assetCatalogDeactivateStage(void) {}
 struct asset_entry; /* forward decl for return type */
 const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void)stagenum; return NULL; }
+
+/* --- Participant system (B-12) --- */
+/* The server doesn't link participant.c (that's game-client code), but
+ * netmsg.c calls mpParticipantsFromLegacyChrslots() in the SVC_STAGE_START
+ * client path.  The server never enters that path, so an empty stub is fine. */
+void mpParticipantsFromLegacyChrslots(u64 chrslots) { (void)chrslots; }
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}

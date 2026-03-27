@@ -7,6 +7,7 @@
 #include "lib/mtx.h"
 #include "lib/model.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/prop.h"
@@ -771,6 +772,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #endif
 	} else {
 		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players", g_MpSetup.stagenum, numplayers);
+
+		/* Populate the participant pool from the server-supplied chrslots bitmask
+		 * before mpStartMatch() is called.  mpStartMatch rebuilds participants
+		 * for NETMODE_SERVER but does nothing for NETMODE_CLIENT, so the pool
+		 * would be empty and mpHasSimulants() would return false — bots would
+		 * never spawn on the client side. */
+		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
 		mpStartMatch();
 		menuStop();
