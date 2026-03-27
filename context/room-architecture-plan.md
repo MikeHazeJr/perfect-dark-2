@@ -7,6 +7,7 @@
 > Cross-references:
 >   [multiplayer-plan.md](multiplayer-plan.md) §2 (room types, lifecycle, access modes)
 >   [join-flow-plan.md](join-flow-plan.md) §3.2 (room display gap), §6 J-3 (SVC_ROOM_LIST)
+>   [lobby-flow-plan.md](lobby-flow-plan.md) — client UX flow that depends on R-series plumbing
 >
 > This plan implements the room architecture described in multiplayer-plan.md §2.
 > Do NOT duplicate the design rationale here — reference multiplayer-plan.md.
@@ -458,9 +459,10 @@ Individual connection events log the client index, not the IP.
 | Server federation (future) | [multiplayer-plan.md](multiplayer-plan.md) §5 |
 | End-to-end join flow (J-series) | [join-flow-plan.md](join-flow-plan.md) |
 | Client lobby UI room display gap | [join-flow-plan.md](join-flow-plan.md) §3.2, §5.2 |
+| **Client-facing UX flow (L-series)** | **[lobby-flow-plan.md](lobby-flow-plan.md)** — what players see at each step |
 | Protocol message table | [networking.md](networking.md) |
 | Server architecture | [server-architecture.md](server-architecture.md) |
 
 ---
 
-*Last updated: 2026-03-26, Session 51*
+*Last updated: 2026-03-27, Session 57*
