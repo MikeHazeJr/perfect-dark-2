@@ -50,8 +50,10 @@ void lobbyUpdate(void)
 
         /* Skip the local server's own slot — after B-28, dedicated servers have
          * g_NetLocalClient == NULL, so this check is always false on dedicated servers
-         * (all slots are real players).  On listen-server builds it skips the host slot. */
-        if (cl == g_NetLocalClient) {
+         * (all slots are real players).  On listen-server builds it skips the host slot.
+         * On clients (NETMODE_CLIENT), do NOT skip: the local slot IS the player and must
+         * appear in their own lobby list so they see themselves and are elected leader. */
+        if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient) {
             continue;
         }
 

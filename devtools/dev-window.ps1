@@ -138,11 +138,38 @@ $script:GhAuthOk           = $false
 $script:LatestRelease      = $null
 
 $script:Settings = @{
-    GitHubRepo     = ""
-    ButtonFontSize = 22
-    DetailFontSize = 10
-    EnableSounds   = $true
-    PostBuildCopy  = @()
+    GitHubRepo    = ""
+    FontScale     = "Medium"
+    EnableSounds  = $true
+    PostBuildCopy = @()
+}
+
+# ============================================================================
+# Section 3b: Scale helper
+# ============================================================================
+
+function Get-ScaleSizes {
+    # Returns a hashtable of derived sizes for the current FontScale setting.
+    # All font sizes, button heights, and tab heights flow from this one place.
+    # TabW is no longer stored here -- it is calculated dynamically from actual text
+    # measurement in Refresh-AllFonts and at TabControl creation time.
+    switch ($script:Settings.FontScale) {
+        "Small" { return @{ BtnFont=12; DetFont=9;  TabH=26; BtnBarFont=11 } }
+        "Large" { return @{ BtnFont=20; DetFont=14; TabH=40; BtnBarFont=16 } }
+        default { return @{ BtnFont=16; DetFont=12; TabH=34; BtnBarFont=14 } }
+    }
+}
+
+function Get-TabItemWidth($font) {
+    # Measure the widest tab label with the given font and add comfortable padding.
+    # Uses TextRenderer (GDI) which matches OwnerDrawFixed rendering.
+    $tabLabels = @("Build", "Playtest", "Docs")
+    $maxW = 0
+    foreach ($lbl in $tabLabels) {
+        $sz = [System.Windows.Forms.TextRenderer]::MeasureText($lbl, $font)
+        if ($sz.Width -gt $maxW) { $maxW = $sz.Width }
+    }
+    return [math]::Max(80, $maxW + 32)  # 16px padding each side, minimum 80
 }
 
 # ============================================================================
@@ -179,10 +206,15 @@ function Load-Settings {
         try {
             $json = Get-Content $script:SettingsPath -Raw | ConvertFrom-Json
             if ($json.GitHubRepo)               { $script:Settings.GitHubRepo     = $json.GitHubRepo }
-            if ($json.ButtonFontSize)           { $script:Settings.ButtonFontSize = [int]$json.ButtonFontSize }
-            elseif ($json.FontSize)             { $script:Settings.ButtonFontSize = [int]$json.FontSize }
-            if ($json.DetailFontSize)           { $script:Settings.DetailFontSize = [int]$json.DetailFontSize }
-            elseif ($json.FontSize)             { $script:Settings.DetailFontSize = [int]$json.FontSize }
+            if ($json.FontScale -and $json.FontScale -in @("Small","Medium","Large")) {
+                $script:Settings.FontScale = $json.FontScale
+            } elseif ($json.ButtonFontSize) {
+                # Backward compat: map old numeric size to nearest scale
+                $bf = [int]$json.ButtonFontSize
+                if ($bf -le 14)     { $script:Settings.FontScale = "Small" }
+                elseif ($bf -ge 20) { $script:Settings.FontScale = "Large" }
+                else                { $script:Settings.FontScale = "Medium" }
+            }
             if ($null -ne $json.EnableSounds)   { $script:Settings.EnableSounds   = [bool]$json.EnableSounds }
             if ($null -ne $json.PostBuildCopy)  { $script:Settings.PostBuildCopy  = @($json.PostBuildCopy) }
         } catch {}
@@ -270,26 +302,37 @@ function Get-ExePath($name) {
 function Test-ExeExists($name) { return Test-Path (Get-ExePath $name) }
 
 # Cached fonts for paint handlers (avoid per-frame allocation + GC pressure)
-$script:CachedTabFont     = New-UIFont $script:Settings.DetailFontSize -Bold
+$script:CachedTabFont     = New-UIFont (Get-ScaleSizes).DetFont -Bold
 $script:CachedSectionFont = New-UIFont 9 -Bold
 
 function Refresh-AllFonts {
     # Rebuild cached fonts and apply to all controls. Called when font settings change.
+    $sz = Get-ScaleSizes
     if ($null -ne $script:CachedTabFont) { try { $script:CachedTabFont.Dispose() } catch {} }
-    $script:CachedTabFont = New-UIFont $script:Settings.DetailFontSize -Bold
-    $btnFont = New-UIFont $script:Settings.ButtonFontSize -Bold
-    $detFont = New-UIFont $script:Settings.DetailFontSize
-    $detFontBold = New-UIFont $script:Settings.DetailFontSize -Bold
+    $script:CachedTabFont = New-UIFont $sz.DetFont -Bold
+    $btnFont = New-UIFont $sz.BtnFont -Bold
+    $detFont = New-UIFont $sz.DetFont
     # Hero buttons
-    if ($null -ne $script:BtnBuild)     { $script:BtnBuild.Font     = $btnFont }
+    if ($null -ne $script:BtnBuild)   { $script:BtnBuild.Font   = $btnFont }
     if ($null -ne $script:BtnRelease) { $script:BtnRelease.Font = $btnFont }
     # Bottom bar
-    if ($null -ne $script:BtnRunServer) { $script:BtnRunServer.Font = New-UIFont 14 -Bold }
-    if ($null -ne $script:BtnRunGame)   { $script:BtnRunGame.Font   = New-UIFont 14 -Bold }
-    # Detail labels/buttons
+    if ($null -ne $script:BtnRunServer) { $script:BtnRunServer.Font = New-UIFont $sz.BtnBarFont -Bold }
+    if ($null -ne $script:BtnRunGame)   { $script:BtnRunGame.Font   = New-UIFont $sz.BtnBarFont -Bold }
+    # Detail labels/buttons (sets base font for all child controls that don't override it)
     if ($null -ne $script:Form) { $script:Form.Font = $detFont }
-    # Force tab repaint
-    if ($null -ne $script:TabControl) { $script:TabControl.Invalidate() }
+    # Status labels: these hardcode Consolas so must be explicitly updated here
+    $consBold = New-Object System.Drawing.Font("Consolas", $sz.DetFont, [System.Drawing.FontStyle]::Bold)
+    $consNorm = New-Object System.Drawing.Font("Consolas", [math]::Max(8, $sz.DetFont - 2))
+    if ($null -ne $script:LblClientStatus)  { $script:LblClientStatus.Font  = $consBold }
+    if ($null -ne $script:LblServerStatus)  { $script:LblServerStatus.Font  = $consBold }
+    if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Font = $consNorm }
+    if ($null -ne $script:LblQcSummary)     { $script:LblQcSummary.Font     = $consBold }
+    # Update tab sizing: measure actual label text instead of using fixed pixel values
+    if ($null -ne $script:TabControl) {
+        $tabW = Get-TabItemWidth $script:CachedTabFont
+        $script:TabControl.ItemSize = New-Object System.Drawing.Size($tabW, $sz.TabH)
+        $script:TabControl.Invalidate()
+    }
 }
 
 # ============================================================================
@@ -305,7 +348,7 @@ $script:Form.MinimumSize   = New-Object System.Drawing.Size(700, 500)
 $script:Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $script:Form.BackColor     = $script:ColorBg
 $script:Form.ForeColor     = $script:ColorText
-$script:Form.Font          = New-UIFont $script:Settings.DetailFontSize
+$script:Form.Font          = New-UIFont (Get-ScaleSizes).DetFont
 
 $iconPath = Join-Path $script:ProjectRoot "dist\windows\icon.ico"
 if (Test-Path $iconPath) { try { $script:Form.Icon = New-Object System.Drawing.Icon($iconPath) } catch {} }
@@ -358,7 +401,7 @@ $script:TabPanel.BackColor = $script:ColorBg
 $script:TabControl = New-Object System.Windows.Forms.TabControl
 $script:TabControl.Dock     = [System.Windows.Forms.DockStyle]::Fill
 $script:TabControl.DrawMode = [System.Windows.Forms.TabDrawMode]::OwnerDrawFixed
-$script:TabControl.ItemSize = New-Object System.Drawing.Size(110, 28)
+$script:TabControl.ItemSize = New-Object System.Drawing.Size((Get-TabItemWidth $script:CachedTabFont), (Get-ScaleSizes).TabH)
 
 $script:TabControl.Add_DrawItem({
     param($sender, $e)
@@ -419,7 +462,7 @@ $script:BtnRunServer.FlatAppearance.BorderColor = $script:ColorOrange
 $script:BtnRunServer.FlatAppearance.BorderSize  = 1
 $script:BtnRunServer.ForeColor = $script:ColorOrange
 $script:BtnRunServer.BackColor = $script:ColorBgAlt
-$script:BtnRunServer.Font      = New-UIFont 14 -Bold
+$script:BtnRunServer.Font      = New-UIFont (Get-ScaleSizes).BtnBarFont -Bold
 $script:BtnRunServer.Cursor    = [System.Windows.Forms.Cursors]::Hand
 
 $script:BtnRunGame = New-Object System.Windows.Forms.Button
@@ -430,7 +473,7 @@ $script:BtnRunGame.FlatAppearance.BorderColor = $script:ColorGreen
 $script:BtnRunGame.FlatAppearance.BorderSize  = 1
 $script:BtnRunGame.ForeColor = $script:ColorGreen
 $script:BtnRunGame.BackColor = $script:ColorBgAlt
-$script:BtnRunGame.Font      = New-UIFont 14 -Bold
+$script:BtnRunGame.Font      = New-UIFont (Get-ScaleSizes).BtnBarFont -Bold
 $script:BtnRunGame.Cursor    = [System.Windows.Forms.Cursors]::Hand
 
 $script:BottomBar.Controls.Add($script:BtnRunGame)
@@ -453,9 +496,9 @@ $script:BtnBuild.Text      = "BUILD"
 $script:BtnBuild.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $script:BtnBuild.FlatAppearance.BorderColor = $script:ColorGreen
 $script:BtnBuild.FlatAppearance.BorderSize  = 2
-$script:BtnBuild.ForeColor = $script:ColorGreen
-$script:BtnBuild.BackColor = $script:ColorBgAlt
-$script:BtnBuild.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
+$script:BtnBuild.ForeColor = [System.Drawing.Color]::White
+$script:BtnBuild.BackColor = [System.Drawing.Color]::FromArgb(45, 90, 39)
+$script:BtnBuild.Font      = New-UIFont (Get-ScaleSizes).BtnFont -Bold
 $script:BtnBuild.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:HeroPanel.Controls.Add($script:BtnBuild)
 
@@ -465,9 +508,9 @@ $script:BtnRelease.Text      = "RELEASE"
 $script:BtnRelease.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $script:BtnRelease.FlatAppearance.BorderColor = $script:ColorGold
 $script:BtnRelease.FlatAppearance.BorderSize  = 2
-$script:BtnRelease.ForeColor = $script:ColorGold
-$script:BtnRelease.BackColor = $script:ColorBgAlt
-$script:BtnRelease.Font      = New-UIFont $script:Settings.ButtonFontSize -Bold
+$script:BtnRelease.ForeColor = [System.Drawing.Color]::White
+$script:BtnRelease.BackColor = [System.Drawing.Color]::FromArgb(26, 58, 92)
+$script:BtnRelease.Font      = New-UIFont (Get-ScaleSizes).BtnFont -Bold
 $script:BtnRelease.Cursor    = [System.Windows.Forms.Cursors]::Hand
 $script:HeroPanel.Controls.Add($script:BtnRelease)
 
@@ -481,8 +524,8 @@ $script:BtnOpenGitHub.Text = "GITHUB"
 $script:BtnOpenGitHub.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $script:BtnOpenGitHub.FlatAppearance.BorderColor = $script:ColorBlue
 $script:BtnOpenGitHub.FlatAppearance.BorderSize = 1
-$script:BtnOpenGitHub.ForeColor = $script:ColorBlue
-$script:BtnOpenGitHub.BackColor = $script:ColorBgAlt
+$script:BtnOpenGitHub.ForeColor = [System.Drawing.Color]::White
+$script:BtnOpenGitHub.BackColor = [System.Drawing.Color]::FromArgb(58, 58, 58)
 $script:BtnOpenGitHub.Font = New-UIFont 12 -Bold
 $script:BtnOpenGitHub.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:BtnOpenGitHub.Add_Click({
@@ -496,8 +539,8 @@ $script:BtnOpenFolder.Text = "PROJECT FOLDER"
 $script:BtnOpenFolder.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $script:BtnOpenFolder.FlatAppearance.BorderColor = $script:ColorTextDim
 $script:BtnOpenFolder.FlatAppearance.BorderSize = 1
-$script:BtnOpenFolder.ForeColor = $script:ColorTextDim
-$script:BtnOpenFolder.BackColor = $script:ColorBgAlt
+$script:BtnOpenFolder.ForeColor = [System.Drawing.Color]::White
+$script:BtnOpenFolder.BackColor = [System.Drawing.Color]::FromArgb(58, 58, 58)
 $script:BtnOpenFolder.Font = New-UIFont 12 -Bold
 $script:BtnOpenFolder.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:BtnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectRoot })
@@ -508,13 +551,13 @@ $script:StatusPanel.BackColor = $script:ColorBg
 $script:TabBuild.Controls.Add($script:StatusPanel)
 
 $script:LblClientStatus = New-Object System.Windows.Forms.Label
-$script:LblClientStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$script:LblClientStatus.Font      = New-Object System.Drawing.Font("Consolas", (Get-ScaleSizes).DetFont, [System.Drawing.FontStyle]::Bold)
 $script:LblClientStatus.AutoSize  = $true
 $script:LblClientStatus.Location  = New-Object System.Drawing.Point(0, 4)
 $script:StatusPanel.Controls.Add($script:LblClientStatus)
 
 $script:LblServerStatus = New-Object System.Windows.Forms.Label
-$script:LblServerStatus.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
+$script:LblServerStatus.Font      = New-Object System.Drawing.Font("Consolas", (Get-ScaleSizes).DetFont, [System.Drawing.FontStyle]::Bold)
 $script:LblServerStatus.AutoSize  = $true
 $script:LblServerStatus.Location  = New-Object System.Drawing.Point(0, 28)
 $script:StatusPanel.Controls.Add($script:LblServerStatus)
@@ -535,7 +578,7 @@ Update-BuildStatusLabels
 
 $script:LblBuildActivity = New-Object System.Windows.Forms.Label
 $script:LblBuildActivity.Text      = ""
-$script:LblBuildActivity.Font      = New-Object System.Drawing.Font("Consolas", 9)
+$script:LblBuildActivity.Font      = New-Object System.Drawing.Font("Consolas", [math]::Max(8, (Get-ScaleSizes).DetFont - 2))
 $script:LblBuildActivity.ForeColor = $script:ColorBlue
 $script:LblBuildActivity.AutoSize  = $true
 $script:LblBuildActivity.Location  = New-Object System.Drawing.Point(0, 56)
@@ -556,7 +599,7 @@ $script:ProgressBack.Controls.Add($script:ProgressFill)
 
 $script:LblProgressText = New-Object System.Windows.Forms.Label
 $script:LblProgressText.Text      = ""
-$script:LblProgressText.Font      = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+$script:LblProgressText.Font      = New-Object System.Drawing.Font("Consolas", [math]::Max(8, (Get-ScaleSizes).DetFont - 3), [System.Drawing.FontStyle]::Bold)
 $script:LblProgressText.ForeColor = $script:ColorWhite
 $script:LblProgressText.BackColor = [System.Drawing.Color]::Transparent
 $script:LblProgressText.Location  = New-Object System.Drawing.Point(4, 2)
@@ -761,7 +804,7 @@ $script:QcHeaderPanel.Controls.Add($script:CmbFilter)
 
 $script:LblQcSummary = New-Object System.Windows.Forms.Label
 $script:LblQcSummary.Text = "Pass:0  Fail:0  Skip:0  Pending:0"
-$script:LblQcSummary.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+$script:LblQcSummary.Font = New-Object System.Drawing.Font("Consolas", (Get-ScaleSizes).DetFont, [System.Drawing.FontStyle]::Bold)
 $script:LblQcSummary.ForeColor = $script:ColorTextDim; $script:LblQcSummary.AutoSize = $true
 $script:LblQcSummary.Location = New-Object System.Drawing.Point(156, 14)
 $script:QcHeaderPanel.Controls.Add($script:LblQcSummary)
@@ -1693,79 +1736,86 @@ function Update-RunButtons {
 
 function Show-SettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Settings"; $dlg.Size = New-Object System.Drawing.Size(400, 250)
+    $dlg.Text = "Settings"
     $dlg.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
     $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
     $dlg.BackColor = $script:ColorBgAlt; $dlg.ForeColor = $script:ColorText
+    $dlg.Font = New-UIFont (Get-ScaleSizes).DetFont
 
-    $l1 = New-Object System.Windows.Forms.Label; $l1.Text = "GitHub Repository (owner/repo):"
-    $l1.Font = New-UIFont 9; $l1.ForeColor = $script:ColorTextDim
-    $l1.Location = New-Object System.Drawing.Point(12, 16); $l1.AutoSize = $true
+    # GitHub Repository
+    $l1 = New-Object System.Windows.Forms.Label
+    $l1.Text = "GitHub Repository (owner/repo):"
+    $l1.ForeColor = $script:ColorTextDim; $l1.AutoSize = $true
+    $l1.Location = New-Object System.Drawing.Point(12, 16)
     $dlg.Controls.Add($l1)
-    $tRepo = New-Object System.Windows.Forms.TextBox; $tRepo.Text = $script:Settings.GitHubRepo
-    $tRepo.Location = New-Object System.Drawing.Point(12, 36); $tRepo.Size = New-Object System.Drawing.Size(360, 24)
+
+    $tRepo = New-Object System.Windows.Forms.TextBox
+    $tRepo.Text = $script:Settings.GitHubRepo
+    $tRepo.Location = New-Object System.Drawing.Point(12, 38); $tRepo.Size = New-Object System.Drawing.Size(360, 24)
     $tRepo.BackColor = $script:ColorBgInput; $tRepo.ForeColor = $script:ColorText
-    $tRepo.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $tRepo.Font = New-Object System.Drawing.Font("Consolas", 10)
     $tRepo.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     $dlg.Controls.Add($tRepo)
 
-    $l2 = New-Object System.Windows.Forms.Label; $l2.Text = "Button Font Size (12-36):"
-    $l2.Font = New-UIFont 9; $l2.ForeColor = $script:ColorTextDim
-    $l2.Location = New-Object System.Drawing.Point(12, 74); $l2.AutoSize = $true
+    # Font Scale
+    $l2 = New-Object System.Windows.Forms.Label
+    $l2.Text = "Font Scale:"
+    $l2.ForeColor = $script:ColorTextDim; $l2.AutoSize = $true
+    $l2.Location = New-Object System.Drawing.Point(12, 80)
     $dlg.Controls.Add($l2)
-    $tBtnFont = New-Object System.Windows.Forms.TextBox; $tBtnFont.Text = "" + $script:Settings.ButtonFontSize
-    $tBtnFont.Location = New-Object System.Drawing.Point(12, 94); $tBtnFont.Size = New-Object System.Drawing.Size(60, 24)
-    $tBtnFont.BackColor = $script:ColorBgInput; $tBtnFont.ForeColor = $script:ColorText
-    $tBtnFont.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $tBtnFont.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $dlg.Controls.Add($tBtnFont)
 
-    $l3 = New-Object System.Windows.Forms.Label; $l3.Text = "Detail Font Size (8-16):"
-    $l3.Font = New-UIFont 9; $l3.ForeColor = $script:ColorTextDim
-    $l3.Location = New-Object System.Drawing.Point(12, 124); $l3.AutoSize = $true
-    $dlg.Controls.Add($l3)
-    $tDetFont = New-Object System.Windows.Forms.TextBox; $tDetFont.Text = "" + $script:Settings.DetailFontSize
-    $tDetFont.Location = New-Object System.Drawing.Point(12, 144); $tDetFont.Size = New-Object System.Drawing.Size(60, 24)
-    $tDetFont.BackColor = $script:ColorBgInput; $tDetFont.ForeColor = $script:ColorText
-    $tDetFont.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $tDetFont.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $dlg.Controls.Add($tDetFont)
+    $lblScaleHint = New-Object System.Windows.Forms.Label
+    $lblScaleHint.Text = "Small: compact  |  Medium: normal  |  Large: generous"
+    $lblScaleHint.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 100); $lblScaleHint.AutoSize = $true
+    $lblScaleHint.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+    $lblScaleHint.Location = New-Object System.Drawing.Point(12, 102)
+    $dlg.Controls.Add($lblScaleHint)
 
-    $chkSnd = New-Object System.Windows.Forms.CheckBox; $chkSnd.Text = "Enable sounds"
-    $chkSnd.Checked = $script:Settings.EnableSounds; $chkSnd.Font = New-UIFont 9
-    $chkSnd.ForeColor = $script:ColorText
-    $chkSnd.Location = New-Object System.Drawing.Point(12, 180); $chkSnd.AutoSize = $true
+    $cmbScale = New-Object System.Windows.Forms.ComboBox
+    $cmbScale.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbScale.BackColor = $script:ColorBgInput; $cmbScale.ForeColor = $script:ColorText
+    $cmbScale.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $cmbScale.Location = New-Object System.Drawing.Point(100, 76); $cmbScale.Size = New-Object System.Drawing.Size(120, 26)
+    [void]$cmbScale.Items.Add("Small")
+    [void]$cmbScale.Items.Add("Medium")
+    [void]$cmbScale.Items.Add("Large")
+    $cmbScale.SelectedItem = $(if ($script:Settings.FontScale -in @("Small","Medium","Large")) { $script:Settings.FontScale } else { "Medium" })
+    $dlg.Controls.Add($cmbScale)
+
+    # Enable sounds
+    $chkSnd = New-Object System.Windows.Forms.CheckBox
+    $chkSnd.Text = "Enable sounds"; $chkSnd.Checked = $script:Settings.EnableSounds
+    $chkSnd.ForeColor = $script:ColorText; $chkSnd.AutoSize = $true
+    $chkSnd.Location = New-Object System.Drawing.Point(12, 136)
     $dlg.Controls.Add($chkSnd)
 
+    # Save / Cancel buttons
     $bSave = New-Object System.Windows.Forms.Button; $bSave.Text = "Save"
     $bSave.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $bSave.Location = New-Object System.Drawing.Point(196, 220); $bSave.Size = New-Object System.Drawing.Size(80, 30)
+    $bSave.Location = New-Object System.Drawing.Point(192, 178); $bSave.Size = New-Object System.Drawing.Size(80, 30)
     $bSave.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $bSave.FlatAppearance.BorderColor = $script:ColorGreen
-    $bSave.ForeColor = $script:ColorGreen; $bSave.BackColor = $script:ColorBgAlt
+    $bSave.ForeColor = [System.Drawing.Color]::White
+    $bSave.BackColor = [System.Drawing.Color]::FromArgb(45, 90, 39)
     $bSave.Font = New-UIFont 10 -Bold
     $dlg.Controls.Add($bSave); $dlg.AcceptButton = $bSave
 
     $bCan = New-Object System.Windows.Forms.Button; $bCan.Text = "Cancel"
     $bCan.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $bCan.Location = New-Object System.Drawing.Point(290, 220); $bCan.Size = New-Object System.Drawing.Size(80, 30)
+    $bCan.Location = New-Object System.Drawing.Point(284, 178); $bCan.Size = New-Object System.Drawing.Size(80, 30)
     $bCan.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $bCan.FlatAppearance.BorderColor = $script:ColorTextDim
-    $bCan.ForeColor = $script:ColorTextDim; $bCan.BackColor = $script:ColorBgAlt
+    $bCan.ForeColor = [System.Drawing.Color]::White
+    $bCan.BackColor = [System.Drawing.Color]::FromArgb(58, 58, 58)
     $bCan.Font = New-UIFont 10 -Bold
     $dlg.Controls.Add($bCan); $dlg.CancelButton = $bCan
 
-    $dlg.Size = New-Object System.Drawing.Size(400, 300)
+    $dlg.Size = New-Object System.Drawing.Size(400, 260)
     if ($dlg.ShowDialog($script:Form) -eq [System.Windows.Forms.DialogResult]::OK) {
-        $script:Settings.GitHubRepo = $tRepo.Text.Trim()
-        $bf = 22; try { $bf = [int]$tBtnFont.Text } catch {}
-        if ($bf -lt 12) { $bf = 12 }; if ($bf -gt 36) { $bf = 36 }
-        $df = 10; try { $df = [int]$tDetFont.Text } catch {}
-        if ($df -lt 8) { $df = 8 }; if ($df -gt 16) { $df = 16 }
-        $script:Settings.ButtonFontSize = $bf
-        $script:Settings.DetailFontSize = $df
-        $script:Settings.EnableSounds   = $chkSnd.Checked
+        $script:Settings.GitHubRepo  = $tRepo.Text.Trim()
+        $script:Settings.FontScale   = $cmbScale.SelectedItem.ToString()
+        $script:Settings.EnableSounds = $chkSnd.Checked
         Save-Settings
         Refresh-AllFonts
     }
@@ -1809,7 +1859,7 @@ function Invoke-FormResize {
     try {
         $tw   = $script:TabBuild.ClientSize.Width
         $th   = $script:TabBuild.ClientSize.Height
-        $pad  = 8
+        $pad  = 12
         $linkH = 36
         $heroH = [math]::Max(120, [math]::Floor(($th - $linkH - $pad) * 0.40))
         $heroW = $tw - ($pad * 2)
@@ -1817,7 +1867,7 @@ function Invoke-FormResize {
             $script:HeroPanel.Location = New-Object System.Drawing.Point($pad, $pad)
             $script:HeroPanel.Size     = New-Object System.Drawing.Size($heroW, $heroH)
         }
-        $btnW = [math]::Floor($heroW * 0.48)
+        $btnW = [math]::Floor(($heroW - 16) * 0.48)  # 16px total gap between the two buttons
         $gap  = $heroW - ($btnW * 2)
         # Build button (left, full height -- always-clean, no toggle beneath)
         if ($null -ne $script:BtnBuild)   { $script:BtnBuild.Location   = New-Object System.Drawing.Point(0, 0); $script:BtnBuild.Size = New-Object System.Drawing.Size($btnW, $heroH) }

@@ -170,9 +170,23 @@ void videoEndFrame(void)
 			if (g_NetDedicated) {
 				const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
 				if (ip && ip[0]) {
-					snprintf(titleBuf, sizeof(titleBuf),
-					         "PD2 Server v" VERSION_STRING " - %s:%u - %d/%d connected",
-					         ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+					/* Show connect code, not raw IP (B-29). */
+					extern s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
+					char connectCode[256] = "";
+					u32 a = 0, b = 0, c = 0, d = 0;
+					if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+						u32 ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+						connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+					}
+					if (connectCode[0]) {
+						snprintf(titleBuf, sizeof(titleBuf),
+						         "PD2 Server v" VERSION_STRING " - %s - %d/%d connected",
+						         connectCode, g_NetNumClients, g_NetMaxClients);
+					} else {
+						snprintf(titleBuf, sizeof(titleBuf),
+						         "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
+						         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+					}
 				} else {
 					snprintf(titleBuf, sizeof(titleBuf),
 					         "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",

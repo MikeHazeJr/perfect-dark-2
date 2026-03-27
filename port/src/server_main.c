@@ -29,6 +29,7 @@
 #include "net/net.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
+#include "connectcode.h"
 #include "hub.h"
 #include "versioninfo.h"
 #include "updater.h"
@@ -360,11 +361,25 @@ int main(int argc, char **argv)
                 titleCounter = 0;
                 char title[256];
                 const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
-                /* Subtract 1 for server's own slot — it's not a player */
-                s32 displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0;
+                /* After B-28: dedicated server's g_NetNumClients already counts only real
+                 * players (no server slot).  No -1 needed for dedicated. */
+                s32 displayClients = g_NetDedicated ? g_NetNumClients
+                                                    : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0);
                 if (ip && ip[0]) {
-                    snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - %s:%u - %d/%d connected",
-                             ip, g_NetServerPort, displayClients, g_NetMaxClients);
+                    /* Show connect code, not raw IP (B-29). */
+                    char connectCode[256] = "";
+                    u32 a = 0, b = 0, c = 0, d = 0;
+                    if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                        u32 ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+                        connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+                    }
+                    if (connectCode[0]) {
+                        snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - %s - %d/%d connected",
+                                 connectCode, displayClients, g_NetMaxClients);
+                    } else {
+                        snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
+                                 g_NetServerPort, displayClients, g_NetMaxClients);
+                    }
                 } else {
                     snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
                              g_NetServerPort, displayClients, g_NetMaxClients);

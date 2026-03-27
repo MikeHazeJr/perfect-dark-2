@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 52 (R-1 Foundation — hub slot pool, dedicated slot fix, IP scrub; B-27–B-30 all fixed)
+> **Last updated**: 2026-03-27, Session 57 (network-audit.md added — deep audit of full networking stack)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -53,6 +53,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |
+| [network-audit.md](network-audit.md) | Deep audit: connection lifecycle, full message catalog, tick model, gaps, races, recommendations | Netcode debugging or planning new protocol work |
 | [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu | Menu/UI work |
 | [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking, mod loading | Build system work |
 | [memory-modernization.md](memory-modernization.md) | Phase D-MEM: 6-phase plan, pool audit, magic numbers, stack→heap | Memory system work |

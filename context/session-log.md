@@ -3,6 +3,50 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 56 — 2026-03-27
+
+**Focus**: Audit and fix 5 lobby issues found in Mike's playtest of the S55 build
+
+### What Was Done
+
+**Issue 1 & 5 — Client lobby empty + no leader** (`port/src/net/netlobby.c`):
+- Root cause: `lobbyUpdate()` skip guard `if (cl == g_NetLocalClient)` ran on clients too. After SVC_AUTH, `g_NetLocalClient = &g_NetClients[id]`, so the client's own slot was being skipped → 0 players found → "Waiting for players..." and `lobbyIsLocalLeader()` always returned 0.
+- Fix: Changed guard to `if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient)` — clients always include their own slot. With the slot visible, eager leader election fires immediately and `lobbyIsLocalLeader()` returns 1 for the first connected client. (B-32)
+
+**Issue 2 — Player name shows "Player 1" not agent name** (`port/src/net/netmsg.c`):
+- Root cause: `netmsgClcSettingsWrite()` sent `g_NetLocalClient->settings.name` directly without the identity override check that `netmsgClcAuthWrite()` had. CLC_SETTINGS is processed after CLC_AUTH on the server and overwrites the correct identity name with the stale/legacy `settings.name` from `netClientReadConfig()`.
+- Fix: Added identity profile check to `netmsgClcSettingsWrite()` — same pattern as `netmsgClcAuthWrite()`. Also syncs `settings.name` so future sends are consistent. (B-33)
+
+**Issue 3 — Server SDL window title shows raw IP** (`port/src/server_main.c`, `port/src/video.c`):
+- Two locations, two fixes:
+  - `server_main.c`: Added `#include "connectcode.h"`. Parse `sscanf` into u32, call `connectCodeEncode()`. Show connect code if available, else fall back to port number. (B-35)
+  - `video.c`: Same connect code logic (inline `extern` declaration since video.c doesn't include `connectcode.h`). (B-29 secondary, same session)
+
+**Issue 4 — Server GUI shows "0/32 connected"** (`port/src/server_main.c`):
+- Root cause: `displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0` — pre-B-28 compensation that subtracts 1 for the server's own slot. After B-28, dedicated server has `g_NetLocalClient = NULL` and `g_NetNumClients` counts only real players. `1 - 1 = 0` with one player connected. `server_gui.cpp` was already corrected; `server_main.c` was not.
+- Fix: `g_NetDedicated ? g_NetNumClients : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0)`. (B-34)
+
+**SVC_LOBBY_LEADER broadcast after auth** (`port/src/net/netmsg.c`):
+- Added: after successful `netmsgClcAuthRead`, call `lobbyUpdate()` then broadcast `SVC_LOBBY_LEADER` to all CLSTATE_LOBBY+ clients. Ensures new joiners and existing players all get the authoritative leader assignment from the server, not just client-side inference.
+
+**Build verified**: All 4 modified files compile clean in both client and server headless builds.
+
+### Decisions Made
+- SVC_LOBBY_LEADER broadcast is the canonical source of truth for leader identity; client-side inference in `lobbyUpdate()` serves as a fallback for single-player/offline mode.
+- `video.c` uses inline `extern` for `connectCodeEncode` rather than adding a new `#include` — avoids pulling in unnecessary headers in a large file.
+
+### Bugs Fixed
+- B-32: `lobbyUpdate()` client skip guard
+- B-33: CLC_SETTINGS name override
+- B-34: `server_main.c` player count off-by-one (B-28 missed location)
+- B-35: `server_main.c` raw IP in SDL window title (B-29 missed location)
+
+### Next Steps
+- Playtest: connect one client, verify lobby shows player name (not "Player 1"), client sees themselves as leader, server title shows connect code and correct count.
+- Playtest: two clients, verify leader broadcast reaches both and the non-first-joined client is not shown as leader.
+
+---
+
 ## Session 55 — 2026-03-27
 
 **Focus**: Harden lobby leader assignment + room display fixes (follow-up to S54)

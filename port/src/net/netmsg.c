@@ -312,6 +312,24 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		netChatPrintf(NULL, "%s joined", name);
 	}
 
+	/* Update lobby state and broadcast SVC_LOBBY_LEADER to all lobby clients.
+	 * This tells each client who the current leader is (critical for the joining
+	 * client to know if they are the leader, and for existing clients to know if
+	 * the leader changed).  lobbyUpdate() must run first to elect the leader. */
+	lobbyUpdate();
+	if (g_Lobby.leaderSlot != 0xFF && g_Lobby.leaderSlot < g_Lobby.numPlayers) {
+		u8 leaderClientId = g_Lobby.players[g_Lobby.leaderSlot].clientId;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl->state >= CLSTATE_LOBBY) {
+				netbufStartWrite(&ncl->out);
+				netmsgSvcLobbyLeaderWrite(&ncl->out, leaderClientId);
+				netSend(ncl, NULL, true, NETCHAN_CONTROL);
+			}
+		}
+		sysLogPrintf(LOG_NOTE, "NET: broadcast SVC_LOBBY_LEADER: client %u is leader", leaderClientId);
+	}
+
 	return 0;
 }
 
@@ -393,7 +411,20 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 	netbufWriteU8(dst, g_NetLocalClient->settings.team);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovy);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovzoommult);
-	netbufWriteStr(dst, g_NetLocalClient->settings.name);
+	/* Use identity profile name (same check as CLC_AUTH) so CLC_SETTINGS
+	 * doesn't overwrite the correct identity name on the server with a stale
+	 * legacy fallback when netClientReadConfig ran before identity was ready. */
+	{
+		const char *name = g_NetLocalClient->settings.name;
+		identity_profile_t *profile = identityGetActiveProfile();
+		if (profile && profile->name[0]) {
+			name = profile->name;
+			/* Keep settings.name in sync so future CLC_SETTINGS sends are consistent. */
+			strncpy(g_NetLocalClient->settings.name, name, sizeof(g_NetLocalClient->settings.name) - 1);
+			g_NetLocalClient->settings.name[sizeof(g_NetLocalClient->settings.name) - 1] = '\0';
+		}
+		netbufWriteStr(dst, name);
+	}
 	return dst->error;
 }
 
