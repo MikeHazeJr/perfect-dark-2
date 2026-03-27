@@ -3,6 +3,35 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 55 — 2026-03-27
+
+**Focus**: Harden lobby leader assignment + room display fixes (follow-up to S54)
+
+### What Was Done
+
+**Eager leader assignment in lobbyUpdate()** (`port/src/net/netlobby.c`):
+- Added in-loop eager assignment: when `g_Lobby.leaderSlot == 0xFF` and the first CLSTATE_LOBBY+ client is seen, assign them immediately rather than waiting for the post-loop election block.
+- Closes a same-frame race: if CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch, CLC_LOBBY_START is processed before the post-loop election has any chance to run.
+
+**lobbyUpdate() refresh before leader validation** (`port/src/net/netmsg.c`):
+- `netmsgClcLobbyStartRead()` now calls `lobbyUpdate()` before checking `leaderSlot`.
+- Added fallback: if `leaderSlot == 0xFF` (still unset after refresh), scan `g_NetClients` for first CLSTATE_LOBBY+ client and accept if it matches `srccl`.
+- Better rejection log: includes `leaderSlot` value for debugging.
+
+**Empty room display fix** (`port/fast3d/pdgui_menu_lobby.cpp`):
+- Room sidebar now skips rooms with `client_count == 0` — prevents permanent "Lounge" (Room 0) from appearing before any players join.
+- Added `roomsShown` counter; "No active rooms" shows when `roomsShown == 0`.
+
+### Decisions Made
+- These are belt-and-suspenders hardening on top of S54's fixes; the root causes were already addressed but edge cases remained.
+- Not removing Room 0 creation yet — hub.c still depends on roomGetById(0) for state sync in hubTick().
+
+### Next Steps
+- Build and playtest the 2-player Combat Sim flow end-to-end.
+- If match starts but players don't spawn, check g_SpawnPoints (B-19 partial fix in S54).
+
+---
+
 ## Session 54 — 2026-03-27
 
 **Focus**: Full implementation to get two players into a working Combat Simulator match
