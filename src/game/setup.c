@@ -1471,14 +1471,16 @@ void setupLoadFiles(s32 stagenum)
 		if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 			s32 k;
 			for (k = 0; k < MAX_BOTS; k++) {
-				if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+				if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
 					numchrs++;
 				}
 			}
 			sysLogPrintf(LOG_NOTE, "MODELMGR: added simulant bot count to numchrs=%d for model slot allocation", numchrs);
 		}
 
+		sysLogPrintf(LOG_NOTE, "LOAD: model allocation numobjs=%d numchrs=%d", numobjs, numchrs);
 		modelmgrAllocateSlots(numobjs, numchrs);
+		sysLogPrintf(LOG_NOTE, "LOAD: modelmgrAllocateSlots done");
 	} else {
 		// cover isn't set to NULL here... I guess it's not important
 		g_StageSetup.waypoints = NULL;
@@ -1553,7 +1555,7 @@ void setupCreateProps(s32 stagenum)
 			if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 				s32 k;
 				for (k = 0; k < MAX_BOTS; k++) {
-					if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+					if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
 						numchrs++;
 					}
 				}
@@ -1565,6 +1567,7 @@ void setupCreateProps(s32 stagenum)
 		} else {
 			chrmgrConfigure(0);
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: chr slots done");
 
 		for (j = 0; j < PLAYERCOUNT(); j++) {
 			setCurrentPlayerNum(j);
@@ -2130,7 +2133,7 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS)))
+					if ((g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS)))
 							&& mpIsSimSlotEnabled(slotnum)) {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
 						botmgrAllocateBot(chrnum, slotnum);
@@ -2138,7 +2141,7 @@ void setupCreateProps(s32 stagenum)
 					} else {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d chrslots_bit=%d isEnabled=%d",
 							slotnum,
-							(g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS))) ? 1 : 0,
+							(g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS))) ? 1 : 0,
 							mpIsSimSlotEnabled(slotnum));
 					}
 

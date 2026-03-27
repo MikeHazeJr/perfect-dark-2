@@ -368,16 +368,19 @@ void lvReset(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "MESHCOL: DISABLED -- using original collision system");
 
 		skyReset(g_Vars.stagenum);
+		sysLogPrintf(LOG_NOTE, "LOAD: skyReset done");
 
 		if (g_Vars.normmplayerisrunning) {
 			musicSetStageAndStartMusic(stagenum);
 		} else {
 			musicSetStage(stagenum);
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: music set done normmplay=%d", g_Vars.normmplayerisrunning);
 
 		if (g_Vars.normmplayerisrunning) {
 			mpApplyLimits();
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: mpApplyLimits done");
 
 		if (g_Vars.mplayerisrunning == false) {
 			g_Vars.playerstats[0].mpindex = MAX_PLAYERS;
@@ -405,14 +408,21 @@ void lvReset(s32 stagenum)
 				g_Vars.playerstats[i].kills[j] = 0;
 			}
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: player stats init done");
 	}
 
 	mpSetDefaultNamesIfEmpty();
+	sysLogPrintf(LOG_NOTE, "LOAD: mpSetDefaultNamesIfEmpty done");
 	animsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: animsReset done");
 	objectivesReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: objectivesReset done");
 	vtxstoreReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: vtxstoreReset done");
 	modelmgrReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: modelmgrReset done");
 	psReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: psReset done");
 	sysLogPrintf(LOG_NOTE, "LOAD: about to call setupLoadFiles(0x%02x)", stagenum);
 	setupLoadFiles(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles done");
