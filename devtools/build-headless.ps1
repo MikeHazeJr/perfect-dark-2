@@ -28,6 +28,10 @@ param(
     [ValidateSet("client", "server", "all")]
     [string]$Target = "all",
 
+    # Version override in "X.Y.Z" format. If omitted, reads VERSION_SEM_* from CMakeLists.txt
+    # (same as what the Dev Window does with Get-ProjectVersion).
+    [string]$Version = "",
+
     [switch]$Clean,
 
     [switch]$Verbose
@@ -37,10 +41,27 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Configuration  -  mirrors build-gui.ps1 exactly
+# Configuration  -  mirrors dev-window.ps1 Get-BuildSteps exactly
+#
+# SYNC RULE: The cmake configure args (flags, generator, paths) MUST match
+# dev-window.ps1 Get-BuildSteps(). If you change one, change the other.
+# The VERSION_SEM_* flags are injected here and in Get-BuildSteps so both
+# produce identical binaries given the same version string.
 # ============================================================================
 
-$ProjectDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+# Resolve project root from script location (devtools/ parent).
+# Guard: if running from inside a .claude/worktrees/ path, redirect to the
+# real working copy. Worktree builds are NEVER allowed -- builds must operate
+# on the main project files.
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Split-Path -Parent $ScriptDir
+if ($ProjectDir -match [regex]::Escape('.claude\worktrees\')) {
+    # Strip everything from .claude onward to get the real repo root
+    $ProjectDir = $ProjectDir -replace ([regex]::Escape('.claude\worktrees\') + '[^\\]+$'), ''
+    $ProjectDir = $ProjectDir.TrimEnd('\')
+    Write-Warning "Worktree path detected -- redirecting build to main working copy: $ProjectDir"
+}
+
 $ClientBuildDir = Join-Path $ProjectDir "build\client"
 $ServerBuildDir = Join-Path $ProjectDir "build\server"
 $AddinDir       = Join-Path $ProjectDir "..\post-batch-addin"
@@ -55,6 +76,35 @@ $env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
+
+# ============================================================================
+# Version resolution  -  mirrors dev-window.ps1 Get-ProjectVersion
+# If -Version "X.Y.Z" supplied, use it. Otherwise read CMakeLists.txt.
+# ============================================================================
+
+$VerMajor = 0; $VerMinor = 0; $VerPatch = 0
+
+if ($Version -ne "") {
+    $parts = $Version.Split('.')
+    if ($parts.Count -eq 3) {
+        $VerMajor = [int]$parts[0]
+        $VerMinor = [int]$parts[1]
+        $VerPatch = [int]$parts[2]
+    } else {
+        Write-Warning "-Version '$Version' is not in X.Y.Z format -- using 0.0.0"
+    }
+} else {
+    # Read from CMakeLists.txt (same source as the Dev Window)
+    $cmakeLists = Join-Path $ProjectDir "CMakeLists.txt"
+    if (Test-Path $cmakeLists) {
+        $cmakeContent = Get-Content $cmakeLists -Raw -ErrorAction SilentlyContinue
+        if ($cmakeContent -match 'VERSION_SEM_MAJOR\s+(\d+)') { $VerMajor = [int]$Matches[1] }
+        if ($cmakeContent -match 'VERSION_SEM_MINOR\s+(\d+)') { $VerMinor = [int]$Matches[1] }
+        if ($cmakeContent -match 'VERSION_SEM_PATCH\s+(\d+)') { $VerPatch = [int]$Matches[1] }
+    }
+}
+
+$vFlags = " -DVERSION_SEM_MAJOR=$VerMajor -DVERSION_SEM_MINOR=$VerMinor -DVERSION_SEM_PATCH=$VerPatch"
 
 # ============================================================================
 # Console helpers
@@ -296,8 +346,8 @@ function Invoke-Target {
         }
     }
 
-    # Configure
-    $configArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CC`" -B `"$buildDir`" -S `"$ProjectDir`""
+    # Configure -- flags match dev-window.ps1 Get-BuildSteps() exactly (including VERSION_SEM_*)
+    $configArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CC`" -B `"$buildDir`" -S `"$ProjectDir`"$vFlags"
 
     $script:StepStart = [DateTime]::Now
     $configOk = Invoke-BuildStep -StepName "Configure (CMake) [$label]" `
@@ -347,6 +397,7 @@ $totalStart = [DateTime]::Now
 Write-Host ""
 Write-Host "  Perfect Dark PC Port  -  Headless Build" -ForegroundColor Cyan
 Write-Host "  Target:  $Target" -ForegroundColor Gray
+Write-Host "  Version: $VerMajor.$VerMinor.$VerPatch" -ForegroundColor Gray
 Write-Host "  Clean:   $($Clean.IsPresent)" -ForegroundColor Gray
 Write-Host "  Verbose: $($Verbose.IsPresent)" -ForegroundColor Gray
 Write-Host "  Cores:   $Cores" -ForegroundColor Gray

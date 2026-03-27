@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 57 (network-audit.md added — deep audit of full networking stack)
+> **Last updated**: 2026-03-27, Session 58 (build pipeline architecture; pdgui_lobby.cpp merged; §3 CRITICAL-PROCEDURES)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,7 +35,9 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| 52 | 2026-03-27 | R-1 Foundation — hub slot pool API, dedicated slot 0 fix (B-28), IP scrub (B-29/30) | [session-log.md](session-log.md) |
+| 58 | 2026-03-27 | Build pipeline architecture, S57 worktree merge (pdgui_lobby.cpp), §3 CRITICAL-PROCEDURES | [session-log.md](session-log.md) |
+| 57 | 2026-03-27 | Room interior UX -- pdgui_menu_room.cpp (3-tab match setup), lobby-flow-plan.md created | [session-log.md](session-log.md) |
+| 52–56 | 2026-03-27 | R-1 Foundation, hub/lobby fixes B-28–35, network audit, room architecture plan | [session-log.md](session-log.md) |
 | 50–51 | 2026-03-26/27 | S50: B-27 (9-fix server crash), build system hardening, v0.0.7 release; S51: room architecture plan audit | [session-log.md](session-log.md) |
 | 49 | 2026-03-26 | Join flow audit, SPF-3 lobby+join, connect codes, architecture capture | [session-log.md](session-log.md) |
 | 47a-48 | 2026-03-24-25 | MEM-1, B-12 P2, stage decoupling, SPF-1, mesh collision, dev window, cleanup | [session-log.md](session-log.md) |
@@ -72,6 +74,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | File | Phase | When to load |
 |------|-------|-------------|
 | [multiplayer-plan.md](multiplayer-plan.md) | SPF-2+: Server-as-hub, rooms, federation, profiles, phonetic, menus | Starting any multiplayer infrastructure work |
+| [lobby-flow-plan.md](lobby-flow-plan.md) | Room interior UX: tab layout, Combat Sim/Campaign/Counter-Op settings, network protocol integration | Room interior / match setup UI work |
 | [join-flow-plan.md](join-flow-plan.md) | Server/client join flow: connect codes → ENet → lobby → match. Audit + gap plan | Any join/connect/lobby work |
 | [room-architecture-plan.md](room-architecture-plan.md) | R-1–R-5: Demand-driven rooms, leader/room_id, protocol messages, GUI redesign | Any room system / hub work |
 | [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog as single source of truth for all asset loading | Any asset loading / catalog work |

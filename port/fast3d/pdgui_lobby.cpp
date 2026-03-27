@@ -78,8 +78,11 @@ void videoSetWindowTitle(const char *title);
 s32 sysLogRingGetCount(void);
 const char *sysLogRingGetLine(s32 idx);
 
-/* Lobby screen (from pdgui_menu_lobby.cpp) */
+/* Lobby screen (from pdgui_menu_lobby.cpp) — used by dedicated server overview */
 void pdguiLobbyScreenRender(s32 winW, s32 winH);
+
+/* Room interior screen (from pdgui_menu_room.cpp) — used by game clients */
+void pdguiRoomScreenRender(s32 winW, s32 winH);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
@@ -335,10 +338,11 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* === Game client === */
     if (mode == NETMODE_CLIENT) {
         if (netLocalClientInLobby()) {
-            /* In lobby: the full lobby screen handles everything.
-             * No sidebar — pdguiLobbyScreenRender shows the player list. */
-            pdguiLobbyScreenRender(winW, winH);
-            /* D3R-9: download progress overlay on top of lobby screen */
+            /* In lobby: show the room interior (tab-based UX).
+             * pdguiRoomScreenRender replaces pdguiLobbyScreenRender for clients.
+             * Until R-2/R-3, all clients are in a single implicit room. */
+            pdguiRoomScreenRender(winW, winH);
+            /* D3R-9: download progress overlay on top of room screen */
             pdguiDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
             /* In game (or transitioning): show minimal sidebar overlay */

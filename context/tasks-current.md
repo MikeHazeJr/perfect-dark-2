@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **Room interior UX** (S57/S58) | **BUILD VERIFIED (S58)** -- pdgui_menu_room.cpp (1108 lines) compiles clean. pdgui_lobby.cpp merged. Needs playtest: connect client, verify room interior tab screen appears (3 tabs), Start Match launches game. |
 | **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
 | **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
 | **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
@@ -79,6 +80,22 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 | R-3 | **Room sync (protocol)** | `SVC_ROOM_LIST 0x75`, `SVC_ROOM_UPDATE 0x76`, `SVC_ROOM_ASSIGN 0x77`. `CLC_ROOM_JOIN 0x0A`, `CLC_ROOM_LEAVE 0x0B`. Client lobby UI reads server-authoritative room list (closes join-flow gap J-3). |
 | R-4 | **Match start (room-scoped)** | `CLC_ROOM_SETTINGS 0x0C`, `CLC_ROOM_KICK 0x0D`, `CLC_ROOM_TRANSFER 0x0E`, `CLC_ROOM_START 0x0F`. Stage start scoped to room members. Room state transitions. |
 | R-5 | **Server GUI redesign** | New Players + Rooms panel layout. Move/Kick/Set Leader/Close Room actions. No raw IP anywhere. Replace Hub tab with Rooms panel. |
+
+---
+
+### Lobby / Room / Match UX Flow (L-series) — See [lobby-flow-plan.md](lobby-flow-plan.md)
+
+> L-series = client-facing UI only. Depends on R-2 + R-3 complete before L-1/L-2 can be wired.
+> Full audit and design in lobby-flow-plan.md (S57).
+
+| Phase | Task | Details |
+|-------|------|---------|
+| L-1 | **Social Lobby** | Rewrite `pdgui_menu_lobby.cpp`: strip game mode selection, add room list with Join buttons and Create Room. No game mode picker on this screen. Depends on R-3. |
+| L-2 | **Room Create/Join** | Wire Create Room + Join Room buttons to `CLC_ROOM_JOIN`. Handle `SVC_ROOM_ASSIGN` → transition to Room Interior screen. Password dialog for protected rooms. Depends on R-3. |
+| L-3 | **Room Interior + Mode Selection** | New `pdgui_menu_room.cpp`. Leader: mode buttons + room player list. Non-leader: read-only mode display. Leave Room → `CLC_ROOM_LEAVE`. Depends on R-4. |
+| L-4 | **Combat Sim Setup** | Extend `pdgui_menu_matchsetup.cpp` with network path: settings send `CLC_ROOM_SETTINGS`, Start sends `CLC_ROOM_START`. Non-leader: read-only preview. Depends on R-4. |
+| L-5 | **Campaign + Counter-Op Setup** | New `pdgui_menu_campaign_setup.cpp`. Mission picker, difficulty, role (Counter-Op), Start. Depends on R-4. |
+| L-6 | **Drop-In / Drop-Out** | Allow joining ROOM_STATE_MATCH rooms. Server spawns new player at safe pad. Post-match returns to Room Interior for next round. Depends on L-4/L-5. |
 
 ---
 

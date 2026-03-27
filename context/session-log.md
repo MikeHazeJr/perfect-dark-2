@@ -3,6 +3,81 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 58 — 2026-03-27
+
+**Focus**: Headless build pipeline architecture + merge S57 worktree changes
+
+### What Was Done
+
+**`devtools/build-headless.ps1`** (updated):
+- Added `-Version "X.Y.Z"` parameter — parsed into major/minor/patch and injected as `-DVERSION_SEM_*` cmake flags, mirroring `Get-BuildSteps` in `dev-window.ps1` exactly.
+- Added worktree safety guard: if `$ProjectDir` contains `.claude\worktrees\`, strips the path to redirect to the real project root. Prevents AI sessions from building worktree source.
+- Added version auto-read from `CMakeLists.txt` when `-Version` is omitted (same as GUI's `Get-ProjectVersion`).
+- Version shown in build header output.
+
+**`context/CRITICAL-PROCEDURES.md`** (updated):
+- Added §3 Build Tool Architecture: documents canonical cmake flags, the sync rule between `build-headless.ps1` and `dev-window.ps1 Get-BuildSteps`, and the worktree prohibition.
+
+**`port/fast3d/pdgui_lobby.cpp`** (merged from lucid-lamport worktree):
+- Added forward decl for `pdguiRoomScreenRender()`.
+- Changed NETMODE_CLIENT lobby path: now calls `pdguiRoomScreenRender(winW, winH)` instead of `pdguiLobbyScreenRender()`. Game clients see the tab-based room interior; dedicated server keeps `pdguiLobbyScreenRender`.
+
+### Build Result
+- **Client**: PASS (PerfectDark.exe, 0 errors)
+- **Server**: PASS (PerfectDarkServer.exe, 0 errors)
+- `pdgui_menu_room.cpp` (1108 lines, first build test) compiles clean.
+
+### Decisions Made
+- `build-headless.ps1` duplicates `Get-BuildSteps` logic (no dot-source — dev-window.ps1 loads WinForms at module scope). SYNC RULE: if cmake flags change in one, change both.
+- Subprocess threading in `Invoke-BuildStep` hangs when called through Claude's Bash tool (PowerShell process spawning limitation). Works from Mike's terminal normally (verified session 56). No change to the threading approach.
+
+### Next Steps
+- **Playtest**: connect client to server, verify room interior tab screen appears (pdguiRoomScreenRender), all 3 tabs visible.
+- **J-1**: End-to-end join test — build server target, start server, enter code in client, verify CLSTATE_LOBBY + match start.
+- **R-2**: Room lifecycle — expand hub slot pool, on-demand room creation.
+
+---
+
+## Session 57 — 2026-03-27
+
+**Focus**: Room interior UX — tab-based match setup screen replacing flat lobby for game clients
+
+### What Was Done
+
+**`context/lobby-flow-plan.md`** (created):
+- New plan file documenting the full lobby flow: connection phase → lobby overview → room interior.
+- §3 Room Interior tab-based UX spec (Combat Simulator / Campaign / Counter-Operative).
+- §4 Mode-specific settings: full MPOPTION_* catalog, bot settings, campaign missions §4.2a, counter-op assignment.
+- §5 Network protocol: current CLC_LOBBY_START payload vs. future CLC_ROOM_SETTINGS (R-4).
+- §6 Implementation status table.
+
+**`port/fast3d/pdgui_menu_room.cpp`** (created, ~570 lines):
+- Entry point: `extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)`
+- Tab bar: Combat Simulator | Campaign | Counter-Operative. Non-leaders see all tabs read-only.
+- Left panel (55%): mode-specific settings. Right panel (40%): room player list.
+- **Combat Simulator**: Scenario combo, arena picker, time/score sliders, weapon set, 10 MPOPTION toggles (including inverted flags), scenario-specific sub-options (HTB/CTC/KOH/HTM/PAC), bot count slider 0–31, per-bot TreeNode rows (name, difficulty MeatSim–DarkSim, body combo).
+- **Campaign**: Mission picker (17 missions, §4.2a), difficulty (Agent/SA/PA), friendly fire toggle.
+- **Counter-Op**: Mission picker, counter-op player assignment dropdown (from lobbyGetPlayerInfo), difficulty.
+- Player panel: leader=gold, local=green, others=white; body name muted; state indicator.
+- Bottom bar: **Start Match** (leader only) → `netLobbyRequestStartWithSims` (MP) / `netLobbyRequestStart` (COOP/ANTI); **Leave Room** → `netDisconnect()`.
+- Connect code display for server instances.
+
+**`port/fast3d/pdgui_lobby.cpp`** (modified):
+- Added forward decl for `pdguiRoomScreenRender`.
+- In `pdguiLobbyRender()`: NETMODE_CLIENT + `netLocalClientInLobby()` path now calls `pdguiRoomScreenRender` instead of `pdguiLobbyScreenRender`. Dedicated server path unchanged.
+
+### Decisions Made
+- Game clients see room interior (`pdguiRoomScreenRender`). Dedicated server keeps `pdguiLobbyScreenRender`.
+- Full settings sync (time limit, score, options bitmask, per-bot config) deferred to CLC_ROOM_SETTINGS (R-4). Today only stagenum/numSims/simType are sent via CLC_LOBBY_START.
+- Campaign mission stage constants 0x35–0x40 are tentative — need verification from `src/include/constants.h` when wiring mission picker fully.
+
+### Next Steps
+- **Build test**: verify `pdgui_menu_room.cpp` compiles clean; check for ODR issues with `struct matchconfig` redeclaration vs. `pdgui_menu_matchsetup.cpp`.
+- **Playtest**: connect → room interior shows → leader can change settings → Start Match launches.
+- **R-4**: CLC_ROOM_SETTINGS full sync (time limit, score limit, options bitmask, weapon set, per-bot config).
+
+---
+
 ## Session 56 — 2026-03-27
 
 **Focus**: Audit and fix 5 lobby issues found in Mike's playtest of the S55 build
