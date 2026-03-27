@@ -63,6 +63,7 @@ s32 g_NumReasonsToEndMpMatch = 0;
 
 /* Bot / chr */
 u8 g_BotCount = 0;
+struct mpbotconfig g_BotConfigsArray[MAX_BOTS];
 struct chrdata *g_MpBotChrPtrs[MAX_MPCHRS];
 struct chrdata *g_ChrSlots = NULL;             /* data.h:142 — pointer, not array */
 s32 g_NumChrSlots = 0;
