@@ -85,11 +85,37 @@ void menuPopDialog(void);
 
 extern struct menudialogdef g_NetCoopHostMenuDialog;
 
-/* Bridge function: send CLC_LOBBY_START to the dedicated server */
+/* Bridge functions: send CLC_LOBBY_START to the dedicated server */
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
+s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType);
 
 /* Default MP stage (Complex) for quick-start Combat Sim */
 #define STAGE_MP_COMPLEX 0x1f
+
+/* Arena stage list (subset of MP stages for quick selection) */
+struct arena_entry { const char *name; u8 stagenum; };
+static const arena_entry s_Arenas[] = {
+    { "Complex",   0x1f },
+    { "Grid",      0x20 },
+    { "Sewers",    0x21 },
+    { "Basement",  0x22 },
+    { "Ravine",    0x23 },
+    { "Warehouse", 0x24 },
+    { "Villa",     0x25 },
+    { "Temple",    0x26 },
+    { "Caves",     0x27 },
+    { "Base",      0x28 },
+    { "G5",        0x29 },
+    { "Citadel",   0x2a },
+    { "Felicity",  0x2b },
+    { "Ruins",     0x2c },
+    { "Defection", 0x2d },
+    { "Island",    0x2e },
+    { "Fortress",  0x2f },
+    { "Ruins",     0x30 },
+    { "Stadium",   0x31 },
+    { "Pipes",     0x32 },
+};
 
 /* Character accessor */
 char *mpGetBodyName(u8 mpbodynum);
@@ -102,6 +128,20 @@ s32 netLocalClientInLobby(void);
 const char *mpPlayerConfigGetName(s32 playernum);
 
 } /* extern "C" */
+
+/* ========================================================================
+ * Lobby persistent state (Combat Sim settings)
+ * ======================================================================== */
+
+static int s_SelectedArena = 0;      /* index into s_Arenas */
+static int s_NumSims       = 1;      /* 0..MAX_BOTS simulants */
+static int s_SimType       = 2;      /* 0=Meat 1=Easy 2=Normal 3=Hard 4=Perfect 5=Dark */
+
+static const char *s_SimTypeNames[] = {
+    "Meat", "Easy", "Normal", "Hard", "Perfect", "Dark"
+};
+static const int s_NumSimTypes = 6;
+static const int s_NumArenas   = (int)(sizeof(s_Arenas) / sizeof(s_Arenas[0]));
 
 /* ========================================================================
  * Render — called from pdguiLobbyRender when in network lobby state
@@ -287,9 +327,12 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         ImGui::Separator();
 
         s32 roomCount = roomGetActiveCount();
+        s32 roomsShown = 0;
         for (s32 ri = 0; ri < HUB_MAX_ROOMS; ri++) {
             hub_room_t *room = roomGetByIndex(ri);
             if (!room) continue;
+            if (room->client_count == 0) continue; /* skip permanent empty placeholder rooms */
+            roomsShown++;
 
             const char *stateName = roomStateName(room->state);
             ImVec4 stateColor;
@@ -306,7 +349,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                 stateName, room->client_count);
         }
 
-        if (roomCount == 0) {
+        if (roomsShown == 0) {
             ImGui::TextDisabled("No active rooms");
         }
 
@@ -334,12 +377,51 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     float btnW = rightW - ImGui::GetStyle().WindowPadding.x * 2;
     float btnH = 32.0f * scale;
 
+    /* ---- Combat Simulator settings (shown before the button) ---- */
+    ImGui::Text("Arena:");
+    ImGui::SetNextItemWidth(btnW);
+    if (ImGui::BeginCombo("##arena", s_Arenas[s_SelectedArena].name)) {
+        for (int ai = 0; ai < s_NumArenas; ai++) {
+            bool sel = (ai == s_SelectedArena);
+            if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
+                s_SelectedArena = ai;
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Simulants:");
+    ImGui::SetNextItemWidth(btnW);
+    ImGui::SliderInt("##numsims", &s_NumSims, 0, 8);
+
+    ImGui::Spacing();
+    ImGui::Text("Difficulty:");
+    ImGui::SetNextItemWidth(btnW);
+    if (ImGui::BeginCombo("##simtype", s_SimTypeNames[s_SimType])) {
+        for (int si = 0; si < s_NumSimTypes; si++) {
+            bool sel = (si == s_SimType);
+            if (ImGui::Selectable(s_SimTypeNames[si], sel)) {
+                s_SimType = si;
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+
     if (ImGui::Button("Combat Simulator", ImVec2(btnW, btnH))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
-        /* Send CLC_LOBBY_START to the dedicated server.
-         * Uses Complex as default stage. Server will load and broadcast
-         * SVC_STAGE_START to all clients. */
-        netLobbyRequestStart(GAMEMODE_MP, STAGE_MP_COMPLEX, 0);
+        /* Send CLC_LOBBY_START to the dedicated server with arena and simulant settings.
+         * Server configures g_MpSetup, assigns playernums, builds chrslots, then
+         * broadcasts SVC_STAGE_START to all clients. */
+        netLobbyRequestStartWithSims(GAMEMODE_MP,
+            (u8)s_Arenas[s_SelectedArena].stagenum,
+            0,
+            (u8)s_NumSims,
+            (u8)s_SimType);
     }
 
     ImGui::Spacing();

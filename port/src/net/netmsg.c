@@ -3190,12 +3190,14 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * Payload: gamemode (u8), stagenum (u8), difficulty (u8)
  * ======================================================================== */
 
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty)
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType)
 {
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
 	netbufWriteU8(dst, stagenum);
 	netbufWriteU8(dst, difficulty);
+	netbufWriteU8(dst, numSims);
+	netbufWriteU8(dst, simType);
 	return dst->error;
 }
 
@@ -3204,6 +3206,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 gamemode   = netbufReadU8(src);
 	const u8 stagenum   = netbufReadU8(src);
 	const u8 difficulty = netbufReadU8(src);
+	const u8 numSims    = netbufReadU8(src);
+	const u8 simType    = netbufReadU8(src);
 
 	if (src->error) {
 		return src->error;
@@ -3215,9 +3219,15 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	/* Validate sender is the lobby leader */
-	u8 leaderSlot = lobbyGetLeader();
+	/* Validate sender is the lobby leader.
+	 * Call lobbyUpdate() first to handle the same-frame auth+start race:
+	 * the server loop runs netStartFrame() before lobbyUpdate(), so if a
+	 * client's CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch
+	 * the lobby state from the previous tick is used.  Refreshing here
+	 * ensures leaderSlot reflects the just-authed client. */
+	lobbyUpdate();
 	bool isLeader = false;
+	u8 leaderSlot = lobbyGetLeader();
 	if (leaderSlot < LOBBY_MAX_PLAYERS) {
 		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
 		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
@@ -3225,9 +3235,22 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
+	/* Fallback: if leader slot is still 0xFF (no lobby-state clients seen
+	 * yet, e.g., sender is the only client and just reached CLSTATE_LOBBY
+	 * this same frame), accept from the first connected lobby-state client. */
+	if (!isLeader && leaderSlot == 0xFF) {
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl == g_NetLocalClient) continue;
+			if (ncl->state < CLSTATE_LOBBY) continue;
+			isLeader = (ncl == srccl);
+			break;
+		}
+	}
+
 	if (!isLeader) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START from non-leader client %d (%s) — rejected",
-		             srccl->id, srccl->settings.name);
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not leader (leaderSlot=%u)",
+		             srccl->id, srccl->settings.name, (unsigned)leaderSlot);
 		return src->error;
 	}
 
@@ -3241,7 +3264,49 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	 * For Combat Sim: load the requested stage and start.
 	 * For Co-op/Counter-op: load the solo stage and start. */
 	if (gamemode == 0) {
-		/* Combat Simulator */
+		/* Combat Simulator
+		 *
+		 * Configure g_MpSetup fully before netServerStageStart(), which
+		 * broadcasts SVC_STAGE_START containing g_MpSetup.chrslots and
+		 * each client's playernum.  Without this, clients receive a
+		 * zero chrslots and no slot assignments, so mpStartMatch() never
+		 * spawns anyone. */
+		g_MpSetup.stagenum   = stagenum;
+		g_MpSetup.scenario   = 0; /* MPSCENARIO_COMBAT */
+		g_MpSetup.timelimit  = 0; /* unlimited */
+		g_MpSetup.scorelimit = 0; /* no kill limit */
+		g_MpSetup.options    = 0;
+		/* Leave g_MpSetup.weapons as-is (loaded from save or zero). */
+
+		/* Assign sequential playernums and build chrslots bitmask.
+		 * Bits 0..n-1 of chrslots represent the n connected players. */
+		g_MpSetup.chrslots = 0;
+		s32 pnum = 0;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS && pnum < MAX_PLAYERS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl->state == CLSTATE_LOBBY || ncl->state == CLSTATE_GAME) {
+				ncl->playernum     = (u8)pnum;
+				g_MpSetup.chrslots |= (u64)1 << pnum;
+				sysLogPrintf(LOG_NOTE, "NET: assigned playernum %d to client %d (%s)",
+				             pnum, ci, ncl->settings.name);
+				pnum++;
+			}
+		}
+		/* Add simulant (bot) slots: bits 8..8+numSims-1 in chrslots.
+		 * MAX_BOTS = 32, MAX_PLAYERS = 8 so bots live in bits 8..39.
+		 * numSims is clamped to MAX_BOTS to prevent overflow. */
+		u8 clampedSims = (numSims > MAX_BOTS) ? MAX_BOTS : numSims;
+		for (s32 bi = 0; bi < clampedSims; bi++) {
+			s32 slot = MAX_PLAYERS + bi;
+			g_MpSetup.chrslots |= (u64)1 << slot;
+			/* Configure the bot in g_BotConfigsArray. */
+			g_BotConfigsArray[bi].type       = simType;
+			g_BotConfigsArray[bi].difficulty = 2; /* Normal as default per-bot difficulty */
+		}
+		g_Lobby.settings.numSimulants = clampedSims;
+		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
+		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
+
 		mainChangeToStage(stagenum);
 		netServerStageStart();
 	} else {
