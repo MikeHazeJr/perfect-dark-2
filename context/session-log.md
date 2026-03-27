@@ -3,6 +3,40 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 59 — 2026-03-27
+
+**Focus**: Match Start bug root cause (SVC_STAGE_START) + UX status audit
+
+### What Was Done
+
+**Root cause identified and fixed** (`port/src/net/netmsg.c`):
+- `netmsgSvcStageStartWrite()` was reading `g_StageNum` directly, but the server
+  idles at `STAGE_CITRAINING` and `mainChangeToStage()` is deferred (g_StageNum
+  doesn't update until next frame). Result: SVC_STAGE_START always encoded
+  `STAGE_CITRAINING`, clients interpreted it as "server returned to lobby" and
+  dropped it — matches never started.
+- Fix: read `g_MainChangeToStageNum` when >= 0 (pending stage set by `mainChangeToStage()`),
+  fall back to `g_StageNum` mid-game (resets to -1 once stage loads).
+- Note: `netServerStageStart()` already had its outer STAGE_CITRAINING guard removed
+  in a prior session — the bug was one level deeper inside the write function.
+
+**UX audit (main project already complete)**:
+- UX Ref 1 (bot list with X buttons, Add Bot, double-click modal): FULLY IMPLEMENTED in main project (`pdgui_menu_room.cpp` lines 517–608, modal at lines 1160–1239).
+- UX Ref 2 (spawn weapon dropdown): FULLY IMPLEMENTED in main project (lines 741–758, `s_SpawnWeaponIdx`).
+- No additional code changes needed for these features.
+
+### Build Result
+- Headless build still cannot run from Claude's Bash tool (MSYS2 TEMP dir permission issue, known since S58). Must run from Mike's MSYS2 terminal.
+
+### Decisions Made
+- The async `g_MainChangeToStageNum` pattern is now used in two places: `netServerStageStart()` (comment explaining the issue) and `netmsgSvcStageStartWrite()` (the actual fix).
+
+### Next Steps
+- **Build + playtest** from Mike's MSYS2 terminal.
+- **J-1**: End-to-end test — connect client, enter code, verify CLSTATE_LOBBY, click Start Match in Combat Sim tab, verify match loads.
+
+---
+
 ## Session 58 — 2026-03-27
 
 **Focus**: Headless build pipeline architecture + merge S57 worktree changes

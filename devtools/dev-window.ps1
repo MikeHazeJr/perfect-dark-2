@@ -1462,6 +1462,10 @@ function Get-BuildSteps($ver) {
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
+    # Auto-commit any pending changes (async -- runs in the step pipeline, never blocks the UI thread)
+    $commitMsg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
+    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && git commit -m `"" + $commitMsg + "`" || exit 0"
+    [void]$steps.Add(@{Name="Auto-commit"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
     # Async cleanup: wipe both build dirs via cmd.exe so the UI thread is never blocked
     $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & (if exist `"" + $script:ServerBuildDir + "`" rmdir /s /q `"" + $script:ServerBuildDir + "`") & exit 0"
     [void]$steps.Add(@{Name="Cleaning build dirs"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
@@ -1491,8 +1495,7 @@ function Start-Build {
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Starting build..." }
     # Read version from UI boxes -- single source of truth for this build
     $script:BuildVersion = Get-UiVersion
-    Auto-Commit | Out-Null  # Brief git ops -- tolerated on UI thread (< 1s normally)
-    # Queue all steps (cleanup first, then cmake) and let the timer drive execution.
+    # Queue all steps (auto-commit first, then cleanup, then cmake) and let the timer drive execution.
     # Never call Start-Build-Step here -- that would block the UI thread during cleanup.
     $script:BuildProcess = $null
     $script:BuildStepQueue.Clear()
@@ -1651,8 +1654,7 @@ function Start-PushRelease {
     Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Release v" + $vs + ": setting version..." }
 
-    # Step 2: Auto-commit the version change
-    Auto-Commit | Out-Null
+    # Step 2 (now async): auto-commit is the first step in Get-BuildSteps
 
     # Step 3: Build client + server, then release
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
