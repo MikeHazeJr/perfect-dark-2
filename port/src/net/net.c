@@ -581,8 +581,10 @@ void netServerStageStart(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x scenario=%u clients=%d",
-	             g_StageNum, g_MpSetup.scenario, g_NetNumClients);
+	extern s32 g_MainChangeToStageNum;
+	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x (g_StageNum=0x%02x, pending=0x%02x) scenario=%u clients=%d",
+	             (g_MainChangeToStageNum >= 0) ? (u8)g_MainChangeToStageNum : g_StageNum,
+	             g_StageNum, g_MainChangeToStageNum, g_MpSetup.scenario, g_NetNumClients);
 
 	// Log each connected client's state for debugging
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {

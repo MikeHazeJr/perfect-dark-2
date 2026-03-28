@@ -2533,10 +2533,13 @@ void lvTickPlayer(void)
 {
 	f32 xdiff;
 	f32 zdiff;
-	sysLogPrintf(LOG_NOTE, "TICK: lvTickPlayer playernum=%d prop=%p MpAllChr=%p",
-		g_Vars.currentplayernum,
-		(void *)(g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL),
-		(void *)(g_MpAllChrPtrs[g_Vars.currentplayernum]));
+	if (g_Vars.lvframe60 < 3) {
+		sysLogPrintf(LOG_NOTE, "TICK: lvTickPlayer playernum=%d prop=%p MpAllChr=%p frame=%d",
+			g_Vars.currentplayernum,
+			(void *)(g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL),
+			(void *)(g_MpAllChrPtrs[g_Vars.currentplayernum]),
+			g_Vars.lvframe60);
+	}
 
 	if (var80075d64 == 2) {
 		if (var80075d68 == 2) {
