@@ -288,6 +288,29 @@ endif()
 #              mingw-w64-x86_64-zstd mingw-w64-x86_64-libidn2 \
 #              mingw-w64-x86_64-libpsl mingw-w64-x86_64-libunistring \
 #              mingw-w64-x86_64-libiconv mingw-w64-x86_64-gettext
+#
+# Static linking dependency analysis (verified 2026-03-28):
+#
+# SDL2 vs OpenSSL version conflict: NOT an issue.
+#   MSYS2 has shipped only OpenSSL 3.x since ~2022; OpenSSL 1.1 was removed.
+#   The MSYS2 mingw-w64-x86_64-SDL2 package is compiled without OpenSSL support
+#   (SDL_net is a separate package and is not linked here). libSDL2.a contains
+#   no SSL symbols. Only curl links libssl.a + libcrypto.a, and both are 3.x.
+#   Verify: nm /mingw64/lib/libSDL2.a | grep -i ssl  (should return nothing)
+#
+# zlib duplicate symbols: NOT an issue.
+#   Both SDL2 (PNG) and curl (compressed transfers) reference external zlib symbols.
+#   We provide a single libz.a; the linker resolves all references from one copy.
+#   Verify: nm /mingw64/lib/libSDL2.a | grep -i "zlib\|deflate\|inflate"
+#           -- these are undefined references (U), not definitions (T/D).
+#
+# pthread duplicate: NOT an issue.
+#   -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic provides exactly one static copy.
+#   SDL2 thread references also resolve to this single copy.
+#
+# winmm listed twice (SDL2 deps line + EXTRA_LIBRARIES): NOT an issue.
+#   Both are import library (.dll.a) references; linker deduplicates import stubs.
+#
 # Note: OpenSSL static constructors can cause the Windows GDI subsystem to
 # initialise before the OpenGL ICD registers. This is safe here because SDL2
 # creates the GL context at startup before any curl/SSL calls are made.

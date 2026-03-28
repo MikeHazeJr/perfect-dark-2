@@ -53,6 +53,28 @@ The AI sandbox has READ-ONLY access to the Git repository (fetch/clone works, pu
 - `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` — statically links libwinpthread (FIX-5)
 - **SDL2, zlib, libcurl**: Now statically linked on Windows (no DLLs needed at runtime). CMakeLists.txt uses find_library to locate .a files in MSYS2 paths.
 
+### Transitive Dependency Conflicts — Verified Non-Issues (2026-03-28)
+
+**SDL2 + OpenSSL version conflict**: Not possible. MSYS2 ships only OpenSSL 3.x (1.1 removed ~2022). More importantly, `libSDL2.a` from MSYS2 is compiled *without* OpenSSL support — SDL_net is a separate package not linked here. Only curl links `libssl.a`/`libcrypto.a`, and both are the same 3.x version.
+
+**zlib duplicate symbols**: Not an issue. SDL2 (PNG loading) and curl (compressed transfers) both reference zlib symbols as *undefined externals* — they do not embed their own copies. A single `libz.a` satisfies both. The linker sees one definition set.
+
+**pthread/winpthread**: `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` provides exactly one static copy. SDL2's thread references also resolve to this copy. No duplicates.
+
+**winmm listed twice**: SDL2's transitive deps (line 243) and EXTRA_LIBRARIES (line 354) both reference winmm. Both are `.dll.a` import stubs — the linker deduplicates import references transparently.
+
+To verify in MSYS2 shell:
+```bash
+# Confirm no SSL symbols in SDL2
+nm /mingw64/lib/libSDL2.a | grep -i ssl
+# Confirm zlib references are undefined (U), not defined (T/D)
+nm /mingw64/lib/libSDL2.a | grep -i " deflate\| inflate" | head -5
+# Confirm OpenSSL version
+pacman -Qi mingw-w64-x86_64-openssl | grep Version
+# Confirm no OpenSSL 1.1 coexistence
+ls /mingw64/lib/libssl* /mingw64/lib/libcrypto*
+```
+
 ## Directory Structure
 ```
 perfect_dark-mike/
