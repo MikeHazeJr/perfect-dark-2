@@ -281,22 +281,57 @@ else()
   list(APPEND LIBS "${ZLIB_LIBRARY}")
 endif()
 
-# libcurl -- dynamic linking on Windows (ships libcurl-4.dll with the game).
-# Static linking of curl + OpenSSL + 30 transitive deps causes the Windows GDI
-# subsystem to initialize before the GPU's OpenGL ICD, resulting in GL 1.1
-# fallback. Dynamic linking avoids this entirely and curl handles its own SSL
-# via the system-installed OpenSSL DLLs or Windows Schannel.
-# MSYS2: pacman -S mingw-w64-x86_64-curl
+# libcurl -- static on Windows so no libcurl-4.dll or transitive DLLs are needed.
+# MSYS2: pacman -S mingw-w64-x86_64-curl mingw-w64-x86_64-openssl \
+#              mingw-w64-x86_64-nghttp2 mingw-w64-x86_64-nghttp3 \
+#              mingw-w64-x86_64-libssh2 mingw-w64-x86_64-brotli \
+#              mingw-w64-x86_64-zstd mingw-w64-x86_64-libidn2 \
+#              mingw-w64-x86_64-libpsl mingw-w64-x86_64-libunistring \
+#              mingw-w64-x86_64-libiconv mingw-w64-x86_64-gettext
+# Note: OpenSSL static constructors can cause the Windows GDI subsystem to
+# initialise before the OpenGL ICD registers. This is safe here because SDL2
+# creates the GL context at startup before any curl/SSL calls are made.
+add_definitions(-DCURL_STATICLIB)
 find_package(CURL REQUIRED)
 if(CURL_INCLUDE_DIRS)
   include_directories(SYSTEM "${CURL_INCLUDE_DIRS}")
 elseif(CURL_INCLUDE_DIR)
   include_directories(SYSTEM "${CURL_INCLUDE_DIR}")
 endif()
-if(CURL_LIBRARIES)
-  list(APPEND LIBS "${CURL_LIBRARIES}")
-elseif(CURL_LIBRARY)
-  list(APPEND LIBS "${CURL_LIBRARY}")
+if(WIN32)
+  if(EXISTS "${_msys_lib}/libcurl.a")
+    message(STATUS "CURL: Static linking via ${_msys_lib}/libcurl.a")
+    list(APPEND LIBS "${_msys_lib}/libcurl.a")
+    # OpenSSL (curl TLS backend)
+    foreach(_slib libssl.a libcrypto.a)
+      if(EXISTS "${_msys_lib}/${_slib}") list(APPEND LIBS "${_msys_lib}/${_slib}") endif()
+    endforeach()
+    # Brotli (content-encoding)
+    foreach(_slib libbrotlidec.a libbrotlicommon.a)
+      if(EXISTS "${_msys_lib}/${_slib}") list(APPEND LIBS "${_msys_lib}/${_slib}") endif()
+    endforeach()
+    # HTTP/2 + HTTP/3 + QUIC
+    foreach(_slib libnghttp3.a libngtcp2_crypto_ossl.a libngtcp2.a libnghttp2.a)
+      if(EXISTS "${_msys_lib}/${_slib}") list(APPEND LIBS "${_msys_lib}/${_slib}") endif()
+    endforeach()
+    # SSH2, IDN2, PSL, zstd, locale libs
+    foreach(_slib libssh2.a libidn2.a libpsl.a libzstd.a libunistring.a libintl.a libiconv.a)
+      if(EXISTS "${_msys_lib}/${_slib}") list(APPEND LIBS "${_msys_lib}/${_slib}") endif()
+    endforeach()
+  else()
+    message(WARNING "CURL: No libcurl.a at ${_msys_lib} -- falling back to dynamic (will need libcurl-4.dll)")
+    if(CURL_LIBRARIES)
+      list(APPEND LIBS "${CURL_LIBRARIES}")
+    elseif(CURL_LIBRARY)
+      list(APPEND LIBS "${CURL_LIBRARY}")
+    endif()
+  endif()
+else()
+  if(CURL_LIBRARIES)
+    list(APPEND LIBS "${CURL_LIBRARIES}")
+  elseif(CURL_LIBRARY)
+    list(APPEND LIBS "${CURL_LIBRARY}")
+  endif()
 endif()
 
 # GL
@@ -316,7 +351,7 @@ list(APPEND LIBS "${GL_LIBRARY}")
 # Platform-specific extra libs
 if(NOT EXTRA_LIBRARIES)
   if(WIN32)
-    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp iphlpapi -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp iphlpapi crypt32 bcrypt wldap32 -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
     add_definitions(-DMINIUPNP_STATICLIB)
   elseif(NINTENDO_SWITCH)
     set(EXTRA_LIBRARIES stdc++ pthread)
@@ -510,44 +545,4 @@ if(NINTENDO_SWITCH)
     COMMAND aarch64-none-elf-strip -o ${CMAKE_BINARY_DIR}/${BIN_NAME}.stripped.elf ${CMAKE_BINARY_DIR}/${BIN_NAME}.elf
     COMMAND elf2nro ${CMAKE_BINARY_DIR}/${BIN_NAME}.stripped.elf ${CMAKE_BINARY_DIR}/${BIN_NAME}.nro --icon=${CMAKE_SOURCE_DIR}/dist/nswitch/icon.jpg --nacp=${BIN_NAME}.nacp
   )
-endif()
-
-# Windows: copy required runtime DLLs next to the executables after build.
-# Release packaging (release.ps1) handles DLLs separately for distribution.
-if(WIN32)
-  get_filename_component(_MINGW_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
-  set(_RUNTIME_DLLS
-    "libcurl-4.dll"
-    # libcurl transitive dependencies (MSYS2 MinGW64 dynamic curl):
-    "libnghttp2-14.dll"
-    "libnghttp3-9.dll"
-    "libidn2-0.dll"
-    "libbrotlidec.dll"
-    "libbrotlicommon.dll"
-    "libpsl-5.dll"
-    "libssh2-1.dll"
-    "libngtcp2-16.dll"
-    "libngtcp2_crypto_ossl-0.dll"
-    "libzstd.dll"
-    "libssl-3-x64.dll"
-    "libcrypto-3-x64.dll"
-    "libunistring-5.dll"
-    "libintl-8.dll"
-    "libiconv-2.dll"
-    "zlib1.dll"
-  )
-  foreach(_dll ${_RUNTIME_DLLS})
-    if(EXISTS "${_MINGW_BIN}/${_dll}")
-      add_custom_command(TARGET pd POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd>"
-        COMMENT "Copying ${_dll} to client build output")
-      add_custom_command(TARGET pd-server POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd-server>"
-        COMMENT "Copying ${_dll} to server build output")
-    else()
-      message(WARNING "${_dll} not found in ${_MINGW_BIN} -- game will not run without it")
-    endif()
-  endforeach()
 endif()

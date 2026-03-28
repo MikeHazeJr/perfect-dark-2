@@ -9,11 +9,10 @@
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
-#   - PerfectDark.exe (game client)
-#   - PerfectDarkServer.exe (dedicated server)
+#   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
+#   - PerfectDarkServer.exe (dedicated server, fully static)
 #   - data/ folder (game data, EXCLUDING *.z64 ROM files)
 #   - mods/ folder (mod content)
-#   - Runtime DLLs
 #   - SHA-256 hashes for update system verification
 #
 # Source code is NOT included -- GitHub auto-generates source archives.
@@ -93,9 +92,6 @@ $DataSource = $(if (Test-Path "build/client/data") { "build/client/data" }
 $ModsSource = $(if (Test-Path "build/client/mods") { "build/client/mods" }
                 elseif (Test-Path "../post-batch-addin/mods") { "../post-batch-addin/mods" }
                 else { "" })
-
-# DLLs -- check build/client first, then post-batch-addin (parent dir)
-$DllSearchPaths = @("build/client", "../post-batch-addin")
 
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
@@ -203,34 +199,6 @@ if ($hasServer) {
     $hash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
     "$hash  PerfectDarkServer.exe" | Out-File "$DistDir/PerfectDarkServer.exe.sha256" -Encoding ascii -NoNewline
     Write-Host "  PerfectDarkServer.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
-}
-
-# --- Runtime DLLs ---
-
-# Runtime DLLs -- must match the set in CMakeLists.txt _RUNTIME_DLLS
-$dllNames = @(
-    "SDL2.dll", "zlib1.dll", "libwinpthread-1.dll",
-    "libcurl-4.dll", "libnghttp2-14.dll", "libnghttp3-9.dll",
-    "libidn2-0.dll", "libbrotlidec.dll", "libbrotlicommon.dll",
-    "libpsl-5.dll", "libssh2-1.dll", "libngtcp2-16.dll",
-    "libngtcp2_crypto_ossl-0.dll", "libzstd.dll",
-    "libssl-3-x64.dll", "libcrypto-3-x64.dll",
-    "libunistring-5.dll", "libintl-8.dll", "libiconv-2.dll"
-)
-foreach ($dll in $dllNames) {
-    $found = $false
-    foreach ($searchPath in $DllSearchPaths) {
-        $dllPath = "$searchPath/$dll"
-        if (Test-Path $dllPath) {
-            Copy-Item $dllPath "$DistDir/$dll"
-            Write-Host "  $dll (from $searchPath)" -ForegroundColor Gray
-            $found = $true
-            break
-        }
-    }
-    if (-not $found) {
-        Write-Host "  $dll -- NOT FOUND (skipped)" -ForegroundColor Yellow
-    }
 }
 
 # --- Data folder (EXCLUDING *.z64 ROM files) ---
