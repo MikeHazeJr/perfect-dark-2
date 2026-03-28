@@ -106,45 +106,10 @@ s32 func0f189058(s32 full);   /* count of available weapon sets (full=1 includes
 extern s32 g_MpWeaponSetNum;
 #define WEAPONSET_CUSTOM 0x0e
 
-/* Match config (must match struct layout in matchsetup.c exactly) */
-#define MAX_PLAYER_NAME  32
-#define MATCH_MAX_SLOTS  32
-#define NUM_MPWEAPONSLOTS 6
+/* Match config types and API — canonical definitions in scenario_save.h */
+#include "scenario_save.h"
 
-#define SLOT_EMPTY  0
-#define SLOT_PLAYER 1
-#define SLOT_BOT    2
-
-struct matchslot {
-    u8 type;
-    u8 team;
-    u8 headnum;
-    u8 bodynum;
-    u8 botType;
-    u8 botDifficulty;
-    char name[MAX_PLAYER_NAME];
-};
-
-struct matchconfig {
-    struct matchslot slots[MATCH_MAX_SLOTS];
-    u8 scenario;
-    u8 stagenum;
-    u8 timelimit;
-    u8 scorelimit;
-    u16 teamscorelimit;
-    u32 options;
-    u8 weapons[NUM_MPWEAPONSLOTS];
-    s8 weaponSetIndex;
-    u8 numSlots;
-    u8 spawnWeaponNum; /* 0xFF = Random; weapon enum value otherwise (future R-4 wiring) */
-};
-
-extern struct matchconfig g_MatchConfig;
-void matchConfigInit(void);
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum,
-                      const char *name);
-s32 matchConfigRemoveSlot(s32 idx);
-s32 matchStart(void);
+/* scenarioSave / scenarioLoad / scenarioListFiles are also declared there */
 
 /* MPOPTION bitmasks (from constants.h) */
 #define MPOPTION_ONEHITKILLS           0x00000001
@@ -350,6 +315,30 @@ static int s_SpawnWeaponIdx = 0;
 /* Connect code cache (server host display) */
 static char s_ConnectCode[128]  = "";
 static bool s_CodeGenerated     = false;
+
+/* Scenario save/load popup state */
+static bool s_ShowSaveScenario  = false;
+static bool s_ShowLoadScenario  = false;
+static char s_SaveNameBuf[64]   = "";
+static char s_ScenarioFiles[SCENARIO_MAX_LIST][SCENARIO_PATH_MAX];
+static int  s_ScenarioCount     = 0;
+static char s_ScenarioStatusMsg[128] = "";
+
+/* ========================================================================
+ * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawnWeaponNum
+ * Called after loading a scenario so the picker shows the right entry.
+ * ======================================================================== */
+
+static void syncSpawnWeaponFromConfig(void)
+{
+    for (int i = 0; i < s_NumSpawnWeapons; i++) {
+        if (s_SpawnWeapons[i].weaponnum == g_MatchConfig.spawnWeaponNum) {
+            s_SpawnWeaponIdx = i;
+            return;
+        }
+    }
+    s_SpawnWeaponIdx = 0;  /* default to Random */
+}
 
 /* ========================================================================
  * Helper: ensure arena index is consistent with g_MatchConfig.stagenum
@@ -761,6 +750,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     }
     optToggleInverted("Player Highlight",MPOPTION_NOPLAYERHIGHLIGHT, leader);
     optToggleInverted("Pickup Highlight",MPOPTION_NOPICKUPHIGHLIGHT, leader);
+    optToggle        ("No Doors",        MPOPTION_NODOORS,           leader);
 
     /* Scenario-specific options */
     int sc = (int)g_MatchConfig.scenario;
@@ -788,6 +778,36 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Pop a Cap");
         optToggle("Highlight Target", MPOPTION_PAC_HIGHLIGHTTARGET, leader);
         optToggle("Show on Radar",    MPOPTION_PAC_SHOWONRADAR,     leader);
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- Scenario Save / Load ---- */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scenarios");
+
+    float halfW = (comboW - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    float sbtnH = pdguiScale(24.0f);
+
+    if (!leader) ImGui::BeginDisabled();
+    if (ImGui::Button("Save Scenario", ImVec2(halfW, sbtnH))) {
+        s_ShowSaveScenario = true;
+        s_SaveNameBuf[0] = '\0';
+        s_ScenarioStatusMsg[0] = '\0';
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load Scenario", ImVec2(halfW, sbtnH))) {
+        s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+        s_ShowLoadScenario = true;
+        s_ScenarioStatusMsg[0] = '\0';
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    if (!leader) ImGui::EndDisabled();
+
+    /* Status message (e.g. "Saved!" or "Loaded!") */
+    if (s_ScenarioStatusMsg[0]) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "%s", s_ScenarioStatusMsg);
     }
 
     ImGui::EndChild();
@@ -1255,6 +1275,118 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::EndPopup();
     }
 
+    /* ---- Save Scenario popup ---- */
+    if (s_ShowSaveScenario) {
+        ImGui::OpenPopup("Save Scenario##savescenpop");
+        s_ShowSaveScenario = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(320.0f), 0.0f));
+    if (ImGui::BeginPopupModal("Save Scenario##savescenpop", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Save Scenario");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Text("Name:");
+        ImGui::SetNextItemWidth(pdguiScale(280.0f));
+        ImGui::InputText("##savename", s_SaveNameBuf, sizeof(s_SaveNameBuf));
+
+        ImGui::Spacing();
+
+        float bw = pdguiScale(100.0f);
+        if (ImGui::Button("Save", ImVec2(bw, 0.0f))) {
+            if (s_SaveNameBuf[0]) {
+                if (scenarioSave(s_SaveNameBuf) == 0) {
+                    snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                             "Saved: %s", s_SaveNameBuf);
+                } else {
+                    snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                             "Save failed.");
+                }
+                pdguiPlaySound(PDGUI_SND_SELECT);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(bw, 0.0f))) {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    /* ---- Load Scenario popup ---- */
+    if (s_ShowLoadScenario) {
+        ImGui::OpenPopup("Load Scenario##loadscenpop");
+        s_ShowLoadScenario = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(380.0f), pdguiScale(280.0f)));
+    if (ImGui::BeginPopupModal("Load Scenario##loadscenpop", nullptr,
+                               ImGuiWindowFlags_NoResize)) {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Load Scenario");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (s_ScenarioCount == 0) {
+            ImGui::TextDisabled("No saved scenarios found.");
+            ImGui::TextDisabled("Save a scenario first using \"Save Scenario\".");
+        } else {
+            float listH = pdguiScale(180.0f);
+            ImGui::BeginChild("##scen_list", ImVec2(-1.0f, listH), true);
+
+            for (int i = 0; i < s_ScenarioCount; i++) {
+                /* Display name: filename without directory and without .json */
+                const char *fullPath = s_ScenarioFiles[i];
+                const char *slash = strrchr(fullPath, '/');
+                if (!slash) slash = strrchr(fullPath, '\\');
+                const char *fname = slash ? slash + 1 : fullPath;
+
+                /* Strip .json suffix for display */
+                char displayName[SCENARIO_PATH_MAX];
+                strncpy(displayName, fname, sizeof(displayName) - 1);
+                displayName[sizeof(displayName) - 1] = '\0';
+                size_t dlen = strlen(displayName);
+                if (dlen > 5 && strcmp(displayName + dlen - 5, ".json") == 0) {
+                    displayName[dlen - 5] = '\0';
+                }
+
+                ImGui::PushID(i);
+                if (ImGui::Selectable(displayName, false,
+                                      ImGuiSelectableFlags_AllowDoubleClick)) {
+                    /* Single-click or double-click: load and close */
+                    s32 humanCount = lobbyGetPlayerCount();
+                    if (humanCount < 1) humanCount = 1;
+                    if (scenarioLoad(fullPath, humanCount) == 0) {
+                        syncArenaFromConfig();
+                        syncSpawnWeaponFromConfig();
+                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                 "Loaded: %s", displayName);
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                    } else {
+                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                 "Load failed.");
+                        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::EndChild();
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Close", ImVec2(pdguiScale(100.0f), 0.0f))) {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     ImGui::End();
 }
 
@@ -1277,4 +1409,9 @@ extern "C" void pdguiRoomScreenReset(void)
     s_BotModalOpen      = false;
     s_EditBotSlotIdx    = -1;
     s_SpawnWeaponIdx    = 0;
+    s_ShowSaveScenario  = false;
+    s_ShowLoadScenario  = false;
+    s_SaveNameBuf[0]    = '\0';
+    s_ScenarioCount     = 0;
+    s_ScenarioStatusMsg[0] = '\0';
 }

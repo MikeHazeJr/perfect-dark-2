@@ -26,6 +26,7 @@
 #include "romdata.h"
 #include "modelcatalog.h"
 #include "game/mplayer/participant.h"
+#include "scenario_save.h"  /* matchslot/matchconfig types, MATCH_MAX_SLOTS */
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -46,44 +47,11 @@ struct menudialogdef g_MatchSetupMenuDialog = {
 };
 
 /* ========================================================================
- * Match slot configuration — set by the ImGui lobby UI
+ * Match config global — type defined in scenario_save.h
  * ======================================================================== */
 
-/* PC port: longer names — no N64 Controller Pak constraints */
-#define MAX_PLAYER_NAME 32
-
-/* Slot types */
-#define SLOT_EMPTY    0
-#define SLOT_PLAYER   1
-#define SLOT_BOT      2
-
-struct matchslot {
-	u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
-	u8 team;          /* team number (0-7) */
-	u8 headnum;       /* character head */
-	u8 bodynum;       /* character body */
-	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
-	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
-	char name[MAX_PLAYER_NAME];  /* display name (PC: 32 chars, no N64 limit) */
-};
-
-/* Total match slots = participant pool size (players + bots combined).
- * Must match the #define in pdgui_menu_matchsetup.cpp. */
-#define MATCH_MAX_SLOTS PARTICIPANT_DEFAULT_CAPACITY
-
-struct matchconfig {
-	struct matchslot slots[MATCH_MAX_SLOTS];
-	u8 scenario;                    /* MPSCENARIO_* */
-	u8 stagenum;                    /* stage index */
-	u8 timelimit;                   /* minutes (0 = unlimited) */
-	u8 scorelimit;                  /* score to win (0 = unlimited) */
-	u16 teamscorelimit;             /* team score limit */
-	u32 options;                    /* MPOPTION_* bitmask */
-	u8 weapons[NUM_MPWEAPONSLOTS];  /* weapon set (6 slots) */
-	s8 weaponSetIndex;              /* -1 = custom, 0+ = preset index */
-	u8 numSlots;                    /* number of active slots */
-	u8 spawnWeaponNum;              /* 0xFF = Random; weapon enum value otherwise */
-};
+/* MATCH_MAX_SLOTS from scenario_save.h resolves to PARTICIPANT_DEFAULT_CAPACITY
+ * (both are 32) since participant.h is included before scenario_save.h above. */
 
 struct matchconfig g_MatchConfig;
 

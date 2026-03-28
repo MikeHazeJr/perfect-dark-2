@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-28, Session 69 (player-count-constants-audit.md: full constant hierarchy, 5 wrong values fixed)
+> **Last updated**: 2026-03-28, Session 71 (scenario save/load system: scenario_save.c/h, matchsetup.c deduplication, room UI Save/Load buttons)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 71 | 2026-03-28 | Combat Sim scenario save/load: scenario_save.c/h (new), matchsetup.c deduplication, room UI Save/Load buttons + JSON format | [session-log.md](session-log.md) |
+| 70 | 2026-03-28 | B-43 first-tick NULL guards + scenarioTick/botTick first-tick safety | [session-log.md](session-log.md) |
 | 69 | 2026-03-28 | Player count constants audit: 5 wrong values fixed (NET_MAX_CLIENTS, MAX_BOTS_PM struct layout, HUB_MAX_CLIENTS, SAVE_MAX_BOTS), audit doc created | [session-log.md](session-log.md) |
 | 62 | 2026-03-27 | Definitive network-system-audit.md: full protocol catalog, lifecycle trace, multi-room impossibility, security, recommendations | [session-log.md](session-log.md) |
 | 61 | 2026-03-27 | netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard | [session-log.md](session-log.md) |

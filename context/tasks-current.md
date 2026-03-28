@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
 | **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
 | **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
 | **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |

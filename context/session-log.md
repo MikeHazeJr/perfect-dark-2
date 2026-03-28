@@ -3,6 +3,46 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 71 -- 2026-03-28
+
+**Focus**: Combat Simulator scenario save/load system
+
+### What Was Done
+
+**New feature: scenario save/load** — players can save and reload complete Combat Simulator match configurations (arena, game mode, limits, options, weapon set, bot roster) as JSON files.
+
+**Files created:**
+- `port/include/scenario_save.h` — Canonical header for `struct matchslot`, `struct matchconfig`, constants (MATCH_MAX_SLOTS, SLOT_*, NUM_MPWEAPONSLOTS, MAX_PLAYER_NAME), and API declarations for both matchsetup.c and scenario_save.c. Safe for C and C++ (no types.h).
+- `port/src/scenario_save.c` — Full implementation: JSON writer (fprintf + manual escaping), minimal JSON reader (strstr + sscanf based, handles flat objects + bots array), directory create, file listing via POSIX opendir/readdir.
+
+**Files modified:**
+- `port/src/net/matchsetup.c` — Added `#include "scenario_save.h"`, removed ~37 lines of now-redundant local struct/constant definitions. Consolidates ownership to single source.
+- `port/fast3d/pdgui_menu_room.cpp` — Replaced duplicate extern "C" struct block with `#include "scenario_save.h"`. Added Save/Load UI to Combat Sim tab: "Save Scenario" button opens popup with name input; "Load Scenario" button shows list of saved files with click-to-load. Popups follow the same modal pattern as bot settings. Status message shows after save/load. `pdguiRoomScreenReset()` clears new state.
+
+**Dynamic player count handling (spec):**
+- `scenarioLoad(filepath, humanCount)` — calls `matchConfigInit()` first (sets up local player), applies saved settings, then adds bots up to `MATCH_MAX_SLOTS - humanCount` in order; excess silently dropped.
+- humanCount passed from `lobbyGetPlayerCount()` in the UI at load time.
+
+**Save path:** `$S/scenarios/<name>.json` — directory auto-created on first save.
+
+**MPOPTION_NODOORS** also added to the options toggles in the Combat Sim tab (was missing).
+
+**New helper `syncSpawnWeaponFromConfig()`** — syncs `s_SpawnWeaponIdx` dropdown from `g_MatchConfig.spawnWeaponNum` after a load.
+
+### Decisions Made
+- No external JSON library — hand-rolled writer (fprintf) and reader (strstr/sscanf). The format is self-generated and predictable; no general-purpose parser needed.
+- `scenario_save.h` is the single source of truth for matchslot/matchconfig types. Both C and C++ callers include it; C++ inside `extern "C" {}`.
+- `MATCH_MAX_SLOTS` in the header uses `#ifndef` guard so matchsetup.c (which defines it as `PARTICIPANT_DEFAULT_CAPACITY`) is not conflicted.
+- Human player slots are NOT saved in scenario files — they're session-specific. Only bot slots are serialized.
+
+### Next Steps
+- Build: `build-headless.ps1`
+- Smoke test: Launch → Room → Combat Sim tab → Save Scenario "test1" → verify `$S/scenarios/test1.json` created
+- Load test: Load Scenario → select test1 → arena/bots/options should match what was saved
+- Multi-human test: Save with 1 human; load with 4 humans in room — only 28 bots should populate
+
+---
+
 ## Session 70 -- 2026-03-28
 
 **Focus**: First-tick crash after stage load: g_MpAllChrPtrs NULL dereference in lvTick + deep investigation of scenarioTick and bot AI first-tick safety
