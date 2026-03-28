@@ -314,6 +314,19 @@ void netServerKickClient(s32 clientId, const char *reason)
 }
 
 /* ========================================================================
+ * HUD bridge functions (pdgui_hud.cpp)
+ * ======================================================================== */
+
+/* g_MpTimeLimit60: match time limit in 60Hz ticks. 0 = unlimited.
+ * Declared in lv.c but not exported via lv.h — extern here for bridge use. */
+extern s32 g_MpTimeLimit60;
+
+s32 pdguiHudGetTimeLimitTicks(void)
+{
+    return g_MpTimeLimit60;
+}
+
+/* ========================================================================
  * Pause menu bridge functions (pdgui_menu_pausemenu.cpp)
  * ======================================================================== */
 

@@ -47,6 +47,9 @@ extern "C" s32  pdguiModdingHubIsVisible(void);
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
 
+/* In-match HUD overlay (top scorers + timer) */
+#include "pdgui_hud.h"
+
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
@@ -333,6 +336,10 @@ void pdguiRender(void)
      * Rendered independently of hotswap/menu state — active during gameplay. */
     pdguiPauseMenuRender((s32)winW, (s32)winH);
     pdguiScorecardRender((s32)winW, (s32)winH);
+
+    /* In-match HUD: top 2 scorers + remaining time.
+     * Only visible during normmplayerisrunning (combat sim active). */
+    pdguiHudRender((s32)winW, (s32)winH);
 
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
