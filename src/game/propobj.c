@@ -82,7 +82,7 @@
 
 void rng2SetSeed(u32 seed);
 
-struct weaponobj *g_Proxies[30];
+struct weaponobj *g_Proxies[MAX_PROXIES];
 f32 g_GasReleaseTimerMax240;
 bool g_GasEnableDamage;
 s32 g_MaxWeaponSlots;
@@ -2236,13 +2236,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		obj->model->obj = obj;
 		obj->model->unk01 = 0;
 
-		if (g_ModNum == MOD_GEX) {
-			modelSetScale(obj->model, g_GexModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		} else if (g_ModNum == MOD_GOLDFINGER_64) {
-			modelSetScale(obj->model, g_Goldfinger64ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		} else {
-			modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
-		}
+		modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
 
 		prop->type = PROPTYPE_OBJ;
 		prop->obj = obj;
@@ -4458,7 +4452,9 @@ void weaponTick(struct prop *prop)
 						}
 
 						if (parent && (parent->type == PROPTYPE_CHR || parent->type == PROPTYPE_PLAYER)) {
-							parent->chr->hidden |= CHRHFLAG_DROPPINGITEM;
+							if (parent->chr) {
+								parent->chr->hidden |= CHRHFLAG_DROPPINGITEM;
+							}
 						} else {
 							projectile->ownerprop = NULL;
 							projectile->flags |= PROJECTILEFLAG_AIRBORNE;
@@ -8395,7 +8391,7 @@ void cctvTick(struct prop *camprop)
 
 	if (g_Vars.bondvisible == false
 			|| (obj->flags & OBJFLAG_CAMERA_DISABLED)
-			|| (playerprop->chr->hidden & CHRHFLAG_CLOAKED)) {
+			|| (playerprop->chr && (playerprop->chr->hidden & CHRHFLAG_CLOAKED))) {
 		canseeplayer = false;
 	}
 
@@ -9337,7 +9333,7 @@ void autogunTickShoot(struct prop *autogunprop)
 								damage *= 0.5f;
 							}
 
-							if (ownerprop == hitprop || (ownerchr && chrCompareTeams(hitprop->chr, ownerchr, COMPARE_FRIENDS))) {
+							if (ownerprop == hitprop || (ownerchr && hitchr && chrCompareTeams(hitchr, ownerchr, COMPARE_FRIENDS))) {
 								// A teammate entered the line of fire
 								makebeam = false;
 								fireleft = false;
@@ -9348,12 +9344,14 @@ void autogunTickShoot(struct prop *autogunprop)
 							if (fireleft || fireright) {
 								bgunPlayPropHitSound(&gset, hitprop, -1);
 
-								if (hitchr->model && chrGetShield(hitchr) > 0.0f) {
-									chrCalculateShieldHit(hitchr, &hitpos, &dir, &hitnode, &hitpart, &hitmodel, &hitside);
-								}
+								if (hitchr) {
+									if (hitchr->model && chrGetShield(hitchr) > 0.0f) {
+										chrCalculateShieldHit(hitchr, &hitpos, &dir, &hitnode, &hitpart, &hitmodel, &hitside);
+									}
 
-								chrEmitSparks(hitchr, hitprop, hitpart, &hitpos, &dir, ownerchr);
-								func0f0341dc(hitchr, damage, &dir, &gset, ownerprop, HITPART_GENERAL, hitprop, hitnode, hitmodel, hitside, NULL);
+									chrEmitSparks(hitchr, hitprop, hitpart, &hitpos, &dir, ownerchr);
+									func0f0341dc(hitchr, damage, &dir, &gset, ownerprop, HITPART_GENERAL, hitprop, hitnode, hitmodel, hitside, NULL);
+								}
 							}
 						} else {
 							missed = true;
@@ -9465,7 +9463,9 @@ void autogunTickShoot(struct prop *autogunprop)
 
 								damage = 0.5f * g_AutogunDamageTxScale;
 
-								chrDamageByImpact(targetprop->chr, damage, &dir, &gset, 0, HITPART_GENERAL);
+								if (targetprop->chr) {
+									chrDamageByImpact(targetprop->chr, damage, &dir, &gset, 0, HITPART_GENERAL);
+								}
 
 								autogun->shotbondsum = 0.0f;
 							}

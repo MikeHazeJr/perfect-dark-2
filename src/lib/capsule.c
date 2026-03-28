@@ -136,16 +136,10 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
                      RoomNum *rooms, u32 cdtypes,
                      struct prop **out_prop, u16 *out_flags)
 {
-	/*
-	 * Strategy: Binary search downward from current position to find the
-	 * highest Y where the capsule volume collides with something below.
-	 *
-	 * We first use the existing cdFindGroundInfoAtCyl for the BG floor
-	 * (it handles the tile plane equations properly). Then we overlay a
-	 * capsule volume test to catch props that have wall geometry but no
-	 * floor geometry (the original problem that the prop surface hack
-	 * tried to solve).
-	 */
+	if (out_prop) *out_prop = NULL;
+	if (out_flags) *out_flags = 0;
+
+	/* Legacy floor detection */
 	struct coord testpos;
 	RoomNum testrooms[8];
 	f32 bgGround;
@@ -157,10 +151,6 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 	s32 inlift = 0;
 	struct prop *lift = NULL;
 
-	if (out_prop) *out_prop = NULL;
-	if (out_flags) *out_flags = 0;
-
-	/* Step 1: Get BG floor from the existing system */
 	testpos = *pos;
 	roomsCopy(rooms, testrooms);
 	bgGround = cdFindGroundInfoAtCyl(&testpos, radius, testrooms,
@@ -168,22 +158,18 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 
 	if (out_flags) *out_flags = floorflags;
 
-	/* Step 2: Probe downward with capsule volume to find prop surfaces.
-	 * Only do this if the player is above the BG floor — otherwise they're
-	 * on the ground and there's nothing to search for. */
+	/* Probe downward with capsule volume to find prop surfaces */
 	f32 feetY = pos->y + ymin_off;
 
 	if (feetY > bgGround + 2.0f) {
-		/* Binary search between feet and BG ground */
 		f32 top = feetY;
 		f32 bot = bgGround;
 
 		propSetPerimEnabled(g_Vars.currentplayer->prop, false);
 
-		/* Quick probe at midpoint to see if there's anything at all */
 		f32 mid = (top + bot) * 0.5f;
 		testpos.x = pos->x;
-		testpos.y = mid - ymin_off; /* adjust so capsule bottom is at mid */
+		testpos.y = mid - ymin_off;
 		testpos.z = pos->z;
 		roomsCopy(rooms, testrooms);
 		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
@@ -192,7 +178,6 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 				cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
 
 		if (midResult == CDRESULT_COLLISION) {
-			/* Something between feet and BG floor. Binary search for surface. */
 			for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
 				f32 test = (top + bot) * 0.5f;
 				testpos.y = test - ymin_off;
@@ -203,9 +188,9 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 						cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
 
 				if (r == CDRESULT_COLLISION) {
-					bot = test; /* collision at this height, surface is above */
+					bot = test;
 				} else {
-					top = test; /* no collision, surface is below */
+					top = test;
 				}
 			}
 
@@ -219,7 +204,6 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 	}
 
-	/* Return the higher of BG floor and prop floor */
 	if (propFloor > bgGround + 1.0f) {
 		return propFloor;
 	}
@@ -231,28 +215,21 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
                        RoomNum *rooms, u32 cdtypes,
                        struct prop **out_prop)
 {
-	/*
-	 * Strategy: Use the existing cdFindCeilingRoomYColourFlagsAtPos for
-	 * BG ceilings, then overlay a capsule volume test upward to catch
-	 * props and wall geometry that acts as ceiling.
-	 */
+	if (out_prop) *out_prop = NULL;
+
+	/* Legacy ceiling detection */
 	f32 bgCeiling = 99999.0f;
 	f32 propCeiling = 99999.0f;
 	struct coord testpos;
 	RoomNum testrooms[8];
 
-	if (out_prop) *out_prop = NULL;
-
-	/* Step 1: BG ceiling from existing system */
 	testpos = *pos;
 	cdFindCeilingRoomYColourFlagsAtPos(&testpos, rooms, &bgCeiling, NULL, NULL);
 
-	/* Step 2: Probe upward with capsule volume to find prop/wall ceilings.
-	 * Search from current head position upward. */
+	/* Probe upward with capsule volume for prop/wall ceilings */
 	f32 headY = pos->y + ymax_off;
 	f32 maxProbe = headY + CAPSULE_CEILING_PROBE;
 
-	/* Only search if there's room above */
 	if (maxProbe > headY + 10.0f) {
 		f32 bot = headY;
 		f32 top = (bgCeiling < maxProbe) ? bgCeiling : maxProbe;
@@ -260,10 +237,9 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 		if (top > bot + 5.0f) {
 			propSetPerimEnabled(g_Vars.currentplayer->prop, false);
 
-			/* Quick probe at a small offset above head */
 			f32 probeY = bot + 10.0f;
 			testpos.x = pos->x;
-			testpos.y = probeY - ymax_off; /* position so head is at probeY */
+			testpos.y = probeY - ymax_off;
 			testpos.z = pos->z;
 			roomsCopy(rooms, testrooms);
 			bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
@@ -272,11 +248,9 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 					cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
 
 			if (probeResult == CDRESULT_COLLISION) {
-				/* There's something very close above the head — ceiling is near headY */
 				propCeiling = headY;
 				if (out_prop) *out_prop = cdGetObstacleProp();
 			} else {
-				/* Binary search for ceiling between current head and bgCeiling */
 				for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
 					f32 test = (bot + top) * 0.5f;
 					testpos.y = test - ymax_off;
@@ -287,13 +261,12 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 							cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
 
 					if (r == CDRESULT_COLLISION) {
-						top = test; /* collision here, ceiling is lower */
+						top = test;
 					} else {
-						bot = test; /* no collision, ceiling is higher */
+						bot = test;
 					}
 				}
 
-				/* Only accept if we actually found something closer than bgCeiling */
 				if (top < bgCeiling - 1.0f) {
 					propCeiling = top;
 					if (out_prop) *out_prop = cdGetObstacleProp();
@@ -304,6 +277,5 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 		}
 	}
 
-	/* Return the lower of BG ceiling and prop ceiling */
 	return (propCeiling < bgCeiling) ? propCeiling : bgCeiling;
 }

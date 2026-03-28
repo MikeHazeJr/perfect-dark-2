@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "system.h"
 #include "game/botmgr.h"
 #include "game/chr.h"
@@ -56,11 +57,17 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 	model = bodyAllocateModel(bodynum, headnum, 0);
 
+	sysLogPrintf(LOG_NOTE, "BOT_ALLOC: bodyAllocateModel returned %p for chrnum=%d slot=%d",
+		(void *)model, chrnum, aibotnum);
+
 	if (model != NULL) {
 		struct coord pos = {0.0f, 0.0f, 0.0f};
 		u32 stack;
 
 		prop = chrAllocate(model, &pos, rooms, 0.0f, ailistFindById(GAILIST_AIBOT_INIT));
+
+		sysLogPrintf(LOG_NOTE, "BOT_ALLOC: chrAllocate returned prop=%p for chrnum=%d slot=%d g_BotCount=%d g_MpNumChrs=%d",
+			(void *)prop, chrnum, aibotnum, g_BotCount, g_MpNumChrs);
 
 		if (prop != NULL) {
 			propActivate(prop);
@@ -110,9 +117,9 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 					g_MpAllChrConfigPtrs[g_MpNumChrs] = &g_BotConfigsArray[aibotnum].base;
 					g_MpNumChrs++;
 
-					aibot->ammoheld = mempAlloc(36 * sizeof(s32), MEMPOOL_STAGE);
+					aibot->ammoheld = mempAlloc(AMMO_TYPE_COUNT * sizeof(s32), MEMPOOL_STAGE);
 
-					for (i = 0; i < 33; i++) {
+					for (i = 0; i < AMMO_TYPE_COUNT; i++) {
 						aibot->ammoheld[i] = 0;
 					}
 
@@ -281,5 +288,8 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 				botinvInit(chr, 10);
 			}
 		}
+	} else {
+		sysLogPrintf(LOG_ERROR, "BOT_ALLOC: FAILED - bodyAllocateModel returned NULL for chrnum=%d slot=%d body=%d head=%d - model pool likely exhausted",
+			chrnum, aibotnum, bodynum, headnum);
 	}
 }

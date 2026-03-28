@@ -101,7 +101,46 @@ GEOTYPE_TILE_I = 0, GEOTYPE_TILE_F = 1, GEOTYPE_BLOCK = 2, GEOTYPE_CYL = 3
 - **Player data**: playerGetBbox provides capsule dimensions
 - **Room system**: roomsCopy, bmoveFindEnteredRoomsByPos, func0f065e74 for room tracking
 
-## Planned Upgrades
-- Extend capsule sweep to **horizontal movement** (wall sliding, fast-move clipping)
-- Replace room-based brute-force iteration with **spatial partitioning** (see roadmap.md)
-- Full **capsule-vs-triangle** intersection for precise contact normals
+## Mesh Collision System (S48 -- DISABLED, HIGH PRIORITY RETURN)
+
+New files: `src/lib/meshcollision.c` + `src/include/lib/meshcollision.h`
+Modified: `src/lib/capsule.c`, `src/game/lv.c`, `src/include/types.h`
+
+**Architecture**: mesh collision is PRIMARY for player movement. Legacy is fallback only.
+- **Mesh** (`meshSweepCapsuleWorld`, `meshFindFloor`, `meshFindCeiling`): all player movement
+- **Legacy** (`cdTestVolume`, `cdFindGroundInfoAtCyl`): damage/weapons only, fallback if mesh empty
+
+**Triangle extraction**: walks model node tree, finds DL nodes (type 0x18), parses GBI
+display lists (G_TRI1, G_TRI4) to extract vertex positions from Vtx arrays. Handles
+PC port vertex index convention (divide by 10). Auto-classifies triangles as floor/wall/ceiling.
+
+**Room geometry extraction**: `meshWorldAddRoomGeo()` reads packed tile data from
+g_TileFileData/g_TileRooms per room. Handles geotilei (s16 BG), geotilef (float lifts),
+geoblock (prop bounding boxes). Fan-triangulates polygon tiles.
+
+**Static world mesh**: all room geometry merged into one spatial grid (256-unit cells).
+Built at stage load after `bgBuildTables()`. All rooms iterated. Skedar Ruins: 7,110 tris,
+33x52 grid. Lifecycle: `meshWorldInit()` -> add rooms -> `meshWorldFinalize()` -> gameplay -> `meshWorldShutdown()`.
+
+**Dynamic meshes**: `struct colmesh *colmesh` field added to `struct prop` in types.h.
+`meshAttachToProp()` / `meshGetFromProp()` for per-prop mesh data. Dynamic objects
+keep their own triangle array, transformed by world matrix at query time.
+
+**Capsule integration** (capsule.c):
+- `capsuleSweep()`: mesh sweep only when world mesh is built, legacy only when not
+- `capsuleFindFloor()`: runs BOTH mesh and legacy, returns the higher floor. Mesh covers
+  level geometry (BG tiles), legacy covers prop surfaces (desks, crates, walls) until
+  prop meshes are extracted into the world grid.
+- `capsuleFindCeiling()`: runs BOTH mesh and legacy, returns the lower ceiling. Same
+  rationale -- props acting as ceilings need legacy until prop mesh extraction.
+
+**Stage coverage**: all stages except TITLE/BOOTPAKMENU/CREDITS/4MBMENU get mesh collision.
+Carrington Institute menu map is included.
+
+**Verified**: Skedar Ruins extracted 7,110 tris successfully. Compiles clean (496 objects, 0 errors).
+
+## Remaining Work
+- Extract static prop meshes at prop spawn and add to world grid
+- Extract dynamic prop meshes (doors, lifts) and attach to props
+- Horizontal capsule sweep for wall sliding
+- BVH acceleration for very large levels (if grid becomes bottleneck)

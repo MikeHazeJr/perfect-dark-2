@@ -24,9 +24,18 @@ s32 g_ModelMostType3 = 0;
 s32 g_ModelMostModels = 0;
 s32 g_ModelMostAnims = 0;
 
-#define NUMTYPE1() (IS4MB() ? 0 : 35)
-#define NUMTYPE2() (IS4MB() ? 24 : 25)
-#define NUMTYPE3() (IS4MB() ? 0 : 20)
+/*
+ * PC port: Increase rwdata binding pools to support up to 32 simultaneous
+ * characters (MAX_MPCHRS). Original N64 values were 35/25/20 which only
+ * supported ~12 active character models before type 3 slots exhausted.
+ *
+ * Type 1: small rwdata (<=4 words / 0x10 bytes) - props, simple objects
+ * Type 2: medium rwdata (<=52 words / 0xD0 bytes) - weapons, animated objects
+ * Type 3: large rwdata (<=256 words / 0x400 bytes) - character body models
+ */
+#define NUMTYPE1() (IS4MB() ? 0 : 70)
+#define NUMTYPE2() (IS4MB() ? 24 : 50)
+#define NUMTYPE3() (IS4MB() ? 0 : 48)
 
 bool modelmgrCanSlotFitRwdata(struct model *modelslot, struct modeldef *modeldef)
 {
@@ -106,6 +115,14 @@ void modelmgrPrintCounts(void)
 
 struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 {
+	/* PC: Guard against NULL modeldef (B-20 fix).
+	 * This can happen when a character body fails to load from ROM
+	 * (e.g., objective completion triggers spawning with an invalid filenum). */
+	if (!modeldef) {
+		sysLogPrintf(LOG_ERROR, "MODELMGR: NULL modeldef in modelmgrInstantiateModel -- returning NULL");
+		return NULL;
+	}
+
 	struct model *model = NULL;
 	u32 *rwdatas = NULL;
 	s16 datalen = -1;
@@ -210,7 +227,13 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 					}
 				}
 			} else {
-				sysLogPrintf(LOG_WARNING, "Unable to allocate rwdata");
+				sysLogPrintf(LOG_WARNING, "MODELMGR: rwdatalen=%d exceeds max type 3 capacity (%d words) - cannot use binding pools",
+					modeldef->rwdatalen, 256+extra);
+			}
+
+			if (rwdatas == NULL && modeldef->rwdatalen > 0 && modeldef->rwdatalen < 256+extra) {
+				sysLogPrintf(LOG_WARNING, "MODELMGR: All rwdata binding pools exhausted (type1=%d type2=%d type3=%d) for rwdatalen=%d - heap fallback",
+					NUMTYPE1(), NUMTYPE2(), NUMTYPE3(), modeldef->rwdatalen);
 			}
 
 			if (withanim) {

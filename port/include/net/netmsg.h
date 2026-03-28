@@ -38,6 +38,15 @@
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
 #define SVC_CUTSCENE      0x53 // cutscene state change (co-op only, start/end)
+#define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
+#define SVC_LOBBY_STATE   0x61 // server broadcasts lobby state (game mode, stage, etc.)
+
+/* D3R-9: Network Distribution (protocol v20) */
+#define SVC_CATALOG_INFO    0x70 // server→client: list of required component (net_hash, id, category)
+#define SVC_DISTRIB_BEGIN   0x71 // server→client: start of a component archive transfer
+#define SVC_DISTRIB_CHUNK   0x72 // server→client: one compressed chunk of the component archive
+#define SVC_DISTRIB_END     0x73 // server→client: component transfer complete (success/fail)
+#define SVC_LOBBY_KILL_FEED 0x74 // server→spectating clients: kill event with pre-resolved names
 
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
@@ -47,6 +56,10 @@
 #define CLC_SETTINGS    0x05 // player settings changed
 #define CLC_RESYNC_REQ  0x06 // client requests full state resync from server
 #define CLC_COOP_READY  0x07 // client signals ready for co-op mission start
+#define CLC_LOBBY_START 0x08 // lobby leader requests match start {gamemode, stagenum, difficulty}
+
+/* D3R-9: Network Distribution (protocol v20) */
+#define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component net_hashes
 
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
@@ -126,5 +139,38 @@ u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
+
+/* Lobby protocol messages (Phase 3) */
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit);
+u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
+u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status);
+u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
+
+/* D3R-9: Network Distribution (protocol v20) */
+
+/* SVC_CATALOG_INFO: server→client, list of required non-bundled enabled components */
+u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst);
+u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl);
+
+/* CLC_CATALOG_DIFF: client→server, which components the client is missing */
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes, u16 count, u8 temporary);
+u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream */
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+                                const char *category, u32 total_chunks, u32 archive_bytes);
+u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+                                u8 compression, const u8 *data, u16 data_len);
+u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success);
+u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_LOBBY_KILL_FEED: server→spectating clients, pre-resolved kill event */
+u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker, const char *victim,
+                                 const char *weapon, u8 flags);
+u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
 
 #endif

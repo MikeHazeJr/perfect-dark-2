@@ -59,6 +59,15 @@ enum virtkey {
 	VK_JOY1_BEGIN = VK_JOY_BEGIN,
 	VK_JOY1_LSHOULDER = VK_JOY1_BEGIN + 9,
 	VK_JOY1_RSHOULDER = VK_JOY1_BEGIN + 10,
+	/* Synthetic axis-as-button VKs for stick direction capture (slots 22-29) */
+	VK_JOY1_LSTICK_LEFT  = VK_JOY1_BEGIN + 22,
+	VK_JOY1_LSTICK_RIGHT = VK_JOY1_BEGIN + 23,
+	VK_JOY1_LSTICK_UP    = VK_JOY1_BEGIN + 24,
+	VK_JOY1_LSTICK_DOWN  = VK_JOY1_BEGIN + 25,
+	VK_JOY1_RSTICK_LEFT  = VK_JOY1_BEGIN + 26,
+	VK_JOY1_RSTICK_RIGHT = VK_JOY1_BEGIN + 27,
+	VK_JOY1_RSTICK_UP    = VK_JOY1_BEGIN + 28,
+	VK_JOY1_RSTICK_DOWN  = VK_JOY1_BEGIN + 29,
 	VK_JOY1_LTRIG = VK_JOY1_BEGIN + 30,
 	VK_JOY1_RTRIG = VK_JOY1_BEGIN + 31,
 	VK_JOY2_BEGIN = VK_JOY1_BEGIN + INPUT_MAX_CONTROLLER_BUTTONS,
@@ -148,6 +157,10 @@ void inputControllerSetDualAnalog(s32 cidx, s32 enable);
 // get/set Input.Player%d.CancelCButtons
 s32 inputControllerGetCancelCButtons(s32 cidx);
 void inputControllerSetCancelCButtons(s32 cidx, s32 cancel);
+
+// get/set Input.Player%d.InvertRStickY
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
 
 // get/set sensitivity for a given player
 f32 inputControllerGetAxisScale(s32 cidx, s32 stick, s32 axis);

@@ -13,6 +13,7 @@ void bcutsceneInit(void)
 	g_Vars.currentplayer->bondmovemode = MOVEMODE_CUTSCENE;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->joybutinhibit = 0xffffffff;
 
 		// @bug? Should this be < 2?

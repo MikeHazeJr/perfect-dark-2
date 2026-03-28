@@ -248,6 +248,7 @@ Mtxf *cam0f0b5050(u8 *arg0)
 
 	if (arg0 >= g_VtxBuffers[g_GfxActiveBufferIndex] && arg0 < g_VtxBuffers[g_GfxActiveBufferIndex + 1]) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.currentplayerindex >= playermgrGetOrderOfPlayer(i)) {
 				if (g_GfxNumSwaps == g_Vars.players[i]->c_viewfmdynticknum) {
 					if (arg0 >= g_Vars.players[i]->unk0484 && (u8 *)result < g_Vars.players[i]->unk0484) {
@@ -258,6 +259,7 @@ Mtxf *cam0f0b5050(u8 *arg0)
 		}
 	} else {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.currentplayerindex >= playermgrGetOrderOfPlayer(i)) {
 				if (g_GfxNumSwaps == g_Vars.players[i]->c_prevviewfmdynticknum + 1) {
 					if (arg0 >= g_Vars.players[i]->unk0488 && (u8 *)result < g_Vars.players[i]->unk0488) {
@@ -284,6 +286,7 @@ Mtxf *cam0f0b53a4(u8 *arg0)
 
 	if (arg0 >= g_VtxBuffers[g_GfxActiveBufferIndex] && arg0 < g_VtxBuffers[g_GfxActiveBufferIndex + 1]) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.currentplayerindex >= playermgrGetOrderOfPlayer(i)) {
 				if (g_GfxNumSwaps == g_Vars.players[i]->c_viewfmdynticknum) {
 					if (arg0 >= g_Vars.players[i]->unk0484 && (u8 *)result < g_Vars.players[i]->unk0484) {
@@ -294,6 +297,7 @@ Mtxf *cam0f0b53a4(u8 *arg0)
 		}
 	} else {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.currentplayerindex >= playermgrGetOrderOfPlayer(i)) {
 				if (g_GfxNumSwaps == g_Vars.players[i]->c_prevviewfmdynticknum + 1) {
 					if (arg0 >= g_Vars.players[i]->unk0488 && (u8 *)result < g_Vars.players[i]->unk0488) {

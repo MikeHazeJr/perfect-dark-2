@@ -105,7 +105,9 @@ char *endscreenMenuTitleRetryMission(struct menudialogdef *dialogdef)
 	}
 
 	prefix = langGet(L_OPTIONS_296); // "Retry"
-	name = langGet(g_SoloStages[g_MissionConfig.stageindex].name3);
+	// PC: guard — mod stages have no solo stage index
+	name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
+		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
 
 	sprintf(g_StringPointer, "%s: %s\n", prefix, name);
 
@@ -122,7 +124,9 @@ char *endscreenMenuTitleNextMission(struct menudialogdef *dialogdef)
 	}
 
 	prefix = langGet(L_OPTIONS_297); // "Next Mission"
-	name = langGet(g_SoloStages[g_MissionConfig.stageindex].name3);
+	// PC: guard — mod stages have no solo stage index
+	name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
+		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
 
 	sprintf(g_StringPointer, "%s: %s\n", prefix, name);
 
@@ -133,6 +137,10 @@ MenuItemHandlerResult endscreenHandleReplayPreviousMission(s32 operation, struct
 {
 	if (operation == MENUOP_SET) {
 		g_MissionConfig.stageindex--;
+		// PC: guard — prevent underflow into invalid solo stage index
+		if (g_MissionConfig.stageindex < 0) {
+			g_MissionConfig.stageindex = 0;
+		}
 		g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 	}
 
@@ -394,13 +402,18 @@ char *endscreenMenuTextAgentStatus(struct menuitem *item)
 char *endscreenMenuTitleStageCompleted(struct menuitem *item)
 {
 #if VERSION >= VERSION_NTSC_1_0
-	sprintf(g_StringPointer, "%s: %s\n",
-			langGet(g_SoloStages[g_Menus[g_MpPlayerNum].endscreen.stageindex].name3),
-			langGet(L_OPTIONS_276)); // "Completed"
+	{
+		s32 si = g_Menus[g_MpPlayerNum].endscreen.stageindex;
+		// PC: guard — mod stages have no solo stage entry
+		char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
+		sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
+	}
 #else
-	sprintf(g_StringPointer, "%s: %s\n",
-			langGet(g_SoloStages[g_MissionConfig.stageindex].name3),
-			langGet(L_OPTIONS_276)); // "Completed"
+	{
+		s32 si = g_MissionConfig.stageindex;
+		char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
+		sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
+	}
 #endif
 
 	return g_StringPointer;
@@ -409,7 +422,9 @@ char *endscreenMenuTitleStageCompleted(struct menuitem *item)
 #if VERSION >= VERSION_NTSC_1_0
 char *endscreenMenuTextCurrentStageName3(struct menuitem *item)
 {
-	char *name = langGet(g_SoloStages[g_MissionConfig.stageindex].name3);
+	s32 si = g_MissionConfig.stageindex;
+	// PC: guard — mod stages have no solo stage entry
+	char *name = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
 	sprintf(g_StringPointer, "%s\n", name);
 
 	return g_StringPointer;
@@ -418,9 +433,10 @@ char *endscreenMenuTextCurrentStageName3(struct menuitem *item)
 
 char *endscreenMenuTitleStageFailed(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s: %s\n",
-			langGet(g_SoloStages[g_MissionConfig.stageindex].name3),
-			langGet(L_OPTIONS_277)); // "Failed"
+	s32 si = g_MissionConfig.stageindex;
+	// PC: guard — mod stages have no solo stage entry
+	char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
+	sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_277)); // "Failed"
 
 	return g_StringPointer;
 }
@@ -448,6 +464,10 @@ struct menudialogdef *endscreenAdvance(void)
 #endif
 
 	g_MissionConfig.stageindex++;
+	// PC: guard — clamp to last valid solo stage to prevent OOB
+	if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+		g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+	}
 	g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 
 	return &g_NextMissionMenuDialog;
@@ -472,7 +492,10 @@ void endscreenResetModels(void)
 MenuItemHandlerResult endscreenHandleReplayLastLevel(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+		// PC: guard — stageindex may be out of solo range for mod stages
+		if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
+			g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+		}
 		return menuhandlerAcceptMission(operation, NULL, data);
 	}
 
@@ -642,6 +665,10 @@ void endscreenContinue(s32 context)
 					} else {
 						// Commit to starting next stage
 						g_MissionConfig.stageindex++;
+						// PC: guard — clamp to last valid solo stage to prevent OOB
+						if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+							g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+						}
 						g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 
 						titleSetNextStage(g_MissionConfig.stagenum);
@@ -751,6 +778,10 @@ MenuDialogHandlerResult endscreenHandle2PCompleted(s32 operation, struct menudia
 								menuPopDialog();
 							} else {
 								g_MissionConfig.stageindex++;
+								// PC: guard -- clamp to last valid solo stage to prevent OOB
+								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+								}
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 
 								titleSetNextStage(g_MissionConfig.stagenum);
@@ -1570,6 +1601,8 @@ void endscreenPrepare(void)
 				}
 
 				// Set best time
+				// PC: Guard besttimes write — mod stages have stageindex >= NUM_SOLOSTAGES
+				if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
 				prevbest = g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty];
 
 				if (prevbest == 0) {
@@ -1579,11 +1612,15 @@ void endscreenPrepare(void)
 				if (secs < prevbest || prevbest == 0) {
 					g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty] = secs;
 				}
+				}
 #else
+				// PC: Guard besttimes write — mod stages have stageindex >= NUM_SOLOSTAGES
+				if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
 				prevbest = g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty];
 
 				if (secs < prevbest || prevbest == 0) {
 					g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty] = secs;
+				}
 				}
 #endif
 

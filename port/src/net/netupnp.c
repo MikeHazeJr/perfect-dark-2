@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "types.h"
@@ -22,6 +23,7 @@
 #include "miniupnpc.h"
 #include "upnpcommands.h"
 #include "upnperrors.h"
+#include "connectcode.h"
 
 /* Status values */
 #define UPNP_STATUS_IDLE      0
@@ -110,6 +112,18 @@ static void *upnpWorkerThread(void *param)
     sysLogPrintf(LOG_NOTE, "UPNP: [thread] Port %s/UDP mapped! Connect to %s:%s",
                  s_MappedPort, s_ExternalIP, s_MappedPort);
 
+    /* Log connect code for easy sharing */
+    {
+        u32 a, b, c, d;
+        if (sscanf(s_ExternalIP, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+            u32 ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+            u16 port = (u16)atoi(s_MappedPort);
+            char code[256];
+            connectCodeEncode(ipAddr, code, sizeof(code));
+            sysLogPrintf(LOG_NOTE, "UPNP: Connect code: %s", code);
+        }
+    }
+
     s_UpnpActive = 1;
     s_UpnpStatus = UPNP_STATUS_SUCCESS;
     return 0;
@@ -160,6 +174,16 @@ void netUpnpTeardown(void)
         return;
     }
 
+    // UPNP_DeletePortMapping is a synchronous HTTP request. If the router
+    // is unreachable it can block for 10-30 seconds. Skip it when the app
+    // is quitting — the mapping will expire on its own, and keeping the
+    // user waiting for a network round-trip on exit is not acceptable.
+    if (g_AppQuitting) {
+        sysLogPrintf(LOG_NOTE, "UPNP: skipping port mapping removal (app quitting)");
+        s_UpnpActive = false;
+        return;
+    }
+
     sysLogPrintf(LOG_NOTE, "UPNP: Removing port mapping %s/UDP...", s_MappedPort);
 
     int result = UPNP_DeletePortMapping(
@@ -195,4 +219,61 @@ s32 netUpnpIsActive(void)
 s32 netUpnpGetStatus(void)
 {
     return s_UpnpStatus;
+}
+
+/* -------------------------------------------------------------------------
+ * HTTP public IP fallback (when UPnP fails)
+ * Uses curl to query a lightweight IP echo service.
+ * Called from netGetPublicIP when UPnP has no result.
+ * ------------------------------------------------------------------------- */
+
+#include <curl/curl.h>
+
+static size_t ipWriteCallback(void *data, size_t size, size_t nmemb, void *userp)
+{
+    size_t total = size * nmemb;
+    char *buf = (char *)userp;
+    size_t curlen = strlen(buf);
+    if (curlen + total >= 63) total = 63 - curlen;
+    memcpy(buf + curlen, data, total);
+    buf[curlen + total] = '\0';
+    return size * nmemb;
+}
+
+s32 netHttpGetPublicIP(char *buf, s32 bufsize)
+{
+    if (!buf || bufsize < 16) return -1;
+    buf[0] = '\0';
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    char tmp[64] = "";
+    curl_easy_setopt(curl, CURLOPT_URL, "https://api.ipify.org");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ipWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, tmp);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "PerfectDark-Server/1.0");
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK || tmp[0] == '\0') {
+        sysLogPrintf(LOG_WARNING, "NET: HTTP IP lookup failed (curl error %d)", (int)res);
+        return -1;
+    }
+
+    /* Validate it looks like an IP address */
+    u32 a, b, c, d;
+    if (sscanf(tmp, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) {
+        sysLogPrintf(LOG_WARNING, "NET: HTTP IP lookup returned invalid response: '%s'", tmp);
+        return -1;
+    }
+
+    strncpy(buf, tmp, bufsize - 1);
+    buf[bufsize - 1] = '\0';
+    sysLogPrintf(LOG_NOTE, "NET: public IP resolved via HTTP: %s", buf);
+    return 0;
 }

@@ -76,21 +76,22 @@
 #include "console.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "modelcatalog.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
 
 void rngSetSeed(u32 seed);
 
-bool var8005d9b0 = false;
+s32 var8005d9b0 = 0;
 s32 g_StageNum = STAGE_TITLE;
 u32 g_MainMemaHeapSize = 1024 * 300;
-bool var8005d9bc = false;
+s32 var8005d9bc = 0;
 s32 var8005d9c0 = 0;
 s32 var8005d9c4 = 0;
-bool g_MainGameLogicEnabled = true;
+s32 g_MainGameLogicEnabled = 1;
 u32 g_MainNumGfxTasks = 0;
-bool g_MainIsEndscreen = false;
+s32 g_MainIsEndscreen = 0;
 s32 g_DoBootPakMenu = 0;
 
 u32 var8005dd3c = 0x00000000;
@@ -100,7 +101,7 @@ u32 var8005dd48 = 0x00000000;
 u32 var8005dd4c = 0x00000000;
 u32 var8005dd50 = 0x00000000;
 s32 g_MainChangeToStageNum = -1;
-bool g_MainIsDebugMenuOpen = false;
+s32 g_MainIsDebugMenuOpen = 0;
 
 struct stageallocation g_StageAllocations8Mb[] = {
 	{ STAGE_CITRAINING,    "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
@@ -291,7 +292,7 @@ void mainInit(void)
 	// no copyright screen
 	viSetMode(VIMODE_HI);
 	viConfigureForLegal();
-	viBlack(true);
+	viBlack(1);
 	viUpdateMode();
 
 	filesInit();
@@ -302,33 +303,65 @@ void mainInit(void)
 
 	mempSetHeap(g_MempHeap, g_MempHeapSize);
 
+	/* NOTE: catalogValidateAll() was previously called here, but model
+	 * loading depends on subsystems initialized later in this function
+	 * (texInit, langInit, etc.). Loading at this point triggers ACCESS
+	 * VIOLATION for ALL 151 models because the texture/skeleton systems
+	 * aren't ready yet. Validation is deferred to on-demand: models are
+	 * validated lazily via catalogGetSafeBody/Head() when first accessed
+	 * during gameplay, by which point all subsystems are initialized. */
+
+	sysLogPrintf(LOG_VERBOSE, "INIT: mempResetPool...");
 	mempResetPool(MEMPOOL_8);
 	mempResetPool(MEMPOOL_PERMANENT);
+	sysLogPrintf(LOG_VERBOSE, "INIT: crashReset...");
 	crashReset();
+	sysLogPrintf(LOG_VERBOSE, "INIT: challengesInit...");
 	challengesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: utilsInit...");
 	utilsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: texInit...");
 	texInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: langInit...");
 	langInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: lvInit...");
 	lvInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: cheatsInit...");
 	cheatsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: textInit...");
 	textInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: dhudInit...");
 	dhudInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: playermgrInit...");
 	playermgrInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: frametimeInit...");
 	frametimeInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: profileInit...");
 	profileInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: smokesInit...");
 	smokesInit();
-	mpInit(true);
+	sysLogPrintf(LOG_VERBOSE, "INIT: mpInit...");
+	mpInit(1);
+	sysLogPrintf(LOG_VERBOSE, "INIT: pheadInit...");
 	pheadInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: paksInit...");
 	paksInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: pheadInit2...");
 	pheadInit2();
+	sysLogPrintf(LOG_VERBOSE, "INIT: animsInit...");
 	animsInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: racesInit...");
 	racesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: bodiesInit...");
 	bodiesInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: titleInit...");
 	titleInit();
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainInit - titleInit() done, g_StageNum=0x%02x", g_StageNum);
 
-	modelSetDistanceChecksDisabled(true); // don't use LODs
+	modelSetDistanceChecksDisabled(1); // don't use LODs
 
 	g_MainIsBooting = 0;
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainInit complete, g_MainIsBooting=0");
 }
 
 void mainProc(void)
@@ -337,7 +370,7 @@ void mainProc(void)
 	rdpInit();
 	sndInit();
 
-	while (true) {
+	while (1) {
 		mainLoop();
 	}
 }
@@ -368,7 +401,7 @@ void mainOverrideVariable(char *name, void *value)
  */
 void mainLoop(void)
 {
-	s32 ending = false;
+	s32 ending = 0;
 	s32 index;
 	s32 numplayers;
 	u32 stack;
@@ -377,13 +410,17 @@ void mainLoop(void)
 
 	var8005d9c4 = 0;
 	argGetLevel(&g_StageNum);
+	sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - after argGetLevel, g_StageNum=0x%02x, g_DoBootPakMenu=%d",
+		g_StageNum, g_DoBootPakMenu);
 
 	if (g_DoBootPakMenu) {
 		g_Vars.pakstocheck = 0xfd;
 		g_StageNum = STAGE_BOOTPAKMENU;
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - boot pak menu override, g_StageNum=BOOTPAKMENU");
 	}
 
 	if (g_StageNum != STAGE_TITLE) {
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - g_StageNum != STAGE_TITLE, calling titleSetNextStage");
 		titleSetNextStage(g_StageNum);
 
 		if (STAGE_IS_GAMEPLAY(g_StageNum)) {
@@ -404,8 +441,8 @@ void mainLoop(void)
 	// Outer loop - this is infinite because ending is never changed
 	while (!ending) {
 		g_MainNumGfxTasks = 0;
-		g_MainGameLogicEnabled = true;
-		g_MainIsEndscreen = false;
+		g_MainGameLogicEnabled = 1;
+		g_MainIsEndscreen = 0;
 
 		if (var8005d9b0 && var8005d9c4 == 0) {
 			index = -1;
@@ -536,12 +573,12 @@ void mainLoop(void)
 			mpReset();
 		} else if (g_Vars.perfectbuddynum) {
 			mpReset();
-		} else if (g_Vars.mplayerisrunning == false
+		} else if (g_Vars.mplayerisrunning == 0
 				&& (numplayers >= 2 || g_Vars.lvmpbotlevel || argFindByPrefix(1, "-play"))) {
 			g_MpSetup.chrslots = 1;
 
 			for (s32 i = 1; i < numplayers; ++i) {
-				g_MpSetup.chrslots |= 1 << i;
+				g_MpSetup.chrslots |= 1u << i;
 			}
 
 			g_MpSetup.stagenum = g_StageNum;
@@ -554,6 +591,8 @@ void mainLoop(void)
 		zbufReset(g_StageNum);
 		lvReset(g_StageNum);
 		viReset(g_StageNum);
+		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - entering tick loop with g_StageNum=0x%02x, g_Vars.stagenum=0x%02x",
+			g_StageNum, g_Vars.stagenum);
 		frametimeCalculate();
 		profileReset();
 
@@ -573,7 +612,7 @@ void mainLoop(void)
 		mempDisablePool(MEMPOOL_STAGE);
 		mempDisablePool(MEMPOOL_7);
 		filesStop(4);
-		viBlack(true);
+		viBlack(1);
 		pak0f116994();
 
 		g_StageNum = g_MainChangeToStageNum;
@@ -593,7 +632,7 @@ void mainTick(void)
 		profileReset();
 		profileSetMarker(PROFILE_MAINTICK_START);
 		joyDebugJoy();
-		schedSetCrashEnable2(false);
+		schedSetCrashEnable2(0);
 
 		if (g_MainGameLogicEnabled) {
 			gdl = gdlstart = gfxGetMasterDisplayList();
@@ -683,7 +722,7 @@ void mainEndStage(void)
 		netServerStageEnd();
 	}
 
-	g_MainIsEndscreen = true;
+	g_MainIsEndscreen = 1;
 }
 
 /**

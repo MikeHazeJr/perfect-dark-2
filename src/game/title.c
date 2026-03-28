@@ -32,6 +32,7 @@
 #include "types.h"
 #include "string.h"
 #include "video.h"
+#include "system.h"
 
 #define TITLE_ASPECT (videoGetAspect())
 
@@ -151,6 +152,7 @@ void titleSetLight(Lights1 *light, u8 r, u8 g, u8 b, f32 luminosity, struct coor
 
 void titleInitLegal(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitLegal() called");
 	musicQueueStopAllEvent();
 	var800624f4 = 1;
 	g_TitleTimer = 0;
@@ -180,13 +182,20 @@ void titleTickLegal(void)
 
 	g_TitleTimer += g_Vars.lvupdate60;
 
-	if (g_TitleTimer > TICKS(180)) {
+	if (g_TitleTimer % 60 == 0) {
+		sysLogPrintf(LOG_NOTE, "INTRO: titleTickLegal timer=%d guard=%d",
+			g_TitleTimer, titleGuardCanSkip(2000));
+	}
+
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(180)) {
+		sysLogPrintf(LOG_NOTE, "INTRO: Legal done -> CHECKCONTROLLERS (timer=%d)", g_TitleTimer);
 		titleSetNextMode(TITLEMODE_CHECKCONTROLLERS);
 	}
 }
 
 void titleInitCheckControllers(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitCheckControllers()");
 	g_TitleTimer = 0;
 	viBlack(true);
 }
@@ -206,9 +215,14 @@ void titleTickCheckControllers(void)
 	viSetUseZBuf(false);
 
 	if (g_TitleTimer > 6) {
-		if ((joyGetConnectedControllers() & 1) == 0) {
+		u32 controllers = joyGetConnectedControllers();
+		sysLogPrintf(LOG_NOTE, "INTRO: titleTickCheckControllers timer=%d controllers=0x%x",
+			g_TitleTimer, controllers);
+		if ((controllers & 1) == 0) {
+			sysLogPrintf(LOG_NOTE, "INTRO: No controller detected -> NOCONTROLLER");
 			titleSetNextMode(TITLEMODE_NOCONTROLLER);
 		} else {
+			sysLogPrintf(LOG_NOTE, "INTRO: Controller OK -> RARELOGO");
 			titleSetNextMode(TITLEMODE_RARELOGO);
 		}
 	}
@@ -519,6 +533,7 @@ bool g_PdLogoTriggerExit = false;
 
 void titleInitPdLogo(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitPdLogo()");
 	u8 *nextaddr = var8009cca0;
 	u32 remaining;
 	u32 size;
@@ -715,11 +730,11 @@ void titleTickPdLogo(void)
 		}
 	}
 
-	if (g_TitleButtonPressed && g_TitleTimer > TICKS(666)) {
+	if (titleGuardCanSkip(3000) && g_TitleButtonPressed && g_TitleTimer > TICKS(666)) {
 		titleSetNextMode(TITLEMODE_SKIP);
 	}
 
-	if (joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	if (titleGuardCanSkip(3000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
 		g_TitleButtonPressed = g_TitleFastForward = true;
 
 		if (g_TitleTimer < TICKS(549)) {
@@ -1656,6 +1671,7 @@ bool g_TitleTypewriterFinishing = false;
 
 void titleInitRarePresents(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitRarePresents()");
 	g_TitleTimer = 0;
 	joy00014810(false);
 	g_TitleAudioHandle = NULL;
@@ -1680,9 +1696,9 @@ void titleTickRarePresents(void)
 
 	g_TitleTimer += g_Vars.lvupdate60;
 
-	if (g_TitleTimer > TICKS(300)) {
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(300)) {
 		titleSetNextMode(TITLEMODE_PDLOGO);
-	} else if (joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	} else if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
 		titleSetNextMode(TITLEMODE_SKIP);
 	}
 }
@@ -1787,6 +1803,7 @@ Gfx *titleRenderRarePresents(Gfx *gdl)
 
 void titleInitNintendoLogo(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitNintendoLogo()");
 	u8 *nextaddr = var8009cca0;
 
 	g_TitleFastForward = false;
@@ -1836,7 +1853,7 @@ void titleTickNintendoLogo(void)
 		g_TitleTimer += g_Vars.lvupdate60;
 	}
 
-	if (joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
 		if (osResetType == RESETTYPE_WARM) {
 			g_TitleButtonPressed = true;
 			titleSetNextMode(TITLEMODE_PDLOGO);
@@ -1845,16 +1862,16 @@ void titleTickNintendoLogo(void)
 		}
 	}
 
-	if (g_TitleFastForward && !g_TitleButtonPressed && g_TitleTimer > TICKS(140)) {
+	if (titleGuardCanSkip(2000) && g_TitleFastForward && !g_TitleButtonPressed && g_TitleTimer > TICKS(140)) {
 		g_TitleButtonPressed = true;
 		g_TitleFastForward = false;
 		titleSetNextMode(TITLEMODE_PDLOGO);
 	}
 
 #if VERSION == VERSION_PAL_FINAL
-	if (g_TitleTimer > TICKS(220))
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(220))
 #else
-	if (g_TitleTimer > TICKS(240))
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(240))
 #endif
 	{
 		titleSetNextMode(TITLEMODE_PDLOGO);
@@ -1952,6 +1969,7 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 
 void titleInitRareLogo(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitRareLogo()");
 	u8 *nextaddr = var8009cca0;
 
 	g_TitleTimer = -3;
@@ -2009,7 +2027,7 @@ void titleTickRareLogo(void)
 
 		g_TitleTimer += g_Vars.lvupdate60;
 
-		if (joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+		if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
 			if (osResetType == RESETTYPE_WARM) {
 				g_TitleButtonPressed = true;
 				titleSetNextMode(TITLEMODE_PDLOGO);
@@ -2027,9 +2045,9 @@ void titleTickRareLogo(void)
 			}
 		}
 
-		if (g_TitleTimer > TICKS(240)
+		if (titleGuardCanSkip(2000) && (g_TitleTimer > TICKS(240)
 				|| g_TitleFastForward
-				|| (g_TitleButtonPressed && g_TitleTimer > TICKS(140))) {
+				|| (g_TitleButtonPressed && g_TitleTimer > TICKS(140)))) {
 			titleSetNextMode(TITLEMODE_NINTENDOLOGO);
 		}
 	}
@@ -2226,6 +2244,7 @@ void playerSetTeam(s32 playernum, s32 team)
 
 void titleInitSkip(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip() - transitioning out of title sequence");
 	g_TitleNextStage = STAGE_CITRAINING;
 
 	setNumPlayers(1);
@@ -2233,6 +2252,7 @@ void titleInitSkip(void)
 	if (g_IsTitleDemo) {
 		g_TitleNextStage = STAGE_DEFECTION;
 		g_IsTitleDemo++;
+		sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - demo mode, stage=DEFECTION");
 	}
 
 	if (IS4MB()) {
@@ -2242,8 +2262,10 @@ void titleInitSkip(void)
 		viSetBufSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
 		playermgrSetViewSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
 		viSetViewSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
+		sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - 4MB mode, stage=4MBMENU");
 	}
 
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - calling mainChangeToStage(0x%02x)", g_TitleNextStage);
 	mainChangeToStage(g_TitleNextStage);
 
 	g_Vars.bondplayernum = 0;
@@ -2457,6 +2479,14 @@ Gfx *titleRenderNoExpansion(Gfx *gdl)
 
 void titleSetNextMode(s32 mode)
 {
+	static const char *modeNames[] = {
+		"LEGAL", "CHECKCONTROLLERS", "PDLOGO", "NINTENDOLOGO",
+		"RARELOGO", "SKIP", "NOCONTROLLER", "RAREPRESENTS1",
+		"RAREPRESENTS2", "MODE9", "NOEXPANSION"
+	};
+	const char *modeName = (mode >= 0 && mode <= 10) ? modeNames[mode] : "UNKNOWN";
+	sysLogPrintf(LOG_NOTE, "INTRO: titleSetNextMode(%d=%s) [cur=%d, delayed=%d]",
+		mode, modeName, g_TitleMode, g_TitleDelayedMode);
 	if (g_TitleDelayedMode != mode) {
 		g_TitleNextMode = mode;
 	}
@@ -2532,30 +2562,39 @@ void titleTick(void)
 
 	// Apply new mode
 	if (g_TitleNextMode >= 0) {
+		sysLogPrintf(LOG_NOTE, "INTRO: Applying mode transition: %d -> %d", g_TitleMode, g_TitleNextMode);
 		g_TitleMode = g_TitleNextMode;
 		g_TitleNextMode = -1;
 		g_TitleFastForward = false;
+		titleGuardReset(); /* Port: start real-time skip timer for new mode */
 
 		switch (g_TitleMode) {
 		case TITLEMODE_LEGAL:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitLegal");
 			titleInitLegal();
 			break;
 		case TITLEMODE_CHECKCONTROLLERS:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitCheckControllers");
 			titleInitCheckControllers();
 			break;
 		case TITLEMODE_PDLOGO:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitPdLogo");
 			titleInitPdLogo();
 			break;
 		case TITLEMODE_NINTENDOLOGO:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitNintendoLogo");
 			titleInitNintendoLogo();
 			break;
 		case TITLEMODE_RARELOGO:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitRareLogo");
 			titleInitRareLogo();
 			break;
 		case TITLEMODE_SKIP:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitSkip (will call mainChangeToStage)");
 			titleInitSkip();
 			break;
 		case TITLEMODE_NOCONTROLLER:
+			sysLogPrintf(LOG_NOTE, "INTRO: -> titleInitNoController");
 			titleInitNoController();
 			break;
 #if VERSION >= VERSION_JPN_FINAL
@@ -2596,6 +2635,7 @@ void titleTick(void)
 		break;
 #endif
 	case TITLEMODE_SKIP:
+		sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick -> setting RARELOGO");
 		viSetUseZBuf(false);
 		titleSetNextMode(TITLEMODE_RARELOGO);
 		break;

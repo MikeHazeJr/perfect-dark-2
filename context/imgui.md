@@ -115,7 +115,7 @@ The game's own menu text uses bitmap fonts loaded from ROM segments:
 - Through GBI→OpenGL translator in `gfx_pc.cpp`
 - Font integrity checking: `textVerifyFontIntegrity()` computes CRC32 checksum
 
-**KNOWN BUG**: Font renders correctly initially, then becomes corrupted (blocky rectangles) during endscreen transition. See tasks.md for investigation status.
+**KNOWN BUG**: Font renders correctly initially, then becomes corrupted (blocky rectangles) during endscreen transition. See [bugs.md](bugs.md) or [tasks-current.md](tasks-current.md) for status.
 
 ## C++ / types.h Conflict
 `types.h` defines `#define bool s32` which breaks C++. All C++ files (pdgui_*.cpp, gfx_*.cpp) must avoid including game headers. Use `extern "C"` declarations for C-callable functions.

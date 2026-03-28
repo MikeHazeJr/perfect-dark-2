@@ -590,6 +590,7 @@ static MenuItemHandlerResult menuhandlerController(s32 operation, struct menuite
 			const s32 jid = ctrls[data->dropdown.value - 1];
 			const char *name = inputGetConnectedControllerName(jid);
 			strncpy(ctrlname, name, sizeof(ctrlname) - 1);
+			ctrlname[sizeof(ctrlname) - 1] = '\0';
 			return (intptr_t)ctrlname;
 		} else {
 			return (intptr_t)"None";
@@ -1846,6 +1847,7 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 		const s32 realSlot = filteredToRealSlot(g_ExtMenuPlayer, menuBinds[idx].ck, data->dropdown.value);
 		if (binds && binds[realSlot]) {
 			strncpy(keyname, inputGetKeyName(binds[realSlot]), sizeof(keyname) - 1);
+			keyname[sizeof(keyname) - 1] = '\0';
 			for (char *p = keyname; *p; ++p) {
 				if (*p == '_') *p = ' ';
 			}

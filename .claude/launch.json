@@ -1,0 +1,36 @@
+{
+  "configurations": [
+    {
+      "name": "Game Client",
+      "type": "process",
+      "command": "build\\client\\PerfectDark.exe",
+      "cwd": "build\\client",
+      "args": [],
+      "description": "PD2 game client — requires ROM in data/ and a full build"
+    },
+    {
+      "name": "Dedicated Server (default)",
+      "type": "process",
+      "command": "build\\server\\PerfectDarkServer.exe",
+      "cwd": "build\\server",
+      "args": ["--port", "27100", "--maxclients", "8"],
+      "description": "PD2 dedicated server on port 27100, max 8 clients"
+    },
+    {
+      "name": "Dedicated Server (via .ps1)",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "dedicated-server.ps1", "-Port", "27100", "-MaxClients", "8"],
+      "cwd": ".",
+      "description": "Launches server via dedicated-server.ps1 — shows public IP + copies connect address to clipboard"
+    },
+    {
+      "name": "Build GUI",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "build-gui.ps1"],
+      "cwd": ".",
+      "description": "Dark-themed WinForms GUI for build, launch client/server, version control, git integration"
+    }
+  ]
+}

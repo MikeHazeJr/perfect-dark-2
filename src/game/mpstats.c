@@ -16,6 +16,10 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
+
+/* PC: persistent stats tracking */
+extern void statIncrement(const char *key, u64 amount);
 
 u32 var80070590 = 0x00000000;
 
@@ -23,6 +27,12 @@ void mpstatsIncrementPlayerShotCount(struct gset *gset, s32 region)
 {
 	if (!weaponHasFlag(gset->weaponnum, WEAPONFLAG_DONTCOUNTSHOTS)) {
 		g_Vars.currentplayerstats->shotcount[region]++;
+
+		/* PC: track shots in persistent stats */
+		statIncrement("shots.total", 1);
+		if (region == SHOTREGION_HEAD) {
+			statIncrement("shots.headshot", 1);
+		}
 	}
 }
 
@@ -262,6 +272,12 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 			vmpchr->killcounts[vmpindex]++;
 		}
 
+		/* PC: track suicide in persistent stats */
+		if (vplayernum < PLAYERCOUNT()) {
+			statIncrement("deaths.total", 1);
+			statIncrement("deaths.suicide", 1);
+		}
+
 		if (vplayernum < PLAYERCOUNT()) {
 			prevplayernum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(vplayernum);
@@ -286,6 +302,14 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 					hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
 				}
 
+				/* PC: track death in persistent stats */
+				statIncrement("deaths.total", 1);
+				if (aplayernum >= PLAYERCOUNT()) {
+					statIncrement("deaths.by_bot", 1);
+				} else {
+					statIncrement("deaths.by_player", 1);
+				}
+
 				mpstatsRecordPlayerDeath();
 				setCurrentPlayerNum(prevplayernum);
 			}
@@ -296,7 +320,14 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		}
 
 		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {
-			// Attacker was a player
+			// Attacker was a player -- record kill in persistent stats
+			statIncrement("kills.total", 1);
+			if (vplayernum >= PLAYERCOUNT()) {
+				statIncrement("kills.vs_bot", 1);
+			} else {
+				statIncrement("kills.vs_player", 1);
+			}
+
 			prevplayernum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(aplayernum);
 

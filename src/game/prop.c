@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
@@ -733,6 +734,26 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 
 	propptr = g_Vars.endonscreenprops - 1;
 
+	/* Combat debug: log shot fired with target counts */
+	if (isshooting) {
+		s32 numchrs_onscreen = 0;
+		struct prop **countptr = g_Vars.endonscreenprops - 1;
+		while (countptr >= g_Vars.onscreenprops) {
+			if (*countptr && ((*countptr)->type == PROPTYPE_CHR || (*countptr)->type == PROPTYPE_PLAYER)) {
+				numchrs_onscreen++;
+			}
+			countptr--;
+		}
+		sysLogPrintf(LOG_NOTE, "COMBAT: SHOT_FIRED playerpos=(%.0f,%.0f,%.0f) "
+			"weapon=%d onscreen_chrs=%d total_onscreen=%d dist=%.0f",
+			g_Vars.currentplayer->prop->pos.x,
+			g_Vars.currentplayer->prop->pos.y,
+			g_Vars.currentplayer->prop->pos.z,
+			shotdata.gset.weaponnum, numchrs_onscreen,
+			(s32)(g_Vars.endonscreenprops - g_Vars.onscreenprops),
+			shotdata.distance);
+	}
+
 	while (propptr >= g_Vars.onscreenprops) {
 		prop = *propptr;
 
@@ -751,6 +772,18 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	}
 
 	hitindex = -1;
+
+	/* Combat debug: log shot result */
+	if (isshooting) {
+		if (shotdata.hits[0].prop) {
+			sysLogPrintf(LOG_NOTE, "COMBAT: SHOT_RESULT HIT proptype=%d",
+				shotdata.hits[0].prop->type);
+		} else if (hitbg) {
+			sysLogPrintf(LOG_NOTE, "COMBAT: SHOT_RESULT HIT_BG (wall/floor)");
+		} else {
+			sysLogPrintf(LOG_NOTE, "COMBAT: SHOT_RESULT MISS");
+		}
+	}
 
 	if (shotdata.hits[0].prop) {
 		spa0.x = shotdata.hits[0].pos.x;

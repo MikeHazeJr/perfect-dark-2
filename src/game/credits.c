@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "game/camera.h"
 #include "game/game_006900.h"
 #include "game/title.h"
@@ -1925,7 +1926,7 @@ void creditsReset(void)
 
 	creditsResetParticles();
 	creditsResetSlides();
-	menuResetModel(&g_CreditsData->menumodel, 0x25800, true);
+	menuResetModel(&g_CreditsData->menumodel, CREDITS_MODEL_BUF_SIZE, true);
 
 	g_CreditsData->menumodel.removingpiece = false;
 

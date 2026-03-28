@@ -1,4 +1,4 @@
-#include <ultra64.h>
+﻿#include <ultra64.h>
 #include "constants.h"
 #include "game/camdraw.h"
 #include "game/tex.h"
@@ -27,6 +27,7 @@
 #include "system.h"
 #include "input.h"
 #include "mpsetups.h"
+#include "game/mplayer/participant.h"
 #include "net/net.h"
 #include "modmgr.h"
 
@@ -36,6 +37,9 @@ struct menudialogdef g_MpChangeSimulantMenuDialog;
 struct menudialogdef g_MpChangeTeamNameMenuDialog;
 struct menudialogdef g_MpEditSimulantMenuDialog;
 struct menudialogdef g_MpSaveSetupNameMenuDialog;
+
+/* PC port: our lobby dialog that replaces g_CombatSimulatorMenuDialog */
+extern struct menudialogdef g_MatchSetupMenuDialog;
 
 extern struct menudialogdef g_ManageSettingsDialog;
 extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
@@ -304,84 +308,146 @@ s16 mpChooseRandomGexStage(void)
 }
 
 
+// PC: Collapsible arena groups — group headers are selectable options.
+// Selecting a header toggles collapse/expand for that section.
+#define ARENA_NUM_GROUPS 7
+
+static const struct {
+	s32 offset; // first arena index in g_MpArenas
+	u16 name;   // string ID for group name
+} g_ArenaGroupDefs[ARENA_NUM_GROUPS] = {
+	{ 0,  L_MPMENU_116 }, // "Dark"
+	{ 13, L_OPTIONS_117 }, // "Solo Missions"
+	{ 27, L_MPMENU_117  }, // "Classic"
+	{ 32, L_MPMENU_296  }, // "GoldenEye X"
+	{ 43, L_MPMENU_297  }, // "GoldenEye X Bonus"
+	{ 55, L_MPMENU_326  }, // "Bonus"
+	{ 71, L_MPMENU_118  }, // "Random"
+};
+
+static u8 g_ArenaGroupCollapsed = 0; // bitmask — bit N = group N collapsed
+
+// Map a visible option index to either a group header or an arena.
+// Returns: 0 = group header (*outGroup set), 1 = arena (*outArena set), -1 = invalid.
+static s32 arenaMapIndex(s32 visidx, s32 *outGroup, s32 *outArena)
+{
+	s32 pos = 0;
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		// Group header occupies one slot
+		if (pos == visidx) {
+			*outGroup = g;
+			return 0;
+		}
+		pos++;
+
+		// If expanded, iterate the arenas in this group
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					if (pos == visidx) {
+						*outArena = a;
+						return 1;
+					}
+					pos++;
+				}
+			}
+		}
+	}
+
+	return -1;
+}
+
+// Count total visible options (headers + expanded arena items)
+static s32 arenaCountVisible(void)
+{
+	s32 count = ARENA_NUM_GROUPS; // one header per group always visible
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					count++;
+				}
+			}
+		}
+	}
+
+	return count;
+}
+
+// Find the visible index of the currently selected arena
+static s32 arenaFindSelected(s16 stagenum)
+{
+	s32 pos = 0;
+	s32 totalArenas = modmgrGetTotalArenas();
+
+	for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+		pos++; // skip header
+
+		if (!(g_ArenaGroupCollapsed & (1 << g))) {
+			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
+
+			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
+				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+					if (modmgrGetArena(a)->stagenum == stagenum) {
+						return pos;
+					}
+					pos++;
+				}
+			}
+		}
+	}
+
+	return 0; // fallback to first item
+}
+
 MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	struct optiongroup groups[] = {
-		{ 0,  L_MPMENU_116 }, // "Dark"
-		{ 13, L_OPTIONS_117 }, // "Solo Missions"
-		{ 27, L_MPMENU_117  }, // "Classic"
-		{ 32, L_MPMENU_296  }, // "GoldenEye X"
-		{ 43, L_MPMENU_297  }, // "GoldenEye X Bonus"
-		{ 55, L_MPMENU_326  }, // "Bonus"
-		{ 71, L_MPMENU_118  }, // "Random"
-	};
-
-	s32 i;
-	s32 count = 0;
-	s32 groupindex;
+	s32 group = 0;
+	s32 arena = 0;
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
-
-		data->list.value = count;
+		data->list.value = arenaCountVisible();
 		break;
+
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				if (count == data->list.value) {
-					return (uintptr_t)langGet(modmgrGetArena(i)->name);
-				}
-
-				count++;
-			}
+		switch (arenaMapIndex(data->list.value, &group, &arena)) {
+		case 0: // group header
+			sprintf(g_StringPointer, "%c %s",
+				(g_ArenaGroupCollapsed & (1 << group)) ? '+' : '-',
+				langGet(g_ArenaGroupDefs[group].name));
+			return (uintptr_t)g_StringPointer;
+		case 1: // arena
+			return (uintptr_t)langGet(modmgrGetArena(arena)->name);
 		}
 		break;
+
 	case MENUOP_SET:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				if (count == data->list.value) {
-					break;
-				}
-
-				count++;
-			}
+		switch (arenaMapIndex(data->list.value, &group, &arena)) {
+		case 0: // clicked group header — toggle collapse
+			g_ArenaGroupCollapsed ^= (1 << group);
+			break;
+		case 1: // clicked arena — select it
+			g_MpSetup.stagenum = modmgrGetArena(arena)->stagenum;
+			break;
 		}
-
-		g_MpSetup.stagenum = modmgrGetArena(i)->stagenum;
 		break;
+
 	case MENUOP_GETSELECTEDINDEX:
-		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (g_MpSetup.stagenum == modmgrGetArena(i)->stagenum) {
-				data->list.value = count;
-			}
-
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
+		data->list.value = arenaFindSelected(g_MpSetup.stagenum);
 		break;
+
 	case MENUOP_GETOPTGROUPCOUNT:
-		data->list.value = 7;
-
-		break;
-	case MENUOP_GETOPTGROUPTEXT:
-		count = data->list.value;
-
-		return (uintptr_t)langGet(groups[count].name);
-	case MENUOP_GETGROUPSTARTINDEX:
-		groupindex = data->list.value;
-
-		for (i = 0; i < groups[groupindex].offset; i++) {
-			if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
-				count++;
-			}
-		}
-		data->list.groupstartindex = count;
+		// Return 0 — we handle groups as selectable options ourselves
+		data->list.value = 0;
 		break;
 	}
 
@@ -2575,7 +2641,7 @@ MenuItemHandlerResult mpLoadPlayerMenuHandler(s32 operation, struct menuitem *it
 		for (i = 0; i < MAX_PLAYERS; i++) {
 			if (file->fileid == g_PlayerConfigsArray[i].fileguid.fileid
 					&& file->deviceserial == g_PlayerConfigsArray[i].fileguid.deviceserial) {
-				if ((g_MpSetup.chrslots & (1 << i)) == 0) {
+				if (!mpIsParticipantActive(i)) { /* B-12 Phase 2 */
 					mpPlayerSetDefaults(i, true);
 				} else {
 					available = false;
@@ -2682,7 +2748,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if ((g_MpSetup.chrslots & (1 << item->param)) == 0) {
+		if (!mpIsParticipantActive(item->param)) { /* B-12 Phase 2 */
 			return 1;
 		}
 		break;
@@ -2702,7 +2768,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 
 char *mpMenuTextHandicapPlayerName(struct menuitem *item)
 {
-	if (g_MpSetup.chrslots & (1 << item->param)) {
+	if (mpIsParticipantActive(item->param)) { /* B-12 Phase 2 */
 		if (g_NetMode) {
 			// use client names directly, as the config names are not set yet
 			struct netclient *cl = netClientForPlayerNum(item->param);
@@ -3220,7 +3286,7 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		if (botnum < 0) {
 			botnum = mpGetSlotForNewBot();
 			creating = 1;
-		} else if ((g_MpSetup.chrslots & (1 << (botnum + BOT_SLOT_OFFSET))) == 0) {
+		} else if (!mpIsParticipantActive(botnum + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 			creating = 1;
 		}
 
@@ -3476,7 +3542,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = item->param;
 
-		if ((g_MpSetup.chrslots & (1 << (item->param + BOT_SLOT_OFFSET))) == 0) {
+		if (!mpIsParticipantActive(item->param + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
 		} else if (IS4MB()) {
 			menuPushDialog(&g_MpEditSimulant4MbMenuDialog);
@@ -3485,7 +3551,8 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 		}
 		break;
 	case MENUOP_CHECKHIDDEN:
-		if (item->param >= 4 && !challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
+		/* PC: All bot slots available — no unlock gate */
+		if (item->param >= MAX_BOTS) {
 			return true;
 		}
 		break;
@@ -3502,7 +3569,7 @@ char *mpMenuTextSimulantName(struct menuitem *item)
 {
 	s32 index = item->param;
 
-	if (g_BotConfigsArray[index].base.name[0] == '\0' || (g_MpSetup.chrslots & (1 << (index + BOT_SLOT_OFFSET))) == 0) {
+	if (g_BotConfigsArray[index].base.name[0] == '\0' || !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 		return "";
 	}
 
@@ -3514,7 +3581,7 @@ char *func0f17d3dc(struct menuitem *item)
 	s32 index = item->param;
 
 	if (g_BotConfigsArray[index].base.name[0] == '\0'
-			|| ((g_MpSetup.chrslots & (1 << (index + BOT_SLOT_OFFSET))) == 0)) {
+			|| !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 		return "";
 	}
 
@@ -3883,8 +3950,8 @@ MenuItemHandlerResult menuhandlerMpMaximumTeams(s32 operation, struct menuitem *
 		s32 i;
 		u8 team = 0;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = team++;
@@ -3906,8 +3973,8 @@ MenuItemHandlerResult menuhandlerMpHumansVsSimulants(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		s32 i;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = i < 4 ? 0 : 1;
@@ -3928,8 +3995,8 @@ MenuItemHandlerResult menuhandlerMpHumanSimulantPairs(s32 operation, struct menu
 		s32 playerindex = 0;
 		s32 simindex = 0;
 
-		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) { /* B-12 Phase 2 */
+			{
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (i < 4) {
@@ -5542,7 +5609,7 @@ MenuItemHandlerResult menuhandlerMpNumberOfSimulants(s32 operation, struct menui
 {
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = !challengeIsFeatureUnlocked(MPFEATURE_8BOTS) ? 4 : MAX_BOTS;
+		data->dropdown.value = MAX_BOTS; /* PC: all bot slots available */
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
@@ -5665,7 +5732,7 @@ MenuDialogHandlerResult menudialogCombatSimulator(s32 operation, struct menudial
 	}
 
 	if (g_Menus[g_MpPlayerNum].curdialog
-			&& g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog
+			&& (g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog || g_Menus[g_MpPlayerNum].curdialog->definition == &g_MatchSetupMenuDialog)
 			&& operation == MENUOP_TICK) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_Vars.mpquickteam = MPQUICKTEAM_NONE;

@@ -3,6 +3,12 @@
  *
  * Syncs lobby state from the network client array each frame.
  * Tracks player slots, leader assignment, and ready states.
+ *
+ * Architecture: Dedicated-server-only model.
+ * - The server is always a dedicated process (g_NetDedicated == 1).
+ * - The first client to reach CLSTATE_LOBBY becomes the lobby leader.
+ * - Leader can be reassigned if the current leader disconnects.
+ * - All players (including leader) are clients — no host player.
  */
 
 #include <PR/ultratypes.h>
@@ -18,11 +24,11 @@ struct lobbystate g_Lobby;
 void lobbyInit(void)
 {
     memset(&g_Lobby, 0, sizeof(g_Lobby));
-    g_Lobby.leaderSlot = 0;
+    g_Lobby.leaderSlot = 0xFF; /* No leader assigned yet */
     g_Lobby.settings.scenario = 0;
     g_Lobby.settings.stagenum = 0;
     g_Lobby.settings.numSimulants = 0;
-    sysLogPrintf(LOG_NOTE, "LOBBY: initialized");
+    sysLogPrintf(LOG_NOTE, "LOBBY: initialized (dedicated server model)");
 }
 
 void lobbyUpdate(void)
@@ -33,11 +39,21 @@ void lobbyUpdate(void)
 
     /* Sync player list from network clients */
     u8 count = 0;
-    u8 leaderFound = 0;
+    u8 currentLeaderFound = 0;
+    u8 firstLobbySlot = 0xFF;
 
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
+    for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
         struct netclient *cl = &g_NetClients[i];
         if (cl->state == CLSTATE_DISCONNECTED) {
+            continue;
+        }
+
+        /* Skip the local server's own slot — after B-28, dedicated servers have
+         * g_NetLocalClient == NULL, so this check is always false on dedicated servers
+         * (all slots are real players).  On listen-server builds it skips the host slot.
+         * On clients (NETMODE_CLIENT), do NOT skip: the local slot IS the player and must
+         * appear in their own lobby list so they see themselves and are elected leader. */
+        if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient) {
             continue;
         }
 
@@ -51,37 +67,43 @@ void lobbyUpdate(void)
         lp->headnum = cl->settings.headnum;
         lp->bodynum = cl->settings.bodynum;
         lp->team = cl->settings.team;
-        strncpy(lp->name, cl->settings.name, LOBBY_NAME_LEN - 1);
+
+        /* Copy player name — use Agent name from settings.
+         * If the name is empty, the player hasn't loaded an agent yet. */
+        if (cl->settings.name[0]) {
+            strncpy(lp->name, cl->settings.name, LOBBY_NAME_LEN - 1);
+        } else {
+            snprintf(lp->name, LOBBY_NAME_LEN, "Player %d", i);
+        }
         lp->name[LOBBY_NAME_LEN - 1] = '\0';
 
-        /* Leader is the first connected player (server = client 0) */
-        if (!leaderFound) {
-            if (g_NetMode == NETMODE_SERVER && !g_NetDedicated && i == 0) {
-                /* Non-dedicated server: host is always leader */
-                lp->isLeader = 1;
-                g_Lobby.leaderSlot = count;
-                leaderFound = 1;
-            } else if (g_NetDedicated && cl->state >= CLSTATE_LOBBY && i > 0) {
-                /* Dedicated server: first non-server client is leader */
-                if (g_Lobby.leaderSlot == 0 || !g_Lobby.players[g_Lobby.leaderSlot].active) {
-                    lp->isLeader = 1;
-                    g_Lobby.leaderSlot = count;
-                    leaderFound = 1;
-                }
-            } else if (g_NetMode == NETMODE_CLIENT) {
-                /* Client: leader info comes from server (for now, slot 0) */
-                if (count == 0) {
-                    lp->isLeader = 1;
-                    g_Lobby.leaderSlot = 0;
-                    leaderFound = 1;
-                }
-            }
-        } else {
-            lp->isLeader = (count == g_Lobby.leaderSlot) ? 1 : 0;
+        /* Track the first client in LOBBY state for leader election */
+        if (cl->state >= CLSTATE_LOBBY && firstLobbySlot == 0xFF) {
+            firstLobbySlot = count;
+        }
+
+        /* Eager leader: if no leader is set yet and this is the first
+         * lobby-state client, assign them immediately.  This ensures the
+         * leader slot is populated before the post-loop election code runs,
+         * so CLC_LOBBY_START processed in the same server frame as CLC_AUTH
+         * sees a valid leader slot. */
+        if (g_Lobby.leaderSlot == 0xFF && cl->state >= CLSTATE_LOBBY) {
+            g_Lobby.leaderSlot = count;
+            sysLogPrintf(LOG_NOTE, "LOBBY: immediate leader assigned: slot %d (client %d, %s)",
+                         count, i, cl->settings.name[0] ? cl->settings.name : "?");
+        }
+
+        /* Check if current leader is still present */
+        if (g_Lobby.leaderSlot < LOBBY_MAX_PLAYERS &&
+            g_Lobby.players[g_Lobby.leaderSlot].active &&
+            g_Lobby.players[g_Lobby.leaderSlot].clientId == lp->clientId &&
+            g_Lobby.leaderSlot == count) {
+            currentLeaderFound = 1;
         }
 
         /* Ready state: in-game means ready */
         lp->isReady = (cl->state >= CLSTATE_GAME) ? 1 : 0;
+        lp->isLeader = 0; /* Will be set below */
 
         count++;
     }
@@ -92,7 +114,42 @@ void lobbyUpdate(void)
     }
 
     g_Lobby.numPlayers = count;
-    g_Lobby.inGame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME) ? 1 : 0;
+
+    /* Leader election:
+     * - Dedicated server: first client in CLSTATE_LOBBY+ becomes leader.
+     * - Client: the server tells us who the leader is via lobby state.
+     *   For now, we use the same logic client-side (first connected player). */
+    if (!currentLeaderFound || g_Lobby.leaderSlot >= count) {
+        /* Leader disconnected or invalid — elect a new one */
+        if (firstLobbySlot != 0xFF && firstLobbySlot < count) {
+            g_Lobby.leaderSlot = firstLobbySlot;
+            sysLogPrintf(LOG_NOTE, "LOBBY: leader elected: slot %d (%s)",
+                         firstLobbySlot, g_Lobby.players[firstLobbySlot].name);
+        } else if (count > 0) {
+            /* No one in LOBBY state yet — assign first connected client */
+            g_Lobby.leaderSlot = 0;
+        } else {
+            g_Lobby.leaderSlot = 0xFF;
+        }
+    }
+
+    /* Apply leader flag */
+    for (s32 i = 0; i < count; i++) {
+        g_Lobby.players[i].isLeader = (i == g_Lobby.leaderSlot) ? 1 : 0;
+    }
+
+    /* g_NetLocalClient is NULL on dedicated server, so checking it directly always yields inGame=0.
+     * Walk g_NetClients[] instead to check if any client is actively in a match. */
+    {
+        u8 anyInGame = 0;
+        for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+            if (g_NetClients[i].state >= CLSTATE_GAME) {
+                anyInGame = 1;
+                break;
+            }
+        }
+        g_Lobby.inGame = anyInGame;
+    }
 }
 
 void lobbySetLeader(u8 slot)

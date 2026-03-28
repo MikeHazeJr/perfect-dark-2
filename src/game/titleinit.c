@@ -3,11 +3,14 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 void titleInit(void)
 {
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInit() called - setting up title sequence");
 	g_TitleMode = -1;
 	g_TitleNextMode = TITLEMODE_LEGAL;
+	sysLogPrintf(LOG_NOTE, "INTRO: titleInit() - g_TitleNextMode set to TITLEMODE_LEGAL (%d)", TITLEMODE_LEGAL);
 
 #if VERSION >= VERSION_JPN_FINAL
 	if (IS4MB()) {

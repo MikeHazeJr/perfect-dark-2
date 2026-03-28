@@ -9,6 +9,8 @@
 #include "config.h"
 #include "system.h"
 #include "video.h"
+#include "versioninfo.h"
+#include "updateversion.h"
 
 extern s32 g_NetDedicated;
 
@@ -86,7 +88,7 @@ s32 videoInit(void)
 		.wapi = wmAPI,
 		.rapi = renderingAPI,
 		.window_settings = {
-			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - Client (v0.0.2)",
+			.title = g_NetDedicated ? "PD2 Dedicated Server - starting..." : "Perfect Dark 2.0 - v" VERSION_STRING,
 			.width = g_NetDedicated ? 800 : vidWidth,
 			.height = g_NetDedicated ? 500 : vidHeight,
 			.x = 100,
@@ -168,16 +170,30 @@ void videoEndFrame(void)
 			if (g_NetDedicated) {
 				const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
 				if (ip && ip[0]) {
-					snprintf(titleBuf, sizeof(titleBuf),
-					         "PD2 Dedicated Server - %s:%u - %d/%d connected",
-					         ip, g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+					/* Show connect code, not raw IP (B-29). */
+					extern s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
+					char connectCode[256] = "";
+					u32 a = 0, b = 0, c = 0, d = 0;
+					if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+						u32 ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+						connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+					}
+					if (connectCode[0]) {
+						snprintf(titleBuf, sizeof(titleBuf),
+						         "PD2 Server v" VERSION_STRING " - %s - %d/%d connected",
+						         connectCode, g_NetNumClients, g_NetMaxClients);
+					} else {
+						snprintf(titleBuf, sizeof(titleBuf),
+						         "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
+						         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
+					}
 				} else {
 					snprintf(titleBuf, sizeof(titleBuf),
-					         "PD2 Dedicated Server - port %u - %d/%d connected",
+					         "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
 					         g_NetServerPort, g_NetNumClients, g_NetMaxClients);
 				}
 			} else {
-				snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 - Client (v0.0.2)");
+				snprintf(titleBuf, sizeof(titleBuf), "Perfect Dark 2.0 - v" VERSION_STRING);
 			}
 			videoSetWindowTitle(titleBuf);
 		}

@@ -35,6 +35,7 @@
 #include "pdgui_storyboard.h"
 #include "pdgui_menubuilder.h"
 #include "pdgui_style.h"
+#include "pdgui_scaling.h"
 #include "system.h"
 
 /* ========================================================================
@@ -208,13 +209,11 @@ static const MenuCatalogEntry s_Catalog[] = {
     { "g_ExtendedBindKeyMenuDialog",                  "Bind Key",                   DLGTYPE_SUCCESS, CAT_EXT_OPTIONS,  false },
     { "g_ExtendedSelectPlayerMenuDialog",             "Select Player",              DLGTYPE_DEFAULT, CAT_EXT_OPTIONS,  false },
 
-    /* ---- CAT_NETWORK (8) ---- */
-    { "g_NetMenuDialog",                              "Network Game",               DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetHostMenuDialog",                          "Host Network Game",          DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetCoopHostMenuDialog",                      "Host Co-op Mission",         DLGTYPE_DEFAULT, CAT_NETWORK,      false },
-    { "g_NetJoinMenuDialog",                          "Join Network Game",          DLGTYPE_DEFAULT, CAT_NETWORK,      true  },
+    /* ---- CAT_NETWORK (6) ---- */
+    { "g_NetMenuDialog",                              "Multiplayer",                DLGTYPE_DEFAULT, CAT_NETWORK,      false },
+    { "g_NetCoopHostMenuDialog",                      "Co-op Mission Setup",        DLGTYPE_DEFAULT, CAT_NETWORK,      false },
     { "g_NetJoinAddressDialog",                       "Enter Address",              DLGTYPE_SUCCESS, CAT_NETWORK,      false },
-    { "g_NetJoiningDialog",                           "Joining Game...",            DLGTYPE_SUCCESS, CAT_NETWORK,      false },
+    { "g_NetJoiningDialog",                           "Connecting...",              DLGTYPE_SUCCESS, CAT_NETWORK,      false },
     { "g_NetPauseControlsMenuDialog",                 "Net Controls",               DLGTYPE_DEFAULT, CAT_NETWORK,      false },
     { "g_NetRecentServersMenuDialog",                 "Recent Servers",             DLGTYPE_DEFAULT, CAT_NETWORK,      true  },
 
@@ -921,8 +920,9 @@ void pdguiStoryboardRender(s32 winW, s32 winH)
         ImGui::End();
     }
 
-    /* Restore font scale for other ImGui usage */
-    io.FontGlobalScale = 1.0f;
+    /* Restore frame-level font scale (set by pdguiNewFrame) so subsequent
+     * renderers (lobby, pause, update) use the correct resolution-scaled value. */
+    io.FontGlobalScale = pdguiScaleFactor();
 }
 
 } /* extern "C" */

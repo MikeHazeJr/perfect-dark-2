@@ -7,6 +7,7 @@
 #include "lib/mtx.h"
 #include "lib/model.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/prop.h"
@@ -36,6 +37,11 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
+#include "net/netlobby.h"
+#include "net/netdistrib.h"
+#include "scenario_save.h"
+#include "assetcatalog.h"
+#include "identity.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -51,6 +57,12 @@ static u32 g_NetNpcResyncLastReq = 0;
 
 /* Server-side resync request tracking (set by CLC_RESYNC_REQ, consumed by netEndFrame in net.c) */
 u8 g_NetPendingResyncFlags = 0;
+
+/* Client-side resync request tracking (set by SVC_CHR/PROP/NPC_SYNC handlers on desync, consumed by netEndFrame).
+ * These flags CANNOT be written directly to g_NetMsgRel inside netStartFrame() recv handlers because
+ * netStartFrame() resets g_NetMsgRel after the event loop — any write during dispatch is silently dropped.
+ * The fix mirrors the server-side pattern: set a flag in the handler, write the message in netEndFrame. */
+u8 g_NetPendingResyncReqFlags = 0;
 
 /* utils */
 
@@ -192,8 +204,15 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 		modDir = "";
 	}
 
+	// Use identity profile name (authoritative for PC); fall back to settings name
+	const char *name = g_NetLocalClient->settings.name;
+	identity_profile_t *profile = identityGetActiveProfile();
+	if (profile && profile->name[0]) {
+		name = profile->name;
+	}
+
 	netbufWriteU8(dst, CLC_AUTH);
-	netbufWriteStr(dst, g_NetLocalClient->settings.name);
+	netbufWriteStr(dst, name);
 	netbufWriteStr(dst, g_RomName); // TODO: use a CRC or something
 	netbufWriteStr(dst, modDir);
 	netbufWriteU8(dst, 1); // TODO: number of local players
@@ -219,32 +238,42 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	if (strcasecmp(romName, g_RomName) != 0) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong ROM, disconnecting", srccl->id);
-		netServerKick(srccl, DISCONNECT_FILES);
-		return src->error;
+	/* Dedicated servers have no ROM or mods loaded — skip file checks entirely.
+	 * Only a listen server (client hosting) validates ROM and mod agreement. */
+	if (!g_NetDedicated) {
+		if (romName && strcasecmp(romName, g_RomName) != 0) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong ROM, disconnecting", srccl->id);
+			netServerKick(srccl, DISCONNECT_FILES);
+			return src->error;
+		}
+
+		if (modDir && modDir[0] == '\0') {
+			modDir = NULL;
+		}
+
+		const char *myModDir = fsGetModDir();
+		if ((!myModDir != !modDir) || (myModDir && modDir && strcasecmp(modDir, myModDir) != 0)) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong mod, disconnecting", srccl->id);
+			netServerKick(srccl, DISCONNECT_FILES);
+			return src->error;
+		}
 	}
 
-	if (modDir[0] == '\0') {
-		modDir = NULL;
+	// zero-init client settings as a baseline (remote will send CLC_SETTINGS after CLC_AUTH)
+	if (g_NetLocalClient) {
+		srccl->settings = g_NetLocalClient->settings;
+	} else {
+		memset(&srccl->settings, 0, sizeof(srccl->settings));
+		srccl->settings.team = 0xff;
 	}
-
-	const char *myModDir = fsGetModDir();
-	if ((!myModDir != !modDir) || (myModDir && modDir && strcasecmp(modDir, myModDir) != 0)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong mod, disconnecting", srccl->id);
-		netServerKick(srccl, DISCONNECT_FILES);
-		return src->error;
-	}
-
-	// for now use settings from our own client, remote is supposed to send CLC_SETTINGS after CLC_AUTH
-	srccl->settings = g_NetLocalClient->settings;
-	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	strncpy(srccl->settings.name, name ? name : "Player", sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
 	// check if this is a mid-game reconnection
 	struct netpreservedplayer *pp = NULL;
-	const bool ingame = (g_NetLocalClient->state >= CLSTATE_GAME);
+	const bool ingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 	if (ingame) {
 		pp = netServerFindPreserved(name);
 		if (!pp) {
@@ -257,9 +286,16 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 
 	srccl->state = CLSTATE_LOBBY;
 
+	/* Send SVC_AUTH first so the client transitions to CLSTATE_LOBBY before receiving
+	 * any further messages. Catalog info must come after auth — the client must be
+	 * authenticated before it can meaningfully respond to catalog requests. */
 	netbufStartWrite(&srccl->out);
 	netmsgSvcAuthWrite(&srccl->out, srccl);
 	netSend(srccl, NULL, true, NETCHAN_CONTROL);
+
+	/* D3R-9: send catalog info so the client can diff and request missing components.
+	 * Sent after SVC_AUTH so the client is in CLSTATE_LOBBY when it processes this. */
+	netDistribServerSendCatalogInfo(srccl);
 
 	if (pp) {
 		// reconnecting player: restore identity, scores, and send full state
@@ -282,6 +318,24 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	} else {
 		sysLogPrintf(LOG_NOTE, "NET: %s (%u) joined", srccl->settings.name, srccl->id);
 		netChatPrintf(NULL, "%s joined", name);
+	}
+
+	/* Update lobby state and broadcast SVC_LOBBY_LEADER to all lobby clients.
+	 * This tells each client who the current leader is (critical for the joining
+	 * client to know if they are the leader, and for existing clients to know if
+	 * the leader changed).  lobbyUpdate() must run first to elect the leader. */
+	lobbyUpdate();
+	if (g_Lobby.leaderSlot != 0xFF && g_Lobby.leaderSlot < g_Lobby.numPlayers) {
+		u8 leaderClientId = g_Lobby.players[g_Lobby.leaderSlot].clientId;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl->state >= CLSTATE_LOBBY) {
+				netbufStartWrite(&ncl->out);
+				netmsgSvcLobbyLeaderWrite(&ncl->out, leaderClientId);
+				netSend(ncl, NULL, true, NETCHAN_CONTROL);
+			}
+		}
+		sysLogPrintf(LOG_NOTE, "NET: broadcast SVC_LOBBY_LEADER: client %u is leader", leaderClientId);
 	}
 
 	return 0;
@@ -365,7 +419,20 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 	netbufWriteU8(dst, g_NetLocalClient->settings.team);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovy);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovzoommult);
-	netbufWriteStr(dst, g_NetLocalClient->settings.name);
+	/* Use identity profile name (same check as CLC_AUTH) so CLC_SETTINGS
+	 * doesn't overwrite the correct identity name on the server with a stale
+	 * legacy fallback when netClientReadConfig ran before identity was ready. */
+	{
+		const char *name = g_NetLocalClient->settings.name;
+		identity_profile_t *profile = identityGetActiveProfile();
+		if (profile && profile->name[0]) {
+			name = profile->name;
+			/* Keep settings.name in sync so future CLC_SETTINGS sends are consistent. */
+			strncpy(g_NetLocalClient->settings.name, name, sizeof(g_NetLocalClient->settings.name) - 1);
+			g_NetLocalClient->settings.name[sizeof(g_NetLocalClient->settings.name) - 1] = '\0';
+		}
+		netbufWriteStr(dst, name);
+	}
 	return dst->error;
 }
 
@@ -395,6 +462,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
+	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
 	srccl->settings.bodynum = bodynum;
 	srccl->settings.headnum = headnum;
@@ -433,7 +501,7 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u8 id = netbufReadU8(src);
 	const u8 maxclients = netbufReadU8(src);
 	g_NetTick = netbufReadU32(src);
-	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || id == 0 || maxclients == 0) {
+	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || maxclients == 0) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server");
 		return 1;
 	}
@@ -454,9 +522,6 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	g_NetClients[NET_MAX_CLIENTS].id = NET_MAX_CLIENTS;
 	g_NetClients[NET_MAX_CLIENTS].state = 0;
 	g_NetClients[NET_MAX_CLIENTS].peer = NULL;
-
-	// the server's client probably is in the lobby state by now
-	g_NetClients[0].state = CLSTATE_LOBBY;
 
 	g_NetLocalClient->state = CLSTATE_LOBBY;
 
@@ -489,9 +554,20 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	netbufWriteU64(dst, g_RngSeed);
 	netbufWriteU64(dst, g_Rng2Seed);
 
-	netbufWriteU8(dst, g_StageNum);
+	/* mainChangeToStage() is async: it sets g_MainChangeToStageNum but g_StageNum
+	 * isn't updated until the next frame.  When called from netServerStageStart()
+	 * immediately after mainChangeToStage(), g_StageNum is still STAGE_CITRAINING,
+	 * which would cause the client to think the server returned to lobby.
+	 * Use the pending stage when available; fall back to g_StageNum mid-game
+	 * (g_MainChangeToStageNum is reset to -1 once the stage actually loads). */
+	extern s32 g_MainChangeToStageNum;
+	const u8 effectiveStage = (g_MainChangeToStageNum >= 0)
+	                          ? (u8)g_MainChangeToStageNum
+	                          : g_StageNum;
 
-	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
+	netbufWriteU8(dst, effectiveStage);
+
+	if (effectiveStage == STAGE_TITLE || effectiveStage == STAGE_CITRAINING) {
 		// going back to lobby, don't need anything else
 		return dst->error;
 	}
@@ -510,7 +586,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
-		netbufWriteU16(dst, g_MpSetup.chrslots);
+		netbufWriteU64(dst, g_MpSetup.chrslots);  /* u64 since protocol v21: 8 players + 32 bots */
 		netbufWriteU32(dst, g_MpSetup.options);
 		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 	}
@@ -581,10 +657,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
-		g_MpSetup.chrslots = netbufReadU16(src);
+		g_MpSetup.chrslots = netbufReadU64(src);  /* u64 since protocol v21 */
 		g_MpSetup.options = netbufReadU32(src);
 		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
-		strcpy(g_MpSetup.name, "server");
+		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
 	if (src->error) {
@@ -622,6 +698,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			char *name = netbufReadStr(src);
 			if (name) {
 				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
 			} else {
 				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
 				return 3;
@@ -696,6 +773,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #endif
 	} else {
 		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players", g_MpSetup.stagenum, numplayers);
+
+		/* Populate the participant pool from the server-supplied chrslots bitmask
+		 * before mpStartMatch() is called.  mpStartMatch rebuilds participants
+		 * for NETMODE_SERVER but does nothing for NETMODE_CLIENT, so the pool
+		 * would be empty and mpHasSimulants() would return false — bots would
+		 * never spawn on the client side. */
+		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
 		mpStartMatch();
 		menuStop();
@@ -2084,11 +2168,14 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Use the pending-flag pattern (not a direct write to g_NetMsgRel) because this handler runs
+	// inside netStartFrame()'s recv dispatch — netStartFrame resets g_NetMsgRel after the loop,
+	// so any direct write here would be silently dropped. netEndFrame consumes the flag instead.
 	if (g_NetChrDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetChrResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting chr resync after %u consecutive desyncs", g_NetChrDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_CHRS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_CHRS;
 		g_NetChrResyncLastReq = g_NetTick;
 		g_NetChrDesyncCount = 0;
 	}
@@ -2175,11 +2262,12 @@ u32 netmsgSvcPropSyncRead(struct netbuf *src, struct netclient *srccl)
 		g_NetPropDesyncCount = 0;
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Same pending-flag pattern as chr sync above — direct write here would be dropped by netStartFrame.
 	if (g_NetPropDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetPropResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting prop resync after %u consecutive desyncs", g_NetPropDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_PROPS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_PROPS;
 		g_NetPropResyncLastReq = g_NetTick;
 		g_NetPropDesyncCount = 0;
 	}
@@ -2840,11 +2928,12 @@ u32 netmsgSvcNpcSyncRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	// After consecutive desyncs, request full resync from server
+	// After consecutive desyncs, request full resync from server.
+	// Same pending-flag pattern as chr/prop sync above — direct write here would be dropped by netStartFrame.
 	if (g_NetNpcDesyncCount >= NET_DESYNC_THRESHOLD &&
 		(g_NetTick - g_NetNpcResyncLastReq) > NET_RESYNC_COOLDOWN) {
 		sysLogPrintf(LOG_WARNING, "NET: requesting npc resync after %u consecutive desyncs", g_NetNpcDesyncCount);
-		netmsgClcResyncReqWrite(&g_NetMsgRel, NET_RESYNC_FLAG_NPCS);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
 		g_NetNpcResyncLastReq = g_NetTick;
 		g_NetNpcDesyncCount = 0;
 	}
@@ -3150,5 +3239,532 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
 	/* Setting g_InCutscene is sufficient — the input gating macro in constants.h
 	 * checks this flag and suppresses player input automatically. */
 
+	return src->error;
+}
+
+/* ========================================================================
+ * CLC_LOBBY_START - Lobby leader requests match start
+ *
+ * Sent by the lobby leader client to the dedicated server when they've
+ * chosen a game mode and are ready to start. The server validates that
+ * the sender is actually the lobby leader, then starts the match.
+ *
+ * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
+ *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16)
+ *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
+ *          botDifficulty (u8), botType (u8)
+ * ======================================================================== */
+
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit)
+{
+	netbufWriteU8(dst, CLC_LOBBY_START);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, difficulty);
+	netbufWriteU8(dst, numSims);
+	netbufWriteU8(dst, simType);
+	netbufWriteU8(dst, timelimit);
+	netbufWriteU32(dst, options);
+	netbufWriteU8(dst, scenario);
+	netbufWriteU8(dst, scorelimit);
+	netbufWriteU16(dst, teamscorelimit);
+
+	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
+	 * Count must equal numSims; extra slots are skipped, missing ones
+	 * write empty defaults so the server always reads exactly numSims entries. */
+	s32 botIdx = 0;
+	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
+		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
+			const struct matchslot *sl = &g_MatchConfig.slots[si];
+			netbufWriteStr(dst, sl->name);
+			netbufWriteU8(dst, sl->bodynum);
+			netbufWriteU8(dst, sl->headnum);
+			netbufWriteU8(dst, sl->botDifficulty);
+			netbufWriteU8(dst, sl->botType);
+			botIdx++;
+		}
+	}
+	/* Pad any missing slots with defaults (shouldn't happen in practice) */
+	for (; botIdx < (s32)numSims; botIdx++) {
+		netbufWriteStr(dst, "");
+		netbufWriteU8(dst, 0xFF); /* default body */
+		netbufWriteU8(dst, 0xFF); /* default head */
+		netbufWriteU8(dst, 2);    /* BOTDIFF_NORMAL */
+		netbufWriteU8(dst, simType);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode        = netbufReadU8(src);
+	const u8 stagenum        = netbufReadU8(src);
+	const u8 difficulty      = netbufReadU8(src);
+	const u8 numSims         = netbufReadU8(src);
+	const u8 simType         = netbufReadU8(src);
+	const u8 timelimit       = netbufReadU8(src);
+	const u32 options        = netbufReadU32(src);
+	const u8 scenario        = netbufReadU8(src);
+	const u8 scorelimit      = netbufReadU8(src);
+	const u16 teamscorelimit = netbufReadU16(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	/* Only process on server */
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received but not server");
+		return src->error;
+	}
+
+	/* Validate sender is the lobby leader.
+	 * Call lobbyUpdate() first to handle the same-frame auth+start race:
+	 * the server loop runs netStartFrame() before lobbyUpdate(), so if a
+	 * client's CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch
+	 * the lobby state from the previous tick is used.  Refreshing here
+	 * ensures leaderSlot reflects the just-authed client. */
+	lobbyUpdate();
+	bool isLeader = false;
+	u8 leaderSlot = lobbyGetLeader();
+	if (leaderSlot < LOBBY_MAX_PLAYERS) {
+		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+			isLeader = true;
+		}
+	}
+
+	/* Fallback: if leader slot is still 0xFF (no lobby-state clients seen
+	 * yet, e.g., sender is the only client and just reached CLSTATE_LOBBY
+	 * this same frame), accept from the first connected lobby-state client. */
+	if (!isLeader && leaderSlot == 0xFF) {
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl == g_NetLocalClient) continue;
+			if (ncl->state < CLSTATE_LOBBY) continue;
+			isLeader = (ncl == srccl);
+			break;
+		}
+	}
+
+	if (!isLeader) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not leader (leaderSlot=%u)",
+		             srccl->id, srccl->settings.name, (unsigned)leaderSlot);
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u tl=%u opt=0x%08x",
+	             srccl->settings.name, gamemode, stagenum, difficulty, timelimit, (unsigned)options);
+
+	/* Apply settings */
+	g_NetGameMode = gamemode;
+
+	/* Start the match based on game mode.
+	 * For Combat Sim: load the requested stage and start.
+	 * For Co-op/Counter-op: load the solo stage and start. */
+	if (gamemode == 0) {
+		/* Combat Simulator
+		 *
+		 * Configure g_MpSetup fully before netServerStageStart(), which
+		 * broadcasts SVC_STAGE_START containing g_MpSetup.chrslots and
+		 * each client's playernum.  Without this, clients receive a
+		 * zero chrslots and no slot assignments, so mpStartMatch() never
+		 * spawns anyone. */
+		g_MpSetup.stagenum        = stagenum;
+		g_MpSetup.scenario        = scenario;
+		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
+		g_MpSetup.scorelimit      = scorelimit;
+		g_MpSetup.teamscorelimit  = teamscorelimit;
+		g_MpSetup.options         = options;
+		/* Leave g_MpSetup.weapons as-is (loaded from save or zero). */
+
+		/* Assign sequential playernums and build chrslots bitmask.
+		 * Bits 0..n-1 of chrslots represent the n connected players. */
+		g_MpSetup.chrslots = 0;
+		s32 pnum = 0;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS && pnum < MAX_PLAYERS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl->state == CLSTATE_LOBBY || ncl->state == CLSTATE_GAME) {
+				ncl->playernum     = (u8)pnum;
+				g_MpSetup.chrslots |= (u64)1 << pnum;
+				sysLogPrintf(LOG_NOTE, "NET: assigned playernum %d to client %d (%s)",
+				             pnum, ci, ncl->settings.name);
+				pnum++;
+			}
+		}
+		/* Add simulant (bot) slots: bits 8..8+numSims-1 in chrslots.
+		 * MAX_BOTS = 32, MAX_PLAYERS = 8 so bots live in bits 8..39.
+		 * numSims is clamped to MAX_BOTS to prevent overflow. */
+		u8 clampedSims = (numSims > MAX_BOTS) ? MAX_BOTS : numSims;
+		for (s32 bi = 0; bi < clampedSims; bi++) {
+			s32 slot = MAX_PLAYERS + bi;
+			g_MpSetup.chrslots |= (u64)1 << slot;
+			/* Read per-bot config from the message. */
+			const char *botName    = netbufReadStr(src);
+			const u8 bodynum       = netbufReadU8(src);
+			const u8 headnum       = netbufReadU8(src);
+			const u8 botDifficulty = netbufReadU8(src);
+			const u8 botType       = netbufReadU8(src);
+			if (src->error) {
+				/* Malformed — fall back to global simType, normal difficulty */
+				g_BotConfigsArray[bi].type       = simType;
+				g_BotConfigsArray[bi].difficulty = 2;
+				continue;
+			}
+			g_BotConfigsArray[bi].type       = botType;
+			g_BotConfigsArray[bi].difficulty = botDifficulty;
+			g_BotConfigsArray[bi].base.mpbodynum = bodynum;
+			g_BotConfigsArray[bi].base.mpheadnum = headnum;
+			if (botName && botName[0]) {
+				strncpy(g_BotConfigsArray[bi].base.name, botName, sizeof(g_BotConfigsArray[bi].base.name) - 1);
+				g_BotConfigsArray[bi].base.name[sizeof(g_BotConfigsArray[bi].base.name) - 1] = '\0';
+			} else {
+				g_BotConfigsArray[bi].base.name[0] = '\0';
+			}
+			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body=%u head=%u type=%u diff=%u",
+			             bi,
+			             g_BotConfigsArray[bi].base.name[0] ? g_BotConfigsArray[bi].base.name : "(empty)",
+			             bodynum, headnum, botType, botDifficulty);
+		}
+		g_Lobby.settings.numSimulants = clampedSims;
+		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
+		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
+
+		mainChangeToStage(stagenum);
+		netServerStageStart();
+	} else {
+		/* Co-op or Counter-op — uses mission config */
+		g_MissionConfig.stagenum = stagenum;
+		g_MissionConfig.difficulty = difficulty;
+		mainChangeToStage(stagenum);
+		netServerCoopStageStart(stagenum, difficulty);
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_LEADER - Server announces authoritative lobby leader
+ *
+ * Sent to all clients when the leader changes (first join, leader
+ * disconnect, manual reassignment). Clients apply this via lobbySetLeader().
+ *
+ * Payload: leaderClientId (u8) — the netclient ID of the new leader.
+ *          0xFF = no leader.
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId)
+{
+	netbufWriteU8(dst, SVC_LOBBY_LEADER);
+	netbufWriteU8(dst, leaderClientId);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 leaderClientId = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_LEADER: leader is client %u", leaderClientId);
+
+	/* Find the lobby slot for this client ID and set as leader */
+	if (leaderClientId == 0xFF) {
+		lobbySetLeader(0xFF);
+	} else {
+		for (s32 i = 0; i < g_Lobby.numPlayers; i++) {
+			if (g_Lobby.players[i].active &&
+			    g_Lobby.players[i].clientId == leaderClientId) {
+				lobbySetLeader(i);
+				break;
+			}
+		}
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_LOBBY_STATE - Server broadcasts lobby state update
+ *
+ * Sent to all clients when the lobby state changes (game mode selected,
+ * stage changed, match starting/ending). Clients update their local
+ * lobby display accordingly.
+ *
+ * Payload: gamemode (u8), stagenum (u8), status (u8)
+ * Status: 0=waiting, 1=starting, 2=in-game
+ * ======================================================================== */
+
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status)
+{
+	netbufWriteU8(dst, SVC_LOBBY_STATE);
+	netbufWriteU8(dst, gamemode);
+	netbufWriteU8(dst, stagenum);
+	netbufWriteU8(dst, status);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 gamemode = netbufReadU8(src);
+	const u8 stagenum = netbufReadU8(src);
+	const u8 status   = netbufReadU8(src);
+
+	if (src->error) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_STATE: mode=%u stage=%u status=%u",
+	             gamemode, stagenum, status);
+
+	g_NetGameMode = gamemode;
+	g_Lobby.settings.scenario = gamemode;
+	g_Lobby.settings.stagenum = stagenum;
+	g_Lobby.inGame = (status >= 2) ? 1 : 0;
+
+	return src->error;
+}
+
+/* ============================================================
+ * D3R-9: Network Distribution (protocol v20)
+ * ============================================================ */
+
+/* ---- Catalog entry collector (shared by SvcCatalogInfoWrite) ---- */
+
+#define CATALOG_COLLECT_MAX 256
+
+static const asset_entry_t *s_CatalogCollectBuf[CATALOG_COLLECT_MAX];
+static s32 s_CatalogCollectN = 0;
+
+static void catalogInfoCollectCb(const asset_entry_t *e, void *ud)
+{
+	(void)ud;
+	if (!e->bundled && e->enabled && s_CatalogCollectN < CATALOG_COLLECT_MAX) {
+		s_CatalogCollectBuf[s_CatalogCollectN++] = e;
+	}
+}
+
+/* ---- SVC_CATALOG_INFO ---- */
+
+u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
+{
+	/* Collect all non-bundled enabled entries from the catalog */
+	static const asset_type_e s_types[] = {
+		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
+		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI,
+		ASSET_NONE  /* sentinel */
+	};
+
+	s_CatalogCollectN = 0;
+	for (s32 ti = 0; s_types[ti] != ASSET_NONE; ti++) {
+		assetCatalogIterateByType(s_types[ti], catalogInfoCollectCb, NULL);
+	}
+
+	netbufWriteU8(dst, SVC_CATALOG_INFO);
+	netbufWriteU16(dst, (u16)s_CatalogCollectN);
+	for (s32 i = 0; i < s_CatalogCollectN; i++) {
+		const asset_entry_t *e = s_CatalogCollectBuf[i];
+		netbufWriteU32(dst, e->net_hash);
+		netbufWriteStr(dst, e->id);
+		netbufWriteStr(dst, e->category);
+	}
+	return dst->error;
+}
+
+u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u16 count = netbufReadU16(src);
+	if (count > CATALOG_COLLECT_MAX) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_CATALOG_INFO count %u exceeds limit", count);
+		return 1;
+	}
+
+	/* Collect hashes + strings while buffer is live */
+	u32     hashes[CATALOG_COLLECT_MAX];
+	char    ids[CATALOG_COLLECT_MAX][64];
+	char    cats[CATALOG_COLLECT_MAX][64];
+
+	for (u16 i = 0; i < count; i++) {
+		hashes[i] = netbufReadU32(src);
+		char *id  = netbufReadStr(src);
+		char *cat = netbufReadStr(src);
+		strncpy(ids[i],  id  ? id  : "", 63);  ids[i][63]  = '\0';
+		strncpy(cats[i], cat ? cat : "", 63);  cats[i][63] = '\0';
+	}
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleCatalogInfo(hashes,
+	                                  (const char (*)[64])ids,
+	                                  (const char (*)[64])cats,
+	                                  count);
+	return src->error;
+}
+
+/* ---- CLC_CATALOG_DIFF ---- */
+
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes,
+                               u16 count, u8 temporary)
+{
+	netbufWriteU8(dst, CLC_CATALOG_DIFF);
+	netbufWriteU8(dst, temporary);
+	netbufWriteU16(dst, count);
+	for (u16 i = 0; i < count; i++) {
+		netbufWriteU32(dst, missing_hashes[i]);
+	}
+	return dst->error;
+}
+
+u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8  temporary = netbufReadU8(src);
+	u16 count     = netbufReadU16(src);
+	if (count > 256) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_CATALOG_DIFF count %u exceeds limit", count);
+		return 1;
+	}
+
+	u32 hashes[256];
+	for (u16 i = 0; i < count; i++) {
+		hashes[i] = netbufReadU32(src);
+	}
+
+	if (src->error) return src->error;
+
+	netDistribServerHandleDiff(srccl, hashes, count, temporary);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_BEGIN ---- */
+
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+                                const char *category, u32 total_chunks, u32 archive_bytes)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_BEGIN);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteStr(dst, id);
+	netbufWriteStr(dst, category);
+	netbufWriteU32(dst, total_chunks);
+	netbufWriteU32(dst, archive_bytes);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32  net_hash     = netbufReadU32(src);
+	char *id          = netbufReadStr(src);
+	char *category    = netbufReadStr(src);
+	u32  total_chunks = netbufReadU32(src);
+	u32  archive_bytes = netbufReadU32(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleBegin(net_hash,
+	                             id       ? id       : "",
+	                             category ? category : "",
+	                             total_chunks, archive_bytes, 0);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_CHUNK ---- */
+/*
+ * Note: large chunks are sent as direct ENet packets where this function's
+ * format also applies. The first byte is SVC_DISTRIB_CHUNK, followed by
+ * the fields below. The read handler reads directly from the packet data
+ * without copying to avoid large stack allocations.
+ */
+
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+                                u8 compression, const u8 *data, u16 data_len)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_CHUNK);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteU16(dst, chunk_idx);
+	netbufWriteU8(dst, compression);
+	netbufWriteU16(dst, data_len);
+	netbufWriteData(dst, data, (u32)data_len);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32  net_hash   = netbufReadU32(src);
+	u16  chunk_idx  = netbufReadU16(src);
+	u8   compression = netbufReadU8(src);
+	u16  data_len   = netbufReadU16(src);
+
+	/* Sanity bound: compressed data can't exceed 2× chunk size */
+	if (data_len > NET_DISTRIB_CHUNK_SIZE * 2) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_CHUNK data_len %u too large", data_len);
+		return 1;
+	}
+
+	/* Point directly into the packet buffer — valid for the duration of this handler */
+	const u8 *data = (const u8 *)(src->data + src->rp);
+	netbufReadSkip(src, (u32)data_len);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleChunk(net_hash, chunk_idx, compression, data, data_len);
+	return src->error;
+}
+
+/* ---- SVC_DISTRIB_END ---- */
+
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
+{
+	netbufWriteU8(dst, SVC_DISTRIB_END);
+	netbufWriteU32(dst, net_hash);
+	netbufWriteU8(dst, success);
+	return dst->error;
+}
+
+u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	u32 net_hash = netbufReadU32(src);
+	u8  success  = netbufReadU8(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleEnd(net_hash, success);
+	return src->error;
+}
+
+/* ---- SVC_LOBBY_KILL_FEED ---- */
+
+u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker,
+                                 const char *victim, const char *weapon, u8 flags)
+{
+	netbufWriteU8(dst, SVC_LOBBY_KILL_FEED);
+	netbufWriteStr(dst, attacker ? attacker : "");
+	netbufWriteStr(dst, victim   ? victim   : "");
+	netbufWriteStr(dst, weapon   ? weapon   : "");
+	netbufWriteU8(dst, flags);
+	return dst->error;
+}
+
+u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	char *attacker = netbufReadStr(src);
+	char *victim   = netbufReadStr(src);
+	char *weapon   = netbufReadStr(src);
+	u8    flags    = netbufReadU8(src);
+
+	if (src->error) return src->error;
+
+	netDistribClientHandleKillFeed(
+		attacker ? attacker : "",
+		victim   ? victim   : "",
+		weapon   ? weapon   : "",
+		flags);
 	return src->error;
 }

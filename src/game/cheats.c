@@ -113,6 +113,9 @@ u32 cheatIsUnlocked(s32 cheat_id)
 			unlocked++;
 		}
 	} else if (cheat->flags & CHEATFLAG_COMPLETION) {
+		if (cheat->stage_index >= NUM_SOLOSTAGES) {
+			return 0;
+		}
 		if (g_GameFile.besttimes[cheat->stage_index][0]) {
 			unlocked++;
 		}
@@ -123,6 +126,9 @@ u32 cheatIsUnlocked(s32 cheat_id)
 			unlocked++;
 		}
 	} else {
+		if (cheat->stage_index >= NUM_SOLOSTAGES) {
+			return 0;
+		}
 		if (g_GameFile.besttimes[cheat->stage_index][cheat->difficulty] &&
 				g_GameFile.besttimes[cheat->stage_index][cheat->difficulty] <= cheat->time) {
 			unlocked++;

@@ -6,6 +6,7 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 void stageParseTiles(void);
 
@@ -19,6 +20,13 @@ void tilesReset(void)
 
 	g_LoadType = LOADTYPE_TILES;
 	g_TileFileData.u8 = fileLoadToNew(g_Stages[index].tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
+	if (!g_TileFileData.u8) {
+		sysLogPrintf(LOG_ERROR, "TILES: failed to load tilefileid=%d for stage index=%d",
+			g_Stages[index].tilefileid, index);
+		g_TileNumRooms = 0;
+		g_TileRooms = NULL;
+		return;
+	}
 	g_TileNumRooms = *g_TileFileData.u32;
 	g_TileRooms = g_TileFileData.u32 + 1;
 

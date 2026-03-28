@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "memsizes.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -3813,7 +3814,7 @@ void bgunTickGunLoad(void)
 		*player->gunctrl.loadmemptr = ptr;
 		*player->gunctrl.loadmemremaining = remaining;
 
-		loadsize = ALIGN64(fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL)) + 0x8000;
+		loadsize = ALIGN64(fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL)) + GUN_MODEL_LOAD_SCRATCH;
 
 		osSyncPrintf("BriGun:  Loading - %s, pMem 0x%08x Size %d\n");
 
@@ -12042,6 +12043,7 @@ void bgunSetPassiveMode(bool enable)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->gunctrl.passivemode = enable;
 	}
 }

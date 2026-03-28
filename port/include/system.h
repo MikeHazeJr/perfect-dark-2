@@ -10,6 +10,7 @@ extern "C" {
 f32 sysGetSeconds(void);
 
 enum LogLevel {
+  LOG_VERBOSE,  /* Trace-level detail: function entry/exit, state dumps. Off by default. */
   LOG_NOTE,
   LOG_WARNING,
   LOG_ERROR,
@@ -18,6 +19,45 @@ enum LogLevel {
 
 #define LOGFLAG_NOCON   0x10
 #define LOGFLAG_SHOWMSG 0x20
+
+/* -----------------------------------------------------------------------
+ * Log channel filter system.
+ *
+ * Channels are bitmask flags. Each channel covers a group of log prefixes.
+ * Filtering is based on the message text prefix (e.g., "NET:", "SAVE:").
+ * Warnings and errors ALWAYS pass regardless of filter state.
+ * The active filter mask is printed to the log header on startup and
+ * whenever it changes, so you always know if output is being suppressed.
+ * ----------------------------------------------------------------------- */
+
+#define LOG_CH_NETWORK   0x0001  /* NET, UPNP, SERVER, LOBBY, MATCHSETUP  */
+#define LOG_CH_GAME      0x0002  /* STAGE, INTRO, CATALOG, LOAD, PLAYER, SIMULANT, SETUP */
+#define LOG_CH_COMBAT    0x0004  /* DAMAGE, WEAPON, AMMO, HEALTH, PICKUP  */
+#define LOG_CH_AUDIO     0x0008  /* SND, AUDIO, MUSIC, SFX               */
+#define LOG_CH_MENU      0x0010  /* MENU, HOTSWAP, DIALOG, FONT          */
+#define LOG_CH_SAVE      0x0020  /* SAVE, SAVEMIGRATE, CONFIG             */
+#define LOG_CH_MOD       0x0040  /* MOD, MODMGR, MODLOAD                 */
+#define LOG_CH_SYSTEM    0x0080  /* SYS, MEM, MEMPC, CRASH, FS, UPDATER  */
+#define LOG_CH_MATCH     0x0100  /* MATCH, CHRSLOTS, BOT_ALLOC, MATCHSETUP pipeline */
+#define LOG_CH_ALL       0xFFFF
+#define LOG_CH_NONE      0x0000
+
+/* Get/set the active channel mask. Default is LOG_CH_ALL. */
+u32  sysLogGetChannelMask(void);
+void sysLogSetChannelMask(u32 mask);
+
+/* Verbose logging: off by default, toggled via debug menu or --verbose flag. */
+s32  sysLogGetVerbose(void);
+void sysLogSetVerbose(s32 enabled);
+
+/* Channel names/count for UI enumeration */
+#define LOG_CH_COUNT 9
+extern const char *sysLogChannelNames[LOG_CH_COUNT];
+extern const u32   sysLogChannelBits[LOG_CH_COUNT];
+
+/* Log ring buffer for live console */
+s32  sysLogRingGetCount(void);
+const char *sysLogRingGetLine(s32 idx);
 
 void sysInitArgs(s32 argc, const char **argv);
 void sysInit(void);
@@ -50,8 +90,11 @@ void sysCpuRelax(void);
 void crashInit(void);
 void crashShutdown(void);
 
+/* Set to true in cleanup() — skips blocking teardown (UPnP, stage transitions). */
+extern s32 g_AppQuitting;
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* _IN_SYSTEM_H */

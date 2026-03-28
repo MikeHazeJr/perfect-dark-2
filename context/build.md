@@ -44,11 +44,36 @@ cmake --build build -- -j%NUMBER_OF_PROCESSORS%
 ## Important: Cannot Compile from Linux VM
 The build requires MSYS2/MinGW on Windows. The AI sandbox runs Linux and cannot compile this project. All compilation must be done by the user on their Windows machine.
 
+## Important: No GitHub Push Access from Linux VM
+The AI sandbox has READ-ONLY access to the Git repository (fetch/clone works, push does not). `gh` CLI is not authenticated here. All git push, tag deletion, release management, and GitHub operations that require write access must be done by the user on their Windows machine where `gh auth login` has been completed. Do NOT attempt to install or authenticate gh in the sandbox — it will fail. Instead, provide the user with ready-to-run commands for their PowerShell.
+
 ## Static Linking
 - `-static-libgcc` — prevents `libgcc_s_seh-1.dll` dependency (FIX-1)
 - `-static-libstdc++` — prevents libstdc++ DLL dependency
 - `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` — statically links libwinpthread (FIX-5)
-- **Still distributing as DLLs**: SDL2 (`libSDL2.dll`), zlib (`libz.dll`) — static linking deferred (TODO-1)
+- **SDL2, zlib, libcurl**: Now statically linked on Windows (no DLLs needed at runtime). CMakeLists.txt uses find_library to locate .a files in MSYS2 paths.
+
+### Transitive Dependency Conflicts — Verified Non-Issues (2026-03-28)
+
+**SDL2 + OpenSSL version conflict**: Not possible. MSYS2 ships only OpenSSL 3.x (1.1 removed ~2022). More importantly, `libSDL2.a` from MSYS2 is compiled *without* OpenSSL support — SDL_net is a separate package not linked here. Only curl links `libssl.a`/`libcrypto.a`, and both are the same 3.x version.
+
+**zlib duplicate symbols**: Not an issue. SDL2 (PNG loading) and curl (compressed transfers) both reference zlib symbols as *undefined externals* — they do not embed their own copies. A single `libz.a` satisfies both. The linker sees one definition set.
+
+**pthread/winpthread**: `-Wl,-Bstatic -lwinpthread -Wl,-Bdynamic` provides exactly one static copy. SDL2's thread references also resolve to this copy. No duplicates.
+
+**winmm listed twice**: SDL2's transitive deps (line 243) and EXTRA_LIBRARIES (line 354) both reference winmm. Both are `.dll.a` import stubs — the linker deduplicates import references transparently.
+
+To verify in MSYS2 shell:
+```bash
+# Confirm no SSL symbols in SDL2
+nm /mingw64/lib/libSDL2.a | grep -i ssl
+# Confirm zlib references are undefined (U), not defined (T/D)
+nm /mingw64/lib/libSDL2.a | grep -i " deflate\| inflate" | head -5
+# Confirm OpenSSL version
+pacman -Qi mingw-w64-x86_64-openssl | grep Version
+# Confirm no OpenSSL 1.1 coexistence
+ls /mingw64/lib/libssl* /mingw64/lib/libcrypto*
+```
 
 ## Directory Structure
 ```
@@ -88,8 +113,31 @@ perfect_dark-mike/
 - **zlib**: Compression (currently DLL)
 - **ENet**: Networking (statically linked)
 
+## Version System
+
+Version numbers flow: **Dev Window UI** → `CMakeLists.txt` (via `Set-ProjectVersion`) → **cmake configure** → `build/*/port/include/versioninfo.h` (via `configure_file`) → C preprocessor macros `VERSION_MAJOR/MINOR/PATCH` → `VERSION_STRING` macro → window title, updater user-agent, server title.
+
+### CMake CACHE pitfall (fixed 2026-03-26)
+Version variables are declared as `CACHE STRING` in CMakeLists.txt:
+```cmake
+set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
+```
+CMake rule: if a CACHE entry already exists, `set(... CACHE ...)` is **silently ignored** on reconfigure. So editing CMakeLists.txt version numbers does NOT take effect on incremental builds — the old CMakeCache.txt values win.
+
+**Fix**: `Get-BuildSteps -Ver $ver` now appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to BOTH cmake configure commands (client and server). Command-line `-D` flags always override the cache and update it.
+
+Only release builds (`Start-PushRelease`) pass the version. Regular BUILD button builds use the cache as-is (consistent with expectation that the cache reflects the last deliberate change).
+
+### Files involved
+- `devtools/dev-window.ps1` — `Get-BuildSteps` (cmake args), `Set-ProjectVersion` (edits CMakeLists.txt), `Start-PushRelease` (orchestration)
+- `CMakeLists.txt` — declares CACHE vars, runs `configure_file` → `versioninfo.h`
+- `port/include/versioninfo.h.in` — template: `@VERSION_SEM_MAJOR@` etc.
+- `port/include/updateversion.h` — `VERSION_STRING` macro (string concatenation of `VERSION_MAJOR/MINOR/PATCH`)
+- `port/src/video.c` — window title uses `VERSION_STRING`; initial title was hardcoded `v0.0.2` (fixed 2026-03-26)
+- `port/src/server_main.c`, `updater.c` — also use `VERSION_STRING`
+
 ## Known Issues
-- SDL2 and zlib still distributed as DLLs (TODO-1: investigate static linking)
+- None currently
 
 ## Session Fixes (Build-Related)
 - **FIX-1**: Added `-static-libgcc` to prevent DLL dependency

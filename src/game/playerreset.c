@@ -16,6 +16,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
+#include "game/atan2f.h"
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/memp.h"
@@ -23,6 +24,8 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
+#include "net/net.h"
 
 void playerInitEyespy(void)
 {
@@ -110,7 +113,7 @@ struct cmd32 {
 void playerReset(void)
 {
 	struct coord pos = {0, 0, 0};
-	RoomNum rooms[8];
+	RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 	f32 turnanglerad = 0;
 	f32 groundy;
 	bool hasdefaultweapon = false;
@@ -169,11 +172,17 @@ void playerReset(void)
 	g_DefaultWeapons[HAND_LEFT] = 0;
 	g_DefaultWeapons[HAND_RIGHT] = 0;
 
+	sysLogPrintf(LOG_NOTE, "LOAD: playerReset intro cmd=%p", (void *)cmd);
 	if (cmd) {
+		s32 introSafety = 0;
 		while (cmd->type != INTROCMD_END) {
+			if (++introSafety > 10000) {
+				sysLogPrintf(LOG_WARNING, "LOAD: playerReset intro loop exceeded 10000 iterations — breaking (cmd type=%d at %p)", cmd->type, (void *)cmd);
+				break;
+			}
 			switch (cmd->type) {
 			case INTROCMD_SPAWN:
-				if (cmd->param2 == 0) {
+				if (cmd->param2 == 0 && g_NumSpawnPoints < 24) { // 24 = sizeof g_SpawnPoints in player.c
 					g_SpawnPoints[g_NumSpawnPoints++] = cmd->param1;
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 12);
@@ -245,8 +254,11 @@ void playerReset(void)
 			case INTROCMD_CREDITOFFSET:
 				thing = (struct gecreditsdata *)((uintptr_t)g_GeCreditsData + cmd->param1);
 				g_CurrentGeCreditsData = thing;
-				while (thing->text1 || thing->text2) {
-					thing++;
+				{
+					s32 creditSafety = 0;
+					while ((thing->text1 || thing->text2) && ++creditSafety < 1000) {
+						thing++;
+					}
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 8);
 				break;
@@ -255,6 +267,38 @@ void playerReset(void)
 			}
 		}
 	}
+
+	/* PC: If no spawn points were set by INTROCMD_SPAWN (e.g. mod stages or MP
+	 * maps without a proper intro/setup sequence), populate g_SpawnPoints from
+	 * all pads with valid room numbers so the dispersal algorithm can work.
+	 * Covers networked matches (g_NetMode) AND local Combat Sim where netmode
+	 * is NETMODE_NONE but normmplayerisrunning is true. Solo missions always
+	 * define their own player placement and must not be overridden here. */
+	if (g_NumSpawnPoints == 0 && (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning) && g_PadsFile != NULL) {
+		s32 maxpads = g_PadsFile->numpads;
+		s32 added   = 0;
+		for (s32 pi = 0; pi < maxpads && added < 24; pi++) {
+			struct pad probePad;
+			padUnpack(pi, PADFIELD_ROOM, &probePad);
+			if (probePad.room >= 0) {
+				g_SpawnPoints[g_NumSpawnPoints++] = (s16)pi;
+				added++;
+			}
+		}
+		if (added > 0) {
+			sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from pad file (B-19 fallback)", added);
+		} else {
+			sysLogPrintf(LOG_WARNING, "SPAWN: B-19 fallback found 0 valid pads (numpads=%d netmode=%d normmplay=%d)",
+				maxpads, g_NetMode, g_Vars.normmplayerisrunning);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: summary stage=0x%02x npts=%d mplay=%d normmplay=%d netmode=%d intro=%s pads=%s",
+		g_Vars.stagenum, g_NumSpawnPoints,
+		g_Vars.mplayerisrunning, g_Vars.normmplayerisrunning,
+		g_NetMode,
+		cmd ? "ok" : "null",
+		g_PadsFile ? "ok" : "null");
 
 	invGiveSingleWeapon(WEAPON_UNARMED);
 
@@ -414,7 +458,70 @@ void playerReset(void)
 
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		}
+	} else if (g_Vars.mplayerisrunning) {
+		// PC: Mod stages may have setup files with no valid intro data, leaving
+		// g_NumSpawnPoints at 0. Without a spawn location, rooms[] is uninitialized
+		// garbage and cdFindGroundInfoAtCyl will crash reading invalid room numbers.
+		// Scan pads for the first one with a valid (non-negative) room number —
+		// pad 0 may be a non-player pad with room < 0, which causes CD queries
+		// to fail silently and leaves the player spawning in the void.
+		// Then probe 8 directions for the nearest wall and face away from it.
+		struct pad fallbackpad;
+		s32 fallbackpadnum = 0;
+		{
+			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
+			s32 pi;
+			for (pi = 0; pi < maxpads && pi < 64; pi++) {
+				struct pad probePad;
+				padUnpack(pi, PADFIELD_ROOM, &probePad);
+				if (probePad.room >= 0) {
+					fallbackpadnum = pi;
+					break;
+				}
+			}
+		}
+		padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+		pos.x = fallbackpad.pos.x;
+		pos.y = fallbackpad.pos.y;
+		pos.z = fallbackpad.pos.z;
+		rooms[0] = fallbackpad.room;
+		rooms[1] = -1;
+
+		// Probe 8 compass directions to find walls, accumulate a wall vector,
+		// then face the opposite direction so the player doesn't spawn staring
+		// at a wall. Each probe tests for wall collision at 200 units out.
+		{
+			static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
+			static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
+			f32 wallX = 0, wallZ = 0;
+			s32 wallCount = 0;
+			s32 dir;
+
+			for (dir = 0; dir < 8; dir++) {
+				struct coord probe;
+				probe.x = pos.x + dirX[dir] * 200.0f;
+				probe.y = pos.y;
+				probe.z = pos.z + dirZ[dir] * 200.0f;
+
+				if (cdExamCylMove01(&pos, &probe, 30, rooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
+					wallX += dirX[dir];
+					wallZ += dirZ[dir];
+					wallCount++;
+				}
+			}
+
+			if (wallCount > 0) {
+				// Face away from the average wall direction
+				turnanglerad = atan2f(wallX, -wallZ);
+			}
+			// else turnanglerad stays 0 — no walls nearby, any direction is fine
+		}
+
+		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad %d fallback (room=%d, angle=%.1f)", fallbackpadnum, fallbackpad.room, turnanglerad);
 	}
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: pre-ground pos=(%.1f,%.1f,%.1f) room=%d angle=%.3f",
+		pos.x, pos.y, pos.z, rooms[0], turnanglerad);
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,

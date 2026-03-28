@@ -3031,6 +3031,7 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 		// and the buddy's playernum if applicable. Note that the player count
 		// can only be 1 or 2 here.
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (eyespy == g_Vars.players[i]->eyespy) {
 				setCurrentPlayerNum(i);
 			} else {
@@ -4299,6 +4300,28 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	s32 aplayernum = -1;
 	s32 choketype = CHOKETYPE_NONE;
 
+	/* Combat debug: log every chrDamage entry with full context */
+	{
+		const char *atype = "???";
+		const char *vtype = "???";
+		if (aprop) {
+			if (aprop->type == PROPTYPE_PLAYER) atype = "PLAYER";
+			else if (aprop->type == PROPTYPE_CHR) atype = (aprop->chr && aprop->chr->aibot) ? "BOT" : "NPC";
+		} else {
+			atype = "NULL";
+		}
+		if (vprop->type == PROPTYPE_PLAYER) vtype = "PLAYER";
+		else if (vprop->type == PROPTYPE_CHR) vtype = (chr->aibot) ? "BOT" : "NPC";
+
+		sysLogPrintf(LOG_NOTE, "COMBAT: chrDamage sender=%s receiver=%s "
+			"pos=(%.0f,%.0f,%.0f) dmg_raw=%.2f hp=%.2f/%.2f shield=%.2f "
+			"weapon=%d hitpart=%d explosion=%d",
+			atype, vtype,
+			vprop->pos.x, vprop->pos.y, vprop->pos.z,
+			damage, chr->damage, chr->maxdamage, chrGetShield(chr),
+			gset ? gset->weaponnum : -1, hitpart, explosion);
+	}
+
 	if (g_NetMode == NETMODE_SERVER) {
 		netmsgSvcChrDamageWrite(&g_NetMsgRel, chr, damage, vector, gset, aprop, hitpart,
 				damageshield, prop2, side, arg11, explosion, explosionpos);
@@ -4390,7 +4413,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	ismelee = func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE;
 	makedizzy = race != RACE_DRCAROLL && gsetHasFunctionFlags(gset, FUNCFLAG_MAKEDIZZY);
 
-	if (chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
+	if (g_Vars.currentplayer != NULL && chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
 		return;
 	}
 
@@ -4437,8 +4460,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop->type == PROPTYPE_PLAYER) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 	} else if (g_Vars.coopplayernum >= 0) {
 		// Co-op
@@ -4458,8 +4484,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop->type == PROPTYPE_PLAYER) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 	} else if (g_Vars.antiplayernum >= 0) {
 		// Anti
@@ -4479,8 +4508,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop == g_Vars.bond->prop) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 
 		// Anti shooting other enemies is lethal
@@ -4494,10 +4526,16 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		if (vprop->type == PROPTYPE_PLAYER) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(playermgrGetPlayerNumByProp(vprop));
+			sysLogPrintf(LOG_NOTE, "COMBAT: MP_SCALE damagescale=%.2f dmg_before=%.2f",
+				g_Vars.currentplayerstats->damagescale, damage);
 			damage *= g_Vars.currentplayerstats->damagescale;
 			setCurrentPlayerNum(prevplayernum);
 		}
 	}
+
+	/* Combat debug: log final scaled damage */
+	sysLogPrintf(LOG_NOTE, "COMBAT: DMG_SCALED dmg_final=%.2f healthscale=%.2f armourscale=%.2f mplayerisrunning=%d",
+		damage, healthscale, armourscale, g_Vars.mplayerisrunning);
 
 	// Apply rumble
 	if (vprop->type == PROPTYPE_PLAYER) {
@@ -4648,8 +4686,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			alreadydead = true;
 		}
 
-		if (vprop->type == PROPTYPE_PLAYER && g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->isdead) {
-			alreadydead = true;
+		if (vprop->type == PROPTYPE_PLAYER) {
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL && g_Vars.players[chrpnum]->isdead) {
+				alreadydead = true;
+			} else if (chrpnum < 0 && vprop->chr != NULL && vprop->chr->actiontype == ACT_DEAD) {
+				alreadydead = true;
+			}
 		}
 
 		if (!alreadydead && hitpart) {
@@ -4826,6 +4869,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				if (g_Vars.currentplayer->invincible == false && damage > 0) {
 					f32 statsamount = amount = damage * 0.125f;
 
+					sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT bondhealth_before=%.4f damage=%.2f amount=%.4f healthscale=%.2f onehitkills=%d invincible=%d",
+						g_Vars.currentplayer->bondhealth, damage, amount, healthscale,
+						(g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_ONEHITKILLS)) ? 1 : 0,
+						g_Vars.currentplayer->invincible);
+
 					if (statsamount > g_Vars.currentplayer->bondhealth) {
 						statsamount = g_Vars.currentplayer->bondhealth;
 					}
@@ -4846,6 +4894,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					chr->lastattacker = (aprop ? aprop->chr : NULL);
 
 					showdamage = true;
+
+					sysLogPrintf(LOG_NOTE, "COMBAT: PLAYER_HIT_RESULT bondhealth_after=%.4f dead=%s",
+						g_Vars.currentplayer->bondhealth,
+						(g_Vars.currentplayer->bondhealth <= 0) ? "YES" : "NO");
 
 					if (g_Vars.currentplayer->training == false
 							&& g_Vars.currentplayer->bondhealth <= 0) {
@@ -5003,6 +5055,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chr->damage += damage;
 				chr->lastattacker = (aprop ? aprop->chr : NULL);
 				chr->chrflags |= CHRCFLAG_JUST_INJURED;
+
+				/* Combat debug: log damage result */
+				sysLogPrintf(LOG_NOTE, "COMBAT: DMG_APPLIED dmg_scaled=%.2f hp_after=%.2f/%.2f "
+					"dead=%s invincible=%d",
+					damage, chr->damage, chr->maxdamage,
+					chr->damage >= chr->maxdamage ? "YES" : "NO",
+					(chr->chrflags & CHRCFLAG_INVINCIBLE) != 0);
 
 				if (chr->aibot) {
 					if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_ONEHITKILLS)) {
@@ -5392,6 +5451,7 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 
 	if (offscreen) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i] || !g_Vars.players[i]->prop) continue;
 			portal00018148(waypos, &g_Vars.players[i]->prop->pos, wayrooms, sp50, 0, 0);
 
 			if (arrayIntersects(g_Vars.players[i]->prop->rooms, sp50)) {

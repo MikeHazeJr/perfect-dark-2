@@ -854,8 +854,11 @@ void modelPositionJointUsingVecRot(struct modelrenderdata *renderdata, struct mo
 
 		mtx4LoadRotationAndTranslation(pos, rot, &mtx68);
 
-		if (allowscale && model->scale != 1.0f) {
-			mtx00015f04(model->scale, &mtx68);
+		if (allowscale) {
+			f32 effectivescale = modelGetEffectiveScale(model);
+			if (effectivescale != 1.0f) {
+				mtx00015f04(effectivescale, &mtx68);
+			}
 		}
 
 		if (arg6->x != 1.0f) {
@@ -880,8 +883,11 @@ void modelPositionJointUsingVecRot(struct modelrenderdata *renderdata, struct mo
 
 		mtx4LoadRotationAndTranslation(pos, rot, nodemtx);
 
-		if (allowscale && model->scale != 1.0f) {
-			mtx00015f04(model->scale, nodemtx);
+		if (allowscale) {
+			f32 effectivescale = modelGetEffectiveScale(model);
+			if (effectivescale != 1.0f) {
+				mtx00015f04(effectivescale, nodemtx);
+			}
 		}
 
 		if (arg6->x != 1.0f) {

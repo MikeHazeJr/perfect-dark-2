@@ -97,7 +97,7 @@ extern struct roomproplistchunk *g_RoomPropListChunks;
 extern struct prop *g_InteractProp;
 extern s32 var8009cdac;
 extern s32 var8009cdb0;
-extern struct weaponobj *g_Proxies[30];
+extern struct weaponobj *g_Proxies[MAX_PROXIES];
 extern s32 g_MaxWeaponSlots;
 extern s32 g_MaxHatSlots;
 extern s32 g_MaxAmmoCrates;

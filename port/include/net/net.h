@@ -5,11 +5,11 @@
 #include "constants.h"
 #include "net/netbuf.h"
 
-#define NET_PROTOCOL_VER 18
+#define NET_PROTOCOL_VER 21  /* B-12 fix: chrslots u32→u64, MAX_BOTS 24→32 */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
-#define NET_MAX_CLIENTS MAX_PLAYERS
+#define NET_MAX_CLIENTS 32  /* max simultaneous connections; independent of MAX_PLAYERS (match slots) */
 #define NET_MAX_NAME MAX_PLAYERNAME
 #define NET_MAX_ADDR 256
 
@@ -25,7 +25,8 @@
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
 
-extern u8 g_NetPendingResyncFlags;
+extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
+extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */
 
 #define CLFLAG_ABSENT    (1 << 0) // player disconnected mid-game, slot preserved for reconnect
 #define CLFLAG_COOPREADY (1 << 1) // client is ready to start co-op mission
@@ -67,9 +68,17 @@ extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 
-#define NETCHAN_DEFAULT 0
-#define NETCHAN_CONTROL 1
-#define NETCHAN_COUNT 2
+#define NETCHAN_DEFAULT  0
+#define NETCHAN_CONTROL  1
+#define NETCHAN_TRANSFER 2  /* D3R-9: dedicated reliable channel for mod distribution */
+#define NETCHAN_COUNT    3
+
+/* D3R-9: Network Distribution limits */
+#define NET_DISTRIB_CHUNK_SIZE   (16 * 1024)          /* 16KB uncompressed per chunk */
+#define NET_DISTRIB_MAX_COMP     (50 * 1024 * 1024)   /* 50MB max single component */
+#define NET_DISTRIB_MAX_SESSION  (200 * 1024 * 1024)  /* 200MB max per session total */
+#define NET_DISTRIB_COMP_NONE    0                    /* no compression */
+#define NET_DISTRIB_COMP_DEFLATE 1                    /* zlib deflate */
 
 #define DISCONNECT_UNKNOWN  0
 #define DISCONNECT_SHUTDOWN 1

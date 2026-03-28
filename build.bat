@@ -33,7 +33,7 @@ exit /b 1
 :do_clean
 echo [CLEAN] Removing build directory...
 if exist "%BUILD_DIR%" (
-    rmdir /s /q "%BUILD_DIR%"
+    rm -rf "%BUILD_DIR%"
     echo [CLEAN] Done.
 ) else (
     echo [CLEAN] Build directory does not exist, nothing to clean.
@@ -58,13 +58,35 @@ echo [CONFIGURE] Done.
 exit /b 0
 
 :: ============================================================
-:: BUILD - Compile the project
+:: BUILD - Clean rebuild: wipe build dir, reconfigure, compile
 :: ============================================================
 :do_build
+echo [BUILD] Starting fresh build...
+echo.
+
+:: Wipe previous build artifacts
+if exist "%BUILD_DIR%" (
+    echo [BUILD] Cleaning previous build...
+    rmdir /s /q "%BUILD_DIR%"
+)
+
+:: Reconfigure with CMake
+echo [BUILD] Configuring...
+%CMAKE% -G "Unix Makefiles" ^
+    -DCMAKE_MAKE_PROGRAM="%MAKE%" ^
+    -DCMAKE_C_COMPILER="C:/msys64/mingw64/bin/cc.exe" ^
+    -B "%BUILD_DIR%" ^
+    -S "%PROJECT_DIR%"
+if errorlevel 1 (
+    echo [BUILD] Configure FAILED
+    exit /b 1
+)
+
+:: Compile
 echo [BUILD] Compiling...
 %CMAKE% --build "%BUILD_DIR%" -- -j%NUMBER_OF_PROCESSORS%
 if errorlevel 1 (
-    echo [BUILD] FAILED
+    echo [BUILD] Compile FAILED
     exit /b 1
 )
 echo [BUILD] Done. Executable: %BUILD_DIR%\pd.x86_64.exe
@@ -114,6 +136,9 @@ exit /b 0
 echo ============================================
 echo  Perfect Dark PC Port - Full Build
 echo ============================================
+echo.
+
+call :do_clean
 echo.
 
 call :do_configure

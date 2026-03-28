@@ -37,12 +37,31 @@
 
 /* Lobby sidebar — declared in pdgui_lobby.cpp */
 extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
+extern "C" void pdguiUpdateRender(void);
+extern "C" s32  pdguiUpdateIsActive(void);
+
+/* D3R-7: Modding Hub standalone window — declared in pdgui_menu_moddinghub.cpp */
+extern "C" void pdguiModdingHubRender(s32 winW, s32 winH);
+extern "C" s32  pdguiModdingHubIsVisible(void);
+
+/* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
+#include "pdgui_pausemenu.h"
+
+/* In-match HUD overlay (top scorers + timer) */
+#include "pdgui_hud.h"
 
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
+/* Menu state manager (menumgr.c) */
+extern "C" s32 menuIsInCooldown(void);
+extern "C" s32 menuIsOpen(void);
+
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
+
+/* Resolution-independent scaling helpers */
+#include "pdgui_scaling.h"
 
 /* Logging */
 #include "system.h"
@@ -121,10 +140,16 @@ void pdguiInit(void *sdlWindow)
         ImFontConfig cfg;
         cfg.FontDataOwnedByAtlas = true;  /* ImGui will free fontCopy */
         snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
+        cfg.OversampleV = 2;  /* Extra vertical rasterization quality */
+
+        /* Extra atlas padding so descenders (q, y, p, g) aren't clipped
+         * at the glyph boundary in the texture. Default is 1. */
+        io.Fonts->TexGlyphPadding = 2;
 
         /* Load at a higher base size (24pt) so the font atlas has enough
-         * detail for game-relative scaling at 1080p+. The debug menu then
-         * scales down via FontGlobalScale for 480p-relative layout. */
+         * detail for game-relative scaling at 1080p+. FontGlobalScale is
+         * set each frame (pdguiNewFrame) to scale proportionally with
+         * display height, keeping text within scaled button/row heights. */
         ImFont *font = io.Fonts->AddFontFromMemoryTTF(
             fontCopy, (int)g_HandelGothicFont_size, 24.0f, &cfg);
 
@@ -166,28 +191,102 @@ void pdguiInit(void *sdlWindow)
 void pdguiNewFrame(void)
 {
     bool networkActive = (netGetMode() != 0);
+    bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
+    bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     if (!g_PdguiInitialized ||
         (!g_PdguiActive && !pdguiStoryboardIsActive() &&
-         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() && !networkActive)) {
+         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+         !networkActive && !pauseActive && !hubActive)) {
         return;
     }
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
+
+    /* Scale font with display height so the 24pt atlas renders proportionally
+     * at all resolutions. At 720p scale=1.0 (24pt effective). At 800x600
+     * scale≈0.83 → ~20pt effective, fitting within scaled button heights.
+     * Subsystems that override this (debug menu, storyboard) must restore
+     * to pdguiScaleFactor() — NOT 1.0f — so subsequent renderers stay correct. */
+    ImGui::GetIO().FontGlobalScale = pdguiScaleFactor();
+
     ImGui::NewFrame();
+}
+
+/* ---- Live Console (backtick toggle) ---- */
+static bool s_ConsoleVisible = false;
+
+void pdguiConsoleToggle(void)
+{
+    s_ConsoleVisible = !s_ConsoleVisible;
+}
+
+static void pdguiConsoleRender(void)
+{
+    if (!s_ConsoleVisible || !g_PdguiInitialized) return;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.7f);
+
+    /* NoFocusOnAppearing + NoNavFocus + NoNavInputs = overlay that doesn't steal input.
+     * Player can still move, shoot, jump while the console is visible. */
+    ImGuiWindowFlags consoleFlags = ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoFocusOnAppearing
+        | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoNavInputs
+        | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (ImGui::Begin("Console", &s_ConsoleVisible, consoleFlags)) {
+        s32 count = sysLogRingGetCount();
+        ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        for (s32 i = 0; i < count; i++) {
+            const char *line = sysLogRingGetLine(i);
+            /* Color-code by prefix */
+            if (strstr(line, "ERROR:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            } else if (strstr(line, "WARNING:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            } else if (strstr(line, "MESHCOL:") || strstr(line, "JUMP:") || strstr(line, "CAPSULE")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 0.4f, 1.0f));
+            } else if (strstr(line, "LOAD:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.7f, 1.0f, 1.0f));
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, 1.0f));
+            }
+            ImGui::TextUnformatted(line);
+            ImGui::PopStyleColor();
+        }
+        /* Auto-scroll to bottom */
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
 }
 
 void pdguiRender(void)
 {
+    /* Console renders independently of the debug overlay */
+    if (s_ConsoleVisible && g_PdguiInitialized) {
+        pdguiConsoleRender();
+    }
+
     bool storyboardActive = pdguiStoryboardIsActive() != 0;
     bool hotswapQueued = pdguiHotswapHasQueued() != 0;
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
 
     bool networkActive = (netGetMode() != 0);
+    bool updateActive = (pdguiUpdateIsActive() != 0);
+    bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
+    bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
+    /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive && !networkActive)) {
+        (!g_PdguiActive && !s_ConsoleVisible && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+         !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }
 
@@ -222,12 +321,26 @@ void pdguiRender(void)
      * frame and pdguiIsActive/pdguiWantsInput block all game input. */
     pdguiHotswapRenderQueued((s32)winW, (s32)winH);
 
-    /* F8 hot-swap status badge (always visible when menus have replacements) */
-    pdguiHotswapRenderBadge((s32)winW, (s32)winH);
+    /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
+    pdguiModdingHubRender((s32)winW, (s32)winH);
 
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);
+
+    /* D13: Update notification banner, version picker, download progress.
+     * Renders as overlay — independent of hotswap and menu state. */
+    pdguiUpdateRender();
+
+    /* Combat sim pause menu + hold-to-show scorecard overlay.
+     * Rendered independently of hotswap/menu state — active during gameplay. */
+    pdguiPauseMenuRender((s32)winW, (s32)winH);
+    pdguiScorecardRender((s32)winW, (s32)winH);
+
+    /* In-match HUD: top 2 scorers + remaining time.
+     * Only visible during normmplayerisrunning (combat sim active). */
+    pdguiHudRender((s32)winW, (s32)winH);
+
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */
@@ -361,6 +474,18 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 0;
     }
 
+    /* Menu manager cooldown: consume ALL input during transition frames
+     * to prevent double-press when opening/closing menus. */
+    if (menuIsInCooldown()) {
+        const SDL_Event *cooldownEv = (const SDL_Event *)sdlEvent;
+        /* Still forward to ImGui for state tracking, but consume from game */
+        ImGui_ImplSDL2_ProcessEvent(cooldownEv);
+        if (cooldownEv->type == SDL_KEYDOWN || cooldownEv->type == SDL_KEYUP ||
+            cooldownEv->type == SDL_CONTROLLERBUTTONDOWN || cooldownEv->type == SDL_CONTROLLERBUTTONUP) {
+            return 1;
+        }
+    }
+
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
     /* F8 / RS-click hot-swap toggle — does NOT consume input or open an overlay.
@@ -396,14 +521,16 @@ s32 pdguiProcessEvent(void *sdlEvent)
      * - Debug overlay (F12)
      * - Storyboard (F11)
      * - Hot-swapped menu (F8)
+     * - Pause menu (in-game)
      *
      * For hotswap, use pdguiHotswapWasActive() which persists from the
      * previous frame's render. pdguiHotswapHasQueued() would be 0 here
      * because events are processed BEFORE the GBI phase queues new dialogs. */
     bool overlayActive = g_PdguiActive || pdguiStoryboardIsActive();
     bool hotswapActive = pdguiHotswapWasActive() != 0 || pdguiHotswapHasQueued() != 0;
+    bool pauseActive = pdguiIsPauseMenuOpen() != 0;
 
-    if (!overlayActive && !hotswapActive) {
+    if (!overlayActive && !hotswapActive && !pauseActive) {
         return 0;
     }
 
@@ -419,9 +546,9 @@ s32 pdguiProcessEvent(void *sdlEvent)
         case SDL_KEYDOWN:
         case SDL_KEYUP:
         case SDL_TEXTINPUT:
-            /* When overlay or hot-swap is active, consume ALL keyboard input
-             * so the game doesn't act on keys meant for ImGui. */
-            if (overlayActive || hotswapActive) return 1;
+            /* When overlay, hot-swap, or pause menu is active, consume ALL
+             * keyboard input so the game doesn't act on keys meant for ImGui. */
+            if (overlayActive || hotswapActive || pauseActive) return 1;
             return 0;
 
         case SDL_CONTROLLERBUTTONDOWN:
@@ -459,6 +586,11 @@ s32 pdguiWantsInput(void)
         return 1;
     }
 
+    /* ImGui pause menu consumes all input when open */
+    if (pdguiIsPauseMenuOpen()) {
+        return 1;
+    }
+
     if (!g_PdguiActive) {
         return 0;
     }
@@ -469,8 +601,8 @@ s32 pdguiWantsInput(void)
 
 s32 pdguiIsActive(void)
 {
-    /* F12 debug overlay, F11 storyboard, or F8 hot-swapped menus */
-    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive()) ? 1 : 0;
+    /* F12 debug overlay, F11 storyboard, F8 hot-swapped menus, or ImGui pause menu */
+    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
 }
 
 void pdguiToggle(void)
