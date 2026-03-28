@@ -3,6 +3,38 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 70 — 2026-03-28
+
+**Focus**: Right stick Y-axis inversion setting
+
+### What Was Done
+
+Added universal "Invert Y-Axis" toggle for the right thumbstick.
+
+**Implementation:**
+- `port/src/input.c`: Added `invertRStickY` field to `struct controllercfg`. Applied in `inputReadController` at the rStickY calculation: `(cfg->invertRStickY ? rightY : -rightY) / 0x100`. Registered via `configRegisterInt("Input.Player%d.InvertRStickY", ...)` for pd.ini persistence. Added `inputControllerGetInvertRStickY` / `inputControllerSetInvertRStickY` API.
+- `port/include/input.h`: Added declarations for the two new API functions.
+- `port/fast3d/pdgui_menu_mainmenu.cpp`: Added "Invert Y-Axis (Right Stick)" checkbox in Settings > Controls > Look section, after the existing "Invert Look (Y-Axis)" checkbox. Calls `configSave("pd.ini")` on toggle.
+- `port/fast3d/pdgui_menu_pausemenu.cpp`: Added "Invert Y-Axis" checkbox in the pause menu Settings tab (below match settings, in a new Controls section) for quick in-match access.
+
+**Note**: Pre-existing `netmsg.c` build error (conflicting types for `netmsgClcLobbyStartWrite` — declaration in netmsg.h vs definition in netmsg.c) was present before this session. My 3 changed files compiled clean.
+
+**Build**: 3 changed files (`input.c`, `pdgui_menu_mainmenu.cpp`, `pdgui_menu_pausemenu.cpp`) compiled with exit code 0, no errors or warnings.
+**Commit**: `bcf4123` S70
+
+### Decisions Made
+- Applied inversion at the input layer (`inputReadController`) rather than in game logic (`bondmove.c`). This is cleaner: one place, before game code sees the value, consistent with how other per-controller settings work.
+- Separate from the existing "Invert Look (Y-Axis)" (which is `optionsGetForwardPitch` — only affects mouse look Y). Right stick gets its own independent toggle.
+- Universal — no per-mode Campaign/Combat Sim split like the N64 original.
+- Stored in `pd.ini` as `Input.Player1.InvertRStickY` (same section as other controller settings).
+
+### Next Steps
+- Playtest: enable "Invert Y-Axis (Right Stick)" in Settings > Controls > Look, confirm right stick Y is inverted in-match.
+- Verify toggle persists across game restarts (check pd.ini).
+- Verify pause menu toggle works identically during Combat Sim match.
+
+---
+
 ## Session 69 — 2026-03-28
 
 **Focus**: Player count constants systemic audit — full catalog, 5 wrong values fixed

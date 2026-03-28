@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **Invert Y-Axis (Right Stick)** (S70) | **BUILD VERIFIED (S70)** — `invertRStickY` in `controllercfg`, applied in `inputReadController`. Toggle in Settings > Controls > Look ("Invert Y-Axis (Right Stick)") and in pause menu Settings tab ("Invert Y-Axis"). Persists via pd.ini as `Input.Player1.InvertRStickY`. Needs playtest: enable toggle, right stick Y should invert in-match; verify persists across restart. |
 | **Player count constants audit** (S69) | **CODED (S69)** — 5 wrong values fixed: NET_MAX_CLIENTS=8→32 (2 files), MAX_BOTS_PM=24→32 (struct layout fix), HUB_MAX_CLIENTS=8→32, SAVE_MAX_BOTS=24→32. Needs full build + merge. Playtest: pause menu post-match scoreboard should show correct kill/death/points. |
 | **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
 | **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
