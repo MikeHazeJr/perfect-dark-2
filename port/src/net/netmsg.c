@@ -3248,10 +3248,11 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload: gamemode (u8), stagenum (u8), difficulty (u8)
+ * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
+ *          timelimit (u8), options (u32)
  * ======================================================================== */
 
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType)
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options)
 {
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
@@ -3259,6 +3260,8 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, difficulty);
 	netbufWriteU8(dst, numSims);
 	netbufWriteU8(dst, simType);
+	netbufWriteU8(dst, timelimit);
+	netbufWriteU32(dst, options);
 	return dst->error;
 }
 
@@ -3269,6 +3272,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 difficulty = netbufReadU8(src);
 	const u8 numSims    = netbufReadU8(src);
 	const u8 simType    = netbufReadU8(src);
+	const u8 timelimit  = netbufReadU8(src);
+	const u32 options   = netbufReadU32(src);
 
 	if (src->error) {
 		return src->error;
@@ -3315,8 +3320,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u",
-	             srccl->settings.name, gamemode, stagenum, difficulty);
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u tl=%u opt=0x%08x",
+	             srccl->settings.name, gamemode, stagenum, difficulty, timelimit, (unsigned)options);
 
 	/* Apply settings */
 	g_NetGameMode = gamemode;
@@ -3334,9 +3339,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * spawns anyone. */
 		g_MpSetup.stagenum   = stagenum;
 		g_MpSetup.scenario   = 0; /* MPSCENARIO_COMBAT */
-		g_MpSetup.timelimit  = 0; /* unlimited */
+		g_MpSetup.timelimit  = timelimit; /* 0..59 = minutes, >=60 = unlimited */
 		g_MpSetup.scorelimit = 0; /* no kill limit */
-		g_MpSetup.options    = 0;
+		g_MpSetup.options    = options;
 		/* Leave g_MpSetup.weapons as-is (loaded from save or zero). */
 
 		/* Assign sequential playernums and build chrslots bitmask.

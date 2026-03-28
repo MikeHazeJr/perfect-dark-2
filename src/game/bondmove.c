@@ -2421,8 +2421,8 @@ void bmoveFindEnteredRoomsByPos(struct player *player, struct coord *mid, RoomNu
 {
 	struct coord bbmin;
 	struct coord bbmax;
-	f32 eyeheight = g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_eyeheight;
-	f32 headheight = g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_headheight;
+	f32 eyeheight = player->vv_eyeheight;
+	f32 headheight = player->vv_headheight;
 
 	bbmin.x = mid->x - 50;
 	bbmin.y = mid->y - player->crouchheight - eyeheight - 10;

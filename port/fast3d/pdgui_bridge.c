@@ -408,7 +408,7 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
  * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
  * ======================================================================== */
 
-s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType)
+s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -423,14 +423,15 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 num
      * server.  Without the explicit netSend the packet sits unsent — the
      * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
     netbufStartWrite(&g_NetLocalClient->out);
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType, timelimit, options);
     netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u",
-                 gamemode, stagenum, difficulty, numSims, simType);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u tl=%u opt=0x%08x",
+                 gamemode, stagenum, difficulty, numSims, simType, timelimit, (unsigned)options);
     return 0;
 }
 
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
 {
-    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0);
+    /* timelimit=60 (unlimited), options=0 for non-Combat-Sim modes */
+    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0, 60, 0);
 }

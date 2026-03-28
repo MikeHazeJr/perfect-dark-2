@@ -91,7 +91,7 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 /* Bridge: send CLC_LOBBY_START */
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
 s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
-                                  u8 numSims, u8 simType);
+                                  u8 numSims, u8 simType, u8 timelimit, u32 options);
 
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
@@ -433,7 +433,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     int curBots    = countBots();
     /* Max bots = remaining player slots (MAX_PLAYERS - humans), also bounded
      * by MATCH_MAX_SLOTS capacity. */
-    int maxBots = MAX_PLAYERS - humanCount;
+    int maxBots = MATCH_MAX_SLOTS - humanCount;
     if (maxBots < 0) maxBots = 0;
 
     float btnH   = pdguiScale(26.0f);
@@ -1118,7 +1118,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         (u8)s_Arenas[s_SelectedArena].stagenum,
                         0,
                         (u8)numBots,
-                        simType);
+                        simType,
+                        g_MatchConfig.timelimit,
+                        g_MatchConfig.options);
                     break;
                 }
                 case 1:

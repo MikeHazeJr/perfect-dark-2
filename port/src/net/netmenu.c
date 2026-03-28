@@ -207,7 +207,7 @@ static MenuItemHandlerResult menuhandlerCoopConfigStart(s32 operation, struct me
 
 			netbufStartWrite(&g_NetLocalClient->out);
 			netmsgClcLobbyStartWrite(&g_NetLocalClient->out,
-				gamemode, stagenum, difficulty, 0, 0);
+				gamemode, stagenum, difficulty, 0, 0, 60, 0);
 			netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
 
 			/* Pop the config dialog — we're done configuring */
