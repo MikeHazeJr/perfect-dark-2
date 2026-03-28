@@ -39,6 +39,7 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "scenario_save.h"
 #include "assetcatalog.h"
 #include "identity.h"
 
@@ -3250,6 +3251,8 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  *
  * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16)
+ *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
+ *          botDifficulty (u8), botType (u8)
  * ======================================================================== */
 
 u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit)
@@ -3265,6 +3268,31 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scenario);
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
+
+	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
+	 * Count must equal numSims; extra slots are skipped, missing ones
+	 * write empty defaults so the server always reads exactly numSims entries. */
+	s32 botIdx = 0;
+	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
+		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
+			const struct matchslot *sl = &g_MatchConfig.slots[si];
+			netbufWriteStr(dst, sl->name);
+			netbufWriteU8(dst, sl->bodynum);
+			netbufWriteU8(dst, sl->headnum);
+			netbufWriteU8(dst, sl->botDifficulty);
+			netbufWriteU8(dst, sl->botType);
+			botIdx++;
+		}
+	}
+	/* Pad any missing slots with defaults (shouldn't happen in practice) */
+	for (; botIdx < (s32)numSims; botIdx++) {
+		netbufWriteStr(dst, "");
+		netbufWriteU8(dst, 0xFF); /* default body */
+		netbufWriteU8(dst, 0xFF); /* default head */
+		netbufWriteU8(dst, 2);    /* BOTDIFF_NORMAL */
+		netbufWriteU8(dst, simType);
+	}
+
 	return dst->error;
 }
 
@@ -3372,9 +3400,32 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
 			g_MpSetup.chrslots |= (u64)1 << slot;
-			/* Configure the bot in g_BotConfigsArray. */
-			g_BotConfigsArray[bi].type       = simType;
-			g_BotConfigsArray[bi].difficulty = 2; /* Normal as default per-bot difficulty */
+			/* Read per-bot config from the message. */
+			const char *botName    = netbufReadStr(src);
+			const u8 bodynum       = netbufReadU8(src);
+			const u8 headnum       = netbufReadU8(src);
+			const u8 botDifficulty = netbufReadU8(src);
+			const u8 botType       = netbufReadU8(src);
+			if (src->error) {
+				/* Malformed — fall back to global simType, normal difficulty */
+				g_BotConfigsArray[bi].type       = simType;
+				g_BotConfigsArray[bi].difficulty = 2;
+				continue;
+			}
+			g_BotConfigsArray[bi].type       = botType;
+			g_BotConfigsArray[bi].difficulty = botDifficulty;
+			g_BotConfigsArray[bi].base.mpbodynum = bodynum;
+			g_BotConfigsArray[bi].base.mpheadnum = headnum;
+			if (botName && botName[0]) {
+				strncpy(g_BotConfigsArray[bi].base.name, botName, sizeof(g_BotConfigsArray[bi].base.name) - 1);
+				g_BotConfigsArray[bi].base.name[sizeof(g_BotConfigsArray[bi].base.name) - 1] = '\0';
+			} else {
+				g_BotConfigsArray[bi].base.name[0] = '\0';
+			}
+			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body=%u head=%u type=%u diff=%u",
+			             bi,
+			             g_BotConfigsArray[bi].base.name[0] ? g_BotConfigsArray[bi].base.name : "(empty)",
+			             bodynum, headnum, botType, botDifficulty);
 		}
 		g_Lobby.settings.numSimulants = clampedSims;
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
