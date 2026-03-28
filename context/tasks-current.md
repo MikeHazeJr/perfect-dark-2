@@ -10,6 +10,8 @@
 
 | Item | Status |
 |------|--------|
+| **B-SPAWN Void spawn on Felicity** (S73) | **CODED (S73)** — Spawn trace logging added: `playerreset.c` (summary+pre-ground), `scenarios.c` (scenarioChooseSpawnLocation), `player.c` (pad selection). Needs build + playtest: start match on Felicity, watch log for `SPAWN: summary` (check npts, mplay, netmode) and `SPAWN: pre-ground` (if pos=0,0,0 = void spawn confirmed). |
+| **B-FREEZE Match-end freeze** (S73) | **CODED (S73)** — `pdguiGameOverRender()` added: shows "MATCH OVER" rankings + "Return to Lobby" button on MPPAUSEMODE_GAMEOVER. Needs build + playtest: let match time run out → MATCH OVER screen should appear with rankings. |
 | **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
 | **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — Per-bot name/body/head/difficulty in CLC_LOBBY_START; player name uses g_GameFile.name fallback. Needs build + playtest: start match with bots, verify names/appearances match room config; verify server log shows agent name not "Player 1" after CLC_AUTH. |
 | **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
@@ -55,6 +57,8 @@
 | B-25 Server max clients = 8 | MEDIUM | **FIXED (S49)** -- `NET_MAX_CLIENTS` decoupled from `MAX_PLAYERS`, now 32. |
 | B-26 Player name shows "Player1" | HIGH | **RE-FIXED (S72)** -- `netClientReadConfig()` now uses `g_GameFile.name` as middle fallback; identity profile was never initialized on client side. |
 | B-44 Bot names/chars not transmitted | HIGH | **FIXED (S72)** -- CLC_LOBBY_START now carries per-bot name/bodynum/headnum/difficulty/type from `g_MatchConfig.slots[]`. |
+| B-45 Void spawn on Felicity (0x25) | HIGH | Spawn trace logging added (S73). Root cause TBD — likely INTROCMD_SPAWN param2!=0 filtering all pads OR B-19 fallback not firing (g_NetMode check). Watch `SPAWN: summary` log. |
+| B-46 Match-end freeze | HIGH | **FIXED (S73)** — `pdguiGameOverRender()` shows "MATCH OVER" + "Return to Lobby". Previously no GAMEOVER screen existed in PC ImGui — game froze after `mpEndMatch()` set MPPAUSEMODE_GAMEOVER. |
 
 ---
 
