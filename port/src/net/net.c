@@ -308,10 +308,15 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
 	// Identity profile is the authoritative name source on PC.
-	// Fall back to legacy N64 config only if no profile is available.
+	// Fall back to g_GameFile.name (agent name from save) if identity is not
+	// initialized — the client never calls identityInit(), so the profile is
+	// always empty on the client side. Final fallback: legacy N64 config name.
 	identity_profile_t *profile = identityGetActiveProfile();
 	if (profile && profile->name[0]) {
 		strncpy(cl->settings.name, profile->name, sizeof(cl->settings.name) - 1);
+		cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+	} else if (g_GameFile.name[0]) {
+		strncpy(cl->settings.name, g_GameFile.name, sizeof(cl->settings.name) - 1);
 		cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
 	} else {
 		memcpy(cl->settings.name, g_PlayerConfigsArray[playernum].base.name, sizeof(cl->settings.name));
