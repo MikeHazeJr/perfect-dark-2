@@ -195,7 +195,7 @@ static inline void sysLogSetPath(const char *fname)
 	}
 }
 
-bool g_AppQuitting = false;
+s32 g_AppQuitting = 0;
 
 void sysInitArgs(s32 argc, const char **argv)
 {

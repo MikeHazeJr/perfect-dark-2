@@ -101,7 +101,7 @@ static void cleanup(void)
 	// Signal all subsystems that we are exiting. Must be set before
 	// netDisconnect so that blocking teardown paths (UPnP HTTP delete,
 	// stage transitions) are skipped and the process exits quickly.
-	g_AppQuitting = true;
+	g_AppQuitting = 1;
 
 	/* Validate persistent allocations one final time before freeing.
 	 * If any corruption occurred during the session, this is our last
@@ -310,7 +310,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 		configRegisterUInt(strFmt("Game.Player%d.CrosshairColour", i), &g_PlayerExtCfg[j].crosshaircolour, 0, 0xFFFFFFFF);
 		configRegisterUInt(strFmt("Game.Player%d.CrosshairSize", i), &g_PlayerExtCfg[j].crosshairsize, 0, 4);
 		configRegisterInt(strFmt("Game.Player%d.CrosshairHealth", i), &g_PlayerExtCfg[j].crosshairhealth, 0, CROSSHAIR_HEALTH_ON_WHITE);
-		configRegisterInt(strFmt("Game.Player%d.UseKeyReloads", i), &g_PlayerExtCfg[j].usereloads, 0, false);
+		configRegisterInt(strFmt("Game.Player%d.UseKeyReloads", i), &g_PlayerExtCfg[j].usereloads, 0, 0);
 		configRegisterFloat(strFmt("Game.Player%d.JumpHeight", i), &g_PlayerExtCfg[j].jumpheight, 0.f, 20.f);
 	}
 }
