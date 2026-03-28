@@ -1,6 +1,6 @@
 ﻿{
     "GitHubRepo":  "MikeHazeJr/perfect-dark-2",
-    "FontScale":  "Large",
+    "FontScale":  "Medium",
     "EnableSounds":  true,
     "PostBuildCopy":  [
 

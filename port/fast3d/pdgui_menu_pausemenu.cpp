@@ -61,11 +61,10 @@ extern s32 g_MainIsEndscreen;
 /* Player index for stat lookups */
 extern s32 g_MpPlayerNum;
 
-/* Ranking system — must match MAX_PLAYERS, MAX_BOTS, MAX_MPCHRS in src/include/constants.h.
- * Cannot include constants.h here (types.h bool conflict with C++). */
-#define MAX_PLAYERS_PM     8   /* = MAX_PLAYERS */
-#define MAX_BOTS_PM       32   /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY (raised from 24 in S45) */
-#define MAX_MPCHRS_PM     (MAX_PLAYERS_PM + MAX_BOTS_PM)  /* = 40 = MAX_MPCHRS */
+/* Ranking system */
+#define MAX_PLAYERS_PM     8
+#define MAX_BOTS_PM       24
+#define MAX_MPCHRS_PM     (MAX_PLAYERS_PM + MAX_BOTS_PM)
 
 /* We need to call mpGetPlayerRankings, but it uses struct ranking
  * which we can't include from types.h. Define a compatible layout. */
@@ -83,10 +82,10 @@ struct mpchrconfig_pm {
     /*0x1e*/ s8 placement;
     /*0x1f*/ u8 _pad1;            /* alignment padding to 0x20 */
     /*0x20*/ s32 rankablescore;
-    /*0x24*/ s16 killcounts[MAX_MPCHRS_PM];  /* 0x24 + MAX_MPCHRS*2 bytes */
-    /*0x74*/ s16 numdeaths;       /* 0x24 + 40*2 = 0x74 with MAX_MPCHRS=40 */
-    /*0x76*/ s16 numpoints;
-    /*0x78*/ s16 unk40;
+    /*0x24*/ s16 killcounts[MAX_MPCHRS_PM];
+    /*0x64*/ s16 numdeaths;       /* offset depends on MAX_MPCHRS value */
+    /*0x66*/ s16 numpoints;
+    /*0x68*/ s16 unk40;
 };
 
 struct ranking_pm {
