@@ -11,6 +11,7 @@
 | Item | Status |
 |------|--------|
 | **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
+| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — Per-bot name/body/head/difficulty in CLC_LOBBY_START; player name uses g_GameFile.name fallback. Needs build + playtest: start match with bots, verify names/appearances match room config; verify server log shows agent name not "Player 1" after CLC_AUTH. |
 | **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
 | **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
 | **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
@@ -52,7 +53,8 @@
 | B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
 | B-24 Connect code byte-order reversal | CRITICAL | **FIXED (S49)** -- `pdgui_menu_mainmenu.cpp` byte extraction corrected (MSB→LSB order). |
 | B-25 Server max clients = 8 | MEDIUM | **FIXED (S49)** -- `NET_MAX_CLIENTS` decoupled from `MAX_PLAYERS`, now 32. |
-| B-26 Player name shows "Player1" | HIGH | **FIXED (S49)** -- `netClientReadConfig()` falls back to identity profile name. |
+| B-26 Player name shows "Player1" | HIGH | **RE-FIXED (S72)** -- `netClientReadConfig()` now uses `g_GameFile.name` as middle fallback; identity profile was never initialized on client side. |
+| B-44 Bot names/chars not transmitted | HIGH | **FIXED (S72)** -- CLC_LOBBY_START now carries per-bot name/bodynum/headnum/difficulty/type from `g_MatchConfig.slots[]`. |
 
 ---
 

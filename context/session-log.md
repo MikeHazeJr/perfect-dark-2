@@ -3,6 +3,36 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 72 -- 2026-03-28
+
+**Focus**: Bot name/char sync in CLC_LOBBY_START + player identity name fallback (worktree merge from serene-margulis)
+
+### What Was Done
+
+**B-44 fixed** — `netmsgClcLobbyStartWrite` now appends a per-bot config payload from `g_MatchConfig.slots[]` for each `SLOT_BOT` entry up to `numSims`. Each bot entry encodes: name (32 chars, NUL-padded), bodynum, headnum, difficulty, type. `netmsgClcLobbyStartRead` on the server side decodes and populates `g_BotConfigsArray[bi]` with all five fields. Bots now arrive with the names and appearance the room host configured.
+
+**B-26 re-fixed** — `netClientReadConfig` now uses `g_GameFile.name` as a middle fallback between the identity profile (always empty on clients that never call `identityInit`) and the legacy N64 name. The original fix (S49) relied on `identityGetActiveProfile()`, which is always null on clients. The new fallback uses the agent name already loaded from the save file, which is correct.
+
+**Y-axis inversion (B-43)** — No code change needed. `inputControllerSetInvertRStickY` + `configSave` are already correctly wired from the checkbox in `pdgui_menu_mainmenu.cpp`.
+
+**Header unification** — `netmsg.c` was updated to `#include "scenario_save.h"` (the canonical matchslot/matchconfig source, established in S71) instead of the new `matchsetup.h` that serene-margulis created. `matchsetup.h` was not imported — would have duplicated types already in `scenario_save.h`. Dev's `matchsetup.c` already uses `scenario_save.h` from S71.
+
+**Files modified:**
+- `port/src/net/net.c` — `netClientReadConfig` player name fallback via `g_GameFile.name`
+- `port/src/net/netmsg.c` — per-bot payload in `netmsgClcLobbyStartWrite/Read`; include swapped to `scenario_save.h`
+
+### Decisions Made
+- Serene-margulis created `port/include/net/matchsetup.h` with the same types as `scenario_save.h`. Not merged — scenario_save.h is canonical (S71 decision). Only the functional changes (netmsg.c, net.c) were brought over.
+- Commit went to `dev` branch directly. Session number bumped to S72 since S71 was already taken by the scenario save commit from youthful-goldstine.
+
+### Next Steps
+- Build: `build-headless.ps1`
+- Playtest: Start match with bots → verify bot names/appearances match room config
+- Server log check: after CLC_AUTH, verify name shows agent name not "Player 1"
+- Smoke test S71 scenario save too — both changes need first build validation
+
+---
+
 ## Session 71 -- 2026-03-28
 
 **Focus**: Combat Simulator scenario save/load system
