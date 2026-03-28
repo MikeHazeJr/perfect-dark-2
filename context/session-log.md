@@ -3,6 +3,44 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 68 — 2026-03-28
+
+**Focus**: Combat Sim post-milestone fixes: jump crash, time limit alarm, spawn weapon, Add Bot cap
+
+### What Was Done
+
+**MILESTONE**: Combat Sim match running (confirmed in playtest — 7 bots on Jungle, 25+ seconds gameplay).
+
+**B-39 fixed** — Jump crash in `bmoveFindEnteredRoomsByPos` (bondmove.c:2424).
+Root cause: `g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_eyeheight/headheight` — same players[-1] OOB class as S66 audit. Crash at specific Jungle map geometry during ceiling probe binary search. Fix: read `player->vv_eyeheight/player->vv_headheight` directly (same struct, no lookup).
+
+**B-40 fixed** — Time limit alarm fires at match start.
+Root cause: `netmsgClcLobbyStartRead` hardcoded `g_MpSetup.timelimit = 0` — comment said "unlimited" but timelimit=0 means 1 minute (mpApplyLimits: `timelimit >= 60` = unlimited). Fix: added `u8 timelimit` + `u32 options` to CLC_LOBBY_START payload; `g_MatchConfig.timelimit` now flows from room UI to server.
+
+**B-41 fixed** — Spawn weapon not auto-equipping.
+Root cause: `g_MpSetup.options = 0` hardcoded in CLC_LOBBY_START handler stripped `MPOPTION_SPAWNWITHWEAPON`. player.c:1186 gates equip on that flag. Fix: `g_MatchConfig.options` also wired through CLC_LOBBY_START.
+
+**B-42 fixed** — Add Bot button limited to 7 bots.
+Root cause: `maxBots = MAX_PLAYERS - humanCount` (= 7 with 1 human). Fix: changed to `MATCH_MAX_SLOTS - humanCount` (up to 31 bots with 1 human).
+
+**Protocol change**: CLC_LOBBY_START gains 5 bytes (u8 timelimit + u32 options). All callers updated: pdgui_bridge.c, pdgui_menu_room.cpp, netmenu.c. `netLobbyRequestStart` (co-op path) defaults timelimit=60, options=0.
+
+**Build**: client + server both clean. Commit: `169d5ab` S68.
+
+### Decisions Made
+- bmoveFindEnteredRoomsByPos: direct `player->` field access is canonical; no reason to go through `g_Vars.players[]` lookup when the player struct is already available
+- timelimit=60 chosen as "unlimited" sentinel (matching mpApplyLimits convention)
+- options wired alongside timelimit so all match settings flow together; future R-4 wiring can extend this pattern
+
+### Next Steps
+- Playtest B-39: jump should no longer crash on Jungle (or any map)
+- Playtest B-40: time limit alarm should not fire immediately; match should run until the configured limit
+- Playtest B-41: enable "Start Armed" in room UI; player should spawn holding the weapon
+- Playtest B-42: add more than 7 bots in room UI; button should stay enabled up to 31
+- If jump still crashes: check `bmoveFindEnteredRooms` (line 2440) — also accesses `player->prop->pos` which could be NULL on dedicated server
+
+---
+
 ## Session 67 — 2026-03-28
 
 **Focus**: bodiesReset crash fix — Combat Sim stage load

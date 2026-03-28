@@ -10,7 +10,17 @@
 
 | Item | Status |
 |------|--------|
-| **Room interior UX + Match Start** (S57–S60) | **BUILD VERIFIED (S60)** — Five playtest fixes applied: Leave Room now calls pdguiSetInRoom(0) not netDisconnect; Start Match now sends via netSend (CLC_LOBBY_START was silently dropped); bot modal labels left-aligned; score slider 1-based; lobby shows Players: X/Y. Needs full playtest: Leave Room → social lobby, Start Match → match loads. |
+| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
+| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
+| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — maxBots now MATCH_MAX_SLOTS - humanCount (up to 31 bots). Needs playtest: add >7 bots in room UI. |
+
+---
+
+## Awaiting Build Test / Playtest (Pre-S68)
+
+| Item | Status |
+|------|--------|
+| **Room interior UX + Match Start** (S57–S60) | **MILESTONE: MATCH RUNS** (confirmed S68: 7 bots, Jungle, 25s gameplay). Five fixes applied. Full playtest: Leave Room → social lobby, Start Match → match loads. |
 | **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed: (1) CLC_RESYNC_REQ was silently dropped (netStartFrame resets g_NetMsgRel after dispatch — fixed via g_NetPendingResyncReqFlags); (2) g_Lobby.inGame always 0 on dedicated server (fixed: walk g_NetClients[]); (3) NPC broadcast guard always false on dedicated server (fixed: g_NetNumClients > 0). Desync recovery now functional. |
 | **SP-6 Null Guard Audit** (S64) | **CODED (S64)** — 14 HIGH/CRITICAL PLAYERCOUNT() loops guarded across 8 files (lv.c, bondgun.c, bondcutscene.c, bondgunstop.c, chr.c, chraction.c, chraicommands.c, radar.c). All files pass syntax check. See [systemic-null-guard-audit.md](systemic-null-guard-audit.md). Needs full client build + playtest. |
 | **SP-8 Prop/Obj Null Guard Audit 2 of 4** (S65) | **CODED (S65)** — 7 CRITICAL/HIGH fixes in propobj.c (4), explosions.c (2), smoke.c (1). prop->chr without NULL check + g_Rooms[rooms[0]] OOB. See [null-guard-audit-props.md](null-guard-audit-props.md). Needs build + playtest: CCTV cloak, laser fence MP, grenade throws, smoke/explosions at map seams. |
