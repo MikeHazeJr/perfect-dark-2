@@ -85,7 +85,8 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 #define GAMEMODE_COOP 1
 #define GAMEMODE_ANTI 2
 
-/* Max human players (must match constants.h MAX_PLAYERS) */
+/* Max human players — must match MAX_PLAYERS in src/include/constants.h.
+ * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYERS 8
 
 /* Bridge: send CLC_LOBBY_START */
@@ -105,9 +106,11 @@ s32 func0f189058(s32 full);   /* count of available weapon sets (full=1 includes
 extern s32 g_MpWeaponSetNum;
 #define WEAPONSET_CUSTOM 0x0e
 
-/* Match config (must match struct layout in matchsetup.c exactly) */
+/* Match config (must match struct layout in matchsetup.c exactly).
+ * MATCH_MAX_SLOTS = PARTICIPANT_DEFAULT_CAPACITY in src/include/constants.h.
+ * Cannot use that constant here (types.h bool conflict with C++). */
 #define MAX_PLAYER_NAME  32
-#define MATCH_MAX_SLOTS  32
+#define MATCH_MAX_SLOTS  32  /* = PARTICIPANT_DEFAULT_CAPACITY */
 #define NUM_MPWEAPONSLOTS 6
 
 #define SLOT_EMPTY  0

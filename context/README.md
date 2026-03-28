@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 65 (init-order-audit.md: full networked stage load sequence, dependency graph, crash analysis)
+> **Last updated**: 2026-03-28, Session 69 (player-count-constants-audit.md: full constant hierarchy, 5 wrong values fixed)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 69 | 2026-03-28 | Player count constants audit: 5 wrong values fixed (NET_MAX_CLIENTS, MAX_BOTS_PM struct layout, HUB_MAX_CLIENTS, SAVE_MAX_BOTS), audit doc created | [session-log.md](session-log.md) |
 | 62 | 2026-03-27 | Definitive network-system-audit.md: full protocol catalog, lifecycle trace, multi-room impossibility, security, recommendations | [session-log.md](session-log.md) |
 | 61 | 2026-03-27 | netSend audit + 3 critical netcode fixes: CLC_RESYNC_REQ dropped, g_Lobby.inGame, NPC broadcast guard | [session-log.md](session-log.md) |
 | 60 | 2026-03-27 | Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal labels, score slider, lobby player count | [session-log.md](session-log.md) |
@@ -60,6 +61,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [null-guard-audit-players.md](null-guard-audit-players.md) | **S64 Audit 1/4**: PLAYERCOUNT() sparse-slot null-guard audit — 2 CRITICAL + 5 HIGH fixed | Any crash related to player/chr access during stage load |
 | [null-guard-audit-props.md](null-guard-audit-props.md) | **S65 Audit 2/4**: prop->chr, g_Rooms[] OOB — 7 CRITICAL/HIGH fixed (propobj.c, explosions.c, smoke.c) | CCTV/laser fence/explosion crashes |
 | [null-guard-audit-bots.md](null-guard-audit-bots.md) | **S66 Audit 4/4**: 28 CRITICAL/HIGH bot/AI crashes on dedicated server — currentplayer NULL, players[-1], chrGetTargetProp()->chr, g_MpAllChrPtrs bounds | Any bot/simulant crash on dedicated server |
+| [player-count-constants-audit.md](player-count-constants-audit.md) | **S69 Audit**: Full catalog of MAX_PLAYERS/MAX_BOTS/NET_MAX_CLIENTS/MATCH_MAX_SLOTS hierarchy — 5 wrong values fixed, deferred items, guidelines for future code | Any work touching player counts, match slots, or bot limits |
 | [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |

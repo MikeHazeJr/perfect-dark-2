@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **Player count constants audit** (S69) | **CODED (S69)** — 5 wrong values fixed: NET_MAX_CLIENTS=8→32 (2 files), MAX_BOTS_PM=24→32 (struct layout fix), HUB_MAX_CLIENTS=8→32, SAVE_MAX_BOTS=24→32. Needs full build + merge. Playtest: pause menu post-match scoreboard should show correct kill/death/points. |
 | **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
 | **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
 | **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — maxBots now MATCH_MAX_SLOTS - humanCount (up to 31 bots). Needs playtest: add >7 bots in room UI. |
@@ -163,5 +164,5 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 - ~~Update tab UX: button sizing~~ **DONE S49** -- CalcTextSize-based buttons, per-row Download/Rollback, staged release "Switch" support. Version policy design still pending.
 - ~~Update tab — cross-session staged version~~ **DONE S50** -- `.update.ver` sidecar, `updaterGetStagedVersion()`, Switch button persists across restarts.
 - ~~Version baking~~ **DONE S50** -- always-clean builds (Clean Build toggle removed), version from UI boxes, `-DVERSION_SEM_*` flags injected every build via `Get-BuildSteps`
-- **Network benchmark → dynamic player cap**: Measure bandwidth/latency at server start, call `hubSetMaxSlots()` to lower `g_NetMaxClients` below 32. Do not hardcode player counts.
+- **Network benchmark → dynamic player cap**: Measure bandwidth/latency at server start, call `hubSetMaxSlots()` to lower `g_NetMaxClients` below 32. When implemented: audit all NET_MAX_CLIENTS loops — they should become g_NetMaxClients. See `context/player-count-constants-audit.md`.
 - TODO-1: SDL2/zlib still DLL (low priority)

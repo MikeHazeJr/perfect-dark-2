@@ -30,7 +30,7 @@ extern "C" {
  * ------------------------------------------------------------------------- */
 
 #define HUB_MAX_ROOMS    4
-#define HUB_MAX_CLIENTS  8   /* mirrors NET_MAX_CLIENTS, no direct dependency */
+#define HUB_MAX_CLIENTS  32  /* must match NET_MAX_CLIENTS in port/include/net/net.h */
 #define ROOM_NAME_MAX   32
 
 /* -------------------------------------------------------------------------

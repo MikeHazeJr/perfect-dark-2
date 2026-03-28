@@ -37,7 +37,7 @@ extern s32 g_NetServerPort;
 
 #define NET_MAX_ADDR 256
 #define NET_DEFAULT_PORT 27100
-#define NET_MAX_CLIENTS 8
+#define NET_MAX_CLIENTS 32  /* must match NET_MAX_CLIENTS in port/include/net/net.h */
 
 /* Server browser data */
 struct netrecentserver_view {
