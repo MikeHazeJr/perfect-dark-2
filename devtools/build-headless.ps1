@@ -74,6 +74,14 @@ $env:MSYSTEM      = "MINGW64"
 $env:MINGW_PREFIX = "/mingw64"
 $env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 
+# Ensure TEMP/TMP point to a writable directory. In some sandbox/code-session
+# environments the inherited TEMP may be C:\Windows (read-only), which causes
+# cc1.exe to fail when writing intermediate compilation files.
+$goodTemp = "$env:USERPROFILE\AppData\Local\Temp"
+if (-not (Test-Path $goodTemp)) { $goodTemp = "C:\Users\mikeh\AppData\Local\Temp" }
+$env:TEMP = $goodTemp
+$env:TMP  = $goodTemp
+
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
 

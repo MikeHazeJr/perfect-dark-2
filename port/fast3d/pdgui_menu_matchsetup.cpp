@@ -59,18 +59,20 @@ u32 mpGetNumBodies(void);
 /* Language strings */
 char *langGet(s32 textid);
 
-/* Match config (from matchsetup.c — must match layout exactly) */
+/* Match config (from matchsetup.c — must match layout exactly).
+ * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYER_NAME 32
-#define MAX_PLAYERS     8
-#define MAX_BOTS        32  /* = PARTICIPANT_DEFAULT_CAPACITY — raised from 24 */
+#define MAX_PLAYERS     8   /* = MAX_PLAYERS in src/include/constants.h */
+#define MAX_BOTS        32  /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY in src/include/constants.h */
 
 #define SLOT_EMPTY    0
 #define SLOT_PLAYER   1
 #define SLOT_BOT      2
 
-/* Total slots = participant pool capacity (not MAX_PLAYERS + MAX_BOTS which is 40).
- * Must match MATCH_MAX_SLOTS in matchsetup.c. */
-#define MATCH_MAX_SLOTS 32
+/* Total slots = participant pool capacity = PARTICIPANT_DEFAULT_CAPACITY (src/include/constants.h).
+ * Cannot use that constant here (types.h bool conflict). Must stay in sync manually.
+ * Also defined in matchsetup.c as MATCH_MAX_SLOTS = PARTICIPANT_DEFAULT_CAPACITY. */
+#define MATCH_MAX_SLOTS 32  /* = PARTICIPANT_DEFAULT_CAPACITY */
 
 struct matchslot {
     u8 type;
