@@ -10,6 +10,8 @@
 
 | Item | Status |
 |------|--------|
+| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — `setup.c` dist check skips for official MP setups; `playerreset.c` B-19 fallback expanded to `normmplayerisrunning`. Needs build + Felicity playtest: watch for "populated N spawn points from pad file" log; player should spawn at valid pad not (0,0,0). |
+| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — `g_AppQuitting` flag in system.h/c; `netDisconnect()` skips stage transitions; `netUpnpTeardown()` skips blocking HTTP on quit. Needs build + test: close window during match, should exit within 1 s. |
 | **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
 | **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — Per-bot name/body/head/difficulty in CLC_LOBBY_START; player name uses g_GameFile.name fallback. Needs build + playtest: start match with bots, verify names/appearances match room config; verify server log shows agent name not "Player 1" after CLC_AUTH. |
 | **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |

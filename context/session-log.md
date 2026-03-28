@@ -3,6 +3,37 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 73 -- 2026-03-28
+
+**Focus**: B-46 void spawn (Felicity 0x2b) + B-47 exit freeze on window close
+
+### What Was Done
+
+**B-46 fixed — void spawn on MP stages:**
+- `setup.c`: intro validator no longer nulls intro for official MP setup files. MP setups have a 1-word intro section (`[INTROCMD_END]`, dist=4 bytes from props). The 64-byte distance heuristic was added for corrupt mod files — skipped when `filenum == mpsetupfileid`. firstCmd validity check still applies for all files.
+- `playerreset.c`: B-19 pads fallback condition expanded from `g_NetMode != NETMODE_NONE` to `g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning`. Covers local Combat Sim where netmode=NETMODE_NONE but normmplay=true. Added `LOG_WARNING` when fallback finds 0 valid pads (numpads + netmode + normmplay logged for diagnosis).
+
+**B-47 fixed — exit freeze on window close:**
+- `system.h/c`: Added `bool g_AppQuitting` global. Added `#include <stdbool.h>` to system.h.
+- `main.c`: Set `g_AppQuitting = true` at start of `cleanup()` atexit, before `netDisconnect()`.
+- `net.c`: Stage-transition block in `netDisconnect()` gated on `!g_AppQuitting`. Prevents deadlock from calling `mainEndStage()` + `mainChangeToStage()` with no render loop.
+- `netupnp.c`: `netUpnpTeardown()` skips `UPNP_DeletePortMapping` when `g_AppQuitting`. The synchronous HTTP call blocked 10–30 s on unreachable routers; port mapping expires naturally.
+
+**Files modified:** `src/game/setup.c`, `src/game/playerreset.c`, `port/include/system.h`, `port/src/system.c`, `port/src/main.c`, `port/src/net/net.c`, `port/src/net/netupnp.c`
+
+### Decisions Made
+- Used `filenum == mpsetupfileid` (not `normmplayerisrunning`) for the dist check in setup.c — more precise, independent of runtime state that may not be set at load time.
+- `g_AppQuitting` lives in system.h/c so both net.c and netupnp.c can check it without circular includes.
+- UPnP port mapping is NOT removed on quit — mappings expire naturally; blocking HTTP on exit is worse.
+
+### Next Steps
+- Build: `build-headless.ps1`
+- Playtest Felicity: no more void spawns. Watch for "populated N spawn points from pad file (B-19 fallback)" log.
+- Test window X close during match: should exit cleanly within <1 s. Watch for "UPNP: skipping port mapping removal (app quitting)" in log.
+- If B-19 still finds 0 pads: check new diagnostic "B-19 fallback found 0 valid pads (numpads=X netmode=Y normmplay=Z)".
+
+---
+
 ## Session 72 -- 2026-03-28
 
 **Focus**: Bot name/char sync in CLC_LOBBY_START + player identity name fallback (worktree merge from serene-margulis)
