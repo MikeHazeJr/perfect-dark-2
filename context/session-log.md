@@ -3,6 +3,113 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 65 — 2026-03-27
+
+**Focus**: Audit 3 — Stage Load Initialization Order (fresh start)
+
+### What Was Done
+
+Produced `context/init-order-audit.md` — full documentation of the networked Combat Sim stage load sequence.
+
+**Three-phase sequence documented:**
+- **Phase 0** (`netmsgSvcStageStartRead`): SVC_STAGE_START parsing, g_MpSetup population, `mpParticipantsFromLegacyChrslots` (malloc pool, survives MEMPOOL_STAGE reset), `mpStartMatch` (queues async stage change, sets `g_Vars.perfectbuddynum = 1`)
+- **Phase 1** (`pdmain.c`): Pool reset (MEMPOOL_STAGE wiped), `playermgrReset` (players[] = NULL), `playermgrAllocatePlayers` (players non-null, no props yet), `mpReset` (sets `normmplayerisrunning`)
+- **Phase 2** (`lvReset`): Full init sequence from `bgReset` through `playerSpawn` — first valid `->prop` access
+
+**Key dependency graph produced:**
+- `mpParticipantsFromLegacyChrslots` MUST run before `mpReset` and before `setupLoadFiles`
+- `setNumPlayers` MUST run before `playermgrAllocatePlayers`
+- `mpReset` (setting normmplayerisrunning) MUST run before `lvReset`
+- `setupLoadFiles` MUST run before `varsReset` (sets g_Vars.maxprops)
+- `playerSpawn()` is the FIRST point where `players[i]->prop` is valid
+
+**N64 vs PC differences documented:**
+- N64 `mainChangeToStage` is synchronous; PC is async (queued, fires next frame)
+- Participant pool must use `malloc` (not `mempAlloc`) to survive MEMPOOL_STAGE reset
+- `musicSetStageAndStartMusic` called pre-spawn on PC (B-36 fix required)
+
+**Current crash analysis (§4.2):**
+- Crash is after "setupLoadFiles done" log, in `setupCreateProps` → `chrmgrConfigure` or props iteration
+- H1: chrslots inconsistency between setupLoadFiles and setupCreateProps numchrs counts
+- H2: model slot under-allocation → OOB in modelmgrInstantiateModel
+- H3: bad g_Vars.roomcount before varsReset
+- Instrumentation recommendations: add log after chrmgrConfigure call to isolate crash location
+
+### Decisions Made
+- `init-order-audit.md` added to context domain files (README.md updated)
+- Three-phase model (Network → Frame Boundary → lvReset) is the canonical mental model for stage load debugging
+
+### Next Steps
+- Build verify SP-6 + B-36 fixes (build-headless.ps1)
+- Use instrumentation recs from §5.1 to isolate current crash in setupCreateProps
+- Playtest: 2-player Combat Sim end-to-end
+
+---
+
+## Session 66 — 2026-03-27
+
+**Focus**: Deep Audit 4 of 4 — Bot / Simulant / AI System null-guard sweep
+
+### What Was Done
+
+**28 critical/high bugs fixed across 6 files** — all instances of the same 4 bug classes:
+
+**CAT-1 — `g_Vars.currentplayer` NULL on dedicated server** (5 fixes):
+- `chraction.c:4416` — invincibility check: added `currentplayer != NULL` guard
+- `botcmd.c:205–230` — all 4 AI commands (FOLLOW/PROTECT/DEFEND/HOLD): wrapped with `currentplayer != NULL`
+
+**CAT-2 — PLAYERCOUNT()=0 on server → bot loops hit human chrs (aibot=NULL)** (3 fixes):
+- `mplayer/mplayer.c:688` — `mpCalculateTeamIsOnlyAi`: added `!g_MpAllChrPtrs[i]->aibot` guard
+- `bot.c:2364` — `botGetCountInTeamDoingCommand`: added aibot NULL guard
+- `bot.c:2407` — `botGetNumTeammatesDefendingHill`: added aibot NULL guard
+
+**CAT-3 — g_MpAllChrPtrs[] accessed without bounds or NULL check** (9 fixes):
+- `botcmd.c:61,81` — followingplayernum / attackingplayernum: added `< g_MpNumChrs && != NULL` guards
+- `botact.c:241` — Farsight loop: added `if (!oppchr) continue`
+- `bot.c:1685` — attackingplayernum: added bounds/NULL guard
+- `bot.c:3009,3056` — POPACAP victim index: full bounds-checked lookup with NULL-result handling
+- `bot.c:3311` — MA_AIBOTFOLLOW: added `>= g_MpNumChrs || == NULL` guards
+- `bot.c:2434` — `botGetNumOpponentsInHill`: added `!g_MpAllChrPtrs[i]` guard
+- `mplayer/scenarios.c:504` — `scenarioCreateMatchStartHudmsgs`: added `!= NULL` before `->aibot`
+
+**CAT-5 — chrGetTargetProp()/target->chr dereferenced without NULL check** (11 fixes):
+- `botcmd.c:67–80` — follow-distance: `if (target != NULL)` wrapper
+- `botact.c:366` — throw: `target != NULL` + `target->chr` fallback
+- `botact.c:547` — Slayer rocket: `target == NULL` → immediate detonate
+- `bot.c:3193` — fallback attack: `chtarget != NULL && ->chr != NULL` guard
+- `bot.c:3303–3305` — MA_AIBOTATTACK inline: guard added
+- `bot.c:3317–3339` — canbreakfollow: refactored to `fbtarget` local with full guard
+- `bot.c:3379–3387` — defend/hold canbreak: refactored to `dhtarget` local with full guard
+- `bot.c:2741` — KazeSim attack: `kazetarget` local with ternary fallback (-1)
+- `bot.c:2899–2902` — KotH hill attack: `kohtarget` local with full guard
+- `bot.c:3680` — firing check: added `!= NULL && ->chr != NULL` before `chrIsDead`
+
+**CAT-4 — playermgrGetPlayerNumByProp() → players[-1] OOB** (5 fixes):
+- `chraction.c:4462–4512` — healthscale/armourscale (3 branches): `chrpnum >= 0` guard
+- `chraction.c:4689` — isdead check: guard + remote fallback via `ACT_DEAD`
+- `botact.c:248` — Farsight speed prediction: guard + remote fallback via `ACT_STAND`
+- `bot.c:823` — `botGetWeaponNum`: guard + return `WEAPON_NONE`
+- `bot.c:3166` — weakest player health: guard + remote fallback via `maxdamage - damage`
+
+**Context created**: `context/null-guard-audit-bots.md` — full findings, CAT labels, code before/after
+
+**Build**: Code changes syntactically correct. Direct build blocked by pre-existing DevkitPro/mingw64
+environment conflict in Claude shell (not a code issue — same as S63/S64/S65). Needs `build-headless.ps1`.
+
+### Decisions Made
+- `chrGetTargetProp(chr)->chr` inline calls are always unsafe — must extract to local variable first
+- Remote player fallbacks: `ACT_DEAD` for isdead, `maxdamage - damage` for health, `ACT_STAND` for speed
+- Slayer rocket with NULL target detonates immediately (`timer240 = 0`) — safe fallback
+- `attackingplayernum` / `followingplayernum` must always be checked: `>= 0 && < g_MpNumChrs && != NULL`
+
+### Next Steps
+- **Build verify**: `powershell -File devtools/build-headless.ps1 -Target all` from PowerShell
+- **Playtest**: Combat Sim, dedicated server — bots should spawn and fight without crash
+- B-36 playtest (client crash on stage load) still pending from S63
+- R-2 / Room lifecycle or J-1 end-to-end join verification
+
+---
+
 ## Session 64 — 2026-03-27
 
 **Focus**: SP-6 Systemic Null-Guard Audit — Full PLAYERCOUNT() loop sweep across src/game/
@@ -51,6 +158,42 @@ fix patterns, and future-prevention rules.
 - Playtest: Combat Sim stage load — confirm no crash on stage with ambient music (B-36 scenario).
 - **Audit 2**: `g_ChrSlots[i]` and `g_MpAllChrPtrs[i]` access patterns (chr.c, chraction.c).
 - **Audit 3**: `mplayer/*.c` participant system interactions during match start.
+
+---
+
+## Session 65 — 2026-03-27
+
+**Focus**: Deep Audit 2 of 4 — Prop + Object System null-guard sweep
+
+### What Was Done
+
+**Files audited**: prop.c, propobj.c, propsnd.c, propanim.c, explosions.c, smoke.c, bg.c, objectives.c. door.c / lift.c / weapon.c do not exist in src/game/ — door/lift/weapon logic is in propobj.c.
+
+**New systemic pattern documented**: SP-8 — `prop->chr` accessed without NULL check after PROPTYPE_CHR/PROPTYPE_PLAYER type check.
+
+**7 critical fixes applied to main working copy**:
+
+1. `propobj.c:4455` — `parent->chr->hidden` in weapon drop/throw — added `if (parent->chr)` guard (CRITICAL)
+2. `propobj.c:8392` — `playerprop->chr->hidden` in `cctvTick()` — added `playerprop->chr &&` short-circuit (CRITICAL)
+3. `propobj.c:9334-9350` — `hitchr` (hitprop->chr) in laser fence damage block — added `hitchr &&` to team check; wrapped damage calls with `if (hitchr)` (CRITICAL)
+4. `propobj.c:9462` — `chrDamageByImpact(targetprop->chr, ...)` in enemy autogun — added `if (targetprop->chr)` wrapper (HIGH)
+5. `explosions.c:379` — `g_Rooms[exproom]` OOB when rooms[0] = -1 — extended condition to `|| exproom < 0` (HIGH)
+6. `explosions.c:1004` — `chrDamageByExplosion(chr, ...)` with possibly-NULL chr — added `if (chr)` guard (HIGH)
+7. `smoke.c:210` — `roomGetFinalBrightnessForPlayer(rooms[0])` with rooms[0] = -1 — added ternary validity guard (HIGH)
+
+**4 files clean** (zero findings): propanim.c, propsnd.c, objectives.c, bg.c.
+
+**New context file**: `context/null-guard-audit-props.md` (full findings, line refs, risk levels, deferred items).
+
+### Decisions Made
+- PROPTYPE_PLAYER chr = NULL is valid transitional state; PROPTYPE_CHR chr = NULL is a coding error. Guard player, trust chr.
+- `exproom < 0` explosions → numbb=0 (same as HUGE25 path) — visual explosion still plays, no damage BBoxes.
+- `rooms[0] = -1` smoke → brightness 0 fallback (invisible but no crash).
+
+### Next Steps
+- Build: full client + server build verify
+- Playtest: CCTV level with cloak active, laser fence in MP, grenade drops, explosions at map edge, smoke near map seam
+- Deep Audit 3 of 4: bot.c, botinv.c, chr.c (g_ChrSlots iteration + target->chr access)
 
 ---
 

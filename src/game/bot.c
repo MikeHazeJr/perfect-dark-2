@@ -820,7 +820,13 @@ s32 botGetWeaponNum(struct chrdata *chr)
 		return chr->aibot->weaponnum;
 	}
 
-	return g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)]->hands[HAND_RIGHT].gset.weaponnum;
+	{
+		s32 bpnum = playermgrGetPlayerNumByProp(chr->prop);
+		if (bpnum >= 0 && g_Vars.players[bpnum] != NULL) {
+			return g_Vars.players[bpnum]->hands[HAND_RIGHT].gset.weaponnum;
+		}
+		return WEAPON_NONE;
+	}
 }
 
 u8 botGetTargetsWeaponNum(struct chrdata *chr)
@@ -1684,6 +1690,8 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 	// If the bot is attacking, keep the same target if possible
 	if (botchr->myaction == MA_AIBOTATTACK
 			&& aibot->attackingplayernum >= 0
+			&& aibot->attackingplayernum < g_MpNumChrs
+			&& g_MpAllChrPtrs[aibot->attackingplayernum] != NULL
 			&& aibot->chrsinsight[aibot->attackingplayernum]
 			&& !chrIsDead(g_MpAllChrPtrs[aibot->attackingplayernum])) {
 		botSetTarget(botchr, g_MpAllChrPtrs[aibot->attackingplayernum]->prop - g_Vars.props);
@@ -2362,6 +2370,9 @@ s32 botGetCountInTeamDoingCommand(struct chrdata *self, u32 command, bool includ
 	s32 i;
 
 	for (i = PLAYERCOUNT(); i < g_MpNumChrs; i++) {
+		if (!g_MpAllChrPtrs[i] || !g_MpAllChrPtrs[i]->aibot) {
+			continue;
+		}
 		if (self->team == g_MpAllChrPtrs[i]->team) {
 			if (includeself || self != g_MpAllChrPtrs[i]) {
 				if (command == g_MpAllChrPtrs[i]->aibot->command) {
@@ -2405,6 +2416,9 @@ s32 botGetNumTeammatesDefendingHill(struct chrdata *bot)
 	s32 i;
 
 	for (i = 0; i < g_MpNumChrs; i++) {
+		if (!g_MpAllChrPtrs[i] || !g_MpAllChrPtrs[i]->aibot) {
+			continue;
+		}
 		if (bot->team == g_MpAllChrPtrs[i]->team
 				&& g_MpAllChrPtrs[i]->prop->rooms[0] == g_ScenarioData.koh.hillrooms[0]) {
 			if (g_MpAllChrPtrs[i]->aibot->command == AIBOTCMD_DEFHILL
@@ -2432,6 +2446,9 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
 	s32 i;
 
 	for (i = 0; i < g_MpNumChrs; i++) {
+		if (!g_MpAllChrPtrs[i]) {
+			continue;
+		}
 		if (g_MpAllChrPtrs[i]->prop->rooms[0] == g_ScenarioData.koh.hillrooms[0]) {
 			s32 mpindex = func0f18d074(i);
 
@@ -2721,7 +2738,10 @@ void botTickUnpaused(struct chrdata *chr)
 			// KazeSim will attack people on sight regardless of command
 			if (aibot->config->type == BOTTYPE_KAZE && chr->target != -1 && aibot->targetinsight) {
 				newaction = MA_AIBOTATTACK;
-				aibot->attackingplayernum = mpPlayerGetIndex(chrGetTargetProp(chr)->chr);
+				{
+					struct prop *kazetarget = chrGetTargetProp(chr);
+					aibot->attackingplayernum = (kazetarget != NULL && kazetarget->chr != NULL) ? mpPlayerGetIndex(kazetarget->chr) : -1;
+				}
 				aibot->abortattacktimer60 = -1;
 			}
 
@@ -2878,12 +2898,14 @@ void botTickUnpaused(struct chrdata *chr)
 					if (g_MpSetup.scenario == MPSCENARIO_KINGOFTHEHILL) {
 						if (chr->prop->rooms[0] == g_ScenarioData.koh.hillrooms[0]
 								&& chr->target != -1
-								&& aibot->targetinsight
-								&& botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr)) {
-							// Bot is in the hill and sees target - attack them
-							newaction = MA_AIBOTATTACK;
-							aibot->attackingplayernum = mpPlayerGetIndex(chrGetTargetProp(chr)->chr);
-							aibot->abortattacktimer60 = TICKS(300);
+								&& aibot->targetinsight) {
+							struct prop *kohtarget = chrGetTargetProp(chr);
+							if (kohtarget != NULL && kohtarget->chr != NULL && botPassesCowardCheck(chr, kohtarget->chr)) {
+								// Bot is in the hill and sees target - attack them
+								newaction = MA_AIBOTATTACK;
+								aibot->attackingplayernum = mpPlayerGetIndex(kohtarget->chr);
+								aibot->abortattacktimer60 = TICKS(300);
+							}
 						} else {
 							// Go to the hill if not there already
 							u32 stack;
@@ -2989,9 +3011,11 @@ void botTickUnpaused(struct chrdata *chr)
 				} else if (aibot->command == AIBOTCMD_POPCAP) {
 					// Pop a cap - attack the target
 					if (g_MpSetup.scenario == MPSCENARIO_POPACAP && g_ScenarioData.pac.victimindex >= 0) {
-						struct prop *victimprop = g_MpAllChrPtrs[g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex]]->prop;
+						s32 pacvi = g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex];
+						struct prop *victimprop = (pacvi >= 0 && pacvi < g_MpNumChrs && g_MpAllChrPtrs[pacvi] != NULL)
+								? g_MpAllChrPtrs[pacvi]->prop : NULL;
 
-						if (victimprop != chr->prop) {
+						if (victimprop != NULL && victimprop != chr->prop) {
 							// Victim is not the current bot
 							struct chrdata *victimchr = victimprop->chr;
 
@@ -3036,7 +3060,9 @@ void botTickUnpaused(struct chrdata *chr)
 					}
 				} else if (g_MpSetup.scenario == MPSCENARIO_POPACAP) {
 					if (g_ScenarioData.pac.victimindex >= 0) {
-						struct prop *victimprop = g_MpAllChrPtrs[g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex]]->prop;
+						s32 pacvi2 = g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex];
+						struct prop *victimprop = (pacvi2 >= 0 && pacvi2 < g_MpNumChrs && g_MpAllChrPtrs[pacvi2] != NULL)
+								? g_MpAllChrPtrs[pacvi2]->prop : NULL;
 
 						if (victimprop == chr->prop) {
 							// Current bot is the victim - follow a teammate for protection
@@ -3142,7 +3168,13 @@ void botTickUnpaused(struct chrdata *chr)
 							if (otherchr->aibot) {
 								health = otherchr->maxdamage - otherchr->damage;
 							} else {
-								health = g_Vars.players[playermgrGetPlayerNumByProp(otherchr->prop)]->bondhealth * 8;
+								s32 wpnum = playermgrGetPlayerNumByProp(otherchr->prop);
+								struct player *wplayer = (wpnum >= 0) ? g_Vars.players[wpnum] : NULL;
+								if (wplayer != NULL) {
+									health = (s32)(wplayer->bondhealth * 8.0f);
+								} else {
+									health = otherchr->maxdamage - otherchr->damage;
+								}
 							}
 
 							if (weakestplayernum < 0 || health < minhealth) {
@@ -3163,9 +3195,12 @@ void botTickUnpaused(struct chrdata *chr)
 			// If the bot didn't set an action above,
 			// try attacking the existing target
 			if (newaction < 0) {
-				if (chr->target != -1 && botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr)) {
-					newaction = MA_AIBOTATTACK;
-					aibot->abortattacktimer60 = -1;
+				if (chr->target != -1) {
+					struct prop *chtarget = chrGetTargetProp(chr);
+					if (chtarget != NULL && chtarget->chr != NULL && botPassesCowardCheck(chr, chtarget->chr)) {
+						newaction = MA_AIBOTATTACK;
+						aibot->abortattacktimer60 = -1;
+					}
 				}
 			}
 
@@ -3264,12 +3299,15 @@ void botTickUnpaused(struct chrdata *chr)
 			}
 		} else if (chr->myaction == MA_AIBOTATTACK) {
 			if (aibot->attackingplayernum >= 0
+					&& aibot->attackingplayernum < g_MpNumChrs
+					&& g_MpAllChrPtrs[aibot->attackingplayernum] != NULL
 					&& (chrIsDead(g_MpAllChrPtrs[aibot->attackingplayernum]) || !botPassesCowardCheck(chr, g_MpAllChrPtrs[aibot->attackingplayernum]))) {
 				chr->myaction = MA_AIBOTMAINLOOP;
 			} else if (aibot->attackingplayernum < 0
 					&& (chr->target == -1
-						|| chrIsDead(chrGetTargetProp(chr)->chr)
-						|| !botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr))) {
+						|| (chrGetTargetProp(chr) != NULL && chrGetTargetProp(chr)->chr != NULL
+							&& (chrIsDead(chrGetTargetProp(chr)->chr)
+								|| !botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr))))) {
 				chr->myaction = MA_AIBOTMAINLOOP;
 			} else {
 				botcmdTickDistMode(chr);
@@ -3282,6 +3320,8 @@ void botTickUnpaused(struct chrdata *chr)
 			}
 		} else if (chr->myaction == MA_AIBOTFOLLOW) {
 			if (aibot->followingplayernum < 0
+					|| aibot->followingplayernum >= g_MpNumChrs
+					|| g_MpAllChrPtrs[aibot->followingplayernum] == NULL
 					|| chrIsDead(g_MpAllChrPtrs[aibot->followingplayernum])) {
 				chr->myaction = MA_AIBOTMAINLOOP;
 			} else {
@@ -3289,25 +3329,28 @@ void botTickUnpaused(struct chrdata *chr)
 
 				if (aibot->canbreakfollow
 						&& chr->target != -1
-						&& aibot->targetinsight
-						&& botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr)) {
-					f32 xdist = chr->prop->pos.x - g_MpAllChrPtrs[aibot->followingplayernum]->prop->pos.x;
-					f32 zdist = chr->prop->pos.z - g_MpAllChrPtrs[aibot->followingplayernum]->prop->pos.z;
+						&& aibot->targetinsight) {
+					struct prop *fbtarget = chrGetTargetProp(chr);
+					if (fbtarget != NULL && fbtarget->chr != NULL
+							&& botPassesCowardCheck(chr, fbtarget->chr)) {
+						f32 xdist = chr->prop->pos.x - g_MpAllChrPtrs[aibot->followingplayernum]->prop->pos.x;
+						f32 zdist = chr->prop->pos.z - g_MpAllChrPtrs[aibot->followingplayernum]->prop->pos.z;
 
-					if (xdist < 0) {
-						xdist = -xdist;
-					}
+						if (xdist < 0) {
+							xdist = -xdist;
+						}
 
-					if (zdist < 0) {
-						zdist = -zdist;
-					}
+						if (zdist < 0) {
+							zdist = -zdist;
+						}
 
-					// No y check?
-					if (xdist < 500 && zdist < 500) {
-						chr->myaction = MA_AIBOTATTACK;
-						aibot->attackingplayernum = mpPlayerGetIndex(chrGetTargetProp(chr)->chr);
-						aibot->abortattacktimer60 = TICKS(300);
-						aibot->distmode = -1;
+						// No y check?
+						if (xdist < 500 && zdist < 500) {
+							chr->myaction = MA_AIBOTATTACK;
+							aibot->attackingplayernum = mpPlayerGetIndex(fbtarget->chr);
+							aibot->abortattacktimer60 = TICKS(300);
+							aibot->distmode = -1;
+						}
 					}
 				}
 
@@ -3343,12 +3386,14 @@ void botTickUnpaused(struct chrdata *chr)
 					}
 				} else if (aibot->canbreakdefend
 						&& chr->target != -1
-						&& aibot->targetinsight
-						&& botPassesCowardCheck(chr, chrGetTargetProp(chr)->chr)) {
-					chr->myaction = MA_AIBOTATTACK;
-					aibot->attackingplayernum = mpPlayerGetIndex(chrGetTargetProp(chr)->chr);
-					aibot->abortattacktimer60 = TICKS(300);
-					aibot->distmode = -1;
+						&& aibot->targetinsight) {
+					struct prop *dhtarget = chrGetTargetProp(chr);
+					if (dhtarget != NULL && dhtarget->chr != NULL && botPassesCowardCheck(chr, dhtarget->chr)) {
+						chr->myaction = MA_AIBOTATTACK;
+						aibot->attackingplayernum = mpPlayerGetIndex(dhtarget->chr);
+						aibot->abortattacktimer60 = TICKS(300);
+						aibot->distmode = -1;
+					}
 				}
 
 				if (aibot->returntodefendtimer60 <= 0) {
@@ -3637,6 +3682,8 @@ void botTickUnpaused(struct chrdata *chr)
 									&& aibot->targetinsight
 									&& aibot->shootdelaytimer60 >= g_BotDifficulties[aibot->config->difficulty].shootdelay
 									&& (botIsDizzy(chr) || chrIsTargetInFov(chr, 45, false))
+									&& chrGetTargetProp(chr) != NULL
+									&& chrGetTargetProp(chr)->chr != NULL
 									&& !chrIsDead(chrGetTargetProp(chr)->chr)) {
 								firing = true;
 

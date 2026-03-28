@@ -51,6 +51,45 @@
 
 ---
 
+## SP-8: prop->chr Accessed Without NULL Check
+
+**Severity**: HIGH–CRITICAL — null pointer dereference crash
+**Root cause**: Code checks `prop->type == PROPTYPE_CHR || PROPTYPE_PLAYER` before accessing `prop->chr`, but does NOT check that `chr` itself is non-NULL. For PROPTYPE_CHR, chr is almost always set at creation — but for PROPTYPE_PLAYER, chr can be NULL during stage load, match cleanup, or dedicated-server transitional states.
+
+**When it happens**: Stage transitions (player prop exists before chr is bound), Co-op/Multiplayer late-join, dedicated server with no local player occupying slot 0.
+
+**Pattern to audit**:
+```c
+if (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) {
+    prop->chr->anything   // DANGER: chr may be NULL for PROPTYPE_PLAYER
+```
+
+**Correct pattern**:
+```c
+if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) && prop->chr) {
+    prop->chr->anything
+```
+or locally:
+```c
+struct chrdata *chr = prop->chr;
+if (chr) { ... }
+```
+
+**Fixed (S65 — Audit 2 of 4)**: 7 critical instances in propobj.c, explosions.c, smoke.c. See `context/null-guard-audit-props.md`.
+- `propobj.c:4455` — parent->chr->hidden in weapon drop (CRITICAL)
+- `propobj.c:8392` — playerprop->chr->hidden in cctvTick (CRITICAL)
+- `propobj.c:9334-9350` — hitchr in laser fence damage block (CRITICAL)
+- `propobj.c:9462` — targetprop->chr in enemy autogun (HIGH)
+- `explosions.c:1004` — chrDamageByExplosion in blast radius (HIGH)
+- `explosions.c:379` — exproom OOB when rooms[0]=-1 (HIGH)
+- `smoke.c:210` — rooms[0] OOB in roomGetFinalBrightnessForPlayer (HIGH)
+
+**Remaining audit**: bot.c, botinv.c (Audit 3), mplayer/*.c (Audit 4).
+
+**Search command**: `grep -n "->chr->\|->chr\." src/game/*.c | grep -v "if.*chr\|chr =\|chr=\|NULL"`
+
+---
+
 ## SP-6: PLAYERCOUNT() Iteration with Sparse Player Slots
 
 **Severity**: HIGH — null pointer dereference crash

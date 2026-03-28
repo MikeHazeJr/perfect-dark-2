@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-27, Session 62 (definitive network-system-audit.md created, supersedes network-audit.md + netsend-audit.md)
+> **Last updated**: 2026-03-27, Session 65 (init-order-audit.md: full networked stage load sequence, dependency graph, crash analysis)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -56,7 +56,10 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | File | System | When to load |
 |------|--------|-------------|
-| [null-guard-audit-players.md](null-guard-audit-players.md) | **S64 Audit 1/4**: PLAYERCOUNT() sparse-slot null-guard audit — 2 CRITICAL + 5 HIGH fixed; Audits 2–4 remaining | Any crash related to player/chr access during stage load |
+| [init-order-audit.md](init-order-audit.md) | **S65 Audit 3**: Full networked stage load sequence — Phase 0/1/2 with dependency graph, N64 vs PC differences, crash analysis, recommendations | Stage load crash debugging, init ordering questions |
+| [null-guard-audit-players.md](null-guard-audit-players.md) | **S64 Audit 1/4**: PLAYERCOUNT() sparse-slot null-guard audit — 2 CRITICAL + 5 HIGH fixed | Any crash related to player/chr access during stage load |
+| [null-guard-audit-props.md](null-guard-audit-props.md) | **S65 Audit 2/4**: prop->chr, g_Rooms[] OOB — 7 CRITICAL/HIGH fixed (propobj.c, explosions.c, smoke.c) | CCTV/laser fence/explosion crashes |
+| [null-guard-audit-bots.md](null-guard-audit-bots.md) | **S66 Audit 4/4**: 28 CRITICAL/HIGH bot/AI crashes on dedicated server — currentplayer NULL, players[-1], chrGetTargetProp()->chr, g_MpAllChrPtrs bounds | Any bot/simulant crash on dedicated server |
 | [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |

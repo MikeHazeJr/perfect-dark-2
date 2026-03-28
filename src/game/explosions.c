@@ -376,7 +376,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			exp->bbs[0].room2 = -1;
 			exp->numbb = 1;
 
-			if (exp->type == EXPLOSIONTYPE_HUGE25) {
+			if (exp->type == EXPLOSIONTYPE_HUGE25 || exproom < 0) {
 				exp->numbb = 0;
 			} else {
 				exp->bbs[0].bbmin.x = g_Rooms[exproom].bbmin[0];
@@ -1001,10 +1001,12 @@ void explosionInflictDamage(struct prop *expprop)
 						}
 					}
 
-					chrDamageByExplosion(chr, minfrac, &spa0, ownerprop, &expprop->pos);
+					if (chr) {
+						chrDamageByExplosion(chr, minfrac, &spa0, ownerprop, &expprop->pos);
 
-					if (prop->type == PROPTYPE_CHR && !isfirstframe) {
-						chrDisfigure(chr, &expprop->pos, damageradius);
+						if (prop->type == PROPTYPE_CHR && !isfirstframe) {
+							chrDisfigure(chr, &expprop->pos, damageradius);
+						}
 					}
 				}
 			}

@@ -502,7 +502,7 @@ void scenarioCreateMatchStartHudmsgs(void)
 	sprintf(scenarioname, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 
 	for (i = 0; i < g_MpNumChrs; i++) {
-		if (g_MpAllChrPtrs[i]->aibot == NULL) {
+		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL) {
 			setCurrentPlayerNum(i);
 
 			if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {

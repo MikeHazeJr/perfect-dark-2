@@ -208,10 +208,24 @@ void mpStartMatch(void)
 				mpRemoveParticipant(_j);
 			}
 		}
-		g_MpSetup.chrslots |= 1; /* server is always player 0 */
-		mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
-		s32 slot = 1;
-		for (s32 i = 1; i < g_NetMaxClients; ++i) {
+
+		s32 slot = 0;
+		s32 startIdx = 0;
+
+		if (!g_NetDedicated) {
+			/* Listen server: g_NetLocalClient occupies g_NetClients[0] (slot 0).
+			 * Add the server itself as participant slot 0 (PARTICIPANT_LOCAL),
+			 * then enumerate remote clients starting from index 1. */
+			g_MpSetup.chrslots |= 1;
+			mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
+			slot = 1;
+			startIdx = 1;
+		}
+		/* Dedicated server: g_NetLocalClient == NULL, no server player.
+		 * g_NetClients[0] is the first real remote client (S50 constraint).
+		 * Enumerate all clients from index 0; no phantom at slot 0. */
+
+		for (s32 i = startIdx; i < g_NetMaxClients; ++i) {
 			if (g_NetClients[i].state >= CLSTATE_LOBBY) {
 				g_MpSetup.chrslots |= (1ull << slot);
 				mpAddParticipantAt(slot, PARTICIPANT_REMOTE, 0, (s8)i, 0);
@@ -219,8 +233,8 @@ void mpStartMatch(void)
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server chrslots=0x%016llx players=%d",
-			(unsigned long long)g_MpSetup.chrslots, slot);
+		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server chrslots=0x%016llx players=%d (dedicated=%d)",
+			(unsigned long long)g_MpSetup.chrslots, slot, g_NetDedicated);
 	}
 
 	if (g_NetMode != NETMODE_CLIENT) {
@@ -281,6 +295,11 @@ void mpStartMatch(void)
 	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_GEX) {
 		stagenum = mpChooseRandomGexStage();
 	}
+
+	/* BUG-SL-2 fix: update g_MpSetup.stagenum to the resolved stagenum so
+	 * any code reading it after match start gets the actual stage, not a
+	 * RANDOM token.  The log line above captures both values for history. */
+	g_MpSetup.stagenum = (u8)stagenum;
 
 	// Set textures surfacetype based on stagenum (Resets when multiplayer ends)
 	switch (stagenum) {
@@ -681,7 +700,7 @@ void mpCalculateTeamIsOnlyAi(void)
 
 	// Iterate simulants, which go after players in the g_MpAllChrPtrs array
 	for (i = playercount; i < g_MpNumChrs; i++) {
-		if (!g_MpAllChrPtrs[i]) {
+		if (!g_MpAllChrPtrs[i] || !g_MpAllChrPtrs[i]->aibot) {
 			continue;
 		}
 
