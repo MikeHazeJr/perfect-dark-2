@@ -137,6 +137,13 @@ const char *pdguiPauseGetStageName(u8 stagenum);
 /* Menu stack — to close legacy dialogs if any are open */
 void menuCloseAllDialogs(void);
 
+/* Config save */
+s32 configSave(const char *fname);
+
+/* Right stick Y invert — from port/include/input.h */
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -417,6 +424,19 @@ static void renderSettingsTab(void)
         }
     }
     ImGui::Text("Players: %d   Bots: %d", numPlayers, numBots);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Controls */
+    ImGui::TextDisabled("Controls");
+
+    bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+    if (ImGui::Checkbox("Invert Y-Axis", &invertRStick)) {
+        inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+        configSave("pd.ini");
+    }
 }
 
 /* ========================================================================

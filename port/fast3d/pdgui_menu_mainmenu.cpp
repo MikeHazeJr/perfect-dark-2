@@ -173,6 +173,10 @@ void inputMouseSetSpeed(f32 x, f32 y);
 s32 inputGetMouseLockMode(void);
 void inputSetMouseLockMode(s32 mode);
 
+/* Right stick Y invert — from port/include/input.h */
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
 /* Input binding API — from port/include/input.h.
  * We can't include input.h (types.h conflict), so replicate constants.
  * Use PD_ prefix to avoid collision with Windows VK_ defines. */
@@ -776,6 +780,14 @@ static void renderSettingsControls(float scale)
         bool invertY = optionsGetForwardPitch(0) == 0;
         if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
             optionsSetForwardPitch(0, invertY ? 0 : 1);
+        }
+    }
+
+    {
+        bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+        if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
+            inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+            configSave("pd.ini");
         }
     }
 
