@@ -3,6 +3,39 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 67 — 2026-03-28
+
+**Focus**: bodiesReset crash fix — Combat Sim stage load
+
+### What Was Done
+
+**B-37 fixed** — client crash in `bodiesReset()` during Combat Sim stage load (stagenum=0x1f, Ravine).
+
+**Root cause**: `bodiesReset` was not MP-aware. It calls `rngRandom() % g_NumBondBodies` first (div-by-zero if `g_NumBondBodies == 0`) then iterates guard head model lists. In a networked Combat Sim match there are no guards — only players and bots — so the entire guard-body randomization pass is both useless and unsafe. The init-order audit (S64) had previously classified bodiesReset as "safe", but that audit was done when the crash was manifesting further down in `setupCreateProps`. After the S64/S65 fixes, the crash surfaced here.
+
+**Fix** (`src/game/bodyreset.c`):
+- Added `#include "system.h"` for logging
+- Entry log: dumps `normmplay`, `g_NumBondBodies`, `g_NumMaleGuardHeads`, `g_NumFemaleGuardHeads`
+- After modeldef-clear loop: log with count
+- Early return when `g_Vars.normmplayerisrunning` — zeroes both head indices, returns
+- Remaining SP-path logs at each crash-candidate site (rng, male heads, female heads, done)
+
+**Server stubs verified**: `server_stubs.c` `mainChangeToStage()` already sets `g_MainChangeToStageNum = stagenum` — fix was committed in a prior session.
+
+**Build**: client + server both compile clean.
+**Commit**: `22c7861` S67
+
+### Decisions Made
+- MP path skips guard body randomization entirely — no guards in any MP scenario, data never used
+- Trace logs left in permanently for stage-load diagnostic coverage
+
+### Next Steps
+- Playtest: 1 player + 1 bot Combat Sim on Ravine (stagenum=0x1f) — confirm B-37 resolved
+- Watch for "BODIES: normmplay active — skipping guard body randomization" in the log
+- If still crashing: logs now identify exactly which line fails
+
+---
+
 ## Session 65 — 2026-03-27
 
 **Focus**: Audit 3 — Stage Load Initialization Order (fresh start)
