@@ -22,6 +22,7 @@
 #include "data.h"
 #include "system.h"
 #include "lib/main.h"
+#include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
 
 /* ========================================================================
  * Globals — definitions for everything bss.h declares as extern.
@@ -61,6 +62,7 @@ s32 g_NotLoadMod = 1;
 const char *g_RomName = "";  /* dedicated server has no ROM — empty skips the ROM check in netmsgClcAuthRead */
 s32 g_NumReasonsToEndMpMatch = 0;
 s32 g_MainChangeToStageNum = -1;
+struct matchconfig g_MatchConfig;  /* server stub — netmsg.c references this for CLC_LOBBY_START bot config */
 
 /* Bot / chr */
 u8 g_BotCount = 0;
