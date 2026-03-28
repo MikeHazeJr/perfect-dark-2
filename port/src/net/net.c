@@ -813,7 +813,7 @@ s32 netDisconnect(void)
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
-	if (wasingame) {
+	if (wasingame && !g_AppQuitting) {
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 			if (g_Vars.players[i]) {

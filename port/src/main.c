@@ -98,6 +98,11 @@ static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
 
+	// Signal all subsystems that we are exiting. Must be set before
+	// netDisconnect so that blocking teardown paths (UPnP HTTP delete,
+	// stage transitions) are skipped and the process exits quickly.
+	g_AppQuitting = true;
+
 	/* Validate persistent allocations one final time before freeing.
 	 * If any corruption occurred during the session, this is our last
 	 * chance to log it for post-mortem analysis. */

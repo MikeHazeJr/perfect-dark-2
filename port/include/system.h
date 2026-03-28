@@ -1,6 +1,8 @@
 #ifndef _IN_SYSTEM_H
 #define _IN_SYSTEM_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -89,6 +91,12 @@ void sysCpuRelax(void);
 
 void crashInit(void);
 void crashShutdown(void);
+
+/* Set to true in cleanup() before calling netDisconnect().
+ * Subsystems that would block during orderly shutdown check this flag
+ * and skip their blocking teardown paths (UPnP HTTP delete, stage
+ * transitions, etc.) so the process exits within ~100 ms. */
+extern bool g_AppQuitting;
 
 #ifdef __cplusplus
 }

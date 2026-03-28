@@ -1345,7 +1345,14 @@ void setupLoadFiles(s32 stagenum)
 			uintptr_t dist = introAddr > propsAddr ? introAddr - propsAddr : propsAddr - introAddr;
 			s32 firstCmd = *g_StageSetup.intro;
 
-			if (dist < 64 || firstCmd < 0 || firstCmd > INTROCMD_END) {
+			// Base-game MP setup files use a minimal intro section (just
+			// INTROCMD_END with no spawn entries), so intro and props sit
+			// only a few bytes apart (dist=4 observed on Felicity/0x2b).
+			// The distance heuristic was added for corrupt mod setup files
+			// where the intro pointer aliases into the props block — don't
+			// apply it when loading the official MP setup file.
+			bool isMpSetup = (filenum == g_Stages[g_StageIndex].mpsetupfileid);
+			if ((!isMpSetup && dist < 64) || firstCmd < 0 || firstCmd > INTROCMD_END) {
 				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
 					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
 				g_StageSetup.intro = NULL;

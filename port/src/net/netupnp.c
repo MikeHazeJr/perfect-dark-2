@@ -174,6 +174,16 @@ void netUpnpTeardown(void)
         return;
     }
 
+    // UPNP_DeletePortMapping is a synchronous HTTP request. If the router
+    // is unreachable it can block for 10-30 seconds. Skip it when the app
+    // is quitting — the mapping will expire on its own, and keeping the
+    // user waiting for a network round-trip on exit is not acceptable.
+    if (g_AppQuitting) {
+        sysLogPrintf(LOG_NOTE, "UPNP: skipping port mapping removal (app quitting)");
+        s_UpnpActive = false;
+        return;
+    }
+
     sysLogPrintf(LOG_NOTE, "UPNP: Removing port mapping %s/UDP...", s_MappedPort);
 
     int result = UPNP_DeletePortMapping(
