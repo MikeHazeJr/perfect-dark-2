@@ -399,7 +399,21 @@ Now returns `false` during stage load (correct: no player is in any room yet). A
 
 ---
 
-### 4.2 CURRENT BUG — Crash After setupLoadFiles (OPEN)
+### 4.3 B-43 FIXED — First Tick Crash: g_MpAllChrPtrs NULL Dereference (S70)
+
+**Crash location:** `src/game/lv.c:2391` -- `for (i = 0; i < g_MpNumChrs; i++) { g_MpAllChrPtrs[i]->actiontype `
+
+**Root cause:** `mpReset()` nulls `g_MpAllChrPtrs[0..MAX_MPCHRS-1]` entirely after counting player participants. Bot chrs fill indices PLAYERCOUNT..g_MpNumChrs-1 via `botmgrAllocateBot`. Player chr is written to `g_MpAllChrPtrs[playernum]` LAZILY by `playerTickChrBody()` (player.c:1683) which runs inside `propsTick`. On the first `lvTick`, `propsTick` has not run yet so `g_MpAllChrPtrs[0] == NULL`. Loop dereferences it, crash.
+
+**Two more sites, same class:** `bot.c:2358 botGetTeamSize`, `mplayer.c:712 mpCalculateTeamIsOnlyAi`.
+
+**Fix (S70):** NULL guard at all three sites. See bugs.md B-43.
+
+**Invariant:** Any loop `for (i=0; i < g_MpNumChrs; i++)` accessing `g_MpAllChrPtrs[i]` must NULL-guard. Player slots are lazy-init; bot slots are eager.
+
+---
+
+# 4.2 FORMER CURRENT BUG — Crash After setupLoadFiles (RESOLVED)
 
 **Crash location:** Somewhere in `chrmgrConfigure` / `bodiesReset` / `setupCreateProps` after the "setupLoadFiles done" log line.
 

@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
 | **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
 | **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
 | **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — maxBots now MATCH_MAX_SLOTS - humanCount (up to 31 bots). Needs playtest: add >7 bots in room UI. |

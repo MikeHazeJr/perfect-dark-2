@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "memsizes.h"
+#include "system.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -786,6 +787,13 @@ bool botApplyMovement(struct chrdata *chr)
 		return false;
 	}
 
+	/* chr->model must be set before calling playerChooseThirdPersonAnimation
+	 * and modelSetChrRotY. On the very first tick after bot spawn it may not
+	 * have loaded yet; skip movement in that case. */
+	if (!chr->model) {
+		return false;
+	}
+
 	aibot = chr->aibot;
 
 	angle = chrGetInverseTheta(chr) - chrGetRotY(chr);
@@ -924,10 +932,17 @@ s32 botTick(struct prop *prop)
 	f32 targetangle;
 	f32 oldangle;
 	f32 newangle;
+	static s32 s_BotTickFirstRun = 1;
 
 	updateable = (prop->flags & PROPFLAG_NOTYETTICKED) && g_Vars.lvupdate240;
 
 	if (aibot) {
+		if (s_BotTickFirstRun) {
+			sysLogPrintf(LOG_NOTE, "TICK: botTick first call lvframe60=%d chr=%p model=%p rooms[0]=%d aibot=%p",
+				g_Vars.lvframe60, (void *)chr, (void *)chr->model,
+				(s32)prop->rooms[0], (void *)aibot);
+			s_BotTickFirstRun = 0;
+		}
 		// In netplay as client, skip bot AI and movement entirely.
 		// The server sends authoritative positions via SVC_CHR_MOVE.
 		// We still call chrTick for rendering/collision processing.
@@ -2356,6 +2371,7 @@ s32 botGetTeamSize(struct chrdata *chr)
 	s32 i;
 
 	for (i = 0; i < g_MpNumChrs; i++) {
+		if (!g_MpAllChrPtrs[i]) continue; /* player slot may be NULL on first tick */
 		if (chr->team == g_MpAllChrPtrs[i]->team) {
 			count++;
 		}

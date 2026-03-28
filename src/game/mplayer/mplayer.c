@@ -709,6 +709,7 @@ void mpCalculateTeamIsOnlyAi(void)
 		if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
 			// Iterate human players
 			for (j = 0; j < playercount; j++) {
+				if (!g_MpAllChrPtrs[j]) continue; /* player slot may be NULL before first playerTickChrBody */
 				if (g_MpAllChrPtrs[i]->team == g_MpAllChrPtrs[j]->team) {
 					g_MpAllChrPtrs[i]->aibot->teamisonlyai = false;
 					break;

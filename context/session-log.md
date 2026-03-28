@@ -3,6 +3,66 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 70 -- 2026-03-28
+
+**Focus**: First-tick crash after stage load: g_MpAllChrPtrs NULL dereference in lvTick + deep investigation of scenarioTick and bot AI first-tick safety
+
+### What Was Done
+
+**B-43 fixed** -- Game crashed on the first game tick after a successful stage load (Ravine, 1 player + 5 bots).
+
+**Root cause**: `lv.c:2391` iterates `for (i = 0; i < g_MpNumChrs; i++) { g_MpAllChrPtrs[i]->actiontype }` with no NULL check.
+`mpReset()` increments `g_MpNumChrs` for player slots (1 for 1 human) and then NULLS the entire `g_MpAllChrPtrs[0..MAX_MPCHRS]` array.
+Bot spawns (`botmgrAllocateBot`) then insert chrs at indices `g_MpNumChrs..g_MpNumChrs+5` (= 1..6 for 5 bots).
+The player chr is ONLY written to `g_MpAllChrPtrs[0]` lazily by `playerTickChrBody()`, which runs from `playerTick` inside `propsTick` -- which hasn’t run yet on the first tick.
+So `g_MpAllChrPtrs[0] == NULL` when the loop runs. Deref crashes.
+
+**Propagation check -- same class found in two more places:**
+- `bot.c:2358` `botGetTeamSize()` -- iterated from i=0, no NULL guard. Would crash on first bot AI tick in same frame.
+- `mplayer.c:712` `mpCalculateTeamIsOnlyAi()` -- inner player-loop `g_MpAllChrPtrs[j]` with no NULL guard (benign today because teams are disabled by default, but latent for teams-enabled matches).
+
+**Three files changed (B-43):**
+- `src/game/lv.c:2391` -- added `if (g_MpAllChrPtrs[i] && ...)` guard in numdying loop
+- `src/game/bot.c:2358` -- added `if (!g_MpAllChrPtrs[i]) continue;` in botGetTeamSize
+- `src/game/mplayer/mplayer.c:712` -- added `if (!g_MpAllChrPtrs[j]) continue;` in mpCalculateTeamIsOnlyAi team loop
+
+**scenarioTick() first-tick safety investigation:**
+- `scenarioTick()` checks `g_Vars.normmplayerisrunning`, then dispatches to `g_MpScenarios[scenario].tickfunc`.
+- For Combat Sim (scenario 0), `tickfunc` is **NULL** -- the dispatch is gated by `if (tickfunc)`. **SAFE on tick 0.**
+- Tick-0 risk for other scenarios (HTB/HTM/PAC/KOH/CTC) would be their `tickfunc` bodies -- not audited as they are not tested yet.
+- Added first-call trace log to `scenarioTick()`: logs `lvframe60/scenario/normmplayerisrunning/tickfunc`.
+
+**botTick() / botApplyMovement() first-tick safety investigation:**
+- `botTick()`: the full AI block (`botTickUnpaused`, angle calc, `g_MpAllChrPtrs[followingplayernum]` deref) is guarded by `if (updateable && g_Vars.lvframe60 >= 145)`. **SAFE on tick 0.**
+- `botApplyMovement()` runs UNCONDITIONALLY every tick. It calls `playerChooseThirdPersonAnimation(chr, ...)` and then `modelSetChrRotY(chr->model, ...)`. Both crash if `chr->model == NULL`.
+- `playerChooseThirdPersonAnimation` directly dereferences `chr->model` for `modelGetAnimNum(chr->model)` without a guard.
+- **Fixed**: added `if (!chr->model) return false;` guard in `botApplyMovement()` after the existing `!chr || !chr->aibot` check.
+- Added first-call trace log to `botTick()`: logs `lvframe60/chr/model/rooms[0]/aibot`.
+
+**Trace logging added (all sessions):**
+- `lv.c:2151` -- first-call log `tick=%d stagenum=0x%02x g_MpNumChrs=%d`
+- `lv.c:2536` `lvTickPlayer` -- per-call `playernum/prop/MpAllChr`
+- `scenarios.c:scenarioTick` -- first-call `lvframe60/scenario/normmplayerisrunning/tickfunc`
+- `bot.c:botTick` -- first-call `lvframe60/chr/model/rooms[0]/aibot`
+
+**Build**: Awaiting. All changes are NULL guards + trace logs -- no new functions, no struct changes.
+
+### Decisions Made
+- `g_MpAllChrPtrs[0..PLAYERCOUNT-1]` being NULL on first tick is by design (lazy init via playerTickChrBody); any loop iterating `g_MpAllChrPtrs[0..g_MpNumChrs-1]` must NULL-guard, not assume all populated
+- Do not eagerly call playerTickChrBody during playerSpawn to avoid changing spawn timing; NULL guard is the correct minimal fix
+- `botApplyMovement()` model guard is defense-in-depth: bots spawned at level setup should have models by first tick, but a NULL model is undefined behavior and the guard costs nothing
+- `scenarioTick()` for Combat Sim is architecturally safe (no tickfunc); risk only exists for non-Combat-Sim scenarios which are untested
+
+### Next Steps
+- Build: `build-headless.ps1`
+- Playtest: 1 player + 5 bots Combat Sim on Ravine -- match should now start and run through tick 1
+- Watch for "TICK: lvTick enter tick=0" + "TICK: lvTickPlayer playernum=0" in log -- confirms tick and player path both reached
+- Watch for "TICK: scenarioTick first call lvframe60=0 scenario=0 tickfunc=0x0" -- confirms no tickfunc dispatched tick 0
+- Watch for "TICK: botTick first call lvframe60=..." -- confirms bot chr props are being ticked
+- If still crashing: suspect `chrTick()` path (called unconditionally from botTick) -- investigate `chraTick(chr)` which is called from `chrTick` and may access chr state
+
+---
+
 ## Session 68 — 2026-03-28
 
 **Focus**: Combat Sim post-milestone fixes: jump crash, time limit alarm, spawn weapon, Add Bot cap

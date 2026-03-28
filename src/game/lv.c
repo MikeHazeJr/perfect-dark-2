@@ -2148,7 +2148,7 @@ void lvTick(void)
 	s32 i;
 	static s32 s_LvTickFirstRun = 1;
 	if (s_LvTickFirstRun) {
-		sysLogPrintf(LOG_NOTE, "INTRO: lvTick first call - g_Vars.stagenum=0x%02x", g_Vars.stagenum);
+		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		s_LvTickFirstRun = 0;
 	}
 
@@ -2389,7 +2389,12 @@ void lvTick(void)
 			}
 
 			for (i = 0; i < g_MpNumChrs; i++) {
-				if (g_MpAllChrPtrs[i]->actiontype == ACT_DIE) {
+				/* NULL guard: player slots (0..PLAYERCOUNT-1) are reserved by mpReset
+				 * but only populated lazily by playerTickChrBody on first propsTick.
+				 * On the very first game tick propsTick has not run yet, so player
+				 * slots are NULL. Bot slots (PLAYERCOUNT..g_MpNumChrs-1) are always
+				 * populated by botmgrAllocateBot during setupCreateProps. */
+				if (g_MpAllChrPtrs[i] && g_MpAllChrPtrs[i]->actiontype == ACT_DIE) {
 					numdying++;
 				}
 			}
@@ -2528,6 +2533,10 @@ void lvTickPlayer(void)
 {
 	f32 xdiff;
 	f32 zdiff;
+	sysLogPrintf(LOG_NOTE, "TICK: lvTickPlayer playernum=%d prop=%p MpAllChr=%p",
+		g_Vars.currentplayernum,
+		(void *)(g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL),
+		(void *)(g_MpAllChrPtrs[g_Vars.currentplayernum]));
 
 	if (var80075d64 == 2) {
 		if (var80075d68 == 2) {
