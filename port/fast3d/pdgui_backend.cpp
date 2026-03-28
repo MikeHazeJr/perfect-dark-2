@@ -336,7 +336,6 @@ void pdguiRender(void)
      * Rendered independently of hotswap/menu state — active during gameplay. */
     pdguiPauseMenuRender((s32)winW, (s32)winH);
     pdguiScorecardRender((s32)winW, (s32)winH);
-    pdguiGameOverRender((s32)winW, (s32)winH);
 
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */

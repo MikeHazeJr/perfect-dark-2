@@ -527,10 +527,6 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		roomsCopy(slrooms[p], dstrooms);
 
 		dstangle = slangles[p];
-
-		sysLogPrintf(LOG_NOTE, "SPAWN: pad %d (sl[%d]/%d, from %d inputs) pos=(%.1f,%.1f,%.1f) room=%d",
-			pads[slpadindexes[p]], p, sllen, numpads,
-			dstpos->x, dstpos->y, dstpos->z, dstrooms[0]);
 	} else {
 		// No shortlisted pads, so pick a random one from the full selection
 		padUnpack(pads[rngRandom() % numpads], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
@@ -543,9 +539,6 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		dstpos->z = pad.pos.z;
 
 		dstangle = atan2f(pad.look.x, pad.look.z);
-
-		sysLogPrintf(LOG_NOTE, "SPAWN: no shortlist, random pad from %d inputs pos=(%.1f,%.1f,%.1f) room=%d",
-			numpads, dstpos->x, dstpos->y, dstpos->z, dstrooms[0]);
 	}
 
 	return dstangle;

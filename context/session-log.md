@@ -3,42 +3,6 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
-## Session 73 -- 2026-03-28
-
-**Focus**: Void spawn investigation (Felicity 0x25) + match-end freeze fix + S72/S70 worktree merge commit
-
-### What Was Done
-
-**Task 1 — S72 worktree merge commit**: Staged `port/src/net/net.c` (trace spam first-tick-only, STAGE START log uses actual pending stage) and `src/game/lv.c` (same). Committed and pushed to `dev`.
-
-**B-SPAWN trace logging** — Full spawn diagnostic chain added:
-- `playerreset.c`: `SPAWN: summary` log after B-19 fallback shows `npts/mplay/normmplay/netmode/stage/intro/pads`; `SPAWN: pre-ground` log shows pos+room+angle right before `cdFindGroundInfoAtCyl`.
-- `scenarios.c`: `scenarioChooseSpawnLocation` logs `scenario/normmplay/spawnfunc/numpads` at call time.
-- `player.c`: `playerChooseSpawnLocation` logs selected pad number, shortlist index, total input pads, final pos, room for both shortlist and random-fallback paths.
-
-**B-FREEZE match-end freeze fix** — Root cause identified: `mpEndMatch()` calls `func0f0f820c(NULL, -6)` which sets `g_MenuData.prevmenuroot=-6`. The N64 menu system used this to drive the post-match lobby transition. The PC ImGui doesn't observe `prevmenuroot`, so the game froze on `MPPAUSEMODE_GAMEOVER` with no path back to the lobby.
-- `pdgui_menu_pausemenu.cpp`: Added `pdguiGameOverRender()` — shows "MATCH OVER" screen with final rankings table (reuses `buildScorecardData`) and "Return to Lobby" button. Button calls `mpSetPaused(UNPAUSED)` + `mainChangeToStage(STAGE_CITRAINING)`.
-- `pdgui_pausemenu.h`: Declared `pdguiGameOverRender`.
-- `pdgui_backend.cpp`: Added `pdguiGameOverRender` call each frame.
-
-**Files modified:**
-- `port/src/net/net.c`, `src/game/lv.c` (commit 1 — S72 merge)
-- `src/game/playerreset.c`, `src/game/mplayer/scenarios.c`, `src/game/player.c` (spawn logging)
-- `port/fast3d/pdgui_menu_pausemenu.cpp`, `port/include/pdgui_pausemenu.h`, `port/fast3d/pdgui_backend.cpp` (GAMEOVER fix)
-
-### Decisions Made
-- Void spawn root cause still unconfirmed — logging added to expose the exact failure path at runtime. Likely candidates: (a) intro nulled by validation → B-19 fallback runs but `g_NetMode` not set yet, or (b) INTROCMD_SPAWN param2 != 0 filters all Felicity spawn pads.
-- GAMEOVER fix is minimal: rankings display + Return to Lobby button. No rematch or share-results flow yet.
-- `mainChangeToStage` added to extern "C" in pdgui_menu_pausemenu.cpp.
-
-### Next Steps
-- Build: `build-headless.ps1`
-- Playtest Felicity: watch log for `SPAWN: summary` and `SPAWN: pre-ground`. If npts=0 and pos=(0,0,0), B-19 fallback didn't fire — check `g_NetMode` value and `g_PadsFile` pointer.
-- Test match-end: let time run out on any Combat Sim match → "MATCH OVER" overlay should appear with rankings + Return to Lobby button
-- Test quit-during-match: pause → End Game → Confirm → should return to lobby (existing netDisconnect path, was already working)
-
----
-
 ## Session 72 -- 2026-03-28
 
 **Focus**: Bot name/char sync in CLC_LOBBY_START + player identity name fallback (worktree merge from serene-margulis)
