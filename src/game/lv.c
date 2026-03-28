@@ -432,11 +432,18 @@ void lvReset(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "LOAD: about to call setupLoadFiles(0x%02x)", stagenum);
 	setupLoadFiles(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles done");
+	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioReset");
 	scenarioReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling varsReset");
 	varsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");
 	propsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling bodiesReset stagenum=0x%02x", stagenum);
 	bodiesReset(stagenum);
+	sysLogPrintf(LOG_NOTE, "LOAD: calling setupCreateProps stagenum=0x%02x normmplayerisrunning=%d chrslots=0x%04x g_MpNumChrs=%d",
+		stagenum, g_Vars.normmplayerisrunning, (u32)g_MpSetup.chrslots, g_MpNumChrs);
 	setupCreateProps(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupCreateProps done, calling reset functions");
 	tagsReset();
