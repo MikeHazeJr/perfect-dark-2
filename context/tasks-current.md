@@ -6,6 +6,21 @@
 
 ---
 
+## Catalog Activation (S74)
+
+| Step | Status |
+|------|--------|
+| **C-0** Wire assetCatalogInit + RegisterBaseGame + ScanComponents | **DONE** (already in main.c) |
+| **C-2-ext** source_filenum/texnum/animnum/soundnum in asset_entry_t | **DONE (S74)** — fields added, base bodies/heads populated, scanner resolves bodyfile to filenum |
+| **catalogLoadInit** Reverse-index arrays + query functions | **DONE (S74)** — `assetcatalog_load.c/h` created, wired in main.c |
+| **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — build clean (b01084b). Needs playtest with a mod that declares bodyfile. |
+| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** |
+| **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **NEXT** |
+| **C-7** `catalogGetSoundOverride` intercept in `sndStart()` | **NEXT** |
+| **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | Pending C-4 through C-7 |
+
+---
+
 ## Awaiting Build Test / Playtest
 
 | Item | Status |

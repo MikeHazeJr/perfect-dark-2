@@ -3,6 +3,53 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 74 -- 2026-03-28
+
+**Focus**: Catalog activation — C-2-ext, catalogLoadInit, C-4 file intercept
+
+### What Was Done
+
+**C-0 verified** — `assetCatalogInit()`, `assetCatalogRegisterBaseGame()` (which internally calls `assetCatalogRegisterBaseGameExtended()`), `assetCatalogScanComponents()`, and `assetCatalogScanBotVariants()` were already wired in `main.c`. No work needed.
+
+**C-2-ext: source numeric ID fields added to `asset_entry_t`**
+- Four new fields: `source_filenum`, `source_texnum`, `source_animnum`, `source_soundnum` (all initialized to -1 in `assetCatalogRegister()`)
+- `assetCatalogGetByIndex(s32 index)` added for O(1) pool access
+- `assetcatalog_base.c`: base body/head entries now carry their ROM filenum from `g_HeadsAndBodies[bodynum/headnum].filenum`
+- `assetcatalog_scanner.c`: ASSET_CHARACTER entries resolve `bodyfile` basename to ROM filenum via `romdataFileGetNumForName()` — mod characters get `source_filenum` set during scan
+
+**catalogLoadInit (new `assetcatalog_load.c/h`)**
+- Four static reverse-index arrays: `s_FilenumOverride[2048]`, `s_TexnumOverride[4096]`, `s_AnimnumOverride[2048]`, `s_SoundnumOverride[4096]`
+- `catalogLoadInit()` scans non-bundled enabled entries, populates arrays
+- `catalogGetFileOverride/TextureOverride/AnimOverride/SoundOverride()` answer in O(1)
+- Called from `main.c` after catalog population and before `modmgrLoadComponentState()`
+
+**C-4: file intercept in `romdataFileLoad()`**
+- Checks `catalogGetFileOverride(fileNum)` before the `files/` directory lookup
+- Hit: loads from mod path, logs `C-4: file N loaded from catalog mod`
+- Miss: falls through to existing `files/` + ROM path unchanged
+- All 16+ `fileLoadToNew` callers benefit transparently — zero call site changes
+
+**Build**: both `pd` and `pd-server` clean. Server stub added for `romdataFileGetNumForName`.
+
+**Commit**: `b01084b` — "Catalog activation: C-2-ext + catalogLoadInit + C-4 file intercept"
+
+### Files Modified
+`port/include/assetcatalog.h`, `port/include/assetcatalog_load.h` (new), `port/src/assetcatalog.c`, `port/src/assetcatalog_base.c`, `port/src/assetcatalog_load.c` (new), `port/src/assetcatalog_scanner.c`, `port/src/main.c`, `port/src/romdata.c`, `port/src/server_stubs.c`
+
+### Decisions Made
+- `catalogGetFileOverride` returns `ext.character.bodyfile` for ASSET_CHARACTER entries — this is the mod's body model path, which is what C-4 needs for character overrides
+- Server has `romdataFileGetNumForName` stubbed to return -1 (server never loads ROM files; source_filenum on server catalog entries stays -1, override arrays stay empty)
+- `assetCatalogGetByIndex` returns `const asset_entry_t *` (read-only) to prevent load module from accidentally mutating catalog entries
+
+### Next Steps
+- **C-5 tex intercept**: locate `texLoad()` / `texDecompress()` bottleneck and add `catalogGetTextureOverride(texnum)` check
+- **C-6 anim intercept**: find `animLoadFrame`/`animLoadHeader`, add `catalogGetAnimOverride(animnum)`
+- **C-7 snd intercept**: find `sndStart` path, add `catalogGetSoundOverride(soundnum)`
+- **C-8 mod enable/disable**: wire `catalogLoadInit()` re-call into `modmgrSetComponentEnabled()` so override arrays rebuild when mods are toggled
+- **Playtest C-4**: install a mod character that declares a `bodyfile` matching a ROM filenum; load a stage with that character; verify `C-4:` log line appears
+
+---
+
 ## Session 73 -- 2026-03-28
 
 **Focus**: B-46 void spawn (Felicity 0x2b) + B-47 exit freeze on window close

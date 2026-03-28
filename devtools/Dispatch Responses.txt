@@ -1,0 +1,28 @@
+---
+DISPATCH LOG — 2026-03-28
+=========================
+
+[Update — Catalog Activation In Progress]
+
+Status: The C-0 catalog wiring implementation task is running now. Here's the full picture:
+
+COMPLETED:
+- Bool/_Bool type conflict fix — clean build, zero errors (both client + server)
+- Deep asset reference audit — 497 lines, every load point documented (context/audits/asset-reference-audit.md)
+- Catalog activation plan — full architectural blueprint written (context/plans/catalog-activation-plan.md)
+- PR #2 opened with audit
+
+IN PROGRESS:
+- C-0: Wiring assetCatalogRegisterBaseGame() + assetCatalogScanComponents() at boot
+- Then C-2-ext: Adding source numeric fields to catalog entries
+- Then reverse-index build: mapping filenum/texnum back to catalog entries
+- Then C-4: Intercepting romdataFileLoad() — the big one. 6 lines, one place, covers all 16+ file load callers
+
+PENDING:
+- C-5/C-6/C-7 (texture, animation, audio intercepts)
+- Commit + push all pending fixes (bool, spawn, freeze still uncommitted from earlier sessions)
+
+The catalog infrastructure is fully built but none of it was being called at runtime. That's why we keep hitting asset loading errors in Combat Sim — everything was bypassing the catalog and going direct to ROM paths. Once C-4 lands, 7 asset types route through the catalog automatically.
+
+I'll update this file as each phase completes. Reply in Dispatch chat anytime.
+---
