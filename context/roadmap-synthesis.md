@@ -1,7 +1,9 @@
 # Roadmap Synthesis — Unified Implementation Plan
 
 > Synthesized from: network-system-audit.md (S62), menu-asset-audit.md (S62)
-> Updated: 2026-03-27 (S62) — multi-room phase integrated, ARCH-1 decision recorded
+> Updated: 2026-03-28 (S68) — comprehensive audit; Phase 0 status corrected; null guard
+>   audits added; Phase 4 completed (CLC_ROOM_KICK/TRANSFER); Phase 5 playernum note added;
+>   Phase 6 P2P asset distribution design added; Phase 9 LOW items filled; Decision Log expanded.
 > Purpose: Single prioritized action plan. Read this before deciding what to work on next.
 > Back to [index](README.md)
 
@@ -39,16 +41,27 @@ Process-per-room (true multi-room concurrency) is designed for v1.0+.
 
 ---
 
-## Phase 0: Immediate Fixes (Tonight — Current Build Blockers)
+## Phase 0: Immediate Fixes (Current Build Blockers)
 
-These are bugs that affect the current build and must be fixed before any new feature work.
+These are bugs that affect the current build and must be resolved before any new feature work.
+Items with a status are tracked relative to S62 (when this roadmap was written).
 
-| # | Issue | Source | Impact |
+| # | Issue | Source | Status |
 |---|-------|--------|--------|
-| 0-1 | Lobby B/Escape disconnects without confirmation | Menu audit §1 | Users accidentally disconnect |
-| 0-2 | Match Start not working (netSend missing in pdgui_bridge.c) | S60 Fix 2 | Can't start Combat Sim |
-| 0-3 | SVC_LOBBY_LEADER not re-sent on leader disconnect | Network audit HIGH-1 | Client doesn't know new leader |
-| 0-4 | numSims/simType from CLC_LOBBY_START not applied | Network audit LOW-1 | Bot count ignored by server |
+| 0-1 | Lobby B/Escape disconnects without confirmation | Menu audit §1 | **OPEN** |
+| 0-2 | Match Start not working (netSend missing in pdgui_bridge.c) | S60 Fix 2 | **FIXED S60** |
+| 0-3 | SVC_LOBBY_LEADER not re-sent on leader disconnect | Network audit HIGH-1 | **OPEN** |
+| 0-4 | numSims/simType from CLC_LOBBY_START not applied | Network audit LOW-1 | **OPEN** |
+| 0-5 | Client crash: musicIsAnyPlayerInAmbientRoom NULL deref (B-36) | init-order-audit §4.1 | **FIXED S63** |
+| 0-6 | Client crash: bodiesReset guard randomization on MP stage (B-37) | init-order-audit §4.2 | **FIXED S67** |
+| 0-7 | SP-6 null guard: 14 PLAYERCOUNT() loops without guard across 8 game files | null-guard-audit-players.md | **CODED S64** — needs build+playtest |
+| 0-8 | SP-8 null guard: 7 prop->chr / g_Rooms[] OOB crashes (propobj.c, explosions.c, smoke.c) | null-guard-audit-props.md | **CODED S65** — needs build+playtest |
+| 0-9 | Bot/AI null guard: 28 crashes on dedicated server (currentplayer NULL, players[-1], aibot NULL) | null-guard-audit-bots.md | **CODED S66** — needs build+playtest |
+| 0-10 | setupCreateProps crash after bodiesReset fix — may still occur at chrmgrConfigure/props iteration | init-order-audit §4.2 | **INVESTIGATE** — B-37 fixed bodiesReset; chrmgrConfigure and props iteration may have further issues; trace logs added S67 |
+
+> **Build order**: Items 0-7/0-8/0-9 must be built and tested as a single pass (they're
+> all in `src/game/`). Build with `build-headless.ps1 -Target all`, then run a dedicated
+> server + client Combat Sim test. Items 0-5/0-6 are already build-verified.
 
 ---
 
@@ -56,15 +69,15 @@ These are bugs that affect the current build and must be fixed before any new fe
 
 Goal: Two networked players connect, set up a Combat Sim with bots, start the match, play.
 
-| # | Task | Files | Depends On |
-|---|------|-------|------------|
-| 1-1 | Fix match start (verify netSend in pdgui_bridge.c) | pdgui_bridge.c | 0-2 |
-| 1-2 | Apply numSims/simType from CLC_LOBBY_START on server | netmsg.c | 0-4 |
-| 1-3 | Send SVC_LOBBY_LEADER on leader change, not just on join | netmsg.c, netlobby.c | 0-3 |
-| 1-4 | Add disconnect confirmation dialog in lobby | pdgui_menu_lobby.cpp | 0-1 |
-| 1-5 | Verify bot spawning works with networked match start | netmsg.c, setup.c | 1-1, 1-2 |
-| 1-6 | Verify player spawning on Combat Sim maps | mplayer.c, setup.c | 1-5 |
-| 1-7 | Send SVC_LOBBY_STATE when lobby settings change | netmsg.c, netlobby.c | — |
+| # | Task | Files | Status |
+|---|------|-------|--------|
+| 1-1 | Fix match start (verify netSend in pdgui_bridge.c) | pdgui_bridge.c | **DONE** (0-2 fix covers this) |
+| 1-2 | Apply numSims/simType from CLC_LOBBY_START on server | netmsg.c | OPEN — depends on 0-4 |
+| 1-3 | Send SVC_LOBBY_LEADER on leader change, not just on join | netmsg.c, netlobby.c | OPEN — depends on 0-3 |
+| 1-4 | Add disconnect confirmation dialog in lobby | pdgui_menu_lobby.cpp | OPEN — depends on 0-1 |
+| 1-5 | Verify bot spawning works with networked match start | netmsg.c, setup.c | Requires 0-7/0-8/0-9 coded items to build+pass |
+| 1-6 | Verify player spawning on Combat Sim maps | mplayer.c, setup.c | Requires 0-7/0-8/0-9 build pass |
+| 1-7 | Send SVC_LOBBY_STATE when lobby settings change | netmsg.c, netlobby.c | OPEN (MED-2 from network audit) |
 
 **Exit criteria**: Two PCs connect, configure Combat Sim, add bots, start match, both
 players spawn on the map with bots.
@@ -74,6 +87,11 @@ players spawn on the map with bots.
 ---
 
 ## Phase 2: Room Lifecycle (v0.x Stretch — R-2)
+
+> **Note: R-1 (Foundation) is complete as of S52.** Hub slot pool stubs implemented,
+> g_NetLocalClient=NULL for dedicated server, raw IP scrubbed from server GUI (B-29),
+> IP-bearing log calls replaced with client index/name (B-30). Needs end-to-end server
+> build test before R-2 starts.
 
 Goal: Rooms are demand-driven. No pre-generated rooms. Players create and join rooms properly.
 
@@ -114,6 +132,9 @@ Goal: Clients see real server room state. Join/leave rooms works.
 **Exit criteria**: Social lobby shows accurate room list from server. Players can create
 and join rooms. Room list updates in real-time.
 
+> **Protocol bump**: Coordinate with B-12 Phase 3 (remove chrslots). If B-12 P3 lands
+> first, room messages go in at v22. If B-12 P3 comes after, both land in one bump.
+
 ---
 
 ## Phase 4: Room-Scoped Match Start (v0.x Stretch — R-4)
@@ -122,14 +143,28 @@ Goal: Room leader starts match scoped to room members only.
 
 | # | Task | Files |
 |---|------|-------|
-| 4-1 | Define CLC_ROOM_SETTINGS (0x0C), CLC_ROOM_START (0x0F) | netmsg.h |
-| 4-2 | Implement room settings sync (game mode, stage, access mode) | netmsg.c |
-| 4-3 | Implement CLC_ROOM_START — server validates leader, triggers stage load for room only | netmsg.c |
-| 4-4 | Scope SVC_STAGE_START to room members (not all clients) | net.c |
-| 4-5 | Room state transitions: LOBBY → LOADING → MATCH → POSTGAME → LOBBY | room.c |
-| 4-6 | Deprecate CLC_LOBBY_START in favor of CLC_ROOM_START | netmsg.c |
+| 4-1 | Define CLC_ROOM_SETTINGS (0x0C), CLC_ROOM_KICK (0x0D), CLC_ROOM_TRANSFER (0x0E), CLC_ROOM_START (0x0F) | netmsg.h |
+| 4-2 | Implement room settings sync (game mode, stage, access mode) — validate sender is leader | netmsg.c |
+| 4-3 | Implement CLC_ROOM_KICK — leader kicks a player from the room | netmsg.c |
+| 4-4 | Implement CLC_ROOM_TRANSFER — leader transfers leadership | netmsg.c |
+| 4-5 | Implement CLC_ROOM_START — server validates leader, triggers stage load for room only | netmsg.c |
+| 4-6 | Scope SVC_STAGE_START to room members (not all clients) | net.c |
+| 4-7 | Room state transitions: LOBBY → LOADING → MATCH → POSTGAME → LOBBY | room.c |
+| 4-8 | Deprecate CLC_LOBBY_START in favor of CLC_ROOM_START | netmsg.c |
 
 **Exit criteria**: Match start only affects players in the room. Other rooms remain in lobby.
+
+### Phase 4.5: Server GUI Redesign (R-5)
+
+Depends on Phase 4 complete (room data available). Design spec in room-architecture-plan.md §9.
+
+| # | Task | Files |
+|---|------|-------|
+| 4.5-1 | New 3-panel layout: Players (left), Rooms (right), Log (bottom) | server_gui.cpp |
+| 4.5-2 | Players panel: name, room, leader indicator, state, ping; Move + Kick actions | server_gui.cpp |
+| 4.5-3 | Rooms panel: leader/players/mode/state; Set Leader + Close Room actions | server_gui.cpp |
+| 4.5-4 | Status header: connect code + Copy, port (no raw IP), player count, room count | server_gui.cpp |
+| 4.5-5 | Remove "Hub" tab (replaced by Rooms panel) | server_gui.cpp |
 
 ---
 
@@ -167,6 +202,7 @@ stages simultaneously. Multi-room multi-stage requires one of:
 | 5-4 | Broadcast ROOM_STATE_LOBBY to all waiting rooms on match end | hub.c |
 | 5-5 | UI: show "Match in progress — waiting" state in Social Lobby | pdgui_menu_lobby.cpp |
 | 5-6 | Document v1.0 process-per-room interface contract | context/server-architecture.md |
+| 5-7 | **MED-4 audit**: playernum swap logic in netmsgSvcStageStartRead assumes playernum 0 = local player. Audit all call sites before expanding to full 32-player MP | netmsg.c |
 
 **Exit criteria**: Multiple rooms coexist. One room's match blocks others gracefully.
 When the match ends, all rooms return to lobby state without manual intervention.
@@ -188,6 +224,31 @@ Goal: All asset loading goes through the catalog. No bypass paths.
 
 **Exit criteria**: Every asset load goes through the catalog. Missing assets are logged
 with CATALOG_CRITICAL. Loading has a visible progress indicator.
+
+### Phase 6 Design Note: Network Asset Distribution (OPEN — Decision 5)
+
+Mike's described model for pre-match asset sync:
+1. Server sends catalog manifest (what the server has)
+2. Clients compare against their own catalog — compute diff
+3. Server orchestrates peer transfers: clients that have assets share with clients that need them
+4. CRC verify after each transfer
+5. When all clients confirm ready → match start proceeds
+
+**Current implementation** (D3R-9, S44): Step 1-2 only, server-to-client distribution
+(server is sole source, no P2P). This is sufficient for v0.x where the server hosts all
+authoritative content.
+
+**v1.0 design work needed**: True P2P transfer to avoid all bandwidth flowing through
+the server. Requires a transfer coordination protocol between clients (new message types
+on top of ENet, or a separate peer-to-peer channel). Log as Design Decision 5 (open).
+
+### Phase 6 Design Note: Catalog-Based Protocol References (OPEN — Decision 6)
+
+Currently SVC_STAGE_START and SVC_ROOM_SETTINGS wire `stagenum` and `scenario` as raw
+numeric IDs. These are internal table indices — fragile when clients have different mod
+configurations. Long-term: protocol should use string catalog IDs for all asset references
+(stage ID, game mode ID, etc.) so server and clients with different mod sets can gracefully
+negotiate or reject mismatches. Log as Design Decision 6 (open).
 
 ---
 
@@ -232,7 +293,10 @@ Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 | 9-5 | Remove dead SVC_PLAYER_GUNS define (LOW-3) | Network audit |
 | 9-6 | Decide: implement or delete net_interface.h callbacks (ARCH-2) | Network audit |
 | 9-7 | Network benchmark for dynamic player cap | Design constraint |
-| 9-8 | Clean up worktree directories | Operational |
+| 9-8 | Update networking.md to protocol v21 (LOW-4 — stale at v20) | Network audit |
+| 9-9 | Fix backslash anomalies in netPlayersAllocate/netSyncIdsAllocate (LOW-5) | Network audit |
+| 9-10 | Optimize netSyncIdFind from O(n) linear walk (LOW-6) | Network audit |
+| 9-11 | Clean up worktree directories | Operational |
 
 ---
 
@@ -244,9 +308,21 @@ Per menu-replacement-plan.md, 240 legacy menus in 9 groups. 8 replaced so far.
 | 2 | **Dead callback infrastructure** (ARCH-2): Wire it up as decoupling boundary, or delete it? | Open |
 | 3 | **Connect code security**: Sufficient for now, or invest in a proper auth token system? | Open |
 | 4 | **Menu replacement priority**: Stay with current group ordering, or reprioritize? | Open |
+| 5 | **P2P asset distribution**: Extend D3R-9 to peer-to-peer (clients share assets with each other during pre-match sync), or keep server-only distribution? | **Open — design needed before Phase 6** |
+| 6 | **Catalog-based protocol references**: Migrate stagenum/scenario/etc. in wire protocol from raw numeric IDs to string catalog IDs for mod-safe negotiation? | **Open — design needed before Phase 6** |
 
 ---
 
-*Synthesized: 2026-03-27, Session 62. Updated same session: multi-room added as Phase 5
-between room-scoped match start and asset catalog; ARCH-1 decision recorded; release
-gating section added to clarify v0.x vs v1.0 scope.*
+*Synthesized: 2026-03-27, Session 62. Updated 2026-03-28, Session 68:*
+*— Phase 0 status column added; items 0-2/0-5/0-6 marked FIXED; items 0-7/0-8/0-9 added*
+*  for the S64-S66 null guard coded work awaiting build; item 0-10 added for setupCreateProps*
+*  crash investigation.*
+*— Phase 1: item 1-1 marked DONE; null guard prerequisite noted.*
+*— Phase 2: R-1 completion note added (DONE S52, needs server build test).*
+*— Phase 4: items 4-3/4-4 added for CLC_ROOM_KICK (0x0D) and CLC_ROOM_TRANSFER (0x0E)*
+*  which were in room-architecture-plan.md but missing from this document; Phase 4.5 (R-5*
+*  Server GUI Redesign) added.*
+*— Phase 5: item 5-7 added for MED-4 playernum swap audit before 32-player MP.*
+*— Phase 6: P2P asset distribution and catalog-based protocol references design notes added.*
+*— Phase 9: items 9-8/9-9/9-10 added for LOW-4/5/6 from network audit.*
+*— Decision Log: decisions 5 and 6 added.*
