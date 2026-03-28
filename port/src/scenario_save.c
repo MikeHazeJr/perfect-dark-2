@@ -46,10 +46,8 @@
 #include "fs.h"
 #include "system.h"
 
-/* Global match configuration — the single source of truth for the room UI.
- * Declared extern in scenario_save.h; defined here because this file is
- * linked into both client and server builds. */
-struct matchconfig g_MatchConfig;
+/* g_MatchConfig is defined in matchsetup.c (the match configuration module).
+ * scenario_save.c uses it via the extern in scenario_save.h. */
 
 /* mpSetWeaponSet: applies weapon set index to g_MpSetup.weapons[]. */
 #include "game/mplayer/mplayer.h"
