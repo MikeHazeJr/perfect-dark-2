@@ -92,7 +92,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [lobby-flow-plan.md](lobby-flow-plan.md) | Room interior UX: tab layout, Combat Sim/Campaign/Counter-Op settings, network protocol integration | Room interior / match setup UI work |
 | [join-flow-plan.md](join-flow-plan.md) | Server/client join flow: connect codes → ENet → lobby → match. Audit + gap plan | Any join/connect/lobby work |
 | [room-architecture-plan.md](room-architecture-plan.md) | R-1–R-5: Demand-driven rooms, leader/room_id, protocol messages, GUI redesign | Any room system / hub work |
-| [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog as single source of truth for all asset loading | Any asset loading / catalog work |
+| [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog design overview (S48, preserved) | Background reading on catalog design |
+| [plans/catalog-activation-plan.md](plans/catalog-activation-plan.md) | **C-0 through C-9**: Full implementation blueprint — dependency graph, per-phase specs, risk register, mod integration points | Any asset loading / catalog activation work |
 | [menu-replacement-plan.md](menu-replacement-plan.md) | Full ImGui replacement of all 240 legacy menus | Any menu migration work |
 | [d5-settings-plan.md](d5-settings-plan.md) | D5: Audio volumes, graphics, controls, QoL | Starting D5 |
 | [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, server browser | Starting D16 |
