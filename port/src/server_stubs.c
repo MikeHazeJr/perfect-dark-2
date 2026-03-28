@@ -240,6 +240,7 @@ void inputClearLastTextChar(void) {}
 /* --- File / ROM --- */
 void gamefileLoadDefaults(struct gamefile *file) { if (file) memset(file, 0, sizeof(*file)); }
 void romdataFileFreeForSolo(void) {}
+s32  romdataFileGetNumForName(const char *name) { (void)name; return -1; } /* server: no ROM */
 
 /* --- Setup / Config --- */
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }

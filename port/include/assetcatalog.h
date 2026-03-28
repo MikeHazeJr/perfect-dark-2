@@ -255,6 +255,16 @@ typedef struct asset_entry {
         } effect;
     } ext;
 
+    /* Source numeric IDs for reverse-index (C-4 through C-7).
+     * Set during registration. -1 means "not applicable to this asset type".
+     * Base game bundled entries carry the ROM index they occupy.
+     * Mod entries carry the ROM index they override (so the intercept can
+     * redirect that filenum to the mod's file path). */
+    s32 source_filenum;    /* ROM fileSlots[] index, or -1 */
+    s32 source_texnum;     /* ROM textures table index, or -1 */
+    s32 source_animnum;    /* ROM animations table index, or -1 */
+    s32 source_soundnum;   /* ROM sounds table index, or -1 */
+
     /* Load state tracking (MEM-1) */
     asset_load_state_t load_state;     /* lifecycle state of this entry */
     void              *loaded_data;    /* pointer to loaded asset data (NULL if not loaded) */
@@ -301,6 +311,13 @@ s32 assetCatalogGetCount(void);
  * Returns 0 if type is invalid or has no entries.
  */
 s32 assetCatalogGetCountByType(asset_type_e type);
+
+/**
+ * Direct pool access by pool index.
+ * Used by assetcatalog_load.c for reverse-index iteration.
+ * Returns NULL if index is out of range or entry is not occupied.
+ */
+const asset_entry_t *assetCatalogGetByIndex(s32 index);
 
 /* ========================================================================
  * Registration API

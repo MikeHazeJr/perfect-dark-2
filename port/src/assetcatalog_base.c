@@ -400,6 +400,7 @@ static const struct {
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 extern struct mparena g_MpArenas[];
+extern struct headorbody g_HeadsAndBodies[];
 
 s32 assetCatalogRegisterBaseGame(void)
 {
@@ -472,6 +473,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
+		/* C-2-ext: record the ROM filenum for this body model */
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		body_count++;
 	}
 
@@ -509,6 +512,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
+		/* C-2-ext: record the ROM filenum for this head model */
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
 		head_count++;
 	}
 

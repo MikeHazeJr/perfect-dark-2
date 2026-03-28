@@ -27,6 +27,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "romdata.h"
 #include "system.h"
 #include "fs.h"
 
@@ -268,6 +269,17 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			const char *hf = iniGet(ini, "headfile", "");
 			strncpy(e->ext.character.bodyfile, bf, FS_MAXPATH - 1);
 			strncpy(e->ext.character.headfile, hf, FS_MAXPATH - 1);
+
+			/* C-2-ext: resolve bodyfile basename to ROM filenum for reverse-index.
+			 * INI path is like "files/Cbond_bodyZ" — basename matches fileSlots[n].name. */
+			if (bf[0]) {
+				const char *bn = strrchr(bf, '/');
+				bn = bn ? bn + 1 : bf;
+				s32 fnum = romdataFileGetNumForName(bn);
+				if (fnum > 0) {
+					e->source_filenum = fnum;
+				}
+			}
 		}
 		break;
 

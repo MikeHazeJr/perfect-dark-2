@@ -365,6 +365,15 @@ s32 assetCatalogGetCountByType(asset_type_e type)
     return count;
 }
 
+const asset_entry_t *assetCatalogGetByIndex(s32 index)
+{
+    if (index < 0 || index >= s_EntryPoolSize || !s_EntryPool) {
+        return NULL;
+    }
+    const asset_entry_t *e = &s_EntryPool[index];
+    return e->occupied ? e : NULL;
+}
+
 /* ========================================================================
  * Public API: Registration
  * ======================================================================== */
@@ -430,6 +439,10 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->temporary = 0;
     entry->bundled = 0;
     entry->runtime_index = -1;
+    entry->source_filenum  = -1;
+    entry->source_texnum   = -1;
+    entry->source_animnum  = -1;
+    entry->source_soundnum = -1;
     entry->load_state = ASSET_STATE_REGISTERED;
     entry->loaded_data = NULL;
     entry->data_size_bytes = 0;

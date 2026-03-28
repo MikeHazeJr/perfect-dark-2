@@ -28,6 +28,7 @@
 #include "savemigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetcatalog_load.h"
 #include "game/stagetable.h"
 
 u32 g_OsMemSize = 0;
@@ -203,6 +204,11 @@ int main(int argc, const char **argv)
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+
+	// C-4 prerequisite: build filenum/texnum/animnum/soundnum → pool-index reverse-index.
+	// Must run after full catalog population (base game + mod scan).
+	// catalogGetFileOverride() etc. return NULL until this is called.
+	catalogLoadInit();
 
 	// D3R-6: Restore per-component enable state from mods/.modstate.
 	// Must run after scan so entries exist in the catalog to be disabled.

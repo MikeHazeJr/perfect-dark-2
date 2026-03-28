@@ -13,6 +13,7 @@
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
 #include "romdata.h"
+#include "assetcatalog_load.h"
 #include "fs.h"
 #include "system.h"
 #include "preprocess.h"
@@ -612,6 +613,30 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 
 	// try to load external file
 	if (fileSlots[fileNum].source == SRC_UNLOADED) {
+
+		/* C-4: catalog override — mod component file takes priority over files/ and ROM.
+		 * catalogGetFileOverride() returns the mod's absolute file path if a non-bundled
+		 * catalog entry overrides this filenum; returns NULL otherwise (no behavior change). */
+		const char *modPath = catalogGetFileOverride(fileNum);
+		if (modPath) {
+			u32 size = 0;
+			u8 *modOut = fsFileLoad(modPath, &size);
+			if (modOut && size) {
+				fileSlots[fileNum].data = modOut;
+				fileSlots[fileNum].size = size;
+				fileSlots[fileNum].source = SRC_EXTERNAL;
+				fileSlots[fileNum].numpatches = 0; /* mod file — no ROM patches */
+				sysLogPrintf(LOG_NOTE, "C-4: file %d (%s) loaded from catalog mod: %s",
+				             fileNum, fileSlots[fileNum].name, modPath);
+				if (outSize) {
+					*outSize = size;
+				}
+				return modOut;
+			}
+			sysLogPrintf(LOG_WARNING, "C-4: catalog override for file %d (%s) failed to load: %s",
+			             fileNum, fileSlots[fileNum].name, modPath);
+		}
+
 		char tmp[FS_MAXPATH] = { 0 };
 		snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
 
