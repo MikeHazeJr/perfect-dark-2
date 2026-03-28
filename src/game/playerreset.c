@@ -289,6 +289,13 @@ void playerReset(void)
 		}
 	}
 
+	sysLogPrintf(LOG_NOTE, "SPAWN: summary stage=0x%02x npts=%d mplay=%d normmplay=%d netmode=%d intro=%s pads=%s",
+		g_Vars.stagenum, g_NumSpawnPoints,
+		g_Vars.mplayerisrunning, g_Vars.normmplayerisrunning,
+		g_NetMode,
+		cmd ? "ok" : "null",
+		g_PadsFile ? "ok" : "null");
+
 	invGiveSingleWeapon(WEAPON_UNARMED);
 
 	if (cheatIsActive(CHEAT_TRENTSMAGNUM)) {
@@ -508,6 +515,9 @@ void playerReset(void)
 
 		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad %d fallback (room=%d, angle=%.1f)", fallbackpadnum, fallbackpad.room, turnanglerad);
 	}
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: pre-ground pos=(%.1f,%.1f,%.1f) room=%d angle=%.3f",
+		pos.x, pos.y, pos.z, rooms[0], turnanglerad);
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,

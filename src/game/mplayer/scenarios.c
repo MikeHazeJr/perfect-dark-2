@@ -806,6 +806,11 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
 {
 	f32 result;
 
+	sysLogPrintf(LOG_NOTE, "SPAWN: scenarioChooseSpawnLocation scenario=%d normmplay=%d spawnfunc=%d numpads=%d",
+		g_MpSetup.scenario, g_Vars.normmplayerisrunning,
+		(g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc) ? 1 : 0,
+		g_NumSpawnPoints);
+
 	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc &&
 			g_MpScenarios[g_MpSetup.scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {
 		return result;

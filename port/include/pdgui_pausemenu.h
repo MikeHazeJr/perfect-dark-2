@@ -41,6 +41,12 @@ s32 pdguiIsScorecardVisible(void);
 /** Render the scorecard overlay. Called from pdguiRender() pipeline. */
 void pdguiScorecardRender(s32 winW, s32 winH);
 
+/* --- Match Over Overlay --- */
+
+/** Render the post-match "MATCH OVER" screen with rankings + Return to Lobby.
+ *  Visible when MPPAUSEMODE_GAMEOVER is active. Fixes freeze-on-match-end. */
+void pdguiGameOverRender(s32 winW, s32 winH);
+
 #ifdef __cplusplus
 }
 #endif
