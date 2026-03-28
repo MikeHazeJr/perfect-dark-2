@@ -31,6 +31,7 @@ void roomsReset(void)
 	g_RoomMtxMatrices = mempAlloc(ALIGN16(g_RoomMtxNumSlots * sizeof(*g_RoomMtxMatrices)), MEMPOOL_STAGE);
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->lastroomforoffset = -1;
 	}
 

@@ -3031,6 +3031,7 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 		// and the buddy's playernum if applicable. Note that the player count
 		// can only be 1 or 2 here.
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (eyespy == g_Vars.players[i]->eyespy) {
 				setCurrentPlayerNum(i);
 			} else {
@@ -4412,7 +4413,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	ismelee = func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE;
 	makedizzy = race != RACE_DRCAROLL && gsetHasFunctionFlags(gset, FUNCFLAG_MAKEDIZZY);
 
-	if (chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
+	if (g_Vars.currentplayer != NULL && chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
 		return;
 	}
 
@@ -4459,8 +4460,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop->type == PROPTYPE_PLAYER) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 	} else if (g_Vars.coopplayernum >= 0) {
 		// Co-op
@@ -4480,8 +4484,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop->type == PROPTYPE_PLAYER) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 	} else if (g_Vars.antiplayernum >= 0) {
 		// Anti
@@ -4501,8 +4508,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 
 		if (vprop == g_Vars.bond->prop) {
-			healthscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->healthscale;
-			armourscale = g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->armourscale;
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL) {
+				healthscale = g_Vars.players[chrpnum]->healthscale;
+				armourscale = g_Vars.players[chrpnum]->armourscale;
+			}
 		}
 
 		// Anti shooting other enemies is lethal
@@ -4676,8 +4686,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			alreadydead = true;
 		}
 
-		if (vprop->type == PROPTYPE_PLAYER && g_Vars.players[playermgrGetPlayerNumByProp(vprop)]->isdead) {
-			alreadydead = true;
+		if (vprop->type == PROPTYPE_PLAYER) {
+			s32 chrpnum = playermgrGetPlayerNumByProp(vprop);
+			if (chrpnum >= 0 && g_Vars.players[chrpnum] != NULL && g_Vars.players[chrpnum]->isdead) {
+				alreadydead = true;
+			} else if (chrpnum < 0 && vprop->chr != NULL && vprop->chr->actiontype == ACT_DEAD) {
+				alreadydead = true;
+			}
 		}
 
 		if (!alreadydead && hitpart) {
@@ -5436,6 +5451,7 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 
 	if (offscreen) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i] || !g_Vars.players[i]->prop) continue;
 			portal00018148(waypos, &g_Vars.players[i]->prop->pos, wayrooms, sp50, 0, 0);
 
 			if (arrayIntersects(g_Vars.players[i]->prop->rooms, sp50)) {

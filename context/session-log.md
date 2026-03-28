@@ -3,6 +3,57 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 64 — 2026-03-27
+
+**Focus**: SP-6 Systemic Null-Guard Audit — Full PLAYERCOUNT() loop sweep across src/game/
+
+### What Was Done
+
+**Trigger**: S63 fixed `music.c::musicIsAnyPlayerInAmbientRoom` (B-36) and identified SP-6:
+PLAYERCOUNT() counts non-null entries but loops iterate by index — sparse slots crash.
+Full audit of all PLAYERCOUNT() loops across 29 files in src/game/.
+
+**CRITICAL fix (pre-spawn call path)**:
+- `src/game/roomreset.c:33` — `roomsReset()` called via `bgReset()` at `lvReset:364`, BEFORE
+  players are spawned (init loop is at `lvReset:483`). Added guard.
+
+**HIGH fixes — 13 loops across 8 files**:
+- `src/game/bondgun.c` (`bgunSetPassiveMode`) — guard added
+- `src/game/lv.c:2184` (`lvTick` hasdotinfo) — guard added
+- `src/game/lv.c:2194` (`lvTick` joybutinhibit) — guard added
+- `src/game/lv.c:2217` (`lvTick` smart slowmo outer) — player + prop guard (`->prop->rooms`)
+- `src/game/lv.c:2225` (`lvTick` smart slowmo inner otherplayernum) — guard added
+- `src/game/lv.c:2371` (`lvTick` numdying) — guard added
+- `src/game/bondcutscene.c:15` (`bcutsceneInit`) — guard added
+- `src/game/bondgunstop.c:15` (`bgunStop`) — guard added
+- `src/game/chr.c:1476` (`chrNoteLookedAtPropRemoved`) — guard added
+- `src/game/chraction.c:3033` (`chractionDestroyEyespy`) — guard added
+- `src/game/chraction.c:5438` (`chrIsOffScreen`) — player + prop guard (`->prop->pos`, `->prop->rooms`)
+- `src/game/chraicommands.c:1952` (`aicommand_if_eyespy_at_pad`) — guard added
+- `src/game/radar.c:338` (`radarRender`) — full 3-level chain guard (player + prop + chr)
+
+**Already had guards (confirmed safe)**:
+- `src/game/lv.c:227` (slayer rocket), `lv.c:483` (player init), `camera.c` (all 4 loops)
+
+**Context created**: `context/systemic-null-guard-audit.md` — full instance table, risk levels,
+fix patterns, and future-prevention rules.
+
+**Compile check**: All 7 edited files pass `-fsyntax-only` with project include paths.
+
+### Decisions Made
+- All PLAYERCOUNT() loops that dereference `players[i]` MUST have `if (!g_Vars.players[i]) continue;`
+  as their first loop-body statement. Canonical rule documented in audit file.
+- `->prop` access additionally needs `!players[i]->prop` guard.
+- `->prop->chr` chain needs all three guards.
+
+### Next Steps
+- Build verify via PowerShell build-headless.ps1 (sandbox TMP issue prevented automated build).
+- Playtest: Combat Sim stage load — confirm no crash on stage with ambient music (B-36 scenario).
+- **Audit 2**: `g_ChrSlots[i]` and `g_MpAllChrPtrs[i]` access patterns (chr.c, chraction.c).
+- **Audit 3**: `mplayer/*.c` participant system interactions during match start.
+
+---
+
 ## Session 63 — 2026-03-27
 
 **Focus**: B-36 — Client crash on Combat Sim stage load (after skyReset, in music init)

@@ -336,6 +336,7 @@ Gfx *radarRender(Gfx *gdl)
 	gDPSetSubpixelOffsetEXT(gdl++, 0, 0);
 	if (!(g_MpSetup.options & MPOPTION_NOPLAYERONRADAR)) {
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) continue;
 		if (i != playernum) {
 			if (g_Vars.players[i]->isdead == false
 					&& (g_Vars.players[i]->prop->chr->hidden & CHRHFLAG_CLOAKED) == 0

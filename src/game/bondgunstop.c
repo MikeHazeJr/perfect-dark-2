@@ -13,6 +13,7 @@ void bgunStop(void)
 	s32 j;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		for (j = 0; j < 2; j++) {
 			struct hand *hand = &g_Vars.players[i]->hands[j];
 

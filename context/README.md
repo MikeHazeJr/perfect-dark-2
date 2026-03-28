@@ -56,6 +56,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | File | System | When to load |
 |------|--------|-------------|
+| [null-guard-audit-players.md](null-guard-audit-players.md) | **S64 Audit 1/4**: PLAYERCOUNT() sparse-slot null-guard audit — 2 CRITICAL + 5 HIGH fixed; Audits 2–4 remaining | Any crash related to player/chr access during stage load |
 | [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
 | [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
 | [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |

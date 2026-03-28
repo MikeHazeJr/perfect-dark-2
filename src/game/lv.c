@@ -225,6 +225,7 @@ void lvUpdateMiscSfx(void)
 		usingrocket = false;
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.players[i]->visionmode == VISIONMODE_SLAYERROCKET) {
 				usingrocket = true;
 			}
@@ -480,6 +481,7 @@ void lvReset(s32 stagenum)
 		casingsReset();
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			setCurrentPlayerNum(i);
 			g_Vars.currentplayer->usedowntime = 0;
 			g_Vars.currentplayer->invdowntime = g_Vars.currentplayer->usedowntime;
@@ -2180,6 +2182,7 @@ void lvTick(void)
 	}
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {
+		if (!g_Vars.players[j]) continue;
 		g_Vars.players[j]->hands[HAND_LEFT].hasdotinfo = false;
 		g_Vars.players[j]->hands[HAND_RIGHT].hasdotinfo = false;
 	}
@@ -2190,6 +2193,7 @@ void lvTick(void)
 		g_Vars.lvupdate240 = 0;
 
 		for (j = 0; j < PLAYERCOUNT(); j++) {
+			if (!g_Vars.players[j]) continue;
 			g_Vars.players[j]->joybutinhibit = 0xffffefff;
 		}
 	} else {
@@ -2211,6 +2215,7 @@ void lvTick(void)
 
 					// Check if another player is in a nearby room
 					for (playernum = 0; playernum < PLAYERCOUNT() && !foundnearbychr; playernum++) {
+						if (!g_Vars.players[playernum] || !g_Vars.players[playernum]->prop) continue;
 						if (g_Vars.players[playernum]->isdead == false) {
 							RoomNum *rooms = g_Vars.players[playernum]->prop->rooms;
 							s32 r;
@@ -2218,6 +2223,7 @@ void lvTick(void)
 							for (r = 0; rooms[r] != -1 && !foundnearbychr; r++) {
 								s32 otherplayernum;
 								for (otherplayernum = 0; otherplayernum < PLAYERCOUNT(); otherplayernum++) {
+									if (!g_Vars.players[otherplayernum]) continue;
 									if (playernum != otherplayernum
 											&& g_Vars.players[otherplayernum]->isdead == false
 											&& bgRoomIsOnPlayerScreen(rooms[r], otherplayernum)) {
@@ -2365,6 +2371,7 @@ void lvTick(void)
 			s32 numdying = 0;
 
 			for (i = 0; i < PLAYERCOUNT(); i++) {
+				if (!g_Vars.players[i]) continue;
 				if (g_Vars.players[i]->isdead) {
 					if (g_Vars.players[i]->redbloodfinished == false
 							|| g_Vars.players[i]->deathanimfinished == false

@@ -12043,6 +12043,7 @@ void bgunSetPassiveMode(bool enable)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->gunctrl.passivemode = enable;
 	}
 }

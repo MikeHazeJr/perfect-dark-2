@@ -70,9 +70,19 @@ for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
     if (g_Vars.players[i] && g_Vars.players[i]->prop && ...) {
 ```
 
-**Fixed**: `music.c:musicIsAnyPlayerInAmbientRoom` (S63, B-36)
+**Fixed (S63)**: `music.c:musicIsAnyPlayerInAmbientRoom` (B-36)
+**Fixed (S64 — Audit 1 of 4)**:
+- `lv.c:227` — `lvTick()` slayer rocket visionmode check (HIGH)
+- `lv.c:482` — `lvReset()` player init loop during stage load (CRITICAL)
+- `setup.c:1572` — `setupCreateProps()` invInit loop during stage load (CRITICAL)
+- `camera.c:250,260,286,296` — 4 matrix lookup loops in cam0f0b53a8/cam0f0b53a4 (HIGH)
+- `playermgr.c:700` — `playermgrGetPlayerNumByProp()` prop scan (HIGH)
 
-**Search command**: `grep -n "players\[i\]->" src/game/music.c src/game/mplayer/ src/game/bondview.c`
+**Remaining audit**: bondwalk.c/bondmove.c currentplayer early-return guards (Audit 2),
+g_ChrSlots[] and g_MpAllChrPtrs[] (Audit 3), mplayer/*.c participant interactions (Audit 4).
+See `context/null-guard-audit-players.md` for full findings.
+
+**Search command**: `grep -rn "players\[i\]->\|players\[j\]->" src/game/`
 
 ---
 
@@ -98,7 +108,7 @@ for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
 
 ---
 
-## SP-6: Magic Number Allocation Sizes
+## SP-7: Magic Number Allocation Sizes
 
 **Severity**: LOW→MEDIUM — readability + silent breakage when constants change
 **Root cause**: Bare hex/decimal literals for buffer sizes. When limits change (MAX_BOTS 8→24), hardcoded sizes don't update.

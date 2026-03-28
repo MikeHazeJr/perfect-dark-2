@@ -1570,6 +1570,7 @@ void setupCreateProps(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "LOAD: chr slots done");
 
 		for (j = 0; j < PLAYERCOUNT(); j++) {
+			if (!g_Vars.players[j]) continue;
 			setCurrentPlayerNum(j);
 			invInit(setupCountCommandType(OBJTYPE_LINKGUNS));
 		}
