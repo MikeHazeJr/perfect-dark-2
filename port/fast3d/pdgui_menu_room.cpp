@@ -8,7 +8,7 @@
  * Bottom bar: "Start Match" (leader only) + "Leave Room".
  *
  * Settings are stored in g_MatchConfig (matchsetup.c). On "Start Match":
- *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stagenum, 0, numBots, simType)
+ *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stagenum, 0, numBots, simType, timelimit, options, scenario, scorelimit, teamscorelimit)
  *   - Campaign:   netLobbyRequestStart(GAMEMODE_COOP, stagenum, difficulty)
  *   - Counter-Op: netLobbyRequestStart(GAMEMODE_ANTI, stagenum, difficulty)
  *
@@ -91,7 +91,8 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 /* Bridge: send CLC_LOBBY_START */
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
 s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
-                                  u8 numSims, u8 simType, u8 timelimit, u32 options);
+                                  u8 numSims, u8 simType, u8 timelimit, u32 options,
+                                  u8 scenario, u8 scorelimit, u16 teamscorelimit);
 
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
@@ -1120,7 +1121,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         (u8)numBots,
                         simType,
                         g_MatchConfig.timelimit,
-                        g_MatchConfig.options);
+                        g_MatchConfig.options,
+                        g_MatchConfig.scenario,
+                        g_MatchConfig.scorelimit,
+                        g_MatchConfig.teamscorelimit);
                     break;
                 }
                 case 1:

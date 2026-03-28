@@ -49,7 +49,7 @@ extern "C" {
 #define CLSTATE_LOBBY        3
 #define CLSTATE_GAME         4
 
-#define NET_MAX_CLIENTS 8
+#define NET_MAX_CLIENTS 32  /* must match NET_MAX_CLIENTS in port/include/net/net.h */
 #define NET_MAX_NAME    16
 
 /* We access the netclient array opaquely via bridge functions */

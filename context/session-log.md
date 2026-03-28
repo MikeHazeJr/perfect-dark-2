@@ -3,6 +3,80 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 69 — 2026-03-28
+
+**Focus**: Player count constants systemic audit — full catalog, 5 wrong values fixed
+
+### What Was Done
+
+**Systemic audit** of all hardcoded player count references across `src/game/` and `port/`.
+
+**Constant hierarchy confirmed** (`src/include/constants.h`):
+- `PARTICIPANT_DEFAULT_CAPACITY = 32` — root constant
+- `MAX_LOCAL_PLAYERS = 4`, `MAX_PLAYERS = 8`, `MAX_BOTS = 32`, `MAX_MPCHRS = 40`
+- `NET_MAX_CLIENTS = 32` (port/include/net/net.h)
+- `MATCH_MAX_SLOTS = PARTICIPANT_DEFAULT_CAPACITY` (matchsetup.c private define)
+
+**5 wrong values fixed**:
+
+1. `pdgui_lobby.cpp:52` — `NET_MAX_CLIENTS 8` → `32`. Was causing lobby to see only 8 clients.
+2. `pdgui_menu_network.cpp:40` — `NET_MAX_CLIENTS 8` → `32`. Same.
+3. `pdgui_menu_pausemenu.cpp:66` — `MAX_BOTS_PM 24` → `32`. **CRITICAL**: `mpchrconfig_pm.killcounts[]` was 8 entries short of the real struct (32 vs 40), making `numdeaths`/`numpoints` read from wrong memory offsets (16 bytes off). Pause menu post-match scores were garbage.
+4. `room.h:33` — `HUB_MAX_CLIENTS 8` → `32`. Hub client array undersized.
+5. `savefile.h:47` — `SAVE_MAX_BOTS 24` → `32`. Only 24 bots could be saved; configs for bots 25-32 were dropped on save.
+
+**Cross-reference comments** added to all local `#define` mirrors in C++ files that can't include `constants.h` (types.h bool conflict).
+
+**Audit document created**: `context/player-count-constants-audit.md` — full constant hierarchy, catalog of every instance, guidelines for future code.
+
+**Note on hardcoded 4/8 that are NOT player counts**: camdraw.c (rendering geometry), chraction.c:15150 (8 octant directions for spawn search), netmsg.c (prop->rooms[8] array), menugfx.c (angular divisions), sha256.c, phonetic.c, mixer.c — all confirmed safe.
+
+**Build**: Runs from main working copy (worktree redirect). Changes verified via regex checks on all 5 edited files. Full build test on merge.
+
+### Decisions Made
+- C++ files cannot include constants.h due to types.h bool conflict → local #define approach is correct; add cross-ref comments
+- `g_PlayerConfigsArray[MAX_PLAYERS]` index in mplayer.c is intentional scratch slot (array is MAX_MPPLAYERCONFIGS=16, index 8 is valid)
+- MATCH_MAX_SLOTS shared header deferred — current approach (local define + comment) is acceptable; new header would be `port/include/net/matchconfig.h`
+
+### Next Steps
+- Merge worktree branch → full build test
+- Playtest: pause menu post-match scoreboard should show correct kill/death counts (MAX_BOTS_PM fix)
+- Network benchmark → dynamic player cap: when implemented, all `NET_MAX_CLIENTS` direct references in loops should become `g_NetMaxClients`
+- See `context/player-count-constants-audit.md` for guidelines on future changes to PARTICIPANT_DEFAULT_CAPACITY
+
+---
+
+## Session 69 — 2026-03-28
+
+**Focus**: In-match HUD overlay — top 2 scorers + match timer
+
+### What Was Done
+
+**New feature**: `pdgui_hud.cpp` — in-match HUD overlay for Combat Sim.
+
+- **Top 2 scorers**: name (gold #1, silver #2) + score in cyan. Uses `mpGetPlayerRankings()` → `rankings[].score` (game-computed by scenarioCalculatePlayerScore). Avoids `killcounts[]` struct-layout concern (MAX_MPCHRS=40 in C, opaque in C++).
+- **Timer**: reads `g_MpTimeLimit60` (bridge: `pdguiHudGetTimeLimitTicks()`). If 0 → no timer shown. Remaining = `(limit - lvGetStageTime60()) / 60`. Freezes naturally during pause (lvupdate60=0 → StageTimeElapsed stops). Colors: white >60s, yellow ≤60s, red ≤15s.
+- **Gate**: `pdguiPauseGetNormMplayerIsRunning()` — only renders during active match.
+- **Integration**: wired into `pdguiRender()` in `pdgui_backend.cpp` after pause/scorecard.
+- **Position**: top-right, 55% alpha, resolution-scaled (160px wide at 640p).
+
+**Build note**: Cannot be syntax-checked from Claude Code bash (MinGW compiler's TEMP dir issue). Needs Mike to run `build-headless.ps1` or build-gui from MSYS2 terminal.
+
+**Commit**: `667df0a` S69
+
+### Decisions Made
+- Use `rankings[i].score` not `killcounts[]` sum — avoids struct layout concern and is correct for all scenarios (not just deathmatch)
+- `mpchrconfig_hud` is minimal — only `name[15]` at offset 0x00; rest of struct opaque
+- Timer not shown when `g_MpTimeLimit60 == 0` (unlimited) — cleaner than checking `g_MpSetup.timelimit >= 60`
+
+### Next Steps
+- Playtest: start Combat Sim match → verify HUD appears top-right
+- Verify scores update on kill
+- Verify timer counts down from configured limit, colors shift near 60s/15s
+- If build fails: check for C++ include order or struct ABI issues
+
+---
+
 ## Session 68 — 2026-03-28
 
 **Focus**: Combat Sim post-milestone fixes: jump crash, time limit alarm, spawn weapon, Add Bot cap

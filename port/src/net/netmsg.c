@@ -3249,10 +3249,10 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * the sender is actually the lobby leader, then starts the match.
  *
  * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
- *          timelimit (u8), options (u32)
+ *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16)
  * ======================================================================== */
 
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options)
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit)
 {
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
@@ -3262,18 +3262,24 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, simType);
 	netbufWriteU8(dst, timelimit);
 	netbufWriteU32(dst, options);
+	netbufWriteU8(dst, scenario);
+	netbufWriteU8(dst, scorelimit);
+	netbufWriteU16(dst, teamscorelimit);
 	return dst->error;
 }
 
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
-	const u8 gamemode   = netbufReadU8(src);
-	const u8 stagenum   = netbufReadU8(src);
-	const u8 difficulty = netbufReadU8(src);
-	const u8 numSims    = netbufReadU8(src);
-	const u8 simType    = netbufReadU8(src);
-	const u8 timelimit  = netbufReadU8(src);
-	const u32 options   = netbufReadU32(src);
+	const u8 gamemode        = netbufReadU8(src);
+	const u8 stagenum        = netbufReadU8(src);
+	const u8 difficulty      = netbufReadU8(src);
+	const u8 numSims         = netbufReadU8(src);
+	const u8 simType         = netbufReadU8(src);
+	const u8 timelimit       = netbufReadU8(src);
+	const u32 options        = netbufReadU32(src);
+	const u8 scenario        = netbufReadU8(src);
+	const u8 scorelimit      = netbufReadU8(src);
+	const u16 teamscorelimit = netbufReadU16(src);
 
 	if (src->error) {
 		return src->error;
@@ -3337,11 +3343,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * each client's playernum.  Without this, clients receive a
 		 * zero chrslots and no slot assignments, so mpStartMatch() never
 		 * spawns anyone. */
-		g_MpSetup.stagenum   = stagenum;
-		g_MpSetup.scenario   = 0; /* MPSCENARIO_COMBAT */
-		g_MpSetup.timelimit  = timelimit; /* 0..59 = minutes, >=60 = unlimited */
-		g_MpSetup.scorelimit = 0; /* no kill limit */
-		g_MpSetup.options    = options;
+		g_MpSetup.stagenum        = stagenum;
+		g_MpSetup.scenario        = scenario;
+		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
+		g_MpSetup.scorelimit      = scorelimit;
+		g_MpSetup.teamscorelimit  = teamscorelimit;
+		g_MpSetup.options         = options;
 		/* Leave g_MpSetup.weapons as-is (loaded from save or zero). */
 
 		/* Assign sequential playernums and build chrslots bitmask.
