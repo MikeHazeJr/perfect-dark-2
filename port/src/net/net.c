@@ -797,7 +797,7 @@ s32 netDisconnect(void)
 	// stop responding to connectionless packets
 	enet_host_set_intercept_callback(g_NetHost, NULL);
 
-	const bool wasingame = (g_NetLocalClient->state >= CLSTATE_GAME);
+	const bool wasingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 
 	for (s32 i = 0; i < NET_MAX_CLIENTS + 1; ++i) {
 		if (g_NetClients[i].peer) {
