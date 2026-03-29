@@ -617,6 +617,32 @@ const asset_entry_t *assetCatalogResolve(const char *id)
     return entry;
 }
 
+asset_entry_t *assetCatalogGetMutable(const char *id)
+{
+    if (id == NULL || s_HashTable == NULL) {
+        return NULL;
+    }
+
+    u32 id_hash = fnv1a(id);
+    s32 pool_idx = 0;
+    s32 slot = findSlot(id_hash, id, &pool_idx);
+
+    if (slot < 0 || pool_idx == SENTINEL) {
+        return NULL;
+    }
+
+    if (pool_idx < 0 || pool_idx >= s_EntryPoolSize) {
+        return NULL;
+    }
+
+    asset_entry_t *entry = &s_EntryPool[pool_idx];
+    if (!entry->occupied) {
+        return NULL;
+    }
+
+    return entry;
+}
+
 s32 assetCatalogResolveBodyIndex(const char *id)
 {
     const asset_entry_t *entry = assetCatalogResolve(id);

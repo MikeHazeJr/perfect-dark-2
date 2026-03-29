@@ -319,6 +319,15 @@ s32 assetCatalogGetCountByType(asset_type_e type);
  */
 const asset_entry_t *assetCatalogGetByIndex(s32 index);
 
+/**
+ * Mutable resolve by string ID.
+ * Used exclusively by the lifecycle layer (assetcatalog_load.c) to update
+ * loaded_data, data_size_bytes, and ref_count.  Callers must not modify
+ * identity or classification fields (id, type, bundled, etc.).
+ * Returns NULL if the entry is not found or the catalog is not initialised.
+ */
+asset_entry_t *assetCatalogGetMutable(const char *id);
+
 /* ========================================================================
  * Registration API
  * ======================================================================== */
