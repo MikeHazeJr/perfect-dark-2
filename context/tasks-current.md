@@ -6,18 +6,47 @@
 
 ---
 
-## Catalog Activation (S74)
+## Critical Blockers (v0.1.0 "Foundation")
+
+| # | Task | Details |
+|---|------|---------|
+| 1 | **B-49 CRITICAL: Felicity/toilet landing freeze** | JUMP_DEBUG already instrumented (S78). Needs reproduction + log capture. Freeze occurs on landing in specific geometry. |
+| 2 | **B-38 CRITICAL: setupCreateProps crash** | Possible NULL deref in prop creation during stage load. Needs investigation + root cause. |
+| 3 | **UI Scaling** | Not addressed yet. Required for v0.1.0. |
+
+---
+
+## Catalog Activation
 
 | Step | Status |
 |------|--------|
-| **C-0** Wire assetCatalogInit + RegisterBaseGame + ScanComponents | **DONE** (already in main.c) |
-| **C-2-ext** source_filenum/texnum/animnum/soundnum in asset_entry_t | **DONE (S74)** — fields added, base bodies/heads populated, scanner resolves bodyfile to filenum |
-| **catalogLoadInit** Reverse-index arrays + query functions | **DONE (S74)** — `assetcatalog_load.c/h` created, wired in main.c |
-| **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — build clean (b01084b). Needs playtest with a mod that declares bodyfile. |
-| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** |
+| **C-0** Wire assetCatalogInit + RegisterBaseGame + ScanComponents | **DONE** |
+| **C-2-ext** source_filenum/texnum/animnum/soundnum in asset_entry_t | **DONE (S74)** |
+| **catalogLoadInit** Reverse-index arrays + query functions | **DONE (S74)** |
+| **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — needs playtest with a mod that declares bodyfile |
+| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** — coded, wiring needs confirmation |
 | **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **NEXT** |
-| **C-7** `catalogGetSoundOverride` intercept in `sndStart()` | **NEXT** |
-| **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | Pending C-4 through C-7 |
+| **C-7** `catalogGetSoundOverride` in `sndStart()` | **DONE (S80)** — `audioPlayFileSound()` via SDL_LoadWAV in audio.c, intercept wired in snd.c |
+| **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | **DONE (S80)** — `catalogLoadInit()` re-wired on toggle |
+| **C-9** Stage diff | **DONE (S80)** — `catalogComputeStageDiff` implemented |
+
+---
+
+## Mod System (T-series) — ALL DONE
+
+| Task | Status |
+|------|--------|
+| T-1 through T-10 | **ALL DONE (S80)** — base table expansion (anim 1207, tex 3503, audio 1545), size_bytes walker, thumbnail queue, sound intercept, mod.json content, stage reset, texture flush |
+
+---
+
+## Memory Modernization (D-MEM) — ALL DONE
+
+| Task | Status |
+|------|--------|
+| MEM-1: Load state fields | **DONE** |
+| MEM-2: assetCatalogLoad/Unload | **DONE** |
+| MEM-3: ref_count + eviction | **DONE** |
 
 ---
 
@@ -25,16 +54,16 @@
 
 | Item | Status |
 |------|--------|
-| **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — `modmgrRegisterModJsonContent()` in `modmgr.c`. Needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
-| **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — `stageTableReset()` in stagetable.c + `videoResetTextureCache()` + `mainChangeToStage(TITLE)` in modmgrReload(). Needs playtest: toggle a mod on/off and confirm no stale stages or textures after reload. |
-| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — `setup.c` dist check skips for official MP setups; `playerreset.c` B-19 fallback expanded to `normmplayerisrunning`. Needs build + Felicity playtest: watch for "populated N spawn points from pad file" log; player should spawn at valid pad not (0,0,0). |
-| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — `g_AppQuitting` flag in system.h/c; `netDisconnect()` skips stage transitions; `netUpnpTeardown()` skips blocking HTTP on quit. Needs build + test: close window during match, should exit within 1 s. |
-| **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
-| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — Per-bot name/body/head/difficulty in CLC_LOBBY_START; player name uses g_GameFile.name fallback. Needs build + playtest: start match with bots, verify names/appearances match room config; verify server log shows agent name not "Player 1" after CLC_AUTH. |
-| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
-| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
-| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
-| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — maxBots now MATCH_MAX_SLOTS - humanCount (up to 31 bots). Needs playtest: add >7 bots in room UI. |
+| **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
+| **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — needs playtest: toggle a mod on/off, confirm no stale stages or textures after reload. |
+| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — needs build + Felicity playtest. |
+| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — needs build + test: close window during match, should exit within 1s. |
+| **Combat Sim scenario save/load** (S71) | **CODED (S71)** — needs build + smoke test. |
+| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — needs build + playtest. |
+| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — needs build + playtest. |
+| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — needs playtest: jump on Jungle should no longer crash. |
+| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — needs playtest: no alarm at match start; "Start Armed" equips weapon. |
+| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — needs playtest: add >7 bots in room UI. |
 
 ---
 
@@ -42,21 +71,18 @@
 
 | Item | Status |
 |------|--------|
-| **Room interior UX + Match Start** (S57–S60) | **MILESTONE: MATCH RUNS** (confirmed S68: 7 bots, Jungle, 25s gameplay). Five fixes applied. Full playtest: Leave Room → social lobby, Start Match → match loads. |
-| **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed: (1) CLC_RESYNC_REQ was silently dropped (netStartFrame resets g_NetMsgRel after dispatch — fixed via g_NetPendingResyncReqFlags); (2) g_Lobby.inGame always 0 on dedicated server (fixed: walk g_NetClients[]); (3) NPC broadcast guard always false on dedicated server (fixed: g_NetNumClients > 0). Desync recovery now functional. |
-| **SP-6 Null Guard Audit** (S64) | **CODED (S64)** — 14 HIGH/CRITICAL PLAYERCOUNT() loops guarded across 8 files (lv.c, bondgun.c, bondcutscene.c, bondgunstop.c, chr.c, chraction.c, chraicommands.c, radar.c). All files pass syntax check. See [systemic-null-guard-audit.md](systemic-null-guard-audit.md). Needs full client build + playtest. |
-| **SP-8 Prop/Obj Null Guard Audit 2 of 4** (S65) | **CODED (S65)** — 7 CRITICAL/HIGH fixes in propobj.c (4), explosions.c (2), smoke.c (1). prop->chr without NULL check + g_Rooms[rooms[0]] OOB. See [null-guard-audit-props.md](null-guard-audit-props.md). Needs build + playtest: CCTV cloak, laser fence MP, grenade throws, smoke/explosions at map seams. |
-| **Bot/AI/Simulant null-guard audit 4 of 4** (S66) | **CODED (S66)** — 28 CRITICAL/HIGH bugs fixed across 6 files: chraction.c (5), mplayer.c (1), botcmd.c (4), botact.c (3), bot.c (14), scenarios.c (1). Covers: g_Vars.currentplayer NULL, PLAYERCOUNT()=0 aibot deref, g_MpAllChrPtrs bounds/NULL, chrGetTargetProp()->chr, players[-1] OOB. See [null-guard-audit-bots.md](null-guard-audit-bots.md). Needs build-headless.ps1 + dedicated server playtest. |
-| **B-36 Client crash after skyReset** (S63) | **CODED (S63+S64)** — NULL check in musicIsAnyPlayerInAmbientRoom; SP-6 audit added guards to 14 additional player loops preventing class of crashes. Needs full client build + playtest on stage with ambient music (MBR, Maian SOS, Skedar Ruins). |
-| **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
-| **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
-| **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
+| **Room interior UX + Match Start** (S57–S60) | **MILESTONE: MATCH RUNS** (confirmed S68: 7 bots, Jungle, 25s gameplay). Full playtest: Leave Room → social lobby, Start Match → match loads. |
+| **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed. Desync recovery now functional. |
+| **SP-6 Null Guard Audit** (S64) | **CODED (S64)** — 14 HIGH/CRITICAL PLAYERCOUNT() loops guarded across 8 files. Needs full client build + playtest. |
+| **SP-8 Prop/Obj Null Guard Audit 2 of 4** (S65) | **CODED (S65)** — 7 CRITICAL/HIGH fixes. Needs build + playtest. |
+| **Bot/AI/Simulant null-guard audit 4 of 4** (S66) | **CODED (S66)** — 28 CRITICAL/HIGH bugs fixed across 6 files. Needs build + dedicated server playtest. |
+| **B-36 Client crash after skyReset** (S63) | **CODED (S63+S64)** — needs full client build + playtest on stage with ambient music. |
+| **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator → verify match loads + both players spawn. |
 | **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
-| **Update tab — cross-session staged version** (S50) | Build client. Download a version, close without restarting. Reopen Update tab → Switch button should appear without re-downloading. |
-| **Player Stats** (playerstats.c): String-keyed counters, JSON persistence (S49) | Needs client build test. `port/src/playerstats.c` |
+| **Update tab — cross-session staged version** (S50) | Build client. Download a version, close without restarting. Reopen Update tab → Switch button should appear. |
+| **Player Stats** (playerstats.c) (S49) | Needs client build test. |
 | **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
-| **MEM-1**: Asset load state fields in asset_entry_t (S47a) | Needs full cmake pass |
-| **B-13**: Prop scale fix -- modelGetEffectiveScale (S26) | Needs build test |
+| **B-13**: Prop scale fix (S26) | Needs build test |
 | **B-12 Phase 1**: Dynamic participant system (S26) | Needs build test |
 
 ---
@@ -65,35 +91,16 @@
 
 | Bug | Severity | Status |
 |-----|----------|--------|
-| [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing across all mod maps. |
-| B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Possible missing texture or clear color issue. Needs investigation. |
-| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — playerreset.c now scans pads file and populates g_SpawnPoints when none set and in net mode. Needs test to confirm dispersal works. |
-| B-20 Mission 1 objective crash | HIGH | **FIXED (S48)** -- NULL modeldef guard added in modelmgrInstantiateModel. Root cause: objective completion spawns chr whose body filenum fails to load. |
-| B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
-| B-24 Connect code byte-order reversal | CRITICAL | **FIXED (S49)** -- `pdgui_menu_mainmenu.cpp` byte extraction corrected (MSB→LSB order). |
-| B-25 Server max clients = 8 | MEDIUM | **FIXED (S49)** -- `NET_MAX_CLIENTS` decoupled from `MAX_PLAYERS`, now 32. |
-| B-26 Player name shows "Player1" | HIGH | **RE-FIXED (S72)** -- `netClientReadConfig()` now uses `g_GameFile.name` as middle fallback; identity profile was never initialized on client side. |
-| B-44 Bot names/chars not transmitted | HIGH | **FIXED (S72)** -- CLC_LOBBY_START now carries per-bot name/bodynum/headnum/difficulty/type from `g_MatchConfig.slots[]`. |
+| [B-49](bugs.md) Felicity/toilet landing freeze | CRITICAL | JUMP_DEBUG instrumented (S78). Needs reproduction + log capture. |
+| [B-38](bugs.md) setupCreateProps crash | CRITICAL | Needs investigation. |
+| [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
+| B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
+| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — needs test to confirm dispersal works. |
+| B-21 Menu double-press / hierarchy issues | MEDIUM | Escape registering multiple times, menu state confusion. |
 
 ---
 
 ## Active Work Tracks
-
-### Memory Modernization (D-MEM)
-
-| Task | Status |
-|------|--------|
-| MEM-1: Load state fields | CODED (S47a) -- needs build test |
-| MEM-2: assetCatalogLoad/Unload | PENDING |
-| MEM-3: ref_count + eviction | PENDING |
-
-### B-12: Participant System
-
-| Phase | Status |
-|-------|--------|
-| Phase 1: Parallel pool | CODED -- needs build test |
-| Phase 2: Callsite migration | DONE (S47b) -- build pass |
-| Phase 3: Remove chrslots + protocol v22 | READY -- depends on Phase 2 QC |
 
 ### Join Flow (J-series) — Next Steps
 
@@ -102,7 +109,7 @@
 | J-1 | **Verify end-to-end join** | Build server target, start server, enter code in client, verify CLSTATE_LOBBY + match start. |
 | J-2 | **Server GUI connect code** | Add connect code display + Copy button to server_gui.cpp Server tab. |
 | J-3 | **SVC_ROOM_LIST protocol** | Broadcast room state from server to clients so lobby UI shows real room data. |
-| J-4 | **Server history UI** | Populate Recent Servers section. Display connect codes (re-encode), not raw IPs. |
+| J-4 | **Server history UI** | **DONE (S80)** — serverhistory.json + Recent Servers panel + relative timestamps implemented. |
 | J-5 | **Lobby handoff polish** | Verify main menu → lobby overlay transition. Progress indicator during CONNECTING/AUTH. |
 
 See [join-flow-plan.md](join-flow-plan.md) for full audit.
@@ -113,35 +120,49 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 | Phase | Task | Details |
 |-------|------|---------|
-| R-1 | **Foundation (no protocol change)** | ~~Implement hub slot pool stubs (`hub.c`). Fix `g_NetLocalClient = NULL` for dedicated server (`net.c` B-28). Remove raw IP from server GUI status bar (`server_gui.cpp:695` B-29). Replace IP-bearing log lines with client index/name (B-30).~~ **DONE (S52)** — needs server build test. |
-| R-2 | **Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id` to `hub_room_t`. Add `room_id` to `struct netclient`. On-demand room creation per connect (`hubOnClientConnect/Disconnect`). Remove permanent room 0. |
-| R-3 | **Room sync (protocol)** | `SVC_ROOM_LIST 0x75`, `SVC_ROOM_UPDATE 0x76`, `SVC_ROOM_ASSIGN 0x77`. `CLC_ROOM_JOIN 0x0A`, `CLC_ROOM_LEAVE 0x0B`. Client lobby UI reads server-authoritative room list (closes join-flow gap J-3). |
-| R-4 | **Match start (room-scoped)** | `CLC_ROOM_SETTINGS 0x0C`, `CLC_ROOM_KICK 0x0D`, `CLC_ROOM_TRANSFER 0x0E`, `CLC_ROOM_START 0x0F`. Stage start scoped to room members. Room state transitions. |
-| R-5 | **Server GUI redesign** | New Players + Rooms panel layout. Move/Kick/Set Leader/Close Room actions. No raw IP anywhere. Replace Hub tab with Rooms panel. |
+| R-1 | **Foundation (no protocol change)** | Hub slot pool stubs, `g_NetLocalClient = NULL` for dedicated server, IP scrub (B-28/29/30). **DONE (S52)** — needs server build test. |
+| R-2 | **Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. Remove permanent room 0. |
+| R-3 | **Room sync (protocol)** | `SVC_ROOM_LIST 0x75`, `SVC_ROOM_UPDATE 0x76`, `SVC_ROOM_ASSIGN 0x77`. `CLC_ROOM_JOIN 0x0A`, `CLC_ROOM_LEAVE 0x0B`. |
+| R-4 | **Match start (room-scoped)** | `CLC_ROOM_SETTINGS 0x0C`, `CLC_ROOM_KICK 0x0D`, `CLC_ROOM_TRANSFER 0x0E`, `CLC_ROOM_START 0x0F`. |
+| R-5 | **Server GUI redesign** | New Players + Rooms panel layout. No raw IP anywhere. Replace Hub tab with Rooms panel. |
 
 ---
 
 ### Lobby / Room / Match UX Flow (L-series) — See [lobby-flow-plan.md](lobby-flow-plan.md)
 
 > L-series = client-facing UI only. Depends on R-2 + R-3 complete before L-1/L-2 can be wired.
-> Full audit and design in lobby-flow-plan.md (S57).
 
 | Phase | Task | Details |
 |-------|------|---------|
-| L-1 | **Social Lobby** | Rewrite `pdgui_menu_lobby.cpp`: strip game mode selection, add room list with Join buttons and Create Room. No game mode picker on this screen. Depends on R-3. |
-| L-2 | **Room Create/Join** | Wire Create Room + Join Room buttons to `CLC_ROOM_JOIN`. Handle `SVC_ROOM_ASSIGN` → transition to Room Interior screen. Password dialog for protected rooms. Depends on R-3. |
-| L-3 | **Room Interior + Mode Selection** | New `pdgui_menu_room.cpp`. Leader: mode buttons + room player list. Non-leader: read-only mode display. Leave Room → `CLC_ROOM_LEAVE`. Depends on R-4. |
-| L-4 | **Combat Sim Setup** | Extend `pdgui_menu_matchsetup.cpp` with network path: settings send `CLC_ROOM_SETTINGS`, Start sends `CLC_ROOM_START`. Non-leader: read-only preview. Depends on R-4. |
-| L-5 | **Campaign + Counter-Op Setup** | New `pdgui_menu_campaign_setup.cpp`. Mission picker, difficulty, role (Counter-Op), Start. Depends on R-4. |
-| L-6 | **Drop-In / Drop-Out** | Allow joining ROOM_STATE_MATCH rooms. Server spawns new player at safe pad. Post-match returns to Room Interior for next round. Depends on L-4/L-5. |
+| L-1 | **Social Lobby** | Rewrite `pdgui_menu_lobby.cpp`: strip game mode selection, add room list with Join buttons and Create Room. Depends on R-3. |
+| L-2 | **Room Create/Join** | Wire Create Room + Join Room buttons to `CLC_ROOM_JOIN`. Handle `SVC_ROOM_ASSIGN`. Depends on R-3. |
+| L-3 | **Room Interior + Mode Selection** | New `pdgui_menu_room.cpp`. Leader: mode buttons + room player list. Non-leader: read-only. Depends on R-4. |
+| L-4 | **Combat Sim Setup** | Extend `pdgui_menu_matchsetup.cpp` with network path. Depends on R-4. |
+| L-5 | **Campaign + Counter-Op Setup** | New `pdgui_menu_campaign_setup.cpp`. Depends on R-4. |
+| L-6 | **Drop-In / Drop-Out** | Allow joining ROOM_STATE_MATCH rooms. Depends on L-4/L-5. |
 
 ---
 
-### Asset Catalog Expansion
+### B-12: Participant System
 
-| Task | Status |
+| Phase | Status |
+|-------|--------|
+| Phase 1: Parallel pool | CODED -- needs build test |
+| Phase 2: Callsite migration | DONE (S47b) |
+| Phase 3: Remove chrslots + protocol v22 | READY — depends on Phase 2 QC |
+
+---
+
+## Deferred
+
+| Item | Reason |
 |------|--------|
-| S46b: Full enumeration (anims, SFX, textures) | PENDING |
+| Modding pipeline implementation | Design doc complete (S80). Deferred until matches are stable. |
+| Ultrawide support | Planned — will be built properly (not OTR hacks). |
+| ARM/NEON detection | Deferred until ARM target on roadmap. |
+| Network benchmark → dynamic player cap | Measure bandwidth/latency at server start, call `hubSetMaxSlots()`. |
+| Systemic bug audit: SP-1 remaining files | `activemenu.c`, `player.c`, `endscreen.c`, `menu.c` |
+| TODO-1: SDL2/zlib still DLL | Low priority. |
 
 ---
 
@@ -149,22 +170,14 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **J-1: Verify end-to-end join** | Build server target + end-to-end test. See join-flow-plan.md. |
-| 2 | **R-1: Room foundation** | Hub slot pool stubs, g_NetLocalClient=NULL for dedicated, IP scrub (B-28/29/30). No protocol change. See room-architecture-plan.md. |
-| 3 | **J-2: Server GUI connect code** | Add code display to server_gui.cpp (superseded by R-5, but R-1 partially covers). |
-| 3 | **Menu Replacement Group 1** | Solo mission flow (11 menus). See [menu-replacement-plan.md](context/menu-replacement-plan.md). |
-| 2 | **Catalog Phase C-1/C-2** | ROM hash + base game catalog population. See [catalog-loading-plan.md](context/catalog-loading-plan.md). |
-| 3 | **Catalog Phase C-4** | Intercept fileLoadToNew — catalog resolve before ROM load. Critical gateway. |
-| 4 | **Menu Replacement Group 2** | End screens (13 menus). |
-| 5 | **Menu Replacement Group 4** | Multiplayer setup (68 menus, largest group). |
-| 6 | **Catalog Phase C-8** | Mod diff-based re-cataloging. |
-| 7 | **Collision Rewrite Design** | Proper design. HIGH PRIORITY but design-first. |
-| 8 | **B-19: Bot spawn stacking** | Populate g_SpawnPoints from arena pad data. |
-| 6 | **B-20: Mission 1 crash** | Objective completion triggers loading that may bypass catalog. |
-| 7 | **B-18: Pink sky** | Investigate Skedar Ruins sky rendering. |
-| 8 | **B-12 Phase 3** | Remove chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22. |
-| 9 | **Bot Customizer Integration** | Wire into lobby flow (D3R-8 already coded). |
-| 10 | **D5: Settings/Graphics/QoL** | FOV slider, resolution, audio volumes. |
+| 1 | **B-49: Felicity/toilet landing freeze** | Reproduce crash with JUMP_DEBUG log, capture output, find root cause. CRITICAL for v0.1.0. |
+| 2 | **B-38: setupCreateProps crash** | Investigate NULL deref in prop creation. CRITICAL for v0.1.0. |
+| 3 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
+| 4 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
+| 5 | **J-1: End-to-end join verify** | Build server target + full join test. See join-flow-plan.md. |
+| 6 | **Playtest backlog** | T-7, T-8/T-9, B-43/B-44/B-46/B-47, Combat Sim save/load. |
+| 7 | **R-1: Room foundation** | Hub slot pool stubs. No protocol change. |
+| 8 | **UI Scaling** | Required for v0.1.0. Not started. |
 
 ---
 
@@ -176,15 +189,3 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 | Settings B-button exits to main menu | Should back out one level only |
 | OG Paused text behind ImGui (B-15) | Suppress legacy pause rendering. Low priority. |
 | Scroll-hidden buttons | Prefer docked/always-visible, minimize scrolling |
-
----
-
-## Backlog
-
-- Systemic bug audit: SP-1 remaining files (activemenu.c, player.c, endscreen.c, menu.c)
-- S46b: Full asset catalog enumeration
-- ~~Update tab UX: button sizing~~ **DONE S49** -- CalcTextSize-based buttons, per-row Download/Rollback, staged release "Switch" support. Version policy design still pending.
-- ~~Update tab — cross-session staged version~~ **DONE S50** -- `.update.ver` sidecar, `updaterGetStagedVersion()`, Switch button persists across restarts.
-- ~~Version baking~~ **DONE S50** -- always-clean builds (Clean Build toggle removed), version from UI boxes, `-DVERSION_SEM_*` flags injected every build via `Get-BuildSteps`
-- **Network benchmark → dynamic player cap**: Measure bandwidth/latency at server start, call `hubSetMaxSlots()` to lower `g_NetMaxClients` below 32. Do not hardcode player counts.
-- TODO-1: SDL2/zlib still DLL (low priority)
