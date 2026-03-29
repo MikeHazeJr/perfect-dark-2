@@ -173,4 +173,15 @@ u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker, const 
                                  const char *weapon, u8 flags);
 u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
 
+/* Prop syncid → prop* lookup map.
+ * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.
+ * Must be kept in sync whenever prop syncids change:
+ *   netSyncIdMapRebuild() — call after netSyncIdsAllocate() (full stage sync)
+ *   netSyncIdMapSet()     — call after any individual prop->syncid assignment
+ *   netSyncIdMapClear()   — call on stage teardown / connection init
+ */
+void netSyncIdMapClear(void);
+void netSyncIdMapSet(u32 syncid, struct prop *prop);
+void netSyncIdMapRebuild(void);
+
 #endif

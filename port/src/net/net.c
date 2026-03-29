@@ -371,8 +371,12 @@ static void netServerQueryResponse(ENetAddress *address)
 	static u8 data[256];
 	static ENetBuffer ebuf;
 	struct netbuf buf = { .data = data, .size = sizeof(data) };
+	// bit 0: server is in an active match (not in lobby)
+	// bit 1: team game enabled — set when MPOPTION_TEAMSENABLED is active.
+	//        Future: extend with NETFLAG_COOP (bit 2) and NETFLAG_ANTIOP (bit 3) once
+	//        cooperative/counter-operative campaign modes are wired to g_MpSetup.
 	const u8 flags = (g_NetLocalClient && g_NetLocalClient->state > CLSTATE_LOBBY)
-		| (0 << 1); // TODO: this will indicate coop/anti/etc
+		| ((g_MpSetup.options & MPOPTION_TEAMSENABLED) ? (1 << 1) : 0);
 	const char *modDir = fsGetModDir();
 	if (!modDir) {
 		modDir = "";
@@ -536,6 +540,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: created server on port %u", port);
@@ -768,6 +773,7 @@ s32 netStartClient(const char *addr)
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	sysLogPrintf(LOG_NOTE, "NET: waiting for response from %s...", addr);
 
@@ -1435,6 +1441,12 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	return ret;
 }
 
+/* Snapshot of remote player configs before netPlayersAllocate overwrites them.
+ * Indexed by playernum (0..MAX_PLAYERS-1). Available for restoration if a match
+ * fails to start after configs have been overwritten (e.g. on a SVC_STAGE_END
+ * that arrives before the stage fully loads). */
+static struct mpplayerconfig s_RemoteConfigBackups[MAX_PLAYERS];
+
 void netPlayersAllocate(void)
 {
 	s32 playernum = 0;
@@ -1460,8 +1472,12 @@ void netPlayersAllocate(void)
 
 		if (cl != g_NetLocalClient) {
 			// disable controls for the remote pawns and set their settings
-			// TODO: backup the player configs or something
 			struct mpplayerconfig *cfg = &g_PlayerConfigsArray[cl->playernum];
+			// Snapshot original config before overwrite; restore via s_RemoteConfigBackups[playernum]
+			// if the match fails to start after this point.
+			if (cl->playernum < MAX_PLAYERS) {
+				s_RemoteConfigBackups[cl->playernum] = *cfg;
+			}
 			cfg->controlmode = CONTROLMODE_NA;
 			cfg->base.mpbodynum = cl->settings.bodynum;
 			cfg->base.mpheadnum = cl->settings.headnum;
@@ -1533,6 +1549,7 @@ void netSyncIdsAllocate(void)
 	}
 
 	sysLogPrintf(LOG_NOTE, "NET: last initial syncid: %u", g_NetNextSyncId);
+	netSyncIdMapRebuild(); // rebuild O(1) lookup map after all syncids are finalised
 }
 
 void netChatPrintf(struct netclient *dst, const char *fmt, ...)

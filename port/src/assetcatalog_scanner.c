@@ -145,6 +145,56 @@ f32 iniGetFloat(const ini_section_t *ini, const char *key, f32 defval)
 }
 
 /* ========================================================================
+ * Map Mode Parser
+ * ======================================================================== */
+
+/**
+ * Parse a pipe-separated mode string from an INI "mode" key into a MAP_MODE_*
+ * bitmask. Recognised tokens: "mp", "solo", "coop". Unknown tokens are ignored.
+ * Returns 0 if val is NULL or empty (caller treats 0 as "all modes").
+ *
+ * Examples:
+ *   "mp"         -> MAP_MODE_MP
+ *   "solo"       -> MAP_MODE_SOLO
+ *   "mp|solo"    -> MAP_MODE_MP | MAP_MODE_SOLO
+ *   "mp|coop"    -> MAP_MODE_MP | MAP_MODE_COOP
+ */
+static s32 parseModeString(const char *val)
+{
+	if (!val || !val[0]) {
+		return 0;
+	}
+
+	s32 mode = 0;
+
+	/* work on a local copy since we mutate it */
+	char buf[64];
+	strncpy(buf, val, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	char *tok = buf;
+	while (tok) {
+		char *pipe = strchr(tok, '|');
+		if (pipe) {
+			*pipe = '\0';
+		}
+
+		char *t = trimWhitespace(tok);
+		if (strcmp(t, "mp") == 0) {
+			mode |= MAP_MODE_MP;
+		} else if (strcmp(t, "solo") == 0) {
+			mode |= MAP_MODE_SOLO;
+		} else if (strcmp(t, "coop") == 0) {
+			mode |= MAP_MODE_COOP;
+		}
+
+		tok = pipe ? pipe + 1 : NULL;
+	}
+
+	return mode;
+}
+
+/* ========================================================================
  * Category Handling
  * ======================================================================== */
 
@@ -254,7 +304,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	switch (type) {
 	case ASSET_MAP:
 		e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
-		e->ext.map.mode = 0; /* TODO: parse mode string */
+		e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *mf = iniGet(ini, "music_file", "");
 			if (mf[0]) {

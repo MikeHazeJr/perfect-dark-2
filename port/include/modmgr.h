@@ -33,6 +33,7 @@ typedef struct modinfo {
 	char description[MODMGR_DESC_LEN];
 	char dirpath[FS_MAXPATH + 1];       // absolute path to mod directory
 	u32  contenthash;                    // hash of mod directory for network compare
+	u32  size_bytes;                     // total size of mod directory (bytes), for download estimation
 	s32  enabled;                        // user preference (persisted)
 	s32  loaded;                         // assets currently registered in tables
 	s32  bundled;                        // shipped with the game

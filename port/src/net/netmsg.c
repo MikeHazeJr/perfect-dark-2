@@ -42,6 +42,7 @@
 #include "scenario_save.h"
 #include "assetcatalog.h"
 #include "identity.h"
+#include "utils.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -57,6 +58,36 @@ static u32 g_NetNpcResyncLastReq = 0;
 
 /* Server-side resync request tracking (set by CLC_RESYNC_REQ, consumed by netEndFrame in net.c) */
 u8 g_NetPendingResyncFlags = 0;
+
+/* Prop syncid → prop* lookup map.
+ * syncids are assigned as (prop - g_Vars.props + 1), so they're 1-indexed array offsets.
+ * Direct indexing gives O(1) lookup; 2048 exceeds any expected maxprops value by a large margin.
+ * Map entries are validated by checking prop->syncid == syncid before returning. */
+#define NET_PROP_MAP_SIZE 2048
+static struct prop *s_PropBySyncId[NET_PROP_MAP_SIZE];
+
+void netSyncIdMapClear(void)
+{
+    memset(s_PropBySyncId, 0, sizeof(s_PropBySyncId));
+}
+
+void netSyncIdMapSet(u32 syncid, struct prop *prop)
+{
+    if (syncid > 0 && syncid < NET_PROP_MAP_SIZE) {
+        s_PropBySyncId[syncid] = prop;
+    }
+}
+
+void netSyncIdMapRebuild(void)
+{
+    memset(s_PropBySyncId, 0, sizeof(s_PropBySyncId));
+    for (s32 i = 0; i < g_Vars.maxprops; ++i) {
+        const u32 sid = g_Vars.props[i].syncid;
+        if (sid > 0 && sid < NET_PROP_MAP_SIZE) {
+            s_PropBySyncId[sid] = &g_Vars.props[i];
+        }
+    }
+}
 
 /* Client-side resync request tracking (set by SVC_CHR/PROP/NPC_SYNC handlers on desync, consumed by netEndFrame).
  * These flags CANNOT be written directly to g_NetMsgRel inside netStartFrame() recv handlers because
@@ -171,7 +202,15 @@ static inline struct prop *netbufReadPropPtr(struct netbuf *buf)
 		return NULL;
 	}
 
-	// TODO: make a map or something
+	// Fast path: O(1) direct lookup via s_PropBySyncId map (built by netSyncIdMapRebuild)
+	if (syncid < NET_PROP_MAP_SIZE) {
+		struct prop *p = s_PropBySyncId[syncid];
+		if (p && p->syncid == syncid) {
+			return p;
+		}
+	}
+
+	// Slow path: linear scan fallback for syncids beyond map range or stale map
 	for (s32 i = 0; i < g_Vars.maxprops; ++i) {
 		if (g_Vars.props[i].syncid == syncid) {
 			return &g_Vars.props[i];
@@ -213,9 +252,9 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 
 	netbufWriteU8(dst, CLC_AUTH);
 	netbufWriteStr(dst, name);
-	netbufWriteStr(dst, g_RomName); // TODO: use a CRC or something
+	netbufWriteU32(dst, utilCrc32(g_RomName)); // CRC32 of ROM identifier — avoids leaking the name string and is more compact
 	netbufWriteStr(dst, modDir);
-	netbufWriteU8(dst, 1); // TODO: number of local players
+	netbufWriteU8(dst, (u8)PLAYERCOUNT()); // number of local (splitscreen) players on this client
 
 	return dst->error;
 }
@@ -228,7 +267,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	char *name = netbufReadStr(src);
-	const char *romName = netbufReadStr(src);
+	const u32 romCrc = netbufReadU32(src); // CRC32 of client's g_RomName
 	const char *modDir = netbufReadStr(src);
 	const u8 players = netbufReadU8(src);
 
@@ -241,8 +280,9 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	/* Dedicated servers have no ROM or mods loaded — skip file checks entirely.
 	 * Only a listen server (client hosting) validates ROM and mod agreement. */
 	if (!g_NetDedicated) {
-		if (romName && strcasecmp(romName, g_RomName) != 0) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has the wrong ROM, disconnecting", srccl->id);
+		if (romCrc != utilCrc32(g_RomName)) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_AUTH: client %u has wrong ROM (crc %08x vs %08x), disconnecting",
+			             srccl->id, romCrc, utilCrc32(g_RomName));
 			netServerKick(srccl, DISCONNECT_FILES);
 			return src->error;
 		}
@@ -1401,6 +1441,7 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	if (prop) {
 		prop->type = type;
 		prop->syncid = syncid;
+		netSyncIdMapSet(syncid, prop); // keep lookup map current for client-side dynamic spawns
 		prop->pos = pos;
 		prop->forcetick = (msgflags & (1 << 2)) != 0;
 		// prop->flags = propflags;
@@ -1592,8 +1633,10 @@ u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 			}
 			break;
 		default:
-			// NOTE: doors and lifts are handled with SVC_PROP_DOOR/_LIFT
-			// TODO: eventually remove this message completely
+			// Unhandled prop types (CHR, etc.) produce no interaction on the client.
+			// Doors and lifts have dedicated SVC_PROP_DOOR / SVC_PROP_LIFT messages.
+			// SVC_PROP_USE can be removed once every interactive prop type has a
+			// dedicated handler and no callers of netmsgSvcPropUseWrite remain.
 			ownop = TICKOP_NONE;
 			break;
 	}

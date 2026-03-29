@@ -5,6 +5,10 @@
 
 #include <PR/ultratypes.h>
 
+/* CRC32 checksum of a null-terminated string (standard 0x04C11DB7 polynomial).
+ * Used for ROM identity validation in network auth. */
+u32 utilCrc32(const char *str);
+
 char *strRightTrim(char *str);
 char *strTrim(char *str);
 char *strUnquote(char *str);

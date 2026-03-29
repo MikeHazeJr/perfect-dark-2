@@ -2805,7 +2805,11 @@ void bgLoadRoom(s32 roomnum)
 	}
 
 #ifdef PLATFORM_64BIT
-	alloclen = alloclen * 4; // just to be safe for now, adjust properly later #TODO
+	// preprocessBgRoom converts 32-bit ROM offsets/GBI commands to 64-bit in-place.
+	// The output can expand up to 2x (4-byte → 8-byte pointer-bearing commands).
+	// The compressed data (readlen) fits in the right half since readlen <= gfxdatalen < 2*gfxdatalen.
+	// Total required: 2 * gfxdatalen (preprocessed output) + readlen (already fits in left half after inflate).
+	alloclen = alloclen * 2;
 #endif
 
 

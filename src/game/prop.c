@@ -172,6 +172,9 @@ struct prop *propAllocate(void)
 		prop->xluwallhits = NULL;
 		// NOTE: this will be automatically overwritten at the start of the stage for the setup props
 		prop->syncid = (g_NetMode == NETMODE_SERVER) ? g_NetNextSyncId++ : 0;
+		if (prop->syncid) {
+			netSyncIdMapSet(prop->syncid, prop); // keep O(1) lookup map current for runtime spawns
+		}
 		g_Vars.propstates[prop->propstateindex].propcount++;
 
 		g_Vars.allocstateindex++;

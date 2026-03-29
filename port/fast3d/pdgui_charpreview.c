@@ -12,6 +12,9 @@
  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
  */
 
+/* glad must come before any other OpenGL headers. */
+#include "glad/glad.h"
+
 /* PR/gbi.h must come before gfx_api.h because gfx_api.h uses the Gfx typedef.
  * gfx_api.h must come before types.h because types.h redefines bool as s32,
  * while gfx_rendering_api.h (included by gfx_api.h) uses stdbool.h's bool. */
@@ -19,6 +22,7 @@
 #include <PR/gbi.h>
 #include "gfx_api.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include "types.h"
 #include "data.h"
@@ -145,6 +149,70 @@ void pdguiCharPreviewGetSize(s32 *w, s32 *h)
 {
     if (w) *w = CHARPREVIEW_WIDTH;
     if (h) *h = CHARPREVIEW_HEIGHT;
+}
+
+/* ========================================================================
+ * Thumbnail bake API
+ * ======================================================================== */
+
+/**
+ * Bake the currently-rendered preview to a new standalone GL texture.
+ *
+ * Reads pixels from the preview FBO color texture via glGetTexImage, creates a
+ * fresh GL texture from those pixels, clears s_PreviewReady, and returns the
+ * new texture ID.  The caller owns the texture and must call
+ * pdguiCharPreviewFreeTexture() to release it.
+ *
+ * Returns 0 if the preview is not ready or GL calls fail.
+ */
+u32 pdguiCharPreviewBakeToTexture(void)
+{
+    if (!s_PreviewReady || s_PreviewTexId == 0) {
+        return 0;
+    }
+
+    const s32 w = CHARPREVIEW_WIDTH;
+    const s32 h = CHARPREVIEW_HEIGHT;
+
+    /* Read the FBO color texture into a temporary RGBA pixel buffer.
+     * The underlying texture is GL_RGB8; OpenGL fills alpha=255. */
+    u8 *pixels = (u8 *)malloc((size_t)w * h * 4);
+    if (!pixels) {
+        return 0;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, s_PreviewTexId);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    /* Allocate a new, independent GL texture from those pixels. */
+    u32 newTex = 0;
+    glGenTextures(1, &newTex);
+    if (newTex != 0) {
+        glBindTexture(GL_TEXTURE_2D, newTex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    free(pixels);
+    s_PreviewReady = 0;
+    return newTex;
+}
+
+/**
+ * Delete a GL texture previously returned by pdguiCharPreviewBakeToTexture.
+ * Safe to call with texId == 0 (no-op).
+ */
+void pdguiCharPreviewFreeTexture(u32 texId)
+{
+    if (texId != 0) {
+        glDeleteTextures(1, &texId);
+    }
 }
 
 /* ========================================================================

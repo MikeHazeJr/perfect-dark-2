@@ -24,6 +24,7 @@
 #include "types.h"
 #include "system.h"
 #include "assetcatalog_load.h"
+#include "audio.h"
 #include "preprocess.h"
 #include "mod.h"
 
@@ -2168,9 +2169,16 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	{
 		CatalogResolveResult r = catalogResolveSound((s32)sp40.id);
 		if (r.is_mod_override && r.path) {
-			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d) (file-based SFX TBD)",
+			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d)",
 			             (s32)sp40.id, r.path, r.catalog_id);
-			/* TODO: play from file path when audio-from-file SFX support is added */
+			if (audioPlayFileSound(r.path, volume, pan)) {
+				if (handle != NULL) {
+					*handle = NULL;
+				}
+				return NULL;
+			}
+			sysLogPrintf(LOG_WARNING, "MOD: sound %d catalog override failed (%s), falling back to ROM",
+			             (s32)sp40.id, r.path);
 		} else if (r.catalog_id >= 0) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → ROM (entry %d)", (s32)sp40.id, r.catalog_id);
 		} else {

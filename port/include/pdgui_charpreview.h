@@ -36,6 +36,14 @@ s32 pdguiCharPreviewIsReady(void);
 /* Get preview dimensions. */
 void pdguiCharPreviewGetSize(s32 *w, s32 *h);
 
+/* Bake the current preview to a new standalone GL texture.
+ * Returns new texture ID (caller owns it; call pdguiCharPreviewFreeTexture
+ * to release).  Returns 0 if not ready.  Clears the ready state. */
+u32 pdguiCharPreviewBakeToTexture(void);
+
+/* Delete a texture previously returned by pdguiCharPreviewBakeToTexture. */
+void pdguiCharPreviewFreeTexture(u32 texId);
+
 /* GBI-phase hook: renders the model to the preview FBO.
  * Called from menuRenderDialog when hotswap is active but preview needed.
  * Returns updated display list pointer. */

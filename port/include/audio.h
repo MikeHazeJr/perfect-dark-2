@@ -24,6 +24,13 @@ void audioSetUiVolume(f32 vol);
 /* Get the effective UI volume as a 0x0000–0x5000 scale for sound bridge */
 u16 audioGetUiVolumeScaled(void);
 
+/* Load and play a WAV file through the SDL audio device.
+ * volume: 0–0x7fff (AL_VOL_FULL = 0x7fff).
+ * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right).
+ * Returns 1 on success, 0 if the file could not be loaded or converted.
+ * On failure the caller should fall back to the ROM sound path. */
+s32 audioPlayFileSound(const char *path, u16 volume, u8 pan);
+
 /* Recompute and push composite volumes to the engine.
  * Called automatically by the setters, but can be called
  * manually after loading config or bulk changes.

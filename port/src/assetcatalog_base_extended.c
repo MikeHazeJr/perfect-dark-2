@@ -3,11 +3,11 @@
  *
  * Registers 7 new asset types in the Asset Catalog:
  *   ASSET_WEAPON    -- all 47 MP weapons (MPWEAPON_* constants)
- *   ASSET_ANIMATION -- 10 representative animations (TODO S46b: full table)
- *   ASSET_TEXTURE   -- 5 stub base textures (TODO S46b: full table)
+ *   ASSET_ANIMATION -- 1207 animations (full table, indices 0x0000..0x04B6)
+ *   ASSET_TEXTURE   -- NUM_TEXTURES base textures (3503 NTSC / 3511 JPN-final)
  *   ASSET_PROP      -- 8 base prop categories (PROPTYPE_* constants)
  *   ASSET_GAMEMODE  -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
- *   ASSET_AUDIO     -- 10 representative SFX entries (TODO S46b: full table)
+ *   ASSET_AUDIO     -- 1545 SFX entries (full main bank, 0x0000..0x0608)
  *   ASSET_HUD       -- 6 HUD element categories (HUD_ELEM_*)
  *
  * Called by assetCatalogRegisterBaseGame() at the end of base registration.
@@ -94,51 +94,26 @@ static const struct {
  * ======================================================================== */
 
 /*
- * Representative set from animations.json. anim_id = table index
- * (file NNN.bin -> id NNN). frame_count sourced from JSON where available.
- * TODO S46b: enumerate full animation table (~1000 entries) from JSON.
+ * Full animation table: 1207 entries (indices 0x0000..0x04B6).
+ * Count derived from src/assets/ntsc-final/animations.json (1207 entries,
+ * last file 04b6.bin). IDs generated as "base:anim_XXXX"; metadata zeroed
+ * since frame counts aren't available as compile-time constants.
+ * g_NumAnimations is set at runtime (after catalog init), so we use the
+ * static count from the JSON rather than animGetNumAnimations().
  */
-static const struct {
-	s32         anim_id;
-	const char *slug;
-	const char *name;
-	s32         frame_count;
-} s_BaseAnimations[] = {
-	{   0, "idle",             "Idle",              1 },
-	{   1, "two_gun_hold",     "Two-Gun Hold",    163 },
-	{   5, "run",              "Run",               0 },
-	{   6, "walk",             "Walk",              0 },
-	{   7, "crouch",           "Crouch",            0 },
-	{   8, "kneel_two_handed", "Kneel Two-Handed", 158 },
-	{  50, "death_back",       "Death Backward",    0 },
-	{  51, "death_forward",    "Death Forward",     0 },
-	{ 100, "gun_raise",        "Gun Raise",         0 },
-	{ 101, "gun_lower",        "Gun Lower",         0 },
-};
-
-#define NUM_BASE_ANIMATIONS (sizeof(s_BaseAnimations) / sizeof(s_BaseAnimations[0]))
+#define NUM_BASE_ANIM_ENTRIES 1207
 
 /* ========================================================================
  * Texture Table
  * ======================================================================== */
 
 /*
- * Stub entries for key base textures. width/height/format = 0 (ROM-loaded).
- * TODO S46b: enumerate base texture table from ROM metadata.
+ * Full texture table: NUM_TEXTURES entries (3503 NTSC / 3511 JPN-final).
+ * NUM_TEXTURES is defined in constants.h and is a compile-time constant.
+ * width/height/format = 0 (loaded from ROM at runtime). IDs generated
+ * as "base:tex_XXXX".
  */
-static const struct {
-	s32         texture_id;
-	const char *slug;
-	const char *name;
-} s_BaseTextures[] = {
-	{ 0, "menu_background",  "Menu Background"  },
-	{ 1, "loading_screen",   "Loading Screen"   },
-	{ 2, "crosshair_dot",    "Crosshair Dot"    },
-	{ 3, "health_bar",       "Health Bar"       },
-	{ 4, "radar_bg",         "Radar Background" },
-};
-
-#define NUM_BASE_TEXTURES (sizeof(s_BaseTextures) / sizeof(s_BaseTextures[0]))
+/* NUM_TEXTURES pulled from constants.h */
 
 /* ========================================================================
  * Prop Table
@@ -225,30 +200,13 @@ static const struct {
  * ======================================================================== */
 
 /*
- * Representative SFX entries. sound_id = SFX enum value from sfx.h.
- * duration_ms = 0 (unknown). file_path = "" (ROM-embedded).
- * category: 0=AUDIO_CAT_SFX, 1=AUDIO_CAT_MUSIC, 2=AUDIO_CAT_VOICE.
- * TODO S46b: enumerate broader SFX table from sfx.h (1545 entries total).
+ * Full SFX table: 1545 entries (indices 0x0000..0x0608), the main sound bank.
+ * Per sfx.h comment: "There are 1545 (0x609) sound effects in the bank."
+ * The high-bit mapped entries (SFX_8000+) are internal aliases remapped by
+ * snd.c and are not registered as separate catalog entries.
+ * category = 0 (AUDIO_CAT_SFX) for all base SFX entries.
  */
-static const struct {
-	s32         sound_id;
-	const char *slug;
-	const char *name;
-	s32         category;
-} s_BaseAudio[] = {
-	{ 0x0001, "sfx_rocket_launch",   "Rocket Launch",         0 },
-	{ 0x0002, "sfx_horizon_equip",   "Horizon Scanner Equip", 0 },
-	{ 0x0010, "sfx_bottle_break",    "Bottle Break",          0 },
-	{ 0x002b, "sfx_menu_cancel",     "Menu Cancel",           0 },
-	{ 0x003e, "sfx_hud_message",     "HUD Message",           0 },
-	{ 0x0052, "sfx_regen",           "Shield Regen",          0 },
-	{ 0x005b, "sfx_cloak_on",        "Cloak Activate",        0 },
-	{ 0x005c, "sfx_cloak_off",       "Cloak Deactivate",      0 },
-	{ 0x000d, "sfx_argh_female",     "Pain Female",           2 },
-	{ 0x0000, "sfx_silence",         "Silence",               0 },
-};
-
-#define NUM_BASE_AUDIO (sizeof(s_BaseAudio) / sizeof(s_BaseAudio[0]))
+#define NUM_BASE_SFX_ENTRIES 1545
 
 /* ========================================================================
  * HUD Table
@@ -309,45 +267,42 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	/* ---- animations ---- */
 	{
 		s32 n = 0;
-		for (s32 i = 0; i < (s32)NUM_BASE_ANIMATIONS; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseAnimations[i].slug);
+		for (s32 i = 0; i < NUM_BASE_ANIM_ENTRIES; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:anim_%04x", i);
 			asset_entry_t *e = assetCatalogRegisterAnimation(
-				idbuf, s_BaseAnimations[i].anim_id,
-				s_BaseAnimations[i].name,
-				s_BaseAnimations[i].frame_count, "");
+				idbuf, i, "", 0, "");
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register animation %s", idbuf);
 				continue;
 			}
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
-			e->runtime_index = s_BaseAnimations[i].anim_id;
+			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base animations (partial -- TODO S46b)", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base animations", n);
 		count += n;
 	}
 
-	/* ---- textures (stub set) ---- */
+	/* ---- textures ---- */
 	{
 		s32 n = 0;
-		for (s32 i = 0; i < (s32)NUM_BASE_TEXTURES; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseTextures[i].slug);
+		for (s32 i = 0; i < NUM_TEXTURES; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:tex_%04x", i);
 			asset_entry_t *e = assetCatalogRegisterTexture(
-				idbuf, s_BaseTextures[i].texture_id,
-				0, 0, 0, "");
+				idbuf, i, 0, 0, 0, "");
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register texture %s", idbuf);
 				continue;
 			}
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
-			e->runtime_index = s_BaseTextures[i].texture_id;
+			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base textures (stub -- TODO S46b)", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base textures", n);
 		count += n;
 	}
 
@@ -403,23 +358,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	/* ---- audio ---- */
 	{
 		s32 n = 0;
-		for (s32 i = 0; i < (s32)NUM_BASE_AUDIO; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseAudio[i].slug);
+		for (s32 i = 0; i < NUM_BASE_SFX_ENTRIES; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:sfx_%04x", i);
 			asset_entry_t *e = assetCatalogRegisterAudio(
-				idbuf, s_BaseAudio[i].sound_id,
-				s_BaseAudio[i].name,
-				s_BaseAudio[i].category, 0, "");
+				idbuf, i, "", 0, 0, "");
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register audio %s", idbuf);
 				continue;
 			}
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
-			e->runtime_index = s_BaseAudio[i].sound_id;
+			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries (partial -- TODO S46b)", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries", n);
 		count += n;
 	}
 
@@ -446,6 +399,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		count += n;
 	}
 
-	sysLogPrintf(LOG_NOTE, "assetcatalog: S46a extended registration complete (%d entries)", count);
+	sysLogPrintf(LOG_NOTE, "assetcatalog: T3/T4/T5 extended registration complete (%d entries)", count);
 	return count;
 }

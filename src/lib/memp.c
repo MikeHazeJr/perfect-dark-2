@@ -45,7 +45,11 @@
  * memp memory is to load a new stage which wipes the stage pool.
  */
 
-// TODO: set this in a config or something
+// Size of the "expansion" portion of the heap, carved out before memp pool assignment.
+// This maps to the N64's expansion pak concept. On PC we have ample memory, so this is a
+// fixed compile-time constant. 8MB is sufficient for large stages + mod assets at current
+// workloads. Increase here (not in pd.ini) if stages start OOM — pools are assigned once
+// at startup from a fixed heap and cannot be resized at runtime.
 #define MEMP_EXPANSION_POOL_SIZE (8 * 1024 * 1024)
 
 struct memorypool {

@@ -521,7 +521,13 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol) {
     rspa.vol[1] = rvol; // why the fuck is this here?
 
     // naudio uses a linear envelope
-    // TODO: sse/neon
+    // TODO: SIMD (SSE/NEON) for the envelope loop below.
+    // The per-sample ramp (t[j] += rate[j], conditional clamp to tgt[j]) makes a direct
+    // SIMD translation awkward: the clamp sets rate[j]=0 mid-run, so you can't just
+    // broadcast rate across lanes.  A practical approach would be to precompute the vol[]
+    // ramp for all nsamples into a small temp array (184 * 2 * sizeof(int16_t) = 736 bytes),
+    // handling the clamp in scalar, then do a SIMD pass over the precomputed gains for the
+    // 4-output MAC.  Not done yet because nsamples=184 keeps the scalar loop fast enough.
 
     int32_t t[2], tgt[2], rate[2];
     int16_t voldry, volwet;
@@ -695,16 +701,25 @@ void aPlayMP3Impl(const void *mp3file, u32 mp3size, void *out, int reset) {
     // this command is supposed to write one full frame to out
     // but which frame? we'll just decode sequentially, it'll probably work
     if (dataptr < mp3size) {
-        // FIXME: decoding straight to out might bite us in the ass because it's only 1160 bytes
+        // Decode into a staging buffer large enough for any MP3 frame before writing
+        // to `out`.  Decoding straight to `out` risked overrunning it:
+        //   MINIMP3_MAX_SAMPLES_PER_FRAME = 1152*2 = 2304 s16 samples = 4608 bytes
+        //   `out` slot = 580 samples = 1160 bytes
+        // PD's music files are MPEG-2 mono (576 samples/frame), which fits comfortably,
+        // but a mismatched file (e.g. MPEG-1 mono = 1152 samples) would have silently
+        // corrupted memory before the old assert could fire.
+        mp3d_sample_t staging[MINIMP3_MAX_SAMPLES_PER_FRAME];
         mp3dec_frame_info_t info;
-        const s32 samples = mp3dec_decode_frame(&mp3d, curdata + dataptr, mp3size - dataptr, out, &info);
-        // fill in the rest of the buffer if frame is smaller
-        const s32 diff = 580 - samples;
+        const s32 samples = mp3dec_decode_frame(&mp3d, curdata + dataptr, mp3size - dataptr, staging, &info);
+        const s32 copy = samples < 580 ? samples : 580;
+        memcpy(out, staging, copy * sizeof(mp3d_sample_t));
+        // fill remainder of output slot with silence if frame was shorter than expected
+        const s32 diff = 580 - copy;
         if (diff > 0) {
-            memset((s16 *)out + samples, 0, diff * 2);
-        } else {
-            assert(diff == 0);
+            memset((s16 *)out + copy, 0, diff * 2);
         }
+        // catch unexpected audio formats early (e.g. MPEG-1 or stereo files)
+        assert(samples <= 580);
         dataptr += info.frame_bytes;
     } else {
         // empty frame

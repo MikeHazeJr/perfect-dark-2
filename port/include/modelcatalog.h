@@ -166,9 +166,24 @@ s32 catalogIsHeadBodyCompatible(s32 headnum, s32 bodynum);
 
 /**
  * Request thumbnail generation for a catalog entry.
- * Thumbnails are rendered asynchronously via the charpreview FBO system.
+ * Adds the entry to the render queue.  No-op if already rendered or invalid.
+ * Call catalogPollThumbnails() each frame to drive the queue forward.
  */
 void catalogRequestThumbnail(s32 index);
+
+/**
+ * Poll the thumbnail queue — call once per frame after the GBI render phase.
+ * On completion of the previous render, bakes the result into a unique GL
+ * texture stored in the entry's thumbnailTexId/thumbnailReady fields, then
+ * fires the next queued request.
+ */
+void catalogPollThumbnails(void);
+
+/**
+ * Flush the thumbnail queue and release all baked GL textures.
+ * Call on shutdown or asset reload.
+ */
+void catalogFlushThumbnailQueue(void);
 
 /**
  * Get the GL texture ID for a catalog entry's thumbnail.

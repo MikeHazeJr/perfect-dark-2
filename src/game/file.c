@@ -63,7 +63,15 @@ struct fileinfo g_FileInfo[NUM_FILES];
 u32 var800aa570;
 #endif
 
-uintptr_t g_FileTable[NUM_FILES + 1]; // TODO: this is only used to get the filenum, remove this
+// g_FileTable is a legacy N64 array of ROM segment addresses. On PC, all values are 0 or unused,
+// but the array itself is retained as a stable base pointer for two legacy patterns:
+//   1. Reverse filenum lookup: `(uintptr_t *)ptr - g_FileTable` recovers a filenum from a pointer
+//      passed as romaddrptr to fileLoad/fileGetRomSizeByTableAddress.
+//   2. Load-state sentinel: `g_FileTable[filenum] = 0` marks a slot as unloaded (fileReleaseSlot).
+// To remove this: convert all romaddrptr callsites to pass filenum directly, then remove
+// fileGetRomSizeByTableAddress (replace with fileGetRomSize) and the zero-sentinel pattern.
+// This is a non-trivial refactor touching fileLoad, fileLoadPartToAddr, and their callers.
+uintptr_t g_FileTable[NUM_FILES + 1];
 
 romptr_t fileGetRomAddress(s32 filenum)
 {

@@ -597,6 +597,36 @@ static bool modmgrIsBundled(const char *id)
 // Simple CRC32 for string hashing
 // ---------------------------------------------------------------------------
 
+/* Recursively sum the sizes of all files under dirpath.
+ * Returns total bytes (capped at UINT32_MAX). */
+static u32 modmgrComputeDirSize(const char *dirpath)
+{
+	DIR *dir = opendir(dirpath);
+	if (!dir) return 0;
+
+	u32 total = 0;
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL) {
+		if (ent->d_name[0] == '.') continue;
+
+		char fullpath[FS_MAXPATH + 1];
+		snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, ent->d_name);
+
+		struct stat st;
+		if (stat(fullpath, &st) != 0) continue;
+
+		if (S_ISDIR(st.st_mode)) {
+			u32 sub = modmgrComputeDirSize(fullpath);
+			total = (total + sub < total) ? 0xFFFFFFFF : total + sub; /* overflow guard */
+		} else {
+			u32 fsz = (u32)st.st_size;
+			total = (total + fsz < total) ? 0xFFFFFFFF : total + fsz;
+		}
+	}
+	closedir(dir);
+	return total;
+}
+
 static u32 modmgrHashString(const char *str)
 {
 	u32 hash = 0xFFFFFFFF;
@@ -695,6 +725,9 @@ static void modmgrScanDirectory(void)
 		char hashsrc[256];
 		snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
 		mod->contenthash = modmgrHashString(hashsrc);
+
+		// Compute directory size for download estimation
+		mod->size_bytes = modmgrComputeDirSize(fullpath);
 
 		// Default: bundled mods enabled, others disabled
 		mod->enabled = mod->bundled;
@@ -1153,8 +1186,11 @@ s32 modmgrWriteManifest(u8 *buf, s32 maxlen)
 		buf[pos++] = (g_ModRegistry[i].contenthash >> 8) & 0xFF;
 		buf[pos++] = g_ModRegistry[i].contenthash & 0xFF;
 
-		// TODO (D3f): add size_bytes for download estimation
-		buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+		// size_bytes (4 bytes) — total mod directory size for download estimation
+		buf[pos++] = (g_ModRegistry[i].size_bytes >> 24) & 0xFF;
+		buf[pos++] = (g_ModRegistry[i].size_bytes >> 16) & 0xFF;
+		buf[pos++] = (g_ModRegistry[i].size_bytes >>  8) & 0xFF;
+		buf[pos++] = g_ModRegistry[i].size_bytes & 0xFF;
 	}
 
 	return pos;
@@ -1195,7 +1231,9 @@ s32 modmgrReadManifest(const u8 *buf, s32 len, char *missing, s32 misslen)
 		u32 remotehash = ((u32)buf[pos] << 24) | ((u32)buf[pos+1] << 16) |
 		                 ((u32)buf[pos+2] << 8) | buf[pos+3];
 		pos += 4;
-		pos += 4; // skip size_bytes
+		/* size_bytes — decoded but not used in compatibility check */
+		/* u32 remote_size = ((u32)buf[pos]<<24)|((u32)buf[pos+1]<<16)|((u32)buf[pos+2]<<8)|buf[pos+3]; */
+		pos += 4;
 
 		// Check if we have this mod
 		modinfo_t *local = modmgrFindMod(modid);
@@ -1417,4 +1455,5 @@ void modmgrCatalogChanged(void)
 
 const char *modmgrGetModsDir(void)
 {
-	return g_ModsDirP
+	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
+}

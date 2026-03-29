@@ -34,10 +34,10 @@
  * ======================================================================== */
 
 /*
- * Maps MPWEAPON_* constant -> catalog name.
- * These become "base:{name}" entries (e.g., "base:weapon_falcon2").
- * weapon_id is the MPWEAPON_* constant value from constants.h.
- * TODO: full enumeration; remaining MPWEAPON_* constants can be added here.
+ * NOTE: This table is NOT registered -- assetCatalogRegisterBaseGameExtended()
+ * handles weapon registration with the full 47-entry table (MPWEAPON_0x01-0x2f).
+ * This stub is kept as a reference mapping only; do not iterate it.
+ * Coverage: 37 of 47 weapons (missing 0x23-0x24, 0x27-0x2e).
  */
 static const struct {
 	s16 weapon_id;

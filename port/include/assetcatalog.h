@@ -79,6 +79,11 @@ typedef enum {
  * Asset Sub-type Constants
  * ======================================================================== */
 
+/* Map mode flag constants for ext.map.mode (bitmask) */
+#define MAP_MODE_MP   (1 << 0)   /* playable in multiplayer (Combat Simulator) */
+#define MAP_MODE_SOLO (1 << 1)   /* playable in solo/campaign */
+#define MAP_MODE_COOP (1 << 2)   /* playable in co-op */
+
 /* Audio category constants for ext.audio.category */
 #define AUDIO_CAT_SFX   0   /* sound effect */
 #define AUDIO_CAT_MUSIC 1   /* music track */

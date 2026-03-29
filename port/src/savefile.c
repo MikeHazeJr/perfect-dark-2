@@ -19,6 +19,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "versions.h"
 #include "types.h"
@@ -807,12 +808,81 @@ s32 saveLoadMpSetup(const char *name)
 
 s32 saveListAgents(char names[][SAVE_NAME_MAX], s32 maxcount)
 {
-	/* TODO: scan save directory for agent_*.json files and extract names.
-	 * For now, return 0 — the old pak system still handles file listing
-	 * until we complete the migration. */
-	(void)names;
-	(void)maxcount;
-	return 0;
+	if (!names || maxcount <= 0) {
+		return 0;
+	}
+
+	const char *dir = saveGetDir();
+	if (!dir || !dir[0]) {
+		return 0;
+	}
+
+	DIR *d = opendir(dir);
+	if (!d) {
+		sysLogPrintf(LOG_WARNING, "SAVE: saveListAgents: failed to open '%s'", dir);
+		return 0;
+	}
+
+	s32 count = 0;
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL && count < maxcount) {
+		const char *fname = ent->d_name;
+
+		/* Match files with the "agent_" prefix and ".json" suffix */
+		if (strncmp(fname, "agent_", 6) != 0) {
+			continue;
+		}
+		s32 flen = (s32)strlen(fname);
+		if (flen < 12 || strcmp(fname + flen - 5, ".json") != 0) {
+			continue; /* minimum: "agent_x.json" = 12 chars */
+		}
+
+		/* Read the file and extract the "name" field value */
+		char path[FS_MAXPATH];
+		snprintf(path, sizeof(path), "%s/%s", dir, fname);
+
+		s32 filelen = 0;
+		char *buf = readFileContents(path, &filelen);
+		if (!buf) {
+			continue;
+		}
+
+		/* Scan for "name": "<value>" — find first occurrence of the key */
+		const char *p = buf;
+		const char *namestart = NULL;
+		while (*p) {
+			if (strncmp(p, "\"name\"", 6) == 0) {
+				p += 6;
+				while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') { p++; }
+				if (*p == ':') { p++; }
+				while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') { p++; }
+				if (*p == '"') {
+					namestart = p + 1;
+				}
+				break;
+			}
+			p++;
+		}
+
+		if (namestart) {
+			s32 j = 0;
+			while (*namestart && *namestart != '"' && j < SAVE_NAME_MAX - 1) {
+				names[count][j++] = *namestart++;
+			}
+			names[count][j] = '\0';
+			if (j > 0) {
+				count++;
+			}
+		} else {
+			sysLogPrintf(LOG_WARNING, "SAVE: %s has no 'name' field, skipping", fname);
+		}
+
+		free(buf);
+	}
+
+	closedir(d);
+	sysLogPrintf(LOG_NOTE, "SAVE: found %d agent profile(s)", count);
+	return count;
 }
 
 /* ========================================================================
