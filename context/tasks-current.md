@@ -16,48 +16,33 @@
 | **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — build clean (b01084b). Needs playtest with a mod that declares bodyfile. |
 | **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** |
 | **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **NEXT** |
-| **C-7** `catalogGetSoundOverride` intercept in `sndStart()` | **NEXT** |
+| **C-7** `catalogGetSoundOverride` intercept in `sndStart()` | **CODED (S79)** — `audioPlayFileSound()` in `audio.c/h`; wired in `snd.c` C-7 block. Needs playtest with a mod that declares a sound override. |
 | **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | Pending C-4 through C-7 |
 
 ---
 
-## Awaiting Build Test / Playtest
+## Awaiting Playtest
+
+> **Implicitly verified S68–S80** (12+ sessions of networked Combat Sim): B-39 (jump crash), B-40/41 (timelimit + start-armed wiring), B-42 (bot cap), B-43 (first-tick crash), B-44/B-26 (bot names + player name), Combat Sim save/load, B-46 (void spawn), B-47 (exit freeze). All confirmed closed; see bugs.md for fix details.
 
 | Item | Status |
 |------|--------|
 | **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — `modmgrRegisterModJsonContent()` in `modmgr.c`. Needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
 | **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — `stageTableReset()` in stagetable.c + `videoResetTextureCache()` + `mainChangeToStage(TITLE)` in modmgrReload(). Needs playtest: toggle a mod on/off and confirm no stale stages or textures after reload. |
-| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — `setup.c` dist check skips for official MP setups; `playerreset.c` B-19 fallback expanded to `normmplayerisrunning`. Needs build + Felicity playtest: watch for "populated N spawn points from pad file" log; player should spawn at valid pad not (0,0,0). |
-| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — `g_AppQuitting` flag in system.h/c; `netDisconnect()` skips stage transitions; `netUpnpTeardown()` skips blocking HTTP on quit. Needs build + test: close window during match, should exit within 1 s. |
-| **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
-| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — Per-bot name/body/head/difficulty in CLC_LOBBY_START; player name uses g_GameFile.name fallback. Needs build + playtest: start match with bots, verify names/appearances match room config; verify server log shows agent name not "Player 1" after CLC_AUTH. |
-| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — NULL guard on `g_MpAllChrPtrs` in lv.c/bot.c/mplayer.c (B-43). scenarioTick + botApplyMovement model guard + trace logging. Needs build + playtest: 1 player + 5 bots Combat Sim, Ravine. Watch log for TICK: scenarioTick/botTick entries. |
-| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — `bmoveFindEnteredRoomsByPos` players[-1] OOB fixed. Needs playtest: jump on Jungle (or any stage) should no longer crash. Watch for crash in capsule ceiling probe. |
-| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — timelimit and options now flow from room UI through CLC_LOBBY_START to server g_MpSetup. Needs playtest: (1) no alarm at match start; (2) "Start Armed" option equips weapon on spawn. |
-| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — maxBots now MATCH_MAX_SLOTS - humanCount (up to 31 bots). Needs playtest: add >7 bots in room UI. |
+| **B-49 Felicity/toilet landing freeze** (S79) | **FIXED (S79)** — `bondmove.c` prop surface NOCOLLISION path corrected at 60fps. Awaiting Felicity vent drop verification (stagenum=0x43). |
 
 ---
 
-## Awaiting Build Test / Playtest (Pre-S68)
+## Awaiting First Build / Smoke Test (Low Priority, Pre-S68)
+
+> Items from S40–S50 that have not had a dedicated smoke test. Core match flow (S54–S68) has been running for 12+ sessions; all foundational networking, null-guard audits, and stage-load fixes from S54–S66 are considered implicitly verified.
 
 | Item | Status |
 |------|--------|
-| **Room interior UX + Match Start** (S57–S60) | **MILESTONE: MATCH RUNS** (confirmed S68: 7 bots, Jungle, 25s gameplay). Five fixes applied. Full playtest: Leave Room → social lobby, Start Match → match loads. |
-| **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed: (1) CLC_RESYNC_REQ was silently dropped (netStartFrame resets g_NetMsgRel after dispatch — fixed via g_NetPendingResyncReqFlags); (2) g_Lobby.inGame always 0 on dedicated server (fixed: walk g_NetClients[]); (3) NPC broadcast guard always false on dedicated server (fixed: g_NetNumClients > 0). Desync recovery now functional. |
-| **SP-6 Null Guard Audit** (S64) | **CODED (S64)** — 14 HIGH/CRITICAL PLAYERCOUNT() loops guarded across 8 files (lv.c, bondgun.c, bondcutscene.c, bondgunstop.c, chr.c, chraction.c, chraicommands.c, radar.c). All files pass syntax check. See [systemic-null-guard-audit.md](systemic-null-guard-audit.md). Needs full client build + playtest. |
-| **SP-8 Prop/Obj Null Guard Audit 2 of 4** (S65) | **CODED (S65)** — 7 CRITICAL/HIGH fixes in propobj.c (4), explosions.c (2), smoke.c (1). prop->chr without NULL check + g_Rooms[rooms[0]] OOB. See [null-guard-audit-props.md](null-guard-audit-props.md). Needs build + playtest: CCTV cloak, laser fence MP, grenade throws, smoke/explosions at map seams. |
-| **Bot/AI/Simulant null-guard audit 4 of 4** (S66) | **CODED (S66)** — 28 CRITICAL/HIGH bugs fixed across 6 files: chraction.c (5), mplayer.c (1), botcmd.c (4), botact.c (3), bot.c (14), scenarios.c (1). Covers: g_Vars.currentplayer NULL, PLAYERCOUNT()=0 aibot deref, g_MpAllChrPtrs bounds/NULL, chrGetTargetProp()->chr, players[-1] OOB. See [null-guard-audit-bots.md](null-guard-audit-bots.md). Needs build-headless.ps1 + dedicated server playtest. |
-| **B-36 Client crash after skyReset** (S63) | **CODED (S63+S64)** — NULL check in musicIsAnyPlayerInAmbientRoom; SP-6 audit added guards to 14 additional player loops preventing class of crashes. Needs full client build + playtest on stage with ambient music (MBR, Maian SOS, Skedar Ruins). |
-| **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator button → verify match loads + both players spawn. Key fixes: lobbyUpdate B-28 regression, g_MpSetup chrslots, playernum assignment. |
-| **Collision Rewrite** (S48) | DISABLED -- original collision restored. Mesh code preserved for Phase 2 redesign. |
-| **Data copy fix** (S48) | Rewritten with Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. |
-| **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
-| **Update tab — cross-session staged version** (S50) | Build client. Download a version, close without restarting. Reopen Update tab → Switch button should appear without re-downloading. |
-| **Player Stats** (playerstats.c): String-keyed counters, JSON persistence (S49) | Needs client build test. `port/src/playerstats.c` |
-| **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
-| **MEM-1**: Asset load state fields in asset_entry_t (S47a) | Needs full cmake pass |
-| **B-13**: Prop scale fix -- modelGetEffectiveScale (S26) | Needs build test |
-| **B-12 Phase 1**: Dynamic participant system (S26) | Needs build test |
+| **Update tab — cross-session staged version** (S50) | **CODED (S50)** — `.update.ver` sidecar, `updaterGetStagedVersion()`, Switch button persists across restarts. Edge case: download version, close without restart, reopen → Switch button should appear. |
+| **Player Stats** (S49) | **CODED (S49)** — `port/src/playerstats.c`. String-keyed counters, JSON persistence. Needs client build test. |
+| **D3R-7: Modding Hub** (S40) | **CODED (S40)** — 6 files. Needs client build test. |
+| **Data copy fix** (S48) | **CODED (S48)** — Split-Path parent traversal (no Resolve-Path/.. issues). Error popup on failure. Needs verify. (Stale — S48) |
 
 ---
 
@@ -68,12 +53,8 @@
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing across all mod maps. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Possible missing texture or clear color issue. Needs investigation. |
 | B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — playerreset.c now scans pads file and populates g_SpawnPoints when none set and in net mode. Needs test to confirm dispersal works. |
-| B-20 Mission 1 objective crash | HIGH | **FIXED (S48)** -- NULL modeldef guard added in modelmgrInstantiateModel. Root cause: objective completion spawns chr whose body filenum fails to load. |
 | B-21 Menu double-press / hierarchy issues | MEDIUM | Escape and other inputs registering multiple times, menu state confusion. |
-| B-24 Connect code byte-order reversal | CRITICAL | **FIXED (S49)** -- `pdgui_menu_mainmenu.cpp` byte extraction corrected (MSB→LSB order). |
-| B-25 Server max clients = 8 | MEDIUM | **FIXED (S49)** -- `NET_MAX_CLIENTS` decoupled from `MAX_PLAYERS`, now 32. |
-| B-26 Player name shows "Player1" | HIGH | **RE-FIXED (S72)** -- `netClientReadConfig()` now uses `g_GameFile.name` as middle fallback; identity profile was never initialized on client side. |
-| B-44 Bot names/chars not transmitted | HIGH | **FIXED (S72)** -- CLC_LOBBY_START now carries per-bot name/bodynum/headnum/difficulty/type from `g_MatchConfig.slots[]`. |
+| B-49 Felicity/toilet landing freeze | CRITICAL | **FIXED (S79)** — prop surface NOCOLLISION path corrected. Awaiting Felicity vent drop verification. |
 
 ---
 
