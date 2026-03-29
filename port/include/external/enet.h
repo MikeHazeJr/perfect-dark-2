@@ -929,7 +929,7 @@ extern "C" {
 
 		#define ENET_ATOMIC_READ(variable) enet_at_atomic_read((char*)(variable), ENET_ATOMIC_SIZEOF(variable))
 		#define ENET_ATOMIC_WRITE(variable, new_val) enet_at_atomic_write((char*)(variable), (int64_t)(new_val), ENET_ATOMIC_SIZEOF(variable))
-		#define ENET_ATOMIC_CAS(variable, old_value, new_val) enet_at_atomic_cas((char*)(variable), (int64_t)(new_val), (int64_t)(old_value), ENET_ATOMIC_SIZEOF(variable))
+		#define ENET_ATOMIC_CAS(variable, old_value, new_val) (enet_at_atomic_cas((char*)(variable), (int64_t)(new_val), (int64_t)(old_value), ENET_ATOMIC_SIZEOF(variable)) == (int64_t)(old_value))
 		#define ENET_ATOMIC_INC(variable) enet_at_atomic_inc((char*)(variable), 1, ENET_ATOMIC_SIZEOF(variable))
 		#define ENET_ATOMIC_DEC(variable) enet_at_atomic_inc((char*)(variable), -1, ENET_ATOMIC_SIZEOF(variable))
 		#define ENET_ATOMIC_INC_BY(variable, delta) enet_at_atomic_inc((char*)(variable), (delta), ENET_ATOMIC_SIZEOF(variable))
@@ -962,23 +962,20 @@ extern "C" {
 				#define ENET_ATOMIC_CAS(ptr, old_value, new_value)\
 					({\
 						typeof(*(ptr)) ENET_ATOMIC_CAS_old_actual_ = (*(ptr));\
-						if (ATOMIC_CAS_old_actual_ == (old_value))\
-							*(ptr) = new_value;\
-						ENET_ATOMIC_CAS_old_actual_;\
+						bool ENET_ATOMIC_CAS_result_ = (ENET_ATOMIC_CAS_old_actual_ == (old_value));\
+						if (ENET_ATOMIC_CAS_result_)\
+							*(ptr) = (new_value);\
+						ENET_ATOMIC_CAS_result_;\
 					})
 				#else
 				/* Could use __auto_type instead of typeof but that shouldn't work in C++.
 				The ({ }) syntax is a GCC extension called statement expression. It lets
-				us return a value out of the macro.
-
-				TODO We should return bool here instead of the old value to avoid the ABA
-				problem. */
+				us return a value out of the macro. */
 				#define ENET_ATOMIC_CAS(ptr, old_value, new_value)\
 					({\
 						typeof(*(ptr)) ENET_ATOMIC_CAS_expected_ = (old_value);\
 						__atomic_compare_exchange_n((ptr), &ENET_ATOMIC_CAS_expected_, (new_value), false,\
 						__ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);\
-						ENET_ATOMIC_CAS_expected_;\
 					})
 				#endif
 
@@ -989,7 +986,7 @@ extern "C" {
 			#else
 				#define ENET_ATOMIC_READ(variable) __sync_fetch_and_add(variable, 0)
 				#define ENET_ATOMIC_WRITE(variable, new_val) (void)__sync_val_compare_and_swap((variable), *(variable), (new_val))
-				#define ENET_ATOMIC_CAS(variable, old_value, new_val) __sync_val_compare_and_swap((variable), (old_value), (new_val))
+				#define ENET_ATOMIC_CAS(variable, old_value, new_val) __sync_bool_compare_and_swap((variable), (old_value), (new_val))
 				#define ENET_ATOMIC_INC(variable) __sync_fetch_and_add((variable), 1)
 				#define ENET_ATOMIC_DEC(variable) __sync_fetch_and_sub((variable), 1)
 				#define ENET_ATOMIC_INC_BY(variable, delta) __sync_fetch_and_add((variable), (delta), 1)
@@ -1232,8 +1229,8 @@ extern "C" {
 
 		if (offset_ns == 0) {
 			uint64_t want_value = current_time_ns - 1 * ns_in_ms;
-			uint64_t old_value = ENET_ATOMIC_CAS(&start_time_ns, 0, want_value);
-			offset_ns = old_value == 0 ? want_value : old_value;
+			bool swapped = ENET_ATOMIC_CAS(&start_time_ns, 0, want_value);
+			offset_ns = swapped ? want_value : ENET_ATOMIC_READ(&start_time_ns);
 		}
 
 		uint64_t result_in_ns = current_time_ns - offset_ns;
