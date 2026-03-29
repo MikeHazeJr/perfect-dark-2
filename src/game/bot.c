@@ -961,7 +961,7 @@ s32 botTick(struct prop *prop)
 				if (haveweapon != aibot->weaponnum) {
 					// Delete existing held weapons
 					for (s32 h = 0; h < 2; h++) {
-						if (chr->weapons_held[h]) {
+						if (chr->weapons_held[h] && chr->weapons_held[h]->obj) {
 							chr->weapons_held[h]->obj->hidden |= OBJHFLAG_DELETING;
 							chr->weapons_held[h] = NULL;
 						}

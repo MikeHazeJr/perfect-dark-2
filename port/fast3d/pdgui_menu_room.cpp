@@ -96,7 +96,8 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
 s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
                                   u8 numSims, u8 simType, u8 timelimit, u32 options,
-                                  u8 scenario, u8 scorelimit, u16 teamscorelimit);
+                                  u8 scenario, u8 scorelimit, u16 teamscorelimit,
+                                  u8 weaponSetIndex);
 
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
@@ -1181,7 +1182,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         g_MatchConfig.options,
                         g_MatchConfig.scenario,
                         g_MatchConfig.scorelimit,
-                        g_MatchConfig.teamscorelimit);
+                        g_MatchConfig.teamscorelimit,
+                        (u8)(g_MatchConfig.weaponSetIndex >= 0 ? g_MatchConfig.weaponSetIndex : 0xFF));
                     break;
                 }
                 case 1:

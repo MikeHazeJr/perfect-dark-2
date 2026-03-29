@@ -141,7 +141,7 @@ u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
 
 /* Lobby protocol messages (Phase 3) */
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit);
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex);
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
 u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);

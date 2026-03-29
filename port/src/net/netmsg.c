@@ -3305,12 +3305,13 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * the sender is actually the lobby leader, then starts the match.
  *
  * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
- *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16)
+ *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
+ *          weaponSetIndex (u8, 0xFF = custom/default)
  *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
  *          botDifficulty (u8), botType (u8)
  * ======================================================================== */
 
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit)
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
@@ -3323,6 +3324,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scenario);
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
+	netbufWriteU8(dst, weaponSetIndex);
 
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
@@ -3363,6 +3365,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 scenario        = netbufReadU8(src);
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
+	const u8 weaponSetIndex  = netbufReadU8(src);
 
 	if (src->error) {
 		return src->error;
@@ -3432,7 +3435,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit      = scorelimit;
 		g_MpSetup.teamscorelimit  = teamscorelimit;
 		g_MpSetup.options         = options;
-		/* Leave g_MpSetup.weapons as-is (loaded from save or zero). */
+		/* Apply weapon set from client. 0xFF means custom/unknown — fall back to Pistols (0). */
+		mpSetWeaponSet((weaponSetIndex == 0xFF) ? 0 : (s32)weaponSetIndex);
 
 		/* Assign sequential playernums and build chrslots bitmask.
 		 * Bits 0..n-1 of chrslots represent the n connected players. */
