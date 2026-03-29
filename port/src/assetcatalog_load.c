@@ -61,49 +61,59 @@ static s32 s_SndQueryCount  = 0;
 
 void catalogLoadInit(void)
 {
-    /* Reset all override arrays to "no override" */
+    /* Reset all reverse-index arrays to "no entry" */
     for (s32 i = 0; i < LOAD_MAX_FILES;    i++) { s_FilenumOverride[i]   = -1; }
     for (s32 i = 0; i < LOAD_MAX_TEXTURES; i++) { s_TexnumOverride[i]    = -1; }
     for (s32 i = 0; i < LOAD_MAX_ANIMS;    i++) { s_AnimnumOverride[i]   = -1; }
     for (s32 i = 0; i < LOAD_MAX_SOUNDS;   i++) { s_SoundnumOverride[i]  = -1; }
 
+    s32 bundled_count  = 0;
     s32 override_count = 0;
     s32 total = assetCatalogGetCount();
 
     for (s32 i = 0; i < total; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
-        if (!e || !e->occupied || !e->enabled || e->bundled) {
+        if (!e || !e->occupied) {
+            continue;
+        }
+        /* Index bundled (base-game) entries regardless of enabled state.
+         * Skip disabled non-bundled (mod) entries — a disabled mod should
+         * fall through to ROM, not appear in the reverse-index at all.
+         * Because base-game entries are registered first (lower pool indices)
+         * and mod entries second (higher pool indices), a mod entry that maps
+         * to the same source_filenum will overwrite the bundled entry and win. */
+        if (!e->bundled && !e->enabled) {
             continue;
         }
 
-        /* C-4: file override */
+        /* C-4: file reverse-index */
         if (e->source_filenum >= 0 && e->source_filenum < LOAD_MAX_FILES) {
             s_FilenumOverride[e->source_filenum] = i;
-            override_count++;
+            if (e->bundled) { bundled_count++; } else { override_count++; }
         }
 
-        /* C-5: texture override */
+        /* C-5: texture reverse-index */
         if (e->source_texnum >= 0 && e->source_texnum < LOAD_MAX_TEXTURES) {
             s_TexnumOverride[e->source_texnum] = i;
-            override_count++;
+            if (e->bundled) { bundled_count++; } else { override_count++; }
         }
 
-        /* C-6: animation override */
+        /* C-6: animation reverse-index */
         if (e->source_animnum >= 0 && e->source_animnum < LOAD_MAX_ANIMS) {
             s_AnimnumOverride[e->source_animnum] = i;
-            override_count++;
+            if (e->bundled) { bundled_count++; } else { override_count++; }
         }
 
-        /* C-7: sound override */
+        /* C-7: sound reverse-index */
         if (e->source_soundnum >= 0 && e->source_soundnum < LOAD_MAX_SOUNDS) {
             s_SoundnumOverride[e->source_soundnum] = i;
-            override_count++;
+            if (e->bundled) { bundled_count++; } else { override_count++; }
         }
     }
 
     s_Initialized = 1;
-    sysLogPrintf(LOG_NOTE, "catalogLoadInit: %d override(s) indexed from %d catalog entries",
-                 override_count, total);
+    sysLogPrintf(LOG_NOTE, "catalogLoadInit: %d base-game + %d mod override(s) indexed from %d catalog entries",
+                 bundled_count, override_count, total);
 }
 
 /* ========================================================================
@@ -136,13 +146,28 @@ static const char *entryGetFilePath(const asset_entry_t *e)
 }
 
 /* ========================================================================
- * Intercept Queries
+ * Resolve API  (primary interface)
+ *
+ * Each function looks up the numeric ID in the appropriate reverse-index
+ * array and classifies the result:
+ *
+ *   catalog_id >= 0, is_mod_override=1  →  non-bundled (mod) entry; load
+ *                                          from path
+ *   catalog_id >= 0, is_mod_override=0  →  bundled (base-game) entry; load
+ *                                          from ROM (path is NULL)
+ *   catalog_id < 0                      →  no catalog entry; load from ROM
+ *
+ * The query counters (s_File/Tex/Anim/SndQueryCount) are incremented here
+ * so they reflect total resolve() calls, including those coming through the
+ * backward-compatible catalogGet*Override() wrappers below.
  * ======================================================================== */
 
-const char *catalogGetFileOverride(s32 filenum)
+CatalogResolveResult catalogResolveFile(s32 filenum)
 {
+    CatalogResolveResult r = { NULL, -1, 0 };
+
     if (!s_Initialized || filenum < 0 || filenum >= LOAD_MAX_FILES) {
-        return NULL;
+        return r;
     }
 
     if (s_FileQueryCount++ == 0) {
@@ -151,70 +176,137 @@ const char *catalogGetFileOverride(s32 filenum)
 
     s32 idx = s_FilenumOverride[filenum];
     if (idx < 0) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-4 filenum=%d → ROM pass-through", filenum);
-        return NULL;
+        return r;  /* catalog_id = -1, not cataloged */
     }
 
-    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
-    sysLogPrintf(LOG_NOTE, "CATALOG: C-4 filenum=%d → override \"%s\"", filenum, path ? path : "(null)");
-    return path;
+    const asset_entry_t *e = assetCatalogGetByIndex(idx);
+    if (!e) {
+        return r;
+    }
+
+    r.catalog_id = idx;
+    if (!e->bundled) {
+        r.path           = entryGetFilePath(e);
+        r.is_mod_override = 1;
+    }
+    /* bundled: path=NULL, is_mod_override=0 — caller uses ROM */
+    return r;
 }
 
-const char *catalogGetTextureOverride(s32 texnum)
+CatalogResolveResult catalogResolveTexture(s32 texnum)
 {
+    CatalogResolveResult r = { NULL, -1, 0 };
+
     if (!s_Initialized || texnum < 0 || texnum >= LOAD_MAX_TEXTURES) {
-        return NULL;
+        return r;
     }
 
     s_TexQueryCount++;
 
     s32 idx = s_TexnumOverride[texnum];
     if (idx < 0) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-5 texnum=%d → ROM pass-through", texnum);
-        return NULL;
+        return r;
     }
 
-    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
-    sysLogPrintf(LOG_NOTE, "CATALOG: C-5 texnum=%d → override \"%s\"", texnum, path ? path : "(null)");
-    return path;
+    const asset_entry_t *e = assetCatalogGetByIndex(idx);
+    if (!e) {
+        return r;
+    }
+
+    r.catalog_id = idx;
+    if (!e->bundled) {
+        r.path           = entryGetFilePath(e);
+        r.is_mod_override = 1;
+    }
+    return r;
 }
 
-const char *catalogGetAnimOverride(s32 animnum)
+CatalogResolveResult catalogResolveAnim(s32 animnum)
 {
+    CatalogResolveResult r = { NULL, -1, 0 };
+
     if (!s_Initialized || animnum < 0 || animnum >= LOAD_MAX_ANIMS) {
-        return NULL;
+        return r;
     }
 
     s_AnimQueryCount++;
 
     s32 idx = s_AnimnumOverride[animnum];
     if (idx < 0) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-6 animnum=%d → ROM pass-through", animnum);
-        return NULL;
+        return r;
     }
 
-    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
-    sysLogPrintf(LOG_NOTE, "CATALOG: C-6 animnum=%d → override \"%s\"", animnum, path ? path : "(null)");
-    return path;
+    const asset_entry_t *e = assetCatalogGetByIndex(idx);
+    if (!e) {
+        return r;
+    }
+
+    r.catalog_id = idx;
+    if (!e->bundled) {
+        r.path           = entryGetFilePath(e);
+        r.is_mod_override = 1;
+    }
+    return r;
 }
 
-const char *catalogGetSoundOverride(s32 soundnum)
+CatalogResolveResult catalogResolveSound(s32 soundnum)
 {
+    CatalogResolveResult r = { NULL, -1, 0 };
+
     if (!s_Initialized || soundnum < 0 || soundnum >= LOAD_MAX_SOUNDS) {
-        return NULL;
+        return r;
     }
 
     s_SndQueryCount++;
 
     s32 idx = s_SoundnumOverride[soundnum];
     if (idx < 0) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-7 soundnum=%d → ROM pass-through", soundnum);
-        return NULL;
+        return r;
     }
 
-    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
-    sysLogPrintf(LOG_NOTE, "CATALOG: C-7 soundnum=%d → override \"%s\"", soundnum, path ? path : "(null)");
-    return path;
+    const asset_entry_t *e = assetCatalogGetByIndex(idx);
+    if (!e) {
+        return r;
+    }
+
+    r.catalog_id = idx;
+    if (!e->bundled) {
+        r.path           = entryGetFilePath(e);
+        r.is_mod_override = 1;
+    }
+    return r;
+}
+
+/* ========================================================================
+ * Legacy Override Queries  (backward-compatible wrappers)
+ *
+ * These call catalogResolve*() and return just the path (NULL = ROM).
+ * The query counters are incremented inside the resolve functions, so
+ * callers of these wrappers are counted correctly.
+ * ======================================================================== */
+
+const char *catalogGetFileOverride(s32 filenum)
+{
+    CatalogResolveResult r = catalogResolveFile(filenum);
+    return (r.is_mod_override && r.path) ? r.path : NULL;
+}
+
+const char *catalogGetTextureOverride(s32 texnum)
+{
+    CatalogResolveResult r = catalogResolveTexture(texnum);
+    return (r.is_mod_override && r.path) ? r.path : NULL;
+}
+
+const char *catalogGetAnimOverride(s32 animnum)
+{
+    CatalogResolveResult r = catalogResolveAnim(animnum);
+    return (r.is_mod_override && r.path) ? r.path : NULL;
+}
+
+const char *catalogGetSoundOverride(s32 soundnum)
+{
+    CatalogResolveResult r = catalogResolveSound(soundnum);
+    return (r.is_mod_override && r.path) ? r.path : NULL;
 }
 
 void catalogLoadLogStats(void)

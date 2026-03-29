@@ -30,9 +30,14 @@ extern "C" {
 /**
  * Build reverse-index maps from the populated catalog.
  *
- * Scans all non-bundled, enabled entries in the entry pool. For each entry
- * with source_filenum >= 0, records that filenum → poolIdx mapping so
- * catalogGetFileOverride() can answer in O(1).
+ * Scans ALL occupied entries (bundled base-game entries AND enabled mod
+ * overrides) and records filenum/texnum/animnum/soundnum → poolIdx mappings
+ * so catalogResolveFile() etc. can answer in O(1).
+ *
+ * Mod overrides (non-bundled, enabled) take priority: if both a bundled and
+ * a non-bundled entry map to the same ID, the last (highest pool index) wins.
+ * Since base-game entries are registered first and mod entries afterward,
+ * mod entries naturally land at higher pool indices and win.
  *
  * Must be called once after catalog population, before any asset loads.
  * Must be called again after any assetCatalogClearMods() + re-scan cycle.
@@ -40,16 +45,69 @@ extern "C" {
 void catalogLoadInit(void);
 
 /* ========================================================================
- * Intercept Queries  (called from gateway functions)
+ * Resolve Result  (primary query result type)
+ * ======================================================================== */
+
+/**
+ * Returned by all catalogResolve*() functions.
+ *
+ * path           - mod file path to load from, or NULL (use ROM)
+ * catalog_id     - pool index of the matching catalog entry, or -1 if this
+ *                  asset is unknown to the catalog
+ * is_mod_override - 1 if a non-bundled (mod) entry owns this asset and
+ *                  should be loaded from `path`; 0 for base-game ROM assets
+ *
+ * Decision matrix for callers:
+ *   is_mod_override=1, path!=NULL  → load from path
+ *   is_mod_override=0, catalog_id>=0 → load from ROM (base-game, cataloged)
+ *   is_mod_override=0, catalog_id<0  → load from ROM (not in catalog at all)
+ */
+typedef struct {
+    const char *path;       /* mod file path, or NULL for ROM */
+    s32         catalog_id; /* catalog entry pool index, -1 = unknown */
+    s32         is_mod_override; /* 1 = mod file, 0 = base-game ROM */
+} CatalogResolveResult;
+
+/* ========================================================================
+ * Resolve API  (primary interface — use these in new/updated callers)
+ * ======================================================================== */
+
+/**
+ * C-4: Resolve a ROM filenum to a catalog decision.
+ * Returns a CatalogResolveResult describing how to load the asset.
+ * Increments the file query counter (same counter as catalogGetFileOverride).
+ */
+CatalogResolveResult catalogResolveFile(s32 filenum);
+
+/**
+ * C-5: Resolve a ROM texnum to a catalog decision.
+ */
+CatalogResolveResult catalogResolveTexture(s32 texnum);
+
+/**
+ * C-6: Resolve a ROM animnum to a catalog decision.
+ */
+CatalogResolveResult catalogResolveAnim(s32 animnum);
+
+/**
+ * C-7: Resolve a ROM soundnum to a catalog decision.
+ */
+CatalogResolveResult catalogResolveSound(s32 soundnum);
+
+/* ========================================================================
+ * Legacy Override Queries  (thin wrappers — kept for backward compatibility)
+ *
+ * These call the corresponding catalogResolve*() function and return just
+ * the path (NULL for ROM, non-NULL for mod override).  New callers should
+ * use the resolve API directly to get full catalog context.
  * ======================================================================== */
 
 /**
  * C-4: Returns the mod file path if a non-bundled catalog entry overrides
  * this ROM filenum. Returns NULL if no mod override exists.
  *
- * Returned pointer is into the catalog entry's bodyfile/headfile field and
- * is valid for the lifetime of the catalog (until catalogLoadInit is called
- * again after a ClearMods + rescan).
+ * Wrapper: equivalent to calling catalogResolveFile(filenum).path when
+ * catalogResolveFile(filenum).is_mod_override == 1.
  */
 const char *catalogGetFileOverride(s32 filenum);
 

@@ -47,18 +47,25 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 		return -1;
 	}
 
-	/* C-5: catalog override takes priority over legacy textures/ directory.
-	 * catalogGetTextureOverride() returns a mod file path if a non-bundled
-	 * catalog entry overrides this texnum; NULL = no override, use legacy path. */
-	const char *catPath = catalogGetTextureOverride((s32)num);
-	if (catPath) {
-		const s32 ret = fsFileLoadTo(catPath, dst, dstSize);
-		if (ret > 0) {
-			sysLogPrintf(LOG_NOTE, "MOD: texture %d loaded from catalog: %s", (s32)num, catPath);
-			return ret;
+	/* C-5: catalog is primary texture router.
+	 * catalogResolveTexture() returns the full routing decision: mod override
+	 * (load from path), base-game ROM (catalog_id >= 0), or not cataloged. */
+	{
+		CatalogResolveResult r = catalogResolveTexture((s32)num);
+		if (r.is_mod_override && r.path) {
+			const s32 ret = fsFileLoadTo(r.path, dst, dstSize);
+			if (ret > 0) {
+				sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → mod override \"%s\" (entry %d)",
+				             (s32)num, r.path, r.catalog_id);
+				return ret;
+			}
+			sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
+			             (s32)num, r.path);
+		} else if (r.catalog_id >= 0) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → ROM (entry %d)", (s32)num, r.catalog_id);
+		} else {
+			sysLogPrintf(LOG_VERBOSE, "CATALOG: tex %d → ROM (not cataloged)", (s32)num);
 		}
-		sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
-		             (s32)num, catPath);
 	}
 
 	static s32 dirExists = -1;
@@ -107,18 +114,25 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 
 void *modAnimationLoadData(u16 num)
 {
-	/* C-6: catalog override takes priority over legacy animations/ directory.
-	 * catalogGetAnimOverride() returns a mod file path if a non-bundled catalog
-	 * entry overrides this animnum; NULL = no override, use legacy path. */
-	const char *catPath = catalogGetAnimOverride((s32)num);
-	if (catPath) {
-		void *data = fsFileLoad(catPath, NULL);
-		if (data) {
-			sysLogPrintf(LOG_NOTE, "MOD: animation %d loaded from catalog: %s", (s32)num, catPath);
-			return data;
+	/* C-6: catalog is primary animation router.
+	 * catalogResolveAnim() returns the full routing decision: mod override
+	 * (load from path), base-game ROM (catalog_id >= 0), or not cataloged. */
+	{
+		CatalogResolveResult r = catalogResolveAnim((s32)num);
+		if (r.is_mod_override && r.path) {
+			void *data = fsFileLoad(r.path, NULL);
+			if (data) {
+				sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override \"%s\" (entry %d)",
+				             (s32)num, r.path, r.catalog_id);
+				return data;
+			}
+			sysLogPrintf(LOG_WARNING, "MOD: animation %d catalog override failed (%s), falling back to legacy path",
+			             (s32)num, r.path);
+		} else if (r.catalog_id >= 0) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → ROM (entry %d)", (s32)num, r.catalog_id);
+		} else {
+			sysLogPrintf(LOG_VERBOSE, "CATALOG: anim %d → ROM (not cataloged)", (s32)num);
 		}
-		sysLogPrintf(LOG_WARNING, "MOD: animation %d catalog override failed (%s), falling back to legacy path",
-		             (s32)num, catPath);
 	}
 
 	/* Legacy path: load from animations/ directory */

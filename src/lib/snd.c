@@ -2159,17 +2159,22 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
 
-	/* C-7: catalog override check — intercept point for mod audio replacement.
-	 * catalogGetSoundOverride() returns a mod file path if a non-bundled catalog
-	 * entry overrides this sound ID.  Actual file-based SFX playback is not yet
-	 * implemented; this is the wiring stub.  The log entry fires at most once per
-	 * unique sound ID (the catalog query is O(1) from the reverse-index array). */
+	/* C-7: catalog is primary sound router — resolve every sound through it.
+	 * catalogResolveSound() returns the full routing decision: mod override
+	 * (file-based SFX TBD), base-game ROM (cataloged), or not cataloged.
+	 * Note: sndStart() fires per-play, so ROM/not-cataloged paths log at
+	 * LOG_NOTE (as per initial verification pass — dial to LOG_VERBOSE once
+	 * confirmed correct).  The query is O(1) from the reverse-index array. */
 	{
-		const char *sndOverride = catalogGetSoundOverride((s32)sp40.id);
-		if (sndOverride) {
-			sysLogPrintf(LOG_NOTE, "MOD: sound %d override found: %s (file-based SFX TBD)",
-			             (s32)sp40.id, sndOverride);
+		CatalogResolveResult r = catalogResolveSound((s32)sp40.id);
+		if (r.is_mod_override && r.path) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d) (file-based SFX TBD)",
+			             (s32)sp40.id, r.path, r.catalog_id);
 			/* TODO: play from file path when audio-from-file SFX support is added */
+		} else if (r.catalog_id >= 0) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → ROM (entry %d)", (s32)sp40.id, r.catalog_id);
+		} else {
+			sysLogPrintf(LOG_VERBOSE, "CATALOG: sound %d → ROM (not cataloged)", (s32)sp40.id);
 		}
 	}
 
