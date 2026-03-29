@@ -3,6 +3,91 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 80 -- 2026-03-29
+
+**Focus**: Full codebase TODO sweep + enet ABA vulnerability fix
+
+### What Was Done
+
+**Arena picker fix confirmed working** (from S78): `arenaGetName` override for langid 0x5126–0x5152 functional.
+
+**T-3/T-4/T-5: Base table expansion** — `assetcatalog_base_extended.c`:
+- Animation entries: 1207 registered
+- Texture entries: 3503 registered
+- Audio entries: 1545 registered
+
+**T-10: Mod size_bytes** — `modmgrComputeDirSize()` recursive directory walker implemented in `modmgr.c`.
+
+**T-6: Thumbnail queue system** — `catalogRequestThumbnail()` / `catalogPollThumbnails()` circular buffer added.
+
+**C-7 audio-from-file** — `audioPlayFileSound()` via `SDL_LoadWAV` in `audio.c`; intercept wired in `snd.c`.
+
+**D5 thumbnail batch render** — `pdguiCharPreviewBakeToTexture()` FBO readback + unique GL textures in `pdgui_charpreview.c`.
+
+**Mixer buffer fix** — MP3 decode staging buffer prevents overrun in `mixer.c`.
+
+**Port TODO batch 1** (6 items): `main.c` `statsShutdown`+`catalogClear`, `video.c` `videoClearScreen`, `pdsched.c` documentation, `input.c` `VK_JOY1_LTRIG/RTRIG_IDX` constants, `mpsetups.c` save/delete dialog TODOs documented.
+
+**Net + savefile batch** (7 items): O(1) syncid prop map `s_PropBySyncId[2048]`, ROM CRC validation via `utilCrc32()`, local player count `PLAYERCOUNT()`, `SVC_PROP_USE` removal documented, game mode flags in server query, player config backup `s_RemoteConfigBackups[]`, `saveListAgents()` full directory scan.
+
+**Game + lib batch 1** (8 items): `bg.c` alloclen, `bondgun.c` mem size + texture purge, `bondmove.c` anglespeed + bare TODO + headroll, `file.c` `g_FileTable`, `memp.c` config.
+
+**Renderer + fast3d batch** (12 items): all `gfx_pc.cpp` texture/mip/LOD/widescreen TODOs documented; `gfx_destroy` cleanup implemented (free `tex_upload_buffer`, `clear_shaders`, `wapi close`); depth clamp explained; alpha discard resolved; **server history fully implemented** (`serverhistory.json` + Recent Servers panel + relative timestamps in `pdgui_menu_network.cpp`).
+
+**Game + lib batch 2** (15 items):
+- `bondeyespy` framerate-independent scaling fix
+- `bondview` GBI documented
+- `chraicommands` audio timing
+- `player.c` arguments recovered + `CONTROLMODE_NA` explained
+- `propobj` fire rate + damage sentinel documented
+- `setup.c` `AVOID_UB` guard explained
+- `texreset` pointer table documented
+- `audiomgr` frame sizing
+- `mtx.c` fixed-point unpack
+- `sched.c` triple-buffer ring
+- **`n_resample` minimum ratio clamp IMPLEMENTED** (was a real bug — clamp prevents divide-by-zero)
+- `snd.c` stub, `viint.h` `VI_STATE_01`
+
+**Preprocess + headers batch** (9 items): `audio.c` 22020Hz confirmed, `filemodel.c` host_ structs explained, `misc.c` 3 items analyzed, `platform.h`/`types.h`/`math.h` documented, `pdgui_menus.h` clarified.
+
+**Enet ABA fix** — `ENET_ATOMIC_CAS` macro now returns `bool` on all 4 paths (MSVC, clang analyzer, GCC `__atomic`, `__sync`); call site updated; clang analyzer typo fixed. Commits: `ef8c7b7` / `c151a26`.
+
+**Modding pipeline design document** created: `PD2_Modding_Pipeline_Design.docx`.
+
+**All project-owned TODO/HACK/FIXME markers resolved** — only upstream/third-party markers remain: 3x OTRTODO heritage, minimp3.h NEON detection, enet.h (already fixed). Commit: `0104acc`.
+
+### Files Modified
+- `assetcatalog_base_extended.c` — T-3/T-4/T-5 base entries
+- `port/src/modmgr.c` — T-10 `modmgrComputeDirSize()`
+- `port/src/assetcatalog.c` / `assetcatalog_load.c` — T-6 thumbnail queue
+- `port/src/audio.c` — C-7 `audioPlayFileSound()`
+- `src/game/snd.c` — C-7 intercept wiring
+- `port/fast3d/pdgui_charpreview.c` — thumbnail FBO readback
+- `port/src/mixer.c` — staging buffer overrun fix
+- `port/src/main.c`, `video.c`, `pdsched.c`, `input.c`, `mpsetups.c` — TODO sweep
+- `port/src/net/net.c`, `net_server_callbacks.c`, `netlobby.c` — TODO sweep
+- `port/src/savefile.c` — TODO sweep
+- `src/game/bg.c`, `bondgun.c`, `bondmove.c`, `file.c`, `memp.c` — TODO sweep
+- `port/fast3d/gfx_pc.cpp`, `gfx_sdl2.cpp`, `pdgui_menu_network.cpp` — TODO sweep + server history + gfx_destroy
+- `src/game/bondeyespy.c` — framerate-independent scaling fix
+- `src/lib/n_resample.c` — minimum ratio clamp (real bug fix)
+- `port/external/enet.h` — ABA vulnerability fix
+
+### Decisions Made
+- `n_resample` ratio clamp: divide-by-zero was a real latent bug, not just a TODO — fixed in place
+- Server history: stored as `serverhistory.json` in user data dir; Recent Servers panel uses relative timestamps ("2m ago")
+- `gfx_destroy`: implemented cleanup rather than documenting as intentional leak
+- Modding pipeline deferred to implementation until matches are stable
+- All upstream/third-party TODO markers (enet heritage, minimp3 NEON) deliberately left untouched
+
+### Build Status
+VERIFIED clean — `PerfectDark.exe` 43.3 MB, `PerfectDarkServer.exe` 21.1 MB
+
+### Next Steps
+- B-49 CRITICAL: Felicity/toilet landing freeze — JUMP_DEBUG already instrumented, needs reproduction + log capture
+- B-38: `setupCreateProps` crash — needs investigation
+- C-5/C-6: Remaining catalog intercept wiring (texture + anim overrides)
+- J-1: End-to-end join verification
 ## Session 79 -- 2026-03-29
 
 **Focus**: C-7 — File-based SFX playback for mod sound overrides
