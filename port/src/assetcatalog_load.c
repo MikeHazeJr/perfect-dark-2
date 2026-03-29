@@ -151,10 +151,13 @@ const char *catalogGetFileOverride(s32 filenum)
 
     s32 idx = s_FilenumOverride[filenum];
     if (idx < 0) {
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-4 filenum=%d → ROM pass-through", filenum);
         return NULL;
     }
 
-    return entryGetFilePath(assetCatalogGetByIndex(idx));
+    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
+    sysLogPrintf(LOG_NOTE, "CATALOG: C-4 filenum=%d → override \"%s\"", filenum, path ? path : "(null)");
+    return path;
 }
 
 const char *catalogGetTextureOverride(s32 texnum)
@@ -167,10 +170,13 @@ const char *catalogGetTextureOverride(s32 texnum)
 
     s32 idx = s_TexnumOverride[texnum];
     if (idx < 0) {
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-5 texnum=%d → ROM pass-through", texnum);
         return NULL;
     }
 
-    return entryGetFilePath(assetCatalogGetByIndex(idx));
+    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
+    sysLogPrintf(LOG_NOTE, "CATALOG: C-5 texnum=%d → override \"%s\"", texnum, path ? path : "(null)");
+    return path;
 }
 
 const char *catalogGetAnimOverride(s32 animnum)
@@ -183,10 +189,13 @@ const char *catalogGetAnimOverride(s32 animnum)
 
     s32 idx = s_AnimnumOverride[animnum];
     if (idx < 0) {
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-6 animnum=%d → ROM pass-through", animnum);
         return NULL;
     }
 
-    return entryGetFilePath(assetCatalogGetByIndex(idx));
+    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
+    sysLogPrintf(LOG_NOTE, "CATALOG: C-6 animnum=%d → override \"%s\"", animnum, path ? path : "(null)");
+    return path;
 }
 
 const char *catalogGetSoundOverride(s32 soundnum)
@@ -199,10 +208,13 @@ const char *catalogGetSoundOverride(s32 soundnum)
 
     s32 idx = s_SoundnumOverride[soundnum];
     if (idx < 0) {
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: C-7 soundnum=%d → ROM pass-through", soundnum);
         return NULL;
     }
 
-    return entryGetFilePath(assetCatalogGetByIndex(idx));
+    const char *path = entryGetFilePath(assetCatalogGetByIndex(idx));
+    sysLogPrintf(LOG_NOTE, "CATALOG: C-7 soundnum=%d → override \"%s\"", soundnum, path ? path : "(null)");
+    return path;
 }
 
 void catalogLoadLogStats(void)

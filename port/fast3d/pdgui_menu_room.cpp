@@ -39,6 +39,9 @@
 
 extern "C" {
 
+#include "assetcatalog.h"
+char *langGet(s32 textid);
+
 /* Network mode */
 #define NETMODE_NONE   0
 #define NETMODE_SERVER 1
@@ -153,32 +156,46 @@ const char *mpPlayerConfigGetName(s32 playernum);
 } /* extern "C" */
 
 /* ========================================================================
- * Arena list — MP stages available in Combat Sim
+ * Arena list — built from the asset catalog at room init.
+ * Replaces the old hardcoded table: catalog is the single source of truth.
  * ======================================================================== */
 
-struct arena_entry { const char *name; u8 stagenum; };
+struct arena_entry { char name[64]; s32 stagenum; };
 
-static const arena_entry s_Arenas[] = {
-    { "Complex",     0x1f }, /* STAGE_MP_COMPLEX */
-    { "Grid",        0x47 }, /* STAGE_MP_GRID */
-    { "Sewers",      0x42 }, /* STAGE_MP_SEWERS */
-    { "Basement",    0x12 }, /* STAGE_EXTRA13 (GEX Basement) */
-    { "Ravine",      0x17 }, /* STAGE_MP_RAVINE */
-    { "Warehouse",   0x3c }, /* STAGE_MP_WAREHOUSE */
-    { "Villa",       0x45 }, /* STAGE_MP_VILLA */
-    { "Temple",      0x25 }, /* STAGE_MP_TEMPLE */
-    { "Caves",       0x0d }, /* STAGE_EXTRA8 (GEX Caves) */
-    { "Base",        0x39 }, /* STAGE_MP_BASE */
-    { "G5",          0x20 }, /* STAGE_MP_G5BUILDING */
-    { "Citadel",     0x4c }, /* STAGE_TEST_MP20 */
-    { "Felicity",    0x43 }, /* STAGE_MP_FELICITY */
-    { "Ruins",       0x41 }, /* STAGE_MP_RUINS */
-    { "Defection",   0x30 }, /* STAGE_DEFECTION */
-    { "Island",      0x2e }, /* TODO: no STAGE_MP_ISLAND constant found in constants.h */
-    { "Fortress",    0x44 }, /* STAGE_MP_FORTRESS */
-    { "Pipes",       0x29 }, /* STAGE_MP_PIPES */
-};
-static const int s_NumArenas = (int)(sizeof(s_Arenas) / sizeof(s_Arenas[0]));
+static arena_entry s_Arenas[256];
+static int s_NumArenas = 0;
+static bool s_ArenasBuilt = false;
+
+static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_NumArenas >= 256) return;
+
+    const char *name = langGet(e->ext.arena.name_langid);
+    if (!name || !name[0]) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG: arena stagenum=0x%02x langid=0x%04x has no name, skipping",
+            e->ext.arena.stagenum, e->ext.arena.name_langid);
+        return;
+    }
+
+    strncpy(s_Arenas[s_NumArenas].name, name, 63);
+    s_Arenas[s_NumArenas].name[63] = '\0';
+    s_Arenas[s_NumArenas].stagenum = e->ext.arena.stagenum;
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" stagenum=0x%02x registered",
+        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].stagenum);
+    s_NumArenas++;
+}
+
+static void buildArenaListFromCatalog(void)
+{
+    s_NumArenas = 0;
+    sysLogPrintf(LOG_NOTE, "CATALOG: building arena list from catalog (%d ASSET_ARENA entries)",
+        assetCatalogGetCountByType(ASSET_ARENA));
+    assetCatalogIterateByType(ASSET_ARENA, catalogArenaCollect, NULL);
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena list built: %d arenas", s_NumArenas);
+    s_ArenasBuilt = true;
+}
 
 /* ========================================================================
  * Campaign mission list
@@ -301,7 +318,7 @@ static int s_CounterOpMission  = 0;
 static int s_CounterOpDiff     = DIFF_A;
 static int s_CounterOpPlayer   = 0;  /* index into lobby player list = the counter-op player */
 
-/* Arena picker state (index into s_Arenas) */
+/* Arena picker state (index into s_Arenas[]) */
 static int s_SelectedArena = 0;
 
 /* Bot management state */
@@ -346,13 +363,16 @@ static void syncSpawnWeaponFromConfig(void)
 
 static void syncArenaFromConfig(void)
 {
+    if (s_NumArenas == 0) return;
+
     for (int i = 0; i < s_NumArenas; i++) {
-        if (s_Arenas[i].stagenum == g_MatchConfig.stagenum) {
+        if (s_Arenas[i].stagenum == (s32)g_MatchConfig.stagenum) {
             s_SelectedArena = i;
             return;
         }
     }
-    /* stagenum not in arena list — keep current picker, write it back */
+    /* stagenum not in arena list — clamp picker and write it back */
+    if (s_SelectedArena >= s_NumArenas) s_SelectedArena = 0;
     g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
 }
 
@@ -633,12 +653,15 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Arena");
     if (!leader) ImGui::BeginDisabled();
     ImGui::SetNextItemWidth(comboW);
-    if (ImGui::BeginCombo("##arena", s_Arenas[s_SelectedArena].name)) {
+    const char *arenaLabel = (s_NumArenas > 0) ? s_Arenas[s_SelectedArena].name : "(none)";
+    if (ImGui::BeginCombo("##arena", arenaLabel)) {
         for (int ai = 0; ai < s_NumArenas; ai++) {
             bool sel = (ai == s_SelectedArena);
             if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
                 s_SelectedArena = ai;
                 g_MatchConfig.stagenum = (u8)s_Arenas[ai].stagenum;
+                sysLogPrintf(LOG_NOTE, "CATALOG: arena selected \"%s\" stagenum=0x%02x",
+                    s_Arenas[ai].name, s_Arenas[ai].stagenum);
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();
@@ -982,6 +1005,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     /* First-frame init: set up g_MatchConfig for this lobby session */
     if (!s_MatchConfigInited) {
+        if (!s_ArenasBuilt) {
+            buildArenaListFromCatalog();
+        }
         matchConfigInit();
         syncArenaFromConfig();
         s_SelectedBotSlot = -1;
@@ -1132,8 +1158,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             switch (s_ActiveTab) {
                 case 0: {
                     /* Combat Simulator */
+                    if (s_NumArenas == 0) break;
                     int numBots = countBots();
                     u8 simType  = getLeadSimType();
+                    sysLogPrintf(LOG_NOTE,
+                        "CATALOG: stage load initiated from arena picker: \"%s\" stagenum=0x%02x",
+                        s_Arenas[s_SelectedArena].name,
+                        (int)s_Arenas[s_SelectedArena].stagenum);
                     netLobbyRequestStartWithSims(
                         GAMEMODE_MP,
                         (u8)s_Arenas[s_SelectedArena].stagenum,
@@ -1397,6 +1428,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    s_ArenasBuilt       = false;
     s_CodeGenerated     = false;
     s_ActiveTab         = 0;
     s_CampaignMission   = 0;
