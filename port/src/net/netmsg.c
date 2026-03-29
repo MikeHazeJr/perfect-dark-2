@@ -3306,7 +3306,8 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  *
  * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
- *          weaponSetIndex (u8, 0xFF = custom/default)
+ *          weaponSetIndex (u8, 0xFF = custom/default),
+ *          weapons (u8[NUM_MPWEAPONSLOTS]) — resolved mpweapon indices from client
  *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
  *          botDifficulty (u8), botType (u8)
  * ======================================================================== */
@@ -3325,6 +3326,9 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
+	/* Send the already-resolved weapon slots so the server can forward them
+	 * in SVC_STAGE_START without needing mplayer game engine code. */
+	netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
 
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
@@ -3366,6 +3370,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);
+	/* Read the pre-resolved weapon slots sent by the client. */
+	netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+	(void)weaponSetIndex; /* retained for logging/future use */
 
 	if (src->error) {
 		return src->error;
@@ -3435,8 +3442,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit      = scorelimit;
 		g_MpSetup.teamscorelimit  = teamscorelimit;
 		g_MpSetup.options         = options;
-		/* Apply weapon set from client. 0xFF means custom/unknown — fall back to Pistols (0). */
-		mpSetWeaponSet((weaponSetIndex == 0xFF) ? 0 : (s32)weaponSetIndex);
+		/* g_MpSetup.weapons[] was already populated from the client's resolved weapon slots
+		 * (read above from the CLC_LOBBY_START payload). No further resolution needed. */
 
 		/* Assign sequential playernums and build chrslots bitmask.
 		 * Bits 0..n-1 of chrslots represent the n connected players. */

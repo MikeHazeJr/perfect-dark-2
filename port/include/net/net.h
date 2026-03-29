@@ -5,7 +5,7 @@
 #include "constants.h"
 #include "net/netbuf.h"
 
-#define NET_PROTOCOL_VER 21  /* B-12 fix: chrslots u32→u64, MAX_BOTS 24→32 */
+#define NET_PROTOCOL_VER 22  /* CLC_LOBBY_START: send resolved weapons[] so server needs no mplayer code */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
