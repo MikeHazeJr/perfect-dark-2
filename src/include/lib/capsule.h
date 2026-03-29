@@ -1,6 +1,11 @@
 #ifndef _IN_LIB_CAPSULE_H
 #define _IN_LIB_CAPSULE_H
 
+/* Set to 1 to enable the custom swept-capsule collision system.
+ * Currently disabled — the system is not yet integrated into the movement
+ * pipeline. Set to 0 to fall back to the original N64 collision behaviour. */
+#define PC_CAPSULE_ENABLED 0
+
 #include <ultra64.h>
 #include "data.h"
 #include "types.h"

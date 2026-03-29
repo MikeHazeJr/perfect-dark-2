@@ -537,7 +537,7 @@ s32 catalogGetNumHeads(void)
 s32 catalogGetSafeBody(s32 bodynum)
 {
 	if (bodynum < 0 || bodynum >= s_CatalogCount) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: body %d out of range [0,%d), using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: body %d out of range [0,%d), using basegame body %d",
 		             bodynum, s_CatalogCount, CATALOG_FALLBACK_BODY);
 		return CATALOG_FALLBACK_BODY;
 	}
@@ -549,7 +549,7 @@ s32 catalogGetSafeBody(s32 bodynum)
 
 	if (s_Catalog[bodynum].status == MODELSTATUS_INVALID
 		|| s_Catalog[bodynum].status == MODELSTATUS_MISSING) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: body %d is %s, using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: body %d is %s, using basegame body %d",
 		             bodynum,
 		             s_Catalog[bodynum].status == MODELSTATUS_INVALID ? "INVALID" : "MISSING",
 		             CATALOG_FALLBACK_BODY);
@@ -590,7 +590,7 @@ s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
 	s32 pairedHead = b ? catalogFindMpHeadByHeadnum(b->headnum) : CATALOG_FALLBACK_HEAD;
 
 	sysLogPrintf(LOG_WARNING,
-	             "MOD: body %d load failed, falling back to basegame body %d (head %d)",
+	             "CATALOG: FALLBACK: body %d unavailable, using basegame body %d (head %d)",
 	             bodynum, randMpBodyIdx, pairedHead);
 
 	if (out_mpheadnum) {
@@ -602,7 +602,7 @@ s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
 s32 catalogGetSafeHead(s32 headnum)
 {
 	if (headnum < 0 || headnum >= s_CatalogCount) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: head %d out of range [0,%d), using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: head %d out of range [0,%d), using basegame head %d",
 		             headnum, s_CatalogCount, CATALOG_FALLBACK_HEAD);
 		return CATALOG_FALLBACK_HEAD;
 	}
@@ -614,7 +614,7 @@ s32 catalogGetSafeHead(s32 headnum)
 
 	if (s_Catalog[headnum].status == MODELSTATUS_INVALID
 		|| s_Catalog[headnum].status == MODELSTATUS_MISSING) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: head %d is %s, using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: head %d is %s, using basegame head %d",
 		             headnum,
 		             s_Catalog[headnum].status == MODELSTATUS_INVALID ? "INVALID" : "MISSING",
 		             CATALOG_FALLBACK_HEAD);

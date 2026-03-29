@@ -998,6 +998,7 @@ void bwalkUpdateVertical(void)
 		ground = -30000;
 	}
 
+#if PC_CAPSULE_ENABLED
 	/* PC: Capsule-based prop surface detection — secondary fallback after
 	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary
 	 * ground detection (auto-generated floor tiles from model bounding boxes).
@@ -1034,6 +1035,7 @@ void bwalkUpdateVertical(void)
 			ground = capsuleGround;
 		}
 	}
+#endif /* PC_CAPSULE_ENABLED */
 
 #if PIRACYCHECKS
 	if (g_Vars.currentplayer->inlift && newinlift == false) {
@@ -1217,6 +1219,7 @@ void bwalkUpdateVertical(void)
 		 * player, props, etc. that the simple cdTestVolume call in
 		 * bwalkTryMoveUpwards might miss when the step is large. */
 		f32 verticalDelta = newmanground - g_Vars.currentplayer->vv_manground;
+#if PC_CAPSULE_ENABLED
 		{
 			struct capsulecast sweep;
 			sweep.start.x = g_Vars.currentplayer->prop->pos.x;
@@ -1256,6 +1259,7 @@ void bwalkUpdateVertical(void)
 				}
 			}
 		}
+#endif /* PC_CAPSULE_ENABLED */
 
 		/* Pre-move ceiling check: the capsule sweep only tests WALL geometry
 		 * (via cdTestVolume). FLOOR1|FLOOR2-only ceiling surfaces are invisible
@@ -1306,6 +1310,7 @@ void bwalkUpdateVertical(void)
 			g_Vars.currentplayer->vv_manground = newmanground;
 			g_Vars.currentplayer->bdeltapos.y = fallspeed;
 
+#if PC_CAPSULE_ENABLED
 			/* PC: Capsule-based ceiling detection — replaces the old
 			 * cdFindCeilingRoomYColourFlagsAtPos approach which only found
 			 * BG ceilings and missed prop/wall geometry acting as ceiling.
@@ -1354,6 +1359,7 @@ void bwalkUpdateVertical(void)
 					g_Vars.currentplayer->bdeltapos.y = 0.0f;
 				}
 			}
+#endif /* PC_CAPSULE_ENABLED */
 
 			if (g_Vars.currentplayer->isfalling == false) {
 				// Just started falling

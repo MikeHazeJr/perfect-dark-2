@@ -279,7 +279,7 @@ s32 catalogLoadAsset(const char *assetId)
     u32 size = 0;
     void *data = fsFileLoad(path, &size);
     if (!data || size == 0) {
-        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: failed to load '%s' from '%s'",
+        sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: catalogLoadAsset: '%s' failed to load from '%s', caller will use fallback",
                      assetId, path);
         if (data) {
             sysMemFree(data);
