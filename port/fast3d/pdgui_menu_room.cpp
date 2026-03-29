@@ -88,7 +88,8 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 #define GAMEMODE_COOP 1
 #define GAMEMODE_ANTI 2
 
-/* Max human players (must match constants.h MAX_PLAYERS) */
+/* Max human players — must match MAX_PLAYERS in src/include/constants.h.
+ * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYERS 8
 
 /* Bridge: send CLC_LOBBY_START */
