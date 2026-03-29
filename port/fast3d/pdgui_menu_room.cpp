@@ -159,24 +159,24 @@ const char *mpPlayerConfigGetName(s32 playernum);
 struct arena_entry { const char *name; u8 stagenum; };
 
 static const arena_entry s_Arenas[] = {
-    { "Complex",     0x1f },
-    { "Grid",        0x20 },
-    { "Sewers",      0x21 },
-    { "Basement",    0x22 },
-    { "Ravine",      0x23 },
-    { "Warehouse",   0x24 },
-    { "Villa",       0x25 },
-    { "Temple",      0x26 },
-    { "Caves",       0x27 },
-    { "Base",        0x28 },
-    { "G5",          0x29 },
-    { "Citadel",     0x2a },
-    { "Felicity",    0x2b },
-    { "Ruins",       0x2c },
-    { "Defection",   0x2d },
-    { "Island",      0x2e },
-    { "Fortress",    0x2f },
-    { "Pipes",       0x32 },
+    { "Complex",     0x1f }, /* STAGE_MP_COMPLEX */
+    { "Grid",        0x47 }, /* STAGE_MP_GRID */
+    { "Sewers",      0x42 }, /* STAGE_MP_SEWERS */
+    { "Basement",    0x12 }, /* STAGE_EXTRA13 (GEX Basement) */
+    { "Ravine",      0x17 }, /* STAGE_MP_RAVINE */
+    { "Warehouse",   0x3c }, /* STAGE_MP_WAREHOUSE */
+    { "Villa",       0x45 }, /* STAGE_MP_VILLA */
+    { "Temple",      0x25 }, /* STAGE_MP_TEMPLE */
+    { "Caves",       0x0d }, /* STAGE_EXTRA8 (GEX Caves) */
+    { "Base",        0x39 }, /* STAGE_MP_BASE */
+    { "G5",          0x20 }, /* STAGE_MP_G5BUILDING */
+    { "Citadel",     0x4c }, /* STAGE_TEST_MP20 */
+    { "Felicity",    0x43 }, /* STAGE_MP_FELICITY */
+    { "Ruins",       0x41 }, /* STAGE_MP_RUINS */
+    { "Defection",   0x30 }, /* STAGE_DEFECTION */
+    { "Island",      0x2e }, /* TODO: no STAGE_MP_ISLAND constant found in constants.h */
+    { "Fortress",    0x44 }, /* STAGE_MP_FORTRESS */
+    { "Pipes",       0x29 }, /* STAGE_MP_PIPES */
 };
 static const int s_NumArenas = (int)(sizeof(s_Arenas) / sizeof(s_Arenas[0]));
 
