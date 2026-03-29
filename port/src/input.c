@@ -878,7 +878,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		npad->stick_x = leftX / 0x100;
 	}
 
-	s32 stickY = -leftY / 0x100;
+	s32 stickY = (cfg->swapSticks && cfg->invertRStickY ? leftY : -leftY) / 0x100;
 	if (!npad->stick_y && stickY) {
 		npad->stick_y = (stickY == 128) ? 127 : stickY;
 	}
@@ -896,7 +896,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		if (rightX) {
 			npad->rstick_x = rightX / 0x100;
 		}
-		s32 rStickY = (cfg->invertRStickY ? rightY : -rightY) / 0x100;
+		s32 rStickY = (!cfg->swapSticks && cfg->invertRStickY ? rightY : -rightY) / 0x100;
 		if (rStickY) {
 			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
 		}

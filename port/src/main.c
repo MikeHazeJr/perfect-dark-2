@@ -99,6 +99,7 @@ static void gameInit(void)
 static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
+	catalogLoadLogStats();
 
 	// Signal all subsystems that we are exiting. Must be set before
 	// netDisconnect so that blocking teardown paths (UPnP HTTP delete,

@@ -113,6 +113,12 @@ void catalogUnloadAsset(const char *assetId);
  */
 void catalogRetainAsset(const char *assetId);
 
+/**
+ * Log intercept query counters (file/tex/anim/snd) at LOG_NOTE.
+ * Call at shutdown or on demand to confirm the intercept layer is active.
+ */
+void catalogLoadLogStats(void);
+
 /* ========================================================================
  * MEM-3 / C-9: Stage Transition Diff
  * ======================================================================== */

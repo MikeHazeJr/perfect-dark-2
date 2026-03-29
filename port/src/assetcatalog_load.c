@@ -50,6 +50,11 @@ static s32 s_SoundnumOverride[LOAD_MAX_SOUNDS];
 
 static s32 s_Initialized = 0;
 
+static s32 s_FileQueryCount = 0;
+static s32 s_TexQueryCount  = 0;
+static s32 s_AnimQueryCount = 0;
+static s32 s_SndQueryCount  = 0;
+
 /* ========================================================================
  * Initialization
  * ======================================================================== */
@@ -140,6 +145,10 @@ const char *catalogGetFileOverride(s32 filenum)
         return NULL;
     }
 
+    if (s_FileQueryCount++ == 0) {
+        sysLogPrintf(LOG_NOTE, "CATALOG: C-4 intercept live (first filenum=%d query)", filenum);
+    }
+
     s32 idx = s_FilenumOverride[filenum];
     if (idx < 0) {
         return NULL;
@@ -153,6 +162,8 @@ const char *catalogGetTextureOverride(s32 texnum)
     if (!s_Initialized || texnum < 0 || texnum >= LOAD_MAX_TEXTURES) {
         return NULL;
     }
+
+    s_TexQueryCount++;
 
     s32 idx = s_TexnumOverride[texnum];
     if (idx < 0) {
@@ -168,6 +179,8 @@ const char *catalogGetAnimOverride(s32 animnum)
         return NULL;
     }
 
+    s_AnimQueryCount++;
+
     s32 idx = s_AnimnumOverride[animnum];
     if (idx < 0) {
         return NULL;
@@ -182,12 +195,21 @@ const char *catalogGetSoundOverride(s32 soundnum)
         return NULL;
     }
 
+    s_SndQueryCount++;
+
     s32 idx = s_SoundnumOverride[soundnum];
     if (idx < 0) {
         return NULL;
     }
 
     return entryGetFilePath(assetCatalogGetByIndex(idx));
+}
+
+void catalogLoadLogStats(void)
+{
+    sysLogPrintf(LOG_NOTE,
+        "CATALOG: intercept stats: file=%d tex=%d anim=%d snd=%d queries",
+        s_FileQueryCount, s_TexQueryCount, s_AnimQueryCount, s_SndQueryCount);
 }
 
 /* ========================================================================
