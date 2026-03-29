@@ -1763,6 +1763,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
 extern "C" {
 
+void pdguiMainMenuReset(void)
+{
+    s_MenuView = 0;
+}
+
 void pdguiMenuMainMenuRegister(void)
 {
     if (!s_RegisteredPc) {

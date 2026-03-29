@@ -43,6 +43,7 @@
 #include "assetcatalog.h"
 #include "identity.h"
 #include "utils.h"
+#include "pdgui.h"
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -564,6 +565,12 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	g_NetClients[NET_MAX_CLIENTS].peer = NULL;
 
 	g_NetLocalClient->state = CLSTATE_LOBBY;
+
+	/* J-1/J-5: clear the N64 menu stack so MENU_JOIN doesn't co-render
+	 * behind the lobby screen, and reset the ImGui main menu view so
+	 * a later disconnect reopens at the top level, not "Online Play". */
+	menuStop();
+	pdguiMainMenuReset();
 
 	return src->error;
 }

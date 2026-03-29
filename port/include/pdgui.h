@@ -45,4 +45,8 @@ s32 pdguiIsActive(void);
 /* Toggle the ImGui overlay on/off (e.g., bound to a key). */
 void pdguiToggle(void);
 
+/* Reset the main menu to the top-level view (s_MenuView = 0).
+ * Call on disconnect so the menu re-opens at the root, not "Online Play". */
+void pdguiMainMenuReset(void);
+
 #endif /* _IN_PDGUI_H */
