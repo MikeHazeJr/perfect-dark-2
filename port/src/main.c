@@ -29,6 +29,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
+#include "assetcatalog_cache.h"
 #include "game/stagetable.h"
 
 u32 g_OsMemSize = 0;
@@ -172,6 +173,13 @@ int main(int argc, const char **argv)
 	}
 
 	romdataInit();
+
+	// C-1: ROM hash cache — verify ROM integrity and cache the hash so
+	// mismatches (ROM replaced or corrupted) are logged on future boots.
+	// Returns 1=verified/first-run, 0=hash changed, -1=I/O error.
+	// We proceed in all cases; this is an integrity check, not a gate.
+	catalogCacheVerifyRom(g_RomName, NULL);
+
 	netInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();
