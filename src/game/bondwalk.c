@@ -998,6 +998,48 @@ void bwalkUpdateVertical(void)
 		ground = -30000;
 	}
 
+	/* B-49: Prop surface floor detection (non-capsule).
+	 *
+	 * cdFindGroundInfoAtCyl only finds TILE geometry with FLOOR1/FLOOR2 flags.
+	 * BLOCK geometry props (e.g. the Felicity bathroom toilet) only respond to
+	 * GEOFLAG_WALL, so they're invisible to floor detection. When the player
+	 * appears to be floating above the tile floor with zero/negative velocity,
+	 * probe 1 unit below their feet with cdTestVolume. If a solid surface is
+	 * found, treat the current foot position as the effective floor level.
+	 *
+	 * Without this, the not-airborne block (bdeltapos.y >= 0) and the airborne
+	 * block (vv_manground > vv_ground) both fire in the same frame — the not-
+	 * airborne block can't snap down (tile floor is far below), the airborne
+	 * block re-zeroes bdeltapos.y every frame via collision, and the player
+	 * freezes mid-air indefinitely (B-49). */
+	if (g_Vars.currentplayer->vv_manground > ground + 2.0f
+			&& g_Vars.bondcollisions
+			&& g_Vars.currentplayer->bdeltapos.y <= 0.0f) {
+		struct coord probepos;
+		probepos.x = g_Vars.currentplayer->prop->pos.x;
+		probepos.y = g_Vars.currentplayer->prop->pos.y;
+		probepos.z = g_Vars.currentplayer->prop->pos.z;
+
+		propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+		s32 proberes = cdTestVolume(&probepos, radius,
+			g_Vars.currentplayer->prop->rooms,
+			CDTYPE_ALL,
+			CHECKVERTICAL_YES,
+			ymax - probepos.y,
+			ymin - probepos.y - 1.0f);
+		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+
+		if (proberes != CDRESULT_NOCOLLISION) {
+			sysLogPrintf(LOG_NOTE,
+				"B49_PROP_FLOOR: prop/block surface at feet, "
+				"ground %.1f -> %.1f (manground=%.1f vel=%.2f)",
+				ground, g_Vars.currentplayer->vv_manground,
+				g_Vars.currentplayer->vv_manground,
+				g_Vars.currentplayer->bdeltapos.y);
+			ground = g_Vars.currentplayer->vv_manground;
+		}
+	}
+
 #if PC_CAPSULE_ENABLED
 	/* PC: Capsule-based prop surface detection — secondary fallback after
 	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary

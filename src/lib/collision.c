@@ -1258,6 +1258,15 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + 0x18);
+		} else {
+			/* B-49: Unknown geometry type — advancing geo pointer is impossible
+			 * without knowing its size. Log and break to prevent an infinite loop.
+			 * Types 0-3 cover all known geometry. Any other value indicates
+			 * memory corruption or a new type added without updating this loop. */
+			sysLogPrintf(LOG_WARNING,
+				"cdCollectGeoForCylFromList: unknown geo->type %d at %p (room %d), aborting geo walk",
+				geo->type, (void *)geo, roomnum);
+			break;
 		}
 	}
 }
