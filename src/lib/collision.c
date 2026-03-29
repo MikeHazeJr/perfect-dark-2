@@ -14,6 +14,7 @@
 #include "lib/libc/ll.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 #define SURFACE_FLOOR   0
 #define SURFACE_CEILING 1

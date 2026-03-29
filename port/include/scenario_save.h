@@ -23,7 +23,9 @@
  * Match slot constants
  * ======================================================================== */
 
+#ifndef MAX_PLAYER_NAME
 #define MAX_PLAYER_NAME   32
+#endif
 
 /* NUM_MPWEAPONSLOTS is also defined in src/include/constants.h (game code).
  * Guard to avoid redefinition when included from C files that already
@@ -41,49 +43,18 @@
 #define MATCH_MAX_SLOTS 32
 #endif
 
+#ifndef SLOT_EMPTY
 #define SLOT_EMPTY  0
 #define SLOT_PLAYER 1
 #define SLOT_BOT    2
+#endif
 
 /* ========================================================================
- * Match config structs
+ * Match config structs — canonical definitions live in net/matchsetup.h.
+ * Include it here so callers only need scenario_save.h.
  * ======================================================================== */
 
-struct matchslot {
-    u8  type;           /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
-    u8  team;
-    u8  headnum;
-    u8  bodynum;
-    u8  botType;        /* BOTTYPE_* (SLOT_BOT only) */
-    u8  botDifficulty;  /* 0=Meat..5=Dark (SLOT_BOT only) */
-    char name[MAX_PLAYER_NAME];
-};
-
-struct matchconfig {
-    struct matchslot slots[MATCH_MAX_SLOTS];
-    u8  scenario;
-    u8  stagenum;
-    u8  timelimit;
-    u8  scorelimit;
-    u16 teamscorelimit;
-    u32 options;
-    u8  weapons[NUM_MPWEAPONSLOTS];
-    s8  weaponSetIndex;
-    u8  numSlots;
-    u8  spawnWeaponNum;  /* 0xFF = Random */
-};
-
-/* ========================================================================
- * matchsetup.c API
- * ======================================================================== */
-
-extern struct matchconfig g_MatchConfig;
-
-void matchConfigInit(void);
-s32  matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum,
-                       const char *name);
-s32  matchConfigRemoveSlot(s32 idx);
-s32  matchStart(void);
+#include "net/matchsetup.h"
 
 /* ========================================================================
  * Scenario save/load API
