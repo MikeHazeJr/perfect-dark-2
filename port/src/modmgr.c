@@ -21,6 +21,8 @@
 #include "fs.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
+#include "assetcatalog_load.h"
 #include "data.h"
 
 /* Forward declaration — defined in src/lib/main.c */
@@ -692,6 +694,30 @@ void modmgrReload(void)
 	// Unload everything
 	modmgrUnloadAllMods();
 
+	// C-8: Rebuild catalog with the new enabled mod set.
+	// assetCatalogClearMods() removes all non-bundled (mod) entries from the
+	// catalog, then re-scanning repopulates them for the currently enabled mods.
+	// catalogLoadInit() then rebuilds the four reverse-index arrays so the
+	// C-4/C-5/C-6/C-7 intercepts reflect the updated mod state immediately.
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — clearing mod entries");
+	assetCatalogClearMods();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			s32 ncomp = assetCatalogScanComponents(modsdir);
+			assetCatalogScanBotVariants(modsdir);
+			sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — %d component(s) re-registered", ncomp);
+		}
+	}
+	// Restore per-component enable state from .modstate (written by
+	// modmgrSaveComponentState during the preceding apply step).
+	modmgrLoadComponentState();
+	// Rebuild reverse-index arrays — skips disabled entries, so components
+	// toggled off via .modstate will not appear in override lookups.
+	catalogLoadInit();
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries",
+	             assetCatalogGetCount());
+
 	// Re-load enabled mods
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		if (g_ModRegistry[i].enabled) {
@@ -858,6 +884,13 @@ void modmgrApplyChanges(void)
 
 	/* Persist legacy modinfo enables */
 	modmgrSaveConfig();
+
+	/* C-8: Component enable/disable flags changed — rebuild the reverse-index
+	 * arrays so C-4/C-5/C-6/C-7 intercepts reflect the new state before the
+	 * title screen reloads.  catalogLoadInit() skips disabled entries, so
+	 * components the user toggled off will produce no overrides. */
+	sysLogPrintf(LOG_NOTE, "MOD: reverse-index rebuild after component toggle");
+	catalogLoadInit();
 
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
