@@ -228,6 +228,9 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 void netRecentServerAdd(const char *addr);
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len);
 void netQueryRecentServers(void);
+void netQueryRecentServersAsync(void);
+void netPollRecentServers(void);
+extern bool g_NetQueryInFlight;
 
 Gfx *netDebugRender(Gfx *gdl);
 

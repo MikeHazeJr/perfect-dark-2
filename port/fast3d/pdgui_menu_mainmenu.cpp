@@ -19,6 +19,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -248,10 +249,33 @@ s32  pdguiModdingHubIsVisible(void);
 
 /* Connect codes (connectcode.c) */
 s32 connectCodeDecode(const char *code, u32 *outIp);
+s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
 #define CONNECT_DEFAULT_PORT 27100
+#define CONNECT_CODE_MAX     128
 
-/* Network connect (net.c) */
+/* Recent server list — layout must match struct netrecentserver in net.h exactly.
+ * NET_MAX_ADDR=256, NET_MAX_NAME=MAX_PLAYERNAME=15. */
+#define PD_NET_MAX_RECENT_SERVERS 8
+struct netrecentserver {
+    char addr[257];       /* NET_MAX_ADDR + 1 */
+    u32  protocol;
+    u8   flags;
+    u8   numclients;
+    u8   maxclients;
+    u8   stagenum;
+    u8   scenario;
+    char hostname[15];    /* NET_MAX_NAME */
+    u32  lastresponse;
+    bool online;
+};
+extern struct netrecentserver g_NetRecentServers[PD_NET_MAX_RECENT_SERVERS];
+extern s32 g_NetNumRecentServers;
+
+/* Network connect + async recent-server ping (net.c) */
 s32 netStartClient(const char *addr);
+void netQueryRecentServersAsync(void);
+void netPollRecentServers(void);
+extern bool g_NetQueryInFlight;
 
 /* Persistent memory diagnostics -- from memp.c */
 void *mempPCAlloc(u32 size, const char *tag);
@@ -1673,6 +1697,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
         static char s_JoinCodeInput[64] = "";
         static char s_JoinStatus[128] = "";
         static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+        static Uint32 s_LastQueryMs = 0;
+#define ONLINE_PLAY_REQUERY_MS 12000
+
+        /* Fire async ping queries when the view opens and every 12 s. */
+        {
+            Uint32 nowMs = SDL_GetTicks();
+            if (s_ViewJustChanged || (nowMs - s_LastQueryMs) >= ONLINE_PLAY_REQUERY_MS) {
+                netQueryRecentServersAsync();
+                s_LastQueryMs = nowMs;
+            }
+        }
+
+        /* Drain any pending ping responses each frame. */
+        netPollRecentServers();
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
         ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server");
@@ -1731,12 +1769,85 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Server History */
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Recent Servers");
 
-        /* TODO: populate from persistent server history (serverhistory.json)
-         * Each entry: { name, connectCode, lastConnected, lastStatus }
-         * Ping button sends a lightweight UDP probe, returns Online/Offline */
-        ImGui::TextDisabled("(Server history coming soon)");
+        /* Header: title + in-flight indicator or Refresh button */
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Recent Servers");
+        ImGui::SameLine();
+        if (g_NetQueryInFlight) {
+            /* Pulse the dot between yellow and white while queries are in flight. */
+            float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
+            float p = (float)(0.55 + 0.45 * sin(pulse));
+            ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), " ●");
+        } else {
+            ImGui::SameLine(buttonW - pdguiScale(64.0f));
+            if (ImGui::SmallButton("Refresh")) {
+                netQueryRecentServersAsync();
+                s_LastQueryMs = SDL_GetTicks();
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+        if (g_NetNumRecentServers == 0) {
+            ImGui::TextDisabled("No recent servers");
+        } else {
+            /* Entries are stored oldest-first; display newest first. */
+            for (s32 i = g_NetNumRecentServers - 1; i >= 0; --i) {
+                struct netrecentserver *srv = &g_NetRecentServers[i];
+
+                /* Build connect code from stored addr "a.b.c.d[:port]". */
+                char code[CONNECT_CODE_MAX] = "";
+                {
+                    u32 a = 0, b = 0, c = 0, d = 0;
+                    if (sscanf(srv->addr, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                        u32 ip = a | (b << 8) | (c << 16) | (d << 24);
+                        connectCodeEncode(ip, code, sizeof(code));
+                    }
+                }
+
+                /* Online/offline dot — pulsing amber while query in flight. */
+                if (g_NetQueryInFlight) {
+                    float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
+                    float p = (float)(0.55 + 0.45 * sin(pulse));
+                    ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), "◌");
+                } else {
+                    ImGui::TextColored(
+                        srv->online ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f)
+                                    : ImVec4(0.45f, 0.45f, 0.45f, 1.0f),
+                        srv->online ? "●" : "○");
+                }
+                ImGui::SameLine();
+
+                /* Clickable row — hostname (or code fallback) + player count. */
+                const char *name = (srv->hostname[0] != '\0') ? srv->hostname : code;
+                char rowText[256];
+                if (srv->online && srv->maxclients > 0) {
+                    snprintf(rowText, sizeof(rowText), "%s  [%u/%u]",
+                        name, (u32)srv->numclients, (u32)srv->maxclients);
+                } else {
+                    snprintf(rowText, sizeof(rowText), "%s", name);
+                }
+
+                ImGui::PushID(i);
+                if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
+                        ImVec2(buttonW - pdguiScale(24.0f), 0.0f))) {
+                    if (netStartClient(srv->addr) == 0) {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
+                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+                    } else {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
+                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    }
+                }
+                ImGui::PopID();
+
+                /* Show connect code beneath the hostname when one is present. */
+                if (srv->hostname[0] != '\0' && code[0] != '\0') {
+                    ImGui::TextDisabled("    %s", code);
+                }
+
+                ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));
+            }
+        }
     }
 
     /* Sound on view switches + auto-focus flag */

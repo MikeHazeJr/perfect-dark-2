@@ -75,6 +75,12 @@ s32 g_NetNumPreserved = 0;
 struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 s32 g_NetNumRecentServers = 0;
 
+/* Async recent-server query state */
+bool g_NetQueryInFlight = false;
+static ENetSocket g_NetQuerySocket = ENET_SOCKET_NULL;
+static uint32_t g_NetQueryStartMs = 0;
+#define NET_QUERY_TIMEOUT_MS 2000
+
 u8 g_NetGameMode = NETGAMEMODE_MP;
 u8 g_NetCoopDifficulty = 0;
 u8 g_NetCoopFriendlyFire = 0;
@@ -1731,6 +1737,81 @@ void netQueryRecentServers(void)
 	}
 
 	enet_socket_destroy(sock);
+}
+
+void netQueryRecentServersAsync(void)
+{
+	if (!g_NetInit) {
+		return;
+	}
+
+	// close any in-flight query socket from a previous call
+	if (g_NetQuerySocket != ENET_SOCKET_NULL) {
+		enet_socket_destroy(g_NetQuerySocket);
+		g_NetQuerySocket = ENET_SOCKET_NULL;
+	}
+	g_NetQueryInFlight = false;
+
+	// mark all servers offline pending fresh responses
+	for (s32 i = 0; i < g_NetNumRecentServers; ++i) {
+		g_NetRecentServers[i].online = false;
+	}
+
+	if (g_NetNumRecentServers == 0) {
+		return;
+	}
+
+	ENetSocket sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+	if (sock == ENET_SOCKET_NULL) {
+		return;
+	}
+
+	enet_socket_set_option(sock, ENET_SOCKOPT_NONBLOCK, 1);
+
+	for (s32 i = 0; i < g_NetNumRecentServers; ++i) {
+		ENetAddress addr;
+		if (netParseAddr(&addr, g_NetRecentServers[i].addr)) {
+			ENetBuffer ebuf;
+			ebuf.data = (void *)NET_QUERY_MAGIC;
+			ebuf.dataLength = sizeof(NET_QUERY_MAGIC) - 1;
+			enet_socket_send(sock, &addr, &ebuf, 1);
+		}
+	}
+
+	g_NetQuerySocket = sock;
+	g_NetQueryStartMs = enet_time_get();
+	g_NetQueryInFlight = true;
+}
+
+void netPollRecentServers(void)
+{
+	if (!g_NetQueryInFlight || g_NetQuerySocket == ENET_SOCKET_NULL) {
+		return;
+	}
+
+	// drain all currently available packets without blocking
+	u8 rxdata[512];
+	ENetBuffer rxbuf;
+	ENetAddress rxaddr;
+	for (;;) {
+		rxbuf.data = rxdata;
+		rxbuf.dataLength = sizeof(rxdata);
+		s32 rxlen = enet_socket_receive(g_NetQuerySocket, &rxaddr, &rxbuf, 1);
+		if (rxlen <= 0) {
+			break;
+		}
+		const char *addrstr = netFormatAddr(&rxaddr);
+		if (addrstr) {
+			netRecentServerUpdate(addrstr, rxdata, rxlen);
+		}
+	}
+
+	// close socket once the response window has elapsed
+	if (enet_time_get() - g_NetQueryStartMs >= NET_QUERY_TIMEOUT_MS) {
+		enet_socket_destroy(g_NetQuerySocket);
+		g_NetQuerySocket = ENET_SOCKET_NULL;
+		g_NetQueryInFlight = false;
+	}
 }
 
 PD_CONSTRUCTOR static void netConfigInit(void)
