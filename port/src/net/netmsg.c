@@ -44,7 +44,9 @@
 #include "assetcatalog.h"
 #include "identity.h"
 #include "utils.h"
+#if !defined(PD_SERVER)
 #include "pdgui.h"
+#endif
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -571,7 +573,9 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	 * behind the lobby screen, and reset the ImGui main menu view so
 	 * a later disconnect reopens at the top level, not "Online Play". */
 	menuStop();
+#if !defined(PD_SERVER)
 	pdguiMainMenuReset();
+#endif
 
 	return src->error;
 }
