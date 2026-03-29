@@ -271,8 +271,8 @@ per file: u16 path_len, char path[], u32 data_len, u8 data[]
 
 | # | File | Line | Text | What It Takes | Priority |
 |---|------|------|------|---------------|----------|
-| T-1 | assetcatalog_scanner.c | ~257 | Parse mode string for map.mode field | Parse "mp\|solo\|coop" from INI key into e->ext.map.mode; currently hardcoded to 0 | Nice-to-have |
-| T-2 | assetcatalog_base.c | ~42 | Full MPWEAPON_* enumeration | 35 of ~35+ MPWEAPON_* constants registered; add any missing constants to s_BaseWeapons[] | Nice-to-have |
+| T-1 | assetcatalog_scanner.c | ~257 | Parse mode string for map.mode field | ~~Parse "mp\|solo\|coop" from INI key into e->ext.map.mode; currently hardcoded to 0~~ **DONE (S79)** — `parseModeString()` added; MAP_MODE_MP/SOLO/COOP bitmask constants added to assetcatalog.h | Nice-to-have |
+| T-2 | assetcatalog_base.c | ~42 | Full MPWEAPON_* enumeration | ~~35 of ~35+ MPWEAPON_* constants registered~~ **DONE (S79)** — verified: active table in assetcatalog_base_extended.c covers all 47 MPWEAPON_* (0x01-0x2f); base.c table is dead code (not iterated), comment updated to clarify | Nice-to-have |
 | T-3 | assetcatalog_base_extended.c | ~99 | S46b: enumerate full animation table from animations.json (~1000 entries) | Read animations.json for each ROM variant; register one entry per anim ID with frame/byte metadata | Important |
 | T-4 | assetcatalog_base_extended.c | ~127 | S46b: enumerate base texture table from ROM metadata | Enumerate ROM texture descriptors; register ASSET_TEXTURE entries with width/height/format | Important |
 | T-5 | assetcatalog_base_extended.c | ~231 | S46b: enumerate broader SFX table from sfx.h (1545 entries total) | Iterate sfx.h constants; register ASSET_AUDIO entries for all SFX IDs | Important |
@@ -355,4 +355,4 @@ C-7 is the only intercept not yet wired at the call site. The resolver and rever
 | PDPK mod pack format | ✅ Implemented |
 | ROM hash/integrity cache | ✅ Implemented |
 
-**Overall system completeness: ~95%.** The one critical gap is T-7 (mod.json body/head/are
+**Overall system completeness: ~95%.** The one critical gap is T-7 (mod.json body/head/arena registration — mods cannot add custom characters or arenas to multiplayer until this is wired). All other gaps are expansions (S46b base-game table population) or polish (cache flush, manifest size, thumbnail render).

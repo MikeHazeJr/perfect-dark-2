@@ -3,6 +3,46 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 79 -- 2026-03-29
+
+**Focus**: C-7 — File-based SFX playback for mod sound overrides
+
+### What Was Done
+
+**C-7 implemented — `audioPlayFileSound()` added to `audio.c` / `audio.h`:**
+
+- New function `audioPlayFileSound(const char *path, u16 volume, u8 pan)` in `port/src/audio.c`
+- Uses `SDL_LoadWAV` to load the sound file, `SDL_BuildAudioCVT` / `SDL_ConvertAudio` to convert to device format (22020 Hz, AUDIO_S16SYS, stereo), then applies volume + pan scaling and queues PCM via `SDL_QueueAudio`
+- Volume: engine scale 0–0x7fff (AL_VOL_FULL). Pan: 0 = full left, 64 = centre, 127 = full right — linear-taper law applied per stereo channel
+- On failure (SDL_LoadWAV returns NULL, conversion error, alloc failure) returns 0 so caller falls back to ROM sound
+- Bypasses the N64 ADPCM/RSP pipeline deliberately — mod files are standard WAV, not ADPCM-encoded N64 SFX
+
+**C-7 wired in `src/lib/snd.c`:**
+
+- Added `#include "audio.h"` to snd.c includes
+- Replaced TODO block in the `r.is_mod_override` branch with `audioPlayFileSound(r.path, volume, pan)`
+- On success: sets `*handle = NULL` (matching sndStartMp3 pattern) and returns NULL
+- On failure: logs `LOG_WARNING` "MOD: sound %d catalog override failed … falling back to ROM" and falls through to normal ROM path
+
+**Build**: Both `audio.c` and `snd.c` pass `gcc -fsyntax-only` (exit 0). Full cmake build blocked by pre-existing TEMP dir permission issue (same as S76/S77).
+
+### Files Modified
+- `port/include/audio.h` — `audioPlayFileSound()` declaration added
+- `port/src/audio.c` — `audioPlayFileSound()` implementation added
+- `src/lib/snd.c` — `#include "audio.h"` added; C-7 TODO replaced with live call
+
+### Decisions Made
+- Routed WAV playback through SDL_QueueAudio (not the N64 audio emulator) — same rationale as the MP3 path: mod files are standard PCM, ADPCM is for ROM SFX only
+- Used the existing SDL audio device (`dev`) already open in `audio.c` — no new device needed
+- Pitch parameter not yet supported (WAV resampling would require complex SRC work; deferred)
+- Used `SDL_FreeWAV = SDL_free` — both calls use the same allocator so ownership transfer is safe
+
+### Next Steps
+- Playtest: enable a mod that declares a `sound` override in its component `.ini`, trigger the sound in-game, verify the file plays instead of ROM SFX, and no crash on fallback when file is missing
+- Continue C-5 texture intercept and C-6 anim intercept
+
+---
+
 ## Session 78 -- 2026-03-29
 
 **Focus**: T-8 + T-9 — Stage table restore and texture cache flush on mod reload (D3e)
@@ -1727,3 +1767,44 @@ memory management. This is purely additive — no existing behavior changes.
 - Wire load state into mod manager UI (show loaded/active indicators)
 
 ---
+
+## Session S79 — 2026-03-29
+
+### Focus
+
+T-1 and T-2 from mod-system-features-and-todos.md (nice-to-have TODOs).
+
+### What Was Done
+
+1. **T-1: Map mode string parsing** (`port/src/assetcatalog_scanner.c`, `port/include/assetcatalog.h`)
+   - Added `MAP_MODE_MP`, `MAP_MODE_SOLO`, `MAP_MODE_COOP` bitmask constants to `assetcatalog.h`
+   - Added `parseModeString()` static helper in `assetcatalog_scanner.c` — parses pipe-separated
+     tokens ("mp|solo", "coop", etc.) into the bitmask
+   - Replaced `e->ext.map.mode = 0; /* TODO: parse mode string */` with
+     `e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));`
+
+2. **T-2: Weapon table coverage audit** (`port/src/assetcatalog_base.c`)
+   - Verified: active registration table in `assetcatalog_base_extended.c` covers all 47
+     MPWEAPON_* constants (0x01 FALCON2 through 0x2f SHIELD). Full coverage confirmed.
+   - MPWEAPON_NONE (0x00) and MPWEAPON_DISABLED (0x30) are sentinels, not real weapons —
+     correctly excluded.
+   - `s_BaseWeapons[]` in `assetcatalog_base.c` is dead code (37 entries, never iterated).
+     Updated its comment to clarify it is superseded; removed misleading TODO.
+
+### Decisions Made
+
+- MAP_MODE_* flags are bitmask (not enum) to allow combinations like `mp|solo`.
+- 0 means "no mode restriction specified" (same as before — callers treat 0 as "all modes").
+- Dead weapon table in base.c left in place (removal would be a separate clean-up task);
+  comment updated to prevent future confusion.
+
+### Build Status
+
+- Syntax-check (MinGW gcc -fsyntax-only): **PASS** on both modified .c files
+- Full cmake build: blocked by pre-existing `C:\WINDOWS\` temp-dir permission issue (unrelated
+  to these changes)
+
+### Next Steps
+
+- T-3 through T-5 (animation/texture/SFX enumeration) — marked Important in audit
+- T-10: size_bytes in mod manifest for download estimation
