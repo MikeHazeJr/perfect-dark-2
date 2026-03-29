@@ -39,6 +39,7 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/matchsetup.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
 #include "identity.h"
