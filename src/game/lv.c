@@ -102,6 +102,7 @@
 #include "video.h"
 #include "system.h"
 #include "assetcatalog_resolve.h"
+#include "assetcatalog_load.h"
 
 struct sndstate *g_MiscSfxAudioHandles[3];
 u32 var800aa5bc;
@@ -267,6 +268,40 @@ void lvReset(s32 stagenum)
 	// This gives the catalog's file resolver priority over the legacy mod system.
 	// For base game stages, this is a no-op (deactivates the resolver).
 	assetCatalogActivateStage(stagenum);
+
+	// C-9 / MEM-3: Stage transition diff — unload mod assets no longer needed,
+	// load mod assets required for the new stage.  Base-game (bundled) assets
+	// are never touched.  If no mod map entry exists for this stagenum the diff
+	// produces an empty toLoad list and unloads any lingering mod assets from the
+	// previous stage.
+	{
+#define STAGE_DIFF_MAX 64
+		const char *toLoad[STAGE_DIFF_MAX];
+		const char *toUnload[STAGE_DIFF_MAX];
+		s32 loadCount = 0;
+		s32 unloadCount = 0;
+
+		const struct asset_entry *modMap = assetCatalogFindModMapByStagenum(stagenum);
+		const char *stageAssetId = modMap ? modMap->id : NULL;
+
+		s32 diffTotal = catalogComputeStageDiff(stageAssetId,
+		                                        toLoad,  &loadCount,
+		                                        toUnload, &unloadCount,
+		                                        STAGE_DIFF_MAX);
+
+		if (diffTotal > 0) {
+			sysLogPrintf(LOG_NOTE,
+			             "CATALOG: stage 0x%02x diff — load:%d unload:%d",
+			             stagenum, loadCount, unloadCount);
+			for (s32 i = 0; i < unloadCount; i++) {
+				catalogUnloadAsset(toUnload[i]);
+			}
+			for (s32 i = 0; i < loadCount; i++) {
+				catalogLoadAsset(toLoad[i]);
+			}
+		}
+#undef STAGE_DIFF_MAX
+	}
 
 	// PC: When loading the Carrington Institute (main menu background) or title
 	// screen, suppress mod file overlay so CI props, textures, and setup files
