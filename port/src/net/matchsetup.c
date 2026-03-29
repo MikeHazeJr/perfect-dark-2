@@ -260,8 +260,13 @@ s32 matchStart(void)
 			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
-			cfg->mpheadnum = catalogGetSafeHead(ms->headnum);
-			cfg->mpbodynum = catalogGetSafeBody(ms->bodynum);
+			/* catalogGetSafeBodyPaired: if the body is invalid, picks a random base
+			 * game body and writes its paired head into safeHead, guaranteeing a
+			 * matched body+head pair.  If the body is valid, safeHead stays as the
+			 * player's chosen head and catalogGetSafeHead validates it normally. */
+			s32 safeHead = (s32)ms->headnum;
+			cfg->mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &safeHead);
+			cfg->mpheadnum = (u8)catalogGetSafeHead(safeHead);
 			cfg->team = ms->team;
 
 			/* Name: keep the first 14 chars + newline as PD expects */
@@ -279,8 +284,9 @@ s32 matchStart(void)
 			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
-			bot->base.mpheadnum = catalogGetSafeHead(ms->headnum);
-			bot->base.mpbodynum = catalogGetSafeBody(ms->bodynum);
+			s32 botSafeHead = (s32)ms->headnum;
+			bot->base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &botSafeHead);
+			bot->base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;

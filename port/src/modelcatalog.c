@@ -25,6 +25,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include "types.h"
@@ -555,6 +556,47 @@ s32 catalogGetSafeBody(s32 bodynum)
 		return CATALOG_FALLBACK_BODY;
 	}
 	return bodynum;
+}
+
+/* Find the mphead index (index into g_MpHeads) whose headnum field (g_HeadsAndBodies
+ * index) matches the given value.  Used to convert mpbody.headnum → mphead index
+ * so the caller can store it in mpchrconfig.mpheadnum.
+ * Returns CATALOG_FALLBACK_HEAD if no matching head is found. */
+static s32 catalogFindMpHeadByHeadnum(s16 headnum)
+{
+	s32 total = modmgrGetTotalHeads();
+	for (s32 i = 0; i < total; i++) {
+		struct mphead *h = modmgrGetHead(i);
+		if (h && h->headnum == headnum) {
+			return i;
+		}
+	}
+	return CATALOG_FALLBACK_HEAD;
+}
+
+s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
+{
+	s32 safeBody = catalogGetSafeBody(bodynum);
+
+	if (safeBody == bodynum) {
+		/* Body is valid — leave caller's head choice (*out_mpheadnum) unchanged */
+		return safeBody;
+	}
+
+	/* Body is invalid or missing — pick a random base game body and use its
+	 * built-in head pairing so we always get a matched body+head pair. */
+	s32 randMpBodyIdx = rand() % MODMGR_BASE_BODIES;
+	struct mpbody *b = modmgrGetBody(randMpBodyIdx);
+	s32 pairedHead = b ? catalogFindMpHeadByHeadnum(b->headnum) : CATALOG_FALLBACK_HEAD;
+
+	sysLogPrintf(LOG_WARNING,
+	             "MOD: body %d load failed, falling back to basegame body %d (head %d)",
+	             bodynum, randMpBodyIdx, pairedHead);
+
+	if (out_mpheadnum) {
+		*out_mpheadnum = pairedHead;
+	}
+	return randMpBodyIdx;
 }
 
 s32 catalogGetSafeHead(s32 headnum)

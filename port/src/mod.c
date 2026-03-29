@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "mod.h"
 #include "data.h"
+#include "assetcatalog_load.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -46,6 +47,20 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 		return -1;
 	}
 
+	/* C-5: catalog override takes priority over legacy textures/ directory.
+	 * catalogGetTextureOverride() returns a mod file path if a non-bundled
+	 * catalog entry overrides this texnum; NULL = no override, use legacy path. */
+	const char *catPath = catalogGetTextureOverride((s32)num);
+	if (catPath) {
+		const s32 ret = fsFileLoadTo(catPath, dst, dstSize);
+		if (ret > 0) {
+			sysLogPrintf(LOG_NOTE, "MOD: texture %d loaded from catalog: %s", (s32)num, catPath);
+			return ret;
+		}
+		sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
+		             (s32)num, catPath);
+	}
+
 	static s32 dirExists = -1;
 	if (dirExists < 0) {
 		dirExists = (fsFileSize(MOD_TEXTURES_DIR "/") >= 0);
@@ -60,7 +75,7 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 
 	const s32 ret = fsFileLoadTo(path, dst, dstSize);
 	if (ret > 0) {
-		sysLogPrintf(LOG_NOTE, "mod: loaded external texture %04x", num);
+		sysLogPrintf(LOG_NOTE, "MOD: texture %d loaded from legacy path", (s32)num);
 	}
 
 	return ret;
@@ -92,8 +107,22 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 
 void *modAnimationLoadData(u16 num)
 {
+	/* C-6: catalog override takes priority over legacy animations/ directory.
+	 * catalogGetAnimOverride() returns a mod file path if a non-bundled catalog
+	 * entry overrides this animnum; NULL = no override, use legacy path. */
+	const char *catPath = catalogGetAnimOverride((s32)num);
+	if (catPath) {
+		void *data = fsFileLoad(catPath, NULL);
+		if (data) {
+			sysLogPrintf(LOG_NOTE, "MOD: animation %d loaded from catalog: %s", (s32)num, catPath);
+			return data;
+		}
+		sysLogPrintf(LOG_WARNING, "MOD: animation %d catalog override failed (%s), falling back to legacy path",
+		             (s32)num, catPath);
+	}
+
+	/* Legacy path: load from animations/ directory */
 	char path[FS_MAXPATH + 1];
-	// load the animation data
 	snprintf(path, sizeof(path), MOD_ANIMATIONS_DIR "/%04x.bin", num);
 	void *data = fsFileLoad(path, NULL);
 	if (!data) {

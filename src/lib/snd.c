@@ -23,6 +23,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetcatalog_load.h"
 #include "preprocess.h"
 #include "mod.h"
 
@@ -2157,6 +2158,20 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	}
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
+
+	/* C-7: catalog override check — intercept point for mod audio replacement.
+	 * catalogGetSoundOverride() returns a mod file path if a non-bundled catalog
+	 * entry overrides this sound ID.  Actual file-based SFX playback is not yet
+	 * implemented; this is the wiring stub.  The log entry fires at most once per
+	 * unique sound ID (the catalog query is O(1) from the reverse-index array). */
+	{
+		const char *sndOverride = catalogGetSoundOverride((s32)sp40.id);
+		if (sndOverride) {
+			sysLogPrintf(LOG_NOTE, "MOD: sound %d override found: %s (file-based SFX TBD)",
+			             (s32)sp40.id, sndOverride);
+			/* TODO: play from file path when audio-from-file SFX support is added */
+		}
+	}
 
 	if (sp40.id == SFX_0037 || sp40.id == SFX_0009) {
 		return NULL;
