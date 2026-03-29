@@ -317,8 +317,9 @@ static const struct arenaNameOverride s_ArenaNameOverrides[] = {
 
 static const s32 s_NumArenaNameOverrides = sizeof(s_ArenaNameOverrides) / sizeof(s_ArenaNameOverrides[0]);
 
-/* Look up arena name: check override table first, then fall back to langGet() */
-static const char *arenaGetName(u16 textId)
+/* Look up arena name: check override table first, then fall back to langGet().
+ * Non-static: also used by pdgui_menu_room.cpp's catalogArenaCollect(). */
+const char *arenaGetName(u16 textId)
 {
     /* Check hardcoded overrides for the broken range */
     for (s32 i = 0; i < s_NumArenaNameOverrides; i++) {

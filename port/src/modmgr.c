@@ -24,6 +24,8 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
 #include "data.h"
+#include "game/stagetable.h"
+#include "video.h"
 
 /* Forward declaration — defined in src/lib/main.c */
 extern void mainChangeToStage(s32 stagenum);
@@ -92,6 +94,7 @@ static const char *g_BundledModIds[] = {
 
 static void modmgrScanDirectory(void);
 static bool modmgrParseModJson(modinfo_t *mod);
+static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static bool modmgrIsBundled(const char *id);
@@ -384,6 +387,199 @@ static bool modmgrParseModJson(modinfo_t *mod)
 }
 
 // ---------------------------------------------------------------------------
+// Mod content registration (D3b)
+// ---------------------------------------------------------------------------
+// Parses the mod.json "content" section and registers bodies, heads, and arenas
+// into the Asset Catalog. Called from modmgrLoadMod() for each enabled mod.
+//
+// Expected mod.json schema for each content type:
+//   "bodies":  [ { "id": "...", "bodynum": N, "name_langid": N, "headnum": N, "requirefeature": N }, ... ]
+//   "heads":   [ { "id": "...", "headnum": N, "requirefeature": N }, ... ]
+//   "arenas":  [ { "id": "...", "stagenum": N, "name_langid": N, "requirefeature": N }, ... ]
+//
+// Catalog IDs are built as "{modid}:{item_id}".
+// runtime_index is assigned sequentially starting after all currently registered
+// entries of that type (base game + any prior mod entries).
+// ---------------------------------------------------------------------------
+
+static void modmgrRegisterModJsonContent(modinfo_t *mod)
+{
+	if (!mod->has_modjson) return;
+	if (mod->num_bodies == 0 && mod->num_heads == 0 && mod->num_arenas == 0) return;
+
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	jparse_t j;
+	j.src = buf;
+	j.pos = buf;
+
+	// Determine starting runtime_index offsets — new entries slot in after
+	// all existing entries of each type (base game + prior mod registrations).
+	s32 body_start  = assetCatalogGetCountByType(ASSET_BODY);
+	s32 head_start  = assetCatalogGetCountByType(ASSET_HEAD);
+	s32 arena_start = assetCatalogGetCountByType(ASSET_ARENA);
+	s32 body_reg = 0, head_reg = 0, arena_reg = 0;
+
+	jtok_t tok = json_next(&j);
+	if (tok.type != JTOK_LBRACE) goto done;
+
+	// Scan top-level keys for "content"
+	while (1) {
+		tok = json_next(&j);
+		if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+		if (tok.type == JTOK_COMMA) continue;
+		if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+		jtok_t topkey = tok;
+		tok = json_next(&j); // colon
+		if (tok.type != JTOK_COLON) break;
+
+		if (!json_key_eq(&topkey, "content")) {
+			json_skip_value(&j);
+			continue;
+		}
+
+		// Parse "content" object
+		tok = json_next(&j);
+		if (tok.type != JTOK_LBRACE) break;
+
+		while (1) {
+			tok = json_next(&j);
+			if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+			if (tok.type == JTOK_COMMA) continue;
+			if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+			jtok_t ckey = tok;
+			tok = json_next(&j); // colon
+			if (tok.type != JTOK_COLON) break;
+
+			s32 is_bodies = json_key_eq(&ckey, "bodies");
+			s32 is_heads  = json_key_eq(&ckey, "heads");
+			s32 is_arenas = json_key_eq(&ckey, "arenas");
+
+			if (!is_bodies && !is_heads && !is_arenas) {
+				json_skip_value(&j);
+				continue;
+			}
+
+			// Expect array "["; if not, skip whatever value this is
+			tok = json_next(&j);
+			if (tok.type != JTOK_LBRACKET) {
+				// First token of value already consumed — skip compound values
+				if (tok.type == JTOK_LBRACE) {
+					s32 d = 1;
+					while (d > 0) {
+						tok = json_next(&j);
+						if (tok.type == JTOK_LBRACE)   d++;
+						else if (tok.type == JTOK_RBRACE) d--;
+						else if (tok.type == JTOK_EOF)    break;
+					}
+				}
+				// Primitives already consumed — nothing more to do
+				continue;
+			}
+
+			// Iterate array elements
+			while (1) {
+				tok = json_next(&j);
+				if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+				if (tok.type == JTOK_COMMA) continue;
+				if (tok.type != JTOK_LBRACE) continue; // unexpected; skip primitive
+
+				// Parse item object fields (common superset for all three types)
+				char id[CATALOG_ID_LEN] = "";
+				s32  bodynum_field      = -1; // "bodynum"  — body index
+				s32  headnum_field      = -1; // "headnum"  — head index (also body's default head)
+				s32  stagenum_field     = -1; // "stagenum" — arena stage ID
+				s32  name_langid        = 0;  // "name_langid"
+				s32  requirefeature     = 0;  // "requirefeature"
+
+				while (1) {
+					tok = json_next(&j);
+					if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+					if (tok.type == JTOK_COMMA) continue;
+					if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+					jtok_t fkey = tok;
+					tok = json_next(&j); // colon
+					if (tok.type != JTOK_COLON) break;
+
+					if (json_key_eq(&fkey, "id")) {
+						tok = json_next(&j);
+						json_tok_string(&tok, id, sizeof(id));
+					} else if (json_key_eq(&fkey, "bodynum")) {
+						tok = json_next(&j);
+						bodynum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "headnum")) {
+						tok = json_next(&j);
+						headnum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "stagenum")) {
+						tok = json_next(&j);
+						stagenum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "name_langid")) {
+						tok = json_next(&j);
+						name_langid = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "requirefeature")) {
+						tok = json_next(&j);
+						requirefeature = json_tok_int(&tok);
+					} else {
+						json_skip_value(&j); // unknown field
+					}
+				}
+
+				if (id[0] == '\0') continue; // no id — skip entry
+
+				char catid[CATALOG_ID_LEN];
+				snprintf(catid, sizeof(catid), "%s:%s", mod->id, id);
+
+				asset_entry_t *e = NULL;
+
+				if (is_bodies && bodynum_field >= 0) {
+					s16 defhead = (headnum_field >= 0) ? (s16)headnum_field : 0;
+					e = assetCatalogRegisterBody(catid, (s16)bodynum_field,
+					        (s16)name_langid, defhead, (u8)requirefeature);
+					if (e) { e->runtime_index = body_start + body_reg++; }
+				} else if (is_heads && headnum_field >= 0) {
+					e = assetCatalogRegisterHead(catid, (s16)headnum_field,
+					        (u8)requirefeature);
+					if (e) { e->runtime_index = head_start + head_reg++; }
+				} else if (is_arenas && stagenum_field >= 0) {
+					e = assetCatalogRegisterArena(catid, stagenum_field,
+					        (u8)requirefeature, name_langid);
+					if (e) { e->runtime_index = arena_start + arena_reg++; }
+				}
+
+				if (e) {
+					strncpy(e->category, mod->id, CATALOG_CATEGORY_LEN - 1);
+					e->bundled  = 0;
+					e->enabled  = 1;
+				}
+			}
+		}
+		break; // "content" processed; stop scanning top-level keys
+	}
+
+done:
+	if (body_reg || head_reg || arena_reg) {
+		sysLogPrintf(LOG_NOTE,
+		    "modmgr: '%s' content registered: %d bodies, %d heads, %d arenas",
+		    mod->id, body_reg, head_reg, arena_reg);
+	}
+	free(buf);
+}
+
+// ---------------------------------------------------------------------------
 // Bundled mod detection
 // ---------------------------------------------------------------------------
 
@@ -603,8 +799,9 @@ static void modmgrLoadMod(modinfo_t *mod)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
-	// TODO (D3b): Parse mod.json content sections for bodies, heads, arenas
-	// and register into catalog
+	// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
+	// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
+	modmgrRegisterModJsonContent(mod);
 
 	mod->loaded = true;
 }
@@ -615,7 +812,7 @@ static void modmgrUnloadAllMods(void)
 		g_ModRegistry[i].loaded = false;
 	}
 
-	// TODO (D3e): Restore pristine base stage table
+	stageTableReset();
 }
 
 // ---------------------------------------------------------------------------
@@ -732,7 +929,8 @@ void modmgrReload(void)
 	// Invalidate catalog-backed caches so accessors pick up new state
 	modmgrCatalogChanged();
 
-	// TODO (D3e): flush texture cache, return to title
+	videoResetTextureCache();
+	mainChangeToStage(MODMGR_STAGE_TITLE);
 }
 
 // ---------------------------------------------------------------------------
@@ -1219,5 +1417,4 @@ void modmgrCatalogChanged(void)
 
 const char *modmgrGetModsDir(void)
 {
-	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
-}
+	return g_ModsDirP

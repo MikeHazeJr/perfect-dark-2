@@ -155,6 +155,11 @@ const char *mpPlayerConfigGetName(s32 playernum);
 
 } /* extern "C" */
 
+/* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
+ * Checks a hardcoded override table before calling langGet() to work around
+ * the AIO mod language file returning wrong strings for IDs 0x5126-0x5152. */
+extern const char *arenaGetName(u16 textId);
+
 /* ========================================================================
  * Arena list — built from the asset catalog at room init.
  * Replaces the old hardcoded table: catalog is the single source of truth.
@@ -171,7 +176,7 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
     (void)userdata;
     if (s_NumArenas >= 256) return;
 
-    const char *name = langGet(e->ext.arena.name_langid);
+    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
     if (!name || !name[0]) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG: arena stagenum=0x%02x langid=0x%04x has no name, skipping",

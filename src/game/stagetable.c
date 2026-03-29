@@ -148,6 +148,24 @@ s32 stageTableAppend(const struct stagetableentry *entry)
 	return g_NumStages++;
 }
 
+/* Phase 2: Reset stage table to the pristine base-game state.
+ * Discards any mod-appended entries and re-copies s_StagesInit.
+ * Called by modmgrUnloadAllMods() before each mod reload cycle. */
+void stageTableReset(void)
+{
+	s32 count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	struct stagetableentry *newbuf = (struct stagetableentry *)realloc(
+		g_Stages, count * sizeof(struct stagetableentry));
+	if (!newbuf) {
+		sysLogPrintf(LOG_ERROR, "STAGE: stageTableReset realloc failed");
+		return;
+	}
+	g_Stages = newbuf;
+	memcpy(g_Stages, s_StagesInit, count * sizeof(struct stagetableentry));
+	g_NumStages = count;
+	sysLogPrintf(LOG_NOTE, "STAGE: table reset to %d base entries", g_NumStages);
+}
+
 struct stagetableentry *stageGetCurrent(void)
 {
 	s32 stagenum = g_Vars.stagenum;

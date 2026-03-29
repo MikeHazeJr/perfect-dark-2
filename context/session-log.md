@@ -3,6 +3,160 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 78 -- 2026-03-29
+
+**Focus**: T-8 + T-9 — Stage table restore and texture cache flush on mod reload (D3e)
+
+### What Was Done
+
+**T-8: `stageTableReset()` added to `src/game/stagetable.c`:**
+- New function truncates `g_Stages` back to the base count (from `s_StagesInit`) and re-memcpy's
+- Declared in `src/include/game/stagetable.h`
+- Called from `modmgrUnloadAllMods()` — replaces the D3e TODO comment
+- On reload, any mod-appended stage entries are discarded before fresh scan
+
+**T-9: Texture cache flush + title return added to `modmgrReload()`:**
+- `videoResetTextureCache()` called at end of modmgrReload() — clears all stale texrefs from fast3d's LRU
+- `mainChangeToStage(MODMGR_STAGE_TITLE)` called immediately after — forces clean load of title screen under new mod state
+- `#include "game/stagetable.h"` and `#include "video.h"` added to modmgr.c
+
+**Build**: `stagetable.c` and `modmgr.c` compile clean (individual file builds, exit 0).
+
+### Files Modified
+- `src/game/stagetable.c` — new `stageTableReset()` after `stageTableAppend()`
+- `src/include/game/stagetable.h` — declaration added
+- `port/src/modmgr.c` — two includes added; TODOs replaced with live calls
+
+### Decisions Made
+- Used `s_StagesInit` (the static base array) as the restore source — no snapshot needed, source of truth already exists
+- Used `videoResetTextureCache()` from `video.h` (the port's public C API for the fast3d cache) rather than calling `gfx_texture_cache_clear()` directly
+- Both T-8 and T-9 are now complete; D3e is fully closed
+
+### Next Steps
+- Playtest: enable a mod, disable it, re-enable — verify no stale textures or ghost stages
+- Continue T-7 playtest (mod.json body/head/arena catalog)
+- Continue C-5 tex intercept
+
+---
+
+## Session 77 -- 2026-03-29
+
+**Focus**: T-7 — Parse mod.json body/head/arena sections into catalog (D3b)
+
+### What Was Done
+
+**T-7 implemented — `modmgrRegisterModJsonContent()` added to `modmgr.c`:**
+
+- New static function `modmgrRegisterModJsonContent(modinfo_t *mod)` re-reads mod.json and parses the `content.bodies`, `content.heads`, and `content.arenas` arrays
+- For each item, calls `assetCatalogRegisterBody/Head/Arena()` with parsed fields; sets `category = mod->id`, `bundled = 0`, `enabled = 1`
+- `runtime_index` is computed as `assetCatalogGetCountByType(type)` + sequential offset — slots new entries after all existing base + prior mod entries
+- `modmgrLoadMod()` TODO (D3b) replaced with call to `modmgrRegisterModJsonContent()`
+- Forward declaration added in the forward-declarations section
+
+**mod.json content schema defined:**
+```json
+"bodies":  [ { "id": "...", "bodynum": N, "name_langid": N, "headnum": N, "requirefeature": N } ]
+"heads":   [ { "id": "...", "headnum": N, "requirefeature": N } ]
+"arenas":  [ { "id": "...", "stagenum": N, "name_langid": N, "requirefeature": N } ]
+```
+Catalog IDs are `"{modid}:{item_id}"`. Parser handles `0x`-prefixed hex values (existing json_tok_int uses `strtol(…,0)`).
+
+**Build**: `modmgr.c` compiles clean (individual file build, exit 0). Full parallel build blocked by pre-existing TEMP dir permission issue (same as S76).
+
+### Files Modified
+`port/src/modmgr.c` (new function + modmgrLoadMod wiring + forward decl)
+
+### Decisions Made
+- Re-parse mod.json at load time (not scan time) — scanning stays cheap; loading is where registration happens
+- Component-based content (maps, characters via `_components/` dirs) handled by `assetCatalogScanComponents()`; mod.json bodies/heads/arenas are the complementary path for assets declared by global index
+- `runtime_index` assignment: query catalog count before starting each type's loop, then increment local counter — avoids races and works correctly across multiple mods
+
+### Next Steps
+- Playtest: enable a mod with mod.json bodies/heads/arenas, verify they appear in character/arena pickers
+- Continue C-5 tex intercept (see S74 next steps)
+- B-49: get crash log from toilet/Carrington Institute scenario
+
+---
+
+## Session 76 -- 2026-03-29
+
+**Focus**: B-49 diagnostic logging — post-landing freeze investigation
+
+### What Was Done
+
+**B-49 instrumented — JUMP_DEBUG: logging added to `bwalkUpdateVertical()`:**
+
+All logging uses `LOG_NOTE` with a `JUMP_DEBUG:` prefix (filterable in log output).
+
+Checkpoints added (in order of execution on a landing tick):
+1. **NOCOLLISION branch entry** — logs `newManground`, `newVelY`, `isfalling` immediately when CDRESULT_NOCOLLISION is taken
+2. **COLLIDED branch** — logs `isfalling` cleared with `manground`/`ground` state
+3. **Landing block entry** (line ~1443) — logs `bdeltaY`, `manground`, `ground`, `floortype`, `floorflags`; fires whenever `bdeltapos.y < 0 && vv_manground <= vv_ground`
+4. **Landing sound block entry** — logs `bdeltaY`, `floortype`, `chr` pointer
+5. **footstepChooseSound (1st)** — before and after, with `footstep` and returned `sound` value
+6. **psCreate footstep1** — before and after
+7. **footstepChooseSound (2nd)** — before and after
+8. **psCreate footstep2** — before and after (conditional on sound != -1)
+9. **Landing grunt check** — logs `mplayerisrunning`, `headnum`, `fallframes`
+10. **psCreate landing grunt** — before and after (conditional)
+11. **Landing block complete** — before `bdeltapos.y = 0`
+12. **Pre-crouchloop** — logs `lvupdate240`, `crouchtime240`, `crouchfall` (confirms the 4-iter cap)
+13. **func0f065e74 entry** — logs old pos + new pos (room traversal — key suspect for movable-prop freeze)
+14. **func0f065e74 done** — immediately after return
+15. **Function complete** — logs final `manground`, `ground`, `bdeltaY`, `isfalling`
+
+Also fixed misleading log comment: `"JUMP_MOVE: ... result=%d (0=nocol)"` → `(1=nocol)` (CDRESULT_NOCOLLISION=1).
+
+Syntax check (`gcc -fsyntax-only`) passed clean.
+
+### Files Modified
+`src/game/bondwalk.c`
+
+### Decisions Made
+- Logging is unconditional (fires every relevant tick, not just on landing) — provides context even for non-landing ticks showing the grounded loop state
+- All casts use `(s32)` for enum/u8 fields to avoid format-string warnings
+
+### Next Steps
+- Reproduce B-49 (fall from vent in Felicity, or landing on toilet in Carrington Institute), filter log for `JUMP_DEBUG:`
+- The last `JUMP_DEBUG:` line before silence identifies the exact hang location
+- Key suspects: `psCreate` calls (sound system deadlock) vs `func0f065e74` (room traversal loop on movable prop)
+- If freeze is in `func0f065e74`: check whether player is in a room-0 or no-room state on landing; the toilet's room membership may confuse the traversal
+
+---
+
+## Session 75 -- 2026-03-29
+
+**Focus**: Arena picker garbled names (B-48 fixed) + Felicity freeze investigation (B-49)
+
+### What Was Done
+
+**B-48 fixed — arena picker garbled/duplicate names:**
+- Root cause: `catalogArenaCollect()` in `pdgui_menu_room.cpp` called `langGet(e->ext.arena.name_langid)` directly. For langids 0x5126–0x5152 (GoldenEye X, Bonus, Random arena groups), the AIO mod's runtime language file maps those IDs to old PerfectHead/Game Boy Camera UI strings (e.g., "Load A Saved Head" instead of "Frigate"). These returned non-empty garbage strings that passed the `!name[0]` filter and polluted the dropdown.
+- `pdgui_menu_matchsetup.cpp` already had `arenaGetName()` — a wrapper with a 43-entry override table for the broken range that falls back to `langGet()` for non-broken IDs.
+- Fix: removed `static` from `arenaGetName()` in `pdgui_menu_matchsetup.cpp`; added forward declaration in `pdgui_menu_room.cpp`; changed `catalogArenaCollect` to call `arenaGetName((u16)e->ext.arena.name_langid)`.
+- Both files pass syntax check (`-fsyntax-only`). Full build blocked by TEMP dir permission issue on this machine.
+
+**B-49 investigated — Felicity/toilet freeze:**
+- Log analyzed: freeze on Felicity (stagenum=0x43) after long fall from vent. Last log: `JUMP_MOVE: tryMove=-3.30 result=1` — result=1 = CDRESULT_NOCOLLISION (comment label was misleading).
+- **Important**: Felicity MP setup (mp_setupmp11.c) has NO toilets — only weapons and ammo crates. The toilet freeze described by user (landing on toilet in bathroom, Carrington Institute) is a SEPARATE scenario from this log.
+- Freeze point is within same tick as JUMP_MOVE NOCOLLISION, before next tick starts. After NOCOLLISION: `vv_manground=-480`, `bdeltapos.y=fallspeed` (negative) → landing block triggers → `psCreate` for landing sounds. `lvupdate240` capped at 4, no loop risk.
+- Cannot isolate exact hang point without debugger or more targeted logging. Registered as B-49.
+
+### Files Modified
+`port/fast3d/pdgui_menu_matchsetup.cpp` (removed `static` from `arenaGetName`),
+`port/fast3d/pdgui_menu_room.cpp` (forward decl + use `arenaGetName` in `catalogArenaCollect`)
+
+### Decisions Made
+- Arena name lookup uses `arenaGetName()` as single source of truth; no duplicate override table in room.cpp.
+- B-49 toilet/fall freeze: needs reproduction log from Carrington Institute (not Felicity) to investigate the toilet scenario specifically.
+
+### Next Steps
+- Test arena picker in-game to confirm names are correct (especially GEX arenas: Frigate, Archives, Bunker, etc.)
+- Get crash log from toilet scenario (Rit/Carrington Institute stage) for B-49
+- Continue C-5 tex intercept from S74 roadmap
+
+---
+
 ## Session 74 -- 2026-03-28
 
 **Focus**: Catalog activation — C-2-ext, catalogLoadInit, C-4 file intercept

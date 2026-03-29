@@ -25,6 +25,8 @@
 
 | Item | Status |
 |------|--------|
+| **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — `modmgrRegisterModJsonContent()` in `modmgr.c`. Needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
+| **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — `stageTableReset()` in stagetable.c + `videoResetTextureCache()` + `mainChangeToStage(TITLE)` in modmgrReload(). Needs playtest: toggle a mod on/off and confirm no stale stages or textures after reload. |
 | **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — `setup.c` dist check skips for official MP setups; `playerreset.c` B-19 fallback expanded to `normmplayerisrunning`. Needs build + Felicity playtest: watch for "populated N spawn points from pad file" log; player should spawn at valid pad not (0,0,0). |
 | **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — `g_AppQuitting` flag in system.h/c; `netDisconnect()` skips stage transitions; `netUpnpTeardown()` skips blocking HTTP on quit. Needs build + test: close window during match, should exit within 1 s. |
 | **Combat Sim scenario save/load** (S71) | **CODED (S71)** — `scenario_save.c/h` + UI in `pdgui_menu_room.cpp`. Save/Load buttons in Combat Sim tab. JSON in `$S/scenarios/`. Needs build + smoke test: Save Scenario → verify JSON; Load Scenario → verify config restored. Multi-human test: save 31-bot config, load into 4-human room → only 28 bots should populate. |
