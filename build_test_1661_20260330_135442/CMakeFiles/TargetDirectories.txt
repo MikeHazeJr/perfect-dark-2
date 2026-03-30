@@ -1,0 +1,5 @@
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442/CMakeFiles/pd_headers.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442/CMakeFiles/pd.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442/CMakeFiles/pd-server.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442/CMakeFiles/edit_cache.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442/CMakeFiles/rebuild_cache.dir

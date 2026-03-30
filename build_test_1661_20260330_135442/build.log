@@ -1,0 +1,1930 @@
+Perfect Dark PC Port — build log
+Date:       Mon, Mar 30, 2026  1:54:42 PM
+Target:     both
+Source dir: /c/Users/mikeh/Perfect-Dark-2/perfect_dark-mike
+Build dir:  /c/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442
+cmake:      C:/msys64/mingw64/bin/cmake.exe
+make:       C:/msys64/usr/bin/make.exe
+cc:         C:/msys64/mingw64/bin/cc.exe
+================================================================
+
+[CONFIGURE] Mon, Mar 30, 2026  1:54:42 PM
+Command: C:/msys64/mingw64/bin/cmake.exe -G "Unix Makefiles" \
+    -DCMAKE_MAKE_PROGRAM="C:/msys64/usr/bin/make.exe" \
+    -DCMAKE_C_COMPILER="C:/msys64/mingw64/bin/cc.exe" \
+    -B "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442" -S "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike"
+
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/msys64/mingw64/bin/cc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/msys64/mingw64/bin/c++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found PkgConfig: C:/msys64/mingw64/bin/pkg-config.exe (found version "2.5.1")
+-- Target arch: x86_64
+-- Target platform: x86_64-windows
+-- Version: ntsc-final, v0.0.11, hash 726ba7d, branch dev
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found SDL2: mingw32;C:/msys64/mingw64/lib/libSDL2main.a;C:/msys64/mingw64/lib/libSDL2.dll.a
+-- SDL2: Static linking via C:/msys64/mingw64/lib/libSDL2.a
+-- Found ZLIB: C:/msys64/mingw64/lib/libz.dll.a (found version "1.3.2")
+-- ZLIB: Static linking via C:/msys64/mingw64/lib/libz.a
+-- CURL: Static linking via C:/msys64/mingw64/lib/libcurl.a
+-- Configuring done (4.4s)
+-- Generating done (0.2s)
+-- Build files have been written to: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442
+
+[BUILD:client] Mon, Mar 30, 2026  1:54:47 PM
+Command: C:/msys64/mingw64/bin/cmake.exe --build "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442" --target pd -- -j24
+
+[  1%] Generating src/generated/ntsc-final/lang/ame.h
+[  1%] Generating src/generated/ntsc-final/lang/arch.h
+[  1%] Generating src/generated/ntsc-final/lang/ark.h
+[  1%] Generating src/generated/ntsc-final/lang/arec.h
+[  1%] Generating src/generated/ntsc-final/lang/ash.h
+[  1%] Generating src/generated/ntsc-final/lang/ate.h
+[  1%] Generating src/generated/ntsc-final/lang/cave.h
+[  1%] Generating src/generated/ntsc-final/lang/azt.h
+[  2%] Generating src/generated/ntsc-final/lang/cat.h
+[  2%] Generating src/generated/ntsc-final/lang/cryp.h
+[  2%] Generating src/generated/ntsc-final/lang/dam.h
+[  2%] Generating src/generated/ntsc-final/lang/crad.h
+[  2%] Generating src/generated/ntsc-final/lang/depo.h
+[  2%] Generating src/generated/ntsc-final/lang/dest.h
+[  3%] Generating src/generated/ntsc-final/lang/dish.h
+[  3%] Generating src/generated/ntsc-final/lang/eld.h
+[  3%] Generating src/generated/ntsc-final/lang/ear.h
+[  3%] Generating src/generated/ntsc-final/lang/gun.h
+[  3%] Generating src/generated/ntsc-final/lang/imp.h
+[  3%] Generating src/generated/ntsc-final/lang/jun.h
+[  3%] Generating src/generated/ntsc-final/lang/lam.h
+[  4%] Generating src/generated/ntsc-final/lang/lee.h
+[  4%] Generating src/generated/ntsc-final/lang/len.h
+[  4%] Generating src/generated/ntsc-final/lang/lip.h
+[  4%] Generating src/generated/ntsc-final/lang/lue.h
+[  4%] Generating src/generated/ntsc-final/lang/mp1.h
+[  4%] Generating src/generated/ntsc-final/lang/misc.h
+[  4%] Generating src/generated/ntsc-final/lang/mp10.h
+[  4%] Generating src/generated/ntsc-final/lang/mp12.h
+[  4%] Generating src/generated/ntsc-final/lang/mp13.h
+[  5%] Generating src/generated/ntsc-final/lang/mp11.h
+[  5%] Generating src/generated/ntsc-final/lang/mp14.h
+[  5%] Generating src/generated/ntsc-final/lang/mp15.h
+[  5%] Generating src/generated/ntsc-final/lang/mp16.h
+[  5%] Generating src/generated/ntsc-final/lang/mp17.h
+[  6%] Generating src/generated/ntsc-final/lang/mp18.h
+[  6%] Generating src/generated/ntsc-final/lang/mp19.h
+[  6%] Generating src/generated/ntsc-final/lang/mp20.h
+[  6%] Generating src/generated/ntsc-final/lang/mp4.h
+[  6%] Generating src/generated/ntsc-final/lang/mp2.h
+[  6%] Generating src/generated/ntsc-final/lang/mp3.h
+[  6%] Generating src/generated/ntsc-final/lang/mp5.h
+[  7%] Generating src/generated/ntsc-final/lang/mp6.h
+[  7%] Generating src/generated/ntsc-final/lang/mp7.h
+[  7%] Generating src/generated/ntsc-final/lang/mp8.h
+[  7%] Generating src/generated/ntsc-final/lang/mp9.h
+[  7%] Generating src/generated/ntsc-final/lang/mpweapons.h
+[  7%] Generating src/generated/ntsc-final/lang/mpmenu.h
+[  7%] Generating src/generated/ntsc-final/lang/oat.h
+[  8%] Generating src/generated/ntsc-final/lang/old.h
+[  8%] Generating src/generated/ntsc-final/lang/options.h
+[  8%] Generating src/generated/ntsc-final/lang/pam.h
+[  8%] Generating src/generated/ntsc-final/lang/pete.h
+[  8%] Generating src/generated/ntsc-final/lang/ref.h
+[  8%] Generating src/generated/ntsc-final/lang/propobj.h
+[  8%] Generating src/generated/ntsc-final/lang/rit.h
+[  9%] Generating src/generated/ntsc-final/lang/run.h
+[  9%] Generating src/generated/ntsc-final/lang/sev.h
+[  9%] Generating src/generated/ntsc-final/lang/sevb.h
+[  9%] Generating src/generated/ntsc-final/lang/sevx.h
+[  9%] Generating src/generated/ntsc-final/lang/sevxb.h
+[  9%] Generating src/generated/ntsc-final/lang/sho.h
+[  9%] Generating src/generated/ntsc-final/lang/silo.h
+[ 10%] Generating src/generated/ntsc-final/lang/stat.h
+[ 10%] Generating src/generated/ntsc-final/lang/tra.h
+[ 10%] Generating src/generated/ntsc-final/lang/title.h
+[ 10%] Generating src/generated/ntsc-final/lang/uff.h
+[ 10%] Generating src/generated/ntsc-final/lang/wax.h
+[ 10%] Generating src/generated/ntsc-final/pads/ame.h
+[ 10%] Generating src/generated/ntsc-final/pads/arch.h
+[ 11%] Generating src/generated/ntsc-final/pads/arec.h
+[ 11%] Generating src/generated/ntsc-final/pads/ark.h
+[ 11%] Generating src/generated/ntsc-final/pads/ash.h
+[ 11%] Generating src/generated/ntsc-final/pads/ate.h
+[ 11%] Generating src/generated/ntsc-final/pads/azt.h
+[ 11%] Generating src/generated/ntsc-final/pads/cat.h
+[ 11%] Generating src/generated/ntsc-final/pads/cave.h
+[ 12%] Generating src/generated/ntsc-final/pads/crad.h
+[ 12%] Generating src/generated/ntsc-final/pads/cryp.h
+[ 12%] Generating src/generated/ntsc-final/pads/dam.h
+[ 12%] Generating src/generated/ntsc-final/pads/depo.h
+[ 12%] Generating src/generated/ntsc-final/pads/dest.h
+[ 12%] Generating src/generated/ntsc-final/pads/dish.h
+[ 13%] Generating src/generated/ntsc-final/pads/ear.h
+[ 13%] Generating src/generated/ntsc-final/pads/eld.h
+[ 13%] Generating src/generated/ntsc-final/pads/imp.h
+[ 13%] Generating src/generated/ntsc-final/pads/jun.h
+[ 13%] Generating src/generated/ntsc-final/pads/lam.h
+[ 13%] Generating src/generated/ntsc-final/pads/lee.h
+[ 13%] Generating src/generated/ntsc-final/pads/len.h
+[ 15%] Generating src/generated/ntsc-final/pads/lip.h
+[ 15%] Generating src/generated/ntsc-final/pads/lue.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp1.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp10.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp11.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp12.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp13.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp14.h
+[ 15%] Generating src/generated/ntsc-final/pads/mp16.h
+[ 16%] Generating src/generated/ntsc-final/pads/mp15.h
+[ 16%] Generating src/generated/ntsc-final/pads/mp17.h
+[ 16%] Generating src/generated/ntsc-final/pads/mp18.h
+[ 16%] Generating src/generated/ntsc-final/pads/mp2.h
+[ 16%] Generating src/generated/ntsc-final/pads/mp19.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp20.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp3.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp4.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp5.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp6.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp7.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp8.h
+[ 17%] Generating src/generated/ntsc-final/pads/mp9.h
+[ 17%] Generating src/generated/ntsc-final/pads/old.h
+[ 17%] Generating src/generated/ntsc-final/pads/pam.h
+[ 18%] Generating src/generated/ntsc-final/pads/oat.h
+[ 18%] Generating src/generated/ntsc-final/pads/pete.h
+[ 18%] Generating src/generated/ntsc-final/pads/ref.h
+[ 18%] Generating src/generated/ntsc-final/pads/rit.h
+[ 18%] Generating src/generated/ntsc-final/pads/run.h
+[ 19%] Generating src/generated/ntsc-final/pads/sev.h
+[ 19%] Generating src/generated/ntsc-final/pads/sevb.h
+[ 19%] Generating src/generated/ntsc-final/pads/sho.h
+[ 19%] Generating src/generated/ntsc-final/pads/sevx.h
+[ 19%] Generating src/generated/ntsc-final/pads/silo.h
+[ 19%] Generating src/generated/ntsc-final/pads/stat.h
+[ 19%] Generating src/generated/ntsc-final/pads/tra.h
+[ 20%] Generating src/generated/ntsc-final/pads/uff.h
+[ 20%] Generating src/generated/ntsc-final/pads/wax.h
+[ 20%] Generating src/generated/ntsc-final/tiles/ame.h
+[ 20%] Generating src/generated/ntsc-final/tiles/arec.h
+[ 20%] Generating src/generated/ntsc-final/tiles/arch.h
+[ 21%] Generating src/generated/ntsc-final/tiles/ark.h
+[ 21%] Generating src/generated/ntsc-final/tiles/ash.h
+[ 21%] Generating src/generated/ntsc-final/tiles/ate.h
+[ 21%] Generating src/generated/ntsc-final/tiles/azt.h
+[ 21%] Generating src/generated/ntsc-final/tiles/cat.h
+[ 21%] Generating src/generated/ntsc-final/tiles/cave.h
+[ 21%] Generating src/generated/ntsc-final/tiles/crad.h
+[ 22%] Generating src/generated/ntsc-final/tiles/cryp.h
+[ 22%] Generating src/generated/ntsc-final/tiles/dam.h
+[ 22%] Generating src/generated/ntsc-final/tiles/depo.h
+[ 22%] Generating src/generated/ntsc-final/tiles/dest.h
+[ 22%] Generating src/generated/ntsc-final/tiles/dish.h
+[ 22%] Generating src/generated/ntsc-final/tiles/ear.h
+[ 22%] Generating src/generated/ntsc-final/tiles/eld.h
+[ 23%] Generating src/generated/ntsc-final/tiles/imp.h
+[ 23%] Generating src/generated/ntsc-final/tiles/jun.h
+[ 23%] Generating src/generated/ntsc-final/tiles/lam.h
+[ 23%] Generating src/generated/ntsc-final/tiles/lee.h
+[ 23%] Generating src/generated/ntsc-final/tiles/len.h
+[ 23%] Generating src/generated/ntsc-final/tiles/lip.h
+[ 23%] Generating src/generated/ntsc-final/tiles/lue.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp1.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp10.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp11.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp12.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp13.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp14.h
+[ 24%] Generating src/generated/ntsc-final/tiles/mp15.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp16.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp17.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp18.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp19.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp2.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp20.h
+[ 25%] Generating src/generated/ntsc-final/tiles/mp3.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp4.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp5.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp6.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp7.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp9.h
+[ 26%] Generating src/generated/ntsc-final/tiles/mp8.h
+[ 26%] Generating src/generated/ntsc-final/tiles/oat.h
+[ 27%] Generating src/generated/ntsc-final/tiles/old.h
+[ 27%] Generating src/generated/ntsc-final/tiles/pam.h
+[ 27%] Generating src/generated/ntsc-final/tiles/pete.h
+[ 27%] Generating src/generated/ntsc-final/tiles/ref.h
+[ 27%] Generating src/generated/ntsc-final/tiles/rit.h
+[ 27%] Generating src/generated/ntsc-final/tiles/sev.h
+[ 27%] Generating src/generated/ntsc-final/tiles/run.h
+[ 29%] Generating src/generated/ntsc-final/tiles/sevb.h
+[ 29%] Generating src/generated/ntsc-final/tiles/sevx.h
+[ 29%] Generating src/generated/ntsc-final/tiles/sho.h
+[ 29%] Generating src/generated/ntsc-final/tiles/silo.h
+[ 29%] Generating src/generated/ntsc-final/tiles/stat.h
+[ 29%] Generating src/generated/ntsc-final/tiles/uff.h
+[ 29%] Generating src/generated/ntsc-final/tiles/tra.h
+[ 30%] Generating src/generated/ntsc-final/tiles/wax.h
+[ 30%] Generating src/generated/ntsc-final/animations.h
+[ 30%] Generating src/generated/ntsc-final/sequences.h
+[ 30%] Generating src/generated/ntsc-final/textures.h
+[ 30%] Built target pd_headers
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/acosasin.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/acosfasinf.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/activemenu.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/activemenutick.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/artifact.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/game/bg.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bgbss.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/atan2f.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bodyinit.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/body.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bondbike.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bodyreset.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bondcutscene.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/game/bondeyespy.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondgrab.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondgun.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondgunstop.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondhead.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondgunreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c: In function 'bgRenderRoomPass':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3143:24: warning: comparison between pointer and integer
+ 3143 |                 if (v0 != NULL) {
+      |                        ^~
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondmove.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/game/bondheadreset.c.obj
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/bondview.c.obj
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/bondwalk.c.obj
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/bossfile.c.obj
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/bot.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/activemenu.c: In function 'amRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/activemenu.c:1427:76: warning: 'mpchrnum' may be used uninitialized [-Wmaybe-uninitialized]
+ 1427 |                                                 s32 botcmd = g_MpAllChrPtrs[mpchrnum]->aibot->command;
+      |                                                              ~~~~~~~~~~~~~~^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/activemenu.c:1249:13: note: 'mpchrnum' was declared here
+ 1249 |         s32 mpchrnum;
+      |             ^~~~~~~~
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/botcmd.c.obj
+[ 33%] Building C object CMakeFiles/pd.dir/src/game/botact.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgrab.c: In function 'bgrabCalculateNewPosition':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgrab.c:530:74: warning: 'rotextrasum' may be used uninitialized [-Wmaybe-uninitialized]
+  530 |                                 g_Vars.currentplayer->grabbedrotextrasum = rotextrasum;
+      |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgrab.c:328:13: note: 'rotextrasum' was declared here
+  328 |         f32 rotextrasum;
+      |             ^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgrab.c:526:71: warning: 'rotextra' may be used uninitialized [-Wmaybe-uninitialized]
+  526 |                                 g_Vars.currentplayer->grabbedrotextra = rotextra;
+      |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgrab.c:330:13: note: 'rotextra' was declared here
+  330 |         f32 rotextra;
+      |             ^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondeyespy.c: In function 'eyespyProcessInput':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondeyespy.c:1079:12: warning: 'spc4' may be used uninitialized [-Wmaybe-uninitialized]
+ 1079 |         if (spc4 == 0.0f) {
+      |            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondeyespy.c:696:13: note: 'spc4' was declared here
+  696 |         f32 spc4;
+      |             ^~~~
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/botinvinit.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/botinv.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c: In function 'bgTestHitOnObj':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3677:28: warning: 'intersectsbbox' may be used uninitialized [-Wmaybe-uninitialized]
+ 3677 |                         if (!intersectsbbox) {
+      |                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3544:14: note: 'intersectsbbox' was declared here
+ 3544 |         bool intersectsbbox;
+      |              ^~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3803:91: warning: 'vtx' may be used uninitialized [-Wmaybe-uninitialized]
+ 3803 |                                                                         hitthing->unk20 = &vtx[points[2]];
+      |                                                                                           ^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3552:14: note: 'vtx' was declared here
+ 3552 |         Vtx *vtx;
+      |              ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3828:66: warning: 'tri4gdl' may be used uninitialized [-Wmaybe-uninitialized]
+ 3828 |                                         points[2] = tri4gdl->tri4.z4;
+      |                                                     ~~~~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3558:14: note: 'tri4gdl' was declared here
+ 3558 |         Gfx *tri4gdl;
+      |              ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3806:89: warning: 'triref' may be used uninitialized [-Wmaybe-uninitialized]
+ 3806 |                                                                         hitthing->unk28 = triref;
+      |                                                                         ~~~~~~~~~~~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3542:13: note: 'triref' was declared here
+ 3542 |         s16 triref;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3813:46: warning: 'trisremaining' may be used uninitialized [-Wmaybe-uninitialized]
+ 3813 |                                 trisremaining--;
+      |                                 ~~~~~~~~~~~~~^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3543:13: note: 'trisremaining' was declared here
+ 3543 |         s32 trisremaining;
+      |             ^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c: In function 'bgTestHitOnChr':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3963:28: warning: 'intersectsbbox' may be used uninitialized [-Wmaybe-uninitialized]
+ 3963 |                         if (!intersectsbbox) {
+      |                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3845:14: note: 'intersectsbbox' was declared here
+ 3845 |         bool intersectsbbox;
+      |              ^~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4081:91: warning: 'vtx' may be used uninitialized [-Wmaybe-uninitialized]
+ 4081 |                                                                         hitthing->unk20 = &vtx[points[2]];
+      |                                                                                           ^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3854:14: note: 'vtx' was declared here
+ 3854 |         Vtx *vtx;
+      |              ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3906:33: warning: 'mtx' may be used uninitialized [-Wmaybe-uninitialized]
+ 3906 |                                 mtx4TransformVecInPlace(mtx, (struct coord *) ptr);
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3860:15: note: 'mtx' was declared here
+ 3860 |         Mtxf *mtx;
+      |               ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4106:66: warning: 'tri4gdl' may be used uninitialized [-Wmaybe-uninitialized]
+ 4106 |                                         points[2] = tri4gdl->tri4.z4;
+      |                                                     ~~~~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3859:14: note: 'tri4gdl' was declared here
+ 3859 |         Gfx *tri4gdl;
+      |              ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4084:89: warning: 'triref' may be used uninitialized [-Wmaybe-uninitialized]
+ 4084 |                                                                         hitthing->unk28 = triref;
+      |                                                                         ~~~~~~~~~~~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3843:13: note: 'triref' was declared here
+ 3843 |         s16 triref;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4091:34: warning: 'i' may be used uninitialized [-Wmaybe-uninitialized]
+ 4091 |                                 i--;
+      |                                 ~^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:3844:13: note: 'i' was declared here
+ 3844 |         s32 i;
+      |             ^
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/botroom.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/botmgr.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c: In function 'bgTestHitInVtxBatch':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4342:58: warning: 'tri4gdl' may be used uninitialized [-Wmaybe-uninitialized]
+ 4342 |                                 points[2] = tri4gdl->tri4.z4;
+      |                                             ~~~~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4142:14: note: 'tri4gdl' was declared here
+ 4142 |         Gfx *tri4gdl;
+      |              ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4311:113: warning: 'triref' may be used uninitialized [-Wmaybe-uninitialized]
+ 4311 |                                                                                                 hitthing->unk28 = triref;
+      |                                                                                                 ~~~~~~~~~~~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4121:13: note: 'triref' was declared here
+ 4121 |         s16 triref;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4323:38: warning: 'trisremaining' may be used uninitialized [-Wmaybe-uninitialized]
+ 4323 |                         trisremaining--;
+      |                         ~~~~~~~~~~~~~^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bg.c:4122:13: note: 'trisremaining' was declared here
+ 4122 |         s32 trisremaining;
+      |             ^~~~~~~~~~~~~
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/buildtime.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/camdraw.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/camera.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/game/casingreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondview.c: In function 'bviewDrawHorizonScanner':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondview.c:2424:37: warning: format '%s' expects argument of type 'char *', but argument 4 has type 'char (*)[3]' [-Wformat=]
+ 2424 |         sprintf(directiontext, "%s %s:%03d", arrows, &directions[(turnangle + 22) / 45], turnangle);
+      |                                    ~^                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                     |                |
+      |                                     char *           char (*)[3]
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/casingtick.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/challengeinit.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/challenge.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/ceil.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/cheats.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/chr.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/chraction.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c: In function 'bgunCreateThrownProjectile':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4669:53: warning: 'weapon' may be used uninitialized [-Wmaybe-uninitialized]
+ 4669 |                                 weapon->base.hidden |= OBJHFLAG_THROWNKNIFE;
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4483:27: note: 'weapon' was declared here
+ 4483 |         struct weaponobj *weapon;
+      |                           ^~~~~~
+[ 35%] Building C object CMakeFiles/pd.dir/src/game/chraicommands.c.obj
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/chrai.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/botinv.c: In function 'botinvSwitchToWeapon':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/botinv.c:1094:35: warning: 'item' may be used uninitialized [-Wmaybe-uninitialized]
+ 1094 |                 if (modelnum >= 0 && item && item->type == INVITEMTYPE_DUAL && chr->weapons_held[HAND_LEFT] == NULL) {
+      |                                   ^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/botinv.c:1018:25: note: 'item' was declared here
+ 1018 |         struct invitem *item;
+      |                         ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bot.c: In function 'botFindPickup':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bot.c:2278:52: warning: 'desiredsecammo' may be used uninitialized [-Wmaybe-uninitialized]
+ 2278 |                                                 if (qty < goal && ammoproplist[ammotype]) {
+      |                                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bot.c:2195:29: note: 'desiredsecammo' was declared here
+ 2195 |                         s32 desiredsecammo;
+      |                             ^~~~~~~~~~~~~~
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/chrmgr.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c: In function 'bgun0f0a5550':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:7787:42: warning: 'mtxallocation' may be used uninitialized [-Wmaybe-uninitialized]
+ 7787 |                 hand->handmodel.matrices = (Mtxf *)mtxallocation;
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:7570:13: note: 'mtxallocation' was declared here
+ 7570 |         u8 *mtxallocation;
+      |             ^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c: In function 'bgunRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:11065:62: warning: 'colour' may be used uninitialized [-Wmaybe-uninitialized]
+11065 |                                         renderdata.envcolour = colour;
+      |                                         ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:10998:21: note: 'colour' was declared here
+10998 |                 u32 colour; // e4
+      |                     ^~~~~~
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/chrmgrstop.c.obj
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/collisionutils.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c: In function 'func0f14e884':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2415:53: warning: 'sp5c' may be used uninitialized [-Wmaybe-uninitialized]
+ 2415 |         sp34 = (s64 *)(tconfig->textureptr + ((sp5c >> 3) + (numbytes >> 3)) * 8);
+      |                                               ~~~~~~^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2368:13: note: 'sp5c' was declared here
+ 2368 |         s32 sp5c;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2415:71: warning: 'numbytes' may be used uninitialized [-Wmaybe-uninitialized]
+ 2415 |         sp34 = (s64 *)(tconfig->textureptr + ((sp5c >> 3) + (numbytes >> 3)) * 8);
+      |                                                             ~~~~~~~~~~^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2369:13: note: 'numbytes' was declared here
+ 2369 |         s32 numbytes;
+      |             ^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2408:41: warning: 'bitsperpixel' may be used uninitialized [-Wmaybe-uninitialized]
+ 2408 |         sp40 = ((arg2 % pixelsperdword) * bitsperpixel);
+      |                ~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2370:13: note: 'bitsperpixel' was declared here
+ 2370 |         s32 bitsperpixel;
+      |             ^~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2408:23: warning: 'pixelsperdword' may be used uninitialized [-Wmaybe-uninitialized]
+ 2408 |         sp40 = ((arg2 % pixelsperdword) * bitsperpixel);
+      |                 ~~~~~~^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2372:13: note: 'pixelsperdword' was declared here
+ 2372 |         s32 pixelsperdword;
+      |             ^~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2416:33: warning: 'mask' may be used uninitialized [-Wmaybe-uninitialized]
+ 2416 |         *sp34 = (*sp34 & ~(mask << sp40)) + (arg3 << sp40);
+      |                           ~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/camdraw.c:2374:13: note: 'mask' was declared here
+ 2374 |         s64 mask;
+      |             ^~~~
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/credits.c.obj
+[ 36%] Building C object CMakeFiles/pd.dir/src/game/crc.c.obj
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/debug1.c.obj
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/debug2.c.obj
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/debug3.c.obj
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/dlights.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/cheats.c: In function 'cheatGetMarquee':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/cheats.c:696:78: warning: format '%s' expects argument of type 'char *', but argument 7 has type 'char (*)[256]' [-Wformat=]
+  696 |                                 sprintf(g_CheatMarqueeString, "%s %s: %s %s %s",
+      |                                                                             ~^
+      |                                                                              |
+      |                                                                              char *
+......
+  701 |                                                 &cheatname
+      |                                                 ~~~~~~~~~~                    
+      |                                                 |
+      |                                                 char (*)[256]
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/cheats.c:714:78: warning: format '%s' expects argument of type 'char *', but argument 7 has type 'char (*)[256]' [-Wformat=]
+  714 |                                 sprintf(g_CheatMarqueeString, "%s %s: %s %s %s %s %d:%02d %s %s",
+      |                                                                             ~^
+      |                                                                              |
+      |                                                                              char *
+......
+  719 |                                                 &difficultyname,
+      |                                                 ~~~~~~~~~~~~~~~               
+      |                                                 |
+      |                                                 char (*)[256]
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/cheats.c:714:95: warning: format '%s' expects argument of type 'char *', but argument 12 has type 'char (*)[256]' [-Wformat=]
+  714 |                                 sprintf(g_CheatMarqueeString, "%s %s: %s %s %s %s %d:%02d %s %s",
+      |                                                                                              ~^
+      |                                                                                               |
+      |                                                                                               char *
+......
+  724 |                                                 &cheatname
+      |                                                 ~~~~~~~~~~                                     
+      |                                                 |
+      |                                                 char (*)[256]
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrRunPosChooseAnimation':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2174:24: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2174 |                 flip = (bool)leftgun != false;
+      |                        ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2176:24: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2176 |                 flip = (bool)leftgun != false;
+      |                        ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrAttackStand':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2253:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2253 |                         flip = (bool)rightgun2 == false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2255:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2255 |                         firing[HAND_LEFT] = (bool)rightgun2 == false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2260:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2260 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2262:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2262 |                         firing[HAND_LEFT] = (bool)leftgun != false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2265:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2265 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2267:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2267 |                         firing[HAND_LEFT] = (bool)leftgun != false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrAttackKneel':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2323:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2323 |                         flip = (bool)rightgun2 == false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2325:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2325 |                         firing[HAND_LEFT] = (bool)rightgun2 == false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2330:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2330 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2332:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2332 |                         firing[HAND_LEFT] = (bool)leftgun != false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2335:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2335 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2337:45: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2337 |                         firing[HAND_LEFT] = (bool)leftgun != false;
+      |                                             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrAttackWalk':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2375:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2375 |                         flip = (bool)rightgun2 == false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2409:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2409 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2423:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2423 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrAttackRoll':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2556:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2556 |                         flip = (bool)rightgun2 == false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2563:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2563 |                         flip = (bool)leftgun != false;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:2568:32: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 2568 |                         flip = (bool)leftgun != false;
+      |                                ^
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/dyntex.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrGoPosChooseAnimation':
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/endscreen.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:5955:40: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 5955 |                                 flip = (bool)leftgun != false;
+      |                                        ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:5958:40: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 5958 |                                 flip = (bool)leftgun != false;
+      |                                        ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrPatrolChooseAnimation':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:6333:41: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 6333 |                                 flip = ((bool)leftprop != false);
+      |                                         ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:6336:41: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 6336 |                                 flip = ((bool)leftprop != false);
+      |                                         ^
+[ 37%] Building C object CMakeFiles/pd.dir/src/game/env.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/explosions.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/explosionsreset.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/explosionsstop.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/dlights.c: In function 'func0f005bb0':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/dlights.c:2075:70: warning: comparison between pointer and integer
+ 2075 |                         if (sndGetState(g_Vars.currentplayer->nvhum) != NULL) {
+      |                                                                      ^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/dlights.c:2081:75: warning: comparison between pointer and integer
+ 2081 |                         if (sndGetState(g_Vars.currentplayer->nvoverload) != NULL) {
+      |                                                                           ^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/credits.c: In function 'creditsDrawForegroundText':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/credits.c:1064:15: warning: 'widthscale' may be used uninitialized [-Wmaybe-uninitialized]
+ 1064 |         gdl = text0f1552d4(gdl, x, y, widthscale, heightscale, text, chars, font, colour, hdir, vdir);
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/credits.c:1024:13: note: 'widthscale' was declared here
+ 1024 |         f32 widthscale;
+      |             ^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/credits.c:1064:15: warning: 'heightscale' may be used uninitialized [-Wmaybe-uninitialized]
+ 1064 |         gdl = text0f1552d4(gdl, x, y, widthscale, heightscale, text, chars, font, colour, hdir, vdir);
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/credits.c:1025:13: note: 'heightscale' was declared here
+ 1025 |         f32 heightscale;
+      |             ^~~~~~~~~~~
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/file.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/filelist.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/floor.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/filemgr.c.obj
+[ 38%] Building C object CMakeFiles/pd.dir/src/game/footstep.c.obj
+[ 39%] Building C object CMakeFiles/pd.dir/src/game/gailists.c.obj
+[ 39%] Building C object CMakeFiles/pd.dir/src/game/fmb.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/dyntex.c: In function 'dyntexAddVertex':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/dyntex.c:314:58: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+  314 |         g_DyntexVertices[g_DyntexVerticesCount].offset = (u16)vertex;
+      |                                                          ^
+[ 39%] Building C object CMakeFiles/pd.dir/src/game/game_006900.c.obj
+[ 39%] Building C object CMakeFiles/pd.dir/src/game/game_00b820.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c: In function 'chrCalculateAutoAim':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:5060:70: warning: 'mtx1' may be used uninitialized [-Wmaybe-uninitialized]
+ 5060 |                                 arg1->y = mtx2->m[3][1] + (mtx1->m[3][1] - mtx2->m[3][1]) * 0.5f;
+      |                                                            ~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:5040:23: note: 'mtx1' was declared here
+ 5040 |                 Mtxf *mtx1;
+      |                       ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:5066:53: warning: 'mtx2' may be used uninitialized [-Wmaybe-uninitialized]
+ 5066 |                                 arg1->y = mtx2->m[3][1];
+      |                                           ~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:5041:23: note: 'mtx2' was declared here
+ 5041 |                 Mtxf *mtx2;
+      |                       ^~~~
+[ 39%] Building C object CMakeFiles/pd.dir/src/game/game_096360.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrChoke':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:4042:43: warning: 'playernum' may be used uninitialized [-Wmaybe-uninitialized]
+ 4042 |                         if (g_Vars.players[playernum]->chokehandle == NULL) {
+      |                             ~~~~~~~~~~~~~~^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:3811:13: note: 'playernum' was declared here
+ 3811 |         s32 playernum;
+      |             ^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraicommands.c: In function 'aiSetTarget':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraicommands.c:5925:20: warning: 'newtarget' may be used uninitialized [-Wmaybe-uninitialized]
+ 5925 |                 if (newtarget != g_Vars.chrdata->target) {
+      |                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraicommands.c:5916:21: note: 'newtarget' was declared here
+ 5916 |                 s16 newtarget;
+      |                     ^~~~~~~~~
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_096b20.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_096700.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_097a50.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c: In function 'chrRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:3466:68: warning: 'xrayalphafrac' may be used uninitialized [-Wmaybe-uninitialized]
+ 3466 |                         colour[g_Vars.currentplayer->epcol_1] = (1 - xrayalphafrac) * 255;
+      |                                                                 ~~~^~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chr.c:3324:13: note: 'xrayalphafrac' was declared here
+ 3324 |         f32 xrayalphafrac;
+      |             ^~~~~~~~~~~~~
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_0b0fd0.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_097aa0.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_152fa0.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_1531a0.c.obj
+[ 40%] Building C object CMakeFiles/pd.dir/src/game/game_0b2150.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrYeetFromPos':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:3677:46: warning: 'row' may be used uninitialized [-Wmaybe-uninitialized]
+ 3677 |                 chr->act_die.thudframe1 = row->thudframe;
+      |                                           ~~~^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:3618:26: note: 'row' was declared here
+ 3618 |         struct yeetanim *row;
+      |                          ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'robotSetMuzzleFlash':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:10935:12: warning: 'rwdata' may be used uninitialized [-Wmaybe-uninitialized]
+10935 |         if (rwdata) {
+      |            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:10920:28: note: 'rwdata' was declared here
+10920 |         union modelrwdata *rwdata;
+      |                            ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c: In function 'filemgrGetSelectName':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:217:59: warning: too many arguments for format [-Wformat-extra-args]
+  217 |                                 sprintf(tmpbuffer1 + pos, "%d:%02d", hours, minutes, seconds);
+      |                                                           ^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c: In function 'filemgrAttemptOperation':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:811:33: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+  811 |                                 (s32) g_Menus[g_MpPlayerNum].fm.unke44, device,
+      |                                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:833:33: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+  833 |                                 (s32) g_Menus[g_MpPlayerNum].fm.unke44,
+      |                                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c: In function 'pakGameNoteListMenuHandler':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:2281:44: warning: zero-length gnu_printf format string [-Wformat-zero-length]
+ 2281 |                         sprintf(extbuffer, "", tmpname, tmpext);
+      |                                            ^~
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/game_175f90.c.obj
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/game_1a78b0.c.obj
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/gamefile.c.obj
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/getitle.c.obj
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/getitlereset.c.obj
+[ 41%] Building C object CMakeFiles/pd.dir/src/game/gfxmemory.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/gunfx.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/gfxreplace.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrGetAngleFromTargetsFov':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:13975:16: warning: 'result' may be used uninitialized [-Wmaybe-uninitialized]
+13975 |         return result;
+      |                ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:13954:13: note: 'result' was declared here
+13954 |         f32 result;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c: In function 'filemgrSaveElsewhereYesMenuHandler':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:616:17: warning: 'filetype' may be used uninitialized [-Wmaybe-uninitialized]
+  616 |                 filemgrPushSelectLocationDialog(g_Menus[g_MpPlayerNum].fm.fileop + 9, filetype);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/filemgr.c:595:21: note: 'filetype' was declared here
+  595 |                 s32 filetype;
+      |                     ^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrGoToCoverProp':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7596:71: warning: 'startindex' may be used uninitialized [-Wmaybe-uninitialized]
+ 7596 |                         struct prop *prop = &g_Vars.props[propnums[(i + startindex) % numprops]];
+      |                                                                    ~~~^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7580:13: note: 'startindex' was declared here
+ 7580 |         s16 startindex;
+      |             ^~~~~~~~~~
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/gunfxreset.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/healthbar.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/hudmsg.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/inv.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/invitems.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/langinit.c.obj
+[ 43%] Building C object CMakeFiles/pd.dir/src/game/invreset.c.obj
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/lang.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrTryPunch':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7944:86: warning: 'animindex' may be used uninitialized [-Wmaybe-uninitialized]
+ 7944 |                 ok = chrTryStartAnim(chr, anims[animindex].animnum, startframe, anims[animindex].endframe, chranimflags, 16, 0.85f);
+      |                                                                                      ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7886:13: note: 'animindex' was declared here
+ 7886 |         s32 animindex;
+      |             ^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7954:49: warning: 'chrhitradius' may be used uninitialized [-Wmaybe-uninitialized]
+ 7954 |                         chr->act_anim.hitradius = chrhitradius;
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7888:13: note: 'chrhitradius' was declared here
+ 7888 |         s32 chrhitradius;
+      |             ^~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7944:22: warning: 'startframe' may be used uninitialized [-Wmaybe-uninitialized]
+ 7944 |                 ok = chrTryStartAnim(chr, anims[animindex].animnum, startframe, anims[animindex].endframe, chranimflags, 16, 0.85f);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:7890:13: note: 'startframe' was declared here
+ 7890 |         f32 startframe;
+      |             ^~~~~~~~~~
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/langreset.c.obj
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/langtick.c.obj
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/lv.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c: In function 'chrAssignCoverByCriteria':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:15657:58: warning: 'gotoprop' may be used uninitialized [-Wmaybe-uninitialized]
+15657 |                                                 sqdist = coordGetSquaredDistanceToCoord(&gotoprop->pos, cover.pos);
+      |                                                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/chraction.c:15595:22: note: 'gotoprop' was declared here
+15595 |         struct prop *gotoprop;
+      |                      ^~~~~~~~
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/mainmenu.c.obj
+[ 44%] Building C object CMakeFiles/pd.dir/src/game/menu.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/menugfx.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/menuitem.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/menustop.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/menutick.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/modeldata/basic.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/modeldata/casing.c.obj
+[ 45%] Building C object CMakeFiles/pd.dir/src/game/modeldata/chr.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/chrgun.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/classicgun.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/general.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/player.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mainmenu.c: In function 'menuhandlerAntiMainPlayer':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mainmenu.c:1601:24: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 1601 |                 return (s32) (labels[labelidx]);
+      |                        ^
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/robot.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/skedar.c.obj
+[ 46%] Building C object CMakeFiles/pd.dir/src/game/modeldata/skel06.c.obj
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldata/skel0a.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c: In function 'menuResolveParam2Text':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:523:24: warning: return discards 'const' qualifier from pointer target type [-Wdiscarded-qualifiers]
+  523 |                 return (const char *)item->param2;
+      |                        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c: In function 'menuResolveDialogTitle':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:531:24: warning: return discards 'const' qualifier from pointer target type [-Wdiscarded-qualifiers]
+  531 |                 return (const char *)dialogdef->title;
+      |                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c: In function 'menuCalculateItemSize':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:790:46: warning: assignment discards 'const' qualifier from pointer target type [-Wdiscarded-qualifiers]
+  790 |                                         text = (const char *)item->param3;
+      |                                              ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c: In function 'menuRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:5630:73: warning: format '%x' expects argument of type 'unsigned int', but argument 5 has type 'u64' {aka 'long long unsigned int'} [-Wformat=]
+ 5630 |                                         sprintf(text, "Server: %d/%d %04x", g_NetNumClients, g_NetMaxClients, g_MpSetup.chrslots);
+      |                                                                      ~~~^                                     ~~~~~~~~~~~~~~~~~~
+      |                                                                         |                                              |
+      |                                                                         unsigned int                                   u64 {aka long long unsigned int}
+      |                                                                      %04llx
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldata/skel0b.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c: In function 'menuitemListRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c:668:23: warning: 'sp128' may be used uninitialized [-Wmaybe-uninitialized]
+  668 |                 gdl = textRenderProjected(gdl, &x, &y, langGet(L_OPTIONS_313), chars, font, colour, context->width - left + context->x, viGetHeight(), sp128, 0);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c:217:13: note: 'sp128' was declared here
+  217 |         s32 sp128;
+      |             ^~~~~
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldata/uzi.c.obj
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldata/skel20.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c: In function 'menuitemObjectivesRenderOne':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c:1824:17: warning: 'spcc' may be used uninitialized [-Wmaybe-uninitialized]
+ 1824 |                 textMeasure(&textheight, &textwidth, spcc, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c:1730:15: note: 'spcc' was declared here
+ 1730 |         char *spcc;
+      |               ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menuitem.c:1731:13: warning: 'spc8' may be used uninitialized [-Wmaybe-uninitialized]
+ 1731 |         u32 spc8;
+      |             ^~~~
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldata/weapon.c.obj
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modeldef.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c: In function 'menuRenderModel':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:2229:45: warning: 'posx' may be used uninitialized [-Wmaybe-uninitialized]
+ 2229 |                         screenpos[0] = posx * g_ScaleX + viGetViewLeft() + viGetViewWidth() * 0.5f;
+      |                                        ~~~~~^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:1815:13: note: 'posx' was declared here
+ 1815 |         f32 posx;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:2230:45: warning: 'posy' may be used uninitialized [-Wmaybe-uninitialized]
+ 2230 |                         screenpos[1] = posy + viGetViewTop() + viGetViewHeight() * 0.5f;
+      |                                        ~~~~~^~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:1816:13: note: 'posy' was declared here
+ 1816 |         f32 posy;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:2221:38: warning: 'posz' may be used uninitialized [-Wmaybe-uninitialized]
+ 2221 |                 screenz[0] = -100.0f + posz;
+      |                              ~~~~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:1817:13: note: 'posz' was declared here
+ 1817 |         f32 posz;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:2293:25: warning: 'scale' may be used uninitialized [-Wmaybe-uninitialized]
+ 2293 |                         mtx00015f04(scale, &posmtx);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/menu.c:1818:13: note: 'scale' was declared here
+ 1818 |         f32 scale;
+      |             ^~~~~
+[ 47%] Building C object CMakeFiles/pd.dir/src/game/modelmgr.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/modelmgrreset.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mpconfigs.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mplayer/ingame.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mplayer/mpaicommands.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mplayer/mplayer.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mplayer/participant.c.obj
+[ 48%] Building C object CMakeFiles/pd.dir/src/game/mplayer/scenarios.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/mplayer/setup.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/modeldef.c: In function 'modeldef0f1a7560':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/modeldef.c:155:65: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  155 |                         modelNodeReplaceGdl(modeldef, prevnode, (Gfx *) s0, (Gfx *) s5);
+      |                                                                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/modeldef.c: In function 'modelPromoteTypeToPointer':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/modeldef.c:175:13: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+  175 |         if ((u32)modeldef->skel < 0x10000) {
+      |             ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/modeldef.c:177:29: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+  177 |                         if ((s16)modeldef->skel == g_Skeletons[i]->skel) {
+      |                             ^
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/mpstats.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/music.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/mtxf2lbulkasm_c.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/nbomb.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/objectives.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/objectivesreset.c.obj
+[ 49%] Building C object CMakeFiles/pd.dir/src/game/options.c.obj
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/objectivesstop.c.obj
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/pad.c.obj
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/padhalllv.c.obj
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/pak.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c: In function 'mpMenuTitleEditSimulant':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c:3484:36: warning: format '%s' expects argument of type 'char *', but argument 3 has type 'char (*)[15]' [-Wformat=]
+ 3484 |         sprintf(g_StringPointer, "%s", &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.name);
+      |                                   ~^   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                    |   |
+      |                                    |   char (*)[15]
+      |                                    char *
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c: In function 'menuhandlerMpNumberOfSimulants':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c:5615:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uintptr_t' {aka 'long long unsigned int'} [-Wformat=]
+ 5615 |                 sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
+      |                                           ~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                            |                          |
+      |                                            int                        uintptr_t {aka long long unsigned int}
+      |                                           %lld
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c: In function 'menuhandlerMpSimulantsPerTeam':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c:5641:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uintptr_t' {aka 'long long unsigned int'} [-Wformat=]
+ 5641 |                 sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
+      |                                           ~^     ~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                            |                          |
+      |                                            int                        uintptr_t {aka long long unsigned int}
+      |                                           %lld
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/pdmode.c.obj
+[ 50%] Building C object CMakeFiles/pd.dir/src/game/player.c.obj
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/playermgr.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c: In function 'mpPlayerSetDefaults':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:819:61: warning: iteration 6 invokes undefined behavior [-Waggressive-loop-optimizations]
+  819 |                 g_PlayerConfigsArray[playernum].gunfuncs[i] = 0;
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:818:23: note: within this loop
+  818 |         for (i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c: In function 'mpGetMpWeaponByLocation':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:1352:28: warning: 'mpweaponnum' may be used uninitialized [-Wmaybe-uninitialized]
+ 1352 |         return &g_MpWeapons[mpweaponnum];
+      |                 ~~~~~~~~~~~^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:1327:12: note: 'mpweaponnum' was declared here
+ 1327 |         u8 mpweaponnum;
+      |            ^~~~~~~~~~~
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/portal.c.obj
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/playerreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c: In function 'mpGetPlayerRankings':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:1101:29: warning: 'numteams' may be used uninitialized [-Wmaybe-uninitialized]
+ 1101 |                         s32 placement = numteams - 1;
+      |                             ^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/mplayer.c:1029:13: note: 'numteams' was declared here
+ 1029 |         s32 numteams;
+      |             ^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c: In function 'mpMedalMenuHandler':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c:1208:58: warning: 'colour' may be used uninitialized [-Wmaybe-uninitialized]
+ 1208 |                 colour = (colour & 0xffffff00) | (colour & 0xff) * (renderdata->colour & 0xff) >> 8;
+      |                                                  ~~~~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/mplayer/setup.c:1177:21: note: 'colour' was declared here
+ 1177 |                 u32 colour;
+      |                     ^~~~~~
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/portalconv_c.c.obj
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/prop.c.obj
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/propobjbss.c.obj
+[ 51%] Building C object CMakeFiles/pd.dir/src/game/propobj.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/propobjstop.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/propsnd.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/propsndreset.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/propsndstop.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/propsstop.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/proptick.c.obj
+[ 52%] Building C object CMakeFiles/pd.dir/src/game/quaternion.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/pak.c: In function 'gbpak0f11d680':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/pak.c:5178:13: warning: 'size' may be used uninitialized [-Wmaybe-uninitialized]
+ 5178 |         if (gbpakRead(device, addr, &g_Paks[device].unk2c4[offset], size) == 0) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/pak.c:5154:13: note: 'size' was declared here
+ 5154 |         u16 size;
+      |             ^~~~
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/raceinit.c.obj
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/race.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c: In function 'playerTickChrBody':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1723:50: warning: 'allocation' may be used uninitialized [-Wmaybe-uninitialized]
+ 1723 |                                 weaponmodeldef = modeldefLoad(g_ModelStates[weaponmodelnum].fileid, allocation + offset1, offset2 - offset1, &texpool);
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1428:21: note: 'allocation' was declared here
+ 1428 |                 u8 *allocation;
+      |                     ^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1723:50: warning: 'offset2' may be used uninitialized [-Wmaybe-uninitialized]
+ 1723 |                                 weaponmodeldef = modeldefLoad(g_ModelStates[weaponmodelnum].fileid, allocation + offset1, offset2 - offset1, &texpool);
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1430:21: note: 'offset2' was declared here
+ 1430 |                 s32 offset2;
+      |                     ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1731:25: warning: 'weaponobj' may be used uninitialized [-Wmaybe-uninitialized]
+ 1731 |                         weaponCreateForChr(chr, weaponmodelnum, weaponnum, 0, weaponobj, weaponmodeldef);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/player.c:1432:35: note: 'weaponobj' was declared here
+ 1432 |                 struct weaponobj *weaponobj;
+      |                                   ^~~~~~~~~
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/radar.c.obj
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/rng2_c.c.obj
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/room.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'func0f06bea0':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:3103:52: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+ 3103 |                                         vertices = (Vtx *)base;
+      |                                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/prop.c: In function 'func0f06438c':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/prop.c:2673:116: warning: 'sp48' may be used uninitialized [-Wmaybe-uninitialized]
+ 2673 |                                         result = 1 - (sp8c[0] - (camGetScreenLeft() + 0.5f * camGetScreenWidth())) / sp48;
+      |                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/prop.c:2564:13: note: 'sp48' was declared here
+ 2564 |         f32 sp48;
+      |             ^~~~
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/roomreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'doorTick':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:7762:28: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 7762 |                 u32 addr = (u32)doorprop;
+      |                            ^
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/roomtick.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'tvscreenSetTexture':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:12231:27: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+12231 |         screen->tconfig = (struct textureconfig *)texturenum;
+      |                           ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'tvscreenRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13333:60: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+13333 |                                 tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
+      |                                                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13337:68: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+13337 |                                         tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
+      |                                                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13467:21: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+13467 |                 if ((u32)screen->tconfig < 100) {
+      |                     ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13468:55: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+13468 |                         tconfig = &g_TexScreenConfigs[(s32)screen->tconfig];
+      |                                                       ^
+[ 53%] Building C object CMakeFiles/pd.dir/src/game/setup.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/savebuffer.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/setupcover.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/setuputils.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/setuppads.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/setupwaypoints.c.obj
+[ 54%] Building C object CMakeFiles/pd.dir/src/game/shards.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/shardsreset.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/shardsstop.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/sight.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/shardstick.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/sky.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/setuputils.c: In function 'setupGetCmdIndexByProp':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/setuputils.c:143:29: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  143 |                         if ((struct prop *)cmd[5] == prop) {
+      |                             ^
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/skyreset.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/skytick.c.obj
+[ 55%] Building C object CMakeFiles/pd.dir/src/game/smokeinit.c.obj
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/smoke.c.obj
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/smokereset.c.obj
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/smokestop.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c: In function 'shardsRenderWood':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c:291:86: warning: 'xraydist' may be used uninitialized [-Wmaybe-uninitialized]
+  291 |                                                                 colours[j].g = (1.0f - xraydist) * 255.0f;
+      |                                                                                ~~~~~~^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c:233:37: note: 'xraydist' was declared here
+  233 |                                 f32 xraydist;
+      |                                     ^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c: In function 'shardsRenderGlass':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c:413:86: warning: 'xraydist' may be used uninitialized [-Wmaybe-uninitialized]
+  413 |                                                                 colours[j].g = (1.0f - xraydist) * 255.0f;
+      |                                                                                ~~~~~~^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/shards.c:355:37: note: 'xraydist' was declared here
+  355 |                                 f32 xraydist;
+      |                                     ^~~~~~~~
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/sparks.c.obj
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/sparkstick.c.obj
+[ 56%] Building C object CMakeFiles/pd.dir/src/game/sparksreset.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/splat.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stagemusic.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stagetable.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000840.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stars.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sight.c: In function 'sightDrawSkedar':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sight.c:1148:65: warning: 'frac' may be used uninitialized [-Wmaybe-uninitialized]
+ 1148 |                         triy1 = (y - viewbottom + paddingy + 2) * frac + viewbottom - paddingy;
+      |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sight.c:1067:13: note: 'frac' was declared here
+ 1067 |         f32 frac;
+      |             ^~~~
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000850.c.obj
+[ 58%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000860.c.obj
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000870.c.obj
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_0008e0.c.obj
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_0008f0.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sparks.c: In function 'sparksRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sparks.c:405:101: warning: 'sp13c' may be used uninitialized [-Wmaybe-uninitialized]
+  405 |                                                 v1 = ((u32) (sp13c * 255.0f) << 24) | ((u32) ((1.0f - sp13c) * 255.0f) << 16);
+      |                                                                                               ~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/sparks.c:316:13: note: 'sp13c' was declared here
+  316 |         f32 sp13c;
+      |             ^~~~~
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000900.c.obj
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_000910.c.obj
+[ 59%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_00b180.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/splat.c: In function 'splat0f14986c':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/splat.c:463:14: warning: 'sp9c' may be used uninitialized [-Wmaybe-uninitialized]
+  463 |         spa0 = var8007f8a0 * distance * sp9c;
+      |         ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/splat.c:415:13: note: 'sp9c' was declared here
+  415 |         f32 sp9c;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c: In function 'starsReset':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:180:44: warning: 'spc0' may be used uninitialized [-Wmaybe-uninitialized]
+  180 |                                 v0 = (spc0 + 1) / 2 * g_StarGridSize;
+      |                                      ~~~~~~^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:104:13: note: 'spc0' was declared here
+  104 |         f32 spc0;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:181:44: warning: 'spbc' may be used uninitialized [-Wmaybe-uninitialized]
+  181 |                                 v1 = (spbc + 1) / 2 * g_StarGridSize;
+      |                                      ~~~~~~^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:105:13: note: 'spbc' was declared here
+  105 |         f32 spbc;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:193:49: warning: 'spb0' may be used uninitialized [-Wmaybe-uninitialized]
+  193 |                                 starInsert(spb0 * tmp1 + tmp2, &spd4);
+      |                                            ~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/stars.c:108:13: note: 'spb0' was declared here
+  108 |         s32 spb0;
+      |             ^~~~
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_013540.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_00b200.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_015260.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_015270.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_0153f0.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_015400.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_015410.c.obj
+[ 60%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_102230.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_11eff0.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_175f50.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/surfacereset.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/stubs/game_176000.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/tex.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/texinit.c.obj
+[ 61%] Building C object CMakeFiles/pd.dir/src/game/texdecompress.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/texreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'objRender':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13974:63: warning: 'xrayalphafrac' may be used uninitialized [-Wmaybe-uninitialized]
+13974 |                 colour[g_Vars.currentplayer->epcol_1] = (1.0f - xrayalphafrac) * 255.0f;
+      |                                                         ~~~~~~^~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:13808:13: note: 'xrayalphafrac' was declared here
+13808 |         f32 xrayalphafrac;
+      |             ^~~~~~~~~~~~~
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/timing.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/texselect.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/tilesreset.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/titleclear.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/title.c.obj
+[ 62%] Building C object CMakeFiles/pd.dir/src/game/titleinit.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/titlereset.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/training.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/varsreset.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/trainingmenus.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/utils.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texAlignIndices':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:343:42: warning: 'indicesperbyte' may be used uninitialized [-Wmaybe-uninitialized]
+  343 |                 for (x = 0; x < width; x += indicesperbyte) {
+      |                                        ~~^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:334:13: note: 'indicesperbyte' was declared here
+  334 |         s32 indicesperbyte;
+      |             ^~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c: In function 'texSelect':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:496:41: warning: 'lutmode' may be used uninitialized [-Wmaybe-uninitialized]
+  496 |                                         switch (lutmode) {
+      |                                         ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:434:29: note: 'lutmode' was declared here
+  434 |                         s32 lutmode;
+      |                             ^~~~~~~
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/ultra64.h:31,
+                 from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:1:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/mbi.h:48:23: warning: 'line' may be used uninitialized [-Wmaybe-uninitialized]
+   48 |     ((unsigned int) (((unsigned int)(v) & ((0x01 << (w)) - 1)) << (s)))
+      |                       ^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/gbi.h:2646:27: note: in expansion of macro '_SHIFTL'
+ 2646 |     _SHIFTL(siz, 19, 2) | _SHIFTL(line, 9, 9) |                      \
+      |                           ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:576:41: note: in expansion of macro 'gDPSetTile'
+  576 |                                         gDPSetTile(gdl++, format, depth, line, tmem, tile, 0,
+      |                                         ^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:541:37: note: 'line' was declared here
+  541 |                                 s32 line;
+      |                                     ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:378:41: warning: 'lutmode' may be used uninitialized [-Wmaybe-uninitialized]
+  378 |                                         switch (lutmode) {
+      |                                         ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:277:21: note: 'lutmode' was declared here
+  277 |                 s32 lutmode;
+      |                     ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:392:28: warning: 'depth2' may be used uninitialized [-Wmaybe-uninitialized]
+  392 |                         if (depth2 == G_IM_SIZ_16b) {
+      |                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:278:21: note: 'depth2' was declared here
+  278 |                 s32 depth2;
+      |                     ^~~~~~
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/mbi.h:63:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/gbi.h:2682:60: warning: 'lrs' may be used uninitialized [-Wmaybe-uninitialized]
+ 2681 |     _g->words.w1 = (_SHIFTL(tile, 24, 3) |                   \
+      |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2682 |             _SHIFTL((MIN(lrs,G_TX_LDBLK_MAX_TXL)), 12, 12) | \
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~
+ 2683 |             _SHIFTL(dxt, 0, 12));                            \
+      |             ~~~~~~~~~~~~~~~~~~~~                            
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:398:33: note: in expansion of macro 'gDPLoadBlock'
+  398 |                                 gDPLoadBlock(gdl++, 5, 0, 0, lrs, 0);
+      |                                 ^~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:279:21: note: 'lrs' was declared here
+  279 |                 s32 lrs;
+      |                     ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/mbi.h:48:23: warning: 'line' may be used uninitialized [-Wmaybe-uninitialized]
+   48 |     ((unsigned int) (((unsigned int)(v) & ((0x01 << (w)) - 1)) << (s)))
+      |                       ^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/include/PR/gbi.h:2646:27: note: in expansion of macro '_SHIFTL'
+ 2646 |     _SHIFTL(siz, 19, 2) | _SHIFTL(line, 9, 9) |                      \
+      |                           ^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:423:33: note: in expansion of macro 'gDPSetTile'
+  423 |                                 gDPSetTile(gdl++, format, depth, line, 0x0000, G_TX_RENDERTILE, 0,
+      |                                 ^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texselect.c:280:21: note: 'line' was declared here
+  280 |                 s32 line;
+      |                     ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texShrinkPaletted':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:527:39: warning: 'alignedsrcwidth' may be used uninitialized [-Wmaybe-uninitialized]
+  527 |                         for (j = 0; j < alignedsrcwidth; j += 2) {
+      |                                     ~~^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:452:13: note: 'alignedsrcwidth' was declared here
+  452 |         s32 alignedsrcwidth;
+      |             ^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:545:34: warning: 'aligneddstwidth' may be used uninitialized [-Wmaybe-uninitialized]
+  545 |                 return dstheight * aligneddstwidth;
+      |                        ~~~~~~~~~~^~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:453:13: note: 'aligneddstwidth' was declared here
+  453 |         s32 aligneddstwidth;
+      |             ^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'chopperTickCombat':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:10489:20: warning: 'sp90' may be used uninitialized [-Wmaybe-uninitialized]
+10489 |                 if (sp8c != sp90) {
+      |                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:10440:13: note: 'sp90' was declared here
+10440 |         s32 sp90;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:10489:20: warning: 'sp8c' may be used uninitialized [-Wmaybe-uninitialized]
+10489 |                 if (sp8c != sp90) {
+      |                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:10441:13: note: 'sp8c' was declared here
+10441 |         s32 sp8c;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c: In function 'objTickPlayer':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11404:36: warning: 'sp148' may be used uninitialized [-Wmaybe-uninitialized]
+11404 |                                 if (sp148 <= sp144) {
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11332:29: note: 'sp148' was declared here
+11332 |                         s32 sp148;
+      |                             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11404:36: warning: 'sp144' may be used uninitialized [-Wmaybe-uninitialized]
+11404 |                                 if (sp148 <= sp144) {
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11333:29: note: 'sp144' was declared here
+11333 |                         s32 sp144;
+      |                             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11406:69: warning: 'sp112' may be used uninitialized [-Wmaybe-uninitialized]
+11405 |                                         prop->pos.y = cdFindGroundAtCyl(&prop->pos, 5, prop->rooms, &obj->floorcol, NULL)
+      |                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+11406 |                                                 + func0f06a620(obj) + sp112;
+      |                                                 ~~~~~~~~~~~~~~~~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/propobj.c:11337:29: note: 'sp112' was declared here
+11337 |                         f32 sp112;
+      |                             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texInflateZlib':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:272:49: warning: 'width' may be used uninitialized [-Wmaybe-uninitialized]
+  272 |                                 imagebytesout = texShrinkPaletted(lodsrc, loddst, tmpwidth, tmpheight, format, palette, numcolours);
+      |                                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:155:13: note: 'width' was declared here
+  155 |         s32 width;
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:272:49: warning: 'height' may be used uninitialized [-Wmaybe-uninitialized]
+  272 |                                 imagebytesout = texShrinkPaletted(lodsrc, loddst, tmpwidth, tmpheight, format, palette, numcolours);
+      |                                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:156:13: note: 'height' was declared here
+  156 |         s32 height;
+      |             ^~~~~~
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/vtxstore.c.obj
+[ 63%] Building C object CMakeFiles/pd.dir/src/game/vmstats.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texShrinkNonPaletted':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1098:54: warning: 'br8' may be used uninitialized [-Wmaybe-uninitialized]
+ 1098 |                                 c = (tl8 + tr8 + bl8 + br8 + 2) >> 2;
+      |                                      ~~~~~~~~~~~~~~~~^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:917:12: note: 'br8' was declared here
+  917 |         u8 br8;
+      |            ^~~
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/vtxstorereset.c.obj
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/wallhit.c.obj
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/wallhitreset.c.obj
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/weather.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texInflateLookupFromBuffer':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1864:30: warning: 'src8' may be used uninitialized [-Wmaybe-uninitialized]
+ 1864 |                         src8 += width;
+      |                         ~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1791:13: note: 'src8' was declared here
+ 1791 |         u8 *src8;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1865:31: warning: 'src16' may be used uninitialized [-Wmaybe-uninitialized]
+ 1865 |                         src16 += width;
+      |                         ~~~~~~^~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1792:14: note: 'src16' was declared here
+ 1792 |         u16 *src16;
+      |              ^~~~~
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/weatherreset.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texSwizzleInternal':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:2011:13: warning: 'wordsperrow' may be used uninitialized [-Wmaybe-uninitialized]
+ 2011 |         row += wordsperrow;
+      |             ^~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:1982:13: note: 'wordsperrow' was declared here
+ 1982 |         s32 wordsperrow;
+      |             ^~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texInflateNonZlib':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:857:49: warning: 'format' may be used uninitialized [-Wmaybe-uninitialized]
+  857 |                                 imagebytesout = texShrinkNonPaletted(lodsrc, loddst, tmpwidth, tmpheight, format);
+      |                                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:698:13: note: 'format' was declared here
+  698 |         s32 format;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:863:54: warning: 'width' may be used uninitialized [-Wmaybe-uninitialized]
+  863 |                                 tmpwidth = (tmpwidth + 1) >> 1;
+      |                                            ~~~~~~~~~~^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:692:13: note: 'width' was declared here
+  692 |         s32 width;
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:864:56: warning: 'height' may be used uninitialized [-Wmaybe-uninitialized]
+  864 |                                 tmpheight = (tmpheight + 1) >> 1;
+      |                                             ~~~~~~~~~~~^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:693:13: note: 'height' was declared here
+  693 |         s32 height;
+      |             ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:818:48: warning: 'imagebytesout' may be used uninitialized [-Wmaybe-uninitialized]
+  818 |                 imagebytesout = (imagebytesout + 7) & ~7;
+      |                                 ~~~~~~~~~~~~~~~^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:697:13: note: 'imagebytesout' was declared here
+  697 |         s32 imagebytesout;
+      |             ^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c: In function 'func0f1779f0':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:421:18: warning: 'stack' is used uninitialized [-Wuninitialized]
+  421 |         if (stack[0]) {
+      |             ~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:419:13: note: 'stack' declared here
+  419 |         u32 stack[2];
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c: In function 'func0f177a14':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:435:18: warning: 'stack' is used uninitialized [-Wuninitialized]
+  435 |         if (stack[0]) {
+      |             ~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:433:13: note: 'stack' declared here
+  433 |         u32 stack[2];
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c: In function 'func0f177a38':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:449:18: warning: 'stack' is used uninitialized [-Wuninitialized]
+  449 |         if (stack[0]) {
+      |             ~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/utils.c:447:13: note: 'stack' declared here
+  447 |         u32 stack[2];
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c: In function 'texLoad':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:2344:36: warning: 'tail' may be used uninitialized [-Wmaybe-uninitialized]
+ 2344 |                                 if (tail != NULL) {
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/texdecompress.c:2208:21: note: 'tail' was declared here
+ 2208 |         struct tex *tail;
+      |                     ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c: In function 'frLoadData':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c:1068:27: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 1068 |                 s32 len = (s32) REF_SEG _firingrangeSegmentRomEnd - (s32) REF_SEG _firingrangeSegmentRomStart;
+      |                           ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c:1068:69: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+ 1068 |                 s32 len = (s32) REF_SEG _firingrangeSegmentRomEnd - (s32) REF_SEG _firingrangeSegmentRomStart;
+      |                                                                     ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c: In function 'frGetGoalScoreText':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c:3391:33: warning: zero-length gnu_printf format string [-Wformat-zero-length]
+ 3391 |                 sprintf(buffer, "");
+      |                                 ^~
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/weathertick.c.obj
+[ 64%] Building C object CMakeFiles/pd.dir/src/game/zbuf.c.obj
+[ 64%] Building C object CMakeFiles/pd.dir/port/external/minimp3.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/enet.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/addr_is_reserved.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c: In function 'frExecuteWeaponScript':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c:741:44: warning: 'start' may be used uninitialized [-Wmaybe-uninitialized]
+  741 |                                         if (subscript[i] == start) {
+      |                                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/training.c:619:21: note: 'start' was declared here
+  619 |                 s32 start;
+      |                     ^~~~~
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/connecthostport.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/igd_desc_parse.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/minisoap.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/minissdpc.c.obj
+[ 65%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/miniupnpc.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/miniwget.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/minixml.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/portlistingparse.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/receivedata.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/upnpcommands.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/upnpdev.c.obj
+[ 66%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/upnperrors.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/external/miniupnpc/src/upnpreplyparse.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/fast3d/glad/glad.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/fast3d/pdgui_bridge.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/fast3d/pdgui_charpreview.c.obj
+[ 67%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_base.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_bridge.c:9:44: warning: '/*' within comment [-Wcomment]
+    9 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 67%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_base_extended.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/assetcatalog_base.c:17:39: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_charpreview.c:12:44: warning: '/*' within comment [-Wcomment]
+   12 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_cache.c.obj
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_load.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/assetcatalog_base_extended.c:14:39: warning: '/*' within comment [-Wcomment]
+   14 |  * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_resolve.c.obj
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/assetcatalog_scanner.c.obj
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/audio.c.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_charpreview.c:27:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:13:9: warning: 'bool' redefined
+   13 | #define bool s32
+      |         ^~~~
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/gfx_api.h:6,
+                 from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_charpreview.c:23:
+C:/msys64/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/stdbool.h:36:9: note: this is the location of the previous definition
+   36 | #define bool    _Bool
+      |         ^~~~
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/botvariant.c.obj
+[ 68%] Building C object CMakeFiles/pd.dir/port/src/config.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/botvariant.c:14:54: warning: '/*' within comment [-Wcomment]
+   14 |  * Auto-discovered by CMake GLOB_RECURSE for port/src/*.c.
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/connectcode.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/console.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/crash.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/fs.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/hub.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/identity.c.obj
+[ 69%] Building C object CMakeFiles/pd.dir/port/src/input.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/fs.c:34:12: warning: 'fsPathIsWritable' defined but not used [-Wunused-function]
+   34 | static s32 fsPathIsWritable(const char *path)
+      |            ^~~~~~~~~~~~~~~~
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/libultra.c.obj
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/inputmodes.c.obj
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/main.c.obj
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/menumgr.c.obj
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/meshdebug.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/inputmodes.c:14:44: warning: '/*' within comment [-Wcomment]
+   14 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/mixer.c.obj
+[ 70%] Building C object CMakeFiles/pd.dir/port/src/mod.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/modelcatalog.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/modmgr.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/modpack.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/modelcatalog.c:24:44: warning: '/*' within comment [-Wcomment]
+   24 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/mpsetups.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/net/matchsetup.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/net/net.c.obj
+[ 72%] Building C object CMakeFiles/pd.dir/port/src/net/net_server_callbacks.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/modmgr.c:232:13: warning: 'json_tok_bool' defined but not used [-Wunused-function]
+  232 | static bool json_tok_bool(const jtok_t *tok)
+      |             ^~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/net/matchsetup.c:11:44: warning: '/*' within comment [-Wcomment]
+   11 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/modpack.c: In function 'modpackExport':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/modpack.c:550:9: warning: 'raw' may be used uninitialized [-Wmaybe-uninitialized]
+  550 |         free(raw);
+      |         ^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/modpack.c:504:13: note: 'raw' was declared here
+  504 |         u8 *raw = buildComponentArchive(entry->dirpath, &raw_len);
+      |             ^~~
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netbuf.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netdistrib.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netholepunch.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netlobby.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netmenu.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netstun.c.obj
+[ 73%] Building C object CMakeFiles/pd.dir/port/src/net/netmsg.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/net/netupnp.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/optionsmenu.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/pdmain.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/pdsched.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/phonetic.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/playerstats.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/preprocess/common.c.obj
+[ 74%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filelang.c.obj
+[ 75%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filebg.c.obj
+[ 75%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filemodel.c.obj
+[ 75%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filepads.c.obj
+[ 75%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filesetup.c.obj
+[ 75%] Building C object CMakeFiles/pd.dir/port/src/preprocess/filetiles.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/preprocess/misc.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/preprocess/gbi.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/preprocess/segfonts.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/preprocess/segaudio.c.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/external/enet.c:10:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/external/enet.h:1129:38: warning: 'gettime_offset' defined but not used [-Wunused-function]
+ 1129 |                 static LARGE_INTEGER gettime_offset(void) {
+      |                                      ^~~~~~~~~~~~~~
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/romdata.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/room.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/savefile.c.obj
+[ 76%] Building C object CMakeFiles/pd.dir/port/src/savemigrate.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/savefile.c:13:44: warning: '/*' within comment [-Wcomment]
+   13 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/scenario_save.c.obj
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/sha256.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/savemigrate.c:16:44: warning: '/*' within comment [-Wcomment]
+   16 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/system.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/scenario_save.c:30:50: warning: '/*' within comment [-Wcomment]
+   30 |  * Auto-discovered by CMake GLOB_RECURSE for port/*.c.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/sha256.c:7:44: warning: '/*' within comment [-Wcomment]
+    7 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/titleguard.c.obj
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/updater.c.obj
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/utils.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/titleguard.c:15:44: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 77%] Building C object CMakeFiles/pd.dir/port/src/video.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/updater.c:10:44: warning: '/*' within comment [-Wcomment]
+   10 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/gfx_cc.cpp.obj
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/gfx_opengl.cpp.obj
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/gfx_sdl2.cpp.obj
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui.cpp.obj
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/gfx_pc.cpp.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/data.h:5,
+                 from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/lib/rzip.h:4,
+                 from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/romdata.c:14:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:13:9: warning: 'bool' redefined
+   13 | #define bool s32
+      |         ^~~~
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/romdata.c:6:
+C:/msys64/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/stdbool.h:36:9: note: this is the location of the previous definition
+   36 | #define bool    _Bool
+      |         ^~~~
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_demo.cpp.obj
+[ 78%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_draw.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_impl_opengl3.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_audio.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_lobby.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_tables.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_agentcreate.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_debugmenu.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_widgets.cpp.obj
+[ 79%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_backend.cpp.obj
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_hotswap.cpp.obj
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/imgui/imgui_impl_sdl2.cpp.obj
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_hud.cpp.obj
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_lobby_distrib.cpp.obj
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_agentselect.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_lobby.cpp:22:44: warning: '/*' within comment [-Wcomment]
+   22 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_agentcreate.cpp:18:44: warning: '/*' within comment [-Wcomment]
+   18 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_agentselect.cpp:15:44: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_audio.cpp:11:44: warning: '/*' within comment [-Wcomment]
+   11 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:8:29: warning: '/*' within comment [-Wcomment]
+    8 |  * The GLOB_RECURSE for port/*.cpp in CMakeLists.txt will auto-discover this file.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_debugmenu.cpp:12:57: warning: '/*' within comment [-Wcomment]
+   12 |  * This file is auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_hotswap.cpp:20:44: warning: '/*' within comment [-Wcomment]
+   20 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_hud.cpp:15:44: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 80%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_lobby.cpp.obj
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_mainmenu.cpp.obj
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_matchsetup.cpp.obj
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_moddinghub.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_lobby.cpp:26:44: warning: '/*' within comment [-Wcomment]
+   26 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:17:44: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_matchsetup.cpp:15:44: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_moddinghub.cpp:15:44: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_modmgr.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_modmgr.cpp:23:44: warning: '/*' within comment [-Wcomment]
+   23 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_network.cpp.obj
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_pausemenu.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_network.cpp:10:44: warning: '/*' within comment [-Wcomment]
+   10 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_pausemenu.cpp:9:44: warning: '/*' within comment [-Wcomment]
+    9 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 81%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_room.cpp.obj
+[ 82%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_update.cpp.obj
+[ 82%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_warning.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_room.cpp:21:44: warning: '/*' within comment [-Wcomment]
+   21 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_update.cpp:16:44: warning: '/*' within comment [-Wcomment]
+   16 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_warning.cpp:14:44: warning: '/*' within comment [-Wcomment]
+   14 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 82%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menubuilder.cpp.obj
+[ 82%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_storyboard.cpp.obj
+[ 82%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_style.cpp.obj
+[ 82%] Building C object CMakeFiles/pd.dir/src/lib/mp3/decoder.c.obj
+[ 82%] Building C object CMakeFiles/pd.dir/src/lib/mp3/lib_45ed0.c.obj
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/mp3/lib_47d20.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_storyboard.cpp:21:44: warning: '/*' within comment [-Wcomment]
+   21 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menubuilder.cpp:16:44: warning: '/*' within comment [-Wcomment]
+   16 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/mp3/lib_47ef0.c.obj
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/mp3/main.c.obj
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/mp3/util_c.c.obj
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_auxbus.c.obj
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspgetstate.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c: In function 'mp3dec00040164':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c:2324:38: warning: 'sp1b0' may be used uninitialized [-Wmaybe-uninitialized]
+ 2324 |                                 sp28 = sp1b4 + sp1b0;
+      |                                 ~~~~~^~~~~~~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c:2250:13: note: 'sp1b0' was declared here
+ 2250 |         s32 sp1b0;
+      |             ^~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c: In function 'mp3dec00041600':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c:2558:39: warning: 'sp44' may be used uninitialized [-Wmaybe-uninitialized]
+ 2558 |                 bcopy(sp70[sp48][sp44][0], sp28, 0x10);
+      |                       ~~~~~~~~~~~~~~~~^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/mp3/decoder.c:2482:13: note: 'sp44' was declared here
+ 2482 |         s32 sp44;
+      |             ^~~~
+[ 83%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_csplayer.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspplay.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspsendmidi.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspsetbank.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c: In function '__n_CSPHandleMIDIMsg':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c:730:57: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  730 |                                 osSendMesg(seqp->queue, (OSMesg)((var8009c350[chan] & 0xffffff00) | (chanstate->unk10 >> 2)), OS_MESG_NOBLOCK);
+      |                                                         ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c:764:49: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  764 |                         osSendMesg(seqp->queue, (OSMesg)(key << 16 | 8 | chanstate->unk10 >> 2), OS_MESG_NOBLOCK);
+      |                                                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c:901:57: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  901 |                                 osSendMesg(seqp->queue, (OSMesg)((byte2 & 7) | 0x10 | ((seqp->node.samplesLeft << 5) & 0xffffff00)), OS_MESG_NOBLOCK);
+      |                                                         ^
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspsetseq.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c:644:44: warning: 'inst' may be used uninitialized [-Wmaybe-uninitialized]
+  644 |                                 sp90 = inst->vibType;
+      |                                        ~~~~^~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_csplayer.c:521:29: note: 'inst' was declared here
+  521 |         ALInstrument       *inst;
+      |                             ^~~~
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_cspsetvol.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_csq.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_drvrNew.c.obj
+[ 84%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_event.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_env.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_load.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_mainbus.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_resample2.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_resample.c.obj
+[ 86%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_reverb.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_save.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_seqplayer.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_env.c: In function 'n_alEnvmixerPull':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_env.c:246:67: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  246 |                         n_alLoadParam(e, AL_FILTER_SET_WAVETABLE, (void *)e->em_ctrlList->data.i);
+      |                                                                   ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_env.c:254:68: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  254 |                         n_alEnvmixerParam(e, e->em_ctrlList->type, (void *) e->em_ctrlList->data.i);
+      |                                                                    ^
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_sl.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_sndplayer.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_seqpstop.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synallocfx.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synaddplayer.c.obj
+[ 87%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_syndelete.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_resample2.c: In function 'n_alResampleParam2':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_resample2.c:58:36: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   58 |                 filter->fx.unk02 = (s32) param;
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_resample2.c:66:33: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   66 |                 filter->unk8c = (u8)param;
+      |                                 ^
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synallocvoice.c.obj
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synfilter11.c.obj
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synfilter12.c.obj
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synfilter13.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_sndplayer.c: In function 'func00033820':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_sndplayer.c:749:30: warning: 'sp44' may be used uninitialized [-Wmaybe-uninitialized]
+  749 |                         sp40 += sp44;
+      |                         ~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/naudio/n_sndplayer.c:698:13: note: 'sp44' was declared here
+  698 |         s32 sp44;
+      |             ^~~~
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synfreevoice.c.obj
+[ 88%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetfxmix.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetfxparam.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetpitch.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetpan.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetpriority.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synsetvol.c.obj
+[ 89%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synstartvoiceparam.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synthesizer.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/naudio/n_synstopvoice.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/audio/bnkf.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/audio/cents2ratio.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/audio/cseq.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/audio/sl.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/audio/heap.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/align.c.obj
+[ 90%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/frustum.c.obj
+[ 91%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/coss.c.obj
+[ 91%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/lookat.c.obj
+[ 91%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/normalize.c.obj
+[ 91%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/lookatref.c.obj
+[ 91%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/mtxutil.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/perspective.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/ortho.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/scale.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/rotate.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/sins.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/gu/translate.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vimodentsclan1.c.obj
+[ 92%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vimodepallan1.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vimodempallan1.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vitbl.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/ailist.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/anim.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/audiodma.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/args.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/audiomgr.c.obj
+[ 93%] Building C object CMakeFiles/pd.dir/src/lib/capsule.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/base.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/meshcollision.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/collision.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/debughud.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/dma.c.obj
+[ 94%] Building C object CMakeFiles/pd.dir/src/lib/fault.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/joy.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_2f490_c.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_2fc60.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_3e3e0.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_04f60nb.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_17ce0.c.obj
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_034d0.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/meshcollision.c:100:13: warning: 'vec3Cross' defined but not used [-Wunused-function]
+  100 | static void vec3Cross(struct coord *a, struct coord *b, struct coord *out)
+      |             ^~~~~~~~~
+[ 95%] Building C object CMakeFiles/pd.dir/src/lib/lib_15850.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/lib_39c80.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/mema.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/memp.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/mempc.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c: In function 'updateOscMain':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c:330:22: warning: 'sp20' may be used uninitialized [-Wmaybe-uninitialized]
+  330 |                 sp20 *= sp24;
+      |                 ~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c:269:13: note: 'sp20' was declared here
+  269 |         f32 sp20;
+      |             ^~~~
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/model.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/modelasm_c.c.obj
+[ 96%] Building C object CMakeFiles/pd.dir/src/lib/mtx_c.c.obj
+[ 97%] Building C object CMakeFiles/pd.dir/src/lib/mp3.c.obj
+[ 97%] Building C object CMakeFiles/pd.dir/src/lib/mtx.c.obj
+[ 97%] Building C object CMakeFiles/pd.dir/src/lib/music.c.obj
+[ 97%] Building C object CMakeFiles/pd.dir/src/lib/path.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/rmon.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/profile.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/rdp.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c: In function 'cdBlockExcludesBlockLaterally':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c:3739:36: warning: 'sum2' may be used uninitialized [-Wmaybe-uninitialized]
+ 3739 |                                 if (sum2 == sum1) {
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c:3718:29: note: 'sum2' was declared here
+ 3718 |                         f64 sum2;
+      |                             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c: In function 'modelasm00018680':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:114:24: warning: storing the address of local variable 'sp00' in 't0slot' [-Wdangling-pointer=]
+  114 |                 t0slot = &sp00[0];
+      |                 ~~~~~~~^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:87:23: note: 'sp00' declared here
+   87 |         struct t0slot sp00[240];
+      |                       ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:17:16: note: 't0slot' declared here
+   17 | struct t0slot *t0slot;
+      |                ^~~~~~
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/rng_c.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/rzip_c.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/snd.c.obj
+[ 98%] Building C object CMakeFiles/pd.dir/src/lib/speaker.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:195:44: warning: 'f30' may be used uninitialized [-Wmaybe-uninitialized]
+  195 |                                         if (f30 != 0.0f) {
+      |                                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:98:13: note: 'f30' was declared here
+   98 |         f32 f30;
+      |             ^~~
+[100%] Building C object CMakeFiles/pd.dir/src/textureconfig.c.obj
+[100%] Building C object CMakeFiles/pd.dir/src/lib/vi.c.obj
+[100%] Building C object CMakeFiles/pd.dir/src/lib/varsinit.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c: In function 'modelSetMatricesWithAnim':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1619:28: warning: 'frac' may be used uninitialized [-Wmaybe-uninitialized]
+ 1619 |                 anim->frac = frac;
+      |                 ~~~~~~~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1578:13: note: 'frac' was declared here
+ 1578 |         f32 frac;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1620:29: warning: 'frac2' may be used uninitialized [-Wmaybe-uninitialized]
+ 1620 |                 anim->frac2 = frac2;
+      |                 ~~~~~~~~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1579:13: note: 'frac2' was declared here
+ 1579 |         f32 frac2;
+      |             ^~~~~
+[100%] Building RC object CMakeFiles/pd.dir/dist/windows/icon.rc.obj
+[100%] Linking CXX executable PerfectDark.exe
+Copying libcurl-4.dll to client build output
+Copying libnghttp2-14.dll to client build output
+Copying libnghttp3-9.dll to client build output
+Copying libidn2-0.dll to client build output
+Copying libbrotlidec.dll to client build output
+Copying libbrotlicommon.dll to client build output
+Copying libpsl-5.dll to client build output
+Copying libssh2-1.dll to client build output
+Copying libngtcp2-16.dll to client build output
+Copying libngtcp2_crypto_ossl-0.dll to client build output
+Copying libzstd.dll to client build output
+Copying libssl-3-x64.dll to client build output
+Copying libcrypto-3-x64.dll to client build output
+Copying libunistring-5.dll to client build output
+Copying libintl-8.dll to client build output
+Copying libiconv-2.dll to client build output
+Copying zlib1.dll to client build output
+[100%] Built target pd
+
+[BUILD:server] Mon, Mar 30, 2026  1:55:20 PM
+Command: C:/msys64/mingw64/bin/cmake.exe --build "C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/build_test_1661_20260330_135442" --target pd-server -- -j24
+
+[ 80%] Built target pd_headers
+[ 80%] Building C object CMakeFiles/pd-server.dir/port/src/server_main.c.obj
+[ 80%] Building C object CMakeFiles/pd-server.dir/port/src/server_stubs.c.obj
+[ 80%] Building C object CMakeFiles/pd-server.dir/port/src/net/net_server_callbacks.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/server_bridge.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/net.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netbuf.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netmsg.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netlobby.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netupnp.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netholepunch.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netstun.c.obj
+[ 82%] Building C object CMakeFiles/pd-server.dir/port/src/net/netdistrib.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/src/assetcatalog.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/src/assetcatalog_scanner.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/addr_is_reserved.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/connecthostport.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/minissdpc.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/igd_desc_parse.c.obj
+[ 85%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/minisoap.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/miniupnpc.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/miniwget.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/minixml.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/portlistingparse.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/receivedata.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/upnpcommands.c.obj
+[ 88%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/upnpreplyparse.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/upnperrors.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/external/miniupnpc/src/upnpdev.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/src/system.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/src/config.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/src/fs.c.obj
+[ 91%] Building C object CMakeFiles/pd-server.dir/port/src/utils.c.obj
+[ 94%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/server_gui.cpp.obj
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/src/crash.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/fs.c:34:12: warning: 'fsPathIsWritable' defined but not used [-Wunused-function]
+   34 | static s32 fsPathIsWritable(const char *path)
+      |            ^~~~~~~~~~~~~~~~
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/fast3d/glad/glad.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/server_gui.cpp:14:44: warning: '/*' within comment [-Wcomment]
+   14 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/src/updater.c.obj
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/external/enet.c.obj
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/src/hub.c.obj
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/src/savemigrate.c.obj
+[ 94%] Building C object CMakeFiles/pd-server.dir/port/src/sha256.c.obj
+[ 97%] Building C object CMakeFiles/pd-server.dir/port/src/room.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/updater.c:10:44: warning: '/*' within comment [-Wcomment]
+   10 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/savemigrate.c:16:44: warning: '/*' within comment [-Wcomment]
+   16 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 97%] Building C object CMakeFiles/pd-server.dir/port/src/identity.c.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/net/net.h:4,
+                 from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/server_main.c:29:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:457:17: warning: declaration does not declare anything
+  457 |         f32 near;
+      |                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:458:16: warning: declaration does not declare anything
+  458 |         f32 far;
+      |                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:3214:26: warning: declaration does not declare anything
+ 3214 |         /*0x02*/ s16 near;
+      |                          ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:3215:25: warning: declaration does not declare anything
+ 3215 |         /*0x04*/ s16 far;
+      |                         ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:3243:26: warning: declaration does not declare anything
+ 3243 |         /*0x04*/ s16 near;
+      |                          ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:3244:25: warning: declaration does not declare anything
+ 3244 |         /*0x06*/ s16 far;
+      |                         ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:4951:33: warning: declaration does not declare anything
+ 4951 |                         f32 near;
+      |                                 ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/include/types.h:4952:32: warning: declaration does not declare anything
+ 4952 |                         f32 far;
+      |                                ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/sha256.c:7:44: warning: '/*' within comment [-Wcomment]
+    7 |  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
+[ 97%] Building C object CMakeFiles/pd-server.dir/port/src/phonetic.c.obj
+[ 97%] Building C object CMakeFiles/pd-server.dir/port/src/connectcode.c.obj
+[ 97%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui.cpp.obj
+[ 97%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_demo.cpp.obj
+[ 97%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_draw.cpp.obj
+[100%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_impl_opengl3.cpp.obj
+[100%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_impl_sdl2.cpp.obj
+[100%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_tables.cpp.obj
+[100%] Building RC object CMakeFiles/pd-server.dir/dist/windows/icon.rc.obj
+[100%] Building CXX object CMakeFiles/pd-server.dir/port/fast3d/imgui/imgui_widgets.cpp.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/external/enet.c:10:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/external/enet.h:1129:38: warning: 'gettime_offset' defined but not used [-Wunused-function]
+ 1129 |                 static LARGE_INTEGER gettime_offset(void) {
+      |                                      ^~~~~~~~~~~~~~
+[100%] Linking CXX executable PerfectDarkServer.exe
+C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: CMakeFiles/pd-server.dir/objects.a(netmsg.c.obj): in function `netmsgSvcStageStartRead':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/net/netmsg.c:849:(.text+0x1855): undefined reference to `catalogGetSafeBodyPaired'
+C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/net/netmsg.c:850:(.text+0x1874): undefined reference to `catalogGetSafeHead'
+C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/net/netmsg.c:866:(.text+0x1920): undefined reference to `catalogGetSafeBodyPaired'
+C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/src/net/netmsg.c:867:(.text+0x192c): undefined reference to `catalogGetSafeHead'
+collect2.exe: error: ld returned 1 exit status
+make[3]: *** [CMakeFiles/pd-server.dir/build.make:997: PerfectDarkServer.exe] Error 1
+make[2]: *** [CMakeFiles/Makefile2:157: CMakeFiles/pd-server.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:164: CMakeFiles/pd-server.dir/rule] Error 2
+make: *** [Makefile:150: pd-server] Error 2
