@@ -415,6 +415,9 @@ void langLoad(s32 bank)
 	s32 file_id = langGetFileId(bank);
 	g_LoadType = LOADTYPE_LANG;
 	g_LangBanks[bank] = fileLoadToNew(file_id, FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	if (!g_LangBanks[bank]) {
+		sysLogPrintf(LOG_WARNING, "LANG: failed to load bank=%d fileid=%d", bank, file_id);
+	}
 #endif
 }
 

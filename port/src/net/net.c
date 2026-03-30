@@ -9,6 +9,9 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netupnp.h"
+#include "net/netstun.h"
+#include "net/netholepunch.h"
+#include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
 #include "types.h"
@@ -73,6 +76,12 @@ struct netpreservedplayer g_NetPreservedPlayers[NET_MAX_CLIENTS];
 s32 g_NetNumPreserved = 0;
 struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 s32 g_NetNumRecentServers = 0;
+
+/* Async recent-server query state */
+bool g_NetQueryInFlight = false;
+static ENetSocket g_NetQuerySocket = ENET_SOCKET_NULL;
+static uint32_t g_NetQueryStartMs = 0;
+#define NET_QUERY_TIMEOUT_MS 2000
 
 u8 g_NetGameMode = NETGAMEMODE_MP;
 u8 g_NetCoopDifficulty = 0;
@@ -174,6 +183,11 @@ static inline const char *netFormatPeerAddr(const ENetPeer *peer)
 const char *netFormatClientAddr(const struct netclient *cl)
 {
 	return cl->peer ? netFormatPeerAddr(cl->peer) : "<local>";
+}
+
+struct _ENetHost *netGetHost(void)
+{
+	return g_NetHost;
 }
 
 static inline void netClientReset(struct netclient *cl)
@@ -306,11 +320,23 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
-	memcpy(cl->settings.name, g_PlayerConfigsArray[playernum].base.name, sizeof(cl->settings.name));
-	// the \n will be readded in the playerconfig
-	char *newline = strrchr(g_NetLocalClient->settings.name, '\n');
-	if (newline) {
-		*newline = '\0';
+	// Identity profile is the authoritative name source on PC.
+	// Fall back to g_GameFile.name (agent name from save) if identity is not
+	// initialized — the client never calls identityInit(), so the profile is
+	// always empty on the client side. Final fallback: legacy N64 config name.
+	identity_profile_t *profile = identityGetActiveProfile();
+	if (profile && profile->name[0]) {
+		strncpy(cl->settings.name, profile->name, sizeof(cl->settings.name) - 1);
+		cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+	} else if (g_GameFile.name[0]) {
+		strncpy(cl->settings.name, g_GameFile.name, sizeof(cl->settings.name) - 1);
+		cl->settings.name[sizeof(cl->settings.name) - 1] = '\0';
+	} else {
+		memcpy(cl->settings.name, g_PlayerConfigsArray[playernum].base.name, sizeof(cl->settings.name));
+		char *newline = strrchr(cl->settings.name, '\n');
+		if (newline) {
+			*newline = '\0';
+		}
 	}
 }
 
@@ -355,11 +381,15 @@ static inline const char *netGetDisconnectReason(const u32 reason)
 
 static void netServerQueryResponse(ENetAddress *address)
 {
-	static u8 data[256];
+	static u8 data[512]; /* increased from 256 to fit external address field */
 	static ENetBuffer ebuf;
 	struct netbuf buf = { .data = data, .size = sizeof(data) };
+	// bit 0: server is in an active match (not in lobby)
+	// bit 1: team game enabled — set when MPOPTION_TEAMSENABLED is active.
+	//        Future: extend with NETFLAG_COOP (bit 2) and NETFLAG_ANTIOP (bit 3) once
+	//        cooperative/counter-operative campaign modes are wired to g_MpSetup.
 	const u8 flags = (g_NetLocalClient && g_NetLocalClient->state > CLSTATE_LOBBY)
-		| (0 << 1); // TODO: this will indicate coop/anti/etc
+		| ((g_MpSetup.options & MPOPTION_TEAMSENABLED) ? (1 << 1) : 0);
 	const char *modDir = fsGetModDir();
 	if (!modDir) {
 		modDir = "";
@@ -377,6 +407,22 @@ static void netServerQueryResponse(ENetAddress *address)
 	netbufWriteStr(&buf, g_NetLocalClient ? g_NetLocalClient->settings.name : "");
 	netbufWriteStr(&buf, g_RomName);
 	netbufWriteStr(&buf, modDir);
+
+	/* Protocol 23+: advertise best known external address for hole punch / direct connect.
+	 * Priority: UPnP (real external IP + mapped port) > STUN > empty string.
+	 * Clients on older protocol versions ignore trailing fields they don't know about. */
+	{
+		char extAddr[NET_MAX_ADDR] = {0};
+		if (netUpnpIsActive() && netUpnpGetExternalIP()[0]) {
+			snprintf(extAddr, sizeof(extAddr), "%s:%u",
+			         netUpnpGetExternalIP(), g_NetServerPort);
+		} else if (stunGetStatus() == STUN_STATUS_SUCCESS) {
+			snprintf(extAddr, sizeof(extAddr), "%s:%u",
+			         stunGetExternalIP(), stunGetExternalPort());
+		}
+		netbufWriteStr(&buf, extAddr);
+	}
+
 	netbufWriteU16(&buf, 0); // space for checksum
 
 	ebuf.data = buf.data;
@@ -402,15 +448,21 @@ static void netServerQueryResponse(ENetAddress *address)
 
 static s32 netServerConnectionlessPacket(ENetEvent *event, ENetAddress *address, u8 *rxdata, s32 rxlen)
 {
-	if (rxdata && rxlen >= 5) {
+	if (rxdata && rxlen >= PUNCH_MAGIC_LEN) {
 		if (!memcmp(rxdata, NET_QUERY_MAGIC, sizeof(NET_QUERY_MAGIC) - 1)) {
 			// this is a query packet, respond with server status
 			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: query request from %s, responding", netFormatAddr(address));
 			netServerQueryResponse(address);
 			return 1;
 		}
+		if (!memcmp(rxdata, PUNCH_REQ_MAGIC, PUNCH_MAGIC_LEN)) {
+			// UDP hole punch request — send 3 PUNCH_ACK packets to client's external address
+			netServerHandlePunchReq(g_NetHost, address, rxdata, rxlen);
+			return 1;
+		}
 	}
 	// probably a normal packet, pass through to enet
+	(void)event;
 	return 0;
 }
 
@@ -473,6 +525,8 @@ void netInit(void)
 		sysLogPrintf(LOG_NOTE, "NET: dedicated server mode enabled");
 	}
 
+	stunInit();
+
 	g_NetInit = true;
 }
 
@@ -507,16 +561,23 @@ s32 netStartServer(u16 port, s32 maxclients)
 	netClientResetAll();
 	g_NetMaxClients = maxclients;
 
-	// the server's local client is client 0
-	g_NetLocalClient = &g_NetClients[0];
-	g_NetLocalClient->state = CLSTATE_LOBBY; // local client doesn't need auth
-	netClientReadConfig(g_NetLocalClient, 0);
+	if (g_NetDedicated) {
+		/* Dedicated server has no local player — slot 0 is free for real players. */
+		g_NetLocalClient = NULL;
+		g_NetNumClients = 0;
+	} else {
+		/* Listen server: the host occupies slot 0. */
+		g_NetLocalClient = &g_NetClients[0];
+		g_NetLocalClient->state = CLSTATE_LOBBY;
+		netClientReadConfig(g_NetLocalClient, 0);
+	}
 
 	g_NetMode = NETMODE_SERVER;
 
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: created server on port %u", port);
@@ -525,6 +586,12 @@ s32 netStartServer(u16 port, s32 maxclients)
 	 * Returns immediately — discovery takes 2-5 seconds on the thread.
 	 * Poll netUpnpGetStatus() or check the lobby overlay for results. */
 	netUpnpSetup(port);
+
+	/* Start async STUN discovery (runs on background thread, binds port with
+	 * SO_REUSEADDR so the NAT device maps the same external port as ENet).
+	 * Returns immediately — poll stunGetStatus() to check progress.
+	 * Also performs 2-probe NAT type detection for hole-punch viability. */
+	stunDiscoverAsync(port);
 
 	lobbyInit();
 	netDistribInit();
@@ -538,30 +605,37 @@ void netServerStageStart(void)
 		return;
 	}
 
-	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
-		g_NetLocalClient->state = CLSTATE_LOBBY;
-		return;
-	}
+	/* NOTE: do NOT guard on g_StageNum == STAGE_CITRAINING here.
+	 * The server lobby runs on STAGE_CITRAINING, and mainChangeToStage() is
+	 * deferred — g_StageNum still equals STAGE_CITRAINING when this function
+	 * runs.  Guarding on it prevented SVC_STAGE_START from ever being sent,
+	 * so clients never received the map-load signal.  This function is only
+	 * called from the CLC_LOBBY_START handler after leader validation, so
+	 * there is no need for a stage-num guard. */
 
 	// re-read the player config in case it changed
-	netClientReadConfig(g_NetLocalClient, 0);
+	if (g_NetLocalClient) {
+		netClientReadConfig(g_NetLocalClient, 0);
+	}
 
 	/* Transition ALL connected clients to CLSTATE_GAME.
 	 * The server must do this before stage initialization code runs,
 	 * because the init code assumes all clients are in GAME state.
 	 * Remote clients will also transition on their end when they
 	 * receive and process SVC_STAGE_START. */
-	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state == CLSTATE_LOBBY) {
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x scenario=%u clients=%d",
-	             g_StageNum, g_MpSetup.scenario, g_NetNumClients);
+	extern s32 g_MainChangeToStageNum;
+	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x (g_StageNum=0x%02x, pending=0x%02x) scenario=%u clients=%d",
+	             (g_MainChangeToStageNum >= 0) ? (u8)g_MainChangeToStageNum : g_StageNum,
+	             g_StageNum, g_MainChangeToStageNum, g_MpSetup.scenario, g_NetNumClients);
 
 	// Log each connected client's state for debugging
-	for (s32 ci = 0; ci <= NET_MAX_CLIENTS; ci++) {
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state != CLSTATE_DISCONNECTED) {
 			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head=%u body=%u team=%u",
 			             g_NetClients[ci].id, g_NetClients[ci].settings.name,
@@ -610,8 +684,10 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	}
 
 	// re-read the player config
-	netClientReadConfig(g_NetLocalClient, 0);
-	g_NetLocalClient->state = CLSTATE_GAME;
+	if (g_NetLocalClient) {
+		netClientReadConfig(g_NetLocalClient, 0);
+		g_NetLocalClient->state = CLSTATE_GAME;
+	}
 
 	// clear preserved players from previous rounds
 	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
@@ -666,7 +742,9 @@ void netServerStageEnd(void)
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
-	g_NetLocalClient->state = CLSTATE_LOBBY;
+	if (g_NetLocalClient) {
+		g_NetLocalClient->state = CLSTATE_LOBBY;
+	}
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageEndWrite(&g_NetMsgRel);
@@ -738,6 +816,7 @@ s32 netStartClient(const char *addr)
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	sysLogPrintf(LOG_NOTE, "NET: waiting for response from %s...", addr);
 
@@ -755,7 +834,7 @@ s32 netDisconnect(void)
 	// stop responding to connectionless packets
 	enet_host_set_intercept_callback(g_NetHost, NULL);
 
-	const bool wasingame = (g_NetLocalClient->state >= CLSTATE_GAME);
+	const bool wasingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 
 	for (s32 i = 0; i < NET_MAX_CLIENTS + 1; ++i) {
 		if (g_NetClients[i].peer) {
@@ -777,13 +856,19 @@ s32 netDisconnect(void)
 	/* Clean up UPnP port mapping if we were the server */
 	netUpnpTeardown();
 
+	/* Cancel any in-progress STUN discovery */
+	stunCancel();
+
+	/* Reset hole punch waterfall state */
+	netHolePunchReset();
+
 	g_NetHost = NULL;
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
-	if (wasingame) {
+	if (wasingame && !g_AppQuitting) {
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 			if (g_Vars.players[i]) {
@@ -920,12 +1005,10 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 
 static void netServerEvConnect(ENetPeer *peer, const u32 data)
 {
-	const char *addrstr = netFormatPeerAddr(peer);
-
-	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection attempt from %s", addrstr);
+	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: incoming connection");
 
 	if (data != NET_PROTOCOL_VER) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: protocol mismatch", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: protocol mismatch (got %u, expected %u)", data, NET_PROTOCOL_VER);
 		enet_peer_disconnect(peer, DISCONNECT_VERSION);
 		return;
 	}
@@ -934,8 +1017,10 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 
 	struct netclient *cl = NULL;
 
-	// id 0 is the local client
-	for (s32 i = 1; i < g_NetMaxClients; ++i) {
+	/* Dedicated server: slot 0 is free for real players.
+	 * Listen server: slot 0 is the host, start at 1. */
+	s32 slotStart = g_NetDedicated ? 0 : 1;
+	for (s32 i = slotStart; i < g_NetMaxClients; ++i) {
 		if (!g_NetClients[i].state) {
 			cl = &g_NetClients[i];
 			break;
@@ -943,13 +1028,13 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	}
 
 	if (!cl) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: server is full", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: server full");
 		enet_peer_disconnect(peer, DISCONNECT_FULL);
 		return;
 	}
 
 	if (ingame && g_NetNumPreserved == 0) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: %s rejected: game in progress, no preserved slots", addrstr);
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: game in progress, no preserved slots");
 		enet_peer_disconnect(peer, DISCONNECT_LATE);
 		return;
 	}
@@ -961,11 +1046,12 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	cl->peer = peer;
 	cl->flags = ingame ? CLFLAG_ABSENT : 0; // mark as pending reconnect if mid-game
 	enet_peer_set_data(peer, cl);
+	sysLogPrintf(LOG_NOTE, "NET: client slot %d assigned to peer", (int)(cl - g_NetClients));
 }
 
 static void netServerEvDisconnect(struct netclient *cl)
 {
-	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: disconnect event from %s", netFormatClientAddr(cl));
+	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: disconnect event from client %u", cl->id);
 
 	if (cl->peer) {
 		enet_peer_reset(cl->peer);
@@ -1135,6 +1221,14 @@ void netStartFrame(void)
 	++g_NetTick;
 
 	const bool isClient = (g_NetMode == NETMODE_CLIENT);
+
+	/* Tick hole punch state machine — must run before enet_host_service() so that
+	 * when CONN_PHASE_PUNCH transitions to CONN_PHASE_PUNCH_ENET the fresh peer is
+	 * ready for the ENET_EVENT_CONNECT that may arrive this frame. */
+	if (isClient) {
+		netHolePunchClientTick(g_NetHost);
+	}
+
 	s32 polled = false;
 	ENetEvent ev = { .type = ENET_EVENT_TYPE_NONE };
 	while (!polled) {
@@ -1148,6 +1242,7 @@ void netStartFrame(void)
 		switch (ev.type) {
 			case ENET_EVENT_TYPE_CONNECT:
 				if (isClient) {
+					netHolePunchOnConnect(); /* mark waterfall complete if active */
 					netClientEvConnect(ev.data);
 				} else if (ev.peer) {
 					netServerEvConnect(ev.peer, ev.data);
@@ -1156,6 +1251,11 @@ void netStartFrame(void)
 			case ENET_EVENT_TYPE_DISCONNECT:
 			case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
 				if (isClient) {
+					if (ev.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT &&
+					    netHolePunchHandleTimeout(g_NetHost)) {
+						/* Timeout consumed by hole punch waterfall — skip normal disconnect */
+						break;
+					}
 					netClientEvDisconnect(ev.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT ? DISCONNECT_TIMEOUT : ev.data);
 				} else if (ev.peer) {
 					struct netclient *cl = enet_peer_get_data(ev.peer);
@@ -1164,7 +1264,7 @@ void netStartFrame(void)
 					} else {
 						// No attached client — spurious disconnect from peer that never completed auth.
 						// Do NOT decrement g_NetNumClients here: it was never incremented for this peer.
-						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: disconnect from %s without attached client (ignored)", netFormatPeerAddr(ev.peer));
+						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: spurious disconnect (no attached client — peer never completed auth)");
 					}
 				}
 				break;
@@ -1172,7 +1272,7 @@ void netStartFrame(void)
 				if (ev.peer) {
 					struct netclient *cl = (g_NetMode == NETMODE_CLIENT) ? g_NetLocalClient : enet_peer_get_data(ev.peer);
 					if (cl && cl->state) {
-						if (ev.packet->data && ev.packet->dataLength) {
+						if (ev.packet && ev.packet->data && ev.packet->dataLength) {
 							netbufStartReadData(&cl->in, ev.packet->data, ev.packet->dataLength);
 							if (isClient) {
 								netClientEvReceive(cl);
@@ -1182,7 +1282,7 @@ void netStartFrame(void)
 							netbufReset(&cl->in);
 						}
 					} else if (!isClient) {
-						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: receive from %s without attached client", netFormatPeerAddr(ev.peer));
+						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: spurious receive (no attached client)");
 					}
 				}
 				enet_packet_dispose(ev.packet);
@@ -1208,7 +1308,7 @@ void netEndFrame(void)
 	// send whatever messages have accumulated so far
 	netFlushSendBuffers();
 
-	if (g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
+	if (g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
 		if (g_NetMode == NETMODE_CLIENT) {
 			if (g_NetTick > 100) {
 				netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
@@ -1219,6 +1319,13 @@ void netEndFrame(void)
 			}
 			if (g_NetNextUpdate <= g_NetTick) {
 				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
+			}
+			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
+			// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
+			// making any direct write inside a recv handler silently dropped.
+			if (g_NetPendingResyncReqFlags) {
+				netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
+				g_NetPendingResyncReqFlags = 0;
 			}
 		} else {
 			for (s32 i = 0; i < g_NetMaxClients; ++i) {
@@ -1267,8 +1374,11 @@ void netEndFrame(void)
 			// Co-op NPC replication: broadcast NPC positions and state
 			// NPCs are server-authoritative in co-op mode (AI runs only on server)
 			if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
-				// Ensure we're in GAME state to prevent sending NPCs during stage load
-				if (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME) {
+				// Ensure we're in GAME state to prevent sending NPCs during stage load.
+				// Do NOT use g_NetLocalClient here — it is NULL on dedicated server, making
+				// the original guard always false (NPC broadcasts silently dropped, CRIT-1).
+				// Check g_NetNumClients instead: if any client is connected, the stage is running.
+				if (g_NetNumClients > 0) {
 					static bool s_npcBroadcastStarted = false;
 					if (!s_npcBroadcastStarted) {
 						sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
@@ -1394,6 +1504,12 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	return ret;
 }
 
+/* Snapshot of remote player configs before netPlayersAllocate overwrites them.
+ * Indexed by playernum (0..MAX_PLAYERS-1). Available for restoration if a match
+ * fails to start after configs have been overwritten (e.g. on a SVC_STAGE_END
+ * that arrives before the stage fully loads). */
+static struct mpplayerconfig s_RemoteConfigBackups[MAX_PLAYERS];
+
 void netPlayersAllocate(void)
 {
 	s32 playernum = 0;
@@ -1419,8 +1535,12 @@ void netPlayersAllocate(void)
 
 		if (cl != g_NetLocalClient) {
 			// disable controls for the remote pawns and set their settings
-			// TODO: backup the player configs or something
 			struct mpplayerconfig *cfg = &g_PlayerConfigsArray[cl->playernum];
+			// Snapshot original config before overwrite; restore via s_RemoteConfigBackups[playernum]
+			// if the match fails to start after this point.
+			if (cl->playernum < MAX_PLAYERS) {
+				s_RemoteConfigBackups[cl->playernum] = *cfg;
+			}
 			cfg->controlmode = CONTROLMODE_NA;
 			cfg->base.mpbodynum = cl->settings.bodynum;
 			cfg->base.mpheadnum = cl->settings.headnum;
@@ -1492,6 +1612,7 @@ void netSyncIdsAllocate(void)
 	}
 
 	sysLogPrintf(LOG_NOTE, "NET: last initial syncid: %u", g_NetNextSyncId);
+	netSyncIdMapRebuild(); // rebuild O(1) lookup map after all syncids are finalised
 }
 
 void netChatPrintf(struct netclient *dst, const char *fmt, ...)
@@ -1673,6 +1794,81 @@ void netQueryRecentServers(void)
 	}
 
 	enet_socket_destroy(sock);
+}
+
+void netQueryRecentServersAsync(void)
+{
+	if (!g_NetInit) {
+		return;
+	}
+
+	// close any in-flight query socket from a previous call
+	if (g_NetQuerySocket != ENET_SOCKET_NULL) {
+		enet_socket_destroy(g_NetQuerySocket);
+		g_NetQuerySocket = ENET_SOCKET_NULL;
+	}
+	g_NetQueryInFlight = false;
+
+	// mark all servers offline pending fresh responses
+	for (s32 i = 0; i < g_NetNumRecentServers; ++i) {
+		g_NetRecentServers[i].online = false;
+	}
+
+	if (g_NetNumRecentServers == 0) {
+		return;
+	}
+
+	ENetSocket sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+	if (sock == ENET_SOCKET_NULL) {
+		return;
+	}
+
+	enet_socket_set_option(sock, ENET_SOCKOPT_NONBLOCK, 1);
+
+	for (s32 i = 0; i < g_NetNumRecentServers; ++i) {
+		ENetAddress addr;
+		if (netParseAddr(&addr, g_NetRecentServers[i].addr)) {
+			ENetBuffer ebuf;
+			ebuf.data = (void *)NET_QUERY_MAGIC;
+			ebuf.dataLength = sizeof(NET_QUERY_MAGIC) - 1;
+			enet_socket_send(sock, &addr, &ebuf, 1);
+		}
+	}
+
+	g_NetQuerySocket = sock;
+	g_NetQueryStartMs = enet_time_get();
+	g_NetQueryInFlight = true;
+}
+
+void netPollRecentServers(void)
+{
+	if (!g_NetQueryInFlight || g_NetQuerySocket == ENET_SOCKET_NULL) {
+		return;
+	}
+
+	// drain all currently available packets without blocking
+	u8 rxdata[512];
+	ENetBuffer rxbuf;
+	ENetAddress rxaddr;
+	for (;;) {
+		rxbuf.data = rxdata;
+		rxbuf.dataLength = sizeof(rxdata);
+		s32 rxlen = enet_socket_receive(g_NetQuerySocket, &rxaddr, &rxbuf, 1);
+		if (rxlen <= 0) {
+			break;
+		}
+		const char *addrstr = netFormatAddr(&rxaddr);
+		if (addrstr) {
+			netRecentServerUpdate(addrstr, rxdata, rxlen);
+		}
+	}
+
+	// close socket once the response window has elapsed
+	if (enet_time_get() - g_NetQueryStartMs >= NET_QUERY_TIMEOUT_MS) {
+		enet_socket_destroy(g_NetQuerySocket);
+		g_NetQuerySocket = ENET_SOCKET_NULL;
+		g_NetQueryInFlight = false;
+	}
 }
 
 PD_CONSTRUCTOR static void netConfigInit(void)

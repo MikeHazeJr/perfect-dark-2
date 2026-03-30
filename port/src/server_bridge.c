@@ -56,6 +56,9 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
     s32 state = g_NetClients[lp->clientId].state;
     memcpy(p + 44, &state, sizeof(s32));
 
+    /* clientId (u8 at offset 48) */
+    p[48] = lp->clientId;
+
     return 1;
 }
 

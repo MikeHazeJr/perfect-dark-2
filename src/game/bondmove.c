@@ -156,7 +156,11 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 
 	pl->eyesshut = (inmove->ucmd & UCMD_EYESSHUT) != 0;
 
-	pl->speedtheta = 0.f; // TODO: figure out if anglespeed is even required
+	// speedtheta is reset here because this is the network input apply path.
+	// speedtheta is NOT transmitted over the network — it is computed locally each frame
+	// by bwalkUpdateLateral() via speedthetacontrol (bondmove.c ~line 2304).
+	// Zeroing it here is correct: it clears any stale carry-over before the frame recomputes it.
+	pl->speedtheta = 0.f;
 	pl->speedverta = 0.f;
 	pl->crouchoffset = inmove->crouchofs;
 
@@ -263,7 +267,10 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 		}
 		bwalkSetSwayTargetf(inmove->leanofs);
 	} else if (pl->bondmovemode == MOVEMODE_BIKE) {
-		// TODO
+		// Bike mode: no input-side state to apply here yet.
+		// speedtheta for the hoverbike comes from bwalkUpdateLateral() → speedthetacontrol.
+		// If/when bike mode is extended, add any per-input-frame bike state updates here
+		// analogous to bwalkSetSwayTargetf() in walk mode.
 	}
 
 	if (inmove->movespeed[0] > 0.95f) {
@@ -2421,8 +2428,8 @@ void bmoveFindEnteredRoomsByPos(struct player *player, struct coord *mid, RoomNu
 {
 	struct coord bbmin;
 	struct coord bbmax;
-	f32 eyeheight = g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_eyeheight;
-	f32 headheight = g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_headheight;
+	f32 eyeheight = player->vv_eyeheight;
+	f32 headheight = player->vv_headheight;
 
 	bbmin.x = mid->x - 50;
 	bbmin.y = mid->y - player->crouchheight - eyeheight - 10;
@@ -2706,8 +2713,14 @@ void bmoveUpdateHead(f32 arg0, f32 arg1, f32 arg2, Mtxf *arg3, f32 arg4)
 	bheadUpdate(sp244, arg2);
 	mtx4LoadXRotation(BADDEG2RAD(360 - g_Vars.currentplayer->vv_verta360), &sp180);
 
-	// in net games only allow headroll in the death animation
-	// TODO: figure out how to deal with headroll in other situations
+	// Headroll is suppressed for living players in network games.
+	// In netplay, head orientation (headlook/headup) is server-authoritative and derived from
+	// synchronized position/angle data. Computing a local headroll rotation on top of that
+	// would diverge from the server's view, causing visible jitter in third-person and spectate
+	// perspectives. Death animations are exempt because the head is in a deterministic scripted
+	// state where local roll cannot conflict with server state.
+	// To enable headroll for living networked players, head orientation would need to be
+	// reconciled server-side before applying it here.
 	if (optionsGetHeadRoll(g_Vars.currentplayerstats->mpindex) && (!g_NetMode || g_Vars.currentplayer->isdead)) {
 		mtx00016d58(&sp116,
 				0, 0, 0,

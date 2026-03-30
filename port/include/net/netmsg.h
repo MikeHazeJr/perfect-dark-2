@@ -141,7 +141,7 @@ u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
 
 /* Lobby protocol messages (Phase 3) */
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty);
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex);
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
 u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
@@ -172,5 +172,16 @@ u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker, const char *victim,
                                  const char *weapon, u8 flags);
 u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
+
+/* Prop syncid → prop* lookup map.
+ * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.
+ * Must be kept in sync whenever prop syncids change:
+ *   netSyncIdMapRebuild() — call after netSyncIdsAllocate() (full stage sync)
+ *   netSyncIdMapSet()     — call after any individual prop->syncid assignment
+ *   netSyncIdMapClear()   — call on stage teardown / connection init
+ */
+void netSyncIdMapClear(void);
+void netSyncIdMapSet(u32 syncid, struct prop *prop);
+void netSyncIdMapRebuild(void);
 
 #endif

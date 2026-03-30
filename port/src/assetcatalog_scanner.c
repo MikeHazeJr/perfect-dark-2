@@ -27,6 +27,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "romdata.h"
 #include "system.h"
 #include "fs.h"
 
@@ -144,6 +145,56 @@ f32 iniGetFloat(const ini_section_t *ini, const char *key, f32 defval)
 }
 
 /* ========================================================================
+ * Map Mode Parser
+ * ======================================================================== */
+
+/**
+ * Parse a pipe-separated mode string from an INI "mode" key into a MAP_MODE_*
+ * bitmask. Recognised tokens: "mp", "solo", "coop". Unknown tokens are ignored.
+ * Returns 0 if val is NULL or empty (caller treats 0 as "all modes").
+ *
+ * Examples:
+ *   "mp"         -> MAP_MODE_MP
+ *   "solo"       -> MAP_MODE_SOLO
+ *   "mp|solo"    -> MAP_MODE_MP | MAP_MODE_SOLO
+ *   "mp|coop"    -> MAP_MODE_MP | MAP_MODE_COOP
+ */
+static s32 parseModeString(const char *val)
+{
+	if (!val || !val[0]) {
+		return 0;
+	}
+
+	s32 mode = 0;
+
+	/* work on a local copy since we mutate it */
+	char buf[64];
+	strncpy(buf, val, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	char *tok = buf;
+	while (tok) {
+		char *pipe = strchr(tok, '|');
+		if (pipe) {
+			*pipe = '\0';
+		}
+
+		char *t = trimWhitespace(tok);
+		if (strcmp(t, "mp") == 0) {
+			mode |= MAP_MODE_MP;
+		} else if (strcmp(t, "solo") == 0) {
+			mode |= MAP_MODE_SOLO;
+		} else if (strcmp(t, "coop") == 0) {
+			mode |= MAP_MODE_COOP;
+		}
+
+		tok = pipe ? pipe + 1 : NULL;
+	}
+
+	return mode;
+}
+
+/* ========================================================================
  * Category Handling
  * ======================================================================== */
 
@@ -165,6 +216,10 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "missions") == 0)    return ASSET_MISSION;
 	if (strcmp(dirname, "ui") == 0)          return ASSET_UI;
 	if (strcmp(dirname, "tools") == 0)       return ASSET_TOOL;
+	if (strcmp(dirname, "animations") == 0)  return ASSET_ANIMATION;
+	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
+	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
+	if (strcmp(dirname, "audio") == 0)       return ASSET_AUDIO;
 	return ASSET_NONE;
 }
 
@@ -186,6 +241,11 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "mission") == 0)      return ASSET_MISSION;
 	if (strcmp(section, "ui") == 0)           return ASSET_UI;
 	if (strcmp(section, "tool") == 0)         return ASSET_TOOL;
+	if (strcmp(section, "animation") == 0)    return ASSET_ANIMATION;
+	if (strcmp(section, "hud") == 0)          return ASSET_HUD;
+	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
+	if (strcmp(section, "audio") == 0)        return ASSET_AUDIO;
+	if (strcmp(section, "texture") == 0)      return ASSET_TEXTURE;
 	return ASSET_NONE;
 }
 
@@ -244,7 +304,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	switch (type) {
 	case ASSET_MAP:
 		e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
-		e->ext.map.mode = 0; /* TODO: parse mode string */
+		e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
 			const char *mf = iniGet(ini, "music_file", "");
 			if (mf[0]) {
@@ -259,6 +319,17 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			const char *hf = iniGet(ini, "headfile", "");
 			strncpy(e->ext.character.bodyfile, bf, FS_MAXPATH - 1);
 			strncpy(e->ext.character.headfile, hf, FS_MAXPATH - 1);
+
+			/* C-2-ext: resolve bodyfile basename to ROM filenum for reverse-index.
+			 * INI path is like "files/Cbond_bodyZ" — basename matches fileSlots[n].name. */
+			if (bf[0]) {
+				const char *bn = strrchr(bf, '/');
+				bn = bn ? bn + 1 : bf;
+				s32 fnum = romdataFileGetNumForName(bn);
+				if (fnum > 0) {
+					e->source_filenum = fnum;
+				}
+			}
 		}
 		break;
 
@@ -279,8 +350,66 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_WEAPON:
+		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
+		strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
+		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
+		e->ext.weapon.damage = iniGetFloat(ini, "damage", 0.0f);
+		e->ext.weapon.fire_rate = iniGetFloat(ini, "fire_rate", 0.0f);
+		e->ext.weapon.ammo_type = iniGetInt(ini, "ammo_type", 0);
+		e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+		break;
+
+	case ASSET_PROP:
+		e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
+		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
+		strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
+		e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
+		e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
+		break;
+
+	case ASSET_ANIMATION:
+		e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
+		strncpy(e->ext.anim.name, iniGet(ini, "name", ""), sizeof(e->ext.anim.name) - 1);
+		e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);
+		strncpy(e->ext.anim.target_body, iniGet(ini, "target_body", ""), sizeof(e->ext.anim.target_body) - 1);
+		break;
+
+	case ASSET_TEXTURE:
+		e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+		e->ext.texture.width = iniGetInt(ini, "width", 0);
+		e->ext.texture.height = iniGetInt(ini, "height", 0);
+		e->ext.texture.format = iniGetInt(ini, "format", 0);
+		strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.texture.file_path) - 1);
+		break;
+
+	case ASSET_GAMEMODE:
+		e->ext.gamemode.mode_id = iniGetInt(ini, "mode_id", -1);
+		strncpy(e->ext.gamemode.name, iniGet(ini, "name", ""), sizeof(e->ext.gamemode.name) - 1);
+		strncpy(e->ext.gamemode.description, iniGet(ini, "description", ""), sizeof(e->ext.gamemode.description) - 1);
+		e->ext.gamemode.min_players = iniGetInt(ini, "min_players", 2);
+		e->ext.gamemode.max_players = iniGetInt(ini, "max_players", 4);
+		e->ext.gamemode.team_based = iniGetInt(ini, "team_based", 0);
+		break;
+
+	case ASSET_AUDIO:
+		e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
+		strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
+		e->ext.audio.category = iniGetInt(ini, "category", AUDIO_CAT_SFX);
+		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
+		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
+		break;
+
+	case ASSET_HUD:
+		e->ext.hud.hud_id = iniGetInt(ini, "hud_id", -1);
+		strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
+		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
+		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
+		break;
+
 	default:
-		/* ASSET_TEXTURES, ASSET_SFX, etc. -- no extra fields needed */
+		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
+		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
 		break;
 	}
 

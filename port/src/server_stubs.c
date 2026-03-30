@@ -22,6 +22,7 @@
 #include "data.h"
 #include "system.h"
 #include "lib/main.h"
+#include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
 
 /* ========================================================================
  * Globals — definitions for everything bss.h declares as extern.
@@ -58,11 +59,14 @@ u64 g_RngSeed = 0;                            /* data.h:583 */
 u64 g_Rng2Seed = 0;                           /* data.h:584 */
 u64 g_RngSeeds[2] = {0};
 s32 g_NotLoadMod = 1;
-char g_RomName[64] = "pd-server";
+const char *g_RomName = "";  /* dedicated server has no ROM — empty skips the ROM check in netmsgClcAuthRead */
 s32 g_NumReasonsToEndMpMatch = 0;
+s32 g_MainChangeToStageNum = -1;
+struct matchconfig g_MatchConfig;  /* server stub — netmsg.c references this for CLC_LOBBY_START bot config */
 
 /* Bot / chr */
 u8 g_BotCount = 0;
+struct mpbotconfig g_BotConfigsArray[MAX_BOTS];
 struct chrdata *g_MpBotChrPtrs[MAX_MPCHRS];
 struct chrdata *g_ChrSlots = NULL;             /* data.h:142 — pointer, not array */
 s32 g_NumChrSlots = 0;
@@ -149,7 +153,14 @@ void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
 /* --- Match / Stage --- */
 void mpStartMatch(void) { sysLogPrintf(LOG_NOTE, "STUB: mpStartMatch"); }
 void mpSetPaused(s32 mode) { (void)mode; }
-void mainChangeToStage(s32 stagenum) { sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum); }
+void mainChangeToStage(s32 stagenum) {
+    sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum);
+    /* netmsgSvcStageStartWrite reads g_MainChangeToStageNum to determine the
+     * effective stage (falls back to g_StageNum when -1). On the game client
+     * the real mainChangeToStage sets this; the stub must do the same so
+     * SVC_STAGE_START carries the correct arena instead of 0x00. */
+    g_MainChangeToStageNum = stagenum;
+}
 void mainEndStage(void) { sysLogPrintf(LOG_NOTE, "STUB: mainEndStage"); }
 void titleSetNextStage(s32 stagenum) { (void)stagenum; }
 void titleSetNextMode(s32 mode) { (void)mode; }
@@ -229,14 +240,12 @@ void inputClearLastTextChar(void) {}
 /* --- File / ROM --- */
 void gamefileLoadDefaults(struct gamefile *file) { if (file) memset(file, 0, sizeof(*file)); }
 void romdataFileFreeForSolo(void) {}
+s32  romdataFileGetNumForName(const char *name) { (void)name; return -1; } /* server: no ROM */
 
 /* --- Setup / Config --- */
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }
 u32 mpGetNumBodies(void) { return 0; }
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum) { (void)bodynum; return 0; }
-/* netClientSettingsChanged is defined in net.c — do NOT stub it here */
-void modConfigLoad(const char *fname) { (void)fname; }
-
 /* modmgr stubs — fs.c references these */
 s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
@@ -250,6 +259,12 @@ void assetCatalogActivateStage(s32 stagenum) { (void)stagenum; }
 void assetCatalogDeactivateStage(void) {}
 struct asset_entry; /* forward decl for return type */
 const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void)stagenum; return NULL; }
+
+/* --- Participant system (B-12) --- */
+/* The server doesn't link participant.c (that's game-client code), but
+ * netmsg.c calls mpParticipantsFromLegacyChrslots() in the SVC_STAGE_START
+ * client path.  The server never enters that path, so an empty stub is fine. */
+void mpParticipantsFromLegacyChrslots(u64 chrslots) { (void)chrslots; }
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}

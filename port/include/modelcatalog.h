@@ -131,6 +131,24 @@ s32 catalogGetNumHeads(void);
 s32 catalogGetSafeBody(s32 bodynum);
 
 /**
+ * Get a safe body index with its default paired head.
+ *
+ * If bodynum is valid, returns it and leaves *out_mpheadnum unchanged (caller's
+ * head choice is still respected).  If bodynum is invalid or missing, picks a
+ * random base game body (mpbody index in [0, MODMGR_BASE_BODIES)) and uses
+ * that body's mpbody.headnum field to derive the matched mphead index, writing
+ * it into *out_mpheadnum.  Falls back to CATALOG_FALLBACK_BODY/HEAD if the
+ * random pick also fails.
+ *
+ * Logs MOD: WARNING when fallback is triggered.
+ *
+ * @param bodynum       mpbody index (same domain as catalogGetSafeBody input)
+ * @param out_mpheadnum updated with the paired mphead index ONLY on fallback
+ * @return safe mpbody index
+ */
+s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum);
+
+/**
  * Get a safe head index — returns the input if valid, or
  * CATALOG_FALLBACK_HEAD if the model is invalid/missing.
  */
@@ -148,9 +166,24 @@ s32 catalogIsHeadBodyCompatible(s32 headnum, s32 bodynum);
 
 /**
  * Request thumbnail generation for a catalog entry.
- * Thumbnails are rendered asynchronously via the charpreview FBO system.
+ * Adds the entry to the render queue.  No-op if already rendered or invalid.
+ * Call catalogPollThumbnails() each frame to drive the queue forward.
  */
 void catalogRequestThumbnail(s32 index);
+
+/**
+ * Poll the thumbnail queue — call once per frame after the GBI render phase.
+ * On completion of the previous render, bakes the result into a unique GL
+ * texture stored in the entry's thumbnailTexId/thumbnailReady fields, then
+ * fires the next queued request.
+ */
+void catalogPollThumbnails(void);
+
+/**
+ * Flush the thumbnail queue and release all baked GL textures.
+ * Call on shutdown or asset reload.
+ */
+void catalogFlushThumbnailQueue(void);
 
 /**
  * Get the GL texture ID for a catalog entry's thumbnail.

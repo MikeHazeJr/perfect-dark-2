@@ -1,0 +1,8 @@
+﻿{
+    "GitHubRepo":  "MikeHazeJr/perfect-dark-2",
+    "FontScale":  "Medium",
+    "EnableSounds":  true,
+    "PostBuildCopy":  [
+
+                      ]
+}

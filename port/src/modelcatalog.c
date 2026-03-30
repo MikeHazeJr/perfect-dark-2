@@ -25,6 +25,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include "types.h"
@@ -40,6 +41,7 @@
 #include "romdata.h"
 
 #include <setjmp.h>
+#include "pdgui_charpreview.h"
 #ifdef _WIN32
 #include <windows.h>    /* VEH: AddVectoredExceptionHandler */
 #else
@@ -55,6 +57,36 @@ static s32 s_CatalogCount = 0;
 static s32 s_NumValidBodies = 0;
 static s32 s_NumValidHeads = 0;
 static s32 s_Initialized = 0;
+
+/* ========================================================================
+ * Thumbnail queue
+ *
+ * One render is in flight at a time.  catalogPollThumbnails() is called each
+ * frame: if the previous render completed it bakes the result into a new,
+ * unique GL texture and fires the next pending request.  The queue is a
+ * simple circular array of catalog indices.
+ * ======================================================================== */
+
+static s32 s_ThumbQueue[CATALOG_MAX_ENTRIES];
+static s32 s_ThumbQHead  = 0;
+static s32 s_ThumbQTail  = 0;
+static s32 s_ThumbActive = -1;  /* catalog index of in-flight render, or -1 */
+
+static void thumbQueuePush(s32 index)
+{
+	s32 next = (s_ThumbQTail + 1) % CATALOG_MAX_ENTRIES;
+	if (next == s_ThumbQHead) return;  /* full — silently drop */
+	s_ThumbQueue[s_ThumbQTail] = index;
+	s_ThumbQTail = next;
+}
+
+static s32 thumbQueuePop(void)
+{
+	if (s_ThumbQHead == s_ThumbQTail) return -1;
+	s32 idx = s_ThumbQueue[s_ThumbQHead];
+	s_ThumbQHead = (s_ThumbQHead + 1) % CATALOG_MAX_ENTRIES;
+	return idx;
+}
 
 /* Maps: mpbody index → catalog index, mphead index → catalog index */
 static s32 s_BodyMpToCatalog[CATALOG_MAX_ENTRIES];
@@ -536,7 +568,7 @@ s32 catalogGetNumHeads(void)
 s32 catalogGetSafeBody(s32 bodynum)
 {
 	if (bodynum < 0 || bodynum >= s_CatalogCount) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: body %d out of range [0,%d), using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: body %d out of range [0,%d), using basegame body %d",
 		             bodynum, s_CatalogCount, CATALOG_FALLBACK_BODY);
 		return CATALOG_FALLBACK_BODY;
 	}
@@ -548,7 +580,7 @@ s32 catalogGetSafeBody(s32 bodynum)
 
 	if (s_Catalog[bodynum].status == MODELSTATUS_INVALID
 		|| s_Catalog[bodynum].status == MODELSTATUS_MISSING) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: body %d is %s, using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: body %d is %s, using basegame body %d",
 		             bodynum,
 		             s_Catalog[bodynum].status == MODELSTATUS_INVALID ? "INVALID" : "MISSING",
 		             CATALOG_FALLBACK_BODY);
@@ -557,10 +589,51 @@ s32 catalogGetSafeBody(s32 bodynum)
 	return bodynum;
 }
 
+/* Find the mphead index (index into g_MpHeads) whose headnum field (g_HeadsAndBodies
+ * index) matches the given value.  Used to convert mpbody.headnum → mphead index
+ * so the caller can store it in mpchrconfig.mpheadnum.
+ * Returns CATALOG_FALLBACK_HEAD if no matching head is found. */
+static s32 catalogFindMpHeadByHeadnum(s16 headnum)
+{
+	s32 total = modmgrGetTotalHeads();
+	for (s32 i = 0; i < total; i++) {
+		struct mphead *h = modmgrGetHead(i);
+		if (h && h->headnum == headnum) {
+			return i;
+		}
+	}
+	return CATALOG_FALLBACK_HEAD;
+}
+
+s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
+{
+	s32 safeBody = catalogGetSafeBody(bodynum);
+
+	if (safeBody == bodynum) {
+		/* Body is valid — leave caller's head choice (*out_mpheadnum) unchanged */
+		return safeBody;
+	}
+
+	/* Body is invalid or missing — pick a random base game body and use its
+	 * built-in head pairing so we always get a matched body+head pair. */
+	s32 randMpBodyIdx = rand() % MODMGR_BASE_BODIES;
+	struct mpbody *b = modmgrGetBody(randMpBodyIdx);
+	s32 pairedHead = b ? catalogFindMpHeadByHeadnum(b->headnum) : CATALOG_FALLBACK_HEAD;
+
+	sysLogPrintf(LOG_WARNING,
+	             "CATALOG: FALLBACK: body %d unavailable, using basegame body %d (head %d)",
+	             bodynum, randMpBodyIdx, pairedHead);
+
+	if (out_mpheadnum) {
+		*out_mpheadnum = pairedHead;
+	}
+	return randMpBodyIdx;
+}
+
 s32 catalogGetSafeHead(s32 headnum)
 {
 	if (headnum < 0 || headnum >= s_CatalogCount) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: head %d out of range [0,%d), using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: head %d out of range [0,%d), using basegame head %d",
 		             headnum, s_CatalogCount, CATALOG_FALLBACK_HEAD);
 		return CATALOG_FALLBACK_HEAD;
 	}
@@ -572,7 +645,7 @@ s32 catalogGetSafeHead(s32 headnum)
 
 	if (s_Catalog[headnum].status == MODELSTATUS_INVALID
 		|| s_Catalog[headnum].status == MODELSTATUS_MISSING) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: head %d is %s, using fallback %d",
+		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: head %d is %s, using basegame head %d",
 		             headnum,
 		             s_Catalog[headnum].status == MODELSTATUS_INVALID ? "INVALID" : "MISSING",
 		             CATALOG_FALLBACK_HEAD);
@@ -623,11 +696,67 @@ s32 catalogIsHeadBodyCompatible(s32 headnum, s32 bodynum)
 
 void catalogRequestThumbnail(s32 index)
 {
-	/* TODO: queue thumbnail render via charpreview FBO system.
-	 * This will be implemented when we integrate with the agent select
-	 * screen. Each entry gets rendered to a small texture (64x64 or 128x128)
-	 * and cached in ce->thumbnailTexId. */
-	(void)index;
+	if (index < 0 || index >= s_CatalogCount) return;
+	struct catalogentry *ce = &s_Catalog[index];
+
+	/* Only MP-selectable models have a meaningful mpIndex to render. */
+	if (ce->mpIndex < 0) return;
+	if (ce->thumbnailReady || ce->thumbnailTexId != 0) return;  /* already done */
+	if (ce->status == MODELSTATUS_INVALID || ce->status == MODELSTATUS_MISSING) return;
+
+	thumbQueuePush(index);
+}
+
+void catalogPollThumbnails(void)
+{
+	/* Step 1: if the in-flight render just completed, bake a unique texture. */
+	if (s_ThumbActive >= 0 && pdguiCharPreviewIsReady()) {
+		u32 texId = pdguiCharPreviewBakeToTexture();
+		if (texId != 0 && s_ThumbActive < s_CatalogCount) {
+			struct catalogentry *ce = &s_Catalog[s_ThumbActive];
+			ce->thumbnailTexId = texId;
+			ce->thumbnailReady = 1;
+			sysLogPrintf(LOG_NOTE, "CATALOG: thumbnail baked [%d] '%s' texId=%u",
+			             s_ThumbActive, ce->displayName, texId);
+		}
+		s_ThumbActive = -1;
+	}
+
+	/* Step 2: fire the next pending request (one per frame). */
+	if (s_ThumbActive < 0) {
+		s32 idx = thumbQueuePop();
+		/* Skip entries that were already rendered (duplicate queue entries). */
+		while (idx >= 0 && idx < s_CatalogCount && s_Catalog[idx].thumbnailReady) {
+			idx = thumbQueuePop();
+		}
+		if (idx >= 0 && idx < s_CatalogCount) {
+			struct catalogentry *ce = &s_Catalog[idx];
+			u8 headnum = (u8)CATALOG_FALLBACK_HEAD;
+			u8 bodynum = (u8)CATALOG_FALLBACK_BODY;
+			if (ce->category == MODELCAT_HEAD) {
+				headnum = (u8)ce->mpIndex;
+			} else {
+				bodynum = (u8)ce->mpIndex;
+			}
+			pdguiCharPreviewRequest(headnum, bodynum);
+			s_ThumbActive = idx;
+		}
+	}
+}
+
+void catalogFlushThumbnailQueue(void)
+{
+	s_ThumbQHead  = 0;
+	s_ThumbQTail  = 0;
+	s_ThumbActive = -1;
+
+	for (s32 i = 0; i < s_CatalogCount; i++) {
+		if (s_Catalog[i].thumbnailTexId != 0) {
+			pdguiCharPreviewFreeTexture(s_Catalog[i].thumbnailTexId);
+			s_Catalog[i].thumbnailTexId = 0;
+			s_Catalog[i].thumbnailReady  = 0;
+		}
+	}
 }
 
 u32 catalogGetThumbnailTexId(s32 index)

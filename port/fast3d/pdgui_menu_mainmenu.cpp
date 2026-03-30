@@ -19,6 +19,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -28,6 +29,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -172,6 +174,10 @@ void inputMouseSetSpeed(f32 x, f32 y);
 s32 inputGetMouseLockMode(void);
 void inputSetMouseLockMode(s32 mode);
 
+/* Right stick Y invert — from port/include/input.h */
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
 /* Input binding API — from port/include/input.h.
  * We can't include input.h (types.h conflict), so replicate constants.
  * Use PD_ prefix to avoid collision with Windows VK_ defines. */
@@ -241,7 +247,40 @@ void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
 s32  pdguiModdingHubIsVisible(void);
 
-/* Persistent memory diagnostics — from memp.c */
+/* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
+void pdguiSoloRoomOpen(void);
+
+/* Connect codes (connectcode.c) */
+s32 connectCodeDecode(const char *code, u32 *outIp);
+s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
+#define CONNECT_DEFAULT_PORT 27100
+#define CONNECT_CODE_MAX     128
+
+/* Recent server list — layout must match struct netrecentserver in net.h exactly.
+ * NET_MAX_ADDR=256, NET_MAX_NAME=MAX_PLAYERNAME=15. */
+#define PD_NET_MAX_RECENT_SERVERS 8
+struct netrecentserver {
+    char addr[257];       /* NET_MAX_ADDR + 1 */
+    u32  protocol;
+    u8   flags;
+    u8   numclients;
+    u8   maxclients;
+    u8   stagenum;
+    u8   scenario;
+    char hostname[15];    /* NET_MAX_NAME */
+    u32  lastresponse;
+    bool online;
+};
+extern struct netrecentserver g_NetRecentServers[PD_NET_MAX_RECENT_SERVERS];
+extern s32 g_NetNumRecentServers;
+
+/* Network connect + async recent-server ping (net.c) */
+s32 netStartClient(const char *addr);
+void netQueryRecentServersAsync(void);
+void netPollRecentServers(void);
+extern bool g_NetQueryInFlight;
+
+/* Persistent memory diagnostics -- from memp.c */
 void *mempPCAlloc(u32 size, const char *tag);
 s32 mempPCValidate(const char *context);
 u32 mempPCGetTotalAllocated(void);
@@ -768,6 +807,14 @@ static void renderSettingsControls(float scale)
         bool invertY = optionsGetForwardPitch(0) == 0;
         if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
             optionsSetForwardPitch(0, invertY ? 0 : 1);
+        }
+    }
+
+    {
+        bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+        if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
+            inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+            configSave("pd.ini");
         }
     }
 
@@ -1467,9 +1514,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* Determine title based on current view */
     const char *windowTitle = "Perfect Dark";
-    if (s_MenuView == 1) windowTitle = "Play";
+    if (s_MenuView == 1) windowTitle = "Solo Play";
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
+    else if (s_MenuView == 4) windowTitle = "Online Play";
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -1494,6 +1542,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (s_MenuView != 0) {
             if (s_MenuView == 3) {
                 pdguiModdingHubHide();
+                if (menuGetCurrent() == MENU_MODDING) menuPop();
+            } else if (s_MenuView == 4) {
+                if (menuGetCurrent() == MENU_JOIN) menuPop();
             }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1506,18 +1557,35 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     if (s_MenuView == 0) {
         /* ================================================================
-         * TOP LEVEL: Play / Settings / Quit Game
+         * TOP LEVEL: Solo Play / Online Play / Change Agent / Settings
+         * Quit Game docked to bottom-right with confirmation.
          * ================================================================ */
+        static bool s_QuitConfirm = false;
+
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 
-        ImGui::TextDisabled("Carrington Institute");
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, spacing * 2));
-
-        /* Play — give nav focus on first appearance or view switch */
+        /* Solo Play -- opens local lobby (no server connection) */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-        if (PdButton("Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 1;
+        if (PdButton("Solo Play", ImVec2(buttonW, buttonH * 1.2f))) {
+            s_MenuView = 1; /* Solo play sub-menu for now; will become local lobby */
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Online Play */
+        if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
+            if (!menuIsInCooldown()) {
+                s_MenuView = 4;
+                menuPush(MENU_JOIN);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Change Agent */
+        if (PdButton("Change Agent", ImVec2(buttonW, buttonH * 1.2f))) {
+            menuPushDialog(&g_ChangeAgentMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -1527,39 +1595,52 @@ static s32 renderMainMenu(struct menudialog *dialog,
             s_MenuView = 2;
         }
 
-        ImGui::Dummy(ImVec2(0, spacing));
+        /* Quit Game -- docked to bottom-right with confirmation */
+        {
+            /* Width sized to fit the widest label ("Confirm Quit") so both states match */
+            float quitBtnW = ImGui::CalcTextSize("Confirm Quit").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            float quitBtnH = 28.0f * scale;
+            float margin = 4.0f * scale;
+            /* Cursor pos is relative to window origin; subtract padding + margin so
+               the button right edge sits margin pixels inside the content clip rect */
+            float cursorX = dialogW - ImGui::GetStyle().WindowPadding.x - quitBtnW - margin;
+            float cursorY = dialogH - ImGui::GetStyle().WindowPadding.y - quitBtnH - margin;
 
-        /* Quit Game */
-        if (PdButton("Quit Game", ImVec2(buttonW, buttonH * 1.2f))) {
-            /* SDL_Quit event to cleanly shut down */
-            SDL_Event quitEvent;
-            quitEvent.type = SDL_QUIT;
-            SDL_PushEvent(&quitEvent);
-        }
+            ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
 
-        ImGui::Dummy(ImVec2(0, spacing * 3));
-        ImGui::Separator();
+            if (!s_QuitConfirm) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.15f, 0.15f, 0.9f));
+                if (ImGui::Button("Quit Game", ImVec2(quitBtnW, quitBtnH))) {
+                    s_QuitConfirm = true;
+                }
+                ImGui::PopStyleColor(2);
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
+                if (ImGui::Button("Confirm Quit", ImVec2(quitBtnW, quitBtnH))) {
+                    SDL_Event quitEvent;
+                    quitEvent.type = SDL_QUIT;
+                    SDL_PushEvent(&quitEvent);
+                }
+                ImGui::PopStyleColor(2);
 
-        /* Change Agent link at bottom */
-        if (PdButton("Change Agent...", ImVec2(buttonW, 28.0f * scale))) {
-            menuPushDialog(&g_ChangeAgentMenuDialog);
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Modding Hub — mod manager, INI editor, model scale tool */
-        if (PdButton("Modding...", ImVec2(buttonW, 28.0f * scale))) {
-            pdguiModdingHubShow();
-            s_MenuView = 3;
+                ImGui::SetCursorPos(ImVec2(cursorX - quitBtnW * 0.7f - 8.0f * scale, cursorY));
+                if (ImGui::Button("Cancel", ImVec2(quitBtnW * 0.7f, quitBtnH))) {
+                    s_QuitConfirm = false;
+                }
+            }
         }
 
     } else if (s_MenuView == 1) {
         /* ================================================================
-         * PLAY SUB-MENU
+         * SOLO PLAY SUB-MENU
+         * Campaign missions, local combat sim, co-op, counter-op.
+         * Online play is accessed from the top-level "Online Play" button.
          * ================================================================ */
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
-        /* Solo Missions — give nav focus on view switch */
+        /* Solo Missions -- campaign */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
             menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
@@ -1567,22 +1648,21 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Local Play — opens new match setup lobby */
-        if (PdButton("Local Play", ImVec2(buttonW, buttonH))) {
-            matchConfigInit();
-            menuPushDialog(&g_MatchSetupMenuDialog);
+        /* Combat Simulator -- opens Room screen in solo (offline) mode */
+        if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
+            pdguiSoloRoomOpen();
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Co-Operative */
+        /* Co-Operative -- local co-op campaign */
         if (PdButton("Co-Operative", ImVec2(buttonW, buttonH))) {
             menuhandlerMainMenuCooperative(MENUOP_SET, nullptr, nullptr);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Counter-Operative */
+        /* Counter-Operative -- requires 2 controllers */
         {
             bool disabled = ((joyGetConnectedControllers() & ~0x1) == 0);
             if (disabled) ImGui::BeginDisabled();
@@ -1592,13 +1672,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             }
 
             if (disabled) ImGui::EndDisabled();
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Network Play */
-        if (PdButton("Network Play", ImVec2(buttonW, buttonH))) {
-            menuPushDialog(&g_NetMenuDialog);
         }
 
     } else if (s_MenuView == 2) {
@@ -1612,14 +1685,170 @@ static s32 renderMainMenu(struct menudialog *dialog,
     } else if (s_MenuView == 3) {
         /* ================================================================
          * MODDING HUB
-         * The Modding Hub is a standalone ImGui window rendered separately
-         * by pdguiModdingHubRender() in pdgui_backend.cpp. This dialog stays
-         * "open" so hotswapQueued remains true and pdguiRender() keeps running.
-         * If the hub was closed externally (Close button, B/Escape), return
-         * to top-level on the next frame.
          * ================================================================ */
         if (!pdguiModdingHubIsVisible()) {
             s_MenuView = 0;
+        }
+
+    } else if (s_MenuView == 4) {
+        /* ================================================================
+         * ONLINE PLAY
+         * Join a server by connect code or direct IP.
+         * After connecting, transitions to the server lobby.
+         * ================================================================ */
+        static char s_JoinCodeInput[64] = "";
+        static char s_JoinStatus[128] = "";
+        static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+        static Uint32 s_LastQueryMs = 0;
+#define ONLINE_PLAY_REQUERY_MS 12000
+
+        /* Fire async ping queries when the view opens and every 12 s. */
+        {
+            Uint32 nowMs = SDL_GetTicks();
+            if (s_ViewJustChanged || (nowMs - s_LastQueryMs) >= ONLINE_PLAY_REQUERY_MS) {
+                netQueryRecentServersAsync();
+                s_LastQueryMs = nowMs;
+            }
+        }
+
+        /* Drain any pending ping responses each frame. */
+        netPollRecentServers();
+
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server");
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        ImGui::Text("Enter the connect code shared by the server host:");
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        ImGui::SetNextItemWidth(buttonW);
+        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+        ImGui::InputText("##joincode", s_JoinCodeInput, sizeof(s_JoinCodeInput));
+
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        if (PdButton("Connect", ImVec2(buttonW, 32.0f * scale))) {
+            if (s_JoinCodeInput[0]) {
+                u32 ip = 0;
+
+                /* Connect code is the ONLY accepted input.
+                 * Must be exactly 4 valid words from the dictionaries.
+                 * No direct IP addresses allowed -- the code is a security layer
+                 * that prevents sharing raw public IPs. */
+                if (connectCodeDecode(s_JoinCodeInput, &ip) == 0 && ip) {
+                    /* Code validated -- resolve internally and connect.
+                     * Bytes are packed little-endian (a=LSB, d=MSB) by the encoder. */
+                    char addrStr[64];
+                    snprintf(addrStr, sizeof(addrStr), "%u.%u.%u.%u:%u",
+                        ip & 0xff, (ip >> 8) & 0xff,
+                        (ip >> 16) & 0xff, (ip >> 24) & 0xff, CONNECT_DEFAULT_PORT);
+                    sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
+
+                    if (netStartClient(addrStr) == 0) {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
+                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+                    } else {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
+                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    }
+                } else {
+                    snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Invalid connect code");
+                    s_JoinStatusColor = ImVec4(1.0f, 0.5f, 0.2f, 1.0f);
+                }
+            }
+        }
+
+        if (s_JoinStatus[0]) {
+            ImGui::Dummy(ImVec2(0, 4.0f * scale));
+            ImGui::TextColored(s_JoinStatusColor, "%s", s_JoinStatus);
+        }
+
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::TextDisabled("Enter a 4-word connect code from the server host");
+        ImGui::TextDisabled("Example: fat vampire running to the park");
+
+        /* Server History */
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+        ImGui::Separator();
+
+        /* Header: title + in-flight indicator or Refresh button */
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Recent Servers");
+        ImGui::SameLine();
+        if (g_NetQueryInFlight) {
+            /* Pulse the dot between yellow and white while queries are in flight. */
+            float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
+            float p = (float)(0.55 + 0.45 * sin(pulse));
+            ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), " ●");
+        } else {
+            ImGui::SameLine(buttonW - pdguiScale(64.0f));
+            if (ImGui::SmallButton("Refresh")) {
+                netQueryRecentServersAsync();
+                s_LastQueryMs = SDL_GetTicks();
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+        if (g_NetNumRecentServers == 0) {
+            ImGui::TextDisabled("No recent servers");
+        } else {
+            /* Entries are stored oldest-first; display newest first. */
+            for (s32 i = g_NetNumRecentServers - 1; i >= 0; --i) {
+                struct netrecentserver *srv = &g_NetRecentServers[i];
+
+                /* Build connect code from stored addr "a.b.c.d[:port]". */
+                char code[CONNECT_CODE_MAX] = "";
+                {
+                    u32 a = 0, b = 0, c = 0, d = 0;
+                    if (sscanf(srv->addr, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                        u32 ip = a | (b << 8) | (c << 16) | (d << 24);
+                        connectCodeEncode(ip, code, sizeof(code));
+                    }
+                }
+
+                /* Online/offline dot — pulsing amber while query in flight. */
+                if (g_NetQueryInFlight) {
+                    float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
+                    float p = (float)(0.55 + 0.45 * sin(pulse));
+                    ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), "◌");
+                } else {
+                    ImGui::TextColored(
+                        srv->online ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f)
+                                    : ImVec4(0.45f, 0.45f, 0.45f, 1.0f),
+                        srv->online ? "●" : "○");
+                }
+                ImGui::SameLine();
+
+                /* Clickable row — hostname (or code fallback) + player count. */
+                const char *name = (srv->hostname[0] != '\0') ? srv->hostname : code;
+                char rowText[256];
+                if (srv->online && srv->maxclients > 0) {
+                    snprintf(rowText, sizeof(rowText), "%s  [%u/%u]",
+                        name, (u32)srv->numclients, (u32)srv->maxclients);
+                } else {
+                    snprintf(rowText, sizeof(rowText), "%s", name);
+                }
+
+                ImGui::PushID(i);
+                if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
+                        ImVec2(buttonW - pdguiScale(24.0f), 0.0f))) {
+                    if (netStartClient(srv->addr) == 0) {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
+                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+                    } else {
+                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
+                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    }
+                }
+                ImGui::PopID();
+
+                /* Show connect code beneath the hostname when one is present. */
+                if (srv->hostname[0] != '\0' && code[0] != '\0') {
+                    ImGui::TextDisabled("    %s", code);
+                }
+
+                ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));
+            }
         }
     }
 
@@ -1637,10 +1866,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
     }
     s_PrevSubTab = s_SettingsSubTab;
 
-    /* ---- Footer ---- */
-    ImGui::SetCursorPosY(dialogH - 20.0f * scale);
-    ImGui::TextDisabled("F8: toggle OLD/NEW");
-
     ImGui::End();
     return 1;  /* Handled */
 }
@@ -1650,6 +1875,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
  * ======================================================================== */
 
 extern "C" {
+
+void pdguiMainMenuReset(void)
+{
+    s_MenuView = 0;
+}
 
 void pdguiMenuMainMenuRegister(void)
 {

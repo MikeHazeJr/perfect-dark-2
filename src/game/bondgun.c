@@ -168,7 +168,10 @@ u32 fill2[1];
 Lights1 var80070090 = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0xb2, 0x4d, 0x2e);
 
 #ifdef PLATFORM_64BIT
-u32 g_BgunGunMemBaseSizeDefault = 150 * 1024 * 2; // #TODO adjust these values properly
+// On 64-bit PC, gun model data loaded into gunmem contains structs with pointer-sized fields
+// that expand from 4 to 8 bytes after preprocessing (similar to bg room data). 2x the N64 size
+// is a safe upper bound. Per-stage tuning is still possible via stageGetCurrent()->extragunmem.
+u32 g_BgunGunMemBaseSizeDefault = 150 * 1024 * 2;
 u32 g_BgunGunMemBaseSize4Mb2P = 120 * 1024 * 2;
 #else
 u32 g_BgunGunMemBaseSizeDefault = 150 * 1024;
@@ -3654,8 +3657,11 @@ u32 bgunCalculateGunMemCapacity(void)
 void bgunFreeGunMem(void)
 {
 	g_Vars.currentplayer->gunctrl.gunmemowner = GUNMEMOWNER_FREE;
-	// gunmem is stale and so are the textures in it
-	// TODO: figure out how to purge only those textures
+	// gunmem is stale and so are the textures loaded from it.
+	// Selective purge isn't feasible: the fast3d texture cache is keyed by GBI load parameters
+	// (address, format, size), not by pointer range, and exposes no "purge by address range" API.
+	// Full cache clear is the only safe option — textures for the new weapon will be reloaded
+	// on next render. If this causes hitching, the fix is to add a ranged-evict API to gfx_pc.cpp.
 	videoResetTextureCache();
 }
 
@@ -12043,6 +12049,7 @@ void bgunSetPassiveMode(bool enable)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->gunctrl.passivemode = enable;
 	}
 }

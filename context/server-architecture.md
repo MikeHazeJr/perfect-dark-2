@@ -111,6 +111,48 @@ The client implements `netcb_*` callbacks by calling into the N64 game code:
 3. **Phase 3:** Server and client each have their own callback implementations.
 4. **Phase 4:** Remove all direct game state access from networking code.
 
+## SPF-1: Server Platform Foundation (S47d — DONE)
+
+Thin platform layer added on top of the existing ENet server.  Protocol v21 unchanged.
+
+### Hub + Room system
+
+```
+Server process
+└── Hub (hub.h/c)           — singleton, LOUNGE / ACTIVE state
+    ├── Room 0 "Lounge"     — wraps existing single-match lifecycle
+    │   state: LOBBY → LOADING → MATCH → POSTGAME → LOBBY (loop)
+    ├── Room 1..3            — future rooms (pool pre-allocated, all CLOSED)
+    └── Identity (identity.h/c) — pd-identity.dat, device UUID + profiles
+```
+
+`hubTick()` (called each frame after `lobbyUpdate()`) syncs room 0 state from
+`g_Lobby.inGame`.  No changes to net.c or netlobby.c — backward compatible.
+
+### Phonetic encoding (phonetic.h/c)
+
+8 CV syllables (16 consonants × 4 vowels = 6 bits each) encode IP:port as
+"BALE-GIFE-NOME-RIVA" — shorter than the word-based connect codes.
+Both encodings remain available.
+
+### Server GUI changes (server_gui.cpp)
+
+Middle panel converted to tab bar:
+- **Server** tab: existing player list + match controls (unchanged)
+- **Hub** tab: hub state (Lounge/Active) + room table with color-coded states
+- Log panel: HUB: prefix highlighted purple
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `port/include/hub.h` / `port/src/hub.c` | Hub lifecycle |
+| `port/include/room.h` / `port/src/room.c` | Room struct + 5-state lifecycle |
+| `port/include/identity.h` / `port/src/identity.c` | pd-identity.dat |
+| `port/include/phonetic.h` / `port/src/phonetic.c` | CV syllable IP encoding |
+
+---
+
 ## Files
 
 - `port/include/net/net_interface.h` — Protocol interface definition

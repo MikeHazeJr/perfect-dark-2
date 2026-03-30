@@ -158,6 +158,10 @@ void inputControllerSetDualAnalog(s32 cidx, s32 enable);
 s32 inputControllerGetCancelCButtons(s32 cidx);
 void inputControllerSetCancelCButtons(s32 cidx, s32 cancel);
 
+// get/set Input.Player%d.InvertRStickY
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
 // get/set sensitivity for a given player
 f32 inputControllerGetAxisScale(s32 cidx, s32 stick, s32 axis);
 void inputControllerSetAxisScale(s32 cidx, s32 stick, s32 axis, f32 value);

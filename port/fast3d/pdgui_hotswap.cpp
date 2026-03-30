@@ -384,8 +384,6 @@ void pdguiHotswapRenderBadge(s32 winW, s32 winH)
             ImGui::TextDisabled("%s", s_ActiveMenuName);
         }
 
-        ImGui::TextDisabled("F8 to toggle");
-
         if (s_EntryCount > 0) {
             ImGui::TextDisabled("%d menu%s ready",
                                s_EntryCount,

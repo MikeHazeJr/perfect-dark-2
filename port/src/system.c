@@ -195,6 +195,8 @@ static inline void sysLogSetPath(const char *fname)
 	}
 }
 
+s32 g_AppQuitting = 0;
+
 void sysInitArgs(s32 argc, const char **argv)
 {
 	sysArgc = argc;
@@ -319,8 +321,8 @@ s32 sysLogIsOpen(void)
 }
 
 /* Ring buffer for on-screen log display (dedicated server overlay) */
-#define SYSLOG_RING_LINES 64
-#define SYSLOG_RING_LINELEN 128
+#define SYSLOG_RING_LINES 256
+#define SYSLOG_RING_LINELEN 256
 static char s_LogRing[SYSLOG_RING_LINES][SYSLOG_RING_LINELEN];
 static s32 s_LogRingHead = 0;
 static s32 s_LogRingCount = 0;

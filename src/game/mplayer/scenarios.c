@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "game/chraction.h"
 #include "game/dlights.h"
 #include "game/game_006900.h"
@@ -502,7 +503,7 @@ void scenarioCreateMatchStartHudmsgs(void)
 	sprintf(scenarioname, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 
 	for (i = 0; i < g_MpNumChrs; i++) {
-		if (g_MpAllChrPtrs[i]->aibot == NULL) {
+		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL) {
 			setCurrentPlayerNum(i);
 
 			if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
@@ -529,6 +530,14 @@ void scenarioCreateMatchStartHudmsgs(void)
  */
 void scenarioTick(void)
 {
+	static s32 s_ScenarioTickFirstRun = 1;
+	if (s_ScenarioTickFirstRun) {
+		sysLogPrintf(LOG_NOTE, "TICK: scenarioTick first call lvframe60=%d scenario=%d normmplayerisrunning=%d tickfunc=%p",
+			g_Vars.lvframe60, g_MpSetup.scenario, g_Vars.normmplayerisrunning,
+			(void *)g_MpScenarios[g_MpSetup.scenario].tickfunc);
+		s_ScenarioTickFirstRun = 0;
+	}
+
 	if (g_Vars.normmplayerisrunning) {
 		if (g_Vars.lvframenum == 5) {
 			scenarioCreateMatchStartHudmsgs();
@@ -796,6 +805,11 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop)
 {
 	f32 result;
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: scenarioChooseSpawnLocation scenario=%d normmplay=%d spawnfunc=%d numpads=%d",
+		g_MpSetup.scenario, g_Vars.normmplayerisrunning,
+		(g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc) ? 1 : 0,
+		g_NumSpawnPoints);
 
 	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc &&
 			g_MpScenarios[g_MpSetup.scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {

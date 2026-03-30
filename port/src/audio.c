@@ -201,6 +201,98 @@ u16 audioGetUiVolumeScaled(void)
 	return vol;
 }
 
+/* ========================================================================
+ * File-based sound playback (C-7 mod SFX override)
+ *
+ * Loads a WAV file from disk, converts it to the device format (22020 Hz,
+ * AUDIO_S16SYS, stereo), applies the engine's volume and pan values, and
+ * queues the PCM directly via SDL_QueueAudio.
+ *
+ * This bypasses the N64 ADPCM/RSP pipeline — appropriate because mod sound
+ * files are standard WAV, not ADPCM-encoded N64 SFX.
+ *
+ * volume: 0–0x7fff (AL_VOL_FULL = 0x7fff)
+ * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right)
+ * Returns 1 on success, 0 on any failure (caller falls back to ROM sound).
+ * ======================================================================== */
+s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
+{
+    SDL_AudioSpec wavSpec;
+    Uint8 *wavBuf = NULL;
+    Uint32 wavLen = 0;
+
+    if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
+        return 0;
+    }
+
+    /* Convert to device format: 22020 Hz, AUDIO_S16SYS, 2-channel */
+    SDL_AudioCVT cvt;
+    const int cvtResult = SDL_BuildAudioCVT(&cvt,
+        wavSpec.format, wavSpec.channels, wavSpec.freq,
+        AUDIO_S16SYS, 2, 22020);
+
+    if (cvtResult < 0) {
+        SDL_FreeWAV(wavBuf);
+        return 0;
+    }
+
+    Uint8 *pcm;
+    Uint32 pcmLen;
+
+    if (cvtResult > 0) {
+        /* Conversion required: allocate expanded buffer and convert in-place */
+        const Uint32 cvtBufLen = wavLen * (Uint32)cvt.len_mult;
+        pcm = SDL_malloc(cvtBufLen);
+        if (!pcm) {
+            SDL_FreeWAV(wavBuf);
+            return 0;
+        }
+        memcpy(pcm, wavBuf, wavLen);
+        SDL_FreeWAV(wavBuf);
+        cvt.buf = pcm;
+        cvt.len = (int)wavLen;
+        if (SDL_ConvertAudio(&cvt) < 0) {
+            SDL_free(pcm);
+            return 0;
+        }
+        pcmLen = (Uint32)cvt.len_cvt;
+    } else {
+        /* No conversion needed — take ownership of wavBuf (SDL_FreeWAV = SDL_free) */
+        pcm = wavBuf;
+        pcmLen = wavLen;
+    }
+
+    /* Apply volume and stereo pan.
+     *
+     * volume is the engine scale 0–0x7fff.  Convert to float 0.0–1.0.
+     * pan is 0 (full left) … 64 (centre) … 127 (full right).  Map to a
+     * stereo position 0.0–1.0 and use a linear-taper panning law:
+     *   leftScale  = volScale * (1 - panPos) * 2  clamped to 1.0
+     *   rightScale = volScale * panPos        * 2  clamped to 1.0
+     * At centre (pan=64): panPos≈0.504, left≈0.992, right≈1.0 — ~equal. */
+    {
+        const f32 volScale  = (f32)volume / (f32)0x7fff;
+        const f32 panPos    = (f32)pan / 127.0f;
+        f32 leftScale  = volScale * (1.0f - panPos) * 2.0f;
+        f32 rightScale = volScale * panPos * 2.0f;
+        if (leftScale  > 1.0f) leftScale  = 1.0f;
+        if (rightScale > 1.0f) rightScale = 1.0f;
+
+        s16 *samples = (s16 *)pcm;
+        const Uint32 numSamples = pcmLen / sizeof(s16);
+        Uint32 i;
+        /* Stereo interleaved: L0 R0 L1 R1 … */
+        for (i = 0; i + 1 < numSamples; i += 2) {
+            samples[i]     = (s16)((s32)samples[i]     * leftScale);
+            samples[i + 1] = (s16)((s32)samples[i + 1] * rightScale);
+        }
+    }
+
+    SDL_QueueAudio(dev, pcm, pcmLen);
+    SDL_free(pcm);
+    return 1;
+}
+
 PD_CONSTRUCTOR static void audioConfigInit(void)
 {
 	configRegisterInt("Audio.BufferSize", &bufferSize, 0, 1 * 1024 * 1024);

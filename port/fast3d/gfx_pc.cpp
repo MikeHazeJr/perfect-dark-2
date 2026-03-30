@@ -135,6 +135,13 @@ static struct RSP {
     const struct NormalColor *vertex_colors; //[MAX_VERTEX_COLORS];
 } rsp;
 
+/* Mesh debug: tint rendered geometry by surface normal direction (F9 toggle)
+ * Mode 0 = off, 1 = tint rendered geo, 2 = collision mesh only (suppress game rendering) */
+extern "C" int meshDebugGetMode(void);
+extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height);
+static int s_meshDebugModeCache = 0;
+static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
+
 struct RawTexMetadata {
     uint16_t width, height;
     float h_byte_scale = 1, v_pixel_scale = 1;
@@ -1126,6 +1133,31 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.b = vcn->b;
         }
 
+        /* SAVED EFFECT: "Normal Tint" -- tints rendered geometry by surface normal direction.
+         * Looks cool but classification doesn't match collision mesh normals (these are
+         * lighting normals, not collision normals). Saved for future use as a visual effect.
+         * To re-enable: change condition to check a shader effect toggle instead of mesh debug.
+        if (some_shader_effect_flag) {
+            float ny = vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][0]
+                     + vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][1]
+                     + vcn->z * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][2];
+            ny /= 127.0f;
+            if (ny > 0.5f) {
+                d->color.r = (uint8_t)(d->color.r * 0.3f);
+                d->color.g = (uint8_t)(d->color.g * 0.3f + 180);
+                d->color.b = (uint8_t)(d->color.b * 0.3f);
+            } else if (ny < -0.5f) {
+                d->color.r = (uint8_t)(d->color.r * 0.3f);
+                d->color.g = (uint8_t)(d->color.g * 0.3f);
+                d->color.b = (uint8_t)(d->color.b * 0.3f + 180);
+            } else {
+                d->color.r = (uint8_t)(d->color.r * 0.3f + 180);
+                d->color.g = (uint8_t)(d->color.g * 0.3f);
+                d->color.b = (uint8_t)(d->color.b * 0.3f);
+            }
+        }
+        */
+
         d->u = U;
         d->v = V;
 
@@ -1192,6 +1224,10 @@ static inline int gfx_lod_tile_offset(const int i) {
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
+    /* Mode 2: collision mesh only -- disabled pending correct VP matrix work
+    if (s_meshDebugModeCache == 2 && !is_rect) { return; }
+    */
+
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
@@ -2651,11 +2687,14 @@ uint32_t num_dls = 0;
 /* D3d: ImGui overlay — rendered after PD scene, before buffer swap */
 extern "C" void pdguiNewFrame(void);
 extern "C" void pdguiRender(void);
+
 extern "C" void gfx_opengl_reset_for_overlay(int width, int height);
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     gfx_sp_reset();
+    /* Refresh mesh debug mode once per frame (not per vertex) */
+    s_meshDebugModeCache = meshDebugGetMode();
 
     // puts("New frame");
 
@@ -2698,11 +2737,24 @@ extern "C" void gfx_run(Gfx* commands) {
         }
     }
 
+    /* Compute VP matrix from the RSP state for collision mesh rendering.
+     * VP = modelview[0] (view matrix) x P_matrix (projection).
+     * This transforms world-space coordinates to clip space. */
+    gfx_matrix_mul(s_vpMatrix, rsp.modelview_matrix_stack[0], rsp.P_matrix);
+
     gfx_rapi->end_frame();
 
     /* D3d: Reset GL state to full window and render ImGui overlay */
     gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
                                  gfx_current_window_dimensions.height);
+
+    /* Mode 2: render collision mesh as colored triangles */
+    if (s_meshDebugModeCache == 2) {
+        meshDebugRenderCollisionMesh(s_vpMatrix,
+            gfx_current_window_dimensions.width,
+            gfx_current_window_dimensions.height);
+    }
+
     pdguiNewFrame();
     pdguiRender();
 

@@ -20,6 +20,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -49,9 +50,13 @@ extern s32 g_NetMode;
 #define NETMODE_SERVER 1
 #define NETMODE_CLIENT 2
 
-/* End game */
+/* End game / stage transition */
 void mainEndStage(void);
+void mainChangeToStage(s32 stagenum);
 void netDisconnect(void);
+
+/* Mouse */
+s32 inputMouseIsLocked(void);
 
 /* Game state */
 struct vars_opaque;
@@ -60,10 +65,11 @@ extern s32 g_MainIsEndscreen;
 /* Player index for stat lookups */
 extern s32 g_MpPlayerNum;
 
-/* Ranking system */
-#define MAX_PLAYERS_PM     8
-#define MAX_BOTS_PM       24
-#define MAX_MPCHRS_PM     (MAX_PLAYERS_PM + MAX_BOTS_PM)
+/* Ranking system — must match MAX_PLAYERS, MAX_BOTS, MAX_MPCHRS in src/include/constants.h.
+ * Cannot include constants.h here (types.h bool conflict with C++). */
+#define MAX_PLAYERS_PM     8   /* = MAX_PLAYERS */
+#define MAX_BOTS_PM       32   /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY (raised from 24 in S45) */
+#define MAX_MPCHRS_PM     (MAX_PLAYERS_PM + MAX_BOTS_PM)  /* = 40 = MAX_MPCHRS */
 
 /* We need to call mpGetPlayerRankings, but it uses struct ranking
  * which we can't include from types.h. Define a compatible layout. */
@@ -81,10 +87,10 @@ struct mpchrconfig_pm {
     /*0x1e*/ s8 placement;
     /*0x1f*/ u8 _pad1;            /* alignment padding to 0x20 */
     /*0x20*/ s32 rankablescore;
-    /*0x24*/ s16 killcounts[MAX_MPCHRS_PM];
-    /*0x64*/ s16 numdeaths;       /* offset depends on MAX_MPCHRS value */
-    /*0x66*/ s16 numpoints;
-    /*0x68*/ s16 unk40;
+    /*0x24*/ s16 killcounts[MAX_MPCHRS_PM];  /* 0x24 + MAX_MPCHRS*2 bytes */
+    /*0x74*/ s16 numdeaths;       /* 0x24 + 40*2 = 0x74 with MAX_MPCHRS=40 */
+    /*0x76*/ s16 numpoints;
+    /*0x78*/ s16 unk40;
 };
 
 struct ranking_pm {
@@ -135,6 +141,13 @@ const char *pdguiPauseGetStageName(u8 stagenum);
 /* Menu stack — to close legacy dialogs if any are open */
 void menuCloseAllDialogs(void);
 
+/* Config save */
+s32 configSave(const char *fname);
+
+/* Right stick Y invert — from port/include/input.h */
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -167,12 +180,29 @@ static bool s_EndGameConfirm = false;
 
 void pdguiPauseMenuOpen(void)
 {
+    if (menuIsInCooldown()) return; /* prevent double-press */
+
+    /* Release mouse grab so the cursor is visible and clickable in the menu.
+     * Must happen before s_PauseMenuOpen = true (before pdguiIsActive blocks SDL). */
+    SDL_SetRelativeMouseMode(SDL_FALSE);
+    SDL_ShowCursor(SDL_ENABLE);
+    {
+        SDL_Window *win = SDL_GetMouseFocus();
+        if (win) {
+            int w, h;
+            SDL_GetWindowSize(win, &w, &h);
+            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        }
+    }
+
     s_PauseMenuOpen = true;
-    s_PauseJustOpened = true; /* B-14: skip close checks this frame */
+    s_PauseJustOpened = true;
     s_PauseTab = 0;
     s_EndGameConfirm = false;
 
-    /* Pause the game (single-player combat sim only — network handles differently) */
+    menuPush(MENU_PAUSE); /* register with menu manager for cooldown */
+
+    /* Pause the game (single-player combat sim only -- network handles differently) */
     if (g_NetMode == NETMODE_NONE) {
         mpSetPaused(MPPAUSEMODE_PAUSED);
     }
@@ -182,6 +212,20 @@ void pdguiPauseMenuClose(void)
 {
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
+
+    /* Restore mouse state to what the game expects.
+     * inputMouseIsLocked() reflects the pre-pause state because the game's
+     * inputAutoLockMouse() is a no-op while pdguiIsActive() is true.
+     * Now that s_PauseMenuOpen is false, pdguiIsActive() returns false here,
+     * so SDL_SetRelativeMouseMode actually takes effect. */
+    if (inputMouseIsLocked()) {
+        SDL_ShowCursor(SDL_DISABLE);
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+    } else {
+        SDL_ShowCursor(SDL_ENABLE);
+    }
+
+    menuPop(); /* deregister from menu manager */
 
     /* Unpause */
     if (g_NetMode == NETMODE_NONE) {
@@ -409,6 +453,19 @@ static void renderSettingsTab(void)
         }
     }
     ImGui::Text("Players: %d   Bots: %d", numPlayers, numBots);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Controls */
+    ImGui::TextDisabled("Controls");
+
+    bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+    if (ImGui::Checkbox("Invert Y-Axis", &invertRStick)) {
+        inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+        configSave("pd.ini");
+    }
 }
 
 /* ========================================================================
@@ -487,8 +544,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 } else {
                     mainEndStage();
                 }
-                s_PauseMenuOpen = false;
-                s_EndGameConfirm = false;
+                pdguiPauseMenuClose();
             }
             ImGui::PopStyleColor(3);
             ImGui::SameLine();
@@ -704,6 +760,118 @@ void pdguiScorecardRender(s32 winW, s32 winH)
                 ImGui::PopStyleColor();
             }
         }
+    }
+    ImGui::End();
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
+/* ========================================================================
+ * Match Over (GAMEOVER) Overlay
+ *
+ * Shown when mpEndMatch() sets MPPAUSEMODE_GAMEOVER. Displays final rankings
+ * and a "Return to Lobby" button that transitions back to STAGE_CITRAINING.
+ * Without this the game freezes on match end — the N64 menu system drove the
+ * post-match transition, but the PC port ImGui doesn't observe prevmenuroot.
+ * ======================================================================== */
+
+void pdguiGameOverRender(s32 winW, s32 winH)
+{
+    if (pdguiPauseGetPaused() != MPPAUSEMODE_GAMEOVER) return;
+    if (!pdguiPauseGetNormMplayerIsRunning()) return;
+
+    pdguiSetPalette(2);
+
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    ImGui::GetBackgroundDrawList()->AddRectFilled(
+        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+
+    ScorecardRow rows[MAX_MPCHRS_PM];
+    s32 count = buildScorecardData(rows, MAX_MPCHRS_PM);
+    u32 options = pdguiPauseGetOptions();
+    bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
+
+    float rowH    = pdguiScale(22.0f);
+    float headerH = pdguiScale(40.0f);
+    float colH    = pdguiScale(22.0f); /* column header row */
+    float btnH    = pdguiScale(36.0f);
+    float padding = pdguiScale(12.0f);
+    float menuH   = headerH + colH + (count > 0 ? count * rowH : rowH) + btnH + padding * 3;
+    float menuW   = disp.x * 0.55f;
+    float minW    = pdguiScale(420.0f);
+    if (menuW < minW) menuW = minW;
+    float menuX   = (disp.x - menuW) * 0.5f;
+    float menuY   = (disp.y - menuH) * 0.5f;
+
+    ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar
+                           | ImGuiWindowFlags_NoResize
+                           | ImGuiWindowFlags_NoMove
+                           | ImGuiWindowFlags_NoCollapse
+                           | ImGuiWindowFlags_NoBackground;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pdguiScale(14.0f), pdguiScale(10.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(pdguiScale(6.0f),  pdguiScale(4.0f)));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+    if (ImGui::Begin("##PdGameOver", NULL, flags)) {
+        pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "MATCH OVER", 1);
+
+        float padX = pdguiScale(16.0f);
+        ImGui::SetCursorPos(ImVec2(padX, pdguiScale(40.0f)));
+
+        /* Column headers */
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
+        if (teamsEnabled) {
+            ImGui::Text("%-3s %-12s %5s %5s %5s", "#", "Name", "Score", "K", "D");
+        } else {
+            ImGui::Text("%-3s %-14s %7s %5s %5s", "#", "Name", "Score", "K", "D");
+        }
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        /* Ranking rows */
+        for (s32 i = 0; i < count; i++) {
+            if (rows[i].isPlayer) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.4f, 1.0f));
+            }
+            char rankStr[8];
+            snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
+            if (teamsEnabled) {
+                ImGui::Text("%-3s %-12s %5d %5d %5d",
+                            rankStr, rows[i].name,
+                            rows[i].score, rows[i].kills, rows[i].deaths);
+            } else {
+                ImGui::Text("%-3s %-14s %7d %5d %5d",
+                            rankStr, rows[i].name,
+                            rows[i].score, rows[i].kills, rows[i].deaths);
+            }
+            if (rows[i].isPlayer) {
+                ImGui::PopStyleColor();
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* Return to Lobby button — centered */
+        float btnW  = pdguiScale(200.0f);
+        float curX  = (menuW - btnW) * 0.5f - padX;
+        ImGui::SetCursorPosX(curX);
+
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.3f, 0.6f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f,  0.4f, 0.8f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.3f,  0.5f, 1.0f, 1.0f));
+        if (ImGui::Button("Return to Lobby", ImVec2(btnW, pdguiScale(30.0f)))) {
+            mpSetPaused(MPPAUSEMODE_UNPAUSED);
+            mainChangeToStage(0x26); /* STAGE_CITRAINING */
+        }
+        ImGui::PopStyleColor(3);
     }
     ImGui::End();
 

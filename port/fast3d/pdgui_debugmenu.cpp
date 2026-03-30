@@ -51,7 +51,7 @@ extern "C" {
 #define PDGUI_NETGAMEMODE_ANTI  2
 
 #define PDGUI_NET_DEFAULT_PORT  27100
-#define PDGUI_NET_MAX_CLIENTS   8
+#define PDGUI_NET_MAX_CLIENTS   32
 #define PDGUI_NET_MAX_NAME      32
 
 /* --- constants.h symbols --- */

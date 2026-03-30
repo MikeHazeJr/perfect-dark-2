@@ -30,6 +30,88 @@
 #include "game/stagetable.h"
 
 /* ========================================================================
+ * Weapon Name Table
+ * ======================================================================== */
+
+/*
+ * NOTE: This table is NOT registered -- assetCatalogRegisterBaseGameExtended()
+ * handles weapon registration with the full 47-entry table (MPWEAPON_0x01-0x2f).
+ * This stub is kept as a reference mapping only; do not iterate it.
+ * Coverage: 37 of 47 weapons (missing 0x23-0x24, 0x27-0x2e).
+ */
+static const struct {
+	s16 weapon_id;
+	const char *name;
+	const char *desc;
+} s_BaseWeapons[] = {
+	{ 0x01, "weapon_falcon2",        "Falcon 2" },
+	{ 0x02, "weapon_falcon2_sil",    "Falcon 2 (Silencer)" },
+	{ 0x03, "weapon_falcon2_scope",  "Falcon 2 (Scope)" },
+	{ 0x04, "weapon_magsec4",        "MagSec 4" },
+	{ 0x05, "weapon_mauler",         "Mauler" },
+	{ 0x06, "weapon_phoenix",        "Phoenix" },
+	{ 0x07, "weapon_dy357",          "DY357 Magnum" },
+	{ 0x08, "weapon_dy357lx",        "DY357-LX" },
+	{ 0x09, "weapon_cmp150",         "CMP150" },
+	{ 0x0a, "weapon_cyclone",        "Cyclone" },
+	{ 0x0b, "weapon_callisto",       "Callisto NTG" },
+	{ 0x0c, "weapon_rcp120",         "RCP-120" },
+	{ 0x0d, "weapon_laptopgun",      "Laptop Gun" },
+	{ 0x0e, "weapon_dragon",         "Dragon" },
+	{ 0x0f, "weapon_k7avenger",      "K7 Avenger" },
+	{ 0x10, "weapon_ar34",           "AR34" },
+	{ 0x11, "weapon_superdragon",    "SuperDragon" },
+	{ 0x12, "weapon_shotgun",        "Shotgun" },
+	{ 0x13, "weapon_reaper",         "Reaper" },
+	{ 0x14, "weapon_sniperrifle",    "Sniper Rifle" },
+	{ 0x15, "weapon_farsight",       "Farsight XR-20" },
+	{ 0x16, "weapon_devastator",     "Devastator" },
+	{ 0x17, "weapon_rocketlauncher", "Rocket Launcher" },
+	{ 0x18, "weapon_slayer",         "Slayer" },
+	{ 0x19, "weapon_combatknife",    "Combat Knife" },
+	{ 0x1a, "weapon_crossbow",       "Crossbow" },
+	{ 0x1b, "weapon_tranquilizer",   "Tranquilizer" },
+	{ 0x1c, "weapon_grenade",        "Grenade" },
+	{ 0x1d, "weapon_nbomb",          "N-Bomb" },
+	{ 0x1e, "weapon_timedmine",      "Timed Mine" },
+	{ 0x1f, "weapon_proximitymine",  "Proximity Mine" },
+	{ 0x20, "weapon_remotemine",     "Remote Mine" },
+	{ 0x21, "weapon_laser",          "Laser" },
+	{ 0x22, "weapon_xrayscanner",    "X-Ray Scanner" },
+	{ 0x25, "weapon_cloakingdevice", "Cloaking Device" },
+	{ 0x26, "weapon_combatboost",    "Combat Boost" },
+	{ 0x2f, "weapon_shield",         "Shield" },
+};
+
+#define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))
+
+/* ========================================================================
+ * Game Mode Name Table
+ * ======================================================================== */
+
+/*
+ * Maps MPSCENARIO_* constant -> catalog name.
+ * These become "base:{name}" entries (e.g., "base:gamemode_combat").
+ * scenario_id is the MPSCENARIO_* constant from constants.h.
+ */
+static const struct {
+	s16 scenario_id;
+	const char *name;
+	const char *desc;
+	u8 max_players;
+	u8 min_players;
+} s_BaseGameModes[] = {
+	{ 0, "gamemode_combat",           "Combat Simulator", 4, 2 },
+	{ 1, "gamemode_holdthebriefcase", "Hold the Briefcase", 4, 2 },
+	{ 2, "gamemode_hackercentral",    "Hacker Central", 4, 2 },
+	{ 3, "gamemode_popacap",          "Pop a Cap", 4, 2 },
+	{ 4, "gamemode_kingofthehill",    "King of the Hill", 4, 2 },
+	{ 5, "gamemode_capturethecase",   "Capture the Case", 4, 2 },
+};
+
+#define NUM_BASE_GAMEMODES (sizeof(s_BaseGameModes) / sizeof(s_BaseGameModes[0]))
+
+/* ========================================================================
  * Stage Name Table
  * ======================================================================== */
 
@@ -314,10 +396,11 @@ static const struct {
  * Implementation
  * ======================================================================== */
 
-extern struct stagetableentry g_Stages[];
+/* g_Stages / g_NumStages declared in data.h (included above) */
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 extern struct mparena g_MpArenas[];
+extern struct headorbody g_HeadsAndBodies[];
 
 s32 assetCatalogRegisterBaseGame(void)
 {
@@ -327,7 +410,7 @@ s32 assetCatalogRegisterBaseGame(void)
 	/* ---- Register stages ---- */
 	for (s32 i = 0; i < (s32)NUM_BASE_STAGES; i++) {
 		const s32 idx = s_BaseStages[i].index;
-		if (idx < 0 || idx >= 87) {
+		if (idx < 0 || idx >= g_NumStages) {
 			continue;
 		}
 
@@ -348,6 +431,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->bundled = 1;
 		e->enabled = 1;
 		e->runtime_index = idx;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
 		count++;
 	}
 
@@ -386,6 +471,10 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->enabled = 1;
 		e->runtime_index = idx;
 		e->model_scale = 1.0f;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
+		/* C-2-ext: record the ROM filenum for this body model */
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		body_count++;
 	}
 
@@ -421,6 +510,10 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->enabled = 1;
 		e->runtime_index = idx;
 		e->model_scale = 1.0f;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
+		/* C-2-ext: record the ROM filenum for this head model */
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
 		head_count++;
 	}
 
@@ -475,6 +568,8 @@ s32 assetCatalogRegisterBaseGame(void)
 			e->bundled = 1;
 			e->enabled = 1;
 			e->runtime_index = idx;
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
 			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\"",
 				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
 				s_ArenaGroupMap[g].category);
@@ -487,6 +582,18 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	#undef NUM_ARENA_GROUPS
 
+	/* Weapons and game modes are registered by assetCatalogRegisterBaseGameExtended()
+	 * below with full rich ext fields. Do not register them here to avoid
+	 * duplicate catalog entries. */
+
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
+
+	/* Register extended types: weapons, animations, textures, props, game modes, audio, HUD */
+	s32 ext_count = assetCatalogRegisterBaseGameExtended();
+	if (ext_count > 0) {
+		count += ext_count;
+		sysLogPrintf(LOG_NOTE, "assetcatalog: extended registration added %d entries (%d total)", ext_count, count);
+	}
+
 	return count;
 }

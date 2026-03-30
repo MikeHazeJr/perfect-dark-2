@@ -239,14 +239,21 @@ bool botactShootFarsight(struct chrdata *chr, s32 arg1, struct coord *vector, st
 
 			for (i = 0; i < g_MpNumChrs; i++) {
 				oppchr = g_MpAllChrPtrs[i];
-				oppprop = g_MpAllChrPtrs[i]->prop;
+				if (!oppchr) {
+					continue;
+				}
+				oppprop = oppchr->prop;
 
 				if (oppprop->type == PROPTYPE_PLAYER) {
-					struct player *player = g_Vars.players[playermgrGetPlayerNumByProp(oppprop)];
-					speed = player->speedforwards * player->speedforwards
-							+ player->speedsideways * player->speedsideways;
-
-					if (speed > 0) {
+					s32 fspnum = playermgrGetPlayerNumByProp(oppprop);
+					struct player *player = (fspnum >= 0) ? g_Vars.players[fspnum] : NULL;
+					if (player != NULL) {
+						speed = player->speedforwards * player->speedforwards
+								+ player->speedsideways * player->speedsideways;
+						if (speed > 0) {
+							value = fallback * 0.05f;
+						}
+					} else if (oppchr->actiontype != ACT_STAND) {
 						value = fallback * 0.05f;
 					}
 				} else {
@@ -363,12 +370,12 @@ void botactThrow(struct chrdata *chr)
 	gset.weaponnum = chr->aibot->weaponnum;
 	gset.weaponfunc = chr->aibot->gunfunc;
 
-	if (chrIsTargetInFov(chr, 30, 0)) {
+	if (target != NULL && chrIsTargetInFov(chr, 30, 0)) {
 		sp56.x = target->pos.x;
 		sp56.z = target->pos.z;
 
 		if (chr->aibot->weaponnum == WEAPON_GRENADE || chr->aibot->weaponnum == WEAPON_NBOMB) {
-			sp56.y = target->chr->manground;
+			sp56.y = (target->chr != NULL) ? target->chr->manground : target->pos.y;
 		} else {
 			sp56.y = target->pos.y;
 
@@ -544,7 +551,7 @@ void botactCreateSlayerRocket(struct chrdata *chr)
 			psCreate(NULL, rocket->base.prop, SFX_LAUNCH_ROCKET_8053, -1,
 					-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 
-			if (!botactFindRocketRoute(chr, &chr->prop->pos, &target->pos, chr->prop->rooms, target->rooms, rocket->base.projectile)) {
+			if (target == NULL || !botactFindRocketRoute(chr, &chr->prop->pos, &target->pos, chr->prop->rooms, target->rooms, rocket->base.projectile)) {
 				rocket->timer240 = 0; // blow up rocket
 			} else {
 				botactGetRocketNextStepPos(rocket->base.projectile->waypads[0], &rocket->base.projectile->nextsteppos);

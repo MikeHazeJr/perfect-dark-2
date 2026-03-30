@@ -40,6 +40,7 @@
 #include "game/inv.h"
 #include "game/lang.h"
 #include "game/lv.h"
+#include "lib/meshcollision.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
@@ -101,6 +102,7 @@
 #include "video.h"
 #include "system.h"
 #include "assetcatalog_resolve.h"
+#include "assetcatalog_load.h"
 
 struct sndstate *g_MiscSfxAudioHandles[3];
 u32 var800aa5bc;
@@ -224,6 +226,7 @@ void lvUpdateMiscSfx(void)
 		usingrocket = false;
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.players[i]->visionmode == VISIONMODE_SLAYERROCKET) {
 				usingrocket = true;
 			}
@@ -265,6 +268,40 @@ void lvReset(s32 stagenum)
 	// This gives the catalog's file resolver priority over the legacy mod system.
 	// For base game stages, this is a no-op (deactivates the resolver).
 	assetCatalogActivateStage(stagenum);
+
+	// C-9 / MEM-3: Stage transition diff — unload mod assets no longer needed,
+	// load mod assets required for the new stage.  Base-game (bundled) assets
+	// are never touched.  If no mod map entry exists for this stagenum the diff
+	// produces an empty toLoad list and unloads any lingering mod assets from the
+	// previous stage.
+	{
+#define STAGE_DIFF_MAX 64
+		const char *toLoad[STAGE_DIFF_MAX];
+		const char *toUnload[STAGE_DIFF_MAX];
+		s32 loadCount = 0;
+		s32 unloadCount = 0;
+
+		const struct asset_entry *modMap = assetCatalogFindModMapByStagenum(stagenum);
+		const char *stageAssetId = modMap ? modMap->id : NULL;
+
+		s32 diffTotal = catalogComputeStageDiff(stageAssetId,
+		                                        toLoad,  &loadCount,
+		                                        toUnload, &unloadCount,
+		                                        STAGE_DIFF_MAX);
+
+		if (diffTotal > 0) {
+			sysLogPrintf(LOG_NOTE,
+			             "CATALOG: stage 0x%02x diff — load:%d unload:%d",
+			             stagenum, loadCount, unloadCount);
+			for (s32 i = 0; i < unloadCount; i++) {
+				catalogUnloadAsset(toUnload[i]);
+			}
+			for (s32 i = 0; i < loadCount; i++) {
+				catalogLoadAsset(toLoad[i]);
+			}
+		}
+#undef STAGE_DIFF_MAX
+	}
 
 	// PC: When loading the Carrington Institute (main menu background) or title
 	// screen, suppress mod file overlay so CI props, textures, and setup files
@@ -353,22 +390,38 @@ void lvReset(s32 stagenum)
 		}
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
+		/* Mesh collision disabled (S48) -- needs proper design before re-enable.
+		 * See context/collision.md for the plan. Files remain in the build
+		 * (meshcollision.c, meshcollision.h) ready for Phase 2.
+		 * meshWorldShutdown();
+		 * meshWorldInit(); meshWorldAddRoomGeo(); meshWorldFinalize();
+		 */
 		tilesReset();
 		bgReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");
 		bgBuildTables(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgBuildTables done");
+		sysLogPrintf(LOG_NOTE, "MESHCOL: DISABLED -- using original collision system");
+
 		skyReset(g_Vars.stagenum);
+		sysLogPrintf(LOG_NOTE, "LOAD: skyReset done");
+
+		sysLogPrintf(LOG_NOTE, "LOAD: music init normmplay=%d stagenum=0x%02x players=%d/%d/%d/%d",
+			g_Vars.normmplayerisrunning, stagenum,
+			g_Vars.players[0] != NULL, g_Vars.players[1] != NULL,
+			g_Vars.players[2] != NULL, g_Vars.players[3] != NULL);
 
 		if (g_Vars.normmplayerisrunning) {
 			musicSetStageAndStartMusic(stagenum);
 		} else {
 			musicSetStage(stagenum);
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: music set done normmplay=%d", g_Vars.normmplayerisrunning);
 
 		if (g_Vars.normmplayerisrunning) {
 			mpApplyLimits();
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: mpApplyLimits done");
 
 		if (g_Vars.mplayerisrunning == false) {
 			g_Vars.playerstats[0].mpindex = MAX_PLAYERS;
@@ -396,22 +449,36 @@ void lvReset(s32 stagenum)
 				g_Vars.playerstats[i].kills[j] = 0;
 			}
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: player stats init done");
 	}
 
 	mpSetDefaultNamesIfEmpty();
+	sysLogPrintf(LOG_NOTE, "LOAD: mpSetDefaultNamesIfEmpty done");
 	animsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: animsReset done");
 	objectivesReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: objectivesReset done");
 	vtxstoreReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: vtxstoreReset done");
 	modelmgrReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: modelmgrReset done");
 	psReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: psReset done");
 	sysLogPrintf(LOG_NOTE, "LOAD: about to call setupLoadFiles(0x%02x)", stagenum);
 	setupLoadFiles(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles done");
+	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioReset");
 	scenarioReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling varsReset");
 	varsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");
 	propsReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling bodiesReset stagenum=0x%02x", stagenum);
 	bodiesReset(stagenum);
+	sysLogPrintf(LOG_NOTE, "LOAD: calling setupCreateProps stagenum=0x%02x normmplayerisrunning=%d chrslots=0x%04x g_MpNumChrs=%d",
+		stagenum, g_Vars.normmplayerisrunning, (u32)g_MpSetup.chrslots, g_MpNumChrs);
 	setupCreateProps(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupCreateProps done, calling reset functions");
 	tagsReset();
@@ -456,6 +523,7 @@ void lvReset(s32 stagenum)
 		casingsReset();
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			setCurrentPlayerNum(i);
 			g_Vars.currentplayer->usedowntime = 0;
 			g_Vars.currentplayer->invdowntime = g_Vars.currentplayer->usedowntime;
@@ -2115,7 +2183,7 @@ void lvTick(void)
 	s32 i;
 	static s32 s_LvTickFirstRun = 1;
 	if (s_LvTickFirstRun) {
-		sysLogPrintf(LOG_NOTE, "INTRO: lvTick first call - g_Vars.stagenum=0x%02x", g_Vars.stagenum);
+		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		s_LvTickFirstRun = 0;
 	}
 
@@ -2156,6 +2224,7 @@ void lvTick(void)
 	}
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {
+		if (!g_Vars.players[j]) continue;
 		g_Vars.players[j]->hands[HAND_LEFT].hasdotinfo = false;
 		g_Vars.players[j]->hands[HAND_RIGHT].hasdotinfo = false;
 	}
@@ -2166,6 +2235,7 @@ void lvTick(void)
 		g_Vars.lvupdate240 = 0;
 
 		for (j = 0; j < PLAYERCOUNT(); j++) {
+			if (!g_Vars.players[j]) continue;
 			g_Vars.players[j]->joybutinhibit = 0xffffefff;
 		}
 	} else {
@@ -2187,6 +2257,7 @@ void lvTick(void)
 
 					// Check if another player is in a nearby room
 					for (playernum = 0; playernum < PLAYERCOUNT() && !foundnearbychr; playernum++) {
+						if (!g_Vars.players[playernum] || !g_Vars.players[playernum]->prop) continue;
 						if (g_Vars.players[playernum]->isdead == false) {
 							RoomNum *rooms = g_Vars.players[playernum]->prop->rooms;
 							s32 r;
@@ -2194,6 +2265,7 @@ void lvTick(void)
 							for (r = 0; rooms[r] != -1 && !foundnearbychr; r++) {
 								s32 otherplayernum;
 								for (otherplayernum = 0; otherplayernum < PLAYERCOUNT(); otherplayernum++) {
+									if (!g_Vars.players[otherplayernum]) continue;
 									if (playernum != otherplayernum
 											&& g_Vars.players[otherplayernum]->isdead == false
 											&& bgRoomIsOnPlayerScreen(rooms[r], otherplayernum)) {
@@ -2341,6 +2413,7 @@ void lvTick(void)
 			s32 numdying = 0;
 
 			for (i = 0; i < PLAYERCOUNT(); i++) {
+				if (!g_Vars.players[i]) continue;
 				if (g_Vars.players[i]->isdead) {
 					if (g_Vars.players[i]->redbloodfinished == false
 							|| g_Vars.players[i]->deathanimfinished == false
@@ -2351,7 +2424,12 @@ void lvTick(void)
 			}
 
 			for (i = 0; i < g_MpNumChrs; i++) {
-				if (g_MpAllChrPtrs[i]->actiontype == ACT_DIE) {
+				/* NULL guard: player slots (0..PLAYERCOUNT-1) are reserved by mpReset
+				 * but only populated lazily by playerTickChrBody on first propsTick.
+				 * On the very first game tick propsTick has not run yet, so player
+				 * slots are NULL. Bot slots (PLAYERCOUNT..g_MpNumChrs-1) are always
+				 * populated by botmgrAllocateBot during setupCreateProps. */
+				if (g_MpAllChrPtrs[i] && g_MpAllChrPtrs[i]->actiontype == ACT_DIE) {
 					numdying++;
 				}
 			}
@@ -2490,6 +2568,13 @@ void lvTickPlayer(void)
 {
 	f32 xdiff;
 	f32 zdiff;
+	if (g_Vars.lvframe60 < 3) {
+		sysLogPrintf(LOG_NOTE, "TICK: lvTickPlayer playernum=%d prop=%p MpAllChr=%p frame=%d",
+			g_Vars.currentplayernum,
+			(void *)(g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL),
+			(void *)(g_MpAllChrPtrs[g_Vars.currentplayernum]),
+			g_Vars.lvframe60);
+	}
 
 	if (var80075d64 == 2) {
 		if (var80075d68 == 2) {

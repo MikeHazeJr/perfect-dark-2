@@ -15,10 +15,11 @@
 #include "fs.h"
 #include "romdata.h"
 #include "config.h"
-#include "mod.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
+#include "menumgr.h"
+#include "playerstats.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
@@ -27,6 +28,9 @@
 #include "savemigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetcatalog_load.h"
+#include "assetcatalog_cache.h"
+#include "game/stagetable.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -95,6 +99,12 @@ static void gameInit(void)
 static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
+	catalogLoadLogStats();
+
+	// Signal all subsystems that we are exiting. Must be set before
+	// netDisconnect so that blocking teardown paths (UPnP HTTP delete,
+	// stage transitions) are skipped and the process exits quickly.
+	g_AppQuitting = 1;
 
 	/* Validate persistent allocations one final time before freeing.
 	 * If any corruption occurred during the session, this is our last
@@ -149,6 +159,8 @@ int main(int argc, const char **argv)
 	}
 	videoInit();
 	pdguiInit(videoGetWindowHandle());
+	menuMgrInit();
+	statsInit();
 	inputInit();
 	audioInit();
 
@@ -162,28 +174,33 @@ int main(int argc, const char **argv)
 	}
 
 	romdataInit();
+
+	// C-1: ROM hash cache — verify ROM integrity and cache the hash so
+	// mismatches (ROM replaced or corrupted) are logged on future boots.
+	// Returns 1=verified/first-run, 0=hash changed, -1=I/O error.
+	// We proceed in all cases; this is an integrity check, not a gate.
+	catalogCacheVerifyRom(g_RomName, NULL);
+
 	netInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();
 
 	gameInit();
 
-	// Dynamic mod manager: scans mods/ directory, loads manifests, applies config,
-	// and loads modconfig.txt for each enabled mod. Replaces the old single-mod path.
+	// Dynamic mod manager: scans mods/ directory, loads manifests, applies config.
 	modmgrInit();
-
-	// Legacy fallback: if no mods found by modmgr, try the old single-mod path
-	if (modmgrGetCount() == 0 && fsGetModDir()) {
-		modConfigLoad(MOD_CONFIG_FNAME);
-	}
 
 	// Model catalog: cache metadata from g_HeadsAndBodies (no heap needed).
 	// Actual model validation is deferred to catalogValidateAll() after heap init.
 	catalogInit();
 
+	// Phase 2: Initialise heap-allocated stage table (copied from static initialiser).
+	// Must run before assetCatalogRegisterBaseGame() which reads g_Stages[].
+	stageTableInit();
+
 	// D3R: Asset Catalog — string-keyed resolution for all game assets.
 	// 1. Allocate hash table and entry pool
-	// 2. Register base game assets (87 stages, 63 bodies, 75 heads) with "base:" IDs
+	// 2. Register base game assets (stages, bodies, heads) with "base:" IDs
 	// 3. Scan mod _components/ directories and register INI-described assets
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
@@ -196,6 +213,11 @@ int main(int argc, const char **argv)
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+
+	// C-4 prerequisite: build filenum/texnum/animnum/soundnum → pool-index reverse-index.
+	// Must run after full catalog population (base game + mod scan).
+	// catalogGetFileOverride() etc. return NULL until this is called.
+	catalogLoadInit();
 
 	// D3R-6: Restore per-component enable state from mods/.modstate.
 	// Must run after scan so entries exist in the catalog to be disabled.
@@ -264,8 +286,6 @@ int main(int argc, const char **argv)
 		sysLogPrintf(LOG_NOTE, "player profile set to %d", g_FileAutoSelect);
 	}
 
-	// Mod Switch
-	g_ModNum = 0;
 
 	/* Set FORWARDPITCH on by default for all players if not already set. */
 	for (s32 i = 0; i < MAX_PLAYERS; ++i) {
@@ -305,7 +325,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 		configRegisterUInt(strFmt("Game.Player%d.CrosshairColour", i), &g_PlayerExtCfg[j].crosshaircolour, 0, 0xFFFFFFFF);
 		configRegisterUInt(strFmt("Game.Player%d.CrosshairSize", i), &g_PlayerExtCfg[j].crosshairsize, 0, 4);
 		configRegisterInt(strFmt("Game.Player%d.CrosshairHealth", i), &g_PlayerExtCfg[j].crosshairhealth, 0, CROSSHAIR_HEALTH_ON_WHITE);
-		configRegisterInt(strFmt("Game.Player%d.UseKeyReloads", i), &g_PlayerExtCfg[j].usereloads, 0, false);
+		configRegisterInt(strFmt("Game.Player%d.UseKeyReloads", i), &g_PlayerExtCfg[j].usereloads, 0, 0);
 		configRegisterFloat(strFmt("Game.Player%d.JumpHeight", i), &g_PlayerExtCfg[j].jumpheight, 0.f, 20.f);
 	}
 }

@@ -78,9 +78,9 @@ typedef struct {
 #define UPDATER_GITHUB_OWNER  "MikeHazeJr"
 #define UPDATER_GITHUB_REPO   "perfect-dark-2"
 
-/* Tag prefixes */
-#define UPDATER_TAG_CLIENT    "client-v"
-#define UPDATER_TAG_SERVER    "server-v"
+/* Tag prefix -- unified for both client and server (single release per version) */
+#define UPDATER_TAG_CLIENT    "v"
+#define UPDATER_TAG_SERVER    "v"
 
 /* Asset filenames to look for in releases (must match CMake OUTPUT_NAME + .exe) */
 #define UPDATER_ASSET_CLIENT  "PerfectDark.exe"
@@ -178,6 +178,13 @@ updater_progress_t updaterGetProgress(void);
  * Returns empty string if no error.
  */
 const char *updaterGetError(void);
+
+/**
+ * Get the version of the staged update waiting to be applied.
+ * Returns NULL if no update is staged on disk (.update file absent).
+ * Valid after updaterInit(). Survives across sessions via a sidecar file.
+ */
+const pdversion_t *updaterGetStagedVersion(void);
 
 /* ========================================================================
  * Self-replacement

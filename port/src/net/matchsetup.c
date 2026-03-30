@@ -25,6 +25,8 @@
 #include "game/challenge.h"
 #include "romdata.h"
 #include "modelcatalog.h"
+#include "game/mplayer/participant.h"
+#include "net/matchsetup.h"
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -45,42 +47,10 @@ struct menudialogdef g_MatchSetupMenuDialog = {
 };
 
 /* ========================================================================
- * Match slot configuration — set by the ImGui lobby UI
+ * Match slot configuration — types in net/matchsetup.h
  * ======================================================================== */
 
-/* PC port: longer names — no N64 Controller Pak constraints */
-#define MAX_PLAYER_NAME 32
-
-/* Slot types */
-#define SLOT_EMPTY    0
-#define SLOT_PLAYER   1
-#define SLOT_BOT      2
-
-struct matchslot {
-	u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
-	u8 team;          /* team number (0-7) */
-	u8 headnum;       /* character head */
-	u8 bodynum;       /* character body */
-	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
-	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
-	char name[MAX_PLAYER_NAME];  /* display name (PC: 32 chars, no N64 limit) */
-};
-
-#define MATCH_MAX_SLOTS MAX_MPCHRS
-
-struct matchconfig {
-	struct matchslot slots[MATCH_MAX_SLOTS];
-	u8 scenario;                    /* MPSCENARIO_* */
-	u8 stagenum;                    /* stage index */
-	u8 timelimit;                   /* minutes (0 = unlimited) */
-	u8 scorelimit;                  /* score to win (0 = unlimited) */
-	u16 teamscorelimit;             /* team score limit */
-	u32 options;                    /* MPOPTION_* bitmask */
-	u8 weapons[NUM_MPWEAPONSLOTS];  /* weapon set (6 slots) */
-	s8 weaponSetIndex;              /* -1 = custom, 0+ = preset index */
-	u8 numSlots;                    /* number of active slots */
-};
-
+/* Definition of the match config global (declaration in net/matchsetup.h) */
 struct matchconfig g_MatchConfig;
 
 /* ========================================================================
@@ -110,6 +80,7 @@ void matchConfigInit(void)
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
 	g_MatchConfig.options = 0;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
 	g_MatchConfig.numSlots = 0;
 
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
@@ -242,6 +213,7 @@ s32 matchStart(void)
 
 	/* --- Build chrslots bitmask and configure player/bot arrays --- */
 	g_MpSetup.chrslots = 0;
+	mpClearAllParticipants(); /* B-12 Phase 2 */
 	s32 playerSlot = 0;
 	s32 botSlot = 0;
 
@@ -250,11 +222,17 @@ s32 matchStart(void)
 
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
 			/* Configure player — use catalog for safe body/head indices */
-			g_MpSetup.chrslots |= (1u << playerSlot);
+			g_MpSetup.chrslots |= (1ull << playerSlot);
+			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
-			cfg->mpheadnum = catalogGetSafeHead(ms->headnum);
-			cfg->mpbodynum = catalogGetSafeBody(ms->bodynum);
+			/* catalogGetSafeBodyPaired: if the body is invalid, picks a random base
+			 * game body and writes its paired head into safeHead, guaranteeing a
+			 * matched body+head pair.  If the body is valid, safeHead stays as the
+			 * player's chosen head and catalogGetSafeHead validates it normally. */
+			s32 safeHead = (s32)ms->headnum;
+			cfg->mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &safeHead);
+			cfg->mpheadnum = (u8)catalogGetSafeHead(safeHead);
 			cfg->team = ms->team;
 
 			/* Name: keep the first 14 chars + newline as PD expects */
@@ -268,11 +246,13 @@ s32 matchStart(void)
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
 			/* Configure bot — use catalog for safe body/head indices */
-			g_MpSetup.chrslots |= (1u << (botSlot + BOT_SLOT_OFFSET));
+			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
+			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
-			bot->base.mpheadnum = catalogGetSafeHead(ms->headnum);
-			bot->base.mpbodynum = catalogGetSafeBody(ms->bodynum);
+			s32 botSafeHead = (s32)ms->headnum;
+			bot->base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &botSafeHead);
+			bot->base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;
@@ -288,8 +268,8 @@ s32 matchStart(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: chrslots=0x%08x (%d players, %d bots)",
-	             g_MpSetup.chrslots, playerSlot, botSlot);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: chrslots=0x%016llx (%d players, %d bots)",
+	             (unsigned long long)g_MpSetup.chrslots, playerSlot, botSlot);
 
 	if (playerSlot == 0) {
 		sysLogPrintf(LOG_WARNING, "MATCHSETUP: no players configured — aborting");

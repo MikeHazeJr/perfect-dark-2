@@ -21,8 +21,11 @@
 #include "fs.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
-#include "mod.h"
+#include "assetcatalog_scanner.h"
+#include "assetcatalog_load.h"
 #include "data.h"
+#include "game/stagetable.h"
+#include "video.h"
 
 /* Forward declaration — defined in src/lib/main.c */
 extern void mainChangeToStage(s32 stagenum);
@@ -47,20 +50,6 @@ static char g_ModPathBuf[FS_MAXPATH + 1];
 
 // Resolved mods directory path (set by modmgrScanDirectory)
 static char g_ModsDirPath[FS_MAXPATH + 1] = "";
-
-// ---------------------------------------------------------------------------
-// Shadow arrays for mod-added assets (D3b)
-// ---------------------------------------------------------------------------
-// These extend the base game arrays. Accessor functions handle the split.
-
-static struct mpbody  g_ModBodies[MODMGR_MAX_MOD_BODIES];
-static s32            g_ModBodyCount = 0;
-
-static struct mphead  g_ModHeads[MODMGR_MAX_MOD_HEADS];
-static s32            g_ModHeadCount = 0;
-
-static struct mparena g_ModArenas[MODMGR_MAX_MOD_ARENAS];
-static s32            g_ModArenaCount = 0;
 
 // ---------------------------------------------------------------------------
 // Catalog-backed accessor caches (D3R-5 rewire)
@@ -105,7 +94,7 @@ static const char *g_BundledModIds[] = {
 
 static void modmgrScanDirectory(void);
 static bool modmgrParseModJson(modinfo_t *mod);
-static void modmgrCreateLegacyManifest(modinfo_t *mod);
+static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static bool modmgrIsBundled(const char *id);
@@ -373,8 +362,7 @@ static bool modmgrParseModJson(modinfo_t *mod)
 							else if (tok.type == JTOK_LBRACE && depth == 1) count++;
 							else if (tok.type == JTOK_EOF) break;
 						}
-						if (json_key_eq(&ckey, "stages")) mod->num_stages = count;
-						else if (json_key_eq(&ckey, "bodies")) mod->num_bodies = count;
+						if (json_key_eq(&ckey, "bodies")) mod->num_bodies = count;
 						else if (json_key_eq(&ckey, "heads")) mod->num_heads = count;
 						else if (json_key_eq(&ckey, "arenas")) mod->num_arenas = count;
 					} else {
@@ -391,51 +379,204 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	free(buf);
 	mod->has_modjson = true;
 
-	sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d stages, %d bodies, %d heads, %d arenas",
+	sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas",
 		mod->id, mod->name, mod->version, mod->author,
-		mod->num_stages, mod->num_bodies, mod->num_heads, mod->num_arenas);
+		mod->num_bodies, mod->num_heads, mod->num_arenas);
 
 	return true;
 }
 
 // ---------------------------------------------------------------------------
-// Legacy manifest generation (for mods with modconfig.txt but no mod.json)
+// Mod content registration (D3b)
+// ---------------------------------------------------------------------------
+// Parses the mod.json "content" section and registers bodies, heads, and arenas
+// into the Asset Catalog. Called from modmgrLoadMod() for each enabled mod.
+//
+// Expected mod.json schema for each content type:
+//   "bodies":  [ { "id": "...", "bodynum": N, "name_langid": N, "headnum": N, "requirefeature": N }, ... ]
+//   "heads":   [ { "id": "...", "headnum": N, "requirefeature": N }, ... ]
+//   "arenas":  [ { "id": "...", "stagenum": N, "name_langid": N, "requirefeature": N }, ... ]
+//
+// Catalog IDs are built as "{modid}:{item_id}".
+// runtime_index is assigned sequentially starting after all currently registered
+// entries of that type (base game + any prior mod entries).
 // ---------------------------------------------------------------------------
 
-static void modmgrCreateLegacyManifest(modinfo_t *mod)
+static void modmgrRegisterModJsonContent(modinfo_t *mod)
 {
-	// Derive ID from directory name, stripping "mod_" prefix if present
-	const char *dirname = strrchr(mod->dirpath, '/');
-	if (!dirname) dirname = strrchr(mod->dirpath, '\\');
-	if (dirname) dirname++;
-	else dirname = mod->dirpath;
+	if (!mod->has_modjson) return;
+	if (mod->num_bodies == 0 && mod->num_heads == 0 && mod->num_arenas == 0) return;
 
-	if (strncmp(dirname, "mod_", 4) == 0) {
-		dirname += 4;
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	jparse_t j;
+	j.src = buf;
+	j.pos = buf;
+
+	// Determine starting runtime_index offsets — new entries slot in after
+	// all existing entries of each type (base game + prior mod registrations).
+	s32 body_start  = assetCatalogGetCountByType(ASSET_BODY);
+	s32 head_start  = assetCatalogGetCountByType(ASSET_HEAD);
+	s32 arena_start = assetCatalogGetCountByType(ASSET_ARENA);
+	s32 body_reg = 0, head_reg = 0, arena_reg = 0;
+
+	jtok_t tok = json_next(&j);
+	if (tok.type != JTOK_LBRACE) goto done;
+
+	// Scan top-level keys for "content"
+	while (1) {
+		tok = json_next(&j);
+		if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+		if (tok.type == JTOK_COMMA) continue;
+		if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+		jtok_t topkey = tok;
+		tok = json_next(&j); // colon
+		if (tok.type != JTOK_COLON) break;
+
+		if (!json_key_eq(&topkey, "content")) {
+			json_skip_value(&j);
+			continue;
+		}
+
+		// Parse "content" object
+		tok = json_next(&j);
+		if (tok.type != JTOK_LBRACE) break;
+
+		while (1) {
+			tok = json_next(&j);
+			if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+			if (tok.type == JTOK_COMMA) continue;
+			if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+			jtok_t ckey = tok;
+			tok = json_next(&j); // colon
+			if (tok.type != JTOK_COLON) break;
+
+			s32 is_bodies = json_key_eq(&ckey, "bodies");
+			s32 is_heads  = json_key_eq(&ckey, "heads");
+			s32 is_arenas = json_key_eq(&ckey, "arenas");
+
+			if (!is_bodies && !is_heads && !is_arenas) {
+				json_skip_value(&j);
+				continue;
+			}
+
+			// Expect array "["; if not, skip whatever value this is
+			tok = json_next(&j);
+			if (tok.type != JTOK_LBRACKET) {
+				// First token of value already consumed — skip compound values
+				if (tok.type == JTOK_LBRACE) {
+					s32 d = 1;
+					while (d > 0) {
+						tok = json_next(&j);
+						if (tok.type == JTOK_LBRACE)   d++;
+						else if (tok.type == JTOK_RBRACE) d--;
+						else if (tok.type == JTOK_EOF)    break;
+					}
+				}
+				// Primitives already consumed — nothing more to do
+				continue;
+			}
+
+			// Iterate array elements
+			while (1) {
+				tok = json_next(&j);
+				if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+				if (tok.type == JTOK_COMMA) continue;
+				if (tok.type != JTOK_LBRACE) continue; // unexpected; skip primitive
+
+				// Parse item object fields (common superset for all three types)
+				char id[CATALOG_ID_LEN] = "";
+				s32  bodynum_field      = -1; // "bodynum"  — body index
+				s32  headnum_field      = -1; // "headnum"  — head index (also body's default head)
+				s32  stagenum_field     = -1; // "stagenum" — arena stage ID
+				s32  name_langid        = 0;  // "name_langid"
+				s32  requirefeature     = 0;  // "requirefeature"
+
+				while (1) {
+					tok = json_next(&j);
+					if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+					if (tok.type == JTOK_COMMA) continue;
+					if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+					jtok_t fkey = tok;
+					tok = json_next(&j); // colon
+					if (tok.type != JTOK_COLON) break;
+
+					if (json_key_eq(&fkey, "id")) {
+						tok = json_next(&j);
+						json_tok_string(&tok, id, sizeof(id));
+					} else if (json_key_eq(&fkey, "bodynum")) {
+						tok = json_next(&j);
+						bodynum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "headnum")) {
+						tok = json_next(&j);
+						headnum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "stagenum")) {
+						tok = json_next(&j);
+						stagenum_field = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "name_langid")) {
+						tok = json_next(&j);
+						name_langid = json_tok_int(&tok);
+					} else if (json_key_eq(&fkey, "requirefeature")) {
+						tok = json_next(&j);
+						requirefeature = json_tok_int(&tok);
+					} else {
+						json_skip_value(&j); // unknown field
+					}
+				}
+
+				if (id[0] == '\0') continue; // no id — skip entry
+
+				char catid[CATALOG_ID_LEN];
+				snprintf(catid, sizeof(catid), "%s:%s", mod->id, id);
+
+				asset_entry_t *e = NULL;
+
+				if (is_bodies && bodynum_field >= 0) {
+					s16 defhead = (headnum_field >= 0) ? (s16)headnum_field : 0;
+					e = assetCatalogRegisterBody(catid, (s16)bodynum_field,
+					        (s16)name_langid, defhead, (u8)requirefeature);
+					if (e) { e->runtime_index = body_start + body_reg++; }
+				} else if (is_heads && headnum_field >= 0) {
+					e = assetCatalogRegisterHead(catid, (s16)headnum_field,
+					        (u8)requirefeature);
+					if (e) { e->runtime_index = head_start + head_reg++; }
+				} else if (is_arenas && stagenum_field >= 0) {
+					e = assetCatalogRegisterArena(catid, stagenum_field,
+					        (u8)requirefeature, name_langid);
+					if (e) { e->runtime_index = arena_start + arena_reg++; }
+				}
+
+				if (e) {
+					strncpy(e->category, mod->id, CATALOG_CATEGORY_LEN - 1);
+					e->bundled  = 0;
+					e->enabled  = 1;
+				}
+			}
+		}
+		break; // "content" processed; stop scanning top-level keys
 	}
 
-	strncpy(mod->id, dirname, MODMGR_ID_LEN - 1);
-	mod->id[MODMGR_ID_LEN - 1] = '\0';
-
-	// Clean up: replace hyphens/spaces with underscores for ID
-	for (char *c = mod->id; *c; c++) {
-		if (*c == '-' || *c == ' ') *c = '_';
-		else *c = tolower((unsigned char)*c);
+done:
+	if (body_reg || head_reg || arena_reg) {
+		sysLogPrintf(LOG_NOTE,
+		    "modmgr: '%s' content registered: %d bodies, %d heads, %d arenas",
+		    mod->id, body_reg, head_reg, arena_reg);
 	}
-
-	// Prettify name from ID
-	strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
-	mod->name[MODMGR_NAME_LEN - 1] = '\0';
-	mod->name[0] = toupper((unsigned char)mod->name[0]);
-
-	strncpy(mod->version, "0.0.0", MODMGR_VERSION_LEN - 1);
-	mod->version[MODMGR_VERSION_LEN - 1] = '\0';
-	strncpy(mod->author, "Unknown", MODMGR_AUTHOR_LEN - 1);
-	mod->author[MODMGR_AUTHOR_LEN - 1] = '\0';
-	mod->description[0] = '\0';
-	mod->has_modjson = false;
-
-	sysLogPrintf(LOG_NOTE, "modmgr: legacy mod '%s' at %s (no mod.json, using modconfig.txt)", mod->id, mod->dirpath);
+	free(buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +596,36 @@ static bool modmgrIsBundled(const char *id)
 // ---------------------------------------------------------------------------
 // Simple CRC32 for string hashing
 // ---------------------------------------------------------------------------
+
+/* Recursively sum the sizes of all files under dirpath.
+ * Returns total bytes (capped at UINT32_MAX). */
+static u32 modmgrComputeDirSize(const char *dirpath)
+{
+	DIR *dir = opendir(dirpath);
+	if (!dir) return 0;
+
+	u32 total = 0;
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL) {
+		if (ent->d_name[0] == '.') continue;
+
+		char fullpath[FS_MAXPATH + 1];
+		snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, ent->d_name);
+
+		struct stat st;
+		if (stat(fullpath, &st) != 0) continue;
+
+		if (S_ISDIR(st.st_mode)) {
+			u32 sub = modmgrComputeDirSize(fullpath);
+			total = (total + sub < total) ? 0xFFFFFFFF : total + sub; /* overflow guard */
+		} else {
+			u32 fsz = (u32)st.st_size;
+			total = (total + fsz < total) ? 0xFFFFFFFF : total + fsz;
+		}
+	}
+	closedir(dir);
+	return total;
+}
 
 static u32 modmgrHashString(const char *str)
 {
@@ -522,23 +693,17 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
-		// Check if it has mod.json or modconfig.txt
+		// Check if it has mod.json
 		char checkpath[FS_MAXPATH + 1];
 		bool has_modjson = false;
-		bool has_modconfig = false;
 
 		snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
 		if (fsFileSize(checkpath) > 0) {
 			has_modjson = true;
 		}
 
-		snprintf(checkpath, sizeof(checkpath), "%s/" MOD_CONFIG_FNAME, fullpath);
-		if (fsFileSize(checkpath) > 0) {
-			has_modconfig = true;
-		}
-
-		if (!has_modjson && !has_modconfig) {
-			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json or modconfig.txt)", ent->d_name);
+		if (!has_modjson) {
+			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json)", ent->d_name);
 			continue;
 		}
 
@@ -547,19 +712,10 @@ static void modmgrScanDirectory(void)
 		memset(mod, 0, sizeof(modinfo_t));
 		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
 		mod->dirpath[FS_MAXPATH - 1] = '\0';
-		mod->has_modconfig = has_modconfig;
 
-		if (has_modjson) {
-			if (!modmgrParseModJson(mod)) {
-				// mod.json parse failed, try legacy
-				if (has_modconfig) {
-					modmgrCreateLegacyManifest(mod);
-				} else {
-					continue; // skip this mod entirely
-				}
-			}
-		} else {
-			modmgrCreateLegacyManifest(mod);
+		if (!modmgrParseModJson(mod)) {
+			sysLogPrintf(LOG_WARNING, "modmgr: skipping '%s' (mod.json parse failed)", ent->d_name);
+			continue;
 		}
 
 		// Detect bundled status
@@ -569,6 +725,9 @@ static void modmgrScanDirectory(void)
 		char hashsrc[256];
 		snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
 		mod->contenthash = modmgrHashString(hashsrc);
+
+		// Compute directory size for download estimation
+		mod->size_bytes = modmgrComputeDirSize(fullpath);
 
 		// Default: bundled mods enabled, others disabled
 		mod->enabled = mod->bundled;
@@ -673,15 +832,9 @@ static void modmgrLoadMod(modinfo_t *mod)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
-	// Load modconfig.txt if present (stage configs, allocations, music, weather)
-	if (mod->has_modconfig) {
-		char configpath[FS_MAXPATH + 1];
-		snprintf(configpath, sizeof(configpath), "%s/" MOD_CONFIG_FNAME, mod->dirpath);
-		modConfigLoad(configpath);
-	}
-
-	// TODO (D3b): Parse mod.json content sections for bodies, heads, arenas
-	// and register into shadow arrays
+	// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
+	// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
+	modmgrRegisterModJsonContent(mod);
 
 	mod->loaded = true;
 }
@@ -692,15 +845,7 @@ static void modmgrUnloadAllMods(void)
 		g_ModRegistry[i].loaded = false;
 	}
 
-	// Clear mod shadow arrays
-	memset(g_ModBodies, 0, sizeof(g_ModBodies));
-	g_ModBodyCount = 0;
-	memset(g_ModHeads, 0, sizeof(g_ModHeads));
-	g_ModHeadCount = 0;
-	memset(g_ModArenas, 0, sizeof(g_ModArenas));
-	g_ModArenaCount = 0;
-
-	// TODO (D3e): Restore pristine base stage table
+	stageTableReset();
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +924,30 @@ void modmgrReload(void)
 	// Unload everything
 	modmgrUnloadAllMods();
 
+	// C-8: Rebuild catalog with the new enabled mod set.
+	// assetCatalogClearMods() removes all non-bundled (mod) entries from the
+	// catalog, then re-scanning repopulates them for the currently enabled mods.
+	// catalogLoadInit() then rebuilds the four reverse-index arrays so the
+	// C-4/C-5/C-6/C-7 intercepts reflect the updated mod state immediately.
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — clearing mod entries");
+	assetCatalogClearMods();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			s32 ncomp = assetCatalogScanComponents(modsdir);
+			assetCatalogScanBotVariants(modsdir);
+			sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — %d component(s) re-registered", ncomp);
+		}
+	}
+	// Restore per-component enable state from .modstate (written by
+	// modmgrSaveComponentState during the preceding apply step).
+	modmgrLoadComponentState();
+	// Rebuild reverse-index arrays — skips disabled entries, so components
+	// toggled off via .modstate will not appear in override lookups.
+	catalogLoadInit();
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries",
+	             assetCatalogGetCount());
+
 	// Re-load enabled mods
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		if (g_ModRegistry[i].enabled) {
@@ -793,7 +962,8 @@ void modmgrReload(void)
 	// Invalidate catalog-backed caches so accessors pick up new state
 	modmgrCatalogChanged();
 
-	// TODO (D3e): flush texture cache, return to title
+	videoResetTextureCache();
+	mainChangeToStage(MODMGR_STAGE_TITLE);
 }
 
 // ---------------------------------------------------------------------------
@@ -946,6 +1116,13 @@ void modmgrApplyChanges(void)
 	/* Persist legacy modinfo enables */
 	modmgrSaveConfig();
 
+	/* C-8: Component enable/disable flags changed — rebuild the reverse-index
+	 * arrays so C-4/C-5/C-6/C-7 intercepts reflect the new state before the
+	 * title screen reloads.  catalogLoadInit() skips disabled entries, so
+	 * components the user toggled off will produce no overrides. */
+	sysLogPrintf(LOG_NOTE, "MOD: reverse-index rebuild after component toggle");
+	catalogLoadInit();
+
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
 
@@ -1009,8 +1186,11 @@ s32 modmgrWriteManifest(u8 *buf, s32 maxlen)
 		buf[pos++] = (g_ModRegistry[i].contenthash >> 8) & 0xFF;
 		buf[pos++] = g_ModRegistry[i].contenthash & 0xFF;
 
-		// TODO (D3f): add size_bytes for download estimation
-		buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+		// size_bytes (4 bytes) — total mod directory size for download estimation
+		buf[pos++] = (g_ModRegistry[i].size_bytes >> 24) & 0xFF;
+		buf[pos++] = (g_ModRegistry[i].size_bytes >> 16) & 0xFF;
+		buf[pos++] = (g_ModRegistry[i].size_bytes >>  8) & 0xFF;
+		buf[pos++] = g_ModRegistry[i].size_bytes & 0xFF;
 	}
 
 	return pos;
@@ -1051,7 +1231,9 @@ s32 modmgrReadManifest(const u8 *buf, s32 len, char *missing, s32 misslen)
 		u32 remotehash = ((u32)buf[pos] << 24) | ((u32)buf[pos+1] << 16) |
 		                 ((u32)buf[pos+2] << 8) | buf[pos+3];
 		pos += 4;
-		pos += 4; // skip size_bytes
+		/* size_bytes — decoded but not used in compatibility check */
+		/* u32 remote_size = ((u32)buf[pos]<<24)|((u32)buf[pos+1]<<16)|((u32)buf[pos+2]<<8)|buf[pos+3]; */
+		pos += 4;
 
 		// Check if we have this mod
 		modinfo_t *local = modmgrFindMod(modid);
@@ -1139,16 +1321,6 @@ static void modmgrRebuildBodyCache(void)
 	s_CatalogBodyCount = 0;
 
 	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, NULL);
-
-	// Bridge: legacy shadow bodies
-	for (s32 i = 0; i < g_ModBodyCount; i++) {
-		s32 idx = MODMGR_BASE_BODIES + i;
-		if (idx >= MODMGR_MAX_CATALOG_BODIES) break;
-		s_CatalogBodies[idx] = g_ModBodies[i];
-		if (idx + 1 > s_CatalogBodyCount) {
-			s_CatalogBodyCount = idx + 1;
-		}
-	}
 }
 
 // ---- Head collect callback + rebuild ----
@@ -1179,16 +1351,6 @@ static void modmgrRebuildHeadCache(void)
 	s_CatalogHeadCount = 0;
 
 	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, NULL);
-
-	// Bridge: legacy shadow heads
-	for (s32 i = 0; i < g_ModHeadCount; i++) {
-		s32 idx = MODMGR_BASE_HEADS + i;
-		if (idx >= MODMGR_MAX_CATALOG_HEADS) break;
-		s_CatalogHeads[idx] = g_ModHeads[i];
-		if (idx + 1 > s_CatalogHeadCount) {
-			s_CatalogHeadCount = idx + 1;
-		}
-	}
 }
 
 // ---- Arena collect callback + rebuild ----
@@ -1220,16 +1382,6 @@ static void modmgrRebuildArenaCache(void)
 	s_CatalogArenaCount = 0;
 
 	assetCatalogIterateByType(ASSET_ARENA, modmgrArenaCollectCb, NULL);
-
-	// Bridge: legacy shadow arenas
-	for (s32 i = 0; i < g_ModArenaCount; i++) {
-		s32 idx = MODMGR_BASE_ARENAS + i;
-		if (idx >= MODMGR_MAX_CATALOG_ARENAS) break;
-		s_CatalogArenas[idx] = g_ModArenas[i];
-		if (idx + 1 > s_CatalogArenaCount) {
-			s_CatalogArenaCount = idx + 1;
-		}
-	}
 }
 
 // ---- Unified rebuild ----
@@ -1242,9 +1394,8 @@ static void modmgrRebuildAllCaches(void)
 
 	s_CatalogCacheDirty = 0;
 
-	sysLogPrintf(LOG_NOTE, "modmgr: rebuilt catalog caches — bodies=%d heads=%d arenas=%d (legacy mod: %d/%d/%d)",
-		s_CatalogBodyCount, s_CatalogHeadCount, s_CatalogArenaCount,
-		g_ModBodyCount, g_ModHeadCount, g_ModArenaCount);
+	sysLogPrintf(LOG_NOTE, "modmgr: rebuilt catalog caches — bodies=%d heads=%d arenas=%d",
+		s_CatalogBodyCount, s_CatalogHeadCount, s_CatalogArenaCount);
 }
 
 // ---- Bodies (catalog-backed) ----
@@ -1252,30 +1403,15 @@ static void modmgrRebuildAllCaches(void)
 s32 modmgrGetTotalBodies(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogBodyCount > 0) return s_CatalogBodyCount;
-	return MODMGR_BASE_BODIES + g_ModBodyCount;
+	return s_CatalogBodyCount > 0 ? s_CatalogBodyCount : MODMGR_BASE_BODIES;
 }
 
 struct mpbody *modmgrGetBody(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogBodyCount > 0) {
-		if (index < 0) return &s_CatalogBodies[0];
-		if (index < s_CatalogBodyCount) return &s_CatalogBodies[index];
-		return &s_CatalogBodies[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_BODIES;
-	if (index < 0) return &g_MpBodies[0];
-	if (index < basecount) return &g_MpBodies[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModBodyCount) return &g_ModBodies[modidx];
-	return &g_MpBodies[0];
-}
-
-s32 modmgrGetModBodyCount(void)
-{
-	return g_ModBodyCount;
+	if (index < 0) return &s_CatalogBodies[0];
+	if (index < s_CatalogBodyCount) return &s_CatalogBodies[index];
+	return &s_CatalogBodies[0];
 }
 
 // ---- Heads (catalog-backed) ----
@@ -1283,30 +1419,15 @@ s32 modmgrGetModBodyCount(void)
 s32 modmgrGetTotalHeads(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogHeadCount > 0) return s_CatalogHeadCount;
-	return MODMGR_BASE_HEADS + g_ModHeadCount;
+	return s_CatalogHeadCount > 0 ? s_CatalogHeadCount : MODMGR_BASE_HEADS;
 }
 
 struct mphead *modmgrGetHead(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogHeadCount > 0) {
-		if (index < 0) return &s_CatalogHeads[0];
-		if (index < s_CatalogHeadCount) return &s_CatalogHeads[index];
-		return &s_CatalogHeads[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_HEADS;
-	if (index < 0) return &g_MpHeads[0];
-	if (index < basecount) return &g_MpHeads[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModHeadCount) return &g_ModHeads[modidx];
-	return &g_MpHeads[0];
-}
-
-s32 modmgrGetModHeadCount(void)
-{
-	return g_ModHeadCount;
+	if (index < 0) return &s_CatalogHeads[0];
+	if (index < s_CatalogHeadCount) return &s_CatalogHeads[index];
+	return &s_CatalogHeads[0];
 }
 
 // ---- Arenas (catalog-backed) ----
@@ -1314,30 +1435,15 @@ s32 modmgrGetModHeadCount(void)
 s32 modmgrGetTotalArenas(void)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogArenaCount > 0) return s_CatalogArenaCount;
-	return MODMGR_BASE_ARENAS + g_ModArenaCount;
+	return s_CatalogArenaCount > 0 ? s_CatalogArenaCount : MODMGR_BASE_ARENAS;
 }
 
 struct mparena *modmgrGetArena(s32 index)
 {
 	modmgrEnsureCaches();
-	if (s_CatalogArenaCount > 0) {
-		if (index < 0) return &s_CatalogArenas[0];
-		if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
-		return &s_CatalogArenas[0];
-	}
-	// Legacy fallback
-	s32 basecount = MODMGR_BASE_ARENAS;
-	if (index < 0) return &g_MpArenas[0];
-	if (index < basecount) return &g_MpArenas[index];
-	s32 modidx = index - basecount;
-	if (modidx < g_ModArenaCount) return &g_ModArenas[modidx];
-	return &g_MpArenas[0];
-}
-
-s32 modmgrGetModArenaCount(void)
-{
-	return g_ModArenaCount;
+	if (index < 0) return &s_CatalogArenas[0];
+	if (index < s_CatalogArenaCount) return &s_CatalogArenas[index];
+	return &s_CatalogArenas[0];
 }
 
 // ---- Catalog change signal ----

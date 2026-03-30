@@ -3,11 +3,7 @@
 
 #include <PR/ultratypes.h>
 
-#define MOD_CONFIG_FNAME "modconfig.txt"
-
 struct animtableentry;
-
-s32 modConfigLoad(const char *path);
 
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize);
 

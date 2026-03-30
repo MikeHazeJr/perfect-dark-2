@@ -25,6 +25,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "net/net.h"
 
 void playerInitEyespy(void)
 {
@@ -267,6 +268,38 @@ void playerReset(void)
 		}
 	}
 
+	/* PC: If no spawn points were set by INTROCMD_SPAWN (e.g. mod stages or MP
+	 * maps without a proper intro/setup sequence), populate g_SpawnPoints from
+	 * all pads with valid room numbers so the dispersal algorithm can work.
+	 * Covers networked matches (g_NetMode) AND local Combat Sim where netmode
+	 * is NETMODE_NONE but normmplayerisrunning is true. Solo missions always
+	 * define their own player placement and must not be overridden here. */
+	if (g_NumSpawnPoints == 0 && (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning) && g_PadsFile != NULL) {
+		s32 maxpads = g_PadsFile->numpads;
+		s32 added   = 0;
+		for (s32 pi = 0; pi < maxpads && added < 24; pi++) {
+			struct pad probePad;
+			padUnpack(pi, PADFIELD_ROOM, &probePad);
+			if (probePad.room >= 0) {
+				g_SpawnPoints[g_NumSpawnPoints++] = (s16)pi;
+				added++;
+			}
+		}
+		if (added > 0) {
+			sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from pad file (B-19 fallback)", added);
+		} else {
+			sysLogPrintf(LOG_WARNING, "SPAWN: B-19 fallback found 0 valid pads (numpads=%d netmode=%d normmplay=%d)",
+				maxpads, g_NetMode, g_Vars.normmplayerisrunning);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: summary stage=0x%02x npts=%d mplay=%d normmplay=%d netmode=%d intro=%s pads=%s",
+		g_Vars.stagenum, g_NumSpawnPoints,
+		g_Vars.mplayerisrunning, g_Vars.normmplayerisrunning,
+		g_NetMode,
+		cmd ? "ok" : "null",
+		g_PadsFile ? "ok" : "null");
+
 	invGiveSingleWeapon(WEAPON_UNARMED);
 
 	if (cheatIsActive(CHEAT_TRENTSMAGNUM)) {
@@ -486,6 +519,9 @@ void playerReset(void)
 
 		sysLogPrintf(LOG_WARNING, "LOAD: no spawn points from intro data, using pad %d fallback (room=%d, angle=%.1f)", fallbackpadnum, fallbackpad.room, turnanglerad);
 	}
+
+	sysLogPrintf(LOG_NOTE, "SPAWN: pre-ground pos=(%.1f,%.1f,%.1f) room=%d angle=%.3f",
+		pos.x, pos.y, pos.z, rooms[0], turnanglerad);
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,

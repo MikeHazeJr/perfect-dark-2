@@ -1,14 +1,18 @@
 #include <ultra64.h>
+#include <stdlib.h>
+#include <string.h>
 #include "constants.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "game/stagetable.h"
 
 // When adding or removing items from this table you must also update the
 // STAGEINDEX constants in constants.h.
 // NOTE: extra fields have been appended to stagetableentry in the PC port
-struct stagetableentry g_Stages[87] = {
+// Phase 2: static initialiser — copied to heap by stageTableInit() at startup.
+static const struct stagetableentry s_StagesInit[] = {
 	//       id,                  ?, lia, liw, lih, ?, bg,               tiles,              pads,              setup,           mpsetp,             ?                0x18,            0x1c, ?, ?,  ?, 0x24,      0x28,   ?,   ?,   ?  ?  alarm                   extragunmem
 	/*0x00*/ STAGE_MAIANSOS,      2, 255, 100, 100, 0, FILE_BG_LUE_SEG,  FILE_BG_LUE_TILES,  FILE_BG_SEV_PADS,  FILE_USETUPSEV,  FILE_UMP_SETUPSEV,  1,                1,   100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
 	/*0x01*/ STAGE_TEST_SILO,     2, 255, 100, 100, 0, FILE_BG_OAT_SEG,  FILE_BG_OAT_TILES,  FILE_BG_OAT_PADS,  FILE_USETUPSILO, FILE_UMP_SETUPSILO, 1,                1,   100,             0, 0, -1, 255, 0x3e19999a, 700, 800, 400, 1, SFX_ALARM_DEFAULT,      0,
@@ -103,18 +107,74 @@ struct stagetableentry g_Stages[87] = {
 	/*0x56*/ STAGE_EXTRA26, /* stageID=0x5f */       2, 255, 100, 100, 0, FILE_BG_MP13_SEG, FILE_BG_MP13_TILES, FILE_BG_MP13_PADS, FILE_USETUPMP13, FILE_UMP_SETUPMP13, 1,                1,   100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
 };
 
+/* Phase 2: heap pointer and live count — populated by stageTableInit(). */
+struct stagetableentry *g_Stages = NULL;
+s32 g_NumStages = 0;
+
+/* Phase 2: Copy static init table to heap so mod stages can be appended. */
+void stageTableInit(void)
+{
+	s32 count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	g_Stages = (struct stagetableentry *)malloc(count * sizeof(struct stagetableentry));
+	if (!g_Stages) {
+		sysLogPrintf(LOG_ERROR, "STAGE: stageTableInit failed to alloc %d entries", count);
+		return;
+	}
+	memcpy(g_Stages, s_StagesInit, count * sizeof(struct stagetableentry));
+	g_NumStages = count;
+	sysLogPrintf(LOG_NOTE, "STAGE: table init, %d entries", g_NumStages);
+}
+
+/* Phase 2: Bounds-checked accessor. Returns NULL for out-of-range index. */
+struct stagetableentry *stageGetEntry(s32 index)
+{
+	if (index < 0 || index >= g_NumStages || !g_Stages) {
+		return NULL;
+	}
+	return &g_Stages[index];
+}
+
+/* Phase 2: Append a mod stage entry. Returns the new stage table index or -1 on failure. */
+s32 stageTableAppend(const struct stagetableentry *entry)
+{
+	struct stagetableentry *newbuf = (struct stagetableentry *)realloc(
+		g_Stages, (g_NumStages + 1) * sizeof(struct stagetableentry));
+	if (!newbuf) {
+		sysLogPrintf(LOG_ERROR, "STAGE: stageTableAppend realloc failed at count %d", g_NumStages);
+		return -1;
+	}
+	g_Stages = newbuf;
+	g_Stages[g_NumStages] = *entry;
+	return g_NumStages++;
+}
+
+/* Phase 2: Reset stage table to the pristine base-game state.
+ * Discards any mod-appended entries and re-copies s_StagesInit.
+ * Called by modmgrUnloadAllMods() before each mod reload cycle. */
+void stageTableReset(void)
+{
+	s32 count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	struct stagetableentry *newbuf = (struct stagetableentry *)realloc(
+		g_Stages, count * sizeof(struct stagetableentry));
+	if (!newbuf) {
+		sysLogPrintf(LOG_ERROR, "STAGE: stageTableReset realloc failed");
+		return;
+	}
+	g_Stages = newbuf;
+	memcpy(g_Stages, s_StagesInit, count * sizeof(struct stagetableentry));
+	g_NumStages = count;
+	sysLogPrintf(LOG_NOTE, "STAGE: table reset to %d base entries", g_NumStages);
+}
+
 struct stagetableentry *stageGetCurrent(void)
 {
-	struct stagetableentry *stage = g_Stages;
-	struct stagetableentry *end = (struct stagetableentry *)(uintptr_t)stage + ARRAYCOUNT(g_Stages);
 	s32 stagenum = g_Vars.stagenum;
+	s32 i;
 
-	while (stage < end) {
-		if (stage->id == stagenum) {
-			return stage;
+	for (i = 0; i < g_NumStages; i++) {
+		if (g_Stages[i].id == stagenum) {
+			return &g_Stages[i];
 		}
-
-		stage++;
 	}
 
 	return NULL;
@@ -122,19 +182,32 @@ struct stagetableentry *stageGetCurrent(void)
 
 s32 stageGetIndex(s32 stagenum)
 {
-	struct stagetableentry *stage = g_Stages;
-	struct stagetableentry *end = (struct stagetableentry *)(uintptr_t)stage + ARRAYCOUNT(g_Stages);
-	s32 i = 0;
+	s32 i;
 
-	while (stage < end) {
-		if (stage->id == stagenum) {
+	for (i = 0; i < g_NumStages; i++) {
+		if (g_Stages[i].id == stagenum) {
 			return i;
 		}
-
-		stage++;
-		i++;
 	}
 
 	sysLogPrintf(LOG_WARNING, "STAGE: stageGetIndex(0x%02x) not found in stage table!", stagenum);
+	return -1;
+}
+
+/*
+ * Phase 3: Translate a stagenum (STAGE_* constant) to its index in g_SoloStages[].
+ * Returns -1 if the stagenum has no solo stage entry (MP-only, mod, or test stages).
+ * Use this to cross safely from the stagenum domain to the solo stage index domain.
+ */
+s32 soloStageGetIndex(s32 stagenum)
+{
+	s32 i;
+
+	for (i = 0; i < NUM_SOLOSTAGES; i++) {
+		if ((s32)g_SoloStages[i].stagenum == stagenum) {
+			return i;
+		}
+	}
+
 	return -1;
 }

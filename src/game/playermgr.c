@@ -698,6 +698,7 @@ s32 playermgrGetPlayerNumByProp(struct prop *prop)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		if (prop == g_Vars.players[i]->prop) {
 			return i;
 		}

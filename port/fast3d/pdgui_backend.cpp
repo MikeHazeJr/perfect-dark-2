@@ -47,8 +47,15 @@ extern "C" s32  pdguiModdingHubIsVisible(void);
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
 
+/* In-match HUD overlay (top scorers + timer) */
+#include "pdgui_hud.h"
+
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
+
+/* Menu state manager (menumgr.c) */
+extern "C" s32 menuIsInCooldown(void);
+extern "C" s32 menuIsOpen(void);
 
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
@@ -207,8 +214,66 @@ void pdguiNewFrame(void)
     ImGui::NewFrame();
 }
 
+/* ---- Live Console (backtick toggle) ---- */
+static bool s_ConsoleVisible = false;
+
+void pdguiConsoleToggle(void)
+{
+    s_ConsoleVisible = !s_ConsoleVisible;
+}
+
+static void pdguiConsoleRender(void)
+{
+    if (!s_ConsoleVisible || !g_PdguiInitialized) return;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.7f);
+
+    /* NoFocusOnAppearing + NoNavFocus + NoNavInputs = overlay that doesn't steal input.
+     * Player can still move, shoot, jump while the console is visible. */
+    ImGuiWindowFlags consoleFlags = ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoFocusOnAppearing
+        | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoNavInputs
+        | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (ImGui::Begin("Console", &s_ConsoleVisible, consoleFlags)) {
+        s32 count = sysLogRingGetCount();
+        ImGui::BeginChild("LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        for (s32 i = 0; i < count; i++) {
+            const char *line = sysLogRingGetLine(i);
+            /* Color-code by prefix */
+            if (strstr(line, "ERROR:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            } else if (strstr(line, "WARNING:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            } else if (strstr(line, "MESHCOL:") || strstr(line, "JUMP:") || strstr(line, "CAPSULE")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 0.4f, 1.0f));
+            } else if (strstr(line, "LOAD:")) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.7f, 1.0f, 1.0f));
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, 1.0f));
+            }
+            ImGui::TextUnformatted(line);
+            ImGui::PopStyleColor();
+        }
+        /* Auto-scroll to bottom */
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
 void pdguiRender(void)
 {
+    /* Console renders independently of the debug overlay */
+    if (s_ConsoleVisible && g_PdguiInitialized) {
+        pdguiConsoleRender();
+    }
+
     bool storyboardActive = pdguiStoryboardIsActive() != 0;
     bool hotswapQueued = pdguiHotswapHasQueued() != 0;
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
@@ -220,7 +285,7 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+        (!g_PdguiActive && !s_ConsoleVisible && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -259,9 +324,6 @@ void pdguiRender(void)
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
 
-    /* F8 hot-swap status badge (always visible when menus have replacements) */
-    pdguiHotswapRenderBadge((s32)winW, (s32)winH);
-
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);
@@ -274,6 +336,10 @@ void pdguiRender(void)
      * Rendered independently of hotswap/menu state — active during gameplay. */
     pdguiPauseMenuRender((s32)winW, (s32)winH);
     pdguiScorecardRender((s32)winW, (s32)winH);
+
+    /* In-match HUD: top 2 scorers + remaining time.
+     * Only visible during normmplayerisrunning (combat sim active). */
+    pdguiHudRender((s32)winW, (s32)winH);
 
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
@@ -406,6 +472,18 @@ s32 pdguiProcessEvent(void *sdlEvent)
 {
     if (!g_PdguiInitialized) {
         return 0;
+    }
+
+    /* Menu manager cooldown: consume ALL input during transition frames
+     * to prevent double-press when opening/closing menus. */
+    if (menuIsInCooldown()) {
+        const SDL_Event *cooldownEv = (const SDL_Event *)sdlEvent;
+        /* Still forward to ImGui for state tracking, but consume from game */
+        ImGui_ImplSDL2_ProcessEvent(cooldownEv);
+        if (cooldownEv->type == SDL_KEYDOWN || cooldownEv->type == SDL_KEYUP ||
+            cooldownEv->type == SDL_CONTROLLERBUTTONDOWN || cooldownEv->type == SDL_CONTROLLERBUTTONUP) {
+            return 1;
+        }
     }
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;

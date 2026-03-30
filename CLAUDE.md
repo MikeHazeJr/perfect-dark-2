@@ -20,9 +20,11 @@ GitHub: https://github.com/MikeHazeJr/perfect-dark-2
 
 **This section is mandatory. Every AI session, every tool, every agent must follow these rules.**
 
-### 1. Context Is Code — Treat It That Way
+### 1. Context Is Code -- Treat It That Way
 
 Context files in `context/` are project infrastructure, not optional documentation. Updating them is **equal priority** to writing code. A code change without a corresponding context update is an incomplete change.
+
+**Canonical location**: `perfect_dark-mike/context/`. Copies of key files also exist at the parent level (`Perfect-Dark-2/`) for Cowork session access. When updating, always write to `context/` first, then sync the parent copy. If they ever diverge, `context/` wins.
 
 ### 2. Session Start — Always Read First, Then Confirm
 

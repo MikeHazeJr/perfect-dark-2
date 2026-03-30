@@ -1249,7 +1249,7 @@ s32 bgGetStageIndex(s32 stagenum)
 	s32 index = -1;
 	s32 i;
 
-	for (i = 0; i != ARRAYCOUNT(g_Stages); i++) {
+	for (i = 0; i != g_NumStages; i++) {
 		if (g_Stages[i].id == stagenum) {
 			index = i;
 		}
@@ -1482,7 +1482,7 @@ void bgReset(s32 stagenum)
 
 	g_StageIndex = bgGetStageIndex(stagenum);
 
-	sysLogPrintf(LOG_NOTE, "LOAD: bgGetStageIndex(0x%02x) returned %d (array has %d entries)", stagenum, g_StageIndex, (s32)(sizeof(g_Stages)/sizeof(g_Stages[0])));
+	sysLogPrintf(LOG_NOTE, "LOAD: bgGetStageIndex(0x%02x) returned %d (array has %d entries)", stagenum, g_StageIndex, g_NumStages);
 
 	if (g_StageIndex < 0) {
 		g_StageIndex = 0;
@@ -2805,7 +2805,11 @@ void bgLoadRoom(s32 roomnum)
 	}
 
 #ifdef PLATFORM_64BIT
-	alloclen = alloclen * 4; // just to be safe for now, adjust properly later #TODO
+	// preprocessBgRoom converts 32-bit ROM offsets/GBI commands to 64-bit in-place.
+	// The output can expand up to 2x (4-byte → 8-byte pointer-bearing commands).
+	// The compressed data (readlen) fits in the right half since readlen <= gfxdatalen < 2*gfxdatalen.
+	// Total required: 2 * gfxdatalen (preprocessed output) + readlen (already fits in left half after inflate).
+	alloclen = alloclen * 2;
 #endif
 
 

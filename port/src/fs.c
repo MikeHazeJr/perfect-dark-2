@@ -30,7 +30,6 @@ static char exeDir[FS_MAXPATH + 1];  // replaces $E
 // Per-mod directories removed — modmgr now handles dynamic mod resolution
 // via modmgrResolvePath() which iterates enabled mods in load order.
 
-s32 g_ModNum = 0;
 
 static s32 fsPathIsWritable(const char *path)
 {
@@ -148,14 +147,16 @@ s32 fsInit(void)
 	}
 
 	// get path to base dir and expand it if needed
+	// Priority: --basedir arg > exe directory > working directory > home directory
 	const char *path = sysArgGetString("--basedir");
 	if (!path) {
-		// check if there's a `data` directory in working directory or homeDir, otherwise default to exe directory
 		path = "$E/" DEFAULT_BASEDIR_NAME;
 		if (!portable) {
-			if (fsFileSize("./" DEFAULT_BASEDIR_NAME) >= 0) {
+			if (fsFileSize("$E/" DEFAULT_BASEDIR_NAME) >= 0) {
+				path = "$E/" DEFAULT_BASEDIR_NAME;
+			} else if (fsFileSize("./" DEFAULT_BASEDIR_NAME) >= 0) {
 				path = "./" DEFAULT_BASEDIR_NAME;
-			} else if (fsFileSize("$H/" DEFAULT_BASEDIR_NAME)) {
+			} else if (fsFileSize("$H/" DEFAULT_BASEDIR_NAME) >= 0) {
 				path = "$H/" DEFAULT_BASEDIR_NAME;
 			}
 		}

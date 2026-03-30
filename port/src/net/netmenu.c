@@ -205,8 +205,10 @@ static MenuItemHandlerResult menuhandlerCoopConfigStart(s32 operation, struct me
 				"(stage=%d stagenum=0x%02x diff=%d mode=%d)",
 				g_NetCoopStageIndex, stagenum, difficulty, gamemode);
 
+			netbufStartWrite(&g_NetLocalClient->out);
 			netmsgClcLobbyStartWrite(&g_NetLocalClient->out,
-				gamemode, stagenum, difficulty);
+				gamemode, stagenum, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+			netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
 
 			/* Pop the config dialog — we're done configuring */
 			menuPopDialog();
@@ -543,21 +545,21 @@ MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item,
 				}
 			}
 
-			if (isCode) {
+			/* All join attempts must go through connect code decode.
+			 * Raw IP addresses are not accepted -- the code is a security
+			 * layer that prevents exposing public IPs. */
+			{
 				u32 ip = 0;
-				u16 port = 0;
-				if (connectCodeDecode(g_NetJoinAddr, &ip, &port) == 0) {
+				if (connectCodeDecode(g_NetJoinAddr, &ip) == 0 && ip) {
 					char resolved[NET_MAX_ADDR + 1];
 					snprintf(resolved, sizeof(resolved), "%u.%u.%u.%u:%u",
 					         ip & 0xFF, (ip >> 8) & 0xFF,
-					         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+					         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
 					if (netStartClient(resolved) == 0) {
 						menuPushDialog(&g_NetJoiningDialog);
 					}
-				}
-			} else {
-				if (netStartClient(g_NetJoinAddr) == 0) {
-					menuPushDialog(&g_NetJoiningDialog);
+				} else {
+					sysLogPrintf(LOG_WARNING, "NET: invalid connect code: '%s'", g_NetJoinAddr);
 				}
 			}
 		}

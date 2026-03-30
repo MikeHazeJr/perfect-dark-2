@@ -115,10 +115,35 @@ const char *netGetPublicIP(void)
 {
     extern const char *netUpnpGetExternalIP(void);
     extern s32 netUpnpIsActive(void);
+
+    /* Try UPnP first */
     if (netUpnpIsActive()) {
-        return netUpnpGetExternalIP();
+        const char *upnpIP = netUpnpGetExternalIP();
+        if (upnpIP && upnpIP[0]) {
+            return upnpIP;
+        }
     }
-    return "";
+
+    /* Fallback: query external IP via HTTP (cached after first success).
+     * Uses curl to query a lightweight IP echo service. */
+    static char s_CachedIP[64] = "";
+    static s32 s_Tried = 0;
+
+    if (s_CachedIP[0]) {
+        return s_CachedIP;
+    }
+
+    if (!s_Tried) {
+        s_Tried = 1;
+        extern s32 netHttpGetPublicIP(char *buf, s32 bufsize);
+        if (netHttpGetPublicIP(s_CachedIP, sizeof(s_CachedIP)) == 0) {
+            sysLogPrintf(LOG_NOTE, "NET: public IP resolved via HTTP fallback");
+        } else {
+            sysLogPrintf(LOG_WARNING, "NET: failed to resolve public IP (UPnP and HTTP both failed)");
+        }
+    }
+
+    return s_CachedIP;
 }
 
 /**
@@ -289,6 +314,19 @@ void netServerKickClient(s32 clientId, const char *reason)
 }
 
 /* ========================================================================
+ * HUD bridge functions (pdgui_hud.cpp)
+ * ======================================================================== */
+
+/* g_MpTimeLimit60: match time limit in 60Hz ticks. 0 = unlimited.
+ * Declared in lv.c but not exported via lv.h — extern here for bridge use. */
+extern s32 g_MpTimeLimit60;
+
+s32 pdguiHudGetTimeLimitTicks(void)
+{
+    return g_MpTimeLimit60;
+}
+
+/* ========================================================================
  * Pause menu bridge functions (pdgui_menu_pausemenu.cpp)
  * ======================================================================== */
 
@@ -383,7 +421,7 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
  * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
  * ======================================================================== */
 
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -392,8 +430,21 @@ s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
         return -2;
     }
 
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u",
-                 gamemode, stagenum, difficulty);
+    /* Write to a fresh out-buffer then send immediately.
+     * g_NetLocalClient->out is the per-client reliable send buffer; calling
+     * netSend(cl, NULL, reliable, chan) flushes it via enet_peer_send to the
+     * server.  Without the explicit netSend the packet sits unsent — the
+     * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
+    netbufStartWrite(&g_NetLocalClient->out);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
+    netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+                 gamemode, stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
     return 0;
+}
+
+s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+{
+    /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
+    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
 }

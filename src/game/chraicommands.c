@@ -1950,6 +1950,7 @@ bool aiIfChrInRoom(void)
 		bool pass = false;
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
 			if (g_Vars.players[i]->eyespy && g_Vars.players[i]->eyespy->prop
 #if VERSION >= VERSION_NTSC_1_0
 					&& chrGetDistanceToPad(g_Vars.players[i]->eyespy->prop->chr, pad_id) < 150.0f

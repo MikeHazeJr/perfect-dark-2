@@ -5,11 +5,14 @@
 #include "constants.h"
 #include "net/netbuf.h"
 
-#define NET_PROTOCOL_VER 20  /* D3R-9: bump for NETCHAN_TRANSFER + distrib messages */
+/* Forward declaration — avoids pulling enet.h into every translation unit */
+typedef struct _ENetAddress ENetAddress;
+
+#define NET_PROTOCOL_VER 23  /* protocol 23: query response includes server external address for hole punch */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
-#define NET_MAX_CLIENTS MAX_PLAYERS
+#define NET_MAX_CLIENTS 32  /* max simultaneous connections; independent of MAX_PLAYERS (match slots) */
 #define NET_MAX_NAME MAX_PLAYERNAME
 #define NET_MAX_ADDR 256
 
@@ -25,7 +28,8 @@
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
 
-extern u8 g_NetPendingResyncFlags;
+extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
+extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */
 
 #define CLFLAG_ABSENT    (1 << 0) // player disconnected mid-game, slot preserved for reconnect
 #define CLFLAG_COOPREADY (1 << 1) // client is ready to start co-op mission
@@ -195,6 +199,13 @@ extern struct netbuf g_NetMsgRel;
 
 const char *netFormatClientAddr(const struct netclient *cl);
 
+/* Parse an address string ("host:port" or "host") into an ENetAddress.
+   Returns non-zero on success, 0 on failure. */
+s32 netParseAddr(ENetAddress *out, const char *str);
+
+/* Return the current ENet host handle (NULL if not connected/hosting). */
+struct _ENetHost *netGetHost(void);
+
 void netInit(void);
 s32 netDisconnect(void);
 void netStartFrame(void);
@@ -227,6 +238,9 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 void netRecentServerAdd(const char *addr);
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len);
 void netQueryRecentServers(void);
+void netQueryRecentServersAsync(void);
+void netPollRecentServers(void);
+extern bool g_NetQueryInFlight;
 
 Gfx *netDebugRender(Gfx *gdl);
 

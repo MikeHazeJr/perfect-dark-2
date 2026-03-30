@@ -40,6 +40,9 @@ tools/mkrom/mkrom
 build_errors.log
 build/game_output.log
 
+# Claude Code worktrees (prevent git add -A from scanning them)
+.claude/worktrees/
+
 # IDE / editor
 /.vs
 CppProperties.json

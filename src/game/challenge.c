@@ -20,6 +20,7 @@
 #include "data.h"
 #include "types.h"
 #include "modmgr.h"
+#include "game/mplayer/participant.h"
 
 u8 g_MpFeaturesForceUnlocked[40];
 u8 g_MpFeaturesUnlocked[80];
@@ -67,7 +68,7 @@ bool challengeIsAvailable(s32 challengeindex)
 
 bool challengeIsAvailableToPlayer(s32 chrnum, s32 challengeindex)
 {
-	if ((g_MpSetup.chrslots & (1u << chrnum)) == 0) {
+	if (!mpIsParticipantActive(chrnum)) { /* B-12 Phase 2 */
 		return 0;
 	}
 
@@ -234,7 +235,7 @@ void challengePerformSanityChecks(void)
 
 		// Reset player handicaps
 		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (mpIsParticipantActive(i)) { /* B-12 Phase 2 */
 				g_PlayerConfigsArray[i].handicap = 0x80;
 				numplayers++;
 			}
@@ -245,10 +246,15 @@ void challengePerformSanityChecks(void)
 		g_MpSetup.chrslots &= CHRSLOTS_PLAYER_MASK;
 
 		for (i = 0; i < MAX_BOTS; i++) {
+			mpRemoveParticipant(i + BOT_SLOT_OFFSET); /* B-12 Phase 2 */
+		}
+
+		for (i = 0; i < MAX_BOTS; i++) {
 			g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][numplayers - 1];
 
 			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-				g_MpSetup.chrslots |= 1u << (i + MAX_PLAYERS);
+				g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET); /* B-12 Phase 2: fixed 1u→1ull */
+				mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF); /* B-12 Phase 2 */
 			}
 		}
 

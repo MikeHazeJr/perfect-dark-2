@@ -42,14 +42,18 @@ void lobbyUpdate(void)
     u8 currentLeaderFound = 0;
     u8 firstLobbySlot = 0xFF;
 
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
+    for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
         struct netclient *cl = &g_NetClients[i];
         if (cl->state == CLSTATE_DISCONNECTED) {
             continue;
         }
 
-        /* Skip the dedicated server's own slot (it has no player) */
-        if (g_NetDedicated && g_NetMode == NETMODE_SERVER && i == 0) {
+        /* Skip the local server's own slot — after B-28, dedicated servers have
+         * g_NetLocalClient == NULL, so this check is always false on dedicated servers
+         * (all slots are real players).  On listen-server builds it skips the host slot.
+         * On clients (NETMODE_CLIENT), do NOT skip: the local slot IS the player and must
+         * appear in their own lobby list so they see themselves and are elected leader. */
+        if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient) {
             continue;
         }
 
@@ -76,6 +80,17 @@ void lobbyUpdate(void)
         /* Track the first client in LOBBY state for leader election */
         if (cl->state >= CLSTATE_LOBBY && firstLobbySlot == 0xFF) {
             firstLobbySlot = count;
+        }
+
+        /* Eager leader: if no leader is set yet and this is the first
+         * lobby-state client, assign them immediately.  This ensures the
+         * leader slot is populated before the post-loop election code runs,
+         * so CLC_LOBBY_START processed in the same server frame as CLC_AUTH
+         * sees a valid leader slot. */
+        if (g_Lobby.leaderSlot == 0xFF && cl->state >= CLSTATE_LOBBY) {
+            g_Lobby.leaderSlot = count;
+            sysLogPrintf(LOG_NOTE, "LOBBY: immediate leader assigned: slot %d (client %d, %s)",
+                         count, i, cl->settings.name[0] ? cl->settings.name : "?");
         }
 
         /* Check if current leader is still present */
@@ -123,7 +138,18 @@ void lobbyUpdate(void)
         g_Lobby.players[i].isLeader = (i == g_Lobby.leaderSlot) ? 1 : 0;
     }
 
-    g_Lobby.inGame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME) ? 1 : 0;
+    /* g_NetLocalClient is NULL on dedicated server, so checking it directly always yields inGame=0.
+     * Walk g_NetClients[] instead to check if any client is actively in a match. */
+    {
+        u8 anyInGame = 0;
+        for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+            if (g_NetClients[i].state >= CLSTATE_GAME) {
+                anyInGame = 1;
+                break;
+            }
+        }
+        g_Lobby.inGame = anyInGame;
+    }
 }
 
 void lobbySetLeader(u8 slot)

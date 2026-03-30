@@ -1,4 +1,4 @@
-# Active Tasks — Current Punch List
+# Active Tasks -- Current Punch List
 
 > Razor-thin: only what needs doing. For completed work, see [tasks-archive.md](tasks-archive.md).
 > For phase status, see [infrastructure.md](infrastructure.md). For bugs, see [bugs.md](bugs.md).
@@ -6,175 +6,186 @@
 
 ---
 
-## Build Test Results (S26)
+## Critical Blockers (v0.1.0 "Foundation")
 
-**Passed:**
-- CI corruption fix (S24) — CI clean at boot and after MP return
-- Stage decoupling Phase 1 (S23) — Kakariko loads, spawning works (pad-0 fallback functional)
-- Pause menu via Tab (S22) — Opens, Rankings/Settings/End Game tabs work
-- Match end (both paths) — No ACCESS_VIOLATION. B-10 likely resolved by ImGui path.
-
-**Still needs testing:**
-- Look inversion (S22) — Not yet tested
-- Updater diagnostics (S22) — Not yet tested
-- Verbose logging persistence — May not survive restart (not confirmed this build)
+| # | Task | Details |
+|---|------|---------|
+| 1 | **B-49 CRITICAL: Felicity/toilet landing freeze** | JUMP_DEBUG already instrumented (S78). Needs reproduction + log capture. Freeze occurs on landing in specific geometry. |
+| 2 | **B-38 CRITICAL: setupCreateProps crash** | Possible NULL deref in prop creation during stage load. Needs investigation + root cause. |
+| 3 | **UI Scaling** | Not addressed yet. Required for v0.1.0. |
 
 ---
 
-## Coded This Session — Awaiting Build Test
+## Catalog Activation
 
-| Item | What Was Done | Status |
-|------|--------------|--------|
-| **B-13: Prop Scale Fix** | Changed `model->scale` → `modelGetEffectiveScale(model)` at lines 857–858, 883–884 in model.c. | **CODED — needs build test** |
-| **B-12 Phase 1: Dynamic Participant System** | New `participant.h` / `participant.c` with heap-allocated pool (default 32, expandable). Parallel sync hooks in 6 locations in mplayer.c. Runs alongside legacy chrslots. | **CODED — needs build test** |
-| **Build Tool: Commit Button** (build-gui.ps1 v3.2) | GIT section in sidebar. Dynamic "Commit XX changes" button. Dialog with message field + push checkbox. Race condition fix, `--set-upstream` push, double-v prefix fix. | **TESTED — PASS** |
-| **B-14: START Double-Fire Fix** | Frame guard `s_PauseJustOpened` in pdgui_menu_pausemenu.cpp. Added `pauseActive` to pdguiProcessEvent input consumption. | **TESTED — PASS** |
-| **B-16: B Button Navigation** | Added `ImGuiKey_GamepadFaceRight` handling in pause menu render. B cancels End Game confirm, or closes pause. | **TESTED — PASS** |
-| **Build Tool: Commit Details** (build-gui.ps1 v3.3) | Commit dialog now shows categorized change summary (modified/added/deleted, grouped by area: Game, Port, Context, etc.). | **TESTED — PASS** |
-| **Map Cycle Test** (S33/34) | Attempted automated arena cycling — crashed on 5th transition due to MEMPOOL_STAGE lifecycle conflict. Feature removed; maps tested manually. | **REMOVED** |
+| Step | Status |
+|------|--------|
+| **C-0** Wire assetCatalogInit + RegisterBaseGame + ScanComponents | **DONE** |
+| **C-2-ext** source_filenum/texnum/animnum/soundnum in asset_entry_t | **DONE (S74)** |
+| **catalogLoadInit** Reverse-index arrays + query functions | **DONE (S74)** |
+| **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — needs playtest with a mod that declares bodyfile |
+| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** — coded, wiring needs confirmation |
+| **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **NEXT** |
+| **C-7** `catalogGetSoundOverride` in `sndStart()` | **DONE (S80)** — `audioPlayFileSound()` via SDL_LoadWAV in audio.c, intercept wired in snd.c |
+| **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | **DONE (S80)** — `catalogLoadInit()` re-wired on toggle |
+| **C-9** Stage diff | **DONE (S80)** — `catalogComputeStageDiff` implemented |
+
+---
+
+## Mod System (T-series) — ALL DONE
+
+| Task | Status |
+|------|--------|
+| T-1 through T-10 | **ALL DONE (S80)** — base table expansion (anim 1207, tex 3503, audio 1545), size_bytes walker, thumbnail queue, sound intercept, mod.json content, stage reset, texture flush |
+
+---
+
+## Memory Modernization (D-MEM) — ALL DONE
+
+| Task | Status |
+|------|--------|
+| MEM-1: Load state fields | **DONE** |
+| MEM-2: assetCatalogLoad/Unload | **DONE** |
+| MEM-3: ref_count + eviction | **DONE** |
+
+---
+
+## Awaiting Build Test / Playtest
+
+| Item | Status |
+|------|--------|
+| **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
+| **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — needs playtest: toggle a mod on/off, confirm no stale stages or textures after reload. |
+| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — needs build + Felicity playtest. |
+| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — needs build + test: close window during match, should exit within 1s. |
+| **Combat Sim scenario save/load** (S71) | **CODED (S71)** — needs build + smoke test. |
+| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — needs build + playtest. |
+| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — needs build + playtest. |
+| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — needs playtest: jump on Jungle should no longer crash. |
+| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — needs playtest: no alarm at match start; "Start Armed" equips weapon. |
+| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — needs playtest: add >7 bots in room UI. |
+
+---
+
+## Awaiting Build Test / Playtest (Pre-S68)
+
+| Item | Status |
+|------|--------|
+| **Room interior UX + Match Start** (S57–S60) | **MILESTONE: MATCH RUNS** (confirmed S68: 7 bots, Jungle, 25s gameplay). Full playtest: Leave Room → social lobby, Start Match → match loads. |
+| **netSend audit + CRIT fixes** (S61) | **BUILD VERIFIED (S61)** — 3 critical bugs fixed. Desync recovery now functional. |
+| **SP-6 Null Guard Audit** (S64) | **CODED (S64)** — 14 HIGH/CRITICAL PLAYERCOUNT() loops guarded across 8 files. Needs full client build + playtest. |
+| **SP-8 Prop/Obj Null Guard Audit 2 of 4** (S65) | **CODED (S65)** — 7 CRITICAL/HIGH fixes. Needs build + playtest. |
+| **Bot/AI/Simulant null-guard audit 4 of 4** (S66) | **CODED (S66)** — 28 CRITICAL/HIGH bugs fixed across 6 files. Needs build + dedicated server playtest. |
+| **B-36 Client crash after skyReset** (S63) | **CODED (S63+S64)** — needs full client build + playtest on stage with ambient music. |
+| **2-player Combat Sim match** (S54) | Build client + server. Connect → lobby → Combat Simulator → verify match loads + both players spawn. |
+| **SPF-1/3**: Hub, rooms, identity, lobby, join-by-code (S47d–S49) | Run `.\devtools\build-headless.ps1 -Target server`, then end-to-end join test (J-1) |
+| **Update tab — cross-session staged version** (S50) | Build client. Download a version, close without restarting. Reopen Update tab → Switch button should appear. |
+| **Player Stats** (playerstats.c) (S49) | Needs client build test. |
+| **D3R-7**: Modding Hub -- 6 files (S40) | Needs client build test |
+| **B-13**: Prop scale fix (S26) | Needs build test |
+| **B-12 Phase 1**: Dynamic participant system (S26) | Needs build test |
+
+---
 
 ## Bugs Still Open
 
-| Bug | Severity | Root Cause | Status |
-|-----|----------|-----------|--------|
-| [B-17](bugs.md) **Mod stages load wrong maps** | HIGH | Legacy `modConfigParseStage()` patches `g_Stages[]` with wrong file IDs. | **STRUCTURALLY FIXED** (S32) — catalog smart redirect bypasses `g_Stages[]` patching. Paradox confirmed correct. Needs broader testing across all mod maps. |
+| Bug | Severity | Status |
+|-----|----------|--------|
+| [B-51](bugs.md) Bot stuck/invisible under map | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync now working. Needs verification. |
+| [B-52](bugs.md) Can't pick up weapons/ammo | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
+| [B-53](bugs.md) Can't open doors | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
+| [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
+| [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
+| B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
+| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — needs test to confirm dispersal works. |
+| B-21 Menu double-press / hierarchy issues | MEDIUM | Escape registering multiple times, menu state confusion. |
 
-## Pause Menu UX Fixes (S26 feedback)
+---
+
+## Active Work Tracks
+
+### Join Flow (J-series) — Next Steps
+
+| Phase | Task | Details |
+|-------|------|---------|
+| J-1 | **Verify end-to-end join** | **DONE (S81)** — full join cycle verified: connect code → CLSTATE_LOBBY → match loads → match runs → match ends. |
+| J-2 | **Server GUI connect code** | Add connect code display + Copy button to server_gui.cpp Server tab. |
+| J-3 | **SVC_ROOM_LIST protocol** | Broadcast room state from server to clients so lobby UI shows real room data. |
+| J-4 | **Server history UI** | **DONE (S80)** — serverhistory.json + Recent Servers panel + relative timestamps implemented. |
+| J-5 | **Lobby handoff polish** | **DONE (S81)** — `menuStop()` + `pdguiMainMenuReset()` called on SVC_AUTH; menu stack cleared on lobby join. |
+
+See [join-flow-plan.md](join-flow-plan.md) for full audit.
+
+---
+
+### Room Architecture (R-series) — See [room-architecture-plan.md](room-architecture-plan.md)
+
+| Phase | Task | Details |
+|-------|------|---------|
+| R-1 | **Foundation (no protocol change)** | Hub slot pool stubs, `g_NetLocalClient = NULL` for dedicated server, IP scrub (B-28/29/30). **DONE (S52)** — needs server build test. |
+| R-2 | **Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. Remove permanent room 0. |
+| R-3 | **Room sync (protocol)** | `SVC_ROOM_LIST 0x75`, `SVC_ROOM_UPDATE 0x76`, `SVC_ROOM_ASSIGN 0x77`. `CLC_ROOM_JOIN 0x0A`, `CLC_ROOM_LEAVE 0x0B`. |
+| R-4 | **Match start (room-scoped)** | `CLC_ROOM_SETTINGS 0x0C`, `CLC_ROOM_KICK 0x0D`, `CLC_ROOM_TRANSFER 0x0E`, `CLC_ROOM_START 0x0F`. |
+| R-5 | **Server GUI redesign** | New Players + Rooms panel layout. No raw IP anywhere. Replace Hub tab with Rooms panel. |
+
+---
+
+### Lobby / Room / Match UX Flow (L-series) — See [lobby-flow-plan.md](lobby-flow-plan.md)
+
+> L-series = client-facing UI only. Depends on R-2 + R-3 complete before L-1/L-2 can be wired.
+
+| Phase | Task | Details |
+|-------|------|---------|
+| L-1 | **Social Lobby** | Rewrite `pdgui_menu_lobby.cpp`: strip game mode selection, add room list with Join buttons and Create Room. Depends on R-3. |
+| L-2 | **Room Create/Join** | Wire Create Room + Join Room buttons to `CLC_ROOM_JOIN`. Handle `SVC_ROOM_ASSIGN`. Depends on R-3. |
+| L-3 | **Room Interior + Mode Selection** | New `pdgui_menu_room.cpp`. Leader: mode buttons + room player list. Non-leader: read-only. Depends on R-4. |
+| L-4 | **Combat Sim Setup** | Extend `pdgui_menu_matchsetup.cpp` with network path. Depends on R-4. |
+| L-5 | **Campaign + Counter-Op Setup** | New `pdgui_menu_campaign_setup.cpp`. Depends on R-4. |
+| L-6 | **Drop-In / Drop-Out** | Allow joining ROOM_STATE_MATCH rooms. Depends on L-4/L-5. |
+
+---
+
+### B-12: Participant System
+
+| Phase | Status |
+|-------|--------|
+| Phase 1: Parallel pool | CODED -- needs build test |
+| Phase 2: Callsite migration | DONE (S47b) |
+| Phase 3: Remove chrslots + protocol v22 | READY — depends on Phase 2 QC |
+
+---
+
+## Deferred
+
+| Item | Reason |
+|------|--------|
+| Modding pipeline implementation | Design doc complete (S80). Deferred until matches are stable. |
+| Ultrawide support | Planned — will be built properly (not OTR hacks). |
+| ARM/NEON detection | Deferred until ARM target on roadmap. |
+| Network benchmark → dynamic player cap | Measure bandwidth/latency at server start, call `hubSetMaxSlots()`. |
+| Systemic bug audit: SP-1 remaining files | `activemenu.c`, `player.c`, `endscreen.c`, `menu.c` |
+| TODO-1: SDL2/zlib still DLL | Low priority. |
+
+---
+
+## Prioritized Next Up
+
+| # | Task | Details |
+|---|------|---------|
+| 1 | **B-50/B-51/B-52/B-53: Networked MP verification** | Run timed dedicated server match: verify match ends at timelimit (B-50), bots are visible + in-bounds (B-51), weapons/ammo pickable (B-52), doors openable (B-53). |
+| 2 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
+| 3 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
+| 4 | **R-2: Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. |
+| 5 | **Playtest backlog** | T-7, T-8/T-9, B-47, Combat Sim save/load, **Solo Room screen** (S82). |
+| 6 | **UI Scaling** | Required for v0.1.0. Not started. |
+
+---
+
+## Pause Menu UX (S26 feedback)
 
 | Issue | What Mike Wants |
 |-------|----------------|
-| End Game confirm/cancel too small | Separate overlay dialog. B cancels → returns to pause menu. |
+| End Game confirm/cancel too small | Separate overlay dialog. B cancels to pause menu. |
 | Settings B-button exits to main menu | Should back out one level only |
-| OG 'Paused' text behind ImGui menu (B-15) | Suppress legacy pause rendering when ImGui active. Low priority — will be stripped. |
-| Scroll-hidden buttons | Prefer docked/always-visible buttons, minimize scrolling everywhere |
-
----
-
-## New Feature Requests (S26)
-
-| Feature | Details |
-|---------|---------|
-| **Starting Weapon Option** | Toggleable option: everyone spawns with a weapon. Sub-options: pick a specific weapon OR random from a configurable pool. Goes in match setup. |
-| **Spawn Scatter** | Instead of circle spawn, scatter players across the map facing away from nearest wall. |
-| **Update Tab: Set Version** | Currently can browse versions but can't apply one. Need "use this version" action. Policy: don't force latest; match highest version in connection. |
-
----
-
-## Next Up
-
-| Priority | Task | Depends On | Details |
-|----------|------|-----------|---------|
-| 1 | **B-12 Phase 2: Migrate chrslots callsites** | Phase 1 build test pass | 100+ locations across mplayer.c, setup.c, menu.c, challenge.c, filemgr.c. Replace chrslots reads/writes with participant API calls. |
-| 2 | **B-13 Part 2: g_ModNum interim fix** | D3R-5 build test | Ensure `g_ModNum` is set during catalog-based stage loading so GEX scale compensation works. Stopgap until Model Correction Tool (D3R-7) fixes model baselines. |
-| 3 | **B-12 Phase 3: Remove chrslots** | Phase 2 complete | Delete u32 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v20. |
-| 4 | **Pause Menu Fixes** | — | B-14 START double-fire, B-16 back button, End Game overlay, Settings back-out, suppress OG Paused text. |
-| 5 | **Stage Decoupling Phase 2** — Dynamic stage table | Phase 1 verified | Heap-allocated `g_Stages`, `g_NumStages` counter. See [S23 session log](session-log.md). |
-| 6 | **Stage Decoupling Phase 3** — Index domain separation | Phase 2 | `soloStageGetIndex()` lookup, stagenum-keyed besttimes. |
-| 7 | **Starting Weapon Option** | Match setup UI | Toggle + weapon picker / random pool. New match setup field. |
-| 8 | **Spawn Scatter** | — | Distribute across map pads, face away from nearest wall. |
-| 9 | **Bot Customizer** | Build stable | Advanced options popup in match settings. Save as new bot type. Save/load match settings. |
-| 10 | **BotController Architecture** | Build stable | Wrapper around chr/aibot. Extension points for physics, combat telemetry, lifecycle. |
-| 11 | **Custom Post-Game Menu** | BotController | ImGui-based endscreen. Also fully resolves B-10. |
-| 12 | **D5: Settings/Graphics/QoL** | — | FOV slider, resolution, audio volumes (4-layer). See [d5-settings-plan.md](d5-settings-plan.md). |
-| 13 | **Memory Modernization M2+** | — | Stack→heap promotion. See [memory-modernization.md](memory-modernization.md). |
-
----
-
-## D3-Revised: Component Mod Architecture (Session 27 Design)
-
-> Full design: [component-mod-architecture.md](component-mod-architecture.md)
-> This replaces the original D3 monolithic mod plan. Implementation sequence below.
-
-| Phase | Task | Depends On | Details |
-|-------|------|-----------|---------|
-| D3R-1 | ~~**Decompose existing mods**~~ | — | **DONE (S29)** ✓ BUILD PASS: 56 maps, 42 chars, 5 tex packs in `post-batch-addin/mods/mod_*/_components/`. |
-| D3R-2 | ~~**Asset Catalog core**~~ | — | **DONE (S28)** ✓ BUILD PASS: `assetcatalog.h/c` — FNV-1a + CRC32, open addressing, dynamic growth, 20-function API. |
-| D3R-3 | ~~**Base game cataloging**~~ | D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_base.c` — 87 stages, 63 bodies, 75 heads with `"base:"` prefix IDs. Arenas deferred to D3R-5. |
-| D3R-4 | ~~**Category scanner + loader**~~ | D3R-1, D3R-2 | **DONE (S30)** ✓ BUILD PASS (S31): `assetcatalog_scanner.c` — INI parser, category→type mapping, component registration. Block comment `*/` bug fixed (S31). |
-| D3R-5 | ~~**Callsite migration**~~ | D3R-3, D3R-4 | **DONE (S38/S39)** ✓ BUILD PASS: All 6 modmgr accessors catalog-backed, 62 callsites covered, zero caller changes. |
-| D3R-6 | ~~**Mod Manager UI**~~ | D3R-4 | **MERGED (S39/S40)** ✓ — 8 files. Snapshot browse/toggle, validation, `.modstate` persistence, Apply→title. Now embedded in Modding Hub. |
-| D3R-7 | **Modding Hub** ← IN PROGRESS | D3R-6 | **CODED (S40)** — 6 files. Needs build test. Hub with Mod Manager, INI Editor, Model Scale Tool. Rotating charpreview. Binary bake at offset 0x10. |
-| D3R-8 | ~~**Bot Customizer**~~ | D3R-7 | **DONE (S43)** ✓ BUILD PASS: Trait editor in match setup. `botvariant.c/h`, `assetCatalogScanBotVariants()`, save-as-preset popup, hot-register. |
-| D3R-9 | ~~**Network distribution**~~ | D3R-4 | **DONE (S44)** ✓ BUILD PASS: Protocol v20, PDCA archives, zlib chunks, crash recovery, kill feed, download prompt UI. |
-| D3R-10 | **Mod Pack export/import** | D3R-9 | `.pdpack` creation, extraction, sharing. |
-| D3R-11 | **Legacy cleanup** | D3R-5 | Remove `g_ModNum`, `modconfig.txt` parsing, static array patching. |
-
-### D3R-7 Coded — Awaiting Build Test (S40)
-
-6 files changed/created:
-- `port/fast3d/pdgui_charpreview.c` — `pdguiCharPreviewSetRotY()` + rotation state
-- `port/include/pdgui_charpreview.h` — `pdguiCharPreviewSetRotY()` declaration
-- `port/fast3d/pdgui_menu_modmgr.cpp` — `renderModManagerBody()` extract, `pdguiModManagerRefreshSnapshot/RenderContent` public API
-- `port/fast3d/pdgui_menu_moddinghub.cpp` — **NEW** hub window, 3 tools, B/Escape, controller nav
-- `port/fast3d/pdgui_menu_mainmenu.cpp` — "Modding..." button, hub API calls
-- `port/fast3d/pdgui_backend.cpp` — hub render + `hubActive` guard
-
-### D3R-6 Merged (S39)
-
-8 files changed/created:
-- `port/include/assetcatalog.h` — `assetCatalogSetEnabled()`, `assetCatalogGetUniqueCategories()` declarations
-- `port/src/assetcatalog.c` — implementations appended
-- `port/include/modmgr.h` — `modmgrSaveComponentState()`, `modmgrLoadComponentState()` declarations
-- `port/src/modmgr.c` — `.modstate` persistence, `modmgrApplyChanges()` rewrite (removed old reload path, added `mainChangeToStage(STAGE_TITLE)`)
-- `port/src/main.c` — `modmgrLoadComponentState()` after scan
-- `port/fast3d/pdgui_menu_modmgr.cpp` — **NEW** (~530 lines) full Mod Manager UI
-- `port/fast3d/pdgui_menu_mainmenu.cpp` — "Mod Manager..." button, `s_MenuView==3`, B/Escape, title
-- `port/fast3d/pdgui_backend.cpp` — `pdguiModManagerRender()` in render loop, `modmgrActive` early-exit guard
-
-### D3R-5 Briefing: Callsite Migration
-
-**Goal**: Replace numeric array index lookups with `catalogResolve()` calls so the runtime actually *uses* the Asset Catalog instead of just populating it.
-
-**Completed steps**:
-- Step 1 ✓: Catalog bootstrap — wired init into startup sequence
-- Step 2 ✓: Standalone filesystem resolution — `assetcatalog_resolve.c` intercepts at `fsFullPath()`
-- Step 3 ✓: Catalog-as-truth smart redirect — B-17 structurally fixed, Paradox confirmed correct
-
-**Step 4: Arena Registration — BUILD TESTED (S37, PASS)**
-
-All 4 files modified:
-- `assetcatalog.h` — `ASSET_ARENA` enum, `ext.arena` struct, `assetCatalogRegisterArena()` decl
-- `assetcatalog.c` — wrapper implementation
-- `assetcatalog_base.c` — 75 base arenas registered via `s_ArenaGroupMap[]` + loop reading from `g_MpArenas[]`
-- `pdgui_menu_matchsetup.cpp` — `#include "assetcatalog.h"`, removed `arenaGroupDef`/`s_ArenaGroups[]`, added `s_ArenaGroupCache[]` + `rebuildArenaCache()` + callback, dropdown reads from catalog entries
-
-**Migration approach** (S38 decision — Option C hybrid):
-- **Internal rewire** ✓ (S38): All modmgr accessors read from catalog cache. Zero callsite changes.
-- **Arena rewire** ✓: `modmgrGetArena()`/`modmgrGetTotalArenas()` — 24 callsites covered
-- **Body rewire** ✓: `modmgrGetBody()`/`modmgrGetTotalBodies()` — 21 callsites covered
-- **Head rewire** ✓: `modmgrGetHead()`/`modmgrGetTotalHeads()` — 17 callsites covered
-- ~~**Tier 2 (medium, big win)**: ImGui arena dropdown~~ — **DONE (S35)** (direct catalog migration)
-- **Tier 3 (deferred D3R-9)**: Network sync — body/head u8 indices over wire
-
-**Constraints**:
-- `bool` is `s32`, never `<stdbool.h>`
-- Name-based resolution only — no new numeric lookups
-- C11 game code, C++ port code
-- `modmgr.c` must keep working until D3R-11
-
-**Not in scope**: Weapons registration, Mod Manager UI (D3R-6), legacy removal (D3R-11), network sync (D3R-9)
-
-### Key Architectural Decisions (S27)
-- **No numeric lookups** — project constraint. Everything through Asset Catalog.
-- **Components, not monoliths** — each asset is an independent folder + `.ini`.
-- **Category = grouping label** — `category` field in `.ini` enables mod manager group toggles.
-- **Soft dependencies** — `depends_on` field, graceful fallback to base assets.
-- **Skins as soft references** — `target` field references a character ID, resolved lazily.
-- **Dynamic memory only** — N64 shared pools removed, each component uses `malloc`.
-- **Temp downloads** — `mods/.temp/` with crash recovery (keep/disable/discard).
-- **Combat log for lobby** — server sends pre-resolved display names, not asset IDs.
-
----
-
-## Backlog (lower priority, do when relevant)
-
-- ~~D3e: Mod Menu~~ → superseded by D3R-6
-- ~~D3f: Network mod manifest~~ → superseded by D3R-9
-- ~~D3g: Cleanup~~ → superseded by D3R-11
-- Systemic bug audit: [SP-1](systemic-bugs.md) remaining files (activemenu.c, player.c, endscreen.c, menu.c)
-- rendering-trace.md header update (stale — claims no ImGui menus)
-- menu-storyboard.md review (partially superseded)
-- TODO-1: SDL2/zlib still DLL (low priority)
-- TODO-5: Dr. Carroll sentinel redesign (before D3R-11)
-- TODO-6: g_ModNum stragglers (D3R-11)
-- Update tab UX: version selection + version policy design
+| OG Paused text behind ImGui (B-15) | Suppress legacy pause rendering. Low priority. |
+| Scroll-hidden buttons | Prefer docked/always-visible, minimize scrolling |

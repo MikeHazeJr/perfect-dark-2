@@ -47,6 +47,7 @@ static SDL_GameController *pads[INPUT_MAX_CONTROLLERS];
 	.swapSticks = 1, \
 	.deviceIndex = -1, \
 	.cancelCButtons = 0, \
+	.invertRStickY = 0, \
 }
 
 static struct controllercfg {
@@ -59,6 +60,7 @@ static struct controllercfg {
 	s32 swapSticks;
 	s32 deviceIndex;
 	s32 cancelCButtons;
+	s32 invertRStickY;
 } padsCfg[INPUT_MAX_CONTROLLERS] = {
 	CONTROLLERCFG_DEFAULT,
 	CONTROLLERCFG_DEFAULT,
@@ -876,7 +878,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		npad->stick_x = leftX / 0x100;
 	}
 
-	s32 stickY = -leftY / 0x100;
+	s32 stickY = (cfg->swapSticks && cfg->invertRStickY ? leftY : -leftY) / 0x100;
 	if (!npad->stick_y && stickY) {
 		npad->stick_y = (stickY == 128) ? 127 : stickY;
 	}
@@ -894,7 +896,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		if (rightX) {
 			npad->rstick_x = rightX / 0x100;
 		}
-		s32 rStickY = -rightY / 0x100;
+		s32 rStickY = (!cfg->swapSticks && cfg->invertRStickY ? rightY : -rightY) / 0x100;
 		if (rStickY) {
 			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
 		}
@@ -1056,6 +1058,16 @@ s32 inputControllerGetCancelCButtons(s32 cidx)
 void inputControllerSetCancelCButtons(s32 cidx, s32 cancel)
 {
 	padsCfg[cidx].cancelCButtons = cancel;
+}
+
+s32 inputControllerGetInvertRStickY(s32 cidx)
+{
+	return padsCfg[cidx].invertRStickY;
+}
+
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert)
+{
+	padsCfg[cidx].invertRStickY = invert;
 }
 
 f32 inputControllerGetAxisScale(s32 cidx, s32 stick, s32 axis)
@@ -1625,6 +1637,7 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 		configRegisterInt(strFmt("%s.StickCButtons", secname), &padsCfg[c].stickCButtons, 0, 1);
 		configRegisterInt(strFmt("%s.CancelCButtons", secname), &padsCfg[c].cancelCButtons, 0, 1);
 		configRegisterInt(strFmt("%s.SwapSticks", secname), &padsCfg[c].swapSticks, 0, 1);
+		configRegisterInt(strFmt("%s.InvertRStickY", secname), &padsCfg[c].invertRStickY, 0, 1);
 		configRegisterInt(strFmt("%s.ControllerIndex", secname), &padsCfg[c].deviceIndex, -1, 0x7FFFFFFF);
 		secname[13] = '.';
 		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {

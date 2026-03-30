@@ -11,6 +11,7 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 void bodiesReset(s32 stagenum)
 {
@@ -22,10 +23,28 @@ void bodiesReset(s32 stagenum)
 	s32 whichteamlist = 1;
 	s32 index;
 
+	sysLogPrintf(LOG_NOTE, "BODIES: enter stagenum=0x%02x normmplay=%d NumBondBodies=%d MaleHeads=%d FemaleHeads=%d",
+		stagenum, g_Vars.normmplayerisrunning, g_NumBondBodies, g_NumMaleGuardHeads, g_NumFemaleGuardHeads);
+
 	for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
 		g_HeadsAndBodies[i].modeldef = NULL;
 	}
 
+	sysLogPrintf(LOG_NOTE, "BODIES: modeldef clear done i=%d", i);
+
+	/* In multiplayer (Combat Sim and all MP scenarios) there are no guards —
+	 * only players and bots. Guard head/body randomization is unused and the
+	 * guard head/body model data is not loaded for MP arenas. Skip the whole
+	 * randomization pass to avoid a modulo-by-zero if guard lists are empty
+	 * and to avoid loading guard models that won't be used. */
+	if (g_Vars.normmplayerisrunning) {
+		g_ActiveMaleHeadsIndex = 0;
+		g_ActiveFemaleHeadsIndex = 0;
+		sysLogPrintf(LOG_NOTE, "BODIES: normmplay active — skipping guard body randomization");
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BODIES: rng bond body select NumBondBodies=%d", g_NumBondBodies);
 	var80062c80 = rngRandom() % g_NumBondBodies;
 	var80062b14 = 0;
 	var80062b18 = 0;
@@ -50,6 +69,7 @@ void bodiesReset(s32 stagenum)
 		}
 	}
 
+	sysLogPrintf(LOG_NOTE, "BODIES: selecting male heads NumActivePerGender=%d", g_NumActiveHeadsPerGender);
 	// Male heads
 	if (cheatIsActive(CHEAT_TEAMHEADSONLY)) {
 		if (whichteamlist) {
@@ -80,6 +100,7 @@ void bodiesReset(s32 stagenum)
 		} while (!done);
 	}
 
+	sysLogPrintf(LOG_NOTE, "BODIES: selecting female heads headsavailablelen=%d", headsavailablelen);
 	// Female heads
 	if (cheatIsActive(CHEAT_TEAMHEADSONLY)) {
 		if (whichteamlist) {
@@ -111,6 +132,8 @@ void bodiesReset(s32 stagenum)
 
 	g_ActiveMaleHeadsIndex = 0;
 	g_ActiveFemaleHeadsIndex = 0;
+
+	sysLogPrintf(LOG_NOTE, "BODIES: bodiesReset complete");
 
 	for (i = 0; i < g_NumActiveHeadsPerGender; i++);
 	for (i = 0; i < g_NumActiveHeadsPerGender; i++);

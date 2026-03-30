@@ -7,6 +7,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 - **Transport**: ENet (UDP-based, reliable + unreliable channels)
 - **Authority model**: Server-authoritative for all gameplay state
 - **Tick rate**: 60 Hz
+- **Player cap**: `NET_MAX_CLIENTS 32` is the hard ceiling (ENet peer allocation). Runtime cap is `g_NetMaxClients`, set at server start and sent to clients via `SVC_AUTH`. Do not hardcode player-count assumptions — a planned network benchmark will call `hubSetMaxSlots()` to lower the runtime cap dynamically based on measured bandwidth/latency/tick sustainability.
 - **Channels**: `NETCHAN_DEFAULT`(0) unreliable positions, `NETCHAN_CONTROL`(1) reliable state/events, `NETCHAN_TRANSFER`(2) reliable mod distribution
 - **Protocol version**: 20 (bumped from 19: NETCHAN_TRANSFER + D3R-9 distribution messages)
 - **Modes**: `g_NetMode` — NETMODE_NONE(0), NETMODE_SERVER(1), NETMODE_CLIENT(2)

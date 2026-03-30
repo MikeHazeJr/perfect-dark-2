@@ -3,7 +3,7 @@
  *
  * Unified match configuration screen for both local play and network lobby.
  * The party leader (or local player in offline mode) configures:
- *   - Character slots (players + bots, up to 32: 8 players + 24 bots)
+ *   - Character slots (players + bots, up to 32 total: 8 players + up to 31 bots)
  *   - Match settings (scenario, stage, options, weapons)
  *   - Team assignments
  *
@@ -59,17 +59,20 @@ u32 mpGetNumBodies(void);
 /* Language strings */
 char *langGet(s32 textid);
 
-/* Match config (from matchsetup.c — must match layout exactly) */
+/* Match config (from matchsetup.c — must match layout exactly).
+ * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYER_NAME 32
-#define MAX_PLAYERS     8
-#define MAX_BOTS        24
-#define MAX_MPCHRS      (MAX_PLAYERS + MAX_BOTS)
+#define MAX_PLAYERS     8   /* = MAX_PLAYERS in src/include/constants.h */
+#define MAX_BOTS        32  /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY in src/include/constants.h */
 
 #define SLOT_EMPTY    0
 #define SLOT_PLAYER   1
 #define SLOT_BOT      2
 
-#define MATCH_MAX_SLOTS MAX_MPCHRS  /* 32 — must match matchsetup.c */
+/* Total slots = participant pool capacity = PARTICIPANT_DEFAULT_CAPACITY (src/include/constants.h).
+ * Cannot use that constant here (types.h bool conflict). Must stay in sync manually.
+ * Also defined in matchsetup.c as MATCH_MAX_SLOTS = PARTICIPANT_DEFAULT_CAPACITY. */
+#define MATCH_MAX_SLOTS 32  /* = PARTICIPANT_DEFAULT_CAPACITY */
 
 struct matchslot {
     u8 type;
@@ -314,8 +317,9 @@ static const struct arenaNameOverride s_ArenaNameOverrides[] = {
 
 static const s32 s_NumArenaNameOverrides = sizeof(s_ArenaNameOverrides) / sizeof(s_ArenaNameOverrides[0]);
 
-/* Look up arena name: check override table first, then fall back to langGet() */
-static const char *arenaGetName(u16 textId)
+/* Look up arena name: check override table first, then fall back to langGet().
+ * Non-static: also used by pdgui_menu_room.cpp's catalogArenaCollect(). */
+const char *arenaGetName(u16 textId)
 {
     /* Check hardcoded overrides for the broken range */
     for (s32 i = 0; i < s_NumArenaNameOverrides; i++) {

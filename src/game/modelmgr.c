@@ -115,6 +115,14 @@ void modelmgrPrintCounts(void)
 
 struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 {
+	/* PC: Guard against NULL modeldef (B-20 fix).
+	 * This can happen when a character body fails to load from ROM
+	 * (e.g., objective completion triggers spawning with an invalid filenum). */
+	if (!modeldef) {
+		sysLogPrintf(LOG_ERROR, "MODELMGR: NULL modeldef in modelmgrInstantiateModel -- returning NULL");
+		return NULL;
+	}
+
 	struct model *model = NULL;
 	u32 *rwdatas = NULL;
 	s16 datalen = -1;

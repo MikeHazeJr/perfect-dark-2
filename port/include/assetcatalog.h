@@ -66,8 +66,77 @@ typedef enum {
     ASSET_ARENA,
     ASSET_BODY,                /* MP body entry (base game g_MpBodies[] or mod) */
     ASSET_HEAD,                /* MP head entry (base game g_MpHeads[] or mod) */
+    ASSET_ANIMATION,           /* animation set (body animation) */
+    ASSET_TEXTURE,             /* individual texture entry (not a pack) */
+    ASSET_GAMEMODE,            /* multiplayer game mode (scenario) */
+    ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
+    ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
+    ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
     ASSET_TYPE_COUNT
 } asset_type_e;
+
+/* ========================================================================
+ * Asset Sub-type Constants
+ * ======================================================================== */
+
+/* Map mode flag constants for ext.map.mode (bitmask) */
+#define MAP_MODE_MP   (1 << 0)   /* playable in multiplayer (Combat Simulator) */
+#define MAP_MODE_SOLO (1 << 1)   /* playable in solo/campaign */
+#define MAP_MODE_COOP (1 << 2)   /* playable in co-op */
+
+/* Audio category constants for ext.audio.category */
+#define AUDIO_CAT_SFX   0   /* sound effect */
+#define AUDIO_CAT_MUSIC 1   /* music track */
+#define AUDIO_CAT_VOICE 2   /* voice / dialogue */
+
+/* HUD element type constants for ext.hud.element_type */
+#define HUD_ELEM_CROSSHAIR 0   /* aiming reticle */
+#define HUD_ELEM_AMMO      1   /* ammo counter */
+#define HUD_ELEM_RADAR     2   /* proximity radar */
+#define HUD_ELEM_HEALTH    3   /* health bar */
+
+/* Effect type constants for ext.effect.effect_type */
+#define EFFECT_TYPE_TINT        0   /* color tint applied to vertices */
+#define EFFECT_TYPE_GLOW        1   /* emissive glow on object */
+#define EFFECT_TYPE_SHIMMER     2   /* animated shimmer/sparkle */
+#define EFFECT_TYPE_DARKEN      3   /* darken/shadow entire scene */
+#define EFFECT_TYPE_SCREEN      4   /* full-screen post-process */
+#define EFFECT_TYPE_PARTICLE    5   /* particle emitter attached to target */
+
+/* Effect target constants for ext.effect.target */
+#define EFFECT_TARGET_SCENE     0   /* applies to full rendered scene */
+#define EFFECT_TARGET_PLAYER    1   /* applies to a specific player */
+#define EFFECT_TARGET_CHR       2   /* applies to a character/bot */
+#define EFFECT_TARGET_PROP      3   /* applies to a prop/object */
+#define EFFECT_TARGET_WEAPON    4   /* applies to a weapon model */
+#define EFFECT_TARGET_LEVEL     5   /* applies to all level geometry */
+#define HUD_ELEM_TIMER     4   /* game timer */
+#define HUD_ELEM_SCORE     5   /* score display */
+
+/* ========================================================================
+ * Asset Load State
+ * ======================================================================== */
+
+/**
+ * Lifecycle state of an asset entry.
+ *
+ * REGISTERED  -- entry exists in catalog, not yet enabled or loaded
+ * ENABLED     -- user/system has enabled the asset; eligible for loading
+ * LOADED      -- asset data is resident in memory (loaded_data != NULL)
+ * ACTIVE      -- asset is actively referenced by the running game
+ *
+ * Bundled (base game) assets are initialized at LOADED with
+ * ref_count = ASSET_REF_BUNDLED and are never evicted.
+ */
+typedef enum {
+    ASSET_STATE_REGISTERED = 0,
+    ASSET_STATE_ENABLED,
+    ASSET_STATE_LOADED,
+    ASSET_STATE_ACTIVE
+} asset_load_state_t;
+
+/** Sentinel ref_count for bundled assets: never evicted from memory. */
+#define ASSET_REF_BUNDLED 0x7FFFFFFF
 
 /* ========================================================================
  * Asset Entry Structure
@@ -131,7 +200,81 @@ typedef struct asset_entry {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
             u8  requirefeature;        /* unlock check (0 = always available) */
         } head;
+        struct {
+            s32 weapon_id;             /* MPWEAPON_* constant */
+            char name[64];             /* human-readable display name */
+            char model_file[128];      /* model file path (empty for base game) */
+            f32  damage;               /* base damage value (0 = unknown) */
+            f32  fire_rate;            /* rounds per second (0 = unknown) */
+            s32  ammo_type;            /* ammo category constant */
+            s32  dual_wieldable;       /* bool: can be dual-wielded */
+        } weapon;
+        struct {
+            s32 anim_id;               /* animation table index */
+            char name[64];             /* human-readable display name */
+            s32 frame_count;           /* number of frames (0 = unknown) */
+            char target_body[64];      /* body type this animation targets (empty = generic) */
+        } anim;
+        struct {
+            s32 texture_id;            /* texture table index */
+            s32 width;                 /* width in pixels (0 = unknown) */
+            s32 height;                /* height in pixels (0 = unknown) */
+            s32 format;                /* texture format constant (0 = unknown) */
+            char file_path[128];       /* path to texture file */
+        } texture;
+        struct {
+            s32 prop_type;             /* PROPTYPE_* constant */
+            char name[64];             /* human-readable display name */
+            char model_file[128];      /* model file path (empty for base game) */
+            u32  flags;                /* prop flags bitmask */
+            f32  health;               /* base health value (0 = indestructible) */
+        } prop;
+        struct {
+            s32 mode_id;               /* MPSCENARIO_* constant */
+            char name[64];             /* human-readable display name */
+            char description[256];     /* longer description for UI */
+            s32 min_players;           /* minimum players required */
+            s32 max_players;           /* maximum players supported */
+            s32 team_based;            /* bool: requires teams */
+        } gamemode;
+        struct {
+            s32 sound_id;              /* SFX enum value or music track index */
+            char name[64];             /* human-readable display name */
+            s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
+            s32 duration_ms;           /* duration in milliseconds (0 = unknown) */
+            char file_path[128];       /* path to audio file (empty = ROM-embedded) */
+        } audio;
+        struct {
+            s32 hud_id;                /* HUD element ID */
+            char name[64];             /* human-readable display name */
+            s32 element_type;          /* HUD_ELEM_* constant */
+            char texture_file[128];    /* texture file path (empty = uses default) */
+        } hud;
+        struct {
+            char name[64];             /* human-readable display name */
+            s32 effect_type;           /* EFFECT_TYPE_* constant */
+            s32 target;                /* EFFECT_TARGET_* constant */
+            char shader_id[64];        /* shader identifier for the renderer */
+            f32 intensity;             /* effect strength 0.0-1.0 */
+            f32 params[4];             /* generic effect parameters */
+        } effect;
     } ext;
+
+    /* Source numeric IDs for reverse-index (C-4 through C-7).
+     * Set during registration. -1 means "not applicable to this asset type".
+     * Base game bundled entries carry the ROM index they occupy.
+     * Mod entries carry the ROM index they override (so the intercept can
+     * redirect that filenum to the mod's file path). */
+    s32 source_filenum;    /* ROM fileSlots[] index, or -1 */
+    s32 source_texnum;     /* ROM textures table index, or -1 */
+    s32 source_animnum;    /* ROM animations table index, or -1 */
+    s32 source_soundnum;   /* ROM sounds table index, or -1 */
+
+    /* Load state tracking (MEM-1) */
+    asset_load_state_t load_state;     /* lifecycle state of this entry */
+    void              *loaded_data;    /* pointer to loaded asset data (NULL if not loaded) */
+    u32                data_size_bytes;/* size of loaded_data in bytes (0 if not loaded) */
+    s32                ref_count;      /* reference count; ASSET_REF_BUNDLED = never evict */
 
     /* Catalog internals */
     s32 occupied;                      /* bool: hash table slot in use */
@@ -173,6 +316,22 @@ s32 assetCatalogGetCount(void);
  * Returns 0 if type is invalid or has no entries.
  */
 s32 assetCatalogGetCountByType(asset_type_e type);
+
+/**
+ * Direct pool access by pool index.
+ * Used by assetcatalog_load.c for reverse-index iteration.
+ * Returns NULL if index is out of range or entry is not occupied.
+ */
+const asset_entry_t *assetCatalogGetByIndex(s32 index);
+
+/**
+ * Mutable resolve by string ID.
+ * Used exclusively by the lifecycle layer (assetcatalog_load.c) to update
+ * loaded_data, data_size_bytes, and ref_count.  Callers must not modify
+ * identity or classification fields (id, type, bundled, etc.).
+ * Returns NULL if the entry is not found or the catalog is not initialised.
+ */
+asset_entry_t *assetCatalogGetMutable(const char *id);
 
 /* ========================================================================
  * Registration API
@@ -246,6 +405,95 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
  */
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature);
+
+/**
+ * Register a weapon asset.
+ * Convenience wrapper that sets ext.weapon fields.
+ * weapon_id should be an MPWEAPON_* constant.
+ * model_file, damage, fire_rate may be NULL/"" / 0.0f for base game entries.
+ */
+asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
+                                           const char *name,
+                                           const char *model_file,
+                                           f32 damage, f32 fire_rate,
+                                           s32 ammo_type, s32 dual_wieldable);
+
+/**
+ * Register an animation asset.
+ * Convenience wrapper that sets ext.anim fields.
+ * anim_id is the index in the animation table (matches animations.json order).
+ * target_body may be NULL or "" for generic animations.
+ */
+asset_entry_t *assetCatalogRegisterAnimation(const char *id, s32 anim_id,
+                                              const char *name,
+                                              s32 frame_count,
+                                              const char *target_body);
+
+/**
+ * Register an individual texture asset.
+ * Convenience wrapper that sets ext.texture fields.
+ * Distinct from ASSET_TEXTURES (texture pack): this is one named texture.
+ * width, height, format may be 0 for base game entries (loaded from ROM).
+ */
+asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
+                                            s32 width, s32 height, s32 format,
+                                            const char *file_path);
+
+/**
+ * Register a prop asset.
+ * Convenience wrapper that sets ext.prop fields.
+ * prop_type should be a PROPTYPE_* constant.
+ * model_file may be NULL/"" for base game entries.
+ */
+asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
+                                         const char *name,
+                                         const char *model_file,
+                                         u32 flags, f32 health);
+
+/**
+ * Register a textures asset (texture pack / replacement set).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterTextures(const char *id);
+
+/**
+ * Register an SFX asset (sound effect pack).
+ * No type-specific fields — dirpath and category are sufficient.
+ */
+asset_entry_t *assetCatalogRegisterSfx(const char *id);
+
+/**
+ * Register a game mode asset.
+ * Convenience wrapper that sets ext.gamemode fields.
+ * mode_id should be an MPSCENARIO_* constant.
+ * description may be NULL/"" for terse entries.
+ */
+asset_entry_t *assetCatalogRegisterGameMode(const char *id, s32 mode_id,
+                                             const char *name,
+                                             const char *description,
+                                             s32 min_players, s32 max_players,
+                                             s32 team_based);
+
+/**
+ * Register an audio asset.
+ * Convenience wrapper that sets ext.audio fields.
+ * category: AUDIO_CAT_SFX, AUDIO_CAT_MUSIC, or AUDIO_CAT_VOICE.
+ * file_path may be NULL/"" for ROM-embedded sounds.
+ */
+asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
+                                          const char *name, s32 category,
+                                          s32 duration_ms,
+                                          const char *file_path);
+
+/**
+ * Register a HUD element asset.
+ * Convenience wrapper that sets ext.hud fields.
+ * element_type: HUD_ELEM_CROSSHAIR, HUD_ELEM_AMMO, etc.
+ * texture_file may be NULL/"" for elements using the default renderer.
+ */
+asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
+                                        const char *name, s32 element_type,
+                                        const char *texture_file);
 
 /* ========================================================================
  * Resolution API
@@ -348,6 +596,26 @@ void assetCatalogSetEnabled(const char *id, s32 enabled);
  * Typical usage: build the "By Mod" tree in the Mod Manager UI.
  */
 s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout);
+
+/* ========================================================================
+ * Load State API (MEM-1)
+ * ======================================================================== */
+
+/**
+ * Get the current load state of an asset entry by string ID.
+ * Returns ASSET_STATE_REGISTERED if the ID is not found.
+ */
+asset_load_state_t assetCatalogGetLoadState(const char *id);
+
+/**
+ * Set the load state of an asset entry by string ID.
+ * Does nothing if the ID is not found or the catalog is not initialized.
+ * Callers should use this to advance an entry through the lifecycle
+ * (ENABLED → LOADED → ACTIVE) as asset data is managed.
+ * Note: bundled entries have ref_count = ASSET_REF_BUNDLED; callers must
+ * not decrement below that sentinel or force eviction of bundled data.
+ */
+void assetCatalogSetLoadState(const char *id, asset_load_state_t state);
 
 #ifdef __cplusplus
 }

@@ -44,8 +44,8 @@ extern "C" {
 #define SAVE_MAX_AGENTS       16       /* max agent profiles */
 #define SAVE_MAX_PLAYERS      16       /* max MP player profiles */
 #define SAVE_MAX_SETUPS       32       /* max MP setup profiles */
-#define SAVE_MAX_BOTS         24       /* max bots per MP setup (mirrors MAX_BOTS) */
-#define SAVE_MAX_PLAYERSLOTS   8       /* max player slots per match (mirrors MAX_PLAYERS) */
+#define SAVE_MAX_BOTS         32       /* max bots per MP setup (= MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY, raised S45) */
+#define SAVE_MAX_PLAYERSLOTS   8       /* max player slots per match (= MAX_PLAYERS) */
 
 /* ========================================================================
  * Agent profile (replaces PAKFILETYPE_GAME / struct gamefile)
@@ -186,7 +186,7 @@ struct savempsetup {
 
     /* Bots */
     u8  numBots;
-    struct savempbot bots[SAVE_MAX_BOTS];      /* up to 24 bots */
+    struct savempbot bots[SAVE_MAX_BOTS];      /* up to 32 bots */
 
     /* Player team assignments */
     u8  playerTeams[SAVE_MAX_PLAYERSLOTS];    /* one per player slot */

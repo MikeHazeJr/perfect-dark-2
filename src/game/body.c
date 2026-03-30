@@ -160,6 +160,11 @@ bool bodyLoad(s32 bodynum)
 {
 	if (!g_HeadsAndBodies[bodynum].modeldef) {
 		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+		if (!g_HeadsAndBodies[bodynum].modeldef) {
+			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: bodyLoad failed bodynum=%d filenum=%d -- "
+				"body model not in catalog or ROM data missing",
+				bodynum, g_HeadsAndBodies[bodynum].filenum);
+		}
 		return true;
 	}
 
@@ -187,6 +192,10 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	if (bodymodeldef == NULL) {
 		if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
 			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			if (!g_HeadsAndBodies[bodynum].modeldef) {
+				sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
+					"model not in catalog", bodynum, g_HeadsAndBodies[bodynum].filenum);
+			}
 		}
 
 		bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
@@ -238,12 +247,20 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					if (headmodeldef == NULL) {
 						if (g_Vars.normmplayerisrunning && !IS4MB()) {
 							headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+							if (!headmodeldef) {
+								sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (mp path)",
+									headnum, g_HeadsAndBodies[headnum].filenum);
+							}
 							g_HeadsAndBodies[headnum].modeldef = headmodeldef;
 							g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
 							bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 						} else {
 							if (g_HeadsAndBodies[headnum].modeldef == NULL) {
 								g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+								if (!g_HeadsAndBodies[headnum].modeldef) {
+									sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (solo path)",
+										headnum, g_HeadsAndBodies[headnum].filenum);
+								}
 							}
 
 							headmodeldef = g_HeadsAndBodies[headnum].modeldef;

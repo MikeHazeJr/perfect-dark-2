@@ -27,6 +27,7 @@
 #define _IN_ASSETCATALOG_RESOLVE_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {

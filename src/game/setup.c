@@ -1345,7 +1345,14 @@ void setupLoadFiles(s32 stagenum)
 			uintptr_t dist = introAddr > propsAddr ? introAddr - propsAddr : propsAddr - introAddr;
 			s32 firstCmd = *g_StageSetup.intro;
 
-			if (dist < 64 || firstCmd < 0 || firstCmd > INTROCMD_END) {
+			// Base-game MP setup files use a minimal intro section (just
+			// INTROCMD_END with no spawn entries), so intro and props sit
+			// only a few bytes apart (dist=4 observed on Felicity/0x2b).
+			// The distance heuristic was added for corrupt mod setup files
+			// where the intro pointer aliases into the props block — don't
+			// apply it when loading the official MP setup file.
+			bool isMpSetup = (filenum == g_Stages[g_StageIndex].mpsetupfileid);
+			if ((!isMpSetup && dist < 64) || firstCmd < 0 || firstCmd > INTROCMD_END) {
 				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
 					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
 				g_StageSetup.intro = NULL;
@@ -1356,6 +1363,10 @@ void setupLoadFiles(s32 stagenum)
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", g_Stages[g_StageIndex].padsfileid);
 		g_StageSetup.padfiledata = fileLoadToNew(g_Stages[g_StageIndex].padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+		if (!g_StageSetup.padfiledata) {
+			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",
+				g_Stages[g_StageIndex].padsfileid, g_StageIndex);
+		}
 
 		g_StageSetup.waypoints = NULL;
 		g_StageSetup.waygroups = NULL;
@@ -1467,14 +1478,16 @@ void setupLoadFiles(s32 stagenum)
 		if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 			s32 k;
 			for (k = 0; k < MAX_BOTS; k++) {
-				if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+				if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
 					numchrs++;
 				}
 			}
 			sysLogPrintf(LOG_NOTE, "MODELMGR: added simulant bot count to numchrs=%d for model slot allocation", numchrs);
 		}
 
+		sysLogPrintf(LOG_NOTE, "LOAD: model allocation numobjs=%d numchrs=%d", numobjs, numchrs);
 		modelmgrAllocateSlots(numobjs, numchrs);
+		sysLogPrintf(LOG_NOTE, "LOAD: modelmgrAllocateSlots done");
 	} else {
 		// cover isn't set to NULL here... I guess it's not important
 		g_StageSetup.waypoints = NULL;
@@ -1549,7 +1562,7 @@ void setupCreateProps(s32 stagenum)
 			if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 				s32 k;
 				for (k = 0; k < MAX_BOTS; k++) {
-					if (g_MpSetup.chrslots & (1u << (k + MAX_PLAYERS))) {
+					if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
 						numchrs++;
 					}
 				}
@@ -1561,8 +1574,10 @@ void setupCreateProps(s32 stagenum)
 		} else {
 			chrmgrConfigure(0);
 		}
+		sysLogPrintf(LOG_NOTE, "LOAD: chr slots done");
 
 		for (j = 0; j < PLAYERCOUNT(); j++) {
+			if (!g_Vars.players[j]) continue;
 			setCurrentPlayerNum(j);
 			invInit(setupCountCommandType(OBJTYPE_LINKGUNS));
 		}
@@ -2126,7 +2141,7 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS)))
+					if ((g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS)))
 							&& mpIsSimSlotEnabled(slotnum)) {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
 						botmgrAllocateBot(chrnum, slotnum);
@@ -2134,7 +2149,7 @@ void setupCreateProps(s32 stagenum)
 					} else {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d chrslots_bit=%d isEnabled=%d",
 							slotnum,
-							(g_MpSetup.chrslots & (1u << (slotnum + MAX_PLAYERS))) ? 1 : 0,
+							(g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS))) ? 1 : 0,
 							mpIsSimSlotEnabled(slotnum));
 					}
 

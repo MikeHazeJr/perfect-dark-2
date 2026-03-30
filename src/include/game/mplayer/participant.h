@@ -16,8 +16,7 @@
 #include <ultra64.h>
 #include "types.h"
 
-/* Default pool capacity — can be expanded at runtime */
-#define PARTICIPANT_DEFAULT_CAPACITY  32
+/* Default pool capacity — defined in constants.h as PARTICIPANT_DEFAULT_CAPACITY */
 
 /* Maximum local splitscreen players per machine (hardware-bound) */
 #define PARTICIPANT_MAX_LOCAL         MAX_LOCAL_PLAYERS
@@ -116,6 +115,18 @@ bool mpParticipantPoolResize(s32 new_capacity);
 s32 mpAddParticipant(ParticipantType type, u8 team, s8 client_id, u8 localslot);
 
 /**
+ * Place a participant at a specific slot index.
+ * If the slot already has an active participant, overwrites it.
+ * If the slot was NONE, increments the count.
+ * Returns the slot index, or -1 if out of range.
+ *
+ * With a MAX_MPCHRS-capacity pool the slot index matches the chrslots bit
+ * directly: players at 0-7, bots at BOT_SLOT_OFFSET .. MAX_MPCHRS-1.
+ * This lets mpIsParticipantActive(i) replace chrslots & (1ull << i) exactly.
+ */
+s32 mpAddParticipantAt(s32 slot, ParticipantType type, u8 team, s8 client_id, u8 localslot);
+
+/**
  * Remove the participant at the given index (sets to PARTICIPANT_NONE).
  */
 void mpRemoveParticipant(s32 index);
@@ -175,15 +186,15 @@ s32 mpParticipantNextOfType(s32 current, ParticipantType type);
 /**
  * Generate a u32 chrslots bitmask from the current participant pool.
  * Used by code not yet migrated to the participant API.
- * Players occupy bits 0-7, bots occupy bits 8-31.
- * Participants beyond the legacy 32-slot limit are silently excluded.
+ * Players occupy bits 0-7, bots occupy bits 8-39 (u64).
+ * Participants beyond the 40-slot limit are silently excluded.
  */
-u32 mpParticipantsToLegacyChrslots(void);
+u64 mpParticipantsToLegacyChrslots(void);
 
 /**
  * Populate the participant pool from a legacy chrslots bitmask.
  * Used when loading saved setups.
  */
-void mpParticipantsFromLegacyChrslots(u32 chrslots);
+void mpParticipantsFromLegacyChrslots(u64 chrslots);
 
 #endif /* _IN_GAME_MPLAYER_PARTICIPANT_H */

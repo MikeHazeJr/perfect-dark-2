@@ -10,6 +10,7 @@
 #include "lib/music.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 
 #define FADETYPE_STOP  0
 #define FADETYPE_PAUSE 1
@@ -288,8 +289,10 @@ void musicRestoreInterval(void)
 
 void musicStartPrimary(f32 arg0)
 {
-	if (PRIMARYTRACK() >= 0) {
-		musicQueueStartEvent(TRACKTYPE_PRIMARY, PRIMARYTRACK(), arg0, musicGetVolume());
+	s32 track = PRIMARYTRACK();
+	sysLogPrintf(LOG_NOTE, "MUSIC: musicStartPrimary track=%d qlen=%d", track, g_MusicEventQueueLength);
+	if (track >= 0) {
+		musicQueueStartEvent(TRACKTYPE_PRIMARY, track, arg0, musicGetVolume());
 	}
 }
 
@@ -342,7 +345,8 @@ bool musicIsAnyPlayerInAmbientRoom(void)
 	}
 
 	for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
-		if (g_Vars.players[i]->prop
+		if (g_Vars.players[i]
+				&& g_Vars.players[i]->prop
 				&& g_Vars.players[i]->prop->rooms
 				&& g_Vars.players[i]->prop->rooms[0] != -1) {
 			bool hasflag;
@@ -399,13 +403,18 @@ void musicStartTrackAsMenu(s32 tracknum)
  */
 void musicSetStageAndStartMusic(s32 stagenum)
 {
+	sysLogPrintf(LOG_NOTE, "MUSIC: musicSetStageAndStartMusic stagenum=0x%02x", stagenum);
 	g_MusicStageNum = stagenum;
 
+	sysLogPrintf(LOG_NOTE, "MUSIC: calling musicStartPrimary");
 	musicStartPrimary(0);
 
+	sysLogPrintf(LOG_NOTE, "MUSIC: checking ambient track");
 	if (stageGetAmbientTrack(g_MusicStageNum) >= 0) {
+		sysLogPrintf(LOG_NOTE, "MUSIC: calling musicStartAmbient");
 		musicStartAmbient(0);
 	}
+	sysLogPrintf(LOG_NOTE, "MUSIC: musicSetStageAndStartMusic done");
 }
 
 /**

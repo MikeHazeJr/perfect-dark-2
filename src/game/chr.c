@@ -1474,6 +1474,7 @@ void chrClearReferences(s32 propnum)
 	}
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) continue;
 		if (g_Vars.players[i]->lookingatprop.prop == prop) {
 			g_Vars.players[i]->lookingatprop.prop = NULL;
 		}

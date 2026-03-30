@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
 ## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D9 LARGELY DONE, D13 IN PROGRESS
-Last updated: 2026-03-20
+Last updated: 2026-03-30
 
 ## Completed
 
@@ -22,10 +22,12 @@ Files: src/game/mplayer/setup.c, src/game/menu.c, src/game/player.c
 Dedicated server process with CLI args (`--port`, `--maxclients`, `--gamemode`, `--headless`), signal handling, 4-panel ImGui server GUI, lobby state management, leader election, CLC_LOBBY_START protocol, server/client build separation. See context/server-architecture.md.
 
 **Remaining D9 items:**
-- End-to-end playtest: Connect → Lobby → Start Match → Play → Endscreen
+- ~~End-to-end playtest~~ **DONE (S81)** — J-1 verified: connect code → CLSTATE_LOBBY → match loads → runs → ends
+- Protocol v22: weapon array in CLC_LOBBY_START (S81); chrslots+options in SVC_STAGE_START (already wired)
 - Combat Sim stage selection (currently hardcoded to Complex)
 - Authoritative leader broadcast (SVC_LOBBY_LEADER on leader change — handlers written, not yet called from lobbyUpdate)
 - "Quick Play" button (auto-launch server subprocess + connect to localhost)
+- B-51/B-52/B-53: bot visibility, weapon pickup, door interaction — pending next playtest verification
 
 ### Phase D4: Menu Storyboard (SUPERSEDED)
 The F11 storyboard catalog (D4a/D4b) was the original plan, but menus are being built directly through the ImGui hotswap system instead. The component library (D4c) has evolved organically. The remaining useful sub-phases (priority menus, complete coverage, migration workflow, cleanup) continue as ongoing work alongside other phases rather than as a blocking dependency.

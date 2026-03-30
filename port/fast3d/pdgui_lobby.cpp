@@ -49,7 +49,7 @@ extern "C" {
 #define CLSTATE_LOBBY        3
 #define CLSTATE_GAME         4
 
-#define NET_MAX_CLIENTS 8
+#define NET_MAX_CLIENTS 32  /* must match NET_MAX_CLIENTS in port/include/net/net.h */
 #define NET_MAX_NAME    16
 
 /* We access the netclient array opaquely via bridge functions */
@@ -78,8 +78,13 @@ void videoSetWindowTitle(const char *title);
 s32 sysLogRingGetCount(void);
 const char *sysLogRingGetLine(s32 idx);
 
-/* Lobby screen (from pdgui_menu_lobby.cpp) */
+/* Lobby screen (from pdgui_menu_lobby.cpp) — used by dedicated server overview */
 void pdguiLobbyScreenRender(s32 winW, s32 winH);
+
+/* Room interior screen (from pdgui_menu_room.cpp) — used by game clients */
+void pdguiRoomScreenRender(s32 winW, s32 winH);
+void pdguiRoomScreenReset(void);
+void pdguiRoomScreenSetSolo(s32 solo);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
@@ -113,6 +118,61 @@ s32 viGetWidth(void);
 s32 viGetHeight(void);
 
 } /* extern "C" */
+
+/* ========================================================================
+ * Room routing state
+ *
+ * s_InRoom tracks whether the local client is inside a room (true) or
+ * browsing the social lobby (false). The social lobby shows all players
+ * and all active rooms with a "Create Room" button. The room interior
+ * (pdgui_menu_room.cpp) shows once the player creates or joins a room.
+ *
+ * Resets to false on disconnect (detected by mode transitioning to NONE).
+ * ======================================================================== */
+
+static bool s_InRoom         = false;
+static s32  s_LastMode       = 0; /* NETMODE_NONE */
+static bool s_SoloRoomActive = false; /* Room screen open for NETMODE_NONE solo play */
+
+/**
+ * Set whether the local client is inside a room.
+ * Called from pdgui_menu_lobby.cpp ("Create Room") and
+ * pdgui_menu_room.cpp ("Leave Room").
+ */
+extern "C" void pdguiSetInRoom(s32 inRoom)
+{
+    s_InRoom = (inRoom != 0);
+}
+
+/**
+ * Query whether the local client is inside a room.
+ */
+extern "C" s32 pdguiIsInRoom(void)
+{
+    return s_InRoom ? 1 : 0;
+}
+
+/**
+ * Open the Room screen in solo (offline) mode.
+ * Routes "Combat Simulator" in the main menu directly to the Room screen
+ * without a network session. Resets room state and sets the solo flag.
+ */
+extern "C" void pdguiSoloRoomOpen(void)
+{
+    s_SoloRoomActive = true;
+    pdguiRoomScreenReset();       /* clears all room UI state */
+    pdguiRoomScreenSetSolo(1);    /* re-apply solo flag after reset */
+}
+
+/**
+ * Close the solo Room screen and return to the main menu.
+ * Called from pdgui_menu_room.cpp "Back to Menu" button.
+ */
+extern "C" void pdguiSoloRoomClose(void)
+{
+    s_SoloRoomActive = false;
+    pdguiRoomScreenSetSolo(0);
+}
 
 /* ========================================================================
  * Public API
@@ -161,13 +221,14 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
                     ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
                 }
             }
-            connectCodeEncode(ipAddr, (u16)port, connectCode, sizeof(connectCode));
+            connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy")) {
                 SDL_SetClipboardText(connectCode);
             }
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s:%u", publicIP, port);
+            /* IP address intentionally not displayed -- connect code is the
+             * only sharing mechanism to prevent exposing public IPs. */
         } else {
             ImGui::Text("Port: %u (UPnP inactive)", port);
         }
@@ -318,8 +379,18 @@ void pdguiLobbyRender(s32 winW, s32 winH)
 {
     s32 mode = netGetMode();
 
+    /* Reset room state on disconnect */
+    if (s_LastMode != NETMODE_NONE && mode == NETMODE_NONE) {
+        s_InRoom = false;
+    }
+    s_LastMode = mode;
+
     if (mode == NETMODE_NONE) {
-        return;  /* Not in a network session */
+        /* Solo play: show Room screen without a network session */
+        if (s_SoloRoomActive) {
+            pdguiRoomScreenRender(winW, winH);
+        }
+        return;
     }
 
     s32 clientCount = netLobbyGetClientCount();
@@ -334,10 +405,14 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* === Game client === */
     if (mode == NETMODE_CLIENT) {
         if (netLocalClientInLobby()) {
-            /* In lobby: the full lobby screen handles everything.
-             * No sidebar — pdguiLobbyScreenRender shows the player list. */
-            pdguiLobbyScreenRender(winW, winH);
-            /* D3R-9: download progress overlay on top of lobby screen */
+            if (s_InRoom) {
+                /* Inside a room: show room interior (tab-based game setup UX) */
+                pdguiRoomScreenRender(winW, winH);
+            } else {
+                /* Social lobby: browse players and rooms, create/join */
+                pdguiLobbyScreenRender(winW, winH);
+            }
+            /* D3R-9: download progress overlay on top of either screen */
             pdguiDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
             /* In game (or transitioning): show minimal sidebar overlay */

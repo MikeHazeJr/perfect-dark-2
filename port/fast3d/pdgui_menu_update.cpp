@@ -51,6 +51,8 @@ static bool s_ConfirmDownload = false;      /* confirm download dialog */
 static bool s_DownloadActive = false;       /* download in progress */
 static bool s_DownloadFailed = false;       /* last download attempt failed */
 static bool s_RestartPrompt = false;        /* download done, prompt restart */
+static int  s_DownloadingIndex    = -1;     /* release index being downloaded (-1 = none) */
+static int  s_StagedReleaseIndex  = -1;     /* release index staged and ready to apply (-1 = none) */
 
 /* ========================================================================
  * Update notification banner
@@ -97,20 +99,34 @@ static void renderNotificationBanner(void)
 		ImGui::Text("Version %s is available", verstr);
 		ImGui::SameLine();
 
-		float btnWidth = 80.0f;
-		float updateBtnWidth = 100.0f;
-		float dismissX = io.DisplaySize.x - btnWidth - 16;
-		float viewX = dismissX - btnWidth - 8;
-		float updateX = viewX - updateBtnWidth - 8;
+		/* Button sizing — text-based with proper padding for descender glyphs */
+		const ImGuiStyle &bst = ImGui::GetStyle();
+		float bfpx   = bst.FramePadding.x;
+		float bfpy   = bst.FramePadding.y;
+		float btnH   = ImGui::GetFontSize() + bfpy * 2.0f;
+		float bMargin = pdguiScale(8.0f);
+
+		float updateBtnW  = ImGui::CalcTextSize("Update Now").x + bfpx * 2.0f + pdguiScale(8.0f);
+		float viewBtnW    = ImGui::CalcTextSize("Details").x    + bfpx * 2.0f + pdguiScale(8.0f);
+		float dismissBtnW = ImGui::CalcTextSize("Dismiss").x    + bfpx * 2.0f + pdguiScale(8.0f);
+
+		float dismissX = io.DisplaySize.x - dismissBtnW - bMargin;
+		float viewX    = dismissX - viewBtnW - bMargin;
+		float updateX  = viewX - updateBtnW - bMargin;
 
 		ImGui::SetCursorPosX(updateX);
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.7f, 0.25f, 1.0f));
-		if (ImGui::SmallButton("Update Now")) {
+		if (ImGui::Button("Update Now", ImVec2(updateBtnW, btnH))) {
 			/* Start downloading the latest release immediately */
 			const updater_release_t *latest = updaterGetLatest();
 			if (latest && latest->assetUrl[0]) {
 				s_DownloadFailed = false;
+				s_DownloadingIndex = -1;
+				s32 cnt = updaterGetReleaseCount();
+				for (s32 i = 0; i < cnt; i++) {
+					if (updaterGetRelease(i) == latest) { s_DownloadingIndex = i; break; }
+				}
 				updaterDownloadAsync(latest);
 				s_DownloadActive = true;
 				s_NotificationDismissed = true;
@@ -120,12 +136,12 @@ static void renderNotificationBanner(void)
 		ImGui::PopStyleColor(2);
 		ImGui::SameLine();
 		ImGui::SetCursorPosX(viewX);
-		if (ImGui::SmallButton("Details")) {
+		if (ImGui::Button("Details", ImVec2(viewBtnW, btnH))) {
 			s_ShowVersionPicker = true;
 		}
 		ImGui::SameLine();
 		ImGui::SetCursorPosX(dismissX);
-		if (ImGui::SmallButton("Dismiss")) {
+		if (ImGui::Button("Dismiss", ImVec2(dismissBtnW, btnH))) {
 			s_NotificationDismissed = true;
 			s_ShowNotification = false;
 		}
@@ -149,12 +165,14 @@ static void renderDownloadProgress(void)
 	if (status == UPDATER_DOWNLOAD_DONE) {
 		s_DownloadActive = false;
 		s_RestartPrompt = true;
+		s_StagedReleaseIndex = s_DownloadingIndex;
 		return;
 	}
 
 	if (status == UPDATER_DOWNLOAD_FAILED) {
 		s_DownloadActive = false;
 		s_DownloadFailed = true;
+		s_DownloadingIndex = -1;
 		return;
 	}
 
@@ -330,10 +348,13 @@ static void renderVersionPickerContent(float tableH)
 		break;
 	}
 
-	/* Check button */
+	/* Check button — properly sized, descender-safe height */
 	ImGui::SameLine();
 	if (status != UPDATER_CHECKING && status != UPDATER_DOWNLOADING) {
-		if (ImGui::SmallButton("Check Now")) {
+		const ImGuiStyle &cst = ImGui::GetStyle();
+		float cBtnW = ImGui::CalcTextSize("Check Now").x + cst.FramePadding.x * 2.0f + pdguiScale(6.0f);
+		float cBtnH = ImGui::GetFontSize() + cst.FramePadding.y * 2.0f;
+		if (ImGui::Button("Check Now", ImVec2(cBtnW, cBtnH))) {
 			updaterCheckAsync();
 		}
 	}
@@ -346,15 +367,28 @@ static void renderVersionPickerContent(float tableH)
 
 		s32 count = updaterGetReleaseCount();
 
-		if (count > 0 && ImGui::BeginTable("versions", 4,
+		/*
+		 * Pre-calculate Action column width from the widest button label.
+		 * "Download" is the longest active label. Add FramePadding on both
+		 * sides plus a small visual margin.
+		 */
+		const ImGuiStyle &tst = ImGui::GetStyle();
+		float tfpx    = tst.FramePadding.x;
+		float tfpy    = tst.FramePadding.y;
+		float rowBtnH = ImGui::GetFontSize() + tfpy * 2.0f;
+		float actionColW = ImGui::CalcTextSize("Download").x + tfpx * 2.0f + pdguiScale(12.0f);
+
+		if (count > 0 && ImGui::BeginTable("versions", 5,
 			ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
 			ImVec2(0, tableH > 0 ? tableH : pdguiScale(280.0f)))) {
 
-			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 100);
-			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60);
-			ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70);
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(100.0f));
+			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(60.0f));
+			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(70.0f));
+			ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed,   actionColW);
 			ImGui::TableHeadersRow();
 
 			for (s32 i = 0; i < count; i++) {
@@ -364,19 +398,23 @@ static void renderVersionPickerContent(float tableH)
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
 
-				/* Version with current marker */
+				/* Version column — selectable spans all columns for row highlight.
+				 * AllowOverlap lets the Action button in col 4 receive input. */
 				char verstr[64];
 				versionFormat(&rel->version, verstr, sizeof(verstr));
 
-				bool isCurrent = cur && (versionCompare(&rel->version, cur) == 0);
-				bool isNewer = cur && (versionCompare(&rel->version, cur) > 0);
+				bool isCurrent  = cur && (versionCompare(&rel->version, cur) == 0);
+				bool isNewer    = cur && (versionCompare(&rel->version, cur) > 0);
+				bool isRollback = cur && (versionCompare(&rel->version, cur) < 0);
 
 				bool selected = (s_SelectedRelease == i);
 				char selectableId[128];
 				snprintf(selectableId, sizeof(selectableId), "%s##rel_%d", verstr, i);
 
 				if (ImGui::Selectable(selectableId, selected,
-					ImGuiSelectableFlags_SpanAllColumns)) {
+					ImGuiSelectableFlags_SpanAllColumns |
+					ImGuiSelectableFlags_AllowOverlap,
+					ImVec2(0, rowBtnH))) {
 					s_SelectedRelease = i;
 				}
 
@@ -396,7 +434,7 @@ static void renderVersionPickerContent(float tableH)
 				}
 
 				ImGui::TableNextColumn();
-				ImGui::TextWrapped("%s", rel->name[0] ? rel->name : "(no title)");
+				ImGui::TextUnformatted(rel->name[0] ? rel->name : "(no title)");
 
 				ImGui::TableNextColumn();
 				if (rel->assetSize > 0) {
@@ -404,6 +442,84 @@ static void renderVersionPickerContent(float tableH)
 				} else {
 					ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "—");
 				}
+
+				/* Action column — Download / Rollback / (current) / progress / Switch */
+				ImGui::TableNextColumn();
+				ImGui::PushID(i);
+
+				bool isDownloading = (s_DownloadingIndex == i) && s_DownloadActive;
+
+				/* isStaged: downloaded this session, or .update file already exists
+				 * on disk from a previous session (restored via version sidecar). */
+				bool isStaged = (s_StagedReleaseIndex == i);
+				if (!isStaged && !s_DownloadActive) {
+					const pdversion_t *staged = updaterGetStagedVersion();
+					if (staged && versionCompare(staged, &rel->version) == 0) {
+						isStaged = true;
+						/* Sync session index so Switch/restart paths work */
+						if (s_StagedReleaseIndex < 0) {
+							s_StagedReleaseIndex = i;
+						}
+					}
+				}
+
+				if (isCurrent) {
+					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
+				} else if (isDownloading) {
+					updater_progress_t p = updaterGetProgress();
+					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%.0f%%", (double)p.percent);
+				} else if (isStaged) {
+					float cellW = ImGui::GetContentRegionAvail().x;
+					ImGui::PushStyleColor(ImGuiCol_Button,
+						ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+						ImVec4(0.60f, 0.48f, 0.05f, 1.0f));
+					if (ImGui::Button("Switch##staged", ImVec2(cellW, rowBtnH))) {
+						s_RestartPrompt = true;
+					}
+					ImGui::PopStyleColor(2);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Restart now to apply this update");
+					}
+				} else if (rel->assetUrl[0] && !s_DownloadActive) {
+					const char *actionLabel;
+					if (s_DownloadFailed && s_SelectedRelease == i) {
+						actionLabel = "Retry";
+					} else if (isRollback) {
+						actionLabel = "Rollback";
+					} else {
+						actionLabel = "Download";
+					}
+					char actId[64];
+					snprintf(actId, sizeof(actId), "%s##act_%d", actionLabel, i);
+
+					float cellW = ImGui::GetContentRegionAvail().x;
+
+					if (isRollback) {
+						ImGui::PushStyleColor(ImGuiCol_Button,
+							ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+							ImVec4(0.60f, 0.48f, 0.05f, 1.0f));
+					} else {
+						ImGui::PushStyleColor(ImGuiCol_Button,
+							ImVec4(0.15f, 0.45f, 0.15f, 1.0f));
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+							ImVec4(0.20f, 0.55f, 0.20f, 1.0f));
+					}
+
+					if (ImGui::Button(actId, ImVec2(cellW, rowBtnH))) {
+						s_SelectedRelease = i;
+						s_DownloadFailed = false;
+						s_DownloadingIndex = i;
+						updaterDownloadAsync(rel);
+						s_DownloadActive = true;
+					}
+					ImGui::PopStyleColor(2);
+				} else if (s_DownloadActive) {
+					ImGui::TextDisabled("...");
+				}
+
+				ImGui::PopID();
 			}
 
 			ImGui::EndTable();
@@ -421,38 +537,13 @@ static void renderVersionPickerContent(float tableH)
 			}
 		}
 
-		/* Action buttons */
-		ImGui::Spacing();
-
-		if (s_SelectedRelease >= 0 && s_SelectedRelease < count) {
-			const updater_release_t *sel = updaterGetRelease(s_SelectedRelease);
-			bool isCurrent = sel && cur && (versionCompare(&sel->version, cur) == 0);
-
-			if (sel && !isCurrent && sel->assetUrl[0] &&
-			    status != UPDATER_DOWNLOADING) {
-				const char *btnLabel = s_DownloadFailed
-					? "Retry Download" : "Download & Install";
-				if (ImGui::Button(btnLabel, ImVec2(pdguiScale(160.0f), 0))) {
-					s_DownloadFailed = false;
-					updaterDownloadAsync(sel);
-					s_DownloadActive = true;
-				}
-
-				/* Rollback warning */
-				if (sel && cur && versionCompare(&sel->version, cur) < 0) {
-					ImGui::SameLine();
-					ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1),
-						"(rollback — older than current)");
-				}
-			}
-
-			/* Show download failure message */
-			if (s_DownloadFailed) {
-				const char *errMsg = updaterGetError();
-				ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
-					"Download failed: %s",
-					(errMsg && errMsg[0]) ? errMsg : "unknown error");
-			}
+		/* Download failure message — shown below table/changelog */
+		if (s_DownloadFailed) {
+			const char *errMsg = updaterGetError();
+			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1),
+				"Download failed: %s",
+				(errMsg && errMsg[0]) ? errMsg : "unknown error");
 		}
 	}
 }

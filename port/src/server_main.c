@@ -29,6 +29,8 @@
 #include "net/net.h"
 #include "net/netupnp.h"
 #include "net/netlobby.h"
+#include "connectcode.h"
+#include "hub.h"
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
@@ -63,6 +65,7 @@ extern void serverGuiShutdown(void);
  * ======================================================================== */
 
 static volatile s32 s_ShutdownRequested = 0;
+static s32 s_UpdateCheckLogged = 0;  /* set once after first check completes */
 
 #ifdef _WIN32
 static BOOL WINAPI serverConsoleHandler(DWORD type)
@@ -231,6 +234,7 @@ int main(int argc, char **argv)
 
     netInit();
     lobbyInit();
+    hubInit();
 
     /* Minimal memory setup */
     g_OsMemSize = 64 * 1024 * 1024;
@@ -316,9 +320,38 @@ int main(int argc, char **argv)
             }
         }
 
+        /* D13: Tick update system + log if check just completed */
+        updaterTick();
+        if (!s_UpdateCheckLogged) {
+            updater_status_t us = updaterGetStatus();
+            if (us == UPDATER_CHECK_DONE || us == UPDATER_CHECK_FAILED) {
+                s_UpdateCheckLogged = 1;
+                if (us == UPDATER_CHECK_DONE) {
+                    if (updaterIsUpdateAvailable()) {
+                        const updater_release_t *lat = updaterGetLatest();
+                        char verstr[64];
+                        versionFormat(&lat->version, verstr, sizeof(verstr));
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Update available: v%s (current: v%s)",
+                            verstr, updaterGetVersionString());
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Download: %s", lat->assetUrl);
+                        if (s_Headless) {
+                            sysLogPrintf(LOG_NOTE,
+                                "SERVER: Use --check-update flag or open server GUI to update.");
+                        }
+                    } else {
+                        sysLogPrintf(LOG_NOTE,
+                            "SERVER: Up to date (v%s)", updaterGetVersionString());
+                    }
+                }
+            }
+        }
+
         /* Network tick */
         netStartFrame();
         lobbyUpdate();
+        hubTick();
         netEndFrame();
 
         /* Update window title periodically */
@@ -328,11 +361,28 @@ int main(int argc, char **argv)
                 titleCounter = 0;
                 char title[256];
                 const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
-                /* Subtract 1 for server's own slot — it's not a player */
-                s32 displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0;
+                /* After B-28: dedicated server's g_NetNumClients already counts only real
+                 * players (no server slot).  No -1 needed for dedicated. */
+                s32 displayClients = g_NetDedicated ? g_NetNumClients
+                                                    : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0);
                 if (ip && ip[0]) {
-                    snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - %s:%u - %d/%d connected",
-                             ip, g_NetServerPort, displayClients, g_NetMaxClients);
+                    /* Show connect code, not raw IP (B-29). */
+                    char connectCode[256] = "";
+                    u32 a = 0, b = 0, c = 0, d = 0;
+                    if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                        u32 ipAddr = a | (b << 8) | (c << 16) | (d << 24);
+                        connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+                    }
+                    if (connectCode[0]) {
+                        snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - %s - %d/%d connected",
+                                 connectCode, displayClients, g_NetMaxClients);
+                    } else {
+                        snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
+                                 g_NetServerPort, displayClients, g_NetMaxClients);
+                    }
+                } else if (netUpnpGetStatus() == UPNP_STATUS_WORKING) {
+                    snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - resolving... - %d/%d connected",
+                             displayClients, g_NetMaxClients);
                 } else {
                     snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
                              g_NetServerPort, displayClients, g_NetMaxClients);
@@ -350,6 +400,7 @@ int main(int argc, char **argv)
     /* Cleanup */
     sysLogPrintf(LOG_NOTE, "SERVER: Shutting down%s...",
                  s_ShutdownRequested ? " (signal received)" : "");
+    hubShutdown();
     netDisconnect();
 
     if (!s_Headless) {
