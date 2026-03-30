@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-30, Session 81 (B-49 VERIFIED FIXED, weapon spawn/server build fixes, B-50 hub timer, J-1 join flow verified, protocol v22)
+> **Last updated**: 2026-03-30, Session S83 (NAT traversal D8 DONE, protocol v23, connect code port encoding, mouse capture fix, Solo Room screen, B-54 online MP crash fixed, spawn weapon logging)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S83 | 2026-03-30 | NAT traversal D8 DONE (STUN+hole-punch+relay), protocol v23, connect code port encoding, mouse capture fix, B-54 online MP crash fixed, spawn weapon logging | [session-log.md](session-log.md) |
+| S82 | 2026-03-30 | Solo Play → Room screen routing (Combat Simulator button → Room screen in offline mode) | [session-log.md](session-log.md) |
 | 81 | 2026-03-30 | B-49 VERIFIED FIXED (footstepChooseSound loop guard); weapon spawn fix + protocol v22; server build guards; B-50 hub timer; J-1 join flow verified; 6 branches merged | [session-log.md](session-log.md) |
 | 80 | 2026-03-29 | Full TODO sweep (60+ items), enet ABA fix, server history UI, n_resample divide-by-zero, gfx_destroy, modding pipeline design doc | [session-log.md](session-log.md) |
 | 72–79 | 2026-03-29 | Asset reference audit, B-44/B-26 bot names, B-39/B-40/B-41/B-42/B-43 fixes, Combat Sim scenario save, B-46/B-47 fixes, C-7 file SFX | [session-log.md](session-log.md) |

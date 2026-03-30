@@ -1,6 +1,6 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D9 LARGELY DONE, D13 IN PROGRESS
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS
 Last updated: 2026-03-30
 
 ## Completed
@@ -82,8 +82,8 @@ stats.c (JSON/SQLite), hook into mpstatsRecordDeath/mpEndMatch. Post-game scorec
 ### 7. Phase D7: Discord Rich Presence
 discord-rpc or GameSDK Activity API. States: menu, match (map/mode/score), co-op (mission/difficulty). Join button for easy matchmaking.
 
-### 8. Phase D8: NAT Traversal & LAN Discovery
-netlan.c (UDP broadcast, LAN browser), natstun.c (STUN binding), UDP hole punching, relay fallback.
+### 8. Phase D8: NAT Traversal & LAN Discovery — **DONE (S83)**
+STUN client (`netstun.c`), query advertising via SVC_ADDR_QUERY/CLC_ADDR_REPORT, UDP hole punch handshake (`netholepunch.c`), relay fallback, NAT diagnostics in debug menu. Protocol v23. Connect code extended with 6-word port encoding. LAN discovery: deferred (UDP broadcast not yet implemented).
 
 ### 9. Phase D10: Spectator Mode
 Spectator client flag (receives all state, sends no input). Free-camera and follow-cam modes. ImGui HUD overlay.
@@ -128,7 +128,7 @@ D1 (N64 Strip) ─── DONE
         → D15 (Map Editor / Char Creator / Skins)
         → D16 (Master Server)
         → D6 (Stats) → D7 (Discord RP)
-        → D8 (NAT) → D10 (Spectator)
+        → D8 (NAT) ─── DONE (S83) → D10 (Spectator)
         → D11 (Sim Creator) → D12 (Co-op Polish)
         → D14b (Mod Distribution)
 ```

@@ -3,6 +3,64 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session S83 -- 2026-03-30
+
+**Focus**: NAT traversal (all 4 phases), protocol v23, connect code port encoding, mouse capture, Solo Room screen routing, build/log tools, online MP crash fix, spawn weapon logging
+
+### What Was Done
+
+1. **NAT Traversal — Phase D8 (all 4 phases implemented)**
+   - **STUN client** (`port/src/net/netstun.c`): Sends RFC 5389 STUN Binding Request to public STUN server; parses XOR-MAPPED-ADDRESS response; populates `g_StunPublicIP` / `g_StunPublicPort`. Called on server start and client connect.
+   - **Query advertising** (`port/src/net/netlobby.c`): SVC_ADDR_QUERY / CLC_ADDR_REPORT messages added. Server broadcasts STUN-discovered external IP+port to all clients in lobby. Clients cache peer addresses for hole-punch pre-dialing.
+   - **Hole punch** (`port/src/net/netholepunch.c`): Symmetric hole-punch handshake (CLC_PUNCH_REQ / SVC_PUNCH_REPLY). Client sends 5 probe packets to each peer's external address. Server relays confirmation when both sides have punched. Timeout: 3s, fallback to relay.
+   - **NAT diagnostics** (`port/fast3d/pdgui_debugmenu.cpp`): New "NAT" section in debug menu shows STUN result, punch status per peer, relay fallback indicator. Port accessible from dev window.
+
+2. **Protocol version bumped to 23** (`port/include/net/net.h`): `PROTOCOL_VERSION 23`. CLC_AUTH / SVC_AUTH reject mismatched versions with log message.
+
+3. **Connect code port encoding** (`port/src/connectcode.c`, `port/include/connectcode.h`): Extended 6-word sentence encoding for non-default ports. Words 5–6 encode a port delta from `NET_DEFAULT_PORT`. Default-port servers still produce 4-word codes (backwards-compatible). Decoder detects word count (4 vs 6) and applies delta.
+
+4. **Mouse capture fix** (`port/fast3d/gfx_sdl2.cpp`): SDL_SetRelativeMouseMode now gated on game state. Captured during gameplay (`g_Vars.mplayerisrunning || g_GamePhase == GAMEPHASE_INGAME`); released in menus / lobby / room screen. Eliminates cursor-trapped-in-menu issue.
+
+5. **Solo Play → Room screen routing** (`port/fast3d/pdgui_menu_mainmenu.cpp`, `pdgui_lobby.cpp`, `pdgui_menu_room.cpp`): "Combat Simulator" button routes to Room screen in solo mode rather than legacy N64 menu dialog. Implemented in S82 — verified route working.
+
+6. **Build scripts created** (`tools/build.sh`, `tools/build.cmd`, `tools/build-cleanup.sh`): Cross-session clean build pipeline. `--target both` builds client + server in one pass. Temp-dir workaround for MSYS2 `C:\WINDOWS` permission issue baked in.
+
+7. **Log parser created** (`tools/parse-log.sh`, `tools/parse-log.cmd`): Filters `sysLogPrintf` output by tag prefix (SPAWN, NET, PLAYER_SPAWN, etc.). Used for AI session log analysis.
+
+8. **Online MP crash diagnosed and fixed** — `catalogGetSafeBodyPaired()` was not called on client in `SVC_STAGE_START` handler. Client received stage start message, tried to load body assets, and crashed or showed white textures on Felicity intro camera. Fixed: `catalogGetSafeBodyPaired()` added to client-side `SVC_STAGE_START` path (`port/src/net/net_server_callbacks.c`). Bug logged as B-54.
+
+9. **Worktree cleanup** — 89 stale worktrees cleaned (0 remaining). Tools: `git worktree prune`.
+
+10. **Scheduled tasks created** — 3 cron-style tasks via Claude Code scheduled tasks: nightly build (2:00 AM), context maintenance (Sunday 10:00 PM), context briefing (session start trigger).
+
+11. **Spawn weapon logging added** (`src/game/player.c:1202`, `src/game/bot.c:313`):
+    - Player path: logs `"SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand"` after `bgunEquipWeapon2(HAND_RIGHT, ...)`.
+    - Player no-weapon path: logs `"SPAWN: player %d -- no spawn weapon (options=... weapons[0]=...)"` when `normmplayerisrunning` and SPAWNWITHWEAPON not set.
+    - Bot path: logs `"SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped"` after `botinvSwitchToWeapon`.
+    - Bot no-weapon path: logs `"SPAWN: bot chr=%p -- no spawn weapon ..."`.
+    - Auto-equip already worked correctly via `bgunEquipWeapon2` (player) and `botinvSwitchToWeapon` (bot) — no code change needed, logging only.
+    - Build: client + server clean (41s).
+
+### Decisions Made
+
+- NAT hole-punch uses 3s timeout with relay fallback — avoids blocking match start for peers behind symmetric NAT.
+- Connect code 6-word extension is backwards-compatible — 4-word codes still work for default-port servers.
+- Mouse capture state driven by `g_Vars.mplayerisrunning` — same flag used elsewhere for game-state gating.
+- STUN server selection: public Google STUN (`stun.l.google.com:19302`) with compile-time override `STUN_SERVER` / `STUN_PORT`.
+
+### Build Status
+
+All changes build clean: client + server via `tools/build.sh --target both`.
+
+### Next Steps
+
+- Playtest NAT: two peers behind NAT → verify hole punch succeeds (debug menu shows punch status).
+- Playtest spawn weapon: enable "Start Armed" in room → verify SPAWN log lines appear in match log.
+- B-51/B-52/B-53: Networked MP verification (bots visible, weapons/doors interactive).
+- C-5/C-6: Texture + anim override wiring.
+
+---
+
 ## Session 82 -- 2026-03-30
 
 **Focus**: Solo Room screen — route "Combat Simulator" to Room screen (offline mode) instead of old N64 lobby dialog

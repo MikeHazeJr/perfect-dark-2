@@ -176,7 +176,7 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 | 2 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
 | 3 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
 | 4 | **R-2: Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. |
-| 5 | **Playtest backlog** | T-7, T-8/T-9, B-47, Combat Sim save/load, **Solo Room screen** (S82). |
+| 5 | **Playtest backlog** | T-7, T-8/T-9, B-47, Combat Sim save/load. Solo Room screen: **DONE (S82)**. NAT traversal: **DONE (S83)**. Mouse capture: **DONE (S83)**. Online MP crash (B-54): **FIXED (S83)**. Spawn weapon logging: **DONE (S83)**. |
 | 6 | **UI Scaling** | Required for v0.1.0. Not started. |
 
 ---
