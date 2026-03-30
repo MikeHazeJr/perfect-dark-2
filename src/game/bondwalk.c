@@ -1526,37 +1526,35 @@ void bwalkUpdateVertical(void)
 			sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (1st) footstep=%d",
 				(s32)chr->footstep);
-			sound = footstepChooseSound(chr, true);
+			sound = footstepChooseSound(chr, 0);
 			sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (1st) returned sound=%d",
 				sound);
 
-			if (sound != -1) {
-				if (sound != -1) {
-					sysLogPrintf(LOG_NOTE,
-						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 sound=%d",
-						sound);
-					psCreate(NULL, g_Vars.currentplayer->prop, sound,
-							-1, -1, PSFLAG_0400 | PSFLAG_IGNOREROOMS, 0, PSTYPE_NONE, 0, -1, NULL, -1, -1, -1, -1);
-					sysLogPrintf(LOG_NOTE,
-						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 done");
-				}
+			if (sound > 0) {
+				sysLogPrintf(LOG_NOTE,
+					"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 sound=%d",
+					sound);
+				psCreate(NULL, chr->prop, sound,
+						-1, -1, PSFLAG_0400, 0, PSTYPE_FOOTSTEP, NULL, -1, NULL, -1, -1, -1, -1);
+				sysLogPrintf(LOG_NOTE,
+					"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 done");
 
 				chr->footstep = 2;
 				sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (2nd) footstep=%d",
 					(s32)chr->footstep);
-				sound = footstepChooseSound(chr, true);
+				sound = footstepChooseSound(chr, 0);
 				sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (2nd) returned sound=%d",
 					sound);
 
-				if (sound != -1) {
+				if (sound > 0) {
 					sysLogPrintf(LOG_NOTE,
 						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep2 sound=%d",
 						sound);
-					psCreate(NULL, g_Vars.currentplayer->prop, sound,
-							-1, -1, PSFLAG_0400 | PSFLAG_IGNOREROOMS, 0, PSTYPE_NONE, 0, -1, NULL, -1, -1, -1, -1);
+					psCreate(NULL, chr->prop, sound,
+							-1, -1, PSFLAG_0400, 0, PSTYPE_FOOTSTEP, NULL, -1, NULL, -1, -1, -1, -1);
 					sysLogPrintf(LOG_NOTE,
 						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep2 done");
 				}

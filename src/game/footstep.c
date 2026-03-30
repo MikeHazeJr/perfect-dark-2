@@ -104,15 +104,16 @@ s32 footstepChooseSound(struct chrdata *chr, s32 footstepindex)
 	s32 running;
 	s32 rand;
 	s32 index;
+	s32 attempts;
 
 	if (chr->footstep == 0) {
-		return 0;
+		return -1;
 	}
 
 	floortype = chr->floortype <= FLOORTYPE_SNOW ? chr->floortype : 0;
 
-	if (floortype == -1) {
-		return 0;
+	if (floortype < 0) {
+		return -1;
 	}
 
 	if (CHRRACE(chr) == RACE_SKEDAR && chr->bodynum != BODY_MINISKEDAR) {
@@ -138,10 +139,16 @@ s32 footstepChooseSound(struct chrdata *chr, s32 footstepindex)
 
 	running = footstepIsRunning(g_FootstepAnims[footstepindex].animnum);
 
+	attempts = 0;
 	do {
 		rand = rngRandom() % 8;
 		index = (running ? 2 : 0) + (rand & 5) + floortype * 8;
-	} while (index == chr->lastfootsample);
+		attempts++;
+	} while (index == chr->lastfootsample && attempts < 16);
+
+	if (index < 0 || index >= (s32)ARRAYCOUNT(g_FootstepSounds)) {
+		return -1;
+	}
 
 	chr->lastfootsample = index;
 
