@@ -5,7 +5,7 @@
 #include "constants.h"
 #include "net/netbuf.h"
 
-#define NET_PROTOCOL_VER 22  /* CLC_LOBBY_START: send resolved weapons[] so server needs no mplayer code */
+#define NET_PROTOCOL_VER 23  /* protocol 23: query response includes server external address for hole punch */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
@@ -195,6 +195,13 @@ extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;
 
 const char *netFormatClientAddr(const struct netclient *cl);
+
+/* Parse an address string ("host:port" or "host") into an ENetAddress.
+   Returns non-zero on success, 0 on failure. */
+s32 netParseAddr(ENetAddress *out, const char *str);
+
+/* Return the current ENet host handle (NULL if not connected/hosting). */
+struct _ENetHost *netGetHost(void);
 
 void netInit(void);
 s32 netDisconnect(void);

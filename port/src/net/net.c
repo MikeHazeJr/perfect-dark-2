@@ -9,6 +9,8 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netupnp.h"
+#include "net/netstun.h"
+#include "net/netholepunch.h"
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
@@ -181,6 +183,11 @@ static inline const char *netFormatPeerAddr(const ENetPeer *peer)
 const char *netFormatClientAddr(const struct netclient *cl)
 {
 	return cl->peer ? netFormatPeerAddr(cl->peer) : "<local>";
+}
+
+struct _ENetHost *netGetHost(void)
+{
+	return g_NetHost;
 }
 
 static inline void netClientReset(struct netclient *cl)
@@ -374,7 +381,7 @@ static inline const char *netGetDisconnectReason(const u32 reason)
 
 static void netServerQueryResponse(ENetAddress *address)
 {
-	static u8 data[256];
+	static u8 data[512]; /* increased from 256 to fit external address field */
 	static ENetBuffer ebuf;
 	struct netbuf buf = { .data = data, .size = sizeof(data) };
 	// bit 0: server is in an active match (not in lobby)
@@ -400,6 +407,22 @@ static void netServerQueryResponse(ENetAddress *address)
 	netbufWriteStr(&buf, g_NetLocalClient ? g_NetLocalClient->settings.name : "");
 	netbufWriteStr(&buf, g_RomName);
 	netbufWriteStr(&buf, modDir);
+
+	/* Protocol 23+: advertise best known external address for hole punch / direct connect.
+	 * Priority: UPnP (real external IP + mapped port) > STUN > empty string.
+	 * Clients on older protocol versions ignore trailing fields they don't know about. */
+	{
+		char extAddr[NET_MAX_ADDR] = {0};
+		if (netUpnpIsActive() && netUpnpGetExternalIP()[0]) {
+			snprintf(extAddr, sizeof(extAddr), "%s:%u",
+			         netUpnpGetExternalIP(), g_NetServerPort);
+		} else if (stunGetStatus() == STUN_STATUS_SUCCESS) {
+			snprintf(extAddr, sizeof(extAddr), "%s:%u",
+			         stunGetExternalIP(), stunGetExternalPort());
+		}
+		netbufWriteStr(&buf, extAddr);
+	}
+
 	netbufWriteU16(&buf, 0); // space for checksum
 
 	ebuf.data = buf.data;
@@ -425,15 +448,21 @@ static void netServerQueryResponse(ENetAddress *address)
 
 static s32 netServerConnectionlessPacket(ENetEvent *event, ENetAddress *address, u8 *rxdata, s32 rxlen)
 {
-	if (rxdata && rxlen >= 5) {
+	if (rxdata && rxlen >= PUNCH_MAGIC_LEN) {
 		if (!memcmp(rxdata, NET_QUERY_MAGIC, sizeof(NET_QUERY_MAGIC) - 1)) {
 			// this is a query packet, respond with server status
 			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: query request from %s, responding", netFormatAddr(address));
 			netServerQueryResponse(address);
 			return 1;
 		}
+		if (!memcmp(rxdata, PUNCH_REQ_MAGIC, PUNCH_MAGIC_LEN)) {
+			// UDP hole punch request — send 3 PUNCH_ACK packets to client's external address
+			netServerHandlePunchReq(g_NetHost, address, rxdata, rxlen);
+			return 1;
+		}
 	}
 	// probably a normal packet, pass through to enet
+	(void)event;
 	return 0;
 }
 
@@ -496,6 +525,8 @@ void netInit(void)
 		sysLogPrintf(LOG_NOTE, "NET: dedicated server mode enabled");
 	}
 
+	stunInit();
+
 	g_NetInit = true;
 }
 
@@ -555,6 +586,12 @@ s32 netStartServer(u16 port, s32 maxclients)
 	 * Returns immediately — discovery takes 2-5 seconds on the thread.
 	 * Poll netUpnpGetStatus() or check the lobby overlay for results. */
 	netUpnpSetup(port);
+
+	/* Start async STUN discovery (runs on background thread, binds port with
+	 * SO_REUSEADDR so the NAT device maps the same external port as ENet).
+	 * Returns immediately — poll stunGetStatus() to check progress.
+	 * Also performs 2-probe NAT type detection for hole-punch viability. */
+	stunDiscoverAsync(port);
 
 	lobbyInit();
 	netDistribInit();
@@ -818,6 +855,12 @@ s32 netDisconnect(void)
 
 	/* Clean up UPnP port mapping if we were the server */
 	netUpnpTeardown();
+
+	/* Cancel any in-progress STUN discovery */
+	stunCancel();
+
+	/* Reset hole punch waterfall state */
+	netHolePunchReset();
 
 	g_NetHost = NULL;
 	g_NetMode = NETMODE_NONE;
@@ -1178,6 +1221,14 @@ void netStartFrame(void)
 	++g_NetTick;
 
 	const bool isClient = (g_NetMode == NETMODE_CLIENT);
+
+	/* Tick hole punch state machine — must run before enet_host_service() so that
+	 * when CONN_PHASE_PUNCH transitions to CONN_PHASE_PUNCH_ENET the fresh peer is
+	 * ready for the ENET_EVENT_CONNECT that may arrive this frame. */
+	if (isClient) {
+		netHolePunchClientTick(g_NetHost);
+	}
+
 	s32 polled = false;
 	ENetEvent ev = { .type = ENET_EVENT_TYPE_NONE };
 	while (!polled) {
@@ -1191,6 +1242,7 @@ void netStartFrame(void)
 		switch (ev.type) {
 			case ENET_EVENT_TYPE_CONNECT:
 				if (isClient) {
+					netHolePunchOnConnect(); /* mark waterfall complete if active */
 					netClientEvConnect(ev.data);
 				} else if (ev.peer) {
 					netServerEvConnect(ev.peer, ev.data);
@@ -1199,6 +1251,11 @@ void netStartFrame(void)
 			case ENET_EVENT_TYPE_DISCONNECT:
 			case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
 				if (isClient) {
+					if (ev.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT &&
+					    netHolePunchHandleTimeout(g_NetHost)) {
+						/* Timeout consumed by hole punch waterfall — skip normal disconnect */
+						break;
+					}
 					netClientEvDisconnect(ev.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT ? DISCONNECT_TIMEOUT : ev.data);
 				} else if (ev.peer) {
 					struct netclient *cl = enet_peer_get_data(ev.peer);

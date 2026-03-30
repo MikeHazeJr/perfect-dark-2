@@ -349,3 +349,103 @@ s32 connectCodeDecode(const char *code, u32 *outIp)
 
     return 0;
 }
+
+/* ========================================================================
+ * connectCodeEncodeWithPort: IP + port -> 4-word or 6-word sentence
+ *
+ * Standard 4-word format for port == CONNECT_DEFAULT_PORT.
+ * 6-word format for non-default ports:
+ *   [adj] [noun] [action] [place] [adj2] [noun2]
+ * where adj2 = s_Adjectives[port >> 8], noun2 = s_Nouns[port & 0xFF].
+ * ======================================================================== */
+
+s32 connectCodeEncodeWithPort(u32 ip, u16 port, char *buf, s32 bufsize)
+{
+    if (!buf || bufsize < 32) return -1;
+
+    u8 bytes[4];
+    bytes[0] = (u8)((ip >> 0)  & 0xFF);
+    bytes[1] = (u8)((ip >> 8)  & 0xFF);
+    bytes[2] = (u8)((ip >> 16) & 0xFF);
+    bytes[3] = (u8)((ip >> 24) & 0xFF);
+
+    if (port == CONNECT_DEFAULT_PORT) {
+        return snprintf(buf, bufsize, "%s %s %s %s",
+            s_Adjectives[bytes[0]], s_Nouns[bytes[1]],
+            s_Actions[bytes[2]], s_Places[bytes[3]]);
+    }
+
+    /* Non-default port: append adjective (high byte) + noun (low byte) */
+    return snprintf(buf, bufsize, "%s %s %s %s %s %s",
+        s_Adjectives[bytes[0]], s_Nouns[bytes[1]],
+        s_Actions[bytes[2]], s_Places[bytes[3]],
+        s_Adjectives[(port >> 8) & 0xFF],
+        s_Nouns[port & 0xFF]);
+}
+
+/* ========================================================================
+ * connectCodeDecodeWithPort: 4-word or 6-word sentence -> IP + port
+ *
+ * Tries to parse 4 IP words, then optionally 2 port words.
+ * If no port words are present, *outPort = CONNECT_DEFAULT_PORT.
+ * ======================================================================== */
+
+s32 connectCodeDecodeWithPort(const char *code, u32 *outIp, u16 *outPort)
+{
+    if (!code || !outIp) return -1;
+
+    u8 bytes[4];
+    const char *p = code;
+
+    /* Skip leading whitespace */
+    while (*p && isspace((unsigned char)*p)) p++;
+
+    /* Parse first 4 slots (IP bytes) */
+    for (s32 slot = 0; slot < 4; slot++) {
+        while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) p++;
+        if (!*p) return -1;
+
+        s32 consumed = 0;
+        s32 idx = matchSlot(p, slot, &consumed);
+        if (idx < 0) return -1;
+
+        bytes[slot] = (u8)idx;
+        p += consumed;
+    }
+
+    *outIp = (u32)bytes[0] | ((u32)bytes[1] << 8) |
+             ((u32)bytes[2] << 16) | ((u32)bytes[3] << 24);
+
+    /* Skip separators, check for optional port words */
+    while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) p++;
+
+    if (!*p) {
+        /* 4-word code: default port */
+        if (outPort) *outPort = CONNECT_DEFAULT_PORT;
+        return 0;
+    }
+
+    /* Attempt to parse 2 port words: adjective (high byte) + noun (low byte) */
+    {
+        s32 consumedHi = 0;
+        s32 hi = matchSlot(p, 0, &consumedHi); /* slot 0 = adjective */
+        if (hi < 0) {
+            /* Not a valid port word — treat as 4-word code with trailing garbage */
+            if (outPort) *outPort = CONNECT_DEFAULT_PORT;
+            return 0;
+        }
+        p += consumedHi;
+        while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) p++;
+
+        s32 consumedLo = 0;
+        s32 lo = matchSlot(p, 1, &consumedLo); /* slot 1 = noun */
+        if (lo < 0) {
+            if (outPort) *outPort = CONNECT_DEFAULT_PORT;
+            return 0;
+        }
+
+        if (outPort) *outPort = (u16)(((u16)hi << 8) | (u16)lo);
+    }
+
+    return 0;
+}
