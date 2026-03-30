@@ -22,6 +22,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -1696,6 +1697,19 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * Join a server by connect code or direct IP.
          * After connecting, transitions to the server lobby.
          * ================================================================ */
+        /* Format a unix timestamp as a compact relative-time string.
+         * buf must be at least 32 bytes. Returns buf. */
+        auto fmtRelTime = [](char *buf, size_t bufsz, u32 ts) -> const char * {
+            if (ts == 0) { snprintf(buf, bufsz, "never"); return buf; }
+            time_t now = time(NULL);
+            if ((time_t)ts > now) { snprintf(buf, bufsz, "just now"); return buf; }
+            long diff = (long)(now - (time_t)ts);
+            if (diff < 60)             snprintf(buf, bufsz, "%lds ago", diff);
+            else if (diff < 3600)      snprintf(buf, bufsz, "%ldm ago", diff / 60);
+            else if (diff < 86400)     snprintf(buf, bufsz, "%ldh ago", diff / 3600);
+            else                       snprintf(buf, bufsz, "%ldd ago", diff / 86400);
+            return buf;
+        };
         static char s_JoinCodeInput[64] = "";
         static char s_JoinStatus[128] = "";
         static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
@@ -1842,9 +1856,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 }
                 ImGui::PopID();
 
-                /* Show connect code beneath the hostname when one is present. */
-                if (srv->hostname[0] != '\0' && code[0] != '\0') {
-                    ImGui::TextDisabled("    %s", code);
+                /* Show connect code and last-seen time beneath the hostname. */
+                {
+                    char timebuf[32];
+                    fmtRelTime(timebuf, sizeof(timebuf), srv->lastresponse);
+                    if (srv->hostname[0] != '\0' && code[0] != '\0') {
+                        ImGui::TextDisabled("    %s  ·  %s", code, timebuf);
+                    } else {
+                        ImGui::TextDisabled("    %s", timebuf);
+                    }
                 }
 
                 ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));

@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <string.h>
+#include <time.h>
 #include "platform.h"
 #include "net/netenet.h"
 #include "net/net.h"
@@ -1738,7 +1739,7 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
 				srv->hostname[NET_MAX_NAME - 1] = '\0';
 			}
-			srv->lastresponse = g_NetTick;
+			srv->lastresponse = (u32)time(NULL);
 			srv->online = true;
 			return;
 		}
@@ -1886,11 +1887,17 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	configRegisterUInt("Net.Server.UpdateFrames", &g_NetServerUpdateRate, 0, 60);
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
-	// register recent server addresses for persistence
-	static char recentKeys[NET_MAX_RECENT_SERVERS][32];
+	// register recent server fields for persistence
+	static char recentAddrKeys[NET_MAX_RECENT_SERVERS][32];
+	static char recentHostKeys[NET_MAX_RECENT_SERVERS][36];
+	static char recentTimeKeys[NET_MAX_RECENT_SERVERS][36];
 	for (s32 i = 0; i < NET_MAX_RECENT_SERVERS; ++i) {
-		snprintf(recentKeys[i], sizeof(recentKeys[i]), "Net.RecentServer.%d", i);
-		configRegisterString(recentKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
+		snprintf(recentAddrKeys[i], sizeof(recentAddrKeys[i]), "Net.RecentServer.%d", i);
+		configRegisterString(recentAddrKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
+		snprintf(recentHostKeys[i], sizeof(recentHostKeys[i]), "Net.RecentServer.%d.Host", i);
+		configRegisterString(recentHostKeys[i], g_NetRecentServers[i].hostname, NET_MAX_NAME - 1);
+		snprintf(recentTimeKeys[i], sizeof(recentTimeKeys[i]), "Net.RecentServer.%d.Time", i);
+		configRegisterUInt(recentTimeKeys[i], &g_NetRecentServers[i].lastresponse, 0, 0xFFFFFFFF);
 	}
 	configRegisterInt("Net.RecentServerCount", &g_NetNumRecentServers, 0, NET_MAX_RECENT_SERVERS);
 }
