@@ -42,6 +42,9 @@
 #include "net/matchsetup.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
+#if !defined(PD_SERVER)
+#include "modelcatalog.h"
+#endif
 #include "identity.h"
 #include "utils.h"
 #if !defined(PD_SERVER)
@@ -824,7 +827,53 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		viBlack(true);
 #endif
 	} else {
-		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players", g_MpSetup.stagenum, numplayers);
+		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players chrslots=0x%llx",
+			g_MpSetup.stagenum, numplayers, (unsigned long long)g_MpSetup.chrslots);
+
+#if !defined(PD_SERVER)
+		/* Apply catalog-validated body/head to player config arrays.
+		 * matchStart() does this for offline/listen-server mode; we must mirror it
+		 * here because bodyreset() has already NULLed g_HeadsAndBodies[].modeldef
+		 * and nothing else reloads it on the client path — playerTickChrBody()
+		 * would crash on frame 0 dereferencing a NULL modeldef. */
+		for (u32 pcl = 0; pcl < NET_MAX_CLIENTS; ++pcl) {
+			struct netclient *pncl = &g_NetClients[pcl];
+			if (pncl->state == CLSTATE_GAME) {
+				u32 pnum = 0;
+				if (pncl->id == 0) {
+					pnum = g_NetLocalClient->playernum;
+				} else if (pncl == g_NetLocalClient) {
+					pnum = g_NetClients[0].playernum;
+				} else {
+					pnum = pncl->playernum;
+				}
+				if (pnum < MAX_PLAYERS) {
+					s32 safeHead = (s32)pncl->settings.headnum;
+					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)pncl->settings.bodynum, &safeHead);
+					g_PlayerConfigsArray[pnum].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
+					sysLogPrintf(LOG_NOTE, "NET: player %u body=%u->%u head=%u->%u",
+						pnum, pncl->settings.bodynum,
+						g_PlayerConfigsArray[pnum].base.mpbodynum,
+						pncl->settings.headnum,
+						g_PlayerConfigsArray[pnum].base.mpheadnum);
+				}
+			}
+		}
+
+		/* Validate bot body/head indices for all active bot slots.
+		 * Per-bot body/head is not transmitted in SVC_STAGE; this ensures
+		 * g_HeadsAndBodies[].modeldef is loaded for whatever indices are set. */
+		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
+			if (g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET))) {
+				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+				sysLogPrintf(LOG_NOTE, "NET: bot %d body=%u head=%u (catalog-validated)",
+					botidx, g_BotConfigsArray[botidx].base.mpbodynum,
+					g_BotConfigsArray[botidx].base.mpheadnum);
+			}
+		}
+#endif /* !PD_SERVER */
 
 		/* Populate the participant pool from the server-supplied chrslots bitmask
 		 * before mpStartMatch() is called.  mpStartMatch rebuilds participants
