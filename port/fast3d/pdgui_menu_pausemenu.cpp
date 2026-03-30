@@ -55,6 +55,9 @@ void mainEndStage(void);
 void mainChangeToStage(s32 stagenum);
 void netDisconnect(void);
 
+/* Mouse */
+s32 inputMouseIsLocked(void);
+
 /* Game state */
 struct vars_opaque;
 extern s32 g_MainIsEndscreen;
@@ -179,6 +182,19 @@ void pdguiPauseMenuOpen(void)
 {
     if (menuIsInCooldown()) return; /* prevent double-press */
 
+    /* Release mouse grab so the cursor is visible and clickable in the menu.
+     * Must happen before s_PauseMenuOpen = true (before pdguiIsActive blocks SDL). */
+    SDL_SetRelativeMouseMode(SDL_FALSE);
+    SDL_ShowCursor(SDL_ENABLE);
+    {
+        SDL_Window *win = SDL_GetMouseFocus();
+        if (win) {
+            int w, h;
+            SDL_GetWindowSize(win, &w, &h);
+            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        }
+    }
+
     s_PauseMenuOpen = true;
     s_PauseJustOpened = true;
     s_PauseTab = 0;
@@ -196,6 +212,18 @@ void pdguiPauseMenuClose(void)
 {
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
+
+    /* Restore mouse state to what the game expects.
+     * inputMouseIsLocked() reflects the pre-pause state because the game's
+     * inputAutoLockMouse() is a no-op while pdguiIsActive() is true.
+     * Now that s_PauseMenuOpen is false, pdguiIsActive() returns false here,
+     * so SDL_SetRelativeMouseMode actually takes effect. */
+    if (inputMouseIsLocked()) {
+        SDL_ShowCursor(SDL_DISABLE);
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+    } else {
+        SDL_ShowCursor(SDL_ENABLE);
+    }
 
     menuPop(); /* deregister from menu manager */
 
