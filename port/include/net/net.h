@@ -5,6 +5,9 @@
 #include "constants.h"
 #include "net/netbuf.h"
 
+/* Forward declaration — avoids pulling enet.h into every translation unit */
+typedef struct _ENetAddress ENetAddress;
+
 #define NET_PROTOCOL_VER 23  /* protocol 23: query response includes server external address for hole punch */
 
 #define NET_QUERY_MAGIC "PDQM\x01"

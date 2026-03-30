@@ -3,6 +3,29 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 82 -- 2026-03-30
+
+**Focus**: Solo Room screen — route "Combat Simulator" to Room screen (offline mode) instead of old N64 lobby dialog
+
+### What Was Done
+
+**Solo Room Screen implemented and build-verified**:
+- `pdgui_lobby.cpp`: Added `s_SoloRoomActive` flag, `pdguiSoloRoomOpen()` / `pdguiSoloRoomClose()` (extern "C"). `pdguiLobbyRender()` NETMODE_NONE branch now calls `pdguiRoomScreenRender()` when `s_SoloRoomActive`.
+- `pdgui_menu_room.cpp`: Added `s_IsSoloMode` flag and `pdguiRoomScreenSetSolo()` function. Solo mode: hides network UI (connect code, server player list), shows local player name, renames title to "Combat Simulator", "Leave Room" → "Back to Menu", Start Match calls `matchStart()` directly (not `netLobbyRequestStartWithSims()`).
+- `pdgui_menu_mainmenu.cpp`: "Combat Simulator" button now calls `pdguiSoloRoomOpen()` instead of pushing `g_MatchSetupMenuDialog`.
+- **Build**: Client + server both build clean with `TEMP=/tmp` workaround for MSYS2 temp-dir issue.
+
+### Key Decisions
+- `matchStart()` in `matchsetup.c` is the correct solo path — already handles `g_MpSetup` config, participant setup, and `mpStartMatch()` + `menuStop()`.
+- Room screen rendered as opaque overlay in `pdguiLobbyRender()` NETMODE_NONE branch — no new render path needed.
+- `pdguiRoomScreenReset()` called before `pdguiRoomScreenSetSolo(1)` in `pdguiSoloRoomOpen()` to avoid reset wiping the solo flag.
+
+### Next Steps
+- Playtest: Main Menu → Combat Simulator → configure bots/map → Start Match → verify match loads and runs.
+- Playtest: "Back to Menu" returns to main menu cleanly.
+
+---
+
 ## Session 81 -- 2026-03-30
 
 **Focus**: Networked MP playtest fix cycle — B-49 footstep crash, weapon spawn, server build guards, match-end timer; J-1/J-5 join flow; 6 branch merges
