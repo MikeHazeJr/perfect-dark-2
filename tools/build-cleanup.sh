@@ -10,12 +10,14 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLAUDE_BUILDS_DIR="$SOURCE_DIR/ClaudeBuilds"
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --source-dir)
             SOURCE_DIR="${2:?'--source-dir requires a path'}"
+            CLAUDE_BUILDS_DIR="$SOURCE_DIR/ClaudeBuilds"
             shift 2
             ;;
         --dry-run|-n)
@@ -39,7 +41,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Scanning: $SOURCE_DIR"
+echo "Scanning: $CLAUDE_BUILDS_DIR"
 if [[ $DRY_RUN -eq 1 ]]; then
     echo "(dry run — nothing will be deleted)"
 fi
@@ -60,7 +62,7 @@ while IFS= read -r -d '' dir; do
         echo "  Deleting: $dir  ($SIZE)"
         rm -rf "$dir"
     fi
-done < <(find "$SOURCE_DIR" -maxdepth 1 -type d -name "build_test_*" -print0 2>/dev/null)
+done < <(find "$CLAUDE_BUILDS_DIR" -maxdepth 1 -type d -name "build_test_*" -print0 2>/dev/null)
 
 echo ""
 if [[ $FOUND -eq 0 ]]; then
@@ -69,4 +71,5 @@ elif [[ $DRY_RUN -eq 1 ]]; then
     echo "Would delete $FOUND director$([ $FOUND -eq 1 ] && echo y || echo ies)."
 else
     echo "Deleted $FOUND director$([ $FOUND -eq 1 ] && echo y || echo ies)."
+    rmdir "$CLAUDE_BUILDS_DIR" 2>/dev/null && echo "Removed empty ClaudeBuilds/" || true
 fi

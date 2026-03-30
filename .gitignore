@@ -1,6 +1,6 @@
 # Build artifacts
 build/
-build_test_*/
+ClaudeBuilds/
 dist/
 backups/
 *.exe
