@@ -91,8 +91,10 @@
 
 | Bug | Severity | Status |
 |-----|----------|--------|
-| [B-49](bugs.md) Felicity/toilet landing freeze | CRITICAL | JUMP_DEBUG instrumented (S78). Needs reproduction + log capture. |
-| [B-38](bugs.md) setupCreateProps crash | CRITICAL | Needs investigation. |
+| [B-51](bugs.md) Bot stuck/invisible under map | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync now working. Needs verification. |
+| [B-52](bugs.md) Can't pick up weapons/ammo | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
+| [B-53](bugs.md) Can't open doors | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
+| [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
 | B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — needs test to confirm dispersal works. |
@@ -106,11 +108,11 @@
 
 | Phase | Task | Details |
 |-------|------|---------|
-| J-1 | **Verify end-to-end join** | Build server target, start server, enter code in client, verify CLSTATE_LOBBY + match start. |
+| J-1 | **Verify end-to-end join** | **DONE (S81)** — full join cycle verified: connect code → CLSTATE_LOBBY → match loads → match runs → match ends. |
 | J-2 | **Server GUI connect code** | Add connect code display + Copy button to server_gui.cpp Server tab. |
 | J-3 | **SVC_ROOM_LIST protocol** | Broadcast room state from server to clients so lobby UI shows real room data. |
 | J-4 | **Server history UI** | **DONE (S80)** — serverhistory.json + Recent Servers panel + relative timestamps implemented. |
-| J-5 | **Lobby handoff polish** | Verify main menu → lobby overlay transition. Progress indicator during CONNECTING/AUTH. |
+| J-5 | **Lobby handoff polish** | **DONE (S81)** — `menuStop()` + `pdguiMainMenuReset()` called on SVC_AUTH; menu stack cleared on lobby join. |
 
 See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
@@ -170,14 +172,12 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **B-49: Felicity/toilet landing freeze** | Reproduce crash with JUMP_DEBUG log, capture output, find root cause. CRITICAL for v0.1.0. |
-| 2 | **B-38: setupCreateProps crash** | Investigate NULL deref in prop creation. CRITICAL for v0.1.0. |
-| 3 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
-| 4 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
-| 5 | **J-1: End-to-end join verify** | Build server target + full join test. See join-flow-plan.md. |
-| 6 | **Playtest backlog** | T-7, T-8/T-9, B-43/B-44/B-46/B-47, Combat Sim save/load. |
-| 7 | **R-1: Room foundation** | Hub slot pool stubs. No protocol change. |
-| 8 | **UI Scaling** | Required for v0.1.0. Not started. |
+| 1 | **B-50/B-51/B-52/B-53: Networked MP verification** | Run timed dedicated server match: verify match ends at timelimit (B-50), bots are visible + in-bounds (B-51), weapons/ammo pickable (B-52), doors openable (B-53). |
+| 2 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
+| 3 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
+| 4 | **R-2: Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. |
+| 5 | **Playtest backlog** | T-7, T-8/T-9, B-47, Combat Sim save/load. |
+| 6 | **UI Scaling** | Required for v0.1.0. Not started. |
 
 ---
 

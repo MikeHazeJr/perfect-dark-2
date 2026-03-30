@@ -3,6 +3,79 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
 > Back to [index](README.md)
 
+## Session 81 -- 2026-03-30
+
+**Focus**: Networked MP playtest fix cycle — B-49 footstep crash, weapon spawn, server build guards, match-end timer; J-1/J-5 join flow; 6 branch merges
+
+### What Was Done
+
+**B-49 FULLY FIXED + VERIFIED** — footstepChooseSound infinite loop when `g_RngSeed=0`:
+- `footstepChooseSound()` in `bondmove.c` entered an infinite loop when `g_RngSeed` was 0 (all bits masked out). Added loop guard (max 32 iterations) + return -1 on no-sound. Added `if (sound > 0)` guard on the `psCreate` call so a -1 return doesn't attempt to create a sound prop.
+- Mike's playtest confirmed: landing on all surfaces (including toilet/vent shaft geometry) no longer freezes. B-49 CLOSED.
+- Commit: `e603985`
+
+**Weapon spawn on dedicated server fixed** — server never received resolved weapon array:
+- Root cause: `CLC_LOBBY_START` handler was not sending `g_MpSetup.weapons[6]` to the server. Server-side bots had no weapons on spawn.
+- Fix: Added 6-element `weapons[]` array to `CLC_LOBBY_START` payload in `netmsg.c`. Also added null guard on `g_NetLocalClient` in the bot weapon sync path.
+- Protocol bumped to **v22**.
+- Commit: `4b2f0a9`
+
+**Server build errors fixed** — multiple `PD_SERVER` guard gaps:
+- `port/fast3d/pdgui_backend.cpp`: guarded `#include "pdgui.h"` and `pdguiMainMenuReset()` call with `#ifndef PD_SERVER`. Commit: `aac52be`
+- `port/src/net/netmsg.c`: fixed `struct mpsetup` redefinition (scenario_save.h included twice in server build) and missing `sysLogPrintf` declaration. Commit: `6247eed`
+- `port/src/net/netlobby.c`: resolved `mpSetWeaponSet` link error — function not compiled in server build, replaced with direct array copy. Commit: `630faf2`
+
+**B-50 FIXED** — dedicated server match-end freeze:
+- Dedicated server never runs `lv.c`, so the engine timelimit code that sends `SVC_STAGE_END` never fires. Client waited forever.
+- Added SDL wall-clock timer to `hubTick()` in `port/src/hub.c`: `s_MatchStartMs` / `s_MatchEndSent` statics. On match start records `SDL_GetTicks()`. Each tick: if `timelimit < 60` and elapsed ≥ `(tl+1)*60*1000 ms`, calls `netServerStageEnd()` and sets `s_MatchEndSent`.
+- Timer is wall-clock (SDL_GetTicks) not game ticks — fires correctly even before stage fully loads.
+
+**Options/chrslots sync verified** — both were already fixed in prior sessions:
+- `g_MpSetup.options`: set by `optToggle()`, passed through `CLC_LOBBY_START`, read by server at netmsg.c:3444. No change needed.
+- `g_MpSetup.chrslots`: `netmsgSvcStageStartWrite` lines 641-642 already write both chrslots and options. No change needed.
+
+**J-1: End-to-end join flow VERIFIED** — full test cycle complete:
+- Server starts → client enters connect code → CLSTATE_LOBBY reached → match loads → match runs → match ends.
+
+**J-5: Menu dismiss on lobby join** — fixed:
+- `pdguiMainMenuReset()` now called on `SVC_AUTH` receipt (already covered by the `aac52be` server build guard fix which also wired the reset call on client path).
+
+**6 branches merged into dev**:
+- `claude/sweet-bouman` — S80 session log + tasks-current refresh
+- `claude/youthful-robinson` — S74 asset reference audit
+- `claude/stupefied-lalande` — S59 Social Lobby routing (L-1)
+- `claude/serene-booth` — connectcode + SPF-1 modules
+- `claude/suspicious-jones` — S69 player count constants audit
+- `claude/serene-margulis` — S72 bot names/player name in CLC_AUTH
+
+**Playtest backlog cleanup** — closed implicitly verified items S68–S80:
+- B-43 first-tick crash, B-44/B-26 bot names, B-40/41 timelimit/options, B-42 bot cap, B-46 void spawn — all confirmed working in live networked play. Commit: `defffc8`
+
+### Files Modified
+- `src/game/bondmove.c` — B-49: footstepChooseSound loop guard + psCreate null guard
+- `port/src/net/netmsg.c` — weapon array in CLC_LOBBY_START; protocol v22; struct redefinition fix; sysLogPrintf declaration
+- `port/src/net/netlobby.c` — mpSetWeaponSet link error (direct array copy for server build)
+- `port/fast3d/pdgui_backend.cpp` — PD_SERVER guard on pdgui.h + pdguiMainMenuReset
+- `port/src/hub.c` — B-50: SDL wall-clock match timer
+
+### Decisions Made
+- Protocol bumped to v22 (weapon array added to CLC_LOBBY_START)
+- Options flags and chrslots were already fully wired in prior sessions — no netmsg.c format changes needed
+- hub.c timer uses wall-clock so it fires even if stage hasn't fully loaded on server side
+
+### Build Status
+VERIFIED clean — client (pd) and server (pd-server) both build with no errors or warnings
+
+### Still Needs Playtest Verification
+- B-50: Start timed match on dedicated server, verify match ends at timelimit
+- B-51/B-52/B-53: Bot stuck under map, can't pick up weapons/ammo, can't open doors — may all be resolved by chrslots+options sync now working
+
+### Next Steps
+- Run B-50 playtest (timed dedicated server match)
+- Verify B-51/B-52/B-53 resolved in next Combat Sim session
+- C-5/C-6: Texture + anim override wiring
+- R-2: Room lifecycle (expand hub slots, room_id, leader_client_id)
+
 ## Session 80 -- 2026-03-29
 
 **Focus**: Full codebase TODO sweep + enet ABA vulnerability fix

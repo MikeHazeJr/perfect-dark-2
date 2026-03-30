@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-28, Session 71 (scenario save/load system: scenario_save.c/h, matchsetup.c deduplication, room UI Save/Load buttons)
+> **Last updated**: 2026-03-30, Session 81 (B-49 VERIFIED FIXED, weapon spawn/server build fixes, B-50 hub timer, J-1 join flow verified, protocol v22)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,9 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| 81 | 2026-03-30 | B-49 VERIFIED FIXED (footstepChooseSound loop guard); weapon spawn fix + protocol v22; server build guards; B-50 hub timer; J-1 join flow verified; 6 branches merged | [session-log.md](session-log.md) |
+| 80 | 2026-03-29 | Full TODO sweep (60+ items), enet ABA fix, server history UI, n_resample divide-by-zero, gfx_destroy, modding pipeline design doc | [session-log.md](session-log.md) |
+| 72–79 | 2026-03-29 | Asset reference audit, B-44/B-26 bot names, B-39/B-40/B-41/B-42/B-43 fixes, Combat Sim scenario save, B-46/B-47 fixes, C-7 file SFX | [session-log.md](session-log.md) |
 | 71 | 2026-03-28 | Combat Sim scenario save/load: scenario_save.c/h (new), matchsetup.c deduplication, room UI Save/Load buttons + JSON format | [session-log.md](session-log.md) |
 | 70 | 2026-03-28 | B-43 first-tick NULL guards + scenarioTick/botTick first-tick safety | [session-log.md](session-log.md) |
 | 69 | 2026-03-28 | Player count constants audit: 5 wrong values fixed (NET_MAX_CLIENTS, MAX_BOTS_PM struct layout, HUB_MAX_CLIENTS, SAVE_MAX_BOTS), audit doc created | [session-log.md](session-log.md) |
