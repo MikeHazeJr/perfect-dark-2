@@ -150,7 +150,7 @@ typedef struct asset_entry {
 
     /* Classification */
     asset_type_e type;                 /* ASSET_MAP, ASSET_CHARACTER, etc. */
-    char category[CATALOG_CATEGORY_LEN]; /* "goldfinger64", "base", etc. */
+    char category[CATALOG_CATEGORY_LEN]; /* mod id or "base" for ROM assets */
 
     /* Filesystem */
     char dirpath[FS_MAXPATH];          /* absolute path to component folder */

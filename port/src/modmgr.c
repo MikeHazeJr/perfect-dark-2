@@ -78,16 +78,6 @@ static void modmgrRebuildBodyCache(void);
 static void modmgrRebuildHeadCache(void);
 static void modmgrRebuildAllCaches(void);
 
-// Bundled mod IDs (these are the 5 original mods shipped with the game)
-static const char *g_BundledModIds[] = {
-	"allinone",
-	"gex",
-	"kakariko",
-	"dark_noon",
-	"goldfinger_64",
-};
-#define NUM_BUNDLED_MODS (sizeof(g_BundledModIds) / sizeof(g_BundledModIds[0]))
-
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
@@ -97,7 +87,6 @@ static bool modmgrParseModJson(modinfo_t *mod);
 static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
-static bool modmgrIsBundled(const char *id);
 static u32  modmgrHashString(const char *str);
 static void modmgrParseEnabledList(void);
 static void modmgrBuildEnabledList(void);
@@ -580,20 +569,6 @@ done:
 }
 
 // ---------------------------------------------------------------------------
-// Bundled mod detection
-// ---------------------------------------------------------------------------
-
-static bool modmgrIsBundled(const char *id)
-{
-	for (s32 i = 0; i < (s32)NUM_BUNDLED_MODS; i++) {
-		if (strcmp(id, g_BundledModIds[i]) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-// ---------------------------------------------------------------------------
 // Simple CRC32 for string hashing
 // ---------------------------------------------------------------------------
 
@@ -718,8 +693,8 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
-		// Detect bundled status
-		mod->bundled = modmgrIsBundled(mod->id);
+		// mod->bundled is always 0 — no hardcoded bundled mods exist
+		mod->bundled = 0;
 
 		// Compute content hash from ID + version
 		char hashsrc[256];
@@ -729,13 +704,12 @@ static void modmgrScanDirectory(void)
 		// Compute directory size for download estimation
 		mod->size_bytes = modmgrComputeDirSize(fullpath);
 
-		// Default: bundled mods enabled, others disabled
-		mod->enabled = mod->bundled;
+		// Default: disabled until user explicitly enables
+		mod->enabled = 0;
 
 		g_ModRegistryCount++;
-		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s%s",
+		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s",
 			g_ModRegistryCount - 1, mod->id, mod->name,
-			mod->bundled ? "[BUNDLED] " : "",
 			mod->has_modjson ? "[mod.json]" : "[legacy]");
 	}
 
@@ -751,7 +725,7 @@ static void modmgrScanDirectory(void)
 static void modmgrParseEnabledList(void)
 {
 	if (g_ModEnabledList[0] == '\0') {
-		// Empty config = use defaults (bundled mods enabled)
+		// Empty config = use defaults (all mods disabled)
 		return;
 	}
 
@@ -857,11 +831,7 @@ static int modmgrCompare(const void *a, const void *b)
 	const modinfo_t *ma = (const modinfo_t *)a;
 	const modinfo_t *mb = (const modinfo_t *)b;
 
-	// Bundled mods first
-	if (ma->bundled && !mb->bundled) return -1;
-	if (!ma->bundled && mb->bundled) return 1;
-
-	// Then alphabetical by name
+	// Alphabetical by name
 	return strcmp(ma->name, mb->name);
 }
 

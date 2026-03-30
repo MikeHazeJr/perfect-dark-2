@@ -8,7 +8,7 @@
  *   1. catalogInit() iterates g_HeadsAndBodies[0..151] + mod entries
  *      (metadata only — no heap required, no model loading)
  *   2. catalogValidateAll() loads and validates each model after heap init
- *   3. Bad scale values are clamped (not rejected) — fixes mod_allinone models
+ *   3. Bad scale values are clamped (not rejected) — defensive against malformed mod models
  *   4. Metadata is cached: name, type, gender, validity, MP index
  *   5. g_HeadsAndBodies[].modeldef is populated with validated pointers
  *   6. Engine code continues reading g_HeadsAndBodies unchanged

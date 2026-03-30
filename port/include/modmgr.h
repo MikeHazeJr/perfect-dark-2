@@ -36,7 +36,7 @@ typedef struct modinfo {
 	u32  size_bytes;                     // total size of mod directory (bytes), for download estimation
 	s32  enabled;                        // user preference (persisted)
 	s32  loaded;                         // assets currently registered in tables
-	s32  bundled;                        // shipped with the game
+	s32  bundled;                        // reserved; always 0 (no hardcoded bundled mods)
 	s32  has_modjson;                    // has mod.json manifest
 	s32  num_bodies;                     // bodies declared in mod.json
 	s32  num_heads;                      // heads declared in mod.json

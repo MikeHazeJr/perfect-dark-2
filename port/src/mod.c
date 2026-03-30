@@ -39,7 +39,7 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
 	/* PC: When g_NotLoadMod is set (title screen, CI main menu, solo stages),
 	 * suppress mod texture overlay so base-game textures are used.  Without
-	 * this check, mod texture packs (GEX, kakariko, etc.) replace textures
+	 * this check, mod texture packs replace textures
 	 * globally for ALL stages, causing wrong textures on the CI background
 	 * environment and in non-mod multiplayer arenas. */
 	extern s32 g_NotLoadMod;

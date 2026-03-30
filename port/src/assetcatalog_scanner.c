@@ -258,7 +258,7 @@ static asset_type_e sectionToType(const char *section)
  *
  * @param ini       Parsed INI section
  * @param dirpath   Absolute path to the component directory
- * @param mod_id    Mod identifier (e.g., "mod_gex")
+ * @param mod_id    Mod identifier (e.g., "my_mod")
  * @return 1 on success, 0 on failure
  */
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
@@ -461,7 +461,7 @@ static s32 findAndParseIni(const char *component_dir, ini_section_t *out)
 
 /**
  * Scan a single category directory within a mod's _components/ folder.
- * e.g., mods/mod_gex/_components/maps/
+ * e.g., mods/my_mod/_components/maps/
  *
  * @param category_dir  Full path to the category directory
  * @param category_name Directory name ("maps", "characters", etc.)
@@ -530,8 +530,8 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 /**
  * Scan a single mod directory for _components/ subdirectory.
  *
- * @param mod_dir  Full path to the mod directory (e.g., mods/mod_gex)
- * @param mod_id   Mod identifier (e.g., "mod_gex")
+ * @param mod_dir  Full path to the mod directory (e.g., mods/my_mod)
+ * @param mod_id   Mod identifier (e.g., "my_mod")
  * @return Number of components registered
  */
 static s32 scanModDir(const char *mod_dir, const char *mod_id)
