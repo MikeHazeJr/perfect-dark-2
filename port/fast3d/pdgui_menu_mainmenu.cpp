@@ -247,6 +247,9 @@ void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
 s32  pdguiModdingHubIsVisible(void);
 
+/* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
+void pdguiSoloRoomOpen(void);
+
 /* Connect codes (connectcode.c) */
 s32 connectCodeDecode(const char *code, u32 *outIp);
 s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
@@ -1645,10 +1648,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Combat Simulator -- local match with bots */
+        /* Combat Simulator -- opens Room screen in solo (offline) mode */
         if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
-            matchConfigInit();
-            menuPushDialog(&g_MatchSetupMenuDialog);
+            pdguiSoloRoomOpen();
         }
 
         ImGui::Dummy(ImVec2(0, spacing));

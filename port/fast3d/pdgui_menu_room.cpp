@@ -155,6 +155,12 @@ extern s32 g_MpWeaponSetNum;
 /* Agent name (for connect code display) */
 const char *mpPlayerConfigGetName(s32 playernum);
 
+/* Solo match start (matchsetup.c) — configure g_MpSetup from g_MatchConfig + call mpStartMatch() */
+s32 matchStart(void);
+
+/* Solo room close — defined in pdgui_lobby.cpp */
+void pdguiSoloRoomClose(void);
+
 } /* extern "C" */
 
 /* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
@@ -315,6 +321,11 @@ static const char *s_DiffNames[] = {
 /* Active tab: 0 = Combat Sim, 1 = Campaign, 2 = Counter-Op */
 static int s_ActiveTab = 0;
 
+/* Solo (offline) mode — set by pdguiRoomScreenSetSolo().
+ * When true: no network calls, matchStart() used instead of netLobbyRequestStartWithSims(),
+ * always leader, no connect code, "Back to Menu" instead of "Leave Room". */
+static bool s_IsSoloMode = false;
+
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
 
@@ -446,10 +457,10 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
 
 static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 {
-    int humanCount = lobbyGetPlayerCount();
+    /* In solo mode there's no network lobby — local player count is always 1. */
+    int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
     int curBots    = countBots();
-    /* Max bots = remaining player slots (MAX_PLAYERS - humans), also bounded
-     * by MATCH_MAX_SLOTS capacity. */
+    /* Max bots = remaining slots after accounting for human players. */
     int maxBots = MATCH_MAX_SLOTS - humanCount;
     if (maxBots < 0) maxBots = 0;
 
@@ -467,69 +478,77 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Players in Room");
     ImGui::Separator();
 
-    /* Human player rows */
-    for (s32 i = 0; i < humanCount; i++) {
-        struct lobbyplayer_view pv;
-        memset(&pv, 0, sizeof(pv));
-        if (!lobbyGetPlayerInfo(i, &pv)) continue;
+    if (s_IsSoloMode) {
+        /* Solo mode: always exactly one local human player (g_MatchConfig.slots[0]) */
+        const char *playerName = mpPlayerConfigGetName(0);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", playerName ? playerName : "Player 1");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.7f), "(you)");
+    } else {
+        /* Network mode: show lobby player list */
+        for (s32 i = 0; i < humanCount; i++) {
+            struct lobbyplayer_view pv;
+            memset(&pv, 0, sizeof(pv));
+            if (!lobbyGetPlayerInfo(i, &pv)) continue;
 
-        ImGui::PushID(i);
+            ImGui::PushID(i);
 
-        char label[80];
-        const char *suffix = pv.isLeader ? " *" : "";
-        snprintf(label, sizeof(label), "%s%s", pv.name, suffix);
+            char label[80];
+            const char *suffix = pv.isLeader ? " *" : "";
+            snprintf(label, sizeof(label), "%s%s", pv.name, suffix);
 
-        if (pv.isLeader && pv.isLocal) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.7f), "(you, leader)");
-        } else if (pv.isLeader) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 0.7f), "(leader)");
-        } else if (pv.isLocal) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", label);
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.6f), "(you)");
-        } else {
-            ImGui::Text("%s", label);
-        }
-
-        if (pv.bodynum < (u8)mpGetNumBodies()) {
-            const char *bodyName = mpGetBodyName(pv.bodynum);
-            if (bodyName && bodyName[0]) {
+            if (pv.isLeader && pv.isLocal) {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 0.75f), "[%s]", bodyName);
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.7f), "(you, leader)");
+            } else if (pv.isLeader) {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 0.7f), "(leader)");
+            } else if (pv.isLocal) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", label);
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.6f), "(you)");
+            } else {
+                ImGui::Text("%s", label);
             }
+
+            if (pv.bodynum < (u8)mpGetNumBodies()) {
+                const char *bodyName = mpGetBodyName(pv.bodynum);
+                if (bodyName && bodyName[0]) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 0.75f), "[%s]", bodyName);
+                }
+            }
+
+            const char *stateStr  = "";
+            ImVec4      stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
+            switch (pv.state) {
+                case CLSTATE_CONNECTING:
+                case CLSTATE_AUTH:
+                    stateStr  = "connecting...";
+                    stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
+                    break;
+                case CLSTATE_LOBBY:
+                    stateStr  = "ready";
+                    stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
+                    break;
+                case CLSTATE_GAME:
+                    stateStr  = "in game";
+                    stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
+                    break;
+            }
+            if (stateStr[0]) {
+                ImGui::SameLine();
+                ImGui::TextColored(stateColor, "  %s", stateStr);
+            }
+
+            ImGui::PopID();
         }
 
-        const char *stateStr  = "";
-        ImVec4      stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
-        switch (pv.state) {
-            case CLSTATE_CONNECTING:
-            case CLSTATE_AUTH:
-                stateStr  = "connecting...";
-                stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
-                break;
-            case CLSTATE_LOBBY:
-                stateStr  = "ready";
-                stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
-                break;
-            case CLSTATE_GAME:
-                stateStr  = "in game";
-                stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
-                break;
+        if (humanCount == 0) {
+            ImGui::TextDisabled("Waiting for players...");
         }
-        if (stateStr[0]) {
-            ImGui::SameLine();
-            ImGui::TextColored(stateColor, "  %s", stateStr);
-        }
-
-        ImGui::PopID();
-    }
-
-    if (humanCount == 0) {
-        ImGui::TextDisabled("Waiting for players...");
     }
 
     /* Bot rows */
@@ -1062,7 +1081,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                           IM_COL32(8, 8, 16, 255));
     }
 
-    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, "Room", 1);
+    const char *screenTitle = s_IsSoloMode ? "Combat Simulator" : "Room";
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, screenTitle, 1);
 
     /* ---- Title bar ---- */
     {
@@ -1070,18 +1090,17 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
                           dialogW - 16.0f, pdTitleH - 4.0f);
 
-        const char *title = "Room";
-        ImVec2 ts = ImGui::CalcTextSize(title);
+        ImVec2 ts = ImGui::CalcTextSize(screenTitle);
         dl->AddText(ImVec2(dialogX + (dialogW - ts.x) * 0.5f,
                            dialogY + (pdTitleH - ts.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), title);
+                    IM_COL32(255, 255, 255, 255), screenTitle);
     }
 
     float curY = pdTitleH + ImGui::GetStyle().WindowPadding.y;
     ImGui::SetCursorPosY(curY);
 
-    /* Connect code (server host) */
-    if (netGetMode() == NETMODE_SERVER) {
+    /* Connect code (server host) — hidden in solo mode */
+    if (!s_IsSoloMode && netGetMode() == NETMODE_SERVER) {
         if (!s_CodeGenerated) {
             const char *ip = netGetPublicIP();
             if (ip) {
@@ -1106,7 +1125,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     /* ---- Tab bar ---- */
     ImGui::SetCursorPosY(curY);
 
-    bool isLeader = lobbyIsLocalLeader() != 0;
+    /* In solo mode the local player is always the leader. */
+    bool isLeader = s_IsSoloMode || (lobbyIsLocalLeader() != 0);
 
     static const char *s_TabNames[] = {
         "Combat Simulator", "Campaign", "Counter-Operative"
@@ -1166,24 +1186,34 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 case 0: {
                     /* Combat Simulator */
                     if (s_NumArenas == 0) break;
-                    int numBots = countBots();
-                    u8 simType  = getLeadSimType();
+                    /* Sync the arena picker selection back into g_MatchConfig
+                     * so matchStart() reads the correct stagenum. */
+                    g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
                     sysLogPrintf(LOG_NOTE,
                         "CATALOG: stage load initiated from arena picker: \"%s\" stagenum=0x%02x",
                         s_Arenas[s_SelectedArena].name,
                         (int)s_Arenas[s_SelectedArena].stagenum);
-                    netLobbyRequestStartWithSims(
-                        GAMEMODE_MP,
-                        (u8)s_Arenas[s_SelectedArena].stagenum,
-                        0,
-                        (u8)numBots,
-                        simType,
-                        g_MatchConfig.timelimit,
-                        g_MatchConfig.options,
-                        g_MatchConfig.scenario,
-                        g_MatchConfig.scorelimit,
-                        g_MatchConfig.teamscorelimit,
-                        (u8)(g_MatchConfig.weaponSetIndex >= 0 ? g_MatchConfig.weaponSetIndex : 0xFF));
+                    if (s_IsSoloMode) {
+                        /* Solo play: configure g_MpSetup directly and start. */
+                        pdguiSoloRoomClose();
+                        s_MatchConfigInited = false;
+                        matchStart();
+                    } else {
+                        int numBots = countBots();
+                        u8 simType  = getLeadSimType();
+                        netLobbyRequestStartWithSims(
+                            GAMEMODE_MP,
+                            (u8)s_Arenas[s_SelectedArena].stagenum,
+                            0,
+                            (u8)numBots,
+                            simType,
+                            g_MatchConfig.timelimit,
+                            g_MatchConfig.options,
+                            g_MatchConfig.scenario,
+                            g_MatchConfig.scorelimit,
+                            g_MatchConfig.teamscorelimit,
+                            (u8)(g_MatchConfig.weaponSetIndex >= 0 ? g_MatchConfig.weaponSetIndex : 0xFF));
+                    }
                     break;
                 }
                 case 1:
@@ -1212,16 +1242,21 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::TextDisabled("Waiting for the room leader to start...");
     }
 
-    /* Leave Room (right-aligned) */
-    float leaveW = pdguiScale(120.0f);
+    /* Leave Room / Back to Menu (right-aligned) */
+    float leaveW = pdguiScale(s_IsSoloMode ? 140.0f : 120.0f);
     ImGui::SameLine(dialogW - leaveW - ImGui::GetStyle().WindowPadding.x * 2);
-    if (ImGui::Button("Leave Room", ImVec2(leaveW, btnH)) ||
+    const char *leaveLabel = s_IsSoloMode ? "Back to Menu" : "Leave Room";
+    if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
-        pdguiSetInRoom(0);  /* return to social lobby, stay connected */
+        if (s_IsSoloMode) {
+            pdguiSoloRoomClose();  /* return to main menu */
+        } else {
+            pdguiSetInRoom(0);  /* return to social lobby, stay connected */
+        }
     }
 
     /* ---- Bot settings modal ---- */
@@ -1433,11 +1468,17 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
  * Reset state when lobby session ends (called externally if needed)
  * ======================================================================== */
 
+extern "C" void pdguiRoomScreenSetSolo(s32 solo)
+{
+    s_IsSoloMode = (solo != 0);
+}
+
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
     s_ArenasBuilt       = false;
     s_CodeGenerated     = false;
+    s_IsSoloMode        = false;  /* caller sets via pdguiRoomScreenSetSolo() after reset */
     s_ActiveTab         = 0;
     s_CampaignMission   = 0;
     s_CampaignDiff      = DIFF_A;

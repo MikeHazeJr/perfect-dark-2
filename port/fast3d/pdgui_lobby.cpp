@@ -83,6 +83,8 @@ void pdguiLobbyScreenRender(s32 winW, s32 winH);
 
 /* Room interior screen (from pdgui_menu_room.cpp) — used by game clients */
 void pdguiRoomScreenRender(s32 winW, s32 winH);
+void pdguiRoomScreenReset(void);
+void pdguiRoomScreenSetSolo(s32 solo);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
@@ -128,8 +130,9 @@ s32 viGetHeight(void);
  * Resets to false on disconnect (detected by mode transitioning to NONE).
  * ======================================================================== */
 
-static bool s_InRoom   = false;
-static s32  s_LastMode = 0; /* NETMODE_NONE */
+static bool s_InRoom         = false;
+static s32  s_LastMode       = 0; /* NETMODE_NONE */
+static bool s_SoloRoomActive = false; /* Room screen open for NETMODE_NONE solo play */
 
 /**
  * Set whether the local client is inside a room.
@@ -147,6 +150,28 @@ extern "C" void pdguiSetInRoom(s32 inRoom)
 extern "C" s32 pdguiIsInRoom(void)
 {
     return s_InRoom ? 1 : 0;
+}
+
+/**
+ * Open the Room screen in solo (offline) mode.
+ * Routes "Combat Simulator" in the main menu directly to the Room screen
+ * without a network session. Resets room state and sets the solo flag.
+ */
+extern "C" void pdguiSoloRoomOpen(void)
+{
+    s_SoloRoomActive = true;
+    pdguiRoomScreenReset();       /* clears all room UI state */
+    pdguiRoomScreenSetSolo(1);    /* re-apply solo flag after reset */
+}
+
+/**
+ * Close the solo Room screen and return to the main menu.
+ * Called from pdgui_menu_room.cpp "Back to Menu" button.
+ */
+extern "C" void pdguiSoloRoomClose(void)
+{
+    s_SoloRoomActive = false;
+    pdguiRoomScreenSetSolo(0);
 }
 
 /* ========================================================================
@@ -361,7 +386,11 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     s_LastMode = mode;
 
     if (mode == NETMODE_NONE) {
-        return;  /* Not in a network session */
+        /* Solo play: show Room screen without a network session */
+        if (s_SoloRoomActive) {
+            pdguiRoomScreenRender(winW, winH);
+        }
+        return;
     }
 
     s32 clientCount = netLobbyGetClientCount();
