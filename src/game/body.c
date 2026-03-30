@@ -244,27 +244,12 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				} else if (headnum > 0) {
-					if (headmodeldef == NULL) {
-						if (g_Vars.normmplayerisrunning && !IS4MB()) {
-							headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-							if (!headmodeldef) {
-								sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (mp path)",
-									headnum, g_HeadsAndBodies[headnum].filenum);
-							}
-							g_HeadsAndBodies[headnum].modeldef = headmodeldef;
-							g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
-							bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
-						} else {
-							if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-								g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-								if (!g_HeadsAndBodies[headnum].modeldef) {
-									sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (solo path)",
-										headnum, g_HeadsAndBodies[headnum].filenum);
-								}
-							}
-
-							headmodeldef = g_HeadsAndBodies[headnum].modeldef;
-						}
+					if (g_HeadsAndBodies[headnum].modeldef == NULL) {
+						headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+						g_HeadsAndBodies[headnum].modeldef = headmodeldef;
+						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
+					} else {
+						headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 					}
 
 					modelAllocateRwData(headmodeldef);
