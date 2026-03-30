@@ -124,6 +124,16 @@ const char *netGetPublicIP(void)
         }
     }
 
+    /* Try STUN next */
+    {
+        extern s32 stunGetStatus(void);
+        extern const char *stunGetExternalIP(void);
+        if (stunGetStatus() == 2) {  /* STUN_STATUS_SUCCESS */
+            const char *stunIp = stunGetExternalIP();
+            if (stunIp && stunIp[0]) return stunIp;
+        }
+    }
+
     /* Fallback: query external IP via HTTP (cached after first success).
      * Uses curl to query a lightweight IP echo service. */
     static char s_CachedIP[64] = "";

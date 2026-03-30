@@ -47,6 +47,8 @@ extern u8  g_NetGameMode;
 extern const char *netUpnpGetExternalIP(void);
 extern s32 netUpnpIsActive(void);
 extern s32 netUpnpGetStatus(void);
+extern s32 stunGetStatus(void);
+extern const char *stunGetExternalIP(void);
 
 /* Net functions */
 extern void netServerStageStart(void);
@@ -78,6 +80,11 @@ extern s32 lobbyGetPlayerCount(void);
 #define UPNP_STATUS_WORKING 1
 #define UPNP_STATUS_SUCCESS 2
 #define UPNP_STATUS_FAILED  3
+
+#define STUN_STATUS_IDLE    0
+#define STUN_STATUS_WORKING 1
+#define STUN_STATUS_SUCCESS 2
+#define STUN_STATUS_FAILED  3
 
 /* Lobby player view — layout must match server_bridge.c lobbyGetPlayerInfo writes */
 struct lobbyplayer_view {
@@ -676,7 +683,12 @@ extern "C" void serverGuiFrame(SDL_Window *window)
 
         /* Column 1: Server identity + connect code */
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "PD2 DEDICATED SERVER");
-        const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
+        const char *ip = "";
+        if (netUpnpIsActive() && netUpnpGetExternalIP()[0]) {
+            ip = netUpnpGetExternalIP();
+        } else if (stunGetStatus() == STUN_STATUS_SUCCESS) {
+            ip = stunGetExternalIP();
+        }
         if (ip && ip[0]) {
             char connectCode[256];
             u32 ipAddr = 0;
@@ -696,8 +708,9 @@ extern "C" void serverGuiFrame(SDL_Window *window)
             ImGui::TextColored(ImVec4(0.4f, 0.4f, 0.4f, 1.0f), "Port %u", g_NetServerPort);
         } else {
             s32 upnpStatus = netUpnpGetStatus();
-            if (upnpStatus == UPNP_STATUS_WORKING) {
-                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Port %u (UPnP...)", g_NetServerPort);
+            s32 stunStatus = stunGetStatus();
+            if (upnpStatus == UPNP_STATUS_WORKING || stunStatus == STUN_STATUS_WORKING) {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Port %u (discovering...)", g_NetServerPort);
             } else {
                 ImGui::Text("Port %u (LAN only)", g_NetServerPort);
             }
