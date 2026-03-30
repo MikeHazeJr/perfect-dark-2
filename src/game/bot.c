@@ -310,6 +310,11 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				botactGiveAmmoByType(aibot, ammotype, startammo);
 			}
 			botinvSwitchToWeapon(chr, mpweapon->weaponnum, FUNC_PRIMARY);
+			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
+					(void *)chr, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
+		} else {
+			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- no spawn weapon (options=0x%08x weapons[0]=%d)",
+					(void *)chr, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
 		}
 	}
 }

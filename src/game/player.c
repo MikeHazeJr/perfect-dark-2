@@ -1199,10 +1199,16 @@ void playerSpawn(void)
 				}
 				bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
+				sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
+						g_Vars.currentplayernum, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
 			} else
 			{
 				bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
 				bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
+				if (g_Vars.normmplayerisrunning) {
+					sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- no spawn weapon (options=0x%08x weapons[0]=%d)",
+							g_Vars.currentplayernum, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
+				}
 			}
 
 #if VERSION >= VERSION_NTSC_1_0
