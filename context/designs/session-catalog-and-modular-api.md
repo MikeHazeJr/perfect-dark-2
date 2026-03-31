@@ -646,6 +646,8 @@ Subsystem groupings (can be done in any order, independently shippable):
 - [ ] Identify all `stage->bgfileid`, `stage->padsfileid`, `stage->setupfileid` access
 - [ ] Replace with `catalogResolveStage(id, &result)` + `result.bgfileid` etc.
 
+> **SA-5-cleanup** (between SA-5b and SA-5c): Address audit findings — catalog scale enforcement, remove fallback paths, strip IS8MB dead code, fix diagnostic logs. See §13.
+
 **5c — Prop model lookup sites (~20 sites in prop spawning, setup code):**
 - [ ] Identify all prop type → model filenum lookups
 - [ ] Replace with `catalogResolveProp(id, &result)` + `result.filenum`
@@ -886,6 +888,7 @@ PHASE 4 — Persistence Migration
 PHASE 5 — Load Path Migration
   [  ] 5a: ~30 body/head model load sites
   [  ] 5b: ~10 stage file ID sites
+  [  ] SA-5-cleanup: audit findings (scale, fallbacks, IS8MB, diag logs) — see §13
   [  ] 5c: ~20 prop model lookup sites
   [  ] 5d: ~10 weapon model sites
   [  ] 5e: C-5/C-6 texture/anim override wiring
@@ -922,3 +925,103 @@ PHASE 7 — Consolidation
 | 7: Consolidation | Small (cleanup, no new functionality) | Nothing (last) |
 
 Phases 1 and 2 are straightforward sessions. Phase 3 is the highest-risk session (protocol break, must coordinate with B-12 Phase 3). Phases 5a–5f are individually small but numerous — suitable for incremental work across multiple sessions.
+
+---
+
+## §13 — SA-5 Cleanup Pass (Post-Audit)
+
+After the SA-5a/5b audit, several issues were identified that need to be addressed before continuing with SA-5c:
+
+### 13.1 Scale from Catalog (not legacy array)
+All call sites that read `g_HeadsAndBodies[n].scale` must instead read `result.model_scale` from the catalog result struct. The catalog is the single source of truth — even if model_scale is 1.0 for base game entries, it must be interpreted and applied from the catalog, not silently ignored. This ensures mods that ship custom model scales are respected at every call site.
+
+### 13.2 No Silent Fallbacks — Catalog Must Exist
+The current fallback pattern in `catalogGetBodyFilenumByIndex()`, `catalogGetHeadFilenumByIndex()`, and `catalogGetStageResultByIndex()` gracefully degrades to legacy arrays when the catalog isn't populated. This is wrong. If the catalog doesn't exist or is missing base-game content, that is a pipeline initialization bug.
+
+New behavior:
+1. If catalog lookup fails, attempt to rebuild the catalog and retry once.
+2. If it still fails, produce a **failure state menu** showing:
+   - Which asset could not be found (catalog ID and type)
+   - Where the system looked (catalog pool, expected source)
+   - Save this diagnostic to the log
+3. Back out one step (return to previous menu / abort match start)
+
+Hard assert on missing base-game content. No silent degradation.
+
+### 13.3 Remove IS8MB Dead Branches
+The `IS8MB()` macro evaluates to compile-time `0` on PC. All branches guarded by `IS8MB()` are dead code from the N64's 4MB/8MB memory configurations. These should be stripped entirely:
+- `player.c:1648` — dead branch with raw `g_HeadsAndBodies[headnum].filenum` access
+- Any other `IS8MB()` branches found during cleanup
+
+### 13.4 Diagnostic Logs Must Reference Catalog
+Several `sysLogPrintf` calls in `bg.c`, `player.c`, and `setup.c` still read from `g_Stages[]` or `g_HeadsAndBodies[]` directly for log messages. These must be updated to log catalog-resolved values instead of ROM data. When a mod overrides an asset, the log should reflect what was actually loaded, not what the ROM table says.
+
+---
+
+## §14 — Catalog Settings UI
+
+A new page in the Settings menu that provides full transparency into the asset catalog state.
+
+### 14.1 Layout
+- New "Catalog" tab/page in Settings menu
+- Entries sorted by **collapsible categories**: Bodies, Heads, Stages, Weapons, Props
+- Each category header shows count (e.g., "Bodies (47)")
+- Expanding a category shows all entries with their values/info
+
+### 14.2 Entry Display
+Each entry shows:
+- Catalog string ID
+- Asset type
+- Source (base game / mod name)
+- File number (resolved)
+- Model scale (if applicable)
+- Net hash (CRC32)
+- Session ID (if session catalog is active)
+- Enabled/disabled state
+
+### 14.3 Manifest Highlighting
+Assets that are on the **currently loaded manifest** (i.e., the active session catalog for the current match) should be visually highlighted — distinct color or icon to differentiate "in manifest" vs "registered but not in current session."
+
+---
+
+## §15 — Future Game Concepts (Post-Migration)
+
+These features build on the catalog infrastructure but are not part of the migration itself. They are documented here for design continuity.
+
+### 15.1 Scale Cheat — Tiny Enemies
+A toggleable cheat that spawns miniature enemies at reduced scale with adjusted damage output.
+
+**Behavior:**
+- When active, enemy spawn logic in missions is intercepted
+- Instead of spawning 1 enemy at normal scale, spawn **3 enemies** at ~0.4x scale
+- The 3 spawns are placed in a safe radius around the original spawn point, **on the navmesh** (must validate navmesh placement, not just radius)
+- Damage output scaled down proportionally (e.g., 0.4x damage per enemy)
+- Health scaled down proportionally
+- Net effect: more enemies, individually weaker, collectively similar total threat
+
+**Implementation notes:**
+- Hooks into the enemy spawn system, not the catalog directly
+- Uses `result.model_scale` from the catalog (which is why §13.1 must land first)
+- Multiplies catalog scale by the cheat's scale factor at spawn time
+- Navmesh placement: use existing navmesh query to find 3 valid positions within spawn radius
+
+### 15.2 Agent Smith Mode — Combat Simulator Mod
+A multiplayer game mode (implemented as a mod) where one designated bot ("The Agent") absorbs the capabilities of players/bots it kills, scaling up in difficulty throughout the match.
+
+**Concept:**
+- Match starts with The Agent as a Normal Simulant
+- Kill target: 30 kills to win (configurable)
+- Each time The Agent kills a player or bot, it absorbs them:
+  - Difficulty tier increases (Normal → Hard → Perfect → Dark → ... )
+  - Speed increases incrementally
+  - Accuracy increases incrementally
+  - May gain weapon proficiency from killed players
+- If a player kills The Agent, it resets down one tier (or stays, configurable)
+- Visual feedback: The Agent's appearance could shift (body swap from catalog) as it powers up
+- End state: by late match, The Agent may be a DarkSim-equivalent with high speed and accuracy
+
+**Implementation notes:**
+- Leverages the catalog for body swaps (The Agent's appearance changes as it powers up)
+- Difficulty scaling hooks into existing simulant difficulty parameters
+- Could be packaged as a mod with its own manifest entries for custom Agent bodies
+- Session catalog naturally handles the body swap networking — all clients see the same Agent appearance via session ID resolution
