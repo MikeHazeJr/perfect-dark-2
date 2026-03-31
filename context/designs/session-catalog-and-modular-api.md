@@ -1025,3 +1025,111 @@ A multiplayer game mode (implemented as a mod) where one designated bot ("The Ag
 - Difficulty scaling hooks into existing simulant difficulty parameters
 - Could be packaged as a mod with its own manifest entries for custom Agent bodies
 - Session catalog naturally handles the body swap networking — all clients see the same Agent appearance via session ID resolution
+
+---
+
+## §16 — Objective HUD & Waypoint System
+
+A phased enhancement to the single-player experience providing real-time objective visibility during gameplay. Currently all objective information is buried in the pause menu — this brings it into the player's active view.
+
+### 16.1 Architecture Overview
+
+The objective system is fully queryable at runtime:
+- `g_Objectives[MAX_OBJECTIVES]` — objective definitions (text, difficulty mask, flags)
+- `g_ObjectiveStatuses[MAX_OBJECTIVES]` — per-objective state (incomplete/complete/failed)
+- `langGet(g_Briefing.objectivenames[index])` — localized objective text strings
+- Requirement commands in the setup stream reference tagged props and pads with world positions
+- `objectivesCheckAll()` evaluates all objectives every frame
+
+Position data is available indirectly through objective requirements:
+- `ENTERROOM` criteria → pad ID → `padUnpack()` → world xyz
+- `HOLOGRAPH` / `DESTROYOBJ` criteria → tag ID → `objFindByTagId()` → `prop->pos` (live world position)
+- `COLLECTOBJ` → tagged prop position (dynamic — item may move or be picked up)
+- `COMPFLAGS` / `FAILFLAGS` → abstract conditions, no world position (flag-based triggers)
+
+### 16.2 Phase 1 — Objective Text Overlay
+
+**Scope:** In-game HUD widget showing current incomplete objectives with live status.
+
+**Integration point:** `port/fast3d/pdgui_hud.cpp` — the existing ImGui HUD pipeline. The multiplayer HUD (scorers, timer) is the template.
+
+**Behavior:**
+- Render a translucent panel in the top-right corner (or configurable position)
+- List all objectives for the current difficulty level: `g_Briefing.objectivedifficulties[i] & (1 << lvGetDifficulty())`
+- Color-code by status: yellow = incomplete, green = complete (fade out after 3s), red = failed
+- Animate status transitions (flash on completion/failure)
+- Auto-hide when all objectives are complete
+- Toggle visibility with a keybind (default: Tab or D-pad equivalent)
+- Skip objectives with `OBJECTIVEFLAG_AUTOCOMPLETE`
+
+**Estimated scope:** ~100-150 lines of C++ in pdgui_hud.cpp, no engine changes required.
+
+### 16.3 Phase 2 — Compass / Screen-Edge Arrows
+
+**Scope:** Directional indicators pointing toward the nearest incomplete objective's world location.
+
+**Prerequisites:**
+- World-to-screen projection utility (extract view/projection matrices from `gfx_pc.cpp`)
+- Objective location resolver — given an objective index, walk its requirement commands and return the "best" world position:
+  1. For `ENTERROOM`: pad position
+  2. For `HOLOGRAPH` / `DESTROYOBJ`: live prop position
+  3. For `COLLECTOBJ`: prop position if still in world, else no marker
+  4. For abstract types (`COMPFLAGS`, `FAILFLAGS`): no position available — skip
+
+**Behavior:**
+- When the objective target is off-screen, render an arrow at the screen edge pointing toward it
+- When on-screen, render a small diamond/chevron marker at the projected screen position
+- Show distance in meters (scaled from game units)
+- Only show marker for the "primary" incomplete objective (lowest index, or player-selected)
+- Optional: dim markers for secondary objectives
+
+**Key engineering:** The `gfx_pc.cpp` renderer has the MVP matrix available. A `worldToScreen(coord *worldPos, f32 *screenX, f32 *screenY)` utility function is needed — this projects a world coordinate through the current view/projection matrix to normalized screen coordinates.
+
+### 16.4 Phase 3 — 3D Billboard Markers
+
+**Scope:** Floating icons rendered in world space above objective target locations.
+
+**Behavior:**
+- Translucent icon hovering ~2m above the target prop/pad position
+- Scales with distance (or fixed screen size via billboard rendering)
+- Pulses or glows for active/primary objective
+- Fades when player is very close (within 5m)
+- Different icons per objective type (destroy = crosshair, collect = hand, enter = door, holograph = camera)
+
+**Implementation options:**
+1. **ImGui DrawList** with world-to-screen projection (simpler, uses Phase 2's projection utility)
+2. **Fast3D render injection** (native 3D rendering, better depth integration but more complex)
+
+Option 1 is recommended for initial implementation — it reuses the Phase 2 projection and avoids touching the render pipeline.
+
+### 16.5 Data Flow
+
+```
+Stage Load
+  → setup.c parses BEGINOBJECTIVE commands → g_Objectives[] populated
+  → setup.c parses requirement commands → tags link to props/pads
+  → objectivesReset() initializes g_ObjectiveStatuses[]
+
+Per Frame
+  → objectivesCheckAll() updates g_ObjectiveStatuses[]
+  → pdguiHudRender() reads g_Objectives[], g_ObjectiveStatuses[]
+  → Phase 1: renders text overlay
+  → Phase 2: resolves objective positions, projects to screen, renders arrows
+  → Phase 3: renders 3D billboard markers at world positions
+```
+
+### 16.6 Configuration
+
+User-facing settings (in Settings menu or in-game options):
+- Objective overlay: On / Off / Minimal (text only, no markers)
+- Waypoint markers: On / Off
+- Marker style: Arrow only / Diamond / 3D Billboard
+- Primary objective highlight: On / Off
+- HUD position: Top-right / Top-left / Bottom-right / Custom
+
+### 16.7 Interaction with Catalog System
+
+While this feature doesn't directly depend on the asset catalog migration, it has touchpoints:
+- Custom mission mods (via catalog) can define their own objectives through the setup stream — the HUD system reads from the same `g_Objectives[]` regardless of whether the stage is base game or modded
+- Future: mod-defined objective icons could be catalog entries (ASSET_TYPE_UI or similar)
+- The catalog UI (§14) and the objective HUD are separate systems but could share the ImGui rendering infrastructure in `pdgui_hud.cpp`
