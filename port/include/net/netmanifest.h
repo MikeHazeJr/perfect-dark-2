@@ -165,4 +165,104 @@ void manifestLog(const match_manifest_t *m);
  */
 void manifestCheck(const match_manifest_t *manifest);
 
+/* -------------------------------------------------------------------------
+ * SA-6: SP diff-based asset lifecycle
+ * ------------------------------------------------------------------------- */
+
+/**
+ * One entry in a manifest diff result.
+ * Carries the same id/net_hash/type fields as match_manifest_entry_t but
+ * without the MP-specific slot_index (irrelevant for SP diffs).
+ */
+typedef struct {
+    char id[64];      /**< Catalog string ID */
+    u32  net_hash;    /**< FNV-1a hash — primary catalog key */
+    u8   type;        /**< MANIFEST_TYPE_* */
+} manifest_diff_entry_t;
+
+/**
+ * Result of comparing two manifests.
+ *
+ * to_load[]   — entries present in needed but absent from current (load these).
+ * to_unload[] — entries present in current but absent from needed (unload these).
+ * to_keep[]   — entries present in both (already loaded, no action needed).
+ *
+ * All arrays are fixed-size (MANIFEST_MAX_ENTRIES).  Counts are always
+ * <= MANIFEST_MAX_ENTRIES.  manifestDiffFree() zeroes the struct when done.
+ */
+typedef struct {
+    manifest_diff_entry_t to_load[MANIFEST_MAX_ENTRIES];
+    s32                   num_to_load;
+    manifest_diff_entry_t to_unload[MANIFEST_MAX_ENTRIES];
+    s32                   num_to_unload;
+    manifest_diff_entry_t to_keep[MANIFEST_MAX_ENTRIES];
+    s32                   num_to_keep;
+} manifest_diff_t;
+
+/** Tracks which assets are currently marked LOADED for the active SP mission. */
+extern match_manifest_t g_CurrentLoadedManifest;
+
+/**
+ * Build the asset manifest for an SP mission.
+ *
+ * Queries the catalog for all assets required by stagenum:
+ *   - Stage entry (bg, tiles, pads, setup) via catalogResolveStage()
+ *   - SP player character body/head (Joanna: body_0 / head_0)
+ *
+ * TODO SA-6: extend to include character bodies/heads from the stage spawn
+ * list once setup file data is available pre-load.
+ * TODO SA-6: add prop models used by the stage.
+ *
+ * Calls manifestComputeHash() before returning.
+ */
+void manifestBuildMission(s32 stagenum, match_manifest_t *out);
+
+/**
+ * Compute a diff between two manifests.
+ *
+ * Populates *out with:
+ *   to_load[]   — in needed, not in current
+ *   to_unload[] — in current, not in needed
+ *   to_keep[]   — in both
+ *
+ * Matching is by net_hash only (canonical catalog identity).
+ */
+void manifestDiff(const match_manifest_t *current,
+                  const match_manifest_t *needed,
+                  manifest_diff_t *out);
+
+/**
+ * Zero a manifest_diff_t after it has been applied.
+ * Since manifest_diff_t uses fixed arrays (no heap allocation), this is a
+ * memset — kept as a named function so future heap-based revisions can swap
+ * in real free() calls without changing callers.
+ */
+void manifestDiffFree(manifest_diff_t *diff);
+
+/**
+ * Apply a diff to the load-state tracking layer.
+ *
+ * For each entry in diff->to_unload: transitions the catalog entry to
+ * ASSET_STATE_ENABLED (marks it available but no longer actively loaded).
+ *
+ * For each entry in diff->to_load: transitions the catalog entry to
+ * ASSET_STATE_LOADED (marks it as resident for the upcoming mission).
+ *
+ * Updates g_CurrentLoadedManifest to *needed so subsequent calls to
+ * manifestSPTransition() can diff against the correct baseline.
+ *
+ * Note: actual memory load/eviction is a future MEM-2 concern.  This call
+ * establishes the tracking infrastructure that MEM-2 will hook into.
+ */
+void manifestApplyDiff(const match_manifest_t *needed,
+                       manifest_diff_t *diff);
+
+/**
+ * Convenience wrapper: build mission manifest, diff against current, apply.
+ *
+ * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages.
+ * Uses module-internal static buffers — not re-entrant.
+ */
+void manifestSPTransition(s32 stagenum);
+
 #endif /* _IN_NETMANIFEST_H */

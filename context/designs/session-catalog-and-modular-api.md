@@ -669,25 +669,25 @@ Subsystem groupings (can be done in any order, independently shippable):
 
 ---
 
-### Phase 6: Load Manifest for SP (LOWER priority)
+### Phase 6: Load Manifest for SP — **DONE (S94)**
 **New infrastructure only. No existing code removed.**
 **Depends on**: Phase 5 (catalog must be the load path for this to be meaningful)
 
 Scope: Mission manifest builder + diff-based load/unload between SP missions.
 
-Files to create/modify:
-- `port/src/net/netmanifest.c` — add `manifestBuildMission()`, `manifestDiff()`, `manifestApplyDiff()`
-- `port/include/net/netmanifest.h` — add new function declarations
-- `port/src/pdmain.c` or mission load site — wire `manifestBuildMission` before mission load
+Files modified:
+- `port/src/net/netmanifest.c` — added `manifestBuildMission()`, `manifestDiff()`, `manifestDiffFree()`, `manifestApplyDiff()`, `manifestSPTransition()`, `g_CurrentLoadedManifest`
+- `port/include/net/netmanifest.h` — added `manifest_diff_entry_t`, `manifest_diff_t`, all new declarations
+- `port/src/pdmain.c` — added `#include "net/netmanifest.h"`, wired `manifestSPTransition()` in `mainChangeToStage()`
 
 Implementation checklist:
-- [ ] Define `manifest_diff_t` struct
-- [ ] `manifestBuildMission(stagenum)` — query catalog for all assets used by stage (tiles, bg, pads, setup, characters from spawn list)
-- [ ] `manifestDiff(currently_loaded, needed)` — produces to_load/to_unload/to_keep lists
-- [ ] `manifestDiffFree(diff)` — frees to_load/to_unload/to_keep arrays
-- [ ] `manifestApplyDiff(diff)` — calls `assetCatalogUnload()` for to_unload, `assetCatalogLoad()` for to_load
-- [ ] `g_CurrentLoadedManifest` global — updated by `manifestApplyDiff`
-- [ ] Wire into SP mission load path (the equivalent of `matchStart()` for singleplayer)
+- [x] Define `manifest_diff_t` struct (`manifest_diff_entry_t` per entry; fixed arrays)
+- [x] `manifestBuildMission(stagenum, out)` — stage via `catalogResolveStage()`; Joanna body_0/head_0; TODOs for spawn-list chars + props
+- [x] `manifestDiff(current, needed, out)` — two-pass, produces to_load/to_unload/to_keep
+- [x] `manifestDiffFree(diff)` — memset stub; named for MEM-2 upgrade path
+- [x] `manifestApplyDiff(needed, diff)` — `assetCatalogSetLoadState()` for load/unload transitions; updates `g_CurrentLoadedManifest`
+- [x] `g_CurrentLoadedManifest` global — updated by `manifestApplyDiff`
+- [x] Wire into SP mission load path — `mainChangeToStage()` with `STAGE_IS_GAMEPLAY()` guard
 - [ ] Test: run two consecutive missions sharing Joanna — verify she stays loaded (to_keep), mission-unique assets cycle correctly
 
 ---

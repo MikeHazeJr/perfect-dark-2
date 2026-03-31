@@ -288,6 +288,178 @@ void manifestLog(const match_manifest_t *m)
     }
 }
 
+/* =========================================================================
+ * SA-6: SP diff-based asset lifecycle
+ * ========================================================================= */
+
+/** Tracks which assets are currently marked LOADED for the active SP mission. */
+match_manifest_t g_CurrentLoadedManifest;
+
+/**
+ * Static buffers used by manifestSPTransition().
+ * Kept module-local to avoid ~9 KB + ~26 KB stack allocations in the caller.
+ */
+static match_manifest_t s_SpNeededManifest;
+static manifest_diff_t  s_SpLastDiff;
+
+void manifestBuildMission(s32 stagenum, match_manifest_t *out)
+{
+    char id[64];
+    catalog_stage_result_t stage_result;
+    const asset_entry_t   *be;
+    const asset_entry_t   *he;
+
+    manifestClear(out);
+
+    /* ---- Stage ---- */
+    snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)stagenum);
+    if (catalogResolveStage(id, &stage_result) && stage_result.entry) {
+        manifestAddEntry(out, stage_result.net_hash, stage_result.entry->id,
+                         MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+    } else {
+        /* Stage not yet in catalog (pre-scan or modded stage) — use synthetic hash */
+        manifestAddEntry(out, s_fnv1a(id), id,
+                         MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+    }
+
+    /* ---- SP player character: Joanna Dark (body_0 / head_0) ---- */
+    be = assetCatalogResolve("body_0");
+    if (be) {
+        manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
+    } else {
+        manifestAddEntry(out, s_fnv1a("body_0"), "body_0", MANIFEST_TYPE_BODY, 0);
+    }
+
+    he = assetCatalogResolve("head_0");
+    if (he) {
+        manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
+    } else {
+        manifestAddEntry(out, s_fnv1a("head_0"), "head_0", MANIFEST_TYPE_HEAD, 0);
+    }
+
+    /* TODO SA-6: enumerate character bodies/heads from stage spawn list
+     *            (requires parsed setup data available before mission load). */
+    /* TODO SA-6: enumerate prop models referenced by this stage. */
+
+    manifestComputeHash(out);
+}
+
+void manifestDiff(const match_manifest_t *current,
+                  const match_manifest_t *needed,
+                  manifest_diff_t *out)
+{
+    s32 i;
+    s32 j;
+    s32 found;
+
+    memset(out, 0, sizeof(*out));
+
+    /* Pass 1: walk needed — classify as to_load or to_keep */
+    for (i = 0; i < needed->num_entries; i++) {
+        const match_manifest_entry_t *ne = &needed->entries[i];
+        found = 0;
+        for (j = 0; j < current->num_entries; j++) {
+            if (ne->net_hash == current->entries[j].net_hash) {
+                found = 1;
+                break;
+            }
+        }
+        if (found) {
+            if (out->num_to_keep < MANIFEST_MAX_ENTRIES) {
+                manifest_diff_entry_t *de = &out->to_keep[out->num_to_keep++];
+                de->net_hash = ne->net_hash;
+                de->type     = ne->type;
+                strncpy(de->id, ne->id, sizeof(de->id) - 1);
+                de->id[sizeof(de->id) - 1] = '\0';
+            }
+        } else {
+            if (out->num_to_load < MANIFEST_MAX_ENTRIES) {
+                manifest_diff_entry_t *de = &out->to_load[out->num_to_load++];
+                de->net_hash = ne->net_hash;
+                de->type     = ne->type;
+                strncpy(de->id, ne->id, sizeof(de->id) - 1);
+                de->id[sizeof(de->id) - 1] = '\0';
+            }
+        }
+    }
+
+    /* Pass 2: walk current — anything not in needed goes to to_unload */
+    for (i = 0; i < current->num_entries; i++) {
+        const match_manifest_entry_t *ce = &current->entries[i];
+        found = 0;
+        for (j = 0; j < needed->num_entries; j++) {
+            if (ce->net_hash == needed->entries[j].net_hash) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            if (out->num_to_unload < MANIFEST_MAX_ENTRIES) {
+                manifest_diff_entry_t *de = &out->to_unload[out->num_to_unload++];
+                de->net_hash = ce->net_hash;
+                de->type     = ce->type;
+                strncpy(de->id, ce->id, sizeof(de->id) - 1);
+                de->id[sizeof(de->id) - 1] = '\0';
+            }
+        }
+    }
+}
+
+void manifestDiffFree(manifest_diff_t *diff)
+{
+    /* Fixed arrays — no heap to free.  Zero for safety; future MEM-2 work
+     * can replace this with real deallocation if dynamic arrays are needed. */
+    memset(diff, 0, sizeof(*diff));
+}
+
+void manifestApplyDiff(const match_manifest_t *needed,
+                       manifest_diff_t *diff)
+{
+    s32 i;
+
+    /* Unload: transition entries no longer needed back to ENABLED */
+    for (i = 0; i < diff->num_to_unload; i++) {
+        if (diff->to_unload[i].id[0]) {
+            assetCatalogSetLoadState(diff->to_unload[i].id, ASSET_STATE_ENABLED);
+            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
+                         diff->to_unload[i].id);
+        }
+    }
+
+    /* Load: transition entries needed for the new mission to LOADED */
+    for (i = 0; i < diff->num_to_load; i++) {
+        if (diff->to_load[i].id[0]) {
+            assetCatalogSetLoadState(diff->to_load[i].id, ASSET_STATE_LOADED);
+            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
+                         diff->to_load[i].id);
+        }
+    }
+
+    /* Update the baseline for the next transition */
+    g_CurrentLoadedManifest = *needed;
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-SP: applied diff — load=%d unload=%d keep=%d",
+                 diff->num_to_load, diff->num_to_unload, diff->num_to_keep);
+}
+
+void manifestSPTransition(s32 stagenum)
+{
+    manifestBuildMission(stagenum, &s_SpNeededManifest);
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-SP: transition to stage 0x%02x — %d entries",
+                 (unsigned)stagenum, (int)s_SpNeededManifest.num_entries);
+
+    manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
+    manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    manifestDiffFree(&s_SpLastDiff);
+}
+
+/* =========================================================================
+ * Phase C: MP manifest check
+ * ========================================================================= */
+
 /**
  * manifestCheck -- check local asset catalog against received manifest.
  *

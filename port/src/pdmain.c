@@ -76,6 +76,7 @@
 #include "console.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "net/netmanifest.h"
 #include "modelcatalog.h"
 
 extern u8 *g_MempHeap;
@@ -731,6 +732,13 @@ void mainEndStage(void)
 void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
+
+	/* SA-6: diff-based SP asset lifecycle — build/diff/apply before the
+	 * stage is committed.  Only fires for gameplay stages (not title,
+	 * credits, menus). */
+	if (STAGE_IS_GAMEPLAY(stagenum)) {
+		manifestSPTransition(stagenum);
+	}
 
 	g_MainChangeToStageNum = stagenum;
 }

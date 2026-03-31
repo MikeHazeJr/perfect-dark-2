@@ -3,6 +3,45 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S94 -- 2026-03-31
+
+**Focus**: SA-6 — SP load manifest + diff-based asset lifecycle
+
+### What Was Done
+
+1. **`manifest_diff_t` struct** added to `port/include/net/netmanifest.h`:
+   - `manifest_diff_entry_t` (id[64] + net_hash + type) as the per-entry type
+   - `manifest_diff_t` with fixed `to_load[]`, `to_unload[]`, `to_keep[]` arrays (MANIFEST_MAX_ENTRIES each) + counts
+
+2. **5 new functions** implemented in `port/src/net/netmanifest.c`:
+   - `manifestBuildMission(stagenum, out)` — builds manifest for SP stage via `catalogResolveStage()` + Joanna (body_0/head_0); two TODOs for spawn-list characters and prop models
+   - `manifestDiff(current, needed, out)` — two-pass O(n²) diff; pass 1 classifies needed entries into to_load/to_keep; pass 2 finds to_unload entries
+   - `manifestDiffFree(diff)` — memset (fixed arrays, no heap); named for future MEM-2 swap-in
+   - `manifestApplyDiff(needed, diff)` — calls `assetCatalogSetLoadState()` for unloads (→ENABLED) and loads (→LOADED); updates `g_CurrentLoadedManifest`
+   - `manifestSPTransition(stagenum)` — convenience wrapper using module-static buffers to keep caller stack small
+
+3. **`g_CurrentLoadedManifest` global** added (tracks current SP load state for diff baseline)
+
+4. **`mainChangeToStage()` wired** in `port/src/pdmain.c`: added `#include "net/netmanifest.h"` + `STAGE_IS_GAMEPLAY()` guard + `manifestSPTransition(stagenum)` call before `g_MainChangeToStageNum` is set
+
+### Build Status
+
+711/711 clean. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean. No new warnings from SA-6 code.
+
+### Key Decisions
+
+- **Fixed arrays, not malloc**: `manifest_diff_t` uses MANIFEST_MAX_ENTRIES-sized fixed arrays (~26 KB struct). Module statics in netmanifest.c avoid stack bloat in callers. `manifestDiffFree` is a memset stub — named for easy MEM-2 upgrade.
+- **State-tracking only**: `manifestApplyDiff` calls `assetCatalogSetLoadState` to advance through the lifecycle but doesn't move memory yet. That's MEM-2's job. The value of SA-6 is the tracking infrastructure.
+- **Joanna hardcoded for now**: `body_0`/`head_0` covers the current SP use case. Full spawn-list enumeration requires pre-loaded setup file data — deferred with TODO comments.
+- **Wired in `mainChangeToStage()`**: This is the canonical SP stage transition call, equivalent to `matchStart()` for MP. Only fires for `STAGE_IS_GAMEPLAY()` stages (not title/credits/menus).
+
+### Next Steps
+
+- SP playtest: run two consecutive missions, check log for `MANIFEST-SP:` lines. Joanna should appear in `to_keep` on second mission; mission-unique stage should appear in `to_load`.
+- SA-2: Modular catalog API layer (typed result struct functions replacing ad-hoc `catalogResolve()` calls) — this is the next major SA track
+
+---
+
 ## Session S93 -- 2026-03-31
 
 **Focus**: SA-5f — deprecation pass, final Phase 5 sub-phase
