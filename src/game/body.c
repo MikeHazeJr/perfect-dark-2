@@ -184,7 +184,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		bodynum = 0;
 	}
 
-	f32 scale = g_HeadsAndBodies[bodynum].scale * 0.10000001f;
+	f32 scale = catalogGetBodyScaleByIndex(bodynum) * 0.10000001f; /* SA-5-cleanup */
 	f32 animscale = g_HeadsAndBodies[bodynum].animscale;
 	struct modelnode *node = NULL;
 	u32 stack[2];

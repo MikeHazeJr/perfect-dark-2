@@ -736,6 +736,22 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
  */
 const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
 
+/* ── SA-5 failure state ─────────────────────────────────────────────────── */
+
+/**
+ * Set to 1 by any catalogGet*ByIndex helper when the required asset is absent
+ * from the catalog.  Callers on the load path should check this after loading
+ * a stage or character to detect pipeline initialization failures.
+ * Reset by the caller (or catalog reload) before the next load sequence.
+ */
+extern s32  g_CatalogFailure;
+
+/**
+ * Human-readable description of the first catalog miss.
+ * Valid only when g_CatalogFailure == 1.  Populated by snprintf.
+ */
+extern char g_CatalogFailureMsg[256];
+
 /* ── SA-5a: Load-site helpers ───────────────────────────────────────────── */
 
 /**
@@ -743,17 +759,27 @@ const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
  * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].filenum at model
  * load call sites.  Performs an O(n) catalog scan -- acceptable at load time
  * (called once at match/stage start, not per frame).
- * Falls back to g_HeadsAndBodies[bodynum].filenum on catalog miss so base game
- * behaviour is unchanged when the catalog is not yet populated.
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ * No silent fallback to legacy arrays.
  */
 s32 catalogGetBodyFilenumByIndex(s32 bodynum);
 
 /**
  * SA-5a: Resolve a head model filenum by runtime head index.
  * Mod-override-aware drop-in for g_HeadsAndBodies[headnum].filenum at model
- * load call sites.  Same O(n) / fallback behaviour as catalogGetBodyFilenumByIndex.
+ * load call sites.  Same behaviour as catalogGetBodyFilenumByIndex.
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
  */
 s32 catalogGetHeadFilenumByIndex(s32 headnum);
+
+/**
+ * SA-5a: Resolve a body model scale by runtime body index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].scale.
+ * Returns catalog entry model_scale (default 1.0 for base game).
+ * Mods that ship custom model scales will have their value respected here.
+ * On catalog miss: logs [CATALOG-FATAL] and falls back to legacy scale.
+ */
+f32 catalogGetBodyScaleByIndex(s32 bodynum);
 
 /**
  * SA-5b: Resolve all stage file IDs by runtime stage array index.
@@ -762,9 +788,9 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum);
  * Performs an O(n) catalog scan -- acceptable at load time (called once per
  * stage transition, not per frame).
  * Populates all file ID fields in *out from the catalog entry.
- * Falls back to g_Stages[stageindex] fields on catalog miss so base game
- * behaviour is unchanged when the catalog is not yet populated.
- * Returns 1 on success (catalog hit), 0 on fallback (catalog miss).
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0
+ * with *out zeroed.  No silent fallback to g_Stages[].
+ * Returns 1 on success (catalog hit), 0 on catalog miss.
  */
 s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
 

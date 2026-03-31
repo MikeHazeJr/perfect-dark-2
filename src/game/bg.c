@@ -1456,33 +1456,17 @@ void bgReset(s32 stagenum)
 	s32 j;
 	s32 i;
 	u32 primcompsize;
-	u32 inflatedsize; // used for both primary and section 2
+	u32 inflatedsize; /* used for both primary and section 2 */
 	u32 section2compsize;
 	u32 section2start;
 	u32 section1compsize;
 	uintptr_t scratch;
+	catalog_stage_result_t stage; /* SA-5-cleanup: catalog-resolved file IDs for log */
 
 	var8007fc0c = 8;
 
-#if VERSION >= VERSION_NTSC_1_0
-	if (IS4MB()) {
-		g_BgUnloadDelay240 = 6;
-		g_BgUnloadDelay240_2 = 6;
-	} else {
-		g_BgUnloadDelay240 = 120;
-		g_BgUnloadDelay240_2 = 120;
-	}
-#else
-	if (IS4MB()) {
-		g_BgUnloadDelay240 = 120;
-		g_BgUnloadDelay240_2 = 120;
-	} else {
-		g_BgUnloadDelay240 = 3600;
-		g_BgUnloadDelay240_2 = 3600;
-	}
-
-	var800a4bf4 = 0;
-#endif
+	g_BgUnloadDelay240 = 120;
+	g_BgUnloadDelay240_2 = 120;
 
 	g_StageIndex = bgGetStageIndex(stagenum);
 
@@ -1492,11 +1476,13 @@ void bgReset(s32 stagenum)
 		g_StageIndex = 0;
 	}
 
+	/* SA-5-cleanup: log catalog-resolved file IDs (reflects mod overrides) */
+	catalogGetStageResultByIndex(g_StageIndex, &stage);
 	sysLogPrintf(LOG_NOTE, "LOAD: stage[%d] id=0x%02x bgfile=%d tiles=%d pads=%d setup=%d mpsetup=%d",
-		g_StageIndex, g_Stages[g_StageIndex].id,
-		g_Stages[g_StageIndex].bgfileid, g_Stages[g_StageIndex].tilefileid,
-		g_Stages[g_StageIndex].padsfileid, g_Stages[g_StageIndex].setupfileid,
-		g_Stages[g_StageIndex].mpsetupfileid);
+		g_StageIndex, stage.stagenum,
+		stage.bgfileid, stage.tilefileid,
+		stage.padsfileid, stage.setupfileid,
+		stage.mpsetupfileid);
 
 	// Copy section 1 header to stack and parse into variables
 	header = (u8 *)ALIGN16((uintptr_t)headerbuffer);
@@ -2150,12 +2136,7 @@ void bgTick(void)
 	if (tickmode == TICKMODE_NORMAL) {
 		var8007fc10 = 4;
 
-#if VERSION >= VERSION_NTSC_1_0
-		if (IS8MB() && var8007fc0c)
-#else
-		if (var8007fc0c)
-#endif
-		{
+		if (var8007fc0c) {
 			var8007fc0c--;
 			var8007fc10 = 200;
 		}
@@ -5774,7 +5755,7 @@ Gfx *bgRenderSceneAndLoadCandidate(Gfx *gdl)
 	}
 
 	// Consider loading one room by finding the load candidate that is closest to the player
-	if (g_BgLoadCandidateTimer240 == 0 && var8007fc10 == 4 && g_Vars.tickmode == TICKMODE_NORMAL && IS8MB()) {
+	if (g_BgLoadCandidateTimer240 == 0 && var8007fc10 == 4 && g_Vars.tickmode == TICKMODE_NORMAL) {
 		struct player *player = g_Vars.currentplayer;
 		s32 i;
 		f32 value;

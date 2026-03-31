@@ -23,6 +23,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "system.h"
@@ -355,10 +356,20 @@ u16 catalogReadAssetRef(struct netbuf *buf)
 }
 
 /* -------------------------------------------------------------------------
+ * SA-5 global failure state
+ * Set by catalog helpers when a required asset is not found.
+ * Callers should check g_CatalogFailure after load-path calls.
+ * g_CatalogFailureMsg holds a human-readable description of the first miss.
+ * ------------------------------------------------------------------------- */
+
+s32  g_CatalogFailure = 0;
+char g_CatalogFailureMsg[256] = {0};
+
+/* -------------------------------------------------------------------------
  * SA-5a: Load-site helpers
- * Mod-override-aware filenum resolution by runtime body/head array index.
+ * Mod-override-aware filenum / scale resolution by runtime body/head index.
  * Used at model load call sites in body.c, player.c, menu.c, setup.c to
- * replace direct g_HeadsAndBodies[n].filenum accesses.
+ * replace direct g_HeadsAndBodies[n].filenum / .scale accesses.
  * O(n) scan per call -- acceptable at load time (once per match start).
  * ------------------------------------------------------------------------- */
 
@@ -371,10 +382,13 @@ s32 catalogGetBodyFilenumByIndex(s32 bodynum)
     if (id && catalogResolveBody(id, &result)) {
         return result.filenum;
     }
-    sysLogPrintf(LOG_WARNING,
-        "[CATALOG-ASSERT] catalogGetBodyFilenumByIndex: bodynum=%d not in catalog, "
-        "using legacy g_HeadsAndBodies[].filenum", bodynum);
-    return (s32)g_HeadsAndBodies[bodynum].filenum;
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetBodyFilenumByIndex: bodynum=%d not in catalog "
+        "(searched ASSET_BODY by runtime_index)", bodynum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: body bodynum=%d not found in catalog", bodynum);
+    return 0;
 }
 
 s32 catalogGetHeadFilenumByIndex(s32 headnum)
@@ -386,10 +400,29 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
     if (id && catalogResolveHead(id, &result)) {
         return result.filenum;
     }
-    sysLogPrintf(LOG_WARNING,
-        "[CATALOG-ASSERT] catalogGetHeadFilenumByIndex: headnum=%d not in catalog, "
-        "using legacy g_HeadsAndBodies[].filenum", headnum);
-    return (s32)g_HeadsAndBodies[headnum].filenum;
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetHeadFilenumByIndex: headnum=%d not in catalog "
+        "(searched ASSET_HEAD by runtime_index)", headnum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: head headnum=%d not found in catalog", headnum);
+    return 0;
+}
+
+f32 catalogGetBodyScaleByIndex(s32 bodynum)
+{
+    const char *id;
+    catalog_body_result_t result;
+
+    id = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+    if (id && catalogResolveBody(id, &result)) {
+        return result.model_scale;
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetBodyScaleByIndex: bodynum=%d not in catalog "
+        "(searched ASSET_BODY by runtime_index), falling back to legacy scale",
+        bodynum);
+    return g_HeadsAndBodies[bodynum].scale;
 }
 
 /* -------------------------------------------------------------------------
@@ -410,18 +443,11 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
     if (id && catalogResolveStage(id, out)) {
         return 1;
     }
-    /* Fallback: populate directly from g_Stages so callers work unchanged
-     * when the catalog is not yet populated. */
-    sysLogPrintf(LOG_WARNING,
-        "[CATALOG-ASSERT] catalogGetStageResultByIndex: stageindex=%d not in catalog, "
-        "using legacy g_Stages[] file IDs", stageindex);
-    if (g_Stages != NULL && stageindex >= 0) {
-        out->bgfileid      = (s32)g_Stages[stageindex].bgfileid;
-        out->padsfileid    = (s32)g_Stages[stageindex].padsfileid;
-        out->setupfileid   = (s32)g_Stages[stageindex].setupfileid;
-        out->mpsetupfileid = (s32)g_Stages[stageindex].mpsetupfileid;
-        out->tilefileid    = (s32)g_Stages[stageindex].tilefileid;
-        out->stagenum      = (s32)g_Stages[stageindex].id;
-    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetStageResultByIndex: stageindex=%d not in catalog "
+        "(searched ASSET_MAP by runtime_index)", stageindex);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: stage stageindex=%d not found in catalog", stageindex);
     return 0;
 }

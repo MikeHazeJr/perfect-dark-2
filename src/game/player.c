@@ -1624,7 +1624,7 @@ void playerTickChrBody(void)
 				|| bodymodeldef->numparts <= 0
 				|| bodymodeldef->numparts > 500) {
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
-					bodynum, g_HeadsAndBodies[bodynum].filenum);
+					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5-cleanup */
 				bodynum = BODY_DARK_COMBAT;
 				headnum = HEAD_DARK_COMBAT;
 
@@ -1643,12 +1643,6 @@ void playerTickChrBody(void)
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
-			} else if (g_Vars.normmplayerisrunning && IS8MB()) {
-				/* IS8MB() is compile-time 0 — dead branch. filenum refs left as-is. */
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
-				g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
-				bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 			} else {
 				if (g_HeadsAndBodies[headnum].modeldef == NULL) {
 					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
