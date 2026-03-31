@@ -719,6 +719,20 @@ s32 catalogResolvePropBySession(u16 session_id, catalog_prop_result_t *out);
  */
 const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 
+/* ── SA-4: Reverse-index lookup (migration only) ───────────────────────── */
+
+/**
+ * Reverse-lookup: find catalog entry by asset type and runtime_index.
+ * Used only during save-file migration (SA-4) to convert legacy integer
+ * indices to catalog string IDs.  O(n) linear scan -- never call on the
+ * hot path.  Logs [CATALOG-ASSERT] and returns NULL if not found.
+ *
+ * @param type           Asset type (ASSET_BODY, ASSET_HEAD, ASSET_MAP, etc.)
+ * @param runtime_index  The integer index stored in asset_entry_t.runtime_index
+ * @return  Pointer to the catalog ID string (valid for catalog lifetime), or NULL.
+ */
+const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**

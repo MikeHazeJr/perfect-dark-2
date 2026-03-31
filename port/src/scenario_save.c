@@ -43,6 +43,7 @@
 #include "game/mplayer/participant.h"   /* PARTICIPANT_DEFAULT_CAPACITY */
 
 #include "scenario_save.h"
+#include "assetcatalog.h"
 #include "fs.h"
 #include "system.h"
 
@@ -256,11 +257,19 @@ s32 scenarioSave(const char *name)
 
     /* --- Write JSON --- */
     fprintf(fp, "{\n");
-    fprintf(fp, "  \"version\": 1,\n");
+    fprintf(fp, "  \"version\": 2,\n");
     fprintf(fp, "  \"name\": \"");
     jsonEscapeStr(fp, name);
     fprintf(fp, "\",\n");
     fprintf(fp, "  \"arena\": %u,\n",        (unsigned)g_MatchConfig.stagenum);
+    /* SA-4: catalog string ID for arena */
+    {
+        const char *stage_id = catalogResolveByRuntimeIndex(ASSET_MAP,
+                                                            (s32)g_MatchConfig.stagenum);
+        fprintf(fp, "  \"arenaId\": \"");
+        jsonEscapeStr(fp, stage_id ? stage_id : "");
+        fprintf(fp, "\",\n");
+    }
     fprintf(fp, "  \"scenario\": %u,\n",     (unsigned)g_MatchConfig.scenario);
     fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
     fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
@@ -278,12 +287,24 @@ s32 scenarioSave(const char *name)
         if (!first) fprintf(fp, ",\n");
         first = 0;
 
-        fprintf(fp, "    {\"name\": \"");
-        jsonEscapeStr(fp, sl->name);
-        fprintf(fp, "\", \"difficulty\": %u, \"body\": %u, \"head\": %u}",
-                (unsigned)sl->botDifficulty,
-                (unsigned)sl->bodynum,
-                (unsigned)sl->headnum);
+        /* SA-4: include catalog string IDs alongside legacy integer fields */
+        {
+            const char *body_id = catalogResolveByRuntimeIndex(ASSET_BODY,
+                                                               (s32)sl->bodynum);
+            const char *head_id = catalogResolveByRuntimeIndex(ASSET_HEAD,
+                                                               (s32)sl->headnum);
+            fprintf(fp, "    {\"name\": \"");
+            jsonEscapeStr(fp, sl->name);
+            fprintf(fp, "\", \"difficulty\": %u, \"body\": %u, \"head\": %u"
+                        ", \"bodyId\": \"",
+                    (unsigned)sl->botDifficulty,
+                    (unsigned)sl->bodynum,
+                    (unsigned)sl->headnum);
+            jsonEscapeStr(fp, body_id ? body_id : "");
+            fprintf(fp, "\", \"headId\": \"");
+            jsonEscapeStr(fp, head_id ? head_id : "");
+            fprintf(fp, "\"}");
+        }
     }
     if (!first) fprintf(fp, "\n");
     fprintf(fp, "  ]\n");
@@ -331,7 +352,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     /* --- Parse version check --- */
     s32 version = 0;
     jsonFindInt(buf, "version", &version);
-    if (version != 1) {
+    if (version != 1 && version != 2) {
         sysLogPrintf(LOG_WARNING, "SCENARIO: unsupported version %d in '%s'",
                      version, filepath);
         free(buf);
@@ -350,7 +371,9 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     s32 weaponset      = 0;
     u32 teamscorelimit = 400;
     u32 options        = 0;
+    char arena_id[CATALOG_ID_LEN];
 
+    arena_id[0] = '\0';
     jsonFindInt (buf, "arena",          &arena);
     jsonFindInt (buf, "scenario",       &scenario);
     jsonFindInt (buf, "timelimit",      &timelimit);
@@ -358,12 +381,22 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     jsonFindInt (buf, "weaponset",      &weaponset);
     jsonFindUInt(buf, "teamscorelimit", &teamscorelimit);
     jsonFindUInt(buf, "options",        &options);
+    /* SA-4: prefer catalog string ID for arena over legacy integer */
+    jsonFindString(buf, "arenaId", arena_id, sizeof(arena_id));
 
     /* --- Reset match config and apply loaded settings --- */
     matchConfigInit();
 
-    if (arena >= 0)
+    /* SA-4: prefer catalog string ID for arena; fall back to legacy integer */
+    if (arena_id[0]) {
+        s32 idx = assetCatalogResolveStageIndex(arena_id);
+        if (idx >= 0)
+            g_MatchConfig.stagenum = (u8)idx;
+        else if (arena >= 0)
+            g_MatchConfig.stagenum = (u8)arena;
+    } else if (arena >= 0) {
         g_MatchConfig.stagenum     = (u8)arena;
+    }
     if (scenario >= 0 && scenario < 16)
         g_MatchConfig.scenario     = (u8)scenario;
     if (timelimit >= 0)
@@ -414,21 +447,41 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
 
                 /* Extract fields */
                 char botName[MAX_PLAYER_NAME];
-                botName[0] = '\0';
+                char body_id[CATALOG_ID_LEN];
+                char head_id[CATALOG_ID_LEN];
                 s32 difficulty = 2; /* NormalSim default */
                 s32 body       = 0;
                 s32 head       = 0;
+
+                botName[0] = '\0';
+                body_id[0] = '\0';
+                head_id[0] = '\0';
 
                 jsonFindString(obj, "name",       botName, MAX_PLAYER_NAME);
                 jsonFindInt   (obj, "difficulty", &difficulty);
                 jsonFindInt   (obj, "body",        &body);
                 jsonFindInt   (obj, "head",        &head);
+                /* SA-4: prefer catalog string IDs */
+                jsonFindString(obj, "bodyId",      body_id, sizeof(body_id));
+                jsonFindString(obj, "headId",      head_id, sizeof(head_id));
 
-                /* Clamp values to safe ranges */
+                /* Clamp legacy integer values to safe ranges */
                 if (difficulty < 0) difficulty = 0;
                 if (difficulty > 5) difficulty = 5;
                 if (body < 0)       body = 0;
                 if (head < 0)       head = 0;
+
+                /* SA-4: resolve string IDs to runtime indices; fall back to integers */
+                if (body_id[0]) {
+                    const asset_entry_t *e = assetCatalogResolve(body_id);
+                    if (e && e->type == ASSET_BODY)
+                        body = e->runtime_index;
+                }
+                if (head_id[0]) {
+                    const asset_entry_t *e = assetCatalogResolve(head_id);
+                    if (e && e->type == ASSET_HEAD)
+                        head = e->runtime_index;
+                }
 
                 matchConfigAddBot(0 /* BOTTYPE_NORMAL */,
                                   (u8)difficulty,

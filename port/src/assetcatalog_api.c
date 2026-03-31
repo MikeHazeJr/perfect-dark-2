@@ -312,6 +312,30 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash)
 }
 
 /* -------------------------------------------------------------------------
+ * SA-4: Reverse-index lookup (save migration only)
+ * O(n) scan of the entry pool.  Used only during legacy save conversion.
+ * ------------------------------------------------------------------------- */
+
+const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index)
+{
+    s32 i;
+    const asset_entry_t *e;
+
+    for (i = 0; ; i++) {
+        e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type == type && e->runtime_index == runtime_index) {
+            return e->id;
+        }
+    }
+
+    sysLogPrintf(LOG_WARNING,
+        "[CATALOG-ASSERT] catalogResolveByRuntimeIndex: type=%d index=%d not found",
+        (int)type, runtime_index);
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------
  * Wire helpers
  * The ONLY functions that may serialize/deserialize asset references on wire.
  * ------------------------------------------------------------------------- */

@@ -28,6 +28,7 @@
 #include "bss.h"
 #include "system.h"
 #include "savefile.h"
+#include "assetcatalog.h"
 #include "fs.h"
 
 /* ========================================================================
@@ -597,9 +598,15 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	writeJsonString(fp, "name", name);
 	fprintf(fp, ",\n");
 
-	/* Appearance */
-	fprintf(fp, "  \"mpheadnum\": %u,\n", pc->base.mpheadnum);
-	fprintf(fp, "  \"mpbodynum\": %u,\n", pc->base.mpbodynum);
+	/* Appearance — SA-4: write catalog string IDs */
+	{
+		const char *head_id = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)pc->base.mpheadnum);
+		const char *body_id = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)pc->base.mpbodynum);
+		writeJsonString(fp, "head_id", head_id ? head_id : "");
+		fprintf(fp, ",\n");
+		writeJsonString(fp, "body_id", body_id ? body_id : "");
+		fprintf(fp, ",\n");
+	}
 	fprintf(fp, "  \"team\": %u,\n", pc->base.team);
 	fprintf(fp, "  \"displayoptions\": %u,\n", pc->base.displayoptions);
 
@@ -656,9 +663,29 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		if (strcmp(key, "name") == 0) {
 			tok = s_next(&p);
 			s_tok_str(&tok, pc->base.name, 15);
+		} else if (strcmp(key, "head_id") == 0) {
+			/* SA-4: catalog string ID for head */
+			char id_buf[CATALOG_ID_LEN];
+			const asset_entry_t *e;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			e = assetCatalogResolve(id_buf);
+			if (e && e->type == ASSET_HEAD)
+				pc->base.mpheadnum = (u8)e->runtime_index;
+		} else if (strcmp(key, "body_id") == 0) {
+			/* SA-4: catalog string ID for body */
+			char id_buf[CATALOG_ID_LEN];
+			const asset_entry_t *e;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			e = assetCatalogResolve(id_buf);
+			if (e && e->type == ASSET_BODY)
+				pc->base.mpbodynum = (u8)e->runtime_index;
 		} else if (strcmp(key, "mpheadnum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
 		} else if (strcmp(key, "mpbodynum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpbodynum = s_tok_int(&tok);
 		} else if (strcmp(key, "team") == 0) {
 			tok = s_next(&p); pc->base.team = s_tok_int(&tok);
@@ -729,7 +756,12 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
-	fprintf(fp, "  \"stagenum\": %u,\n", g_MpSetup.stagenum);
+	/* SA-4: write stage as catalog string ID */
+	{
+		const char *stage_id = catalogResolveByRuntimeIndex(ASSET_MAP, (s32)g_MpSetup.stagenum);
+		writeJsonString(fp, "stage_id", stage_id ? stage_id : "");
+		fprintf(fp, ",\n");
+	}
 	fprintf(fp, "  \"timelimit\": %u,\n", g_MpSetup.timelimit);
 	fprintf(fp, "  \"scorelimit\": %u,\n", g_MpSetup.scorelimit);
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);
@@ -769,7 +801,17 @@ s32 saveLoadMpSetup(const char *name)
 
 		if (strcmp(key, "scenario") == 0) {
 			tok = s_next(&p); g_MpSetup.scenario = s_tok_int(&tok);
+		} else if (strcmp(key, "stage_id") == 0) {
+			/* SA-4: catalog string ID for stage */
+			char id_buf[CATALOG_ID_LEN];
+			s32 idx;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			idx = assetCatalogResolveStageIndex(id_buf);
+			if (idx >= 0)
+				g_MpSetup.stagenum = (u8)idx;
 		} else if (strcmp(key, "stagenum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); g_MpSetup.stagenum = s_tok_int(&tok);
 		} else if (strcmp(key, "timelimit") == 0) {
 			tok = s_next(&p); g_MpSetup.timelimit = s_tok_int(&tok);
