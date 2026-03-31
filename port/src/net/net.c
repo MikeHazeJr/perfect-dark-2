@@ -316,8 +316,10 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 static inline void netClientReadConfig(struct netclient *cl, const s32 playernum)
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
-	cl->settings.bodynum = g_PlayerConfigsArray[playernum].base.mpbodynum;
-	cl->settings.headnum = g_PlayerConfigsArray[playernum].base.mpheadnum;
+	snprintf(cl->settings.body_id, CATALOG_ID_LEN, "body_%d",
+	         (int)g_PlayerConfigsArray[playernum].base.mpbodynum);
+	snprintf(cl->settings.head_id, CATALOG_ID_LEN, "head_%d",
+	         (int)g_PlayerConfigsArray[playernum].base.mpheadnum);
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
@@ -642,10 +644,10 @@ void netServerStageStart(void)
 	// Log each connected client's state for debugging
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state != CLSTATE_DISCONNECTED) {
-			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head=%u body=%u team=%u",
+			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head='%s' body='%s' team=%u",
 			             g_NetClients[ci].id, g_NetClients[ci].settings.name,
 			             g_NetClients[ci].state, g_NetClients[ci].playernum,
-			             g_NetClients[ci].settings.headnum, g_NetClients[ci].settings.bodynum,
+			             g_NetClients[ci].settings.head_id, g_NetClients[ci].settings.body_id,
 			             g_NetClients[ci].settings.team);
 		}
 	}
@@ -712,8 +714,8 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		struct netclient *cl = &g_NetClients[i];
 		if (cl->state >= CLSTATE_LOBBY) {
-			sysLogPrintf(LOG_NOTE, "NET: player %d (%s) body=%u head=%u",
-				i, cl->settings.name, cl->settings.bodynum, cl->settings.headnum);
+			sysLogPrintf(LOG_NOTE, "NET: player %d (%s) body='%s' head='%s'",
+				i, cl->settings.name, cl->settings.body_id, cl->settings.head_id);
 		}
 	}
 
@@ -990,9 +992,13 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 
 	// apply settings to the config
 	struct mpplayerconfig *cfg = cl->config;
+	{
+		const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
+		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+	}
 	cfg->controlmode = CONTROLMODE_NA;
-	cfg->base.mpbodynum = cl->settings.bodynum;
-	cfg->base.mpheadnum = cl->settings.headnum;
 	snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
 	cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
 	cfg->options |= cl->settings.options & ~OPTION_PAINTBALL;
@@ -1556,9 +1562,13 @@ void netPlayersAllocate(void)
 			if (cl->playernum < MAX_PLAYERS) {
 				s_RemoteConfigBackups[cl->playernum] = *cfg;
 			}
+			{
+				const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+				const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+				cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
+				cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+			}
 			cfg->controlmode = CONTROLMODE_NA;
-			cfg->base.mpbodynum = cl->settings.bodynum;
-			cfg->base.mpheadnum = cl->settings.headnum;
 			snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
 			// take some of the options from our local player and others from the client
 			cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
@@ -1578,8 +1588,8 @@ void netPlayersAllocate(void)
 		}
 
 		// Log player allocation
-		sysLogPrintf(LOG_NOTE, "NET: allocated playernum=%d body=%d head=%d name=%s",
-			cl->playernum, cl->settings.bodynum, cl->settings.headnum, cl->settings.name);
+		sysLogPrintf(LOG_NOTE, "NET: allocated playernum=%d body='%s' head='%s' name=%s",
+			cl->playernum, cl->settings.body_id, cl->settings.head_id, cl->settings.name);
 	}
 }
 

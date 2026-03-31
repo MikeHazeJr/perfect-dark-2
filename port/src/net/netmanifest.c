@@ -122,7 +122,7 @@ u32 manifestComputeHash(match_manifest_t *m)
  *
  * Reads from global server state:
  *   g_MpSetup         -- stage, weapons, chrslots
- *   g_NetClients[]    -- player body/head (settings.bodynum / settings.headnum)
+ *   g_NetClients[]    -- player body/head (settings.body_id / settings.head_id)
  *   g_BotConfigsArray[] -- bot body/head (mpbodynum / mpheadnum)
  *   g_Lobby.settings.numSimulants -- bot count
  *   modmgrGetCount()  -- enabled mods (returns 0 on dedicated server stub)
@@ -178,26 +178,26 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             continue;
         }
 
-        char body_id[64], head_id[64];
-        snprintf(body_id, sizeof(body_id), "body_%d", (int)ncl->settings.bodynum);
-        snprintf(head_id, sizeof(head_id), "head_%d", (int)ncl->settings.headnum);
-
-        const asset_entry_t *be = assetCatalogResolve(body_id);
-        if (be) {
-            manifestAddEntry(out, be->net_hash, be->id,
-                             MANIFEST_TYPE_BODY, slot_index);
-        } else {
-            manifestAddEntry(out, s_fnv1a(body_id), body_id,
-                             MANIFEST_TYPE_BODY, slot_index);
+        /* SA-3: use catalog string IDs directly from settings */
+        {
+            const asset_entry_t *be = assetCatalogResolve(ncl->settings.body_id);
+            if (be) {
+                manifestAddEntry(out, be->net_hash, be->id,
+                                 MANIFEST_TYPE_BODY, slot_index);
+            } else {
+                manifestAddEntry(out, s_fnv1a(ncl->settings.body_id), ncl->settings.body_id,
+                                 MANIFEST_TYPE_BODY, slot_index);
+            }
         }
-
-        const asset_entry_t *he = assetCatalogResolve(head_id);
-        if (he) {
-            manifestAddEntry(out, he->net_hash, he->id,
-                             MANIFEST_TYPE_HEAD, slot_index);
-        } else {
-            manifestAddEntry(out, s_fnv1a(head_id), head_id,
-                             MANIFEST_TYPE_HEAD, slot_index);
+        {
+            const asset_entry_t *he = assetCatalogResolve(ncl->settings.head_id);
+            if (he) {
+                manifestAddEntry(out, he->net_hash, he->id,
+                                 MANIFEST_TYPE_HEAD, slot_index);
+            } else {
+                manifestAddEntry(out, s_fnv1a(ncl->settings.head_id), ncl->settings.head_id,
+                                 MANIFEST_TYPE_HEAD, slot_index);
+            }
         }
 
         slot_index++;

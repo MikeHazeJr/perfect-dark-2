@@ -4,6 +4,7 @@
 #include "types.h"
 #include "constants.h"
 #include "net/netbuf.h"
+#include "assetcatalog.h"
 
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
@@ -143,8 +144,8 @@ struct netclient {
 	struct {
 		char name[NET_MAX_NAME];
 		u16 options;
-		u8 headnum;
-		u8 bodynum;
+		char body_id[CATALOG_ID_LEN]; /* catalog asset ID, e.g. "body_0" or "base:joanna_dark" */
+		char head_id[CATALOG_ID_LEN]; /* catalog asset ID, e.g. "head_0" */
 		u8 team;
 		f32 fovy;
 		f32 fovzoommult;

@@ -490,8 +490,9 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, CLC_SETTINGS);
 	netbufWriteU16(dst, g_NetLocalClient->settings.options);
-	netbufWriteU8(dst, g_NetLocalClient->settings.bodynum);
-	netbufWriteU8(dst, g_NetLocalClient->settings.headnum);
+	/* SA-3: body/head as session IDs (0 if catalog not yet active — server skips update) */
+	catalogWriteAssetRef(dst, sessionCatalogGetId(g_NetLocalClient->settings.body_id));
+	catalogWriteAssetRef(dst, sessionCatalogGetId(g_NetLocalClient->settings.head_id));
 	netbufWriteU8(dst, g_NetLocalClient->settings.team);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovy);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovzoommult);
@@ -515,8 +516,9 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u16 options = netbufReadU16(src);
-	const u8 bodynum = netbufReadU8(src);
-	const u8 headnum = netbufReadU8(src);
+	/* SA-3: body/head arrive as session IDs; 0 means catalog not yet active, skip update */
+	const u16 body_session = catalogReadAssetRef(src);
+	const u16 head_session = catalogReadAssetRef(src);
 	const u8 team = netbufReadU8(src);
 	const f32 fovy = netbufReadF32(src);
 	const f32 fovzoommult = netbufReadF32(src);
@@ -532,16 +534,34 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 		netChatPrintf(NULL, "%s is now known as %s", srccl->settings.name, name);
 	}
 
-	// Log character body/head changes if different
-	if (srccl->settings.bodynum != bodynum || srccl->settings.headnum != headnum) {
-		sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u changed character body=%u head=%u", srccl->id, bodynum, headnum);
+	/* Resolve body/head session IDs to catalog string IDs.
+	 * Session 0 = catalog not yet active (lobby phase) — keep existing id. */
+	if (body_session > 0) {
+		const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+		if (be) {
+			if (strncmp(srccl->settings.body_id, be->id, CATALOG_ID_LEN) != 0) {
+				sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u body '%s' -> '%s'",
+				             srccl->id, srccl->settings.body_id, be->id);
+			}
+			strncpy(srccl->settings.body_id, be->id, CATALOG_ID_LEN - 1);
+			srccl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+		}
+	}
+	if (head_session > 0) {
+		const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+		if (he) {
+			if (strncmp(srccl->settings.head_id, he->id, CATALOG_ID_LEN) != 0) {
+				sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u head '%s' -> '%s'",
+				             srccl->id, srccl->settings.head_id, he->id);
+			}
+			strncpy(srccl->settings.head_id, he->id, CATALOG_ID_LEN - 1);
+			srccl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+		}
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
 	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
-	srccl->settings.bodynum = bodynum;
-	srccl->settings.headnum = headnum;
 	srccl->settings.fovy = fovy;
 	srccl->settings.fovzoommult = fovzoommult;
 
@@ -658,11 +678,16 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	                          ? (u8)g_MainChangeToStageNum
 	                          : g_StageNum;
 
-	netbufWriteU8(dst, effectiveStage);
-
+	/* SA-3: stage as session ID. session_id=0 signals "return to lobby" on the client. */
 	if (effectiveStage == STAGE_TITLE || effectiveStage == STAGE_CITRAINING) {
-		// going back to lobby, don't need anything else
+		catalogWriteAssetRef(dst, 0);
 		return dst->error;
+	}
+	{
+		char stage_id[64];
+		snprintf(stage_id, sizeof(stage_id), "stage_0x%02x", (unsigned)effectiveStage);
+		const asset_entry_t *se = assetCatalogResolve(stage_id);
+		catalogWriteAssetRef(dst, se ? sessionCatalogGetId(se->id) : 0);
 	}
 
 	// game settings
@@ -681,7 +706,21 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
 		netbufWriteU64(dst, g_MpSetup.chrslots);  /* u64 since protocol v21: 8 players + 32 bots */
 		netbufWriteU32(dst, g_MpSetup.options);
-		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+		/* SA-3: weapons as session IDs (NUM_MPWEAPONSLOTS u16 entries) */
+		{
+			s32 wi;
+			for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+				if (g_MpSetup.weapons[wi] == 0) {
+					catalogWriteAssetRef(dst, 0);
+				} else {
+					char wid[64];
+					const asset_entry_t *we;
+					snprintf(wid, sizeof(wid), "weapon_%d", (int)g_MpSetup.weapons[wi]);
+					we = assetCatalogResolve(wid);
+					catalogWriteAssetRef(dst, we ? sessionCatalogGetId(we->id) : 0);
+				}
+			}
+		}
 	}
 
 	// who the fuck is in the game
@@ -696,8 +735,9 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			netbufWriteU8(dst, ncl->playernum);
 			netbufWriteU8(dst, ncl->settings.team);
 			netbufWriteU16(dst, ncl->settings.options);
-			netbufWriteU8(dst, ncl->settings.bodynum);
-			netbufWriteU8(dst, ncl->settings.headnum);
+			/* SA-3: body/head as session IDs */
+			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.body_id));
+			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.head_id));
 			netbufWriteF32(dst, ncl->settings.fovy);
 			netbufWriteF32(dst, ncl->settings.fovzoommult);
 			netbufWriteStr(dst, ncl->settings.name);
@@ -718,14 +758,17 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			struct mpbotconfig *bc = &g_BotConfigsArray[botidx];
 			netbufWriteStr(dst, bc->base.name);
 
-			/* Use catalog net_hash (CRC32 of asset ID) as the wire identifier — never raw indices. */
-			struct s_rindex_hash_lookup bl = { (s32)bc->base.mpbodynum, 0 };
-			assetCatalogIterateByType(ASSET_BODY, s_netHashCb, &bl);
-			netbufWriteU32(dst, bl.hash);
-
-			struct s_rindex_hash_lookup hl = { (s32)bc->base.mpheadnum, 0 };
-			assetCatalogIterateByType(ASSET_HEAD, s_netHashCb, &hl);
-			netbufWriteU32(dst, hl.hash);
+			/* SA-3: bot body/head as session IDs via net_hash lookup */
+			{
+				struct s_rindex_hash_lookup bl = { (s32)bc->base.mpbodynum, 0 };
+				assetCatalogIterateByType(ASSET_BODY, s_netHashCb, &bl);
+				catalogWriteAssetRef(dst, sessionCatalogGetIdByHash(bl.hash));
+			}
+			{
+				struct s_rindex_hash_lookup hl = { (s32)bc->base.mpheadnum, 0 };
+				assetCatalogIterateByType(ASSET_HEAD, s_netHashCb, &hl);
+				catalogWriteAssetRef(dst, sessionCatalogGetIdByHash(hl.hash));
+			}
 
 			netbufWriteU8(dst, bc->difficulty);
 			netbufWriteU8(dst, bc->type);
@@ -748,11 +791,20 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_NetRngSeeds[1] = netbufReadU64(src);
 	g_NetRngLatch = true;
 
-	const u8 stagenum = netbufReadU8(src);
-
-	if (stagenum == STAGE_TITLE || stagenum == STAGE_CITRAINING) {
-		// server went back to lobby, we don't really care
+	/* SA-3: stage as session ID; 0 = return to lobby */
+	const u16 stage_session = catalogReadAssetRef(src);
+	u8 stagenum = 0;
+	if (stage_session == 0) {
 		return src->error;
+	}
+	{
+		catalog_stage_result_t sr;
+		if (catalogResolveStageBySession(stage_session, &sr)) {
+			stagenum = (u8)sr.stagenum;
+		} else {
+			sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE unknown stage session %u", (unsigned)stage_session);
+			return 1;
+		}
 	}
 
 	const u8 mode = netbufReadU8(src);
@@ -775,7 +827,23 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
 		g_MpSetup.chrslots = netbufReadU64(src);  /* u64 since protocol v21 */
 		g_MpSetup.options = netbufReadU32(src);
-		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+		/* SA-3: weapons as session IDs */
+		{
+			s32 wi;
+			for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+				const u16 wsession = catalogReadAssetRef(src);
+				if (wsession == 0) {
+					g_MpSetup.weapons[wi] = 0;
+				} else {
+					catalog_weapon_result_t wr;
+					if (catalogResolveWeaponBySession(wsession, &wr)) {
+						g_MpSetup.weapons[wi] = (u8)wr.weapon_num;
+					} else {
+						g_MpSetup.weapons[wi] = 0;
+					}
+				}
+			}
+		}
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
@@ -805,25 +873,44 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 		ncl->settings.team = netbufReadU8(src);
 		if (ncl != g_NetLocalClient) {
+			/* SA-3: body/head as session IDs */
+			u16 body_session;
+			u16 head_session;
 			ncl->id = id;
 			ncl->settings.options = netbufReadU16(src);
-			ncl->settings.bodynum = netbufReadU8(src);
-			ncl->settings.headnum = netbufReadU8(src);
+			body_session = catalogReadAssetRef(src);
+			head_session = catalogReadAssetRef(src);
 			ncl->settings.fovy = netbufReadF32(src);
 			ncl->settings.fovzoommult = netbufReadF32(src);
-			char *name = netbufReadStr(src);
-			if (name) {
-				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
-				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
-			} else {
-				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
-				return 3;
+			{
+				char *name = netbufReadStr(src);
+				if (name) {
+					strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+					ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
+				} else {
+					sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
+					return 3;
+				}
+			}
+			if (body_session > 0) {
+				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+				if (be) {
+					strncpy(ncl->settings.body_id, be->id, CATALOG_ID_LEN - 1);
+					ncl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+				}
+			}
+			if (head_session > 0) {
+				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+				if (he) {
+					strncpy(ncl->settings.head_id, he->id, CATALOG_ID_LEN - 1);
+					ncl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+				}
 			}
 		} else {
-			// skip our own settings except for the team and player number
+			/* skip our own settings except for team and playernum */
 			netbufReadU16(src);
-			netbufReadU8(src);
-			netbufReadU8(src);
+			catalogReadAssetRef(src); /* body_session */
+			catalogReadAssetRef(src); /* head_session */
 			netbufReadF32(src);
 			netbufReadF32(src);
 			netbufReadStr(src);
@@ -909,13 +996,17 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					pnum = pncl->playernum;
 				}
 				if (pnum < MAX_PLAYERS) {
-					s32 safeHead = (s32)pncl->settings.headnum;
-					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)pncl->settings.bodynum, &safeHead);
+					/* SA-3: resolve catalog string IDs → runtime indices */
+					const asset_entry_t *be = assetCatalogResolve(pncl->settings.body_id);
+					const asset_entry_t *he = assetCatalogResolve(pncl->settings.head_id);
+					s32 rawBody = be ? (s32)be->runtime_index : 0;
+					s32 safeHead = he ? (s32)he->runtime_index : 0;
+					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
 					g_PlayerConfigsArray[pnum].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
-					sysLogPrintf(LOG_NOTE, "NET: player %u body=%u->%u head=%u->%u",
-						pnum, pncl->settings.bodynum,
+					sysLogPrintf(LOG_NOTE, "NET: player %u body='%s'->%u head='%s'->%u",
+						pnum, pncl->settings.body_id,
 						g_PlayerConfigsArray[pnum].base.mpbodynum,
-						pncl->settings.headnum,
+						pncl->settings.head_id,
 						g_PlayerConfigsArray[pnum].base.mpheadnum);
 				}
 			}
@@ -930,9 +1021,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
 				continue;
 			}
+			/* SA-3: bot body/head as session IDs */
 			const char *botname = netbufReadStr(src);
-			const u32 body_hash = netbufReadU32(src);
-			const u32 head_hash = netbufReadU32(src);
+			const u16 body_session = catalogReadAssetRef(src);
+			const u16 head_session = catalogReadAssetRef(src);
 			const u8 difficulty = netbufReadU8(src);
 			const u8 bottype = netbufReadU8(src);
 			if (src->error) {
@@ -946,24 +1038,30 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 			g_BotConfigsArray[botidx].difficulty = difficulty;
 			g_BotConfigsArray[botidx].type = bottype;
-			const asset_entry_t *be = assetCatalogResolveByNetHash(body_hash);
-			if (be && be->type == ASSET_BODY) {
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)be->runtime_index;
+			{
+				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+				if (be && be->type == ASSET_BODY) {
+					g_BotConfigsArray[botidx].base.mpbodynum = (u8)be->runtime_index;
+				}
 			}
-			const asset_entry_t *he = assetCatalogResolveByNetHash(head_hash);
-			if (he && he->type == ASSET_HEAD) {
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)he->runtime_index;
+			{
+				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+				if (he && he->type == ASSET_HEAD) {
+					g_BotConfigsArray[botidx].base.mpheadnum = (u8)he->runtime_index;
+				}
 			}
 			/* Final catalog safety-clamp: ensures modeldef is valid on first frame. */
-			s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
-			g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(
-				(s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
-			g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
-			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (hashes 0x%08x/0x%08x)",
+			{
+				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(
+					(s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+			}
+			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (sessions %u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
 				g_BotConfigsArray[botidx].base.mpbodynum,
 				g_BotConfigsArray[botidx].base.mpheadnum,
-				body_hash, head_hash);
+				(unsigned)body_session, (unsigned)head_session);
 		}
 #endif /* !PD_SERVER */
 

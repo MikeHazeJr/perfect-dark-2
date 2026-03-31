@@ -17,6 +17,7 @@
 #include "constants.h"
 #include "net/net.h"
 #include "net/netlobby.h"
+#include "assetcatalog.h"
 #include "system.h"
 
 struct lobbystate g_Lobby;
@@ -64,8 +65,12 @@ void lobbyUpdate(void)
         struct lobbyplayer *lp = &g_Lobby.players[count];
         lp->active = 1;
         lp->clientId = (u8)i;
-        lp->headnum = cl->settings.headnum;
-        lp->bodynum = cl->settings.bodynum;
+        {
+            const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+            const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+            lp->bodynum = be ? (u8)be->runtime_index : 0;
+            lp->headnum = he ? (u8)he->runtime_index : 0;
+        }
         lp->team = cl->settings.team;
 
         /* Copy player name — use Agent name from settings.

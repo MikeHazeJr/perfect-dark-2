@@ -211,7 +211,10 @@ u8 netLobbyGetClientHead(s32 idx)
     s32 count = 0;
     for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
         if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].settings.headnum;
+            if (count == idx) {
+                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.head_id);
+                return e ? (u8)e->runtime_index : 0;
+            }
             count++;
         }
     }
@@ -223,7 +226,10 @@ u8 netLobbyGetClientBody(s32 idx)
     s32 count = 0;
     for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
         if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].settings.bodynum;
+            if (count == idx) {
+                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.body_id);
+                return e ? (u8)e->runtime_index : 0;
+            }
             count++;
         }
     }
