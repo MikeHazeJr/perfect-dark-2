@@ -341,6 +341,13 @@ void pdguiRender(void)
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
 
+    /* Post-match overlay (MATCH OVER screen + "Return to Lobby" button).
+     * Without this call the game freezes on match end — the N64 menu system
+     * drove the post-match transition, but the PC port ImGui doesn't observe
+     * prevmenuroot.  pdguiGameOverRender is a no-op unless MPPAUSEMODE_GAMEOVER
+     * is active, so it is safe to call every frame. */
+    pdguiGameOverRender((s32)winW, (s32)winH);
+
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */

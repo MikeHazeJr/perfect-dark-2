@@ -8,7 +8,7 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 24  /* protocol 24: match startup pipeline (manifest + ready gate + participant array) */
+#define NET_PROTOCOL_VER 25  /* protocol 25: per-bot body/head/name serialised in SVC_STAGE_START */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 

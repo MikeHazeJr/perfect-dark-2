@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-03-30, Session 84
+> **Last updated**: 2026-03-31, Session 90
 
 ---
 
@@ -53,6 +53,7 @@ Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/
 | D14b | Mod Distribution | 📋 Planned | — |
 | D15 | Map Editor / Char Creator / Skins | 📋 Planned | — |
 | D16 | Master Server | 📋 Planned | — |
+| MSP | Match Startup Pipeline | 🔶 Phases A–F done (S84–S90), SA-1–SA-5 next (session catalog) | S90 |
 | D-MEM | Memory Modernization | 🔶 M0–M1 done, MEM-1/2/3 DONE, M2–M6 (stack→heap) remain | S47a |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | 🔶 Phase 1–2 done, Phase 3 (remove chrslots) next | S47b |

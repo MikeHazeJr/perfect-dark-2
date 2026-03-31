@@ -89,9 +89,6 @@
 | Bug | Severity | Status |
 |-----|----------|--------|
 | [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | OPEN (S84) — PushID()/PopID() needed around arena selector. Not yet implemented. |
-| [B-51](bugs.md) Bot stuck/invisible under map | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync now working. Needs verification. |
-| [B-52](bugs.md) Can't pick up weapons/ammo | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
-| [B-53](bugs.md) Can't open doors | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
 | [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
@@ -101,6 +98,26 @@
 ---
 
 ## Active Work Tracks
+
+---
+
+### ⚡ SESSION CATALOG + MODULAR API — HIGHEST INFRASTRUCTURE PRIORITY
+
+> **Design doc**: [`context/designs/session-catalog-and-modular-api.md`](designs/session-catalog-and-modular-api.md)
+> **Principle**: The catalog replaces the **entire** legacy loading pipeline, not just networking. All asset references at interface boundaries (wire protocol, save files, public APIs) must use catalog IDs — never raw N64 indices.
+
+| Phase | Task | Details |
+|-------|------|---------|
+| SA-1 | **Modular catalog API** | Per-system query functions (bodies, heads, stages, weapons, sounds) replacing ad-hoc `catalogResolve()` calls. Typed entry structs. |
+| SA-2 | **Network session catalog** | Translation layer: catalog IDs ↔ wire net_hash. `sessionCatalogBuild()` before match start; `sessionCatalogResolve(hash)` on receive. Replaces raw index transmission on all SVC_* messages. |
+| SA-3 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
+| SA-4 | **Wire protocol migration** | Audit remaining SVC_*/CLC_* messages that still pass raw indices. Migrate to session catalog hashes. ~180 call sites, 20 patterns identified in S90 audit. |
+| SA-5 | **Save file boundary** | Scenario save, agent save: replace any raw indices stored to disk with catalog string IDs. Ensures save compatibility across mod changes. |
+
+> **Status**: Design doc created S90. SA-1/SA-2/SA-3 implementation is next. SA-4 depends on SA-2. SA-5 is parallel.
+> **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
+
+---
 
 ### Join Flow (J-series) — Next Steps
 
@@ -154,33 +171,4 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 | C | **Client manifest processing** | **DONE (S86)** — `manifestCheck()` in netmanifest.c; `g_ClientManifest` global; `netmsgSvcMatchManifestRead()` stores + checks; server broadcasts manifest + logs; both dispatches wired in net.c |
 | C.5 | **Full game catalog registration** | **PARTIAL (S87)** — SP bodies/heads from g_HeadsAndBodies[152] registered in assetcatalog_base.c (~12 new entries). Stages already covered by s_BaseStages[]. **Remaining**: navmesh spawn fallback for SP maps, UI grouping (MP/SP/Unlockable categories in character picker), MPFEATURE_* unlock gating in selection UI. |
 | D | **Mod transfer** | **DONE (S88)** — `netmsgClcManifestStatusRead()` resolves missing hashes via catalog, queues via `netDistribServerHandleDiff`. No-op when all clients READY. |
-| E | **Ready gate** | **DONE (S88)** — `s_ReadyGate` bitmask tracker, `CLSTATE_PREPARING` transitions, 30s timeout, per-client status handling (READY/NEED_ASSETS/DECLINE), broadcasts SVC_MATCH_COUNTDOWN on state changes. Replaces fire-and-forget. |
-| F | **Sync launch** | **DONE (S88)** — 3-second countdown (3→2→1→0) via `readyGateTickCountdown()` in `netEndFrame()`. `g_MatchCountdownState` global for client UI. Broadcasts MANIFEST_PHASE_LOADING, fires stage start at 0. |
-
----
-
-### B-12: Participant System
-
-| Phase | Status |
-|-------|--------|
-| Phase 1: Parallel pool | CODED -- needs build test |
-| Phase 2: Callsite migration | DONE (S47b) |
-| Phase 3: Remove chrslots + protocol v22 | READY — depends on Phase 2 QC |
-
----
-
-## Server Authority & Anti-Cheat
-
-| Item | Status | Details |
-|------|--------|---------|
-| Server-authoritative spawns | PLANNED | Current spawn selection is fully client-side (navspawn.c, playerreset.c). A modified client can spawn anywhere. Server needs to either: (a) validate client spawn positions against known-valid points (pads + waypoints), or (b) select spawn positions server-side and tell clients where to place players. Option (a) is lighter — requires server to load stage waypoint/pad data. Option (b) is architecturally cleaner but needs stage geometry on the dedicated server. Prerequisite: server stage data loading (currently server has catalog metadata but not stage geometry). |
-| Server-side position validation | PLANNED | Broader than spawns — periodic server checks that player positions are reachable / not inside walls. Depends on server having collision/navmesh data. |
-| Input validation | FUTURE | Rate-limit suspicious input patterns (teleporting, impossible movement speeds). Lightweight, doesn't require stage geometry. |
-
----
-
-## Deferred
-
-| Item | Reason |
-|------|--------|
-| Modding pipeline implementation | Des
+| E | **Ready gate** | **DONE (S88)** — `s_ReadyGate` bitmask tracker, `CLSTATE_PREPARING` transitions, 30s timeout, per-client status handling (READY/NEED_ASSETS/DECLINE), broadcasts SVC_MATCH_COUNTDOWN on state changes. Replac

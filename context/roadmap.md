@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
 ## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS
-Last updated: 2026-03-30
+Last updated: 2026-03-31
 
 ## Completed
 
@@ -27,7 +27,7 @@ Dedicated server process with CLI args (`--port`, `--maxclients`, `--gamemode`, 
 - Combat Sim stage selection (currently hardcoded to Complex)
 - Authoritative leader broadcast (SVC_LOBBY_LEADER on leader change — handlers written, not yet called from lobbyUpdate)
 - "Quick Play" button (auto-launch server subprocess + connect to localhost)
-- B-51/B-52/B-53: bot visibility, weapon pickup, door interaction — pending next playtest verification
+- ~~B-51/B-52/B-53: bot visibility, weapon pickup, door interaction~~ **ALL FIXED (S90)** — bot configs via SVC_STAGE_START + scenarioInitProps on client; protocol v25
 
 ### Phase D4: Menu Storyboard (SUPERSEDED)
 The F11 storyboard catalog (D4a/D4b) was the original plan, but menus are being built directly through the ImGui hotswap system instead. The component library (D4c) has evolved organically. The remaining useful sub-phases (priority menus, complete coverage, migration workflow, cleanup) continue as ongoing work alongside other phases rather than as a blocking dependency.

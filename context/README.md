@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-30, Session S84 (branch cleanup, J-2/J-4 done, B-55 fix, bundled mods removed, match startup pipeline design; context maintenance: session-log split, stale tasks cleaned, D8/D-MEM/protocol v23 updated)
+> **Last updated**: 2026-03-31, Session S90 (B-51/52/53 fixed: bot configs via SVC_STAGE_START + scenarioInitProps on client; asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25; sessions 79-86 archived)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,12 +35,9 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| S84 | 2026-03-30 | Branch cleanup (dev/stable), J-2 server GUI STUN connect code, J-4 relative timestamps, B-55 white textures/crash fix, bundled mod removal, match startup pipeline design doc, build dir cleanup | [session-log.md](session-log.md) |
-| S83 | 2026-03-30 | NAT traversal D8 DONE (STUN+hole-punch+relay), protocol v23, connect code port encoding, mouse capture fix, B-54 online MP crash fixed, spawn weapon logging | [session-log.md](session-log.md) |
-| S82 | 2026-03-30 | Solo Play → Room screen routing (Combat Simulator button → Room screen in offline mode) | [session-log.md](session-log.md) |
-| S81 | 2026-03-30 | B-49 VERIFIED FIXED (footstepChooseSound loop guard); weapon spawn fix + protocol v22; server build guards; B-50 hub timer; J-1 join flow verified; 6 branches merged | [session-log.md](session-log.md) |
-| S80 | 2026-03-29 | Full TODO sweep (60+ items), enet ABA fix, server history UI, n_resample divide-by-zero, gfx_destroy, modding pipeline design doc | [session-log.md](session-log.md) |
-| S79 | 2026-03-29 | C-7 file SFX (audioPlayFileSound + snd.c intercept) | [session-log.md](session-log.md) |
+| S90 | 2026-03-31 | B-51/52/53 fixed (bot configs via SVC_STAGE_START, scenarioInitProps on client); asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25 | [session-log.md](session-log.md) |
+| S87–S88 | 2026-03-30 | Match Startup Pipeline Phases C.5 (SP catalog registration), D (mod transfer), E (ready gate), F (sync countdown) | [session-log.md](session-log.md) |
+| S79–S86 | 2026-03-29–30 | C-7 SFX, full TODO sweep, NAT traversal D8 (v23), Solo Room screen, bundled mod removal, B-55 fix, Match Startup Pipeline Phases A–C | [sessions-79-86.md](sessions-79-86.md) |
 | 47–78 | 2026-03-24–29 | SPF/join/room/catalog (C-series), mod system (T-series), bug fixes (B-27–B-53), network audits, null-guard audits, dedicated server | [sessions-47-78.md](sessions-47-78.md) |
 | 22-46 | 2026-03-22-24 | D3R component mod architecture, asset catalog, participant system, bot customizer, network distribution | [sessions-22-46.md](sessions-22-46.md) |
 | 14-21 | 2026-03-21-22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
@@ -93,8 +90,9 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, server browser | Starting D16 |
 | [menu-storyboard.md](menu-storyboard.md) | D4: 113-menu inventory, component library, design tokens | Menu migration reference |
 | [rendering-trace.md](rendering-trace.md) | Endscreen rendering pipeline trace, GBI translation | Endscreen/rendering bugs |
-| [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | **S84 design**: Unified 7-phase match startup (Gather→Manifest→Check→Transfer→Ready Gate→Load→Sync). Merges B-12 P3, R-2/R-3, J-3, C-series, mod distribution. Not yet implemented. | Match startup pipeline (Phase A–F) |
+| [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | **S84 design**: Unified 8-phase match startup (Gather→Manifest→Check→Catalog→Transfer→Ready Gate→Load→Sync). Merges B-12 P3, R-2/R-3, J-3, C-series, mod distribution. Phases A–F implemented. | Match startup pipeline (Phase A–F) |
 | [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | NAT traversal architecture: STUN, hole-punch, relay fallback design | NAT/networking reference |
+| [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | **S90 design**: Session catalog + modular API — per-system typed query functions, network session catalog translation layer (catalog IDs ↔ wire hashes), load manifest system for MP and SP. Audit of ~180 raw-index call sites across 20 patterns. **Highest infrastructure priority.** | Any asset loading, wire protocol, save file work |
 
 ## Architecture Decision Records
 
@@ -110,7 +108,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol **v23**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). B-12 Phase 3 will bump to v24 when chrslots removed.
+- **Net**: Protocol **v25**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). v25: SVC_STAGE_START bot config block with catalog hashes (S90). B-12 Phase 3 will be the next bump when chrslots removed.
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.

@@ -46,6 +46,7 @@
 #include "assetcatalog.h"
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
+#include "game/mplayer/scenarios.h"
 #endif
 #include "identity.h"
 #include "utils.h"
@@ -627,6 +628,15 @@ u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+/* Helper: find the catalog net_hash for a given ASSET_BODY/ASSET_HEAD runtime_index. */
+struct s_rindex_hash_lookup { s32 rindex; u32 hash; };
+static void s_netHashCb(const asset_entry_t *e, void *ud) {
+	struct s_rindex_hash_lookup *l = (struct s_rindex_hash_lookup *)ud;
+	if (!l->hash && e->runtime_index == l->rindex) {
+		l->hash = e->net_hash;
+	}
+}
+
 u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, SVC_STAGE_START);
@@ -695,6 +705,29 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			ncl->lerpticks = 0;
 			ncl->outmoveack = 0;
 			ncl->state = CLSTATE_GAME;
+		}
+	}
+
+	/* Serialize per-bot configs (combat sim only; bots don't apply to co-op). */
+	if (g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI) {
+		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
+			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+				continue;
+			}
+			struct mpbotconfig *bc = &g_BotConfigsArray[botidx];
+			netbufWriteStr(dst, bc->base.name);
+
+			/* Use catalog net_hash (CRC32 of asset ID) as the wire identifier — never raw indices. */
+			struct s_rindex_hash_lookup bl = { (s32)bc->base.mpbodynum, 0 };
+			assetCatalogIterateByType(ASSET_BODY, s_netHashCb, &bl);
+			netbufWriteU32(dst, bl.hash);
+
+			struct s_rindex_hash_lookup hl = { (s32)bc->base.mpheadnum, 0 };
+			assetCatalogIterateByType(ASSET_HEAD, s_netHashCb, &hl);
+			netbufWriteU32(dst, hl.hash);
+
+			netbufWriteU8(dst, bc->difficulty);
+			netbufWriteU8(dst, bc->type);
 		}
 	}
 
@@ -887,18 +920,49 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 		}
 
-		/* Validate bot body/head indices for all active bot slots.
-		 * Per-bot body/head is not transmitted in SVC_STAGE; this ensures
-		 * g_HeadsAndBodies[].modeldef is loaded for whatever indices are set. */
+		/* Receive per-bot configs from wire; resolve catalog net_hash → local runtime_index.
+		 * The write side (netmsgSvcStageStartWrite) serialises name/body_hash/head_hash/
+		 * difficulty/type for every active bot slot.  We resolve the CRC32 hashes through
+		 * the asset catalog so local mpbodynum/mpheadnum are correct regardless of whether
+		 * the client and server have the same mod load order. */
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
-			if (g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET))) {
-				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
-				sysLogPrintf(LOG_NOTE, "NET: bot %d body=%u head=%u (catalog-validated)",
-					botidx, g_BotConfigsArray[botidx].base.mpbodynum,
-					g_BotConfigsArray[botidx].base.mpheadnum);
+			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+				continue;
 			}
+			const char *botname = netbufReadStr(src);
+			const u32 body_hash = netbufReadU32(src);
+			const u32 head_hash = netbufReadU32(src);
+			const u8 difficulty = netbufReadU8(src);
+			const u8 bottype = netbufReadU8(src);
+			if (src->error) {
+				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE bot config for bot %d", botidx);
+				return src->error;
+			}
+			if (botname) {
+				strncpy(g_BotConfigsArray[botidx].base.name, botname,
+				        sizeof(g_BotConfigsArray[botidx].base.name) - 1);
+				g_BotConfigsArray[botidx].base.name[sizeof(g_BotConfigsArray[botidx].base.name) - 1] = '\0';
+			}
+			g_BotConfigsArray[botidx].difficulty = difficulty;
+			g_BotConfigsArray[botidx].type = bottype;
+			const asset_entry_t *be = assetCatalogResolveByNetHash(body_hash);
+			if (be && be->type == ASSET_BODY) {
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)be->runtime_index;
+			}
+			const asset_entry_t *he = assetCatalogResolveByNetHash(head_hash);
+			if (he && he->type == ASSET_HEAD) {
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)he->runtime_index;
+			}
+			/* Final catalog safety-clamp: ensures modeldef is valid on first frame. */
+			s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
+			g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(
+				(s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
+			g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (hashes 0x%08x/0x%08x)",
+				botidx, g_BotConfigsArray[botidx].base.name,
+				g_BotConfigsArray[botidx].base.mpbodynum,
+				g_BotConfigsArray[botidx].base.mpheadnum,
+				body_hash, head_hash);
 		}
 #endif /* !PD_SERVER */
 
@@ -910,6 +974,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
 		mpStartMatch();
+#if !defined(PD_SERVER)
+		/* scenarioInitProps() configures gameplay flags on props (doors, pickups, etc.)
+		 * via the scenario's initpropsfunc.  On the server/solo paths this is driven by
+		 * setup.c's g_Vars.normmplayerisrunning guard; on a networked client that guard
+		 * can be false at stage-init time, so we call it explicitly here. */
+		scenarioInitProps();
+#endif
 		menuStop();
 	}
 
