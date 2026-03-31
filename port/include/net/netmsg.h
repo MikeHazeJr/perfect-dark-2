@@ -46,6 +46,9 @@
 #define SVC_MATCH_MANIFEST  0x62 // server→room: full asset manifest for the upcoming match
 #define SVC_MATCH_COUNTDOWN 0x63 // server→room: ready-gate progress (n/total ready, phase, countdown)
 
+/* SA-1: Session Catalog */
+#define SVC_SESSION_CATALOG 0x67 // server→room: session ID mapping table
+
 /* D3R-9: Network Distribution (protocol v20) */
 #define SVC_CATALOG_INFO    0x70 // server→client: list of required component (net_hash, id, category)
 #define SVC_DISTRIB_BEGIN   0x71 // server→client: start of a component archive transfer
@@ -196,6 +199,9 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_count,
                                   u8 phase, u8 countdown_secs);
 u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl);
+
+/* SA-1: SVC_SESSION_CATALOG */
+u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl);
 
 /* Phase F: client-side countdown display state — updated by SVC_MATCH_COUNTDOWN handler. */
 struct match_countdown_state {

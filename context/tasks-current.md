@@ -108,13 +108,13 @@
 
 | Phase | Task | Details |
 |-------|------|---------|
-| SA-1 | **Modular catalog API** | Per-system query functions (bodies, heads, stages, weapons, sounds) replacing ad-hoc `catalogResolve()` calls. Typed entry structs. |
-| SA-2 | **Network session catalog** | Translation layer: catalog IDs ↔ wire net_hash. `sessionCatalogBuild()` before match start; `sessionCatalogResolve(hash)` on receive. Replaces raw index transmission on all SVC_* messages. |
-| SA-3 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
-| SA-4 | **Wire protocol migration** | Audit remaining SVC_*/CLC_* messages that still pass raw indices. Migrate to session catalog hashes. ~180 call sites, 20 patterns identified in S90 audit. |
+| SA-1 | **Session catalog infrastructure** | `sessioncatalog.h/c`: build from manifest, broadcast SVC_SESSION_CATALOG (0x67), receive + resolve, teardown. **DONE (S91)** — both targets build clean. |
+| SA-2 | **Modular catalog API** | Per-system query functions (bodies, heads, stages, weapons, sounds) replacing ad-hoc `catalogResolve()` calls. Typed entry structs. |
+| SA-3 | **Network session catalog wire migration** | Replace raw indices in SVC_*/CLC_* with u16 session IDs from session catalog. ~180 call sites, ~20 message types. Requires SA-1 + SA-2. |
+| SA-4 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
 | SA-5 | **Save file boundary** | Scenario save, agent save: replace any raw indices stored to disk with catalog string IDs. Ensures save compatibility across mod changes. |
 
-> **Status**: Design doc created S90. SA-1/SA-2/SA-3 implementation is next. SA-4 depends on SA-2. SA-5 is parallel.
+> **Status**: SA-1 DONE (S91). SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure. SA-5 is independent.
 > **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
 
 ---

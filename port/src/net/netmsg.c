@@ -41,6 +41,7 @@
 #include "net/netdistrib.h"
 #include "net/netmanifest.h"
 #include "net/matchsetup.h"
+#include "net/sessioncatalog.h"
 #include "room.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
@@ -1054,6 +1055,9 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 		g_NumReasonsToEndMpMatch = 1;
 		mainEndStage();
 	}
+
+	/* SA-1: tear down session catalog on match end (client-side). */
+	sessionCatalogTeardown();
 
 	return src->error;
 }
@@ -3760,6 +3764,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		manifestBuild(&g_ServerManifest, NULL, NULL);
 		manifestLog(&g_ServerManifest);
 
+		/* SA-1: build session catalog from manifest entries. */
+		sessionCatalogBuild(&g_ServerManifest);
+		sessionCatalogLogMapping();
+
 		/* Phase C: broadcast SVC_MATCH_MANIFEST to all clients.
 		 * Transitional: still send SVC_STAGE_START immediately after (via
 		 * netServerStageStart below) so matches continue to work end-to-end.
@@ -3770,6 +3778,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST broadcast (hash=0x%08x entries=%u)",
 		             (unsigned)g_ServerManifest.manifest_hash,
 		             (unsigned)g_ServerManifest.num_entries);
+
+		/* SA-1: broadcast session catalog to all room clients. */
+		sessionCatalogBroadcast();
 
 		/* Phase E: enter ready gate — transition all LOBBY clients to PREPARING,
 		 * initialize tracker, broadcast initial countdown.
@@ -4357,5 +4368,13 @@ u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
 	g_MatchCountdownState.countdown_secs = countdown_secs;
 	g_MatchCountdownState.active         = 1;
 
+	return src->error;
+}
+
+/* ---- SVC_SESSION_CATALOG (SA-1) ---- */
+u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	sessionCatalogReceive(src);
 	return src->error;
 }

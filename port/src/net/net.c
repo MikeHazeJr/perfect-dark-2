@@ -1189,6 +1189,9 @@ static void netClientEvReceive(struct netclient *cl)
 			/* Phase C: Match Startup Pipeline */
 			case SVC_MATCH_MANIFEST:  rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
 			case SVC_MATCH_COUNTDOWN: rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
+			case SVC_SESSION_CATALOG:
+				netmsgSvcSessionCatalogRead(&cl->in, NULL);
+				break;
 			default:
 				rc = 1;
 				break;

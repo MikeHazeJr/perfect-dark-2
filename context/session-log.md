@@ -3,6 +3,43 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S91 -- 2026-03-31
+
+**Focus**: SA-1 — Session Catalog Infrastructure (Phase 1 of session-catalog-and-modular-api.md)
+
+### What Was Done
+
+1. **SA-1 COMPLETE — Session catalog infrastructure** (`port/include/net/sessioncatalog.h`, `port/src/net/sessioncatalog.c`):
+   - Implemented full per-match translation layer: manifest entries → u16 session IDs
+   - Server-side: `sessionCatalogBuild(manifest)` assigns sequential session IDs 1..n from manifest; `sessionCatalogBroadcast()` sends SVC_SESSION_CATALOG (opcode 0x67) reliable on NETCHAN_CONTROL; `sessionCatalogGetId()`/`sessionCatalogGetIdByHash()` for lookup
+   - Client-side: `sessionCatalogReceive(buf)` parses wire, resolves each entry via `assetCatalogResolveByNetHash` + fallback `assetCatalogResolve`; logs `[SESSION-CATALOG-ASSERT]` for unresolved entries (= pipeline bug); `sessionCatalogLocalResolve(session_id)` for O(1) lookup
+   - Lifecycle: `sessionCatalogTeardown()` zeros all state at match end; `sessionCatalogIsActive()` / `sessionCatalogLogMapping()` for debug
+   - SESSION_CATALOG_MAX = 256; SESSION_ID_NONE = 0 (reserved)
+
+2. **Wiring** (existing files modified):
+   - `netmsg.h`: added `SVC_SESSION_CATALOG 0x67` opcode and `netmsgSvcSessionCatalogRead()` declaration
+   - `netmsg.c`: added `#include "net/sessioncatalog.h"`; after `manifestBuild()` + `manifestLog()`: calls `sessionCatalogBuild()` + `sessionCatalogLogMapping()`; after SVC_MATCH_MANIFEST broadcast: calls `sessionCatalogBroadcast()`; in `netmsgSvcStageEndRead()`: calls `sessionCatalogTeardown()` (client-side match end); added `netmsgSvcSessionCatalogRead()` implementation delegating to `sessionCatalogReceive()`
+   - `net.c`: added `#include "net/sessioncatalog.h"`; added `case SVC_SESSION_CATALOG` to client dispatch switch; added `sessionCatalogTeardown()` in `netServerStageEnd()` (server-side match end)
+   - `CMakeLists.txt`: added `port/src/net/sessioncatalog.c` to `SRC_SERVER` explicit list (client auto-discovered via GLOB_RECURSE)
+
+3. **Design adherence**:
+   - No `bool`/`stdbool.h` — all booleans are `s32` as required
+   - Wire format uses `netbufWriteStr`/`netbufReadStr` consistent with SVC_MATCH_MANIFEST pattern
+   - Session IDs are 1-based; 0 = SESSION_ID_NONE (reserved)
+   - Client translation table is directly indexed by session_id: O(1) resolve
+
+### Build Status
+
+Both targets (client + server) build clean (S91, tools/build.sh --target both, ~52s).
+
+### Next Steps
+
+- SA-2: Modular catalog API layer — typed result structs + `catalogResolveBody/Head/Stage/Weapon()` functions in assetcatalog.h/c
+- Playtest: at match start, verify log output shows "SESSION-CATALOG: built N entries for match" + per-entry mapping table on server, and "SESSION-CATALOG: received N entries" on client
+- C-5/C-6: Texture + anim override wiring (still pending)
+
+---
+
 ## Session S90 -- 2026-03-31
 
 **Focus**: Playtest bug triage (B-51/B-52/B-53), bot config transmission fix, codebase asset reference audit, session catalog design

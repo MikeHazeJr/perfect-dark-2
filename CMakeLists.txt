@@ -487,6 +487,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/net/netholepunch.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netdistrib.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netmanifest.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/sessioncatalog.c
 
   # Asset catalog -- server needs it to enumerate/serve mod components (D3R-9)
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
