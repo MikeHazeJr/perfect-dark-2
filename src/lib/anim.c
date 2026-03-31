@@ -317,8 +317,17 @@ u8 animLoadFrame(s16 animnum, s32 framenum)
 				}
 				offset = g_Anims[animnum].bytesperframe * loadframenum + g_Anims[animnum].headerlen;
 				g_AnimFrameBytes[slot] = g_AnimReplacements[animnum] + offset;
-			} else
-			g_AnimFrameBytes[slot] = animDma(&g_AnimFrameByteSlots[slot * g_AnimMaxBytesPerFrame], offset, g_Anims[animnum].bytesperframe);
+			} else {
+				/* C-6: catalog override for ROM-based animations */
+				if (!g_AnimReplacements[animnum]) {
+					g_AnimReplacements[animnum] = modAnimationTryCatalogOverride(animnum);
+				}
+				if (g_AnimReplacements[animnum]) {
+					offset = g_Anims[animnum].bytesperframe * loadframenum + g_Anims[animnum].headerlen;
+					g_AnimFrameBytes[slot] = g_AnimReplacements[animnum] + offset;
+				} else
+				g_AnimFrameBytes[slot] = animDma(&g_AnimFrameByteSlots[slot * g_AnimMaxBytesPerFrame], offset, g_Anims[animnum].bytesperframe);
+			}
 		} else {
 			g_AnimFrameBytes[slot] = &g_AnimFrameByteSlots[slot * g_AnimMaxBytesPerFrame];
 		}
@@ -374,8 +383,16 @@ void animLoadHeader(s16 animnum)
 				g_AnimReplacements[animnum] = modAnimationLoadData(animnum);
 			}
 			g_AnimHeaderBytes[slot] = g_AnimReplacements[animnum];
-		} else
-		g_AnimHeaderBytes[slot] = animDma(&g_AnimHeaderByteSlots[slot * g_AnimMaxHeaderLength], g_Anims[animnum].data, tmp);
+		} else {
+			/* C-6: catalog override for ROM-based animations */
+			if (!g_AnimReplacements[animnum]) {
+				g_AnimReplacements[animnum] = modAnimationTryCatalogOverride(animnum);
+			}
+			if (g_AnimReplacements[animnum]) {
+				g_AnimHeaderBytes[slot] = g_AnimReplacements[animnum];
+			} else
+			g_AnimHeaderBytes[slot] = animDma(&g_AnimHeaderByteSlots[slot * g_AnimMaxHeaderLength], g_Anims[animnum].data, tmp);
+		}
 		g_AnimToHeaderSlot[animnum] = slot;
 		g_AnimHeaderAnimNums[slot] = animnum;
 		g_AnimHeaderBirths[slot] = g_Vars.thisframestart240;

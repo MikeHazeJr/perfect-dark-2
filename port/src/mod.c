@@ -145,6 +145,24 @@ void *modAnimationLoadData(u16 num)
 	return data;
 }
 
+void *modAnimationTryCatalogOverride(u16 num)
+{
+	/* C-6 supplement: catalog-only check for ROM-based animations.
+	 * Called from animLoadFrame/animLoadHeader when data != 0xffffffff.
+	 * Returns file data if a mod override is registered, NULL otherwise.
+	 * No legacy fallback, no sysFatalError — caller uses ROM DMA on NULL. */
+	const char *path = catalogGetAnimOverride((s32)num);
+	if (path) {
+		void *data = fsFileLoad(path, NULL);
+		if (data) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override (ROM base) \"%s\"", (s32)num, path);
+			return data;
+		}
+		sysLogPrintf(LOG_WARNING, "C-6: catalog override for ROM anim %d failed to load: %s", (s32)num, path);
+	}
+	return NULL;
+}
+
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)
 {
 	static s32 dirExists = -1;
