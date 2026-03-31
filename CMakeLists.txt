@@ -494,6 +494,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base_extended.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_api.c
 
   # UPnP library
   ${SRC_SERVER_MINIUPNPC}

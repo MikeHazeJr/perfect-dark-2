@@ -617,6 +617,123 @@ asset_load_state_t assetCatalogGetLoadState(const char *id);
  */
 void assetCatalogSetLoadState(const char *id, asset_load_state_t state);
 
+/* ========================================================================
+ * SA-2: Modular Catalog API Layer
+ * ======================================================================== */
+
+/* Forward declaration for wire helper signatures (defined in net/netbuf.h). */
+struct netbuf;
+
+/**
+ * Result struct for body asset resolution.
+ * filenum is populated from source_filenum (set at registration from
+ * g_HeadsAndBodies[bodynum].filenum).
+ * display_name points into the catalog entry id[] -- stable for catalog lifetime.
+ * session_id is 0 if the session catalog is not active or entry is absent.
+ */
+typedef struct {
+    const asset_entry_t *entry;        /**< full catalog entry (NULL on failure) */
+    s32                  filenum;      /**< runtime filenum for model load calls */
+    f32                  model_scale;  /**< from catalog entry (default 1.0) */
+    const char          *display_name; /**< points to entry->id */
+    u32                  net_hash;     /**< CRC32 for manifest checks */
+    u16                  session_id;   /**< session wire ID (0 = not in session) */
+} catalog_body_result_t;
+
+/** Heads share the same result layout as bodies. */
+typedef catalog_body_result_t catalog_head_result_t;
+
+/**
+ * Result struct for stage (map) asset resolution.
+ * bgfileid/padsfileid/setupfileid come from g_Stages[runtime_index] when
+ * the stage table is loaded (client); all -1 on server or unloaded stages.
+ */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  bgfileid;
+    s32                  padsfileid;
+    s32                  setupfileid;
+    s32                  stagenum;    /**< logical stage ID (e.g. 0x5e) */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_stage_result_t;
+
+/** Result struct for weapon asset resolution. */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  filenum;     /**< weapon model file (source_filenum, -1 for base) */
+    s32                  weapon_num;  /**< runtime WEAPON_* enum value */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_weapon_result_t;
+
+/** Result struct for prop asset resolution. */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  filenum;    /**< prop model file (source_filenum, -1 for base) */
+    s32                  prop_type;  /**< runtime PROPTYPE_* value */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_prop_result_t;
+
+/* ── SA-2: Resolution by catalog string ID ─────────────────────────────── */
+
+/** Resolve a body asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveBody(const char *id, catalog_body_result_t *out);
+
+/** Resolve a head asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveHead(const char *id, catalog_head_result_t *out);
+
+/** Resolve a stage (map) asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveStage(const char *id, catalog_stage_result_t *out);
+
+/** Resolve a weapon asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out);
+
+/** Resolve a prop asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveProp(const char *id, catalog_prop_result_t *out);
+
+/* ── SA-2: Resolution by session wire ID ───────────────────────────────── */
+
+/** Resolve a body asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveBodyBySession(u16 session_id, catalog_body_result_t *out);
+
+/** Resolve a head asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveHeadBySession(u16 session_id, catalog_head_result_t *out);
+
+/** Resolve a stage (map) asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveStageBySession(u16 session_id, catalog_stage_result_t *out);
+
+/** Resolve a weapon asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveWeaponBySession(u16 session_id, catalog_weapon_result_t *out);
+
+/** Resolve a prop asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolvePropBySession(u16 session_id, catalog_prop_result_t *out);
+
+/* ── SA-2: Resolution by CRC32 net_hash ────────────────────────────────── */
+
+/**
+ * Resolve an asset entry by CRC32 net_hash.
+ * Thin wrapper around assetCatalogResolveByNetHash() -- O(n) linear scan.
+ * Use sparingly (manifest checks, connection-time only).
+ */
+const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
+
+/* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
+
+/**
+ * Write a 2-byte session asset reference to a network buffer.
+ * The ONLY function that may serialize asset references onto the wire.
+ */
+void catalogWriteAssetRef(struct netbuf *buf, u16 session_id);
+
+/**
+ * Read a 2-byte session asset reference from a network buffer.
+ * The ONLY function that may deserialize asset references from the wire.
+ * Returns the session wire ID (0 = no asset / not assigned).
+ */
+u16 catalogReadAssetRef(struct netbuf *buf);
+
 #ifdef __cplusplus
 }
 #endif
