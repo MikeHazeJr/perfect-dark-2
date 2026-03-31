@@ -733,6 +733,25 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
  */
 const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
 
+/* ── SA-5a: Load-site helpers ───────────────────────────────────────────── */
+
+/**
+ * SA-5a: Resolve a body model filenum by runtime body index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].filenum at model
+ * load call sites.  Performs an O(n) catalog scan -- acceptable at load time
+ * (called once at match/stage start, not per frame).
+ * Falls back to g_HeadsAndBodies[bodynum].filenum on catalog miss so base game
+ * behaviour is unchanged when the catalog is not yet populated.
+ */
+s32 catalogGetBodyFilenumByIndex(s32 bodynum);
+
+/**
+ * SA-5a: Resolve a head model filenum by runtime head index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[headnum].filenum at model
+ * load call sites.  Same O(n) / fallback behaviour as catalogGetBodyFilenumByIndex.
+ */
+s32 catalogGetHeadFilenumByIndex(s32 headnum);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**

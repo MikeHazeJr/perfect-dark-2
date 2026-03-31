@@ -24,6 +24,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"
 
 s32 g_NumActiveHeadsPerGender;
 u32 var8009cd24;
@@ -158,12 +159,15 @@ u32 bodyGetRace(s32 bodynum)
 
 bool bodyLoad(s32 bodynum)
 {
+	s32 filenum; /* SA-5a: catalog-resolved filenum */
+
 	if (!g_HeadsAndBodies[bodynum].modeldef) {
-		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+		filenum = catalogGetBodyFilenumByIndex(bodynum);
+		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(filenum);
 		if (!g_HeadsAndBodies[bodynum].modeldef) {
 			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: bodyLoad failed bodynum=%d filenum=%d -- "
 				"body model not in catalog or ROM data missing",
-				bodynum, g_HeadsAndBodies[bodynum].filenum);
+				bodynum, filenum);
 		}
 		return true;
 	}
@@ -191,10 +195,11 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	if (bodymodeldef == NULL) {
 		if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			s32 body_filenum = catalogGetBodyFilenumByIndex(bodynum); /* SA-5a */
+			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(body_filenum);
 			if (!g_HeadsAndBodies[bodynum].modeldef) {
 				sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
-					"model not in catalog", bodynum, g_HeadsAndBodies[bodynum].filenum);
+					"model not in catalog", bodynum, body_filenum);
 			}
 		}
 
@@ -245,7 +250,8 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				} else if (headnum > 0) {
 					if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-						headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+						s32 head_filenum = catalogGetHeadFilenumByIndex(headnum); /* SA-5a */
+						headmodeldef = modeldefLoadToNew(head_filenum);
 						g_HeadsAndBodies[headnum].modeldef = headmodeldef;
 						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 					} else {

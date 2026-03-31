@@ -30,6 +30,7 @@
 #include "game/mplayer/participant.h"
 #include "net/net.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 
 struct menuitem g_MpCharacterMenuItems[];
 struct menudialogdef g_MpAddSimulantMenuDialog;
@@ -2342,12 +2343,12 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 		if (mpheadnum < mpGetNumHeads2()) {
 			headnum = mpGetHeadId(mpheadnum);
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = false;
 		} else {
 			headnum = mpGetBeauHeadId(func0f14a9f8(mpheadnum - mpGetNumHeads2()));
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = true;
 			g_Menus[g_MpPlayerNum].menumodel.perfectheadnum = mpheadnum - mpGetNumHeads2();
 		}

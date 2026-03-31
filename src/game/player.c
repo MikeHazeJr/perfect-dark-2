@@ -76,6 +76,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "assetcatalog.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -1538,10 +1539,14 @@ void playerTickChrBody(void)
 			offset1 += sizeof(struct weaponobj);
 			offset1 = ALIGN64(offset1);
 
-			offset2 = offset1 + ALIGN64(fileGetInflatedSize(g_HeadsAndBodies[bodynum].filenum, LOADTYPE_MODEL));
+			/* SA-5a: resolve mod-override-aware filenums once for this load sequence */
+			s32 body_filenum_1p = catalogGetBodyFilenumByIndex(bodynum);
+			s32 head_filenum_1p = (headnum >= 0) ? catalogGetHeadFilenumByIndex(headnum) : -1;
+
+			offset2 = offset1 + ALIGN64(fileGetInflatedSize(body_filenum_1p, LOADTYPE_MODEL));
 
 			if (headnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(g_HeadsAndBodies[headnum].filenum, LOADTYPE_MODEL));
+				offset2 += ALIGN64(fileGetInflatedSize(head_filenum_1p, LOADTYPE_MODEL));
 			}
 
 			if (weaponmodelnum >= 0) {
@@ -1555,24 +1560,24 @@ void playerTickChrBody(void)
 			bgunCalculateGunMemCapacity();
 			spe8 = g_Vars.currentplayer->gunmem2 + offset2;
 			texInitPool(&texpool, spe8, bgunCalculateGunMemCapacity() - offset2);
-			bodymodeldef = modeldefLoad(g_HeadsAndBodies[bodynum].filenum, allocation + offset1, offset2 - offset1, &texpool);
+			bodymodeldef = modeldefLoad(body_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
 
 			if (bodymodeldef == NULL) {
 				// Body model failed to load — player will be invisible but won't crash
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL for bodynum=%d filenum=0x%04x",
-					bodynum, g_HeadsAndBodies[bodynum].filenum);
+					bodynum, body_filenum_1p);
 				return;
 			}
 
-			offset1 = ALIGN64(fileGetLoadedSize(g_HeadsAndBodies[bodynum].filenum) + offset1);
+			offset1 = ALIGN64(fileGetLoadedSize(body_filenum_1p) + offset1);
 
 			if (headnum >= 0) {
-				headmodeldef = modeldefLoad(g_HeadsAndBodies[headnum].filenum, allocation + offset1, offset2 - offset1, &texpool);
+				headmodeldef = modeldefLoad(head_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
 				if (headmodeldef != NULL) {
-					offset1 = ALIGN64(fileGetLoadedSize(g_HeadsAndBodies[headnum].filenum) + offset1);
+					offset1 = ALIGN64(fileGetLoadedSize(head_filenum_1p) + offset1);
 				} else {
 					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
-						headnum, g_HeadsAndBodies[headnum].filenum);
+						headnum, head_filenum_1p);
 				}
 			}
 
@@ -1603,7 +1608,7 @@ void playerTickChrBody(void)
 		} else {
 			// 2-4 players
 			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 			}
 
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
@@ -1624,7 +1629,7 @@ void playerTickChrBody(void)
 				headnum = HEAD_DARK_COMBAT;
 
 				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 				}
 				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
@@ -1639,13 +1644,14 @@ void playerTickChrBody(void)
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
 			} else if (g_Vars.normmplayerisrunning && IS8MB()) {
+				/* IS8MB() is compile-time 0 — dead branch. filenum refs left as-is. */
 				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
 				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 				g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
 				bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 			} else {
 				if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 				}
 
 				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
@@ -1662,12 +1668,12 @@ void playerTickChrBody(void)
 			headnum = HEAD_DARK_COMBAT;
 
 			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 			}
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
 			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			}
 			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 

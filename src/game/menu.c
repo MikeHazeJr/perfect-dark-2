@@ -56,6 +56,7 @@
 #include "net/net.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_charpreview.h"
+#include "assetcatalog.h"
 #define BLUR_OFS 10
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1879,7 +1880,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						}
 					}
 
-					bodyfilenum = g_HeadsAndBodies[bodynum].filenum;
+					bodyfilenum = catalogGetBodyFilenumByIndex(bodynum); /* SA-5a */
 
 					totalfilelen = fileGetInflatedSize(bodyfilenum, LOADTYPE_MODEL);
 					if (totalfilelen <= 0) {
@@ -1898,7 +1899,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						headnum = -1;
 						headfilenum = 0xffff;
 					} else {
-						headfilenum = g_HeadsAndBodies[headnum].filenum;
+						headfilenum = catalogGetHeadFilenumByIndex(headnum); /* SA-5a */
 						totalfilelen += ALIGN64(fileGetInflatedSize(headfilenum, LOADTYPE_MODEL));
 					}
 

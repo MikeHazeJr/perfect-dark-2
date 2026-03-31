@@ -349,3 +349,41 @@ u16 catalogReadAssetRef(struct netbuf *buf)
 {
     return netbufReadU16(buf);
 }
+
+/* -------------------------------------------------------------------------
+ * SA-5a: Load-site helpers
+ * Mod-override-aware filenum resolution by runtime body/head array index.
+ * Used at model load call sites in body.c, player.c, menu.c, setup.c to
+ * replace direct g_HeadsAndBodies[n].filenum accesses.
+ * O(n) scan per call -- acceptable at load time (once per match start).
+ * ------------------------------------------------------------------------- */
+
+s32 catalogGetBodyFilenumByIndex(s32 bodynum)
+{
+    const char *id;
+    catalog_body_result_t result;
+
+    id = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+    if (id && catalogResolveBody(id, &result)) {
+        return result.filenum;
+    }
+    sysLogPrintf(LOG_WARNING,
+        "[CATALOG-ASSERT] catalogGetBodyFilenumByIndex: bodynum=%d not in catalog, "
+        "using legacy g_HeadsAndBodies[].filenum", bodynum);
+    return (s32)g_HeadsAndBodies[bodynum].filenum;
+}
+
+s32 catalogGetHeadFilenumByIndex(s32 headnum)
+{
+    const char *id;
+    catalog_head_result_t result;
+
+    id = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+    if (id && catalogResolveHead(id, &result)) {
+        return result.filenum;
+    }
+    sysLogPrintf(LOG_WARNING,
+        "[CATALOG-ASSERT] catalogGetHeadFilenumByIndex: headnum=%d not in catalog, "
+        "using legacy g_HeadsAndBodies[].filenum", headnum);
+    return (s32)g_HeadsAndBodies[headnum].filenum;
+}
