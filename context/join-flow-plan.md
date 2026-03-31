@@ -116,11 +116,14 @@ The connect code is generated once in `pdguiLobbyScreenRender()` when `netGetMod
 | Lobby UI (player list + rooms + modes) | ✅ DONE | pdgui_menu_lobby.cpp |
 | Leader game mode buttons | ✅ DONE | pdgui_menu_lobby.cpp |
 | netLobbyRequestStart → server | ✅ DONE | netmenu.c (C bridge) |
-| Hub + room lifecycle (server) | ✅ CODED (needs build test) | hub.c, room.c |
+| Hub + room lifecycle (server) | ✅ DONE (S81 verified) | hub.c, room.c |
 | Room auto-naming | ✅ DONE | room.c roomGenerateName() |
 | UPnP public IP (async) | ✅ DONE | netupnp.c |
 | HTTP public IP fallback (curl/ipify) | ✅ DONE | netupnp.c netHttpGetPublicIP() |
 | Connect code display + clipboard copy | ✅ DONE | pdgui_menu_lobby.cpp |
+| **J-2** Server GUI connect code display | ✅ **DONE (S84)** | server_gui.cpp:~684, pdgui_bridge.c |
+| **J-4** Recent servers + relative timestamps | ✅ **DONE (S80/S84)** | pdgui_menu_mainmenu.cpp, net.c, config |
+| **J-5** Lobby handoff polish | ✅ **DONE (S81)** | pdgui_lobby.cpp, pdgui_menu_mainmenu.cpp |
 
 ---
 
@@ -138,17 +141,13 @@ The room list in the lobby UI reads from client-local room objects. Server room 
 
 **Plan**: Add `SVC_ROOM_LIST` message (server→client, reliable) that broadcasts the room array. Send on connect (CLSTATE_LOBBY) and on any room state change. Client-side `roomUpdateFromServer()` refreshes the local pool.
 
-### 5.3 Server GUI Missing Connect Code
+### ~~5.3 Server GUI Missing Connect Code~~ ✅ DONE (S84)
 
-The server operator's GUI (`server_gui.cpp`) doesn't display the connect code. It shows the hub state and room list (added in S47d) but not the code players need to join.
+`server_gui.cpp:~684` now shows connect code via IP waterfall: UPnP → STUN → empty. Shows "discovering..." while either is in flight; falls back to "LAN only" only when both have settled. `pdgui_bridge.c`: `netGetPublicIP()` checks STUN between UPnP and HTTP fallback.
 
-**Plan**: Add connect code display to the Server tab in `server_gui.cpp`. Same logic as the lobby client display — generate from `netGetPublicIP()` and show with a "Copy" button.
+### ~~5.4 Recent Server History Stubbed~~ ✅ DONE (S80/S84)
 
-### 5.4 Recent Server History Stubbed
-
-`pdgui_menu_mainmenu.cpp` view 4 has a "Recent Servers" section with a TODO comment. `g_NetRecentServers[]` stores raw addr strings (populated by `netRecentServerAdd()`).
-
-**Plan**: When building history UI, display connect codes (re-encode from stored IP), not raw IP strings. Store addr+last_connected+last_status. Server history JSON = `$S/serverhistory.json`.
+`serverhistory.json` persists recent servers. Recent Servers panel in join view shows connect code + relative timestamp (S84: `fmtRelTime` lambda: "5s ago", "12m ago" etc.). Subtitle format: "ABC-DEF · 5m ago". `net.c` uses `time(NULL)` for unix timestamps (not tick-based). Config keys: `Net.RecentServer.N.Host` + `Net.RecentServer.N.Time`.
 
 ### 5.5 Protocol Version Mismatch in networking.md
 
@@ -174,11 +173,9 @@ The connect code in `pdgui_menu_lobby.cpp` uses a `static bool s_CodeGenerated` 
 
 **Success criteria**: End-to-end join + match start with no crashes.
 
-### Phase J-2: Server GUI Connect Code Display
+### ~~Phase J-2: Server GUI Connect Code Display~~ ✅ DONE (S84)
 
-1. In `server_gui.cpp` Server tab: add connect code section
-2. Same logic as client lobby — generate from `netGetPublicIP()`, show + Copy button
-3. Server operators see code without checking logs
+IP waterfall in `server_gui.cpp:~684`. UPnP→STUN→empty. STUN integrated into `netGetPublicIP()` via `pdgui_bridge.c`.
 
 ### Phase J-3: Room State Protocol
 
@@ -187,12 +184,9 @@ The connect code in `pdgui_menu_lobby.cpp` uses a `static bool s_CodeGenerated` 
 3. Client handler: update local room pool from server data
 4. Lobby UI room list now shows server-authoritative state
 
-### Phase J-4: Server History UI
+### ~~Phase J-4: Server History UI~~ ✅ DONE (S80/S84)
 
-1. Persist `g_NetRecentServers` to `$S/serverhistory.json` (JSON format)
-2. Load on startup
-3. Recent Servers section in join view: display connect code (re-encoded from IP), last seen time, ping status
-4. Ping button: send UDP probe, update status to Online/Offline
+`serverhistory.json` persistence (S80). Relative timestamps via `fmtRelTime` lambda (S84). Subtitle "CODE · Xm ago".
 
 ### Phase J-5: Main Menu ↔ Lobby Handoff Polish
 
@@ -211,8 +205,8 @@ The connect code in `pdgui_menu_lobby.cpp` uses a `static bool s_CodeGenerated` 
 | Invalid code fails before network | ✅ connectCodeDecode() returns -1, no connect attempt |
 | No raw IP in lobby display | ✅ Only connect code shown, generated from IP internally |
 | g_NetLastJoinAddr raw IP | ✅ Internal only, never displayed in any UI |
-| Recent server history | ⚠️ When built, must encode to code not raw IP |
-| Server GUI | ⚠️ Connect code missing — server operators check logs |
+| Recent server history | ✅ Connect code + relative timestamp displayed (S80/S84) |
+| Server GUI | ✅ Connect code via UPnP→STUN waterfall (S84) |
 | netGetPublicIP result | ✅ Used only for code generation, never shown raw |
 
 ---

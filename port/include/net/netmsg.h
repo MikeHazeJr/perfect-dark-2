@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 #include "net/net.h"
 #include "net/netbuf.h"
+#include "net/netmanifest.h"
 
 #define SVC_BAD           0x00 // trash
 #define SVC_NOP           0x01 // does nothing
@@ -41,6 +42,10 @@
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
 #define SVC_LOBBY_STATE   0x61 // server broadcasts lobby state (game mode, stage, etc.)
 
+/* Phase A: Match Startup Pipeline (protocol v24) */
+#define SVC_MATCH_MANIFEST  0x62 // server→room: full asset manifest for the upcoming match
+#define SVC_MATCH_COUNTDOWN 0x63 // server→room: ready-gate progress (n/total ready, phase, countdown)
+
 /* D3R-9: Network Distribution (protocol v20) */
 #define SVC_CATALOG_INFO    0x70 // server→client: list of required component (net_hash, id, category)
 #define SVC_DISTRIB_BEGIN   0x71 // server→client: start of a component archive transfer
@@ -60,6 +65,9 @@
 
 /* D3R-9: Network Distribution (protocol v20) */
 #define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component net_hashes
+
+/* Phase A: Match Startup Pipeline (protocol v24) */
+#define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
 
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
@@ -172,6 +180,36 @@ u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker, const char *victim,
                                  const char *weapon, u8 flags);
 u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
+
+/* Phase A: Match Startup Pipeline (protocol v24) */
+
+/* SVC_MATCH_MANIFEST: server→room, complete asset list for the upcoming match */
+u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest);
+u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl);
+
+/* CLC_MANIFEST_STATUS: client→server, catalog check result */
+u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
+                                  const u32 *missing_hashes, u8 num_missing);
+u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_MATCH_COUNTDOWN: server→room, ready-gate progress broadcast */
+u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_count,
+                                  u8 phase, u8 countdown_secs);
+u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl);
+
+/* Phase F: client-side countdown display state — updated by SVC_MATCH_COUNTDOWN handler. */
+struct match_countdown_state {
+    u8  ready_count;     /* clients that have responded READY */
+    u8  total_count;     /* total expected clients */
+    u8  phase;           /* MANIFEST_PHASE_* */
+    u8  countdown_secs;  /* seconds remaining (meaningful when phase == MANIFEST_PHASE_LOADING) */
+    s32 active;          /* 1 once at least one countdown has been received */
+};
+extern struct match_countdown_state g_MatchCountdownState;
+
+/* Phase F: Drive the server-side launch countdown.
+ * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
+void readyGateTickCountdown(void);
 
 /* Prop syncid → prop* lookup map.
  * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.

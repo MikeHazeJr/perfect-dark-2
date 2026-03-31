@@ -31,6 +31,8 @@
 #include "net/netlobby.h"
 #include "connectcode.h"
 #include "hub.h"
+#include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
@@ -231,6 +233,9 @@ int main(int argc, char **argv)
     if (!sysArgCheck("--no-update-check")) {
         updaterCheckAsync();
     }
+
+    assetCatalogInit();
+    assetCatalogRegisterBaseGame();
 
     netInit();
     lobbyInit();

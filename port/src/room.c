@@ -154,12 +154,13 @@ s32 roomGetActiveCount(void)
 const char *roomStateName(room_state_t state)
 {
     switch (state) {
-        case ROOM_STATE_LOBBY:    return "Lobby";
-        case ROOM_STATE_LOADING:  return "Loading";
-        case ROOM_STATE_MATCH:    return "Match";
-        case ROOM_STATE_POSTGAME: return "Postgame";
-        case ROOM_STATE_CLOSED:   return "Closed";
-        default:                  return "?";
+        case ROOM_STATE_LOBBY:     return "Lobby";
+        case ROOM_STATE_LOADING:   return "Loading";
+        case ROOM_STATE_MATCH:     return "Match";
+        case ROOM_STATE_POSTGAME:  return "Postgame";
+        case ROOM_STATE_CLOSED:    return "Closed";
+        case ROOM_STATE_PREPARING: return "Preparing";
+        default:                   return "?";
     }
 }
 

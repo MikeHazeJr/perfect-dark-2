@@ -26,6 +26,8 @@
 #include "types.h"
 #include "system.h"
 #include "net/net.h"
+#include "lib/rng.h"
+#include "navspawn.h"
 
 void playerInitEyespy(void)
 {
@@ -268,28 +270,86 @@ void playerReset(void)
 		}
 	}
 
-	/* PC: If no spawn points were set by INTROCMD_SPAWN (e.g. mod stages or MP
-	 * maps without a proper intro/setup sequence), populate g_SpawnPoints from
-	 * all pads with valid room numbers so the dispersal algorithm can work.
-	 * Covers networked matches (g_NetMode) AND local Combat Sim where netmode
-	 * is NETMODE_NONE but normmplayerisrunning is true. Solo missions always
+	/* PC: If no spawn points were set by INTROCMD_SPAWN (e.g. SP maps used as
+	 * MP arenas or mod stages without intro data), populate g_SpawnPoints so
+	 * the dispersal algorithm has something to work with.
+	 * Preference order:
+	 *   1. Waypoints (navmesh nodes) with rejection-sampling for spread — these
+	 *      represent walkable interior positions designed for AI navigation.
+	 *   2. Sequential pad scan fallback (B-19) for maps with no waypoints.
+	 * Covers networked matches (g_NetMode) AND local Combat Sim. Solo missions
 	 * define their own player placement and must not be overridden here. */
-	if (g_NumSpawnPoints == 0 && (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning) && g_PadsFile != NULL) {
-		s32 maxpads = g_PadsFile->numpads;
-		s32 added   = 0;
-		for (s32 pi = 0; pi < maxpads && added < 24; pi++) {
-			struct pad probePad;
-			padUnpack(pi, PADFIELD_ROOM, &probePad);
-			if (probePad.room >= 0) {
-				g_SpawnPoints[g_NumSpawnPoints++] = (s16)pi;
-				added++;
+	if (g_NumSpawnPoints == 0 && (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning)) {
+		s32 added = 0;
+
+		/* Attempt 1: waypoint-based selection with spacing enforcement */
+		if (g_StageSetup.waypoints) {
+			struct waypoint *wpts = g_StageSetup.waypoints;
+			s32 numwpts = 0;
+			struct coord chosen_pos[24];
+			s32 outer;
+
+			while (wpts[numwpts].padnum >= 0) {
+				numwpts++;
+			}
+
+			for (outer = 0; outer < numwpts * 4 && added < 24; outer++) {
+				s32 idx = rngRandom() % numwpts;
+				struct pad probePad;
+				s32 too_close;
+				s32 j;
+
+				padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &probePad);
+
+				if (probePad.room < 0) {
+					continue;
+				}
+				if (probePad.flags & PADFLAG_AIDROP) {
+					continue;
+				}
+
+				too_close = 0;
+				for (j = 0; j < added; j++) {
+					f32 dx = probePad.pos.x - chosen_pos[j].x;
+					f32 dz = probePad.pos.z - chosen_pos[j].z;
+					if (dx * dx + dz * dz < 500.0f * 500.0f) {
+						too_close = 1;
+						break;
+					}
+				}
+
+				if (!too_close) {
+					chosen_pos[added] = probePad.pos;
+					g_SpawnPoints[g_NumSpawnPoints++] = (s16)wpts[idx].padnum;
+					added++;
+				}
+			}
+
+			if (added > 0) {
+				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from navmesh waypoints (C-5 fallback)", added);
 			}
 		}
-		if (added > 0) {
-			sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from pad file (B-19 fallback)", added);
-		} else {
-			sysLogPrintf(LOG_WARNING, "SPAWN: B-19 fallback found 0 valid pads (numpads=%d netmode=%d normmplay=%d)",
-				maxpads, g_NetMode, g_Vars.normmplayerisrunning);
+
+		/* Attempt 2: sequential pad scan if waypoints gave nothing */
+		if (added == 0 && g_PadsFile != NULL) {
+			s32 maxpads = g_PadsFile->numpads;
+			s32 pi;
+
+			for (pi = 0; pi < maxpads && added < 24; pi++) {
+				struct pad probePad;
+				padUnpack(pi, PADFIELD_ROOM, &probePad);
+				if (probePad.room >= 0) {
+					g_SpawnPoints[g_NumSpawnPoints++] = (s16)pi;
+					added++;
+				}
+			}
+
+			if (added > 0) {
+				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from pad file (B-19 fallback)", added);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SPAWN: all fallbacks found 0 valid spawn positions (netmode=%d normmplay=%d)",
+					g_NetMode, g_Vars.normmplayerisrunning);
+			}
 		}
 	}
 

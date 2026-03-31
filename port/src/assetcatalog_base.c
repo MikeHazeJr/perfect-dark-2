@@ -582,6 +582,85 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	#undef NUM_ARENA_GROUPS
 
+	/* ---- Register full-game bodies/heads not covered by MP arrays ---- */
+	/*
+	 * g_HeadsAndBodies[152] contains every character model in the game.
+	 * g_MpBodies[]/g_MpHeads[] are the MP-selectable subsets. Build a
+	 * coverage mask to find entries not yet registered, then register them
+	 * as "base:sp_body_N" / "base:sp_head_N" so the manifest pipeline and
+	 * future character selectors can reference any base-game model.
+	 *
+	 * unk00_01 == 1 means the entry is a standalone head model;
+	 * unk00_01 == 0 means it is a full body model.
+	 * filenum == 0 marks the null sentinel at index 0x97 — skip it.
+	 * BODY_TESTCHR (0x70) is a dev placeholder — skip it.
+	 */
+	{
+		s32 sp_body_count = 0;
+		s32 sp_head_count = 0;
+		u8 covered[152] = {0};
+
+		/* Mark indices already covered by MP arrays */
+		for (s32 i = 0; i < 63; i++) {
+			s32 bn = g_MpBodies[i].bodynum;
+			if (bn >= 0 && bn < 152) {
+				covered[bn] = 1;
+			}
+		}
+		for (s32 i = 0; i < 76; i++) {
+			s32 hn = g_MpHeads[i].headnum;
+			if (hn >= 0 && hn < 152) {
+				covered[hn] = 1;
+			}
+		}
+
+		for (s32 i = 0; i < 152; i++) {
+			if (covered[i]) {
+				continue;
+			}
+			if (g_HeadsAndBodies[i].filenum == 0) {
+				continue; /* null sentinel */
+			}
+			if (i == BODY_TESTCHR) {
+				continue; /* dev placeholder */
+			}
+
+			if (g_HeadsAndBodies[i].unk00_01) {
+				/* Standalone head model */
+				snprintf(idbuf, sizeof(idbuf), "base:sp_head_%d", i);
+				asset_entry_t *e = assetCatalogRegisterHead(idbuf, (s16)i, 0);
+				if (e) {
+					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+					e->bundled = 1;
+					e->enabled = 1;
+					e->runtime_index = i;
+					e->load_state = ASSET_STATE_LOADED;
+					e->ref_count = ASSET_REF_BUNDLED;
+					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					sp_head_count++;
+				}
+			} else {
+				/* Full body model */
+				snprintf(idbuf, sizeof(idbuf), "base:sp_body_%d", i);
+				asset_entry_t *e = assetCatalogRegisterBody(idbuf, (s16)i, 0, -1, 0);
+				if (e) {
+					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+					e->bundled = 1;
+					e->enabled = 1;
+					e->runtime_index = i;
+					e->load_state = ASSET_STATE_LOADED;
+					e->ref_count = ASSET_REF_BUNDLED;
+					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					sp_body_count++;
+				}
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d sp bodies, %d sp heads from g_HeadsAndBodies[152]",
+			sp_body_count, sp_head_count);
+		count += sp_body_count + sp_head_count;
+	}
+
 	/* Weapons and game modes are registered by assetCatalogRegisterBaseGameExtended()
 	 * below with full rich ext fields. Do not register them here to avoid
 	 * duplicate catalog entries. */

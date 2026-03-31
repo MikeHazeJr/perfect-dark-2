@@ -10,9 +10,9 @@
 
 | # | Task | Details |
 |---|------|---------|
-| 1 | **B-49 CRITICAL: Felicity/toilet landing freeze** | JUMP_DEBUG already instrumented (S78). Needs reproduction + log capture. Freeze occurs on landing in specific geometry. |
-| 2 | **B-38 CRITICAL: setupCreateProps crash** | Possible NULL deref in prop creation during stage load. Needs investigation + root cause. |
-| 3 | **UI Scaling** | Not addressed yet. Required for v0.1.0. |
+| 1 | **UI Scaling** | Not addressed yet. Required for v0.1.0. |
+
+> B-49 (toilet freeze): **VERIFIED FIXED S81**. B-38 (setupCreateProps crash): **CLOSED S80 — FALSE ALARM** (all hypotheses verified safe). Both removed from blockers.
 
 ---
 
@@ -56,14 +56,11 @@
 |------|--------|
 | **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
 | **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — needs playtest: toggle a mod on/off, confirm no stale stages or textures after reload. |
-| **B-46 Void spawn on MP stages** (S73) | **CODED (S73)** — needs build + Felicity playtest. |
-| **B-47 Exit freeze on window close** (S73) | **CODED (S73)** — needs build + test: close window during match, should exit within 1s. |
+| **B-46 Void spawn on MP stages** (S74) | **FIXED (S74)** — needs Felicity playtest confirmation. |
+| **B-47 Exit freeze on window close** (S74) | **FIXED (S74)** — needs test: close window during match, should exit within 1s. |
 | **Combat Sim scenario save/load** (S71) | **CODED (S71)** — needs build + smoke test. |
-| **B-44/B-26 Bot names+chars + player name fix** (S72) | **CODED (S72)** — needs build + playtest. |
-| **B-43 First-tick crash + first-tick safety** (S70) | **CODED (S70)** — needs build + playtest. |
-| **B-39 Jump crash fix** (S68) | **BUILD VERIFIED (S68)** — needs playtest: jump on Jungle should no longer crash. |
-| **B-40/41 CLC_LOBBY_START timelimit+options wiring** (S68) | **BUILD VERIFIED (S68)** — needs playtest: no alarm at match start; "Start Armed" equips weapon. |
-| **B-42 Add Bot cap raised** (S68) | **BUILD VERIFIED (S68)** — needs playtest: add >7 bots in room UI. |
+
+> The following were confirmed working in S81 networked playtest and removed from this list: **B-44/B-26** (bot names + player name), **B-43** (first-tick crash), **B-39** (jump crash), **B-40/41** (timelimit+options), **B-42** (bot cap).
 
 ---
 
@@ -91,6 +88,7 @@
 
 | Bug | Severity | Status |
 |-----|----------|--------|
+| [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | OPEN (S84) — PushID()/PopID() needed around arena selector. Not yet implemented. |
 | [B-51](bugs.md) Bot stuck/invisible under map | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync now working. Needs verification. |
 | [B-52](bugs.md) Can't pick up weapons/ammo | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
 | [B-53](bugs.md) Can't open doors | HIGH | Reported S81 playtest. May be fixed by chrslots+options sync. Needs verification. |
@@ -109,9 +107,9 @@
 | Phase | Task | Details |
 |-------|------|---------|
 | J-1 | **Verify end-to-end join** | **DONE (S81)** — full join cycle verified: connect code → CLSTATE_LOBBY → match loads → match runs → match ends. |
-| J-2 | **Server GUI connect code** | Add connect code display + Copy button to server_gui.cpp Server tab. |
+| J-2 | **Server GUI connect code** | **DONE (S84)** — IP waterfall UPnP→STUN→empty in `server_gui.cpp:~684`. Shows "discovering..." while UPnP/STUN working; "LAN only" only when both settled. `pdgui_bridge.c`: `netGetPublicIP()` checks STUN between UPnP and HTTP fallback. |
 | J-3 | **SVC_ROOM_LIST protocol** | Broadcast room state from server to clients so lobby UI shows real room data. |
-| J-4 | **Server history UI** | **DONE (S80)** — serverhistory.json + Recent Servers panel + relative timestamps implemented. |
+| J-4 | **Server history UI** | **DONE (S80/S84)** — serverhistory.json + Recent Servers panel. S84: `fmtRelTime` lambda ("5s ago", "12m ago") in subtitle "ABC-DEF · 5m ago"; `net.c` changed `lastresponse = g_NetTick` → `lastresponse = (u32)time(NULL)` for unix timestamps; expanded config `Net.RecentServer.N.Host` + `.Time`. |
 | J-5 | **Lobby handoff polish** | **DONE (S81)** — `menuStop()` + `pdguiMainMenuReset()` called on SVC_AUTH; menu stack cleared on lobby join. |
 
 See [join-flow-plan.md](join-flow-plan.md) for full audit.
@@ -145,6 +143,22 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 ---
 
+### Match Startup Pipeline — See [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md)
+
+> Unified design merging B-12 Phase 3, R-2/R-3, J-3, C-series, and mod distribution. 8-phase pipeline: Gather→Manifest→Check→Catalog→Transfer→Ready Gate→Load→Sync.
+
+| Phase | Task | Details |
+|-------|------|---------|
+| A | **Protocol messages** | **DONE (S84)** — `SVC_MATCH_MANIFEST (0x62)`, `CLC_MANIFEST_STATUS (0x0E)`, `SVC_MATCH_COUNTDOWN (0x63)` opcodes + structs + read/write stubs in netmsg.c; `match_manifest_t` in netmanifest.h; `ROOM_STATE_PREPARING`/`CLSTATE_PREPARING` added; NET_PROTOCOL_VER=24 |
+| B | **Server side manifest build** | **DONE (S85)** — `port/src/net/netmanifest.c`: `manifestBuild()`, `manifestComputeHash()`, `manifestClear()`, `manifestAddEntry()`, `manifestLog()`. Wired into `netmsgClcLobbyStartRead` before `netServerStageStart()`. Logs manifest on every match start. Both targets build clean. |
+| C | **Client manifest processing** | **DONE (S86)** — `manifestCheck()` in netmanifest.c; `g_ClientManifest` global; `netmsgSvcMatchManifestRead()` stores + checks; server broadcasts manifest + logs; both dispatches wired in net.c |
+| C.5 | **Full game catalog registration** | **PARTIAL (S87)** — SP bodies/heads from g_HeadsAndBodies[152] registered in assetcatalog_base.c (~12 new entries). Stages already covered by s_BaseStages[]. **Remaining**: navmesh spawn fallback for SP maps, UI grouping (MP/SP/Unlockable categories in character picker), MPFEATURE_* unlock gating in selection UI. |
+| D | **Mod transfer** | **DONE (S88)** — `netmsgClcManifestStatusRead()` resolves missing hashes via catalog, queues via `netDistribServerHandleDiff`. No-op when all clients READY. |
+| E | **Ready gate** | **DONE (S88)** — `s_ReadyGate` bitmask tracker, `CLSTATE_PREPARING` transitions, 30s timeout, per-client status handling (READY/NEED_ASSETS/DECLINE), broadcasts SVC_MATCH_COUNTDOWN on state changes. Replaces fire-and-forget. |
+| F | **Sync launch** | **DONE (S88)** — 3-second countdown (3→2→1→0) via `readyGateTickCountdown()` in `netEndFrame()`. `g_MatchCountdownState` global for client UI. Broadcasts MANIFEST_PHASE_LOADING, fires stage start at 0. |
+
+---
+
 ### B-12: Participant System
 
 | Phase | Status |
@@ -155,37 +169,18 @@ See [join-flow-plan.md](join-flow-plan.md) for full audit.
 
 ---
 
+## Server Authority & Anti-Cheat
+
+| Item | Status | Details |
+|------|--------|---------|
+| Server-authoritative spawns | PLANNED | Current spawn selection is fully client-side (navspawn.c, playerreset.c). A modified client can spawn anywhere. Server needs to either: (a) validate client spawn positions against known-valid points (pads + waypoints), or (b) select spawn positions server-side and tell clients where to place players. Option (a) is lighter — requires server to load stage waypoint/pad data. Option (b) is architecturally cleaner but needs stage geometry on the dedicated server. Prerequisite: server stage data loading (currently server has catalog metadata but not stage geometry). |
+| Server-side position validation | PLANNED | Broader than spawns — periodic server checks that player positions are reachable / not inside walls. Depends on server having collision/navmesh data. |
+| Input validation | FUTURE | Rate-limit suspicious input patterns (teleporting, impossible movement speeds). Lightweight, doesn't require stage geometry. |
+
+---
+
 ## Deferred
 
 | Item | Reason |
 |------|--------|
-| Modding pipeline implementation | Design doc complete (S80). Deferred until matches are stable. |
-| Ultrawide support | Planned — will be built properly (not OTR hacks). |
-| ARM/NEON detection | Deferred until ARM target on roadmap. |
-| Network benchmark → dynamic player cap | Measure bandwidth/latency at server start, call `hubSetMaxSlots()`. |
-| Systemic bug audit: SP-1 remaining files | `activemenu.c`, `player.c`, `endscreen.c`, `menu.c` |
-| TODO-1: SDL2/zlib still DLL | Low priority. |
-
----
-
-## Prioritized Next Up
-
-| # | Task | Details |
-|---|------|---------|
-| 1 | **B-50/B-51/B-52/B-53: Networked MP verification** | Run timed dedicated server match: verify match ends at timelimit (B-50), bots are visible + in-bounds (B-51), weapons/ammo pickable (B-52), doors openable (B-53). |
-| 2 | **C-5: Texture override wiring** | Confirm `catalogGetTextureOverride` intercept in `texLoad()` is correctly wired. |
-| 3 | **C-6: Anim override wiring** | Wire `catalogGetAnimOverride` in `animLoadFrame/Header()`. |
-| 4 | **R-2: Room lifecycle** | Expand `HUB_MAX_ROOMS=16`, `HUB_MAX_CLIENTS=32`. Add `leader_client_id`, `room_id`. On-demand room creation. |
-| 5 | **Playtest backlog** | T-7, T-8/T-9, B-47, Combat Sim save/load. Solo Room screen: **DONE (S82)**. NAT traversal: **DONE (S83)**. Mouse capture: **DONE (S83)**. Online MP crash (B-54): **FIXED (S83)**. Spawn weapon logging: **DONE (S83)**. |
-| 6 | **UI Scaling** | Required for v0.1.0. Not started. |
-
----
-
-## Pause Menu UX (S26 feedback)
-
-| Issue | What Mike Wants |
-|-------|----------------|
-| End Game confirm/cancel too small | Separate overlay dialog. B cancels to pause menu. |
-| Settings B-button exits to main menu | Should back out one level only |
-| OG Paused text behind ImGui (B-15) | Suppress legacy pause rendering. Low priority. |
-| Scroll-hidden buttons | Prefer docked/always-visible, minimize scrolling |
+| Modding pipeline implementation | Des

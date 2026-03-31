@@ -8,7 +8,7 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 23  /* protocol 23: query response includes server external address for hole punch */
+#define NET_PROTOCOL_VER 24  /* protocol 24: match startup pipeline (manifest + ready gate + participant array) */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
@@ -99,6 +99,7 @@ extern s32 g_NetNumRecentServers;
 #define CLSTATE_AUTH 2
 #define CLSTATE_LOBBY 3
 #define CLSTATE_GAME 4
+#define CLSTATE_PREPARING 5  /* received SVC_MATCH_MANIFEST; checking local catalog */
 
 #define UCMD_FIRE (1 << 0)
 #define UCMD_ACTIVATE (1 << 1)

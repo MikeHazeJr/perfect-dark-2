@@ -486,9 +486,12 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/net/netstun.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netholepunch.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netdistrib.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netmanifest.c
 
   # Asset catalog -- server needs it to enumerate/serve mod components (D3R-9)
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base_extended.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
 
   # UPnP library
@@ -508,6 +511,9 @@ set(SRC_SERVER
 
   # ENet (external library)
   ${CMAKE_SOURCE_DIR}/port/external/enet.c
+
+  # C.5: navmesh spawn fallback for SP maps used as MP arenas
+  ${CMAKE_SOURCE_DIR}/port/src/navspawn.c
 
   # Update system (D13) -- server has its own update path + --check-update CLI
   ${CMAKE_SOURCE_DIR}/port/src/updater.c

@@ -39,7 +39,9 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/netmanifest.h"
 #include "net/matchsetup.h"
+#include "room.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
 #if !defined(PD_SERVER)
@@ -54,6 +56,31 @@
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
 #define NET_RESYNC_COOLDOWN    300 // minimum frames between resync requests (~5 sec at 60fps)
+
+/* Phase E: Ready gate — timeout before forcing SVC_STAGE_START (30s at 60fps) */
+#define READY_GATE_TIMEOUT_TICKS 1800
+
+/* Phase E/F: Server-side per-client readiness tracker.
+ * Active while the room is in ROOM_STATE_PREPARING.
+ * Bit i in each mask corresponds to g_NetClients[i]. */
+static struct {
+	s32 active;              /* 1 while waiting for CLC_MANIFEST_STATUS responses */
+	u32 expected_mask;       /* clients that were in CLSTATE_LOBBY when manifest broadcast */
+	u32 ready_mask;          /* clients that replied MANIFEST_STATUS_READY */
+	u32 declined_mask;       /* clients that replied MANIFEST_STATUS_DECLINE */
+	u32 deadline_ticks;      /* g_NetTick value at which timeout fires */
+	u8  stagenum;            /* saved for mainChangeToStage() when gate fires */
+	u8  total_count;         /* popcount(expected_mask) */
+	/* Phase F: countdown */
+	s32 countdown_active;    /* 1 during the 3-second pre-launch countdown */
+	u32 countdown_next_tick; /* g_NetTick at which to decrement + re-broadcast */
+	u8  countdown_secs;      /* current countdown value (3→2→1→0) */
+} s_ReadyGate;
+
+/* Phase F: Client-side countdown display state.
+ * Updated by netmsgSvcMatchCountdownRead().  UI reads this to display
+ * "Match starting in N..." during MANIFEST_PHASE_LOADING. */
+struct match_countdown_state g_MatchCountdownState;
 
 /* Desync tracking state (client-side) */
 static u32 g_NetChrDesyncCount = 0;
@@ -3406,6 +3433,118 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	return dst->error;
 }
 
+/* ---- Phase E: Ready gate helpers (server-side) ---- */
+
+static u8 readyGatePopcount(u32 mask)
+{
+	u8 n = 0;
+	while (mask) { n++; mask &= mask - 1; }
+	return n;
+}
+
+static void readyGateBroadcastCountdown(u8 phase)
+{
+	u8 ready_count = readyGatePopcount(s_ReadyGate.ready_mask);
+	u8 countdown_secs;
+	if (phase == MANIFEST_PHASE_LOADING) {
+		/* Phase F: use the dedicated countdown counter, not deadline_ticks */
+		countdown_secs = s_ReadyGate.countdown_secs;
+	} else {
+		u32 remaining = (g_NetTick < s_ReadyGate.deadline_ticks)
+		                ? (s_ReadyGate.deadline_ticks - g_NetTick) : 0;
+		countdown_secs = (u8)(remaining / 60);
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcMatchCountdownWrite(&g_NetMsgRel, ready_count,
+	                             s_ReadyGate.total_count, phase, countdown_secs);
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_COUNTDOWN %u/%u phase=%u secs=%u",
+	             (unsigned)ready_count, (unsigned)s_ReadyGate.total_count,
+	             (unsigned)phase, (unsigned)countdown_secs);
+}
+
+/* Called each time a client responds; starts Phase F countdown when all done. */
+static void readyGateCheck(void)
+{
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	/* Countdown already ticking — don't restart */
+	if (s_ReadyGate.countdown_active) {
+		return;
+	}
+
+	u8 ready   = readyGatePopcount(s_ReadyGate.ready_mask);
+	u8 decl    = readyGatePopcount(s_ReadyGate.declined_mask);
+	u8 total   = s_ReadyGate.total_count;
+	s32 all_responded = ((u8)(ready + decl) >= total);
+	s32 timed_out     = (g_NetTick >= s_ReadyGate.deadline_ticks);
+
+	if (!all_responded && !timed_out) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: ready gate — %u/%u ready %u declined timed_out=%d — starting countdown",
+	             (unsigned)ready, (unsigned)total, (unsigned)decl, timed_out);
+
+	/* Phase F: begin 3-second countdown; actual launch happens in readyGateTickCountdown(). */
+	s_ReadyGate.countdown_active    = 1;
+	s_ReadyGate.countdown_secs      = 3;
+	s_ReadyGate.countdown_next_tick = g_NetTick + 60;
+	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
+}
+
+/* Phase F: Called every server tick from netEndFrame() to drive the launch countdown. */
+void readyGateTickCountdown(void)
+{
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	/* Check timeout even if countdown hasn't started — handles the case where
+	 * all clients went silent (crash/disconnect) and no CLC arrives to trigger
+	 * readyGateCheck(). */
+	if (!s_ReadyGate.countdown_active && s_ReadyGate.active) {
+		if (g_NetTick >= s_ReadyGate.deadline_ticks) {
+			readyGateCheck();
+			if (!s_ReadyGate.active) return; /* gate fired */
+		}
+	}
+
+	if (!s_ReadyGate.countdown_active) {
+		return;
+	}
+
+	if (g_NetTick < s_ReadyGate.countdown_next_tick) {
+		return;
+	}
+
+	if (s_ReadyGate.countdown_secs > 0) {
+		s_ReadyGate.countdown_secs--;
+	}
+
+	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
+
+	if (s_ReadyGate.countdown_secs == 0) {
+		sysLogPrintf(LOG_NOTE, "NET: countdown complete — launching match (stage %u)",
+		             (unsigned)s_ReadyGate.stagenum);
+		s_ReadyGate.active           = 0;
+		s_ReadyGate.countdown_active = 0;
+
+		hub_room_t *room = roomGetById(0);
+		if (room) {
+			roomTransition(room, ROOM_STATE_LOADING);
+		}
+
+		mainChangeToStage(s_ReadyGate.stagenum);
+		netServerStageStart();
+	} else {
+		s_ReadyGate.countdown_next_tick = g_NetTick + 60;
+	}
+}
+
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
@@ -3546,8 +3685,63 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
 		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
 
-		mainChangeToStage(stagenum);
-		netServerStageStart();
+		/* Phase B: build manifest from current match state */
+		manifestBuild(&g_ServerManifest, NULL, NULL);
+		manifestLog(&g_ServerManifest);
+
+		/* Phase C: broadcast SVC_MATCH_MANIFEST to all clients.
+		 * Transitional: still send SVC_STAGE_START immediately after (via
+		 * netServerStageStart below) so matches continue to work end-to-end.
+		 * Phase E will gate on CLC_MANIFEST_STATUS responses instead. */
+		netbufStartWrite(&g_NetMsgRel);
+		netmsgSvcMatchManifestWrite(&g_NetMsgRel, &g_ServerManifest);
+		netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST broadcast (hash=0x%08x entries=%u)",
+		             (unsigned)g_ServerManifest.manifest_hash,
+		             (unsigned)g_ServerManifest.num_entries);
+
+		/* Phase E: enter ready gate — transition all LOBBY clients to PREPARING,
+		 * initialize tracker, broadcast initial countdown.
+		 * SVC_STAGE_START is deferred until all clients respond READY (or timeout). */
+		{
+			u32 expected_mask = 0;
+			u8  total_count   = 0;
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+					g_NetClients[ci].state = CLSTATE_PREPARING;
+					expected_mask |= (1u << ci);
+					total_count++;
+				}
+			}
+
+			s_ReadyGate.active        = 1;
+			s_ReadyGate.expected_mask = expected_mask;
+			s_ReadyGate.ready_mask    = 0;
+			s_ReadyGate.declined_mask = 0;
+			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
+			s_ReadyGate.stagenum      = stagenum;
+			s_ReadyGate.total_count   = total_count;
+
+			hub_room_t *room = roomGetById(0);
+			if (room) {
+				roomTransition(room, ROOM_STATE_PREPARING);
+			}
+
+			if (total_count == 0) {
+				/* No clients in lobby; fire immediately */
+				s_ReadyGate.active = 0;
+				if (room) {
+					roomTransition(room, ROOM_STATE_LOADING);
+				}
+				mainChangeToStage(stagenum);
+				netServerStageStart();
+			} else {
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+				sysLogPrintf(LOG_NOTE,
+				             "NET: ready gate active — %u clients CLSTATE_PREPARING deadline=%u",
+				             (unsigned)total_count, (unsigned)s_ReadyGate.deadline_ticks);
+			}
+		}
 	} else {
 		/* Co-op or Counter-op — uses mission config */
 		g_MissionConfig.stagenum = stagenum;
@@ -3881,5 +4075,216 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 		victim   ? victim   : "",
 		weapon   ? weapon   : "",
 		flags);
+	return src->error;
+}
+
+/* ========================================================================
+ * Phase A: Match Startup Pipeline (protocol v24)
+ *
+ * SVC_MATCH_MANIFEST  (0x62) — server → room, complete asset manifest
+ * CLC_MANIFEST_STATUS (0x0E) — client → server, catalog check result
+ * SVC_MATCH_COUNTDOWN (0x63) — server → room, ready-gate progress
+ *
+ * Wire format: see port/include/net/netmanifest.h
+ *
+ * Phase A scope: message types, structs, and read/write functions defined
+ * here.  Neither write nor read function is wired into any dispatch path
+ * yet — that happens in Phase B (server-side manifest build + send) and
+ * Phase C (client-side manifest check handler).
+ * ======================================================================== */
+
+/* ---- SVC_MATCH_MANIFEST ---- */
+
+u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest)
+{
+	netbufWriteU8(dst, SVC_MATCH_MANIFEST);
+	netbufWriteU32(dst, manifest->manifest_hash);
+	netbufWriteU16(dst, manifest->num_entries);
+
+	for (u16 i = 0; i < manifest->num_entries; i++) {
+		const match_manifest_entry_t *e = &manifest->entries[i];
+		netbufWriteU32(dst, e->net_hash);
+		netbufWriteU8(dst, e->type);
+		netbufWriteU8(dst, e->slot_index);
+		netbufWriteStr(dst, e->id);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u32 manifest_hash = netbufReadU32(src);
+	const u16 num_entries   = netbufReadU16(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_MANIFEST header");
+		return 1;
+	}
+
+	if (num_entries > MANIFEST_MAX_ENTRIES) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST entry count %u exceeds max %u",
+		             (unsigned)num_entries, (unsigned)MANIFEST_MAX_ENTRIES);
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST hash=0x%08x entries=%u",
+	             (unsigned)manifest_hash, (unsigned)num_entries);
+
+	/* Phase C: populate g_ClientManifest from wire data */
+	manifestClear(&g_ClientManifest);
+	g_ClientManifest.manifest_hash = manifest_hash;
+
+	for (u16 i = 0; i < num_entries; i++) {
+		const u32  net_hash   = netbufReadU32(src);
+		const u8   type       = netbufReadU8(src);
+		const u8   slot_index = netbufReadU8(src);
+		const char *id        = netbufReadStr(src);
+
+		if (src->error || !id) {
+			sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST malformed at entry %u", (unsigned)i);
+			return 1;
+		}
+
+		sysLogPrintf(LOG_NOTE, "NET: MANIFEST[%u] hash=0x%08x type=%u slot=%u id=%s",
+		             (unsigned)i, (unsigned)net_hash, (unsigned)type,
+		             (unsigned)slot_index, id);
+
+		manifestAddEntry(&g_ClientManifest, net_hash, id, type, slot_index);
+	}
+
+	/* Phase C: check local catalog against manifest, send CLC_MANIFEST_STATUS */
+	manifestCheck(&g_ClientManifest);
+
+	return src->error;
+}
+
+/* ---- CLC_MANIFEST_STATUS ---- */
+
+u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
+                                  const u32 *missing_hashes, u8 num_missing)
+{
+	netbufWriteU8(dst, CLC_MANIFEST_STATUS);
+	netbufWriteU32(dst, manifest_hash);
+	netbufWriteU8(dst, status);
+	netbufWriteU8(dst, num_missing);
+
+	for (u8 i = 0; i < num_missing; i++) {
+		netbufWriteU32(dst, missing_hashes[i]);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u32 manifest_hash = netbufReadU32(src);
+	const u8  status        = netbufReadU8(src);
+	const u8  num_missing   = netbufReadU8(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_MANIFEST_STATUS header");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_MANIFEST_STATUS from client %u: hash=0x%08x status=%u missing=%u",
+	             srccl ? srccl->id : 0xFF,
+	             (unsigned)manifest_hash, (unsigned)status, (unsigned)num_missing);
+
+	/* Collect missing hashes (needed for Phase D distribution) */
+	u32 missing_hashes[MANIFEST_MAX_ENTRIES];
+	u8  missing_count = 0;
+	for (u8 i = 0; i < num_missing; i++) {
+		const u32 hash = netbufReadU32(src);
+		if (src->error) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%u]", (unsigned)i);
+			return 1;
+		}
+		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%u] hash=0x%08x", (unsigned)i, (unsigned)hash);
+		if (missing_count < MANIFEST_MAX_ENTRIES) {
+			missing_hashes[missing_count++] = hash;
+		}
+	}
+
+	/* Phase E: ready gate — update per-client readiness and check for completion.
+	 * Dispatch on status: READY marks done, NEED_ASSETS queues Phase D transfer
+	 * (client will send READY again after transfer), DECLINE removes from match. */
+	if (s_ReadyGate.active && srccl) {
+		s32 ci = (s32)(srccl - g_NetClients);
+		if (ci >= 0 && ci < NET_MAX_CLIENTS &&
+		    (s_ReadyGate.expected_mask & (1u << ci))) {
+
+			if (status == MANIFEST_STATUS_READY) {
+				s_ReadyGate.ready_mask |= (1u << ci);
+				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d READY (%u/%u)",
+				             ci, (unsigned)readyGatePopcount(s_ReadyGate.ready_mask),
+				             (unsigned)s_ReadyGate.total_count);
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+
+			} else if (status == MANIFEST_STATUS_NEED_ASSETS) {
+				/* Phase D: queue missing components; client re-sends READY when done */
+				if (missing_count > 0) {
+					sysLogPrintf(LOG_NOTE,
+					             "NET: ready gate: client %d NEED_ASSETS (%u missing), queuing transfer",
+					             ci, (unsigned)missing_count);
+					netDistribServerHandleDiff(srccl, missing_hashes,
+					                           (u16)missing_count, 1);
+				}
+				readyGateBroadcastCountdown(MANIFEST_PHASE_TRANSFERRING);
+
+			} else if (status == MANIFEST_STATUS_DECLINE) {
+				s_ReadyGate.declined_mask |= (1u << ci);
+				srccl->state = CLSTATE_LOBBY;  /* spectator — excluded from match */
+				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d DECLINED (spectate)", ci);
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+			}
+
+			readyGateCheck();
+		}
+	}
+
+	return src->error;
+}
+
+/* ---- SVC_MATCH_COUNTDOWN ---- */
+
+u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_count,
+                                  u8 phase, u8 countdown_secs)
+{
+	netbufWriteU8(dst, SVC_MATCH_COUNTDOWN);
+	netbufWriteU8(dst, ready_count);
+	netbufWriteU8(dst, total_count);
+	netbufWriteU8(dst, phase);
+	netbufWriteU8(dst, countdown_secs);
+	return dst->error;
+}
+
+u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u8 ready_count    = netbufReadU8(src);
+	const u8 total_count    = netbufReadU8(src);
+	const u8 phase          = netbufReadU8(src);
+	const u8 countdown_secs = netbufReadU8(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_COUNTDOWN");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_COUNTDOWN %u/%u ready phase=%u countdown=%us",
+	             (unsigned)ready_count, (unsigned)total_count,
+	             (unsigned)phase, (unsigned)countdown_secs);
+
+	/* Phase F: store countdown state so the room UI can display it. */
+	g_MatchCountdownState.ready_count    = ready_count;
+	g_MatchCountdownState.total_count    = total_count;
+	g_MatchCountdownState.phase          = phase;
+	g_MatchCountdownState.countdown_secs = countdown_secs;
+	g_MatchCountdownState.active         = 1;
+
 	return src->error;
 }

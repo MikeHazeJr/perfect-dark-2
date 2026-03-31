@@ -37,13 +37,25 @@ extern "C" {
  * Types
  * ------------------------------------------------------------------------- */
 
-/** Five-state room lifecycle. */
+/** Room lifecycle state machine.
+ *
+ *  LOBBY --> PREPARING --> LOADING --> MATCH --> POSTGAME --> CLOSED
+ *    ^            |                                  |
+ *    |            | (manifest + ready gate)          |
+ *    +------------+----------------------------------+  (rematch / cancel)
+ *
+ *  PREPARING is entered when the leader triggers match start.  The server
+ *  broadcasts SVC_MATCH_MANIFEST; all clients must respond READY (or DECLINE)
+ *  before the room advances to LOADING.  Clients that DECLINE stay in
+ *  CLSTATE_LOBBY as spectators.
+ */
 typedef enum {
-    ROOM_STATE_LOBBY    = 0, /**< Waiting for players / match not started. */
-    ROOM_STATE_LOADING  = 1, /**< Stage assets loading / countdown.        */
-    ROOM_STATE_MATCH    = 2, /**< Match in progress.                       */
-    ROOM_STATE_POSTGAME = 3, /**< Scoreboard / brief results phase.        */
-    ROOM_STATE_CLOSED   = 4, /**< Room destroyed, slot available.          */
+    ROOM_STATE_LOBBY     = 0, /**< Waiting for players / match not started.          */
+    ROOM_STATE_LOADING   = 1, /**< Stage assets loading; SVC_STAGE_START sent.       */
+    ROOM_STATE_MATCH     = 2, /**< Match in progress.                                */
+    ROOM_STATE_POSTGAME  = 3, /**< Scoreboard / brief results phase.                 */
+    ROOM_STATE_CLOSED    = 4, /**< Room destroyed, slot available.                   */
+    ROOM_STATE_PREPARING = 5, /**< Manifest sent; waiting for all clients READY.     */
 } room_state_t;
 
 /** Room access mode. */

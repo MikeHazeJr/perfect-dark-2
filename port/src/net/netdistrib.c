@@ -39,6 +39,7 @@
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
 #include "net/netenet.h"
+#include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "system.h"
@@ -831,6 +832,10 @@ done:
                                ? DISTRIB_CSTATE_DONE : DISTRIB_CSTATE_ERROR;
         sysLogPrintf(LOG_NOTE, "DISTRIB: all transfers complete (%d received)",
                      s_ClientStatus.received_count);
+        /* Phase D→E bridge: re-check manifest now that transfers are done.
+         * This sends CLC_MANIFEST_STATUS(READY) to the server so the
+         * ready gate can count this client. */
+        manifestCheck(&g_ClientManifest);
     }
 }
 

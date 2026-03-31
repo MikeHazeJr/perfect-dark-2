@@ -623,9 +623,13 @@ void netServerStageStart(void)
 	 * The server must do this before stage initialization code runs,
 	 * because the init code assumes all clients are in GAME state.
 	 * Remote clients will also transition on their end when they
-	 * receive and process SVC_STAGE_START. */
+	 * receive and process SVC_STAGE_START.
+	 * Phase E: also transition CLSTATE_PREPARING clients (those who sent READY
+	 * through the ready gate); declined clients are already back in CLSTATE_LOBBY
+	 * and are intentionally left there as spectators. */
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-		if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+		if (g_NetClients[ci].state == CLSTATE_LOBBY ||
+		    g_NetClients[ci].state == CLSTATE_PREPARING) {
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
 	}
@@ -1101,8 +1105,10 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
-			case CLC_LOBBY_START:  rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
-			case CLC_CATALOG_DIFF: rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
+			case CLC_LOBBY_START:      rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
+			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
+			/* Phase C: Match Startup Pipeline */
+			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1180,6 +1186,9 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_DISTRIB_CHUNK:   rc = netmsgSvcDistribChunkRead(&cl->in, cl); break;
 			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
 			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
+			/* Phase C: Match Startup Pipeline */
+			case SVC_MATCH_MANIFEST:  rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
+			case SVC_MATCH_COUNTDOWN: rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1461,6 +1470,8 @@ void netEndFrame(void)
 	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
 	if (g_NetMode == NETMODE_SERVER) {
 		netDistribServerTick();
+		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
+		readyGateTickCountdown();
 	}
 
 	// send position updates

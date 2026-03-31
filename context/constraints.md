@@ -12,9 +12,9 @@ from a constraint that has already been removed.
 These are things we must still respect:
 
 - **Save file format compatibility**: Config values stored in `pd.ini` via configRegisterInt/UInt. Save migration framework (SAVE_VERSION) exists for future format changes.
-- **ENet protocol version**: Must match across clients. Currently v21 (v20: D3R-9 NETCHAN_TRANSFER; v21: chrslots u32→u64 in SVC_STAGE_START). B-12 Phase 3 will bump to v22 when chrslots is removed entirely.
+- **ENet protocol version**: Must match across clients. Currently **v23** (v20: D3R-9 NETCHAN_TRANSFER; v21: chrslots u32→u64 in SVC_STAGE_START; v22: CLC_LOBBY_START weapons[] array, S81; v23: NAT traversal messages + connect code port encoding, S83). B-12 Phase 3 was planned to bump to v22 — superseded; v22 already used for weapons sync, next bump is B-12 Phase 3 removal of chrslots.
 - **30 agent save slots**: Hardcoded in filelist struct layout. Cannot increase without breaking save format.
-- **chrslots bitmask**: Currently **u64** (8 player + 32 bot bits, bits 0-7 players, bits 8-39 bots). **Being replaced by dynamic participant system** (B-12). Phase 1 coded (S26): `participant.h`/`.c` with heap-allocated pool runs parallel. Phase 2: migrate callsites. Phase 3: remove chrslots + protocol bump to v22. Default capacity 32. Expanded from u32 in S45 to support 31-bot matches. Use `1ull <<` for all chrslots bit operations.
+- **chrslots bitmask**: Currently **u64** (8 player + 32 bot bits, bits 0-7 players, bits 8-39 bots). **Being replaced by dynamic participant system** (B-12). Phase 1 coded (S26): `participant.h`/`.c` with heap-allocated pool runs parallel. Phase 2 done (S47b): callsites migrated. Phase 3 (remove chrslots): NEXT — will bump protocol to v24 (v22 and v23 already used). Default capacity 32. Expanded from u32 in S45 to support 31-bot matches. Use `1ull <<` for all chrslots bit operations.
 - **MAX_LOCAL_PLAYERS = 4**: Maximum splitscreen players per machine. MAX_PLAYERS = 8 includes remote. Many arrays sized to these. Participant system uses `localslot` (0-3) per machine, `client_id` per network client.
 - **PLAYERCOUNT()**: Returns number of local human players (1-4), not total chrs.
 - **ROM data files**: Model/animation files come from ROM dump. Models not in ROM return NULL from fileLoadToNew (fixed Session 13). Mod content extends via mod loader.
