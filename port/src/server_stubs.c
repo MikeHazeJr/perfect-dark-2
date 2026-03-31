@@ -191,6 +191,8 @@ void objSetDropped(struct prop *prop, s32 arg) { (void)prop; (void)arg; }
 void doorSetMode(struct prop *prop, s32 mode) { (void)prop; (void)mode; }
 void roomsCopy(s16 *dst, s16 *src) { if (dst && src) memcpy(dst, src, 8 * sizeof(s16)); }
 struct modeldef *setupLoadModeldef(s32 filenum) { (void)filenum; return NULL; }
+struct stagesetup g_StageSetup; /* zero-initialised; props=NULL so manifest scan skips */
+u32 setupGetCmdLength(u32 *cmd) { (void)cmd; return 1; } /* stub — never reached (props==NULL) */
 struct model *modelmgrInstantiateModelWithoutAnim(struct modeldef *def) { (void)def; return NULL; }
 void laptopDeploy(struct prop *prop) { (void)prop; }
 struct prop *psCreate(void *a, void *b, void *c, void *d) {

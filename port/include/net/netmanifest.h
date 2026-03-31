@@ -50,6 +50,7 @@ extern "C" {
 #define MANIFEST_TYPE_STAGE      2  /**< Stage geometry + tiles */
 #define MANIFEST_TYPE_WEAPON     3  /**< Weapon model / data */
 #define MANIFEST_TYPE_COMPONENT  4  /**< Mod component (arbitrary) */
+#define MANIFEST_TYPE_MODEL      5  /**< Prop/environment model (ASSET_MODEL catalog entry) */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */

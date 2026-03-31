@@ -27,6 +27,7 @@
 #include "bss.h"
 #include "system.h"
 #include "constants.h"
+#include "game/setuputils.h"
 #include "net/netmanifest.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -262,7 +263,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
 void manifestLog(const match_manifest_t *m)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL"
     };
 
     sysLogPrintf(LOG_NOTE,
@@ -337,9 +338,110 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         manifestAddEntry(out, s_fnv1a("head_0"), "head_0", MANIFEST_TYPE_HEAD, 0);
     }
 
-    /* TODO SA-6: enumerate character bodies/heads from stage spawn list
-     *            (requires parsed setup data available before mission load). */
-    /* TODO SA-6: enumerate prop models referenced by this stage. */
+    /* ---- Stage characters and prop models from setup spawn list ----
+     * g_StageSetup.props is NULL when called pre-load; the scan silently
+     * skips in that case.  When invoked post-load (after filesetup converts
+     * the setup file to host byte order) this enumerates all CHR entries for
+     * body/head and all prop-object entries for their MODEL catalog IDs.
+     * manifestSPTransition() should be called after setupLoadFiles() returns
+     * so that both passes are meaningful. */
+    if (g_StageSetup.props) {
+        struct defaultobj *sobj = (struct defaultobj *)g_StageSetup.props;
+
+        while (sobj->type != OBJTYPE_END) {
+            if (sobj->type == OBJTYPE_CHR) {
+                /* ---- character body / head ---- */
+                const struct packedchr *chr = (const struct packedchr *)sobj;
+
+                /* bodynum 255 = random; no fixed catalog entry to require */
+                if (chr->bodynum != 255) {
+                    char bstr[64];
+                    const asset_entry_t *cbe;
+                    snprintf(bstr, sizeof(bstr), "body_%d", (int)chr->bodynum);
+                    cbe = assetCatalogResolve(bstr);
+                    if (cbe) {
+                        manifestAddEntry(out, cbe->net_hash, cbe->id,
+                                         MANIFEST_TYPE_BODY, 0);
+                    } else {
+                        manifestAddEntry(out, s_fnv1a(bstr), bstr,
+                                         MANIFEST_TYPE_BODY, 0);
+                    }
+                }
+
+                /* headnum < 0 = holograph / special; no fixed catalog entry */
+                if (chr->headnum >= 0) {
+                    char hstr[64];
+                    const asset_entry_t *che;
+                    snprintf(hstr, sizeof(hstr), "head_%d", (int)chr->headnum);
+                    che = assetCatalogResolve(hstr);
+                    if (che) {
+                        manifestAddEntry(out, che->net_hash, che->id,
+                                         MANIFEST_TYPE_HEAD, 0);
+                    } else {
+                        manifestAddEntry(out, s_fnv1a(hstr), hstr,
+                                         MANIFEST_TYPE_HEAD, 0);
+                    }
+                }
+            } else {
+                /* ---- prop model (types that embed struct defaultobj) ---- */
+                const char *model_id;
+                const asset_entry_t *me;
+
+                switch (sobj->type) {
+                case OBJTYPE_DOOR:
+                case OBJTYPE_BASIC:
+                case OBJTYPE_KEY:
+                case OBJTYPE_ALARM:
+                case OBJTYPE_CCTV:
+                case OBJTYPE_AMMOCRATE:
+                case OBJTYPE_WEAPON:
+                case OBJTYPE_SINGLEMONITOR:
+                case OBJTYPE_MULTIMONITOR:
+                case OBJTYPE_HANGINGMONITORS:
+                case OBJTYPE_AUTOGUN:
+                case OBJTYPE_DEBRIS:
+                case OBJTYPE_HAT:
+                case OBJTYPE_MULTIAMMOCRATE:
+                case OBJTYPE_SHIELD:
+                case OBJTYPE_GASBOTTLE:
+                case OBJTYPE_29:
+                case OBJTYPE_TRUCK:
+                case OBJTYPE_HELI:
+                case OBJTYPE_GLASS:
+                case OBJTYPE_SAFE:
+                case OBJTYPE_TINTEDGLASS:
+                case OBJTYPE_LIFT:
+                case OBJTYPE_HOVERBIKE:
+                case OBJTYPE_HOVERPROP:
+                case OBJTYPE_FAN:
+                case OBJTYPE_HOVERCAR:
+                case OBJTYPE_CHOPPER:
+                case OBJTYPE_MINE:
+                case OBJTYPE_ESCASTEP:
+                    model_id = catalogResolveByRuntimeIndex(ASSET_MODEL,
+                                                            (s32)sobj->modelnum);
+                    if (model_id) {
+                        me = assetCatalogResolve(model_id);
+                        if (me) {
+                            manifestAddEntry(out, me->net_hash, me->id,
+                                             MANIFEST_TYPE_MODEL,
+                                             MANIFEST_SLOT_MATCH);
+                        } else {
+                            manifestAddEntry(out, s_fnv1a(model_id), model_id,
+                                             MANIFEST_TYPE_MODEL,
+                                             MANIFEST_SLOT_MATCH);
+                        }
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+
+            sobj = (struct defaultobj *)((u32 *)sobj +
+                                         setupGetCmdLength((u32 *)sobj));
+        }
+    }
 
     manifestComputeHash(out);
 }
@@ -478,7 +580,7 @@ void manifestSPTransition(s32 stagenum)
 void manifestCheck(const match_manifest_t *manifest)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL"
     };
 
     u32 missing_hashes[MANIFEST_MAX_ENTRIES];
