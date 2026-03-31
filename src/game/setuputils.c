@@ -12,6 +12,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "assetcatalog.h"
 
 struct stagesetup g_StageSetup;
 u8 *g_GeCreditsData;
@@ -154,8 +155,11 @@ u32 setupGetCmdIndexByProp(struct prop *prop)
 
 bool setupLoadModeldef(s32 modelnum)
 {
+	s32 fileid;
+
 	if (g_ModelStates[modelnum].modeldef == NULL) {
-		g_ModelStates[modelnum].modeldef = modeldefLoadToNew(g_ModelStates[modelnum].fileid);
+		fileid = catalogGetPropFilenumByIndex(modelnum); /* SA-5c */
+		g_ModelStates[modelnum].modeldef = modeldefLoadToNew((u16)fileid);
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
 		return true;
 	}

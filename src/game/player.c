@@ -1550,7 +1550,7 @@ void playerTickChrBody(void)
 			}
 
 			if (weaponmodelnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(g_ModelStates[weaponmodelnum].fileid, LOADTYPE_MODEL));
+				offset2 += ALIGN64(fileGetInflatedSize(catalogGetPropFilenumByIndex(weaponmodelnum), LOADTYPE_MODEL)); /* SA-5c */
 			}
 
 			offset2 += 0x4000;
@@ -1726,8 +1726,9 @@ void playerTickChrBody(void)
 
 		if (weaponmodelnum >= 0) {
 			if (g_Vars.mplayerisrunning == false) {
-				weaponmodeldef = modeldefLoad(g_ModelStates[weaponmodelnum].fileid, allocation + offset1, offset2 - offset1, &texpool);
-				fileGetLoadedSize(g_ModelStates[weaponmodelnum].fileid);
+				s32 wfn = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
+				weaponmodeldef = modeldefLoad(wfn, allocation + offset1, offset2 - offset1, &texpool);
+				fileGetLoadedSize(wfn);
 				modelAllocateRwData(weaponmodeldef);
 			} else {
 				weaponobj = NULL;

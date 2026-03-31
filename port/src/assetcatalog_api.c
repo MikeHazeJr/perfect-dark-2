@@ -451,3 +451,33 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
         "CATALOG-FATAL: stage stageindex=%d not found in catalog", stageindex);
     return 0;
 }
+
+/* -------------------------------------------------------------------------
+ * SA-5c: Prop model load-site helper
+ * Mod-override-aware file ID resolution by runtime model array index (MODEL_*).
+ * Used at model file load call sites in setupLoadModeldef(), player.c to
+ * replace direct g_ModelStates[modelnum].fileid accesses.
+ * Looks up ASSET_MODEL entries registered by assetCatalogRegisterBaseGameExtended().
+ * O(n) scan per call -- acceptable at load time (result cached in modeldef).
+ * ------------------------------------------------------------------------- */
+
+s32 catalogGetPropFilenumByIndex(s32 propnum)
+{
+    const char *id;
+    const asset_entry_t *e;
+
+    id = catalogResolveByRuntimeIndex(ASSET_MODEL, propnum);
+    if (id) {
+        e = assetCatalogResolve(id);
+        if (e) {
+            return e->source_filenum;
+        }
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetPropFilenumByIndex: propnum=%d not in catalog "
+        "(searched ASSET_MODEL by runtime_index)", propnum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
+    return 0;
+}

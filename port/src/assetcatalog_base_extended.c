@@ -21,6 +21,7 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "system.h"
+#include "data.h"
 #include "game/mplayer/scenarios.h"
 
 /* ========================================================================
@@ -396,6 +397,40 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base HUD elements", n);
+		count += n;
+	}
+
+	/* ---- prop models (SA-5c) ---- */
+	/*
+	 * Register every g_ModelStates[] entry (indexed by MODEL_* enum) as an
+	 * ASSET_MODEL catalog entry.  This enables mod overrides: a mod registers
+	 * an ASSET_MODEL entry with the same runtime_index and a different
+	 * source_filenum to replace a specific prop model.
+	 *
+	 * runtime_index = MODEL_* enum value (index into g_ModelStates[])
+	 * source_filenum = g_ModelStates[i].fileid (FILE_* ROM constant)
+	 *
+	 * ASSET_MODEL is separate from ASSET_PROP (which tracks PROPTYPE_*
+	 * categories) to avoid runtime_index collisions.
+	 */
+	{
+		s32 n = 0;
+		s32 i;
+		for (i = 0; i < NUM_MODELS; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:model_%04x", i);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register model %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = i;
+			e->source_filenum = (s32)g_ModelStates[i].fileid;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);
 		count += n;
 	}
 

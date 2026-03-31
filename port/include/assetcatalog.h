@@ -72,6 +72,7 @@ typedef enum {
     ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
     ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
     ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
+    ASSET_MODEL,               /* individual 3-D model (g_ModelStates[] entry, MODEL_* index) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -793,6 +794,17 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum);
  * Returns 1 on success (catalog hit), 0 on catalog miss.
  */
 s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
+
+/**
+ * SA-5c: Resolve a prop model filenum by runtime model array index (MODEL_* enum).
+ * Mod-override-aware drop-in for g_ModelStates[modelnum].fileid at model file
+ * load call sites in setupLoadModeldef(), player.c, etc.
+ * Performs an O(n) catalog scan over ASSET_MODEL entries -- acceptable at load
+ * time (called once per model, result cached in g_ModelStates[].modeldef).
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ * No silent fallback to g_ModelStates[].fileid.
+ */
+s32 catalogGetPropFilenumByIndex(s32 propnum);
 
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
