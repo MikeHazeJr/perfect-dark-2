@@ -661,10 +661,11 @@ Subsystem groupings (can be done in any order, independently shippable):
 - [ ] Complete C-5 (`catalogGetTextureOverride` in `texLoad()`) — coded, needs wiring confirmation
 - [ ] Complete C-6 (`catalogGetAnimOverride` in `animLoadFrame/Header()`)
 
-**5f — Deprecation pass:**
-- [ ] Add `__attribute__((deprecated))` to legacy numeric accessors (`catalogGetEntry(index)`, `catalogGetSafeBody(n)`, etc.)
-- [ ] Fix resulting compiler warnings (= complete the migration)
-- [ ] Remove deprecation attributes once all sites are clean
+**5f — Deprecation pass: DONE (S93)**
+- [x] Deprecated-attribute audit: `catalogGetEntry`, `catalogGetBodyByMpIndex`, `catalogGetHeadByMpIndex` — zero external callers confirmed (no compiler warnings). Deprecated attributes added then removed per protocol. SA-5f audit notes added to doc comments.
+- [x] Fixed `catalogGetBodyScaleByIndex` silent legacy fallback (`g_HeadsAndBodies[bodynum].scale`) — changed to CATALOG-FATAL pattern consistent with other `catalogGet*ByIndex` functions.
+- [x] Annotated 3 remaining raw `g_HeadsAndBodies[bodynum].filenum` accesses in body.c diagnostic log messages (`/* SA-5f: raw access for diagnostic log only */`).
+- Remaining legitimate array accesses (out of SA-5 scope): `handfilenum` in bondgun.c (no catalog API yet), registration reads in `assetcatalog_base.c`/`modelcatalog.c`, runtime properties (`.modeldef`, `.animscale`, `.ismale`, `.height`, etc.). `catalogGetSafeBody/Head/BodyPaired` kept (active defense-in-depth).
 
 ---
 

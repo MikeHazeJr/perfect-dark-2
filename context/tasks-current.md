@@ -24,8 +24,8 @@
 | **C-2-ext** source_filenum/texnum/animnum/soundnum in asset_entry_t | **DONE (S74)** |
 | **catalogLoadInit** Reverse-index arrays + query functions | **DONE (S74)** |
 | **C-4** `catalogGetFileOverride` intercept in `romdataFileLoad()` | **DONE (S74)** — needs playtest with a mod that declares bodyfile |
-| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **NEXT** — coded, wiring needs confirmation |
-| **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **NEXT** |
+| **C-5** `catalogGetTextureOverride` intercept in `texLoad()` | **DONE (S92)** — confirmed: texLoad→modTextureLoad→catalogResolveTexture chain fully wired in texdecompress.c:2255 + mod.c |
+| **C-6** `catalogGetAnimOverride` intercept in `animLoadFrame/Header()` | **DONE (S92)** — `modAnimationTryCatalogOverride()` added to mod.c; wired in animLoadFrame + animLoadHeader ROM paths in anim.c. Build clean. Needs playtest with anim override mod. |
 | **C-7** `catalogGetSoundOverride` in `sndStart()` | **DONE (S80)** — `audioPlayFileSound()` via SDL_LoadWAV in audio.c, intercept wired in snd.c |
 | **C-8** Re-wire `catalogLoadInit()` on mod enable/disable | **DONE (S80)** — `catalogLoadInit()` re-wired on toggle |
 | **C-9** Stage diff | **DONE (S80)** — `catalogComputeStageDiff` implemented |
@@ -112,9 +112,9 @@
 | SA-2 | **Modular catalog API** | Per-system query functions (bodies, heads, stages, weapons, sounds) replacing ad-hoc `catalogResolve()` calls. Typed entry structs. |
 | SA-3 | **Network session catalog wire migration** | Replace raw indices in SVC_*/CLC_* with u16 session IDs from session catalog. ~180 call sites, ~20 message types. Requires SA-1 + SA-2. |
 | SA-4 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
-| SA-5 | **Save file boundary** | Scenario save, agent save: replace any raw indices stored to disk with catalog string IDs. Ensures save compatibility across mod changes. |
+| SA-5 | **Load path migration + deprecation pass** | SA-5a through SA-5f all complete. All `g_HeadsAndBodies[].filenum/.scale` and `g_Stages[].bgfileid` etc. load-path accesses migrated. `catalogGetBodyScaleByIndex` legacy fallback fixed. Deprecated-attribute audit confirmed zero external callers on 3 old modelcatalog functions. **DONE (S92-S93)**. |
 
-> **Status**: SA-1 DONE (S91). SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure. SA-5 is independent.
+> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
 > **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
 
 ---

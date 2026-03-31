@@ -420,9 +420,11 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum)
     }
     sysLogPrintf(LOG_ERROR,
         "[CATALOG-FATAL] catalogGetBodyScaleByIndex: bodynum=%d not in catalog "
-        "(searched ASSET_BODY by runtime_index), falling back to legacy scale",
-        bodynum);
-    return g_HeadsAndBodies[bodynum].scale;
+        "(searched ASSET_BODY by runtime_index)", bodynum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: body scale bodynum=%d not found in catalog", bodynum);
+    return 1.0f;
 }
 
 /* -------------------------------------------------------------------------

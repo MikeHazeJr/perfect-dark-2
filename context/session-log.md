@@ -3,6 +3,89 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S93 -- 2026-03-31
+
+**Focus**: SA-5f — deprecation pass, final Phase 5 sub-phase
+
+### What Was Done
+
+1. **Full legacy accessor audit** across `src/` and `port/`:
+   - Confirmed all load-path `.filenum` sites are already migrated (SA-5a through SA-5e)
+   - Confirmed all `.bgfileid`/`.padsfileid`/`.setupfileid`/`.tilefileid`/`.mpsetupfileid` sites migrated (SA-5b)
+   - Confirmed all `g_ModelStates[].fileid` load sites migrated (SA-5c)
+   - Found 3 remaining raw `g_HeadsAndBodies[bodynum].filenum` in diagnostic LOG messages in `body.c` — annotated as intentional (`/* SA-5f: raw access for diagnostic log only */`)
+   - Found 1 bug: `catalogGetBodyScaleByIndex` silently fell back to `g_HeadsAndBodies[bodynum].scale` on catalog miss — design doc flags this as wrong
+
+2. **Bug fixed** (`port/src/assetcatalog_api.c`): `catalogGetBodyScaleByIndex` error path changed from silent legacy fallback to CATALOG-FATAL pattern (sets `g_CatalogFailure=1`, `g_CatalogFailureMsg`, returns `1.0f`). Now matches the pattern used by `catalogGetBodyFilenumByIndex`, `catalogGetHeadFilenumByIndex`, and `catalogGetStageResultByIndex`.
+
+3. **Deprecated attribute audit** (`port/include/modelcatalog.h`):
+   - Added `__attribute__((deprecated(...)))` to `catalogGetEntry`, `catalogGetBodyByMpIndex`, `catalogGetHeadByMpIndex`
+   - Built → **zero new warnings** — confirmed these three functions have zero external callers
+   - Removed deprecated attributes per SA-5f protocol (job done: compiler-enforced audit confirmed migration complete)
+   - Replaced with SA-5f audit note in doc comments
+
+4. **Functions left in place** (still actively used):
+   - `catalogGetSafeBody` — internal to `catalogGetSafeBodyPaired` only
+   - `catalogGetSafeHead` — 4 active call sites in matchsetup.c + netmsg.c (defense-in-depth guards)
+   - `catalogGetSafeBodyPaired` — 4 active call sites; design doc says these are intentional safety nets
+   - `g_HeadsAndBodies[bodynum].handfilenum` (bondgun.c:4029) — no catalog API for handfilenum yet; out of SA-5 scope
+
+5. **Remaining legitimate raw array accesses** (not SA-5 scope):
+   - `g_HeadsAndBodies[]` registration code in `assetcatalog_base.c` and `modelcatalog.c` — reads array to populate catalog, definitionally correct
+   - `g_HeadsAndBodies[bodynum].animscale`, `.unk00_01`, `.canvaryheight`, `.type`, `.ismale`, `.height`, `.modeldef` — runtime behavioral properties, not asset identity; no catalog API for these
+   - `bodyreset.c:29-30` — iterates to null modeldef pointers; legitimate
+   - `chr.c:4887` — dead code (`PIRACYCHECKS=0` in CMakeLists.txt)
+
+### Build Status
+
+Both targets (client + server) build clean. Only 2 pre-existing `-Wcomment` warnings remain (auto-generated comment blocks in matchsetup.c:11 and modelcatalog.c:24, both pre-existing).
+
+### Key Decision
+
+`catalogGetBodyScaleByIndex` legacy fallback was a design doc-identified bug. Removal makes the function behave identically to the other `catalogGet*ByIndex` functions — CATALOG-FATAL on miss, no silent degradation.
+
+### Next Steps
+
+- SA-5 series COMPLETE (SA-5a through SA-5f all done)
+- SA-2: Modular catalog API layer (next major infrastructure track — typed result structs, `catalogResolveBody/Head/Stage` functions replacing ad-hoc `catalogResolve()` calls)
+- Playtest C-5/C-6 (texture + anim override mods)
+
+---
+
+## Session S92 -- 2026-03-31
+
+**Focus**: SA-5e — fileLoadToNew / texLoad / animLoad intercept wiring
+
+### What Was Done
+
+1. **C-4 VERIFIED** (`romdataFileLoad`, `port/src/romdata.c:617-646`):
+   - Intercept fully wired in `romdataFileLoad()`. Calls `catalogResolveFile(fileNum)` on every load.
+   - Handles mod override (load from path), ROM path (catalog_id >= 0), and uncataloged (fall-through).
+   - All callers of `fileLoadToNew`/`fileLoadToAddr`/`romdataFileGetData` benefit transparently.
+
+2. **C-5 CONFIRMED** (`texLoad` → `modTextureLoad`, `src/game/texdecompress.c:2255` + `port/src/mod.c:38`):
+   - Chain: `texLoad()` sets `g_TexNumToLoad` → calls `modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096)`
+   - `modTextureLoad()` calls `catalogResolveTexture()` → if mod override: `fsFileLoadTo(path, dst, dstSize)`
+   - Single gateway for all 50+ texture call sites. No wiring changes needed.
+
+3. **C-6 IMPLEMENTED** (`animLoadFrame` + `animLoadHeader`, `src/lib/anim.c`):
+   - **Gap found**: `modAnimationLoadData()` already called `catalogResolveAnim()`, but only when `g_Anims[animnum].data == 0xffffffff` (pre-marked external animations). ROM-based animations never checked catalog.
+   - **Fix**: Added `modAnimationTryCatalogOverride(u16 num)` in `port/src/mod.c` — catalog-only check, no sysFatalError, returns `NULL` when no override so caller falls through to ROM DMA.
+   - Wired in both `animLoadFrame` (anim.c:~319) and `animLoadHeader` (anim.c:~378) in the `else` (ROM) branch: checks `g_AnimReplacements[animnum]` cache first, calls `modAnimationTryCatalogOverride` on first miss, uses same offset logic as external-animation path when override found.
+   - Override file format: binary blob (header bytes at offset 0, then frame data) — same as `data == 0xffffffff` external animations.
+
+### Build Status
+
+Both targets (client + server) build clean. No new errors or warnings.
+
+### Next Steps
+
+- Playtest C-6: enable a mod that registers an anim override; verify the animation plays from mod file
+- C-5 playtest: enable a texture mod; verify override textures appear in-game
+- SA-2: Modular catalog API layer (next infrastructure track)
+
+---
+
 ## Session S91 -- 2026-03-31
 
 **Focus**: SA-1 — Session Catalog Infrastructure (Phase 1 of session-catalog-and-modular-api.md)

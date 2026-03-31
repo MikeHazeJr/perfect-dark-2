@@ -216,8 +216,8 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| bodymodeldef->numparts <= 0
 		|| bodymodeldef->numparts > 500) {
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
-		             "ptr=%p skel=%p root=%p parts=%d — skipping",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum,
+		             "ptr=%p skel=%p root=%p parts=%d -- skipping",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, /* SA-5f: raw access for diagnostic log only */
 		             (void *)bodymodeldef,
 		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
 		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
@@ -230,12 +230,12 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	 * 1.0 destroyed model geometry, hit radii, and animation positions.
 	 * Only reject truly degenerate values (zero/negative). */
 	if (bodymodeldef->scale <= 0.0f) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) — setting to 1.0",
-		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum);
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) -- setting to 1.0",
+		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum); /* SA-5f: raw access for diagnostic log only */
 		bodymodeldef->scale = 1.0f;
 	} else {
 		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale);
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale); /* SA-5f: raw access for diagnostic log only */
 	}
 
 	modelAllocateRwData(bodymodeldef);

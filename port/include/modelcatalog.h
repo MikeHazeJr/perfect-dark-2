@@ -99,18 +99,28 @@ s32 catalogGetCount(void);
 /**
  * Get a catalog entry by its g_HeadsAndBodies index.
  * Returns NULL if index is out of range.
+ *
+ * SA-5f audit: zero external callers confirmed (deprecated attribute added and
+ * removed with no compiler warnings).  Kept for modelcatalog-internal use only.
+ * New code should use assetCatalogResolve() or catalogGetBodyFilenumByIndex().
  */
 const struct catalogentry *catalogGetEntry(s32 index);
 
 /**
  * Get a catalog entry by multiplayer body index.
  * Returns NULL if mpIndex is out of range.
+ *
+ * SA-5f audit: zero external callers confirmed.
+ * New code should use catalogGetBodyFilenumByIndex().
  */
 const struct catalogentry *catalogGetBodyByMpIndex(s32 mpIndex);
 
 /**
  * Get a catalog entry by multiplayer head index.
  * Returns NULL if mpIndex is out of range.
+ *
+ * SA-5f audit: zero external callers confirmed.
+ * New code should use catalogGetHeadFilenumByIndex().
  */
 const struct catalogentry *catalogGetHeadByMpIndex(s32 mpIndex);
 
