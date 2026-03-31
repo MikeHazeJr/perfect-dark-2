@@ -645,14 +645,17 @@ typedef catalog_body_result_t catalog_head_result_t;
 
 /**
  * Result struct for stage (map) asset resolution.
- * bgfileid/padsfileid/setupfileid come from g_Stages[runtime_index] when
- * the stage table is loaded (client); all -1 on server or unloaded stages.
+ * bgfileid/padsfileid/setupfileid/mpsetupfileid/tilefileid come from
+ * g_Stages[runtime_index] when the stage table is loaded (client);
+ * all -1 on server or unloaded stages.
  */
 typedef struct {
     const asset_entry_t *entry;
     s32                  bgfileid;
     s32                  padsfileid;
     s32                  setupfileid;
+    s32                  mpsetupfileid; /**< multiplayer setup file id (-1 if not applicable) */
+    s32                  tilefileid;    /**< tile file id (-1 if not applicable) */
     s32                  stagenum;    /**< logical stage ID (e.g. 0x5e) */
     u32                  net_hash;
     u16                  session_id;
@@ -751,6 +754,19 @@ s32 catalogGetBodyFilenumByIndex(s32 bodynum);
  * load call sites.  Same O(n) / fallback behaviour as catalogGetBodyFilenumByIndex.
  */
 s32 catalogGetHeadFilenumByIndex(s32 headnum);
+
+/**
+ * SA-5b: Resolve all stage file IDs by runtime stage array index.
+ * Mod-override-aware drop-in for g_Stages[stageindex].bgfileid / padsfileid /
+ * setupfileid / mpsetupfileid / tilefileid at file load call sites.
+ * Performs an O(n) catalog scan -- acceptable at load time (called once per
+ * stage transition, not per frame).
+ * Populates all file ID fields in *out from the catalog entry.
+ * Falls back to g_Stages[stageindex] fields on catalog miss so base game
+ * behaviour is unchanged when the catalog is not yet populated.
+ * Returns 1 on success (catalog hit), 0 on fallback (catalog miss).
+ */
+s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
 
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 

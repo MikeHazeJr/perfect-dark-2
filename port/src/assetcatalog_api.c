@@ -70,14 +70,18 @@ static void s_fillStageResult(const asset_entry_t *e, catalog_stage_result_t *ou
 
     idx = e->runtime_index;
     if (g_Stages != NULL && idx >= 0) {
-        out->bgfileid    = (s32)g_Stages[idx].bgfileid;
-        out->padsfileid  = (s32)g_Stages[idx].padsfileid;
-        out->setupfileid = (s32)g_Stages[idx].setupfileid;
+        out->bgfileid      = (s32)g_Stages[idx].bgfileid;
+        out->padsfileid    = (s32)g_Stages[idx].padsfileid;
+        out->setupfileid   = (s32)g_Stages[idx].setupfileid;
+        out->mpsetupfileid = (s32)g_Stages[idx].mpsetupfileid;
+        out->tilefileid    = (s32)g_Stages[idx].tilefileid;
     } else {
         /* Server build: g_Stages is NULL; file IDs not available. */
-        out->bgfileid    = (e->source_filenum >= 0) ? e->source_filenum : -1;
-        out->padsfileid  = -1;
-        out->setupfileid = -1;
+        out->bgfileid      = (e->source_filenum >= 0) ? e->source_filenum : -1;
+        out->padsfileid    = -1;
+        out->setupfileid   = -1;
+        out->mpsetupfileid = -1;
+        out->tilefileid    = -1;
     }
 }
 
@@ -386,4 +390,38 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
         "[CATALOG-ASSERT] catalogGetHeadFilenumByIndex: headnum=%d not in catalog, "
         "using legacy g_HeadsAndBodies[].filenum", headnum);
     return (s32)g_HeadsAndBodies[headnum].filenum;
+}
+
+/* -------------------------------------------------------------------------
+ * SA-5b: Stage load-site helper
+ * Mod-override-aware stage file ID resolution by runtime stage array index.
+ * Used at file load call sites in bg.c, tilesreset.c, setup.c to replace
+ * direct g_Stages[stageindex].bgfileid / padsfileid / setupfileid /
+ * mpsetupfileid / tilefileid accesses.
+ * O(n) scan per call -- acceptable at load time (once per stage transition).
+ * ------------------------------------------------------------------------- */
+
+s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
+{
+    const char *id;
+
+    memset(out, 0, sizeof(*out));
+    id = catalogResolveByRuntimeIndex(ASSET_MAP, stageindex);
+    if (id && catalogResolveStage(id, out)) {
+        return 1;
+    }
+    /* Fallback: populate directly from g_Stages so callers work unchanged
+     * when the catalog is not yet populated. */
+    sysLogPrintf(LOG_WARNING,
+        "[CATALOG-ASSERT] catalogGetStageResultByIndex: stageindex=%d not in catalog, "
+        "using legacy g_Stages[] file IDs", stageindex);
+    if (g_Stages != NULL && stageindex >= 0) {
+        out->bgfileid      = (s32)g_Stages[stageindex].bgfileid;
+        out->padsfileid    = (s32)g_Stages[stageindex].padsfileid;
+        out->setupfileid   = (s32)g_Stages[stageindex].setupfileid;
+        out->mpsetupfileid = (s32)g_Stages[stageindex].mpsetupfileid;
+        out->tilefileid    = (s32)g_Stages[stageindex].tilefileid;
+        out->stagenum      = (s32)g_Stages[stageindex].id;
+    }
+    return 0;
 }

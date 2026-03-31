@@ -48,6 +48,7 @@
 #include "system.h"
 #include "video.h"
 #include "platform.h"
+#include "assetcatalog.h"
 
 #define BGCMD_END                               0x00
 #define BGCMD_PUSH                              0x01
@@ -1237,10 +1238,13 @@ Gfx *bgRenderArtifacts(Gfx *gdl)
 
 void bgLoadFile(void *memaddr, u32 offset, u32 len)
 {
+	catalog_stage_result_t stage;
+
 	if (var8007fc04) {
 		bcopy(var8007fc08 + offset, memaddr, len);
 	} else {
-		fileLoadPartToAddr(g_Stages[g_StageIndex].bgfileid, memaddr, offset, len);
+		catalogGetStageResultByIndex(g_StageIndex, &stage);
+		fileLoadPartToAddr(stage.bgfileid, memaddr, offset, len);
 	}
 }
 

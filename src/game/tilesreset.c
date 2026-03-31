@@ -7,22 +7,26 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetcatalog.h"
 
 void stageParseTiles(void);
 
 void tilesReset(void)
 {
 	s32 index = bgGetStageIndex(g_Vars.stagenum);
+	catalog_stage_result_t stage;
 
 	if (index < 0) {
 		index = 0;
 	}
 
+	catalogGetStageResultByIndex(index, &stage);
+
 	g_LoadType = LOADTYPE_TILES;
-	g_TileFileData.u8 = fileLoadToNew(g_Stages[index].tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
+	g_TileFileData.u8 = fileLoadToNew(stage.tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
 	if (!g_TileFileData.u8) {
 		sysLogPrintf(LOG_ERROR, "TILES: failed to load tilefileid=%d for stage index=%d",
-			g_Stages[index].tilefileid, index);
+			stage.tilefileid, index);
 		g_TileNumRooms = 0;
 		g_TileRooms = NULL;
 		return;

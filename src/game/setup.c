@@ -37,6 +37,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetcatalog.h"
 
 s32 g_SetupCurMpLocation;
 
@@ -1219,12 +1220,14 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		u8 *langbuffer;
 		s32 langbufferlen;
 		struct stagesetup *setup;
+		catalog_stage_result_t stage;
 
 		if (stageindex < 0) {
 			stageindex = 0;
 		}
 
-		setupfilenum = g_Stages[stageindex].setupfileid;
+		catalogGetStageResultByIndex(stageindex, &stage);
+		setupfilenum = (u16)stage.setupfileid;
 		g_LoadType = LOADTYPE_SETUP;
 
 		fileLoadToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
@@ -1301,6 +1304,7 @@ void setupLoadFiles(s32 stagenum)
 	struct stagesetup *setup;
 	u16 filenum;
 	bool modified;
+	catalog_stage_result_t stage;
 
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles(0x%02x) g_StageIndex=%d normmplay=%d", stagenum, g_StageIndex, g_Vars.normmplayerisrunning);
 	g_PadEffects = NULL;
@@ -1313,15 +1317,17 @@ void setupLoadFiles(s32 stagenum)
 	}
 
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
+		catalogGetStageResultByIndex(g_StageIndex, &stage);
+
 		if (g_Vars.normmplayerisrunning) {
-			filenum = g_Stages[g_StageIndex].mpsetupfileid;
+			filenum = (u16)stage.mpsetupfileid;
 		} else {
-			filenum = g_Stages[g_StageIndex].setupfileid;
+			filenum = (u16)stage.setupfileid;
 		}
 
 		g_LoadType = LOADTYPE_SETUP;
 
-		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, g_Stages[g_StageIndex].mpsetupfileid, g_Stages[g_StageIndex].setupfileid);
+		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, stage.mpsetupfileid, stage.setupfileid);
 		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 		setup = (struct stagesetup *)g_GeCreditsData;
 		langLoad(langGetLangBankIndexFromStagenum(stagenum));
@@ -1351,7 +1357,7 @@ void setupLoadFiles(s32 stagenum)
 			// The distance heuristic was added for corrupt mod setup files
 			// where the intro pointer aliases into the props block — don't
 			// apply it when loading the official MP setup file.
-			bool isMpSetup = (filenum == g_Stages[g_StageIndex].mpsetupfileid);
+			bool isMpSetup = (filenum == (u16)stage.mpsetupfileid);
 			if ((!isMpSetup && dist < 64) || firstCmd < 0 || firstCmd > INTROCMD_END) {
 				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
 					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
@@ -1361,11 +1367,11 @@ void setupLoadFiles(s32 stagenum)
 
 		g_LoadType = LOADTYPE_PADS;
 
-		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", g_Stages[g_StageIndex].padsfileid);
-		g_StageSetup.padfiledata = fileLoadToNew(g_Stages[g_StageIndex].padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", stage.padsfileid);
+		g_StageSetup.padfiledata = fileLoadToNew(stage.padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
 		if (!g_StageSetup.padfiledata) {
 			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",
-				g_Stages[g_StageIndex].padsfileid, g_StageIndex);
+				stage.padsfileid, g_StageIndex);
 		}
 
 		g_StageSetup.waypoints = NULL;
