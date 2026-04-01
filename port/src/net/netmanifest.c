@@ -831,22 +831,14 @@ void manifestApplyDiff(const match_manifest_t *needed,
     s32 i;
     s32 load_ok;
 
-    /* Unload: decrement ref_count for entries leaving the active manifest.
-     * For bundled (base-game) assets catalogUnloadAsset is a no-op.
-     * For mod assets, ref_count decrements and data is freed when it hits 0. */
-    for (i = 0; i < diff->num_to_unload; i++) {
-        if (diff->to_unload[i].id[0]) {
-            catalogUnloadAsset(diff->to_unload[i].id);
-            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
-                         diff->to_unload[i].id);
-        }
-    }
-
-    /* Load: resolve and load entries entering the active manifest.
-     * For bundled assets this is a no-op retain (already ROM-resident).
+    /* Load first: bring in entries entering the active manifest BEFORE releasing
+     * any outgoing assets.  This ensures new assets are resident before old data
+     * is freed, preventing any window during the transition where neither the old
+     * nor the new asset data exists in memory.
+     * For bundled (base-game) assets this is a no-op retain (already ROM-resident).
      * For mod assets, the file is read from disk and ref_count is incremented.
-     * A missing asset logs a warning and is skipped — the game must not crash
-     * if a mod file is absent; the intercept layer falls back to ROM. */
+     * A missing asset logs a warning and is skipped — the intercept layer falls
+     * back to ROM so the game does not crash on a missing mod file. */
     for (i = 0; i < diff->num_to_load; i++) {
         if (diff->to_load[i].id[0]) {
             load_ok = catalogLoadAsset(diff->to_load[i].id);
@@ -858,6 +850,22 @@ void manifestApplyDiff(const match_manifest_t *needed,
                 sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
                              diff->to_load[i].id);
             }
+        }
+    }
+
+    /* Unload second: decrement ref_count for entries leaving the active manifest.
+     * Executed after loads so new assets are already resident before old ones are
+     * released — this is the primary guard against the 56-asset transition crash
+     * (use-after-free when assets were freed before the new stage was ready).
+     * For bundled (base-game) assets catalogUnloadAsset is a no-op.
+     * For mod assets, ref_count decrements; when it hits 0, data is freed and
+     * registered deps are cascade-decremented (see catalogUnloadAsset).
+     * Detailed "freed / retained" logging is emitted inside catalogUnloadAsset. */
+    for (i = 0; i < diff->num_to_unload; i++) {
+        if (diff->to_unload[i].id[0]) {
+            catalogUnloadAsset(diff->to_unload[i].id);
+            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
+                         diff->to_unload[i].id);
         }
     }
 

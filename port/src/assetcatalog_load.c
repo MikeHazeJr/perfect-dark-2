@@ -19,6 +19,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "assetcatalog_deps.h"
 #include "system.h"
 #include "fs.h"
 
@@ -388,34 +389,75 @@ s32 catalogLoadAsset(const char *assetId)
     return 1;
 }
 
+/**
+ * Dep cascade callback for catalogUnloadAsset.
+ *
+ * When a parent asset's ref_count hits zero and its data is freed, this
+ * callback is invoked for each dependency registered under that parent.
+ * Each dep's own ref_count is decremented; if it also reaches zero, the dep
+ * is freed recursively.
+ *
+ * This handles callers that unload the parent directly (outside the manifest).
+ * When the manifest also lists the dep in to_unload, the direct manifest call
+ * arrives after the cascade and finds loaded_data == NULL (dep already freed),
+ * making it a safe no-op — no double-free can occur.
+ */
+static void s_catalogUnloadDepCallback(const char *dep_id, void *userdata)
+{
+    (void)userdata;
+    catalogUnloadAsset(dep_id);
+}
+
 void catalogUnloadAsset(const char *assetId)
 {
+    s32 old_ref;
+    s32 new_ref;
+    asset_entry_t *entry;
+
     if (!assetId) {
         return;
     }
 
-    asset_entry_t *entry = assetCatalogGetMutable(assetId);
+    entry = assetCatalogGetMutable(assetId);
     if (!entry) {
         return;
     }
 
-    /* Never evict bundled assets. */
+    /* Never evict bundled assets — they are ROM-resident for the process lifetime. */
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         return;
     }
+
+    old_ref = entry->ref_count;
 
     if (entry->ref_count > 0) {
         entry->ref_count--;
     }
 
-    if (entry->ref_count <= 0 && entry->loaded_data) {
-        sysLogPrintf(LOG_NOTE, "MOD: unloaded '%s' (%u bytes)", assetId, entry->data_size_bytes);
+    new_ref = entry->ref_count;
+
+    if (new_ref <= 0 && entry->loaded_data) {
+        /* ref_count reached zero — cascade to registered deps before freeing.
+         * For each dep: decrement its ref_count; free if that also hits zero.
+         * Bundled dep pairs are skipped by catalogDepForEach (they are always
+         * ROM-resident and never registered with is_bundled=0). */
+        catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL);
+
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST: unload '%s' ref=%d->%d (freed)",
+                     assetId, old_ref, new_ref);
         sysMemFree(entry->loaded_data);
         entry->loaded_data     = NULL;
         entry->data_size_bytes = 0;
         entry->load_state      = ASSET_STATE_ENABLED;
         entry->ref_count       = 0;
+    } else if (old_ref != new_ref) {
+        /* ref_count decremented but still > 0: asset retained by other holders. */
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST: unload '%s' ref=%d->%d (retained)",
+                     assetId, old_ref, new_ref);
     }
+    /* old_ref == new_ref == 0: already fully unloaded — silent no-op. */
 }
 
 void catalogRetainAsset(const char *assetId)
