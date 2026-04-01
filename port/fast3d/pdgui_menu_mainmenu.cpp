@@ -247,6 +247,12 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 /* Update UI — from pdgui_menu_update.cpp */
 void pdguiUpdateRenderSettingsTab(void);
 
+/* Update channel — from updater.c */
+typedef enum { UPDATE_CHANNEL_STABLE = 0, UPDATE_CHANNEL_DEV, UPDATE_CHANNEL_COUNT } update_channel_t;
+update_channel_t updaterGetChannel(void);
+void updaterSetChannel(update_channel_t channel);
+void updaterCheckAsync(void);
+
 /* Modding Hub UI — declared in pdgui_menu_moddinghub.cpp */
 void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
@@ -1244,6 +1250,21 @@ static void renderSettingsGame(float scale)
         }
         if (PdSliderFloat("Jump Height", &jump, 0.0f, 20.0f, jumpLabel)) {
             g_PlayerExtCfg[0].jumpheight = jump;
+        }
+    }
+
+    /* Update Channel */
+    {
+        int ch = (int)updaterGetChannel();
+        const char *chOpts[] = { "Stable", "Dev / Test" };
+        if (PdCombo("Update Channel", &ch, chOpts, 2)) {
+            updaterSetChannel((update_channel_t)ch);
+            updaterCheckAsync();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Stable: only show stable releases in the update notification\n"
+                "Dev / Test: also show pre-release and dev builds");
         }
     }
 

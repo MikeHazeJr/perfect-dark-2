@@ -76,10 +76,9 @@ static void renderNotificationBanner(void)
 
 	ImGuiIO &io = ImGui::GetIO();
 	float barHeight = pdguiScale(40.0f);
-	ImVec2 barPos(0, 0);
 	ImVec2 barSize(io.DisplaySize.x, barHeight);
 
-	ImGui::SetNextWindowPos(barPos);
+	ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - barHeight));
 	ImGui::SetNextWindowSize(barSize);
 	ImGui::SetNextWindowBgAlpha(0.92f);
 
@@ -384,10 +383,10 @@ static void renderVersionPickerContent(float tableH)
 			ImVec2(0, tableH > 0 ? tableH : pdguiScale(280.0f)))) {
 
 			ImGui::TableSetupScrollFreeze(0, 1);
-			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(100.0f));
-			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(60.0f));
-			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(70.0f));
+			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(90.0f));
+			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(56.0f));
+			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthFixed,   pdguiScale(190.0f));
+			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(64.0f));
 			ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed,   actionColW);
 			ImGui::TableHeadersRow();
 
@@ -407,6 +406,25 @@ static void renderVersionPickerContent(float tableH)
 				bool isNewer    = cur && (versionCompare(&rel->version, cur) > 0);
 				bool isRollback = cur && (versionCompare(&rel->version, cur) < 0);
 
+				/* Pre-compute staged state here so color coding can use it */
+				bool isStaged = (s_StagedReleaseIndex == i);
+				if (!isStaged && !s_DownloadActive) {
+					const pdversion_t *staged = updaterGetStagedVersion();
+					if (staged && versionCompare(staged, &rel->version) == 0) {
+						isStaged = true;
+						if (s_StagedReleaseIndex < 0) s_StagedReleaseIndex = i;
+					}
+				}
+
+				/* Color: current=green, staged/cached=yellow, other=dim gray */
+				if (isCurrent) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+				} else if (isStaged) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.2f, 1.0f));
+				} else {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
+				}
+
 				bool selected = (s_SelectedRelease == i);
 				char selectableId[128];
 				snprintf(selectableId, sizeof(selectableId), "%s##rel_%d", verstr, i);
@@ -417,14 +435,7 @@ static void renderVersionPickerContent(float tableH)
 					ImVec2(0, rowBtnH))) {
 					s_SelectedRelease = i;
 				}
-
-				if (isCurrent) {
-					ImGui::SameLine();
-					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
-				} else if (isNewer) {
-					ImGui::SameLine();
-					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "*");
-				}
+				ImGui::PopStyleColor();
 
 				ImGui::TableNextColumn();
 				if (rel->isPrerelease) {
@@ -448,23 +459,10 @@ static void renderVersionPickerContent(float tableH)
 				ImGui::PushID(i);
 
 				bool isDownloading = (s_DownloadingIndex == i) && s_DownloadActive;
-
-				/* isStaged: downloaded this session, or .update file already exists
-				 * on disk from a previous session (restored via version sidecar). */
-				bool isStaged = (s_StagedReleaseIndex == i);
-				if (!isStaged && !s_DownloadActive) {
-					const pdversion_t *staged = updaterGetStagedVersion();
-					if (staged && versionCompare(staged, &rel->version) == 0) {
-						isStaged = true;
-						/* Sync session index so Switch/restart paths work */
-						if (s_StagedReleaseIndex < 0) {
-							s_StagedReleaseIndex = i;
-						}
-					}
-				}
+				/* isStaged already computed above for color coding */
 
 				if (isCurrent) {
-					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
+					/* Current version — no action needed */
 				} else if (isDownloading) {
 					updater_progress_t p = updaterGetProgress();
 					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%.0f%%", (double)p.percent);

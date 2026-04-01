@@ -25,6 +25,22 @@
 #include "versioninfo.h"
 #include "updateversion.h"
 #include "sha256.h"
+#include "config.h"
+#include "platform.h"
+
+/* ========================================================================
+ * Config registration (PD_CONSTRUCTOR runs before main so configInit() can
+ * apply the loaded value on startup)
+ * ======================================================================== */
+
+/* s32 mirror of update_channel_t, registered with the config system */
+static s32 s_UpdateChannelCfg = UPDATE_CHANNEL_STABLE;
+
+PD_CONSTRUCTOR static void updaterConfigInit(void)
+{
+	configRegisterInt("Game.UpdateChannel", &s_UpdateChannelCfg,
+		UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_COUNT - 1);
+}
 
 /* ========================================================================
  * Internal state
@@ -181,6 +197,33 @@ static void jp_copystr(const jtok_t *tok, char *buf, s32 bufsize)
 	if (len >= bufsize) len = bufsize - 1;
 	if (len > 0) memcpy(buf, tok->start, len);
 	buf[len] = '\0';
+}
+
+/* Copy string token with JSON escape sequence unescaping (\n \r \t \\ \").
+ * GitHub release bodies contain literal \r\n sequences that must become
+ * real newlines for correct display. */
+static void jp_copystr_unescape(const jtok_t *tok, char *buf, s32 bufsize)
+{
+	const char *src = tok->start;
+	s32 srclen = tok->len;
+	s32 di = 0;
+	for (s32 si = 0; si < srclen && di < bufsize - 1; si++) {
+		if (src[si] == '\\' && si + 1 < srclen) {
+			si++;
+			switch (src[si]) {
+			case 'n':  buf[di++] = '\n'; break;
+			case 'r':  buf[di++] = '\r'; break;
+			case 't':  buf[di++] = '\t'; break;
+			case '"':  buf[di++] = '"';  break;
+			case '\\': buf[di++] = '\\'; break;
+			case '/':  buf[di++] = '/';  break;
+			default:   buf[di++] = src[si]; break;
+			}
+		} else {
+			buf[di++] = src[si];
+		}
+	}
+	buf[di] = '\0';
 }
 
 /* Skip an entire JSON value (object, array, or primitive) */
@@ -428,7 +471,7 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 		} else if (jp_iskey(&key, "body")) {
 			jtok_t val = jp_next(p);
 			if (val.type == JTOK_STRING) {
-				jp_copystr(&val, rel->body, sizeof(rel->body));
+				jp_copystr_unescape(&val, rel->body, sizeof(rel->body));
 			}
 		} else if (jp_iskey(&key, "prerelease")) {
 			jtok_t val = jp_next(p);
@@ -514,6 +557,16 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 	if (versionParseTag(tagStr, prefixbuf, sizeof(prefixbuf), &rel->version) != 0) {
 		sysLogPrintf(LOG_WARNING, "UPDATER: failed to parse version from tag '%s'", tagStr);
 		return -1;
+	}
+
+	/* Fallback: if no asset URL was found in the assets array (empty release or
+	 * mismatched asset name), construct the conventional GitHub download URL.
+	 * This ensures the Download button is always shown for known releases. */
+	if (!rel->assetUrl[0] && rel->tag[0]) {
+		snprintf(rel->assetUrl, UPDATER_MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/%s",
+			UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO, rel->tag, assetName);
+		rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 	}
 
 	return 0;
@@ -866,7 +919,12 @@ void updaterInit(void)
 	s_Updater.mutex = SDL_CreateMutex();
 	s_Updater.currentVersion = (pdversion_t)BUILD_VERSION_INIT;
 	versionFormat(&s_Updater.currentVersion, s_Updater.versionStr, sizeof(s_Updater.versionStr));
-	s_Updater.channel = UPDATE_CHANNEL_STABLE;
+	/* Apply channel from config (loaded before updaterInit via PD_CONSTRUCTOR) */
+	if (s_UpdateChannelCfg >= 0 && s_UpdateChannelCfg < UPDATE_CHANNEL_COUNT) {
+		s_Updater.channel = (update_channel_t)s_UpdateChannelCfg;
+	} else {
+		s_Updater.channel = UPDATE_CHANNEL_STABLE;
+	}
 	s_Updater.latestIndex = -1;
 
 #ifdef PD_SERVER
@@ -1189,6 +1247,8 @@ void updaterSetChannel(update_channel_t channel)
 {
 	if (channel >= UPDATE_CHANNEL_COUNT) channel = UPDATE_CHANNEL_STABLE;
 	s_Updater.channel = channel;
+	s_UpdateChannelCfg = (s32)channel;
+	configSave("pd.ini");
 }
 
 /* ========================================================================
