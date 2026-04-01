@@ -1791,6 +1791,7 @@ static void renderSettingsCatalog(float scale)
     ImGui::Spacing();
 
     const match_manifest_t *mf = &g_CurrentLoadedManifest;
+    if (ImGui::BeginChild("ManifestList", ImVec2(0, 300.0f * scale))) {
     if (mf->num_entries == 0) {
         ImGui::TextDisabled("No manifest loaded (not in a match or SP stage)");
     } else {
@@ -1835,6 +1836,8 @@ static void renderSettingsCatalog(float scale)
             ImGui::EndTable();
         }
     }
+    } /* BeginChild ManifestList */
+    ImGui::EndChild();
 }
 
 /* Render the Settings sub-view with LB/RB bumper tab switching */
