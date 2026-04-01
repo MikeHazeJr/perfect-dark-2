@@ -344,6 +344,19 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 {
 	bool sunglasses = false;
 	u8 varyheight = true;
+	char bstr[32];
+	char hstr[32];
+
+	/* Ensure body/head are tracked in the active SP asset manifest.
+	 * This covers all spawn paths including AI-command spawns (chrSpawnAtCoord)
+	 * that bypass bodyAllocateChr.  manifestEnsureLoaded is a no-op in MP mode
+	 * or before the manifest is built, so this call is unconditionally safe. */
+	snprintf(bstr, sizeof(bstr), "body_%d", bodynum);
+	manifestEnsureLoaded(bstr, MANIFEST_TYPE_BODY);
+	if (headnum >= 0) {
+		snprintf(hstr, sizeof(hstr), "head_%d", headnum);
+		manifestEnsureLoaded(hstr, MANIFEST_TYPE_HEAD);
+	}
 
 	if (spawnflags & SPAWNFLAG_FORCESUNGLASSES) {
 		sunglasses = true;
