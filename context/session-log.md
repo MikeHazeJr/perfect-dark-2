@@ -3,6 +3,34 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S114 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 5: Proper Unload/Cleanup
+
+### What Was Done
+
+**Phase 5 (commit 8af6919):**
+- `port/src/assetcatalog_load.c`:
+  - Added `#include "assetcatalog_deps.h"` for dep cascade support.
+  - Added static `s_catalogUnloadDepCallback()` — calls `catalogUnloadAsset(dep_id)` for each registered dep when a parent is freed; safe with manifest-direct dep unloads because a dep that was cascade-freed has `loaded_data == NULL`, making the subsequent manifest call a silent no-op (no double-free possible).
+  - Rewrote `catalogUnloadAsset()`: tracks `old_ref`/`new_ref`; when ref hits 0 with data present, calls `catalogDepForEach(assetId, s_catalogUnloadDepCallback, NULL)` before `sysMemFree`; logs `"MANIFEST: unload '%s' ref=%d->%d (freed)"` on free and `"MANIFEST: unload '%s' ref=%d->%d (retained)"` when ref > 0 after decrement; silent no-op if already fully unloaded (`old_ref == new_ref == 0`). Bundled asset guard unchanged.
+- `port/src/net/netmanifest.c`:
+  - `manifestApplyDiff()`: swapped order to **loads first, unloads second**. Previous unload-then-load ordering created the 56-asset crash window (stage 0x1f → 0x26): 56 assets freed before the 1 new menu asset was resident → 0xc0000005. New ordering ensures new assets are resident before old ones are released.
+  - Updated comments to document both the ordering rationale and the cascade behavior.
+- Verification sweep: `assetCatalogSetLoadState` has zero callers. `sysMemFree(entry->loaded_data)` has exactly one call site (in `catalogUnloadAsset`). No force-free paths bypass ref counting.
+- Both targets build clean: 5/5 (incremental).
+
+### Decisions Made
+- Dep cascade fires only when parent ref hits 0 (not on every decrement) — correct behavior for shared deps: a dep shared between two characters survives the first character's unload and is only freed when the second also hits 0.
+- Cascade + manifest-direct dep unload coexist safely: idempotent because `loaded_data == NULL` after first free makes second call a no-op.
+- Load-before-unload is the primary crash fix; cascade is the correctness fix for direct callers outside the manifest.
+
+### Next Steps
+- Phase 6: Menu/UI asset manifesting — screens register mini-manifests.
+- Playtest: SP transition should show `"MANIFEST: unload '...' ref=1->0 (freed)"` or `"(retained)"` in log; no more 0xc0000005 on match→menu transition.
+
+---
+
 ## Session S113 -- 2026-04-01
 
 **Focus**: Manifest Lifecycle Sprint — Phase 4: Pre-validation Pass

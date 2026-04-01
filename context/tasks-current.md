@@ -73,7 +73,7 @@
 | **Phase 2** | Dependency graph — character → body + head + anims + textures | **DONE (S111, commit 2c761f1)** — flat dep table module (assetcatalog_deps.c/.h), scanner populates from INI "deps" and anim "target_body" fields, manifestBuild + manifestBuildMission expand deps at all 6 body/head add sites. Both targets build clean. Needs playtest with a mod body that declares deps. |
 | **Phase 3** | Language bank manifesting — menu screens declare lang dependencies | **DONE (S112, commit 5d449cd)** — ASSET_LANG type, 68 base lang banks registered, langmanifest.h/c module, langManifestEnsureId() API, langreset.c + setup.c wired, scanner type mappings. Build clean. |
 | **Phase 4** | Pre-validation pass — verify all entries exist before committing | **DONE (S113, commit 98aa2ec)** — `manifestValidate()` validates to_load entries (catalog presence, enabled state, lang bank type-check, dep chain warnings) before `manifestApplyDiff`. Wired in both SP + MP paths. 529/529 clean. |
-| **Phase 5** | Proper unload/cleanup — targeted ref-counted unloads | NOT STARTED |
+| **Phase 5** | Proper unload/cleanup — targeted ref-counted unloads | **DONE (S114, commit 8af6919)** — `catalogUnloadAsset` now logs "freed/retained" with ref deltas, cascades dep unloads when parent hits ref=0, safe idempotent with manifest direct dep calls. `manifestApplyDiff` loads before unloads (primary crash fix for 56-asset match→menu transition 0xc0000005). Needs playtest: SP transition → verify log shows ref=N->M (freed/retained) lines. |
 | **Phase 6** | Menu/UI asset manifesting — screens register mini-manifests | NOT STARTED |
 
 ---
