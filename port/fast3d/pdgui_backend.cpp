@@ -27,9 +27,6 @@
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
 
-/* F11 menu storyboard */
-#include "pdgui_storyboard.h"
-
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
 #include "pdgui_menus.h"
@@ -181,9 +178,6 @@ void pdguiInit(void *sdlWindow)
     g_PdguiInitialized = true;
     g_PdguiActive = false;
 
-    /* Initialize the F11 menu storyboard (D4) */
-    pdguiStoryboardInit();
-
     /* Initialize the F8 in-game hot-swap system (D4) */
     pdguiHotswapInit();
 
@@ -201,8 +195,7 @@ void pdguiNewFrame(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !pdguiStoryboardIsActive() &&
-         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+        (!g_PdguiActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
          !networkActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -280,7 +273,6 @@ void pdguiRender(void)
         pdguiConsoleRender();
     }
 
-    bool storyboardActive = pdguiStoryboardIsActive() != 0;
     bool hotswapQueued = pdguiHotswapHasQueued() != 0;
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
 
@@ -291,7 +283,7 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !s_ConsoleVisible && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+        (!g_PdguiActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -306,11 +298,6 @@ void pdguiRender(void)
     if (winW <= 0 || winH <= 0) {
         winW = 640;
         winH = 480;
-    }
-
-    /* F11 storyboard takes over full screen when active */
-    if (storyboardActive) {
-        pdguiStoryboardRender((s32)winW, (s32)winH);
     }
 
     /* F12 debug menu — PD-styled, game-relative scaling */
@@ -477,7 +464,6 @@ void pdguiShutdown(void)
         return;
     }
 
-    pdguiStoryboardShutdown();
     pdguiHotswapShutdown();
 
     ImGui_ImplOpenGL3_Shutdown();
@@ -521,12 +507,6 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
-    /* F11 storyboard toggle — check first, before F12 debug overlay */
-    {
-        s32 consumed = pdguiStoryboardProcessEvent(sdlEvent);
-        if (consumed) return 1;
-    }
-
     /* F12 debug overlay toggle */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
         g_PdguiActive = !g_PdguiActive;
@@ -540,14 +520,13 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     /* Determine if any ImGui surface is actively wanting input:
      * - Debug overlay (F12)
-     * - Storyboard (F11)
      * - Hot-swapped menu (F8)
      * - Pause menu (in-game)
      *
      * For hotswap, use pdguiHotswapWasActive() which persists from the
      * previous frame's render. pdguiHotswapHasQueued() would be 0 here
      * because events are processed BEFORE the GBI phase queues new dialogs. */
-    bool overlayActive = g_PdguiActive || pdguiStoryboardIsActive();
+    bool overlayActive = g_PdguiActive;
     bool hotswapActive = pdguiHotswapWasActive() != 0 || pdguiHotswapHasQueued() != 0;
     bool pauseActive = pdguiIsPauseMenuOpen() != 0;
 
@@ -594,11 +573,6 @@ s32 pdguiWantsInput(void)
         return 0;
     }
 
-    /* Storyboard consumes ALL input when active */
-    if (pdguiStoryboardIsActive()) {
-        return 1;
-    }
-
     /* Hot-swapped menus (F8) consume all input while active.
      * Uses pdguiHotswapWasActive() which persists from the previous
      * frame's render — pdguiHotswapHasQueued() would be 0 here
@@ -622,8 +596,8 @@ s32 pdguiWantsInput(void)
 
 s32 pdguiIsActive(void)
 {
-    /* F12 debug overlay, F11 storyboard, F8 hot-swapped menus, or ImGui pause menu */
-    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
+    /* F12 debug overlay, F8 hot-swapped menus, or ImGui pause menu */
+    return (g_PdguiActive || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
 }
 
 void pdguiToggle(void)

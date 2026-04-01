@@ -1621,7 +1621,6 @@ static void renderSettingsDebug(float scale)
     /* ------ Keyboard Shortcuts Reminder ------ */
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
     ImGui::Separator();
-    ImGui::TextDisabled("F11  Menu Storyboard");
     ImGui::TextDisabled("F12  Debug Overlay");
 
     ImGui::Spacing();
@@ -1632,7 +1631,7 @@ static void renderSettingsDebug(float scale)
     ImGui::Separator();
     ImGui::Spacing();
 
-    ImGui::Text("Perfect Dark 2 PC Port");
+    ImGui::Text("Perfect Dark 2.0, MikeHazeJr");
     ImGui::Text("Version:  v%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
     ImGui::TextDisabled("Build:    %s", VERSION_BUILD);
     ImGui::TextDisabled("Commit:   %.12s", VERSION_HASH);
