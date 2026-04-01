@@ -144,8 +144,8 @@ struct netclient {
 	struct {
 		char name[NET_MAX_NAME];
 		u16 options;
-		char body_id[CATALOG_ID_LEN]; /* catalog asset ID, e.g. "body_0" or "base:joanna_dark" */
-		char head_id[CATALOG_ID_LEN]; /* catalog asset ID, e.g. "head_0" */
+		char body_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:dark_combat" */
+		char head_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:head_dark_combat" */
 		u8 team;
 		f32 fovy;
 		f32 fovzoommult;

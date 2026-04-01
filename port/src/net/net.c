@@ -316,10 +316,24 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 static inline void netClientReadConfig(struct netclient *cl, const s32 playernum)
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
-	snprintf(cl->settings.body_id, CATALOG_ID_LEN, "body_%d",
-	         (int)g_PlayerConfigsArray[playernum].base.mpbodynum);
-	snprintf(cl->settings.head_id, CATALOG_ID_LEN, "head_%d",
-	         (int)g_PlayerConfigsArray[playernum].base.mpheadnum);
+	{
+		const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY,
+			(s32)g_PlayerConfigsArray[playernum].base.mpbodynum);
+		const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD,
+			(s32)g_PlayerConfigsArray[playernum].base.mpheadnum);
+		if (bid) {
+			strncpy(cl->settings.body_id, bid, CATALOG_ID_LEN - 1);
+			cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+		} else {
+			cl->settings.body_id[0] = '\0';
+		}
+		if (hid) {
+			strncpy(cl->settings.head_id, hid, CATALOG_ID_LEN - 1);
+			cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+		} else {
+			cl->settings.head_id[0] = '\0';
+		}
+	}
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;

@@ -434,22 +434,6 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
 		count++;
-
-		/* Register "stage_0x%02x" alias so manifest/session catalog pipeline
-		 * can resolve via assetCatalogResolve("stage_0x43") etc. */
-		{
-			asset_entry_t *ea;
-			snprintf(idbuf, sizeof(idbuf), "stage_0x%02x", (unsigned)g_Stages[idx].id);
-			ea = assetCatalogRegisterMap(idbuf, g_Stages[idx].id, "");
-			if (ea) {
-				strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-				ea->bundled = 1;
-				ea->enabled = 1;
-				ea->runtime_index = idx;
-				ea->load_state = ASSET_STATE_LOADED;
-				ea->ref_count = ASSET_REF_BUNDLED;
-			}
-		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base stages", count);
@@ -492,27 +476,6 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* C-2-ext: record the ROM filenum for this body model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		body_count++;
-
-		/* Register "body_%d" alias (idx = g_MpBodies[] index) so that the
-		 * manifest/session catalog pipeline can resolve "body_3" etc.
-		 * Mirrors the "stage_0x%02x" alias pattern used for stages. */
-		{
-			asset_entry_t *ea;
-			snprintf(idbuf, sizeof(idbuf), "body_%d", idx);
-			ea = assetCatalogRegisterBody(idbuf, g_MpBodies[idx].bodynum,
-				g_MpBodies[idx].name, g_MpBodies[idx].headnum,
-				g_MpBodies[idx].requirefeature);
-			if (ea) {
-				strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-				ea->bundled = 1;
-				ea->enabled = 1;
-				ea->runtime_index = g_MpBodies[idx].bodynum;
-				ea->model_scale = 1.0f;
-				ea->load_state = ASSET_STATE_LOADED;
-				ea->ref_count = ASSET_REF_BUNDLED;
-				ea->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
-			}
-		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base bodies", body_count);
@@ -552,25 +515,6 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* C-2-ext: record the ROM filenum for this head model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
 		head_count++;
-
-		/* Register "head_%d" alias (idx = g_MpHeads[] index) so that the
-		 * manifest/session catalog pipeline can resolve "head_3" etc. */
-		{
-			asset_entry_t *ea;
-			snprintf(idbuf, sizeof(idbuf), "head_%d", idx);
-			ea = assetCatalogRegisterHead(idbuf, g_MpHeads[idx].headnum,
-				g_MpHeads[idx].requirefeature);
-			if (ea) {
-				strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-				ea->bundled = 1;
-				ea->enabled = 1;
-				ea->runtime_index = g_MpHeads[idx].headnum;
-				ea->model_scale = 1.0f;
-				ea->load_state = ASSET_STATE_LOADED;
-				ea->ref_count = ASSET_REF_BUNDLED;
-				ea->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
-			}
-		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads", head_count);
@@ -631,26 +575,6 @@ s32 assetCatalogRegisterBaseGame(void)
 				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
 				s_ArenaGroupMap[g].category);
 			arena_count++;
-
-			/* Register "arena_%d" alias (idx = g_MpArenas[] index) so that
-			 * any code path can resolve by numeric index, e.g. "arena_5".
-			 * Mirrors the "stage_0x%02x" / "body_%d" alias pattern. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "arena_%d", idx);
-				ea = assetCatalogRegisterArena(idbuf,
-					g_MpArenas[idx].stagenum,
-					g_MpArenas[idx].requirefeature,
-					(s32)g_MpArenas[idx].name);
-				if (ea) {
-					strncpy(ea->category, s_ArenaGroupMap[g].category, CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1;
-					ea->enabled = 1;
-					ea->runtime_index = idx;
-					ea->load_state = ASSET_STATE_LOADED;
-					ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 		}
 	}
 

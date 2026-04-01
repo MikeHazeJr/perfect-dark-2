@@ -344,18 +344,18 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 {
 	bool sunglasses = false;
 	u8 varyheight = true;
-	char bstr[32];
-	char hstr[32];
+	const char *body_canon;
+	const char *head_canon;
 
 	/* Ensure body/head are tracked in the active SP asset manifest.
 	 * This covers all spawn paths including AI-command spawns (chrSpawnAtCoord)
 	 * that bypass bodyAllocateChr.  manifestEnsureLoaded is a no-op in MP mode
 	 * or before the manifest is built, so this call is unconditionally safe. */
-	snprintf(bstr, sizeof(bstr), "body_%d", bodynum);
-	manifestEnsureLoaded(bstr, MANIFEST_TYPE_BODY);
+	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
 	if (headnum >= 0) {
-		snprintf(hstr, sizeof(hstr), "head_%d", headnum);
-		manifestEnsureLoaded(hstr, MANIFEST_TYPE_HEAD);
+		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
 
 	if (spawnflags & SPAWNFLAG_FORCESUNGLASSES) {
@@ -417,8 +417,8 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	s32 headnum;
 	f32 angle;
 	s32 index;
-	char bstr[64];
-	char hstr[64];
+	const char *body_canon;
+	const char *head_canon;
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
 
@@ -467,11 +467,11 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	 * or pre-load), so this guard is safe to leave unconditional.
 	 * headnum -55555 means the head is built into the body model — no
 	 * separate head catalog entry exists for that case. */
-	snprintf(bstr, sizeof(bstr), "body_%d", bodynum);
-	manifestEnsureLoaded(bstr, MANIFEST_TYPE_BODY);
+	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
 	if (headnum >= 0) {
-		snprintf(hstr, sizeof(hstr), "head_%d", headnum);
-		manifestEnsureLoaded(hstr, MANIFEST_TYPE_HEAD);
+		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
 
 	if (headnum < 0) {

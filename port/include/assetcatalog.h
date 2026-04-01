@@ -813,6 +813,20 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
  */
 s32 catalogGetPropFilenumByIndex(s32 propnum);
 
+/**
+ * Phase 0: Return the canonical catalog ID for the ASSET_MAP entry whose
+ * ext.map.stagenum equals stagenum, or NULL if not found.
+ * Replaces assetCatalogResolve("stage_0x%02x") in manifest code after alias removal.
+ */
+const char *catalogResolveStageByStagenum(s32 stagenum);
+
+/**
+ * Phase 0: Return the canonical catalog ID for the ASSET_WEAPON entry whose
+ * ext.weapon.weapon_id equals weapon_id (MPWEAPON_* constant), or NULL.
+ * Replaces assetCatalogResolve("weapon_%d") in manifest code after alias removal.
+ */
+const char *catalogResolveWeaponByGameId(s32 weapon_id);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**

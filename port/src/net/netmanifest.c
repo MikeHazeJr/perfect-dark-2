@@ -8,17 +8,17 @@
  *
  * Phase B: build + log only.  SVC_MATCH_MANIFEST is not sent until Phase C/E.
  *
- * Asset ID naming convention (must stay consistent with catalog scanner):
- *   body: "body_%d" where %d is the mp-body index (bodynum)
- *   head: "head_%d" where %d is the mp-head index (headnum)
- *   stage: "stage_0x%02x" where %02x is the logical stagenum
- *   weapon: "weapon_%d" where %d is the MPWEAPON_* value
+ * Asset ID convention (Phase 0: canonical catalog IDs, no numeric aliases):
+ *   body:      e.g. "base:dark_combat"      (ASSET_BODY canonical id)
+ *   head:      e.g. "base:head_dark_combat" (ASSET_HEAD canonical id)
+ *   stage:     e.g. "base:mp_felicity"      (ASSET_MAP canonical id)
+ *   weapon:    e.g. "base:falcon2"          (ASSET_WEAPON canonical id)
  *   component: mod->id (from mod.json)
+ * Synthetic fallback IDs (stage_0x%02x / weapon_%d) are only used when an
+ * asset is not yet registered in the catalog (e.g., unrecognised mod stage).
  *
- * net_hash is FNV-1a of the ID string, matching assetcatalog.c's id_hash
- * computation.  (The catalog uses CRC32 for net_hash in asset_entry_t, but
- * for synthetic entries we use FNV-1a of the generated ID — Phase C will
- * resolve the correct catalog net_hash on the client side.)
+ * For catalog-registered entries, asset_entry_t.net_hash (CRC32) is used.
+ * For synthetic fallback entries, s_fnv1a(id) is used as the net_hash.
  */
 
 #include <stdlib.h>
@@ -332,16 +332,15 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
 
     /* ---- Stage ---- */
     {
-        char id[64];
-        const asset_entry_t *e;
-        snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)g_MpSetup.stagenum);
-
-        /* Try catalog first (resolves on client / host where base catalog loaded) */
-        e = assetCatalogResolve(id);
+        const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
+        const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
+            /* Fallback: stage not in catalog (unregistered mod stage) */
+            char id[64];
+            snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)g_MpSetup.stagenum);
             manifestAddEntry(out, s_fnv1a(id), id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         }
@@ -350,18 +349,20 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     /* ---- Weapons ---- */
     for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
         const u8 wnum = g_MpSetup.weapons[i];
+        const char *canon_id;
         const asset_entry_t *e;
-        char id[64];
         if (wnum == 0) {
             continue;
         }
-        snprintf(id, sizeof(id), "weapon_%d", (int)wnum);
-
-        e = assetCatalogResolve(id);
+        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         } else {
+            /* Fallback: weapon not in catalog (unknown weapon id) */
+            char id[64];
+            snprintf(id, sizeof(id), "weapon_%d", (int)wnum);
             manifestAddEntry(out, s_fnv1a(id), id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         }
@@ -406,28 +407,27 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         for (i = 0; i < num_bots && i < MAX_BOTS; i++) {
             const u8 bodynum = g_BotConfigsArray[i].base.mpbodynum;
             const u8 headnum = g_BotConfigsArray[i].base.mpheadnum;
-            const asset_entry_t *be;
-            const asset_entry_t *he;
-            char body_id[64];
-            char head_id[64];
+            const char *body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bodynum);
+            const char *head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)headnum);
+            const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
+            const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
 
-            snprintf(body_id, sizeof(body_id), "body_%d", (int)bodynum);
-            snprintf(head_id, sizeof(head_id), "head_%d", (int)headnum);
-
-            be = assetCatalogResolve(body_id);
             if (be) {
                 manifestAddEntry(out, be->net_hash, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
             } else {
+                char body_id[64];
+                snprintf(body_id, sizeof(body_id), "body_%d", (int)bodynum);
                 manifestAddEntry(out, s_fnv1a(body_id), body_id,
                                  MANIFEST_TYPE_BODY, slot_index);
             }
 
-            he = assetCatalogResolve(head_id);
             if (he) {
                 manifestAddEntry(out, he->net_hash, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
             } else {
+                char head_id[64];
+                snprintf(head_id, sizeof(head_id), "head_%d", (int)headnum);
                 manifestAddEntry(out, s_fnv1a(head_id), head_id,
                                  MANIFEST_TYPE_HEAD, slot_index);
             }
@@ -514,25 +514,33 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
     manifestClear(out);
 
     /* ---- Stage ---- */
-    snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)stagenum);
-    if (catalogResolveStage(id, &stage_result) && stage_result.entry) {
-        manifestAddEntry(out, stage_result.net_hash, stage_result.entry->id,
-                         MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
-    } else {
-        /* Stage not yet in catalog (pre-scan or modded stage) — use synthetic hash */
-        manifestAddEntry(out, s_fnv1a(id), id,
-                         MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+    {
+        const char *stage_canon = catalogResolveStageByStagenum(stagenum);
+        if (stage_canon && catalogResolveStage(stage_canon, &stage_result)
+                && stage_result.entry) {
+            manifestAddEntry(out, stage_result.net_hash, stage_result.entry->id,
+                             MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+        } else {
+            /* Fallback: stage not in catalog (pre-scan or unregistered mod stage) */
+            snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)stagenum);
+            manifestAddEntry(out, s_fnv1a(id), id,
+                             MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+        }
     }
 
-    /* ---- SP player character: Joanna Dark (body_0 / head_0) ---- */
-    be = assetCatalogResolve("body_0");
+    /* ---- SP player character: Joanna Dark (runtime body 0 / head 0) ---- */
+    {
+        const char *body0_id = catalogResolveByRuntimeIndex(ASSET_BODY, 0);
+        const char *head0_id = catalogResolveByRuntimeIndex(ASSET_HEAD, 0);
+        be = body0_id ? assetCatalogResolve(body0_id) : NULL;
+        he = head0_id ? assetCatalogResolve(head0_id) : NULL;
+    }
     if (be) {
         manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
     } else {
         manifestAddEntry(out, s_fnv1a("body_0"), "body_0", MANIFEST_TYPE_BODY, 0);
     }
 
-    he = assetCatalogResolve("head_0");
     if (he) {
         manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
     } else {
@@ -556,14 +564,15 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
                 /* bodynum 255 = random; no fixed catalog entry to require */
                 if (chr->bodynum != 255) {
-                    char bstr[64];
-                    const asset_entry_t *cbe;
-                    snprintf(bstr, sizeof(bstr), "body_%d", (int)chr->bodynum);
-                    cbe = assetCatalogResolve(bstr);
+                    const char *bcan = catalogResolveByRuntimeIndex(ASSET_BODY,
+                                                                     (s32)chr->bodynum);
+                    const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
                     if (cbe) {
                         manifestAddEntry(out, cbe->net_hash, cbe->id,
                                          MANIFEST_TYPE_BODY, 0);
                     } else {
+                        char bstr[64];
+                        snprintf(bstr, sizeof(bstr), "body_%d", (int)chr->bodynum);
                         manifestAddEntry(out, s_fnv1a(bstr), bstr,
                                          MANIFEST_TYPE_BODY, 0);
                     }
@@ -571,14 +580,15 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
                 /* headnum < 0 = holograph / special; no fixed catalog entry */
                 if (chr->headnum >= 0) {
-                    char hstr[64];
-                    const asset_entry_t *che;
-                    snprintf(hstr, sizeof(hstr), "head_%d", (int)chr->headnum);
-                    che = assetCatalogResolve(hstr);
+                    const char *hcan = catalogResolveByRuntimeIndex(ASSET_HEAD,
+                                                                     (s32)chr->headnum);
+                    const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
                     if (che) {
                         manifestAddEntry(out, che->net_hash, che->id,
                                          MANIFEST_TYPE_HEAD, 0);
                     } else {
+                        char hstr[64];
+                        snprintf(hstr, sizeof(hstr), "head_%d", (int)chr->headnum);
                         manifestAddEntry(out, s_fnv1a(hstr), hstr,
                                          MANIFEST_TYPE_HEAD, 0);
                     }
@@ -649,30 +659,31 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
      * appearance is determined by g_Vars.antibodynum / g_Vars.antiheadnum —
      * these do not appear in the props spawn list, so they must be added here. */
     if (g_Vars.antiplayernum >= 0) {
-        char bstr[64];
-        char hstr[64];
-        const asset_entry_t *cbe;
-        const asset_entry_t *che;
-
         if (g_Vars.antibodynum >= 0) {
-            snprintf(bstr, sizeof(bstr), "body_%d", (int)g_Vars.antibodynum);
-            cbe = assetCatalogResolve(bstr);
+            const char *bcan = catalogResolveByRuntimeIndex(ASSET_BODY,
+                                                             (s32)g_Vars.antibodynum);
+            const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
             if (cbe) {
                 manifestAddEntry(out, cbe->net_hash, cbe->id,
                                  MANIFEST_TYPE_BODY, 1);
             } else {
+                char bstr[64];
+                snprintf(bstr, sizeof(bstr), "body_%d", (int)g_Vars.antibodynum);
                 manifestAddEntry(out, s_fnv1a(bstr), bstr,
                                  MANIFEST_TYPE_BODY, 1);
             }
         }
 
         if (g_Vars.antiheadnum >= 0) {
-            snprintf(hstr, sizeof(hstr), "head_%d", (int)g_Vars.antiheadnum);
-            che = assetCatalogResolve(hstr);
+            const char *hcan = catalogResolveByRuntimeIndex(ASSET_HEAD,
+                                                             (s32)g_Vars.antiheadnum);
+            const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
             if (che) {
                 manifestAddEntry(out, che->net_hash, che->id,
                                  MANIFEST_TYPE_HEAD, 1);
             } else {
+                char hstr[64];
+                snprintf(hstr, sizeof(hstr), "head_%d", (int)g_Vars.antiheadnum);
                 manifestAddEntry(out, s_fnv1a(hstr), hstr,
                                  MANIFEST_TYPE_HEAD, 1);
             }

@@ -486,3 +486,47 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
         "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
     return 0;
 }
+
+/* -------------------------------------------------------------------------
+ * Phase 0: Canonical-ID lookups by game-internal numeric identifiers.
+ * These replace the old "stage_0x%02x" / "weapon_%d" alias string pattern.
+ * O(n) scans -- acceptable for manifest build paths (infrequent, not per-frame).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Return the canonical catalog ID for the ASSET_MAP entry whose
+ * ext.stage.stagenum equals stagenum, or NULL if not found.
+ * Replaces assetCatalogResolve("stage_0x%02x") in manifest code.
+ */
+const char *catalogResolveStageByStagenum(s32 stagenum)
+{
+    s32 i;
+    const asset_entry_t *e;
+    for (i = 0; ; i++) {
+        e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type == ASSET_MAP && e->ext.map.stagenum == stagenum) {
+            return e->id;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * Return the canonical catalog ID for the ASSET_WEAPON entry whose
+ * ext.weapon.weapon_id equals weapon_id (an MPWEAPON_* constant), or NULL.
+ * Replaces assetCatalogResolve("weapon_%d") in manifest code.
+ */
+const char *catalogResolveWeaponByGameId(s32 weapon_id)
+{
+    s32 i;
+    const asset_entry_t *e;
+    for (i = 0; ; i++) {
+        e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type == ASSET_WEAPON && e->ext.weapon.weapon_id == weapon_id) {
+            return e->id;
+        }
+    }
+    return NULL;
+}

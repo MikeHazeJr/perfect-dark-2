@@ -689,9 +689,15 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		return dst->error;
 	}
 	{
-		char stage_id[64];
-		snprintf(stage_id, sizeof(stage_id), "stage_0x%02x", (unsigned)effectiveStage);
-		catalogWriteAssetRef(dst, sessionCatalogGetId(stage_id));
+		const char *stage_canon = catalogResolveStageByStagenum((s32)effectiveStage);
+		if (!stage_canon) {
+			/* Fallback for unregistered stages: use synthetic ID */
+			char stage_id[64];
+			snprintf(stage_id, sizeof(stage_id), "stage_0x%02x", (unsigned)effectiveStage);
+			catalogWriteAssetRef(dst, sessionCatalogGetId(stage_id));
+		} else {
+			catalogWriteAssetRef(dst, sessionCatalogGetId(stage_canon));
+		}
 	}
 
 	// game settings
@@ -717,9 +723,13 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				if (g_MpSetup.weapons[wi] == 0) {
 					catalogWriteAssetRef(dst, 0);
 				} else {
-					char wid[64];
-					snprintf(wid, sizeof(wid), "weapon_%d", (int)g_MpSetup.weapons[wi]);
-					catalogWriteAssetRef(dst, sessionCatalogGetId(wid));
+					const char *wcanon = catalogResolveWeaponByGameId(
+						(s32)g_MpSetup.weapons[wi]);
+					if (wcanon) {
+						catalogWriteAssetRef(dst, sessionCatalogGetId(wcanon));
+					} else {
+						catalogWriteAssetRef(dst, 0);
+					}
 				}
 			}
 		}

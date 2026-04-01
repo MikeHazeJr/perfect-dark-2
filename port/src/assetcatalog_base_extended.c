@@ -259,22 +259,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1; e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "weapon_%d" alias (weapon_id value) so that the
-			 * manifest/session catalog pipeline can resolve "weapon_1" etc.
-			 * Mirrors the "stage_0x%02x" alias pattern used for stages. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "weapon_%d", (int)s_BaseWeapons[i].weapon_id);
-				ea = assetCatalogRegisterWeapon(idbuf, s_BaseWeapons[i].weapon_id,
-					s_BaseWeapons[i].name, "", 0.0f, 0.0f, 0,
-					s_BaseWeapons[i].dual_wieldable);
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1; ea->runtime_index = i;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base weapons", n);
@@ -296,21 +280,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "anim_%d" alias so mods can resolve animations by
-			 * numeric index, e.g. "anim_42". Mirrors the weapon_%d / hud_%d
-			 * alias pattern used for other large asset tables. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "anim_%d", i);
-				ea = assetCatalogRegisterAnimation(idbuf, i, "", 0, "");
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = i;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base animations", n);
@@ -332,21 +301,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "tex_%d" alias so mods can resolve textures by
-			 * numeric index, e.g. "tex_100". Mirrors the anim_%d / sfx_%d
-			 * alias pattern used for other large asset tables. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "tex_%d", i);
-				ea = assetCatalogRegisterTexture(idbuf, i, 0, 0, 0, "");
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = i;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base textures", n);
@@ -370,22 +324,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseProps[i].prop_type;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "prop_%d" alias (prop_type value) so that any code
-			 * path can resolve by numeric index, e.g. "prop_2".
-			 * Mirrors the "body_%d" / "weapon_%d" alias pattern. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "prop_%d", s_BaseProps[i].prop_type);
-				ea = assetCatalogRegisterProp(idbuf, s_BaseProps[i].prop_type,
-					s_BaseProps[i].name, "", 0, s_BaseProps[i].health);
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = s_BaseProps[i].prop_type;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base props", n);
@@ -412,23 +350,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseGameModes[i].mode_id;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "gamemode_%d" alias (mode_id value) so that any code
-			 * path can resolve by numeric index, e.g. "gamemode_0". */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "gamemode_%d", s_BaseGameModes[i].mode_id);
-				ea = assetCatalogRegisterGameMode(idbuf, s_BaseGameModes[i].mode_id,
-					s_BaseGameModes[i].name, s_BaseGameModes[i].description,
-					s_BaseGameModes[i].min_players, s_BaseGameModes[i].max_players,
-					s_BaseGameModes[i].team_based);
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = s_BaseGameModes[i].mode_id;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base game modes", n);
@@ -450,21 +371,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "sfx_%d" alias so mods can resolve SFX by
-			 * numeric index, e.g. "sfx_42". Mirrors the anim_%d / tex_%d
-			 * alias pattern used for other large asset tables. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "sfx_%d", i);
-				ea = assetCatalogRegisterAudio(idbuf, i, "", 0, 0, "");
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = i;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries", n);
@@ -488,21 +394,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseHud[i].hud_id;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "hud_%d" alias (hud_id value) so that any code
-			 * path can resolve by numeric index, e.g. "hud_0". */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "hud_%d", s_BaseHud[i].hud_id);
-				ea = assetCatalogRegisterHud(idbuf, s_BaseHud[i].hud_id,
-					s_BaseHud[i].name, s_BaseHud[i].element_type, "");
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = s_BaseHud[i].hud_id;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base HUD elements", n);
@@ -516,7 +407,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	 * an ASSET_MODEL entry with the same runtime_index and a different
 	 * source_filenum to replace a specific prop model.
 	 *
-	 * runtime_index = MODEL_* enum value (index into g_ModelStates[])
+	 * runtime_index = MODEL_* enum value (index into g_ModelStates[]).
+	 * The manifest pipeline uses catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum)
+	 * to get the canonical "base:model_%04x" ID.
 	 * source_filenum = g_ModelStates[i].fileid (FILE_* ROM constant)
 	 *
 	 * ASSET_MODEL is separate from ASSET_PROP (which tracks PROPTYPE_*
@@ -537,23 +430,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->runtime_index = i;
 			e->source_filenum = (s32)g_ModelStates[i].fileid;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-
-			/* Register "model_%d" alias (MODEL_* enum index) so that any
-			 * code path can resolve by numeric index, e.g. "model_5".
-			 * The manifest pipeline uses catalogResolveByRuntimeIndex which
-			 * returns "base:model_%04x"; the alias provides a shorter form. */
-			{
-				asset_entry_t *ea;
-				snprintf(idbuf, sizeof(idbuf), "model_%d", i);
-				ea = assetCatalogRegister(idbuf, ASSET_MODEL);
-				if (ea) {
-					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
-					ea->bundled = 1; ea->enabled = 1;
-					ea->runtime_index = i;
-					ea->source_filenum = (s32)g_ModelStates[i].fileid;
-					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
-				}
-			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);
