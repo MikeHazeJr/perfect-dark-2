@@ -31,6 +31,8 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
+#include "assetcatalog.h"
+#include "net/netmanifest.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -296,7 +298,7 @@ extern s32 g_OsMemSizeMb;
 
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
-static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug */
+static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug, 6=Catalog */
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
@@ -1368,6 +1370,240 @@ static void renderSettingsDebug(float scale)
     ImGui::TextDisabled("F12  Debug Overlay");
 }
 
+/* -----------------------------------------------------------------------
+ * Catalog tab helpers
+ * ----------------------------------------------------------------------- */
+
+static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
+    "None",        /* ASSET_NONE */
+    "Map",         /* ASSET_MAP */
+    "Character",   /* ASSET_CHARACTER */
+    "Skin",        /* ASSET_SKIN */
+    "BotVariant",  /* ASSET_BOT_VARIANT */
+    "Weapon",      /* ASSET_WEAPON */
+    "Textures",    /* ASSET_TEXTURES */
+    "SFX",         /* ASSET_SFX */
+    "Music",       /* ASSET_MUSIC */
+    "Prop",        /* ASSET_PROP */
+    "Vehicle",     /* ASSET_VEHICLE */
+    "Mission",     /* ASSET_MISSION */
+    "UI",          /* ASSET_UI */
+    "Tool",        /* ASSET_TOOL */
+    "Arena",       /* ASSET_ARENA */
+    "Body",        /* ASSET_BODY */
+    "Head",        /* ASSET_HEAD */
+    "Animation",   /* ASSET_ANIMATION */
+    "Texture",     /* ASSET_TEXTURE */
+    "GameMode",    /* ASSET_GAMEMODE */
+    "Audio",       /* ASSET_AUDIO */
+    "HUD",         /* ASSET_HUD */
+    "Effect",      /* ASSET_EFFECT */
+    "Model",       /* ASSET_MODEL */
+};
+
+static const char *s_LoadStateNames[] = {
+    "Registered", "Enabled", "Loaded", "Active"
+};
+
+static const char *s_ManifestTypeNames[] = {
+    "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture"
+};
+
+static void renderSettingsCatalog(float scale)
+{
+    s32 totalCount   = assetCatalogGetCount();
+    s32 poolSize     = assetCatalogGetPoolSize();
+
+    /* ------ Summary ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Catalog");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Count loaded + mod-overridden */
+    s32 loadedCount = 0;
+    s32 modCount    = 0;
+    for (s32 i = 0; i < poolSize; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->load_state >= ASSET_STATE_LOADED) loadedCount++;
+        if (!e->bundled) modCount++;
+    }
+
+    ImGui::Text("Total registered: %d", totalCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Loaded: %d", loadedCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Mod-overridden: %d", modCount);
+    ImGui::Spacing();
+
+    /* Per-type breakdown — two columns */
+    ImGui::Columns(2, "##cat_type_cols", false);
+    for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+        s32 cnt = assetCatalogGetCountByType((asset_type_e)t);
+        if (cnt > 0) {
+            ImGui::TextDisabled("%-12s  %d", s_AssetTypeNames[t], cnt);
+            ImGui::NextColumn();
+        }
+    }
+    ImGui::Columns(1);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Browsable List ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Entries");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Type filter */
+    static s32 s_FilterType = 0;   /* 0 = All */
+    static char s_SearchBuf[64]  = {};
+
+    float filterW = 130.0f * scale;
+    ImGui::SetNextItemWidth(filterW);
+    if (ImGui::BeginCombo("##cat_type_filter",
+            s_FilterType == 0 ? "All Types" : s_AssetTypeNames[s_FilterType])) {
+        if (ImGui::Selectable("All Types", s_FilterType == 0)) s_FilterType = 0;
+        for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+            bool sel = (s_FilterType == t);
+            if (ImGui::Selectable(s_AssetTypeNames[t], sel)) s_FilterType = t;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##cat_search", s_SearchBuf, sizeof(s_SearchBuf));
+    ImGui::SameLine();
+    ImGui::TextDisabled("Search");
+    ImGui::Spacing();
+
+    /* Entry table */
+    ImGuiTableFlags tflags = ImGuiTableFlags_RowBg
+                           | ImGuiTableFlags_BordersInnerV
+                           | ImGuiTableFlags_ScrollY
+                           | ImGuiTableFlags_SizingStretchProp;
+    float tableH = ImGui::GetContentRegionAvail().y * 0.55f;
+    if (ImGui::BeginTable("##cat_entries", 6, tflags, ImVec2(0, tableH))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("State",    ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Idx",      ImGuiTableColumnFlags_WidthFixed,   40.0f * scale);
+        ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+        ImGui::TableSetupColumn("Src",      ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+        ImGui::TableHeadersRow();
+
+        bool hasSearch = s_SearchBuf[0] != '\0';
+        for (s32 i = 0; i < poolSize; i++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(i);
+            if (!e) continue;
+            if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+            if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+
+            ImGui::TableNextRow();
+
+            /* ID */
+            ImGui::TableSetColumnIndex(0);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", e->id);
+            } else {
+                ImGui::TextUnformatted(e->id);
+            }
+
+            /* Type */
+            ImGui::TableSetColumnIndex(1);
+            const char *tname = (e->type >= 0 && e->type < ASSET_TYPE_COUNT)
+                                ? s_AssetTypeNames[e->type] : "?";
+            ImGui::TextDisabled("%s", tname);
+
+            /* Load state + ref count */
+            ImGui::TableSetColumnIndex(2);
+            const char *sname = (e->load_state <= ASSET_STATE_ACTIVE)
+                                ? s_LoadStateNames[e->load_state] : "?";
+            if (e->load_state >= ASSET_STATE_LOADED) {
+                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
+            } else {
+                ImGui::TextDisabled("%s", sname);
+            }
+
+            /* Runtime index */
+            ImGui::TableSetColumnIndex(3);
+            if (e->runtime_index >= 0) {
+                ImGui::Text("%d", e->runtime_index);
+            } else {
+                ImGui::TextDisabled("--");
+            }
+
+            /* Net hash */
+            ImGui::TableSetColumnIndex(4);
+            ImGui::TextDisabled("%08X", e->net_hash);
+
+            /* Source: mod indicator */
+            ImGui::TableSetColumnIndex(5);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "MOD");
+            } else {
+                ImGui::TextDisabled("base");
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Current Manifest ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Current Stage Manifest");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const match_manifest_t *mf = &g_CurrentLoadedManifest;
+    if (mf->num_entries == 0) {
+        ImGui::TextDisabled("No manifest loaded (not in a match or SP stage)");
+    } else {
+        ImGui::Text("Entries: %d", (int)mf->num_entries);
+        ImGui::Spacing();
+
+        ImGuiTableFlags mflags = ImGuiTableFlags_RowBg
+                               | ImGuiTableFlags_BordersInnerV
+                               | ImGuiTableFlags_ScrollY
+                               | ImGuiTableFlags_SizingStretchProp;
+        float mTableH = ImGui::GetContentRegionAvail().y - 4.0f * scale;
+        if (mTableH < 60.0f * scale) mTableH = 60.0f * scale;
+        if (ImGui::BeginTable("##manifest_entries", 4, mflags, ImVec2(0, mTableH))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch, 3.0f);
+            ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+            ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+            ImGui::TableHeadersRow();
+
+            for (int j = 0; j < (int)mf->num_entries; j++) {
+                const match_manifest_entry_t *me = &mf->entries[j];
+                ImGui::TableNextRow();
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(me->id);
+
+                ImGui::TableSetColumnIndex(1);
+                const char *mtype = (me->type < 8) ? s_ManifestTypeNames[me->type] : "?";
+                ImGui::TextDisabled("%s", mtype);
+
+                ImGui::TableSetColumnIndex(2);
+                if (me->slot_index == MANIFEST_SLOT_MATCH) {
+                    ImGui::TextDisabled("all");
+                } else {
+                    ImGui::Text("%d", (int)me->slot_index);
+                }
+
+                ImGui::TableSetColumnIndex(3);
+                ImGui::TextDisabled("%08X", me->net_hash);
+            }
+            ImGui::EndTable();
+        }
+    }
+}
+
 /* Render the Settings sub-view with LB/RB bumper tab switching */
 static void renderSettingsView(float scale, float contentH)
 {
@@ -1377,14 +1613,14 @@ static void renderSettingsView(float scale, float contentH)
 
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 5;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 6;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 5) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > 6) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1403,6 +1639,7 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag6 = (s_BumperPendingTab == 6) ? ImGuiTabItemFlags_SetSelected : 0;
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -1467,6 +1704,17 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsDebug(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Catalog", nullptr, selFlag6)) {
+            s_SettingsSubTab = 6;
+            ImGui::BeginChild("##settings_scroll_cat", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsCatalog(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

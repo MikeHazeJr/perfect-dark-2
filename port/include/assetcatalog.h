@@ -326,6 +326,13 @@ s32 assetCatalogGetCountByType(asset_type_e type);
 const asset_entry_t *assetCatalogGetByIndex(s32 index);
 
 /**
+ * Get the current high-water mark of the entry pool.
+ * Callers should iterate [0, assetCatalogGetPoolSize()) with assetCatalogGetByIndex()
+ * to visit all entries (skipping NULL returns for holes / unoccupied slots).
+ */
+s32 assetCatalogGetPoolSize(void);
+
+/**
  * Mutable resolve by string ID.
  * Used exclusively by the lifecycle layer (assetcatalog_load.c) to update
  * loaded_data, data_size_bytes, and ref_count.  Callers must not modify

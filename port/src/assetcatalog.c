@@ -374,6 +374,11 @@ const asset_entry_t *assetCatalogGetByIndex(s32 index)
     return e->occupied ? e : NULL;
 }
 
+s32 assetCatalogGetPoolSize(void)
+{
+    return s_EntryPoolSize;
+}
+
 /* ========================================================================
  * Public API: Registration
  * ======================================================================== */
