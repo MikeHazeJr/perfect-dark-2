@@ -3,6 +3,76 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S101 -- 2026-04-01
+
+**Focus**: Critical bug investigation — Objective 1 crash (0xc0000005, manifest overflow)
+
+### What Was Done
+
+**Bug B-59: SP manifest overflow → crash in body/model allocation**
+
+Full root-cause trace:
+
+1. **Confirmed source is clean**: `anim.c` and `texdecompress.c` have no `manifestEnsureLoaded` calls — the `a4cd903` fix is intact. No worktree clobber.
+2. **The crash log Mike showed had type=6 (ANIM) / type=7 (TEXTURE) late-adds**: those can only come from the pre-`a4cd903` binary. The crash log was from a stale build, not a regression.
+3. **Root cause identified**: `manifestSPTransition` is called from `mainChangeToStage` before `g_StageSetup.props` is populated. So `manifestBuildMission` adds only stage + Joanna body/head — NOT the 60–100+ NPCs and prop models that a large mission actually needs. All of those become late-adds via `manifestEnsureLoaded` during stage load. Obj 1 has enough unique bodies + models to overflow `MANIFEST_MAX_ENTRIES = 128`, silently dropping entries. Dropped entries never reach `assetCatalogSetLoadState → ASSET_STATE_LOADED`, corrupting catalog state → 0xc0000005 in body/model allocation.
+4. **Fix (commit c336257)**: Raised `MANIFEST_MAX_ENTRIES` from 128 to 1024. PC port has no memory constraint; 1024 covers the largest SP missions and any foreseeable MP lobby. Both `match_manifest_t` and `manifest_diff_t` use the constant — all arrays expanded together. Structs are static/global; no stack impact.
+
+### Decisions Made
+- 128 entry cap is an artificial legacy limit — removed per Mike's directive
+- The late-add mechanism remains correct; just needed room to never drop
+- Pre-scan timing (`manifestSPTransition` before props load) is a known limitation; late-adds via `manifestEnsureLoaded` remain the correct safety net
+- Did NOT change the pre-scan timing — that would require knowing when `g_StageSetup.props` is ready vs when `mainChangeToStage` fires
+
+### Next Steps
+- Playtest Objective 1 to confirm crash gone
+- Watch for "MANIFEST: manifest full" warnings — should not appear with 1024 limit
+
+---
+
+## Session S100 -- 2026-04-01
+
+**Focus**: Group 2 End Screens — wire `pdguiMenuEndscreenRegister` into `pdgui_menus.h`
+
+### What Was Done
+
+`pdgui_menu_endscreen.cpp` (~885 lines) was already committed in `795ff96` but `pdguiMenuEndscreenRegister` was never declared or called in `pdgui_menus.h`, leaving all Group 2 dialogs dormant.
+
+**Fix (commit 9a376eb):**
+- Added `void pdguiMenuEndscreenRegister(void);` declaration to `pdgui_menus.h`
+- Added `pdguiMenuEndscreenRegister();` call in `pdguiMenusRegisterAll()`
+- Required cmake re-run (GLOB_RECURSE cache was stale for the `.cpp`)
+- Build clean: 526 objects, both `pd` and `pd-server` link
+
+### End Screen Coverage (already in 795ff96, now active)
+
+**Solo end screens (polished, 2-column layout):**
+- Mission Completed / Failed root dialogs + all sibling noops (objectives, retry, next, continue/retry)
+- Two-column Table: left = stats (Status / Agent / Time / Difficulty / Kills / Accuracy with progress bar / shot breakdown), right = objectives filtered by difficulty with [+]/[X]/[ ] icons
+- Cheat unlock section in gold (conditional)
+- Retry | Next Mission (completed) or Retry | Main Menu (failed) buttons
+- Keyboard/gamepad: Escape → Main Menu
+
+**2P split-screen end screens:** H + V variants, completed + failed (4 root dialogs + 2 noops)
+
+**MP end screens:**
+- Ind Game Over / Team Game Over: rankings table (team-aware, local player in gold)
+- Challenge Completed / Cheated / Failed: green/red palette with headline
+- Player Ranking, Team Ranking, Player Stats: noopRender (registered to suppress legacy, root draws all tabs)
+- Keyboard / controller left as legacy: `g_MpEndscreenSavePlayerMenuDialog`, `g_MpEndscreenConfirmNameMenuDialog`
+
+### Decisions Made
+- `pdgui_bridge.c` already had all 15 endscreen bridge functions from prior sessions
+- Sibling dialogs registered as `noopRender` — suppress legacy, root panel draws everything
+- `endscreenAdvance()` + `menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)` for Next Mission (bypasses sub-dialog state machine complexity)
+
+### Next Steps
+- Playtest: complete a solo mission → verify ImGui end screen appears (completed and failed)
+- Playtest: complete an MP match → verify rankings table and challenge overlays
+- Group 4 expansion: simulants/weapons sub-menus still pending
+
+---
+
 ## Session S99 -- 2026-04-01
 
 **Focus**: Group 1 Solo Mission Flow — 11 legacy dialogs migrated to ImGui
