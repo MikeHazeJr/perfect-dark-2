@@ -340,6 +340,22 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseProps[i].prop_type;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "prop_%d" alias (prop_type value) so that any code
+			 * path can resolve by numeric index, e.g. "prop_2".
+			 * Mirrors the "body_%d" / "weapon_%d" alias pattern. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "prop_%d", s_BaseProps[i].prop_type);
+				ea = assetCatalogRegisterProp(idbuf, s_BaseProps[i].prop_type,
+					s_BaseProps[i].name, "", 0, s_BaseProps[i].health);
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = s_BaseProps[i].prop_type;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base props", n);
@@ -366,6 +382,23 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseGameModes[i].mode_id;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "gamemode_%d" alias (mode_id value) so that any code
+			 * path can resolve by numeric index, e.g. "gamemode_0". */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "gamemode_%d", s_BaseGameModes[i].mode_id);
+				ea = assetCatalogRegisterGameMode(idbuf, s_BaseGameModes[i].mode_id,
+					s_BaseGameModes[i].name, s_BaseGameModes[i].description,
+					s_BaseGameModes[i].min_players, s_BaseGameModes[i].max_players,
+					s_BaseGameModes[i].team_based);
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = s_BaseGameModes[i].mode_id;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base game modes", n);
@@ -410,6 +443,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseHud[i].hud_id;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "hud_%d" alias (hud_id value) so that any code
+			 * path can resolve by numeric index, e.g. "hud_0". */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "hud_%d", s_BaseHud[i].hud_id);
+				ea = assetCatalogRegisterHud(idbuf, s_BaseHud[i].hud_id,
+					s_BaseHud[i].name, s_BaseHud[i].element_type, "");
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = s_BaseHud[i].hud_id;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base HUD elements", n);
@@ -444,6 +492,23 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->runtime_index = i;
 			e->source_filenum = (s32)g_ModelStates[i].fileid;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "model_%d" alias (MODEL_* enum index) so that any
+			 * code path can resolve by numeric index, e.g. "model_5".
+			 * The manifest pipeline uses catalogResolveByRuntimeIndex which
+			 * returns "base:model_%04x"; the alias provides a shorter form. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "model_%d", i);
+				ea = assetCatalogRegister(idbuf, ASSET_MODEL);
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = i;
+					ea->source_filenum = (s32)g_ModelStates[i].fileid;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);

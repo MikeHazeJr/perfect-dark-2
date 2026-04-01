@@ -631,6 +631,26 @@ s32 assetCatalogRegisterBaseGame(void)
 				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
 				s_ArenaGroupMap[g].category);
 			arena_count++;
+
+			/* Register "arena_%d" alias (idx = g_MpArenas[] index) so that
+			 * any code path can resolve by numeric index, e.g. "arena_5".
+			 * Mirrors the "stage_0x%02x" / "body_%d" alias pattern. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "arena_%d", idx);
+				ea = assetCatalogRegisterArena(idbuf,
+					g_MpArenas[idx].stagenum,
+					g_MpArenas[idx].requirefeature,
+					(s32)g_MpArenas[idx].name);
+				if (ea) {
+					strncpy(ea->category, s_ArenaGroupMap[g].category, CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1;
+					ea->enabled = 1;
+					ea->runtime_index = idx;
+					ea->load_state = ASSET_STATE_LOADED;
+					ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 		}
 	}
 
