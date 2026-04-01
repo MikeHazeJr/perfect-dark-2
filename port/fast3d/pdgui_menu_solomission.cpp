@@ -246,26 +246,6 @@ static void formatBestTime(char *buf, size_t bufsz, u16 t)
     }
 }
 
-/**
- * Compute how many regular stages (0–16) are currently available.
- * Mirrors the MENUOP_GETOPTIONCOUNT logic in menuhandlerMissionList():
- * iterate 0..SOLOSTAGEINDEX_SKEDARRUINS; stop counting after the first
- * stage that has no besttime in any difficulty (it's still selectable —
- * the player can attempt it, they just haven't beaten it yet).
- */
-static s32 computeAvailableStageCount(void)
-{
-    s32 count = 0;
-    for (s32 i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS; i++) {
-        count++;
-        bool anyComplete = false;
-        for (s32 d = 0; d < 3; d++) {
-            if (g_GameFile.besttimes[i][d] != 0) { anyComplete = true; break; }
-        }
-        if (!anyComplete) break;
-    }
-    return count;
-}
 
 /* =========================================================================
  * langSafe — null-safe langGet wrapper.
@@ -279,45 +259,6 @@ static const char *langSafe(s32 textid)
     return s ? s : "";
 }
 
-/* =========================================================================
- * Solo mission reward stubs.
- * Placeholder until the unlock system is wired in.
- * Three tiers per (stage, difficulty): Easy / Normal / Perfect.
- * ========================================================================= */
-struct SoloRewardStub {
-    const char *name;    /* reward name, or "???" when unknown/locked */
-    int         earned;  /* 1 = unlocked, 0 = not yet */
-};
-
-/* Returns placeholder data; replace body when unlock system is ready. */
-static struct SoloRewardStub soloGetReward(s32 stageIdx, s32 diff, s32 tier)
-{
-    struct SoloRewardStub r;
-    (void)stageIdx; (void)diff; (void)tier;
-    r.name   = "???";
-    r.earned = 0;
-    return r;
-}
-
-/*
- * Render reward tooltip rows for one (stageIdx, diff) combination.
- * Shows three tiers: Easy / Normal / Perfect.
- * Earned rewards show their name; unearned show "??? [0/1]".
- */
-static void renderRewardTooltip(s32 stageIdx, s32 diff)
-{
-    static const char *k_TierNames[] = { "Easy", "Normal", "Perfect" };
-    int total = 1; /* stub: one reward slot per tier */
-    int tier;
-    for (tier = 0; tier < 3; tier++) {
-        struct SoloRewardStub r = soloGetReward(stageIdx, diff, tier);
-        if (r.earned) {
-            ImGui::Text("%s reward: %s [1/%d]", k_TierNames[tier], r.name, total);
-        } else {
-            ImGui::TextDisabled("%s reward: ??? [0/%d]", k_TierNames[tier], total);
-        }
-    }
-}
 
 /* Difficulty badge fill colors: Agent=green, SA=blue, PA=gold */
 static const ImU32 k_DiffBadgeColor[] = {
@@ -358,43 +299,40 @@ static s32 stageToGroupIdx(s32 stageIdx)
 }
 
 /*
- * renderMissionSelect — redesigned mission select screen.
+ * renderMissionSelect — flat mission list with blip completion indicators.
  *
- * Layout:
- *   Title bar ("Mission Select")
- *   Scrollable tree:
- *     -- Mission N --            chapter separator
- *     ▶ [A][S][P]  X.Y Name1 Name2     collapsible mission node
- *         ● Agent            2m:34s    difficulty checkpoint row
- *         ○ Special Agent    --:--
- *         ○ Perfect Agent    [Locked]
- *     -- Special Assignments --
- *     ▶ [A][S][P]  SA-N Name
- *         ...
+ * Each row shows three blip dots (Agent / Special Agent / Perfect Agent) and
+ * the mission name.  A lit blip = beaten on that difficulty; unlit = not yet.
  *
- * Clicking an unlocked checkpoint sets g_MissionConfig and pushes
- * g_AcceptMissionMenuDialog directly — no intermediate difficulty dialog.
- * g_SoloMissionDifficultyMenuDialog is still registered (PD Mode path).
+ * Hover behaviour:
+ *   - Hovering directly over a blip shows the difficulty name + best time.
+ *   - Hovering elsewhere on the row shows the consolidated unlockable count
+ *     (e.g. "0/1").  If a stage has no unlockables the count is omitted.
+ *   - Hovering over a chapter heading shows the summed count for the group
+ *     (e.g. "0/3" when the group has three stages).
  *
- * Crash fix: all langGet() returns go through langSafe() before reaching
- * ImGui calls.  ImGui::Button/AddText crash on NULL; snprintf does not.
+ * Clicking an accessible row sets g_MissionConfig.stagenum/stageindex and
+ * pushes g_SoloMissionDifficultyMenuDialog.  That dialog shows record times
+ * per difficulty and per-difficulty objective hover tooltips.
  */
 static s32 renderMissionSelect(struct menudialog *dialog,
                                 struct menu *menu,
                                 s32 winW, s32 winH)
 {
-    float mw    = pdguiMenuWidth();
-    float mh    = pdguiMenuHeight();
-    ImVec2 mpos = pdguiMenuPos();
-
-    /* Badge geometry constants */
-    float badgeR   = pdguiScale(6.0f);
-    float badgeGap = pdguiScale(14.0f);
-    float indentX  = pdguiScale(28.0f); /* space past the tree arrow */
-
-    /* Pending mission launch — set inside tree, executed after EndChild */
+    float mw      = pdguiMenuWidth();
+    float mh      = pdguiMenuHeight();
+    ImVec2 mpos   = pdguiMenuPos();
+    float titleH  = pdguiScale(26.0f);
+    float footerH = pdguiScale(22.0f);
+    float listH   = mh - titleH - pdguiScale(8.0f) - footerH;
+    float rowH    = pdguiScale(28.0f);
+    float blipR   = pdguiScale(5.0f);
+    float blipGap = pdguiScale(13.0f);
     s32 pendingStage = -1;
-    s32 pendingDiff  = -1;
+
+    static const char *k_DiffFullNames[] = {
+        "Agent", "Special Agent", "Perfect Agent"
+    };
 
     ImGui::SetNextWindowPos(mpos);
     ImGui::SetNextWindowSize(ImVec2(mw, mh));
@@ -415,11 +353,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         ImGui::SetWindowFocus();
     }
 
-    float titleH = pdguiScale(26.0f);
     pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().ItemSpacing.y);
 
-    /* Back */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -428,413 +364,261 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         return 1;
     }
 
-    float footerH = pdguiScale(22.0f);
-    float listH   = mh - titleH - pdguiScale(8.0f) - footerH;
-
-    if (ImGui::BeginChild("##mission_tree", ImVec2(0, listH), false,
+    if (ImGui::BeginChild("##mission_list", ImVec2(0, listH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
         /* ------------------------------------------------------------------ */
         /* Regular missions 0..SOLOSTAGEINDEX_SKEDARRUINS                     */
         /* ------------------------------------------------------------------ */
         s32 prevGroup = -1;
-        s32 i;
-        for (i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS && pendingStage < 0; i++) {
+        for (s32 i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS && pendingStage < 0; i++) {
             s32 grp     = stageToGroupIdx(i);
             s32 chap    = grp + 1;
             s32 chapPos = i - k_MissionGroups[grp].firstIdx + 1;
 
-            /* Chapter separator when group changes */
+            /* Chapter heading when the group changes */
             if (grp != prevGroup) {
                 if (prevGroup >= 0) ImGui::Spacing();
-                {
-                    /* Try the language string; fall back to "Mission N" */
-                    const char *chapLang = langSafe(k_MissionGroups[grp].langId);
-                    char chapHdr[64];
-                    if (chapLang[0]) {
-                        snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
-                    } else {
-                        snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
-                    }
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
-                    ImGui::TextUnformatted(chapHdr);
-                    ImGui::PopStyleColor();
+
+                /* Group unlockable count (stub: 1 per stage) */
+                s32 groupEnd = (grp + 1 < k_NumRegularGroups)
+                                 ? k_MissionGroups[grp + 1].firstIdx
+                                 : SOLOSTAGEINDEX_SKEDARRUINS + 1;
+                int grpEarned = 0;
+                int grpTotal  = groupEnd - k_MissionGroups[grp].firstIdx;
+
+                const char *chapLang = langSafe(k_MissionGroups[grp].langId);
+                char chapHdr[64];
+                if (chapLang[0]) {
+                    snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
+                } else {
+                    snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
                 }
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+                ImGui::TextUnformatted(chapHdr);
+                ImGui::PopStyleColor();
+
+                if (ImGui::IsItemHovered() && grpTotal > 0) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%d/%d", grpEarned, grpTotal);
+                    ImGui::EndTooltip();
+                }
+
                 prevGroup = grp;
             }
 
+            bool       accessible = (bool)isStageDifficultyUnlocked(i, DIFF_A);
+            const char *ln1       = langSafe(g_SoloStages[i].name1);
+            const char *ln2       = langSafe(g_SoloStages[i].name2);
+            char nodeLabel[192];
+            snprintf(nodeLabel, sizeof(nodeLabel), "%d.%d  %s%s",
+                     chap, chapPos, ln1, ln2);
+
+            ImGui::PushID(i);
+
+            ImVec2 rowPos   = ImGui::GetCursorScreenPos();
+            float  contentW = ImGui::GetContentRegionAvail().x;
+            bool   doSelect = false;
+            bool   rowHover = false;
+
+            if (accessible) {
+                doSelect = ImGui::Selectable("##ms_row", false,
+                                             ImGuiSelectableFlags_None,
+                                             ImVec2(contentW, rowH));
+                rowHover = ImGui::IsItemHovered();
+            } else {
+                ImGui::Dummy(ImVec2(contentW, rowH));
+            }
+
+            /* Blip dots + mission name drawn over the selectable area */
             {
-                const char *ln1        = langSafe(g_SoloStages[i].name1);
-                const char *ln2        = langSafe(g_SoloStages[i].name2);
-                bool        accessible = (bool)isStageDifficultyUnlocked(i, DIFF_A);
-
-                /* Node label: "X.Y  Name1Name2" */
-                char nodeLabel[192];
-                snprintf(nodeLabel, sizeof(nodeLabel), "%d.%d  %s%s",
-                         chap, chapPos, ln1, ln2);
-
-                ImGui::PushID(i);
-
-                /* Dim entire node when no difficulty is accessible */
-                if (!accessible) {
-                    ImGui::PushStyleColor(ImGuiCol_Text,
-                        ImVec4(0.45f, 0.45f, 0.50f, 0.65f));
-                    ImGui::PushStyleColor(ImGuiCol_Header,
-                        ImVec4(0.10f, 0.10f, 0.12f, 0.50f));
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-                        ImVec4(0.12f, 0.12f, 0.14f, 0.50f));
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                float rcy = rowPos.y + rowH * 0.5f;
+                float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                for (s32 d = 0; d < 3; d++) {
+                    bool beaten = (g_GameFile.besttimes[i][d] != 0);
+                    float bcx   = bx + d * blipGap;
+                    ImU32 fill  = beaten ? k_DiffBadgeColor[d]
+                                         : IM_COL32(40, 40, 50, 160);
+                    ImU32 ring  = beaten ? IM_COL32(200, 200, 200, 100)
+                                         : IM_COL32(80, 80, 100, 120);
+                    dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
+                    dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                 }
+                float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
+                ImU32 nameCol = accessible
+                    ? IM_COL32(230, 230, 240, 255)
+                    : IM_COL32(100, 100, 115, 150);
+                dl->AddText(
+                    ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
+                    nameCol, nodeLabel);
+            }
 
-                ImGuiTreeNodeFlags nodeFlags =
-                    ImGuiTreeNodeFlags_SpanAvailWidth  |
-                    ImGuiTreeNodeFlags_OpenOnArrow     |
-                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
+            /* Hover tooltips: blip-specific first, then unlockable count */
+            if (rowHover) {
+                float rcy = rowPos.y + rowH * 0.5f;
+                float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                ImVec2 mp = ImGui::GetMousePos();
+                bool   shownBlipTip = false;
+                float  hitR = blipR + pdguiScale(3.0f);
 
-                bool open = ImGui::TreeNodeEx(
-                    (void *)(intptr_t)i, nodeFlags, "");
-
-                ImVec2 nodeMin = ImGui::GetItemRectMin();
-                ImVec2 nodeMax = ImGui::GetItemRectMax();
-                float  nodeCY  = nodeMin.y + (nodeMax.y - nodeMin.y) * 0.5f;
-
-                if (!accessible) {
-                    ImGui::PopStyleColor(3);
-                }
-
-                /* Draw completion badges + label on the tree row */
-                {
-                    ImDrawList *dl = ImGui::GetWindowDrawList();
-                    float bx = nodeMin.x + indentX;
-                    int d;
-                    for (d = 0; d < 3; d++) {
+                for (s32 d = 0; d < 3 && !shownBlipTip; d++) {
+                    float bcx = bx + d * blipGap;
+                    float dx  = mp.x - bcx;
+                    float dy  = mp.y - rcy;
+                    if (dx*dx + dy*dy <= hitR*hitR) {
                         bool beaten = (g_GameFile.besttimes[i][d] != 0);
-                        float bcx   = bx + d * badgeGap + badgeR;
-                        ImU32 fill  = beaten
-                            ? k_DiffBadgeColor[d]
-                            : IM_COL32(50, 50, 60, 180);
-                        dl->AddCircleFilled(ImVec2(bcx, nodeCY), badgeR, fill);
-                        dl->AddCircle(ImVec2(bcx, nodeCY), badgeR,
-                                      IM_COL32(100, 100, 120, 140));
-                        if (beaten) {
-                            ImVec2 tsz = ImGui::CalcTextSize(k_DiffShort[d]);
-                            dl->AddText(
-                                ImVec2(bcx - tsz.x * 0.5f,
-                                       nodeCY - tsz.y * 0.5f),
-                                IM_COL32(255, 255, 255, 255),
-                                k_DiffShort[d]);
-                        }
-                    }
-                    float nameX = bx + 3.0f * badgeGap + pdguiScale(6.0f);
-                    ImU32 nameCol = accessible
-                        ? IM_COL32(230, 230, 240, 255)
-                        : IM_COL32(110, 110, 125, 175);
-                    dl->AddText(
-                        ImVec2(nameX,
-                               nodeCY - ImGui::GetTextLineHeight() * 0.5f),
-                        nameCol, nodeLabel);
-                }
-
-                if (open) {
-                    /* Tooltip on the node itself */
-                    if (ImGui::IsItemHovered()) {
                         ImGui::BeginTooltip();
-                        ImGui::TextUnformatted(nodeLabel);
+                        ImGui::TextUnformatted(k_DiffFullNames[d]);
                         ImGui::Separator();
-                        {
-                            int d;
-                            for (d = 0; d < 3; d++) {
-                                renderRewardTooltip(i, d);
-                            }
+                        if (beaten) {
+                            char timeStr[32];
+                            formatBestTime(timeStr, sizeof(timeStr),
+                                           g_GameFile.besttimes[i][d]);
+                            ImGui::Text("Best: %s", timeStr);
+                        } else {
+                            ImGui::TextDisabled("Not completed");
                         }
                         ImGui::EndTooltip();
+                        shownBlipTip = true;
                     }
+                }
 
-                    /* Difficulty checkpoint rows */
-                    static const char *k_DiffNames[] = {
-                        "Agent", "Special Agent", "Perfect Agent"
-                    };
-                    float rowH = pdguiScale(26.0f);
-                    s32 d;
-                    for (d = DIFF_A; d <= DIFF_PA && pendingStage < 0; d++) {
-                        bool locked = !isStageDifficultyUnlocked(i, d);
-                        bool beaten = (g_GameFile.besttimes[i][d] != 0);
-
-                        ImGui::PushID(d + 0x100);
-
-                        ImVec2 rowPos  = ImGui::GetCursorScreenPos();
-                        float  contentW = ImGui::GetContentRegionAvail().x;
-                        bool   doSelect = false;
-
-                        if (!locked) {
-                            doSelect = ImGui::Selectable(
-                                "##ckpt", false,
-                                ImGuiSelectableFlags_None,
-                                ImVec2(contentW, rowH));
-                        } else {
-                            ImGui::Dummy(ImVec2(contentW, rowH));
-                        }
-
-                        /* Hover tooltip */
-                        if (!locked && ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            ImGui::TextUnformatted(k_DiffNames[d]);
-                            ImGui::Separator();
-                            renderRewardTooltip(i, d);
-                            ImGui::EndTooltip();
-                        }
-
-                        /* Custom draw: badge + name + time */
-                        {
-                            ImDrawList *dl  = ImGui::GetWindowDrawList();
-                            float       rcy = rowPos.y + rowH * 0.5f;
-                            float       bx2 = rowPos.x + pdguiScale(36.0f);
-                            float       br2 = pdguiScale(5.0f);
-
-                            ImU32 badgeCol = locked  ? IM_COL32(35, 35, 45, 150)
-                                           : beaten  ? k_DiffBadgeColor[d]
-                                                     : IM_COL32(60, 60, 75, 200);
-                            dl->AddCircleFilled(
-                                ImVec2(bx2 + br2, rcy), br2, badgeCol);
-                            dl->AddCircle(
-                                ImVec2(bx2 + br2, rcy), br2,
-                                IM_COL32(90, 90, 110, 140));
-
-                            float nameX2 = bx2 + br2 * 2.0f + pdguiScale(7.0f);
-                            ImU32 textCol = locked
-                                ? IM_COL32(80, 80, 90, 130)
-                                : IM_COL32(200, 200, 215, 255);
-                            dl->AddText(
-                                ImVec2(nameX2,
-                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
-                                textCol, k_DiffNames[d]);
-
-                            char timeStr[40];
-                            if (locked) {
-                                snprintf(timeStr, sizeof(timeStr), "[Locked]");
-                            } else {
-                                formatBestTime(timeStr, sizeof(timeStr),
-                                               g_GameFile.besttimes[i][d]);
-                            }
-                            ImVec2 tSz   = ImGui::CalcTextSize(timeStr);
-                            float  rightX = rowPos.x + contentW
-                                            - tSz.x - pdguiScale(14.0f);
-                            ImU32 timeCol = locked
-                                ? IM_COL32(70, 70, 80, 120)
-                                : beaten
-                                  ? IM_COL32(140, 200, 130, 220)
-                                  : IM_COL32(140, 140, 155, 200);
-                            dl->AddText(
-                                ImVec2(rightX,
-                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
-                                timeCol, timeStr);
-                        }
-
-                        if (doSelect) {
-                            pendingStage = i;
-                            pendingDiff  = d;
-                        }
-
-                        ImGui::PopID();
-                    } /* diff loop */
-
-                    ImGui::TreePop();
-                } /* open */
-
-                ImGui::PopID();
+                if (!shownBlipTip) {
+                    /* Stub: 1 unlockable per stage, 0 earned.
+                     * Replace soloGetStageUnlockCount() when system is wired. */
+                    int stgTotal = 1, stgEarned = 0;
+                    if (stgTotal > 0) {
+                        ImGui::BeginTooltip();
+                        ImGui::Text("%d/%d", stgEarned, stgTotal);
+                        ImGui::EndTooltip();
+                    }
+                }
             }
+
+            if (doSelect) pendingStage = i;
+
+            ImGui::PopID();
         } /* stage loop */
 
         /* ------------------------------------------------------------------ */
         /* Special Assignments (stages 17..20)                                */
         /* ------------------------------------------------------------------ */
         if (pendingStage < 0) {
-            s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1; /* 17 */
+            s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1;
 
             ImGui::Spacing();
-            {
-                const char *saHdr = langSafe(L_OPTIONS_132); /* "Special Assignments" */
-                char buf[64];
-                if (saHdr[0]) {
-                    snprintf(buf, sizeof(buf), "-- %s --", saHdr);
-                } else {
-                    snprintf(buf, sizeof(buf), "-- Special Assignments --");
-                }
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
-                ImGui::TextUnformatted(buf);
-                ImGui::PopStyleColor();
+
+            /* Group unlockable count (stub) */
+            int saGrpTotal  = NUM_SOLOSTAGES - specialStart;
+            int saGrpEarned = 0;
+
+            const char *saLang = langSafe(L_OPTIONS_132);
+            char saBuf[64];
+            if (saLang[0]) {
+                snprintf(saBuf, sizeof(saBuf), "-- %s --", saLang);
+            } else {
+                snprintf(saBuf, sizeof(saBuf), "-- Special Assignments --");
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+            ImGui::TextUnformatted(saBuf);
+            ImGui::PopStyleColor();
+
+            if (ImGui::IsItemHovered() && saGrpTotal > 0) {
+                ImGui::BeginTooltip();
+                ImGui::Text("%d/%d", saGrpEarned, saGrpTotal);
+                ImGui::EndTooltip();
             }
 
-            s32 j;
-            for (j = specialStart;
+            for (s32 j = specialStart;
                  j < NUM_SOLOSTAGES && pendingStage < 0; j++) {
-                s32 saNum = j - specialStart + 1;
-                const char *ln1       = langSafe(g_SoloStages[j].name1);
-                bool        accessible = (bool)isStageDifficultyUnlocked(j, DIFF_A);
-
+                s32 saNum       = j - specialStart + 1;
+                bool accessible = (bool)isStageDifficultyUnlocked(j, DIFF_A);
+                const char *ln1 = langSafe(g_SoloStages[j].name1);
                 char nodeLabel[192];
                 snprintf(nodeLabel, sizeof(nodeLabel), "SA-%d  %s", saNum, ln1);
 
                 ImGui::PushID(0x200 + j);
 
-                if (!accessible) {
-                    ImGui::PushStyleColor(ImGuiCol_Text,
-                        ImVec4(0.45f, 0.45f, 0.50f, 0.65f));
-                    ImGui::PushStyleColor(ImGuiCol_Header,
-                        ImVec4(0.10f, 0.10f, 0.12f, 0.50f));
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-                        ImVec4(0.12f, 0.12f, 0.14f, 0.50f));
+                ImVec2 rowPos   = ImGui::GetCursorScreenPos();
+                float  contentW = ImGui::GetContentRegionAvail().x;
+                bool   doSelect = false;
+                bool   rowHover = false;
+
+                if (accessible) {
+                    doSelect = ImGui::Selectable("##ms_sp_row", false,
+                                                 ImGuiSelectableFlags_None,
+                                                 ImVec2(contentW, rowH));
+                    rowHover = ImGui::IsItemHovered();
+                } else {
+                    ImGui::Dummy(ImVec2(contentW, rowH));
                 }
 
-                ImGuiTreeNodeFlags nodeFlags =
-                    ImGuiTreeNodeFlags_SpanAvailWidth  |
-                    ImGuiTreeNodeFlags_OpenOnArrow     |
-                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
-
-                bool open = ImGui::TreeNodeEx(
-                    (void *)(intptr_t)(j + 0x200), nodeFlags, "");
-
-                ImVec2 nodeMin = ImGui::GetItemRectMin();
-                ImVec2 nodeMax = ImGui::GetItemRectMax();
-                float  nodeCY  = nodeMin.y + (nodeMax.y - nodeMin.y) * 0.5f;
-
-                if (!accessible) {
-                    ImGui::PopStyleColor(3);
-                }
-
-                /* Draw badges + label */
+                /* Blip dots + name (gold tint for specials) */
                 {
                     ImDrawList *dl = ImGui::GetWindowDrawList();
-                    float bx = nodeMin.x + indentX;
-                    int d;
-                    for (d = 0; d < 3; d++) {
+                    float rcy = rowPos.y + rowH * 0.5f;
+                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                    for (s32 d = 0; d < 3; d++) {
                         bool beaten = (g_GameFile.besttimes[j][d] != 0);
-                        float bcx   = bx + d * badgeGap + badgeR;
-                        ImU32 fill  = beaten
-                            ? k_DiffBadgeColor[d]
-                            : IM_COL32(50, 50, 60, 180);
-                        dl->AddCircleFilled(ImVec2(bcx, nodeCY), badgeR, fill);
-                        dl->AddCircle(ImVec2(bcx, nodeCY), badgeR,
-                                      IM_COL32(100, 100, 120, 140));
-                        if (beaten) {
-                            ImVec2 tsz = ImGui::CalcTextSize(k_DiffShort[d]);
-                            dl->AddText(
-                                ImVec2(bcx - tsz.x * 0.5f,
-                                       nodeCY - tsz.y * 0.5f),
-                                IM_COL32(255, 255, 255, 255),
-                                k_DiffShort[d]);
-                        }
+                        float bcx   = bx + d * blipGap;
+                        ImU32 fill  = beaten ? k_DiffBadgeColor[d]
+                                             : IM_COL32(40, 40, 50, 160);
+                        ImU32 ring  = beaten ? IM_COL32(200, 200, 200, 100)
+                                             : IM_COL32(80, 80, 100, 120);
+                        dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
+                        dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
-                    float nameX = bx + 3.0f * badgeGap + pdguiScale(6.0f);
+                    float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
                     ImU32 nameCol = accessible
-                        ? IM_COL32(255, 230, 140, 255)  /* gold for specials */
-                        : IM_COL32(110, 100,  80, 175);
+                        ? IM_COL32(255, 230, 140, 255)
+                        : IM_COL32(110, 100, 80, 150);
                     dl->AddText(
-                        ImVec2(nameX,
-                               nodeCY - ImGui::GetTextLineHeight() * 0.5f),
+                        ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
                         nameCol, nodeLabel);
                 }
 
-                if (open) {
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::TextUnformatted(nodeLabel);
-                        ImGui::Separator();
-                        {
-                            int d;
-                            for (d = 0; d < 3; d++) {
-                                renderRewardTooltip(j, d);
-                            }
-                        }
-                        ImGui::EndTooltip();
-                    }
+                /* Hover tooltips for special assignment rows */
+                if (rowHover) {
+                    float rcy = rowPos.y + rowH * 0.5f;
+                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                    ImVec2 mp = ImGui::GetMousePos();
+                    bool   shownBlipTip = false;
+                    float  hitR = blipR + pdguiScale(3.0f);
 
-                    static const char *k_DiffNames[] = {
-                        "Agent", "Special Agent", "Perfect Agent"
-                    };
-                    float rowH = pdguiScale(26.0f);
-                    s32 d;
-                    for (d = DIFF_A; d <= DIFF_PA && pendingStage < 0; d++) {
-                        bool locked = !isStageDifficultyUnlocked(j, d);
-                        bool beaten = (g_GameFile.besttimes[j][d] != 0);
-
-                        ImGui::PushID(d + 0x100);
-
-                        ImVec2 rowPos   = ImGui::GetCursorScreenPos();
-                        float  contentW = ImGui::GetContentRegionAvail().x;
-                        bool   doSelect = false;
-
-                        if (!locked) {
-                            doSelect = ImGui::Selectable(
-                                "##ckpt_sp", false,
-                                ImGuiSelectableFlags_None,
-                                ImVec2(contentW, rowH));
-                        } else {
-                            ImGui::Dummy(ImVec2(contentW, rowH));
-                        }
-
-                        if (!locked && ImGui::IsItemHovered()) {
+                    for (s32 d = 0; d < 3 && !shownBlipTip; d++) {
+                        float bcx = bx + d * blipGap;
+                        float dx  = mp.x - bcx;
+                        float dy  = mp.y - rcy;
+                        if (dx*dx + dy*dy <= hitR*hitR) {
+                            bool beaten = (g_GameFile.besttimes[j][d] != 0);
                             ImGui::BeginTooltip();
-                            ImGui::TextUnformatted(k_DiffNames[d]);
+                            ImGui::TextUnformatted(k_DiffFullNames[d]);
                             ImGui::Separator();
-                            renderRewardTooltip(j, d);
-                            ImGui::EndTooltip();
-                        }
-
-                        {
-                            ImDrawList *dl  = ImGui::GetWindowDrawList();
-                            float       rcy = rowPos.y + rowH * 0.5f;
-                            float       bx2 = rowPos.x + pdguiScale(36.0f);
-                            float       br2 = pdguiScale(5.0f);
-
-                            ImU32 badgeCol = locked  ? IM_COL32(35, 35, 45, 150)
-                                           : beaten  ? k_DiffBadgeColor[d]
-                                                     : IM_COL32(60, 60, 75, 200);
-                            dl->AddCircleFilled(
-                                ImVec2(bx2 + br2, rcy), br2, badgeCol);
-                            dl->AddCircle(
-                                ImVec2(bx2 + br2, rcy), br2,
-                                IM_COL32(90, 90, 110, 140));
-
-                            float nameX2 = bx2 + br2 * 2.0f + pdguiScale(7.0f);
-                            ImU32 textCol = locked
-                                ? IM_COL32(80, 80, 90, 130)
-                                : IM_COL32(200, 200, 215, 255);
-                            dl->AddText(
-                                ImVec2(nameX2,
-                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
-                                textCol, k_DiffNames[d]);
-
-                            char timeStr[40];
-                            if (locked) {
-                                snprintf(timeStr, sizeof(timeStr), "[Locked]");
-                            } else {
+                            if (beaten) {
+                                char timeStr[32];
                                 formatBestTime(timeStr, sizeof(timeStr),
                                                g_GameFile.besttimes[j][d]);
+                                ImGui::Text("Best: %s", timeStr);
+                            } else {
+                                ImGui::TextDisabled("Not completed");
                             }
-                            ImVec2 tSz   = ImGui::CalcTextSize(timeStr);
-                            float  rightX = rowPos.x + contentW
-                                            - tSz.x - pdguiScale(14.0f);
-                            ImU32 timeCol = locked
-                                ? IM_COL32(70, 70, 80, 120)
-                                : beaten
-                                  ? IM_COL32(140, 200, 130, 220)
-                                  : IM_COL32(140, 140, 155, 200);
-                            dl->AddText(
-                                ImVec2(rightX,
-                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
-                                timeCol, timeStr);
+                            ImGui::EndTooltip();
+                            shownBlipTip = true;
                         }
+                    }
 
-                        if (doSelect) {
-                            pendingStage = j;
-                            pendingDiff  = d;
+                    if (!shownBlipTip) {
+                        int stgTotal = 1, stgEarned = 0;
+                        if (stgTotal > 0) {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("%d/%d", stgEarned, stgTotal);
+                            ImGui::EndTooltip();
                         }
+                    }
+                }
 
-                        ImGui::PopID();
-                    } /* diff loop */
-
-                    ImGui::TreePop();
-                } /* open */
+                if (doSelect) pendingStage = j;
 
                 ImGui::PopID();
             } /* special stage loop */
@@ -843,21 +627,15 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
-    /* Footer hint */
-    ImGui::TextDisabled("Expand: arrow/double-click   Select diff: click row   Esc: Back");
-
+    ImGui::TextDisabled("Click to select difficulty   Esc: Back");
     ImGui::End();
 
-    /* Launch mission if a checkpoint was selected (done after End() to avoid
-     * nesting menu state changes inside the ImGui frame body). */
+    /* Push difficulty dialog after End() to avoid nesting state changes. */
     if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
         g_MissionConfig.stagenum   = (u8)g_SoloStages[pendingStage].stagenum;
         g_MissionConfig.stageindex = (u8)pendingStage;
-        SM_SET_DIFFICULTY(&g_MissionConfig, pendingDiff);
-        SM_CLEAR_PDMODE(&g_MissionConfig);
-        lvSetDifficulty(pendingDiff);
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        menuPushDialog(&g_AcceptMissionMenuDialog);
+        menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
     }
 
     return 1;
@@ -991,6 +769,28 @@ static s32 renderDifficulty(struct menudialog *dialog,
             } else {
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
+        }
+
+        /* Hover tooltip: objectives for this difficulty from g_Briefing.
+         * g_Briefing is populated by the dialog handler before this runs.
+         * objectivedifficulties bits: 0=Agent, 1=SA, 2=PA. */
+        if (!locked && ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("%s", langSafe(k_DiffIds[i]));
+            ImGui::Separator();
+            bool anyObj = false;
+            for (s32 oi = 0; oi < 6; oi++) {
+                if (g_Briefing.objectivenames[oi] == 0) continue;
+                u16 bits = g_Briefing.objectivedifficulties[oi];
+                if (bits & (1u << (unsigned)diff)) {
+                    ImGui::TextUnformatted(langSafe(g_Briefing.objectivenames[oi]));
+                    anyObj = true;
+                }
+            }
+            if (!anyObj) {
+                ImGui::TextDisabled("(No objectives)");
+            }
+            ImGui::EndTooltip();
         }
 
         /* Overlay: difficulty name + best time */
