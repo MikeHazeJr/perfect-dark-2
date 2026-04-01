@@ -3,6 +3,194 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S106 -- 2026-04-01
+
+**Focus**: Solo Campaign mission select — full redesign + NULL crash fix
+
+### What Was Done
+
+**File changed**: `port/fast3d/pdgui_menu_solomission.cpp`
+
+**Root cause fixed (0xc0000005 crash)**: `langGet()` returns NULL when a language bank entry is zero or not loaded. Multiple ImGui paths (`ImGui::Button(nullptr)`, `ImDrawList::AddText(..., nullptr)`) crash on NULL. Fixed by adding a `langSafe()` helper that wraps `langGet()` with a `""` fallback, then replacing all 11 `langGet()` call sites that feed ImGui text functions (across `renderDifficulty`, `renderBriefingImpl`, `renderAcceptMission`, `renderAbortMission`, `renderOptions`).
+
+**New `renderMissionSelect()` — tree-based chapter/mission hierarchy**:
+- All 21 solo missions displayed as collapsible `ImGui::TreeNodeEx` sections
+- Chapters 1–9 with langGet header names (fallback "-- Mission N --")
+- Each mission shows chapter.position number prefix (e.g. "1.1 dataDyne Central - Defection")
+- Mission nodes display colored A/S/P badge circles reflecting `g_GameFile.besttimes[i][d]` completion state (green=Agent, blue=SA, gold=PA, gray=unbeaten)
+- Per-difficulty checkpoint rows inside each node; locked rows show dimmed dummy, unlocked rows are Selectable
+- Hover tooltip via `renderRewardTooltip()` — fully stubbed (placeholder data structure for future unlock system wiring)
+- Special Assignments (stages 17-20) in their own chapter group with gold text
+- `pendingStage/pendingDiff` flag defers `menuPushDialog()` until after `ImGui::EndChild()` + `ImGui::End()` to avoid game state changes mid-render
+- Mission selection directly sets `g_MissionConfig` + difficulty and pushes `g_AcceptMissionMenuDialog` — no intermediate difficulty dialog
+
+**Stub infrastructure added** (after `computeAvailableStageCount()`):
+- `langSafe(s32 textid)` — NULL-safe langGet wrapper
+- `struct SoloRewardStub` + `soloGetReward(stageIdx, diff, tier)` + `renderRewardTooltip(stageIdx, diff)` — placeholder for future unlock/reward system
+- `k_DiffBadgeColor[]` / `k_DiffShort[]` — badge styling constants
+- `k_MissionGroups[]` + `stageToGroupIdx()` — chapter grouping table
+
+**Build**: Clean compile, zero errors (2 pre-existing format-zero-length warnings on empty TreeNodeEx labels, 1 pre-existing `/*` in comment). Verified directly with `ninja PerfectDark.exe` on existing configured build.
+
+### Decisions Made
+- Eliminated intermediate difficulty dialog — chapter tree rows go directly to Accept Mission. Cleaner UX, fewer NULL crash surfaces.
+- Reward tooltip is fully stubbed. No unlock system wiring yet — hook point is clear for a future session.
+- `langSafe()` applied universally across all `langGet()` → ImGui paths in the file. The only safe caller of raw `langGet()` is `snprintf("%s", langGet(...))` (safe because glibc prints "(null)").
+
+### Next Steps
+- Playtest: verify chapter tree renders, completion badges show correctly, mission launches work
+- Wire `soloGetReward()` when the unlock/reward system is implemented
+- Commit this change
+
+---
+
+## Session S105 -- 2026-04-01
+
+**Focus**: Level Editor foundation — new tab in the room/lobby screen
+
+### What Was Done
+
+**Level Editor tab added to `port/fast3d/pdgui_menu_room.cpp`** (tab index 3, "Level Editor"):
+
+**State + data tables** inserted after scenario save state vars (~line 363):
+- `le_spawned_t` struct: id, asset_type, pos[3], scale[3], uniform_scale, tex_override_idx, collision, interaction
+- `le_cat_entry_t` struct: id, type (catalog snapshot entry)
+- Static arrays: `s_LESpawned[128]`, `s_LECatalog[512]`
+- `s_LETypeFilters[]` table: All / Props / Characters / Weapons / Models / Vehicles / Maps / Textures / Skins
+- `s_LEInteractNames[]`: Static, Pickup, Use, Door
+- `s_LEActive`, `s_LECamPos/Yaw/Pitch` (stub free-fly camera state)
+- `leCatalogCollect()` callback + `leBuildCatalog()` snapshot builder (all types or filtered type)
+
+**Three new render functions**:
+- `renderLevelEditorTab(panelW, panelH)` — left panel: type dropdown, search field, catalog entry list with `[TYPE] asset_id` rows, "Spawn at Camera" button
+- `renderLevelEditorObjectPanel(panelW, panelH)` — right panel (replaces player list): spawned objects list with X delete buttons, property editor (position read-only, scale X/Y/Z + uniform toggle, collision checkbox, interaction type dropdown, texture override dropdown)
+- `renderLevelEditorOverlay()` — top-right floating window when editor is active: camera stub (pos/yaw/pitch), object count, selected object summary, "Exit Level Editor" button
+
+**Wired into room screen**:
+- `s_TabNames[]` expanded from 3 → 4 entries
+- Tab loop changed from `t < 3` → `t < 4`
+- Content switch: `case 3: renderLevelEditorTab(leftW, contentH)`
+- Right panel: `if (s_ActiveTab == 3) renderLevelEditorObjectPanel(rightW, contentH) else renderPlayerPanel(...)`
+- Footer: `if (s_ActiveTab == 3)` → "Launch Level Editor" button (available to all players, not just leader); sets `s_LEActive=true`, resets spawned list
+- Overlay call after `ImGui::End()` when `s_LEActive`
+
+**Build**: Compiled clean with exact CMake flags (c++20, -std=c++20). Zero errors, one pre-existing `/*` in comment warning.
+
+### Decisions Made
+- Free-fly camera is a **stub** — overlay shows cam pos/yaw/pitch variables but no actual game-camera binding yet. Actual free-fly needs game-side work (player.c or a new spectator camera).
+- Empty level loading is also a **stub** — "Launch Level Editor" sets `s_LEActive` and logs intent; no actual empty stage is loaded yet. That requires a new GAMEMODE or a debug stage.
+- Texture override shows "Texture 0..N" numbered slots — a proper texture name browser requires an iterator+name accessor that doesn't exist yet.
+- All sizes use `pdguiScale()` throughout.
+
+### Next Steps
+- Playtest: verify "Level Editor" tab appears in room screen; catalog browser populates; property editor works
+- Wire free-fly camera: add spectator/noclip mode to player.c or add a dedicated camera actor
+- Wire empty level launch: route "Launch Level Editor" to load a minimal empty stage
+- Replace numbered texture slots with actual catalog texture names when a by-index name accessor is available
+
+---
+
+## Session S104 -- 2026-04-01
+
+**Focus**: Pre-match countdown UX — 3-2-1-GO overlay with cancel support
+
+### What Was Done
+
+**Commit**: `2a527d1` — `feat(ux): pre-match countdown popup with cancel support`
+
+**Files changed**: `port/include/net/netmsg.h`, `port/src/net/netmsg.c`, `port/src/net/net.c`, `port/fast3d/pdgui_bridge.c`, `port/fast3d/pdgui_countdown.cpp` (new), `port/fast3d/pdgui_backend.cpp`, `port/fast3d/pdgui_menu_mainmenu.cpp`, `port/include/net/netmanifest.h`
+
+1. **Network layer** — two new messages:
+   - `CLC_LOBBY_CANCEL (0x0F)`: any CLSTATE_PREPARING client → server, abort countdown
+   - `SVC_MATCH_CANCELLED (0x64)`: server → all clients, broadcast canceller name + reset client countdown state
+   - `readyGateAbort()`: resets `s_ReadyGate`, returns all `CLSTATE_PREPARING` clients to `CLSTATE_LOBBY`, transitions room to `ROOM_STATE_LOBBY`, broadcasts `SVC_MATCH_CANCELLED`
+   - Both messages registered in `net.c` dispatch tables
+
+2. **Bridge functions** (`pdgui_bridge.c`):
+   - `netLobbyRequestCancel()` — sends `CLC_LOBBY_CANCEL` from C++ overlay
+   - `pdguiCountdownIsActive()`, `pdguiCountdownGetSecs()` — read `g_MatchCountdownState`
+   - `pdguiCancelledIsActive()`, `pdguiCancelledGetName()`, `pdguiCancelledClear()` — read/clear `g_MatchCancelledState`
+
+3. **ImGui overlay** (`pdgui_countdown.cpp`):
+   - Triggered by `MANIFEST_PHASE_LOADING` countdown; no-op otherwise
+   - Full-screen dim + centered popup box with large number (3/2/1) or "GO!"
+   - Number colors: yellow → orange → red → green(GO)
+   - Audio: `PDGUI_SND_SUBFOCUS` on each tick, `PDGUI_SND_SUCCESS` on GO
+   - ESC / GamepadFaceRight sends cancel; cancel banner fades over 3s
+   - Called from `pdguiRender()` after lobby sidebar
+
+4. **Bug fix**: `netmanifest.h` `extern "C"` guard was closing before all function declarations — moved close brace to end of file; fixes C++ linkage for `manifestGetMaxEntries`/`manifestSetMaxEntries`
+
+### Decisions Made
+- Cancel is allowed by ANY player in CLSTATE_PREPARING (not just the leader) — matches spec
+- Cancel ignored silently if no countdown is active (race-condition safety)
+- `g_MatchCountdownState` cleared on cancel receipt so countdown overlay dismisses immediately
+- Cancel banner auto-clears after 180 frames (3s), then calls `pdguiCancelledClear()`
+
+### Next Steps
+- In-game test: start a networked match, verify 3-2-1-GO overlay appears and cancel works
+- Consider: should leader-only cancel be an option? Currently any player can cancel
+
+---
+
+## Session S103 -- 2026-04-01
+
+**Focus**: Group 6 Training Mode — ImGui dialog replacements for Firing Range, Dark Training, Holo Training, Bio screens
+
+### What Was Done
+
+**Files changed**: `port/fast3d/pdgui_menu_training.cpp` (new), `port/include/pdgui_menus.h`
+
+1. **Created `pdgui_menu_training.cpp`** — 22 training dialogs: 12 with ImGui renderers, 10 with NULL renderFn (3D model/GBI screens preserved legacy):
+   - `renderFrDifficulty` — Bronze/Silver/Gold difficulty selector with score-tier locking via `ciGetFiringRangeScore`
+   - `renderFrTrainingInfo` — pre/in-game details (5 label rows + scrollable weapon description + action buttons)
+   - `renderFrStats` — Completed/Failed headline + all stats rows + Continue button (shared for both states)
+   - `renderBioText` — scrollable misc bio text
+   - `renderDtResult` — time + tip rows for DT failed/completed
+   - `renderHtList` — selectable list with keyboard nav, PushID/PopID, writes `var80088bb4` to track selection
+   - `renderHtResult` — time + tip rows for HT failed/completed
+   - `renderNowSafe` — simple centered safe/unsafe message
+   - NULL registrations: `g_FrWeaponListMenuDialog`, `g_FrWeaponDetailsMenuDialog`, `g_HtDetailsMenuDialog`, `g_HangarBioListMenuDialog`, `g_HangarBioDetailsMenuDialog`, `g_HangarVehicleListMenuDialog`, `g_HangarVehicleHolographMenuDialog`, `g_HangarVehicleDetailsMenuDialog`, `g_HangarLocationListMenuDialog`, `g_HangarLocationDetailsMenuDialog`
+2. **Wired into `pdgui_menus.h`** — added `pdguiMenuTrainingRegister` declaration and call in `pdguiMenusRegisterAll()`
+3. **Build verified** — zero errors, zero warnings (fixed one `/*` in comment string)
+
+### Decisions Made
+- 3D model screens (MENUITEMTYPE_MODEL) and GBI vehicle holograph registered with NULL renderFn — legacy rendering preserved cleanly
+- Text accessors called with `nullptr` item arg (they never dereference it for these dialogs)
+- `var80088bb4` written directly to track HT list selection before `menuPushDialog(&g_HtDetailsMenuDialog)`
+
+### Next Steps
+- Playtest training mode: FR difficulty selector, FR session info, FR stats, DT result screens, HT list + detail flow, Bio text scroll
+- Check that NULL-registered dialogs (weapon list, weapon details, vehicle holograph) still render via legacy path
+
+---
+
+## Session S102 -- 2026-04-01
+
+**Focus**: Update Settings UI — multiple bugs fixed, new feature, release v0.0.17
+
+### What Was Done
+
+**Files changed**: `port/fast3d/pdgui_menu_update.cpp`, `port/src/updater.c`, `port/fast3d/pdgui_menu_mainmenu.cpp`, `CMakeLists.txt`
+
+1. **B-N/A: Download/Switch buttons missing in Updates tab** — `assetUrl` was empty for releases where the GitHub API didn't return an asset. Added fallback URL construction from tag name in `parseRelease()` in `updater.c`.
+2. **B-N/A: "Update Now" banner button does nothing** — same root cause as above. Resolved by the assetUrl fallback.
+3. **B-N/A: Notification banner at top** — moved from Y=0 to `io.DisplaySize.y - barHeight` (bottom dock).
+4. **B-N/A: Changelog shows literal `\r\n`** — added `jp_copystr_unescape()` in `updater.c`; swapped in for `rel->body` parse.
+5. **B-N/A: Version list UI polish** — tightened Title column (fixed 190px), color-coded rows (current=green, cached=yellow, other=gray), removed `(current)` text label.
+6. **Feature: Update Channel selector** — added Stable/Dev combo to Game settings tab. Persists to `pd.ini` via `configRegisterInt` PD_CONSTRUCTOR in `updater.c`. Channel feeds into auto-checker.
+7. **B-60: Stray 'g'+'s' behind Settings tab bar** — NOT FIXED. Investigated extensively; source not confirmed. Filed as B-60. See bugs.md.
+
+### Decisions Made
+- Bumped version to 0.0.17 (0.0.16 was the target but incrementing one more per Mike's request)
+- Released as prerelease/dev build at https://github.com/MikeHazeJr/perfect-dark-2/releases/tag/v0.0.17
+
+### Next Steps
+- Investigate B-60 (stray 'g'+'s' in Settings tab bar) — likely fix: `GetForegroundDrawList()` for title text in `drawPdWindowFrame`, or check runtime Y values
+- Playtest update download/switch flow to confirm buttons work
+
+---
+
 ## Session S101 -- 2026-04-01
 
 **Focus**: Critical bug investigation — Objective 1 crash (0xc0000005, manifest overflow)

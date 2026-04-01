@@ -49,6 +49,30 @@
 
 ---
 
+## Recently Completed (S106 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Solo Campaign mission select redesign + NULL crash fix** (S106) | **BUILD VERIFIED** — Tree-based chapter/mission hierarchy, all 21 missions with A/S/P completion badges, per-diff checkpoint rows, reward tooltip stubs. Fixed 11 `langGet()→langSafe()` crash sites (0xc0000005 on mission select). Needs playtest. |
+
+---
+
+## Recently Completed (S105 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Level Editor tab foundation** (S105) | **BUILD VERIFIED** — Tab 3 "Level Editor" in room screen. Catalog browser (type/search), spawned object list, property editor (scale/collision/interaction/texture), floating overlay, "Launch Level Editor" footer button. Needs playtest. Free-fly camera + empty level load are stubs. |
+
+---
+
+## Recently Completed (S103 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Group 6 Training Mode dialogs** | **BUILD VERIFIED** — `pdgui_menu_training.cpp`: 12 ImGui renderers (FR difficulty/info/stats, bio text, DT result, HT list+result, now-safe) + 10 NULL (3D model/GBI screens). Zero warnings. Needs playtest. |
+
+---
+
 ## Recently Completed (S100 — 2026-04-01)
 
 | Item | Status |
