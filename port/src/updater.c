@@ -36,10 +36,19 @@
 /* s32 mirror of update_channel_t, registered with the config system */
 static s32 s_UpdateChannelCfg = UPDATE_CHANNEL_STABLE;
 
+/* Comma-separated list of folder/file names that the updater never deletes.
+ * Persisted in pd.ini under [Update]. Read directly from pd.ini at apply
+ * time (before config is formally initialized). pd.ini itself is always
+ * protected regardless of this setting. */
+#define UPDATER_DEFAULT_PROTECTED "mods,data,extracted,saves"
+static char s_ProtectedFoldersCfg[512] = UPDATER_DEFAULT_PROTECTED;
+
 PD_CONSTRUCTOR static void updaterConfigInit(void)
 {
 	configRegisterInt("Game.UpdateChannel", &s_UpdateChannelCfg,
 		UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_COUNT - 1);
+	configRegisterString("Update.ProtectedFolders", s_ProtectedFoldersCfg,
+		sizeof(s_ProtectedFoldersCfg));
 }
 
 /* ========================================================================
@@ -1169,11 +1178,60 @@ const pdversion_t *updaterGetStagedVersion(void)
 
 #ifdef _WIN32
 
-/* Relative paths (forward-slash, any case) that must never be deleted
- * during a stale-file cleanup pass. */
-static const char *k_ProtectedRelPaths[] = {
-	"mods", "data", "pd.ini", "saves", NULL
-};
+/* Dynamic protected path list — built from pd.ini at apply time.
+ * pd.ini itself is always protected and added last. */
+static char  s_ProtectedParseBuf[512 + 8]; /* +8 for "pd.ini\0" */
+static char *s_ProtectedList[64];
+static s32   s_ProtectedCount = 0;
+
+/* Scan pd.ini (without the config system) for Update.ProtectedFolders.
+ * Returns 1 and fills out[] on success; returns 0 and leaves out unchanged
+ * if the key is absent or the file can't be opened. */
+static s32 readProtectedFoldersFromIni(const char *iniPath, char *out, size_t outsize)
+{
+	FILE *fp = fopen(iniPath, "r");
+	if (!fp) return 0;
+	char line[512];
+	s32 inUpdate = 0;
+	while (fgets(line, sizeof(line), fp)) {
+		size_t l = strlen(line);
+		while (l > 0 && (line[l-1] == '\n' || line[l-1] == '\r')) line[--l] = '\0';
+		if (line[0] == '[') { inUpdate = (strcmp(line, "[Update]") == 0); continue; }
+		if (inUpdate && strncmp(line, "ProtectedFolders=", 17) == 0) {
+			strncpy(out, line + 17, outsize - 1);
+			out[outsize - 1] = '\0';
+			fclose(fp);
+			return 1;
+		}
+	}
+	fclose(fp);
+	return 0;
+}
+
+/* Parse a comma-separated list of folder/file names into s_ProtectedList[].
+ * pd.ini is always appended to the list regardless of the csv contents. */
+static void buildProtectedList(const char *csv)
+{
+	strncpy(s_ProtectedParseBuf, csv, sizeof(s_ProtectedParseBuf) - 8);
+	s_ProtectedParseBuf[sizeof(s_ProtectedParseBuf) - 8] = '\0';
+	s_ProtectedCount = 0;
+	char *p = s_ProtectedParseBuf;
+	while (*p && s_ProtectedCount < 62) {
+		while (*p == ' ' || *p == '\t') p++;
+		if (!*p) break;
+		s_ProtectedList[s_ProtectedCount++] = p;
+		char *comma = strchr(p, ',');
+		if (!comma) { p += strlen(p); break; }
+		*comma = '\0';
+		p = comma + 1;
+		/* Trim trailing whitespace from the entry we just ended */
+		char *end = s_ProtectedList[s_ProtectedCount - 1];
+		size_t elen = strlen(end);
+		while (elen > 0 && (end[elen-1] == ' ' || end[elen-1] == '\t')) end[--elen] = '\0';
+	}
+	/* pd.ini is always protected regardless of the setting */
+	s_ProtectedList[s_ProtectedCount++] = "pd.ini";
+}
 
 /* Return 1 if relPath is under a protected directory/file. */
 static s32 isProtectedRelPath(const char *relPath)
@@ -1184,8 +1242,8 @@ static s32 isProtectedRelPath(const char *relPath)
 		norm[i] = (relPath[i] == '\\') ? '/' : (char)tolower((unsigned char)relPath[i]);
 	}
 	norm[i] = '\0';
-	for (s32 j = 0; k_ProtectedRelPaths[j]; j++) {
-		const char *prot = k_ProtectedRelPaths[j];
+	for (s32 j = 0; j < s_ProtectedCount; j++) {
+		const char *prot = s_ProtectedList[j];
 		size_t plen = strlen(prot);
 		if (strncmp(norm, prot, plen) == 0 && (norm[plen] == '\0' || norm[plen] == '/')) {
 			return 1;
@@ -1405,6 +1463,18 @@ s32 updaterApplyPending(void)
 	copyDirRecursive(s_Updater.stagingDir, s_Updater.installDir);
 
 	/* Step 5: Cleanup stale files (delete install files absent from ZIP, skip protected) */
+	{
+		/* Read protected folders from pd.ini directly (config not yet initialized).
+		 * Fall back to the compiled default if the setting is absent. */
+		char iniPath[MAX_PATH];
+		snprintf(iniPath, sizeof(iniPath), "%s\\pd.ini", s_Updater.installDir);
+		char protectedCsv[512];
+		strncpy(protectedCsv, UPDATER_DEFAULT_PROTECTED, sizeof(protectedCsv) - 1);
+		protectedCsv[sizeof(protectedCsv) - 1] = '\0';
+		readProtectedFoldersFromIni(iniPath, protectedCsv, sizeof(protectedCsv));
+		buildProtectedList(protectedCsv);
+		fprintf(stderr, "UPDATER: Protected folders: %s (+ pd.ini always)\n", protectedCsv);
+	}
 	fprintf(stderr, "UPDATER: Cleaning up stale files...\n");
 	cleanupStaleFiles(s_Updater.installDir, s_Updater.stagingDir, "");
 
