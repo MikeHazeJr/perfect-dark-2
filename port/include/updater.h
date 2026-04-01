@@ -82,12 +82,10 @@ typedef struct {
 #define UPDATER_TAG_CLIENT    "v"
 #define UPDATER_TAG_SERVER    "v"
 
-/* Asset filenames to look for in releases (must match CMake OUTPUT_NAME + .exe) */
-#define UPDATER_ASSET_CLIENT  "PerfectDark.exe"
-#define UPDATER_ASSET_SERVER  "PerfectDarkServer.exe"
+/* ZIP asset suffix to match in GitHub release assets (e.g. "PerfectDark-v0.0.19-win64.zip") */
+#define UPDATER_ASSET_ZIP_SUFFIX  "-win64.zip"
 
-/* Staging file suffixes */
-#define UPDATER_SUFFIX_UPDATE ".update"
+/* .old suffix for the running exe during self-replacement */
 #define UPDATER_SUFFIX_OLD    ".old"
 
 /* ========================================================================
@@ -191,18 +189,19 @@ const pdversion_t *updaterGetStagedVersion(void);
  * ======================================================================== */
 
 /**
- * Check for and apply a pending update (.update file).
+ * Check for and apply a pending update (pd.update.zip).
  * Call VERY EARLY in main(), before any other subsystem init.
  *
- * Flow:
- *   1. Check if "pd.x86_64.exe.update" exists
- *   2. Rename current exe to .old
- *   3. Rename .update to current exe name
- *   4. Re-exec the new binary (execv)
- *   5. On failure: attempt rollback from .old
+ * Flow (Windows):
+ *   1. Check if "pd.update.zip" exists in the install dir
+ *   2. Extract ZIP to staging dir (pd_update_staging/) via PowerShell
+ *   3. Rename current exe → .old (frees the exe name for overwrite)
+ *   4. Copy staging/* → install dir (overwrite mode)
+ *   5. Cleanup stale files in install dir (skip protected: mods/, data/, pd.ini, saves/)
+ *   6. Delete staging dir and update ZIP
+ *   7. Re-launch new binary and exit
  *
- * On Windows, the .old file is cleaned up on the NEXT launch
- * (since the running exe can be renamed but not deleted).
+ * The .old exe is cleaned up on the next launch via updaterCleanupOld().
  *
  * Returns: 0 if no pending update, 1 if update was applied (caller should
  * expect re-exec and thus not reach this point), -1 on error.
