@@ -1608,30 +1608,30 @@ static void renderSettingsDebug(float scale)
  * ----------------------------------------------------------------------- */
 
 static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
-    "None",        /* ASSET_NONE */
-    "Map",         /* ASSET_MAP */
-    "Character",   /* ASSET_CHARACTER */
-    "Skin",        /* ASSET_SKIN */
-    "BotVariant",  /* ASSET_BOT_VARIANT */
-    "Weapon",      /* ASSET_WEAPON */
-    "Textures",    /* ASSET_TEXTURES */
-    "SFX",         /* ASSET_SFX */
-    "Music",       /* ASSET_MUSIC */
-    "Prop",        /* ASSET_PROP */
-    "Vehicle",     /* ASSET_VEHICLE */
-    "Mission",     /* ASSET_MISSION */
-    "UI",          /* ASSET_UI */
-    "Tool",        /* ASSET_TOOL */
-    "Arena",       /* ASSET_ARENA */
-    "Body",        /* ASSET_BODY */
-    "Head",        /* ASSET_HEAD */
-    "Animation",   /* ASSET_ANIMATION */
-    "Texture",     /* ASSET_TEXTURE */
-    "GameMode",    /* ASSET_GAMEMODE */
-    "Audio",       /* ASSET_AUDIO */
-    "HUD",         /* ASSET_HUD */
-    "Effect",      /* ASSET_EFFECT */
-    "Model",       /* ASSET_MODEL */
+    "None",          /* ASSET_NONE */
+    "Map",           /* ASSET_MAP */
+    "Character",     /* ASSET_CHARACTER */
+    "Skin",          /* ASSET_SKIN */
+    "Bot Variant",   /* ASSET_BOT_VARIANT */
+    "Weapon",        /* ASSET_WEAPON */
+    "Texture Pack",  /* ASSET_TEXTURES — collection/pack, distinct from individual Texture */
+    "SFX",           /* ASSET_SFX */
+    "Music",         /* ASSET_MUSIC */
+    "Prop",          /* ASSET_PROP */
+    "Vehicle",       /* ASSET_VEHICLE */
+    "Mission",       /* ASSET_MISSION */
+    "UI",            /* ASSET_UI */
+    "Tool",          /* ASSET_TOOL */
+    "Arena",         /* ASSET_ARENA */
+    "Body",          /* ASSET_BODY */
+    "Head",          /* ASSET_HEAD */
+    "Animation",     /* ASSET_ANIMATION */
+    "Texture",       /* ASSET_TEXTURE — individual texture entry */
+    "Game Mode",     /* ASSET_GAMEMODE */
+    "Voice",         /* ASSET_AUDIO — generic audio (voice/ambient); SFX and Music have own types */
+    "HUD",           /* ASSET_HUD */
+    "Effect",        /* ASSET_EFFECT */
+    "Model",         /* ASSET_MODEL */
 };
 
 static const char *s_LoadStateNames[] = {
