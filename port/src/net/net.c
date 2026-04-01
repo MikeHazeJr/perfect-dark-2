@@ -1115,6 +1115,7 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
+			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1193,8 +1194,9 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
 			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
-			case SVC_MATCH_MANIFEST:  rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
-			case SVC_MATCH_COUNTDOWN: rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
+			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
+			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
+			case SVC_MATCH_CANCELLED:  rc = netmsgSvcMatchCancelledRead(&cl->in, cl); break;
 			case SVC_SESSION_CATALOG:
 				netmsgSvcSessionCatalogRead(&cl->in, NULL);
 				break;

@@ -84,6 +84,11 @@ static struct {
  * "Match starting in N..." during MANIFEST_PHASE_LOADING. */
 struct match_countdown_state g_MatchCountdownState;
 
+/* Phase F: Client-side cancellation state.
+ * Updated by netmsgSvcMatchCancelledRead(). UI reads this to display
+ * "[Name] cancelled the match start". */
+struct match_cancelled_state g_MatchCancelledState;
+
 /* Desync tracking state (client-side) */
 static u32 g_NetChrDesyncCount = 0;
 static u32 g_NetChrResyncLastReq = 0;
@@ -3715,6 +3720,45 @@ void readyGateTickCountdown(void)
 	}
 }
 
+/* Phase F: Abort the ready gate — cancel the countdown, reset all preparing clients
+ * back to CLSTATE_LOBBY, and broadcast SVC_MATCH_CANCELLED to all connected clients. */
+static void readyGateAbort(const char *canceller_name)
+{
+	s32 i;
+	hub_room_t *room;
+
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: ready gate aborted by '%s'",
+	             canceller_name ? canceller_name : "?");
+
+	s_ReadyGate.active           = 0;
+	s_ReadyGate.countdown_active = 0;
+	s_ReadyGate.expected_mask    = 0;
+	s_ReadyGate.ready_mask       = 0;
+	s_ReadyGate.declined_mask    = 0;
+
+	/* Return all preparing clients to the lobby */
+	for (i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (g_NetClients[i].state == CLSTATE_PREPARING) {
+			g_NetClients[i].state = CLSTATE_LOBBY;
+		}
+	}
+
+	/* Return room to lobby state */
+	room = roomGetById(0);
+	if (room) {
+		roomTransition(room, ROOM_STATE_LOBBY);
+	}
+
+	/* Broadcast the cancellation so all clients can show the message */
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcMatchCancelledWrite(&g_NetMsgRel, canceller_name ? canceller_name : "?");
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+}
+
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
@@ -4301,9 +4345,9 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	if (num_entries > MANIFEST_MAX_ENTRIES) {
-		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST entry count %u exceeds max %u",
-		             (unsigned)num_entries, (unsigned)MANIFEST_MAX_ENTRIES);
+	if ((s32)num_entries > manifestGetMaxEntries()) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST entry count %u exceeds max %d",
+		             (unsigned)num_entries, manifestGetMaxEntries());
 		return 1;
 	}
 
@@ -4370,19 +4414,18 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 	             srccl ? srccl->id : 0xFF,
 	             (unsigned)manifest_hash, (unsigned)status, (unsigned)num_missing);
 
-	/* Collect missing hashes (needed for Phase D distribution) */
-	u32 missing_hashes[MANIFEST_MAX_ENTRIES];
+	/* Collect missing hashes (needed for Phase D distribution).
+	 * num_missing is u8 (0-255) — bounded by wire protocol. */
+	u32 missing_hashes[256];
 	u8  missing_count = 0;
-	for (u8 i = 0; i < num_missing; i++) {
+	for (s32 mi = 0; mi < (s32)num_missing; mi++) {
 		const u32 hash = netbufReadU32(src);
 		if (src->error) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%u]", (unsigned)i);
+			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%d]", mi);
 			return 1;
 		}
-		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%u] hash=0x%08x", (unsigned)i, (unsigned)hash);
-		if (missing_count < MANIFEST_MAX_ENTRIES) {
-			missing_hashes[missing_count++] = hash;
-		}
+		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%d] hash=0x%08x", mi, (unsigned)hash);
+		missing_hashes[missing_count++] = hash;
 	}
 
 	/* Phase E: ready gate — update per-client readiness and check for completion.
@@ -4471,5 +4514,84 @@ u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
 	sessionCatalogReceive(src);
+	return src->error;
+}
+
+/* ---- CLC_LOBBY_CANCEL ---- */
+
+u32 netmsgClcLobbyCancelWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_LOBBY_CANCEL);
+	return dst->error;
+}
+
+u32 netmsgClcLobbyCancelRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_CANCEL received but not server");
+		return src->error;
+	}
+
+	if (!srccl) {
+		return src->error;
+	}
+
+	/* Only valid during the MANIFEST_PHASE_LOADING countdown */
+	if (!s_ReadyGate.active || !s_ReadyGate.countdown_active) {
+		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' but no countdown active — ignored",
+		             srccl->settings.name[0] ? srccl->settings.name : "?");
+		return src->error;
+	}
+
+	/* Only clients that are currently preparing can cancel */
+	if (srccl->state != CLSTATE_PREPARING) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' — aborting countdown",
+	             srccl->settings.name[0] ? srccl->settings.name : "?");
+
+	readyGateAbort(srccl->settings.name[0] ? srccl->settings.name : "Player");
+
+	return src->error;
+}
+
+/* ---- SVC_MATCH_CANCELLED ---- */
+
+u32 netmsgSvcMatchCancelledWrite(struct netbuf *dst, const char *canceller_name)
+{
+	netbufWriteU8(dst, SVC_MATCH_CANCELLED);
+	netbufWriteStr(dst, canceller_name ? canceller_name : "");
+	return dst->error;
+}
+
+u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
+{
+	char *name;
+
+	(void)srccl;
+
+	name = netbufReadStr(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_CANCELLED");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_CANCELLED — cancelled by '%s'",
+	             name ? name : "?");
+
+	/* Clear the countdown so the overlay goes away */
+	memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
+
+	/* Record who cancelled so the UI can display the message */
+	g_MatchCancelledState.active = 1;
+	if (name) {
+		strncpy(g_MatchCancelledState.name, name, MATCH_CANCEL_NAME_LEN - 1);
+		g_MatchCancelledState.name[MATCH_CANCEL_NAME_LEN - 1] = '\0';
+	} else {
+		g_MatchCancelledState.name[0] = '\0';
+	}
+
 	return src->error;
 }

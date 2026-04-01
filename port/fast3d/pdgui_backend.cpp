@@ -53,6 +53,9 @@ extern "C" s32  pdguiModdingHubIsVisible(void);
 /* MP In-Game overlays: kill ticker + endscreen suppression */
 extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
 
+/* Pre-match countdown popup: 3-2-1-GO + cancel support */
+extern "C" void pdguiCountdownRender(s32 winW, s32 winH);
+
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
@@ -330,6 +333,10 @@ void pdguiRender(void)
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);
+
+    /* Pre-match countdown: 3-2-1-GO popup + cancel banner.
+     * Renders over everything during MANIFEST_PHASE_LOADING; no-op otherwise. */
+    pdguiCountdownRender((s32)winW, (s32)winH);
 
     /* D13: Update notification banner, version picker, download progress.
      * Renders as overlay — independent of hotswap and menu state. */

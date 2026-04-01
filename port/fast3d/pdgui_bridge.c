@@ -634,3 +634,59 @@ s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
     /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
     return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
 }
+
+/* ========================================================================
+ * Match countdown cancel bridge — send CLC_LOBBY_CANCEL from C++ overlay
+ * ======================================================================== */
+
+s32 netLobbyRequestCancel(void)
+{
+    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
+        return -1;
+    }
+    if (g_NetLocalClient->state != CLSTATE_PREPARING) {
+        return -2;
+    }
+
+    netbufStartWrite(&g_NetLocalClient->out);
+    netmsgClcLobbyCancelWrite(&g_NetLocalClient->out);
+    netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_CANCEL");
+    return 0;
+}
+
+/* ========================================================================
+ * Countdown state accessors — read-only bridge for C++ overlay
+ * ======================================================================== */
+
+/* Returns 1 when the MANIFEST_PHASE_LOADING countdown is active (3-2-1 visible). */
+s32 pdguiCountdownIsActive(void)
+{
+    return (g_MatchCountdownState.active &&
+            g_MatchCountdownState.phase == MANIFEST_PHASE_LOADING) ? 1 : 0;
+}
+
+/* Returns seconds remaining (3, 2, 1, 0 = GO). Only valid when pdguiCountdownIsActive(). */
+s32 pdguiCountdownGetSecs(void)
+{
+    return (s32)g_MatchCountdownState.countdown_secs;
+}
+
+/* Returns 1 if a SVC_MATCH_CANCELLED has been received and not yet cleared. */
+s32 pdguiCancelledIsActive(void)
+{
+    return g_MatchCancelledState.active;
+}
+
+/* Returns the name of the player who cancelled (valid when pdguiCancelledIsActive()). */
+const char *pdguiCancelledGetName(void)
+{
+    return g_MatchCancelledState.name;
+}
+
+/* Clears the cancel message after the UI has finished displaying it. */
+void pdguiCancelledClear(void)
+{
+    g_MatchCancelledState.active = 0;
+    g_MatchCancelledState.name[0] = '\0';
+}

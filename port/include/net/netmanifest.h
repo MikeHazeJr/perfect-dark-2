@@ -41,12 +41,16 @@ extern "C" {
 /** slot_index sentinel — asset belongs to the match as a whole, not a participant slot */
 #define MANIFEST_SLOT_MATCH  0xFF
 
-/** Maximum entries in one manifest.
+/** Initial heap capacity for a newly allocated manifest entries array.
+ * The array grows by doubling until it reaches MANIFEST_MAX_ENTRIES. */
+#define MANIFEST_INITIAL_CAPACITY 64
+
+/** Hard cap on entries in one manifest.
  *
- * PC port: no N64 memory constraint.  1024 entries covers the largest SP missions
- * (100+ NPCs × 2 body/head + all prop models) and any foreseeable MP lobby.
- * The struct is static/global — no stack impact. */
-#define MANIFEST_MAX_ENTRIES 1024
+ * Default 4096; overridable at runtime via pd.ini [Debug] ManifestMaxEntries.
+ * Attempts to add beyond the configured cap log an error and are dropped.
+ * The array is heap-allocated and grows by doubling from MANIFEST_INITIAL_CAPACITY. */
+#define MANIFEST_MAX_ENTRIES 4096
 
 /** Entry type codes (match_manifest_entry_t::type) */
 #define MANIFEST_TYPE_BODY       0  /**< Character body model */
@@ -89,21 +93,24 @@ typedef struct {
 } match_manifest_entry_t;
 
 /**
- * Full match manifest — hash table of all assets required by the server.
+ * Full match manifest — flat list of all assets required by the server.
  *
  * Built server-side by manifestBuild() (Phase B) and sent to every room
  * member via SVC_MATCH_MANIFEST.  Clients store a copy locally during
  * CLSTATE_PREPARING and use it to drive the catalog check + transfer gate.
+ *
+ * entries is heap-allocated; starts NULL and is grown on first add.
+ * Grows by doubling from MANIFEST_INITIAL_CAPACITY up to the configured cap
+ * (default MANIFEST_MAX_ENTRIES, overridable via Debug.ManifestMaxEntries).
+ * manifestClear() resets num_entries without freeing the buffer.
+ * manifestFree() releases the buffer and zeroes the struct.
  */
 typedef struct {
-    u32                    manifest_hash;               /**< FNV-1a over all entries; echoed in CLC_MANIFEST_STATUS */
-    u16                    num_entries;                 /**< Number of valid entries in entries[] */
-    match_manifest_entry_t entries[MANIFEST_MAX_ENTRIES];
+    u32                    manifest_hash;  /**< FNV-1a over all entries; echoed in CLC_MANIFEST_STATUS */
+    u16                    num_entries;    /**< Number of valid entries */
+    u16                    capacity;       /**< Current allocated size of entries (0 = not yet allocated) */
+    match_manifest_entry_t *entries;       /**< Heap-allocated array; NULL until first manifestAddEntry() */
 } match_manifest_t;
-
-#ifdef __cplusplus
-}
-#endif
 
 /* -------------------------------------------------------------------------
  * Phase B: Server-side manifest construction API
@@ -115,8 +122,20 @@ extern match_manifest_t g_ServerManifest;
 /** Client-side manifest, populated when SVC_MATCH_MANIFEST arrives. */
 extern match_manifest_t g_ClientManifest;
 
-/** Zero out a manifest struct. */
+/** Reset a manifest to zero entries.  Retains the allocated buffer for reuse.
+ * Safe to call on a zero-initialised struct (entries == NULL). */
 void manifestClear(match_manifest_t *m);
+
+/** Free the entries buffer and zero the struct.
+ * After this call the manifest is equivalent to zero-initialised. */
+void manifestFree(match_manifest_t *m);
+
+/** Return the current configured hard cap (Debug.ManifestMaxEntries, default 4096). */
+s32 manifestGetMaxEntries(void);
+
+/** Set the hard cap at runtime and persist to pd.ini.
+ * Clamped to [64, MANIFEST_MAX_ENTRIES].  Does not shrink existing allocations. */
+void manifestSetMaxEntries(s32 n);
 
 /**
  * Add one entry to the manifest.
@@ -194,16 +213,20 @@ typedef struct {
  * to_unload[] — entries present in current but absent from needed (unload these).
  * to_keep[]   — entries present in both (already loaded, no action needed).
  *
- * All arrays are fixed-size (MANIFEST_MAX_ENTRIES).  Counts are always
- * <= MANIFEST_MAX_ENTRIES.  manifestDiffFree() zeroes the struct when done.
+ * All three arrays are heap-allocated and grow on demand.
+ * manifestDiffFree() frees all three arrays and zeroes the struct.
+ * Zero-initialisation is safe (all pointers start NULL).
  */
 typedef struct {
-    manifest_diff_entry_t to_load[MANIFEST_MAX_ENTRIES];
+    manifest_diff_entry_t *to_load;
     s32                   num_to_load;
-    manifest_diff_entry_t to_unload[MANIFEST_MAX_ENTRIES];
+    s32                   cap_to_load;
+    manifest_diff_entry_t *to_unload;
     s32                   num_to_unload;
-    manifest_diff_entry_t to_keep[MANIFEST_MAX_ENTRIES];
+    s32                   cap_to_unload;
+    manifest_diff_entry_t *to_keep;
     s32                   num_to_keep;
+    s32                   cap_to_keep;
 } manifest_diff_t;
 
 /** Tracks which assets are currently marked LOADED for the active SP mission. */
@@ -239,10 +262,8 @@ void manifestDiff(const match_manifest_t *current,
                   manifest_diff_t *out);
 
 /**
- * Zero a manifest_diff_t after it has been applied.
- * Since manifest_diff_t uses fixed arrays (no heap allocation), this is a
- * memset — kept as a named function so future heap-based revisions can swap
- * in real free() calls without changing callers.
+ * Free all three heap arrays in a manifest_diff_t and zero the struct.
+ * Safe to call on a zero-initialised struct (pointers start NULL).
  */
 void manifestDiffFree(manifest_diff_t *diff);
 
@@ -255,7 +276,7 @@ void manifestDiffFree(manifest_diff_t *diff);
  * For each entry in diff->to_load: transitions the catalog entry to
  * ASSET_STATE_LOADED (marks it as resident for the upcoming mission).
  *
- * Updates g_CurrentLoadedManifest to *needed so subsequent calls to
+ * Deep-copies *needed into g_CurrentLoadedManifest so subsequent calls to
  * manifestSPTransition() can diff against the correct baseline.
  *
  * Note: actual memory load/eviction is a future MEM-2 concern.  This call
@@ -292,5 +313,9 @@ void manifestSPTransition(s32 stagenum);
  * every chr/prop spawn without measurable overhead.
  */
 s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _IN_NETMANIFEST_H */

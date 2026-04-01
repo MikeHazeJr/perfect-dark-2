@@ -1528,6 +1528,21 @@ static void renderSettingsDebug(float scale)
     ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
 
     ImGui::Spacing();
+
+    /* ManifestMaxEntries — hard cap on asset manifest size.
+     * Persisted to pd.ini as Debug.ManifestMaxEntries. */
+    {
+        int maxEnt = (int)manifestGetMaxEntries();
+        ImGui::SetNextItemWidth(120.0f * scale);
+        if (ImGui::InputInt("Manifest Max Entries", &maxEnt, 64, 256)) {
+            manifestSetMaxEntries((s32)maxEnt);
+            configSave("pd.ini");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(64 – 4096)");
+    }
+
+    ImGui::Spacing();
     ImGui::Spacing();
 
     /* ------ Theme Selector ------ */

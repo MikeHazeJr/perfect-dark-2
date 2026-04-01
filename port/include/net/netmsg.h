@@ -45,6 +45,7 @@
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define SVC_MATCH_MANIFEST  0x62 // server→room: full asset manifest for the upcoming match
 #define SVC_MATCH_COUNTDOWN 0x63 // server→room: ready-gate progress (n/total ready, phase, countdown)
+#define SVC_MATCH_CANCELLED 0x64 // server→room: countdown aborted; includes canceller name
 
 /* SA-1: Session Catalog */
 #define SVC_SESSION_CATALOG 0x67 // server→room: session ID mapping table
@@ -71,6 +72,7 @@
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
+#define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)
 
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
@@ -200,6 +202,14 @@ u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_co
                                   u8 phase, u8 countdown_secs);
 u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl);
 
+/* CLC_LOBBY_CANCEL: any client→server, abort the countdown */
+u32 netmsgClcLobbyCancelWrite(struct netbuf *dst);
+u32 netmsgClcLobbyCancelRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_MATCH_CANCELLED: server→room, countdown aborted; includes canceller name */
+u32 netmsgSvcMatchCancelledWrite(struct netbuf *dst, const char *canceller_name);
+u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl);
+
 /* SA-1: SVC_SESSION_CATALOG */
 u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl);
 
@@ -212,6 +222,17 @@ struct match_countdown_state {
     s32 active;          /* 1 once at least one countdown has been received */
 };
 extern struct match_countdown_state g_MatchCountdownState;
+
+/* Max length for the canceller name in SVC_MATCH_CANCELLED (matches lobby name limit). */
+#define MATCH_CANCEL_NAME_LEN 32
+
+/* Client-side cancellation state — updated by SVC_MATCH_CANCELLED handler.
+ * UI reads this to display "[Name] cancelled the match start". */
+struct match_cancelled_state {
+    s32  active;                      /* 1 while the message is pending display */
+    char name[MATCH_CANCEL_NAME_LEN]; /* name of the player who cancelled */
+};
+extern struct match_cancelled_state g_MatchCancelledState;
 
 /* Phase F: Drive the server-side launch countdown.
  * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
