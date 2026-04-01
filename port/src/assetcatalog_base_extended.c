@@ -1,7 +1,7 @@
 /**
  * assetcatalog_base_extended.c -- S46a: Extended base game asset registration
  *
- * Registers 7 new asset types in the Asset Catalog:
+ * Registers 8 new asset types in the Asset Catalog:
  *   ASSET_WEAPON    -- all 47 MP weapons (MPWEAPON_* constants)
  *   ASSET_ANIMATION -- 1207 animations (full table, indices 0x0000..0x04B6)
  *   ASSET_TEXTURE   -- NUM_TEXTURES base textures (3503 NTSC / 3511 JPN-final)
@@ -9,6 +9,7 @@
  *   ASSET_GAMEMODE  -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
  *   ASSET_AUDIO     -- 1545 SFX entries (full main bank, 0x0000..0x0608)
  *   ASSET_HUD       -- 6 HUD element categories (HUD_ELEM_*)
+ *   ASSET_LANG      -- 68 language string banks (LANGBANK_* constants)
  *
  * Called by assetCatalogRegisterBaseGame() at the end of base registration.
  * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
@@ -23,6 +24,7 @@
 #include "system.h"
 #include "data.h"
 #include "game/mplayer/scenarios.h"
+#include "game/lang.h"
 
 /* ========================================================================
  * Weapon Table
@@ -234,6 +236,94 @@ static const struct {
 #define NUM_BASE_HUD (sizeof(s_BaseHud) / sizeof(s_BaseHud[0]))
 
 /* ========================================================================
+ * Language Bank Table (Phase 3: lang bank manifesting)
+ * ======================================================================== */
+
+/*
+ * Maps LANGBANK_* constant -> catalog slug.
+ * Each entry becomes "base:lang_{slug}" (e.g. "base:lang_options").
+ *
+ * bundled=1 so assetCatalogClearMods() never removes them.
+ * load_state=ASSET_STATE_ENABLED (not LOADED): lang banks require explicit
+ * loading via langLoad() and are NOT pre-loaded at catalog registration time.
+ */
+static const struct {
+	s32 bank_id;
+	const char *slug;
+} s_BaseLangBanks[] = {
+	{ LANGBANK_AME,       "lang_ame"       },
+	{ LANGBANK_ARCH,      "lang_arch"      },
+	{ LANGBANK_ARK,       "lang_ark"       },
+	{ LANGBANK_ASH,       "lang_ash"       },
+	{ LANGBANK_AZT,       "lang_azt"       },
+	{ LANGBANK_CAT,       "lang_cat"       },
+	{ LANGBANK_CAVE,      "lang_cave"      },
+	{ LANGBANK_AREC,      "lang_arec"      },
+	{ LANGBANK_CRAD,      "lang_crad"      },
+	{ LANGBANK_CRYP,      "lang_cryp"      },
+	{ LANGBANK_DAM,       "lang_dam"       },
+	{ LANGBANK_DEPO,      "lang_depo"      },
+	{ LANGBANK_DEST,      "lang_dest"      },
+	{ LANGBANK_DISH,      "lang_dish"      },
+	{ LANGBANK_EAR,       "lang_ear"       },
+	{ LANGBANK_ELD,       "lang_eld"       },
+	{ LANGBANK_IMP,       "lang_imp"       },
+	{ LANGBANK_JUN,       "lang_jun"       },
+	{ LANGBANK_LEE,       "lang_lee"       },
+	{ LANGBANK_LEN,       "lang_len"       },
+	{ LANGBANK_LIP,       "lang_lip"       },
+	{ LANGBANK_LUE,       "lang_lue"       },
+	{ LANGBANK_OAT,       "lang_oat"       },
+	{ LANGBANK_PAM,       "lang_pam"       },
+	{ LANGBANK_PETE,      "lang_pete"      },
+	{ LANGBANK_REF,       "lang_ref"       },
+	{ LANGBANK_RIT,       "lang_rit"       },
+	{ LANGBANK_RUN,       "lang_run"       },
+	{ LANGBANK_SEVB,      "lang_sevb"      },
+	{ LANGBANK_SEV,       "lang_sev"       },
+	{ LANGBANK_SEVX,      "lang_sevx"      },
+	{ LANGBANK_SEVXB,     "lang_sevxb"     },
+	{ LANGBANK_SHO,       "lang_sho"       },
+	{ LANGBANK_SILO,      "lang_silo"      },
+	{ LANGBANK_STAT,      "lang_stat"      },
+	{ LANGBANK_TRA,       "lang_tra"       },
+	{ LANGBANK_WAX,       "lang_wax"       },
+	{ LANGBANK_GUN,       "lang_gun"       },
+	{ LANGBANK_TITLE,     "lang_title"     },
+	{ LANGBANK_MPMENU,    "lang_mpmenu"    },
+	{ LANGBANK_PROPOBJ,   "lang_propobj"   },
+	{ LANGBANK_MPWEAPONS, "lang_mpweapons" },
+	{ LANGBANK_OPTIONS,   "lang_options"   },
+	{ LANGBANK_MISC,      "lang_misc"      },
+	{ LANGBANK_UFF,       "lang_uff"       },
+	{ LANGBANK_OLD,       "lang_old"       },
+	{ LANGBANK_ATE,       "lang_ate"       },
+	{ LANGBANK_LAM,       "lang_lam"       },
+	{ LANGBANK_MP1,       "lang_mp1"       },
+	{ LANGBANK_MP2,       "lang_mp2"       },
+	{ LANGBANK_MP3,       "lang_mp3"       },
+	{ LANGBANK_MP4,       "lang_mp4"       },
+	{ LANGBANK_MP5,       "lang_mp5"       },
+	{ LANGBANK_MP6,       "lang_mp6"       },
+	{ LANGBANK_MP7,       "lang_mp7"       },
+	{ LANGBANK_MP8,       "lang_mp8"       },
+	{ LANGBANK_MP9,       "lang_mp9"       },
+	{ LANGBANK_MP10,      "lang_mp10"      },
+	{ LANGBANK_MP11,      "lang_mp11"      },
+	{ LANGBANK_MP12,      "lang_mp12"      },
+	{ LANGBANK_MP13,      "lang_mp13"      },
+	{ LANGBANK_MP14,      "lang_mp14"      },
+	{ LANGBANK_MP15,      "lang_mp15"      },
+	{ LANGBANK_MP16,      "lang_mp16"      },
+	{ LANGBANK_MP17,      "lang_mp17"      },
+	{ LANGBANK_MP18,      "lang_mp18"      },
+	{ LANGBANK_MP19,      "lang_mp19"      },
+	{ LANGBANK_MP20,      "lang_mp20"      },
+};
+
+#define NUM_BASE_LANG_BANKS (sizeof(s_BaseLangBanks) / sizeof(s_BaseLangBanks[0]))
+
+/* ========================================================================
  * Public Entry Point
  * ======================================================================== */
 
@@ -433,6 +523,29 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);
+		count += n;
+	}
+
+	/* ---- lang banks (Phase 3: manifest-based lang loading) ---- */
+	{
+		s32 n = 0;
+		s32 i;
+		for (i = 0; i < (s32)NUM_BASE_LANG_BANKS; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseLangBanks[i].slug);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_LANG);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register lang bank %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = s_BaseLangBanks[i].bank_id;
+			e->ext.lang.bank_id = s_BaseLangBanks[i].bank_id;
+			/* ENABLED not LOADED: langLoad() must be called explicitly */
+			e->load_state = ASSET_STATE_ENABLED; e->ref_count = 0;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base lang banks", n);
 		count += n;
 	}
 

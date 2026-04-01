@@ -39,6 +39,9 @@
 #include "system.h"
 #include "assetcatalog.h"
 
+/* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
+void langManifestRecordBank(s32 bank);
+
 s32 g_SetupCurMpLocation;
 
 struct tvscreen var80061a80 = {
@@ -1330,7 +1333,11 @@ void setupLoadFiles(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, stage.mpsetupfileid, stage.setupfileid);
 		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 		setup = (struct stagesetup *)g_GeCreditsData;
-		langLoad(langGetLangBankIndexFromStagenum(stagenum));
+		{
+			s32 stagebank = (s32)langGetLangBankIndexFromStagenum(stagenum);
+			langLoad(stagebank);
+			langManifestRecordBank(stagebank);
+		}
 
 		g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
 		g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);

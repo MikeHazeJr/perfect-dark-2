@@ -433,6 +433,14 @@ void langClearBank(s32 bank)
 	g_LangBanks[bank] = NULL;
 }
 
+s32 langIsBankLoaded(s32 bank)
+{
+	if (bank < 0 || bank >= (s32)ARRAYCOUNT(g_LangBanks)) {
+		return 0;
+	}
+	return g_LangBanks[bank] != NULL ? 1 : 0;
+}
+
 /**
  * Resolve a text ID to a string.
  *

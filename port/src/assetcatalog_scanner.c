@@ -220,6 +220,7 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
 	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
 	if (strcmp(dirname, "audio") == 0)       return ASSET_AUDIO;
+	if (strcmp(dirname, "lang_banks") == 0)  return ASSET_LANG;
 	return ASSET_NONE;
 }
 
@@ -246,6 +247,7 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
 	if (strcmp(section, "audio") == 0)        return ASSET_AUDIO;
 	if (strcmp(section, "texture") == 0)      return ASSET_TEXTURE;
+	if (strcmp(section, "lang_bank") == 0)    return ASSET_LANG;
 	return ASSET_NONE;
 }
 
@@ -405,6 +407,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
 		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
+		break;
+
+	case ASSET_LANG:
+		/* bank_id: the LANGBANK_* slot this mod lang bank occupies.
+		 * Mod declares an integer bank_id (0-68) in its component INI. */
+		e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
 		break;
 
 	default:

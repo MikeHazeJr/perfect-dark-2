@@ -61,6 +61,7 @@ extern "C" {
 #define MANIFEST_TYPE_MODEL      5  /**< Prop/environment model (ASSET_MODEL catalog entry) */
 #define MANIFEST_TYPE_ANIM       6  /**< Animation data (anim_%d catalog entry) */
 #define MANIFEST_TYPE_TEXTURE    7  /**< Texture data (tex_%d catalog entry) */
+#define MANIFEST_TYPE_LANG       8  /**< Language string bank (base:lang_* catalog entry) */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */

@@ -73,6 +73,7 @@ typedef enum {
     ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
     ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
     ASSET_MODEL,               /* individual 3-D model (g_ModelStates[] entry, MODEL_* index) */
+    ASSET_LANG,                /* language string bank (LANGBANK_* constant) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -259,6 +260,9 @@ typedef struct asset_entry {
             f32 intensity;             /* effect strength 0.0-1.0 */
             f32 params[4];             /* generic effect parameters */
         } effect;
+        struct {
+            s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
+        } lang;
     } ext;
 
     /* Source numeric IDs for reverse-index (C-4 through C-7).
