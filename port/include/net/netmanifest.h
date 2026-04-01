@@ -266,4 +266,24 @@ void manifestApplyDiff(const match_manifest_t *needed,
  */
 void manifestSPTransition(s32 stagenum);
 
+/**
+ * Ensure a single asset is tracked in the active SP manifest.
+ *
+ * Checks whether catalog_id is already recorded in g_CurrentLoadedManifest.
+ * If not, resolves it via assetCatalogResolve(), adds it to the manifest,
+ * and transitions its catalog state to ASSET_STATE_LOADED.
+ *
+ * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, or MANIFEST_TYPE_MODEL.
+ *
+ * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty,
+ * no SP manifest is active (MP mode or before stage load), or the asset
+ * cannot be resolved (synthetic hash is used to suppress repeat warnings).
+ *
+ * Call from spawn paths (bodyAllocateChr, setupCreateObject) as a safety net
+ * for assets that may have been missed by the static pre-scan in
+ * manifestBuildMission().  The dedup check is O(n) so it is safe to call on
+ * every chr/prop spawn without measurable overhead.
+ */
+s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type);
+
 #endif /* _IN_NETMANIFEST_H */

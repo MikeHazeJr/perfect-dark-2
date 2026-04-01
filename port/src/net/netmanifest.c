@@ -443,6 +443,41 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         }
     }
 
+    /* ---- Counter-op player body/head ---- */
+    /* When a counter-operative player is active (antiplayernum >= 0), their
+     * appearance is determined by g_Vars.antibodynum / g_Vars.antiheadnum —
+     * these do not appear in the props spawn list, so they must be added here. */
+    if (g_Vars.antiplayernum >= 0) {
+        char bstr[64];
+        char hstr[64];
+        const asset_entry_t *cbe;
+        const asset_entry_t *che;
+
+        if (g_Vars.antibodynum >= 0) {
+            snprintf(bstr, sizeof(bstr), "body_%d", (int)g_Vars.antibodynum);
+            cbe = assetCatalogResolve(bstr);
+            if (cbe) {
+                manifestAddEntry(out, cbe->net_hash, cbe->id,
+                                 MANIFEST_TYPE_BODY, 1);
+            } else {
+                manifestAddEntry(out, s_fnv1a(bstr), bstr,
+                                 MANIFEST_TYPE_BODY, 1);
+            }
+        }
+
+        if (g_Vars.antiheadnum >= 0) {
+            snprintf(hstr, sizeof(hstr), "head_%d", (int)g_Vars.antiheadnum);
+            che = assetCatalogResolve(hstr);
+            if (che) {
+                manifestAddEntry(out, che->net_hash, che->id,
+                                 MANIFEST_TYPE_HEAD, 1);
+            } else {
+                manifestAddEntry(out, s_fnv1a(hstr), hstr,
+                                 MANIFEST_TYPE_HEAD, 1);
+            }
+        }
+    }
+
     manifestComputeHash(out);
 }
 
@@ -556,6 +591,73 @@ void manifestSPTransition(s32 stagenum)
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
     manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
+}
+
+/* =========================================================================
+ * SA-6 cont.: Runtime manifest safety net
+ * ========================================================================= */
+
+/**
+ * manifestEnsureLoaded -- ensure a single asset is tracked in the active SP manifest.
+ *
+ * Checks whether catalog_id is already recorded in g_CurrentLoadedManifest by
+ * FNV-1a hash.  If not, resolves it via assetCatalogResolve(), adds it to the
+ * manifest, and advances its catalog state to ASSET_STATE_LOADED.
+ *
+ * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, or MANIFEST_TYPE_MODEL.
+ *
+ * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty, the
+ * active manifest has no entries (MP mode or pre-load), or the asset could not
+ * be resolved (synthetic hash is still added to suppress future log spam).
+ *
+ * Safe to call on every spawn: the dedup check is O(n) over the entry list.
+ */
+s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
+{
+    u32 hash;
+    s32 i;
+    const asset_entry_t *e;
+
+    if (!catalog_id || catalog_id[0] == '\0') {
+        return 0;
+    }
+
+    /* Only active when an SP manifest has been built (num_entries > 0).
+     * In MP mode g_CurrentLoadedManifest is never populated, so this
+     * returns immediately without touching the server-managed manifest. */
+    if (g_CurrentLoadedManifest.num_entries == 0) {
+        return 0;
+    }
+
+    hash = s_fnv1a(catalog_id);
+
+    /* Dedup: already tracked — no action needed. */
+    for (i = 0; i < g_CurrentLoadedManifest.num_entries; i++) {
+        if (g_CurrentLoadedManifest.entries[i].net_hash == hash) {
+            return 1;
+        }
+    }
+
+    /* Not yet tracked — late-register and mark as loaded. */
+    e = assetCatalogResolve(catalog_id);
+    if (e) {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: late-add '%s' type=%d (missed by pre-scan)",
+                     catalog_id, asset_type);
+        manifestAddEntry(&g_CurrentLoadedManifest, e->net_hash, e->id,
+                         (u8)asset_type, MANIFEST_SLOT_MATCH);
+        assetCatalogSetLoadState(e->id, ASSET_STATE_LOADED);
+        return 1;
+    }
+
+    /* Not in catalog — add with synthetic hash to avoid repeat log spam on
+     * subsequent spawn attempts for the same asset. */
+    sysLogPrintf(LOG_WARNING,
+                 "MANIFEST-SP: late-add '%s' not in catalog, using synthetic hash",
+                 catalog_id);
+    manifestAddEntry(&g_CurrentLoadedManifest, hash, catalog_id,
+                     (u8)asset_type, MANIFEST_SLOT_MATCH);
+    return 0;
 }
 
 /* =========================================================================

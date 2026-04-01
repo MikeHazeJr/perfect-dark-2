@@ -25,6 +25,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "net/netmanifest.h"
 
 s32 g_NumActiveHeadsPerGender;
 u32 var8009cd24;
@@ -403,6 +404,8 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	s32 headnum;
 	f32 angle;
 	s32 index;
+	char bstr[64];
+	char hstr[64];
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
 
@@ -444,6 +447,18 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 		} else if (headnum == -55555) {
 			headnum = bodyChooseHead(bodynum);
 		}
+	}
+
+	/* Ensure body and head are tracked in the SP asset manifest.
+	 * manifestEnsureLoaded() is a no-op if no SP manifest is active (MP mode
+	 * or pre-load), so this guard is safe to leave unconditional.
+	 * headnum -55555 means the head is built into the body model — no
+	 * separate head catalog entry exists for that case. */
+	snprintf(bstr, sizeof(bstr), "body_%d", bodynum);
+	manifestEnsureLoaded(bstr, MANIFEST_TYPE_BODY);
+	if (headnum >= 0) {
+		snprintf(hstr, sizeof(hstr), "head_%d", headnum);
+		manifestEnsureLoaded(hstr, MANIFEST_TYPE_HEAD);
 	}
 
 	if (headnum < 0) {
