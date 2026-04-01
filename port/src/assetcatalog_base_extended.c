@@ -259,6 +259,22 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1; e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "weapon_%d" alias (weapon_id value) so that the
+			 * manifest/session catalog pipeline can resolve "weapon_1" etc.
+			 * Mirrors the "stage_0x%02x" alias pattern used for stages. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "weapon_%d", (int)s_BaseWeapons[i].weapon_id);
+				ea = assetCatalogRegisterWeapon(idbuf, s_BaseWeapons[i].weapon_id,
+					s_BaseWeapons[i].name, "", 0.0f, 0.0f, 0,
+					s_BaseWeapons[i].dual_wieldable);
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1; ea->runtime_index = i;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base weapons", n);
