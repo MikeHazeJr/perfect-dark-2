@@ -686,8 +686,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	{
 		char stage_id[64];
 		snprintf(stage_id, sizeof(stage_id), "stage_0x%02x", (unsigned)effectiveStage);
-		const asset_entry_t *se = assetCatalogResolve(stage_id);
-		catalogWriteAssetRef(dst, se ? sessionCatalogGetId(se->id) : 0);
+		catalogWriteAssetRef(dst, sessionCatalogGetId(stage_id));
 	}
 
 	// game settings
@@ -714,10 +713,8 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 					catalogWriteAssetRef(dst, 0);
 				} else {
 					char wid[64];
-					const asset_entry_t *we;
 					snprintf(wid, sizeof(wid), "weapon_%d", (int)g_MpSetup.weapons[wi]);
-					we = assetCatalogResolve(wid);
-					catalogWriteAssetRef(dst, we ? sessionCatalogGetId(we->id) : 0);
+					catalogWriteAssetRef(dst, sessionCatalogGetId(wid));
 				}
 			}
 		}
@@ -795,7 +792,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	const u16 stage_session = catalogReadAssetRef(src);
 	u8 stagenum = 0;
 	if (stage_session == 0) {
-		return src->error;
+		return 1;  /* malformed stage start — stop processing */
 	}
 	{
 		catalog_stage_result_t sr;

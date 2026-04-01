@@ -13,6 +13,7 @@
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
 #include "romdata.h"
+#include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "fs.h"
 #include "system.h"
@@ -639,7 +640,11 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 				sysLogPrintf(LOG_WARNING, "C-4: catalog override for file %d (%s) failed to load: %s",
 				             fileNum, fileSlots[fileNum].name, r.path);
 			} else if (r.catalog_id >= 0) {
-				sysLogPrintf(LOG_NOTE, "CATALOG: file %d → ROM (entry %d)", fileNum, r.catalog_id);
+				{
+					const asset_entry_t *ce = assetCatalogGetByIndex(r.catalog_id);
+					sysLogPrintf(LOG_NOTE, "CATALOG: %s (%d) → ROM",
+					             ce ? ce->id : "?", fileNum);
+				}
 			} else {
 				sysLogPrintf(LOG_VERBOSE, "CATALOG: file %d → ROM (not cataloged)", fileNum);
 			}
