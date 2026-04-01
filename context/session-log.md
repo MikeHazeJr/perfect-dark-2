@@ -3,6 +3,50 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S95 -- 2026-03-31
+
+**Focus**: SA-7 — Session Catalog migration cleanup / consolidation
+
+### What Was Done
+
+1. **modelcatalog.c decision**: Kept as thin facade. Contains unique VEH/SIGSEGV model validation logic, lazy validation, scale clamping, and thumbnail queue system — none duplicated in assetcatalog.c. Absorbing would be a large risky refactor, not cleanup. Decision: **keep**.
+
+2. **modmgr.c shadow arrays**: Confirmed absent. `g_ModBodies[]`, `g_ModHeads[]`, `g_ModArenas[]` do not exist anywhere in the codebase.
+
+3. **Dead code removed** from modelcatalog.c and modelcatalog.h:
+   - `catalogGetEntry(s32 index)` — zero external callers, removed
+   - `catalogGetBodyByMpIndex(s32 mpIndex)` — zero external callers, removed
+   - `catalogGetHeadByMpIndex(s32 mpIndex)` — zero external callers, removed
+   - Kept: `catalogGetSafeBody`, `catalogGetSafeHead`, `catalogGetSafeBodyPaired` (4 call sites each in matchsetup.c + netmsg.c)
+
+4. **Audit: netmanifest.c synthetic IDs**: Clean. `assetCatalogResolve("body_0")` and `assetCatalogResolve("head_0")` go through the catalog — not synthetic bypasses.
+
+5. **Audit: g_HeadsAndBodies[** accesses**: Clean. All accesses confined to: `assetcatalog_base.c`, `assetcatalog_api.c`, `modelcatalog.c`, `server_stubs.c` (extern definition only). `netmsg.c` reference is comment-only.
+
+6. **Audit: netclient.settings.bodynum/headnum**: These fields do not exist. Architecture already uses `body_id`/`head_id` string fields and session hashes.
+
+7. **port/CLAUDE.md updated**: Added "Asset Catalog — Mandatory Rules (SA-7)" section documenting:
+   - `catalogWriteAssetRef`/`catalogReadAssetRef` as only permitted net message asset reference functions
+   - Catalog-first file resolution principle with permitted accessor list
+   - Allowed `g_HeadsAndBodies[]` read sites
+
+### Build Status
+
+711/711 clean (fresh worktree configure + build). Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean.
+
+### Key Decisions
+
+- **modelcatalog.c stays**: Unique responsibility (platform exception handling for model validation). Not a candidate for absorption into assetcatalog.c without significant risk.
+- **Deleted 3 dead functions**: SA-5f had already flagged these with zero-caller audit notes. SA-7 completes the removal.
+- **All 6 audits passed**: No violations found. The catalog migration from SA-1 through SA-6 was clean.
+
+### Next Steps
+
+- SA-2: Modular catalog API layer — new typed query functions (bodies, heads, stages, weapons, sounds)
+- SP playtest for SA-6: two consecutive missions, verify Joanna stays in `to_keep`
+
+---
+
 ## Session S94 -- 2026-03-31
 
 **Focus**: SA-6 — SP load manifest + diff-based asset lifecycle

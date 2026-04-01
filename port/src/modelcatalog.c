@@ -523,38 +523,6 @@ s32 catalogGetCount(void)
 	return s_CatalogCount;
 }
 
-const struct catalogentry *catalogGetEntry(s32 index)
-{
-	if (index < 0 || index >= s_CatalogCount) {
-		return NULL;
-	}
-	return &s_Catalog[index];
-}
-
-const struct catalogentry *catalogGetBodyByMpIndex(s32 mpIndex)
-{
-	if (mpIndex < 0 || mpIndex >= CATALOG_MAX_ENTRIES) {
-		return NULL;
-	}
-	s32 catIdx = s_BodyMpToCatalog[mpIndex];
-	if (catIdx < 0 || catIdx >= s_CatalogCount) {
-		return NULL;
-	}
-	return &s_Catalog[catIdx];
-}
-
-const struct catalogentry *catalogGetHeadByMpIndex(s32 mpIndex)
-{
-	if (mpIndex < 0 || mpIndex >= CATALOG_MAX_ENTRIES) {
-		return NULL;
-	}
-	s32 catIdx = s_HeadMpToCatalog[mpIndex];
-	if (catIdx < 0 || catIdx >= s_CatalogCount) {
-		return NULL;
-	}
-	return &s_Catalog[catIdx];
-}
-
 s32 catalogGetNumBodies(void)
 {
 	return s_NumValidBodies;

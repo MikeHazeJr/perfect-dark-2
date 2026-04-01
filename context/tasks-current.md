@@ -114,8 +114,9 @@
 | SA-4 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
 | SA-5 | **Load path migration + deprecation pass** | SA-5a through SA-5f all complete. All `g_HeadsAndBodies[].filenum/.scale` and `g_Stages[].bgfileid` etc. load-path accesses migrated. `catalogGetBodyScaleByIndex` legacy fallback fixed. Deprecated-attribute audit confirmed zero external callers on 3 old modelcatalog functions. **DONE (S92-S93)**. |
 | SA-6 | **SP load manifest (diff-based lifecycle)** | `manifest_diff_t`, `manifestBuildMission`, `manifestDiff`, `manifestDiffFree`, `manifestApplyDiff`, `manifestSPTransition` added to netmanifest.c/h. `mainChangeToStage()` calls `manifestSPTransition()` for gameplay stages. `g_CurrentLoadedManifest` global tracks current state. TODOs logged for spawn-list character enumeration and prop model enumeration. **DONE (S94) — build clean, needs SP playtest (two consecutive missions, verify Joanna stays in to_keep).**
+| SA-7 | **Consolidation cleanup** | modelcatalog.c kept (unique VEH/validation logic). g_ModBodies/Heads/Arenas confirmed absent. Removed dead accessors: `catalogGetEntry`, `catalogGetBodyByMpIndex`, `catalogGetHeadByMpIndex`. All 6 audits passed clean. port/CLAUDE.md updated with catalog-first rules. **DONE (S95) — 711/711 clean.** |
 
-> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. **SA-6 DONE (S94)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
+> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. **SA-6 DONE (S94)**. **SA-7 DONE (S95)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
 > **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
 
 ---
