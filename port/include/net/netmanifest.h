@@ -288,10 +288,30 @@ void manifestApplyDiff(const match_manifest_t *needed,
 /**
  * Convenience wrapper: build mission manifest, diff against current, apply.
  *
- * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages.
+ * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in SP mode
+ * (when g_ClientManifest.num_entries == 0).
  * Uses module-internal static buffers — not re-entrant.
  */
 void manifestSPTransition(s32 stagenum);
+
+/**
+ * Apply a diff-based asset lifecycle transition for an MP match.
+ *
+ * Uses g_ClientManifest (populated when SVC_MATCH_MANIFEST was received from
+ * the server) as the "needed" manifest and diffs it against
+ * g_CurrentLoadedManifest.  catalogLoadAsset / catalogUnloadAsset are called
+ * for each to_load / to_unload entry respectively.
+ *
+ * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in MP mode
+ * (when g_ClientManifest.num_entries > 0 — i.e. the server has already sent
+ * the match manifest via SVC_MATCH_MANIFEST).
+ *
+ * After returning, g_CurrentLoadedManifest reflects the MP manifest and
+ * serves as the baseline for the next stage transition.
+ *
+ * Uses module-internal static buffers — not re-entrant.
+ */
+void manifestMPTransition(void);
 
 /**
  * Ensure a single asset is tracked in the active SP manifest.

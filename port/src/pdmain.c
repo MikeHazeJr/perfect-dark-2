@@ -733,11 +733,26 @@ void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
 
-	/* SA-6: diff-based SP asset lifecycle — build/diff/apply before the
+	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
 	 * stage is committed.  Only fires for gameplay stages (not title,
-	 * credits, menus). */
+	 * credits, menus).
+	 *
+	 * MP path: g_ClientManifest was populated by SVC_MATCH_MANIFEST from
+	 * the server; use it directly as the "needed" manifest.
+	 *
+	 * SP path: g_ClientManifest is empty (pure SP, no active server
+	 * manifest); build the mission manifest from catalog + setup data.
+	 *
+	 * Non-gameplay: clear any stale client manifest so the next SP
+	 * mission takes the SP path, not a leftover MP manifest. */
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
-		manifestSPTransition(stagenum);
+		if (g_ClientManifest.num_entries > 0) {
+			manifestMPTransition();
+		} else {
+			manifestSPTransition(stagenum);
+		}
+	} else {
+		manifestClear(&g_ClientManifest);
 	}
 
 	g_MainChangeToStageNum = stagenum;

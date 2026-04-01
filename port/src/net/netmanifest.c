@@ -36,6 +36,7 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "modmgr.h"
 
 /* =========================================================================
@@ -770,22 +771,35 @@ void manifestApplyDiff(const match_manifest_t *needed,
                        manifest_diff_t *diff)
 {
     s32 i;
+    s32 load_ok;
 
-    /* Unload: transition entries no longer needed back to ENABLED */
+    /* Unload: decrement ref_count for entries leaving the active manifest.
+     * For bundled (base-game) assets catalogUnloadAsset is a no-op.
+     * For mod assets, ref_count decrements and data is freed when it hits 0. */
     for (i = 0; i < diff->num_to_unload; i++) {
         if (diff->to_unload[i].id[0]) {
-            assetCatalogSetLoadState(diff->to_unload[i].id, ASSET_STATE_ENABLED);
+            catalogUnloadAsset(diff->to_unload[i].id);
             sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
                          diff->to_unload[i].id);
         }
     }
 
-    /* Load: transition entries needed for the new mission to LOADED */
+    /* Load: resolve and load entries entering the active manifest.
+     * For bundled assets this is a no-op retain (already ROM-resident).
+     * For mod assets, the file is read from disk and ref_count is incremented.
+     * A missing asset logs a warning and is skipped — the game must not crash
+     * if a mod file is absent; the intercept layer falls back to ROM. */
     for (i = 0; i < diff->num_to_load; i++) {
         if (diff->to_load[i].id[0]) {
-            assetCatalogSetLoadState(diff->to_load[i].id, ASSET_STATE_LOADED);
-            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
-                         diff->to_load[i].id);
+            load_ok = catalogLoadAsset(diff->to_load[i].id);
+            if (!load_ok) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-SP: load failed '%s' — asset missing, skipping",
+                             diff->to_load[i].id);
+            } else {
+                sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
+                             diff->to_load[i].id);
+            }
         }
     }
 
@@ -809,6 +823,41 @@ void manifestSPTransition(s32 stagenum)
 
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
     manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    manifestDiffFree(&s_SpLastDiff);
+}
+
+/**
+ * manifestMPTransition -- apply a diff-based transition for an MP match.
+ *
+ * Uses g_ClientManifest (populated when SVC_MATCH_MANIFEST was received) as
+ * the "needed" manifest and diffs it against g_CurrentLoadedManifest.
+ *
+ * For each diff entry:
+ *   to_load   -- catalogLoadAsset() (no-op for bundled; loads mod file from disk)
+ *   to_unload -- catalogUnloadAsset() (no-op for bundled; decrements ref + frees at 0)
+ *   to_keep   -- no action (already loaded, ref_count unchanged)
+ *
+ * After applying, g_CurrentLoadedManifest becomes the MP manifest, which
+ * serves as the baseline for the next transition (e.g., match → SP mission).
+ *
+ * Call from mainChangeToStage() when g_ClientManifest is populated (MP mode).
+ * manifestClear(&g_ClientManifest) should be called on returning to lobby so
+ * that subsequent SP missions take the SP path, not a stale MP manifest.
+ */
+void manifestMPTransition(void)
+{
+    if (g_ClientManifest.num_entries == 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-MP: no client manifest available, skipping transition");
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-MP: transition — %d entries in client manifest",
+                 (int)g_ClientManifest.num_entries);
+
+    manifestDiff(&g_CurrentLoadedManifest, &g_ClientManifest, &s_SpLastDiff);
+    manifestApplyDiff(&g_ClientManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -857,7 +906,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
         }
     }
 
-    /* Not yet tracked — late-register and mark as loaded. */
+    /* Not yet tracked — late-register and load. */
     e = assetCatalogResolve(catalog_id);
     if (e) {
         sysLogPrintf(LOG_NOTE,
@@ -865,7 +914,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
                      catalog_id, asset_type);
         manifestAddEntry(&g_CurrentLoadedManifest, e->net_hash, e->id,
                          (u8)asset_type, MANIFEST_SLOT_MATCH);
-        assetCatalogSetLoadState(e->id, ASSET_STATE_LOADED);
+        catalogLoadAsset(e->id);
         return 1;
     }
 
