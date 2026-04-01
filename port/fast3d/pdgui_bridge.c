@@ -22,6 +22,10 @@
 #include "net/netlobby.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/cheats.h"
+#include "game/endscreen.h"
+#include "game/mainmenu.h"
+#include "game/menu.h"
 #include "modmgr.h"
 
 /**
@@ -404,6 +408,172 @@ const char *pdguiPauseGetStageName(u8 stagenum)
     }
 
     return "Unknown";
+}
+
+/* ========================================================================
+ * Endscreen bridge functions (pdgui_menu_pausemenu.cpp + pdgui_menu_mpingame.cpp)
+ * ======================================================================== */
+
+/* Forward declarations — no public headers for these */
+char *mpPlayerGetWeaponOfChoiceName(u32 playernum, u32 slot);
+s32   challengeIsCompleteForEndscreen(void);
+
+/**
+ * Placement index (0=1st, 1=2nd, ...) for the local player at match end.
+ * Returns -1 if no local player data is available.
+ */
+s32 pdguiEndscreenGetPlacementIndex(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (s32)g_PlayerConfigsArray[idx].base.placement;
+}
+
+/**
+ * Title string for the local player (e.g. "Agent", "Special Agent").
+ * Returns "" if not available.
+ */
+const char *pdguiEndscreenGetTitle(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    s32 title = g_PlayerConfigsArray[idx].title;
+    return langGet(L_MISC_185 + title);
+}
+
+/**
+ * New title text if title changed, else same as current title.
+ * Used to detect a title-change flash at endscreen.
+ */
+s32 pdguiEndscreenTitleChanged(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (g_PlayerConfigsArray[idx].title != g_PlayerConfigsArray[idx].newtitle) ? 1 : 0;
+}
+
+/**
+ * Weapon of choice name for the local player. Returns "" if none.
+ */
+const char *pdguiEndscreenGetWeaponOfChoiceName(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    char *name = mpPlayerGetWeaponOfChoiceName((u32)idx, 0);
+    return name ? name : "";
+}
+
+/**
+ * Award string 1 for the local player (e.g. "Most Kills"). Returns "" if none.
+ */
+const char *pdguiEndscreenGetAward1(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) return "";
+    if (!g_Vars.players[idx]) return "";
+    const char *a = g_Vars.players[idx]->award1;
+    return a ? a : "";
+}
+
+/**
+ * Award string 2 for the local player. Returns "" if none.
+ */
+const char *pdguiEndscreenGetAward2(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) return "";
+    if (!g_Vars.players[idx]) return "";
+    const char *a = g_Vars.players[idx]->award2;
+    return a ? a : "";
+}
+
+/**
+ * Medal bitmask for the local player.
+ * Bits: 0=Killmaster, 1=Headshot, 2=Accuracy, 3=Survivor
+ */
+u32 pdguiEndscreenGetMedals(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (u32)g_PlayerConfigsArray[idx].medals;
+}
+
+/**
+ * Challenge outcome at match end.
+ * Returns: 0=not a challenge, 1=completed, 2=failed, 3=cheated
+ */
+s32 pdguiEndscreenGetChallengeStatus(void)
+{
+    if (g_BossFile.locktype != MPLOCKTYPE_CHALLENGE) return 0;
+    if (g_CheatsActiveBank0 || g_CheatsActiveBank1) return 3;
+    return challengeIsCompleteForEndscreen() ? 1 : 2;
+}
+
+/**
+ * Current mission difficulty (DIFF_A=0, DIFF_SA=1, DIFF_PA=2, DIFF_PD=3).
+ */
+s32 pdguiEndscreenGetDifficulty(void)
+{
+    return (s32)g_MissionConfig.difficulty;
+}
+
+/**
+ * Timed-cheat unlock name from the last mission, or NULL if none.
+ */
+const char *pdguiEndscreenGetCheatTimedName(void)
+{
+    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    if ((info & 0x100) && cheatGetTime(info & 0xff) > 0) {
+        return cheatGetName(info & 0xff);
+    }
+    return NULL;
+}
+
+/**
+ * Completion-cheat unlock name from the last mission, or NULL if none.
+ */
+const char *pdguiEndscreenGetCheatComplName(void)
+{
+    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    if (info & 0x800) {
+        return cheatGetName((info >> 16) & 0xff);
+    }
+    return NULL;
+}
+
+/**
+ * Restart the current mission (retry). Equivalent to pressing Accept on the
+ * retry dialog.
+ */
+void pdguiEndscreenStartMission(void)
+{
+    menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+}
+
+/**
+ * Advance to the next mission and start it. Equivalent to pressing Accept
+ * on the Next Mission dialog.
+ */
+void pdguiEndscreenNextMission(void)
+{
+    endscreenAdvance();
+    menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+}
+
+/**
+ * Exit the endscreen back to the main menu by popping all dialogs.
+ */
+void pdguiEndscreenExitToMainMenu(void)
+{
+    func0f0f8120();
+}
+
+/**
+ * Returns 1 if there is a next mission to advance to, 0 if at the last stage.
+ */
+s32 pdguiEndscreenHasNextMission(void)
+{
+    return (g_MissionConfig.stageindex + 1 < NUM_SOLOSTAGES) ? 1 : 0;
 }
 
 /* ========================================================================

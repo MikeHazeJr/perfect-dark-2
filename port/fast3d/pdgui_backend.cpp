@@ -50,6 +50,9 @@ extern "C" s32  pdguiModdingHubIsVisible(void);
 /* In-match HUD overlay (top scorers + timer) */
 #include "pdgui_hud.h"
 
+/* MP In-Game overlays: kill ticker + endscreen suppression */
+extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
+
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
@@ -340,6 +343,10 @@ void pdguiRender(void)
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
+
+    /* Kill/score ticker overlay: slide-in notifications for score events.
+     * Active during normmplayerisrunning; auto-suppressed on game over. */
+    pdguiMpIngameRender((s32)winW, (s32)winH);
 
     /* Post-match overlay (MATCH OVER screen + "Return to Lobby" button).
      * Without this call the game freezes on match end — the N64 menu system

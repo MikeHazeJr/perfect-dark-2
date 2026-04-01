@@ -65,6 +65,16 @@ extern s32 g_MainIsEndscreen;
 /* Player index for stat lookups */
 extern s32 g_MpPlayerNum;
 
+/* Endscreen personal summary bridge (pdgui_bridge.c) */
+s32         pdguiEndscreenGetPlacementIndex(void);
+const char *pdguiEndscreenGetTitle(void);
+s32         pdguiEndscreenTitleChanged(void);
+const char *pdguiEndscreenGetWeaponOfChoiceName(void);
+const char *pdguiEndscreenGetAward1(void);
+const char *pdguiEndscreenGetAward2(void);
+u32         pdguiEndscreenGetMedals(void);
+s32         pdguiEndscreenGetChallengeStatus(void);  /* 0=none 1=complete 2=failed 3=cheated */
+
 /* Ranking system — must match MAX_PLAYERS, MAX_BOTS, MAX_MPCHRS in src/include/constants.h.
  * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYERS_PM     8   /* = MAX_PLAYERS */
@@ -173,6 +183,7 @@ static bool s_PauseJustOpened = false; /* B-14 fix: prevents same-frame open+clo
 static bool s_ScorecardVisible = false;
 static s32 s_PauseTab = 0;  /* 0=Rankings, 1=Stats, 2=Settings */
 static bool s_EndGameConfirm = false;
+static s32 s_GameOverTab = 0;  /* 0=Rankings, 1=Personal */
 
 /* ========================================================================
  * Pause Menu API (C-callable)
@@ -770,39 +781,264 @@ void pdguiScorecardRender(s32 winW, s32 winH)
 /* ========================================================================
  * Match Over (GAMEOVER) Overlay
  *
- * Shown when mpEndMatch() sets MPPAUSEMODE_GAMEOVER. Displays final rankings
- * and a "Return to Lobby" button that transitions back to STAGE_CITRAINING.
- * Without this the game freezes on match end — the N64 menu system drove the
- * post-match transition, but the PC port ImGui doesn't observe prevmenuroot.
+ * Shown when mpEndMatch() sets MPPAUSEMODE_GAMEOVER. Tabbed display:
+ *   Rankings — full sorted leaderboard (all players/bots)
+ *   Personal — local player's placement, title, weapon, awards, medals
+ *
+ * Challenge outcomes shown as a banner above the tabs when applicable.
+ * Without this call the game freezes on match end — the N64 menu system drove
+ * the post-match transition, but the PC port ImGui doesn't observe prevmenuroot.
  * ======================================================================== */
+
+/* Ordinal suffix table for placement display */
+static const char *s_PlacementLabels[] = {
+    "1st", "2nd", "3rd", "4th", "5th", "6th",
+    "7th", "8th", "9th", "10th", "11th", "12th"
+};
+static const s32 s_NumPlacements = (s32)(sizeof(s_PlacementLabels) / sizeof(s_PlacementLabels[0]));
+
+/* Medal definitions: bit index, color, label */
+struct MedalDef { s32 bit; ImVec4 color; const char *label; };
+static const MedalDef s_MedalDefs[] = {
+    { 0, ImVec4(1.0f, 0.25f, 0.25f, 1.0f), "Killmaster"   },
+    { 1, ImVec4(1.0f, 0.85f, 0.1f,  1.0f), "Headshot"     },
+    { 2, ImVec4(0.2f, 0.9f,  0.2f,  1.0f), "Accuracy"     },
+    { 3, ImVec4(0.2f, 0.7f,  1.0f,  1.0f), "Survivor"     },
+};
+
+/* Render the Rankings tab content into the current child region */
+static void renderGameOverRankings(float contentW, s32 count,
+                                   const ScorecardRow *rows, bool teamsEnabled)
+{
+    /* Column headers */
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+    if (teamsEnabled) {
+        ImGui::Text("%-3s %-13s %4s %6s %5s %5s", "#", "Name", "Team", "Score", "K", "D");
+    } else {
+        ImGui::Text("%-3s %-16s %7s %5s %5s", "#", "Name", "Score", "K", "D");
+    }
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Team color table */
+    static const ImVec4 s_TeamCols[] = {
+        ImVec4(1.0f, 0.3f, 0.3f, 1.0f), ImVec4(0.3f, 0.5f, 1.0f, 1.0f),
+        ImVec4(0.3f, 1.0f, 0.3f, 1.0f), ImVec4(1.0f, 1.0f, 0.3f, 1.0f),
+        ImVec4(1.0f, 0.5f, 0.0f, 1.0f), ImVec4(0.8f, 0.3f, 1.0f, 1.0f),
+        ImVec4(0.5f, 0.5f, 0.5f, 1.0f), ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
+    };
+
+    for (s32 i = 0; i < count; i++) {
+        /* Gold for 1st, cyan for the local player, dim for bots */
+        ImVec4 rowColor;
+        if      (i == 0)               rowColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
+        else if (rows[i].isPlayer)     rowColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);
+        else                           rowColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
+
+        char rankStr[8];
+        snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
+
+        if (teamsEnabled) {
+            u8 team = (rows[i].team < 8) ? rows[i].team : 7;
+            ImGui::Text("%-3s %-13s", rankStr, rows[i].name);
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::PopStyleColor();
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamCols[team]);
+            ImGui::Text(" T%d  ", team + 1);
+            ImGui::PopStyleColor();
+            ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::Text("%6d %5d %5d", rows[i].score, rows[i].kills, rows[i].deaths);
+        } else {
+            ImGui::Text("%-3s %-16s %7d %5d %5d",
+                        rankStr, rows[i].name,
+                        rows[i].score, rows[i].kills, rows[i].deaths);
+        }
+
+        ImGui::PopStyleColor();
+    }
+}
+
+/* Render the Personal tab content into the current child region */
+static void renderGameOverPersonal(float contentW)
+{
+    s32 placement = pdguiEndscreenGetPlacementIndex();
+    const char *placementStr = (placement >= 0 && placement < s_NumPlacements)
+                               ? s_PlacementLabels[placement] : "?";
+    const char *title   = pdguiEndscreenGetTitle();
+    const char *weapon  = pdguiEndscreenGetWeaponOfChoiceName();
+    const char *award1  = pdguiEndscreenGetAward1();
+    const char *award2  = pdguiEndscreenGetAward2();
+    u32 medals          = pdguiEndscreenGetMedals();
+    bool titleChanged   = pdguiEndscreenTitleChanged() != 0;
+
+    float scale = pdguiScaleFactor();
+
+    /* Placement — gold for 1st, silver for 2nd, bronze for 3rd */
+    ImVec4 placeColor;
+    if      (placement == 0) placeColor = ImVec4(1.0f, 0.85f, 0.15f, 1.0f); /* gold   */
+    else if (placement == 1) placeColor = ImVec4(0.8f, 0.8f,  0.85f, 1.0f); /* silver */
+    else if (placement == 2) placeColor = ImVec4(0.8f, 0.5f,  0.2f,  1.0f); /* bronze */
+    else                     placeColor = ImVec4(0.7f, 0.7f,  0.7f,  1.0f);
+
+    ImGui::Spacing();
+
+    /* Big placement label */
+    ImGui::SetCursorPosX((contentW - ImGui::CalcTextSize(placementStr).x * 2.5f) * 0.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, placeColor);
+    float origScale = ImGui::GetIO().FontGlobalScale;
+    ImGui::GetIO().FontGlobalScale = origScale * 2.5f * scale;
+    ImGui::Text("%s", placementStr);
+    ImGui::GetIO().FontGlobalScale = origScale;
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Title */
+    if (title && title[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+        ImGui::Text("Title");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(pdguiScale(90.0f));
+        if (titleChanged) {
+            /* Animate: oscillate between two gold tones to draw attention */
+            float t = (float)(SDL_GetTicks() % 800) / 800.0f;
+            float pulse = (t < 0.5f) ? t * 2.0f : (1.0f - t) * 2.0f;
+            ImVec4 titleColor = ImVec4(1.0f, 0.7f + pulse * 0.3f, pulse * 0.5f, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, titleColor);
+            ImGui::Text("%s  [NEW!]", title);
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::Text("%s", title);
+        }
+    }
+
+    /* Weapon of Choice */
+    if (weapon && weapon[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+        ImGui::Text("Weapon");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::Text("%s", weapon);
+    }
+
+    /* Awards */
+    if (award1 && award1[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+        ImGui::Text("Award");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+        ImGui::Text("%s", award1);
+        ImGui::PopStyleColor();
+    }
+    if (award2 && award2[0]) {
+        ImGui::Text("     ");
+        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+        ImGui::Text("%s", award2);
+        ImGui::PopStyleColor();
+    }
+
+    /* Medals */
+    bool hasMedal = false;
+    for (s32 m = 0; m < 4; m++) {
+        if (medals & (1u << m)) { hasMedal = true; break; }
+    }
+    if (hasMedal) {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+        ImGui::Text("Medals");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(pdguiScale(90.0f));
+
+        float squareSize = pdguiScale(14.0f);
+        float spacing    = pdguiScale(6.0f);
+        ImDrawList *draw = ImGui::GetWindowDrawList();
+
+        for (s32 m = 0; m < 4; m++) {
+            if (!(medals & (1u << m))) continue;
+            ImVec2 cursor = ImGui::GetCursorScreenPos();
+            ImVec4 c = s_MedalDefs[m].color;
+            ImU32 col = IM_COL32((int)(c.x*255),(int)(c.y*255),(int)(c.z*255),220);
+            draw->AddRectFilled(cursor,
+                ImVec2(cursor.x + squareSize, cursor.y + squareSize), col, 2.0f);
+            draw->AddRect(cursor,
+                ImVec2(cursor.x + squareSize, cursor.y + squareSize),
+                IM_COL32(255,255,255,80), 2.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + squareSize + spacing);
+            ImGui::SameLine(0, 0);
+
+            /* Tooltip on hover */
+            ImGui::InvisibleButton(s_MedalDefs[m].label,
+                ImVec2(squareSize, squareSize));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", s_MedalDefs[m].label);
+            }
+            ImGui::SameLine(0, spacing);
+        }
+        ImGui::NewLine();
+    }
+}
 
 void pdguiGameOverRender(s32 winW, s32 winH)
 {
     if (pdguiPauseGetPaused() != MPPAUSEMODE_GAMEOVER) return;
     if (!pdguiPauseGetNormMplayerIsRunning()) return;
 
+    /* Reset tab selection each time game over activates so it always starts
+     * on Rankings (the immediately useful view). Only reset when transitioning
+     * into GAMEOVER, not on every frame. */
+    static u8 s_prevWasGameOver = 0;
+    if (!s_prevWasGameOver) {
+        s_GameOverTab = 0;
+        s_prevWasGameOver = 1;
+    }
+    /* When no longer in game over (e.g. after returning to lobby), clear flag */
+    /* Note: this function exits early above when not in GAMEOVER, so the flag
+     * will stay set for the duration of the GAMEOVER state and clear on next
+     * non-GAMEOVER frame via the early return. */
+
     pdguiSetPalette(2);
 
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 168));
 
     ScorecardRow rows[MAX_MPCHRS_PM];
     s32 count = buildScorecardData(rows, MAX_MPCHRS_PM);
-    u32 options = pdguiPauseGetOptions();
+    u32 options     = pdguiPauseGetOptions();
     bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
+    s32 challengeStatus = pdguiEndscreenGetChallengeStatus();
 
-    float rowH    = pdguiScale(22.0f);
-    float headerH = pdguiScale(40.0f);
-    float colH    = pdguiScale(22.0f); /* column header row */
-    float btnH    = pdguiScale(36.0f);
-    float padding = pdguiScale(12.0f);
-    float menuH   = headerH + colH + (count > 0 ? count * rowH : rowH) + btnH + padding * 3;
-    float menuW   = disp.x * 0.55f;
-    float minW    = pdguiScale(420.0f);
+    float scale     = pdguiScaleFactor();
+    float padX      = pdguiScale(16.0f);
+    float titleH    = pdguiScale(42.0f);
+    float challengeH = (challengeStatus > 0) ? pdguiScale(30.0f) : 0.0f;
+    float tabBarH   = pdguiScale(30.0f);
+    float tabGapH   = pdguiScale(6.0f);
+    float rowH      = pdguiScale(21.0f);
+    float btnH      = pdguiScale(36.0f);
+    float bottomPad = pdguiScale(14.0f);
+
+    /* Content area height: large enough for max(rankings, personal) */
+    float rankingsH  = pdguiScale(22.0f) + (count > 0 ? count * rowH : rowH) + pdguiScale(8.0f);
+    float personalH  = pdguiScale(160.0f); /* enough for all personal fields */
+    float contentH   = (rankingsH > personalH) ? rankingsH : personalH;
+
+    float menuH = titleH + challengeH + tabBarH + tabGapH + contentH + btnH + bottomPad;
+    float menuW = disp.x * 0.52f;
+    float minW  = pdguiScale(440.0f);
+    float maxW  = pdguiScale(700.0f);
     if (menuW < minW) menuW = minW;
-    float menuX   = (disp.x - menuW) * 0.5f;
-    float menuY   = (disp.y - menuH) * 0.5f;
+    if (menuW > maxW) menuW = maxW;
+    float menuX = (disp.x - menuW) * 0.5f;
+    float menuY = (disp.y - menuH) * 0.5f;
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
@@ -811,63 +1047,130 @@ void pdguiGameOverRender(s32 winW, s32 winH)
                            | ImGuiWindowFlags_NoResize
                            | ImGuiWindowFlags_NoMove
                            | ImGuiWindowFlags_NoCollapse
-                           | ImGuiWindowFlags_NoBackground;
+                           | ImGuiWindowFlags_NoBackground
+                           | ImGuiWindowFlags_NoScrollbar
+                           | ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pdguiScale(14.0f), pdguiScale(10.0f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(pdguiScale(6.0f),  pdguiScale(4.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padX, pdguiScale(8.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(pdguiScale(6.0f), pdguiScale(4.0f)));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     if (ImGui::Begin("##PdGameOver", NULL, flags)) {
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "MATCH OVER", 1);
 
-        float padX = pdguiScale(16.0f);
-        ImGui::SetCursorPos(ImVec2(padX, pdguiScale(40.0f)));
+        /* Challenge outcome banner */
+        if (challengeStatus > 0) {
+            ImGui::SetCursorPos(ImVec2(padX, titleH));
+            float bannerW = menuW - padX * 2;
 
-        /* Column headers */
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
-        if (teamsEnabled) {
-            ImGui::Text("%-3s %-12s %5s %5s %5s", "#", "Name", "Score", "K", "D");
+            ImVec4 bannerBg, bannerText;
+            const char *bannerLabel = "Challenge";
+            switch (challengeStatus) {
+            case 1:
+                bannerBg   = ImVec4(0.05f, 0.35f, 0.05f, 0.85f);
+                bannerText = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+                bannerLabel = "Challenge Completed!";
+                break;
+            case 3:
+                bannerBg   = ImVec4(0.35f, 0.15f, 0.0f, 0.85f);
+                bannerText = ImVec4(1.0f, 0.6f, 0.2f, 1.0f);
+                bannerLabel = "Challenge Cheated!";
+                break;
+            default: /* 2 = failed */
+                bannerBg   = ImVec4(0.35f, 0.04f, 0.04f, 0.85f);
+                bannerText = ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+                bannerLabel = "Challenge Failed";
+                break;
+            }
+
+            ImVec2 bmin = ImGui::GetCursorScreenPos();
+            ImVec2 bmax = ImVec2(bmin.x + bannerW, bmin.y + challengeH);
+            ImGui::GetWindowDrawList()->AddRectFilled(bmin, bmax,
+                IM_COL32((int)(bannerBg.x*255),(int)(bannerBg.y*255),
+                          (int)(bannerBg.z*255),(int)(bannerBg.w*255)), 3.0f);
+            ImGui::GetWindowDrawList()->AddRect(bmin, bmax,
+                IM_COL32((int)(bannerText.x*255),(int)(bannerText.y*255),
+                          (int)(bannerText.z*255),120), 3.0f);
+
+            float textW = ImGui::CalcTextSize(bannerLabel).x;
+            ImGui::SetCursorPosX((menuW - textW) * 0.5f);
+            ImGui::PushStyleColor(ImGuiCol_Text, bannerText);
+            ImGui::Text("%s", bannerLabel);
+            ImGui::PopStyleColor();
+        }
+
+        /* Tab bar */
+        float tabY = titleH + challengeH + tabGapH;
+        ImGui::SetCursorPos(ImVec2(padX, tabY));
+
+        float tabW = (menuW - padX * 2 - pdguiScale(6.0f)) * 0.5f;
+        ImVec2 tabSz(tabW, tabBarH);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(6.0f), 0.0f));
+
+        /* Rankings tab */
+        if (s_GameOverTab == 0) {
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
         } else {
-            ImGui::Text("%-3s %-14s %7s %5s %5s", "#", "Name", "Score", "K", "D");
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.1f, 0.1f, 0.18f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.2f, 0.35f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.2f, 0.3f, 0.55f, 1.0f));
         }
-        ImGui::PopStyleColor();
-        ImGui::Separator();
-
-        /* Ranking rows */
-        for (s32 i = 0; i < count; i++) {
-            if (rows[i].isPlayer) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.4f, 1.0f));
-            }
-            char rankStr[8];
-            snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
-            if (teamsEnabled) {
-                ImGui::Text("%-3s %-12s %5d %5d %5d",
-                            rankStr, rows[i].name,
-                            rows[i].score, rows[i].kills, rows[i].deaths);
-            } else {
-                ImGui::Text("%-3s %-14s %7d %5d %5d",
-                            rankStr, rows[i].name,
-                            rows[i].score, rows[i].kills, rows[i].deaths);
-            }
-            if (rows[i].isPlayer) {
-                ImGui::PopStyleColor();
-            }
+        if (ImGui::Button("Rankings", tabSz)) {
+            s_GameOverTab = 0;
+            pdguiPlaySound(PDGUI_SND_FOCUS);
         }
+        ImGui::PopStyleColor(3);
 
-        ImGui::Spacing();
+        ImGui::SameLine();
+
+        /* Personal tab */
+        if (s_GameOverTab == 1) {
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.25f, 0.5f, 1.0f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.1f, 0.1f, 0.18f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.2f, 0.35f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.2f, 0.3f, 0.55f, 1.0f));
+        }
+        if (ImGui::Button("Personal", tabSz)) {
+            s_GameOverTab = 1;
+            pdguiPlaySound(PDGUI_SND_FOCUS);
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::PopStyleVar(); /* ItemSpacing */
+
+        /* Tab content */
+        float contentTop = tabY + tabBarH + pdguiScale(6.0f);
+        ImGui::SetCursorPos(ImVec2(padX, contentTop));
+
+        float childW = menuW - padX * 2;
+        ImGui::BeginChild("##GameOverContent", ImVec2(childW, contentH), false,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        switch (s_GameOverTab) {
+        case 0: renderGameOverRankings(childW, count, rows, teamsEnabled); break;
+        case 1: renderGameOverPersonal(childW); break;
+        }
+        ImGui::EndChild();
+
+        /* Return to Lobby button — pinned at bottom, centered */
+        float btnY = menuH - btnH - bottomPad;
+        ImGui::SetCursorPos(ImVec2(padX, btnY));
         ImGui::Separator();
         ImGui::Spacing();
 
-        /* Return to Lobby button — centered */
-        float btnW  = pdguiScale(200.0f);
-        float curX  = (menuW - btnW) * 0.5f - padX;
-        ImGui::SetCursorPosX(curX);
-
-        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.3f, 0.6f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f,  0.4f, 0.8f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.3f,  0.5f, 1.0f, 1.0f));
-        if (ImGui::Button("Return to Lobby", ImVec2(btnW, pdguiScale(30.0f)))) {
+        float lobbyBtnW = pdguiScale(200.0f);
+        ImGui::SetCursorPosX((menuW - lobbyBtnW) * 0.5f - padX);
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.08f, 0.25f, 0.55f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.40f, 0.80f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.25f, 0.55f, 1.00f, 1.0f));
+        if (ImGui::Button("Return to Lobby", ImVec2(lobbyBtnW, pdguiScale(28.0f)))) {
+            s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
             mainChangeToStage(0x26); /* STAGE_CITRAINING */
         }
@@ -877,4 +1180,14 @@ void pdguiGameOverRender(s32 winW, s32 winH)
 
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
+
+    /* Clear reset flag when leaving GAMEOVER state */
+    /* (already handled: early return at top clears s_prevWasGameOver on next entry) */
+}
+
+/* Companion: clear the game-over tab state on stage transition so the
+ * next match always opens on Rankings. Called from pdguiMpIngameReset(). */
+void pdguiGameOverResetTab(void)
+{
+    s_GameOverTab = 0;
 }
