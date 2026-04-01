@@ -53,6 +53,7 @@ static s32 vidFramerateLimit = 0;
 static s32 vidDisplayFPS = 0;
 static f32 vidDisplayFPSInterval = 1.f;
 static f32 vidAvgFPS = 0;
+static f32 vidUiScaleMult = 1.0f; /* user-adjustable UI scale multiplier (0.5 – 2.0) */
 static f64 vidLastRenderTime;
 
 static s32 vidNumModes = 1;
@@ -545,6 +546,18 @@ void videoSetDisplayFPS(const s32 displayfps)
 	vidDisplayFPS = displayfps;
 }
 
+f32 videoGetUiScaleMult(void)
+{
+	return vidUiScaleMult;
+}
+
+void videoSetUiScaleMult(f32 mult)
+{
+	if (mult < 0.5f) mult = 0.5f;
+	if (mult > 2.0f) mult = 2.0f;
+	vidUiScaleMult = mult;
+}
+
 void videoSetFramebuffer(s32 target)
 {
 	return gfx_set_framebuffer(target, 1.f);
@@ -604,4 +617,5 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);
 	configRegisterInt("Video.TextureFilter2D", &texFilter2D, 0, 1);
 	configRegisterInt("Video.DetailTextures", &texDetail, 0, 1);
+	configRegisterFloat("Video.UIScaleMult", &vidUiScaleMult, 0.5f, 2.0f);
 }

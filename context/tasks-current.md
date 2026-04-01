@@ -8,11 +8,10 @@
 
 ## Critical Blockers (v0.1.0 "Foundation")
 
-| # | Task | Details |
-|---|------|---------|
-| 1 | **UI Scaling** | Not addressed yet. Required for v0.1.0. |
+> All critical blockers cleared. v0.1.0 pending QC pass and playtest of items in "Awaiting Build Test / Playtest" section.
 
-> B-49 (toilet freeze): **VERIFIED FIXED S81**. B-38 (setupCreateProps crash): **CLOSED S80 — FALSE ALARM** (all hypotheses verified safe). Both removed from blockers.
+> **UI Scaling** — DONE (S97). `videoGetUiScaleMult()`/`videoSetUiScaleMult()` added to `video.c`. `pdguiScaleFactor()` now multiplies by user setting. "UI Scale" slider (50–200%) in Video settings tab. Persists as `Video.UIScaleMult`.
+> B-49 (toilet freeze): **VERIFIED FIXED S81**. B-38 (setupCreateProps crash): **CLOSED S80 — FALSE ALARM** (all hypotheses verified safe).
 
 ---
 

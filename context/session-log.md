@@ -95,13 +95,38 @@ Clean build at `a4cd903`. Both `PerfectDark.exe` and `PerfectDarkServer.exe` lin
 - **B-57** (NEW): Scenario save only stores `weaponset` index, not individual weapon selections. If a player customizes a non-standard weapon loadout, save/reload will restore the weaponset default, not the custom picks.
 - **B-58** (NEW): `catalogResolveByRuntimeIndex(type=16, index=103)` assert fires on the scenario save path. Type 16 is out of range for the catalog type enum. Triggered when scenario save tries to resolve a weapon reference.
 
+#### 8. UI Scaling — v0.1.0 Blocker Closed
+
+- **`video.c`**: Added `vidUiScaleMult` static float (default 1.0), `videoGetUiScaleMult()` / `videoSetUiScaleMult()` (clamps 0.5–2.0), config registration as `Video.UIScaleMult`.
+- **`video.h`**: Declared the two new functions.
+- **`pdgui_scaling.h`**: Forward-declared `videoGetUiScaleMult()`; `pdguiScaleFactor()` now multiplies the auto-scale by the user's setting. Combined result floor: 0.25.
+- **`pdgui_menu_mainmenu.cpp`**: Added `videoGetUiScaleMult`/`videoSetUiScaleMult` to `extern "C"` block; added "UI Scale" `PdSliderFloat` (50–200%) in Display section of Video settings tab.
+- Both targets build clean.
+
+### Build Status
+
+Clean build. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean.
+
+### Key Decisions
+
+- **Numeric aliases are canonical**: All asset types now reachable by `"type_%d"` ID from catalog. This is the stable contract for the mod pipeline; no manifest/net code needs to know `"base:name"` primary IDs.
+- **Large-table aliases (anim/tex/sfx) exist for mod support, not manifest tracking**: Adding hooks for these in hot paths is wrong. Hooks get wired per-mod at load time only.
+- **`bodyAllocateModel` is the spawn chokepoint**: Not `bodyAllocateChr`. Any future manifest or catalog work relating to runtime chr spawns must hook `bodyAllocateModel`.
+- **SA series complete**: SA-1 through SA-7 all done. The catalog migration track is finished.
+- **UI Scaling done via multiplier**: `pdguiScaleFactor() = (h/720) * userMult`. Keeps auto-scaling but gives user override range 50–200%.
+
+### New Bugs Found
+
+- **B-57** (NEW): Scenario save only stores `weaponset` index, not individual weapon selections. If a player customizes a non-standard weapon loadout, save/reload will restore the weaponset default, not the custom picks.
+- **B-58** (NEW): `catalogResolveByRuntimeIndex(type=16, index=103)` assert fires on the scenario save path. Type 16 is out of range for the catalog type enum. Triggered when scenario save tries to resolve a weapon reference.
+
 ### Next Steps
 
-- **UI Scaling** — last v0.1.0 blocker. Not started.
 - **SP playtest SA-6**: Two consecutive missions — verify Joanna stays in `to_keep`; Counter-Op mode — verify anti-player body/head in manifest log.
 - **B-57/B-58**: Scenario save weapon persistence investigation.
 - **Countdown UX**: Match start countdown display on Room screen (reads `g_MatchCountdownState`).
 - SA series is done. SA-2 is the next dependency for R-series (room sync protocol).
+- **v0.1.0**: All critical blockers cleared — needs QC pass (see tasks-current.md).
 
 ---
 

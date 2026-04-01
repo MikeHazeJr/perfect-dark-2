@@ -64,6 +64,8 @@ void videoSetVsync(const s32 vsync);
 void videoSetFramerateLimit(const s32 limit);
 void videoSetDisplayFPS(const s32 displayfps);
 void videoSetMSAA(const s32 msaa);
+f32 videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
 
 s32 videoCreateFramebuffer(u32 w, u32 h, s32 upscale, s32 autoresize);
 void videoSetFramebuffer(s32 target);

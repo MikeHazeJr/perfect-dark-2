@@ -148,6 +148,8 @@ s32 videoGetCenterWindow(void);
 void videoSetCenterWindow(s32 center);
 s32 videoGetMaximizeWindow(void);
 void videoSetMaximizeWindow(s32 fs);
+f32 videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
 
 /* Display mode */
 typedef struct {
@@ -414,6 +416,16 @@ static void renderSettingsVideo(float scale)
         }
 
         if (disabled) ImGui::EndDisabled();
+    }
+
+    /* UI Scale */
+    {
+        float uiScale = videoGetUiScaleMult() * 100.0f;
+        char uiScaleLabel[16];
+        snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
+        if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
+            videoSetUiScaleMult(uiScale / 100.0f);
+        }
     }
 
     bool centerWin = videoGetCenterWindow() != 0;
