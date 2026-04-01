@@ -29,6 +29,8 @@
 #include "pdgui_charpreview.h"
 #include "assetcatalog.h"
 #include "botvariant.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 
 /* ========================================================================
@@ -1545,6 +1547,24 @@ void pdguiMenuMatchSetupRegister(void)
     if (!s_Registered) {
         pdguiHotswapRegister(&g_MatchSetupMenuDialog, renderMatchSetup, "Match Setup");
         s_Registered = true;
+
+        /* Phase 6: Screen mini-manifest.
+         * Match Setup displays character names and weapon lists — declare
+         * the MP language banks it needs.  These are base-game bundled
+         * entries today; mod lang banks would go through full lifecycle. */
+        {
+            static const char *ids[] = {
+                "base:lang_mpmenu",    /* MP menu strings (character/mode names) */
+                "base:lang_mpweapons", /* Weapon name strings */
+            };
+            static const u8 types[] = {
+                MANIFEST_TYPE_LANG,
+                MANIFEST_TYPE_LANG,
+            };
+            screenManifestRegister(
+                (void*)&g_MatchSetupMenuDialog,
+                ids, types, 2);
+        }
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_matchsetup: Registered Match Setup menu");
 }

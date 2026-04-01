@@ -26,6 +26,8 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 
 extern "C" {
@@ -542,6 +544,28 @@ void pdguiMenuAgentSelectRegister(void)
     );
 
     s_Registered = true;
+
+    /* Phase 6: Screen mini-manifest.
+     * Agent Select shows a character preview — declare the Joanna body/head
+     * and misc UI language bank.  Bundled base-game assets are no-op retains;
+     * mod overrides of these assets (non-bundled) go through the full
+     * ref-counted load/unload lifecycle. */
+    {
+        static const char *ids[] = {
+            "base:dark_combat",       /* Joanna body (default preview) */
+            "base:head_dark_combat",  /* Joanna head (default preview) */
+            "base:lang_misc",         /* General UI strings */
+        };
+        static const u8 types[] = {
+            MANIFEST_TYPE_BODY,
+            MANIFEST_TYPE_HEAD,
+            MANIFEST_TYPE_LANG,
+        };
+        screenManifestRegister(
+            (void*)&g_FilemgrFileSelectMenuDialog,
+            ids, types, 3);
+    }
+
     sysLogPrintf(LOG_NOTE, "pdgui_menu_agentselect: Registered");
 }
 

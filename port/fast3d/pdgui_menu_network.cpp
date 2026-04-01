@@ -20,6 +20,8 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 #include "connectcode.h"
 
@@ -306,6 +308,23 @@ void pdguiMenuNetworkRegister(void)
     if (!s_Registered) {
         pdguiHotswapRegister(&g_NetMenuDialog, renderMultiplayerMenu, "Multiplayer");
         s_Registered = true;
+
+        /* Phase 6: Screen mini-manifest.
+         * Multiplayer hub displays mode names and lobby strings — declare
+         * the MP language bank it needs. */
+        {
+            static const char *ids[] = {
+                "base:lang_mpmenu",  /* MP menu / lobby strings */
+                "base:lang_misc",    /* General UI strings */
+            };
+            static const u8 types[] = {
+                MANIFEST_TYPE_LANG,
+                MANIFEST_TYPE_LANG,
+            };
+            screenManifestRegister(
+                (void*)&g_NetMenuDialog,
+                ids, types, 2);
+        }
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_network: Registered Multiplayer menu");
 }
