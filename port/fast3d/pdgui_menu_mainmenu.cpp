@@ -19,6 +19,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <algorithm>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1747,14 +1748,21 @@ static void renderSettingsCatalog(float scale)
     ImGui::Spacing();
 
     /* Entry table */
+    static s32  s_EntSortedIdx[4096];
+    static s32  s_EntSortedCount = 0;
+    static bool s_EntSortDirty   = true; /* force rebuild on first frame */
+
     ImGuiTableFlags tflags = ImGuiTableFlags_RowBg
                            | ImGuiTableFlags_BordersInnerV
                            | ImGuiTableFlags_ScrollY
-                           | ImGuiTableFlags_SizingStretchProp;
+                           | ImGuiTableFlags_SizingStretchProp
+                           | ImGuiTableFlags_Resizable
+                           | ImGuiTableFlags_Sortable
+                           | ImGuiTableFlags_Reorderable;
     float tableH = ImGui::GetContentRegionAvail().y * 0.55f;
     if (ImGui::BeginTable("##cat_entries", 6, tflags, ImVec2(0, tableH))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
         ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("State",    ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Idx",      ImGuiTableColumnFlags_WidthFixed,   40.0f * scale);
@@ -1762,12 +1770,79 @@ static void renderSettingsCatalog(float scale)
         ImGui::TableSetupColumn("Src",      ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
         ImGui::TableHeadersRow();
 
-        bool hasSearch = s_SearchBuf[0] != '\0';
-        for (s32 i = 0; i < poolSize; i++) {
-            const asset_entry_t *e = assetCatalogGetByIndex(i);
+        /* Rebuild sorted index list when filter or sort changes */
+        {
+            bool hasSearch = s_SearchBuf[0] != '\0';
+            ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+            if (sortSpecs && (sortSpecs->SpecsDirty || s_EntSortDirty)) {
+                s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                bool asc = (sortSpecs->SpecsCount > 0)
+                           ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                           : true;
+
+                /* Collect matching indices */
+                s_EntSortedCount = 0;
+                for (s32 i = 0; i < poolSize; i++) {
+                    const asset_entry_t *e = assetCatalogGetByIndex(i);
+                    if (!e) continue;
+                    if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                    if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                    if (s_EntSortedCount < 4096)
+                        s_EntSortedIdx[s_EntSortedCount++] = i;
+                }
+
+                /* Sort the collected indices */
+                std::sort(s_EntSortedIdx, s_EntSortedIdx + s_EntSortedCount,
+                    [col, asc](s32 ia, s32 ib) -> bool {
+                        const asset_entry_t *a = assetCatalogGetByIndex(ia);
+                        const asset_entry_t *b = assetCatalogGetByIndex(ib);
+                        if (!a || !b) return false;
+                        int cmp = 0;
+                        switch (col) {
+                            case 0: cmp = strcmp(a->id, b->id); break;
+                            case 1: cmp = (int)a->type - (int)b->type; break;
+                            case 2: cmp = (int)a->load_state - (int)b->load_state; break;
+                            case 3: cmp = a->runtime_index - b->runtime_index; break;
+                            case 4: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                            case 5: cmp = (int)a->bundled - (int)b->bundled; break;
+                            default: break;
+                        }
+                        return asc ? (cmp < 0) : (cmp > 0);
+                    });
+
+                sortSpecs->SpecsDirty = false;
+                s_EntSortDirty = false;
+            } else if (!sortSpecs) {
+                /* Fallback: rebuild unsorted on filter change */
+                if (s_EntSortDirty) {
+                    s_EntSortedCount = 0;
+                    for (s32 i = 0; i < poolSize; i++) {
+                        const asset_entry_t *e = assetCatalogGetByIndex(i);
+                        if (!e) continue;
+                        if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                        if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                        if (s_EntSortedCount < 4096)
+                            s_EntSortedIdx[s_EntSortedCount++] = i;
+                    }
+                    s_EntSortDirty = false;
+                }
+            }
+        }
+
+        /* Mark dirty when filter/search changes next frame */
+        {
+            static s32  s_PrevFilter = -1;
+            static char s_PrevSearch[64] = {};
+            if (s_PrevFilter != s_FilterType || strcmp(s_PrevSearch, s_SearchBuf) != 0) {
+                s_EntSortDirty = true;
+                s_PrevFilter = s_FilterType;
+                memcpy(s_PrevSearch, s_SearchBuf, sizeof(s_PrevSearch));
+            }
+        }
+
+        for (s32 ri = 0; ri < s_EntSortedCount; ri++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(s_EntSortedIdx[ri]);
             if (!e) continue;
-            if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
-            if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
 
             ImGui::TableNextRow();
 
@@ -1781,18 +1856,22 @@ static void renderSettingsCatalog(float scale)
 
             /* Type */
             ImGui::TableSetColumnIndex(1);
-            const char *tname = (e->type >= 0 && e->type < ASSET_TYPE_COUNT)
-                                ? s_AssetTypeNames[e->type] : "?";
-            ImGui::TextDisabled("%s", tname);
+            {
+                const char *tname = (e->type >= 0 && e->type < ASSET_TYPE_COUNT)
+                                    ? s_AssetTypeNames[e->type] : "?";
+                ImGui::TextDisabled("%s", tname);
+            }
 
-            /* Load state + ref count */
+            /* Load state */
             ImGui::TableSetColumnIndex(2);
-            const char *sname = (e->load_state <= ASSET_STATE_ACTIVE)
-                                ? s_LoadStateNames[e->load_state] : "?";
-            if (e->load_state >= ASSET_STATE_LOADED) {
-                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
-            } else {
-                ImGui::TextDisabled("%s", sname);
+            {
+                const char *sname = (e->load_state <= ASSET_STATE_ACTIVE)
+                                    ? s_LoadStateNames[e->load_state] : "?";
+                if (e->load_state >= ASSET_STATE_LOADED) {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
+                } else {
+                    ImGui::TextDisabled("%s", sname);
+                }
             }
 
             /* Runtime index */
@@ -1834,42 +1913,91 @@ static void renderSettingsCatalog(float scale)
         ImGui::Text("Entries: %d", (int)mf->num_entries);
         ImGui::Spacing();
 
-        ImGuiTableFlags mflags = ImGuiTableFlags_RowBg
-                               | ImGuiTableFlags_BordersInnerV
-                               | ImGuiTableFlags_ScrollY
-                               | ImGuiTableFlags_SizingStretchProp;
-        float mTableH = ImGui::GetContentRegionAvail().y - 4.0f * scale;
-        if (mTableH < 60.0f * scale) mTableH = 60.0f * scale;
-        if (ImGui::BeginTable("##manifest_entries", 4, mflags, ImVec2(0, mTableH))) {
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch, 3.0f);
-            ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
-            ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
-            ImGui::TableHeadersRow();
+        {
+            static s32  s_MfSortedIdx[MANIFEST_MAX_ENTRIES];
+            static s32  s_MfSortedCount = 0;
+            static bool s_MfSortDirty   = true;
+            static u16  s_MfPrevNum     = 0xFFFF;
 
-            for (int j = 0; j < (int)mf->num_entries; j++) {
-                const match_manifest_entry_t *me = &mf->entries[j];
-                ImGui::TableNextRow();
+            ImGuiTableFlags mflags = ImGuiTableFlags_RowBg
+                                   | ImGuiTableFlags_BordersInnerV
+                                   | ImGuiTableFlags_ScrollY
+                                   | ImGuiTableFlags_SizingStretchProp
+                                   | ImGuiTableFlags_Resizable
+                                   | ImGuiTableFlags_Sortable
+                                   | ImGuiTableFlags_Reorderable;
+            float mTableH = ImGui::GetContentRegionAvail().y - 4.0f * scale;
+            if (mTableH < 60.0f * scale) mTableH = 60.0f * scale;
+            if (ImGui::BeginTable("##manifest_entries", 4, mflags, ImVec2(0, mTableH))) {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
+                ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+                ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+                ImGui::TableHeadersRow();
 
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(me->id);
+                /* Rebuild sorted index list when manifest or sort changes */
+                if (s_MfPrevNum != mf->num_entries)
+                    s_MfSortDirty = true;
 
-                ImGui::TableSetColumnIndex(1);
-                const char *mtype = (me->type < 8) ? s_ManifestTypeNames[me->type] : "?";
-                ImGui::TextDisabled("%s", mtype);
+                {
+                    ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+                    if (sortSpecs && (sortSpecs->SpecsDirty || s_MfSortDirty)) {
+                        s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                        bool asc = (sortSpecs->SpecsCount > 0)
+                                   ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                                   : true;
 
-                ImGui::TableSetColumnIndex(2);
-                if (me->slot_index == MANIFEST_SLOT_MATCH) {
-                    ImGui::TextDisabled("all");
-                } else {
-                    ImGui::Text("%d", (int)me->slot_index);
+                        s_MfSortedCount = (s32)mf->num_entries;
+                        for (s32 j = 0; j < s_MfSortedCount; j++)
+                            s_MfSortedIdx[j] = j;
+
+                        std::sort(s_MfSortedIdx, s_MfSortedIdx + s_MfSortedCount,
+                            [mf, col, asc](s32 ia, s32 ib) -> bool {
+                                const match_manifest_entry_t *a = &mf->entries[ia];
+                                const match_manifest_entry_t *b = &mf->entries[ib];
+                                int cmp = 0;
+                                switch (col) {
+                                    case 0: cmp = strcmp(a->id, b->id); break;
+                                    case 1: cmp = (int)a->type - (int)b->type; break;
+                                    case 2: cmp = (int)a->slot_index - (int)b->slot_index; break;
+                                    case 3: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                                    default: break;
+                                }
+                                return asc ? (cmp < 0) : (cmp > 0);
+                            });
+
+                        sortSpecs->SpecsDirty = false;
+                        s_MfSortDirty = false;
+                        s_MfPrevNum = mf->num_entries;
+                    }
                 }
 
-                ImGui::TableSetColumnIndex(3);
-                ImGui::TextDisabled("%08X", me->net_hash);
+                for (s32 ri = 0; ri < s_MfSortedCount; ri++) {
+                    const match_manifest_entry_t *me = &mf->entries[s_MfSortedIdx[ri]];
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(me->id);
+
+                    ImGui::TableSetColumnIndex(1);
+                    {
+                        const char *mtype = (me->type < 8) ? s_ManifestTypeNames[me->type] : "?";
+                        ImGui::TextDisabled("%s", mtype);
+                    }
+
+                    ImGui::TableSetColumnIndex(2);
+                    if (me->slot_index == MANIFEST_SLOT_MATCH) {
+                        ImGui::TextDisabled("all");
+                    } else {
+                        ImGui::Text("%d", (int)me->slot_index);
+                    }
+
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::TextDisabled("%08X", me->net_hash);
+                }
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
         }
     }
     } /* BeginChild ManifestList */

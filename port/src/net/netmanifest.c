@@ -21,11 +21,14 @@
  * resolve the correct catalog net_hash on the client side.)
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "platform.h"
 #include "types.h"
 #include "bss.h"
 #include "system.h"
+#include "config.h"
 #include "constants.h"
 #include "game/setuputils.h"
 #include "net/netmanifest.h"
@@ -34,6 +37,34 @@
 #include "net/netlobby.h"
 #include "assetcatalog.h"
 #include "modmgr.h"
+
+/* =========================================================================
+ * Config — hard cap on manifest entries, overridable via pd.ini
+ * ========================================================================= */
+
+static s32 s_ManifestMaxEntries = MANIFEST_MAX_ENTRIES;
+
+PD_CONSTRUCTOR static void manifestConfigInit(void)
+{
+    configRegisterInt("Debug.ManifestMaxEntries", &s_ManifestMaxEntries,
+                      64, MANIFEST_MAX_ENTRIES);
+}
+
+s32 manifestGetMaxEntries(void)
+{
+    return s_ManifestMaxEntries;
+}
+
+void manifestSetMaxEntries(s32 n)
+{
+    if (n < 64) {
+        n = 64;
+    }
+    if (n > MANIFEST_MAX_ENTRIES) {
+        n = MANIFEST_MAX_ENTRIES;
+    }
+    s_ManifestMaxEntries = n;
+}
 
 /* =========================================================================
  * Manifests: server-side (rebuilt per match start) and client-side (received)
@@ -57,33 +88,192 @@ static u32 s_fnv1a(const char *str)
     return h;
 }
 
+/**
+ * Ensure m->entries has room for at least one more entry.
+ * Allocates from MANIFEST_INITIAL_CAPACITY on first call; doubles on each
+ * subsequent growth; refuses to exceed s_ManifestMaxEntries.
+ * Returns 1 if there is now room, 0 if the cap would be exceeded.
+ */
+static s32 s_manifestGrow(match_manifest_t *m)
+{
+    s32 new_cap;
+    match_manifest_entry_t *new_buf;
+
+    if (!m->entries) {
+        /* First allocation */
+        new_cap = MANIFEST_INITIAL_CAPACITY;
+        if (new_cap > s_ManifestMaxEntries) {
+            new_cap = s_ManifestMaxEntries;
+        }
+        new_buf = (match_manifest_entry_t *)malloc(
+            (size_t)new_cap * sizeof(match_manifest_entry_t));
+        if (!new_buf) {
+            sysLogPrintf(LOG_ERROR,
+                         "MANIFEST: malloc failed (cap=%d)", new_cap);
+            return 0;
+        }
+        m->entries  = new_buf;
+        m->capacity = (u16)new_cap;
+        return 1;
+    }
+
+    if ((s32)m->capacity >= s_ManifestMaxEntries) {
+        /* Already at hard cap */
+        return 0;
+    }
+
+    /* Double the capacity, capped at the configured max */
+    new_cap = (s32)m->capacity * 2;
+    if (new_cap > s_ManifestMaxEntries) {
+        new_cap = s_ManifestMaxEntries;
+    }
+
+    new_buf = (match_manifest_entry_t *)realloc(
+        m->entries, (size_t)new_cap * sizeof(match_manifest_entry_t));
+    if (!new_buf) {
+        sysLogPrintf(LOG_ERROR,
+                     "MANIFEST: realloc failed (old_cap=%d new_cap=%d)",
+                     (int)m->capacity, new_cap);
+        return 0;
+    }
+    m->entries  = new_buf;
+    m->capacity = (u16)new_cap;
+    return 1;
+}
+
+/**
+ * Deep-copy src into dst.
+ * Allocates/grows dst->entries as needed.  After the call dst is an
+ * independent copy of src and owns its own entries buffer.
+ */
+static void s_manifestCopyInto(match_manifest_t *dst,
+                                const match_manifest_t *src)
+{
+    s32 n;
+    match_manifest_entry_t *new_buf;
+    s32 new_cap;
+
+    if (!src || src->num_entries == 0) {
+        if (dst->entries) {
+            dst->num_entries   = 0;
+            dst->manifest_hash = 0;
+        }
+        return;
+    }
+
+    n = (s32)src->num_entries;
+
+    /* Grow dst until it has room */
+    if (!dst->entries || (s32)dst->capacity < n) {
+        new_cap = n;
+        if (new_cap < MANIFEST_INITIAL_CAPACITY) {
+            new_cap = MANIFEST_INITIAL_CAPACITY;
+        }
+        free(dst->entries);
+        new_buf = (match_manifest_entry_t *)malloc(
+            (size_t)new_cap * sizeof(match_manifest_entry_t));
+        if (!new_buf) {
+            sysLogPrintf(LOG_ERROR,
+                         "MANIFEST: copy malloc failed (n=%d)", n);
+            dst->entries     = NULL;
+            dst->capacity    = 0;
+            dst->num_entries = 0;
+            return;
+        }
+        dst->entries  = new_buf;
+        dst->capacity = (u16)new_cap;
+    }
+
+    memcpy(dst->entries, src->entries,
+           (size_t)n * sizeof(match_manifest_entry_t));
+    dst->num_entries   = src->num_entries;
+    dst->manifest_hash = src->manifest_hash;
+}
+
+/**
+ * Ensure a manifest_diff_t sub-array has room for one more entry.
+ * Lazily allocates from MANIFEST_INITIAL_CAPACITY and doubles each time.
+ * Returns a pointer to the next free slot, or NULL if the cap is exceeded.
+ */
+static manifest_diff_entry_t *s_diffGrow(manifest_diff_entry_t **arr,
+                                          s32 *count, s32 *cap)
+{
+    s32 new_cap;
+    manifest_diff_entry_t *new_buf;
+
+    if (*count < *cap) {
+        return &(*arr)[(*count)++];
+    }
+
+    if (*cap <= 0) {
+        new_cap = MANIFEST_INITIAL_CAPACITY;
+    } else if (*cap >= s_ManifestMaxEntries) {
+        return NULL;
+    } else {
+        new_cap = *cap * 2;
+        if (new_cap > s_ManifestMaxEntries) {
+            new_cap = s_ManifestMaxEntries;
+        }
+    }
+
+    new_buf = (manifest_diff_entry_t *)realloc(
+        *arr, (size_t)new_cap * sizeof(manifest_diff_entry_t));
+    if (!new_buf) {
+        sysLogPrintf(LOG_ERROR,
+                     "MANIFEST: diff realloc failed (cap=%d->%d)",
+                     *cap, new_cap);
+        return NULL;
+    }
+    *arr = new_buf;
+    *cap = new_cap;
+    return &(*arr)[(*count)++];
+}
+
 /* =========================================================================
  * Public API
  * ========================================================================= */
 
 void manifestClear(match_manifest_t *m)
 {
-    memset(m, 0, sizeof(*m));
+    /* Reset entry count but keep the allocated buffer for reuse. */
+    m->num_entries   = 0;
+    m->manifest_hash = 0;
+    /* entries and capacity are left unchanged */
+}
+
+void manifestFree(match_manifest_t *m)
+{
+    free(m->entries);
+    m->entries       = NULL;
+    m->capacity      = 0;
+    m->num_entries   = 0;
+    m->manifest_hash = 0;
 }
 
 void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
                       u8 type, u8 slot_index)
 {
-    if (m->num_entries >= MANIFEST_MAX_ENTRIES) {
-        sysLogPrintf(LOG_WARNING,
-                     "MANIFEST: manifest full (%d entries max), dropping '%s'",
-                     MANIFEST_MAX_ENTRIES, id ? id : "?");
-        return;
-    }
+    s32 i;
+    match_manifest_entry_t *e;
 
     /* Dedup by net_hash — skip if already present */
-    for (s32 i = 0; i < m->num_entries; i++) {
+    for (i = 0; i < (s32)m->num_entries; i++) {
         if (m->entries[i].net_hash == net_hash) {
             return;
         }
     }
 
-    match_manifest_entry_t *e = &m->entries[m->num_entries++];
+    /* Grow if at capacity (also handles first-time allocation) */
+    if ((s32)m->num_entries >= (s32)m->capacity) {
+        if (!s_manifestGrow(m)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: manifest full (%d entries max), dropping '%s'",
+                         s_ManifestMaxEntries, id ? id : "?");
+            return;
+        }
+    }
+
+    e = &m->entries[m->num_entries++];
     e->net_hash   = net_hash;
     e->type       = type;
     e->slot_index = slot_index;
@@ -99,7 +289,8 @@ u32 manifestComputeHash(match_manifest_t *m)
 {
     /* FNV-1a over (net_hash bytes, type, slot_index) for each entry in order */
     u32 h = 0x811c9dc5u;
-    for (s32 i = 0; i < m->num_entries; i++) {
+    s32 i;
+    for (i = 0; i < (s32)m->num_entries; i++) {
         const match_manifest_entry_t *e = &m->entries[i];
         /* Feed all 4 bytes of net_hash */
         h ^= (u8)(e->net_hash);        h *= 0x01000193u;
@@ -131,6 +322,9 @@ u32 manifestComputeHash(match_manifest_t *m)
 void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                    const struct matchconfig *cfg)
 {
+    s32 i;
+    u8 slot_index;
+
     (void)room;  /* Phase E: will scope to room->clients[] */
     (void)cfg;   /* Phase E: will use cfg->stagenum, cfg->slots[], etc. */
 
@@ -139,10 +333,11 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     /* ---- Stage ---- */
     {
         char id[64];
+        const asset_entry_t *e;
         snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)g_MpSetup.stagenum);
 
         /* Try catalog first (resolves on client / host where base catalog loaded) */
-        const asset_entry_t *e = assetCatalogResolve(id);
+        e = assetCatalogResolve(id);
         if (e) {
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
@@ -153,15 +348,16 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     }
 
     /* ---- Weapons ---- */
-    for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+    for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
         const u8 wnum = g_MpSetup.weapons[i];
+        const asset_entry_t *e;
+        char id[64];
         if (wnum == 0) {
             continue;
         }
-        char id[64];
         snprintf(id, sizeof(id), "weapon_%d", (int)wnum);
 
-        const asset_entry_t *e = assetCatalogResolve(id);
+        e = assetCatalogResolve(id);
         if (e) {
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
@@ -172,9 +368,9 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     }
 
     /* ---- Players: iterate connected clients ---- */
-    u8 slot_index = 0;
-    for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-        const struct netclient *ncl = &g_NetClients[ci];
+    slot_index = 0;
+    for (i = 0; i < NET_MAX_CLIENTS; i++) {
+        const struct netclient *ncl = &g_NetClients[i];
         if (ncl->state != CLSTATE_LOBBY && ncl->state != CLSTATE_GAME) {
             continue;
         }
@@ -207,15 +403,18 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     /* ---- Bots ---- */
     {
         const s32 num_bots = (s32)g_Lobby.settings.numSimulants;
-        for (s32 bi = 0; bi < num_bots && bi < MAX_BOTS; bi++) {
-            const u8 bodynum = g_BotConfigsArray[bi].base.mpbodynum;
-            const u8 headnum = g_BotConfigsArray[bi].base.mpheadnum;
+        for (i = 0; i < num_bots && i < MAX_BOTS; i++) {
+            const u8 bodynum = g_BotConfigsArray[i].base.mpbodynum;
+            const u8 headnum = g_BotConfigsArray[i].base.mpheadnum;
+            const asset_entry_t *be;
+            const asset_entry_t *he;
+            char body_id[64];
+            char head_id[64];
 
-            char body_id[64], head_id[64];
             snprintf(body_id, sizeof(body_id), "body_%d", (int)bodynum);
             snprintf(head_id, sizeof(head_id), "head_%d", (int)headnum);
 
-            const asset_entry_t *be = assetCatalogResolve(body_id);
+            be = assetCatalogResolve(body_id);
             if (be) {
                 manifestAddEntry(out, be->net_hash, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
@@ -224,7 +423,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                                  MANIFEST_TYPE_BODY, slot_index);
             }
 
-            const asset_entry_t *he = assetCatalogResolve(head_id);
+            he = assetCatalogResolve(head_id);
             if (he) {
                 manifestAddEntry(out, he->net_hash, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
@@ -240,7 +439,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     /* ---- Mod components (returns 0 on dedicated server stub) ---- */
     {
         const s32 num_mods = modmgrGetCount();
-        for (s32 i = 0; i < num_mods; i++) {
+        for (i = 0; i < num_mods; i++) {
             modinfo_t *mod = modmgrGetMod(i);
             if (!mod || !mod->enabled || mod->contenthash == 0) {
                 continue;
@@ -262,6 +461,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
  */
 void manifestLog(const match_manifest_t *m)
 {
+    s32 i;
     static const char *s_type_names[] = {
         "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
     };
@@ -270,7 +470,7 @@ void manifestLog(const match_manifest_t *m)
                  "MANIFEST: built — %d entries, hash=0x%08x",
                  (int)m->num_entries, (unsigned)m->manifest_hash);
 
-    for (s32 i = 0; i < m->num_entries; i++) {
+    for (i = 0; i < (s32)m->num_entries; i++) {
         const match_manifest_entry_t *e = &m->entries[i];
         const char *type_name = (e->type < ARRAYCOUNT(s_type_names))
                                 ? s_type_names[e->type] : "?";
@@ -298,7 +498,8 @@ match_manifest_t g_CurrentLoadedManifest;
 
 /**
  * Static buffers used by manifestSPTransition().
- * Kept module-local to avoid ~9 KB + ~26 KB stack allocations in the caller.
+ * Kept module-local to avoid large stack allocations in the caller.
+ * Both start zero-initialised (entries == NULL).
  */
 static match_manifest_t s_SpNeededManifest;
 static manifest_diff_t  s_SpLastDiff;
@@ -488,30 +689,34 @@ void manifestDiff(const match_manifest_t *current,
     s32 i;
     s32 j;
     s32 found;
+    manifest_diff_entry_t *de;
 
-    memset(out, 0, sizeof(*out));
+    /* Zero counts; leave existing allocations in place for reuse */
+    out->num_to_load   = 0;
+    out->num_to_unload = 0;
+    out->num_to_keep   = 0;
 
     /* Pass 1: walk needed — classify as to_load or to_keep */
-    for (i = 0; i < needed->num_entries; i++) {
+    for (i = 0; i < (s32)needed->num_entries; i++) {
         const match_manifest_entry_t *ne = &needed->entries[i];
         found = 0;
-        for (j = 0; j < current->num_entries; j++) {
+        for (j = 0; j < (s32)current->num_entries; j++) {
             if (ne->net_hash == current->entries[j].net_hash) {
                 found = 1;
                 break;
             }
         }
         if (found) {
-            if (out->num_to_keep < MANIFEST_MAX_ENTRIES) {
-                manifest_diff_entry_t *de = &out->to_keep[out->num_to_keep++];
+            de = s_diffGrow(&out->to_keep, &out->num_to_keep, &out->cap_to_keep);
+            if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
             }
         } else {
-            if (out->num_to_load < MANIFEST_MAX_ENTRIES) {
-                manifest_diff_entry_t *de = &out->to_load[out->num_to_load++];
+            de = s_diffGrow(&out->to_load, &out->num_to_load, &out->cap_to_load);
+            if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
@@ -521,18 +726,18 @@ void manifestDiff(const match_manifest_t *current,
     }
 
     /* Pass 2: walk current — anything not in needed goes to to_unload */
-    for (i = 0; i < current->num_entries; i++) {
+    for (i = 0; i < (s32)current->num_entries; i++) {
         const match_manifest_entry_t *ce = &current->entries[i];
         found = 0;
-        for (j = 0; j < needed->num_entries; j++) {
+        for (j = 0; j < (s32)needed->num_entries; j++) {
             if (ce->net_hash == needed->entries[j].net_hash) {
                 found = 1;
                 break;
             }
         }
         if (!found) {
-            if (out->num_to_unload < MANIFEST_MAX_ENTRIES) {
-                manifest_diff_entry_t *de = &out->to_unload[out->num_to_unload++];
+            de = s_diffGrow(&out->to_unload, &out->num_to_unload, &out->cap_to_unload);
+            if (de) {
                 de->net_hash = ce->net_hash;
                 de->type     = ce->type;
                 strncpy(de->id, ce->id, sizeof(de->id) - 1);
@@ -544,8 +749,9 @@ void manifestDiff(const match_manifest_t *current,
 
 void manifestDiffFree(manifest_diff_t *diff)
 {
-    /* Fixed arrays — no heap to free.  Zero for safety; future MEM-2 work
-     * can replace this with real deallocation if dynamic arrays are needed. */
+    free(diff->to_load);
+    free(diff->to_unload);
+    free(diff->to_keep);
     memset(diff, 0, sizeof(*diff));
 }
 
@@ -572,8 +778,10 @@ void manifestApplyDiff(const match_manifest_t *needed,
         }
     }
 
-    /* Update the baseline for the next transition */
-    g_CurrentLoadedManifest = *needed;
+    /* Deep-copy needed into g_CurrentLoadedManifest so it becomes the new
+     * baseline for the next diff.  Cannot use a plain struct assignment since
+     * both would alias the same entries pointer. */
+    s_manifestCopyInto(&g_CurrentLoadedManifest, needed);
 
     sysLogPrintf(LOG_NOTE,
                  "MANIFEST-SP: applied diff — load=%d unload=%d keep=%d",
@@ -632,7 +840,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
     hash = s_fnv1a(catalog_id);
 
     /* Dedup: already tracked — no action needed. */
-    for (i = 0; i < g_CurrentLoadedManifest.num_entries; i++) {
+    for (i = 0; i < (s32)g_CurrentLoadedManifest.num_entries; i++) {
         if (g_CurrentLoadedManifest.entries[i].net_hash == hash) {
             return 1;
         }
@@ -685,29 +893,35 @@ void manifestCheck(const match_manifest_t *manifest)
         "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
     };
 
-    u32 missing_hashes[MANIFEST_MAX_ENTRIES];
-    u8  num_missing = 0;
+    /* missing_hashes bounded by wire protocol: num_missing sent as u8 (0-255) */
+    u32 missing_hashes[256];
+    s32 num_missing = 0;
+    u8  status;
+    s32 i;
 
     sysLogPrintf(LOG_NOTE,
                  "MANIFEST: checking %u entries against local catalog (hash=0x%08x)",
                  (unsigned)manifest->num_entries, (unsigned)manifest->manifest_hash);
 
-    for (u16 i = 0; i < manifest->num_entries; i++) {
+    for (i = 0; i < (s32)manifest->num_entries; i++) {
         const match_manifest_entry_t *e = &manifest->entries[i];
-        const char *type_name = (e->type < ARRAYCOUNT(s_type_names))
-                                ? s_type_names[e->type] : "?";
+        const char *type_name;
+        const asset_entry_t *local;
+
+        type_name = (e->type < ARRAYCOUNT(s_type_names))
+                    ? s_type_names[e->type] : "?";
 
         /* Try hash lookup first — most reliable since net_hash is the canonical
          * wire identity.  Then fall back to string ID for synthetic entries. */
-        const asset_entry_t *local = assetCatalogResolveByNetHash(e->net_hash);
+        local = assetCatalogResolveByNetHash(e->net_hash);
         if (!local && e->id[0]) {
             local = assetCatalogResolve(e->id);
         }
 
         if (local) {
             sysLogPrintf(LOG_NOTE,
-                         "MANIFEST: [%2u] %-9s hash=0x%08x id='%s' — OK",
-                         (unsigned)i, type_name, (unsigned)e->net_hash, e->id);
+                         "MANIFEST: [%2d] %-9s hash=0x%08x id='%s' — OK",
+                         i, type_name, (unsigned)e->net_hash, e->id);
             continue;
         }
 
@@ -715,35 +929,35 @@ void manifestCheck(const match_manifest_t *manifest)
          * locally even if the catalog doesn't have a named entry for them. */
         if (e->type != MANIFEST_TYPE_COMPONENT) {
             sysLogPrintf(LOG_NOTE,
-                         "MANIFEST: [%2u] %-9s hash=0x%08x id='%s' — not in catalog, assumed base game",
-                         (unsigned)i, type_name, (unsigned)e->net_hash, e->id);
+                         "MANIFEST: [%2d] %-9s hash=0x%08x id='%s' — not in catalog, assumed base game",
+                         i, type_name, (unsigned)e->net_hash, e->id);
             continue;
         }
 
         /* Mod component — must be present.  Report as missing. */
         sysLogPrintf(LOG_WARNING,
-                     "MANIFEST: [%2u] COMPONENT  hash=0x%08x id='%s' — MISSING",
-                     (unsigned)i, (unsigned)e->net_hash, e->id);
-        if (num_missing < MANIFEST_MAX_ENTRIES) {
+                     "MANIFEST: [%2d] COMPONENT  hash=0x%08x id='%s' — MISSING",
+                     i, (unsigned)e->net_hash, e->id);
+        if (num_missing < 255) {
             missing_hashes[num_missing++] = e->net_hash;
         }
     }
 
-    u8 status = (num_missing == 0) ? MANIFEST_STATUS_READY
-                                   : MANIFEST_STATUS_NEED_ASSETS;
+    status = (num_missing == 0) ? MANIFEST_STATUS_READY
+                                 : MANIFEST_STATUS_NEED_ASSETS;
 
     if (status == MANIFEST_STATUS_READY) {
         sysLogPrintf(LOG_NOTE,
-                     "MANIFEST: check passed — %u/%u entries OK, sending READY",
-                     (unsigned)manifest->num_entries, (unsigned)manifest->num_entries);
+                     "MANIFEST: check passed — %d/%d entries OK, sending READY",
+                     (int)manifest->num_entries, (int)manifest->num_entries);
     } else {
         sysLogPrintf(LOG_NOTE,
-                     "MANIFEST: check found %u missing component(s) of %u entries, sending NEED_ASSETS",
-                     (unsigned)num_missing, (unsigned)manifest->num_entries);
+                     "MANIFEST: check found %d missing component(s) of %d entries, sending NEED_ASSETS",
+                     num_missing, (int)manifest->num_entries);
     }
 
     netbufStartWrite(&g_NetMsgRel);
     netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest->manifest_hash,
-                                 status, missing_hashes, num_missing);
+                                 status, missing_hashes, (u8)num_missing);
     netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
 }
