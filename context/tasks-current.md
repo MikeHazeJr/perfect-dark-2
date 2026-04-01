@@ -74,7 +74,7 @@
 | **Phase 3** | Language bank manifesting — menu screens declare lang dependencies | **DONE (S112, commit 5d449cd)** — ASSET_LANG type, 68 base lang banks registered, langmanifest.h/c module, langManifestEnsureId() API, langreset.c + setup.c wired, scanner type mappings. Build clean. |
 | **Phase 4** | Pre-validation pass — verify all entries exist before committing | **DONE (S113, commit 98aa2ec)** — `manifestValidate()` validates to_load entries (catalog presence, enabled state, lang bank type-check, dep chain warnings) before `manifestApplyDiff`. Wired in both SP + MP paths. 529/529 clean. |
 | **Phase 5** | Proper unload/cleanup — targeted ref-counted unloads | **DONE (S114, commit 8af6919)** — `catalogUnloadAsset` now logs "freed/retained" with ref deltas, cascades dep unloads when parent hits ref=0, safe idempotent with manifest direct dep calls. `manifestApplyDiff` loads before unloads (primary crash fix for 56-asset match→menu transition 0xc0000005). Needs playtest: SP transition → verify log shows ref=N->M (freed/retained) lines. |
-| **Phase 6** | Menu/UI asset manifesting — screens register mini-manifests | NOT STARTED |
+| **Phase 6** | Menu/UI asset manifesting — screens register mini-manifests | **DONE (S115, commit d624022)** — `screenmfst.h/c` module: `screenManifestRegister(dialogdef*, ids[], types[], count)` + `screenManifestTick()` (enter/leave detection via per-frame dialogdef* set diff) + `screenManifestShutdown()`. Wired into `pdguiHotswapRenderQueued` + `pdguiHotswapShutdown`. Example registrations: Agent Select (body+head+lang_misc), Match Setup (lang_mpmenu+lang_mpweapons), Network (lang_mpmenu+lang_misc). Base-game bundled assets are no-op retains; full lifecycle active for non-bundled mod assets. 721/721 clean. |
 
 ---
 

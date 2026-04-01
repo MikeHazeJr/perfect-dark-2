@@ -3,6 +3,34 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S115 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 6: Menu/UI Asset Manifesting
+
+### What Was Done
+
+**Phase 6 (commit d624022):**
+- `port/include/screenmfst.h` (new): `screenManifestRegister()`, `screenManifestTick()`, `screenManifestShutdown()`. Constants `SMFST_MAX_IDS_PER_SCREEN=32`, `SMFST_MAX_SCREENS=64`, `SMFST_MAX_ACTIVE=16`. Uses `void*` for dialogdef to avoid pulling game headers into port code.
+- `port/src/screenmfst.c` (new): C89 implementation. Registry of `ScreenEntry { void *dialogdef; char ids[][64]; u8 types[]; s32 count; }`. `screenManifestTick()` compares active_defs against last-frame snapshot: enter → `catalogLoadAsset` per ID; leave → `catalogUnloadAsset` per ID. Phase 5 ref counting handles shared assets across overlapping screens. `screenManifestShutdown()` unloads currently-active screens before clearing state.
+- `port/fast3d/pdgui_hotswap.cpp`: Added `#include "screenmfst.h"`. In `pdguiHotswapRenderQueued()`: collects `entry->dialogdef` pointers from the render queue, calls `screenManifestTick(active_defs, n)` before clearing the queue. In `pdguiHotswapShutdown()`: calls `screenManifestShutdown()` first.
+- `port/fast3d/pdgui_menu_agentselect.cpp`: `screenManifestRegister` for `g_FilemgrFileSelectMenuDialog` with `base:dark_combat`, `base:head_dark_combat`, `base:lang_misc`.
+- `port/fast3d/pdgui_menu_matchsetup.cpp`: `screenManifestRegister` for `g_MatchSetupMenuDialog` with `base:lang_mpmenu`, `base:lang_mpweapons`.
+- `port/fast3d/pdgui_menu_network.cpp`: `screenManifestRegister` for `g_NetMenuDialog` with `base:lang_mpmenu`, `base:lang_misc`.
+- Build: 721/721 clean (both pd.exe + pd-server.exe).
+
+### Decisions Made
+- Per-frame enter/leave detection via dialogdef* set diff (not lifecycle callbacks) — cleanest integration with existing hotswap render queue without requiring new hook points.
+- `void*` for dialogdef pointer key — avoids menudialogdef header in port C code while remaining type-safe at the registration sites (C++ casts).
+- Base-game bundled assets (bundled=1): `catalogLoadAsset`/`catalogUnloadAsset` are no-ops. This is intentional — the registry documents intent and provides forward compatibility for mod overrides of those assets.
+- Manifest Lifecycle Sprint: **ALL 6 PHASES COMPLETE**.
+
+### Next Steps
+- Playtest all six phases: SMFST enter/leave events visible as `"SMFST: enter/leave 0x..."` in log when navigating between hotswapped menus.
+- Optional: register mini-manifests for more screens as mod content grows.
+- The sprint is done; next major track is likely Room Architecture (R-2 onward) or Phase 3 of the participant system (remove chrslots).
+
+---
+
 ## Session S114 -- 2026-04-01
 
 **Focus**: Manifest Lifecycle Sprint — Phase 5: Proper Unload/Cleanup
