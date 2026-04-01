@@ -30,6 +30,7 @@ void pdguiMenuTeamSetupRegister(void);    /* Group 4: Team assignment screen */
 void pdguiMenuMpSettingsRegister(void);   /* Group 4: Player handicaps screen */
 void pdguiMenuChallengesRegister(void);   /* Group 4: Combat challenge browser */
 void pdguiMpIngameRegister(void);         /* Group 5: MP In-Game overlays + endscreen suppression */
+void pdguiMenuEndscreenRegister(void);    /* Group 2: SP/MP end screens */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -50,6 +51,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuMpSettingsRegister();
     pdguiMenuChallengesRegister();
     pdguiMpIngameRegister();
+    pdguiMenuEndscreenRegister();
 }
 
 #ifdef __cplusplus
