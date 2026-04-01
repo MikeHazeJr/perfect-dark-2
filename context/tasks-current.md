@@ -49,7 +49,15 @@
 
 ---
 
-## Recently Completed (S97 — 2026-04-01)
+## Recently Completed (S99 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Group 1 Solo Mission Flow** (30a1d9e) | **DONE** — 8 ImGui replacements + 3 legacy-preserved. `pdgui_menu_solomission.cpp`. Needs playtest. |
+
+---
+
+## Recently Completed (S97-S98 — 2026-04-01)
 
 | Item | Status |
 |------|--------|

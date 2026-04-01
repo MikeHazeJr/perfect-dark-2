@@ -68,3 +68,12 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum,
                       const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
 s32 matchStart(void);
+
+/* Handicap accessors (avoid exposing types.h to C++ translation units) */
+u8   matchGetPlayerHandicap(s32 playernum);
+void matchSetPlayerHandicap(s32 playernum, u8 val);
+void matchResetHandicaps(void);
+
+/* Challenge-mode start: applies challenge config to g_MpSetup and calls
+ * mpStartMatch() directly, bypassing the g_MatchConfig → g_MpSetup copy. */
+s32 matchStartFromChallenge(s32 slot);

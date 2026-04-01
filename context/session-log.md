@@ -3,6 +3,46 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S99 -- 2026-04-01
+
+**Focus**: Group 1 Solo Mission Flow — 11 legacy dialogs migrated to ImGui
+
+### What Was Done
+
+#### pdgui_menu_solomission.cpp — Group 1 complete (commit 30a1d9e)
+
+Created `port/fast3d/pdgui_menu_solomission.cpp` and wired it into `pdgui_menus.h`.
+
+**8 full ImGui replacements:**
+- **Mission Select** (`g_SelectMissionMenuDialog`): full stage list with mission group headers (Mission 1–9 + Special Assignments), progressive unlock logic mirroring `menuhandlerMissionList`, best-time column, special stage section via `getNumUnlockedSpecialStages`/`func0f104720`.
+- **Difficulty** (`g_SoloMissionDifficultyMenuDialog`): Agent/SA/PA rows with per-row best times and lock state (`isStageDifficultyUnlocked`). PD Mode row shown only when Skedar Ruins PA is beaten; opens `g_PdModeSettingsMenuDialog` (legacy). Calls `lvSetDifficulty` and pushes accept dialog.
+- **Briefing** (`g_SoloMissionBriefingMenuDialog`): scrollable `langGet(g_Briefing.briefingtextnum)` via wrapped renderer.
+- **Pre/Post Briefing** (`g_PreAndPostMissionBriefingMenuDialog`): shares the same briefing renderer with a distinct ImGui window ID.
+- **Accept Mission** (`g_AcceptMissionMenuDialog`): objectives list with difficulty-bit indicators (A/SA/PA), Accept/Decline buttons. Accept calls `menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)` to start the mission.
+- **Pause** (`g_SoloMissionPauseMenuDialog`): objectives display, Resume/Inventory/Options/Abort nav. Inventory pushes `g_SoloMissionInventoryMenuDialog` (legacy), Options pushes `g_SoloMissionOptionsMenuDialog`.
+- **Abort** (`g_MissionAbortMenuDialog`): danger dialog — switches to Red palette (index 2), restores on exit. Calls `menuhandlerAbortMission(MENUOP_SET, NULL, NULL)`. Cancel is the default selection for safety.
+- **Options hub** (`g_SoloMissionOptionsMenuDialog`): buttons for Audio/Video/Control/Display/Extended, each calling `menuPushDialog`.
+
+**3 legacy-preserved (NULL renderFn — keeps 3D model/controller previews):**
+- `g_SoloMissionInventoryMenuDialog`, `g_FrWeaponsAvailableMenuDialog`, `g_SoloMissionControlStyleMenuDialog`
+
+**Key design decisions:**
+- Legacy C dialog handlers still fire on OPEN/CLOSE/TICK — `menudialog00103608` (loads briefing) and `soloMenuDialogPauseStatus` (copies objectives) continue to run, so `g_Briefing` is always correctly populated before ImGui renders.
+- `struct sm_missionconfig` and `struct sm_gamefile` manually mirrored with explicit padding to avoid including types.h in C++.
+- Language text IDs hard-coded as numeric constants rather than including types.h.
+
+**Build**: Clean (only pre-existing `/*` in comment warnings). `pd` + `pd-server` both link.
+
+### Decisions Made
+- Inventory/FrWeapons/ControlStyle kept legacy: these dialogs use 3D weapon model previews and a controller button diagram — key interactive UX features that must not be degraded.
+- `menuhandlerAcceptMission` and `menuhandlerAbortMission` called with NULL item/data — both handlers only branch on `operation == MENUOP_SET` and ignore item/data in that branch.
+
+### Next Steps
+- Playtest: navigate solo mission flow from main menu → mission select → difficulty → accept → mission. Verify briefing, objectives, pause, abort.
+- Group 2 (End Screens) or Group 4 expansion (simulants/weapons sub-menus).
+
+---
+
 ## Session S98 -- 2026-04-01
 
 **Focus**: Group 3 Settings completion — extend existing Settings tabs with all remaining legacy options

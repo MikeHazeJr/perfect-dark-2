@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-31, Session S96 (SA-6 follow-up: counter-op assets in manifestBuildMission + manifestEnsureLoaded runtime safety net wired into bodyAllocateChr; 27/27 clean)
+> **Last updated**: 2026-04-01, Session S97 (Crash triage, universal numeric aliases, manifest completeness, kill plane, Catalog Settings tab, UI Scaling — SA series ALL DONE, v0.1.0 critical blockers cleared)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S91–S97 | 2026-03-31–04-01 | SA-1 through SA-7 complete (session catalog, modular API, wire migration, persistence, load path, SP manifest, consolidation). S97: crash triage (runtime_index, stage aliases, hash backfill), universal numeric aliases (6255 entries), manifest chokepoints (bodyAllocateModel, setupLoadModeldef), kill plane, Catalog Settings tab, UI Scaling slider. v0.1.0 critical blockers cleared. | [session-log.md](session-log.md) |
 | S90 | 2026-03-31 | B-51/52/53 fixed (bot configs via SVC_STAGE_START, scenarioInitProps on client); asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25 | [session-log.md](session-log.md) |
 | S87–S88 | 2026-03-30 | Match Startup Pipeline Phases C.5 (SP catalog registration), D (mod transfer), E (ready gate), F (sync countdown) | [session-log.md](session-log.md) |
 | S79–S86 | 2026-03-29–30 | C-7 SFX, full TODO sweep, NAT traversal D8 (v23), Solo Room screen, bundled mod removal, B-55 fix, Match Startup Pipeline Phases A–C | [sessions-79-86.md](sessions-79-86.md) |
@@ -113,3 +114,4 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.
 - **Mod architecture**: Component-based (S27). Each asset = own folder + `.ini`. See [component-mod-architecture.md](component-mod-architecture.md).
+                                                       

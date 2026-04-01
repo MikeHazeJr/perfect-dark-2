@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-03-31, Session 90
+> **Last updated**: 2026-04-01, Session 97
 
 ---
 
@@ -40,7 +40,7 @@ Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/
 | D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
 | D3R | Component Mod Architecture | ✅ **ALL DONE** (D3R-1–11, S46a, S46b) | S80 |
 | D4 | Menu Migration | ♻️ Superseded (ongoing, no longer blocks) | S22 |
-| D5 | Settings / Graphics / QoL | 📋 Planned | — |
+| D5 | Settings / Graphics / QoL | 🔶 Partial (UI Scaling done S97) | S97 |
 | D6 | Persistent Stats | 🔶 Partial | S49 |
 | D7 | Discord Rich Presence | 📋 Planned | — |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
@@ -53,7 +53,7 @@ Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/
 | D14b | Mod Distribution | 📋 Planned | — |
 | D15 | Map Editor / Char Creator / Skins | 📋 Planned | — |
 | D16 | Master Server | 📋 Planned | — |
-| MSP | Match Startup Pipeline | 🔶 Phases A–F done (S84–S90), SA-1–SA-5 next (session catalog) | S90 |
+| MSP | Match Startup Pipeline | ✅ Phases A–F done (S84–S90), SA-1–SA-7 ALL DONE (S91–S97) | S97 |
 | D-MEM | Memory Modernization | 🔶 M0–M1 done, MEM-1/2/3 DONE, M2–M6 (stack→heap) remain | S47a |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | 🔶 Phase 1–2 done, Phase 3 (remove chrslots) next | S47b |

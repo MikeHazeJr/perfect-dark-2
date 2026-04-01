@@ -290,3 +290,62 @@ s32 matchStart(void)
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
 }
+
+/* ========================================================================
+ * Handicap accessors (wrap g_PlayerConfigsArray without exposing types.h)
+ * ======================================================================== */
+
+u8 matchGetPlayerHandicap(s32 playernum)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return 0x80;
+	}
+	return g_PlayerConfigsArray[playernum].handicap;
+}
+
+void matchSetPlayerHandicap(s32 playernum, u8 val)
+{
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		g_PlayerConfigsArray[playernum].handicap = val;
+	}
+}
+
+void matchResetHandicaps(void)
+{
+	s32 i;
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_PlayerConfigsArray[i].handicap = 0x80;
+	}
+}
+
+/* ========================================================================
+ * Challenge start — sets the challenge, bypasses g_MatchConfig → g_MpSetup
+ * copy so the challenge's own config (stage, bots, weapons) survives intact.
+ * ======================================================================== */
+
+s32 matchStartFromChallenge(s32 slot)
+{
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting challenge slot %d", slot);
+
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = -1;
+	g_Vars.antiplayernum = -1;
+
+	/* Apply challenge config → sets g_MpSetup (scenario, stage, bots, etc.) */
+	challengeSetCurrentBySlot(slot);
+
+	/* Sync back the challenge's stage into g_MatchConfig so our port-side
+	 * tracking stays consistent (arena picker, etc.). */
+	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
+	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
+
+	g_NotLoadMod = false;
+	romdataFileFreeForSolo();
+
+	/* Start directly — g_MpSetup already fully configured by challengeApply() */
+	mpStartMatch();
+	menuStop();
+
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
+	return 0;
+}
