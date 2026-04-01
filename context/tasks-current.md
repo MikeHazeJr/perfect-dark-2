@@ -49,6 +49,14 @@
 
 ---
 
+## Recently Completed (S100 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Group 2 End Screens — registration wired** (9a376eb) | **DONE** — `pdguiMenuEndscreenRegister` now called from `pdguiMenusRegisterAll`. SP solo/2P/MP end screens active. `pdgui_menu_endscreen.cpp` already in 795ff96. Needs playtest. |
+
+---
+
 ## Recently Completed (S99 — 2026-04-01)
 
 | Item | Status |

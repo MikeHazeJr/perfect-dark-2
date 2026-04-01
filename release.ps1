@@ -76,6 +76,41 @@ if ($Nightly) {
 
 $ReleaseNotes = "UNRELEASED.md"
 
+# ============================================================================
+# Step 0: Rebuild from source (cmake reconfigure + compile)
+# Version is baked in at cmake configure time via versioninfo.h.in.
+# Pre-existing binaries may embed a stale version — always reconfigure + build.
+# ============================================================================
+
+Write-Host ""
+Write-Host "[0/6] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
+
+$BuildScript = Join-Path $PSScriptRoot "devtools\build-headless.ps1"
+if (-not (Test-Path $BuildScript)) {
+    Write-Host "  ERROR: build-headless.ps1 not found at $BuildScript" -ForegroundColor Red
+    exit 1
+}
+
+# Pass the resolved version explicitly so cmake is configured with the correct
+# VERSION_SEM_* flags, regardless of what the build directory has cached.
+$buildArgs = @("-File", $BuildScript, "-Target", "all", "-Version", $Version)
+Write-Host "  Running: powershell $($buildArgs -join ' ')" -ForegroundColor Gray
+
+$savedEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$buildOut = powershell @buildArgs 2>&1
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = $savedEAP
+
+foreach ($line in $buildOut) { Write-Host "  $($line.ToString())" -ForegroundColor Gray }
+
+if ($buildExit -ne 0) {
+    Write-Host ""
+    Write-Host "  ERROR: Build failed (exit $buildExit). Fix build errors before releasing." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  Build succeeded." -ForegroundColor Green
+
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
 $ClientExe = $(if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
@@ -178,7 +213,7 @@ if (-not $hasClient -and -not $hasServer) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[1/6] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
+Write-Host "[1/7] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
 
 if (Test-Path $DistDir) {
     Remove-Item $DistDir -Recurse -Force
@@ -246,7 +281,7 @@ if ($hasMods) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[2/6] Creating zip archive..." -ForegroundColor Yellow
+Write-Host "[2/7] Creating zip archive..." -ForegroundColor Yellow
 
 $zipName = $(if ($Nightly) { "PerfectDark-nightly-$DateCode-win64.zip" } else { "PerfectDark-v$Version-win64.zip" })
 $zipPath = "dist/$zipName"
@@ -299,7 +334,7 @@ Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 # ============================================================================
 
 Write-Host ""
-Write-Host "[3/6] Git tagging..." -ForegroundColor Yellow
+Write-Host "[3/7] Git tagging..." -ForegroundColor Yellow
 
 # Create unified release tag
 $existingTag = git tag -l $ReleaseTag 2>$null
@@ -317,7 +352,7 @@ if ($existingTag) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[4/6] Pushing to remote..." -ForegroundColor Yellow
+Write-Host "[4/7] Pushing to remote..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun) {
     Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
@@ -377,7 +412,7 @@ if ($SkipPush -or $DryRun) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[5/6] Creating GitHub releases..." -ForegroundColor Yellow
+Write-Host "[5/7] Creating GitHub releases..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = $(if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" })
@@ -455,7 +490,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[6/6] Cleanup and backup..." -ForegroundColor Yellow
+Write-Host "[6/7] Cleanup and backup..." -ForegroundColor Yellow
 
 # For STABLE releases, keep a local backup of the zip
 if (-not $Prerelease -and (Test-Path $zipPath)) {
