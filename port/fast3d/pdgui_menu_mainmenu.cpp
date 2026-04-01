@@ -292,7 +292,53 @@ u32 mempPCGetTotalAllocated(void);
 u32 mempPCGetNumAllocations(void);
 extern s32 g_OsMemSizeMb;
 
+/* Screen size / screen split — options.c */
+s32  optionsGetScreenSize(void);
+void optionsSetScreenSize(s32 size);
+u8   optionsGetScreenSplit(void);
+void optionsSetScreenSplit(u8 split);
+
+/* Subtitle options — options.c */
+u8   optionsGetInGameSubtitles(void);
+void optionsSetInGameSubtitles(s32 enable);
+u8   optionsGetCutsceneSubtitles(void);
+void optionsSetCutsceneSubtitles(s32 enable);
+
+/* HUD display options (per-player) — options.c */
+s32  optionsGetSightOnScreen(s32 mpchrnum);
+void optionsSetSightOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetAlwaysShowTarget(s32 mpchrnum);
+void optionsSetAlwaysShowTarget(s32 mpchrnum, s32 enable);
+s32  optionsGetShowZoomRange(s32 mpchrnum);
+void optionsSetShowZoomRange(s32 mpchrnum, s32 enable);
+s32  optionsGetAmmoOnScreen(s32 mpchrnum);
+void optionsSetAmmoOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetShowGunFunction(s32 mpchrnum);
+void optionsSetShowGunFunction(s32 mpchrnum, s32 enable);
+s32  optionsGetShowMissionTime(s32 mpchrnum);
+void optionsSetShowMissionTime(s32 mpchrnum, s32 enable);
+s32  optionsGetPaintball(s32 mpchrnum);
+void optionsSetPaintball(s32 mpchrnum, s32 enable);
+s32  optionsGetHeadRoll(s32 mpchrnum);
+void optionsSetHeadRoll(s32 mpchrnum, s32 enable);
+
+/* Combat assist options (per-player) — options.c */
+s32  optionsGetAutoAim(s32 mpchrnum);
+void optionsSetAutoAim(s32 mpchrnum, s32 enable);
+s32  optionsGetLookAhead(s32 mpchrnum);
+void optionsSetLookAhead(s32 mpchrnum, s32 enable);
+s32  optionsGetAimControl(s32 mpchrnum);
+void optionsSetAimControl(s32 mpchrnum, s32 index);
+
 } /* extern "C" */
+
+/* Screen size constants (from src/include/constants.h).
+ * Prefixed PD_ to avoid any collision with external headers. */
+#define PD_SCREENSIZE_FULL    0
+#define PD_SCREENSIZE_WIDE    1
+#define PD_SCREENSIZE_CINEMA  2
+#define PD_SCREENSPLIT_HORIZ  0
+#define PD_SCREENSPLIT_VERT   1
 
 /* ========================================================================
  * State
@@ -548,6 +594,38 @@ static void renderSettingsVideo(float scale)
         float shake = g_ViShakeIntensityMult;
         if (PdSliderFloat("Explosion Shake", &shake, 0.0f, 2.0f, "%.1f")) {
             g_ViShakeIntensityMult = shake;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Gameplay Screen ---- */
+    ImGui::TextDisabled("Gameplay Screen");
+    ImGui::Separator();
+
+    /* Screen Size — controls the 3D viewport clip region inside the window */
+    {
+        int sz = optionsGetScreenSize();
+        if (sz < 0 || sz > 2) sz = PD_SCREENSIZE_FULL;
+        const char *szOpts[] = { "Full", "Wide", "Cinema" };
+        if (PdCombo("Screen Size", &sz, szOpts, 3)) {
+            optionsSetScreenSize(sz);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Full:   standard viewport fills the frame\n"
+                "Wide:   moderate letterbox (top/bottom bars)\n"
+                "Cinema: heavy letterbox (cinematic crop)");
+        }
+    }
+
+    /* 2-Player Screen Split — orientation when two local players are active */
+    {
+        int sp = (int)optionsGetScreenSplit();
+        if (sp < 0 || sp > 1) sp = PD_SCREENSPLIT_HORIZ;
+        const char *spOpts[] = { "Horizontal", "Vertical" };
+        if (PdCombo("2-Player Screen Split", &sp, spOpts, 2)) {
+            optionsSetScreenSplit((u8)sp);
         }
     }
 }
@@ -1168,6 +1246,134 @@ static void renderSettingsGame(float scale)
             g_PlayerExtCfg[0].jumpheight = jump;
         }
     }
+
+    ImGui::Spacing();
+
+    /* ---- HUD & Display ---- */
+    ImGui::TextDisabled("HUD & Display");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetSightOnScreen(0) != 0;
+        if (PdCheckbox("Sight on Screen", &v)) {
+            optionsSetSightOnScreen(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetAmmoOnScreen(0) != 0;
+        if (PdCheckbox("Ammo on Screen", &v)) {
+            optionsSetAmmoOnScreen(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowGunFunction(0) != 0;
+        if (PdCheckbox("Show Gun Function", &v)) {
+            optionsSetShowGunFunction(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetAlwaysShowTarget(0) != 0;
+        if (PdCheckbox("Always Show Target", &v)) {
+            optionsSetAlwaysShowTarget(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowZoomRange(0) != 0;
+        if (PdCheckbox("Show Zoom Range", &v)) {
+            optionsSetShowZoomRange(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowMissionTime(0) != 0;
+        if (PdCheckbox("Show Mission Time", &v)) {
+            optionsSetShowMissionTime(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetHeadRoll(0) != 0;
+        if (PdCheckbox("Head Roll", &v)) {
+            optionsSetHeadRoll(0, v ? 1 : 0);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Subtitles ---- */
+    ImGui::TextDisabled("Subtitles");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetInGameSubtitles() != 0;
+        if (PdCheckbox("In-Game Subtitles", &v)) {
+            optionsSetInGameSubtitles(v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetCutsceneSubtitles() != 0;
+        if (PdCheckbox("Cutscene Subtitles", &v)) {
+            optionsSetCutsceneSubtitles(v ? 1 : 0);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Visual Effects ---- */
+    ImGui::TextDisabled("Visual Effects");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetPaintball(0) != 0;
+        if (PdCheckbox("Paintball Mode", &v)) {
+            optionsSetPaintball(0, v ? 1 : 0);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Replace bullet wounds with coloured paint splatters");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Combat Assist ---- */
+    ImGui::TextDisabled("Combat Assist");
+    ImGui::Separator();
+
+    {
+        int aimMode = optionsGetAimControl(0);
+        if (aimMode < 0 || aimMode > 1) aimMode = 0;
+        const char *aimOpts[] = { "Hold", "Toggle" };
+        if (PdCombo("Aim Mode", &aimMode, aimOpts, 2)) {
+            optionsSetAimControl(0, aimMode);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Hold:   hold Fire to aim; release to holster\n"
+                "Toggle: press Fire to enter aim mode; press again to exit");
+        }
+    }
+
+    {
+        bool v = optionsGetAutoAim(0) != 0;
+        if (PdCheckbox("Auto Aim", &v)) {
+            optionsSetAutoAim(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetLookAhead(0) != 0;
+        if (PdCheckbox("Look Ahead", &v)) {
+            optionsSetLookAhead(0, v ? 1 : 0);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Camera tilts forward slightly when moving");
+        }
+    }
 }
 
 /* ========================================================================
@@ -1380,6 +1586,21 @@ static void renderSettingsDebug(float scale)
     ImGui::Separator();
     ImGui::TextDisabled("F11  Menu Storyboard");
     ImGui::TextDisabled("F12  Debug Overlay");
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ About ------ */
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "About");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::Text("Perfect Dark 2 PC Port");
+    ImGui::Text("Version:  v%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+    ImGui::TextDisabled("Build:    %s", VERSION_BUILD);
+    ImGui::TextDisabled("Commit:   %.12s", VERSION_HASH);
+    ImGui::TextDisabled("ROM:      %-10s  Target: %s", VERSION_ROMID, VERSION_TARGET);
+    ImGui::TextDisabled("Branch:   %s", VERSION_BRANCH);
 }
 
 /* -----------------------------------------------------------------------
