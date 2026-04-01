@@ -341,18 +341,21 @@ const char *arenaGetName(u16 textId)
  * The ImGui arena dropdown renders collapsible sections per group.
  * ======================================================================== */
 
-#define ARENA_NUM_GROUPS 7
+#define ARENA_NUM_GROUPS 6
+#define ARENA_MODS_GROUP (ARENA_NUM_GROUPS - 1)  /* catch-all index for mod arenas */
 #define MAX_ARENAS_PER_GROUP 32
 
-/* Group names in display order — must match categories in assetcatalog_base.c */
+/* Group names in display order.
+ * First (ARENA_NUM_GROUPS-1) must match categories in assetcatalog_base.c.
+ * Last entry ("Mods") is a catch-all for any mod-registered arena whose
+ * category does not match a named base-game group. */
 static const char *s_ArenaGroupNames[ARENA_NUM_GROUPS] = {
     "Dark",
     "Solo Missions",
     "Classic",
-    "GoldenEye X",
-    "GoldenEye X Bonus",
     "Bonus",
     "Random",
+    "Mods",
 };
 
 /* Per-group cache of catalog entry pointers */
@@ -366,17 +369,26 @@ static s32 s_ArenaCacheDirty = 1;
 /* Collapsed state: bit N = group N is collapsed */
 static u8 s_ArenaGroupCollapsed = 0;
 
-/* Callback: bucket each ASSET_ARENA entry into the right group by category */
+/* Callback: bucket each ASSET_ARENA entry into the right group by category.
+ * Named base-game groups are checked first (indices 0..ARENA_MODS_GROUP-1).
+ * Any entry whose category does not match a named group lands in the "Mods"
+ * catch-all bucket (index ARENA_MODS_GROUP), so mod-registered arenas are
+ * always visible in the dropdown. */
 static void arenaCollectCb(const asset_entry_t *entry, void *userdata)
 {
     (void)userdata;
-    for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+    s32 g;
+    for (g = 0; g < ARENA_MODS_GROUP; g++) {
         if (strcmp(entry->category, s_ArenaGroupNames[g]) == 0) {
             if (s_ArenaGroupCache[g].count < MAX_ARENAS_PER_GROUP) {
                 s_ArenaGroupCache[g].entries[s_ArenaGroupCache[g].count++] = entry;
             }
-            break;
+            return;
         }
+    }
+    /* No named group matched — mod arena or unknown category */
+    if (s_ArenaGroupCache[ARENA_MODS_GROUP].count < MAX_ARENAS_PER_GROUP) {
+        s_ArenaGroupCache[ARENA_MODS_GROUP].entries[s_ArenaGroupCache[ARENA_MODS_GROUP].count++] = entry;
     }
 }
 

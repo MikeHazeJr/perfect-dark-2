@@ -551,10 +551,11 @@ s32 assetCatalogRegisterBaseGame(void)
 		{  0, 13, "Dark" },
 		{ 13, 14, "Solo Missions" },
 		{ 27,  5, "Classic" },
-		{ 32, 11, "GoldenEye X" },
-		{ 43, 12, "GoldenEye X Bonus" },
+		/* indices 32-54 (GoldenEye X / GoldenEye X Bonus) intentionally
+		 * omitted — those mod maps are not part of this project. */
 		{ 55, 16, "Bonus" },
-		{ 71,  4, "Random" },
+		{ 71,  2, "Random" }, /* Random Multi (71) + Random Solo (72) only;
+		                       * index 73 (Random GEX) and 74 (junk) omitted */
 	};
 	#define NUM_ARENA_GROUPS (sizeof(s_ArenaGroupMap) / sizeof(s_ArenaGroupMap[0]))
 
