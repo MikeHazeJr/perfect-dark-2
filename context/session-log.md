@@ -3,6 +3,108 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S97 -- 2026-04-01
+
+**Focus**: Crash triage, universal numeric aliases, manifest completeness sweep, kill plane, Catalog Settings tab
+
+### What Was Done
+
+#### 1. Boot/Match Crash Triage (commits c7bfa43, c5486ee, f355ff6 — March 31, 9–10pm)
+
+- **`c7bfa43` — MP body/head runtime_index off-by-one**: `assetcatalog_base.c` was storing `i` (the `g_MpBodies[]`/`g_MpHeads[]` array index) as the `runtime_index` for base game MP body/head catalog entries. These entries must use the `g_HeadsAndBodies[]` index (i.e., `g_MpBodies[i]` / `g_MpHeads[i]`) as the runtime_index, because that is what `bodyAllocateChr`, `catalogGetBodyFilenumByIndex`, and all downstream code use. Using the wrong index space caused boot/match-start crashes when the session catalog tried to resolve these entries. 2-line fix in `assetcatalog_base.c`.
+
+- **`c5486ee` — Match start fix + string ID logging**: Three improvements:
+  - `netmsg.c`: `sessionCatalogGetId()` now called directly on stage/weapon IDs rather than going through an intermediate layer; return 1 on malformed stage-start input rather than crashing.
+  - `assetcatalog_api.c`: catalog log lines now print the entry's string ID (name + filenum) instead of raw integers — dramatically improves readability of [CATALOG-*] log output.
+  - `romdata.c`: `#include "assetcatalog.h"` added; each catalog-resolved ROM load now logs the entry string ID.
+
+- **`f355ff6` — Stage aliases + session catalog hash backfill**: Two related fixes for [SESSION-CATALOG-ASSERT] hash=0x00000000 warnings on match start:
+  1. `assetcatalog_base.c`: each base stage now registers a second catalog entry with `"stage_0x%02x"` ID (e.g. `"stage_0x43"`) alongside the existing `"base:name"` entry. The manifest and `netmsg.c` always generate stage IDs in this format, so `assetCatalogResolve("stage_0x43")` now returns a valid entry with a non-zero CRC32 net_hash. Fixes the root cause of 9× [SESSION-CATALOG-ASSERT] hash=0 warnings.
+  2. `sessioncatalog.c`: after string-ID fallback resolution succeeds on the client, back-fills `e->net_hash` from the local catalog entry when the server sent hash=0. Defensive measure for any residual hash=0 entries.
+
+#### 2. Arena List Cleanup (commit 9a698c3 — March 31, 10:43pm)
+
+Removed GoldenEye X stage entries (indices 32–54) and junk Random entries (73–74) from `assetcatalog_base.c`. These were never part of this project and produced garbage display names (language file maps those lang IDs to wrong strings like "Load A Saved Head").
+
+In `pdgui_menu_matchsetup.cpp`:
+- Dropped "GoldenEye X" and "GoldenEye X Bonus" group names (ARENA_NUM_GROUPS 7→6)
+- Added "Mods" as a catch-all group (ARENA_MODS_GROUP = 5)
+- `arenaCollectCb` falls through to "Mods" for any ASSET_ARENA entry whose category doesn't match a named base-game group — mod-registered arenas appear automatically
+
+#### 3. Universal Numeric Aliases (commits 1c801a3, 8f6de5e, 554759e — March 31, 11pm–midnight)
+
+**Root cause addressed**: Session catalog hashes were 0x00000000 for weapons/bodies/heads because the manifest pipeline generates `"body_%d"` / `"head_%d"` / `"weapon_%d"` IDs but the catalog only registered `"base:{name}"` primary entries. `assetCatalogResolve("body_3")` would fail → `sessionCatalogBuild` set `net_hash=0` → `catalogResolveWeaponBySession` crashed.
+
+Fix: register numeric alias entries alongside all primary entries:
+
+| Commit | Aliases added | Count |
+|--------|--------------|-------|
+| 1c801a3 | `body_%d`, `head_%d`, `weapon_%d` | ~63 + ~76 + ~34 |
+| 1c801a3 | Server `g_MpArenas[75]` stub expanded to full table with correct STAGE_* stagenum | 75 |
+| 8f6de5e | `arena_%d`, `prop_%d`, `gamemode_%d`, `hud_%d`, `model_%d` | ~75 + 8 + 6 + 6 + ~440 |
+| 554759e | `anim_%d` (1207), `tex_%d` (3503), `sfx_%d` (1545) | 6255 |
+
+Large ROM tables (1207 anim, 3503 tex, 1545 sfx) given numeric aliases for mod override support — mods can now reference assets by `"anim_42"`, `"tex_100"`, `"sfx_7"` via the catalog.
+
+#### 4. Manifest Completeness Sweep (commits 990d512, 6e1addc, 12f6922, a4cd903 — April 1, midnight–12:40am)
+
+- **`990d512` — `manifestEnsureLoaded` in `bodyAllocateModel`**: The S96 wiring only covered `bodyAllocateChr` (stage-setup path). AI-command spawns (`Obj1` and `chrSpawnAtPad`/`chrSpawnAtChr`) go through `chrSpawnAtCoord` → `bodyAllocateModel` directly, bypassing `bodyAllocateChr`. Added `manifestEnsureLoaded` at the top of `bodyAllocateModel` — the single chokepoint for all spawn paths. Fixes Obj1 runtime crashes. Existing calls in `bodyAllocateChr` left intact (covers `headnum < 0` path); `manifestEnsureLoaded` is idempotent.
+
+- **`6e1addc` — `manifestEnsureLoaded` in `setupLoadModeldef`**: `setupLoadModeldef` is the single chokepoint for all non-character model loads (prop objects, weapon models, hat models, projectile models). Adding `manifestEnsureLoaded(MANIFEST_TYPE_MODEL)` here ensures mid-mission weapon drops, laptop guns, debris, and objective-triggered props are tracked in the SP asset manifest. No-op in MP mode or before the SP manifest is built.
+
+- **`12f6922` — MANIFEST_TYPE_ANIM/TEXTURE defined + hooks**: Added `MANIFEST_TYPE_ANIM=6` and `MANIFEST_TYPE_TEXTURE=7` to `netmanifest.h`. Extended `s_type_names[]` in `manifestLog`/`manifestCheck`. Wired `manifestEnsureLoaded` into `animLoadHeader` and `texLoadFromTextureNum`. **(Hooks immediately reverted — see below.)**
+
+- **`a4cd903` — Remove anim/tex `manifestEnsureLoaded` hooks (spam/freeze fix)**: The hooks fired on every ROM-based anim/texture load with synthetic IDs (`anim_N`, `tex_N`) that hit the O(n) manifest scan + LOG_WARNING path on each lookup miss. During stage load: 64,000+ log lines + O(n²) spiral → game froze at match start. **Fix**: removed both `manifestEnsureLoaded` calls from `animLoadHeader` and `texLoadFromTextureNum`. `MANIFEST_TYPE_ANIM/TEXTURE` remain defined for future mod override use — hooks will be added per-mod at load time, not on every DMA fetch from ROM.
+
+#### 5. Kill Plane (commit 9ff6daa — April 1, 12:03am)
+
+Adaptive void death boundary in `player.c:playerTick()`. When a player falls below world geometry, force-kill + trigger normal respawn. Threshold = `miny - max(level_height * 6, 2000)` using `g_WorldMesh` collision bounds; falls back to `Y < -10000` if mesh not ready. Check runs each frame in `TICKMODE_NORMAL` only. Covers combat sim, any stage with a fall-off map.
+
+#### 6. Catalog Settings Tab (commit 1aa0c93 — April 1, 12:23am)
+
+New "Catalog" tab (index 6) added to the in-game Settings menu in `pdgui_menu_mainmenu.cpp`:
+- **Summary section**: total registered entries, per-type breakdown (BODY/HEAD/STAGE/WEAPON/ANIM/TEX/AUDIO/etc.), loaded count, mod-overridden count
+- **Entry browser**: type-filter dropdown + text search; columns for ID (green for mod entries), type, load state (green when loaded), runtime index, net hash, base/MOD source
+- **Stage manifest section**: entry count + table of id/type/slot_index/net hash for the active `match_manifest_t`
+
+Infrastructure additions:
+- `assetCatalogGetPoolSize()` added to `assetcatalog.h/c` so callers can iterate the pool via `assetCatalogGetByIndex()` without guessing bounds
+- LB/RB bumper wrap updated from 5 to 6 tabs
+
+#### 7. SA-2 / SA-3 / SA-4 — Previously Completed, Not Logged
+
+Completed in unlogged sessions between S91 and S92 (commits on 2026-03-31 before SA-5a):
+
+- **`4945ff3` SA-2**: Modular catalog API layer — per-type resolution functions (`catalogResolveBody`, `catalogResolveHead`, `catalogResolveStage`, `catalogResolveWeapon`) + wire helper structs replacing ad-hoc `catalogResolve()` calls.
+- **`af6036b` SA-3**: Network wire protocol migration — replaced raw N64 body/head/stage/weapon indices in SVC_*/CLC_* messages with u16 session IDs from the session catalog. ~180 call sites, ~20 message types migrated.
+- **`574f7b6` SA-4**: Persistence migration — session IDs in savefile, identity, and scenario save. Save format now uses catalog-based asset identity, not raw N64 indices.
+
+### Build Status
+
+Clean build at `a4cd903`. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean.
+
+### Key Decisions
+
+- **Numeric aliases are canonical**: All asset types now reachable by `"type_%d"` ID from catalog. This is the stable contract for the mod pipeline; no manifest/net code needs to know `"base:name"` primary IDs.
+- **Large-table aliases (anim/tex/sfx) exist for mod support, not manifest tracking**: Adding hooks for these in hot paths is wrong. Hooks get wired per-mod at load time only.
+- **`bodyAllocateModel` is the spawn chokepoint**: Not `bodyAllocateChr`. Any future manifest or catalog work relating to runtime chr spawns must hook `bodyAllocateModel`.
+- **SA series complete**: SA-1 through SA-7 all done. The catalog migration track is finished.
+
+### New Bugs Found
+
+- **B-57** (NEW): Scenario save only stores `weaponset` index, not individual weapon selections. If a player customizes a non-standard weapon loadout, save/reload will restore the weaponset default, not the custom picks.
+- **B-58** (NEW): `catalogResolveByRuntimeIndex(type=16, index=103)` assert fires on the scenario save path. Type 16 is out of range for the catalog type enum. Triggered when scenario save tries to resolve a weapon reference.
+
+### Next Steps
+
+- **UI Scaling** — last v0.1.0 blocker. Not started.
+- **SP playtest SA-6**: Two consecutive missions — verify Joanna stays in `to_keep`; Counter-Op mode — verify anti-player body/head in manifest log.
+- **B-57/B-58**: Scenario save weapon persistence investigation.
+- **Countdown UX**: Match start countdown display on Room screen (reads `g_MatchCountdownState`).
+- SA series is done. SA-2 is the next dependency for R-series (room sync protocol).
+
+---
+
 ## Session S96 -- 2026-03-31
 
 **Focus**: SA-6 follow-up — manifest completeness (counter-op assets + runtime safety net)

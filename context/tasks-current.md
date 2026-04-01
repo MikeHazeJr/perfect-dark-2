@@ -50,11 +50,25 @@
 
 ---
 
+## Recently Completed (S97 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Kill plane void death** (9ff6daa) | **DONE** — adaptive Y threshold from `g_WorldMesh` bounds; falls back to Y < -10000. Force-kills + normal respawn. `src/game/player.c`. |
+| **Catalog Settings tab** (1aa0c93) | **DONE** — Settings > Catalog: summary (entry counts by type, loaded/mod counts), entry browser (type filter + search), stage manifest view. `port/fast3d/pdgui_menu_mainmenu.cpp`. |
+| **Universal numeric aliases** (1c801a3, 8f6de5e, 554759e) | **DONE** — `body_%d`, `head_%d`, `weapon_%d`, `stage_0x%02x`, `arena_%d`, `prop_%d`, `gamemode_%d`, `hud_%d`, `model_%d`, `anim_%d` (1207), `tex_%d` (3503), `sfx_%d` (1545). Mods can now override any asset by numeric ID. |
+| **Arena list from catalog** (9a698c3) | **DONE** — GEX stages removed. "Mods" catch-all group added. Mod arenas auto-appear in Combat Sim dropdown. |
+| **Boot crash / match start crash** (c7bfa43, c5486ee, f355ff6) | **DONE** — runtime_index space mismatch fixed; `sessionCatalogGetId` direct; stage_0x alias + hash backfill. |
+| **Manifest chokepoints** (990d512, 6e1addc) | **DONE** — `manifestEnsureLoaded` wired in `bodyAllocateModel` (all spawn paths) and `setupLoadModeldef` (all model loads). Obj1 crash fixed. |
+| **SA-2/SA-3/SA-4** (4945ff3, af6036b, 574f7b6) | **DONE** — modular catalog API, wire protocol migration, persistence migration. All completed in unlogged sessions (S91–S92). |
+
+---
+
 ## Awaiting Build Test / Playtest
 
 | Item | Status |
 |------|--------|
-| **SA-6/S96 SP manifest completeness** | **BUILD VERIFIED (S96)** — needs SP playtest: (1) two consecutive missions, verify Joanna stays in `to_keep`; (2) Counter-Op mode, check log for `MANIFEST-SP:` lines showing anti-player body/head added. |
+| **SA-6/S97 SP manifest completeness** | **BUILD VERIFIED (S97)** — needs SP playtest: (1) two consecutive missions, verify Joanna stays in `to_keep`; (2) Counter-Op mode, check log for `MANIFEST-SP:` lines showing anti-player body/head added. |
 | **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
 | **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — needs playtest: toggle a mod on/off, confirm no stale stages or textures after reload. |
 | **B-46 Void spawn on MP stages** (S74) | **FIXED (S74)** — needs Felicity playtest confirmation. |
@@ -89,6 +103,8 @@
 
 | Bug | Severity | Status |
 |-----|----------|--------|
+| [B-58](bugs.md) `catalogResolveByRuntimeIndex` assert: type=16, index=103 | HIGH | OPEN (S97) — fires on scenario save path. Type 16 is out of range for catalog type enum. Root cause in scenario save's weapon reference resolution. |
+| [B-57](bugs.md) Scenario save: weaponset index only, not individual weapon picks | MED | OPEN (S97) — save/reload restores the weaponset default, not custom weapon loadout. Found during SA-4 persistence work. |
 | [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | OPEN (S84) — PushID()/PopID() needed around arena selector. Not yet implemented. |
 | [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
@@ -110,15 +126,16 @@
 | Phase | Task | Details |
 |-------|------|---------|
 | SA-1 | **Session catalog infrastructure** | `sessioncatalog.h/c`: build from manifest, broadcast SVC_SESSION_CATALOG (0x67), receive + resolve, teardown. **DONE (S91)** — both targets build clean. |
-| SA-2 | **Modular catalog API** | Per-system query functions (bodies, heads, stages, weapons, sounds) replacing ad-hoc `catalogResolve()` calls. Typed entry structs. |
-| SA-3 | **Network session catalog wire migration** | Replace raw indices in SVC_*/CLC_* with u16 session IDs from session catalog. ~180 call sites, ~20 message types. Requires SA-1 + SA-2. |
-| SA-4 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
+| SA-2 | **Modular catalog API** | Per-type resolution functions (`catalogResolveBody/Head/Stage/Weapon`) + wire helper structs. **DONE (S91–S92, commit 4945ff3)** — completed in unlogged session between S91 and S92. |
+| SA-3 | **Network session catalog wire migration** | Replaced raw N64 indices in SVC_*/CLC_* with u16 session IDs. ~180 call sites, ~20 message types. **DONE (S91–S92, commit af6036b)** |
+| SA-4 | **Persistence migration** | Session IDs in savefile, identity, and scenario save. **DONE (S91–S92, commit 574f7b6)** — NOTE: scenario save weapon persistence (B-57) and type=16 assert (B-58) identified as follow-up bugs. |
 | SA-5 | **Load path migration + deprecation pass** | SA-5a through SA-5f all complete. All `g_HeadsAndBodies[].filenum/.scale` and `g_Stages[].bgfileid` etc. load-path accesses migrated. `catalogGetBodyScaleByIndex` legacy fallback fixed. Deprecated-attribute audit confirmed zero external callers on 3 old modelcatalog functions. **DONE (S92-S93)**. |
 | SA-6 | **SP load manifest (diff-based lifecycle)** | Full implementation + S96 follow-up: counter-op body/head added to `manifestBuildMission`; `manifestEnsureLoaded()` runtime safety net added; `bodyAllocateChr` wired. **DONE (S94/S96) — needs SP playtest: two consecutive missions (verify Joanna stays in to_keep) + Counter-Op mode (verify anti-player body/head in manifest log).** |
 | SA-7 | **Consolidation cleanup** | modelcatalog.c kept (unique VEH/validation logic). g_ModBodies/Heads/Arenas confirmed absent. Removed dead accessors: `catalogGetEntry`, `catalogGetBodyByMpIndex`, `catalogGetHeadByMpIndex`. All 6 audits passed clean. port/CLAUDE.md updated with catalog-first rules. **DONE (S95) — 711/711 clean.** |
 
-> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. **SA-6 DONE (S94/S96)**. **SA-7 DONE (S95)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
-> **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
+> **Status**: **ALL DONE (S97)**. SA-1 (S91), SA-2/3/4 (unlogged S91–S92), SA-5 (S93), SA-6 (S94/S96), SA-7 (S95). The full SA catalog migration track is complete.
+> **Follow-up bugs**: B-57 (scenario save weapon persistence), B-58 (catalogResolveByRuntimeIndex type=16 assert on save path).
+> **Dependencies**: Match Startup Pipeline (Phases B–F) consumed SA-2. R-series room sync depends on SA-1 (done). These dependencies are now unblocked.
 
 ---
 
