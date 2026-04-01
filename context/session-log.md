@@ -3,6 +3,37 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S110 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 0 + Phase 1
+
+### What Was Done
+
+**Phase 0 (commit 4476d00) — already landed before this session:**
+- Removed all numeric alias entries (`anim_NNN`, `tex_NNN`, `weapon_NNN`, etc.) from catalog registration
+- Manifest now uses canonical catalog IDs ("base:falcon2", not "weapon_46")
+- Cuts catalog size from ~14k entries to ~7k real assets
+
+**Phase 1 (commit dd04701) — this session:**
+- `manifestApplyDiff` upgraded: replaced `assetCatalogSetLoadState()` stubs with `catalogLoadAsset()` / `catalogUnloadAsset()` proper lifecycle calls. For bundled base-game assets these are no-ops; for mod assets they manage ref_count and free data when it hits 0.
+- `manifestEnsureLoaded` upgraded: same fix for the late-add path.
+- Added `manifestMPTransition()`: uses `g_ClientManifest` (populated via SVC_MATCH_MANIFEST) as the "needed" manifest, diffs against `g_CurrentLoadedManifest`, applies load/unload. Declared in `netmanifest.h`.
+- `mainChangeToStage()` updated: routes to MP or SP path based on `g_ClientManifest.num_entries > 0`; clears `g_ClientManifest` on non-gameplay transitions to prevent stale MP manifest leaking into SP.
+- Verification sweep: `assetCatalogSetLoadState` has zero callers remaining. `catalogComputeStageDiff` (old C-9 stub) confirmed unused.
+- Both targets build clean: 468/468 client, 58/58 server.
+
+### Decisions Made
+- `manifestMPTransition` uses `g_ClientManifest` directly as the "needed" manifest (server already built it correctly via Phase B machinery).
+- SP path unchanged: `manifestBuildMission` → diff → apply.
+- MP/SP disambiguation: `g_ClientManifest.num_entries > 0` is the signal; cleared on menu transitions to avoid leakage.
+
+### Next Steps
+- Playtest: two consecutive SP missions — verify MANIFEST-SP: log lines show correct load/unload/keep counts; verify Joanna stays in to_keep on mission 2.
+- Playtest: MP match start — verify MANIFEST-MP: log lines appear instead of MANIFEST-SP: for the match load.
+- Phase 2: dependency graph (character → body + head + anims + textures).
+
+---
+
 ## Session S109 -- 2026-04-01
 
 **Focus**: Credits/storyboard, updater fix, mission select UX redesign, v0.0.22 release, catalog investigation
