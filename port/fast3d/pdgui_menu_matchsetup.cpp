@@ -26,6 +26,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_charpreview.h"
 #include "assetcatalog.h"
 #include "botvariant.h"
 #include "system.h"
@@ -457,6 +458,10 @@ static s32 s_AddBotType = BOTTYPE_GENERAL;
 static s32 s_AddBotDiff = BOTDIFF_NORMAL;
 static char s_AddBotName[MAX_PLAYER_NAME] = {0};
 
+/* Arena picker modal state */
+static bool s_ArenaModalOpen = false;
+static s32  s_ArenaModalHover = -1;  /* runtime_index of hovered arena for preview */
+
 /* ========================================================================
  * Selection helpers
  * ======================================================================== */
@@ -534,8 +539,9 @@ static bool PdCheckbox(const char *label, bool *v)
  * ======================================================================== */
 
 /* State for the bot edit popup */
-static bool s_BotPopupOpen = false;
-static s32 s_BotPopupSlot = -1;
+static bool  s_BotPopupOpen = false;
+static s32   s_BotPopupSlot = -1;
+static float s_BotPreviewRotY = 0.0f;  /* accumulated rotation for char preview */
 
 /* ========================================================================
  * D3R-8: Bot Customizer state
@@ -708,37 +714,42 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
         {
             struct matchslot *bot = &g_MatchConfig.slots[s_BotPopupSlot];
 
+            /* Two-column layout: left = controls, right = 3D character preview */
+            float previewSz = pdguiScale(160.0f);
+            float ctrlW     = pdguiScale(260.0f);
+
+            ImGui::BeginGroup();  /* --- Left: controls --- */
+
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Edit Bot");
             ImGui::Separator();
             ImGui::Spacing();
 
             /* Name */
+            ImGui::SetNextItemWidth(ctrlW);
             ImGui::InputText("Name", bot->name, sizeof(bot->name));
 
-            /* Character body */
+            /* Character body — scrollable list (no combo, full list visible) */
             {
                 u32 numBodies = mpGetNumBodies();
-                const char *bodyName = mpGetBodyName(bot->bodynum);
-                char bodyLabel[64];
-                snprintf(bodyLabel, sizeof(bodyLabel), "%s",
-                         bodyName ? bodyName : "???");
 
-                if (ImGui::BeginCombo("Character", bodyLabel)) {
-                    for (u32 b = 0; b < numBodies && b < 200; b++) {
-                        const char *bName = mpGetBodyName((u8)b);
-                        if (!bName || !bName[0]) continue;
-                        char itemLabel[64];
-                        snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
-                        bool isSel = (bot->bodynum == (u8)b);
-                        if (ImGui::Selectable(itemLabel, isSel)) {
-                            bot->bodynum = (u8)b;
-                            bot->headnum = (u8)b;
-                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        }
-                        if (isSel) ImGui::SetItemDefaultFocus();
+                ImGui::Text("Character:");
+                ImGui::BeginChild("##char_list", ImVec2(ctrlW, pdguiScale(110.0f)),
+                                  true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+                for (u32 b = 0; b < numBodies && b < 200; b++) {
+                    const char *bName = mpGetBodyName((u8)b);
+                    if (!bName || !bName[0]) continue;
+                    bool isSel = (bot->bodynum == (u8)b);
+                    char itemLabel[64];
+                    snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
+                    if (ImGui::Selectable(itemLabel, isSel)) {
+                        bot->bodynum = (u8)b;
+                        bot->headnum = (u8)b;
+                        s_BotPreviewRotY = 0.0f;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
-                    ImGui::EndCombo();
+                    if (isSel) ImGui::SetItemDefaultFocus();
                 }
+                ImGui::EndChild();
             }
 
             /* Bot type */
@@ -901,6 +912,48 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
                 s_BotPopupShowAdvanced = false;
                 ImGui::CloseCurrentPopup();
             }
+
+            ImGui::EndGroup();  /* end left column */
+
+            /* ---- Right column: 3D character preview ---- */
+            ImGui::SameLine(0, pdguiScale(12.0f));
+            ImGui::BeginGroup();
+
+            /* Request preview render for current body+head */
+            s_BotPreviewRotY += 0.022f;  /* ~1.26 rad/s at 60fps */
+            if (s_BotPreviewRotY > 6.2832f) s_BotPreviewRotY -= 6.2832f;
+            pdguiCharPreviewSetRotY(s_BotPreviewRotY);
+            pdguiCharPreviewRequest(bot->headnum, bot->bodynum);
+
+            float previewSzR = pdguiScale(160.0f);
+            s32 prevW = 1, prevH = 1;
+            pdguiCharPreviewGetSize(&prevW, &prevH);
+
+            if (pdguiCharPreviewIsReady()) {
+                ImTextureID texId = (ImTextureID)(uintptr_t)pdguiCharPreviewGetTextureId();
+                ImGui::Image(texId, ImVec2(previewSzR, previewSzR));
+            } else {
+                /* Placeholder while first frame renders */
+                ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cursor,
+                    ImVec2(cursor.x + previewSzR, cursor.y + previewSzR),
+                    IM_COL32(20, 20, 30, 200));
+                ImGui::Dummy(ImVec2(previewSzR, previewSzR));
+            }
+
+            /* Character name label below preview */
+            {
+                const char *bName = mpGetBodyName(bot->bodynum);
+                if (bName && bName[0]) {
+                    float textW = ImGui::CalcTextSize(bName).x;
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+                                         + (previewSzR - textW) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%s", bName);
+                }
+            }
+
+            ImGui::EndGroup();  /* end right column */
         }
         ImGui::EndPopup();
     }
@@ -967,78 +1020,224 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         }
     }
 
-    /* Arena/Stage — grouped, collapsible list from Asset Catalog */
+    /* Arena/Stage — button opens a full-screen submenu modal */
     {
         if (s_ArenaCacheDirty) {
             rebuildArenaCache();
         }
 
-        /* Find current arena entry for the combo preview label */
+        /* Resolve current arena name for the button label */
         const char *curArenaName = "???";
+        const char *curArenaGroup = "";
         for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
             for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
                 if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaIndex) {
-                    curArenaName = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
-                    goto found_current;
+                    curArenaName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
+                    curArenaGroup = s_ArenaGroupNames[g];
+                    goto found_arena_label;
                 }
             }
         }
-        found_current:
+        found_arena_label:
 
-        if (ImGui::BeginCombo("Arena", curArenaName ? curArenaName : "???")) {
+        /* Row: "Arena:" label + button showing current selection */
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "Arena");
+        ImGui::SameLine();
+        char arenaBtnLabel[96];
+        snprintf(arenaBtnLabel, sizeof(arenaBtnLabel), "  %s  [%s]##arena_btn",
+                 curArenaName ? curArenaName : "???",
+                 curArenaGroup[0] ? curArenaGroup : "?");
+        float arenaBtnW = panelW - ImGui::GetCursorPosX()
+                          - ImGui::GetStyle().WindowPadding.x;
+        if (PdButton(arenaBtnLabel, ImVec2(arenaBtnW, 0))) {
+            s_ArenaModalOpen = true;
+            s_ArenaModalHover = s_ArenaIndex;
+            ImGui::OpenPopup("##arena_modal");
+        }
+
+        /* ---- Arena picker modal ---- */
+        ImVec2 center = ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f,
+                               ImGui::GetIO().DisplaySize.y * 0.5f);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        float modalW = pdguiMenuWidth() * 0.85f;
+        float modalH = pdguiMenuHeight() * 0.85f;
+        ImGui::SetNextWindowSize(ImVec2(modalW, modalH), ImGuiCond_Always);
+
+        if (ImGui::BeginPopup("##arena_modal",
+                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                              | ImGuiWindowFlags_NoTitleBar))
+        {
+            /* Backdrop */
+            ImVec2 mpos = ImGui::GetWindowPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                mpos, ImVec2(mpos.x + modalW, mpos.y + modalH),
+                IM_COL32(8, 8, 16, 250));
+
+            pdguiDrawPdDialog(mpos.x, mpos.y, modalW, modalH, "Select Arena", 1);
+
+            /* Title */
+            {
+                const char *title = "Select Arena";
+                float titleH = pdguiScale(26.0f);
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                pdguiDrawTextGlow(mpos.x + 8.0f, mpos.y + 2.0f,
+                                  modalW - 16.0f, titleH - 4.0f);
+                ImVec2 ts = ImGui::CalcTextSize(title);
+                dl->AddText(ImVec2(mpos.x + (modalW - ts.x) * 0.5f,
+                                   mpos.y + (titleH - ts.y) * 0.5f),
+                            IM_COL32(255, 255, 255, 255), title);
+                ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+            }
+
+            float footerH = pdguiScale(42.0f);
+            float contentH = modalH - pdguiScale(26.0f) - footerH
+                             - ImGui::GetStyle().WindowPadding.y * 2.0f;
+            float listW  = modalW * 0.52f;
+            float detailW = modalW - listW - pdguiScale(8.0f);
+
+            /* ---- Left: grouped arena list ---- */
+            ImGui::BeginChild("##arena_list", ImVec2(listW, contentH), true,
+                              ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
             for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
-                /* Count unlocked arenas in this group */
                 s32 groupCount = 0;
                 for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                    if (challengeIsFeatureUnlocked(s_ArenaGroupCache[g].entries[a]->ext.arena.requirefeature)) {
+                    if (challengeIsFeatureUnlocked(s_ArenaGroupCache[g].entries[a]->ext.arena.requirefeature))
                         groupCount++;
-                    }
                 }
                 if (groupCount == 0) continue;
 
-                /* Separator between groups (except before the first) */
-                if (g > 0) ImGui::Separator();
+                /* Group header — always expanded in modal, no toggle needed */
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                                   "%s", s_ArenaGroupNames[g]);
+                ImGui::Separator();
 
-                /* Group header — clickable to toggle collapsed state */
-                bool isCollapsed = (s_ArenaGroupCollapsed & (1 << g)) != 0;
-                char groupLabel[80];
-                snprintf(groupLabel, sizeof(groupLabel), "%c  %s (%d)##grp%d",
-                         isCollapsed ? '+' : '-',
-                         s_ArenaGroupNames[g], groupCount, g);
+                for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                    const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
+                    if (!challengeIsFeatureUnlocked(ae->ext.arena.requirefeature)) continue;
 
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
-                if (ImGui::Selectable(groupLabel, false, ImGuiSelectableFlags_DontClosePopups)) {
-                    s_ArenaGroupCollapsed ^= (1 << g);
-                    isCollapsed = !isCollapsed;
+                    const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
+                    if (!arenaName || !arenaName[0]) continue;
+
+                    bool isSel = (ae->runtime_index == s_ArenaIndex);
+                    bool isHov = (ae->runtime_index == s_ArenaModalHover);
+                    char arenaLabel[96];
+                    snprintf(arenaLabel, sizeof(arenaLabel), "  %s##ari%d",
+                             arenaName, ae->runtime_index);
+
+                    if (ImGui::Selectable(arenaLabel, isSel || isHov,
+                                          ImGuiSelectableFlags_None)) {
+                        s_ArenaIndex = ae->runtime_index;
+                        s_ArenaModalHover = ae->runtime_index;
+                        g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
+                        sysLogPrintf(LOG_NOTE,
+                            "Arena: \"%s\" ri=%d stage=0x%02x",
+                            arenaName, ae->runtime_index,
+                            ae->ext.arena.stagenum);
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        s_ArenaModalHover = ae->runtime_index;
+                    }
+                    if (isSel) ImGui::SetItemDefaultFocus();
                 }
-                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
 
-                /* Render arenas in this group if expanded */
-                if (!isCollapsed) {
-                    for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                        const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
-                        if (!challengeIsFeatureUnlocked(ae->ext.arena.requirefeature)) continue;
+            ImGui::EndChild();
 
-                        const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
-                        if (!arenaName || !arenaName[0]) continue;
+            ImGui::SameLine(0, pdguiScale(8.0f));
 
-                        bool isSel = (ae->runtime_index == s_ArenaIndex);
-                        char arenaLabel[96];
-                        snprintf(arenaLabel, sizeof(arenaLabel), "    %s##arena%d",
-                                 arenaName, ae->runtime_index);
-                        if (ImGui::Selectable(arenaLabel, isSel)) {
-                            s_ArenaIndex = ae->runtime_index;
-                            g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
-                            sysLogPrintf(LOG_NOTE, "Arena selected: \"%s\" ri=%d stagenum=0x%02x langid=0x%04x id=\"%s\"",
-                                arenaName, ae->runtime_index, ae->ext.arena.stagenum,
-                                ae->ext.arena.name_langid, ae->id);
-                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        }
-                        if (isSel) ImGui::SetItemDefaultFocus();
+            /* ---- Right: detail / preview panel ---- */
+            ImGui::BeginChild("##arena_detail", ImVec2(detailW, contentH), true);
+
+            /* Resolve hovered arena info */
+            const char *hoverName  = nullptr;
+            const char *hoverGroup = nullptr;
+            u8 hoverStage = 0;
+            for (s32 g = 0; g < ARENA_NUM_GROUPS && !hoverName; g++) {
+                for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                    if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaModalHover) {
+                        hoverName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
+                        hoverGroup = s_ArenaGroupNames[g];
+                        hoverStage = (u8)s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum;
+                        break;
                     }
                 }
             }
-            ImGui::EndCombo();
+
+            if (hoverName && hoverName[0]) {
+                /* Arena name — large */
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", hoverName);
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.8f), "%s",
+                                   hoverGroup ? hoverGroup : "");
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                /* Preview placeholder — stylized frame with stage number.
+                 * A real map thumbnail system would render here in future. */
+                float previewW = detailW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+                float previewH = previewW * 0.6f;   /* 5:3 aspect */
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                ImVec2 p1 = ImVec2(p0.x + previewW, p0.y + previewH);
+
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                /* Dark background */
+                dl->AddRectFilled(p0, p1, IM_COL32(12, 18, 30, 230), pdguiScale(4.0f));
+                /* Decorative border */
+                dl->AddRect(p0, p1, IM_COL32(60, 120, 180, 160),
+                            pdguiScale(4.0f), 0, pdguiScale(1.5f));
+                /* Stage ID badge */
+                char stageBadge[16];
+                snprintf(stageBadge, sizeof(stageBadge), "0x%02X", (unsigned)hoverStage);
+                ImVec2 badgePos = ImVec2(p0.x + pdguiScale(6.0f),
+                                         p0.y + pdguiScale(6.0f));
+                dl->AddText(badgePos, IM_COL32(80, 160, 220, 180), stageBadge);
+                /* Centered arena name in preview box */
+                ImVec2 nameSize = ImGui::CalcTextSize(hoverName);
+                ImVec2 namePos  = ImVec2(
+                    p0.x + (previewW - nameSize.x) * 0.5f,
+                    p0.y + (previewH - nameSize.y) * 0.5f);
+                dl->AddText(namePos, IM_COL32(200, 220, 255, 200), hoverName);
+
+                /* Diagonal scan-line effect for sci-fi feel */
+                for (float fy = p0.y + pdguiScale(6.0f);
+                     fy < p1.y - pdguiScale(2.0f);
+                     fy += pdguiScale(8.0f))
+                {
+                    dl->AddLine(ImVec2(p0.x, fy), ImVec2(p1.x, fy),
+                                IM_COL32(40, 80, 120, 30));
+                }
+
+                ImGui::Dummy(ImVec2(previewW, previewH));
+                ImGui::Spacing();
+                ImGui::TextDisabled("Stage 0x%02X", (unsigned)hoverStage);
+            } else {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Hover over an arena to preview");
+            }
+
+            ImGui::EndChild();
+
+            /* ---- Footer ---- */
+            ImGui::SetCursorPosY(modalH - footerH + pdguiScale(6.0f));
+            ImGui::Separator();
+            ImGui::Spacing();
+            float closeBtnW = pdguiScale(120.0f);
+            ImGui::SetCursorPosX((modalW - closeBtnW) * 0.5f);
+            if (PdButton("Close", ImVec2(closeBtnW, pdguiScale(26.0f)))
+                || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+                || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
+            {
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
         }
     }
 
