@@ -287,6 +287,26 @@ void manifestApplyDiff(const match_manifest_t *needed,
                        manifest_diff_t *diff);
 
 /**
+ * Pre-validation pass: check all to_load entries in a manifest diff.
+ *
+ * For each entry in diff->to_load:
+ *   1. Verifies it exists in the catalog (by ID, then by net_hash fallback).
+ *   2. Verifies it is enabled (not toggled off by the user).
+ *   3. For MANIFEST_TYPE_LANG: verifies ASSET_LANG type and valid bank_id.
+ *   4. Checks declared dependency chain via catalogDepForEach — warns if any
+ *      dep is missing or disabled but keeps the parent entry (graceful).
+ *
+ * Invalid entries are zeroed (id[0] = '\0') so manifestApplyDiff skips them.
+ * Always logs a summary line.
+ *
+ * Returns the count of invalid entries removed from to_load.
+ * Returns 0 when all entries are valid or there are none to check.
+ *
+ * Call between manifestDiff() and manifestApplyDiff() in SP and MP paths.
+ */
+s32 manifestValidate(manifest_diff_t *diff);
+
+/**
  * Convenience wrapper: build mission manifest, diff against current, apply.
  *
  * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in SP mode

@@ -871,6 +871,143 @@ void manifestApplyDiff(const match_manifest_t *needed,
                  diff->num_to_load, diff->num_to_unload, diff->num_to_keep);
 }
 
+/* =========================================================================
+ * Phase 4: Pre-validation pass
+ * ========================================================================= */
+
+/**
+ * Callback context for dep-chain validation inside manifestValidate().
+ * owner_id is logged in warnings so the user knows which entry has the
+ * broken dep.  warn_count accumulates missing/disabled deps.
+ */
+typedef struct {
+    const char *owner_id;
+    s32         warn_count;
+} s_ValidateDepCtx;
+
+static void s_validateDepCallback(const char *dep_id, void *userdata)
+{
+    s_ValidateDepCtx *ctx = (s_ValidateDepCtx *)userdata;
+    const asset_entry_t *de;
+
+    de = assetCatalogResolve(dep_id);
+    if (!de) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-VALIDATE: WARN: dep '%s' of '%s'"
+                     " not found in catalog",
+                     dep_id, ctx->owner_id);
+        ctx->warn_count++;
+    } else if (!de->enabled) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-VALIDATE: WARN: dep '%s' of '%s' is disabled",
+                     dep_id, ctx->owner_id);
+        ctx->warn_count++;
+    }
+}
+
+s32 manifestValidate(manifest_diff_t *diff)
+{
+    s32 i;
+    s32 invalid_count;
+    manifest_diff_entry_t *entry;
+    const asset_entry_t *e;
+    s_ValidateDepCtx dep_ctx;
+
+    if (!diff || diff->num_to_load == 0) {
+        return 0;
+    }
+
+    invalid_count = 0;
+
+    for (i = 0; i < diff->num_to_load; i++) {
+        entry = &diff->to_load[i];
+
+        if (!entry->id[0]) {
+            continue; /* already cleared by a prior pass */
+        }
+
+        /* Try catalog lookup by string ID first, then net_hash as fallback
+         * (net_hash lookup handles the rare case where ID was truncated or
+         * the entry was re-registered under a different string form). */
+        e = assetCatalogResolve(entry->id);
+        if (!e) {
+            e = assetCatalogResolveByNetHash(entry->net_hash);
+        }
+
+        if (!e) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-VALIDATE: WARN: entry '%s' not found"
+                         " in catalog, skipping",
+                         entry->id);
+            entry->id[0] = '\0';
+            invalid_count++;
+            continue;
+        }
+
+        /* Disabled entries must not be loaded — the user toggled them off. */
+        if (!e->enabled) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-VALIDATE: WARN: entry '%s' is disabled,"
+                         " skipping",
+                         entry->id);
+            entry->id[0] = '\0';
+            invalid_count++;
+            continue;
+        }
+
+        /* Lang bank: must map to ASSET_LANG with a positive bank_id.
+         * An ASSET_LANG entry with bank_id <= 0 has no backing LANGBANK_*
+         * constant and langLoad() would silently do nothing. */
+        if (entry->type == MANIFEST_TYPE_LANG) {
+            if (e->type != ASSET_LANG) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-VALIDATE: WARN: entry '%s' expected"
+                             " ASSET_LANG but got type %d, skipping",
+                             entry->id, (int)e->type);
+                entry->id[0] = '\0';
+                invalid_count++;
+                continue;
+            }
+            if (e->ext.lang.bank_id <= 0) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-VALIDATE: WARN: entry '%s' has"
+                             " invalid bank_id %d, skipping",
+                             entry->id, e->ext.lang.bank_id);
+                entry->id[0] = '\0';
+                invalid_count++;
+                continue;
+            }
+        }
+
+        /* Dependency chain: warn if any declared dep is unresolvable but
+         * keep the parent entry — it can still load, just without the dep.
+         * Base-game bundled entries have no deps registered (they are always
+         * ROM-resident) so catalogDepForEach is a no-op for them. */
+        dep_ctx.owner_id   = entry->id;
+        dep_ctx.warn_count = 0;
+        catalogDepForEach(entry->id, s_validateDepCallback, &dep_ctx);
+        if (dep_ctx.warn_count > 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-VALIDATE: WARN: '%s' has %d unresolvable"
+                         " dep(s) — loading parent, skipping missing deps",
+                         entry->id, dep_ctx.warn_count);
+        }
+    }
+
+    if (invalid_count > 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-VALIDATE: %d of %d to-load entries invalid"
+                     " and skipped",
+                     invalid_count, diff->num_to_load);
+    } else {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-VALIDATE: all %d to-load entries valid",
+                     diff->num_to_load);
+    }
+
+    return invalid_count;
+}
+
 void manifestSPTransition(s32 stagenum)
 {
     manifestBuildMission(stagenum, &s_SpNeededManifest);
@@ -880,6 +1017,7 @@ void manifestSPTransition(s32 stagenum)
                  (unsigned)stagenum, (int)s_SpNeededManifest.num_entries);
 
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
+    manifestValidate(&s_SpLastDiff);
     manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
 }
@@ -915,6 +1053,7 @@ void manifestMPTransition(void)
                  (int)g_ClientManifest.num_entries);
 
     manifestDiff(&g_CurrentLoadedManifest, &g_ClientManifest, &s_SpLastDiff);
+    manifestValidate(&s_SpLastDiff);
     manifestApplyDiff(&g_ClientManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
 }
