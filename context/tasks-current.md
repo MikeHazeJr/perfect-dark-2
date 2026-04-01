@@ -70,9 +70,9 @@
 |-------|------|--------|
 | **Phase 0** | Remove numeric alias entries from catalog; manifest uses human-readable IDs ("base:falcon2" not "weapon_46") | **DONE (S110, commit 4476d00)** |
 | **Phase 1** | Manifest-diff transitions — diff old vs new manifest, load delta, unload stale | **DONE (S110, commit dd04701)** — catalogLoadAsset/catalogUnloadAsset wired in manifestApplyDiff + manifestEnsureLoaded; manifestMPTransition() added; mainChangeToStage() routes SP vs MP. Needs SP playtest (two consecutive missions) + MP playtest (match load → verify MANIFEST-MP: log lines). |
-| **Phase 2** | Dependency graph — character → body + head + anims + textures | NOT STARTED |
-| **Phase 3** | Language bank manifesting — menu screens declare lang dependencies | NOT STARTED |
-| **Phase 4** | Pre-validation pass — verify all entries exist before committing | NOT STARTED |
+| **Phase 2** | Dependency graph — character → body + head + anims + textures | **DONE (S111, commit 2c761f1)** — flat dep table module (assetcatalog_deps.c/.h), scanner populates from INI "deps" and anim "target_body" fields, manifestBuild + manifestBuildMission expand deps at all 6 body/head add sites. Both targets build clean. Needs playtest with a mod body that declares deps. |
+| **Phase 3** | Language bank manifesting — menu screens declare lang dependencies | **DONE (S112, commit 5d449cd)** — ASSET_LANG type, 68 base lang banks registered, langmanifest.h/c module, langManifestEnsureId() API, langreset.c + setup.c wired, scanner type mappings. Build clean. |
+| **Phase 4** | Pre-validation pass — verify all entries exist before committing | **DONE (S113, commit 98aa2ec)** — `manifestValidate()` validates to_load entries (catalog presence, enabled state, lang bank type-check, dep chain warnings) before `manifestApplyDiff`. Wired in both SP + MP paths. 529/529 clean. |
 | **Phase 5** | Proper unload/cleanup — targeted ref-counted unloads | NOT STARTED |
 | **Phase 6** | Menu/UI asset manifesting — screens register mini-manifests | NOT STARTED |
 

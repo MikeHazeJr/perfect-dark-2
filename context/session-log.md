@@ -3,6 +3,94 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S113 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 4: Pre-validation Pass
+
+### What Was Done
+
+**Phase 4 (commit 98aa2ec):**
+- `port/include/net/netmanifest.h`: `manifestValidate(manifest_diff_t *diff)` declared between `manifestApplyDiff` and `manifestSPTransition`. Full doc comment explaining the four validation checks.
+- `port/src/net/netmanifest.c`:
+  - `s_ValidateDepCtx` struct (owner_id + warn_count) for dep-chain callback.
+  - `s_validateDepCallback()`: called by `catalogDepForEach`, logs warning for missing or disabled deps, increments warn_count.
+  - `manifestValidate()`: iterates `diff->to_load`; for each entry:
+    1. `assetCatalogResolve(id)` → fallback `assetCatalogResolveByNetHash(net_hash)`. Not found → zero id[0] + WARN.
+    2. `!e->enabled` → zero id[0] + WARN.
+    3. `MANIFEST_TYPE_LANG`: checks `e->type == ASSET_LANG` and `e->ext.lang.bank_id > 0`. Fail → zero id[0] + WARN.
+    4. `catalogDepForEach(entry->id, ...)`: warns on missing/disabled deps, but keeps parent entry.
+    5. Summary log: "all N valid" or "X of N invalid and skipped".
+  - `manifestSPTransition`: `manifestValidate(&s_SpLastDiff)` inserted between `manifestDiff` and `manifestApplyDiff`.
+  - `manifestMPTransition`: same insertion.
+- **Also fixed**: stale CMake GLOB cache from Phase 3 — `langmanifest.c` was not being compiled into `pd.exe`. Clean `cmake` re-configure picked it up. 529/529 clean (both targets).
+
+### Decisions Made
+- Validate the diff's `to_load` list (not the manifest itself) — avoids contaminating the manifest and works with the existing `id[0] == '\0'` skip guard in `manifestApplyDiff`.
+- Dep chain warnings only (don't zero parent) — parent asset still loads; missing deps are already absent from to_load and will be skipped naturally.
+- Both SP and MP paths validated via the same function — log prefix is "MANIFEST-VALIDATE:" (distinct from "MANIFEST-SP:").
+
+### Next Steps
+- Phase 5: Proper unload/cleanup — targeted ref-counted unloads.
+- Phase 6: Menu/UI asset manifesting — screens register mini-manifests.
+- Playtest: SP transition should show "MANIFEST-VALIDATE: all N to-load entries valid" in log.
+
+---
+
+## Session S112 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 3: Language Bank Manifesting
+
+### What Was Done
+
+**Phase 3 (commit 5d449cd):**
+- `port/include/assetcatalog.h`: `ASSET_LANG` added to `asset_type_e` enum; `ext.lang.bank_id` (s32) member added to union.
+- `port/src/assetcatalog_base_extended.c`: Static table of 68 base lang banks (LANGBANK_AME through LANGBANK_MP20); registered as `base:lang_*` catalog IDs with `ASSET_STATE_ENABLED` (not pre-loaded; langLoad() must be explicit). `bundled=1` prevents clearMods from removing them.
+- `port/include/net/netmanifest.h`: `MANIFEST_TYPE_LANG = 8` constant added.
+- `port/include/langmanifest.h` + `port/src/langmanifest.c` (new files): `lang_manifest_t` struct (`bank_ids[69]`, `count`); `langManifestReset()`, `langManifestRecordBank()`, `langManifestEnsureId()`, `langManifestReload()`, `langManifestGetCount()`. `langManifestEnsureId("base:lang_title")` resolves catalog ID → bank_id → langLoad if not loaded → records.
+- `src/include/game/lang.h` + `src/game/lang.c`: `langIsBankLoaded(s32 bank)` accessor added (checks `g_LangBanks[bank] != NULL`).
+- `src/game/langreset.c`: `langManifestReset()` called after bank array clear; `langManifestRecordBank()` called for each bank loaded by `langReset()` (both PAL and pre-PAL paths).
+- `src/game/setup.c`: `langManifestRecordBank()` called after stage-specific bank load in `setupLoadLevel`.
+- `port/src/assetcatalog_scanner.c`: `"lang_bank"` → `ASSET_LANG` in `sectionToType()`; `"lang_banks"` → `ASSET_LANG` in `categoryToType()`; `case ASSET_LANG:` block reads `bank_id` INI field.
+- `langmanifest.c` NOT added to `SRC_SERVER` (server has no menu screens).
+- Both targets (PerfectDark.exe + PerfectDarkServer.exe) build clean.
+
+### Decisions Made
+- `load_state = ASSET_STATE_ENABLED` (not LOADED) for lang bank catalog entries — ROM-resident but not pre-loaded into heap. langLoad() must be called explicitly.
+- `langIsBankLoaded()` accessor rather than exposing `g_LangBanks[]` extern to port code — clean API boundary.
+- `langManifestReload()` provided for future NTSC language-change support but does not replace existing `langReload()` callers (PAL path already handles reload correctly).
+
+### Next Steps
+- Phase 4: Pre-validation pass — verify all manifest entries exist before committing to a load.
+- Phase 5: Proper unload/cleanup — targeted ref-counted unloads.
+
+---
+
+## Session S111 -- 2026-04-01
+
+**Focus**: Manifest Lifecycle Sprint — Phase 2: Dependency Graph
+
+### What Was Done
+
+**Phase 2 (commit 2c761f1):**
+- `port/include/assetcatalog_deps.h` + `port/src/assetcatalog_deps.c` (new): flat 256-pair dep table. `catalogDepRegister(owner_id, dep_id, is_bundled)`, `catalogDepForEach(owner_id, fn, userdata)`, `catalogDepClear()`, `catalogDepClearMods()`, `catalogDepCount()`. FNV-1a owner hash for O(1) lookup. Bundled pairs are stored but skipped during iteration (base-game assets always ROM-resident).
+- `assetcatalog.c`: `catalogDepClear()` hooked in `assetCatalogClear()`, `catalogDepClearMods()` hooked in `assetCatalogClearMods()`.
+- `assetcatalog_scanner.c`: INI "deps" field parsing (comma-separated, strtok) calls `catalogDepRegister(idbuf, dep, bundled)` per dep. ASSET_ANIMATION case: reverse dep registration via `target_body` field.
+- `netmanifest.c`: added `s_DepExpandCtx`, `s_assetTypeToManifestType()`, `s_manifestDepAddEntry()`, `s_manifestExpandDeps()`. Wired `s_manifestExpandDeps(out, entry->id, slot_index)` after all 6 body/head catalog-resolved add sites: player body+head, bot body+head (`manifestBuild`); Joanna, stage CHR body+head, counter-op body+head (`manifestBuildMission`). Fallback synthetic-ID paths do not expand (no catalog entry to look up deps against).
+- `server_stubs.c`: `catalogLoadAsset` (return 1) + `catalogUnloadAsset` (no-op) — Phase 1 introduced these calls to `netmanifest.c` but server stubs were missing.
+- `CMakeLists.txt`: `assetcatalog_deps.c` added to `SRC_SERVER` explicit list.
+- Both targets build clean: 4/4 (incremental from Phase 1 base).
+
+### Decisions Made
+- Zero change to `asset_entry_t` struct — separate parallel table avoids 3.6 MB overhead for mostly-empty per-entry dep arrays.
+- Shared dep deduplication is free: `manifestAddEntry()` already deduplicates by net_hash. Two bodies sharing one animation → animation appears once in manifest.
+- `catalogDepForEach` skips bundled pairs — base-game dep expansion is always a no-op, correct since their anims/textures are ROM-resident.
+
+### Next Steps
+- Playtest: enable a mod body with `deps = mod:anim1, mod:tex1` in its INI. Verify those entries appear in MANIFEST log on match start.
+- Phase 3: Language bank manifesting.
+
+---
+
 ## Session S110 -- 2026-04-01
 
 **Focus**: Manifest Lifecycle Sprint — Phase 0 + Phase 1
