@@ -57,6 +57,7 @@
 #include "bss.h"
 #include "lib/ailist.h"
 #include "lib/collision.h"
+#include "lib/meshcollision.h"
 #include "lib/joy.h"
 #include "lib/lib_17ce0.h"
 #include "lib/vi.h"
@@ -3488,6 +3489,34 @@ void playerTick(bool arg0)
 
 	if (g_Vars.currentplayer->devicesactive & DEVICE_SUICIDEPILL) {
 		playerDieByShooter(g_Vars.currentplayernum, true);
+	}
+
+	/* Kill plane: if the player falls below the world geometry, force-kill them.
+	 * Threshold = miny - max(level_height * 6, 2000), where level_height is
+	 * derived from the world collision mesh bounds.  Falls back to -10000 if
+	 * the mesh isn't ready yet (e.g. very early in level load). */
+	if (!g_Vars.currentplayer->isdead
+			&& g_Vars.currentplayer->prop != NULL
+			&& g_Vars.tickmode == TICKMODE_NORMAL) {
+		f32 killplane;
+		f32 player_y = g_Vars.currentplayer->prop->pos.y;
+
+		if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
+			f32 level_height = g_WorldMesh.maxy - g_WorldMesh.miny;
+			f32 drop = level_height * 6.0f;
+			if (drop < 2000.0f) {
+				drop = 2000.0f;
+			}
+			killplane = g_WorldMesh.miny - drop;
+		} else {
+			killplane = -10000.0f;
+		}
+
+		if (player_y < killplane) {
+			sysLogPrintf(LOG_NOTE, "KILLPLANE: player %d at Y=%.1f below killplane=%.1f, forcing death",
+				g_Vars.currentplayernum, player_y, killplane);
+			playerDie(true);
+		}
 	}
 
 	playerTickDamageAndHealth();
