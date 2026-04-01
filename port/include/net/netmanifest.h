@@ -41,8 +41,12 @@ extern "C" {
 /** slot_index sentinel — asset belongs to the match as a whole, not a participant slot */
 #define MANIFEST_SLOT_MATCH  0xFF
 
-/** Maximum entries in one manifest (covers: 1 stage + 32 participants * 2 models + weapons + components) */
-#define MANIFEST_MAX_ENTRIES 128
+/** Maximum entries in one manifest.
+ *
+ * PC port: no N64 memory constraint.  1024 entries covers the largest SP missions
+ * (100+ NPCs × 2 body/head + all prop models) and any foreseeable MP lobby.
+ * The struct is static/global — no stack impact. */
+#define MANIFEST_MAX_ENTRIES 1024
 
 /** Entry type codes (match_manifest_entry_t::type) */
 #define MANIFEST_TYPE_BODY       0  /**< Character body model */
