@@ -51,6 +51,8 @@ extern "C" {
 #define MANIFEST_TYPE_WEAPON     3  /**< Weapon model / data */
 #define MANIFEST_TYPE_COMPONENT  4  /**< Mod component (arbitrary) */
 #define MANIFEST_TYPE_MODEL      5  /**< Prop/environment model (ASSET_MODEL catalog entry) */
+#define MANIFEST_TYPE_ANIM       6  /**< Animation data (anim_%d catalog entry) */
+#define MANIFEST_TYPE_TEXTURE    7  /**< Texture data (tex_%d catalog entry) */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */
@@ -273,7 +275,8 @@ void manifestSPTransition(s32 stagenum);
  * If not, resolves it via assetCatalogResolve(), adds it to the manifest,
  * and transitions its catalog state to ASSET_STATE_LOADED.
  *
- * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, or MANIFEST_TYPE_MODEL.
+ * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, MANIFEST_TYPE_MODEL,
+ *             MANIFEST_TYPE_ANIM, or MANIFEST_TYPE_TEXTURE.
  *
  * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty,
  * no SP manifest is active (MP mode or before stage load), or the asset

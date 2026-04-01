@@ -263,7 +263,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
 void manifestLog(const match_manifest_t *m)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
     };
 
     sysLogPrintf(LOG_NOTE,
@@ -682,7 +682,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
 void manifestCheck(const match_manifest_t *manifest)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
     };
 
     u32 missing_hashes[MANIFEST_MAX_ENTRIES];
