@@ -13,7 +13,6 @@
 #include "data.h"
 #include "types.h"
 #include "mod.h"
-#include "net/netmanifest.h"
 
 #define ANIM_HEADER_CACHE_SIZE 40
 #define ANIM_FRAME_CACHE_SIZE  32
@@ -353,11 +352,7 @@ void animForgetFrameBirths(void)
 
 void animLoadHeader(s16 animnum)
 {
-	char mfst_id[32];
 	s32 i;
-
-	snprintf(mfst_id, sizeof(mfst_id), "anim_%d", (int)animnum);
-	manifestEnsureLoaded(mfst_id, MANIFEST_TYPE_ANIM);
 
 	if (g_AnimToHeaderSlot[animnum] != 0xff) {
 		g_AnimHeaderBirths[g_AnimToHeaderSlot[animnum]] = g_Vars.thisframestart240;

@@ -12,7 +12,6 @@
 #include "types.h"
 #include "mod.h"
 #include "platform.h"
-#include "net/netmanifest.h"
 
 struct texture *g_Textures;
 u32 var800aabc4;
@@ -2379,11 +2378,7 @@ void texLoadFromConfigs(struct textureconfig *configs, s32 numconfigs, struct te
 
 void texLoadFromTextureNum(u32 texturenum, struct texpool *pool)
 {
-	char mfst_id[32];
 	texnum_t texturenumcopy = texturenum;
-
-	snprintf(mfst_id, sizeof(mfst_id), "tex_%d", (int)texturenum);
-	manifestEnsureLoaded(mfst_id, MANIFEST_TYPE_TEXTURE);
 
 	texLoad(&texturenumcopy, pool, true);
 }
