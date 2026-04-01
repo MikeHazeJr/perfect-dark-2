@@ -469,7 +469,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = idx;
+		e->runtime_index = g_MpBodies[idx].bodynum;  /* g_HeadsAndBodies[] index, not g_MpBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
@@ -508,7 +508,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = idx;
+		e->runtime_index = g_MpHeads[idx].headnum;  /* g_HeadsAndBodies[] index, not g_MpHeads[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
