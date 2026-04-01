@@ -169,6 +169,12 @@ void sessionCatalogReceive(struct netbuf *src)
             local = assetCatalogResolve(e->catalog_id);
         }
 
+        /* If server sent hash=0 (pre-registration bug) but string ID resolved,
+         * back-fill net_hash from the local entry so subsequent hash lookups work. */
+        if (local && e->net_hash == 0) {
+            e->net_hash = local->net_hash;
+        }
+
         /* Store result in translation table (wire_id is 1-based; 0 unused). */
         if (wire_id > 0 && wire_id <= SESSION_CATALOG_MAX_ENTRIES) {
             t             = &s_LocalTranslation[wire_id];

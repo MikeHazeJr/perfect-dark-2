@@ -434,6 +434,22 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
 		count++;
+
+		/* Register "stage_0x%02x" alias so manifest/session catalog pipeline
+		 * can resolve via assetCatalogResolve("stage_0x43") etc. */
+		{
+			asset_entry_t *ea;
+			snprintf(idbuf, sizeof(idbuf), "stage_0x%02x", (unsigned)g_Stages[idx].id);
+			ea = assetCatalogRegisterMap(idbuf, g_Stages[idx].id, "");
+			if (ea) {
+				strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+				ea->bundled = 1;
+				ea->enabled = 1;
+				ea->runtime_index = idx;
+				ea->load_state = ASSET_STATE_LOADED;
+				ea->ref_count = ASSET_REF_BUNDLED;
+			}
+		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base stages", count);
