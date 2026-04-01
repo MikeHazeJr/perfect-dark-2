@@ -1031,7 +1031,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         const char *curArenaGroup = "";
         for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
             for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaIndex) {
+                if (s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum == (s16)s_ArenaIndex) {
                     curArenaName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
                     curArenaGroup = s_ArenaGroupNames[g];
                     goto found_arena_label;
@@ -1120,16 +1120,16 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                     const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
                     if (!arenaName || !arenaName[0]) continue;
 
-                    bool isSel = (ae->runtime_index == s_ArenaIndex);
-                    bool isHov = (ae->runtime_index == s_ArenaModalHover);
+                    bool isSel = (ae->ext.arena.stagenum == (s16)s_ArenaIndex);
+                    bool isHov = (ae->ext.arena.stagenum == (s16)s_ArenaModalHover);
                     char arenaLabel[96];
-                    snprintf(arenaLabel, sizeof(arenaLabel), "  %s##ari%d",
-                             arenaName, ae->runtime_index);
+                    snprintf(arenaLabel, sizeof(arenaLabel), "  %s##arena_%d_%d",
+                             arenaName, g, a);
 
                     if (ImGui::Selectable(arenaLabel, isSel || isHov,
                                           ImGuiSelectableFlags_None)) {
-                        s_ArenaIndex = ae->runtime_index;
-                        s_ArenaModalHover = ae->runtime_index;
+                        s_ArenaIndex = ae->ext.arena.stagenum;
+                        s_ArenaModalHover = ae->ext.arena.stagenum;
                         g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
                         sysLogPrintf(LOG_NOTE,
                             "Arena: \"%s\" ri=%d stage=0x%02x",
@@ -1139,7 +1139,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                         ImGui::CloseCurrentPopup();
                     }
                     if (ImGui::IsItemHovered()) {
-                        s_ArenaModalHover = ae->runtime_index;
+                        s_ArenaModalHover = ae->ext.arena.stagenum;
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
                 }
@@ -1159,7 +1159,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
             u8 hoverStage = 0;
             for (s32 g = 0; g < ARENA_NUM_GROUPS && !hoverName; g++) {
                 for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                    if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaModalHover) {
+                    if (s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum == (s16)s_ArenaModalHover) {
                         hoverName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
                         hoverGroup = s_ArenaGroupNames[g];
                         hoverStage = (u8)s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum;
@@ -1413,7 +1413,7 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     /* Initialize match config on first appearance */
     if (!s_Initialized) {
         matchConfigInit();
-        s_ArenaIndex = findArenaIndex(g_MatchConfig.stagenum);
+        s_ArenaIndex = (s32)g_MatchConfig.stagenum;
         selectionClear();
         s_Tab = 0;
         s_Initialized = true;

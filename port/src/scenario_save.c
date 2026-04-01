@@ -50,8 +50,11 @@
 /* g_MatchConfig is defined in matchsetup.c (the match configuration module).
  * scenario_save.c uses it via the extern in scenario_save.h. */
 
-/* mpSetWeaponSet: applies weapon set index to g_MpSetup.weapons[]. */
+/* mpSetWeaponSet/mpGetWeaponSlot/mpSetWeaponSlot: weapon set management. */
 #include "game/mplayer/mplayer.h"
+
+/* catalogGetNumHeads/catalogGetNumBodies: bounds-check for reverse index lookup. */
+#include "modelcatalog.h"
 
 /* ========================================================================
  * Internal helpers
@@ -277,6 +280,11 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"options\": %u,\n",      (unsigned)g_MatchConfig.options);
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
 
+    /* Individual weapon slot picks — preserves custom selections across save/load */
+    for (s32 slot = 0; slot < 6; slot++) {
+        fprintf(fp, "  \"weapon%d\": %d,\n", slot, mpGetWeaponSlot(slot));
+    }
+
     /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
     fprintf(fp, "  \"bots\": [\n");
     s32 first = 1;
@@ -287,12 +295,14 @@ s32 scenarioSave(const char *name)
         if (!first) fprintf(fp, ",\n");
         first = 0;
 
-        /* SA-4: include catalog string IDs alongside legacy integer fields */
+        /* SA-4: include catalog string IDs alongside legacy integer fields.
+         * Guard bounds before reverse lookup to suppress spurious CATALOG-ASSERT
+         * warnings for stale/uninitialized headnum/bodynum values (B-58). */
         {
-            const char *body_id = catalogResolveByRuntimeIndex(ASSET_BODY,
-                                                               (s32)sl->bodynum);
-            const char *head_id = catalogResolveByRuntimeIndex(ASSET_HEAD,
-                                                               (s32)sl->headnum);
+            const char *body_id = ((s32)sl->bodynum < catalogGetNumBodies())
+                ? catalogResolveByRuntimeIndex(ASSET_BODY, (s32)sl->bodynum) : NULL;
+            const char *head_id = ((s32)sl->headnum < catalogGetNumHeads())
+                ? catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)sl->headnum) : NULL;
             fprintf(fp, "    {\"name\": \"");
             jsonEscapeStr(fp, sl->name);
             fprintf(fp, "\", \"difficulty\": %u, \"body\": %u, \"head\": %u"
@@ -407,6 +417,17 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     g_MatchConfig.options          = options;
     g_MatchConfig.weaponSetIndex   = (s8)weaponset;
     mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+
+    /* Restore individual weapon slot picks — override preset with saved picks */
+    for (s32 slot = 0; slot < 6; slot++) {
+        char wkey[16];
+        s32 wval = -1;
+        snprintf(wkey, sizeof(wkey), "weapon%d", slot);
+        if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
+            mpSetWeaponSlot(slot, wval);
+            g_MatchConfig.weapons[slot] = (u8)wval;
+        }
+    }
 
     /* --- Parse and add bots ---
      *
