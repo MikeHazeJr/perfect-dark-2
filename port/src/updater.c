@@ -817,7 +817,7 @@ static int SDLCALL downloadThread(void *data)
 		}
 		if (magic[0] != 0x50 || magic[1] != 0x4B || magic[2] != 0x03 || magic[3] != 0x04) {
 			remove(s_Updater.updatePath);
-			SDL_LockMutex(s_Updater.mutex);
+			/* Mutex already held from the top of this function — do NOT re-lock. */
 			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
 				"Downloaded file is not a valid ZIP archive (bad PK signature) — "
 				"release asset may be missing from GitHub. Update the game manually.");

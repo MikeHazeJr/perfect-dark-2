@@ -82,8 +82,8 @@ typedef struct {
 #define UPDATER_TAG_CLIENT    "v"
 #define UPDATER_TAG_SERVER    "v"
 
-/* ZIP asset suffix to match in GitHub release assets (e.g. "PerfectDark-v0.0.19-win64.zip") */
-#define UPDATER_ASSET_ZIP_SUFFIX  "-win64.zip"
+/* ZIP asset suffix to match in GitHub release assets (e.g. "PerfectDark-v0.0.21.zip") */
+#define UPDATER_ASSET_ZIP_SUFFIX  ".zip"
 
 /* .old suffix for the running exe during self-replacement */
 #define UPDATER_SUFFIX_OLD    ".old"
