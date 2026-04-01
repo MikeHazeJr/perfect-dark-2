@@ -296,6 +296,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "anim_%d" alias so mods can resolve animations by
+			 * numeric index, e.g. "anim_42". Mirrors the weapon_%d / hud_%d
+			 * alias pattern used for other large asset tables. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "anim_%d", i);
+				ea = assetCatalogRegisterAnimation(idbuf, i, "", 0, "");
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = i;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base animations", n);
@@ -317,6 +332,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "tex_%d" alias so mods can resolve textures by
+			 * numeric index, e.g. "tex_100". Mirrors the anim_%d / sfx_%d
+			 * alias pattern used for other large asset tables. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "tex_%d", i);
+				ea = assetCatalogRegisterTexture(idbuf, i, 0, 0, 0, "");
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = i;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base textures", n);
@@ -420,6 +450,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+
+			/* Register "sfx_%d" alias so mods can resolve SFX by
+			 * numeric index, e.g. "sfx_42". Mirrors the anim_%d / tex_%d
+			 * alias pattern used for other large asset tables. */
+			{
+				asset_entry_t *ea;
+				snprintf(idbuf, sizeof(idbuf), "sfx_%d", i);
+				ea = assetCatalogRegisterAudio(idbuf, i, "", 0, 0, "");
+				if (ea) {
+					strncpy(ea->category, "base", CATALOG_CATEGORY_LEN - 1);
+					ea->bundled = 1; ea->enabled = 1;
+					ea->runtime_index = i;
+					ea->load_state = ASSET_STATE_LOADED; ea->ref_count = ASSET_REF_BUNDLED;
+				}
+			}
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries", n);
