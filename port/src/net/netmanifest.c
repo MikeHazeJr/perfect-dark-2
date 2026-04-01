@@ -37,6 +37,7 @@
 #include "net/netlobby.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "assetcatalog_deps.h"
 #include "modmgr.h"
 
 /* =========================================================================
@@ -305,6 +306,53 @@ u32 manifestComputeHash(match_manifest_t *m)
     return h;
 }
 
+/* =========================================================================
+ * Phase 2: Dependency-graph expansion helpers
+ *
+ * When a BODY or HEAD catalog entry is added to a manifest, all deps
+ * registered under that entry's catalog ID are automatically included
+ * as MANIFEST_TYPE_ANIM or MANIFEST_TYPE_TEXTURE entries.
+ *
+ * Base-game (bundled) entries have no registered deps; catalogDepForEach()
+ * is a no-op for them.  manifestAddEntry() deduplicates by net_hash so a
+ * dep shared between two characters appears exactly once in the manifest.
+ * ========================================================================= */
+
+typedef struct {
+    match_manifest_t *manifest;
+    u8                slot_index;
+} s_DepExpandCtx;
+
+static u8 s_assetTypeToManifestType(asset_type_e atype)
+{
+    switch (atype) {
+    case ASSET_ANIMATION: return MANIFEST_TYPE_ANIM;
+    case ASSET_TEXTURE:   return MANIFEST_TYPE_TEXTURE;
+    default:              return MANIFEST_TYPE_COMPONENT;
+    }
+}
+
+static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
+{
+    s_DepExpandCtx *ctx = (s_DepExpandCtx *)userdata;
+    const asset_entry_t *de = assetCatalogResolve(dep_id);
+    if (de) {
+        u8 mtype = s_assetTypeToManifestType(de->type);
+        manifestAddEntry(ctx->manifest, de->net_hash, de->id,
+                         mtype, ctx->slot_index);
+    }
+    /* Unresolved dep_id is silently skipped — mod may be partially loaded */
+}
+
+static void s_manifestExpandDeps(match_manifest_t *m,
+                                 const char *owner_id, u8 slot_index)
+{
+    s_DepExpandCtx ctx;
+    ctx.manifest   = m;
+    ctx.slot_index = slot_index;
+    catalogDepForEach(owner_id, s_manifestDepAddEntry, &ctx);
+}
+
 /**
  * manifestBuild -- populate *out with all assets required for the upcoming match.
  *
@@ -383,6 +431,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (be) {
                 manifestAddEntry(out, be->net_hash, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
+                s_manifestExpandDeps(out, be->id, slot_index);
             } else {
                 manifestAddEntry(out, s_fnv1a(ncl->settings.body_id), ncl->settings.body_id,
                                  MANIFEST_TYPE_BODY, slot_index);
@@ -393,6 +442,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (he) {
                 manifestAddEntry(out, he->net_hash, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
+                s_manifestExpandDeps(out, he->id, slot_index);
             } else {
                 manifestAddEntry(out, s_fnv1a(ncl->settings.head_id), ncl->settings.head_id,
                                  MANIFEST_TYPE_HEAD, slot_index);
@@ -416,6 +466,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (be) {
                 manifestAddEntry(out, be->net_hash, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
+                s_manifestExpandDeps(out, be->id, slot_index);
             } else {
                 char body_id[64];
                 snprintf(body_id, sizeof(body_id), "body_%d", (int)bodynum);
@@ -426,6 +477,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (he) {
                 manifestAddEntry(out, he->net_hash, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
+                s_manifestExpandDeps(out, he->id, slot_index);
             } else {
                 char head_id[64];
                 snprintf(head_id, sizeof(head_id), "head_%d", (int)headnum);
@@ -538,12 +590,14 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
     }
     if (be) {
         manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
+        s_manifestExpandDeps(out, be->id, 0);
     } else {
         manifestAddEntry(out, s_fnv1a("body_0"), "body_0", MANIFEST_TYPE_BODY, 0);
     }
 
     if (he) {
         manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
+        s_manifestExpandDeps(out, he->id, 0);
     } else {
         manifestAddEntry(out, s_fnv1a("head_0"), "head_0", MANIFEST_TYPE_HEAD, 0);
     }
@@ -571,6 +625,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                     if (cbe) {
                         manifestAddEntry(out, cbe->net_hash, cbe->id,
                                          MANIFEST_TYPE_BODY, 0);
+                        s_manifestExpandDeps(out, cbe->id, 0);
                     } else {
                         char bstr[64];
                         snprintf(bstr, sizeof(bstr), "body_%d", (int)chr->bodynum);
@@ -587,6 +642,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                     if (che) {
                         manifestAddEntry(out, che->net_hash, che->id,
                                          MANIFEST_TYPE_HEAD, 0);
+                        s_manifestExpandDeps(out, che->id, 0);
                     } else {
                         char hstr[64];
                         snprintf(hstr, sizeof(hstr), "head_%d", (int)chr->headnum);
@@ -667,6 +723,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
             if (cbe) {
                 manifestAddEntry(out, cbe->net_hash, cbe->id,
                                  MANIFEST_TYPE_BODY, 1);
+                s_manifestExpandDeps(out, cbe->id, 1);
             } else {
                 char bstr[64];
                 snprintf(bstr, sizeof(bstr), "body_%d", (int)g_Vars.antibodynum);
@@ -682,6 +739,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
             if (che) {
                 manifestAddEntry(out, che->net_hash, che->id,
                                  MANIFEST_TYPE_HEAD, 1);
+                s_manifestExpandDeps(out, che->id, 1);
             } else {
                 char hstr[64];
                 snprintf(hstr, sizeof(hstr), "head_%d", (int)g_Vars.antiheadnum);

@@ -326,3 +326,7 @@ void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text);
 struct headorbody g_HeadsAndBodies[152];    /* zero-initialised; no model data on server */
 struct stagetableentry *g_Stages = NULL;    /* no stage table on server */
 s32 g_NumStages = 0;
+
+/* --- assetcatalog_load stubs — server has no game asset filesystem --- */
+s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
+void catalogUnloadAsset(const char *assetId) { (void)assetId; }
