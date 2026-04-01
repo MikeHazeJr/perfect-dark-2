@@ -360,6 +360,518 @@ static int  s_ScenarioCount     = 0;
 static char s_ScenarioStatusMsg[128] = "";
 
 /* ========================================================================
+ * Level Editor — state, data tables, and catalog helpers (tab 3)
+ * ======================================================================== */
+
+#define LE_MAX_SPAWNED      128     /* max objects that can be spawned */
+#define LE_CATALOG_MAX      512     /* catalog snapshot size */
+
+#define LE_INTERACT_STATIC  0
+#define LE_INTERACT_PICKUP  1
+#define LE_INTERACT_USE     2
+#define LE_INTERACT_DOOR    3
+
+/* Spawned object descriptor */
+struct le_spawned_t {
+    char  id[64];           /* catalog asset ID */
+    int   asset_type;       /* asset_type_e value */
+    float pos[3];           /* world position (set to camera pos on spawn) */
+    float scale[3];         /* per-axis scale */
+    bool  uniform_scale;    /* when true, X drives Y and Z */
+    int   tex_override_idx; /* index into catalog texture list, -1 = default */
+    bool  collision;        /* collision enabled */
+    int   interaction;      /* LE_INTERACT_* */
+};
+
+/* Catalog snapshot entry for the browser */
+struct le_cat_entry_t { char id[64]; int type; };
+
+static le_spawned_t   s_LESpawned[LE_MAX_SPAWNED];
+static int            s_LENumSpawned        = 0;
+static int            s_LESelectedSpawned   = -1;
+
+static le_cat_entry_t s_LECatalog[LE_CATALOG_MAX];
+static int            s_LECatalogCount      = 0;
+static bool           s_LECatalogBuilt      = false;
+static int            s_LECatalogBuiltType  = -99;
+
+/* Catalog browser UI state */
+static int  s_LETypeFilter = 0;
+static char s_LESearch[64] = "";
+static char s_LESelId[64]  = "";
+static int  s_LESelType    = 0;
+
+/* Whether the editor overlay is active */
+static bool  s_LEActive     = false;
+
+/* Stub free-fly camera state shown in overlay */
+static float s_LECamPos[3]  = { 0.0f, 100.0f, 0.0f };
+static float s_LECamYaw     = 0.0f;
+static float s_LECamPitch   = 0.0f;
+
+/* Type filter table */
+struct le_type_filter_t { const char *label; int type; };
+
+static const le_type_filter_t s_LETypeFilters[] = {
+    { "All",        -1              },
+    { "Props",      ASSET_PROP      },
+    { "Characters", ASSET_CHARACTER },
+    { "Weapons",    ASSET_WEAPON    },
+    { "Models",     ASSET_MODEL     },
+    { "Vehicles",   ASSET_VEHICLE   },
+    { "Maps",       ASSET_MAP       },
+    { "Textures",   ASSET_TEXTURE   },
+    { "Skins",      ASSET_SKIN      },
+};
+static const int s_LENumTypeFilters =
+    (int)(sizeof(s_LETypeFilters) / sizeof(s_LETypeFilters[0]));
+
+/* Interaction type names */
+static const char *s_LEInteractNames[] = { "Static", "Pickup", "Use", "Door" };
+static const int   s_LENumInteractTypes = 4;
+
+/* Catalog collect callback */
+static void leCatalogCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_LECatalogCount >= LE_CATALOG_MAX) return;
+    strncpy(s_LECatalog[s_LECatalogCount].id, e->id, 63);
+    s_LECatalog[s_LECatalogCount].id[63] = '\0';
+    s_LECatalog[s_LECatalogCount].type   = (int)e->type;
+    s_LECatalogCount++;
+}
+
+/* Build or rebuild the catalog snapshot for the current type filter */
+static void leBuildCatalog(void)
+{
+    int filterType = s_LETypeFilters[s_LETypeFilter].type;
+    int t;
+    s_LECatalogCount = 0;
+    if (filterType < 0) {
+        for (t = 1; t < (int)ASSET_TYPE_COUNT; t++) {
+            assetCatalogIterateByType((asset_type_e)t, leCatalogCollect, NULL);
+        }
+    } else {
+        assetCatalogIterateByType((asset_type_e)filterType, leCatalogCollect, NULL);
+    }
+    s_LECatalogBuilt     = true;
+    s_LECatalogBuiltType = filterType;
+}
+
+/* ========================================================================
+ * Level Editor — left panel: categorized catalog browser + spawn
+ * ======================================================================== */
+
+static void renderLevelEditorTab(float panelW, float panelH)
+{
+    float comboW     = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float btnH       = pdguiScale(26.0f);
+    int   filterType;
+    float listH;
+    float usedY;
+
+    ImGui::BeginChild("##le_left", ImVec2(panelW, panelH), false);
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor");
+    ImGui::TextDisabled("Spawn catalog assets into an empty level and explore freely.");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Asset type filter */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Asset Type");
+    ImGui::SetNextItemWidth(comboW);
+    if (ImGui::BeginCombo("##le_type", s_LETypeFilters[s_LETypeFilter].label)) {
+        for (int i = 0; i < s_LENumTypeFilters; i++) {
+            bool sel = (i == s_LETypeFilter);
+            if (ImGui::Selectable(s_LETypeFilters[i].label, sel)) {
+                s_LETypeFilter   = i;
+                s_LECatalogBuilt = false;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+
+    /* Search */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Search");
+    ImGui::SetNextItemWidth(comboW);
+    ImGui::InputText("##le_search", s_LESearch, sizeof(s_LESearch));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Rebuild catalog snapshot when filter changes */
+    filterType = s_LETypeFilters[s_LETypeFilter].type;
+    if (!s_LECatalogBuilt || s_LECatalogBuiltType != filterType) {
+        leBuildCatalog();
+    }
+
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f),
+                       "Catalog  (%d entries)", s_LECatalogCount);
+
+    usedY = ImGui::GetCursorPosY();
+    listH = panelH - usedY - btnH
+            - ImGui::GetStyle().ItemSpacing.y * 3.0f
+            - ImGui::GetStyle().WindowPadding.y;
+    if (listH < pdguiScale(60.0f)) listH = pdguiScale(60.0f);
+
+    ImGui::BeginChild("##le_catlist", ImVec2(comboW, listH), true,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    for (int i = 0; i < s_LECatalogCount; i++) {
+        /* Case-insensitive substring search */
+        if (s_LESearch[0] != '\0') {
+            char loID[64], loQ[64];
+            int  j;
+            const char *id = s_LECatalog[i].id;
+            const char *q  = s_LESearch;
+            for (j = 0; j < 63 && id[j]; j++)
+                loID[j] = (char)tolower((unsigned char)id[j]);
+            loID[j] = '\0';
+            for (j = 0; j < 63 && q[j]; j++)
+                loQ[j] = (char)tolower((unsigned char)q[j]);
+            loQ[j] = '\0';
+            if (!strstr(loID, loQ)) continue;
+        }
+
+        ImGui::PushID(i);
+        bool isSel = (strcmp(s_LESelId, s_LECatalog[i].id) == 0);
+
+        /* Short type tag */
+        const char *tag;
+        switch ((asset_type_e)s_LECatalog[i].type) {
+            case ASSET_PROP:        tag = "PROP"; break;
+            case ASSET_CHARACTER:   tag = "CHR";  break;
+            case ASSET_WEAPON:      tag = "WPN";  break;
+            case ASSET_MODEL:       tag = "MDL";  break;
+            case ASSET_VEHICLE:     tag = "VEH";  break;
+            case ASSET_MAP:         tag = "MAP";  break;
+            case ASSET_TEXTURE:     tag = "TEX";  break;
+            case ASSET_SKIN:        tag = "SKN";  break;
+            case ASSET_ARENA:       tag = "AREA"; break;
+            case ASSET_BODY:        tag = "BODY"; break;
+            case ASSET_HEAD:        tag = "HEAD"; break;
+            case ASSET_AUDIO:       tag = "SFX";  break;
+            default:                tag = "???";  break;
+        }
+
+        char row[96];
+        snprintf(row, sizeof(row), "[%s] %s", tag, s_LECatalog[i].id);
+
+        if (ImGui::Selectable(row, isSel)) {
+            strncpy(s_LESelId, s_LECatalog[i].id, 63);
+            s_LESelId[63] = '\0';
+            s_LESelType   = s_LECatalog[i].type;
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::EndChild(); /* ##le_catlist */
+
+    ImGui::Spacing();
+
+    /* Spawn button — only active when editor running and an entry is selected */
+    {
+        bool canSpawn = s_LEActive
+                        && (s_LESelId[0] != '\0')
+                        && (s_LENumSpawned < LE_MAX_SPAWNED);
+        if (!canSpawn) ImGui::BeginDisabled();
+        if (ImGui::Button("Spawn at Camera##le_spawn", ImVec2(comboW, btnH))) {
+            le_spawned_t *obj = &s_LESpawned[s_LENumSpawned++];
+            strncpy(obj->id, s_LESelId, 63);
+            obj->id[63]           = '\0';
+            obj->asset_type       = s_LESelType;
+            obj->pos[0]           = s_LECamPos[0];
+            obj->pos[1]           = s_LECamPos[1];
+            obj->pos[2]           = s_LECamPos[2];
+            obj->scale[0]         = 1.0f;
+            obj->scale[1]         = 1.0f;
+            obj->scale[2]         = 1.0f;
+            obj->uniform_scale    = true;
+            obj->tex_override_idx = -1;
+            obj->collision        = true;
+            obj->interaction      = LE_INTERACT_STATIC;
+            s_LESelectedSpawned   = s_LENumSpawned - 1;
+            sysLogPrintf(LOG_NOTE,
+                "LEVEL_EDITOR: spawned \"%s\" (type %d) at (%.1f, %.1f, %.1f)",
+                obj->id, obj->asset_type,
+                obj->pos[0], obj->pos[1], obj->pos[2]);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (!canSpawn) ImGui::EndDisabled();
+    }
+
+    if (!s_LEActive) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 1.0f),
+                           "Launch the editor below to enable spawning.");
+    }
+
+    ImGui::EndChild(); /* ##le_left */
+}
+
+/* ========================================================================
+ * Level Editor — right panel: spawned object list + property editor
+ * ======================================================================== */
+
+static void renderLevelEditorObjectPanel(float panelW, float panelH)
+{
+    float scale  = pdguiScaleFactor();
+    float btnH   = pdguiScale(24.0f);
+    float fieldW = 0.0f;
+
+    ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH), true);
+
+    /* ---- Spawned objects list ---- */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                       "Spawned Objects  (%d)", s_LENumSpawned);
+    ImGui::Separator();
+
+    {
+        float listH = panelH * 0.38f;
+        ImGui::BeginChild("##le_spawned_list", ImVec2(0.0f, listH), false,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+        if (s_LENumSpawned == 0) {
+            ImGui::TextDisabled("(none yet)");
+        }
+        for (int i = 0; i < s_LENumSpawned; i++) {
+            le_spawned_t *obj = &s_LESpawned[i];
+            ImGui::PushID(i);
+
+            bool isSel = (i == s_LESelectedSpawned);
+            char rowlabel[80];
+            snprintf(rowlabel, sizeof(rowlabel), "%s##obj%d", obj->id, i);
+            if (ImGui::Selectable(rowlabel, isSel,
+                                  ImGuiSelectableFlags_None,
+                                  ImVec2(panelW - pdguiScale(32.0f), 0.0f))) {
+                s_LESelectedSpawned = i;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            ImGui::SameLine();
+            {
+                char delLabel[16];
+                snprintf(delLabel, sizeof(delLabel), "X##d%d", i);
+                if (ImGui::SmallButton(delLabel)) {
+                    s_LESpawned[i] = s_LESpawned[s_LENumSpawned - 1];
+                    s_LENumSpawned--;
+                    if (s_LESelectedSpawned >= s_LENumSpawned)
+                        s_LESelectedSpawned = s_LENumSpawned - 1;
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild(); /* ##le_spawned_list */
+    }
+
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* ---- Property editor ---- */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Properties");
+
+    if (s_LESelectedSpawned < 0 || s_LESelectedSpawned >= s_LENumSpawned) {
+        ImGui::TextDisabled("Select a spawned object to edit.");
+    } else {
+        le_spawned_t *obj = &s_LESpawned[s_LESelectedSpawned];
+        fieldW = panelW
+                 - 80.0f * scale
+                 - ImGui::GetStyle().WindowPadding.x * 2.0f
+                 - ImGui::GetStyle().ItemSpacing.x;
+        if (fieldW < pdguiScale(60.0f)) fieldW = pdguiScale(60.0f);
+
+        /* Position (read-only) */
+        ImGui::Text("Position:");
+        ImGui::SameLine(80.0f * scale);
+        ImGui::TextDisabled("(%.0f, %.0f, %.0f)",
+                            obj->pos[0], obj->pos[1], obj->pos[2]);
+
+        ImGui::Spacing();
+
+        /* Scale */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scale");
+        ImGui::Checkbox("Uniform##le_uni", &obj->uniform_scale);
+        if (obj->uniform_scale) {
+            ImGui::SetNextItemWidth(fieldW);
+            if (ImGui::SliderFloat("##le_scaleU", &obj->scale[0],
+                                   0.1f, 10.0f, "%.2f")) {
+                obj->scale[1] = obj->scale[0];
+                obj->scale[2] = obj->scale[0];
+            }
+        } else {
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("X##le_scaleX", &obj->scale[0], 0.1f, 10.0f, "%.2f");
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("Y##le_scaleY", &obj->scale[1], 0.1f, 10.0f, "%.2f");
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("Z##le_scaleZ", &obj->scale[2], 0.1f, 10.0f, "%.2f");
+        }
+
+        ImGui::Spacing();
+
+        /* Collision */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Collision");
+        ImGui::Checkbox("Enabled##le_col", &obj->collision);
+
+        ImGui::Spacing();
+
+        /* Interaction type */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Interaction");
+        ImGui::SetNextItemWidth(fieldW);
+        if (ImGui::BeginCombo("##le_interact",
+                              s_LEInteractNames[obj->interaction])) {
+            for (int ii = 0; ii < s_LENumInteractTypes; ii++) {
+                bool sel = (ii == obj->interaction);
+                if (ImGui::Selectable(s_LEInteractNames[ii], sel)) {
+                    obj->interaction = ii;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Spacing();
+
+        /* Texture override */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Texture Override");
+        {
+            int texCount = (int)assetCatalogGetCountByType(ASSET_TEXTURE);
+            if (texCount == 0) {
+                ImGui::TextDisabled("(no textures in catalog)");
+            } else {
+                int  showMax  = (texCount < 32) ? texCount : 32;
+                const char *texLabel = (obj->tex_override_idx < 0)
+                                       ? "Default" : "Custom";
+                ImGui::SetNextItemWidth(fieldW);
+                if (ImGui::BeginCombo("##le_tex", texLabel)) {
+                    bool selDef = (obj->tex_override_idx < 0);
+                    if (ImGui::Selectable("Default", selDef)) {
+                        obj->tex_override_idx = -1;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (selDef) ImGui::SetItemDefaultFocus();
+                    for (int ti = 0; ti < showMax; ti++) {
+                        char texEntry[32];
+                        snprintf(texEntry, sizeof(texEntry), "Texture %d", ti);
+                        bool selT = (obj->tex_override_idx == ti);
+                        if (ImGui::Selectable(texEntry, selT)) {
+                            obj->tex_override_idx = ti;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
+                        if (selT) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (texCount > 32) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%d total)", texCount);
+                }
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* Clear All */
+        if (s_LENumSpawned > 0) {
+            if (ImGui::Button("Clear All##le_clearall",
+                              ImVec2(-1.0f, btnH))) {
+                s_LENumSpawned      = 0;
+                s_LESelectedSpawned = -1;
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+        }
+    }
+
+    ImGui::EndChild(); /* ##le_right_outer */
+}
+
+/* ========================================================================
+ * Level Editor — in-game floating overlay (shown when s_LEActive)
+ * ======================================================================== */
+
+static void renderLevelEditorOverlay(void)
+{
+    float oW     = pdguiScale(280.0f);
+    float oH     = pdguiScale(340.0f);
+    float exitW;
+    ImVec2 disp  = ImGui::GetIO().DisplaySize;
+
+    /* Pin to top-right corner */
+    ImGui::SetNextWindowPos(
+        ImVec2(disp.x - oW - pdguiScale(8.0f), pdguiScale(8.0f)),
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(oW, oH));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+
+    ImGuiWindowFlags oflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (!ImGui::Begin("Level Editor##leoverlay", nullptr, oflags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor  [Active]");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Camera info — stub until free-fly is wired to game camera */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Camera");
+    ImGui::Text("Pos:   %.1f, %.1f, %.1f",
+                s_LECamPos[0], s_LECamPos[1], s_LECamPos[2]);
+    ImGui::Text("Yaw: %.1f   Pitch: %.1f", s_LECamYaw, s_LECamPitch);
+    ImGui::TextDisabled("(free-fly: WASD + mouse -- in development)");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f),
+                       "Objects: %d / %d", s_LENumSpawned, LE_MAX_SPAWNED);
+
+    /* Selected object summary */
+    if (s_LESelectedSpawned >= 0 && s_LESelectedSpawned < s_LENumSpawned) {
+        le_spawned_t *obj = &s_LESpawned[s_LESelectedSpawned];
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Selected:");
+        ImGui::Text("  %s", obj->id);
+        ImGui::Text("  Pos (%.0f, %.0f, %.0f)",
+                    obj->pos[0], obj->pos[1], obj->pos[2]);
+        ImGui::Text("  Scale %.2f x %.2f x %.2f",
+                    obj->scale[0], obj->scale[1], obj->scale[2]);
+        ImGui::Text("  Collision: %s   Interact: %s",
+                    obj->collision ? "on" : "off",
+                    s_LEInteractNames[obj->interaction]);
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    exitW = oW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    if (ImGui::Button("Exit Level Editor##le_exit",
+                      ImVec2(exitW, pdguiScale(26.0f)))) {
+        s_LEActive = false;
+        sysLogPrintf(LOG_NOTE, "LEVEL_EDITOR: overlay closed.");
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+
+    ImGui::End();
+}
+
+/* ========================================================================
  * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawnWeaponNum
  * Called after loading a scenario so the picker shows the right entry.
  * ======================================================================== */
@@ -1129,7 +1641,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     bool isLeader = s_IsSoloMode || (lobbyIsLocalLeader() != 0);
 
     static const char *s_TabNames[] = {
-        "Combat Simulator", "Campaign", "Counter-Operative"
+        "Combat Simulator", "Campaign", "Counter-Operative", "Level Editor"
     };
 
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));
@@ -1138,7 +1650,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0.3f, 0.6f, 1.0f, 1.0f));
 
     if (ImGui::BeginTabBar("##room_tabs")) {
-        for (int t = 0; t < 3; t++) {
+        for (int t = 0; t < 4; t++) {
             bool tabOpen = ImGui::BeginTabItem(s_TabNames[t]);
             if (tabOpen) {
                 if (s_ActiveTab != t) {
@@ -1164,12 +1676,17 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         case 0: renderCombatSimTab(leftW, contentH, isLeader); break;
         case 1: renderCampaignTab (leftW, contentH, isLeader); break;
         case 2: renderCounterOpTab(leftW, contentH, isLeader); break;
+        case 3: renderLevelEditorTab(leftW, contentH); break;
     }
 
     ImGui::SameLine(0.0f, pad);
 
-    /* Right panel */
-    renderPlayerPanel(rightW, contentH, isLeader);
+    /* Right panel — Level Editor uses its own object/property panel */
+    if (s_ActiveTab == 3) {
+        renderLevelEditorObjectPanel(rightW, contentH);
+    } else {
+        renderPlayerPanel(rightW, contentH, isLeader);
+    }
 
     /* ---- Footer ---- */
     ImGui::Separator();
@@ -1177,7 +1694,23 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     float btnH = pdguiScale(28.0f);
 
-    if (isLeader) {
+    if (s_ActiveTab == 3) {
+        /* Level Editor tab: everyone can launch their own editor session */
+        float launchW = pdguiScale(180.0f);
+        if (ImGui::Button("Launch Level Editor##le_launch",
+                          ImVec2(launchW, btnH))) {
+            s_LEActive          = true;
+            s_LENumSpawned      = 0;
+            s_LESelectedSpawned = -1;
+            sysLogPrintf(LOG_NOTE,
+                "LEVEL_EDITOR: editor activated (free-fly camera in development).");
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (s_LEActive) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "[Editor Active]");
+        }
+    } else if (isLeader) {
         float startW = pdguiScale(140.0f);
         if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -1462,6 +1995,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     }
 
     ImGui::End();
+
+    /* Level editor floating overlay — rendered as a separate window */
+    if (s_LEActive) {
+        renderLevelEditorOverlay();
+    }
 }
 
 /* ========================================================================

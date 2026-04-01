@@ -268,6 +268,66 @@ static s32 computeAvailableStageCount(void)
 }
 
 /* =========================================================================
+ * langSafe — null-safe langGet wrapper.
+ * langGet() returns NULL when the bank is unloaded or the entry is zero.
+ * Passing NULL to ImGui::Button / ImDrawList::AddText causes 0xc0000005.
+ * Always use langSafe() when the result goes directly to an ImGui call.
+ * ========================================================================= */
+static const char *langSafe(s32 textid)
+{
+    const char *s = langGet(textid);
+    return s ? s : "";
+}
+
+/* =========================================================================
+ * Solo mission reward stubs.
+ * Placeholder until the unlock system is wired in.
+ * Three tiers per (stage, difficulty): Easy / Normal / Perfect.
+ * ========================================================================= */
+struct SoloRewardStub {
+    const char *name;    /* reward name, or "???" when unknown/locked */
+    int         earned;  /* 1 = unlocked, 0 = not yet */
+};
+
+/* Returns placeholder data; replace body when unlock system is ready. */
+static struct SoloRewardStub soloGetReward(s32 stageIdx, s32 diff, s32 tier)
+{
+    struct SoloRewardStub r;
+    (void)stageIdx; (void)diff; (void)tier;
+    r.name   = "???";
+    r.earned = 0;
+    return r;
+}
+
+/*
+ * Render reward tooltip rows for one (stageIdx, diff) combination.
+ * Shows three tiers: Easy / Normal / Perfect.
+ * Earned rewards show their name; unearned show "??? [0/1]".
+ */
+static void renderRewardTooltip(s32 stageIdx, s32 diff)
+{
+    static const char *k_TierNames[] = { "Easy", "Normal", "Perfect" };
+    int total = 1; /* stub: one reward slot per tier */
+    int tier;
+    for (tier = 0; tier < 3; tier++) {
+        struct SoloRewardStub r = soloGetReward(stageIdx, diff, tier);
+        if (r.earned) {
+            ImGui::Text("%s reward: %s [1/%d]", k_TierNames[tier], r.name, total);
+        } else {
+            ImGui::TextDisabled("%s reward: ??? [0/%d]", k_TierNames[tier], total);
+        }
+    }
+}
+
+/* Difficulty badge fill colors: Agent=green, SA=blue, PA=gold */
+static const ImU32 k_DiffBadgeColor[] = {
+    IM_COL32( 60, 200,  80, 255),   /* Agent */
+    IM_COL32( 80, 160, 255, 255),   /* Special Agent */
+    IM_COL32(220, 190,  50, 255),   /* Perfect Agent */
+};
+static const char *k_DiffShort[] = { "A", "S", "P" };
+
+/* =========================================================================
  * Mission Select
  * ========================================================================= */
 
@@ -297,14 +357,44 @@ static s32 stageToGroupIdx(s32 stageIdx)
     return grp;
 }
 
+/*
+ * renderMissionSelect — redesigned mission select screen.
+ *
+ * Layout:
+ *   Title bar ("Mission Select")
+ *   Scrollable tree:
+ *     -- Mission N --            chapter separator
+ *     ▶ [A][S][P]  X.Y Name1 Name2     collapsible mission node
+ *         ● Agent            2m:34s    difficulty checkpoint row
+ *         ○ Special Agent    --:--
+ *         ○ Perfect Agent    [Locked]
+ *     -- Special Assignments --
+ *     ▶ [A][S][P]  SA-N Name
+ *         ...
+ *
+ * Clicking an unlocked checkpoint sets g_MissionConfig and pushes
+ * g_AcceptMissionMenuDialog directly — no intermediate difficulty dialog.
+ * g_SoloMissionDifficultyMenuDialog is still registered (PD Mode path).
+ *
+ * Crash fix: all langGet() returns go through langSafe() before reaching
+ * ImGui calls.  ImGui::Button/AddText crash on NULL; snprintf does not.
+ */
 static s32 renderMissionSelect(struct menudialog *dialog,
                                 struct menu *menu,
                                 s32 winW, s32 winH)
 {
-    float sf   = pdguiScaleFactor();
-    float mw   = pdguiMenuWidth();
-    float mh   = pdguiMenuHeight();
+    float mw    = pdguiMenuWidth();
+    float mh    = pdguiMenuHeight();
     ImVec2 mpos = pdguiMenuPos();
+
+    /* Badge geometry constants */
+    float badgeR   = pdguiScale(6.0f);
+    float badgeGap = pdguiScale(14.0f);
+    float indentX  = pdguiScale(28.0f); /* space past the tree arrow */
+
+    /* Pending mission launch — set inside tree, executed after EndChild */
+    s32 pendingStage = -1;
+    s32 pendingDiff  = -1;
 
     ImGui::SetNextWindowPos(mpos);
     ImGui::SetNextWindowSize(ImVec2(mw, mh));
@@ -323,193 +413,453 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_MissionSelectIdx = 0;
-        s_BriefingScroll   = 0.0f;
     }
 
-    /* Title bar */
     float titleH = pdguiScale(26.0f);
-    pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, langGet(L_OPTIONS_122), 1);
+    pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().ItemSpacing.y);
 
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
-    ImGui::TextDisabled("Choose a mission");
-    ImGui::Separator();
-
-    /* Compute available stages */
-    s32 availCount = computeAvailableStageCount();
-    s32 specialCount = getNumUnlockedSpecialStages();
-    s32 totalCount = availCount + specialCount;
-
-    /* Clamp selection */
-    if (s_MissionSelectIdx < 0)           s_MissionSelectIdx = 0;
-    if (s_MissionSelectIdx >= totalCount) s_MissionSelectIdx = totalCount - 1;
-    if (totalCount <= 0)                  s_MissionSelectIdx = 0;
-
-    /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
-        s_MissionSelectIdx++;
-        if (s_MissionSelectIdx >= totalCount) s_MissionSelectIdx = 0;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
-        s_MissionSelectIdx--;
-        if (s_MissionSelectIdx < 0) s_MissionSelectIdx = totalCount > 0 ? totalCount - 1 : 0;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-
-    /* Confirm */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-        if (s_MissionSelectIdx < availCount) {
-            s32 si = s_MissionSelectIdx;
-            g_MissionConfig.stagenum   = g_SoloStages[si].stagenum;
-            g_MissionConfig.stageindex = (u8)si;
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
-        } else {
-            s32 slot = s_MissionSelectIdx - availCount;
-            s32 si   = func0f104720(slot);
-            g_MissionConfig.stagenum   = g_SoloStages[si].stagenum;
-            g_MissionConfig.stageindex = (u8)si;
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
-        }
-    }
     /* Back */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
+        ImGui::End();
+        return 1;
     }
 
-    /* ---- Stage list ---- */
-    float footerH = pdguiScale(36.0f);
-    float listH   = mh - titleH - pdguiScale(40.0f) - footerH;
-    float rowH    = pdguiScale(32.0f);
+    float footerH = pdguiScale(22.0f);
+    float listH   = mh - titleH - pdguiScale(8.0f) - footerH;
 
-    if (ImGui::BeginChild("##mission_list", ImVec2(0, listH), false,
+    if (ImGui::BeginChild("##mission_tree", ImVec2(0, listH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
-        s32 prevGroupIdx = -1;
+        /* ------------------------------------------------------------------ */
+        /* Regular missions 0..SOLOSTAGEINDEX_SKEDARRUINS                     */
+        /* ------------------------------------------------------------------ */
+        s32 prevGroup = -1;
+        s32 i;
+        for (i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS && pendingStage < 0; i++) {
+            s32 grp     = stageToGroupIdx(i);
+            s32 chap    = grp + 1;
+            s32 chapPos = i - k_MissionGroups[grp].firstIdx + 1;
 
-        /* Regular stages */
-        for (s32 i = 0; i < availCount && i <= SOLOSTAGEINDEX_SKEDARRUINS; i++) {
-            s32 grp = stageToGroupIdx(i);
-            if (grp != prevGroupIdx) {
-                /* Group header */
-                if (prevGroupIdx >= 0) ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f),
-                                   "%s", langGet(k_MissionGroups[grp].langId));
-                ImGui::Separator();
-                prevGroupIdx = grp;
+            /* Chapter separator when group changes */
+            if (grp != prevGroup) {
+                if (prevGroup >= 0) ImGui::Spacing();
+                {
+                    /* Try the language string; fall back to "Mission N" */
+                    const char *chapLang = langSafe(k_MissionGroups[grp].langId);
+                    char chapHdr[64];
+                    if (chapLang[0]) {
+                        snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
+                    } else {
+                        snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
+                    }
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+                    ImGui::TextUnformatted(chapHdr);
+                    ImGui::PopStyleColor();
+                }
+                prevGroup = grp;
             }
 
-            bool isSelected = (s_MissionSelectIdx == i);
-            ImGui::PushID(i);
-
-            /* Build display name: "name1 name2" */
-            char label[128];
-            snprintf(label, sizeof(label), "  %s%s",
-                     langGet(g_SoloStages[i].name1),
-                     langGet(g_SoloStages[i].name2));
-
-            /* Best time summary: show shortest besttime across difficulties */
-            char timeStr[32] = "";
             {
-                u16 best = 0;
-                for (s32 d = 0; d <= DIFF_PA; d++) {
-                    u16 t = g_GameFile.besttimes[i][d];
-                    if (t > 0 && (best == 0 || t < best)) best = t;
-                }
-                if (best > 0) formatBestTime(timeStr, sizeof(timeStr), best);
-            }
+                const char *ln1        = langSafe(g_SoloStages[i].name1);
+                const char *ln2        = langSafe(g_SoloStages[i].name2);
+                bool        accessible = (bool)isStageDifficultyUnlocked(i, DIFF_A);
 
-            if (isSelected) {
-                ImVec2 cp = ImGui::GetCursorScreenPos();
-                pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(20.0f), rowH);
-            }
+                /* Node label: "X.Y  Name1Name2" */
+                char nodeLabel[192];
+                snprintf(nodeLabel, sizeof(nodeLabel), "%d.%d  %s%s",
+                         chap, chapPos, ln1, ln2);
 
-            if (ImGui::Selectable("##ms_entry", isSelected,
-                                  ImGuiSelectableFlags_None, ImVec2(0, rowH))) {
-                s_MissionSelectIdx = i;
-                g_MissionConfig.stagenum   = g_SoloStages[i].stagenum;
-                g_MissionConfig.stageindex = (u8)i;
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
-            }
-            if (ImGui::IsItemHovered()) s_MissionSelectIdx = i;
+                ImGui::PushID(i);
 
-            /* Overlay text on the selectable */
-            {
-                ImDrawList *dl = ImGui::GetWindowDrawList();
-                ImVec2 rmin = ImGui::GetItemRectMin();
-                float textY = rmin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
-                dl->AddText(ImVec2(rmin.x + pdguiScale(8.0f), textY),
-                            IM_COL32(255, 255, 255, 255), label);
-                if (timeStr[0]) {
-                    ImVec2 tSz = ImGui::CalcTextSize(timeStr);
-                    dl->AddText(ImVec2(rmin.x + mw - tSz.x - pdguiScale(24.0f), textY),
-                                IM_COL32(160, 200, 140, 210), timeStr);
-                }
-            }
-
-            if (isSelected) ImGui::SetScrollHereY(0.5f);
-            ImGui::PopID();
-        }
-
-        /* Special Assignments */
-        if (specialCount > 0) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f),
-                               "%s", langGet(L_OPTIONS_132));
-            ImGui::Separator();
-
-            for (s32 slot = 0; slot < specialCount; slot++) {
-                s32 stageIdx = func0f104720(slot);
-                s32 listIdx  = availCount + slot;
-                bool isSelected = (s_MissionSelectIdx == listIdx);
-
-                ImGui::PushID(0x1000 + slot);
-                char label[128];
-                snprintf(label, sizeof(label), "  %s",
-                         langGet(g_SoloStages[stageIdx].name1));
-
-                if (isSelected) {
-                    ImVec2 cp = ImGui::GetCursorScreenPos();
-                    pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(20.0f), rowH);
+                /* Dim entire node when no difficulty is accessible */
+                if (!accessible) {
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                        ImVec4(0.45f, 0.45f, 0.50f, 0.65f));
+                    ImGui::PushStyleColor(ImGuiCol_Header,
+                        ImVec4(0.10f, 0.10f, 0.12f, 0.50f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
+                        ImVec4(0.12f, 0.12f, 0.14f, 0.50f));
                 }
 
-                if (ImGui::Selectable("##ms_special", isSelected,
-                                      ImGuiSelectableFlags_None, ImVec2(0, rowH))) {
-                    s_MissionSelectIdx = listIdx;
-                    g_MissionConfig.stagenum   = g_SoloStages[stageIdx].stagenum;
-                    g_MissionConfig.stageindex = (u8)stageIdx;
-                    pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                    menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
-                }
-                if (ImGui::IsItemHovered()) s_MissionSelectIdx = listIdx;
+                ImGuiTreeNodeFlags nodeFlags =
+                    ImGuiTreeNodeFlags_SpanAvailWidth  |
+                    ImGuiTreeNodeFlags_OpenOnArrow     |
+                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
 
+                bool open = ImGui::TreeNodeEx(
+                    (void *)(intptr_t)i, nodeFlags, "");
+
+                ImVec2 nodeMin = ImGui::GetItemRectMin();
+                ImVec2 nodeMax = ImGui::GetItemRectMax();
+                float  nodeCY  = nodeMin.y + (nodeMax.y - nodeMin.y) * 0.5f;
+
+                if (!accessible) {
+                    ImGui::PopStyleColor(3);
+                }
+
+                /* Draw completion badges + label on the tree row */
                 {
                     ImDrawList *dl = ImGui::GetWindowDrawList();
-                    ImVec2 rmin = ImGui::GetItemRectMin();
-                    float textY = rmin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
-                    dl->AddText(ImVec2(rmin.x + pdguiScale(8.0f), textY),
-                                IM_COL32(255, 220, 100, 255), label);
+                    float bx = nodeMin.x + indentX;
+                    int d;
+                    for (d = 0; d < 3; d++) {
+                        bool beaten = (g_GameFile.besttimes[i][d] != 0);
+                        float bcx   = bx + d * badgeGap + badgeR;
+                        ImU32 fill  = beaten
+                            ? k_DiffBadgeColor[d]
+                            : IM_COL32(50, 50, 60, 180);
+                        dl->AddCircleFilled(ImVec2(bcx, nodeCY), badgeR, fill);
+                        dl->AddCircle(ImVec2(bcx, nodeCY), badgeR,
+                                      IM_COL32(100, 100, 120, 140));
+                        if (beaten) {
+                            ImVec2 tsz = ImGui::CalcTextSize(k_DiffShort[d]);
+                            dl->AddText(
+                                ImVec2(bcx - tsz.x * 0.5f,
+                                       nodeCY - tsz.y * 0.5f),
+                                IM_COL32(255, 255, 255, 255),
+                                k_DiffShort[d]);
+                        }
+                    }
+                    float nameX = bx + 3.0f * badgeGap + pdguiScale(6.0f);
+                    ImU32 nameCol = accessible
+                        ? IM_COL32(230, 230, 240, 255)
+                        : IM_COL32(110, 110, 125, 175);
+                    dl->AddText(
+                        ImVec2(nameX,
+                               nodeCY - ImGui::GetTextLineHeight() * 0.5f),
+                        nameCol, nodeLabel);
                 }
 
-                if (isSelected) ImGui::SetScrollHereY(0.5f);
+                if (open) {
+                    /* Tooltip on the node itself */
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(nodeLabel);
+                        ImGui::Separator();
+                        {
+                            int d;
+                            for (d = 0; d < 3; d++) {
+                                renderRewardTooltip(i, d);
+                            }
+                        }
+                        ImGui::EndTooltip();
+                    }
+
+                    /* Difficulty checkpoint rows */
+                    static const char *k_DiffNames[] = {
+                        "Agent", "Special Agent", "Perfect Agent"
+                    };
+                    float rowH = pdguiScale(26.0f);
+                    s32 d;
+                    for (d = DIFF_A; d <= DIFF_PA && pendingStage < 0; d++) {
+                        bool locked = !isStageDifficultyUnlocked(i, d);
+                        bool beaten = (g_GameFile.besttimes[i][d] != 0);
+
+                        ImGui::PushID(d + 0x100);
+
+                        ImVec2 rowPos  = ImGui::GetCursorScreenPos();
+                        float  contentW = ImGui::GetContentRegionAvail().x;
+                        bool   doSelect = false;
+
+                        if (!locked) {
+                            doSelect = ImGui::Selectable(
+                                "##ckpt", false,
+                                ImGuiSelectableFlags_None,
+                                ImVec2(contentW, rowH));
+                        } else {
+                            ImGui::Dummy(ImVec2(contentW, rowH));
+                        }
+
+                        /* Hover tooltip */
+                        if (!locked && ImGui::IsItemHovered()) {
+                            ImGui::BeginTooltip();
+                            ImGui::TextUnformatted(k_DiffNames[d]);
+                            ImGui::Separator();
+                            renderRewardTooltip(i, d);
+                            ImGui::EndTooltip();
+                        }
+
+                        /* Custom draw: badge + name + time */
+                        {
+                            ImDrawList *dl  = ImGui::GetWindowDrawList();
+                            float       rcy = rowPos.y + rowH * 0.5f;
+                            float       bx2 = rowPos.x + pdguiScale(36.0f);
+                            float       br2 = pdguiScale(5.0f);
+
+                            ImU32 badgeCol = locked  ? IM_COL32(35, 35, 45, 150)
+                                           : beaten  ? k_DiffBadgeColor[d]
+                                                     : IM_COL32(60, 60, 75, 200);
+                            dl->AddCircleFilled(
+                                ImVec2(bx2 + br2, rcy), br2, badgeCol);
+                            dl->AddCircle(
+                                ImVec2(bx2 + br2, rcy), br2,
+                                IM_COL32(90, 90, 110, 140));
+
+                            float nameX2 = bx2 + br2 * 2.0f + pdguiScale(7.0f);
+                            ImU32 textCol = locked
+                                ? IM_COL32(80, 80, 90, 130)
+                                : IM_COL32(200, 200, 215, 255);
+                            dl->AddText(
+                                ImVec2(nameX2,
+                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
+                                textCol, k_DiffNames[d]);
+
+                            char timeStr[40];
+                            if (locked) {
+                                snprintf(timeStr, sizeof(timeStr), "[Locked]");
+                            } else {
+                                formatBestTime(timeStr, sizeof(timeStr),
+                                               g_GameFile.besttimes[i][d]);
+                            }
+                            ImVec2 tSz   = ImGui::CalcTextSize(timeStr);
+                            float  rightX = rowPos.x + contentW
+                                            - tSz.x - pdguiScale(14.0f);
+                            ImU32 timeCol = locked
+                                ? IM_COL32(70, 70, 80, 120)
+                                : beaten
+                                  ? IM_COL32(140, 200, 130, 220)
+                                  : IM_COL32(140, 140, 155, 200);
+                            dl->AddText(
+                                ImVec2(rightX,
+                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
+                                timeCol, timeStr);
+                        }
+
+                        if (doSelect) {
+                            pendingStage = i;
+                            pendingDiff  = d;
+                        }
+
+                        ImGui::PopID();
+                    } /* diff loop */
+
+                    ImGui::TreePop();
+                } /* open */
+
                 ImGui::PopID();
             }
+        } /* stage loop */
+
+        /* ------------------------------------------------------------------ */
+        /* Special Assignments (stages 17..20)                                */
+        /* ------------------------------------------------------------------ */
+        if (pendingStage < 0) {
+            s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1; /* 17 */
+
+            ImGui::Spacing();
+            {
+                const char *saHdr = langSafe(L_OPTIONS_132); /* "Special Assignments" */
+                char buf[64];
+                if (saHdr[0]) {
+                    snprintf(buf, sizeof(buf), "-- %s --", saHdr);
+                } else {
+                    snprintf(buf, sizeof(buf), "-- Special Assignments --");
+                }
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+                ImGui::TextUnformatted(buf);
+                ImGui::PopStyleColor();
+            }
+
+            s32 j;
+            for (j = specialStart;
+                 j < NUM_SOLOSTAGES && pendingStage < 0; j++) {
+                s32 saNum = j - specialStart + 1;
+                const char *ln1       = langSafe(g_SoloStages[j].name1);
+                bool        accessible = (bool)isStageDifficultyUnlocked(j, DIFF_A);
+
+                char nodeLabel[192];
+                snprintf(nodeLabel, sizeof(nodeLabel), "SA-%d  %s", saNum, ln1);
+
+                ImGui::PushID(0x200 + j);
+
+                if (!accessible) {
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                        ImVec4(0.45f, 0.45f, 0.50f, 0.65f));
+                    ImGui::PushStyleColor(ImGuiCol_Header,
+                        ImVec4(0.10f, 0.10f, 0.12f, 0.50f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
+                        ImVec4(0.12f, 0.12f, 0.14f, 0.50f));
+                }
+
+                ImGuiTreeNodeFlags nodeFlags =
+                    ImGuiTreeNodeFlags_SpanAvailWidth  |
+                    ImGuiTreeNodeFlags_OpenOnArrow     |
+                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
+
+                bool open = ImGui::TreeNodeEx(
+                    (void *)(intptr_t)(j + 0x200), nodeFlags, "");
+
+                ImVec2 nodeMin = ImGui::GetItemRectMin();
+                ImVec2 nodeMax = ImGui::GetItemRectMax();
+                float  nodeCY  = nodeMin.y + (nodeMax.y - nodeMin.y) * 0.5f;
+
+                if (!accessible) {
+                    ImGui::PopStyleColor(3);
+                }
+
+                /* Draw badges + label */
+                {
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    float bx = nodeMin.x + indentX;
+                    int d;
+                    for (d = 0; d < 3; d++) {
+                        bool beaten = (g_GameFile.besttimes[j][d] != 0);
+                        float bcx   = bx + d * badgeGap + badgeR;
+                        ImU32 fill  = beaten
+                            ? k_DiffBadgeColor[d]
+                            : IM_COL32(50, 50, 60, 180);
+                        dl->AddCircleFilled(ImVec2(bcx, nodeCY), badgeR, fill);
+                        dl->AddCircle(ImVec2(bcx, nodeCY), badgeR,
+                                      IM_COL32(100, 100, 120, 140));
+                        if (beaten) {
+                            ImVec2 tsz = ImGui::CalcTextSize(k_DiffShort[d]);
+                            dl->AddText(
+                                ImVec2(bcx - tsz.x * 0.5f,
+                                       nodeCY - tsz.y * 0.5f),
+                                IM_COL32(255, 255, 255, 255),
+                                k_DiffShort[d]);
+                        }
+                    }
+                    float nameX = bx + 3.0f * badgeGap + pdguiScale(6.0f);
+                    ImU32 nameCol = accessible
+                        ? IM_COL32(255, 230, 140, 255)  /* gold for specials */
+                        : IM_COL32(110, 100,  80, 175);
+                    dl->AddText(
+                        ImVec2(nameX,
+                               nodeCY - ImGui::GetTextLineHeight() * 0.5f),
+                        nameCol, nodeLabel);
+                }
+
+                if (open) {
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(nodeLabel);
+                        ImGui::Separator();
+                        {
+                            int d;
+                            for (d = 0; d < 3; d++) {
+                                renderRewardTooltip(j, d);
+                            }
+                        }
+                        ImGui::EndTooltip();
+                    }
+
+                    static const char *k_DiffNames[] = {
+                        "Agent", "Special Agent", "Perfect Agent"
+                    };
+                    float rowH = pdguiScale(26.0f);
+                    s32 d;
+                    for (d = DIFF_A; d <= DIFF_PA && pendingStage < 0; d++) {
+                        bool locked = !isStageDifficultyUnlocked(j, d);
+                        bool beaten = (g_GameFile.besttimes[j][d] != 0);
+
+                        ImGui::PushID(d + 0x100);
+
+                        ImVec2 rowPos   = ImGui::GetCursorScreenPos();
+                        float  contentW = ImGui::GetContentRegionAvail().x;
+                        bool   doSelect = false;
+
+                        if (!locked) {
+                            doSelect = ImGui::Selectable(
+                                "##ckpt_sp", false,
+                                ImGuiSelectableFlags_None,
+                                ImVec2(contentW, rowH));
+                        } else {
+                            ImGui::Dummy(ImVec2(contentW, rowH));
+                        }
+
+                        if (!locked && ImGui::IsItemHovered()) {
+                            ImGui::BeginTooltip();
+                            ImGui::TextUnformatted(k_DiffNames[d]);
+                            ImGui::Separator();
+                            renderRewardTooltip(j, d);
+                            ImGui::EndTooltip();
+                        }
+
+                        {
+                            ImDrawList *dl  = ImGui::GetWindowDrawList();
+                            float       rcy = rowPos.y + rowH * 0.5f;
+                            float       bx2 = rowPos.x + pdguiScale(36.0f);
+                            float       br2 = pdguiScale(5.0f);
+
+                            ImU32 badgeCol = locked  ? IM_COL32(35, 35, 45, 150)
+                                           : beaten  ? k_DiffBadgeColor[d]
+                                                     : IM_COL32(60, 60, 75, 200);
+                            dl->AddCircleFilled(
+                                ImVec2(bx2 + br2, rcy), br2, badgeCol);
+                            dl->AddCircle(
+                                ImVec2(bx2 + br2, rcy), br2,
+                                IM_COL32(90, 90, 110, 140));
+
+                            float nameX2 = bx2 + br2 * 2.0f + pdguiScale(7.0f);
+                            ImU32 textCol = locked
+                                ? IM_COL32(80, 80, 90, 130)
+                                : IM_COL32(200, 200, 215, 255);
+                            dl->AddText(
+                                ImVec2(nameX2,
+                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
+                                textCol, k_DiffNames[d]);
+
+                            char timeStr[40];
+                            if (locked) {
+                                snprintf(timeStr, sizeof(timeStr), "[Locked]");
+                            } else {
+                                formatBestTime(timeStr, sizeof(timeStr),
+                                               g_GameFile.besttimes[j][d]);
+                            }
+                            ImVec2 tSz   = ImGui::CalcTextSize(timeStr);
+                            float  rightX = rowPos.x + contentW
+                                            - tSz.x - pdguiScale(14.0f);
+                            ImU32 timeCol = locked
+                                ? IM_COL32(70, 70, 80, 120)
+                                : beaten
+                                  ? IM_COL32(140, 200, 130, 220)
+                                  : IM_COL32(140, 140, 155, 200);
+                            dl->AddText(
+                                ImVec2(rightX,
+                                       rcy - ImGui::GetTextLineHeight() * 0.5f),
+                                timeCol, timeStr);
+                        }
+
+                        if (doSelect) {
+                            pendingStage = j;
+                            pendingDiff  = d;
+                        }
+
+                        ImGui::PopID();
+                    } /* diff loop */
+
+                    ImGui::TreePop();
+                } /* open */
+
+                ImGui::PopID();
+            } /* special stage loop */
         }
+
     }
     ImGui::EndChild();
 
-    ImGui::Separator();
-    ImGui::TextDisabled("A/Enter: Select   D-Pad/Arrows: Navigate   B/Esc: Back");
+    /* Footer hint */
+    ImGui::TextDisabled("Expand: arrow/double-click   Select diff: click row   Esc: Back");
 
     ImGui::End();
+
+    /* Launch mission if a checkpoint was selected (done after End() to avoid
+     * nesting menu state changes inside the ImGui frame body). */
+    if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
+        g_MissionConfig.stagenum   = (u8)g_SoloStages[pendingStage].stagenum;
+        g_MissionConfig.stageindex = (u8)pendingStage;
+        SM_SET_DIFFICULTY(&g_MissionConfig, pendingDiff);
+        SM_CLEAR_PDMODE(&g_MissionConfig);
+        lvSetDifficulty(pendingDiff);
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        menuPushDialog(&g_AcceptMissionMenuDialog);
+    }
+
     return 1;
 }
 
@@ -549,7 +899,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
     }
 
     float titleH = pdguiScale(26.0f);
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langGet(L_OPTIONS_248), 1);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_248), 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
@@ -651,7 +1001,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
             float tx = rmin.x + pdguiScale(10.0f);
 
             ImU32 nameCol = locked ? IM_COL32(100, 100, 120, 180) : IM_COL32(255, 255, 255, 255);
-            dl->AddText(ImVec2(tx, cy), nameCol, langGet(k_DiffIds[i]));
+            dl->AddText(ImVec2(tx, cy), nameCol, langSafe(k_DiffIds[i]));
 
             if (locked) {
                 dl->AddText(ImVec2(tx + pdguiScale(120.0f), cy),
@@ -698,7 +1048,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
             ImVec2 rmin = ImGui::GetItemRectMin();
             float cy = rmin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
             dl->AddText(ImVec2(rmin.x + pdguiScale(10.0f), cy),
-                        IM_COL32(200, 180, 255, 255), langGet(L_MPWEAPONS_221));
+                        IM_COL32(200, 180, 255, 255), langSafe(L_MPWEAPONS_221));
         }
 
         ImGui::PopID();
@@ -736,7 +1086,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
             ImVec2 rmin = ImGui::GetItemRectMin();
             float cy = rmin.y + (rowH * 0.8f - ImGui::GetTextLineHeight()) * 0.5f;
             dl->AddText(ImVec2(rmin.x + pdguiScale(10.0f), cy),
-                        IM_COL32(180, 180, 180, 210), langGet(L_OPTIONS_254));
+                        IM_COL32(180, 180, 180, 210), langSafe(L_OPTIONS_254));
         }
 
         ImGui::PopID();
@@ -782,7 +1132,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     }
 
     float titleH = pdguiScale(26.0f);
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langGet(L_OPTIONS_247), 1);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_247), 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
     ImGui::Separator();
@@ -985,14 +1335,14 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         return clicked;
     };
 
-    if (drawBtn(0, langGet(L_OPTIONS_274), IM_COL32(80, 160, 80, 255))) {
+    if (drawBtn(0, langSafe(L_OPTIONS_274), IM_COL32(80, 160, 80, 255))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
         ImGui::End();
         return 1;
     }
     ImGui::SameLine(0.0f, pdguiScale(10.0f));
-    if (drawBtn(1, langGet(L_OPTIONS_275), IM_COL32(160, 80, 80, 255))) {
+    if (drawBtn(1, langSafe(L_OPTIONS_275), IM_COL32(160, 80, 80, 255))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1210,7 +1560,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
     }
 
     float titleH = pdguiScale(26.0f);
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langGet(L_OPTIONS_174), 1);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_174), 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
     /* Warning text */
@@ -1253,7 +1603,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
         ImVec2 cp = ImGui::GetCursorScreenPos();
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
 
-        bool clicked = ImGui::Button(langGet(L_OPTIONS_176), ImVec2(btnW, btnH));
+        bool clicked = ImGui::Button(langSafe(L_OPTIONS_176), ImVec2(btnW, btnH));
         if (ImGui::IsItemHovered()) s_AbortSelectIdx = 0;
         if (clicked || (isSel && doConfirm)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -1273,7 +1623,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-        bool clicked = ImGui::Button(langGet(L_OPTIONS_177), ImVec2(btnW, btnH));
+        bool clicked = ImGui::Button(langSafe(L_OPTIONS_177), ImVec2(btnW, btnH));
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_AbortSelectIdx = 1;
@@ -1331,11 +1681,11 @@ static s32 renderOptions(struct menudialog *dialog,
 
     struct OptionBtn { const char *label; struct menudialogdef *dlg; };
     OptionBtn k_Opts[] = {
-        { langGet(L_OPTIONS_181), &g_AudioOptionsMenuDialog         },
-        { langGet(L_OPTIONS_182), &g_VideoOptionsMenuDialog         },
-        { langGet(L_OPTIONS_183), &g_MissionControlOptionsMenuDialog},
-        { langGet(L_OPTIONS_184), &g_MissionDisplayOptionsMenuDialog},
-        { "Extended",             &g_ExtendedMenuDialog             },
+        { langSafe(L_OPTIONS_181), &g_AudioOptionsMenuDialog         },
+        { langSafe(L_OPTIONS_182), &g_VideoOptionsMenuDialog         },
+        { langSafe(L_OPTIONS_183), &g_MissionControlOptionsMenuDialog},
+        { langSafe(L_OPTIONS_184), &g_MissionDisplayOptionsMenuDialog},
+        { "Extended",              &g_ExtendedMenuDialog             },
     };
     static const s32 k_NumOpts = 5;
 

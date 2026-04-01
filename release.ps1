@@ -504,12 +504,21 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     }
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
-    # Only the zip is attached. Separate exe files are not needed --
-    # the zip contains everything (client, server, data, mods, DLLs).
+    # The zip is the full distribution for new users (client + server + data + mods).
+    # The bare exe files and their .sha256 sidecars are ALSO uploaded as individual
+    # release assets so the in-game updater (updater.c) can find them by exact filename.
+    # The updater looks for "PerfectDark.exe" and "PerfectDark.exe.sha256" -- if those
+    # assets are absent it constructs a fallback URL that doesn't exist, downloads garbage,
+    # and corrupts the install. Always upload the bare exes alongside the zip.
     # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
     if (Test-Path $zipPath) { $assets += $zipPath }
+    # Bare executables for in-game updater
+    if (Test-Path "$DistDir/PerfectDark.exe")               { $assets += "$DistDir/PerfectDark.exe" }
+    if (Test-Path "$DistDir/PerfectDark.exe.sha256")        { $assets += "$DistDir/PerfectDark.exe.sha256" }
+    if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
+    if (Test-Path "$DistDir/PerfectDarkServer.exe.sha256")  { $assets += "$DistDir/PerfectDarkServer.exe.sha256" }
 
     $ghExit = Push-GhRelease $ReleaseTag $ReleaseTitle $assets $true
 
