@@ -54,6 +54,7 @@
 
 | Item | Status |
 |------|--------|
+| **SA-6/S96 SP manifest completeness** | **BUILD VERIFIED (S96)** — needs SP playtest: (1) two consecutive missions, verify Joanna stays in `to_keep`; (2) Counter-Op mode, check log for `MANIFEST-SP:` lines showing anti-player body/head added. |
 | **T-7 mod.json body/head/arena catalog registration** (S77) | **CODED (S77)** — needs playtest: enable a mod with `content.bodies/heads/arenas` in mod.json; verify entries appear in character/arena pickers in-game. |
 | **T-8/T-9 Stage table restore + texture cache flush on reload** (S78) | **BUILD VERIFIED (S78)** — needs playtest: toggle a mod on/off, confirm no stale stages or textures after reload. |
 | **B-46 Void spawn on MP stages** (S74) | **FIXED (S74)** — needs Felicity playtest confirmation. |
@@ -113,10 +114,10 @@
 | SA-3 | **Network session catalog wire migration** | Replace raw indices in SVC_*/CLC_* with u16 session IDs from session catalog. ~180 call sites, ~20 message types. Requires SA-1 + SA-2. |
 | SA-4 | **Load manifest system** | Unified asset list for both MP and SP: what stages, bodies, heads, mods are needed. Feeds manifest pipeline (Phase B/C) and mod transfer (Phase D). |
 | SA-5 | **Load path migration + deprecation pass** | SA-5a through SA-5f all complete. All `g_HeadsAndBodies[].filenum/.scale` and `g_Stages[].bgfileid` etc. load-path accesses migrated. `catalogGetBodyScaleByIndex` legacy fallback fixed. Deprecated-attribute audit confirmed zero external callers on 3 old modelcatalog functions. **DONE (S92-S93)**. |
-| SA-6 | **SP load manifest (diff-based lifecycle)** | `manifest_diff_t`, `manifestBuildMission`, `manifestDiff`, `manifestDiffFree`, `manifestApplyDiff`, `manifestSPTransition` added to netmanifest.c/h. `mainChangeToStage()` calls `manifestSPTransition()` for gameplay stages. `g_CurrentLoadedManifest` global tracks current state. TODOs logged for spawn-list character enumeration and prop model enumeration. **DONE (S94) — build clean, needs SP playtest (two consecutive missions, verify Joanna stays in to_keep).**
+| SA-6 | **SP load manifest (diff-based lifecycle)** | Full implementation + S96 follow-up: counter-op body/head added to `manifestBuildMission`; `manifestEnsureLoaded()` runtime safety net added; `bodyAllocateChr` wired. **DONE (S94/S96) — needs SP playtest: two consecutive missions (verify Joanna stays in to_keep) + Counter-Op mode (verify anti-player body/head in manifest log).** |
 | SA-7 | **Consolidation cleanup** | modelcatalog.c kept (unique VEH/validation logic). g_ModBodies/Heads/Arenas confirmed absent. Removed dead accessors: `catalogGetEntry`, `catalogGetBodyByMpIndex`, `catalogGetHeadByMpIndex`. All 6 audits passed clean. port/CLAUDE.md updated with catalog-first rules. **DONE (S95) — 711/711 clean.** |
 
-> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. **SA-6 DONE (S94)**. **SA-7 DONE (S95)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
+> **Status**: SA-1 DONE (S91). **SA-5 DONE (S93)**. **SA-6 DONE (S94/S96)**. **SA-7 DONE (S95)**. SA-2 is next (modular catalog API layer — new typed query functions). SA-3 depends on SA-1 + SA-2. SA-4 is parallel infrastructure.
 > **Dependencies**: Match Startup Pipeline (Phases B–F) consumes SA-2. R-series room sync consumes SA-1.
 
 ---

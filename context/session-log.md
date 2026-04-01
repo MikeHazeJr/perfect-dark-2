@@ -3,6 +3,44 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S96 -- 2026-03-31
+
+**Focus**: SA-6 follow-up — manifest completeness (counter-op assets + runtime safety net)
+
+### What Was Done
+
+1. **`manifestBuildMission` counter-op scan** (`port/src/net/netmanifest.c`):
+   - Added scan of `g_Vars.antibodynum` / `g_Vars.antiheadnum` when `g_Vars.antiplayernum >= 0`
+   - These assets are not in the props spawn list — they were missing from the SP manifest in Counter-Operative mode
+   - Adds `body_N`/`head_N` catalog entries with slot_index=1 (the anti player's slot)
+
+2. **`manifestEnsureLoaded(catalog_id, asset_type)`** added to `netmanifest.c/h`:
+   - Checks `g_CurrentLoadedManifest` by FNV-1a hash; if absent, resolves via `assetCatalogResolve()`, adds to manifest, advances catalog state to `ASSET_STATE_LOADED`
+   - No-op when `g_CurrentLoadedManifest.num_entries == 0` (MP mode or pre-load) — safe to call unconditionally
+   - Synthetic hash fallback with warning log when catalog can't resolve the ID (suppresses repeat spam)
+
+3. **`bodyAllocateChr` wired** (`src/game/body.c`):
+   - Added `#include "net/netmanifest.h"`
+   - After bodynum/headnum are resolved (post-`bodyChooseHead`), calls `manifestEnsureLoaded("body_N", MANIFEST_TYPE_BODY)` and conditionally `manifestEnsureLoaded("head_N", MANIFEST_TYPE_HEAD)` (skips headnum == -55555 / built-into-body case)
+   - Catches any CHR missed by the static pre-scan: deferred objective spawns, random-body resolution, etc.
+
+### Build Status
+
+27/27 clean. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean. No new warnings. Commit `002a16a` pushed to `dev`.
+
+### Key Decisions
+
+- **Counter-op is the only gap in the static scan**: all other CHRs (including objective-deferred spawns) are in `g_StageSetup.props` and already covered by the SA-6 props walk. The "objective command lists" are interleaved in the same props stream — no separate structure.
+- **`manifestEnsureLoaded` as safety net, not primary path**: the static scan is the primary mechanism. `bodyAllocateChr` wiring catches edge cases and provides a clear log line when the pre-scan missed something.
+- **No MP interference**: the `num_entries == 0` guard means `manifestEnsureLoaded` is fully inert in MP mode where `g_CurrentLoadedManifest` is never populated.
+
+### Next Steps
+
+- SA-2: Modular catalog API layer — typed query functions (bodies, heads, stages, weapons, sounds)
+- SP playtest for SA-6/S96: two consecutive missions, verify Joanna stays in `to_keep`, check Counter-Op mode adds anti-player assets to log
+
+---
+
 ## Session S95 -- 2026-03-31
 
 **Focus**: SA-7 — Session Catalog migration cleanup / consolidation

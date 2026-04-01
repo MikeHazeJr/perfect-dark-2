@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-03-31, Session S90 (B-51/52/53 fixed: bot configs via SVC_STAGE_START + scenarioInitProps on client; asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25; sessions 79-86 archived)
+> **Last updated**: 2026-03-31, Session S96 (SA-6 follow-up: counter-op assets in manifestBuildMission + manifestEnsureLoaded runtime safety net wired into bodyAllocateChr; 27/27 clean)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
