@@ -3,6 +3,61 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S109 -- 2026-04-01
+
+**Focus**: Credits/storyboard, updater fix, mission select UX redesign, v0.0.22 release, catalog investigation
+
+### What Was Done
+
+**Credits + storyboard removal** (commit f5cf0da):
+- Debug > About: changed title to "Perfect Dark 2.0, MikeHazeJr"
+- Intro screen: added "PD2 Port Director: MikeHazeJr" to g_LegalElements[] in src/game/title.c
+- Removed F11 storyboard system entirely: deleted pdgui_storyboard.cpp, pdgui_storyboard.h, pdgui_menubuilder.cpp, pdgui_menubuilder.h; removed all call sites from pdgui_backend.cpp
+- Build: 719/719 clean
+
+**Updater download freeze fix** (commit 3b593ed):
+- Fixed UPDATER_ASSET_ZIP_SUFFIX in updater.h: "-win64.zip" → ".zip" (matching actual release naming)
+- Fixed double SDL_LockMutex in downloadThread ZIP validation path causing deadlock on failed downloads
+- Root cause of v0.0.20→v0.0.21 update freeze: URL couldn't find asset + game froze instead of showing error
+
+**Mission select UX redesign** (pdgui_menu_solomission.cpp):
+- Flat selectable list with 3 blip dots per row (lit=beaten on that difficulty, unlit=not yet)
+- Click accessible mission → difficulty selection screen (shows record times per difficulty)
+- Blip hover: shows difficulty name + best time
+- Row hover: shows unlockable count ("0/1" per stage); omitted if 0/0
+- Chapter header hover: shows summed group count ("0/3")
+- Difficulty hover: shows objectives filtered to that difficulty's bit in objectivedifficulties
+- Removed unused: computeAvailableStageCount, SoloRewardStub, soloGetReward, renderRewardTooltip
+
+**v0.0.22 released to GitHub**:
+- Full distribution ZIP (EXEs + data/ + .sha256 sidecars) — 26.1 MB
+- ZIP named PerfectDark-v0.0.22.zip to match updater expectations
+- release.ps1 hung again; manual release via gh CLI
+- Previous releases were EXE-only (missing data/), now fixed
+
+**Catalog investigation findings**:
+- All 14,087 entries show "Loaded" — by design: bundled assets set ASSET_STATE_LOADED + ASSET_REF_BUNDLED at registration. State tracking works but only meaningful for mod assets.
+- Numeric aliases (anim_NNN, tex_NNN, weapon_NNN, etc.) are full duplicate catalog entries, not lightweight pointers. Doubles catalog size from ~7k real assets to ~14k.
+- Aliases are unnecessary: reverse-index maps (source_filenum/texnum/animnum) already handle index-to-entry lookups in the intercept layer.
+- Recommended fix: remove aliases entirely, have manifest use human-readable catalog IDs ("base:falcon2" not "weapon_46"). Cuts catalog in half.
+
+### Decisions Made
+- Manifest should speak human-readable catalog IDs natively — no numeric alias indirection
+- Alias removal becomes Phase 0 of the manifest lifecycle sprint
+- release.ps1 needs rework (hangs every time) — low priority but noted
+
+### Bugs Fixed This Session
+- B-56: ImGui duplicate ID in arena dropdown — FIXED (PushID/PopID around selector)
+- B-57: Scenario save weapon persistence — FIXED (serialize g_MpSetup.weapons[] alongside weaponset)
+- B-58: catalogResolveByRuntimeIndex assert type=16 — FIXED (bounds checks against catalogGetNumHeads/Bodies)
+
+### Next Steps
+- Playtest v0.0.22 (updater download, credits, mission select UX, theme system)
+- Begin manifest lifecycle sprint: Phase 0 (alias removal), then Phases 1-6
+- Fix release.ps1 hanging issue (eventually)
+
+---
+
 ## Session S106 -- 2026-04-01
 
 **Focus**: Solo Campaign mission select — full redesign + NULL crash fix

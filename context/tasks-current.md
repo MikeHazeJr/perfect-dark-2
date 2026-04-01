@@ -49,6 +49,35 @@
 
 ---
 
+## Recently Completed (S109 — 2026-04-01)
+
+| Item | Status |
+|------|--------|
+| **Credits/storyboard removal** (S109, f5cf0da) | **DONE** — Debug > About updated. "PD2 Port Director: MikeHazeJr" in intro credits. F11 storyboard + menu builder system fully removed (pdgui_storyboard.cpp/h, pdgui_menubuilder.cpp/h). 719/719 clean. |
+| **Updater download freeze fix** (S109, 3b593ed) | **DONE** — UPDATER_ASSET_ZIP_SUFFIX ".zip", double SDL_LockMutex deadlock fixed. v0.0.20→v0.0.21 update path now works. |
+| **Mission select UX redesign** (S109) | **DONE** — Flat blip-dot list, per-difficulty record times, objective tooltips, chapter header counts. Removed dead stubs from S106. |
+| **v0.0.22 released to GitHub** (S109) | **DONE** — Full distribution ZIP (26.1 MB, EXEs + data/ + .sha256). Manual gh CLI release (release.ps1 hung). |
+| **B-56 / B-57 / B-58 fixed** (S109) | **DONE** — Arena dropdown duplicate ID, scenario save weapon persistence, catalogResolveByRuntimeIndex assert all resolved. |
+
+---
+
+## Manifest Lifecycle Sprint
+
+> **Goal**: Remove numeric alias bloat, make manifest speak human-readable catalog IDs natively.
+> **Entry point**: Catalog investigation in S109 revealed ~7k real assets + ~7k alias duplicates = 14k entries. Aliases are waste.
+
+| Phase | Task | Status |
+|-------|------|--------|
+| **Phase 0** | Remove numeric alias entries from catalog; manifest uses human-readable IDs ("base:falcon2" not "weapon_46") | NOT STARTED |
+| **Phase 1** | Manifest-diff transitions — diff old vs new manifest, load delta, unload stale | NOT STARTED |
+| **Phase 2** | Dependency graph — character → body + head + anims + textures | NOT STARTED |
+| **Phase 3** | Language bank manifesting — menu screens declare lang dependencies | NOT STARTED |
+| **Phase 4** | Pre-validation pass — verify all entries exist before committing | NOT STARTED |
+| **Phase 5** | Proper unload/cleanup — targeted ref-counted unloads | NOT STARTED |
+| **Phase 6** | Menu/UI asset manifesting — screens register mini-manifests | NOT STARTED |
+
+---
+
 ## Recently Completed (S106 — 2026-04-01)
 
 | Item | Status |
@@ -142,9 +171,9 @@
 
 | Bug | Severity | Status |
 |-----|----------|--------|
-| [B-58](bugs.md) `catalogResolveByRuntimeIndex` assert: type=16, index=103 | HIGH | OPEN (S97) — fires on scenario save path. Type 16 is out of range for catalog type enum. Root cause in scenario save's weapon reference resolution. |
-| [B-57](bugs.md) Scenario save: weaponset index only, not individual weapon picks | MED | OPEN (S97) — save/reload restores the weaponset default, not custom weapon loadout. Found during SA-4 persistence work. |
-| [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | OPEN (S84) — PushID()/PopID() needed around arena selector. Not yet implemented. |
+| [B-58](bugs.md) `catalogResolveByRuntimeIndex` assert: type=16, index=103 | HIGH | **FIXED (S109)** — bounds checks against catalogGetNumHeads/Bodies. |
+| [B-57](bugs.md) Scenario save: weaponset index only, not individual weapon picks | MED | **FIXED (S109)** — serializes g_MpSetup.weapons[] alongside weaponset. |
+| [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | **FIXED (S109)** — PushID()/PopID() added around arena selector. |
 | [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
