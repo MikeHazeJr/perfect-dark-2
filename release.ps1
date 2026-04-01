@@ -83,33 +83,72 @@ $ReleaseNotes = "UNRELEASED.md"
 # ============================================================================
 
 Write-Host ""
-Write-Host "[0/6] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
+Write-Host "[0/7] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
 
-$BuildScript = Join-Path $PSScriptRoot "devtools\build-headless.ps1"
-if (-not (Test-Path $BuildScript)) {
-    Write-Host "  ERROR: build-headless.ps1 not found at $BuildScript" -ForegroundColor Red
-    exit 1
+# Version parts for cmake -D flags (already resolved above from CMakeLists.txt or -Version param)
+$vParts = $Version -split '\.'
+$vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } else { "0" }
+$vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
+$vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
+
+# Build tool paths — same as build-headless.ps1 and dev-window.ps1
+$CMakeExe  = "cmake"
+$MakeExe   = "C:\msys64\usr\bin\make.exe"
+$CCExe     = "C:/msys64/mingw64/bin/cc.exe"
+$Cores     = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
+
+# MSYS2/MinGW64 environment
+$env:MSYSTEM      = "MINGW64"
+$env:MINGW_PREFIX = "/mingw64"
+$env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
+$env:TEMP         = "$env:USERPROFILE\AppData\Local\Temp"
+$env:TMP          = $env:TEMP
+
+$vFlags  = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
+$targets = @(
+    @{ Name = "client"; BuildDir = "build\client"; Target = "pd"        },
+    @{ Name = "server"; BuildDir = "build\server"; Target = "pd-server" }
+)
+
+$buildOk = $true
+foreach ($t in $targets) {
+    $bdir = Join-Path $PSScriptRoot $t.BuildDir
+    Write-Host "  [$($t.Name)] cmake configure..." -ForegroundColor Gray
+
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
+    $cfgArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CCExe`" -B `"$bdir`" -S `"$PSScriptRoot`" $vFlags"
+    $cfgOut  = & $CMakeExe -G "Unix Makefiles" "-DCMAKE_MAKE_PROGRAM=$MakeExe" "-DCMAKE_C_COMPILER=$CCExe" "-B" $bdir "-S" $PSScriptRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
+    $cfgExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($cfgExit -ne 0) {
+        $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host "  ERROR: cmake configure failed for $($t.Name) (exit $cfgExit)" -ForegroundColor Red
+        $buildOk = $false; break
+    }
+
+    Write-Host "  [$($t.Name)] cmake build..." -ForegroundColor Gray
+    $ErrorActionPreference = "Continue"
+    $bldOut  = & $CMakeExe --build $bdir --target $t.Target -j $Cores 2>&1
+    $bldExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($bldExit -ne 0) {
+        $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
+        $buildOk = $false; break
+    }
+    Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
 }
 
-# Pass the resolved version explicitly so cmake is configured with the correct
-# VERSION_SEM_* flags, regardless of what the build directory has cached.
-$buildArgs = @("-File", $BuildScript, "-Target", "all", "-Version", $Version)
-Write-Host "  Running: powershell $($buildArgs -join ' ')" -ForegroundColor Gray
-
-$savedEAP = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-$buildOut = powershell @buildArgs 2>&1
-$buildExit = $LASTEXITCODE
-$ErrorActionPreference = $savedEAP
-
-foreach ($line in $buildOut) { Write-Host "  $($line.ToString())" -ForegroundColor Gray }
-
-if ($buildExit -ne 0) {
+if (-not $buildOk) {
     Write-Host ""
-    Write-Host "  ERROR: Build failed (exit $buildExit). Fix build errors before releasing." -ForegroundColor Red
+    Write-Host "  ERROR: Build failed. Fix errors before releasing." -ForegroundColor Red
     exit 1
 }
-Write-Host "  Build succeeded." -ForegroundColor Green
+Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
 
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
