@@ -69,6 +69,19 @@ extern "C" s32 menuIsOpen(void);
 /* Logging */
 #include "system.h"
 
+/* Forward declaration only — game/lang.h includes data.h which #define bool s32 */
+extern "C" char *langGet(s32 textid);
+
+/* ---------------------------------------------------------------------------
+ * Exported utilities
+ * --------------------------------------------------------------------------- */
+
+extern "C" const char *langSafe(s32 textid)
+{
+    const char *s = langGet(textid);
+    return s ? s : "";
+}
+
 /* ---------------------------------------------------------------------------
  * State
  * --------------------------------------------------------------------------- */

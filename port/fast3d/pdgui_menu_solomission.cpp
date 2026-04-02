@@ -74,7 +74,7 @@ void menuPopDialog(void);
 void menuStop(void);
 
 /* ---- Language ---- */
-char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 /* ---- Solo stage table (21 entries, indices 0–20) ----
  * Mirrors struct solostage from types.h.  The compiler inserts 1 byte of
@@ -246,18 +246,6 @@ static void formatBestTime(char *buf, size_t bufsz, u16 t)
     }
 }
 
-
-/* =========================================================================
- * langSafe — null-safe langGet wrapper.
- * langGet() returns NULL when the bank is unloaded or the entry is zero.
- * Passing NULL to ImGui::Button / ImDrawList::AddText causes 0xc0000005.
- * Always use langSafe() when the result goes directly to an ImGui call.
- * ========================================================================= */
-static const char *langSafe(s32 textid)
-{
-    const char *s = langGet(textid);
-    return s ? s : "";
-}
 
 
 /* Difficulty badge fill colors: Agent=green, SA=blue, PA=gold */

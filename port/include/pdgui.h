@@ -49,4 +49,8 @@ void pdguiToggle(void);
  * Call on disconnect so the menu re-opens at the root, not "Online Play". */
 void pdguiMainMenuReset(void);
 
+/* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
+ * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */
+const char *langSafe(s32 textid);
+
 #endif /* _IN_PDGUI_H */

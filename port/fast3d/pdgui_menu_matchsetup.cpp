@@ -60,7 +60,7 @@ char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
 
 /* Language strings */
-char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 /* Match config (from matchsetup.c — must match layout exactly).
  * Cannot include constants.h here (types.h bool conflict with C++). */
@@ -332,8 +332,8 @@ const char *arenaGetName(u16 textId)
     }
     /* Fall back to the language system for base-game strings */
     {
-        const char *s = langGet(textId);
-        return s ? s : "???";
+        const char *s = langSafe(textId);
+        return s[0] ? s : "???";
     }
 }
 
