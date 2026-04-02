@@ -86,7 +86,7 @@ void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
 void menuPushDialog(struct menudialogdef *dialogdef);
 
 char *langGet(s32 textid);
-const char *langSafe(s32 textid);
+static const char *langSafe(s32 textid) { const char *s = langGet(textid); return s ? s : ""; }
 
 struct solostage {
     u32 stagenum;
