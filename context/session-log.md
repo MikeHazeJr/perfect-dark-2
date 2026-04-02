@@ -3,6 +3,25 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S117 -- 2026-04-01
+
+**Focus**: Build fix — langSafe linker error post-manifest sprint
+
+### What Was Done
+
+**Commit a770cd6** — 1 file, 1 line:
+
+- **Linker error**: `pdgui_menu_agentselect.cpp` forward-declared `langSafe` as an external symbol (`const char *langSafe(s32 textid);`). But `langSafe` is defined `static` in `pdgui_menu_solomission.cpp` — translation-unit local, not exported. Linker couldn't resolve it.
+- **Fix**: Replaced the forward declaration with a local `static` definition inline: `static const char *langSafe(s32 textid) { const char *s = langGet(textid); return s ? s : ""; }`. Matches the copy in solomission.cpp exactly.
+- S116's `pdgui_menu_agentselect.cpp` fix added the `langSafe()` *calls* but left the forward declaration pointing to a non-existent external — the calls themselves were correct, only the linkage declaration was wrong.
+- Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean. Pushed.
+
+### Next Steps
+- Playtest: solo mission difficulty select should now show correct text (S116 Bug 1 fix now actually links). SP spawn should no longer generate "missed by pre-scan" log spam (S116 Bug 2).
+- Next major track: Room Architecture (R-2 onward) or Phase 3 participant system (remove chrslots).
+
+---
+
 ## Session S116 -- 2026-04-01
 
 **Focus**: Post-S115 audit fixes — langSafe propagation, manifest hash mismatch, synthetic ID cleanup
