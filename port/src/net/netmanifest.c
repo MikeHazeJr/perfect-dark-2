@@ -570,41 +570,23 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         }
     }
 
-    /* ---- SP player character: Joanna Dark (runtime body 0 / head 0) ---- */
-    {
-        const char *body0_id = catalogResolveByRuntimeIndex(ASSET_BODY, 0);
-        const char *head0_id = catalogResolveByRuntimeIndex(ASSET_HEAD, 0);
-        be = body0_id ? assetCatalogResolve(body0_id) : NULL;
-        he = head0_id ? assetCatalogResolve(head0_id) : NULL;
-    }
+    /* FIX-17: SP player character — Joanna Dark by named catalog ID.
+     * Previously used catalogResolveByRuntimeIndex(ASSET_BODY/HEAD, 0) which
+     * relies on registration order and would pick the wrong character if order
+     * ever changed.  Use the canonical IDs directly. */
+    be = assetCatalogResolve("base:dark_combat");
+    he = assetCatalogResolve("base:head_dark_combat");
     if (be) {
         manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
         s_manifestExpandDeps(out, be->id, 0);
     } else {
-        /* Canonical fallback for Joanna Dark body (runtime_index 0).
-         * "body_0" no longer exists — Phase 0 removed numeric aliases. */
-        const asset_entry_t *jb = assetCatalogResolve("base:dark_combat");
-        if (jb) {
-            manifestAddEntry(out, jb->net_hash, jb->id, MANIFEST_TYPE_BODY, 0);
-            s_manifestExpandDeps(out, jb->id, 0);
-        } else {
-            sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna body (base:dark_combat) not in catalog");
-        }
+        sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna body (base:dark_combat) not in catalog");
     }
-
     if (he) {
         manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
         s_manifestExpandDeps(out, he->id, 0);
     } else {
-        /* Canonical fallback for Joanna Dark head (runtime_index 0).
-         * "head_0" no longer exists — Phase 0 removed numeric aliases. */
-        const asset_entry_t *jh = assetCatalogResolve("base:head_dark_combat");
-        if (jh) {
-            manifestAddEntry(out, jh->net_hash, jh->id, MANIFEST_TYPE_HEAD, 0);
-            s_manifestExpandDeps(out, jh->id, 0);
-        } else {
-            sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna head (base:head_dark_combat) not in catalog");
-        }
+        sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna head (base:head_dark_combat) not in catalog");
     }
 
     /* ---- Stage characters and prop models from setup spawn list ----

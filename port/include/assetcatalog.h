@@ -856,6 +856,14 @@ s32 catalogGetPropFilenumByIndex(s32 propnum);
 const char *catalogResolveStageByStagenum(s32 stagenum);
 
 /**
+ * Phase C (FIX-1/2): Return the canonical catalog ID for the ASSET_ARENA entry
+ * whose ext.arena.stagenum equals stagenum, or NULL if not found.
+ * Used for CLC_LOBBY_START stage wire encoding (MP arenas, not solo maps).
+ * Both client and server have g_MpArenas[] so this resolves on both sides.
+ */
+const char *catalogResolveArenaByStagenum(s32 stagenum);
+
+/**
  * Phase 0: Return the canonical catalog ID for the ASSET_WEAPON entry whose
  * ext.weapon.weapon_id equals weapon_id (MPWEAPON_* constant), or NULL.
  * Replaces assetCatalogResolve("weapon_%d") in manifest code after alias removal.
@@ -876,6 +884,20 @@ void catalogWriteAssetRef(struct netbuf *buf, u16 session_id);
  * Returns the session wire ID (0 = no asset / not assigned).
  */
 u16 catalogReadAssetRef(struct netbuf *buf);
+
+/**
+ * Phase C wire helpers for PRE-SESSION-CATALOG boundaries (e.g., CLC_LOBBY_START).
+ * These use the stable CRC32 net_hash instead of session IDs, because the
+ * session catalog does not exist yet when CLC_LOBBY_START is transmitted.
+ * Both client and server have identical base catalog entries for arenas and
+ * weapons, so net_hash lookups succeed on both sides.
+ *
+ * Usage:
+ *   write: catalogWritePreSessionRef(buf, catalog_id);   -- writes u32 net_hash
+ *   read:  catalogReadPreSessionRef(buf);                -- returns asset_entry_t* or NULL
+ */
+void catalogWritePreSessionRef(struct netbuf *buf, const char *id);
+const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf);
 
 #ifdef __cplusplus
 }

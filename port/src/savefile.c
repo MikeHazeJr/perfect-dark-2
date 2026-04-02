@@ -778,7 +778,15 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);
 	fprintf(fp, "  \"options\": %u,\n", g_MpSetup.options);
 
-	/* Weapons */
+	/* FIX-21: Weapons as catalog string IDs (universality principle).
+	 * "weapon_ids" is the catalog string array (new format); "weapons" is kept as
+	 * raw MPWEAPON_* integers for backward-compat reading of old saves. */
+	fprintf(fp, "  \"weapon_ids\": [");
+	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		const char *wid = catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[i]);
+		fprintf(fp, "\"%s\"%s", wid ? wid : "", i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
+	}
+	fprintf(fp, "],\n");
 	fprintf(fp, "  \"weapons\": [");
 	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		fprintf(fp, "%u%s", g_MpSetup.weapons[i], i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
@@ -832,7 +840,25 @@ s32 saveLoadMpSetup(const char *name)
 			tok = s_next(&p); g_MpSetup.teamscorelimit = s_tok_int(&tok);
 		} else if (strcmp(key, "options") == 0) {
 			tok = s_next(&p); g_MpSetup.options = s_tok_uint(&tok);
+		} else if (strcmp(key, "weapon_ids") == 0) {
+			/* FIX-21: catalog string IDs take precedence over raw "weapons" integers. */
+			tok = s_next(&p);
+			if (tok.type == STOK_LBRACKET) {
+				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+					char wid_buf[128];
+					tok = s_next(&p);
+					s_tok_str(&tok, wid_buf, sizeof(wid_buf));
+					if (wid_buf[0]) {
+						const asset_entry_t *we = assetCatalogResolve(wid_buf);
+						if (we && we->type == ASSET_WEAPON)
+							g_MpSetup.weapons[i] = (u8)we->ext.weapon.weapon_id;
+					}
+					tok = s_next(&p);
+					if (tok.type == STOK_RBRACKET) break;
+				}
+			}
 		} else if (strcmp(key, "weapons") == 0) {
+			/* Legacy fallback: raw MPWEAPON_* integers from old saves. */
 			tok = s_next(&p);
 			if (tok.type == STOK_LBRACKET) {
 				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {

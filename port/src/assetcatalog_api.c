@@ -422,6 +422,33 @@ u16 catalogReadAssetRef(struct netbuf *buf)
 }
 
 /* -------------------------------------------------------------------------
+ * Phase C: Pre-session-catalog wire helpers
+ * Used at CLC_LOBBY_START boundaries where the session catalog has not been
+ * built yet.  We encode by net_hash (CRC32 of the catalog ID) which is stable
+ * across both client and server because both share the same base catalog data
+ * for arenas (g_MpArenas[]) and weapons (s_BaseWeapons[] static table).
+ *
+ * NOTE: body/head assets are NOT encodable this way — the server
+ * zero-initialises g_HeadsAndBodies[] (server_stubs.c:326) so the server
+ * catalog has no ASSET_BODY/HEAD entries (server catalog gap, fixed in Phase D).
+ * Bot body/head in CLC_LOBBY_START is still sent as raw mpbodynum u8 with the
+ * bodynum→mpbodynum conversion applied at the write site (FIX-5).
+ * ------------------------------------------------------------------------- */
+
+void catalogWritePreSessionRef(struct netbuf *buf, const char *id)
+{
+    const asset_entry_t *e = id ? assetCatalogResolve(id) : NULL;
+    netbufWriteU32(buf, e ? e->net_hash : 0u);
+}
+
+const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf)
+{
+    const u32 hash = netbufReadU32(buf);
+    if (hash == 0u) return NULL;
+    return catalogResolveByNetHash(hash);
+}
+
+/* -------------------------------------------------------------------------
  * SA-5 global failure state
  * Set by catalog helpers when a required asset is not found.
  * Callers should check g_CatalogFailure after load-path calls.
@@ -572,6 +599,29 @@ const char *catalogResolveStageByStagenum(s32 stagenum)
         e = assetCatalogGetByIndex(i);
         if (!e) break;
         if (e->type == ASSET_MAP && e->ext.map.stagenum == stagenum) {
+            return e->id;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * FIX-1/2 (Phase C): Return the canonical catalog ID for the ASSET_ARENA entry
+ * whose ext.arena.stagenum equals stagenum, or NULL if not found.
+ * Used in CLC_LOBBY_START write to map MP stagenum to a catalog entry
+ * so we can send net_hash instead of a raw u8.
+ * Unlike catalogResolveStageByStagenum() which targets ASSET_MAP (solo stages),
+ * this searches ASSET_ARENA entries (MP arenas from g_MpArenas[]).
+ * The server has g_MpArenas[] defined so this lookup succeeds on both sides.
+ */
+const char *catalogResolveArenaByStagenum(s32 stagenum)
+{
+    s32 i;
+    const asset_entry_t *e;
+    for (i = 0; ; i++) {
+        e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type == ASSET_ARENA && e->ext.arena.stagenum == stagenum) {
             return e->id;
         }
     }

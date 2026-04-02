@@ -220,9 +220,13 @@ static int tryLoad(void)
             headnum = buf[16];
             bodynum = buf[17];
             s_Identity.profiles[i].flags = buf[18];
-            /* Resolve legacy integers to catalog string IDs. */
-            resolved_head = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)headnum);
-            resolved_body = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bodynum);
+            /* FIX-20: Resolve legacy integers to catalog string IDs.
+             * Old identity format stored mpheadnum/mpbodynum (g_MpHeads[]/g_MpBodies[]
+             * position indices, range 0..75/0..62).  catalogResolveByRuntimeIndex uses
+             * g_HeadsAndBodies[] index (bodynum/headnum, range 0..151) — a different
+             * index domain.  Use the mp-index resolvers which do the conversion. */
+            resolved_head = catalogResolveHeadByMpIndex((s32)headnum);
+            resolved_body = catalogResolveBodyByMpIndex((s32)bodynum);
             if (resolved_head) {
                 strncpy(s_Identity.profiles[i].head_id, resolved_head, CATALOG_ID_LEN - 1);
                 s_Identity.profiles[i].head_id[CATALOG_ID_LEN - 1] = '\0';

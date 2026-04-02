@@ -280,9 +280,14 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"options\": %u,\n",      (unsigned)g_MatchConfig.options);
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
 
-    /* Individual weapon slot picks — preserves custom selections across save/load */
+    /* FIX-22: Individual weapon slot picks as catalog string IDs + legacy integers.
+     * "weapon_id%d" is the catalog string ID (universality principle).
+     * "weapon%d" is kept for backward-compatible reading of old saves. */
     for (s32 slot = 0; slot < 6; slot++) {
-        fprintf(fp, "  \"weapon%d\": %d,\n", slot, mpGetWeaponSlot(slot));
+        s32 wval = mpGetWeaponSlot(slot);
+        const char *wid = catalogResolveWeaponByGameId(wval);
+        fprintf(fp, "  \"weapon_id%d\": \"%s\",\n", slot, wid ? wid : "");
+        fprintf(fp, "  \"weapon%d\": %d,\n", slot, wval);
     }
 
     /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
@@ -296,12 +301,15 @@ s32 scenarioSave(const char *name)
         first = 0;
 
         /* SA-4: include catalog string IDs alongside legacy integer fields.
-         * Guard bounds before reverse lookup to suppress spurious CATALOG-ASSERT
-         * warnings for stale/uninitialized headnum/bodynum values (B-58). */
+         * FIX-16: bounds check against the actual g_HeadsAndBodies[] array size (152),
+         * not catalogGetNumBodies()/catalogGetNumHeads() which returns the count of
+         * registered ASSET_BODY/HEAD catalog entries and may be smaller than 152.
+         * An SP-only head at index 103 is within g_HeadsAndBodies[] bounds even if
+         * fewer than 104 bodies are registered. */
         {
-            const char *body_id = ((s32)sl->bodynum < catalogGetNumBodies())
+            const char *body_id = ((s32)sl->bodynum < 152)
                 ? catalogResolveByRuntimeIndex(ASSET_BODY, (s32)sl->bodynum) : NULL;
-            const char *head_id = ((s32)sl->headnum < catalogGetNumHeads())
+            const char *head_id = ((s32)sl->headnum < 152)
                 ? catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)sl->headnum) : NULL;
             fprintf(fp, "    {\"name\": \"");
             jsonEscapeStr(fp, sl->name);
@@ -418,14 +426,25 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     g_MatchConfig.weaponSetIndex   = (s8)weaponset;
     mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
 
-    /* Restore individual weapon slot picks — override preset with saved picks */
+    /* FIX-22: Restore weapon slot picks — prefer catalog string ID over raw integer. */
     for (s32 slot = 0; slot < 6; slot++) {
-        char wkey[16];
-        s32 wval = -1;
-        snprintf(wkey, sizeof(wkey), "weapon%d", slot);
-        if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
-            mpSetWeaponSlot(slot, wval);
-            g_MatchConfig.weapons[slot] = (u8)wval;
+        char idkey[24], wkey[16], idbuf[128];
+        snprintf(idkey, sizeof(idkey), "weapon_id%d", slot);
+        snprintf(wkey,  sizeof(wkey),  "weapon%d",    slot);
+        if (jsonFindString(buf, idkey, idbuf, sizeof(idbuf)) && idbuf[0]) {
+            const asset_entry_t *we = assetCatalogResolve(idbuf);
+            if (we && we->type == ASSET_WEAPON) {
+                s32 wval = (s32)we->ext.weapon.weapon_id;
+                mpSetWeaponSlot(slot, wval);
+                g_MatchConfig.weapons[slot] = (u8)wval;
+            }
+        } else {
+            /* Legacy fallback: raw MPWEAPON_* integer from old saves. */
+            s32 wval = -1;
+            if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
+                mpSetWeaponSlot(slot, wval);
+                g_MatchConfig.weapons[slot] = (u8)wval;
+            }
         }
     }
 

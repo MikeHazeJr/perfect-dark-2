@@ -3558,19 +3558,27 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
+ * Payload: gamemode (u8), stage_hash (u32 net_hash of ASSET_ARENA catalog entry),
+ *          difficulty (u8), numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
- *          weapons (u8[NUM_MPWEAPONSLOTS]) — resolved mpweapon indices from client
- *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
+ *          weapons (u32[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON net_hash
+ *          Per-bot (repeated numSims times): name (str), mpbodynum (u8), mpheadnum (u8),
  *          botDifficulty (u8), botType (u8)
+ *
+ * Phase C: stagenum and weapons use net_hash (u32 CRC32 of catalog ID) instead
+ * of raw indices.  Bot body/head use mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[]
+ * position) after bodynum/headnum→mpbodynum/mpheadnum conversion at the write site.
  * ======================================================================== */
 
 u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
-	netbufWriteU8(dst, stagenum);
+	/* FIX-1: send arena net_hash (u32 CRC32 of catalog ID) instead of raw stagenum u8.
+	 * catalogResolveArenaByStagenum() finds the ASSET_ARENA entry; both client and
+	 * server have g_MpArenas[] so catalogReadPreSessionRef() succeeds on the server. */
+	catalogWritePreSessionRef(dst, catalogResolveArenaByStagenum((s32)stagenum));
 	netbufWriteU8(dst, difficulty);
 	netbufWriteU8(dst, numSims);
 	netbufWriteU8(dst, simType);
@@ -3580,31 +3588,50 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* Send the already-resolved weapon slots so the server can forward them
-	 * in SVC_STAGE_START without needing mplayer game engine code. */
-	netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+	/* FIX-3: per-slot ASSET_WEAPON net_hash instead of bulk raw MPWEAPON_* bytes.
+	 * catalogWritePreSessionRef encodes each weapon's CRC32 catalog ID hash (u32).
+	 * The server resolves each hash via catalogReadPreSessionRef() and extracts
+	 * ext.weapon.weapon_id to populate g_MpSetup.weapons[].
+	 * Both client and server have identical weapon registrations from s_BaseWeapons[]. */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			catalogWritePreSessionRef(dst,
+				catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[wi]));
+		}
+	}
 
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
-	 * write empty defaults so the server always reads exactly numSims entries. */
+	 * write empty defaults so the server always reads exactly numSims entries.
+	 *
+	 * FIX-5: matchslot.bodynum / matchslot.headnum store BODY_x / HEAD_x
+	 * constants (g_HeadsAndBodies[] indices, range 0..151).  The server stores
+	 * these as mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions, 0..62/0..75).
+	 * Convert here via catalogBodynumToMpBodyIdx / catalogHeadnumToMpHeadIdx before
+	 * sending so the server receives the correct index domain.
+	 * Falls back to 0 (MPBODY_DARK_COMBAT / MPHEAD_DARK_COMBAT) on conversion fail. */
 	s32 botIdx = 0;
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
 		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
 			const struct matchslot *sl = &g_MatchConfig.slots[si];
+			const s32 mpbody = catalogBodynumToMpBodyIdx((s32)sl->bodynum);
+			const s32 mphead = catalogHeadnumToMpHeadIdx((s32)sl->headnum);
 			netbufWriteStr(dst, sl->name);
-			netbufWriteU8(dst, sl->bodynum);
-			netbufWriteU8(dst, sl->headnum);
+			netbufWriteU8(dst, mpbody >= 0 ? (u8)mpbody : 0u); /* mpbodynum */
+			netbufWriteU8(dst, mphead >= 0 ? (u8)mphead : 0u); /* mpheadnum */
 			netbufWriteU8(dst, sl->botDifficulty);
 			netbufWriteU8(dst, sl->botType);
 			botIdx++;
 		}
 	}
-	/* Pad any missing slots with defaults (shouldn't happen in practice) */
+	/* Pad any missing slots with defaults (shouldn't happen in practice).
+	 * Use mpbodynum=0 / mpheadnum=0 (MPBODY_DARK_COMBAT / MPHEAD_DARK_COMBAT). */
 	for (; botIdx < (s32)numSims; botIdx++) {
 		netbufWriteStr(dst, "");
-		netbufWriteU8(dst, 0xFF); /* default body */
-		netbufWriteU8(dst, 0xFF); /* default head */
-		netbufWriteU8(dst, 2);    /* BOTDIFF_NORMAL */
+		netbufWriteU8(dst, 0u); /* mpbodynum=0 default */
+		netbufWriteU8(dst, 0u); /* mpheadnum=0 default */
+		netbufWriteU8(dst, 2);  /* BOTDIFF_NORMAL */
 		netbufWriteU8(dst, simType);
 	}
 
@@ -3765,7 +3792,10 @@ static void readyGateAbort(const char *canceller_name)
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
-	const u8 stagenum        = netbufReadU8(src);
+	/* FIX-2: read arena net_hash (u32), resolve to ASSET_ARENA entry, extract stagenum.
+	 * Falls back to stagenum=0 if the hash doesn't resolve (unknown arena). */
+	const asset_entry_t *stage_entry = catalogReadPreSessionRef(src);
+	const u8 stagenum        = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
 	const u8 difficulty      = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
 	const u8 simType         = netbufReadU8(src);
@@ -3775,8 +3805,14 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);
-	/* Read the pre-resolved weapon slots sent by the client. */
-	netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+	/* FIX-4: per-slot ASSET_WEAPON net_hash — resolve each to weapon_id. */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			const asset_entry_t *we = catalogReadPreSessionRef(src);
+			g_MpSetup.weapons[wi] = we ? (u8)we->ext.weapon.weapon_id : 0;
+		}
+	}
 	(void)weaponSetIndex; /* retained for logging/future use */
 
 	if (src->error) {
@@ -3841,14 +3877,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * each client's playernum.  Without this, clients receive a
 		 * zero chrslots and no slot assignments, so mpStartMatch() never
 		 * spawns anyone. */
-		g_MpSetup.stagenum        = stagenum;
+		g_MpSetup.stagenum        = stagenum; /* resolved from arena net_hash in FIX-2 */
 		g_MpSetup.scenario        = scenario;
 		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
 		g_MpSetup.scorelimit      = scorelimit;
 		g_MpSetup.teamscorelimit  = teamscorelimit;
 		g_MpSetup.options         = options;
-		/* g_MpSetup.weapons[] was already populated from the client's resolved weapon slots
-		 * (read above from the CLC_LOBBY_START payload). No further resolution needed. */
+		/* g_MpSetup.weapons[] populated above by FIX-4 per-slot catalogReadPreSessionRef. */
 
 		/* Assign sequential playernums and build chrslots bitmask.
 		 * Bits 0..n-1 of chrslots represent the n connected players. */
@@ -3871,10 +3906,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
 			g_MpSetup.chrslots |= (u64)1 << slot;
-			/* Read per-bot config from the message. */
+			/* FIX-6: read mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions).
+			 * FIX-5 on the write side converts matchslot bodynum/headnum
+			 * (BODY_x/HEAD_x g_HeadsAndBodies[] indices) to mpbodynum/mpheadnum
+			 * before sending, so storing directly as mpbodynum/mpheadnum is correct. */
 			const char *botName    = netbufReadStr(src);
-			const u8 bodynum       = netbufReadU8(src);
-			const u8 headnum       = netbufReadU8(src);
+			const u8 bodynum       = netbufReadU8(src); /* mpbodynum (g_MpBodies[] pos) */
+			const u8 headnum       = netbufReadU8(src); /* mpheadnum (g_MpHeads[] pos) */
 			const u8 botDifficulty = netbufReadU8(src);
 			const u8 botType       = netbufReadU8(src);
 			if (src->error) {

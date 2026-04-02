@@ -3,6 +3,44 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S121 -- 2026-04-02
+
+**Focus**: Phase B — Catalog API Hardening + Arena Human-Readable IDs (commit b13a6b5)
+
+### What Was Done
+
+**8 files changed, 192 insertions / 45 deletions** — pushed to `dev`.
+
+**B.1 (FIX-24) — Register ALL g_HeadsAndBodies[] entries** (`assetcatalog_base.c`):
+- Root cause: covered-mask loop iterated all 76 g_MpHeads[] entries, marking g_MpHeads[75].headnum as covered. But the MP registration loop only iterates s_BaseHeads[] (75 entries), so that headnum (103 in playtests) was marked covered but never registered → `CATALOG-ASSERT type=16 index=103`.
+- Fix: covered-mask now iterates s_BaseBodies[]/s_BaseHeads[] (the actually-registered tables), not the full g_MpBodies[]/g_MpHeads[] arrays. All unregistered entries are now picked up by the SP-only fallback sweep.
+
+**B.2 — New index-domain-safe API** (`assetcatalog_api.c`, `assetcatalog.h`):
+- Added `catalogResolveBodyByMpIndex(mpbodynum)` and `catalogResolveHeadByMpIndex(mpheadnum)` — convert mpXnum (g_MpBodies/Heads[] position) to bodynum/headnum before catalog lookup.
+- Added `catalogBodynumToMpBodyIdx(bodynum)` and `catalogHeadnumToMpHeadIdx(headnum)` — reverse lookup for load path.
+- 7 call sites fixed: FIX-7 (netmsg.c), FIX-13 (netmanifest.c), FIX-14 (net.c), FIX-11/12 (savefile.c), FIX-10 (savefile.c stage), FIX-15 (scenario_save.c stage).
+
+**B.3 — Improved error logging**: `catalogResolveByRuntimeIndex` warning now includes type name (from static `s_typeNames[]`) for easier diagnostics.
+
+**Part 2 — Arena human-readable IDs** (`assetcatalog_base.c`):
+- `s_ArenaNames[75]` static table mapping each arena slot index to a human-readable name.
+- Arena registration loop now emits `base:arena_<name>` instead of `base:arena_<N>`.
+- NULL entries in the table cause the slot to be skipped gracefully.
+
+### Build
+- Client (`pd`) and server (`pd-server`): both 100% clean.
+
+### Decisions Made
+- Three index domains (mpbodynum, bodynum/runtime_index, catalog array position) must never be conflated. New API encapsulates the conversion at the boundary.
+- Arena ID migration is non-breaking: old `base:arena_<N>` IDs only existed in the catalog (no persisted save data references them).
+
+### Next Steps
+- Playtest needed: verify no CATALOG-ASSERT type=16 in log during MP match with bots.
+- Remaining Phase B fixes not yet addressed: FIX-16 (scenario_save.c:302 bounds), FIX-17/18/19 (netmanifest.c defaults/SP manifest/anti-player), FIX-20 (identity.c mpbodynum migration), FIX-21/22/23 (weapon save/scenario/dropdown).
+- Phase C (Systematic Catalog Conversion) is next after playtest confirms Phase B clears the B-63/B-64 errors.
+
+---
+
 ## Session S119 -- 2026-04-02
 
 **Focus**: Comprehensive playtest analysis → catalog universality engineering spec + bug triage
