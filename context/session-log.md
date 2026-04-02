@@ -3,6 +3,55 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S126 -- 2026-04-02
+
+**Focus**: Phase G — Full Verification Pass (code audit + build)
+
+### What Was Done
+
+**0 files changed** — audit + context update session only. No code changes.
+
+**Grep audit — catalog universality (codebase-wide)**
+
+Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHeads[]/g_MpWeapons[] with raw indices, raw stagenum bypassing catalog resolve functions, filenum_t passed as catalog ID, TODO/FIXME/HACK comments related to catalog migration, netbuf writes of raw body/head/weapon indices.
+
+**Confirmed clean (Phases B–F fixes verified in place):**
+- `CLC_LOBBY_START` write: stagenum → `catalogWritePreSessionRef(catalogResolveArenaByStagenum(...))` ✓
+- `CLC_LOBBY_START` write: weapons → per-slot `catalogWritePreSessionRef(catalogResolveWeaponByGameId(...))` ✓
+- `CLC_LOBBY_START` write: bot body/head → `catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx` (correct domain conversion) ✓
+- `SVC_STAGE_START` write: stage → `catalogWriteAssetRef(sessionCatalogGetId(catalogResolveStageByStagenum(...)))` ✓
+- `SVC_STAGE_START` write: weapons → per-slot `catalogWriteAssetRef(sessionCatalogGetId(...))` ✓
+- `CLC_LOBBY_START` read: arena → `catalogReadPreSessionRef()` → `ext.arena.stagenum` ✓
+- `CLC_LOBBY_START` read: weapons → per-slot `catalogReadPreSessionRef()` → `ext.weapon.weapon_id` ✓
+- Host manifest embedded in CLC_LOBBY_START (Phase D.2/D.3) ✓
+- Save file write: `weapon_ids` (catalog string IDs), `head_id`/`body_id`, `stage_id` — all using catalog ✓
+- Scenario save write: `weapon_id%d`, `arena_id` — catalog ✓
+- Zero TODO/FIXME/HACK related to catalog migration anywhere in port code ✓
+- B-63/B-64/B-65/B-66/B-67/B-68/B-69/B-70/B-71: all fixed in Phases B–F ✓
+
+**Findings (new issues documented):**
+- **G-1 (LOW)**: `SVC_LOBBY_STATE` (`netmsg.c:4149`) still sends raw stagenum u8. Display-only lobby broadcast; doesn't affect match load. Documented as B-72.
+- **G-2 (DEBT)**: Save file legacy integer fallbacks (`savefile.c:693-698, 832-834, 860-869`) — `mpheadnum`, `mpbodynum`, `stagenum`, `weapons` raw integers for old saves. Write side is fully catalog-first. Read fallbacks intentional for backward-compat with pre-SA-4 saves. Removal requires save migration tool; planned post-v1.0.
+- **G-3 (ACCEPTED)**: Bot body/head in `CLC_LOBBY_START` wire as raw u8 mpbodynum/mpheadnum. Index domain conversion (bodynum→mpbodynum) applied at write site per Phase C spec. Both sides have identical tables. Could use net_hash for full universality in a future pass.
+
+**Build verification:**
+- `pd` (client): CLEAN via `msys2_shell.cmd -mingw64` make ✓
+- `pd-server`: CLEAN ✓
+- Note: direct bash invocation fails with TEMP=C:\WINDOWS permission error in MinGW GCC. Must use msys2_shell.cmd -mingw64 for bash builds. PowerShell build-headless.ps1 works correctly from dev machine.
+
+### Decisions Made
+- Phase G code audit is COMPLETE. Playtest verification still pending (Mike must run in-game).
+- SVC_LOBBY_STATE raw stagenum documented as B-72 (LOW) — won't block v0.1.0.
+- Save file fallbacks: keep until post-v1.0 save migration. Document as planned debt.
+- Bot body/head raw u8: accepted as Phase C decision; document in audit file.
+
+### Next Steps
+- **Playtest required for Phase G to be fully DONE**: zero CATALOG-ASSERT in logs, all MP game modes run to completion with bots, menu transitions clean (no tint bleed, no duplicate instances), spawn variety, bot unstick, spawn weapons.
+- After clean playtest: Phase G DONE, catalog universality migration COMPLETE.
+- Post-migration: R-series (room architecture), L-series (lobby UX), v0.1.0 QC pass.
+
+---
+
 ## Session S125 -- 2026-04-02
 
 **Focus**: Phase F — Spawn System Hardening (commit 27b1e08)

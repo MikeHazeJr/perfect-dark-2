@@ -5,23 +5,23 @@ Last updated: 2026-04-02
 
 ## ⚡ PRIMARY WORKSTREAM: Catalog Universality Migration
 
-> **Status**: NOT STARTED — all feature work blocked until Phases A–C complete.
+> **Status**: PHASES A–G CODE AUDIT DONE (S126). Playtest verification pending.
 > **Governing spec**: `PD2_Catalog_Universality_Spec_v1.0.docx`
-> **Why it blocks everything**: April 1, 2026 playtest revealed catalog type=16 failures (bots invisible, crash B-63/B-64), server catalog gap blocking networked play (B-65), and menu input state machine gaps (B-66–B-70). These are foundational — fixing surface bugs on top of a broken catalog just shifts the crash site.
+> **S126 audit result**: No remaining raw-index bypass patterns in critical paths. One LOW issue found (B-72: SVC_LOBBY_STATE raw stagenum, display-only). Save file fallbacks are intentional backward-compat debt, write side is already catalog-first.
 
-Phases A–G are defined in [tasks-current.md](tasks-current.md). Dependency order:
+Phases A–G complete (code). Dependency order:
 
 ```
-Phase A (Audit — research only)
-  └── Phase B (API Hardening + Human-Readable IDs)
-        └── Phase C (Systematic Conversion — fixes B-63/B-64)
-              └── Phase D (Server Manifest Model — fixes B-65)
-Phase E (Menu Stack Architecture — fixes B-68/B-69/B-21)  [parallel with C/D]
-Phase F (Spawn + Input Mode Hardening — fixes B-66/B-67/B-71)  [parallel with C/D]
-  └── Phase G (Full Verification Pass)
+Phase A (Audit) ✓
+  └── Phase B (API Hardening + Human-Readable IDs) ✓
+        └── Phase C (Systematic Conversion) ✓
+              └── Phase D (Server Manifest Model) ✓
+Phase E (Menu Stack Architecture) ✓
+Phase F (Spawn + Input Mode Hardening) ✓
+  └── Phase G (Full Verification Pass) — code audit ✓, playtest PENDING
 ```
 
-**Until Phase C is verified clean, do not start new features.** The catalog is the load-bearing wall of the entire asset system.
+**Phase G playtest success criteria**: zero CATALOG-ASSERT in logs, zero type=16, all MP game modes run to completion with bots, menu transitions clean (no tint bleed, no duplicate instances), spawn variety, bot unstick, spawn weapons present.
 
 ## Completed
 
