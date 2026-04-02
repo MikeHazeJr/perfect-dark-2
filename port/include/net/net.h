@@ -9,7 +9,7 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 25  /* protocol 25: per-bot body/head/name serialised in SVC_STAGE_START */
+#define NET_PROTOCOL_VER 26  /* protocol 26: host-built manifest in CLC_LOBBY_START + SHA-256 mod validation */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 

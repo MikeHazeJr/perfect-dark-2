@@ -701,6 +701,17 @@ static void modmgrScanDirectory(void)
 		snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
 		mod->contenthash = modmgrHashString(hashsrc);
 
+		// Compute SHA-256 for authoritative network verification.
+		// Primary: hash mod.json content (stable, covers declared assets).
+		// Fallback: hash the "id:version" string so sha256 is never all-zeroes.
+		{
+			char modjsonpath[FS_MAXPATH + 1];
+			snprintf(modjsonpath, sizeof(modjsonpath), "%s/mod.json", fullpath);
+			if (sha256HashFile(modjsonpath, mod->sha256) != 0) {
+				sha256Hash(hashsrc, strlen(hashsrc), mod->sha256);
+			}
+		}
+
 		// Compute directory size for download estimation
 		mod->size_bytes = modmgrComputeDirSize(fullpath);
 

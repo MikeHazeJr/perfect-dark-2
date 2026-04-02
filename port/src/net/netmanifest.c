@@ -39,6 +39,9 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "modmgr.h"
+#include "sha256.h"
+#include "net/netbuf.h"
+#include "net/matchsetup.h"
 
 /* =========================================================================
  * Config — hard cap on manifest entries, overridable via pd.ini
@@ -279,6 +282,46 @@ void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
     e->net_hash   = net_hash;
     e->type       = type;
     e->slot_index = slot_index;
+    memset(e->sha256, 0, sizeof(e->sha256));
+    if (id) {
+        strncpy(e->id, id, sizeof(e->id) - 1);
+        e->id[sizeof(e->id) - 1] = '\0';
+    } else {
+        e->id[0] = '\0';
+    }
+}
+
+void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
+                         u8 slot_index, const u8 *sha256)
+{
+    s32 i;
+    match_manifest_entry_t *e;
+
+    /* Dedup by net_hash */
+    for (i = 0; i < (s32)m->num_entries; i++) {
+        if (m->entries[i].net_hash == net_hash) {
+            return;
+        }
+    }
+
+    if ((s32)m->num_entries >= (s32)m->capacity) {
+        if (!s_manifestGrow(m)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: manifest full (%d entries max), dropping mod '%s'",
+                         s_ManifestMaxEntries, id ? id : "?");
+            return;
+        }
+    }
+
+    e = &m->entries[m->num_entries++];
+    e->net_hash   = net_hash;
+    e->type       = MANIFEST_TYPE_COMPONENT;
+    e->slot_index = slot_index;
+    if (sha256) {
+        memcpy(e->sha256, sha256, sizeof(e->sha256));
+    } else {
+        memset(e->sha256, 0, sizeof(e->sha256));
+    }
     if (id) {
         strncpy(e->id, id, sizeof(e->id) - 1);
         e->id[sizeof(e->id) - 1] = '\0';
@@ -487,8 +530,8 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (!mod || !mod->enabled || mod->contenthash == 0) {
                 continue;
             }
-            manifestAddEntry(out, mod->contenthash, mod->id,
-                             MANIFEST_TYPE_COMPONENT, MANIFEST_SLOT_MATCH);
+            manifestAddModEntry(out, mod->contenthash, mod->id,
+                                MANIFEST_SLOT_MATCH, mod->sha256);
         }
     }
 
@@ -530,6 +573,185 @@ void manifestLog(const match_manifest_t *m)
                          (int)e->slot_index, e->id);
         }
     }
+}
+
+/* =========================================================================
+ * Phase D: Host-built manifest + wire serialisation helpers
+ * ========================================================================= */
+
+/**
+ * manifestBuildForHost -- client-side manifest build (D.2).
+ *
+ * Called by the lobby-leader client before sending CLC_LOBBY_START.
+ * Builds stage, weapons, host player body/head, bot body/head, and
+ * enabled mod components.  The server supplements the received manifest
+ * with other connected players' body/head before broadcasting
+ * SVC_MATCH_MANIFEST.
+ */
+void manifestBuildForHost(match_manifest_t *out)
+{
+    s32 i;
+    u8 slot_index;
+
+    manifestClear(out);
+
+    /* ---- Stage ---- */
+    {
+        const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
+        const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
+        if (e) {
+            manifestAddEntry(out, e->net_hash, e->id,
+                             MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-HOST: stage 0x%02x not in catalog, skipping",
+                         (unsigned)g_MpSetup.stagenum);
+        }
+    }
+
+    /* ---- Weapons ---- */
+    for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+        const u8 wnum = g_MpSetup.weapons[i];
+        const char *canon_id;
+        const asset_entry_t *e;
+        if (wnum == 0) {
+            continue;
+        }
+        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        e = canon_id ? assetCatalogResolve(canon_id) : NULL;
+        if (e) {
+            manifestAddEntry(out, e->net_hash, e->id,
+                             MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+        }
+    }
+
+    /* ---- Host player (slot 0) ---- */
+    slot_index = 0;
+    if (g_NetLocalClient) {
+        const asset_entry_t *be = assetCatalogResolve(g_NetLocalClient->settings.body_id);
+        if (be) {
+            manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, slot_index);
+            s_manifestExpandDeps(out, be->id, slot_index);
+        }
+        {
+            const asset_entry_t *he = assetCatalogResolve(g_NetLocalClient->settings.head_id);
+            if (he) {
+                manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, slot_index);
+                s_manifestExpandDeps(out, he->id, slot_index);
+            }
+        }
+        slot_index = 1;
+    }
+
+    /* ---- Bots from g_MatchConfig ---- */
+    for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
+        const struct matchslot *sl = &g_MatchConfig.slots[i];
+        if (sl->type != SLOT_BOT) {
+            continue;
+        }
+        {
+            const s32 mpbody = catalogBodynumToMpBodyIdx((s32)sl->bodynum);
+            const s32 mphead = catalogHeadnumToMpHeadIdx((s32)sl->headnum);
+            const char *body_canon = (mpbody >= 0) ? catalogResolveBodyByMpIndex(mpbody) : NULL;
+            const char *head_canon = (mphead >= 0) ? catalogResolveHeadByMpIndex(mphead) : NULL;
+            const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
+            const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
+            if (be) {
+                manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, slot_index);
+                s_manifestExpandDeps(out, be->id, slot_index);
+            }
+            if (he) {
+                manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, slot_index);
+                s_manifestExpandDeps(out, he->id, slot_index);
+            }
+        }
+        slot_index++;
+    }
+
+    /* ---- Mod components with SHA-256 ---- */
+    {
+        const s32 num_mods = modmgrGetCount();
+        for (i = 0; i < num_mods; i++) {
+            modinfo_t *mod = modmgrGetMod(i);
+            if (!mod || !mod->enabled || mod->contenthash == 0) {
+                continue;
+            }
+            manifestAddModEntry(out, mod->contenthash, mod->id,
+                                MANIFEST_SLOT_MATCH, mod->sha256);
+        }
+    }
+
+    manifestComputeHash(out);
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-HOST: built %d entries, hash=0x%08x",
+                 (int)out->num_entries, (unsigned)out->manifest_hash);
+}
+
+/**
+ * manifestSerialize -- write manifest entries into netbuf (D.3 wire helper).
+ *
+ * Format: u16 num_entries, then per entry:
+ *   u32 net_hash, u8 type, u8 slot_index, str id,
+ *   [u8[32] sha256] only when type == MANIFEST_TYPE_COMPONENT.
+ *
+ * Used for embedding the host manifest in CLC_LOBBY_START and is the
+ * same per-entry format used by SVC_MATCH_MANIFEST (protocol 26+).
+ */
+u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m)
+{
+    s32 i;
+    netbufWriteU16(dst, (u16)m->num_entries);
+    for (i = 0; i < (s32)m->num_entries; i++) {
+        const match_manifest_entry_t *e = &m->entries[i];
+        netbufWriteU32(dst, e->net_hash);
+        netbufWriteU8(dst, e->type);
+        netbufWriteU8(dst, e->slot_index);
+        netbufWriteStr(dst, e->id);
+        if (e->type == MANIFEST_TYPE_COMPONENT) {
+            netbufWriteData(dst, e->sha256, sizeof(e->sha256));
+        }
+    }
+    return dst->error;
+}
+
+/**
+ * manifestDeserialize -- read manifest entries from netbuf (D.3 wire helper).
+ *
+ * Appends to *out (does NOT clear first — caller should call manifestClear
+ * if starting fresh).  Counterpart to manifestSerialize().
+ * Returns 0 on success, 1 on parse error.
+ */
+s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
+{
+    s32 i;
+    const u16 num_entries = netbufReadU16(src);
+    if (src->error || num_entries > (u16)manifestGetMaxEntries()) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST: deserialize: bad entry count %u", (unsigned)num_entries);
+        return 1;
+    }
+    for (i = 0; i < (s32)num_entries; i++) {
+        const u32  net_hash   = netbufReadU32(src);
+        const u8   type       = netbufReadU8(src);
+        const u8   slot_index = netbufReadU8(src);
+        const char *id        = netbufReadStr(src);
+        if (src->error) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: deserialize: truncated at entry %d", i);
+            return 1;
+        }
+        if (type == MANIFEST_TYPE_COMPONENT) {
+            u8 sha256[32];
+            netbufReadData(src, sha256, sizeof(sha256));
+            if (src->error) {
+                return 1;
+            }
+            manifestAddModEntry(out, net_hash, id, slot_index, sha256);
+        } else {
+            manifestAddEntry(out, net_hash, id, type, slot_index);
+        }
+    }
+    return 0;
 }
 
 /* =========================================================================
@@ -1158,6 +1380,32 @@ void manifestCheck(const match_manifest_t *manifest)
         }
 
         if (local) {
+            /* D.6: for mod COMPONENT entries, validate SHA-256 against local mod. */
+            if (e->type == MANIFEST_TYPE_COMPONENT) {
+                /* Check whether local mod has matching SHA-256.
+                 * A zero sha256 in the manifest means the host didn't compute one — skip. */
+                static const u8 s_zero32[32] = {0};
+                if (memcmp(e->sha256, s_zero32, sizeof(e->sha256)) != 0) {
+                    modinfo_t *localMod = modmgrFindMod(e->id);
+                    if (localMod) {
+                        if (memcmp(localMod->sha256, e->sha256, sizeof(e->sha256)) != 0) {
+                            /* SHA-256 mismatch: we have the mod but it's the wrong version.
+                             * Report as missing so the server can redistribute the correct one. */
+                            char expected_hex[SHA256_HEX_SIZE];
+                            char local_hex[SHA256_HEX_SIZE];
+                            sha256ToHex(e->sha256, expected_hex);
+                            sha256ToHex(localMod->sha256, local_hex);
+                            sysLogPrintf(LOG_WARNING,
+                                         "MANIFEST: [%2d] COMPONENT id='%s' SHA-256 MISMATCH: want %s got %s",
+                                         i, e->id, expected_hex, local_hex);
+                            if (num_missing < 255) {
+                                missing_hashes[num_missing++] = e->net_hash;
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
             sysLogPrintf(LOG_NOTE,
                          "MANIFEST: [%2d] %-9s hash=0x%08x id='%s' — OK",
                          i, type_name, (unsigned)e->net_hash, e->id);

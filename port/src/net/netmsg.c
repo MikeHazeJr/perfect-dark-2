@@ -3635,6 +3635,17 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		netbufWriteU8(dst, simType);
 	}
 
+	/* Phase D.2/D.3: host-built manifest embedded in CLC_LOBBY_START.
+	 * The server receives this manifest, supplements it with other players'
+	 * body/head (from their CLC_SETTINGS), and broadcasts SVC_MATCH_MANIFEST. */
+	{
+		match_manifest_t hostManifest;
+		memset(&hostManifest, 0, sizeof(hostManifest));
+		manifestBuildForHost(&hostManifest);
+		manifestSerialize(dst, &hostManifest);
+		manifestFree(&hostManifest);
+	}
+
 	return dst->error;
 }
 
@@ -3940,8 +3951,70 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
 		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
 
-		/* Phase B: build manifest from current match state */
-		manifestBuild(&g_ServerManifest, NULL, NULL);
+		/* Phase D.3: receive host-built manifest from CLC_LOBBY_START payload,
+		 * then supplement with other connected players' body/head (which the
+		 * server knows from their CLC_SETTINGS but the host does not).
+		 * Falls back to server-side manifestBuild() if deserialization fails. */
+		manifestClear(&g_ServerManifest);
+		{
+			s32 deserOk = (manifestDeserialize(src, &g_ServerManifest) == 0);
+			if (!deserOk || src->error) {
+				sysLogPrintf(LOG_WARNING,
+				             "NET: CLC_LOBBY_START host manifest missing or corrupt — falling back to server-side build");
+				manifestBuild(&g_ServerManifest, NULL, NULL);
+			} else {
+				/* Supplement: add other players' body/head from their stored settings.
+				 * Slot assignment mirrors manifestBuild(): sequential CLSTATE_LOBBY clients.
+				 * The host is already in the manifest (slot 0); other players get subsequent
+				 * slots.  Dedup-by-net_hash prevents duplicates. */
+				u8 supp_slot = 0;
+				for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+					const struct netclient *ncl = &g_NetClients[ci];
+					if (ncl->state != CLSTATE_LOBBY && ncl->state != CLSTATE_GAME) {
+						continue;
+					}
+					if (ncl == srccl) {
+						/* Host already included in received manifest */
+						supp_slot++;
+						continue;
+					}
+					{
+						const asset_entry_t *be = assetCatalogResolve(ncl->settings.body_id);
+						if (be) {
+							manifestAddEntry(&g_ServerManifest, be->net_hash, be->id,
+							                 MANIFEST_TYPE_BODY, supp_slot);
+						}
+					}
+					{
+						const asset_entry_t *he = assetCatalogResolve(ncl->settings.head_id);
+						if (he) {
+							manifestAddEntry(&g_ServerManifest, he->net_hash, he->id,
+							                 MANIFEST_TYPE_HEAD, supp_slot);
+						}
+					}
+					supp_slot++;
+				}
+				/* D.5: extract stage catalog ID from manifest STAGE entry and
+				 * confirm it matches the stagenum resolved from the arena hash.
+				 * Log a warning on mismatch so misconfigurations are detectable. */
+				for (s32 mi = 0; mi < (s32)g_ServerManifest.num_entries; mi++) {
+					const match_manifest_entry_t *me = &g_ServerManifest.entries[mi];
+					if (me->type == MANIFEST_TYPE_STAGE) {
+						const asset_entry_t *se = assetCatalogResolve(me->id);
+						if (se) {
+							const u8 manifest_stagenum = (u8)se->ext.map.stagenum;
+							if (manifest_stagenum != stagenum) {
+								sysLogPrintf(LOG_WARNING,
+								             "NET: D.5 stage mismatch: arena hash→0x%02x, manifest→0x%02x ('%s') — using arena hash",
+								             (unsigned)stagenum, (unsigned)manifest_stagenum, me->id);
+							}
+						}
+						break;
+					}
+				}
+				manifestComputeHash(&g_ServerManifest);
+			}
+		}
 		manifestLog(&g_ServerManifest);
 
 		/* SA-1: build session catalog from manifest entries. */
@@ -4357,20 +4430,16 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 
 /* ---- SVC_MATCH_MANIFEST ---- */
 
+/* Phase D.4: SVC_MATCH_MANIFEST now uses manifestSerialize/Deserialize (protocol 26+).
+ * Per-entry format: u32 net_hash, u8 type, u8 slot_index, str id,
+ *                   [u8[32] sha256] only for MANIFEST_TYPE_COMPONENT entries.
+ * The manifest_hash header is retained for integrity checking on the client. */
+
 u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest)
 {
 	netbufWriteU8(dst, SVC_MATCH_MANIFEST);
 	netbufWriteU32(dst, manifest->manifest_hash);
-	netbufWriteU16(dst, manifest->num_entries);
-
-	for (u16 i = 0; i < manifest->num_entries; i++) {
-		const match_manifest_entry_t *e = &manifest->entries[i];
-		netbufWriteU32(dst, e->net_hash);
-		netbufWriteU8(dst, e->type);
-		netbufWriteU8(dst, e->slot_index);
-		netbufWriteStr(dst, e->id);
-	}
-
+	manifestSerialize(dst, manifest);
 	return dst->error;
 }
 
@@ -4379,43 +4448,22 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 	(void)srccl;
 
 	const u32 manifest_hash = netbufReadU32(src);
-	const u16 num_entries   = netbufReadU16(src);
-
 	if (src->error) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_MANIFEST header");
 		return 1;
 	}
 
-	if ((s32)num_entries > manifestGetMaxEntries()) {
-		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST entry count %u exceeds max %d",
-		             (unsigned)num_entries, manifestGetMaxEntries());
+	/* Phase D.4: use manifestDeserialize (handles sha256 for COMPONENT entries) */
+	manifestClear(&g_ClientManifest);
+	g_ClientManifest.manifest_hash = manifest_hash;
+
+	if (manifestDeserialize(src, &g_ClientManifest) != 0 || src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST parse error");
 		return 1;
 	}
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST hash=0x%08x entries=%u",
-	             (unsigned)manifest_hash, (unsigned)num_entries);
-
-	/* Phase C: populate g_ClientManifest from wire data */
-	manifestClear(&g_ClientManifest);
-	g_ClientManifest.manifest_hash = manifest_hash;
-
-	for (u16 i = 0; i < num_entries; i++) {
-		const u32  net_hash   = netbufReadU32(src);
-		const u8   type       = netbufReadU8(src);
-		const u8   slot_index = netbufReadU8(src);
-		const char *id        = netbufReadStr(src);
-
-		if (src->error || !id) {
-			sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST malformed at entry %u", (unsigned)i);
-			return 1;
-		}
-
-		sysLogPrintf(LOG_NOTE, "NET: MANIFEST[%u] hash=0x%08x type=%u slot=%u id=%s",
-		             (unsigned)i, (unsigned)net_hash, (unsigned)type,
-		             (unsigned)slot_index, id);
-
-		manifestAddEntry(&g_ClientManifest, net_hash, id, type, slot_index);
-	}
+	             (unsigned)manifest_hash, (unsigned)g_ClientManifest.num_entries);
 
 	/* Phase C: check local catalog against manifest, send CLC_MANIFEST_STATUS */
 	manifestCheck(&g_ClientManifest);

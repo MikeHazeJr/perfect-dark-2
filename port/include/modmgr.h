@@ -3,6 +3,7 @@
 
 #include <PR/ultratypes.h>
 #include "fs.h"
+#include "sha256.h"
 
 // Note: Do NOT include <stdbool.h> here — the codebase defines bool as s32
 // in types.h (#define bool s32), and stdbool.h would conflict with that.
@@ -32,7 +33,8 @@ typedef struct modinfo {
 	char author[MODMGR_AUTHOR_LEN];
 	char description[MODMGR_DESC_LEN];
 	char dirpath[FS_MAXPATH + 1];       // absolute path to mod directory
-	u32  contenthash;                    // hash of mod directory for network compare
+	u32  contenthash;                    // CRC32 of mod id:version for quick compare
+	u8   sha256[SHA256_DIGEST_SIZE];     // SHA-256 of mod.json for authoritative verification
 	u32  size_bytes;                     // total size of mod directory (bytes), for download estimation
 	s32  enabled;                        // user preference (persisted)
 	s32  loaded;                         // assets currently registered in tables

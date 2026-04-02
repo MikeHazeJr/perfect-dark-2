@@ -298,9 +298,10 @@ s32  romdataFileGetNumForName(const char *name) { (void)name; return -1; } /* se
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }
 u32 mpGetNumBodies(void) { return 0; }
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum) { (void)bodynum; return 0; }
-/* modmgr stubs — fs.c references these */
+/* modmgr stubs — dedicated server has no mod registry */
 s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
+void *modmgrFindMod(const char *id) { (void)id; return NULL; }
 const char *modmgrResolvePath(const char *path) { return path; }
 void modmgrInit(void) {}
 void modmgrCatalogChanged(void) {}

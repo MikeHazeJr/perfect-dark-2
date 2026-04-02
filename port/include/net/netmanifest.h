@@ -6,19 +6,27 @@
  * SVC_MATCH_MANIFEST, and each client checks its local catalog against it
  * (Phase C) before responding with CLC_MANIFEST_STATUS.
  *
- * Wire format (SVC_MATCH_MANIFEST):
+ * Wire format (SVC_MATCH_MANIFEST, protocol 26+):
  *   u8   opcode = 0x62
  *   u32  manifest_hash     FNV-1a over all entries
  *   u16  num_entries
  *   [for each entry]:
- *     u32  net_hash        FNV-1a hash of the asset
+ *     u32  net_hash        CRC32 of catalog ID — primary key
  *     u8   type            MANIFEST_TYPE_*
  *     u8   slot_index      participant slot, or MANIFEST_SLOT_MATCH
  *     str  id              catalog string ID (null-terminated)
+ *     [u8[32] sha256]      only present when type == MANIFEST_TYPE_COMPONENT
+ *
+ * CLC_LOBBY_START (protocol 26+) embeds the host-built manifest using the
+ * same per-entry format (no opcode or manifest_hash prefix — those come from
+ * the outer message header).
  *
  * Phase A: struct + constants defined here.
  * Phase B: manifestBuild() populates from room state + catalog queries.
  * Phase C: client parses, checks local catalog, sends CLC_MANIFEST_STATUS.
+ * Phase D: host builds manifest (manifestBuildForHost) and embeds in
+ *           CLC_LOBBY_START.  Server receives, supplements player slots,
+ *           broadcasts via SVC_MATCH_MANIFEST.  SHA-256 carried for mods.
  */
 
 #ifndef _IN_NETMANIFEST_H
@@ -26,9 +34,10 @@
 
 #include <PR/ultratypes.h>
 
-/* Forward declaration for Phase B/E */
+/* Forward declarations */
 struct hub_room_s;
 struct matchconfig;
+struct netbuf;
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,12 +94,16 @@ extern "C" {
  * id is carried for logging and as a human-readable fallback.
  * slot_index ties body/head entries back to a specific participant slot;
  * match-level assets (stage, weapons, components) use MANIFEST_SLOT_MATCH.
+ * sha256 is only meaningful for MANIFEST_TYPE_COMPONENT (mod) entries;
+ * it carries the SHA-256 of the mod's mod.json for authoritative verification.
+ * All other entry types leave sha256 zeroed.
  */
 typedef struct {
-    u32  net_hash;    /**< FNV-1a hash of the asset — primary catalog key */
-    char id[64];      /**< Asset catalog string ID */
-    u8   type;        /**< MANIFEST_TYPE_* */
-    u8   slot_index;  /**< Participant slot this entry belongs to, or MANIFEST_SLOT_MATCH */
+    u32  net_hash;       /**< CRC32 of the asset catalog ID — primary catalog key */
+    char id[64];         /**< Asset catalog string ID */
+    u8   type;           /**< MANIFEST_TYPE_* */
+    u8   slot_index;     /**< Participant slot this entry belongs to, or MANIFEST_SLOT_MATCH */
+    u8   sha256[32];     /**< SHA-256 of mod.json; non-zero only for MANIFEST_TYPE_COMPONENT */
 } match_manifest_entry_t;
 
 /**
@@ -141,10 +154,58 @@ void manifestSetMaxEntries(s32 n);
 /**
  * Add one entry to the manifest.
  * Deduplicates by net_hash (silently skips duplicates).
- * Internal helper — called by manifestBuild() and test code.
+ * sha256 field is zeroed.  For mod (COMPONENT) entries use manifestAddModEntry.
  */
 void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
                       u8 type, u8 slot_index);
+
+/**
+ * Add a mod component entry to the manifest, carrying the mod's SHA-256.
+ * Deduplicates by net_hash.  sha256 may be NULL (zeroed in that case).
+ */
+void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
+                         u8 slot_index, const u8 *sha256);
+
+/**
+ * Build the manifest from the host client's local state.
+ *
+ * Called client-side in netmsgClcLobbyStartWrite() before serialising
+ * CLC_LOBBY_START.  Reads:
+ *   g_MpSetup         — stage (stagenum), weapons[]
+ *   g_NetLocalClient  — host player body_id / head_id
+ *   g_MatchConfig     — bot slots (type, bodynum, headnum, name)
+ *   modmgrGetMod()    — enabled mods with their SHA-256
+ *
+ * The server supplements the received manifest with other connected
+ * players' body/head (from their CLC_SETTINGS) before broadcasting
+ * SVC_MATCH_MANIFEST.
+ *
+ * Calls manifestComputeHash() before returning.
+ */
+void manifestBuildForHost(match_manifest_t *out);
+
+/**
+ * Serialise a manifest into dst (for embedding in CLC_LOBBY_START).
+ *
+ * Wire format:
+ *   u16  num_entries
+ *   per entry:
+ *     u32  net_hash
+ *     u8   type
+ *     u8   slot_index
+ *     str  id            (null-terminated)
+ *     [u8[32] sha256]    (only present when type == MANIFEST_TYPE_COMPONENT)
+ *
+ * Returns dst->error.
+ */
+u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m);
+
+/**
+ * Deserialise a manifest from src (counterpart to manifestSerialize).
+ * Appends to *out (does NOT clear first).
+ * Returns 0 on success, 1 on parse error.
+ */
+s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out);
 
 /**
  * Build the manifest from current server match state.
