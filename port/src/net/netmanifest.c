@@ -467,23 +467,15 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                 manifestAddEntry(out, be->net_hash, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
-            } else {
-                char body_id[64];
-                snprintf(body_id, sizeof(body_id), "body_%d", (int)bodynum);
-                manifestAddEntry(out, s_fnv1a(body_id), body_id,
-                                 MANIFEST_TYPE_BODY, slot_index);
             }
+            /* else: bodynum not registered in catalog — skip (Phase 0 removed aliases) */
 
             if (he) {
                 manifestAddEntry(out, he->net_hash, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
-            } else {
-                char head_id[64];
-                snprintf(head_id, sizeof(head_id), "head_%d", (int)headnum);
-                manifestAddEntry(out, s_fnv1a(head_id), head_id,
-                                 MANIFEST_TYPE_HEAD, slot_index);
             }
+            /* else: headnum not registered in catalog — skip */
 
             slot_index++;
         }
@@ -516,7 +508,7 @@ void manifestLog(const match_manifest_t *m)
 {
     s32 i;
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG"
     };
 
     sysLogPrintf(LOG_NOTE,
@@ -626,12 +618,8 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                         manifestAddEntry(out, cbe->net_hash, cbe->id,
                                          MANIFEST_TYPE_BODY, 0);
                         s_manifestExpandDeps(out, cbe->id, 0);
-                    } else {
-                        char bstr[64];
-                        snprintf(bstr, sizeof(bstr), "body_%d", (int)chr->bodynum);
-                        manifestAddEntry(out, s_fnv1a(bstr), bstr,
-                                         MANIFEST_TYPE_BODY, 0);
                     }
+                    /* else: bodynum not in catalog — skip */
                 }
 
                 /* headnum < 0 = holograph / special; no fixed catalog entry */
@@ -643,12 +631,8 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                         manifestAddEntry(out, che->net_hash, che->id,
                                          MANIFEST_TYPE_HEAD, 0);
                         s_manifestExpandDeps(out, che->id, 0);
-                    } else {
-                        char hstr[64];
-                        snprintf(hstr, sizeof(hstr), "head_%d", (int)chr->headnum);
-                        manifestAddEntry(out, s_fnv1a(hstr), hstr,
-                                         MANIFEST_TYPE_HEAD, 0);
                     }
+                    /* else: headnum not in catalog — skip */
                 }
             } else {
                 /* ---- prop model (types that embed struct defaultobj) ---- */
@@ -724,12 +708,8 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                 manifestAddEntry(out, cbe->net_hash, cbe->id,
                                  MANIFEST_TYPE_BODY, 1);
                 s_manifestExpandDeps(out, cbe->id, 1);
-            } else {
-                char bstr[64];
-                snprintf(bstr, sizeof(bstr), "body_%d", (int)g_Vars.antibodynum);
-                manifestAddEntry(out, s_fnv1a(bstr), bstr,
-                                 MANIFEST_TYPE_BODY, 1);
             }
+            /* else: antibodynum not in catalog — skip */
         }
 
         if (g_Vars.antiheadnum >= 0) {
@@ -740,12 +720,8 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                 manifestAddEntry(out, che->net_hash, che->id,
                                  MANIFEST_TYPE_HEAD, 1);
                 s_manifestExpandDeps(out, che->id, 1);
-            } else {
-                char hstr[64];
-                snprintf(hstr, sizeof(hstr), "head_%d", (int)g_Vars.antiheadnum);
-                manifestAddEntry(out, s_fnv1a(hstr), hstr,
-                                 MANIFEST_TYPE_HEAD, 1);
             }
+            /* else: antiheadnum not in catalog — skip */
         }
     }
 
@@ -1102,7 +1078,11 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
         return 0;
     }
 
-    hash = s_fnv1a(catalog_id);
+    /* Resolve first so we can use the canonical CRC32 net_hash for the dedup
+     * check.  The manifest stores e->net_hash (CRC32); using a different hash
+     * algorithm here would cause the dedup check to always miss. */
+    e = assetCatalogResolve(catalog_id);
+    hash = e ? e->net_hash : s_fnv1a(catalog_id);
 
     /* Dedup: already tracked — no action needed. */
     for (i = 0; i < (s32)g_CurrentLoadedManifest.num_entries; i++) {
@@ -1112,7 +1092,6 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
     }
 
     /* Not yet tracked — late-register and load. */
-    e = assetCatalogResolve(catalog_id);
     if (e) {
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST-SP: late-add '%s' type=%d (missed by pre-scan)",
@@ -1155,7 +1134,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
 void manifestCheck(const match_manifest_t *manifest)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG"
     };
 
     /* missing_hashes bounded by wire protocol: num_missing sent as u8 (0-255) */

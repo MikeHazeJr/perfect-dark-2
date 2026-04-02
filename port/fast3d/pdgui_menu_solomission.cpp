@@ -686,8 +686,8 @@ static s32 renderDifficulty(struct menudialog *dialog,
     if (si >= 0 && si < NUM_SOLOSTAGES) {
         char stageName[128];
         snprintf(stageName, sizeof(stageName), "%s%s",
-                 langGet(g_SoloStages[si].name1),
-                 langGet(g_SoloStages[si].name2));
+                 langSafe(g_SoloStages[si].name1),
+                 langSafe(g_SoloStages[si].name2));
         ImGui::TextDisabled("%s", stageName);
     }
     ImGui::Separator();
@@ -951,7 +951,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     if (ImGui::BeginChild("##briefing_scroll", ImVec2(0, bodyH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
         const char *txt = (g_Briefing.briefingtextnum != 0)
-                          ? langGet(g_Briefing.briefingtextnum)
+                          ? langSafe(g_Briefing.briefingtextnum)
                           : "(No briefing text available)";
 
         ImGui::PushTextWrapPos(mw - pdguiScale(40.0f));
@@ -1019,8 +1019,8 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         s32 si = g_MissionConfig.stageindex;
         if (si >= 0 && si < NUM_SOLOSTAGES)
             snprintf(title, sizeof(title), "%s: %s",
-                     langGet(g_SoloStages[si].name3),
-                     langGet(L_OPTIONS_273));
+                     langSafe(g_SoloStages[si].name3),
+                     langSafe(L_OPTIONS_273));
     }
 
     float titleH = pdguiScale(26.0f);
@@ -1084,7 +1084,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
             if (g_Briefing.objectivenames[i] == 0) continue;
             anyObj = true;
 
-            const char *objText = langGet(g_Briefing.objectivenames[i]);
+            const char *objText = langSafe(g_Briefing.objectivenames[i]);
 
             /* Difficulty indicators */
             u16 bits = g_Briefing.objectivedifficulties[i];
@@ -1194,8 +1194,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         s32 si = g_MissionConfig.stageindex;
         if (si >= 0 && si < NUM_SOLOSTAGES)
             snprintf(title, sizeof(title), "%s: %s",
-                     langGet(g_SoloStages[si].name3),
-                     langGet(L_OPTIONS_172));
+                     langSafe(g_SoloStages[si].name3),
+                     langSafe(L_OPTIONS_172));
     }
 
     float titleH = pdguiScale(26.0f);
@@ -1253,7 +1253,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
             ImGui::PushTextWrapPos(mw - pdguiScale(20.0f));
-            ImGui::TextUnformatted(langGet(g_Briefing.objectivenames[i]));
+            ImGui::TextUnformatted(langSafe(g_Briefing.objectivenames[i]));
             ImGui::PopTextWrapPos();
         }
         if (!anyObj) {
@@ -1269,9 +1269,9 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     struct PauseBtn { const char *label; s32 idx; };
     const PauseBtn k_Btns[] = {
         { "Resume",                 0 },
-        { langGet(L_OPTIONS_178),   1 },  /* "Inventory" */
+        { langSafe(L_OPTIONS_178),  1 },  /* "Inventory" */
         { "Options",                2 },
-        { langGet(L_OPTIONS_173),   3 },  /* "Abort!" */
+        { langSafe(L_OPTIONS_173),  3 },  /* "Abort!" */
     };
 
     for (s32 b = 0; b < 4; b++) {
@@ -1367,7 +1367,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
     ImGui::Spacing();
     ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + pdguiScale(8.0f));
     ImGui::PushTextWrapPos(mw - pdguiScale(16.0f));
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.85f, 1.0f), "%s", langGet(L_OPTIONS_175));
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.85f, 1.0f), "%s", langSafe(L_OPTIONS_175));
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
     ImGui::Separator();

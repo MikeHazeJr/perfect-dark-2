@@ -86,6 +86,7 @@ void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
 void menuPushDialog(struct menudialogdef *dialogdef);
 
 char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 struct solostage {
     u32 stagenum;
@@ -402,8 +403,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 char stageName[128] = "New Recruit";
                 if (stage > 0) {
                     snprintf(stageName, sizeof(stageName), "%s %s",
-                             langGet(g_SoloStages[stage - 1].name1),
-                             langGet(g_SoloStages[stage - 1].name2));
+                             langSafe(g_SoloStages[stage - 1].name1),
+                             langSafe(g_SoloStages[stage - 1].name2));
                 }
 
                 char timeStr[64] = "";
