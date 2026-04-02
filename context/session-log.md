@@ -3,6 +3,45 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S124 -- 2026-04-02
+
+**Focus**: Phase E — Menu Stack Architecture + Input Context (commit 5eab8d3)
+
+### What Was Done
+
+**3 files changed, 69 insertions / 2 deletions** — pushed to `dev`.
+
+**E.1 — Full duplicate rejection in `menuPush`** (`menumgr.c`):
+- Was: only rejected same menu on top of stack.
+- Now: `menuIsInStack(menu)` — rejects if menu is anywhere in stack. Prevents Esc or rapid input stacking duplicate instances (B-21).
+
+**E.2 — Post-mission buttons non-interactive** (`pdgui_menu_endscreen.cpp`):
+- `renderSoloEndscreen` and `renderMpEndscreen`: on `ImGui::IsWindowAppearing()`, call `SDL_SetRelativeMouseMode(SDL_FALSE)` + `SDL_ShowCursor(SDL_ENABLE)` + warp cursor to center.
+- Root cause: game is still in SDL relative mouse mode when endscreen appears after gameplay.
+
+**E.2 — Lobby→gameplay mouse capture** (`menumgr.c`):
+- Added `restoreGameplayMouseCapture()` helper: checks `inputMouseIsLocked()` and applies `SDL_SetRelativeMouseMode(SDL_TRUE)`.
+- Called from `menuPop()` when stack empties and from `menuPopAll()`.
+- Root cause: `inputLockMouse(1)` defers the SDL call if `pdguiIsActive()` is true during the lobby→match transition. This restores it when the menu stack clears.
+
+**E.3 — Green tint bleed** (`pdgui_menu_mainmenu.cpp`, `pdgui_menu_endscreen.cpp`):
+- `renderMainMenu()`: `pdguiSetPalette(1)` at entry — defensive baseline for blue palette.
+- `renderSoloEndscreen` / `renderMpEndscreen`: save `prevPalette` before setting screen palette; restore at all exit paths (including early `Begin()` failure).
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean.
+
+### Decisions Made
+- Mouse restore in menumgr mirrors the existing `pdguiPauseMenuClose()` pattern.
+- Palette save/restore covers the transition frame where endscreen and main menu both render.
+- Main menu explicit set is defensive insurance; endscreen restore is the structural fix.
+
+### Next Steps
+- Playtest needed: post-mission buttons clickable, lobby→gameplay mouse capture, no green tint on main menu after mission complete.
+- Phase F (Spawn System Hardening + inputSetMode wiring) is next.
+
+---
+
 ## Session S123 -- 2026-04-02
 
 **Focus**: Phase D — Server Manifest Model (commit e517633)

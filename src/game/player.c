@@ -77,6 +77,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "net/matchsetup.h"
 #include "assetcatalog.h"
 
 s32 g_DefaultWeapons[2];
@@ -221,7 +222,12 @@ s32 g_NumDeathAnimations = 0;
  *
  * Arrays sized to MAX_MPCHRS (32) to support stock maps (max 21 pads)
  * and future custom maps with up to 32 spawn points.
- */
+ *
+ * F.1: Anti-repeat tracking. The last-used pad number is remembered across
+ * calls. When the shortlist has >1 entry, the previously used pad is removed
+ * so the same spawn can't repeat back-to-back. */
+static s16 s_LastSpawnPad = -1;
+
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
 	u8 verybadpads[MAX_MPCHRS];
@@ -518,6 +524,23 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		padsqdists[i] = -1.0f;
 	}
 
+	// F.1: Remove last-used pad from the shortlist to prevent back-to-back repeats.
+	// Only applies when there are at least 2 entries so we always have a choice.
+	if (sllen > 1 && s_LastSpawnPad >= 0) {
+		s32 li;
+		for (li = 0; li < sllen; li++) {
+			if (pads[slpadindexes[li]] == s_LastSpawnPad) {
+				// Swap to end and shrink — preserves order of other entries
+				sllen--;
+				slpadindexes[li] = slpadindexes[sllen];
+				slpositions[li] = slpositions[sllen];
+				slangles[li] = slangles[sllen];
+				roomsCopy(slrooms[sllen], slrooms[li]);
+				break;
+			}
+		}
+	}
+
 	// Finally, choose a random pad from the shortlist
 	if (sllen > 0) {
 		p = rngRandom() % sllen;
@@ -529,6 +552,8 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		roomsCopy(slrooms[p], dstrooms);
 
 		dstangle = slangles[p];
+
+		s_LastSpawnPad = pads[slpadindexes[p]];
 	} else {
 		// No shortlisted pads, so pick a random one from the full selection
 		padUnpack(pads[rngRandom() % numpads], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
@@ -1185,32 +1210,54 @@ void playerSpawn(void)
 				invGiveSingleWeapon(WEAPON_NIGHTVISION);
 			}
 
-			if ((g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-					&& g_MpSetup.weapons[0] != MPWEAPON_NONE
-					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-				struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-				invGiveSingleWeapon(mpweapon->weaponnum);
-				const s32 ammotype = (g_MpSetup.weapons[0] == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
-				if (ammotype) {
-					s32 startammo = mpweapon->priammoqty / 2;
-					if (startammo == 0) {
-						startammo = 1;
+			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+				/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+				 * 0xFF = Random → fall through to weapons[0] from the active set. */
+				struct mpweapon *mpweapon = NULL;
+				s32 resolvedWeaponNum = 0;
+				if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+					s32 wi;
+					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
+					for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
+						if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
+							mpweapon = &g_MpWeapons[wi];
+							break;
+						}
 					}
-					bgunSetAmmoQuantity(ammotype, startammo);
+				} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
+						&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
+						&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
+					mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
+					resolvedWeaponNum = mpweapon->weaponnum;
 				}
-				bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
-				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
-				sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
-						g_Vars.currentplayernum, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
-			} else
-			{
+				if (resolvedWeaponNum > 0) {
+					invGiveSingleWeapon(resolvedWeaponNum);
+					if (mpweapon) {
+						const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
+							? AMMOTYPE_BOOST : mpweapon->priammotype;
+						if (ammotype) {
+							s32 startammo = mpweapon->priammoqty / 2;
+							if (startammo == 0) {
+								startammo = 1;
+							}
+							bgunSetAmmoQuantity(ammotype, startammo);
+						}
+					}
+					bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+					bgunEquipWeapon2(HAND_RIGHT, resolvedWeaponNum);
+					sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
+							g_Vars.currentplayernum, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
+				} else {
+					bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
+					bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
+					if (g_Vars.normmplayerisrunning) {
+						sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
+								g_Vars.currentplayernum, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+					}
+				}
+			} else {
 				bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
 				bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
-				if (g_Vars.normmplayerisrunning) {
-					sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- no spawn weapon (options=0x%08x weapons[0]=%d)",
-							g_Vars.currentplayernum, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
-				}
 			}
 
 #if VERSION >= VERSION_NTSC_1_0

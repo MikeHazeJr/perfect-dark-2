@@ -36,6 +36,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/matchsetup.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -44,6 +45,23 @@
 struct chrdata *g_MpBotChrPtrs[MAX_BOTS];
 
 u8 g_BotCount = 0;
+
+/* F.5: Stuck detection — periodic position snapshot per bot slot.
+ * Every STUCK_CHECK_FRAMES, each bot's position is compared to its last
+ * snapshot. If it hasn't moved more than STUCK_EPSILON and has active
+ * pathfinding intent, the bot is stuck: relocate to a nearby waypoint and
+ * apply 25% max-damage penalty. */
+#define STUCK_CHECK_FRAMES  180   /* ~3 seconds at 60 fps */
+#define STUCK_EPSILON_SQ    (10.0f * 10.0f)   /* 10 units (~10 cm in PD scale) */
+#define STUCK_RELO_MIN_SQ   (300.0f * 300.0f) /* minimum relocation distance */
+#define STUCK_RELO_FRACTION 0.25f              /* 25% max-damage penalty on relocation */
+
+struct botstuckstate {
+	struct coord snapshot;
+	s32 snapshot_frame;
+	s32 relocating; /* non-zero if we just relocated; cleared on next snapshot */
+};
+static struct botstuckstate s_BotStuck[MAX_BOTS];
 
 /**
  * Async bot tick scheduler.
@@ -295,26 +313,49 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		chr->aibot->moveratey = 0;
 		func0f02e9a0(chr, 0);
 
-		if ((g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-				&& g_MpSetup.weapons[0] != MPWEAPON_NONE
-				&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-				&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-			struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-			botinvGiveSingleWeapon(chr, mpweapon->weaponnum);
-			const s32 ammotype = (g_MpSetup.weapons[0] == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
-			if (ammotype) {
-				s32 startammo = mpweapon->priammoqty / 2;
-				if (startammo == 0) {
-					startammo = 1;
+		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+			 * 0xFF = Random → fall through to weapons[0] from the active set.
+			 * Any other value is a WEAPON_* enum configured by the match host. */
+			struct mpweapon *mpweapon = NULL;
+			s32 resolvedWeaponNum = 0;
+			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+				/* Specific weapon chosen: find the mpweapon entry for ammo data */
+				s32 wi;
+				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
+				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
+					if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
+						mpweapon = &g_MpWeapons[wi];
+						break;
+					}
 				}
-				botactGiveAmmoByType(aibot, ammotype, startammo);
+			} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
+					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
+					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
+				/* Random / unset: use first weapon in the match set */
+				mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
+				resolvedWeaponNum = mpweapon->weaponnum;
 			}
-			botinvSwitchToWeapon(chr, mpweapon->weaponnum, FUNC_PRIMARY);
-			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
-					(void *)chr, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
-		} else {
-			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- no spawn weapon (options=0x%08x weapons[0]=%d)",
-					(void *)chr, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
+			if (resolvedWeaponNum > 0) {
+				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
+				if (mpweapon) {
+					const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
+						? AMMOTYPE_BOOST : mpweapon->priammotype;
+					if (ammotype) {
+						s32 startammo = mpweapon->priammoqty / 2;
+						if (startammo == 0) {
+							startammo = 1;
+						}
+						botactGiveAmmoByType(aibot, ammotype, startammo);
+					}
+				}
+				botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
+						(void *)chr, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
+			} else {
+				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
+						(void *)chr, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+			}
 		}
 	}
 }
@@ -992,6 +1033,83 @@ s32 botTick(struct prop *prop)
 		if (updateable && g_Vars.lvframe60 >= 145) {
 			if (botShouldTickAI(chr)) {
 				botTickUnpaused(chr);
+			}
+
+			/* F.5: Stuck detection — periodic position snapshot.
+			 * Bots that have active pathfinding intent but haven't moved
+			 * more than STUCK_EPSILON over STUCK_CHECK_FRAMES are teleported
+			 * to a nearby waypoint and penalised 25% of their max damage. */
+			if (!chrIsDead(chr)) {
+				s32 slot = (s32)aibot->aibotnum;
+				if (slot >= 0 && slot < MAX_BOTS) {
+					struct botstuckstate *bs = &s_BotStuck[slot];
+					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
+					if (frames_since >= STUCK_CHECK_FRAMES) {
+						/* Active pathfinding: bot is trying to navigate */
+						bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP
+							|| chr->myaction == MA_AIBOTGOTOPOS
+							|| chr->myaction == MA_AIBOTGETITEM
+							|| chr->myaction == MA_AIBOTGOTOPROP
+							|| chr->myaction == MA_AIBOTRUNAWAY
+							|| chr->myaction == MA_AIBOTDOWNLOAD);
+						if (hasIntent && !bs->relocating) {
+							f32 dx = chr->prop->pos.x - bs->snapshot.x;
+							f32 dz = chr->prop->pos.z - bs->snapshot.z;
+							if (dx * dx + dz * dz < STUCK_EPSILON_SQ) {
+								/* Stuck — find a waypoint with adequate separation */
+								if (g_StageSetup.waypoints) {
+									struct waypoint *wpts = g_StageSetup.waypoints;
+									s32 numwpts = 0;
+									s32 best = -1;
+									f32 bestdist = 0;
+									s32 wi;
+									while (wpts[numwpts].padnum >= 0) {
+										numwpts++;
+									}
+									for (wi = 0; wi < numwpts * 2; wi++) {
+										s32 idx = rngRandom() % numwpts;
+										struct pad rpad;
+										f32 rdx;
+										f32 rdz;
+										f32 rdsq;
+										padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &rpad);
+										if (rpad.room < 0 || (rpad.flags & PADFLAG_AIDROP)) {
+											continue;
+										}
+										rdx = rpad.pos.x - chr->prop->pos.x;
+										rdz = rpad.pos.z - chr->prop->pos.z;
+										rdsq = rdx * rdx + rdz * rdz;
+										if (rdsq > STUCK_RELO_MIN_SQ && rdsq > bestdist) {
+											best = idx;
+											bestdist = rdsq;
+										}
+									}
+									if (best >= 0) {
+										struct pad dstpad;
+										RoomNum newrooms[2];
+										padUnpack(wpts[best].padnum, PADFIELD_POS | PADFIELD_ROOM, &dstpad);
+										newrooms[0] = dstpad.room;
+										newrooms[1] = -1;
+										chr->hidden |= CHRHFLAG_WARPONSCREEN;
+										chrMoveToPos(chr, &dstpad.pos, newrooms, 0, false);
+										chrAddHealth(chr, -(chr->maxdamage * STUCK_RELO_FRACTION));
+										bs->relocating = 1;
+										sysLogPrintf(LOG_NOTE, "STUCK: bot slot=%d chr=%p action=%d relocated to waypoint %d (%.0f,%.0f,%.0f) — penalty %.1f%%",
+											slot, (void *)chr, chr->myaction, best,
+											dstpad.pos.x, dstpad.pos.y, dstpad.pos.z,
+											STUCK_RELO_FRACTION * 100.0f);
+									}
+								}
+							} else {
+								bs->relocating = 0;
+							}
+						} else if (!hasIntent) {
+							bs->relocating = 0;
+						}
+						bs->snapshot = chr->prop->pos;
+						bs->snapshot_frame = g_Vars.lvframe60;
+					}
+				}
 			}
 
 			// Calculate cheap

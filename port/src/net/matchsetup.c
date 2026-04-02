@@ -27,6 +27,7 @@
 #include "modelcatalog.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
+#include "input.h"
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -78,9 +79,10 @@ void matchConfigInit(void)
 	g_MatchConfig.timelimit = 60;     /* no time limit (>=60 disables timer) */
 	g_MatchConfig.scorelimit = 9;     /* first to 10 kills */
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
-	g_MatchConfig.options = 0;
+	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
+	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
-	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
 	g_MatchConfig.numSlots = 0;
 
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
@@ -286,6 +288,11 @@ s32 matchStart(void)
 
 	/* Stop the menu system and let the game take over */
 	menuStop();
+
+	/* B-66: Capture mouse for gameplay. The lobby UI holds pdguiIsActive() true
+	 * during setup, which deferred the SDL relative-mouse apply inside
+	 * inputLockMouse(). Now that menus are stopped, force the capture. */
+	inputLockMouse(1);
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
