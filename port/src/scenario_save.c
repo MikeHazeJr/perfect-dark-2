@@ -265,10 +265,10 @@ s32 scenarioSave(const char *name)
     jsonEscapeStr(fp, name);
     fprintf(fp, "\",\n");
     fprintf(fp, "  \"arena\": %u,\n",        (unsigned)g_MatchConfig.stagenum);
-    /* SA-4: catalog string ID for arena */
+    /* SA-4: catalog string ID for arena.
+     * FIX-15: g_MatchConfig.stagenum is a logical stage ID, not a g_Stages[] index. */
     {
-        const char *stage_id = catalogResolveByRuntimeIndex(ASSET_MAP,
-                                                            (s32)g_MatchConfig.stagenum);
+        const char *stage_id = catalogResolveStageByStagenum((s32)g_MatchConfig.stagenum);
         fprintf(fp, "  \"arenaId\": \"");
         jsonEscapeStr(fp, stage_id ? stage_id : "");
         fprintf(fp, "\",\n");

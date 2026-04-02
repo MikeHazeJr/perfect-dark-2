@@ -748,6 +748,37 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
  */
 const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
 
+/**
+ * B.2: Resolve a body catalog entry by MP body index (g_MpBodies[] position, 0..62).
+ * Converts mpbodynum → g_HeadsAndBodies[] index via g_MpBodies[mpbodynum].bodynum,
+ * then looks up ASSET_BODY by runtime_index.  Logs a warning and returns NULL on miss.
+ * Use this instead of catalogResolveByRuntimeIndex(ASSET_BODY, mpbodynum) — those
+ * are different index spaces.
+ */
+const char *catalogResolveBodyByMpIndex(s32 mpbodynum);
+
+/**
+ * B.2: Resolve a head catalog entry by MP head index (g_MpHeads[] position, 0..75).
+ * Converts mpheadnum → g_HeadsAndBodies[] index via g_MpHeads[mpheadnum].headnum,
+ * then looks up ASSET_HEAD by runtime_index.  Logs a warning and returns NULL on miss.
+ * Use this instead of catalogResolveByRuntimeIndex(ASSET_HEAD, mpheadnum) — those
+ * are different index spaces.
+ */
+const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
+
+/**
+ * FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
+ * position (mpbodynum).  Returns -1 if bodynum is not found in g_MpBodies[].
+ * Use at save-load sites after assetCatalogResolve() to convert back to mpbodynum.
+ */
+s32 catalogBodynumToMpBodyIdx(s32 bodynum);
+
+/**
+ * FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position (mpheadnum).
+ * Returns -1 if headnum is not found in g_MpHeads[].
+ */
+s32 catalogHeadnumToMpHeadIdx(s32 headnum);
+
 /* ── SA-5 failure state ─────────────────────────────────────────────────── */
 
 /**

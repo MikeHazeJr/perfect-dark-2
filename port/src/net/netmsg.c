@@ -654,14 +654,6 @@ u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
-/* Helper: find the catalog net_hash for a given ASSET_BODY/ASSET_HEAD runtime_index. */
-struct s_rindex_hash_lookup { s32 rindex; u32 hash; };
-static void s_netHashCb(const asset_entry_t *e, void *ud) {
-	struct s_rindex_hash_lookup *l = (struct s_rindex_hash_lookup *)ud;
-	if (!l->hash && e->runtime_index == l->rindex) {
-		l->hash = e->net_hash;
-	}
-}
 
 u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 {
@@ -770,16 +762,17 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			struct mpbotconfig *bc = &g_BotConfigsArray[botidx];
 			netbufWriteStr(dst, bc->base.name);
 
-			/* SA-3: bot body/head as session IDs via net_hash lookup */
+			/* SA-3 / FIX-7: bot body/head as session IDs.
+			 * bc->base.mpbodynum is a g_MpBodies[] position (0..62), NOT a
+			 * g_HeadsAndBodies[] index.  catalogResolveBodyByMpIndex() converts
+			 * correctly before looking up the catalog entry. */
 			{
-				struct s_rindex_hash_lookup bl = { (s32)bc->base.mpbodynum, 0 };
-				assetCatalogIterateByType(ASSET_BODY, s_netHashCb, &bl);
-				catalogWriteAssetRef(dst, sessionCatalogGetIdByHash(bl.hash));
+				const char *body_canon = catalogResolveBodyByMpIndex((s32)bc->base.mpbodynum);
+				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
 			}
 			{
-				struct s_rindex_hash_lookup hl = { (s32)bc->base.mpheadnum, 0 };
-				assetCatalogIterateByType(ASSET_HEAD, s_netHashCb, &hl);
-				catalogWriteAssetRef(dst, sessionCatalogGetIdByHash(hl.hash));
+				const char *head_canon = catalogResolveHeadByMpIndex((s32)bc->base.mpheadnum);
+				catalogWriteAssetRef(dst, head_canon ? sessionCatalogGetId(head_canon) : 0);
 			}
 
 			netbufWriteU8(dst, bc->difficulty);

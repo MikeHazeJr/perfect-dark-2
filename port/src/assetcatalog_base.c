@@ -526,7 +526,38 @@ s32 assetCatalogRegisterBaseGame(void)
 	 * Group mapping reads stagenum, requirefeature, and name directly
 	 * from g_MpArenas[] (preserves VERSION-conditional lang IDs).
 	 * Category field stores the arena group name for dropdown grouping.
+	 *
+	 * Human-readable arena names (Part 2: Phase B human-readable ID migration).
+	 * Maps g_MpArenas[] index → slug used in "base:arena_<slug>" catalog ID.
+	 * Indices 32-54 (GEX stages) are never registered; those slots use NULL.
 	 */
+	static const char *const s_ArenaNames[75] = {
+		/* Dark MP arenas (0-12) */
+		"mp_skedar",    "mp_pipes",     "mp_ravine",    "mp_g5building",
+		"mp_sewers",    "mp_warehouse", "mp_grid",      "mp_ruins",
+		"mp_area52",    "mp_base",      "mp_fortress",  "mp_villa",
+		"mp_carpark",
+		/* Solo Mission arenas (13-26) */
+		"defection",    "investigation","villa",        "chicago",
+		"g5building",   "infiltration", "airbase",      "airforceone",
+		"crashsite",    "pelagic",      "deepsea",      "defense",
+		"attackship",   "skedarruins",
+		/* Classic arenas (27-31) */
+		"mp_temple",    "mp_complex",   "mp_grid6",     "mp_grid2",
+		"mp_felicity",
+		/* GEX (32-54) — never registered; keep slots as NULL */
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+		/* Bonus arenas (55-70) */
+		"stage_24",     "mp_grid7",     "test_arch",    "test_dest",
+		"extra16",      "extra17",      "extra18",      "extra19",
+		"extra20",      "extra21",      "extra22",      "extra23",
+		"extra24",      "extra26",      "test_lam",     /* index 69 */
+		NULL,           /* index 70: extra25=Paradox, removed */
+		/* Random (71-72) */
+		"mp_random_multi", "mp_random_solo",
+		/* 73-74: Random GEX + junk — not registered */
+	};
 	static const struct {
 		s32 first;           /* first index in g_MpArenas[] */
 		s32 count;           /* number of arenas in this group */
@@ -556,7 +587,12 @@ s32 assetCatalogRegisterBaseGame(void)
 				continue;
 			}
 
-			snprintf(idbuf, sizeof(idbuf), "base:arena_%d", idx);
+			/* Skip any arena whose name entry is NULL (GEX slots, missing entries) */
+			if (!s_ArenaNames[idx]) {
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf), "base:arena_%s", s_ArenaNames[idx]);
 
 			asset_entry_t *e = assetCatalogRegisterArena(
 				idbuf,
@@ -606,17 +642,23 @@ s32 assetCatalogRegisterBaseGame(void)
 		s32 sp_head_count = 0;
 		u8 covered[152] = {0};
 
-		/* Mark indices already covered by MP arrays */
-		for (s32 i = 0; i < 63; i++) {
-			s32 bn = g_MpBodies[i].bodynum;
-			if (bn >= 0 && bn < 152) {
-				covered[bn] = 1;
+		/* Mark only indices that were ACTUALLY registered by the MP loops above.
+		 * Previously this loop iterated all 63/76 entries of g_MpBodies[]/g_MpHeads[],
+		 * but the MP registration loop only covers entries present in s_BaseBodies[]/
+		 * s_BaseHeads[].  Any g_MpBodies[]/g_MpHeads[] entry not in those tables would
+		 * be marked "covered" here without ever being registered — FIX-24. */
+		for (s32 i = 0; i < (s32)NUM_BASE_BODIES; i++) {
+			s32 idx = s_BaseBodies[i].index;
+			if (idx >= 0 && idx < 63) {
+				s32 bn = (s32)g_MpBodies[idx].bodynum;
+				if (bn > 0 && bn < 152) covered[bn] = 1;
 			}
 		}
-		for (s32 i = 0; i < 76; i++) {
-			s32 hn = g_MpHeads[i].headnum;
-			if (hn >= 0 && hn < 152) {
-				covered[hn] = 1;
+		for (s32 i = 0; i < (s32)NUM_BASE_HEADS; i++) {
+			s32 idx = s_BaseHeads[i].index;
+			if (idx >= 0 && idx < 76) {
+				s32 hn = (s32)g_MpHeads[idx].headnum;
+				if (hn > 0 && hn < 152) covered[hn] = 1;
 			}
 		}
 

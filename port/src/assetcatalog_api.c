@@ -334,10 +334,76 @@ const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index)
         }
     }
 
+    static const char *s_typeNames[] = {
+        "NONE","MAP","CHARACTER","SKIN","BOT_VARIANT","WEAPON","TEXTURES","SFX",
+        "MUSIC","PROP","VEHICLE","MISSION","UI","TOOL","ARENA","BODY","HEAD",
+        "ANIMATION","TEXTURE","GAMEMODE","AUDIO","HUD","EFFECT","MODEL","LANG"
+    };
+    const char *tname = ((int)type >= 0 && (int)type < (s32)(sizeof(s_typeNames)/sizeof(s_typeNames[0])))
+                        ? s_typeNames[(int)type] : "UNKNOWN";
     sysLogPrintf(LOG_WARNING,
-        "[CATALOG-ASSERT] catalogResolveByRuntimeIndex: type=%d index=%d not found",
-        (int)type, runtime_index);
+        "[CATALOG-ASSERT] catalogResolveByRuntimeIndex: type=%s(%d) index=%d not found",
+        tname, (int)type, runtime_index);
     return NULL;
+}
+
+/* -------------------------------------------------------------------------
+ * B.2: MP index domain helpers
+ * Convert mpbodynum (g_MpBodies[] position, 0..62) or mpheadnum (g_MpHeads[]
+ * position, 0..75) to the g_HeadsAndBodies[] index stored as runtime_index,
+ * then delegate to catalogResolveByRuntimeIndex.
+ *
+ * Always use these instead of catalogResolveByRuntimeIndex(ASSET_BODY/HEAD, mpN)
+ * — mpbodynum and runtime_index (bodynum) are different index spaces.
+ * ------------------------------------------------------------------------- */
+
+extern struct mpbody g_MpBodies[];
+extern struct mphead g_MpHeads[];
+
+const char *catalogResolveBodyByMpIndex(s32 mpbodynum)
+{
+    if (mpbodynum < 0 || mpbodynum >= 63) {
+        sysLogPrintf(LOG_WARNING,
+            "[CATALOG] catalogResolveBodyByMpIndex: mpbodynum=%d out of range [0,63)",
+            mpbodynum);
+        return NULL;
+    }
+    return catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[mpbodynum].bodynum);
+}
+
+const char *catalogResolveHeadByMpIndex(s32 mpheadnum)
+{
+    if (mpheadnum < 0 || mpheadnum >= 76) {
+        sysLogPrintf(LOG_WARNING,
+            "[CATALOG] catalogResolveHeadByMpIndex: mpheadnum=%d out of range [0,76)",
+            mpheadnum);
+        return NULL;
+    }
+    return catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[mpheadnum].headnum);
+}
+
+/* FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
+ * position.  Used at save-load sites where a catalog entry is resolved and its
+ * runtime_index needs to be converted back to mpbodynum for game config structs.
+ * Returns -1 if bodynum is not in g_MpBodies[]. */
+s32 catalogBodynumToMpBodyIdx(s32 bodynum)
+{
+    s32 i;
+    for (i = 0; i < 63; i++) {
+        if ((s32)g_MpBodies[i].bodynum == bodynum) return i;
+    }
+    return -1;
+}
+
+/* FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position.
+ * Returns -1 if headnum is not in g_MpHeads[]. */
+s32 catalogHeadnumToMpHeadIdx(s32 headnum)
+{
+    s32 i;
+    for (i = 0; i < 76; i++) {
+        if ((s32)g_MpHeads[i].headnum == headnum) return i;
+    }
+    return -1;
 }
 
 /* -------------------------------------------------------------------------

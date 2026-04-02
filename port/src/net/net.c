@@ -317,9 +317,11 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
 	{
-		const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY,
+		/* FIX-14: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions;
+		 * use the dedicated converters to get the correct runtime_index. */
+		const char *bid = catalogResolveBodyByMpIndex(
 			(s32)g_PlayerConfigsArray[playernum].base.mpbodynum);
-		const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD,
+		const char *hid = catalogResolveHeadByMpIndex(
 			(s32)g_PlayerConfigsArray[playernum].base.mpheadnum);
 		if (bid) {
 			strncpy(cl->settings.body_id, bid, CATALOG_ID_LEN - 1);

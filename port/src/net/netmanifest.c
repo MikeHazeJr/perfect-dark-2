@@ -452,10 +452,12 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     {
         const s32 num_bots = (s32)g_Lobby.settings.numSimulants;
         for (i = 0; i < num_bots && i < MAX_BOTS; i++) {
+            /* FIX-13: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions,
+             * not g_HeadsAndBodies[] indices.  Use the dedicated API that converts. */
             const u8 bodynum = g_BotConfigsArray[i].base.mpbodynum;
             const u8 headnum = g_BotConfigsArray[i].base.mpheadnum;
-            const char *body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bodynum);
-            const char *head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)headnum);
+            const char *body_canon = catalogResolveBodyByMpIndex((s32)bodynum);
+            const char *head_canon = catalogResolveHeadByMpIndex((s32)headnum);
             const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
             const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
 

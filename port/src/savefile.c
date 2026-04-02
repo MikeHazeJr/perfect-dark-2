@@ -598,10 +598,11 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	writeJsonString(fp, "name", name);
 	fprintf(fp, ",\n");
 
-	/* Appearance — SA-4: write catalog string IDs */
+	/* Appearance — SA-4: write catalog string IDs.
+	 * FIX-11: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions; convert. */
 	{
-		const char *head_id = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)pc->base.mpheadnum);
-		const char *body_id = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)pc->base.mpbodynum);
+		const char *head_id = catalogResolveHeadByMpIndex((s32)pc->base.mpheadnum);
+		const char *body_id = catalogResolveBodyByMpIndex((s32)pc->base.mpbodynum);
 		writeJsonString(fp, "head_id", head_id ? head_id : "");
 		fprintf(fp, ",\n");
 		writeJsonString(fp, "body_id", body_id ? body_id : "");
@@ -664,23 +665,31 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			tok = s_next(&p);
 			s_tok_str(&tok, pc->base.name, 15);
 		} else if (strcmp(key, "head_id") == 0) {
-			/* SA-4: catalog string ID for head */
+			/* SA-4: catalog string ID for head.
+			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
+			 * g_MpHeads[] position before storing in mpheadnum. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_HEAD)
-				pc->base.mpheadnum = (u8)e->runtime_index;
+			if (e && e->type == ASSET_HEAD) {
+				s32 mpidx = catalogHeadnumToMpHeadIdx((s32)e->runtime_index);
+				if (mpidx >= 0) pc->base.mpheadnum = (u8)mpidx;
+			}
 		} else if (strcmp(key, "body_id") == 0) {
-			/* SA-4: catalog string ID for body */
+			/* SA-4: catalog string ID for body.
+			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
+			 * g_MpBodies[] position before storing in mpbodynum. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_BODY)
-				pc->base.mpbodynum = (u8)e->runtime_index;
+			if (e && e->type == ASSET_BODY) {
+				s32 mpidx = catalogBodynumToMpBodyIdx((s32)e->runtime_index);
+				if (mpidx >= 0) pc->base.mpbodynum = (u8)mpidx;
+			}
 		} else if (strcmp(key, "mpheadnum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
@@ -756,9 +765,11 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
-	/* SA-4: write stage as catalog string ID */
+	/* SA-4: write stage as catalog string ID.
+	 * FIX-10: g_MpSetup.stagenum is a logical stage ID, not a g_Stages[] array index;
+	 * use catalogResolveStageByStagenum() which searches by ext.map.stagenum field. */
 	{
-		const char *stage_id = catalogResolveByRuntimeIndex(ASSET_MAP, (s32)g_MpSetup.stagenum);
+		const char *stage_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
 		writeJsonString(fp, "stage_id", stage_id ? stage_id : "");
 		fprintf(fp, ",\n");
 	}
