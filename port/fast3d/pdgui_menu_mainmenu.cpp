@@ -2129,6 +2129,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
                            struct menu *menu,
                            s32 winW, s32 winH)
 {
+    /* E.3: Always enforce blue palette — prevents tint bleed from post-mission
+     * endscreen (which sets palette 3=green or 2=red and never restores it). */
+    pdguiSetPalette(1);
+
     float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
     float dialogH = pdguiMenuHeight();

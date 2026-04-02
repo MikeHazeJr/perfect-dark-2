@@ -10,6 +10,7 @@
  */
 
 #include "menumgr.h"
+#include "input.h"
 #include "system.h"
 #include <string.h>
 #include <SDL.h>
@@ -41,6 +42,20 @@ static void startCooldown(void)
     s_CooldownEndMs = SDL_GetTicks() + MENU_COOLDOWN_MS;
 }
 
+/* E.2: Called when the menu stack empties to restore gameplay mouse capture.
+ * Mirrors the same pattern used by pdguiPauseMenuClose(): the game's input
+ * system may have set mouseLocked=true during the menu/lobby transition, but
+ * inputLockMouse() deferred the SDL apply because pdguiIsActive() was true.
+ * Now that we're returning to gameplay, force the SDL state to match. */
+static void restoreGameplayMouseCapture(void)
+{
+    if (inputMouseIsLocked()) {
+        SDL_ShowCursor(SDL_DISABLE);
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+        sysLogPrintf(LOG_NOTE, "MENU: stack empty, restored mouse capture for gameplay");
+    }
+}
+
 void menuMgrInit(void)
 {
     memset(s_MenuStack, 0, sizeof(s_MenuStack));
@@ -56,8 +71,9 @@ s32 menuPush(menu_state_e menu)
         return 0;
     }
 
-    /* Don't push the same menu that's already on top */
-    if (s_StackDepth > 0 && s_MenuStack[s_StackDepth - 1] == menu) {
+    /* E.1: Reject if this menu is already anywhere in the stack (not just on top).
+     * Prevents Esc or rapid input from creating duplicate menu instances. */
+    if (menuIsInStack(menu)) {
         return 1;
     }
 
@@ -82,6 +98,12 @@ menu_state_e menuPop(void)
 
     sysLogPrintf(LOG_NOTE, "MENU: pop %s -> now %s (depth=%d)",
         menuGetName(popped), menuGetName(menuGetCurrent()), s_StackDepth);
+
+    /* E.2: Restore gameplay mouse capture when returning to MENU_NONE. */
+    if (s_StackDepth == 0) {
+        restoreGameplayMouseCapture();
+    }
+
     return popped;
 }
 
@@ -94,6 +116,9 @@ void menuPopAll(void)
     s_StackDepth = 0;
     memset(s_MenuStack, 0, sizeof(s_MenuStack));
     startCooldown();
+
+    /* E.2: Restore gameplay mouse capture now that no menus are on the stack. */
+    restoreGameplayMouseCapture();
 }
 
 menu_state_e menuGetCurrent(void)

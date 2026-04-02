@@ -316,6 +316,9 @@ static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
 static void renderSoloEndscreen(bool completed)
 {
     /* ----- Palette ---------------------------------------------------- */
+    /* E.3: Save and restore so this screen's palette doesn't bleed into
+     * subsequent menus (main menu, etc.) rendered after us. */
+    s32 prevPalette = pdguiGetPalette();
     pdguiSetPalette(completed ? 3 : 2);
 
     ImVec2 disp = ImGui::GetIO().DisplaySize;
@@ -346,7 +349,21 @@ static void renderSoloEndscreen(bool completed)
 
     if (!ImGui::Begin("##SoloEndscreen", NULL, flags)) {
         ImGui::End();
+        pdguiSetPalette(prevPalette);
         return;
+    }
+
+    /* E.2: Release mouse grab on first appear so endscreen buttons are clickable.
+     * The game may still have SDL in relative mode from active gameplay. */
+    if (ImGui::IsWindowAppearing()) {
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_ShowCursor(SDL_ENABLE);
+        SDL_Window *win = SDL_GetMouseFocus();
+        if (win) {
+            int w, h;
+            SDL_GetWindowSize(win, &w, &h);
+            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        }
     }
 
     /* ----- PD dialog frame -------------------------------------------- */
@@ -610,6 +627,9 @@ static void renderSoloEndscreen(bool completed)
     }
 
     ImGui::End();
+
+    /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
+    pdguiSetPalette(prevPalette);
 }
 
 /* ========================================================================
@@ -620,6 +640,8 @@ static void renderSoloEndscreen(bool completed)
 static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 {
     /* ----- Palette ---------------------------------------------------- */
+    /* E.3: Save and restore so this screen's palette doesn't bleed out. */
+    s32 prevPalette = pdguiGetPalette();
     if (challengeResult == 1) {
         pdguiSetPalette(3);  /* green for challenge complete */
     } else if (challengeResult >= 2) {
@@ -654,7 +676,20 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     if (!ImGui::Begin("##MpEndscreen", NULL, flags)) {
         ImGui::End();
+        pdguiSetPalette(prevPalette);
         return;
+    }
+
+    /* E.2: Release mouse grab on first appear so buttons are clickable. */
+    if (ImGui::IsWindowAppearing()) {
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_ShowCursor(SDL_ENABLE);
+        SDL_Window *win = SDL_GetMouseFocus();
+        if (win) {
+            int w, h;
+            SDL_GetWindowSize(win, &w, &h);
+            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        }
     }
 
     pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "Game Over", 1);
@@ -816,6 +851,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     }
 
     ImGui::End();
+
+    /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
+    pdguiSetPalette(prevPalette);
 }
 
 /* ========================================================================
