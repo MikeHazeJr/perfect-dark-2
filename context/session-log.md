@@ -3,6 +3,32 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S116 -- 2026-04-01
+
+**Focus**: Post-S115 audit fixes — langSafe propagation, manifest hash mismatch, synthetic ID cleanup
+
+### What Was Done
+
+**Commit 93a2a26** — 3 files, 28 insertions / 48 deletions:
+
+- **Bug 1 (langSafe)**: Replaced all remaining unsafe `langGet()` calls with `langSafe()` in `pdgui_menu_solomission.cpp` (8 sites: stage name snprintf, briefing text ternary, overview/status title snprintf, objectives `TextUnformatted`, pause menu struct initializer for "Inventory"/"Abort!" buttons, abort confirm `TextColored`). Struct initializer was most dangerous — storing NULL `const char*` in a `PauseBtn` array then passing to `ImGui::Button` was a guaranteed crash when the lang bank isn't loaded. Also fixed the same snprintf pattern in `pdgui_menu_agentselect.cpp` (agent ranking screen, stage name).
+- **Bug 2 primary (hash mismatch)**: `manifestEnsureLoaded()` was computing `hash = s_fnv1a(catalog_id)` for the dedup check, but manifest entries store `e->net_hash` which is CRC32 (from `assetCatalogRegister`). These hash algorithms produce different values — dedup check ALWAYS missed → 31+ spurious "missed by pre-scan" log entries per spawn. Fix: resolve catalog entry FIRST (`assetCatalogResolve`), use `e->net_hash` for dedup, fall back to `s_fnv1a` only when not in catalog.
+- **Bug 2 secondary (synthetic IDs)**: `manifestBuild()` (bots section) and `manifestBuildMission()` (setup scan + counter-op) generated synthetic `"body_N"`/`"head_N"` entries when `catalogResolveByRuntimeIndex` returned NULL. Phase 4 validate() zeros these (not in catalog), generating log spam. Fix: skip instead of adding synthetic entries.
+- **manifestLog() / manifestCheck()**: Added "LANG" to `s_type_names[]` in both functions so `MANIFEST_TYPE_LANG=8` entries no longer log as "?".
+- Build: CMake reconfigure needed (screenmfst.c was added after last configure). 530/530 clean (both PerfectDark.exe + PerfectDarkServer.exe).
+- **Propagation check**: Scanned all `langGet()` call sites across 8 `.cpp` files. `pdgui_menu_warning.cpp` and `arenaGetName()` callers are all null-guarded. `pdgui_menu_mainmenu.cpp` and `pdgui_menu_agentcreate.cpp` only have forward declarations. No other unsafe sites found.
+
+### Decisions Made
+- Bug 3 (Catalog Settings tab "nothing loaded") was already fixed by Phase 1 (`manifestSPTransition` wired in `pdmain.c`). No additional code change needed.
+- `catalogComputeStageDiff` was incorrectly flagged as dead code in S114 session log — it IS called from `src/game/lv.c:287`. No code change; just awareness correction.
+- Synthetic fallback entries in the player section of `manifestBuild` (using actual string IDs from `ncl->settings`) are different from the `body_N`/`head_N` pattern — left those unchanged as they represent legitimate "ID not in server catalog" cases.
+
+### Next Steps
+- Playtest: solo mission difficulty select should now show correct text (Bug 1). SP spawn should no longer generate "missed by pre-scan" log spam (Bug 2).
+- Next major track: Room Architecture (R-2 onward) or Phase 3 participant system (remove chrslots).
+
+---
+
 ## Session S115 -- 2026-04-01
 
 **Focus**: Manifest Lifecycle Sprint — Phase 6: Menu/UI Asset Manifesting
