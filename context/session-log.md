@@ -3,6 +3,34 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S119 -- 2026-04-02
+
+**Focus**: Comprehensive playtest analysis → catalog universality engineering spec + bug triage
+
+### What Was Done
+
+- **Playtest analysis**: Reviewed 3 client logs, 1 server error log, and screenshots from April 1, 2026 playtest session. Identified root causes for all observed failures.
+- **Catalog type=16 root cause** (B-63/B-64): `catalogResolveByRuntimeIndex` called on bot allocation with type=16, which is out of range for the catalog asset type enum (valid 0–7). Every bot allocation triggers CATALOG-ASSERT; all bots invisible; access violation downstream. Root cause: bot config path passes unvalidated type field into the resolver.
+- **Server catalog gap** (B-65): `SVC_STARTGAME` server side still emits raw hex stagenum (e.g. `0x1f`) rather than catalog ID. Client-side catalog cannot resolve raw hex. All networked play blocked.
+- **Menu input state machine gaps** (B-66/B-67/B-68/B-69/B-70): `inputSetMode()` not called on match-start code path from MP lobby → mouse capture misses. Post-mission input context not switched → debrief buttons non-interactive. Tint not cleared on menu pop → green bleeds to main menu. Esc re-registers menu in same frame → stacked instances.
+- **Bot spawn weapons** (B-70): `options=0x00000000` in bot spawn log → options bitmask not reaching bots during match start.
+- **Spec produced**: `PD2_Catalog_Universality_Spec_v1.0.docx` — governing engineering specification covering catalog universality migration (Phases A–C), server manifest model (Phase D), menu stack architecture (Phase E), spawn/input hardening (Phase F), and full verification pass (Phase G). All phases defined with success criteria.
+- **Context updated**: bugs.md (B-63–B-71), tasks-current.md (Phases A–G), roadmap.md (primary workstream declaration), session-log.md (this entry).
+
+### Decisions Made
+
+- Catalog universality migration (Phases A–C) is now the primary workstream and blocks all other feature work. The catalog is the load-bearing wall of the entire asset system — surface bug fixes on top of a broken catalog just shift the crash site.
+- Phase A is research-only (audit + mapping, no code changes) to ensure full scope is understood before any API changes.
+- Server manifest model (Phase D) supersedes server-side catalog concept: server receives manifest from host, never maintains its own catalog.
+- Menu stack architecture (Phase E) and spawn/input hardening (Phase F) can proceed in parallel with Phases C/D.
+
+### Next Steps
+
+- **Phase A**: Catalog universality audit — `grep` for all raw-index call sites, map type+index origins, identify which paths produce type=16.
+- After Phase A report: review findings with Mike before beginning Phase B (API hardening).
+
+---
+
 ## Session S118 -- 2026-04-01
 
 **Focus**: Post-manifest playtest fixes — dead numeric alias IDs, bare langGet(), Paradox arena removal

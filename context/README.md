@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-01, Session S97 (Crash triage, universal numeric aliases, manifest completeness, kill plane, Catalog Settings tab, UI Scaling — SA series ALL DONE, v0.1.0 critical blockers cleared)
+> **Last updated**: 2026-04-02, Session S119 (Playtest analysis: catalog type=16 failure root cause, server catalog gap, menu input state gaps. B-63–B-71 added. Catalog Universality Spec v1.0 produced. Phases A–G defined. All feature work blocked on Phase A–C.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S119 | 2026-04-02 | Playtest analysis (3 client logs, server error, screenshots). Catalog type=16 root cause (B-63/B-64), server catalog gap (B-65), menu input state gaps (B-66–B-70). PD2_Catalog_Universality_Spec_v1.0.docx produced. Phases A–G defined. All feature work blocked on catalog universality migration. | [session-log.md](session-log.md) |
+| S115–S118 | 2026-04-01 | Manifest Lifecycle Sprint Phase 6 (screenmfst), post-manifest audit fixes (langSafe, hash mismatch, synthetic IDs), linker fix, dead alias cleanup. | [session-log.md](session-log.md) |
 | S91–S97 | 2026-03-31–04-01 | SA-1 through SA-7 complete (session catalog, modular API, wire migration, persistence, load path, SP manifest, consolidation). S97: crash triage (runtime_index, stage aliases, hash backfill), universal numeric aliases (6255 entries), manifest chokepoints (bodyAllocateModel, setupLoadModeldef), kill plane, Catalog Settings tab, UI Scaling slider. v0.1.0 critical blockers cleared. | [session-log.md](session-log.md) |
 | S90 | 2026-03-31 | B-51/52/53 fixed (bot configs via SVC_STAGE_START, scenarioInitProps on client); asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25 | [session-log.md](session-log.md) |
 | S87–S88 | 2026-03-30 | Match Startup Pipeline Phases C.5 (SP catalog registration), D (mod transfer), E (ready gate), F (sync countdown) | [session-log.md](session-log.md) |

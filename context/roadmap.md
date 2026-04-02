@@ -1,7 +1,27 @@
 # Modernization Roadmap
 
 ## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS
-Last updated: 2026-04-01
+Last updated: 2026-04-02
+
+## ⚡ PRIMARY WORKSTREAM: Catalog Universality Migration
+
+> **Status**: NOT STARTED — all feature work blocked until Phases A–C complete.
+> **Governing spec**: `PD2_Catalog_Universality_Spec_v1.0.docx`
+> **Why it blocks everything**: April 1, 2026 playtest revealed catalog type=16 failures (bots invisible, crash B-63/B-64), server catalog gap blocking networked play (B-65), and menu input state machine gaps (B-66–B-70). These are foundational — fixing surface bugs on top of a broken catalog just shifts the crash site.
+
+Phases A–G are defined in [tasks-current.md](tasks-current.md). Dependency order:
+
+```
+Phase A (Audit — research only)
+  └── Phase B (API Hardening + Human-Readable IDs)
+        └── Phase C (Systematic Conversion — fixes B-63/B-64)
+              └── Phase D (Server Manifest Model — fixes B-65)
+Phase E (Menu Stack Architecture — fixes B-68/B-69/B-21)  [parallel with C/D]
+Phase F (Spawn + Input Mode Hardening — fixes B-66/B-67/B-71)  [parallel with C/D]
+  └── Phase G (Full Verification Pass)
+```
+
+**Until Phase C is verified clean, do not start new features.** The catalog is the load-bearing wall of the entire asset system.
 
 ## Completed
 

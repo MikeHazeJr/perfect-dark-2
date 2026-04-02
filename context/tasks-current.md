@@ -183,6 +183,23 @@
 
 ---
 
+## Catalog Universality Migration — CRITICAL (Blocks All Other Feature Work)
+
+> **Governing spec**: `PD2_Catalog_Universality_Spec_v1.0.docx` (root of repo)
+> **Root cause**: Playtest (April 1, 2026) confirmed catalog type=16 failures (B-63/B-64), server catalog gap (B-65), and menu input state gaps (B-66–B-69). The catalog still has raw-index call sites that bypass type-safe resolution. This migration makes the catalog universal and hermetic.
+
+| Phase | Task | Priority | Status |
+|-------|------|----------|--------|
+| **Phase A** | **Catalog Universality Audit** — full codebase audit of every raw-index asset reference. `grep` for `catalogResolveByRuntimeIndex`, `g_HeadsAndBodies[]`, `g_Stages[]`, `g_ModBodies/Heads[]`. Map every call site to type+index origin. Document which pass `type=16` and why. **Research only — no code changes.** | CRITICAL | NOT STARTED |
+| **Phase B** | **Catalog API Hardening + Human-Readable IDs** — migrate all catalog IDs from index-based to human-readable (`base:arena_felicity` not `base:arena_28`). Harden error paths: assert on type out-of-range, log full call site on miss, never silently return NULL. Add `catalogResolveBodyForBot()` / `catalogResolveHeadForBot()` typed entry points that guard the type=16 path. | CRITICAL | NOT STARTED |
+| **Phase C** | **Systematic Catalog Conversion** — convert every subsystem to catalog-only resolution: bot allocation, SVC_STAGE_START bot config, weapon spawn, arena selection, stage loading. System by system, tested individually after each. | CRITICAL | NOT STARTED |
+| **Phase D** | **Server Manifest Model** — server receives match manifest from host (catalog IDs, not raw indices). No server-side catalog. Mod distribution with SHA-256 validation. Protocol version bump. Fixes B-65 (SVC_STARTGAME stage gap). | CRITICAL | NOT STARTED |
+| **Phase E** | **Menu Stack Architecture** — push/pop menu stack, input context stack, duplicate rejection on push, theme/tint separation (tint cleared on any menu pop back to root), Esc fix. Fixes B-68/B-69/B-21. | HIGH | NOT STARTED |
+| **Phase F** | **Spawn System Hardening** — randomization verified, navmesh fallback, floor fallback, stuck detection with 1/4 damage relocation for 2 seconds. Fixes B-71, hardens B-19. Also wire `inputSetMode()` on match start and post-mission transition. Fixes B-66/B-67. | HIGH | NOT STARTED |
+| **Phase G** | **Full Verification Pass** — all game modes, clean logs, mod testing, spawn testing, menu transition testing. Success criteria: zero CATALOG-ASSERT warnings, zero type=16 in any log, all MP game modes run to completion with bots, all menu transitions clean (no tint bleed, no duplicate instances). | HIGH | NOT STARTED |
+
+---
+
 ## Active Work Tracks
 
 ---
