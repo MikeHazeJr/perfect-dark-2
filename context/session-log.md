@@ -3,6 +3,48 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S125 -- 2026-04-02
+
+**Focus**: Phase F — Spawn System Hardening (commit 27b1e08)
+
+### What Was Done
+
+**5 files changed, 257 insertions / 46 deletions** — pushed to `dev`.
+
+**F.1 — Anti-repeat spawn tracking** (`src/game/player.c`):
+- Added `static s16 s_LastSpawnPad = -1` before `playerChooseSpawnLocation`.
+- After shortlist is built: if `sllen > 1` and `s_LastSpawnPad` is set, the matching entry is swapped-to-end and removed, preventing the same pad winning back-to-back.
+- `s_LastSpawnPad` recorded on every shortlist pick; fallback path (no shortlist) skipped — anti-repeat only applies when alternatives exist.
+
+**F.5 — Bot stuck detection** (`src/game/bot.c`):
+- `struct botstuckstate` + `static s_BotStuck[MAX_BOTS]` — one snapshot per bot slot.
+- Constants: `STUCK_CHECK_FRAMES=180` (~3s), `STUCK_EPSILON_SQ=100`, `STUCK_RELO_MIN_SQ=90000`, `STUCK_RELO_FRACTION=0.25f`.
+- In `botTick()`, after `botTickUnpaused`: every 180 frames, if bot has pathfinding intent (`MA_AIBOTMAINLOOP/GOTOPOS/GETITEM/GOTOPROP/RUNAWAY/DOWNLOAD`) and has moved < 10 units, find a waypoint ≥300u away via random probe loop (up to 2×numwpts attempts), teleport with `CHRHFLAG_WARPONSCREEN`, apply 25% damage via `chrAddHealth(chr, -(chr->maxdamage * 0.25f))`, set `bs->relocating = 1`.
+
+**F.6 / B-70 — Bot spawn weapon fix** (`port/src/net/matchsetup.c`, `src/game/bot.c`, `src/game/player.c`):
+- `matchConfigInit()`: changed `g_MatchConfig.options = 0` → `g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON`. Root cause: bit never set, so spawn weapon block always skipped.
+- `botSpawn()` and `playerStartNewLife()`: resolve `g_MatchConfig.spawnWeaponNum` first (search g_MpWeapons for matching weaponnum), fall back to `g_MpSetup.weapons[0]` when 0xFF (Random). Bots use `botinvGiveSingleWeapon` / `botinvSwitchToWeapon`.
+
+**B-66 — Mouse capture on match start** (`port/src/net/matchsetup.c`):
+- Added `#include "input.h"` and `inputLockMouse(1)` after `menuStop()` in `matchStart()`.
+- Root cause: `pdguiIsActive()` was true during lobby setup, deferring SDL relative-mouse apply inside `inputLockMouse()`. Explicit call after menus stop forces it.
+
+**F.2 / F.3 / F.4** — Already implemented: `playerReset()` has navmesh-waypoint fallback + pad-scan fallback; `playerChooseSpawnLocation()` has numpads==0 floor fallback. No changes needed.
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean. Only pre-existing uninitialized-var warnings in player.c (unrelated to our changes).
+
+### Decisions Made
+- `s_LastSpawnPad` is static to the compilation unit (not per-player) — good enough for the common 1-local-player case; bot spawns go through different path.
+- Bot stuck check uses `aibot->aibotnum` (s16 slot field) for O(1) lookup — no linear search per tick.
+- `STUCK_RELO_FRACTION=0.25f` matches spec's "25% max-damage penalty".
+
+### Next Steps
+- Playtest Phase F: spawn variety (should not repeat same pad consecutively), bot unstick (observe STUCK: log line if a bot gets cornered), spawn weapons present (check log for MATCHSETUP: weapon set applied lines + in-game weapon in hand).
+- Phase G (Full Verification Pass) is next: zero CATALOG-ASSERT warnings, all game modes run to completion.
+
+---
+
 ## Session S124 -- 2026-04-02
 
 **Focus**: Phase E — Menu Stack Architecture + Input Context (commit 5eab8d3)
