@@ -4138,7 +4138,8 @@ u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
  * stage changed, match starting/ending). Clients update their local
  * lobby display accordingly.
  *
- * Payload: gamemode (u8), stagenum (u8), status (u8)
+ * Payload: gamemode (u8), arena (u32 net_hash via catalogWritePreSessionRef), status (u8)
+ * B-72: arena was raw stagenum u8; now catalog wire format so mod arenas resolve correctly.
  * Status: 0=waiting, 1=starting, 2=in-game
  * ======================================================================== */
 
@@ -4146,7 +4147,9 @@ u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 st
 {
 	netbufWriteU8(dst, SVC_LOBBY_STATE);
 	netbufWriteU8(dst, gamemode);
-	netbufWriteU8(dst, stagenum);
+	/* B-72: encode arena as catalog wire format (u32 net_hash) so clients with
+	 * mod arenas resolve by CRC rather than relying on a matching stagenum u8. */
+	catalogWritePreSessionRef(dst, catalogResolveArenaByStagenum((s32)stagenum));
 	netbufWriteU8(dst, status);
 	return dst->error;
 }
@@ -4154,7 +4157,10 @@ u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 st
 u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode = netbufReadU8(src);
-	const u8 stagenum = netbufReadU8(src);
+	/* B-72: read arena net_hash (u32), resolve to ASSET_ARENA entry, extract stagenum.
+	 * Falls back to stagenum=0 if the hash doesn't resolve (unknown arena). */
+	const asset_entry_t *stage_entry = catalogReadPreSessionRef(src);
+	const u8 stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
 	const u8 status   = netbufReadU8(src);
 
 	if (src->error) {

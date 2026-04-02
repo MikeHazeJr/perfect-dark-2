@@ -2192,7 +2192,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
-            if (s_MenuView == 3) {
+            if (s_MenuView == 2) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: settings CLOSE via ESC/B (s_MenuView 2->0)");
+            } else if (s_MenuView == 3) {
                 pdguiModdingHubHide();
                 if (menuGetCurrent() == MENU_MODDING) menuPop();
             } else if (s_MenuView == 4) {
@@ -2245,6 +2247,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Settings */
         if (PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f))) {
             s_MenuView = 2;
+            sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
         }
 
         /* Quit Game -- docked to bottom-right with confirmation */

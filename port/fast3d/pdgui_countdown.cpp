@@ -26,6 +26,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
+#include "system.h"
 
 /* ============================================================================
  * C boundary declarations
@@ -93,15 +94,21 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
         return;
     }
 
-    /* ---- Detect countdown value change → fire audio ---- */
+    /* ---- Detect countdown value change → fire audio + log ---- */
     if (showCountdown) {
         currentSecs = pdguiCountdownGetSecs();
         if (currentSecs != s_PrevCountdownSecs) {
+            /* First activation: s_PrevCountdownSecs was -1 */
+            if (s_PrevCountdownSecs == -1) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown START secs=%d", currentSecs);
+            }
             s_PrevCountdownSecs = currentSecs;
             if (currentSecs > 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown TICK secs=%d", currentSecs);
                 /* Tick / beep for 3, 2, 1 */
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             } else {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown GO");
                 /* Distinct chime for GO */
                 pdguiPlaySound(PDGUI_SND_SUCCESS);
             }
@@ -112,6 +119,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
     if (showCountdown) {
         if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+            sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player (ESC/B)");
             netLobbyRequestCancel();
         }
     }
