@@ -3,6 +3,29 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S118 -- 2026-04-01
+
+**Focus**: Post-manifest playtest fixes — dead numeric alias IDs, bare langGet(), Paradox arena removal
+
+### What Was Done
+
+**Commit bcc8daf** — 5 files, 43 insertions / 23 deletions:
+
+- **Root cause (non-canonical IDs)**: Phase 0 removed all numeric alias catalog entries (`body_0`, `head_0`, `stage_0x%02x`, `weapon_%d`). Three fallback paths in `netmanifest.c` + `netmsg.c` still emitted these dead IDs when the catalog lookup failed, causing manifest entry lookup failures downstream.
+  - `netmanifest.c` stage fallback (manifestBuild + manifestBuildMission): replaced `snprintf("stage_0x%02x")` + `manifestAddEntry` with LOG_WARNING + skip.
+  - `netmanifest.c` weapon fallback: replaced `snprintf("weapon_%d")` + `manifestAddEntry` with LOG_WARNING + skip.
+  - `netmanifest.c` Joanna body/head fallback: replaced `"body_0"`/`"head_0"` literals with canonical `"base:dark_combat"` / `"base:head_dark_combat"` lookups + LOG_WARNING if those also fail.
+  - `netmsg.c` SVC_STARTGAME stage fallback: replaced `snprintf("stage_0x%02x")` with LOG_WARNING + `catalogWriteAssetRef(0)` (lobby signal).
+- **langSafe gaps**: `arenaGetName()` (`pdgui_menu_matchsetup.cpp:334`) returned raw `langGet()` which can be NULL — now returns `"???"` on NULL. `pdguiPauseGetStageName()` (`pdgui_bridge.c:406`) same fix.
+- **Paradox arena**: `assetcatalog_base.c` registration loop now skips `stagenum == 0x5e` (STAGE_EXTRA25, Paradox) — map data was removed from the game. Removed the matching entry from `pdgui_menu_matchsetup.cpp`'s `arenaNameOverrides` table.
+- Build: 530/531 clean (both EXEs + server). Pushed to `dev`.
+
+### Next Steps
+- Playtest: verify no blank arena names in matchsetup dropdown, no Paradox entry, Joanna spawns correctly in SP.
+- Remaining hotswap crash (OFF transition via screenmfst tick) and pause menu third-option (OG menu langGet) still need investigation if playtest reveals them.
+
+---
+
 ## Session S117 -- 2026-04-01
 
 **Focus**: Build fix — langSafe linker error post-manifest sprint
