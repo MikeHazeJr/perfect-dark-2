@@ -551,6 +551,11 @@ s32 assetCatalogRegisterBaseGame(void)
 				continue;
 			}
 
+			/* Paradox (STAGE_EXTRA25 = 0x5e): map data removed from game, skip */
+			if (g_MpArenas[idx].stagenum == 0x5e) {
+				continue;
+			}
+
 			snprintf(idbuf, sizeof(idbuf), "base:arena_%d", idx);
 
 			asset_entry_t *e = assetCatalogRegisterArena(

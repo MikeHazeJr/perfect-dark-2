@@ -387,11 +387,9 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
-            /* Fallback: stage not in catalog (unregistered mod stage) */
-            char id[64];
-            snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)g_MpSetup.stagenum);
-            manifestAddEntry(out, s_fnv1a(id), id,
-                             MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+            /* Stage not in catalog — skip rather than emit a dead synthetic ID */
+            sysLogPrintf(LOG_WARNING, "manifest: stage 0x%02x not in catalog, skipping",
+                         (unsigned)g_MpSetup.stagenum);
         }
     }
 
@@ -409,11 +407,9 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             manifestAddEntry(out, e->net_hash, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         } else {
-            /* Fallback: weapon not in catalog (unknown weapon id) */
-            char id[64];
-            snprintf(id, sizeof(id), "weapon_%d", (int)wnum);
-            manifestAddEntry(out, s_fnv1a(id), id,
-                             MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+            /* Weapon not in catalog — skip rather than emit a dead synthetic ID */
+            sysLogPrintf(LOG_WARNING, "manifest: weapon %d not in catalog, skipping",
+                         (int)wnum);
         }
     }
 
@@ -566,10 +562,9 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
             manifestAddEntry(out, stage_result.net_hash, stage_result.entry->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
-            /* Fallback: stage not in catalog (pre-scan or unregistered mod stage) */
-            snprintf(id, sizeof(id), "stage_0x%02x", (unsigned)stagenum);
-            manifestAddEntry(out, s_fnv1a(id), id,
-                             MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
+            /* Stage not in catalog — skip rather than emit a dead synthetic ID */
+            sysLogPrintf(LOG_WARNING, "manifestBuildMission: stage 0x%02x not in catalog, skipping",
+                         (unsigned)stagenum);
         }
     }
 
@@ -584,14 +579,30 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
         s_manifestExpandDeps(out, be->id, 0);
     } else {
-        manifestAddEntry(out, s_fnv1a("body_0"), "body_0", MANIFEST_TYPE_BODY, 0);
+        /* Canonical fallback for Joanna Dark body (runtime_index 0).
+         * "body_0" no longer exists — Phase 0 removed numeric aliases. */
+        const asset_entry_t *jb = assetCatalogResolve("base:dark_combat");
+        if (jb) {
+            manifestAddEntry(out, jb->net_hash, jb->id, MANIFEST_TYPE_BODY, 0);
+            s_manifestExpandDeps(out, jb->id, 0);
+        } else {
+            sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna body (base:dark_combat) not in catalog");
+        }
     }
 
     if (he) {
         manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
         s_manifestExpandDeps(out, he->id, 0);
     } else {
-        manifestAddEntry(out, s_fnv1a("head_0"), "head_0", MANIFEST_TYPE_HEAD, 0);
+        /* Canonical fallback for Joanna Dark head (runtime_index 0).
+         * "head_0" no longer exists — Phase 0 removed numeric aliases. */
+        const asset_entry_t *jh = assetCatalogResolve("base:head_dark_combat");
+        if (jh) {
+            manifestAddEntry(out, jh->net_hash, jh->id, MANIFEST_TYPE_HEAD, 0);
+            s_manifestExpandDeps(out, jh->id, 0);
+        } else {
+            sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna head (base:head_dark_combat) not in catalog");
+        }
     }
 
     /* ---- Stage characters and prop models from setup spawn list ----

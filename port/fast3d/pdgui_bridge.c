@@ -403,7 +403,8 @@ const char *pdguiPauseGetStageName(u8 stagenum)
     for (s32 i = 0; i < count; i++) {
         struct mparena *arena = modmgrGetArena(i);
         if (arena && arena->stagenum == stagenum) {
-            return langGet(arena->name);
+            const char *s = langGet(arena->name);
+            return s ? s : "???";
         }
     }
 

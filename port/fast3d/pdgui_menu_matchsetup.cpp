@@ -313,7 +313,7 @@ static const struct arenaNameOverride s_ArenaNameOverrides[] = {
     { 0x514d, "Mall" },                  /* L_MPMENU_333 */
     { 0x514e, "Tunnels" },               /* L_MPMENU_334 */
     { 0x514f, "Rogue" },                 /* L_MPMENU_335 */
-    { 0x5150, "Paradox" },               /* L_MPMENU_336 */
+    /* Paradox (0x5150 / L_MPMENU_336) omitted — map data removed */
     { 0x5151, "War Colors" },            /* L_MPMENU_337 */
     { 0x5152, "Grand Library" },         /* L_MPMENU_338 */
 };
@@ -331,7 +331,10 @@ const char *arenaGetName(u16 textId)
         }
     }
     /* Fall back to the language system for base-game strings */
-    return langGet(textId);
+    {
+        const char *s = langGet(textId);
+        return s ? s : "???";
+    }
 }
 
 /* ========================================================================

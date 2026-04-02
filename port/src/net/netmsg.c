@@ -691,10 +691,10 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	{
 		const char *stage_canon = catalogResolveStageByStagenum((s32)effectiveStage);
 		if (!stage_canon) {
-			/* Fallback for unregistered stages: use synthetic ID */
-			char stage_id[64];
-			snprintf(stage_id, sizeof(stage_id), "stage_0x%02x", (unsigned)effectiveStage);
-			catalogWriteAssetRef(dst, sessionCatalogGetId(stage_id));
+			/* Stage not in catalog — write 0 (lobby) rather than a dead synthetic ID */
+			sysLogPrintf(LOG_WARNING, "SVC_STARTGAME: stage 0x%02x not in catalog",
+			             (unsigned)effectiveStage);
+			catalogWriteAssetRef(dst, 0);
 		} else {
 			catalogWriteAssetRef(dst, sessionCatalogGetId(stage_canon));
 		}
