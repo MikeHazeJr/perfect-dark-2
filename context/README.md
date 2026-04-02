@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-02, Session S119 (Playtest analysis: catalog type=16 failure root cause, server catalog gap, menu input state gaps. B-63–B-71 added. Catalog Universality Spec v1.0 produced. Phases A–G defined. All feature work blocked on Phase A–C.)
+> **Last updated**: 2026-04-02, Session S119+ (Playtest analysis: catalog type=16 failure root cause, server catalog gap, menu input state gaps. B-63–B-71 added. Catalog Universality Spec v1.0 produced. Phases A–G defined. All feature work blocked on Phase A–C. Architectural mandates: no net_hash, catalog ID strings everywhere, ImGui sole menu system, mouse capture via menu stack, unlock-filter separation from catalog.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -111,7 +111,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol **v25**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). v25: SVC_STAGE_START bot config block with catalog hashes (S90). B-12 Phase 3 will be the next bump when chrslots removed.
+- **Net**: Protocol **v25**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). v25: SVC_STAGE_START bot config block with catalog hashes (S90). **v26 (next)**: replaces all net_hash u32 wire fields with full catalog ID strings AND removes chrslots (B-12 Phase 3). **net_hash is deprecated — do not use.**
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.
