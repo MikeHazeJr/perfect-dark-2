@@ -98,4 +98,14 @@ s32 scenarioLoad(const char *filepath, s32 humanCount);
  */
 s32 scenarioListFiles(char (*outPaths)[SCENARIO_PATH_MAX], s32 maxCount);
 
+/**
+ * scenarioDelete -- Delete the scenario file at the given full path.
+ *
+ * filepath must be an absolute path to a .json file inside $S/scenarios/.
+ * The path is validated to be within the scenarios directory before deletion.
+ *
+ * Returns 0 on success, -1 on error (file not found, not in scenarios dir, etc.).
+ */
+s32 scenarioDelete(const char *filepath);
+
 #endif /* SCENARIO_SAVE_H */

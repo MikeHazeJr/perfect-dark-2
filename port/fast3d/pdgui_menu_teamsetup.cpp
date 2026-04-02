@@ -55,6 +55,8 @@ struct matchslot {
     u8 botType;
     u8 botDifficulty;
     char name[MAX_PLAYER_NAME];
+    char body_id[64];
+    char head_id[64];
 };
 
 struct matchconfig {

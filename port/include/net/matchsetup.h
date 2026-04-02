@@ -39,11 +39,16 @@
 struct matchslot {
 	u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
 	u8 team;          /* team number (0-7) */
-	u8 headnum;       /* character head */
-	u8 bodynum;       /* character body */
+	u8 headnum;       /* mpheadnum (g_MpHeads[] index) — authoritative for runtime */
+	u8 bodynum;       /* mpbodynum (g_MpBodies[] index) — authoritative for runtime */
 	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
 	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
 	char name[MAX_PLAYER_NAME];  /* display name */
+	/* Catalog ID strings — the authoritative identity; headnum/bodynum are derived
+	 * from these at matchStart() time.  Set by matchConfigInit/matchConfigAddBot.
+	 * Empty string means "use headnum/bodynum directly". */
+	char body_id[64]; /* e.g. "base:theking", "base:dark_combat" */
+	char head_id[64]; /* e.g. "base:head_dark_combat" */
 };
 
 struct matchconfig {

@@ -224,71 +224,34 @@ s32 matchStart(void)
 		struct matchslot *ms = &g_MatchConfig.slots[i];
 
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
-			/* Configure player — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << playerSlot);
 			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
-			/* catalogGetSafeBodyPaired / catalogGetSafeHead return g_HeadsAndBodies[]
-			 * indices (bodynum domain, 0..151).  Must convert to g_MpBodies[]/g_MpHeads[]
-			 * indices (mpbodynum/mpheadnum domain) via the reverse-lookup helpers.
-			 * Falls back to MPBODY_DARK_COMBAT / MPHEAD_DARK_COMBAT when the body/head is
-			 * SP-only (not in the MP selection arrays). */
-			s32 safeHead = (s32)ms->headnum;
-			s32 safeBodyNum = catalogGetSafeBodyPaired((s32)ms->bodynum, &safeHead);
-			s32 safeHeadNum = catalogGetSafeHead(safeHead);
-			s32 mpbody = catalogBodynumToMpBodyIdx(safeBodyNum);
-			s32 mphead = catalogHeadnumToMpHeadIdx(safeHeadNum);
-			if (mpbody < 0) {
-				sysLogPrintf(LOG_WARNING,
-				    "MATCHSETUP: player slot %d: bodynum=%d not in g_MpBodies[], using MPBODY_DARK_COMBAT",
-				    playerSlot, safeBodyNum);
-				mpbody = MPBODY_DARK_COMBAT;
-			}
-			if (mphead < 0) {
-				sysLogPrintf(LOG_WARNING,
-				    "MATCHSETUP: player slot %d: headnum=%d not in g_MpHeads[], using MPHEAD_DARK_COMBAT",
-				    playerSlot, safeHeadNum);
-				mphead = MPHEAD_DARK_COMBAT;
-			}
-			cfg->mpbodynum = (u8)mpbody;
-			cfg->mpheadnum = (u8)mphead;
+
+			/* ms->bodynum / ms->headnum are already in mpbodynum / mpheadnum domain.
+			 * Use them directly — no domain conversion needed. */
+			cfg->mpbodynum = ms->bodynum;
+			cfg->mpheadnum = ms->headnum;
 			cfg->team = ms->team;
 
-			/* Name: keep the first 14 chars + newline as PD expects */
 			strncpy(cfg->name, ms->name, 14);
 			cfg->name[14] = '\0';
 
-			sysLogPrintf(LOG_NOTE, "MATCHSETUP: player slot %d: %s bodynum=%d→mpbody=%d headnum=%d→mphead=%d team=%d",
-			             playerSlot, cfg->name, ms->bodynum, cfg->mpbodynum,
-			             ms->headnum, cfg->mpheadnum, ms->team);
+			sysLogPrintf(LOG_NOTE,
+			    "MATCHSETUP: player slot %d: %s mpbody=%d mphead=%d team=%d",
+			    playerSlot, cfg->name, cfg->mpbodynum, cfg->mpheadnum, ms->team);
 			playerSlot++;
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
-			/* Configure bot — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
 			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
-			s32 botSafeHead = (s32)ms->headnum;
-			s32 botSafeBodyNum = catalogGetSafeBodyPaired((s32)ms->bodynum, &botSafeHead);
-			s32 botSafeHeadNum = catalogGetSafeHead(botSafeHead);
-			s32 botMpBody = catalogBodynumToMpBodyIdx(botSafeBodyNum);
-			s32 botMpHead = catalogHeadnumToMpHeadIdx(botSafeHeadNum);
-			if (botMpBody < 0) {
-				sysLogPrintf(LOG_WARNING,
-				    "MATCHSETUP: bot slot %d: bodynum=%d not in g_MpBodies[], using MPBODY_DARK_COMBAT",
-				    botSlot, botSafeBodyNum);
-				botMpBody = MPBODY_DARK_COMBAT;
-			}
-			if (botMpHead < 0) {
-				sysLogPrintf(LOG_WARNING,
-				    "MATCHSETUP: bot slot %d: headnum=%d not in g_MpHeads[], using MPHEAD_DARK_COMBAT",
-				    botSlot, botSafeHeadNum);
-				botMpHead = MPHEAD_DARK_COMBAT;
-			}
-			bot->base.mpbodynum = (u8)botMpBody;
-			bot->base.mpheadnum = (u8)botMpHead;
+
+			/* ms->bodynum / ms->headnum are already in mpbodynum / mpheadnum domain. */
+			bot->base.mpbodynum = ms->bodynum;
+			bot->base.mpheadnum = ms->headnum;
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;
@@ -296,10 +259,10 @@ s32 matchStart(void)
 			strncpy(bot->base.name, ms->name, 14);
 			bot->base.name[14] = '\0';
 
-			sysLogPrintf(LOG_NOTE, "MATCHSETUP: bot slot %d: %s type=%d diff=%d bodynum=%d->mpbody=%d headnum=%d->mphead=%d team=%d",
-			             botSlot, bot->base.name, ms->botType, ms->botDifficulty,
-			             ms->bodynum, bot->base.mpbodynum,
-			             ms->headnum, bot->base.mpheadnum, ms->team);
+			sysLogPrintf(LOG_NOTE,
+			    "MATCHSETUP: bot slot %d: %s type=%d diff=%d mpbody=%d mphead=%d",
+			    botSlot, bot->base.name, ms->botType, ms->botDifficulty,
+			    bot->base.mpbodynum, bot->base.mpheadnum);
 			botSlot++;
 		}
 	}

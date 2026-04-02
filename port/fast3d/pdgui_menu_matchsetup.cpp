@@ -80,11 +80,13 @@ const char *langSafe(s32 textid);
 struct matchslot {
     u8 type;
     u8 team;
-    u8 headnum;
-    u8 bodynum;
+    u8 headnum;       /* mpheadnum (g_MpHeads[] index) */
+    u8 bodynum;       /* mpbodynum (g_MpBodies[] index) */
     u8 botType;
     u8 botDifficulty;
     char name[MAX_PLAYER_NAME];
+    char body_id[64]; /* catalog ID e.g. "base:theking" */
+    char head_id[64]; /* catalog ID e.g. "base:head_dark_combat" */
 };
 
 struct matchconfig {
