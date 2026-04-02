@@ -3,6 +3,62 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md)
 > Back to [index](README.md)
 
+## Session S123 -- 2026-04-02
+
+**Focus**: Phase D — Server Manifest Model (commit e517633)
+
+### What Was Done
+
+**8 files changed, 426 insertions / 55 deletions** — pushed to `dev`.
+
+**D.1 — `match_manifest_entry_t` gains `u8 sha256[32]`** (`netmanifest.h`):
+- New field carries SHA-256 for MANIFEST_TYPE_COMPONENT entries; zeroed for all other types.
+- Wire format only includes sha256 bytes when type == MANIFEST_TYPE_COMPONENT.
+
+**D.2 — `manifestBuildForHost()`** (`netmanifest.c`):
+- Client-callable; builds manifest from `g_MpSetup` (stage/weapons), `g_NetLocalClient->settings` (host body/head at slot 0), `g_MatchConfig.slots[]` (bots at slots 1..N), `modmgrGetMod()` (mods with SHA-256).
+- Called in `netmsgClcLobbyStartWrite()` at the end of CLC_LOBBY_START serialization.
+
+**D.3 — Host manifest embedded in CLC_LOBBY_START** (`netmsg.c`):
+- Server reads manifest via `manifestDeserialize`; supplements with other players' body/head from `g_NetClients[].settings`.
+- D.5: validates MANIFEST_TYPE_STAGE entry against arena-hash stagenum; logs warning on mismatch, uses arena hash for safety.
+- Falls back to server-side `manifestBuild()` if deserialization fails.
+
+**D.4 — SVC_MATCH_MANIFEST uses serialize helpers** (`netmsg.c`):
+- `netmsgSvcMatchManifestWrite/Read` replaced inline loops with `manifestSerialize`/`manifestDeserialize`.
+
+**D.6 — SHA-256 in `modinfo_t`** (`modmgr.h`, `modmgr.c`):
+- `u8 sha256[SHA256_DIGEST_SIZE]` added to `modinfo_t`.
+- Computed from mod.json file content at scan time; falls back to hash of "id:version" string.
+- `manifestCheck()` validates SHA-256 for MANIFEST_TYPE_COMPONENT entries via `modmgrFindMod()`.
+- `server_stubs.c`: added `modmgrFindMod` stub so dedicated server links clean.
+
+**D.7 — Protocol version bump**: `NET_PROTOCOL_VER` → 26 (breaking; old clients cannot connect).
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean.
+
+### Decisions Made
+- Server supplements host-sent manifest with other players' settings rather than building from scratch — server stays catalog-free.
+- SHA-256 only transmitted on wire for COMPONENT entries; all other types zero the field (saves ~32 bytes × N entries per message).
+- Fallback to server-side `manifestBuild()` preserved as safety net for malformed/legacy connections.
+
+### Next Steps
+- Playtest needed: real MP match to verify CLC_LOBBY_START host manifest embedding/deserialization flows end-to-end.
+- Phase E (Menu Stack Architecture) is next.
+
+---
+
+## Session S122 -- 2026-04-02
+
+**Focus**: Phase C — Systematic Catalog Conversion (commit ee0810c)
+
+### What Was Done
+
+FIX-1 through FIX-23 across all subsystems: bot allocation, SVC_STAGE_START bot config, weapon spawn, arena selection, stage loading. All raw N64 index references in the server path replaced with catalog ID resolution via new Phase B API. Both targets build clean.
+
+---
+
 ## Session S121 -- 2026-04-02
 
 **Focus**: Phase B — Catalog API Hardening + Arena Human-Readable IDs (commit b13a6b5)
