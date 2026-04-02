@@ -2162,6 +2162,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_MenuView = 0; /* Always open to main menu */
         s_NeedsFocus = true;
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
     /* Determine title based on current view */
@@ -2193,17 +2194,22 @@ static s32 renderMainMenu(struct menudialog *dialog,
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
-                sysLogPrintf(LOG_NOTE, "MENU_STACK: settings CLOSE via ESC/B (s_MenuView 2->0)");
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)");
             } else if (s_MenuView == 3) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
                 if (menuGetCurrent() == MENU_MODDING) menuPop();
             } else if (s_MenuView == 4) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
                 if (menuGetCurrent() == MENU_JOIN) menuPop();
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         } else {
             /* At top-level: close the menu, return to Carrington Institute */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
         }

@@ -118,6 +118,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu OPEN");
         /* Restore last used address */
         extern char g_NetLastJoinAddr[];
         if (s_JoinAddress[0] == '\0') {
@@ -247,6 +248,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (enterPressed && canConnect) doConnect = true;
 
     if (doConnect) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network menu CONNECT pressed addr=\"%s\"", s_JoinAddress);
         pdguiPlaySound(PDGUI_SND_SELECT);
 
         /* Detect if input is a connect code (contains alpha chars) or raw IP */
@@ -289,6 +291,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (ImGui::Button("Back", ImVec2(btnW, btnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }

@@ -357,6 +357,7 @@ static bool s_ShowLoadScenario  = false;
 static char s_SaveNameBuf[64]   = "";
 static char s_ScenarioFiles[SCENARIO_MAX_LIST][SCENARIO_PATH_MAX];
 static int  s_ScenarioCount     = 0;
+static int  s_ScenarioSelected  = -1;
 static char s_ScenarioStatusMsg[128] = "";
 
 /* ========================================================================
@@ -1360,6 +1361,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     ImGui::SameLine();
     if (ImGui::Button("Load Scenario", ImVec2(halfW, sbtnH))) {
         s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+        s_ScenarioSelected = -1;
         s_ShowLoadScenario = true;
         s_ScenarioStatusMsg[0] = '\0';
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -1583,6 +1585,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)", s_IsSoloMode);
     }
 
     /* Opaque backdrop */
@@ -1782,6 +1785,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE via %s/ESC (solo=%d)",
+                     leaveLabel, s_IsSoloMode);
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
@@ -1904,10 +1909,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         float bw = pdguiScale(100.0f);
         if (ImGui::Button("Save", ImVec2(bw, 0.0f))) {
             if (s_SaveNameBuf[0]) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE \"%s\"", s_SaveNameBuf);
                 if (scenarioSave(s_SaveNameBuf) == 0) {
+                    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE OK \"%s\"", s_SaveNameBuf);
                     snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
                              "Saved: %s", s_SaveNameBuf);
                 } else {
+                    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE FAILED \"%s\"", s_SaveNameBuf);
                     snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
                              "Save failed.");
                 }
@@ -1961,23 +1969,31 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
 
                 ImGui::PushID(i);
-                if (ImGui::Selectable(displayName, false,
+                bool isSel = (i == s_ScenarioSelected);
+                if (ImGui::Selectable(displayName, isSel,
                                       ImGuiSelectableFlags_AllowDoubleClick)) {
-                    /* Single-click or double-click: load and close */
-                    s32 humanCount = lobbyGetPlayerCount();
-                    if (humanCount < 1) humanCount = 1;
-                    if (scenarioLoad(fullPath, humanCount) == 0) {
-                        syncArenaFromConfig();
-                        syncSpawnWeaponFromConfig();
-                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
-                                 "Loaded: %s", displayName);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
-                    } else {
-                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
-                                 "Load failed.");
-                        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_ScenarioSelected = i;
+                    if (ImGui::IsMouseDoubleClicked(0)) {
+                        /* Double-click: load and close */
+                        s32 humanCount = lobbyGetPlayerCount();
+                        if (humanCount < 1) humanCount = 1;
+                        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d",
+                                     displayName, humanCount);
+                        if (scenarioLoad(fullPath, humanCount) == 0) {
+                            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD OK \"%s\"", displayName);
+                            syncArenaFromConfig();
+                            syncSpawnWeaponFromConfig();
+                            snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                     "Loaded: %s", displayName);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        } else {
+                            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD FAILED \"%s\"", displayName);
+                            snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                     "Load failed.");
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        }
+                        ImGui::CloseCurrentPopup();
                     }
-                    ImGui::CloseCurrentPopup();
                 }
                 ImGui::PopID();
             }
@@ -1986,7 +2002,62 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
 
         ImGui::Spacing();
-        if (ImGui::Button("Close", ImVec2(pdguiScale(100.0f), 0.0f))) {
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        float fbw = pdguiScale(100.0f);
+        bool hasSelection = (s_ScenarioSelected >= 0 && s_ScenarioSelected < s_ScenarioCount);
+
+        if (!hasSelection) ImGui::BeginDisabled();
+        if (ImGui::Button("Load", ImVec2(fbw, 0.0f))) {
+            const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
+            const char *slash = strrchr(fullPath, '/');
+            if (!slash) slash = strrchr(fullPath, '\\');
+            const char *fname = slash ? slash + 1 : fullPath;
+            char displayName[SCENARIO_PATH_MAX];
+            strncpy(displayName, fname, sizeof(displayName) - 1);
+            displayName[sizeof(displayName) - 1] = '\0';
+            size_t dlen2 = strlen(displayName);
+            if (dlen2 > 5 && strcmp(displayName + dlen2 - 5, ".json") == 0)
+                displayName[dlen2 - 5] = '\0';
+            s32 humanCount = lobbyGetPlayerCount();
+            if (humanCount < 1) humanCount = 1;
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d", displayName, humanCount);
+            if (scenarioLoad(fullPath, humanCount) == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD OK \"%s\"", displayName);
+                syncArenaFromConfig();
+                syncSpawnWeaponFromConfig();
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Loaded: %s", displayName);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD FAILED \"%s\"", displayName);
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Load failed.");
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (!hasSelection) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        if (!hasSelection) ImGui::BeginDisabled();
+        if (ImGui::Button("Delete", ImVec2(fbw, 0.0f))) {
+            const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario DELETE \"%s\"", fullPath);
+            if (scenarioDelete(fullPath) == 0) {
+                /* Refresh list */
+                s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+                s_ScenarioSelected = -1;
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Deleted.");
+            } else {
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Delete failed.");
+            }
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        if (!hasSelection) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(fbw, 0.0f))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             ImGui::CloseCurrentPopup();
         }

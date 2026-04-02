@@ -1457,6 +1457,7 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         s_NeedsFocus = true;
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup OPEN");
     }
 
     /* Opaque backdrop */
@@ -1519,7 +1520,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (!canStart) ImGui::BeginDisabled();
 
     if (PdButton("Start Match", ImVec2(footerBtnW, footerBtnH))) {
-        sysLogPrintf(LOG_NOTE, "MATCHSETUP: user pressed Start Match");
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup START MATCH pressed (slots=%d stage=0x%02x)",
+                     g_MatchConfig.numSlots, g_MatchConfig.stagenum);
         s_Initialized = false; /* Reset for next time */
         matchStart();
     }
@@ -1532,6 +1534,7 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (PdButton("Back", ImVec2(footerBtnW, footerBtnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_Initialized = false;
         menuPopDialog();

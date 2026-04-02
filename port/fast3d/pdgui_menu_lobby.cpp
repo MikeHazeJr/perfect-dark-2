@@ -133,6 +133,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby OPEN");
     }
 
     /* Opaque backdrop */
@@ -373,6 +374,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     if (ImGui::Button("Disconnect", ImVec2(discBtnW, 26.0f * scale)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby CLOSE/DISCONNECT via button/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         netDisconnect();
     }

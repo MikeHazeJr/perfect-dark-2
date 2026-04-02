@@ -544,6 +544,22 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     return 0;
 }
 
+s32 scenarioDelete(const char *filepath)
+{
+    if (!filepath || !filepath[0]) {
+        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete called with empty path");
+        return -1;
+    }
+
+    if (remove(filepath) != 0) {
+        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete failed for '%s'", filepath);
+        return -1;
+    }
+
+    sysLogPrintf(LOG_NOTE, "SCENARIO: deleted '%s'", filepath);
+    return 0;
+}
+
 s32 scenarioListFiles(char (*outPaths)[SCENARIO_PATH_MAX], s32 maxCount)
 {
     if (!outPaths || maxCount <= 0) return 0;
