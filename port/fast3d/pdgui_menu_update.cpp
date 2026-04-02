@@ -282,8 +282,9 @@ static void renderRestartPrompt(void)
  * Render the version picker content (header, table, buttons).
  * Shared between the floating dialog and the inline Settings tab.
  * tableH: height for the version list table (use 0 for auto-fill).
+ * changelogH: height for the changelog child (use 0 for default).
  */
-static void renderVersionPickerContent(float tableH)
+static void renderVersionPickerContent(float tableH, float changelogH)
 {
 	/* Header: current version + channel */
 	const pdversion_t *cur = updaterGetCurrentVersion();
@@ -529,7 +530,8 @@ static void renderVersionPickerContent(float tableH)
 			if (sel && sel->body[0]) {
 				ImGui::Spacing();
 				ImGui::Text("Changelog:");
-				ImGui::BeginChild("changelog", ImVec2(0, pdguiScale(80.0f)), true);
+				ImGui::BeginChild("changelog",
+					ImVec2(0, changelogH > 0 ? changelogH : pdguiScale(80.0f)), true);
 				ImGui::TextWrapped("%s", sel->body);
 				ImGui::EndChild();
 			}
@@ -559,7 +561,7 @@ static void renderVersionPicker(void)
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
-		renderVersionPickerContent(pdguiScale(280.0f));
+		renderVersionPickerContent(pdguiScale(280.0f), pdguiScale(80.0f));
 	}
 	ImGui::End();
 
@@ -676,8 +678,12 @@ void pdguiUpdateShowPicker(void)
  */
 void pdguiUpdateRenderSettingsTab(void)
 {
-	/* Auto-trigger a version check the first time the tab is viewed */
+	ImVec2 avail;
+	float tableH;
+	float changelogH;
 	static bool s_TabCheckTriggered = false;
+
+	/* Auto-trigger a version check the first time the tab is viewed */
 	if (!s_TabCheckTriggered) {
 		updater_status_t status = updaterGetStatus();
 		if (status == UPDATER_IDLE || status == UPDATER_CHECK_FAILED) {
@@ -686,8 +692,13 @@ void pdguiUpdateRenderSettingsTab(void)
 		s_TabCheckTriggered = true;
 	}
 
-	/* Use 0 for table height — let it fill available space */
-	renderVersionPickerContent(0);
+	/* Split available vertical space proportionally:
+	 * 65% version list, 30% changelog, ~5% for header label + spacing */
+	avail      = ImGui::GetContentRegionAvail();
+	tableH     = avail.y * 0.65f;
+	changelogH = avail.y * 0.30f;
+
+	renderVersionPickerContent(tableH, changelogH);
 }
 
 /**

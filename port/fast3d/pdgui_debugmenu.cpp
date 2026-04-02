@@ -85,6 +85,9 @@ extern void *g_NetLocalClient; /* actually struct netclient* */
 
 extern s32 g_StageNum;
 extern s32 g_OsMemSizeMb;
+extern s32 g_JumpLoggingEnabled;
+
+s32 configSave(const char *fname);
 
 /* Function declarations */
 s32 netStartServer(u16 port, s32 maxclients);
@@ -102,6 +105,8 @@ u32 mempPCGetTotalAllocated(void);
 u32 mempPCGetNumAllocations(void);
 
 } /* extern "C" */
+
+#define PDGUI_CONFIG_PATH "$S/pd.ini"
 
 /* -----------------------------------------------------------------------
  * Safe accessors for netclient data.
@@ -436,6 +441,30 @@ static void pdguiDebugPerfSection(void)
 }
 
 /* -----------------------------------------------------------------------
+ * Debug flags section -- runtime toggles persisted to pd.ini
+ * ----------------------------------------------------------------------- */
+
+static void pdguiDebugFlagsSection(void)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::Text("DEBUG FLAGS");
+    ImGui::PopStyleColor();
+
+    ImGui::Separator();
+
+    bool jumpLog = g_JumpLoggingEnabled != 0;
+    if (ImGui::Checkbox("Jump/Move Logging", &jumpLog)) {
+        g_JumpLoggingEnabled = jumpLog ? 1 : 0;
+        configSave(PDGUI_CONFIG_PATH);
+        sysLogPrintf(LOG_NOTE, "DEBUG_MENU: JumpLogging -> %d", g_JumpLoggingEnabled);
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+    ImGui::TextWrapped("Gates JUMP_DEBUG/JUMP_MOVE log spam in bwalkUpdateVertical");
+    ImGui::PopStyleColor();
+}
+
+/* -----------------------------------------------------------------------
  * Main debug menu render entry point
  * ----------------------------------------------------------------------- */
 
@@ -487,6 +516,9 @@ extern "C" void pdguiDebugMenuRender(s32 winW, s32 winH)
         ImGui::Spacing();
         ImGui::Spacing();
         pdguiDebugLogSection();
+        ImGui::Spacing();
+        ImGui::Spacing();
+        pdguiDebugFlagsSection();
     }
     ImGui::End();
 

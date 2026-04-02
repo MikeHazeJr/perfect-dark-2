@@ -32,6 +32,8 @@
 #include "system.h"
 #include "utils.h"
 
+extern s32 g_JumpLoggingEnabled;
+
 static inline void lerpcoord(struct coord *c, const struct coord *a, const struct coord *b, const f32 t) {
 	c->x = lerpf(a->x, b->x, t);
 	c->y = lerpf(a->y, b->y, t);
@@ -870,9 +872,12 @@ void bwalkUpdateVertical(void)
 	f32 fallspeed;
 	f32 eyeheight;
 	f32 multiplier;
+	s32 jumplog;
 #if VERSION >= VERSION_NTSC_1_0
 	struct defaultobj *obj;
 #endif
+
+	jumplog = g_JumpLoggingEnabled;
 
 	playerGetBbox(g_Vars.currentplayer->prop, &radius, &ymax, &ymin);
 
@@ -1344,11 +1349,11 @@ void bwalkUpdateVertical(void)
 		}
 
 		s32 moveresult = bwalkTryMoveUpwards(verticalDelta);
-		sysLogPrintf(LOG_NOTE, "JUMP_MOVE: tryMove=%.2f result=%d (1=nocol)",
+		if (jumplog) sysLogPrintf(LOG_NOTE, "JUMP_MOVE: tryMove=%.2f result=%d (1=nocol)",
 			verticalDelta, moveresult);
 
 		if (moveresult == CDRESULT_NOCOLLISION) {
-			sysLogPrintf(LOG_NOTE,
+			if (jumplog) sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: NOCOLLISION branch "
 				"newManground=%.1f newVelY=%.2f isfalling=%d",
 				newmanground, fallspeed,
@@ -1458,7 +1463,7 @@ void bwalkUpdateVertical(void)
 			g_Vars.currentplayer->bdeltapos.y = VERSION >= VERSION_NTSC_1_0 ? 0.0f : 0;
 
 			if (g_Vars.currentplayer->isfalling) {
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: isfalling cleared (COLLIDED branch) "
 					"manground=%.1f ground=%.1f",
 					g_Vars.currentplayer->vv_manground,
@@ -1485,7 +1490,7 @@ void bwalkUpdateVertical(void)
 	if (g_Vars.currentplayer->bdeltapos.y < 0 &&
 			g_Vars.currentplayer->vv_manground <= g_Vars.currentplayer->vv_ground) {
 		// Landing after a fall
-		sysLogPrintf(LOG_NOTE,
+		if (jumplog) sysLogPrintf(LOG_NOTE,
 			"JUMP_DEBUG: bwalkUpdateVertical: landing block entered "
 			"bdeltaY=%.2f manground=%.1f ground=%.1f floortype=%d floorflags=0x%x",
 			g_Vars.currentplayer->bdeltapos.y,
@@ -1516,51 +1521,51 @@ void bwalkUpdateVertical(void)
 			chr->floortype = g_Vars.currentplayer->floortype;
 			chr->footstep = 1;
 
-			sysLogPrintf(LOG_NOTE,
+			if (jumplog) sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: landing sound block "
 				"bdeltaY=%.2f floortype=%d chr=%p",
 				g_Vars.currentplayer->bdeltapos.y,
 				(s32)g_Vars.currentplayer->floortype,
 				(void *)chr);
 
-			sysLogPrintf(LOG_NOTE,
+			if (jumplog) sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (1st) footstep=%d",
 				(s32)chr->footstep);
 			sound = footstepChooseSound(chr, 0);
-			sysLogPrintf(LOG_NOTE,
+			if (jumplog) sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (1st) returned sound=%d",
 				sound);
 
 			if (sound > 0) {
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 sound=%d",
 					sound);
 				psCreate(NULL, chr->prop, sound,
 						-1, -1, PSFLAG_0400, 0, PSTYPE_FOOTSTEP, NULL, -1, NULL, -1, -1, -1, -1);
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep1 done");
 
 				chr->footstep = 2;
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (2nd) footstep=%d",
 					(s32)chr->footstep);
 				sound = footstepChooseSound(chr, 0);
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: footstepChooseSound (2nd) returned sound=%d",
 					sound);
 
 				if (sound > 0) {
-					sysLogPrintf(LOG_NOTE,
+					if (jumplog) sysLogPrintf(LOG_NOTE,
 						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep2 sound=%d",
 						sound);
 					psCreate(NULL, chr->prop, sound,
 							-1, -1, PSFLAG_0400, 0, PSTYPE_FOOTSTEP, NULL, -1, NULL, -1, -1, -1, -1);
-					sysLogPrintf(LOG_NOTE,
+					if (jumplog) sysLogPrintf(LOG_NOTE,
 						"JUMP_DEBUG: bwalkUpdateVertical: psCreate footstep2 done");
 				}
 			}
 
-			sysLogPrintf(LOG_NOTE,
+			if (jumplog) sysLogPrintf(LOG_NOTE,
 				"JUMP_DEBUG: bwalkUpdateVertical: landing grunt check "
 				"mplayerisrunning=%d headnum=%d fallframes=%d",
 				(s32)g_Vars.mplayerisrunning,
@@ -1576,16 +1581,16 @@ void bwalkUpdateVertical(void)
 					SFX_JO_LANDING_05B7
 				};
 
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: psCreate landing grunt");
 				psCreate(NULL, g_Vars.currentplayer->prop, sounds[rngRandom() % 3],
 						-1, -1, PSFLAG_0400 | PSFLAG_IGNOREROOMS, 0, PSTYPE_NONE, 0, -1, NULL, -1, -1, -1, -1);
-				sysLogPrintf(LOG_NOTE,
+				if (jumplog) sysLogPrintf(LOG_NOTE,
 					"JUMP_DEBUG: bwalkUpdateVertical: psCreate landing grunt done");
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE,
+		if (jumplog) sysLogPrintf(LOG_NOTE,
 			"JUMP_DEBUG: bwalkUpdateVertical: landing block complete, bdeltaY zeroed");
 		g_Vars.currentplayer->bdeltapos.y = 0;
 	}
@@ -1593,7 +1598,7 @@ void bwalkUpdateVertical(void)
 	// Decrease crouchtime240 for this tick.
 	// If reached 0 and crouchfall is negative, start increasing
 	// crouchfall over the next several ticks until it reaches 0.
-	sysLogPrintf(LOG_NOTE,
+	if (jumplog) sysLogPrintf(LOG_NOTE,
 		"JUMP_DEBUG: bwalkUpdateVertical: pre-crouchloop "
 		"lvupdate240=%d crouchtime240=%d crouchfall=%.1f",
 		(s32)g_Vars.lvupdate240,
@@ -1647,7 +1652,7 @@ void bwalkUpdateVertical(void)
 	if (newpos.x != g_Vars.currentplayer->prop->pos.x
 			|| newpos.y != g_Vars.currentplayer->prop->pos.y
 			|| newpos.z != g_Vars.currentplayer->prop->pos.z) {
-		sysLogPrintf(LOG_NOTE,
+		if (jumplog) sysLogPrintf(LOG_NOTE,
 			"JUMP_DEBUG: bwalkUpdateVertical: func0f065e74 entry "
 			"pos=(%.1f,%.1f,%.1f) newpos=(%.1f,%.1f,%.1f)",
 			g_Vars.currentplayer->prop->pos.x,
@@ -1655,7 +1660,7 @@ void bwalkUpdateVertical(void)
 			g_Vars.currentplayer->prop->pos.z,
 			newpos.x, newpos.y, newpos.z);
 		func0f065e74(&g_Vars.currentplayer->prop->pos, g_Vars.currentplayer->prop->rooms, &newpos, newrooms);
-		sysLogPrintf(LOG_NOTE,
+		if (jumplog) sysLogPrintf(LOG_NOTE,
 			"JUMP_DEBUG: bwalkUpdateVertical: func0f065e74 done, updating pos+rooms");
 
 		g_Vars.currentplayer->prop->pos.x = newpos.x;
@@ -1665,7 +1670,7 @@ void bwalkUpdateVertical(void)
 		propDeregisterRooms(g_Vars.currentplayer->prop);
 		roomsCopy(newrooms, g_Vars.currentplayer->prop->rooms);
 	}
-	sysLogPrintf(LOG_NOTE,
+	if (jumplog) sysLogPrintf(LOG_NOTE,
 		"JUMP_DEBUG: bwalkUpdateVertical: function complete "
 		"manground=%.1f ground=%.1f bdeltaY=%.2f isfalling=%d",
 		g_Vars.currentplayer->vv_manground,
