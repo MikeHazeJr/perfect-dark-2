@@ -628,8 +628,9 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u8 id = netbufReadU8(src);
 	const u8 maxclients = netbufReadU8(src);
 	g_NetTick = netbufReadU32(src);
-	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || maxclients == 0) {
-		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server");
+	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || id >= NET_MAX_CLIENTS
+			|| maxclients == 0 || maxclients > NET_MAX_CLIENTS) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server (id=%u maxclients=%u)", id, maxclients);
 		return 1;
 	}
 

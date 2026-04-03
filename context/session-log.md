@@ -79,8 +79,44 @@
 ### Remaining Work
 - 8 MEDIUM findings from comprehensive audit (dead code, rate limiting, chunk ordering, audio Hz, JSON depth, shutdown sequence)
 - 6 LOW findings (realloc error handling, enet_peer_send check, strcpy → strncpy)
-- Systemic sweeps: 350+ sprintf → snprintf, network bounds checks, fread/fwrite return checks, malloc NULL checks
+- Systemic sweeps: 350+ sprintf → snprintf (done separately), **network bounds checks DONE (S131)**, fread/fwrite return checks, malloc NULL checks
 - Phase G playtest verification still pending
+
+---
+
+## Session S131 -- 2026-04-03
+
+**Focus**: Systemic sweep — network array bounds checks
+
+### What Was Done
+
+Full audit of all `netbufReadU8/U16/U32` call sites in `port/src/net/` where the result is used as an array index.
+
+**Audit findings:**
+- `netmsgSvcPlayerMoveRead` (line 1229): `id >= NET_MAX_CLIENTS` — already guarded (H-01, S130)
+- `netmsgSvcPlayerStatsRead` (line 1307): `clid >= NET_MAX_CLIENTS + 1` — already guarded
+- `netmsgSvcPlayerScoresRead` (line 1547): `idx >= MAX_MPCHRS` — already guarded
+- `netmsgSvcPropSpawnRead` (line 1725): `clid >= NET_MAX_CLIENTS + 1` — already guarded
+- `netmsgSvcPropPickupRead` (line 1873): `clid >= NET_MAX_CLIENTS + 1` — already guarded
+- `netmsgSvcPropUseRead` (line 1910): `clid >= NET_MAX_CLIENTS + 1` — already guarded
+- `netmsgSvcPropDoorRead` (line 1974): ternary bounds — already guarded
+- `netbufReadHidden` (line 159): `ownerclid < NET_MAX_CLIENTS` — already guarded
+- `netmsgSvcStageStartRead` (line 895): `id >= NET_MAX_CLIENTS + 1` — already guarded
+- `sessioncatalog.c` (line 163): `wire_id <= SESSION_CATALOG_MAX_ENTRIES` — already guarded
+
+**One unguarded site fixed:**
+- **`netmsgSvcAuthRead`** (`port/src/net/netmsg.c`): `id` from `netbufReadU8` used as `g_NetClients[id]` (indices 0..32). Guard only checked `id == NET_NULL_CLIENT` (0xFF), not `id >= NET_MAX_CLIENTS` (valid range 0..31). Added: `id >= NET_MAX_CLIENTS`. Also added `maxclients > NET_MAX_CLIENTS` since `g_NetMaxClients` is used as a loop bound over `g_NetClients[]`.
+
+### Key Files Changed
+- `port/src/net/netmsg.c` — `netmsgSvcAuthRead`: added `id >= NET_MAX_CLIENTS` and `maxclients > NET_MAX_CLIENTS` guards
+
+### Decisions Made
+- Network bounds sweep complete. All netbufRead → array-index paths are now guarded.
+
+### Remaining Work
+- Systemic sweeps: sprintf→snprintf, fread/fwrite return checks, malloc NULL checks
+- Tier 2/3 audit findings (M-2 through M-8, L-1 through L-5)
+- Phase G playtest verification
 
 ---
 

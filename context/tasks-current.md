@@ -250,7 +250,7 @@
 | Pattern | Scope | Status |
 |---------|-------|--------|
 | sprintf → snprintf | 350+ instances across src/ and port/ | OPEN |
-| Network array bounds checks | All netbufReadU8/U16 used as array indices | OPEN |
+| Network array bounds checks | All netbufReadU8/U16 used as array indices | **DONE (S131)** — 1 unguarded site fixed in netmsgSvcAuthRead |
 | fread/fwrite return checks | All file I/O in port/src/ | OPEN |
 | strcpy → strncpy | 20+ instances in port/src/ | OPEN |
 | malloc/realloc NULL checks | Selective — smaller allocations in game code | OPEN |
