@@ -1,14 +1,17 @@
 /**
  * assetcatalog_deps.c -- Phase 2: Catalog dependency graph implementation
  *
- * Flat static table of (owner, dep) pairs.  Populated by the scanner;
- * queried by the manifest build functions.
+ * Dynamically allocated table of (owner, dep) pairs.  Populated by the
+ * scanner; queried by the manifest build functions.  Grows by doubling from
+ * CATALOG_MAX_DEP_PAIRS initial capacity so mods with many dependencies
+ * never hit a silent drop.
  *
  * See assetcatalog_deps.h for design rationale.
  */
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "system.h"
@@ -29,8 +32,9 @@ typedef struct {
  * Module state
  * ========================================================================= */
 
-static s_DepPair s_DepTable[CATALOG_MAX_DEP_PAIRS];
-static s32       s_NumDepPairs;
+static s_DepPair *s_DepTable    = NULL;   /* heap-allocated, grows on demand */
+static s32        s_DepCap      = 0;      /* allocated capacity */
+static s32        s_NumDepPairs = 0;
 
 /* =========================================================================
  * Internal helpers
@@ -73,11 +77,19 @@ void catalogDepRegister(const char *owner_id, const char *dep_id,
         }
     }
 
-    if (s_NumDepPairs >= CATALOG_MAX_DEP_PAIRS) {
-        sysLogPrintf(LOG_WARNING,
-                     "CATALOG-DEPS: table full (%d pairs max), dropping dep '%s' -> '%s'",
-                     CATALOG_MAX_DEP_PAIRS, owner_id, dep_id);
-        return;
+    if (s_NumDepPairs >= s_DepCap) {
+        /* Grow by doubling; initial alloc uses CATALOG_MAX_DEP_PAIRS as base */
+        s32 newCap = (s_DepCap > 0) ? s_DepCap * 2 : CATALOG_MAX_DEP_PAIRS;
+        s_DepPair *newTable = (s_DepPair *)realloc(s_DepTable,
+                                                    (size_t)newCap * sizeof(s_DepPair));
+        if (!newTable) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG-DEPS: realloc failed (cap=%d), dropping dep '%s' -> '%s'",
+                         s_DepCap, owner_id, dep_id);
+            return;
+        }
+        s_DepTable = newTable;
+        s_DepCap   = newCap;
     }
 
     s_DepTable[s_NumDepPairs].owner_hash = ohash;
@@ -139,8 +151,10 @@ void catalogDepClearMods(void)
 
 void catalogDepClear(void)
 {
+    free(s_DepTable);
+    s_DepTable    = NULL;
+    s_DepCap      = 0;
     s_NumDepPairs = 0;
-    memset(s_DepTable, 0, sizeof(s_DepTable));
 }
 
 s32 catalogDepCount(void)

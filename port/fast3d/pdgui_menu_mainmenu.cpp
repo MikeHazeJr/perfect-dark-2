@@ -1677,7 +1677,8 @@ static const char *s_LoadStateNames[] = {
 };
 
 static const char *s_ManifestTypeNames[] = {
-    "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture"
+    "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture",
+    "Lang",  /* MANIFEST_TYPE_LANG = 8 */
 };
 
 static void renderSettingsCatalog(float scale)
@@ -1994,7 +1995,8 @@ static void renderSettingsCatalog(float scale)
 
                     ImGui::TableSetColumnIndex(1);
                     {
-                        const char *mtype = (me->type < 8) ? s_ManifestTypeNames[me->type] : "?";
+                        const char *mtype = (me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0])))
+                                            ? s_ManifestTypeNames[me->type] : "?";
                         ImGui::TextDisabled("%s", mtype);
                     }
 
