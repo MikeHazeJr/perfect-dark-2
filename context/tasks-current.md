@@ -6,7 +6,7 @@
 
 ---
 
-## Recently Completed (S130–S131 — 2026-04-02/03)
+## Recently Completed (S130–S132 — 2026-04-02/03)
 
 | Item | Status |
 |------|--------|
@@ -17,6 +17,7 @@
 | **Systemic sweep 3: fread/fwrite, strcpy→strncpy, realloc NULL** | **DONE (S131)** — B-77/B-87/B-88/B-89/B-85 all fixed. |
 | **v0.0.25 released as pre-release** | **DONE (S131)** — version bump, update tab column fix, title intro alignment fix. |
 | **Context system cleanup** | **DONE (S131)** — archived completed work, trimmed stale backlog. |
+| **Propagation scan — 5 bug patterns** | **DONE (S132)** — dynamic arena buf, inputLockMouse siblings (4 paths), no other propagations found. |
 
 ---
 
@@ -42,7 +43,7 @@ All code is complete. These items need in-game confirmation.
 | B-60: Stray 'g'+'s' behind Video/Audio tabs | LOW | Visual glitch in Settings |
 | B-90: Mission select shows all missions (no unlock filter) | MED | S131 playtest |
 | B-91: Mission detail popup "(No objectives)" | HIGH | Objectives not loading from game data |
-| B-92: Mouse not captured on solo mission start | HIGH | Cursor visible during mission until hitting window edge |
+| B-92: Mouse not captured on solo mission start | HIGH | Solo path fixed (S131 menuhandlerAcceptMission). Co-op/MP/challenge siblings fixed S132. |
 | B-93: Pause menu mostly empty | HIGH | Missing Abort, Restart, objective checklist |
 | B-94: ImGui duplicate ID on pause menu hover | MED | Resume/Options need ##id suffixes |
 | B-95: Update banner persists during gameplay | LOW | Should auto-dismiss during missions |

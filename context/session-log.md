@@ -125,6 +125,46 @@
 
 ---
 
+## Session S132 -- 2026-04-03
+
+**Focus**: Propagation scan — 5 bug pattern classes across all pdgui_menu_*.cpp and port/src/
+
+### What Was Done
+
+**Scan + fix of all 5 pattern classes:**
+
+1. **Pattern 1 — Fixed-size static arrays (overflow on catalog growth)**
+   - `pdgui_menu_room.cpp`: `s_Arenas[256]` converted to `malloc`/`realloc` dynamic buffer with `s_ArenasCapacity` tracking. Silently dropped arenas >255; now unbounded. Free+null on `buildArenaListFromCatalog` reset and `pdguiRoomScreenReset`.
+   - All other static arrays in pdgui_menu_*.cpp and port/src/ are fixed-size by design (status bufs, search inputs, etc.) — no action needed.
+
+2. **Pattern 2 — runtime_index as array subscript** — No unsafe siblings. All runtime_index usages go through typed conversion functions (`catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, etc.). No raw `[e->runtime_index]` subscripts found.
+
+3. **Pattern 3 — Missing inputLockMouse on gameplay transitions** — 4 siblings of B-66/B-92 fix found and fixed:
+   - `matchsetup.c matchStartFromChallenge()`: was missing `inputLockMouse(1)` after `menuStop()` (only the normal match path had it)
+   - `netmsg.c SVC_STAGE co-op/anti branch`: networked co-op/counter-op client missing lock
+   - `netmsg.c SVC_STAGE MP branch`: networked MP client missing lock
+   - `net.c netServerStageStart()`: listen-server co-op host missing lock
+   - `input.h` added to client-only `#if !defined(PD_SERVER)` include blocks in `netmsg.c` and `net.c`
+
+4. **Pattern 4 — Empty/duplicate ImGui IDs** — No siblings. All button/selectable labels already use `##pm`, `##go`, `PushID(i)` wrappers, `##diff_row` etc. Pause menu B-94 already resolved.
+
+5. **Pattern 5 — Action buttons without backing data guards** — No siblings. Apply Changes is guarded by `pending == 0` BeginDisabled. No null-data action buttons found.
+
+### Key Files Changed
+- `port/fast3d/pdgui_menu_room.cpp` — dynamic arena buffer
+- `port/src/net/matchsetup.c` — inputLockMouse on challenge start
+- `port/src/net/netmsg.c` — inputLockMouse on co-op + MP SVC_STAGE
+- `port/src/net/net.c` — inputLockMouse on listen-server co-op start
+
+### Build Verification
+All 4 changed files pass `-fsyntax-only` check for both client and PD_SERVER builds.
+
+### Next Steps
+- Phase D5.2: pause menu + mouse capture fixes remain in playtest backlog
+- B-90 through B-99 solo mission flow bugs remain
+
+---
+
 ## Session S129 -- 2026-04-02
 
 **Focus**: Catalog ID Compliance Audit — M-2, M-3, M-4, M-5 UI picker fixes
