@@ -3,6 +3,46 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S134 -- 2026-04-03
+
+**Focus**: Static array audit — dynamic/growable data, enum-indexed array completeness
+
+### What Was Done
+
+**Full audit of port/src/ and port/fast3d/ for static arrays holding dynamic/growable data.**
+
+Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
+
+**Findings — what was NOT a problem:**
+- `assetcatalog_load.c` override arrays (s_FilenumOverride etc.): ROM-bounded reverse-index maps with existing bounds checks. ROM source numbers don't grow with mods. No change needed.
+- `pdgui_hotswap.cpp` s_Entries[128]: registered from code at init time, not mod data.
+- Network/player/bot arrays (MAX_PLAYERS, MAX_BOTS etc.): genuine protocol constants.
+- `s_MfSortedIdx[MANIFEST_MAX_ENTRIES]`: UI sort buffer bounded by protocol maximum (4096), already matches the dynamically allocated manifest struct.
+- All `s_AssetTypeNames[ASSET_TYPE_COUNT]` arrays: verified complete (25 entries, NONE through LANG). Already fixed in S133.
+
+**Fix 1 — assetcatalog_deps.c** (`commit ab69868`):
+- `s_DepTable[CATALOG_MAX_DEP_PAIRS]` (256 static) → heap-allocated `s_DepPair *s_DepTable` + `s32 s_DepCap`.
+- Grows by doubling on demand (starting at CATALOG_MAX_DEP_PAIRS = 256).
+- `catalogDepClear()` now frees the buffer. `catalogDepClearMods()` compact-in-place (no realloc — keeps allocated capacity).
+- Previously: mods with many asset dependencies silently dropped entries at 256 with a LOG_WARNING.
+
+**Fix 2 — pdgui_menu_mainmenu.cpp** (`commit ab69868`):
+- `s_ManifestTypeNames[]`: added "Lang" at index 8 (= MANIFEST_TYPE_LANG, added in S130).
+- Bounds check: changed hardcoded `me->type < 8` → `me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0]))` so it auto-tracks the array.
+- Previously: Lang entries in the catalog debug tab showed "?" instead of "Lang".
+
+### Build
+- Build script redirects to main working copy when run from worktree. Changes applied directly to `dev` branch and pushed. Both targets build clean (no structural changes — all callers unchanged).
+
+### Decisions Made
+- The four `s_*Override[]` arrays in assetcatalog_load.c are NOT dynamic data: they're fixed-domain reverse-index maps (filenum/texnum/animnum/soundnum → pool_index). ROM source numbers don't grow. Correct as-is.
+- `CATALOG_MAX_DEP_PAIRS` constant retained in header as initial/minimum capacity for the dep table.
+
+### Next Steps
+- D5 UI Polish (B-91, B-92, B-93, B-96 are the recommended starting sequence per tasks-current.md).
+
+---
+
 ## Session S130 -- 2026-04-02
 
 **Focus**: Wire protocol v27 (catalog ID strings everywhere), SAVE-COMPAT strip, comprehensive bug audit + critical fixes, engine modernization vision

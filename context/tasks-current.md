@@ -6,7 +6,7 @@
 
 ---
 
-## Recently Completed (S130–S132 — 2026-04-02/03)
+## Recently Completed (S130–S134 — 2026-04-02/03)
 
 | Item | Status |
 |------|--------|
@@ -18,6 +18,7 @@
 | **v0.0.25 released as pre-release** | **DONE (S131)** — version bump, update tab column fix, title intro alignment fix. |
 | **Context system cleanup** | **DONE (S131)** — archived completed work, trimmed stale backlog. |
 | **Propagation scan — 5 bug patterns** | **DONE (S132)** — dynamic arena buf, inputLockMouse siblings (4 paths), no other propagations found. |
+| **Static array audit — dynamic/growable data** | **DONE (S134)** — s_DepTable dynamic, s_ManifestTypeNames "Lang" added. All other static arrays verified as protocol/ROM constants or already dynamic. |
 
 ---
 
