@@ -386,8 +386,8 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(90.0f));
 			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(56.0f));
-			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthFixed,   pdguiScale(190.0f));
-			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(64.0f));
+			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(80.0f));
 			ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed,   actionColW);
 			ImGui::TableHeadersRow();
 
