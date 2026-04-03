@@ -37,6 +37,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-102 | Catalog tab (Settings → Catalog) crashes on open — NULL `s_AssetTypeNames[ASSET_LANG]`; 68 base lang banks registered but array had only 24 entries (ASSET_LANG = index 24, uninitialized = NULL) | S133 — port/fast3d/pdgui_menu_mainmenu.cpp (7fb1831) |
 | B-101 | Updater Download/Rollback button clickable when no binary asset (assetSize=0 or empty assetUrl) — clicking starts a download that will fail | S132 — port/fast3d/pdgui_menu_update.cpp |
 | B-94 | Dear ImGui duplicate ID on pause menu hover — Resume/Options buttons missing ##id suffixes | S132 (accdfb4) — pdgui_menu_pausemenu.cpp |
 | B-92 | Mouse not captured on solo mission start — cursor visible during gameplay | S132 (accdfb4) — pdmain.c / input.c |

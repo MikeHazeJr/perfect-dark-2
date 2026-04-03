@@ -125,6 +125,34 @@
 
 ---
 
+## Session S133 -- 2026-04-03
+
+**Focus**: Merge state audit + catalog tab crash root cause (B-102)
+
+### What Was Done
+
+1. **Merge state audit (all clear)**
+   - `git log --oneline -20`, `git worktree list`, `git diff --stat HEAD`, `git stash list` all clean.
+   - All 35 Claude worktrees are at or behind `dev` HEAD (`1e7ca59`). No unmerged commits. No uncommitted changes.
+   - Stash list has 3 old entries (pre-existing, not from today).
+   - All today's fixes (dynamic catalog buffer, B-92 mouse capture, B-94 ImGui IDs, B-100 modmgr, B-101 updater button, propagation sweep) confirmed fully merged into `dev`.
+
+2. **B-102: Catalog tab NULL crash — root cause found and fixed**
+   - **Root cause**: `ASSET_LANG` was added to `asset_type_e` (index 24) and 68 base language banks are registered with it, but `s_AssetTypeNames[ASSET_TYPE_COUNT]` in `pdgui_menu_mainmenu.cpp` only had 24 initializers (indices 0–23). `s_AssetTypeNames[24]` = NULL.
+   - Every call to open the type-filter combo called `ImGui::Selectable(NULL, sel)` for ASSET_LANG → immediate crash. The per-type stat row also crashed via `TextDisabled("%-12s", NULL)` since `assetCatalogGetCountByType(ASSET_LANG)` returns 68.
+   - **Fix**: Added `"Lang"` at index 24. One line. Propagation check confirmed `typeName()` in modmgr uses a `default: return "Unknown"` switch — safe. No other NULL name arrays.
+   - Build verified: `pdgui_menu_mainmenu.cpp` compiles clean (exit 0, only pre-existing `/*` within comment warning on line 17).
+
+### Key Files Changed
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — add `"Lang"` to `s_AssetTypeNames[]` (7fb1831)
+
+### Next Steps
+- Playtest: verify Settings → Catalog tab opens without crash, shows Lang entries
+- B-90 through B-99 solo mission flow bugs remain
+- Phase D5.2: pause menu + mouse capture polish
+
+---
+
 ## Session S132 -- 2026-04-03
 
 **Focus**: Propagation scan — 5 bug pattern classes across all pdgui_menu_*.cpp and port/src/
