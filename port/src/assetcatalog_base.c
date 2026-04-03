@@ -726,6 +726,19 @@ s32 assetCatalogRegisterBaseGame(void)
 	 * below with full rich ext fields. Do not register them here to avoid
 	 * duplicate catalog entries. */
 
+	/* D5.0a spike: register placeholder UI texture entry.
+	 * pdguiGetUiTexture("ui/test_panel") uses this catalog entry as the ID key
+	 * for its synthetic test pattern.  D5.0 will replace the placeholder with
+	 * real ROM texture data (texnum, width, height, format). */
+	{
+		asset_entry_t *e = assetCatalogRegister("ui/test_panel", ASSET_UI);
+		if (e) {
+			e->bundled = 1;
+			e->enabled = 1;
+			count++;
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
 
 	/* Register extended types: weapons, animations, textures, props, game modes, audio, HUD */

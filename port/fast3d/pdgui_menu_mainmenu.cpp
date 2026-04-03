@@ -338,6 +338,9 @@ void optionsSetLookAhead(s32 mpchrnum, s32 enable);
 s32  optionsGetAimControl(s32 mpchrnum);
 void optionsSetAimControl(s32 mpchrnum, s32 index);
 
+/* D5.0a: UI texture bridge — return ImTextureID for a named texture */
+void* pdguiGetUiTexture(const char *id);
+
 } /* extern "C" */
 
 /* Screen size constants (from src/include/constants.h).
@@ -1685,6 +1688,25 @@ static void renderSettingsCatalog(float scale)
 {
     s32 totalCount   = assetCatalogGetCount();
     s32 poolSize     = assetCatalogGetPoolSize();
+
+    /* ------ D5.0a Spike: ROM texture bridge proof of concept ------ */
+    {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "D5.0a Texture Bridge Spike");
+        ImGui::SameLine();
+        ImGui::TextDisabled("catalog id: ui/test_panel");
+        void *tex = pdguiGetUiTexture("ui/test_panel");
+        if (tex) {
+            ImGui::Image((ImTextureID)tex, ImVec2(64.0f * scale, 64.0f * scale));
+            ImGui::SameLine();
+            ImGui::TextDisabled("PASS: ImGui::Image() rendered via pdguiGetUiTexture()");
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                               "FAIL: pdguiGetUiTexture() returned NULL");
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
 
     /* ------ Summary ------ */
     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Catalog");
