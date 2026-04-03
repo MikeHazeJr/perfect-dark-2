@@ -15,7 +15,8 @@
 | **Systemic sweep 1: sprintf→snprintf** (344 sites, 36 files) | **DONE (S131)** |
 | **Systemic sweep 2: network array bounds** | **DONE (S131)** — one unguarded site fixed in netmsgSvcAuthRead (id/maxclients). |
 | **Systemic sweep 3: fread/fwrite, strcpy→strncpy, realloc NULL** | **DONE (S131)** — B-77/B-87/B-88/B-89/B-85 all fixed. |
-| **v0.0.25 released as pre-release** | **DONE** |
+| **v0.0.25 released as pre-release** | **DONE (S131)** — version bump, update tab column fix, title intro alignment fix. |
+| **Context system cleanup** | **DONE (S131)** — archived completed work, trimmed stale backlog. |
 
 ---
 
@@ -39,6 +40,16 @@ All code is complete. These items need in-game confirmation.
 | B-19: Bot spawn stacking on Skedar Ruins | MED | Partial fix (S125 F.1 anti-repeat) — needs Skedar-specific test |
 | B-21: Menu double-press / hierarchy | MED | Likely fixed Phase E (S124) — needs playtest |
 | B-60: Stray 'g'+'s' behind Video/Audio tabs | LOW | Visual glitch in Settings |
+| B-90: Mission select shows all missions (no unlock filter) | MED | S131 playtest |
+| B-91: Mission detail popup "(No objectives)" | HIGH | Objectives not loading from game data |
+| B-92: Mouse not captured on solo mission start | HIGH | Cursor visible during mission until hitting window edge |
+| B-93: Pause menu mostly empty | HIGH | Missing Abort, Restart, objective checklist |
+| B-94: ImGui duplicate ID on pause menu hover | MED | Resume/Options need ##id suffixes |
+| B-95: Update banner persists during gameplay | LOW | Should auto-dismiss during missions |
+| B-96: Difficulty flow wrong in mission select | HIGH | Should be: pick mission → difficulty → objectives → Start |
+| B-97: Special Assignments / Challenges not separated | LOW | Mixed into main mission list |
+| B-98: Pause menu OG rendering fallback | HIGH | ImGui pause menu not fully implemented |
+| B-99: Updater extraction may fail | MED | Needs retest with v0.0.25 binaries |
 
 ---
 
@@ -75,11 +86,22 @@ All code is complete. These items need in-game confirmation.
 
 ---
 
-## NEXT UP: Phase D5 — Settings, Graphics & QoL
+## NEXT UP: Phase D5 — Settings, Graphics & QoL + UI Polish
 
 **Goal**: FOV slider (60–110°), graphics settings (resolution, fullscreen, VSync), rebindable controls. Audio: Music / Gameplay / UI volume sliders with independent buses, master volume.
 **Why first**: High bang-for-buck. Infrastructure (video.c, audio.c, input.c) already exists. Makes it feel like a real PC game.
 **Plan file**: [d5-settings-plan.md](d5-settings-plan.md)
+
+### D5 also includes: Solo Mission UI/UX Fixes (from S131 playtest)
+
+| Item | Bug(s) | Notes |
+|------|--------|-------|
+| Mission select UX redesign | B-90, B-91, B-96, B-97 | Unlock filtering; objectives from game data; pick mission → pick difficulty → see objectives → Start; separate Special Assignments/Challenges |
+| Solo mission flow fixes | B-92, B-93, B-98 | Mouse capture on mission start; full pause menu (Abort, Restart, objective checklist); convert OG fallback sections to ImGui |
+| ImGui duplicate ID cleanup | B-94 | Resume/Options buttons need `##id` suffixes; audit all pause menu widgets |
+| Update banner behavior | B-95 | Auto-dismiss or hide during active missions |
+| Relative layout pass — all menus | — | All menu positions relative to one another, not hardcoded x/y |
+| OG menu texture/effect integration | — | Integrate original PD menu textures/effects where applicable |
 
 ---
 

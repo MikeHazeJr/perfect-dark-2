@@ -22,6 +22,16 @@
 | **B-83** | MED | Incomplete shutdown sequence — quit path doesn't flush saves, ENet, SDL audio; remote peers left dead-connected | main.c | OPEN |
 | **B-84** | LOW | Dead `tmp[1024]` in chat handler — unused stack variable, maintenance hazard | netmsg.c | OPEN |
 | **B-86** | LOW | enet_peer_send return value unchecked — failed sends go undetected | netdistrib.c | OPEN |
+| **B-90** | MED | Mission select shows all missions regardless of unlock status — should only show unlocked | pdgui_menu_solomission.cpp | OPEN |
+| **B-91** | HIGH | Mission detail popup shows "(No objectives)" — objectives not loading from game data | pdgui_menu_solomission.cpp | OPEN |
+| **B-92** | HIGH | Mouse not captured on solo mission start — cursor visible, can only look until hitting window edge | pdmain.c / input.c | OPEN |
+| **B-93** | HIGH | Pause menu missing Abort Mission, Restart Mission, objective checklist — only Resume/Options work | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-94** | MED | Dear ImGui duplicate ID error on pause menu hover — "2 visible items with conflicting ID" | pdgui_menu_pausemenu.cpp | OPEN — Resume/Options buttons need ##id suffixes |
+| **B-95** | LOW | Update notification banner persists during active gameplay — should auto-dismiss or hide during missions | pdgui_menu_update.cpp | OPEN |
+| **B-96** | HIGH | Mission select difficulty flow wrong — should be pick mission → pick difficulty → see objectives → Start; currently shows minimal popup | pdgui_menu_solomission.cpp | OPEN |
+| **B-97** | LOW | Special Assignments / Challenges not separated from main mission list | pdgui_menu_solomission.cpp | OPEN |
+| **B-98** | HIGH | Solo mission pause menu falls back to OG rendering for empty sections — ImGui menu not fully implemented | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-99** | MED | Updater downloads zip but extraction may fail — needs retest with v0.0.25 fixed binaries | updater.c | OPEN — needs playtest |
 
 ---
 

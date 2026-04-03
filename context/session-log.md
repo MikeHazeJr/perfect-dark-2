@@ -86,37 +86,42 @@
 
 ## Session S131 -- 2026-04-03
 
-**Focus**: Systemic sweep — network array bounds checks
+**Focus**: Comprehensive bug audit fixes (14 Tier 2+3 findings), five systemic sweeps, v0.0.25 release, context cleanup, playtest → 10 new UI/UX bugs
 
 ### What Was Done
 
-Full audit of all `netbufReadU8/U16/U32` call sites in `port/src/net/` where the result is used as an array index.
+1. **Systemic sweep 1: sprintf → snprintf** — 344 sites across 36 files. All unbounded sprintf calls replaced with snprintf to eliminate buffer overflow risk.
 
-**Audit findings:**
-- `netmsgSvcPlayerMoveRead` (line 1229): `id >= NET_MAX_CLIENTS` — already guarded (H-01, S130)
-- `netmsgSvcPlayerStatsRead` (line 1307): `clid >= NET_MAX_CLIENTS + 1` — already guarded
-- `netmsgSvcPlayerScoresRead` (line 1547): `idx >= MAX_MPCHRS` — already guarded
-- `netmsgSvcPropSpawnRead` (line 1725): `clid >= NET_MAX_CLIENTS + 1` — already guarded
-- `netmsgSvcPropPickupRead` (line 1873): `clid >= NET_MAX_CLIENTS + 1` — already guarded
-- `netmsgSvcPropUseRead` (line 1910): `clid >= NET_MAX_CLIENTS + 1` — already guarded
-- `netmsgSvcPropDoorRead` (line 1974): ternary bounds — already guarded
-- `netbufReadHidden` (line 159): `ownerclid < NET_MAX_CLIENTS` — already guarded
-- `netmsgSvcStageStartRead` (line 895): `id >= NET_MAX_CLIENTS + 1` — already guarded
-- `sessioncatalog.c` (line 163): `wire_id <= SESSION_CATALOG_MAX_ENTRIES` — already guarded
+2. **Systemic sweep 2: network array bounds** — Full audit of all `netbufReadU8/U16/U32` → array-index paths in `port/src/net/`. One unguarded site fixed: `netmsgSvcAuthRead` — added `id >= NET_MAX_CLIENTS` and `maxclients > NET_MAX_CLIENTS` guards (B-75 / S131 sweep2).
 
-**One unguarded site fixed:**
-- **`netmsgSvcAuthRead`** (`port/src/net/netmsg.c`): `id` from `netbufReadU8` used as `g_NetClients[id]` (indices 0..32). Guard only checked `id == NET_NULL_CLIENT` (0xFF), not `id >= NET_MAX_CLIENTS` (valid range 0..31). Added: `id >= NET_MAX_CLIENTS`. Also added `maxclients > NET_MAX_CLIENTS` since `g_NetMaxClients` is used as a loop bound over `g_NetClients[]`.
+3. **Systemic sweep 3: fread/fwrite checks, strcpy→strncpy, realloc NULL guards** — Fixed B-77 (fread unchecked in savefile), B-85 (buildArchiveDir stale pointer on realloc failure), B-87 (strcpy VK names in input.c), B-88 (three strcpy in mpsetups.c), B-89 (strcpy homeDir in fs.c).
+
+4. **v0.0.25 released as pre-release** — version bump, update tab column fix (Title column stretched, Size column 80px), title intro alignment fix, update notification banner overlap fixed.
+
+5. **Context system major cleanup** — archived completed work, trimmed stale playtest backlog, updated for S131 state.
+
+6. **Playtest session** — Revealed 10 new UI/UX bugs (B-90 through B-99): mission select unlock filtering missing, objectives not loading, mouse not captured on solo start, pause menu incomplete, ImGui duplicate ID on pause menu, update banner visible during missions, difficulty flow wrong, special assignments not separated, pause menu OG fallback, updater extraction reliability.
 
 ### Key Files Changed
-- `port/src/net/netmsg.c` — `netmsgSvcAuthRead`: added `id >= NET_MAX_CLIENTS` and `maxclients > NET_MAX_CLIENTS` guards
+- `port/src/net/netmsg.c` — sweep2 (auth bounds), sweep1 (sprintf)
+- `port/src/savefile.c` — sweep3 (fread checks)
+- `port/src/net/netdistrib.c` — sweep3 (realloc NULL guard)
+- `port/src/input.c` — sweep3 (strcpy VK names)
+- `port/src/mpsetups.c` — sweep3 (three strcpy calls)
+- `port/src/fs.c` — sweep3 (strcpy homeDir)
+- 30+ additional files — sweep1 (sprintf→snprintf)
+- `port/include/versioninfo.h.in` — v0.0.25 bump
+- `port/fast3d/pdgui_menu_update.cpp` — column widths fix
+- `port/fast3d/pdgui_backend.cpp` — title intro alignment
 
 ### Decisions Made
 - Network bounds sweep complete. All netbufRead → array-index paths are now guarded.
+- v0.0.25 is the current pre-release. Next release will address playtest findings.
 
-### Remaining Work
-- Systemic sweeps: sprintf→snprintf, fread/fwrite return checks, malloc NULL checks
-- Tier 2/3 audit findings (M-2 through M-8, L-1 through L-5)
-- Phase G playtest verification
+### Next Steps
+- Fix B-90 through B-99 (solo mission flow, pause menu, mouse capture, ImGui IDs)
+- Phase D5: Settings/QoL + UI Polish pass (relative layout for all menus)
+- Phase G playtest verification (MP bots, match completion)
 
 ---
 
