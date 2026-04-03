@@ -291,7 +291,8 @@ struct legalelement g_LegalElements[] = {
 	{ 249, 211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083   }, // "NUS-NPDE-USA"
 	{ 249, 231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084   }, // "NTSC version 8.7 final"
 	{ 249, 251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085   }, // "Rare Ltd. (twycross)"
-	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "PD2 Port Director: MikeHazeJr" },
+	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "PD2 Port Director:" },
+	{ 249, 271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "MikeHazeJr" },
 	{ 69,  294, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
 	{ 69,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076   }, // "N64 EXPANSION PAK"
 	{ -1,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074   }, // "NOT DETECTED"
@@ -314,7 +315,8 @@ struct legalelement g_LegalElements[] = {
 	{ 249, 227, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083 }, // "NUS-NPDE-USA"
 	{ 249, 247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084 }, // "NTSC version 8.7 final"
 	{ 249, 267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085 }, // "Rare Ltd. (twycross)"
-	{ 69,  287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "PD2 Port Director: MikeHazeJr" },
+	{ 69,  287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "PD2 Port Director:" },
+	{ 249, 287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "MikeHazeJr" },
 	{ 69,  310, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
 	{ 69,  319, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076 }, // "N64 EXPANSION PAK"
 #if VERSION >= VERSION_PAL_BETA

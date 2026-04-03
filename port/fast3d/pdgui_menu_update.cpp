@@ -596,6 +596,10 @@ static void renderVersionWatermark(void)
 	float padding = 8.0f;
 	float x = io.DisplaySize.x - textSize.x - padding;
 	float y = io.DisplaySize.y - textSize.y - padding;
+	/* Lift watermark above the notification banner if it's visible */
+	if (s_ShowNotification) {
+		y -= pdguiScale(40.0f);
+	}
 
 	ImGui::SetNextWindowPos(ImVec2(x - padding, y - padding * 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(textSize.x + padding * 2, textSize.y + padding));
