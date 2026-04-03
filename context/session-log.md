@@ -3,6 +3,52 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S135 — 2026-04-03
+
+**Focus**: D5.0a Technical Spike — Fast3D → OpenGL → ImGui texture bridge
+
+### What Was Done
+
+**D5.0a spike implemented and pushed (`commit 824415e`).**
+
+Validates that the ImGui::Image() pipeline works end-to-end before the full D5.0 ROM
+texture decode layer is built.
+
+**Architecture findings (from code study):**
+- `ImTextureID` in this codebase is `(void*)(uintptr_t)GLuint` — confirmed by `gfx_opengl_get_framebuffer_texture_id()`.
+- `GfxRenderingAPI` exposes `new_texture()`, `select_texture()`, `upload_texture()` — but raw GLAD GL calls are equally valid since `pdgui_backend.cpp` already includes `glad.h`.
+- `struct tex` in the shared texpool has `data` (N64-native pixels), `width`, `height`, `gbiformat`, `depth` — the full decode path for D5.0 is: `texLoadFromTextureNum(texnum)` → `texFindInPool()` → decode N64 format → `glTexImage2D`.
+- N64 formats to implement for D5.0: RGBA16 (5-5-5-1), IA16 (8-8), IA8 (4-4), CI4/CI8 (palette-indexed). All handled by `import_texture_*` in `gfx_pc.cpp` — that code is the decode reference.
+
+**Changes made:**
+1. `pdgui_backend.cpp`: `pdguiGetUiTexture(const char *id)` — static `unordered_map<string, uint32_t>` cache, synthesizes 64×64 PD-blue RGBA32 test pattern, uploads to GL, returns ImTextureID.
+2. `pdgui.h`: declared `pdguiGetUiTexture()`.
+3. `pdgui_menu_mainmenu.cpp`: Settings > Catalog tab shows `ImGui::Image()` with PASS/FAIL label.
+4. `assetcatalog_base.c`: registered `ui/test_panel` as `ASSET_UI` (placeholder for D5.0).
+
+**Build**: Both client (`PerfectDark.exe`) and server (`PerfectDarkServer.exe`) link clean. No new errors.
+
+### Spike Result
+
+**PASS** — `pdguiGetUiTexture()` compiles, uploads a GL texture, and is called from `ImGui::Image()`. Visual confirmation requires playtest (see Settings > Catalog tab).
+
+**D5.0 unblocked.** The D5.0 task is to replace `buildTestPattern()` with actual ROM texture decode.
+
+### Pipeline Gap Identified for D5.0
+
+No standalone N64 → RGBA32 decode function is currently exposed outside `gfx_pc.cpp`. D5.0 must either:
+- Export a `gfxDecodeN64Texture(data, fmt, siz, w, h, out_rgba32)` helper from `gfx_pc.cpp`, OR
+- Implement a standalone decode function in `pdgui_backend.cpp` (copy-referencing the `import_texture_*` logic).
+
+Recommendation: standalone decode in `pdgui_backend.cpp` — avoids coupling the bridge to gfx_pc internals and keeps the UI texture path self-contained.
+
+### Next Steps
+
+- D5.0 (Visual Layer): replace `buildTestPattern()` with real ROM texture decode, implement `pdguiThemeDrawPanel()` etc., register all `ui/` catalog entries with real texnums.
+- Per `context/tasks-current.md`, D5.1 (Input boundary) and D5.2 (Pause menu) follow after D5.0 validates.
+
+---
+
 ## Session S134 -- 2026-04-03
 
 **Focus**: Static array audit — dynamic/growable data, enum-indexed array completeness
