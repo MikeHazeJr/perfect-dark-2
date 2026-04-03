@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS, **D5 NEXT**
-Last updated: 2026-04-03 (S131)
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 NEXT**
+Last updated: 2026-04-03 (S135)
 
 ## Engine Modernization Vision
 
@@ -50,15 +50,21 @@ Files: src/game/mplayer/setup.c, src/game/menu.c, src/game/player.c
 - D3c — fs.c Refactor: fsFullPath uses modmgrResolvePath, first-match-wins iteration.
 - D3d — ImGui Foundation: Dear ImGui v1.91.8 vendored, pdgui_backend, pdgui_style (shimmer, palette system), pdgui_debugmenu. See context/imgui.md.
 
-### Phase D9: Dedicated Server (LARGELY DONE via Menu Phase 3)
+### Phase D9: Dedicated Server (LARGELY DONE — remaining items absorbed into D5)
 Dedicated server process with CLI args (`--port`, `--maxclients`, `--gamemode`, `--headless`), signal handling, 4-panel ImGui server GUI, lobby state management, leader election, CLC_LOBBY_START protocol, server/client build separation. See context/server-architecture.md.
 
-**Remaining D9 items:**
+**D9 server infrastructure complete.** Menu migration and UI items formerly listed under D9 are
+now part of D5 (see below). D9 is considered DONE for server purposes.
+
+**Remaining D9 items absorbed into D5:**
+- Authoritative leader broadcast (SVC_LOBBY_LEADER on leader change) → D5.7
+- "Quick Play" button (auto-launch server subprocess + connect to localhost) → D5.7
+- Online lobby polish, room navigation → D5.7
+
+**Items completed:**
 - ~~End-to-end playtest~~ **DONE (S81)** — J-1 verified: connect code → CLSTATE_LOBBY → match loads → runs → ends
 - Protocol v27 (S130): all net_hash removed from wire, catalog ID strings everywhere
 - ~~Combat Sim stage selection (currently hardcoded to Complex)~~ **FIXED (S128)** — stage_id in matchconfig, bridge API string-native
-- Authoritative leader broadcast (SVC_LOBBY_LEADER on leader change — handlers written, not yet called from lobbyUpdate)
-- "Quick Play" button (auto-launch server subprocess + connect to localhost)
 - ~~B-51/B-52/B-53: bot visibility, weapon pickup, door interaction~~ **ALL FIXED (S90)** — bot configs via SVC_STAGE_START + scenarioInitProps on client; protocol v25
 
 ### Phase D4: Menu Storyboard (SUPERSEDED)
@@ -87,19 +93,25 @@ Files: bot.c, botact.c, bondwalk.c, setup.c, modmgr.c
 
 The following reflects Mike's priority for implementation. Phases are listed in intended build order. Dependencies have been loosened since D4 is no longer a hard blocker — ImGui menus are built directly as needed.
 
-### 1. Phase D5: Settings, Graphics & QoL ⟵ **NEXT UP (UI polish half)**
+### 1. Phase D5: Full Menu System Replacement (D5 + D9 merged) ⟵ **NEXT UP**
 Settings half (D5a–D5d) DONE: FOV slider, video settings, controls rebinding, audio volume layers. See [d5-settings-plan.md](d5-settings-plan.md).
 
-**UI Polish half** in progress — 6 sub-phases. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
+**Menu system replacement** — 9 sub-phases, infrastructure-first. Build the visual layer and
+input ownership boundary FIRST, then every screen on top. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
 
-| Sub-phase | Description | Bugs |
-|-----------|-------------|------|
-| D5.1 | Mission select UX redesign — two-panel layout (list + detail), unlock filter, objectives panel, OG briefing images, star indicators, inline difficulty rows | B-90, B-91, B-96, B-97 |
-| D5.2 | Solo mission flow fixes — mouse capture, full pause menu (Objectives/Inventory/Abort/Restart), ImGui inventory renderer | B-92, B-93, B-94, B-98 |
-| D5.3 | Relative layout sweep — all `pdgui_menu_*.cpp` positions derived from `GetContentRegionAvail()` | B-60, overlaps |
-| D5.4 | OG menu texture/effect integration — briefing images, star textures, scan-line overlay; catalog-registered | — |
-| D5.5 | Update banner — hide during gameplay; verify updater zip extraction | B-95, B-99 |
-| D5.6 | Systematic OG menu conversion — audit + convert trapping legacy screens | B-98 (inventory) |
+Execution order: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
+
+| Sub-phase | Description | Status |
+|-----------|-------------|--------|
+| D5.0 | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line overlay; all menus use this foundation | PLANNED |
+| D5.1 | Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect, single input path | PLANNED |
+| D5.3 | Pause Menu + Sub-screens — full ImGui pause menu (Objectives, Inventory, Restart, Abort), unblocks gameplay | PLANNED |
+| D5.2 | Mission Select Redesign — two-panel layout, unlock filter, OG briefing images, star indicators, inline difficulty rows | PLANNED |
+| D5.4 | End Game Flow — mission complete screen, MP match end scoreboard | PLANNED |
+| D5.5 | Combat Sim Polish — bot head/body dependency graph, bot name dictionary, arena/weapon verification | PLANNED |
+| D5.6 | Settings & QoL — layout sweep (no hardcoded pixels), update banner fix, scroll indicators | PLANNED |
+| D5.7 | Online Lobby Polish — disable unsupported tabs, room nav cleanup, Quick Play button | PLANNED |
+| D5.8 | Systematic OG Menu Removal — remove all legacy screen render paths once ImGui replacements verified | PLANNED |
 
 ### 2. Phase D13: Update System — IN PROGRESS (code written, needs build test)
 Semantic versioning (MAJOR.MINOR.PATCH + dev channel), GitHub Releases API via libcurl, SHA-256 verified download, rename-on-restart self-replacement, save migration framework, ImGui update notification + version picker, separate client/server versioning, release channels (Stable/Dev). See context/update-system.md.
@@ -158,7 +170,7 @@ D1 (N64 Strip) ─── DONE
   │
   ├── D4 (Menu Migration) ─── SUPERSEDED (ongoing, no longer blocks)
   │
-  ├── D9 (Dedicated Server) ─── LARGELY DONE
+  ├── D9 (Dedicated Server) ─── DONE (server infra); remaining UI items → D5.7
   │     ├── D16 (Master Server) ─── after content tools
   │     └── D10 (Spectator)
   │

@@ -88,24 +88,29 @@ All code is complete. These items need in-game confirmation.
 
 ---
 
-## NEXT UP: Phase D5 — Settings, Graphics & QoL + UI Polish
+## NEXT UP: Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
 
 **Settings half** (D5a–D5d): DONE. Audio sliders, video settings, controls rebinding — see [d5-settings-plan.md](d5-settings-plan.md).
 
-**UI Polish half** (D5.1–D5.6): PLANNED. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
+**Menu system replacement** (D5.0–D5.8): PLANNED. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
 
-### D5 UI Polish — Sub-phases
+Infrastructure-first: build visual layer + input boundary before any individual screens.
 
-| Sub-phase | Bugs Fixed | Description | Status |
-|-----------|-----------|-------------|--------|
-| **D5.1** | B-90, B-91, B-96, B-97 | Mission select UX redesign — two-panel layout, unlock filter, inline objectives, OG briefing images, star indicators, difficulty rows with best times | PLANNED |
-| **D5.2** | B-92, B-93, B-94, B-98 | Solo mission flow fixes — mouse capture on start, full pause menu (Objectives, Inventory, Abort, Restart), duplicate ID sweep | PLANNED |
-| **D5.3** | B-60, layout overlaps | Relative layout system sweep — all menus use `GetContentRegionAvail()`; no hardcoded pixel offsets | PLANNED |
-| **D5.4** | — | OG menu texture/effect integration — briefing images, star textures, scan-line overlay; catalog-registered so modders can retheme | PLANNED |
-| **D5.5** | B-95, B-99 | Update banner behavior — hide during gameplay; verify updater zip extraction end-to-end | PLANNED |
-| **D5.6** | B-98 (inventory) | Systematic OG menu conversion — audit remaining legacy screens; P0 = trapping screens (inventory, others) | PLANNED |
+### D5 Sub-phases
 
-**Recommended start sequence**: B-92 mouse fix → B-94 duplicate ID → D5.2 pause menu → D5.1 mission select → D5.5 banner → D5.3 layout sweep → D5.4 OG textures → D5.6 conversion audit
+| Sub-phase | Description | Status |
+|-----------|-------------|--------|
+| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog (`ui/panels`, `ui/fx`, `ui/stars`, `ui/briefing`), scan-line pass; all menus use this as foundation | PLANNED |
+| **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | PLANNED |
+| **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
+| **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
+| **D5.4** | End Game Flow — mission complete screen (objectives/stats/nav), MP match end scoreboard | PLANNED |
+| **D5.5** | Combat Sim Polish — bot head/body dependency graph (no mismatched pairs), bot name dictionary (Adj+Noun), arena/weapon set verification | PLANNED |
+| **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
+| **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
+| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PLANNED |
+
+**Execution order**: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
 
 ---
 

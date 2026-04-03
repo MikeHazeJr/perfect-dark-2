@@ -1,15 +1,18 @@
-# Phase D5 UI Polish Plan — Mission Select, Pause Menu, Layout, OG Textures, Updater, Menu Conversion
+# Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
 
 ## Status: PLANNED
-Last updated: 2026-04-03 (S132)
+Last updated: 2026-04-03 (S135)
 
-> **Scope**: This plan covers the UI/UX polish half of Phase D5. The Settings half (audio
-> volume layers, video settings, controls rebinding) is fully implemented and documented in
-> `context/d5-settings-plan.md`. This document covers everything that remains for D5 to be
-> considered **shippable quality**: mission select UX, solo pause menu, layout consistency,
-> OG asset integration, update banner behavior, and a systematic OG menu conversion sweep.
+> **Scope**: This is the complete, infrastructure-first menu system replacement. D5 (Settings/QoL)
+> and D9 (Menu Migration) are merged into a single deliberate sweep. The Settings half
+> (audio volume layers, video settings, controls rebinding) is already done — documented in
+> `context/d5-settings-plan.md`. This document covers everything that remains to achieve
+> **zero legacy menu screens in any player-facing flow**.
 >
-> Bug references: B-90, B-91, B-92, B-93, B-94, B-95, B-96, B-97, B-98, B-99.
+> Core principle: build the visual layer and input ownership boundary FIRST, then build every
+> screen on top of that foundation. Not incremental patches — a planned infrastructure sweep.
+>
+> Execution order: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
 
 ---
 
@@ -17,515 +20,478 @@ Last updated: 2026-04-03 (S132)
 
 | Component | File | State |
 |-----------|------|-------|
-| Mission select | `pdgui_menu_solomission.cpp` | Shows all missions (no unlock filter); minimal popup; difficulty flow wrong; objectives "(No objectives)" |
-| Solo pause menu | `pdgui_menu_solomission.cpp` — `g_SoloMissionPauseMenuDialog` | Only Resume/Options work; Abort wired but Inventory/Objectives fall back to legacy renderers |
+| Menu visual theme | — | Not built; all ImGui menus use plain styled colors, no OG textures |
+| Input ownership | `pdmain.c` / `input.c` | No clean MENU/GAMEPLAY boundary; Esc double-push, Tab conflicts, mouse capture timing issues |
+| Mission select | `pdgui_menu_solomission.cpp` | All missions shown regardless of unlock; minimal popup; objectives "(No objectives)"; difficulty flow wrong |
+| Solo pause menu | `pdgui_menu_solomission.cpp` | Only Resume/Options work; Abort wired; Inventory/Objectives fall back to legacy renderers |
 | Inventory (solo) | `g_SoloMissionInventoryMenuDialog` | Registered with NULL renderer — full legacy 3D, traps player with no working exit |
-| Pause menu IDs | `pdgui_menu_pausemenu.cpp` / solomission.cpp | Duplicate ImGui IDs on Resume/Options — causes "2 visible items with conflicting ID" warning |
-| Mouse capture | `pdmain.c` / `input.c` | Not called on solo mission start — cursor visible during gameplay |
-| Update banner | `pdgui_menu_update.cpp` | Persists during active gameplay/missions |
-| Hardcoded positions | All `pdgui_menu_*.cpp` files | Mixed: some use `pdguiScale()` correctly, some still have hardcoded offsets causing overlap bugs |
-| OG textures in ImGui | — | Not integrated; star indicators and mission briefing images are ROM textures, not yet catalog-registered as UI resources |
-
-### Key Existing Infrastructure
-- `isStageDifficultyUnlocked(stageindex, difficulty)` — already exists, just not used in the list renderer
-- `sm_briefing.objectivenames[6]` + `objectivedifficulties[6]` — populated by legacy handlers before ImGui renderers run
-- `g_GameFile.besttimes[21][3]` — per-stage, per-difficulty best times already accessible
-- `pdguiScale()` / `pdguiScaleVec()` — scaling helpers already in use; the sweep is about consistency
-- `ImGui::GetContentRegionAvail()` — available but underused
+| End game screens | — | Not built in ImGui; post-mission and post-match use legacy screens |
+| Combat Sim setup | `pdgui_menu_matchsetup.cpp` | Bot heads/bodies independently resolved (mismatch bug); generic bot names |
+| Online lobby | `pdgui_menu_room.cpp` / lobby | Co-Op / Counter-Op / Solo tabs visible but unsupported; navigation janky |
+| OG menu removal | — | No systematic removal pass; many legacy screens still active |
 
 ---
 
-## Phase D5.1: Mission Select UX Redesign
+## Phase D5.0: Menu Visual Layer (FOUNDATION)
 
-**Bugs fixed**: B-90, B-91, B-96, B-97
-
-### Problem
-
-The current `renderSelectMission` is a flat scrollable tree. Selecting a mission opens a minimal
-popup via `g_SoloMissionDifficultyMenuDialog`. Objectives are not shown until after difficulty
-selection via `g_AcceptMissionMenuDialog`. All missions appear regardless of unlock status.
-Special Assignments and Challenges are mixed into the main list. This is B-90, B-96, B-97.
-
-The briefing struct (`g_Briefing`) has `objectivenames[6]` but the mission select renderer
-doesn't read it at all — it renders an empty panel and prints "(No objectives)". This is B-91.
-
-### New Design
-
-Two-panel layout inside a single full-width ImGui window:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  MISSION SELECT                                                    │
-│                                                                    │
-│  ┌─────────────────────┐  ┌──────────────────────────────────┐   │
-│  │ MAIN MISSIONS        │  │  dataDyne Central — Defection    │   │
-│  │ ─────────────────── │  │                                  │   │
-│  │ > dataDyne Central  │  │  [BRIEFING IMAGE]                │   │
-│  │   dataDyne Research │  │                                  │   │
-│  │   Carrington Villa  │  │  ★ ★ ☆  (highest diff cleared)  │   │
-│  │   …                 │  │                                  │   │
-│  │                     │  │  OBJECTIVES                      │   │
-│  │ SPECIAL ASSIGNMENTS │  │  > Disable security computer     │   │
-│  │ ─────────────────── │  │  > Investigate lab               │   │
-│  │   Maian SOS         │  │  ░ Recover dataDyne project list │   │
-│  │   War!              │  │    (SA/PA only)                  │   │
-│  │   …                 │  │                                  │   │
-│  └─────────────────────┘  │  ──────────────────────────────  │   │
-│                            │  Agent          2:14     [Start] │   │
-│                            │  Special Agent  3:01     [Start] │   │
-│                            │  Perfect Agent  -----    [Start] │   │
-│                            └──────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-**Left panel — Mission List**
-
-- Render only missions where at least one difficulty is unlocked (`isStageDifficultyUnlocked(i, DIFF_A)`)
-- Group into two sections: main missions (indices 0–8 in `g_SoloStages`) and Special Assignments
-  (indices 9–20, matching `L_OPTIONS_132` group). Check via `func0f104720()` for special-stage
-  membership.
-- Each entry renders as a selectable row. Highlight the selected row. No nested tree.
-- Clicking sets `s_MissionSelectIdx`; no dialog push — detail panel updates inline.
-- This entirely replaces `g_SoloMissionDifficultyMenuDialog` as a separate screen for the
-  common case. PD Mode settings remain a separate dialog (keep `g_PdModeSettingsMenuDialog`).
-
-**Right panel — Detail Panel**
-
-Shown when a mission is selected. Components:
-
-1. **Mission name** — `langSafe(g_SoloStages[i].name1)` + `langSafe(g_SoloStages[i].name2)`
-   rendered as a large heading with `ImGui::SetWindowFontScale()`.
-
-2. **Briefing image** — Populated from the asset catalog (see D5.4). Sampled via
-   `ImGui::Image(tex_handle, ImVec2(panel_w * 0.9f, panel_w * 0.4f))`. Falls back to a
-   dark placeholder rect if the catalog entry is not yet registered.
-
-3. **Star indicators** — Three star glyphs showing highest difficulty completed.
-   - Read from `g_GameFile.besttimes[stageindex][d] > 0` for d ∈ {DIFF_A, DIFF_SA, DIFF_PA}.
-   - Filled star = OG ROM star texture (see D5.4). Empty star = dimmed variant.
-   - Falls back to Unicode ★/☆ while catalog integration is pending.
-
-4. **Objectives panel** — Rendered from `g_Briefing.objectivenames[6]` and
-   `g_Briefing.objectivedifficulties[6]`. The briefing struct is populated by legacy
-   `menudialogdef` TICK handlers *before* ImGui runs, so it's always fresh.
-   - Difficulty bits per objective: `objectivedifficulties[n]` is a bitmask where
-     bit 0 = Agent, bit 1 = Special Agent, bit 2 = Perfect Agent.
-   - Objectives relevant to the currently highlighted difficulty row are shown at full
-     opacity. Objectives outside that difficulty are dimmed (alpha ~0.4) with a note
-     "(SA/PA only)" or "(PA only)".
-   - `s_HoverDiff` tracks which difficulty row the cursor is over, defaulting to the
-     last completed difficulty or Agent if none.
-
-5. **Difficulty rows** — Three rows: Agent / Special Agent / Perfect Agent.
-   - Each row: difficulty name | best time (formatted via `formatBestTime()`) | [Start] button.
-   - If the difficulty is locked, render the row at dim opacity with a lock icon and no [Start].
-   - Use `##diff_a`, `##diff_sa`, `##diff_pa` suffixes on all buttons (fixes B-94 analog pattern).
-   - Clicking [Start]: call `SM_SET_DIFFICULTY(&g_MissionConfig, d)`, then
-     `menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)`.
-   - PD Mode row: only shown when PA is unlocked. Opens `g_PdModeSettingsMenuDialog`.
-
-**New module state** (additions to `pdgui_menu_solomission.cpp`):
-
-```cpp
-static s32 s_HoverDiff = DIFF_A;   /* which difficulty row cursor is over */
-static bool s_DetailVisible = false; /* whether right panel has a selection */
-```
-
-### Files Modified
-
-| File | Change |
-|------|--------|
-| `pdgui_menu_solomission.cpp` | Rewrite `renderSelectMission()` with two-panel layout; remove `renderDifficultySelect()` inline logic (keep the dialog registered but skip push if using new inline path); add `renderMissionDetail()` helper |
-| `pdgui_menu_solomission.cpp` | Update `renderAcceptMission()` to be a confirmation step (shown after Start click) rather than the primary objectives display — or collapse it into the detail panel entirely |
-
-### Estimated LOC: ~350 net (rewrites ~180, adds ~170)
-
----
-
-## Phase D5.2: Solo Mission Flow Fixes
-
-**Bugs fixed**: B-92, B-93, B-94, B-98
-
-### B-92 — Mouse Capture on Mission Start
-
-**Root cause**: When transitioning from mission select → gameplay, `SDL_SetRelativeMouseMode(SDL_TRUE)` is not called. The cursor stays visible and mouse movement only works until the pointer hits the window edge.
-
-**Fix location**: `pdmain.c` in the state machine branch that handles the transition from `MAINSTATE_FRONTEND` → `MAINSTATE_GAME`. Specifically, wherever `g_MainState` is set to the in-game state after the fade-in. This is the same pattern as B-66 (which fixed MP match start) — look at how that was resolved and apply the same `inputLockMouse(1)` call here.
-
-**Verification**: After fix, entering any solo mission hides cursor immediately with no border-hunt required.
-
-### B-93 + B-98 — Full Solo Pause Menu
-
-**Current state**: `g_SoloMissionPauseMenuDialog` renders via `renderSoloPause()`. The pause
-select items are: `{0=close, 1=Inventory, 2=Options, 3=Abort}`. Options works (pushes
-`g_SoloMissionOptionsMenuDialog`). Abort works (pushes `g_MissionAbortMenuDialog`). But
-`s_PauseSelectIdx == 1` (Inventory) pushes `g_SoloMissionInventoryMenuDialog`, which is
-registered with `NULL` renderFn — it falls back to the legacy renderer which has no working
-exit button in PC mode. This is B-98.
-
-**Required pause menu items** and their implementations:
-
-| Item | Target | ImGui implementation |
-|------|--------|----------------------|
-| Resume | Close pause menu | `SDL_SetRelativeMouseMode(SDL_TRUE)` + `menuPopDialog()` |
-| Objectives | Inline panel or sub-screen | Show `g_Briefing.objectivenames[6]` with completion checkmarks (read from `g_GameFile.flags[]` bitmask) |
-| Inventory | Sub-screen (new ImGui renderer) | List current weapon loadout; see below |
-| Options | Push `g_SoloMissionOptionsMenuDialog` | Already working |
-| Restart Mission | Danger confirmation | `menuhandlerAbortMission` + re-push difficulty dialog |
-| Abort Mission | Danger confirmation | Push `g_MissionAbortMenuDialog` (already wired) |
-
-**Inventory renderer** (converts `g_SoloMissionInventoryMenuDialog` from legacy to ImGui):
-
-- Register a real `renderFn` for `g_SoloMissionInventoryMenuDialog`.
-- Display: list of weapon slots with weapon name (from `langSafe()`) and ammo count.
-- Weapon data: accessible via a new bridge function `pdguiSoloGetInventoryWeapon(slot, &name, &ammo)` in `pdgui_bridge.c` — this reads from player weapon slots without requiring types.h in the C++ file.
-- Exit button calls `menuPopDialog()` — the current legacy path has no equivalent.
-- This is a minimal "read-only" inventory display, not the full 3D model viewer. The 3D viewer is still registered separately for when it's intentionally invoked.
-
-**Objectives completion** — read from `g_GameFile.flags[]`:
-- Each mission has flags bytes; objective completion state is packed into these. The exact bit layout needs verification against `savefile.c` during implementation. Bridge function: `pdguiSoloGetObjectiveStatus(stageindex, obj_idx)` → bool.
-
-**Restart Mission**:
-- Not currently wired at all. Implementation:
-  1. Show a "Are you sure? Restart will lose current progress." confirmation (PdDialog, Red palette).
-  2. On confirm: `menuhandlerAbortMission(MENUOP_SET, NULL, NULL)` (aborts current run), then immediately push the difficulty select for the same stage so the player re-enters the mission.
-
-### B-94 — ImGui Duplicate ID
-
-**Root cause**: Multiple `ImGui::Button("Resume")` and `ImGui::Button("Options")` calls exist across the pause menu stack — one in `renderSoloPause()` and possibly one in `pdgui_menu_pausemenu.cpp`. ImGui tracks buttons by label string and window context; same label in same window frame = duplicate ID warning.
-
-**Fix**: Apply `##id` suffixes consistently:
-```cpp
-// Before
-ImGui::Button("Resume")
-ImGui::Button("Options")
-// After
-ImGui::Button("Resume##solo_pause")
-ImGui::Button("Options##solo_pause")
-ImGui::Button("Inventory##solo_pause")
-ImGui::Button("Abort##solo_pause")
-ImGui::Button("Restart##solo_pause")
-```
-
-Also add `ImGui::PushID("solo_pause_menu")` / `ImGui::PopID()` at the scope of the entire
-`renderSoloPause()` function as belt-and-suspenders protection for any sub-widgets.
-
-**Audit scope**: Run a grep for duplicate label strings across `pdgui_menu_pausemenu.cpp`,
-`pdgui_menu_solomission.cpp`, and `pdgui_menu_mpingame.cpp` after implementing D5.2.
-
-### Files Modified
-
-| File | Change |
-|------|--------|
-| `pdmain.c` | Add `inputLockMouse(1)` / `SDL_SetRelativeMouseMode` call on solo mission start transition (B-92) |
-| `pdgui_menu_solomission.cpp` | Expand pause menu item list; add `renderSoloPause()` full implementation; add Restart confirmation; add `##id` suffixes (B-93, B-94, B-98) |
-| `pdgui_menu_solomission.cpp` | Register a real renderFn for `g_SoloMissionInventoryMenuDialog` |
-| `pdgui_bridge.c` | Add `pdguiSoloGetInventoryWeapon()` and `pdguiSoloGetObjectiveStatus()` bridge functions |
-| `port/include/pdgui_menus.h` | Declare any new bridge functions if shared across TUs |
-
-### Estimated LOC: ~220 new + ~30 modified
-
----
-
-## Phase D5.3: Relative Layout System
-
-**Bugs fixed**: B-60, settings overlap, version/update overlap
-
-### Problem
-
-Across all `pdgui_menu_*.cpp` files, there are three categories of layout issues:
-
-1. **Hardcoded offsets** — `ImGui::SetCursorPosX(120)`, `ImGui::SetNextWindowPos(ImVec2(50, 80))`.
-   These break at non-standard UI scales.
-2. **Column widths that don't stretch** — table columns with fixed pixel widths clip text or leave
-   dead space at wider windows.
-3. **Window positioning that doesn't adapt** — update banner rendered at a fixed corner offset
-   that overlaps version text at certain scales.
-
-### Approach
-
-This is a sweep pass, not an architectural rewrite. The rule is: **every layout measurement
-must derive from `ImGui::GetContentRegionAvail()`, `viGetWidth()`/`viGetHeight()` via
-`pdguiScale()`, or a fraction thereof.** No raw pixel literals for position or size.
-
-**Patterns to enforce:**
-
-```cpp
-// Width of a panel — use fraction of available
-float panel_w = ImGui::GetContentRegionAvail().x * 0.45f;
-
-// Centering a button
-float btn_w = pdguiScale(120.f);
-ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - btn_w) * 0.5f);
-ImGui::Button("Accept##accept_btn", ImVec2(btn_w, 0));
-
-// Stretch column in a table
-ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
-ImGui::TableSetupColumn("Size",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(80.f));
-
-// Positioned window relative to screen edge
-ImGui::SetNextWindowPos(ImVec2(pdguiScale(10.f), viGetHeight() - pdguiScale(40.f)),
-                        ImGuiCond_Always, ImVec2(0, 1)); /* anchor bottom-left */
-```
-
-**Known sites to fix** (from playtest bug list):
-
-| Bug | Location | Fix |
-|-----|----------|-----|
-| B-60 | `pdgui_menu_mainmenu.cpp` — Settings Audio/Video tab rendering | Stray 'g'+'s': likely a `SetCursorPosX` that undershoots its tab content area; convert to `BeginTabItem` content region |
-| Settings text/tab overlap | `pdgui_menu_mainmenu.cpp` — tab bar vs content boundary | Use `ImGui::BeginTabBar` / `EndTabBar` with no manual cursor positioning inside |
-| Update banner overlap | `pdgui_menu_update.cpp` | Position banner using `viGetHeight()` anchor, not a hardcoded Y coordinate |
-| Column clipping in Update tab | `pdgui_menu_update.cpp` | Title column already patched in S131; verify stretch behavior at non-1080p |
-
-**Sweep order** (highest-impact first):
-
-1. `pdgui_menu_mainmenu.cpp` (Settings — most-visited screen)
-2. `pdgui_menu_update.cpp` (banner + update tab)
-3. `pdgui_menu_solomission.cpp` (new two-panel layout from D5.1 should be authored correctly from the start)
-4. `pdgui_menu_matchsetup.cpp` (busy layout — many columns)
-5. All remaining `pdgui_menu_*.cpp` files
-
-### Files Modified
-
-All `port/fast3d/pdgui_menu_*.cpp` files touched by the sweep. Exact list determined at
-implementation time via grep for raw pixel literals.
-
-### Estimated LOC: ~80 changed lines across ~8 files (small edits, high leverage)
-
----
-
-## Phase D5.4: OG Menu Texture / Effect Integration
-
-**Dependencies**: D5.1 (mission select detail panel needs briefing images + star textures)
+**Do this first. Everything else builds on top of it.**
 
 ### Goal
 
-Extract original Perfect Dark menu visual assets from the ROM and register them in the asset
-catalog as UI resources. ImGui menus can then sample them via `ImGui::Image()`. Modders can
-override any entry to retheme the UI.
+The authentic PD menu aesthetic: translucent blue panels, scan-line effects, color gradients,
+corner decorations. These are ROM textures we can extract and render via the catalog. All menus
+must use this theme. Modders can retheme the entire UI by swapping catalog UI texture entries.
 
-### Assets Required
+### New Module: `pdgui_theme.h` / `pdgui_theme.cpp`
 
-| Asset | ROM source | Catalog ID (proposed) | Used by |
-|-------|------------|-----------------------|---------|
-| Mission briefing images (21) | ROM texture bank, one per stage | `ui/briefing/datadyne_defection`, etc. | D5.1 detail panel |
-| Filled star indicator | ROM UI texture sheet | `ui/stars/star_filled` | D5.1 star row |
-| Empty star indicator | ROM UI texture sheet | `ui/stars/star_empty` | D5.1 star row |
-| Menu scan-line overlay | ROM effect texture | `ui/fx/scanline` | Global — applied as background overlay in `pdgui_backend.cpp` |
-| Translucent panel texture | ROM UI background | `ui/panels/blue_panel` | Optional panel borders |
-| Color gradient (title bar) | ROM UI gradient | `ui/fx/title_gradient` | Menu headers |
+Defines the menu visual layer. All drawing uses ImGui's draw list API (`AddImage`,
+`AddRectFilled`, `AddRect`, etc.) to overlay OG textures.
+
+**Public API:**
+
+```cpp
+// Draw a translucent PD-style panel at screen coordinates
+void pdguiThemeDrawPanel(float x, float y, float w, float h);
+
+// Draw PD corner/edge border decorations over a panel region
+void pdguiThemeDrawBorder(float x, float y, float w, float h);
+
+// Draw a header bar with PD style gradient + text
+void pdguiThemeDrawHeader(const char *text);
+
+// Draw a PD-style menu button (selected = highlighted state)
+bool pdguiThemeDrawButton(const char *label, bool selected, ImVec2 size);
+
+// Draw star indicators (0–3 filled) using OG ROM star textures
+void pdguiThemeDrawStars(int filled_count, int total_count);
+
+// Full-screen scan-line pass — call once per frame after all menu content
+void pdguiThemeApplyScanline(void);
+```
 
 ### Catalog Registration
 
-UI textures are a new catalog resource type. Registration approach:
+UI textures are registered in `assetcatalog_base.c` as `ASSET_UI` type entries. Proposed IDs:
 
-1. **New catalog resource kind**: `CATALOG_KIND_UI_TEXTURE` (or reuse `CATALOG_KIND_TEXTURE`
-   with a `ui/` prefix convention). This is purely a naming convention — the catalog engine
-   doesn't need a new kind if the resolve path handles `ui/` prefixes.
+| Asset | ROM source | Catalog ID |
+|-------|-----------|------------|
+| Translucent blue panel | ROM UI bg | `ui/panels/blue_panel` |
+| Panel border/corner set | ROM UI border | `ui/panels/border` |
+| Header gradient | ROM UI gradient | `ui/fx/title_gradient` |
+| Scan-line overlay | ROM effect texture | `ui/fx/scanline` |
+| Filled star indicator | ROM UI sprite sheet | `ui/stars/star_filled` |
+| Empty star indicator | ROM UI sprite sheet | `ui/stars/star_empty` |
+| Mission briefing images (21) | ROM texture bank | `ui/briefing/<stage_id>` |
+| Difficulty icons (Agent/SA/PA) | ROM UI sprites | `ui/icons/diff_agent`, etc. |
 
-2. **ROM extraction**: Add entries in `assetcatalog_base.c` that point to the ROM texture
-   segments containing these assets. Use existing `catalogRegisterTexture()` pattern.
-   The exact ROM offset and format (RGBA16, CI8, etc.) must be determined during implementation
-   by cross-referencing the original PD texture decompilation data.
+`pdguiGetUiTexture(const char *catalog_id)` in `pdgui_bridge.c` — resolves a catalog entry to
+an `ImTextureID`. Returns NULL if not loaded; callers must handle graceful fallback to solid
+color rendering. This ensures menus work with no ROM (dev/stub mode) and that mods can replace
+any texture entry.
 
-3. **ImGui texture handle**: After catalog resolution, the texture must be uploaded to OpenGL
-   and its handle stored. Add a `pdguiGetUiTexture(const char *catalog_id)` function in
-   `pdgui_bridge.c` that:
-   - Calls `assetCatalogResolve(catalog_id)`
-   - If the entry has a loaded texture handle, returns it as `ImTextureID`
-   - If not yet loaded, triggers a load and returns NULL (graceful fallback)
+### Fallback Behavior
 
-4. **Fallback path**: All ImGui sites that use catalog textures must check for NULL and render
-   a placeholder rect instead. This ensures the menus work even if catalog loading is partial.
+Every draw call checks whether the catalog texture loaded. If not:
+- Panels → `AddRectFilled` with semi-transparent blue (`#1A2E4A` at 80% alpha)
+- Borders → `AddRect` with accent blue
+- Stars → Unicode `★`/`☆` glyphs
+- Headers → solid colored band
+- Scan-line → skip pass entirely
 
-### Scan-Line Effect
+### Scan-Line Pass
 
-The scan-line overlay is applied once per frame in `pdgui_backend.cpp` after all menu content
-is rendered but before `ImGui::Render()`. It's a full-screen quad at low alpha (~0.08) using
-`ImGui::GetBackgroundDrawList()->AddImage()`. This gives menus their original CRT feel without
-modifying individual menu renderers.
+Called once per frame in `pdgui_backend.cpp` after all menu content is rendered, before
+`ImGui::Render()`. Uses `ImGui::GetBackgroundDrawList()->AddImage()` — a full-screen quad at
+~8% alpha using `ui/fx/scanline`. Gives all menus the original CRT texture without touching
+individual renderers.
 
-### Files Modified
+### Files
 
 | File | Change |
 |------|--------|
-| `port/src/assetcatalog_base.c` | Register UI texture entries |
+| `port/fast3d/pdgui_theme.cpp` | New — full theme implementation |
+| `port/include/pdgui_style.h` | Add `pdgui_theme.h` declarations (or new header) |
+| `port/fast3d/pdgui_backend.cpp` | Call `pdguiThemeApplyScanline()` per frame |
+| `port/src/assetcatalog_base.c` | Register all `ui/` catalog entries |
 | `port/fast3d/pdgui_bridge.c` | Add `pdguiGetUiTexture()` |
 | `port/include/pdgui_menus.h` | Declare `pdguiGetUiTexture()` |
-| `port/fast3d/pdgui_backend.cpp` | Add scan-line overlay pass |
-| `port/fast3d/pdgui_menu_solomission.cpp` | Use briefing images + star textures |
 
-### Estimated LOC: ~180 new (catalog registrations, bridge function, overlay pass, usage sites)
-
-### Note on Implementation Order
-
-D5.4 can partially proceed before D5.1 is complete. The catalog registration and bridge
-function can be written first, with the ImGui usage sites added as D5.1 is authored. The
-scan-line effect is fully independent.
+### Estimated LOC: ~400 (theme module ~200, catalog registrations ~80, bridge ~40, backend ~30, declarations ~50)
 
 ---
 
-## Phase D5.5: Update Banner Behavior
+## Phase D5.1: Input Ownership Boundary
 
-**Bugs fixed**: B-95, B-99
+**Do this second. Clean input ownership eliminates an entire class of bugs.**
 
-### B-95 — Auto-Dismiss During Gameplay
+### Two Modes, Clean Handoff
 
-**Problem**: The update notification banner (`pdgui_menu_update.cpp`) renders every frame
-regardless of game state. During solo missions and MP matches, it overlays the gameplay HUD.
+**MENU mode** — ImGui owns all input:
+- Legacy PD menu input completely suppressed
+- SDL events routed to ImGui only
+- Tab navigation disabled (arrow keys / Enter / Space / Esc / controller only)
+- Esc = toggle pause menu: single push, edge-detected, one input path only
 
-**Fix**: Add a game-state gate in the banner render function:
+**GAMEPLAY mode** — Game input system owns everything:
+- ImGui receives no input events
+- Mouse captured (SDL relative mode)
+- HUD overlay renders but does not consume input
 
-```cpp
-// In pdgui_menu_update.cpp — renderUpdateBanner() or equivalent
-extern "C" s32 g_MainInGame;          /* or equivalent "is in mission" check */
-extern "C" s32 pdguiIsGameplayActive(void); /* bridge function */
+**Transition rules:**
+- Last ImGui menu closes → switch to GAMEPLAY (call `inputLockMouse(1)`)
+- Esc pressed in gameplay → switch to MENU (open pause menu)
+- Only one place in the codebase handles each transition direction
 
-void renderUpdateBanner(void) {
-    if (pdguiIsGameplayActive()) return; /* B-95: hide during missions/matches */
-    // ... existing banner render ...
-}
+### What This Eliminates
+
+| Bug class | Root cause | After D5.1 |
+|-----------|-----------|------------|
+| Double Esc push (B-21) | Two code paths handle Esc | One path, edge-detected |
+| Tab conflicts | Tab reaches both ImGui and game | Tab suppressed in MENU mode |
+| Mouse capture timing (B-92) | No canonical "gameplay start" event | inputLockMouse(1) on GAMEPLAY transition |
+| Legacy input interference | Legacy menu tick still polling during ImGui menus | Suppressed at mode boundary |
+
+### Implementation
+
+New enum in `pdmain.c`:
+
+```c
+typedef enum {
+    INPUTMODE_MENU,     /* ImGui owns SDL events */
+    INPUTMODE_GAMEPLAY  /* game input owns, ImGui HUD only */
+} InputOwnerMode;
+
+extern InputOwnerMode g_InputMode;
 ```
 
-`pdguiIsGameplayActive()` is a new bridge function in `pdgui_bridge.c` that returns true
-when the game is in a mission (solo) or active match (MP), false when in menus. Check
-`g_MainState` or equivalent for the "in gameplay" condition.
+`pdmainSetInputMode(InputOwnerMode mode)` — canonical transition function. On switch to
+GAMEPLAY: calls `inputLockMouse(1)` + `SDL_SetRelativeMouseMode(SDL_TRUE)`. On switch to MENU:
+calls `inputLockMouse(0)` + `SDL_SetRelativeMouseMode(SDL_FALSE)`.
 
-The banner should re-appear when the player returns to the main menu or lobby.
+SDL event pump in `pdmain.c` checks `g_InputMode` before dispatching to legacy input vs. ImGui.
 
-### B-99 — Updater Extraction
-
-**Problem**: The updater downloads the release zip correctly but the extraction step may fail
-with the fixed v0.0.25 binaries. Needs an end-to-end retest.
-
-**Verification checklist**:
-1. Launch v0.0.24 (or a build that sees v0.0.25 as an update).
-2. Navigate to Settings → Update tab → trigger download.
-3. Monitor logs for extraction success/failure.
-4. Verify the new binary replaces the old one on restart.
-5. Check that `updater.c` properly handles the case where the zip contains a nested directory
-   (GitHub release zips wrap files in a `perfect-dark-X.Y.Z/` subdirectory — confirm the
-   extraction logic strips this prefix).
-
-If the extraction fails, the likely fix is in `updater.c` where it constructs the output
-path from zip entry names — ensure it strips any leading directory component.
-
-### Files Modified
+### Files
 
 | File | Change |
 |------|--------|
-| `pdgui_menu_update.cpp` | Add `pdguiIsGameplayActive()` gate (B-95) |
-| `pdgui_bridge.c` | Add `pdguiIsGameplayActive()` bridge function |
-| `port/src/updater.c` | Fix zip path stripping if needed (B-99, investigation-first) |
+| `port/src/pdmain.c` | Add `g_InputMode`, `pdmainSetInputMode()`, gate SDL dispatch |
+| `port/src/input.c` | Respect `g_InputMode` — suppress polling in MENU mode |
+| `port/fast3d/pdgui_backend.cpp` | Only pass SDL events to ImGui when `g_InputMode == INPUTMODE_MENU` |
 
-### Estimated LOC: ~25 (B-95 is trivial; B-99 may be investigation-only)
+### Estimated LOC: ~80 new + ~40 modified
 
 ---
 
-## Phase D5.6: Systematic OG Menu Conversion
+## Phase D5.3: Pause Menu + Sub-screens
 
-**Dependencies**: D5.3 (relative layout must be done first to author new menus correctly)
+**Third — unblocks gameplay immediately.**
 
-### Goal
+_(Numbered D5.3 per original plan; sequenced before D5.2 because pause menu unblocks in-game play.)_
 
-Audit all remaining legacy (OG) menu screens that are still active. For each, decide:
-- **Convert to ImGui**: screens that are functional but use the legacy renderer
-- **Keep legacy + wrap**: screens with irreplaceable 3D content (weapon models, controller diagrams)
-- **Remove**: dead screens with no current path to them
+### Full ImGui Pause Menu
 
-### Audit Procedure
+Replaces ALL legacy pause screens. Uses `pdguiThemeDrawPanel` / `pdguiThemeDrawBorder` from D5.0.
 
-For each legacy `menudialogdef` with a non-NULL `tickFn` but no ImGui `renderFn` registered:
-1. Find the dialog definition in `src/game/*.c`
-2. Determine what it displays and whether it has a working exit path in PC mode
-3. Classify: Convert / Keep / Remove
+| Item | Target | Implementation |
+|------|--------|----------------|
+| Resume | Close pause menu | `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` + `menuPopDialog()` |
+| Objectives | Inline panel | `g_Briefing.objectivenames[6]` + completion checkmarks from `g_GameFile.flags[]` |
+| Inventory | Sub-screen | List weapon slots + ammo; bridge via `pdguiSoloGetInventoryWeapon()` |
+| Options | Push existing | `g_SoloMissionOptionsMenuDialog` (already working) |
+| Restart Mission | Danger confirmation | Confirm → `menuhandlerAbortMission` + re-push difficulty |
+| Abort Mission | Danger confirmation | Push `g_MissionAbortMenuDialog` (already wired) |
 
-### Priority: Trapping Screens First
+**Inventory renderer** — registers a real `renderFn` for `g_SoloMissionInventoryMenuDialog`
+(currently NULL, causing B-98). Bridge function `pdguiSoloGetInventoryWeapon(slot, &name, &ammo)`
+in `pdgui_bridge.c` reads weapon slots without requiring `types.h` in C++. Read-only display.
+Exit button calls `menuPopDialog()`.
 
-Any screen that a player can enter but cannot exit (no working Back/Esc) is P0. Currently known:
+**Objectives completion** — `pdguiSoloGetObjectiveStatus(stageindex, obj_idx)` bridge function
+reads completion bits from `g_GameFile.flags[]`.
 
-| Screen | Bug | Action |
-|--------|-----|--------|
-| `g_SoloMissionInventoryMenuDialog` | B-98 | **Convert** (handled in D5.2) |
-| `g_SoloMissionControlStyleMenuDialog` | Unknown | **Audit**: controller diagram — likely keep as legacy (3D content) but verify Back works |
-| `g_FrWeaponsAvailableMenuDialog` | Unknown | **Audit**: training weapons list — verify Back works; convert if broken |
+**Duplicate ID fix (B-94)** — `PushID("solo_pause_menu")` scope + `##solo_pause` suffixes on
+all buttons. Audit propagation across `pdgui_menu_pausemenu.cpp`, `pdgui_menu_solomission.cpp`,
+`pdgui_menu_mpingame.cpp`.
+
+### Files
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_solomission.cpp` | Full `renderSoloPause()` — all items, `##id` suffixes, Restart confirmation |
+| `pdgui_menu_solomission.cpp` | Register real renderFn for `g_SoloMissionInventoryMenuDialog` |
+| `pdgui_bridge.c` | `pdguiSoloGetInventoryWeapon()`, `pdguiSoloGetObjectiveStatus()` |
+| `port/include/pdgui_menus.h` | Declare new bridge functions |
+
+### Estimated LOC: ~250 new + ~30 modified
+
+---
+
+## Phase D5.2: Mission Select Redesign
+
+**Uses the visual layer from D5.0.**
+
+### Two-Panel Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MISSION SELECT                                                   │
+│                                                                   │
+│  ┌────────────────────┐  ┌─────────────────────────────────────┐ │
+│  │ MAIN MISSIONS       │  │  dataDyne Central — Defection       │ │
+│  │ ─────────────────  │  │                                     │ │
+│  │ > dataDyne Central  │  │  [BRIEFING IMAGE via catalog]       │ │
+│  │   dataDyne Research │  │                                     │ │
+│  │   Carrington Villa  │  │  ★ ★ ☆  (highest diff cleared)     │ │
+│  │   …                 │  │                                     │ │
+│  │                     │  │  OBJECTIVES                         │ │
+│  │ SPECIAL ASSIGNMENTS │  │  > Disable security computer        │ │
+│  │ ─────────────────  │  │  > Investigate lab                  │ │
+│  │   Maian SOS         │  │  ░ Recover project list (SA/PA)     │ │
+│  │   War!              │  │                                     │ │
+│  └────────────────────┘  │  ─────────────────────────────────  │ │
+│                           │  Agent          2:14      [Start]   │ │
+│                           │  Special Agent  3:01      [Start]   │ │
+│                           │  Perfect Agent  -----     [Start]   │ │
+│                           └─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Left panel** — render only unlocked missions (`isStageDifficultyUnlocked(i, DIFF_A)`). Group:
+main missions (indices 0–8) and Special Assignments (indices 9–20). Each entry is a selectable
+row. Selection updates detail panel inline — no dialog push for the common case.
+
+**Right panel** — mission detail:
+1. Mission name — large heading
+2. Briefing image — `ImGui::Image()` from `ui/briefing/<stage_id>` catalog entry; dark placeholder if not loaded
+3. Star indicators — `pdguiThemeDrawStars()` from D5.0; reads `g_GameFile.besttimes[stageindex][d]`
+4. Objectives — from `g_Briefing.objectivenames[6]` + `objectivedifficulties[6]` bitmask; relevance-dimmed by hover difficulty
+5. Difficulty rows — Agent/SA/PA with best time + `[Start]` button; locked = dimmed + no Start; `##diff_a`, `##diff_sa`, `##diff_pa` suffixes
+
+All panels use `pdguiThemeDrawPanel()` and `pdguiThemeDrawBorder()`.
+
+### Files
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_solomission.cpp` | Rewrite `renderSelectMission()` — two-panel layout, unlock filter, objectives, star indicators, inline difficulty rows |
+| `pdgui_menu_solomission.cpp` | `renderAcceptMission()` becomes confirmation step, not primary objectives display |
+
+### Estimated LOC: ~350 net
+
+---
+
+## Phase D5.4: End Game Flow
+
+**Uses the visual layer from D5.0.**
+
+### Mission Complete Screen
+
+- Objectives met/failed checklist
+- Mission time + accuracy stats
+- Buttons: "Next Mission" / "Retry" / "Main Menu"
+- Style: `pdguiThemeDrawPanel` + `pdguiThemeDrawBorder`
+- Registered as `g_MissionCompleteMenuDialog` ImGui renderer
+
+### MP Match End Screen
+
+- Final scoreboard — all players/bots, kills/deaths/score
+- Buttons: "Play Again" / "Change Setup" / "Leave"
+- Reuses match setup data already accessible via bridge
+
+### Files
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_endscreen.cpp` | Rewrite/complete mission complete renderer |
+| `pdgui_menu_mpingame.cpp` | Add post-match scoreboard renderer |
+| `pdgui_bridge.c` | Any new bridge functions for end-game stats |
+
+### Estimated LOC: ~200 new
+
+---
+
+## Phase D5.5: Combat Sim Setup Polish
+
+### Bot Head/Body Matching
+
+Current state: body and head are resolved independently from catalog, allowing mismatched pairs
+(e.g. Joanna head on a guard body). Fix: build a dependency graph so head selection filters to
+compatible heads for the chosen body, and vice versa.
+
+Bridge function `pdguiGetCompatibleHeads(const char *body_id, char **out_ids, int *out_count)`.
+Dependency graph encoded in catalog metadata or a companion JSON.
+
+### Bot Name Dictionary
+
+Replace "MeatSim-1" style generated names with a word-list dictionary. Two arrays (adjectives,
+nouns), seeded deterministically from bot slot index. ~100 adjectives × ~100 nouns = 10,000
+combinations. Stored in `port/src/botvariant.c` or a new `port/src/botnames.c`.
+
+### Arena and Weapon Set Verification
+
+Arena list from catalog already working (S128). Verify all arenas render correctly in the
+match setup preview. Weapon set selection uses catalog IDs — verify all weapon set entries
+resolve.
+
+### Files
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_matchsetup.cpp` | Bot head/body filtering UI |
+| `pdgui_bridge.c` | `pdguiGetCompatibleHeads()` |
+| `port/src/botvariant.c` | Bot name dictionary |
+
+### Estimated LOC: ~150 new
+
+---
+
+## Phase D5.6: Settings & QoL
+
+**Settings tabs already work. This is polish only.**
+
+### Known Issues to Fix
+
+| Issue | Location | Fix |
+|-------|----------|-----|
+| Settings text overlaps tabs at some resolutions | `pdgui_menu_mainmenu.cpp` | All positions derived from `GetContentRegionAvail()`; no hardcoded pixel literals |
+| Scroll indicators too small | All `pdgui_menu_*.cpp` with scrollable lists | Fit content to window; when scrollbars needed, use wide explicit scrollbar |
+| Update banner overlap | `pdgui_menu_update.cpp` | Position using `viGetHeight()` anchor, not hardcoded Y |
+| B-60 stray 'g'+'s' | `pdgui_menu_mainmenu.cpp` Settings Audio/Video | Convert to `BeginTabItem` content region |
+| Update banner during gameplay (B-95) | `pdgui_menu_update.cpp` | Gate on `pdguiIsGameplayActive()` bridge function |
+
+### Layout Sweep Rule
+
+Every layout measurement derives from `ImGui::GetContentRegionAvail()`,
+`viGetWidth()`/`viGetHeight()` via `pdguiScale()`, or a fraction thereof. No raw pixel
+literals for position or size. Sweep order: `pdgui_menu_mainmenu.cpp` (highest traffic) →
+`pdgui_menu_update.cpp` → all remaining `pdgui_menu_*.cpp` files.
+
+### Settings Apply Visual Theme
+
+Settings screen uses `pdguiThemeDrawPanel` + `pdguiThemeDrawBorder` like all other screens.
+Settings tabs already use `BeginTabBar`/`EndTabBar` — verify no manual cursor positioning
+inside tab content areas.
+
+### Files
+
+All `port/fast3d/pdgui_menu_*.cpp` touched by layout sweep. `pdgui_bridge.c` for
+`pdguiIsGameplayActive()`. `port/src/updater.c` for B-99 extraction verification.
+
+### Estimated LOC: ~100 changed lines across ~8 files
+
+---
+
+## Phase D5.7: Online Lobby Polish
+
+### Immediate Fixes
+
+- Disable Co-Op, Counter-Op, Solo tabs in room screen — Combat Sim only for now. Tabs render
+  but are grayed out with "(Coming Soon)" tooltip.
+- Room navigation cleanup — Back/Esc behavior consistent; no stuck states
+- Match setup → match start flow verification: correct transition through lobby → setup → in-game
+
+### Files
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_room.cpp` | Disable unsupported tabs |
+| `pdgui_menu_lobby.cpp` | Navigation cleanup |
+
+### Estimated LOC: ~40 changed
+
+---
+
+## Phase D5.8: Systematic OG Menu Removal
+
+**Final pass — only after ALL screens have ImGui renderers.**
+
+### Process
+
+For each legacy `menudialogdef` with a non-NULL `tickFn`:
+1. Verify an ImGui `renderFn` is registered and tested
+2. Remove the legacy `tickFn` render path (keep `tickFn` only if it drives game logic, not rendering)
+3. Remove `menuPush`/`menuPop` calls to the converted screen from other renderers
+4. Clean up dead struct fields used only for legacy rendering
+
+### Priority: Trapping Screens First (P0)
+
+Any screen a player can enter but cannot exit is P0:
+
+| Screen | Status after D5.3 | Action |
+|--------|-------------------|--------|
+| `g_SoloMissionInventoryMenuDialog` | Fixed in D5.3 | Verify then remove legacy path |
+| `g_SoloMissionControlStyleMenuDialog` | Unknown | Audit: controller diagram — verify Back works; if legacy 3D, keep; if text-only, convert |
+| `g_FrWeaponsAvailableMenuDialog` | Unknown | Audit: training weapons list — verify Back; convert if broken |
 
 ### Conversion Checklist (per screen)
 
-For each screen being converted to ImGui:
-
-- [ ] Register an ImGui `renderFn` via `pdguiHotswapRegister()`
-- [ ] All data reads go through bridge functions or the catalog API (never direct `types.h` structs from C++)
+- [ ] ImGui `renderFn` registered via `pdguiHotswapRegister()`
+- [ ] All data reads through bridge functions or catalog API (no direct `types.h` structs from C++)
 - [ ] All buttons have `##id` suffixes scoped to this dialog
 - [ ] All sizes use `pdguiScale()` / `GetContentRegionAvail()` (no raw pixels)
-- [ ] Exit path: every screen must have a working "Back" / close path that calls `menuPopDialog()`
-- [ ] If the screen previously used `menuPushDialog` to open sub-screens, those sub-screens must also have exit paths
-- [ ] Palette: use `pdguiApplyPdStyle()` Blue for normal screens, Red for danger confirmations
-
-### Secondary Conversions (after trapping screens)
-
-Once P0 screens are resolved, sweep remaining dialogs in `pdgui_menu_solomission.cpp` and
-other files. Low-priority candidates (no player-facing breakage, just visual inconsistency):
-
-- Pre/post mission briefing screen — verify scroll works and text is readable
-- Challenge completion screen — verify completion status displays correctly
-- Training mode screens — low traffic, convert opportunistically
+- [ ] Working Back/close path that calls `menuPopDialog()`
+- [ ] Sub-screens also have exit paths
+- [ ] Palette: Blue for normal, Red for danger confirmations
+- [ ] Theme: `pdguiThemeDrawPanel` + `pdguiThemeDrawBorder`
 
 ### Files Modified
 
-Determined per-screen during the audit. Expected primary file: `pdgui_menu_solomission.cpp`.
-Bridge additions in `pdgui_bridge.c`.
+Determined per-screen during audit. Primary: `pdgui_menu_solomission.cpp`, `pdgui_bridge.c`.
 
-### Estimated LOC: ~150–300 (depends on how many screens need conversion; inventory is the biggest)
+### Estimated LOC: ~200–400 (depends on audit findings)
 
 ---
 
-## Implementation Order and Dependencies
+## Execution Order and Dependencies
 
 ```
-D5.1 (Mission Select Redesign)
-  └── D5.4 (OG Textures) — catalog + bridge can be done in parallel;
-        briefing images + stars plugged into D5.1 when both ready
-
-D5.2 (Solo Flow Fixes)
-  └── Independent of D5.1 (different dialogs, except both are in solomission.cpp)
-  └── B-92 (mouse) is a one-liner; do it first
-
-D5.3 (Relative Layout)
-  └── Do as a sweep pass after D5.1/D5.2 are authored correctly from the start
-  └── D5.6 depends on D5.3 being complete (new dialogs must follow the pattern)
-
-D5.5 (Update Banner)
-  └── Fully independent; can be done any time
-
-D5.6 (OG Menu Conversion)
-  └── Depends on D5.3 (layout patterns)
-  └── Inventory conversion already done in D5.2
+D5.0 (Visual Layer — theme module, catalog UI textures, scan-line)
+  │
+  └── D5.1 (Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect)
+        │
+        └── D5.3 (Pause Menu + Sub-screens — unblocks gameplay immediately)
+              │
+              ├── D5.2 (Mission Select Redesign — uses theme + clean input)
+              │
+              ├── D5.4 (End Game Flow — mission complete + MP match end)
+              │
+              ├── D5.5 (Combat Sim Polish — bot names, head/body graph)
+              │
+              ├── D5.6 (Settings & QoL — layout sweep, banner fix)
+              │
+              ├── D5.7 (Online Lobby Polish — tab gating, nav cleanup)
+              │
+              └── D5.8 (OG Menu Removal — only after all screens converted)
 ```
 
-**Recommended sequence**:
-1. B-92 mouse fix (15 min, high impact)
-2. B-94 duplicate ID fix (30 min, eliminates console spam)
-3. D5.2 — full pause menu (largest effort in this phase)
-4. D5.1 — mission select redesign (second largest)
-5. D5.5 — update banner gate (quick)
-6. D5.3 — layout sweep (touches many files but each edit is small)
-7. D5.4 — OG texture integration (can interleave with D5.1)
-8. D5.6 — OG menu audit + conversion (ongoing, low urgency except trapping screens)
+---
+
+## Success Criteria
+
+- Zero legacy menu screens active in any player-facing flow
+- All menus use the PD visual theme from D5.0 (panels, borders, scan-lines)
+- Input ownership is clean: no double Esc pushes, no Tab conflicts, no mouse capture timing issues
+- Modders can retheme the entire UI by replacing catalog `ui/` texture entries
+- Every menu transition is smooth: no tint bleed, no stuck states, no trapping screens
+- Settings text never overlaps tabs at any supported resolution
+- Update banner suppressed during gameplay
 
 ---
 
 ## Total Estimated Effort
 
-| Sub-phase | Effort |
-|-----------|--------|
-| D5.1 Mission Select | ~350 LOC |
-| D5.2 Solo Flow Fixes | ~250 LOC |
-| D5.3 Layout Sweep | ~80 LOC |
-| D5.4 OG Textures | ~180 LOC |
-| D5.5 Update Banner | ~25 LOC |
-| D5.6 OG Menu Conversion | ~150–300 LOC |
-| **Total** | **~1,000–1,200 LOC** |
+| Sub-phase | Description | Effort |
+|-----------|-------------|--------|
+| D5.0 | Menu Visual Layer | ~400 LOC |
+| D5.1 | Input Ownership Boundary | ~120 LOC |
+| D5.3 | Pause Menu + Sub-screens | ~280 LOC |
+| D5.2 | Mission Select Redesign | ~350 LOC |
+| D5.4 | End Game Flow | ~200 LOC |
+| D5.5 | Combat Sim Polish | ~150 LOC |
+| D5.6 | Settings & QoL | ~100 LOC |
+| D5.7 | Online Lobby Polish | ~40 LOC |
+| D5.8 | OG Menu Removal | ~200–400 LOC |
+| **Total** | | **~1,840–2,040 LOC** |
 
 ---
 
@@ -533,12 +499,22 @@ D5.6 (OG Menu Conversion)
 
 | File | Sub-phases |
 |------|------------|
-| `port/fast3d/pdgui_menu_solomission.cpp` | D5.1, D5.2, D5.6 |
-| `port/fast3d/pdgui_menu_pausemenu.cpp` | D5.2 (duplicate ID audit) |
-| `port/fast3d/pdgui_menu_mainmenu.cpp` | D5.3 (settings layout) |
-| `port/fast3d/pdgui_menu_update.cpp` | D5.3 (banner position), D5.5 |
-| `port/fast3d/pdgui_backend.cpp` | D5.4 (scan-line overlay) |
-| `port/fast3d/pdgui_bridge.c` | D5.2 (inventory/objectives bridge), D5.4 (UI texture bridge), D5.5 (gameplay gate) |
-| `port/src/assetcatalog_base.c` | D5.4 (UI texture catalog registrations) |
-| `port/src/pdmain.c` | D5.2 (B-92 mouse capture) |
-| `port/src/updater.c` | D5.5 (B-99 investigation) |
+| `port/fast3d/pdgui_theme.cpp` (new) | D5.0 |
+| `port/include/pdgui_style.h` | D5.0 |
+| `port/fast3d/pdgui_backend.cpp` | D5.0 (scan-line pass) |
+| `port/src/assetcatalog_base.c` | D5.0 (UI texture catalog entries) |
+| `port/fast3d/pdgui_bridge.c` | D5.0, D5.1, D5.3, D5.5, D5.6 |
+| `port/include/pdgui_menus.h` | D5.0, D5.3 |
+| `port/src/pdmain.c` | D5.1 (input mode) |
+| `port/src/input.c` | D5.1 (mode gating) |
+| `port/fast3d/pdgui_menu_solomission.cpp` | D5.3, D5.2, D5.8 |
+| `port/fast3d/pdgui_menu_pausemenu.cpp` | D5.3 (duplicate ID audit) |
+| `port/fast3d/pdgui_menu_mainmenu.cpp` | D5.6 (settings layout) |
+| `port/fast3d/pdgui_menu_update.cpp` | D5.6 (banner, B-95) |
+| `port/fast3d/pdgui_menu_endscreen.cpp` | D5.4 |
+| `port/fast3d/pdgui_menu_mpingame.cpp` | D5.4 (post-match scoreboard) |
+| `port/fast3d/pdgui_menu_matchsetup.cpp` | D5.5 (bot head/body filter) |
+| `port/fast3d/pdgui_menu_room.cpp` | D5.7 |
+| `port/fast3d/pdgui_menu_lobby.cpp` | D5.7 |
+| `port/src/botvariant.c` | D5.5 (bot name dictionary) |
+| `port/src/updater.c` | D5.6 (B-99 extraction) |
