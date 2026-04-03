@@ -12,7 +12,7 @@ Last updated: 2026-04-03 (S135)
 > Core principle: build the visual layer and input ownership boundary FIRST, then build every
 > screen on top of that foundation. Not incremental patches — a planned infrastructure sweep.
 >
-> Execution order: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
+> Execution order: D5.0a → D5.0 → D5.1 → D5.2 → D5.3 → D5.4 → D5.5 → D5.6 → D5.7
 
 ---
 
@@ -21,20 +21,55 @@ Last updated: 2026-04-03 (S135)
 | Component | File | State |
 |-----------|------|-------|
 | Menu visual theme | — | Not built; all ImGui menus use plain styled colors, no OG textures |
+| Fast3D texture bridge | `pdgui_bridge.c` | Not validated; D5.0a spike required before D5.0 |
 | Input ownership | `pdmain.c` / `input.c` | No clean MENU/GAMEPLAY boundary; Esc double-push, Tab conflicts, mouse capture timing issues |
 | Mission select | `pdgui_menu_solomission.cpp` | All missions shown regardless of unlock; minimal popup; objectives "(No objectives)"; difficulty flow wrong |
 | Solo pause menu | `pdgui_menu_solomission.cpp` | Only Resume/Options work; Abort wired; Inventory/Objectives fall back to legacy renderers |
 | Inventory (solo) | `g_SoloMissionInventoryMenuDialog` | Registered with NULL renderer — full legacy 3D, traps player with no working exit |
 | End game screens | — | Not built in ImGui; post-mission and post-match use legacy screens |
-| Combat Sim setup | `pdgui_menu_matchsetup.cpp` | Bot heads/bodies independently resolved (mismatch bug); generic bot names |
-| Online lobby | `pdgui_menu_room.cpp` / lobby | Co-Op / Counter-Op / Solo tabs visible but unsupported; navigation janky |
+| Combat Sim setup | `pdgui_menu_matchsetup.cpp` | Bot heads/bodies independently resolved (mismatch bug — fix folded into D5.2); generic bot names |
+| Online lobby | `pdgui_menu_room.cpp` / lobby | Co-Op / Counter-Op / Solo tabs visible but unsupported |
 | OG menu removal | — | No systematic removal pass; many legacy screens still active |
+
+---
+
+## Phase D5.0a: Technical Spike (FIRST — Single Session)
+
+**Before ANY other D5 work: validate the pipeline.**
+
+### Goal
+
+Prove that an OG PD ROM texture can be rendered inside an ImGui window via the Fast3D texture
+bridge. This is a single-session proof of concept. If it works, the full D5.0 visual layer plan
+is viable. If it does not, build the missing bridge code first, then re-run the spike.
+
+### Spike Task
+
+1. Pick one simple UI texture from the ROM (e.g. the menu panel background or a star sprite).
+2. Extract it through the asset catalog (`assetCatalogResolve("ui/panels/blue_panel")`).
+3. Upload it to OpenGL via the existing texture upload path in `gfx_pc.cpp`.
+4. Render it inside an ImGui window using `ImGui::Image()`.
+
+### Pass/Fail Criteria
+
+- **Pass**: Texture appears correctly in an ImGui window. Proceed to D5.0.
+- **Fail**: Pipeline gap identified. Build the missing Fast3D texture bridge, then re-run the
+  spike before starting D5.0.
+
+### Files
+
+| File | Change |
+|------|--------|
+| `port/fast3d/pdgui_bridge.c` | Add `pdguiGetUiTexture()` spike implementation |
+| `port/src/assetcatalog_base.c` | Register one test `ui/` entry |
+
+### Estimated LOC: ~50 (spike only — full implementation in D5.0)
 
 ---
 
 ## Phase D5.0: Menu Visual Layer (FOUNDATION)
 
-**Do this first. Everything else builds on top of it.**
+**Do this second (after spike passes). Everything else builds on top of it.**
 
 ### Goal
 
@@ -85,18 +120,24 @@ UI textures are registered in `assetcatalog_base.c` as `ASSET_UI` type entries. 
 | Difficulty icons (Agent/SA/PA) | ROM UI sprites | `ui/icons/diff_agent`, etc. |
 
 `pdguiGetUiTexture(const char *catalog_id)` in `pdgui_bridge.c` — resolves a catalog entry to
-an `ImTextureID`. Returns NULL if not loaded; callers must handle graceful fallback to solid
-color rendering. This ensures menus work with no ROM (dev/stub mode) and that mods can replace
-any texture entry.
+an `ImTextureID`.
 
-### Fallback Behavior
+### Fallback Policy
 
-Every draw call checks whether the catalog texture loaded. If not:
-- Panels → `AddRectFilled` with semi-transparent blue (`#1A2E4A` at 80% alpha)
-- Borders → `AddRect` with accent blue
-- Stars → Unicode `★`/`☆` glyphs
-- Headers → solid colored band
-- Scan-line → skip pass entirely
+**Base game UI textures** (all `ui/` catalog entries backed by the ROM) are **always available**.
+There is no fallback to solid colors for base content. If `pdguiGetUiTexture()` returns NULL for
+a base entry, it is a pipeline bug:
+
+- Log `LOG_ERROR` with the catalog ID.
+- `assert(tex != NULL)` in debug builds.
+- File a bug and fix the pipeline. Do NOT substitute solid colors — that hides the root cause.
+
+**Mod UI textures** (entries overridden by a mod catalog) fall back to the base game equivalent
+via the normal catalog override/fallback mechanism. A mod that fails to provide a texture gets
+the ROM-backed base game texture automatically.
+
+This policy ensures the base game always looks correct, mods can safely override any texture,
+and pipeline bugs surface immediately rather than being masked.
 
 ### Scan-Line Pass
 
@@ -113,7 +154,7 @@ individual renderers.
 | `port/include/pdgui_style.h` | Add `pdgui_theme.h` declarations (or new header) |
 | `port/fast3d/pdgui_backend.cpp` | Call `pdguiThemeApplyScanline()` per frame |
 | `port/src/assetcatalog_base.c` | Register all `ui/` catalog entries |
-| `port/fast3d/pdgui_bridge.c` | Add `pdguiGetUiTexture()` |
+| `port/fast3d/pdgui_bridge.c` | Full `pdguiGetUiTexture()` implementation |
 | `port/include/pdgui_menus.h` | Declare `pdguiGetUiTexture()` |
 
 ### Estimated LOC: ~400 (theme module ~200, catalog registrations ~80, bridge ~40, backend ~30, declarations ~50)
@@ -122,7 +163,7 @@ individual renderers.
 
 ## Phase D5.1: Input Ownership Boundary
 
-**Do this second. Clean input ownership eliminates an entire class of bugs.**
+**Do this third. Clean input ownership eliminates an entire class of bugs.**
 
 ### Two Modes, Clean Handoff
 
@@ -182,11 +223,12 @@ SDL event pump in `pdmain.c` checks `g_InputMode` before dispatching to legacy i
 
 ---
 
-## Phase D5.3: Pause Menu + Sub-screens
+## Phase D5.2: Pause Menu + Sub-screens + Bot Sync Fix
 
-**Third — unblocks gameplay immediately.**
+**Fourth — unblocks gameplay immediately.**
 
-_(Numbered D5.3 per original plan; sequenced before D5.2 because pause menu unblocks in-game play.)_
+_(Was D5.3 in the original plan. Sequenced before mission select because pause menu unblocks
+in-game play. Bot head/body sync bug fix folded in here — it is a bug fix, not polish.)_
 
 ### Full ImGui Pause Menu
 
@@ -213,22 +255,34 @@ reads completion bits from `g_GameFile.flags[]`.
 all buttons. Audit propagation across `pdgui_menu_pausemenu.cpp`, `pdgui_menu_solomission.cpp`,
 `pdgui_menu_mpingame.cpp`.
 
+### Bot Head/Body Sync Fix (folded from old D5.5)
+
+Current state: body and head are resolved independently from catalog, allowing mismatched pairs
+(e.g. Joanna head on a guard body). Fix: build a dependency graph so head selection filters to
+compatible heads for the chosen body, and vice versa.
+
+Bridge function `pdguiGetCompatibleHeads(const char *body_id, char **out_ids, int *out_count)`.
+Dependency graph encoded in catalog metadata or a companion JSON.
+
 ### Files
 
 | File | Change |
 |------|--------|
 | `pdgui_menu_solomission.cpp` | Full `renderSoloPause()` — all items, `##id` suffixes, Restart confirmation |
 | `pdgui_menu_solomission.cpp` | Register real renderFn for `g_SoloMissionInventoryMenuDialog` |
-| `pdgui_bridge.c` | `pdguiSoloGetInventoryWeapon()`, `pdguiSoloGetObjectiveStatus()` |
+| `pdgui_bridge.c` | `pdguiSoloGetInventoryWeapon()`, `pdguiSoloGetObjectiveStatus()`, `pdguiGetCompatibleHeads()` |
 | `port/include/pdgui_menus.h` | Declare new bridge functions |
+| `pdgui_menu_matchsetup.cpp` | Bot head/body filtering UI |
 
-### Estimated LOC: ~250 new + ~30 modified
+### Estimated LOC: ~300 new + ~30 modified
 
 ---
 
-## Phase D5.2: Mission Select Redesign
+## Phase D5.3: Mission Select Redesign
 
-**Uses the visual layer from D5.0.**
+**Fifth — uses the visual layer from D5.0.**
+
+_(Was D5.2 in the original plan.)_
 
 ### Two-Panel Layout
 
@@ -262,7 +316,7 @@ row. Selection updates detail panel inline — no dialog push for the common cas
 
 **Right panel** — mission detail:
 1. Mission name — large heading
-2. Briefing image — `ImGui::Image()` from `ui/briefing/<stage_id>` catalog entry; dark placeholder if not loaded
+2. Briefing image — `ImGui::Image()` from `ui/briefing/<stage_id>` catalog entry; assert/log if not loaded (base content must always resolve)
 3. Star indicators — `pdguiThemeDrawStars()` from D5.0; reads `g_GameFile.besttimes[stageindex][d]`
 4. Objectives — from `g_Briefing.objectivenames[6]` + `objectivedifficulties[6]` bitmask; relevance-dimmed by hover difficulty
 5. Difficulty rows — Agent/SA/PA with best time + `[Start]` button; locked = dimmed + no Start; `##diff_a`, `##diff_sa`, `##diff_pa` suffixes
@@ -280,9 +334,9 @@ All panels use `pdguiThemeDrawPanel()` and `pdguiThemeDrawBorder()`.
 
 ---
 
-## Phase D5.4: End Game Flow
+## Phase D5.4: End Game Flow + Online Lobby Navigation
 
-**Uses the visual layer from D5.0.**
+**Uses the visual layer from D5.0. Online lobby tab gating folded in here (one-liner).**
 
 ### Mission Complete Screen
 
@@ -298,6 +352,12 @@ All panels use `pdguiThemeDrawPanel()` and `pdguiThemeDrawBorder()`.
 - Buttons: "Play Again" / "Change Setup" / "Leave"
 - Reuses match setup data already accessible via bridge
 
+### Online Lobby Tab Gating (folded from old D5.7)
+
+Disable Co-Op, Counter-Op, Solo tabs in room screen — Combat Sim only for now. Tabs render
+but are grayed out with "(Coming Soon)" tooltip. One `BeginTabItem(..., ImGuiTabItemFlags_Disabled)`
+change per unsupported tab. Room navigation cleanup — Back/Esc behavior consistent; no stuck states.
+
 ### Files
 
 | File | Change |
@@ -305,21 +365,16 @@ All panels use `pdguiThemeDrawPanel()` and `pdguiThemeDrawBorder()`.
 | `pdgui_menu_endscreen.cpp` | Rewrite/complete mission complete renderer |
 | `pdgui_menu_mpingame.cpp` | Add post-match scoreboard renderer |
 | `pdgui_bridge.c` | Any new bridge functions for end-game stats |
+| `pdgui_menu_room.cpp` | Disable unsupported tabs (one-liner) |
+| `pdgui_menu_lobby.cpp` | Navigation cleanup |
 
-### Estimated LOC: ~200 new
+### Estimated LOC: ~200 new + ~10 changed
 
 ---
 
 ## Phase D5.5: Combat Sim Setup Polish
 
-### Bot Head/Body Matching
-
-Current state: body and head are resolved independently from catalog, allowing mismatched pairs
-(e.g. Joanna head on a guard body). Fix: build a dependency graph so head selection filters to
-compatible heads for the chosen body, and vice versa.
-
-Bridge function `pdguiGetCompatibleHeads(const char *body_id, char **out_ids, int *out_count)`.
-Dependency graph encoded in catalog metadata or a companion JSON.
+_(Bot head/body sync fix moved to D5.2. This phase covers the remaining polish.)_
 
 ### Bot Name Dictionary
 
@@ -337,11 +392,10 @@ resolve.
 
 | File | Change |
 |------|--------|
-| `pdgui_menu_matchsetup.cpp` | Bot head/body filtering UI |
-| `pdgui_bridge.c` | `pdguiGetCompatibleHeads()` |
 | `port/src/botvariant.c` | Bot name dictionary |
+| `pdgui_menu_matchsetup.cpp` | Arena/weapon set verification sweep |
 
-### Estimated LOC: ~150 new
+### Estimated LOC: ~100 new
 
 ---
 
@@ -381,27 +435,7 @@ All `port/fast3d/pdgui_menu_*.cpp` touched by layout sweep. `pdgui_bridge.c` for
 
 ---
 
-## Phase D5.7: Online Lobby Polish
-
-### Immediate Fixes
-
-- Disable Co-Op, Counter-Op, Solo tabs in room screen — Combat Sim only for now. Tabs render
-  but are grayed out with "(Coming Soon)" tooltip.
-- Room navigation cleanup — Back/Esc behavior consistent; no stuck states
-- Match setup → match start flow verification: correct transition through lobby → setup → in-game
-
-### Files
-
-| File | Change |
-|------|--------|
-| `pdgui_menu_room.cpp` | Disable unsupported tabs |
-| `pdgui_menu_lobby.cpp` | Navigation cleanup |
-
-### Estimated LOC: ~40 changed
-
----
-
-## Phase D5.8: Systematic OG Menu Removal
+## Phase D5.7: Systematic OG Menu Removal
 
 **Final pass — only after ALL screens have ImGui renderers.**
 
@@ -417,9 +451,9 @@ For each legacy `menudialogdef` with a non-NULL `tickFn`:
 
 Any screen a player can enter but cannot exit is P0:
 
-| Screen | Status after D5.3 | Action |
+| Screen | Status after D5.2 | Action |
 |--------|-------------------|--------|
-| `g_SoloMissionInventoryMenuDialog` | Fixed in D5.3 | Verify then remove legacy path |
+| `g_SoloMissionInventoryMenuDialog` | Fixed in D5.2 | Verify then remove legacy path |
 | `g_SoloMissionControlStyleMenuDialog` | Unknown | Audit: controller diagram — verify Back works; if legacy 3D, keep; if text-only, convert |
 | `g_FrWeaponsAvailableMenuDialog` | Unknown | Audit: training weapons list — verify Back; convert if broken |
 
@@ -434,6 +468,8 @@ Any screen a player can enter but cannot exit is P0:
 - [ ] Palette: Blue for normal, Red for danger confirmations
 - [ ] Theme: `pdguiThemeDrawPanel` + `pdguiThemeDrawBorder`
 
+Reference `context/designs/menu-inventory.md` for the complete list of screens to audit.
+
 ### Files Modified
 
 Determined per-screen during audit. Primary: `pdgui_menu_solomission.cpp`, `pdgui_bridge.c`.
@@ -442,26 +478,60 @@ Determined per-screen during audit. Primary: `pdgui_menu_solomission.cpp`, `pdgu
 
 ---
 
+## Execution Blocks
+
+Work is organized into four blocks, each ending with a **playtest gate** before the next block begins.
+
+### Block 1 — Foundation
+**D5.0a (tech spike) + D5.0 (visual layer) + D5.1 (input boundary)**
+
+Validate the texture pipeline before writing the theme module. Build the input mode boundary.
+
+_Playtest gate_: Verify scan-lines appear, panels render with OG ROM textures, Esc edge-detect works, no double-push.
+
+### Block 2 — Gameplay-Critical
+**D5.2 (pause menu + bot sync fix) + D5.3 (mission select)**
+
+Unblocks in-game play. Pause menu fully functional. Mission select shows correct unlock state. Bot head/body sync fixed in Combat Sim.
+
+_Playtest gate_: Complete a mission start-to-finish from the menu. Verify all pause sub-screens. Verify bot setup has no mismatched head/body.
+
+### Block 3 — Flow Completion
+**D5.4 (end game + online lobby nav) + D5.5 (combat sim polish) + D5.6 (settings)**
+
+All player-facing flows reachable and correct. No stuck states. Online lobby tabs gated correctly.
+
+_Playtest gate_: Run a full multiplayer match start-to-finish. Verify end screens. Verify online lobby tab gating. Verify settings at multiple resolutions.
+
+### Block 4 — Cleanup
+**D5.7 (OG menu removal) + final verification**
+
+Remove all legacy menu paths. Audit every screen against `context/designs/menu-inventory.md`.
+
+_Playtest gate_: Full regression — every screen in the menu inventory checked off.
+
+---
+
 ## Execution Order and Dependencies
 
 ```
-D5.0 (Visual Layer — theme module, catalog UI textures, scan-line)
+D5.0a (Technical Spike — validate Fast3D texture bridge)
   │
-  └── D5.1 (Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect)
+  └── D5.0 (Visual Layer — theme module, catalog UI textures, scan-line)
         │
-        └── D5.3 (Pause Menu + Sub-screens — unblocks gameplay immediately)
+        └── D5.1 (Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect)
               │
-              ├── D5.2 (Mission Select Redesign — uses theme + clean input)
-              │
-              ├── D5.4 (End Game Flow — mission complete + MP match end)
-              │
-              ├── D5.5 (Combat Sim Polish — bot names, head/body graph)
-              │
-              ├── D5.6 (Settings & QoL — layout sweep, banner fix)
-              │
-              ├── D5.7 (Online Lobby Polish — tab gating, nav cleanup)
-              │
-              └── D5.8 (OG Menu Removal — only after all screens converted)
+              └── D5.2 (Pause Menu + Sub-screens + Bot Sync Fix)
+                    │
+                    ├── D5.3 (Mission Select Redesign — uses theme + clean input)
+                    │
+                    ├── D5.4 (End Game Flow + Online Lobby Tab Gating)
+                    │
+                    ├── D5.5 (Combat Sim Polish — bot names, arena verification)
+                    │
+                    ├── D5.6 (Settings & QoL — layout sweep, banner fix)
+                    │
+                    └── D5.7 (OG Menu Removal — only after all screens converted)
 ```
 
 ---
@@ -482,16 +552,16 @@ D5.0 (Visual Layer — theme module, catalog UI textures, scan-line)
 
 | Sub-phase | Description | Effort |
 |-----------|-------------|--------|
+| D5.0a | Technical Spike | ~50 LOC |
 | D5.0 | Menu Visual Layer | ~400 LOC |
 | D5.1 | Input Ownership Boundary | ~120 LOC |
-| D5.3 | Pause Menu + Sub-screens | ~280 LOC |
-| D5.2 | Mission Select Redesign | ~350 LOC |
-| D5.4 | End Game Flow | ~200 LOC |
-| D5.5 | Combat Sim Polish | ~150 LOC |
+| D5.2 | Pause Menu + Sub-screens + Bot Sync Fix | ~300 LOC |
+| D5.3 | Mission Select Redesign | ~350 LOC |
+| D5.4 | End Game Flow + Online Lobby Tab | ~210 LOC |
+| D5.5 | Combat Sim Polish | ~100 LOC |
 | D5.6 | Settings & QoL | ~100 LOC |
-| D5.7 | Online Lobby Polish | ~40 LOC |
-| D5.8 | OG Menu Removal | ~200–400 LOC |
-| **Total** | | **~1,840–2,040 LOC** |
+| D5.7 | OG Menu Removal | ~200–400 LOC |
+| **Total** | | **~1,830–2,030 LOC** |
 
 ---
 
@@ -503,18 +573,18 @@ D5.0 (Visual Layer — theme module, catalog UI textures, scan-line)
 | `port/include/pdgui_style.h` | D5.0 |
 | `port/fast3d/pdgui_backend.cpp` | D5.0 (scan-line pass) |
 | `port/src/assetcatalog_base.c` | D5.0 (UI texture catalog entries) |
-| `port/fast3d/pdgui_bridge.c` | D5.0, D5.1, D5.3, D5.5, D5.6 |
-| `port/include/pdgui_menus.h` | D5.0, D5.3 |
+| `port/fast3d/pdgui_bridge.c` | D5.0a, D5.0, D5.1, D5.2, D5.5, D5.6 |
+| `port/include/pdgui_menus.h` | D5.0, D5.2 |
 | `port/src/pdmain.c` | D5.1 (input mode) |
 | `port/src/input.c` | D5.1 (mode gating) |
-| `port/fast3d/pdgui_menu_solomission.cpp` | D5.3, D5.2, D5.8 |
-| `port/fast3d/pdgui_menu_pausemenu.cpp` | D5.3 (duplicate ID audit) |
+| `port/fast3d/pdgui_menu_solomission.cpp` | D5.2, D5.3, D5.7 |
+| `port/fast3d/pdgui_menu_pausemenu.cpp` | D5.2 (duplicate ID audit) |
 | `port/fast3d/pdgui_menu_mainmenu.cpp` | D5.6 (settings layout) |
 | `port/fast3d/pdgui_menu_update.cpp` | D5.6 (banner, B-95) |
 | `port/fast3d/pdgui_menu_endscreen.cpp` | D5.4 |
 | `port/fast3d/pdgui_menu_mpingame.cpp` | D5.4 (post-match scoreboard) |
-| `port/fast3d/pdgui_menu_matchsetup.cpp` | D5.5 (bot head/body filter) |
-| `port/fast3d/pdgui_menu_room.cpp` | D5.7 |
-| `port/fast3d/pdgui_menu_lobby.cpp` | D5.7 |
+| `port/fast3d/pdgui_menu_matchsetup.cpp` | D5.2 (bot head/body filter), D5.5 (polish) |
+| `port/fast3d/pdgui_menu_room.cpp` | D5.4 (tab gating) |
+| `port/fast3d/pdgui_menu_lobby.cpp` | D5.4 (navigation cleanup) |
 | `port/src/botvariant.c` | D5.5 (bot name dictionary) |
 | `port/src/updater.c` | D5.6 (B-99 extraction) |

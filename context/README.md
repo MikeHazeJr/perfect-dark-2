@@ -93,6 +93,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 | [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | **S84 design**: Unified 8-phase match startup (Gather→Manifest→Check→Catalog→Transfer→Ready Gate→Load→Sync). Merges B-12 P3, R-2/R-3, J-3, C-series, mod distribution. Phases A–F implemented. | Match startup pipeline (Phase A–F) |
 | [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | NAT traversal architecture: STUN, hole-punch, relay fallback design | NAT/networking reference |
 | [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | **S90 design**: Session catalog + modular API — per-system typed query functions, network session catalog translation layer (catalog IDs ↔ wire hashes), load manifest system for MP and SP. Audit of ~180 raw-index call sites across 20 patterns. **Highest infrastructure priority.** | Any asset loading, wire protocol, save file work |
+| [designs/menu-inventory.md](designs/menu-inventory.md) | **S135**: Complete inventory of all ~120 reachable screens/dialogs/popups — implementation status (ImGui/OG/Stub), file path, D5 phase, notes. Definitive checklist for D5.7 OG removal and regression testing. | D5 work, menu migration, QC regression |
 
 ## Architecture Decision Records
 
