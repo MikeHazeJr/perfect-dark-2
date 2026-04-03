@@ -602,7 +602,11 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
             sysLogPrintf(LOG_WARNING, "DISTRIB: can't write %s", outpath);
             continue;
         }
-        fwrite(fdata, 1, dlen, fp);
+        if (fwrite(fdata, 1, dlen, fp) != dlen) {
+            sysLogPrintf(LOG_WARNING, "DISTRIB: short write %s", outpath);
+            fclose(fp);
+            continue;
+        }
         fclose(fp);
         extracted++;
     }

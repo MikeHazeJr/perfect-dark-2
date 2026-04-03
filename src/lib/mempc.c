@@ -136,7 +136,7 @@ void *mempPCAlloc(u32 size, const char *tag)
 		strncpy(a->tag, tag, MAX_TAG_LEN - 1);
 		a->tag[MAX_TAG_LEN - 1] = '\0';
 	} else {
-		strcpy(a->tag, "(unnamed)");
+		strncpy(a->tag, "(unnamed)", MAX_TAG_LEN - 1); a->tag[MAX_TAG_LEN - 1] = '\0';
 	}
 
 	fillGuards(a);

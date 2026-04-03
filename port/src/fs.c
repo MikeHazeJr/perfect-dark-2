@@ -255,7 +255,10 @@ s32 fsInit(void)
 							u8 buf[4096];
 							size_t n;
 							while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
-								fwrite(buf, 1, n, dst);
+								if (fwrite(buf, 1, n, dst) != n) {
+									sysLogPrintf(LOG_WARNING, "fs: short write during migration copy");
+									break;
+								}
 							}
 							fclose(dst);
 							sysLogPrintf(LOG_NOTE, "migrated %s -> %s", oldPath, newPath);
@@ -318,7 +321,11 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 		return -1;
 	}
 
-	fread(dst, 1, size, f);
+	if (fread(dst, 1, size, f) != (size_t)size) {
+		sysLogPrintf(LOG_WARNING, "fsFileLoadTo: short read: %s", fullName);
+		fclose(f);
+		return -1;
+	}
 	fclose(f);
 
 	return size;
@@ -352,7 +359,13 @@ void *fsFileLoad(const char *name, u32 *outSize)
 			fclose(f);
 			return NULL;
 		}
-		fread(buf, 1, size, f);
+		if (fread(buf, 1, size, f) != (size_t)size) {
+			sysLogPrintf(LOG_WARNING, "fsFileLoad: short read: %s", fullName);
+			free(buf);
+			fclose(f);
+			if (outSize) *outSize = 0;
+			return NULL;
+		}
 	}
 
 	fclose(f);

@@ -780,7 +780,7 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 	case MENUOP_GETSLIDERLABEL:
 		// NOTE: data->slider.label length must not exceed 15.
 		if (data->slider.value == 0) {
-			strcpy(data->slider.label, "Off");
+			strncpy(data->slider.label, "Off", 15); data->slider.label[15] = '\0';
 		} else {
 			snprintf(data->slider.label, 16, "%d FPS", data->slider.value);
 		}
@@ -1507,7 +1507,7 @@ static MenuItemHandlerResult menuhandlerPlayerJumpHeight(s32 operation, struct m
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 0) {
-			strcpy(data->slider.label, "Match");
+			strncpy(data->slider.label, "Match", 15); data->slider.label[15] = '\0';
 		} else {
 			snprintf(data->slider.label, 16, "%.1f", (f32)data->slider.value / 10.f);
 		}

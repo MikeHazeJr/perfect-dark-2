@@ -2517,7 +2517,6 @@ Gfx *menuitemSliderRender(Gfx *gdl, struct menurendercontext *context)
 	gdl = textRenderProjected(gdl, &x, &y, label, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, context->width, context->height, 0, 0);
 
 	if ((context->item->flags & MENUITEMFLAG_SLIDER_HIDEVALUE) == 0) {
-		strcpy(buffer, "");
 		snprintf(buffer, sizeof(buffer), "%d\n", slidervalue);
 
 		if (context->item->handler != NULL) {

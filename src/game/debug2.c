@@ -486,7 +486,7 @@ void debugUpdateMenu(void)
 
 		g_DebugCutsceneOffsets[0] = 0;
 
-		strcpy(g_DebugCutsceneLabelPtrs[0], "main");
+		strncpy(g_DebugCutsceneLabelPtrs[0], "main", 19); g_DebugCutsceneLabelPtrs[0][19] = '\0';
 		g_DebugCutsceneOffsets[0]++;
 
 		for (i = 0; ; i++) {

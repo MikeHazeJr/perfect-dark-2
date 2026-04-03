@@ -413,7 +413,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 	switch (g_AmMenus[g_AmIndex].screenindex) {
 	case 0: // Weapon screen
 		if (slot == 4) {
-			strcpy(label, langGet(L_MISC_170)); // "Weapon"
+			strncpy(label, langGet(L_MISC_170), 31); label[31] = '\0'; // "Weapon"
 			return;
 		}
 
@@ -426,7 +426,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 		}
 
 		if (g_AmMenus[g_AmIndex].invindexes[slot] >= invGetCount()) {
-			strcpy(label, "");
+			label[0] = '\0';
 		} else {
 			if (invGetWeaponNumByIndex(g_AmMenus[g_AmIndex].invindexes[slot]) == WEAPON_CLOAKINGDEVICE) {
 				// Special case: "Cloak %d"
@@ -435,7 +435,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				modulo = (qty - (secs * TICKS(60))) * 100 / TICKS(60);
 				snprintf(label, 28, langGet(L_OPTIONS_491), secs + (modulo > 0 ? 1 : 0)); // "cloak %d"
 			} else {
-				strcpy(label, invGetShortNameByIndex(g_AmMenus[g_AmIndex].invindexes[slot]));
+				strncpy(label, invGetShortNameByIndex(g_AmMenus[g_AmIndex].invindexes[slot]), 31); label[31] = '\0';
 			}
 		}
 
@@ -452,10 +452,10 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 		}
 		break;
 	case 1: // Function screen
-		strcpy(label, "");
+		label[0] = '\0';
 
 		if (slot == 4) {
-			strcpy(label, langGet(L_MISC_171)); // "Function"
+			strncpy(label, langGet(L_MISC_171), 31); label[31] = '\0'; // "Function"
 		} else if (slot == 1 || slot == 7) {
 			prifunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_PRIMARY);
 			secfunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_SECONDARY);
@@ -466,7 +466,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				}
 
 				if (prifunc) {
-					strcpy(label, langGet(prifunc->name));
+					strncpy(label, langGet(prifunc->name), 31); label[31] = '\0';
 				}
 			} else {
 				if (!prifunc || FUNCISSEC()) {
@@ -474,31 +474,31 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				}
 
 				if (secfunc) {
-					strcpy(label, langGet(secfunc->name));
+					strncpy(label, langGet(secfunc->name), 31); label[31] = '\0';
 				}
 			}
 		}
 		break;
 	default: // Orders screen
-		strcpy(label, "");
+		label[0] = '\0';
 
 		if (g_MissionConfig.iscoop) {
 			if (slot == 4) {
-				strcpy(label, langGet(L_MISC_474)); // "Perfect Buddies"
+				strncpy(label, langGet(L_MISC_474), 31); label[31] = '\0'; // "Perfect Buddies"
 			} else if (slot == 1) {
-				strcpy(label, langGet(L_MISC_472)); // "Aggressive"
+				strncpy(label, langGet(L_MISC_472), 31); label[31] = '\0'; // "Aggressive"
 			} else if (slot == 7) {
-				strcpy(label, langGet(L_MISC_473)); // "Passive"
+				strncpy(label, langGet(L_MISC_473), 31); label[31] = '\0'; // "Passive"
 #if VERSION >= VERSION_NTSC_1_0
 			} else if (slot == 3) {
-				strcpy(label, langGet(L_MISC_475)); // "Stealth"
+				strncpy(label, langGet(L_MISC_475), 31); label[31] = '\0'; // "Stealth"
 #endif
 			}
 		} else {
 			if (slot == 4) {
-				strcpy(label, langGet(L_MISC_172)); // "Orders"
+				strncpy(label, langGet(L_MISC_172), 31); label[31] = '\0'; // "Orders"
 			} else {
-				strcpy(label, botGetCommandName(g_AmBotCommands[slot]));
+				strncpy(label, botGetCommandName(g_AmBotCommands[slot]), 31); label[31] = '\0';
 			}
 		}
 		break;

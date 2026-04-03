@@ -1187,8 +1187,8 @@ PakErr1 pakQueryNoteState(OSPfs *pfs, s32 file_no, OSPfsState *note)
 
 	note->file_size = 0x800;
 	note->company_code = ROM_COMPANYCODE;
-	strcpy(note->game_name, g_PakNoteGameName);
-	strcpy(note->ext_name, g_PakNoteExtName);
+	strncpy(note->game_name, g_PakNoteGameName, 15); note->game_name[15] = '\0';
+	strncpy(note->ext_name, g_PakNoteExtName, 3); note->ext_name[3] = '\0';
 
 	return PAK_ERR1_OK;
 }
@@ -5947,7 +5947,7 @@ void pakN64FontCodeToAscii(char *src, char *dst, s32 len)
 
 	*ptr = '\0';
 
-	strcpy(dst, buffer);
+	strncpy(dst, buffer, (size_t)len); dst[len] = '\0';
 }
 
 s8 pakFindBySerial(s32 findserial)

@@ -147,7 +147,7 @@ void gamefileLoadDefaults(struct gamefile *file)
 	s32 i;
 	s32 j;
 
-	strcpy(file->name, "Dark");
+	strncpy(file->name, "Dark", sizeof(file->name) - 1); file->name[sizeof(file->name) - 1] = '\0';
 	file->thumbnail = 0;
 	file->autodifficulty = 0;
 	file->autostageindex = 0;

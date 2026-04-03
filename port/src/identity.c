@@ -303,16 +303,18 @@ void identitySave(void)
         return;
     }
 
+    int ok = 1;
+
     /* Magic */
     uint32_t magic = IDENTITY_MAGIC;
-    fwrite(&magic, 4, 1, f);
+    ok &= (fwrite(&magic, 4, 1, f) == 1);
 
     /* Version */
     uint8_t ver = IDENTITY_FILE_VERSION;
-    fwrite(&ver, 1, 1, f);
+    ok &= (fwrite(&ver, 1, 1, f) == 1);
 
     /* UUID */
-    fwrite(s_Identity.device_uuid, IDENTITY_UUID_LEN, 1, f);
+    ok &= (fwrite(s_Identity.device_uuid, IDENTITY_UUID_LEN, 1, f) == 1);
 
     /* profile_count, active_profile, pad, pad */
     uint8_t hdr[4] = {
@@ -320,7 +322,7 @@ void identitySave(void)
         s_Identity.active_profile,
         0, 0
     };
-    fwrite(hdr, 4, 1, f);
+    ok &= (fwrite(hdr, 4, 1, f) == 1);
 
     /* Profiles (v2 format: name + head_id + body_id + flags + pad) */
     for (int i = 0; i < (int)s_Identity.profile_count; i++) {
@@ -334,10 +336,13 @@ void identitySave(void)
         buf[IDENTITY_NAME_MAX + CATALOG_ID_LEN + CATALOG_ID_LEN] =
                s_Identity.profiles[i].flags;
         /* remaining bytes = _pad = 0 */
-        fwrite(buf, IDENTITY_PROFILE_SIZE, 1, f);
+        ok &= (fwrite(buf, IDENTITY_PROFILE_SIZE, 1, f) == 1);
     }
 
     fclose(f);
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "IDENTITY: write error saving %s", path);
+    }
 }
 
 pd_identity_t *identityGet(void)

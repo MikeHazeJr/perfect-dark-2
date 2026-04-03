@@ -663,10 +663,10 @@ MenuItemHandlerResult menuhandlerMpSetupName(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		strcpy(name, g_MpSetup.name);
+		strncpy(name, g_MpSetup.name, MPSETUP_MAXNAME); name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SETTEXT:
-		strcpy(g_MpSetup.name, name);
+		strncpy(g_MpSetup.name, name, MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SET:
 		err = mpsetupSaveSetup(g_MpSetupFile.numsetups, true);

@@ -297,7 +297,7 @@ Gfx *bviewDrawSlayerRocketInterlace(Gfx *gdl, u32 colour, u32 alpha)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "interlaceGfx");
+	strncpy(var800a41c0, "interlaceGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -347,7 +347,7 @@ Gfx *bviewDrawFilmInterlace(Gfx *gdl, u32 colour, u32 alpha)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "BlueInterlaceGfx");
+	strncpy(var800a41c0, "BlueInterlaceGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -413,7 +413,7 @@ Gfx *bviewDrawZoomBlur(Gfx *gdl, u32 colour, s32 alpha, f32 arg3, f32 arg4)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "stretchBlurGfx");
+	strncpy(var800a41c0, "stretchBlurGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -575,7 +575,7 @@ Gfx *bviewDrawFisheye(Gfx *gdl, u32 colour, u32 alpha, s32 shuttertime60, s8 sta
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "blurGfxFisheye");
+	strncpy(var800a41c0, "blurGfxFisheye", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	s3 = 1;
 
@@ -1983,7 +1983,7 @@ Gfx *bviewDrawNvLens(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "Fullscreen_DrawFaultScope");
+	strncpy(var800a41c0, "Fullscreen_DrawFaultScope", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	var8009caec = 0xbc;
 	var8009caef = 0xbe;
@@ -2083,7 +2083,7 @@ Gfx *bviewDrawIrLens(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "Fullscreen_DrawFaultScope");
+	strncpy(var800a41c0, "Fullscreen_DrawFaultScope", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 #if VERSION < VERSION_NTSC_1_0
 	osSyncPrintf("Fault Scope is active\n");
@@ -2280,7 +2280,7 @@ Gfx *bviewDrawIntroFaderBlur(Gfx *gdl, s32 arg1)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "IntroFaderBlurGfx");
+	strncpy(var800a41c0, "IntroFaderBlurGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -2328,7 +2328,7 @@ Gfx *bviewDrawIntroText(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "IntroTextInterfereGfx");
+	strncpy(var800a41c0, "IntroTextInterfereGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -2389,7 +2389,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "BinocularViewGfx");
+	strncpy(var800a41c0, "BinocularViewGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	if (!PAL && g_ViRes == VIRES_HI) {
 		scale = 2;
@@ -2449,7 +2449,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 
 	// Product name
 #if VERSION >= VERSION_NTSC_1_0
-	strcpy(nametext, " JMBC");
+	strncpy(nametext, " JMBC", sizeof(nametext) - 1); nametext[sizeof(nametext) - 1] = '\0';
 
 	if (!vsplit) {
 		strcat(nametext, " WIDE BAND");

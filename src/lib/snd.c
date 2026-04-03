@@ -1499,7 +1499,7 @@ void sndInit(void)
 		// Allocate some space at the start of the heap for a string identifier.
 		// This might be used to determine if the heap has overflowed.
 		g_SndGuardStringPtr = alHeapAlloc(&g_SndHeap, 1, ALIGN16(sizeof(g_SndGuardString)));
-		strcpy(g_SndGuardStringPtr, g_SndGuardString);
+		strncpy(g_SndGuardStringPtr, g_SndGuardString, sizeof(g_SndGuardString) - 1); g_SndGuardStringPtr[sizeof(g_SndGuardString) - 1] = '\0';
 
 		// Load sfx.ctl
 		sndLoadSfxCtl();

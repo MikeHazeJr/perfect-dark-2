@@ -1298,7 +1298,7 @@ void filemgrGetRenameName(char *buffer)
 	case 9:
 	case 10:
 	case 11:
-		strcpy(buffer, g_GameFile.name);
+		strncpy(buffer, g_GameFile.name, sizeof(g_GameFile.name) - 1); buffer[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case 1:
 	case 2:
@@ -1307,7 +1307,7 @@ void filemgrGetRenameName(char *buffer)
 	case 15:
 	case 16:
 	case 17:
-		strcpy(buffer, g_Menus[g_MpPlayerNum].fm.filename);
+		strncpy(buffer, g_Menus[g_MpPlayerNum].fm.filename, 15); buffer[15] = '\0';
 		break;
 	case 6:
 	case 12:
@@ -1327,7 +1327,7 @@ void filemgrGetRenameName(char *buffer)
 		break;
 	case 7:
 	case 13:
-		strcpy(buffer, g_MpSetup.name);
+		strncpy(buffer, g_MpSetup.name, MPSETUP_MAXNAME); buffer[MPSETUP_MAXNAME] = '\0';
 		break;
 	}
 }
@@ -1341,7 +1341,7 @@ void filemgrSetRenameName(char *name)
 	case 9:
 	case 10:
 	case 11:
-		strcpy(g_GameFile.name, name);
+		strncpy(g_GameFile.name, name, sizeof(g_GameFile.name) - 1); g_GameFile.name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case 1:
 	case 2:
@@ -1350,7 +1350,7 @@ void filemgrSetRenameName(char *name)
 	case 15:
 	case 16:
 	case 17:
-		strcpy(g_Menus[g_MpPlayerNum].fm.filename, name);
+		strncpy(g_Menus[g_MpPlayerNum].fm.filename, name, 15); g_Menus[g_MpPlayerNum].fm.filename[15] = '\0';
 		break;
 	case 6:
 	case 12:
@@ -1358,7 +1358,7 @@ void filemgrSetRenameName(char *name)
 		break;
 	case 7:
 	case 13:
-		strcpy(g_MpSetup.name, name);
+		strncpy(g_MpSetup.name, name, MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0';
 		break;
 	}
 }
@@ -2530,10 +2530,10 @@ MenuItemHandlerResult filemgrAgentNameKeyboardMenuHandler(s32 operation, struct 
 
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		strcpy(name, g_GameFile.name);
+		strncpy(name, g_GameFile.name, sizeof(g_GameFile.name) - 1); name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case MENUOP_SETTEXT:
-		strcpy(g_GameFile.name, name);
+		strncpy(g_GameFile.name, name, sizeof(g_GameFile.name) - 1); g_GameFile.name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case MENUOP_SET:
 		filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
@@ -2704,7 +2704,7 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 						langGet(g_SoloStages[stage - 1].name2));
 			} else {
 				// "New Recruit"
-				strcpy(buffer, langGet(L_OPTIONS_404));
+				strncpy(buffer, langGet(L_OPTIONS_404), 99); buffer[99] = '\0';
 			}
 
 			strcat(buffer, "\n");

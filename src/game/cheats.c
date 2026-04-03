@@ -521,7 +521,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			);
 		} else {
 			// Locked
-			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
+			strncpy(cheatname, langGet(g_Cheats[cheat_id].nametextid), 255); cheatname[255] = '\0';
 			ptr = cheatname;
 
 			while (*ptr != '\n') {
@@ -540,7 +540,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				);
 			} else {
 				// Timed
-				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
+				strncpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty), 255); difficultyname[255] = '\0';
 				ptr = difficultyname;
 
 				while (*ptr != '\n') {
@@ -604,7 +604,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			);
 		} else {
 			// Locked
-			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
+			strncpy(cheatname, langGet(g_Cheats[cheat_id].nametextid), 255); cheatname[255] = '\0';
 			ptr = cheatname;
 
 			while (*ptr != '\n') {
@@ -623,7 +623,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				);
 			} else {
 				// Timed
-				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
+				strncpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty), 255); difficultyname[255] = '\0';
 				ptr = difficultyname;
 
 				while (*ptr != '\n') {
@@ -683,7 +683,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			);
 		} else {
 			// Locked
-			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
+			strncpy(cheatname, langGet(g_Cheats[cheat_id].nametextid), 255); cheatname[255] = '\0';
 			ptr = cheatname;
 
 			while (*ptr != '\n') {
@@ -702,7 +702,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				);
 			} else {
 				// Timed
-				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
+				strncpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty), 255); difficultyname[255] = '\0';
 				ptr = difficultyname;
 
 				while (*ptr != '\n') {
@@ -752,7 +752,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			);
 		} else {
 			// Locked
-			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
+			strncpy(cheatname, langGet(g_Cheats[cheat_id].nametextid), 255); cheatname[255] = '\0';
 			ptr = cheatname;
 
 			while (*ptr != '\n') {
@@ -771,7 +771,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				);
 			} else {
 				// Timed
-				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
+				strncpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty), 255); difficultyname[255] = '\0';
 				ptr = difficultyname;
 
 				while (*ptr != '\n') {

@@ -908,7 +908,7 @@ void mpInit(bool resetplayers)
 	g_MpSetup.fileguid.fileid = 0;
 	g_MpSetup.fileguid.deviceserial = 0;
 
-	strcpy(g_MpSetup.name, "");
+	g_MpSetup.name[0] = '\0';
 
 	if (resetplayers) {
 		for (i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
@@ -982,7 +982,7 @@ void mpSetTeamNamesToDefault(u8 mask)
 
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
 		if (mask & (1 << i)) {
-			strcpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i));
+			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0';
 		}
 	}
 }
@@ -994,13 +994,13 @@ void mpSetDefaultNamesIfEmpty(void)
 
 	// Setup file name
 	if (g_MpSetup.name[0] == '\0') {
-		strcpy(g_MpSetup.name, langGet(L_MISC_438)); // empty string
+		strncpy(g_MpSetup.name, langGet(L_MISC_438), MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0'; // empty string
 	}
 
 	// Team names
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
 		if (g_BossFile.teamnames[i][0] == '\0') {
-			strcpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i)); // "Red", "Yellow" etc
+			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0'; // "Red", "Yellow" etc
 		}
 	}
 
@@ -1671,7 +1671,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 
 		gdl = text0f153628(gdl);
 
-		strcpy(text, langGet(L_MPWEAPONS_040)); // "Paused"
+		strncpy(text, langGet(L_MPWEAPONS_040), 49); text[49] = '\0'; // "Paused"
 
 		x = viGetViewLeft() + viGetViewWidth() / 2;
 
@@ -1722,7 +1722,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 		// Render "Press START" text
 		gdl = text0f153628(gdl);
 
-		strcpy(text, langGet(L_MPWEAPONS_039));
+		strncpy(text, langGet(L_MPWEAPONS_039), 49); text[49] = '\0';
 
 		x = viGetViewLeft() + viGetViewWidth() / 2;
 
@@ -3468,7 +3468,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	g_MpSetup.chrslots |= 1ull << (botnum + BOT_SLOT_OFFSET);
 	mpAddParticipantAt(botnum + BOT_SLOT_OFFSET, PARTICIPANT_BOT, team, -1, 0xFF); /* B-12 Phase 2 */
-	strcpy(g_BotConfigsArray[botnum].base.name, "Sim\n");
+	strncpy(g_BotConfigsArray[botnum].base.name, "Sim\n", 14); g_BotConfigsArray[botnum].base.name[14] = '\0';
 	g_BotConfigsArray[botnum].base.team = team;
 
 	while (!available) {
@@ -3645,11 +3645,11 @@ void mpGenerateBotNames(void)
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
 				snprintf(name, sizeof(name), "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
-				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
+				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			} else {
 				// One bots using this profile - just use the profile name
 				snprintf(name, sizeof(name), "%s\n", langGet(g_BotProfiles[profilenum].name));
-				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
+				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			}
 		}
 	}
@@ -4155,10 +4155,10 @@ void mpApplyConfig(struct mpconfigfull *config)
 			// "ShockSim:%d"
 			snprintf(g_BotConfigsArray[i].base.name, sizeof(g_BotConfigsArray[i].base.name), langGet(L_MPWEAPONS_241), i + 1);
 		} else {
-			strcpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i]);
+			strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
 		}
 #else
-		strcpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i]);
+		strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
 #endif
 
 		g_BotConfigsArray[i].base.mpheadnum = config->config.simulants[i].mpheadnum;

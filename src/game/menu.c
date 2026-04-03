@@ -5729,15 +5729,15 @@ Gfx *menuRender(Gfx *gdl)
 							// "Ready!"
 #if VERSION >= VERSION_JPN_FINAL
 							colour = L_MISC_461;
-							strcpy(text, langGet(colour));
+							strncpy(text, langGet(colour), 31); text[31] = '\0';
 							colour = 0xffffffff;
 #else
-							strcpy(text, langGet(L_MISC_461));
+							strncpy(text, langGet(L_MISC_461), 31); text[31] = '\0';
 							colour = g_MenuData.playerjoinalpha[i] | 0xd00020ff;
 #endif
 						} else {
 							// "Press START!"
-							strcpy(text, langGet(L_MPMENU_483));
+							strncpy(text, langGet(L_MPMENU_483), 31); text[31] = '\0';
 							colour = colourBlend(0x00ffff00, 0xffffff00, weight) | g_MenuData.playerjoinalpha[i];
 						}
 

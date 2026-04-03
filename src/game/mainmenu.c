@@ -2145,14 +2145,14 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		gdl = text0f153628(gdl);
 
 		// Draw first part of name
-		strcpy(text, langGet(g_SoloStages[stageindex].name1));
-		strcat(text, "\n");
+		strncpy(text, langGet(g_SoloStages[stageindex].name1), 49); text[49] = '\0';
+		strncat(text, "\n", 49 - strlen(text));
 
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicMd, g_FontHandelGothicMd,
 				renderdata->colour, viGetWidth(), viGetHeight(), 0, 0);
 
 		// Draw last part of name
-		strcpy(text, langGet(g_SoloStages[stageindex].name2));
+		strncpy(text, langGet(g_SoloStages[stageindex].name2), 49); text[49] = '\0';
 
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm,
 				renderdata->colour, viGetWidth(), viGetHeight(), 0, 0);
