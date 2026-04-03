@@ -1276,11 +1276,18 @@ static void modmgrEnsureCaches(void)
 
 static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 {
-	(void)userdata;
-	s32 idx = entry->runtime_index;
+	/*
+	 * FIX: Index by mpbodynum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (g_HeadsAndBodies bodynum, e.g. 86 for BODY_DARK_COMBAT).
+	 * modmgrGetBody(mpbodynum) accesses s_CatalogBodies[mpbodynum], so the cache
+	 * must be in mpbodynum order.  Bodies are registered in g_MpBodies[] order
+	 * (s_BaseBodies indices 0..62), so the iteration order matches mpbodynum order.
+	 */
+	s32 *idx_ptr = (s32 *)userdata;
+	s32 idx = *idx_ptr;
 
 	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_BODIES) {
-		sysLogPrintf(LOG_WARNING, "modmgr: body \"%s\" runtime_index %d out of cache range",
+		sysLogPrintf(LOG_WARNING, "modmgr: body \"%s\" position %d out of cache range",
 			entry->id, idx);
 		return;
 	}
@@ -1291,28 +1298,37 @@ static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 	b->headnum = entry->ext.body.headnum;
 	b->requirefeature = entry->ext.body.requirefeature;
 
-	if (idx + 1 > s_CatalogBodyCount) {
-		s_CatalogBodyCount = idx + 1;
+	(*idx_ptr)++;
+	if (*idx_ptr > s_CatalogBodyCount) {
+		s_CatalogBodyCount = *idx_ptr;
 	}
 }
 
 static void modmgrRebuildBodyCache(void)
 {
+	s32 idx = 0;
 	memset(s_CatalogBodies, 0, sizeof(s_CatalogBodies));
 	s_CatalogBodyCount = 0;
 
-	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, NULL);
+	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, &idx);
 }
 
 // ---- Head collect callback + rebuild ----
 
 static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 {
-	(void)userdata;
-	s32 idx = entry->runtime_index;
+	/*
+	 * FIX: Index by mpheadnum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (g_HeadsAndBodies headnum, e.g. HEAD_BEAU1=0x18).
+	 * modmgrGetHead(mpheadnum) accesses s_CatalogHeads[mpheadnum], so the cache
+	 * must be in mpheadnum order.  Heads are registered in g_MpHeads[] order
+	 * (loop mpidx 0..75), so the iteration order matches mpheadnum order.
+	 */
+	s32 *idx_ptr = (s32 *)userdata;
+	s32 idx = *idx_ptr;
 
 	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_HEADS) {
-		sysLogPrintf(LOG_WARNING, "modmgr: head \"%s\" runtime_index %d out of cache range",
+		sysLogPrintf(LOG_WARNING, "modmgr: head \"%s\" position %d out of cache range",
 			entry->id, idx);
 		return;
 	}
@@ -1321,17 +1337,19 @@ static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 	h->headnum = entry->ext.head.headnum;
 	h->requirefeature = entry->ext.head.requirefeature;
 
-	if (idx + 1 > s_CatalogHeadCount) {
-		s_CatalogHeadCount = idx + 1;
+	(*idx_ptr)++;
+	if (*idx_ptr > s_CatalogHeadCount) {
+		s_CatalogHeadCount = *idx_ptr;
 	}
 }
 
 static void modmgrRebuildHeadCache(void)
 {
+	s32 idx = 0;
 	memset(s_CatalogHeads, 0, sizeof(s_CatalogHeads));
 	s_CatalogHeadCount = 0;
 
-	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, NULL);
+	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, &idx);
 }
 
 // ---- Arena collect callback + rebuild ----

@@ -39,6 +39,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-100 | Combat Sim crash on match start — modmgr body/head cache indexed by g_HeadsAndBodies runtime_index instead of mpbodynum/mpheadnum; s_CatalogBodies[0]/s_CatalogHeads[0] always zero, mpGetBodyId(0)=0/mpGetHeadId(0)=0, catalogResolveByRuntimeIndex(HEAD,0) fails | S132 — port/src/modmgr.c |
 | B-77 | fread unchecked in savefile load — silent save corruption | S131 sweep3 |
 | B-85 | buildArchiveDir stale pointer on realloc failure | S131 sweep3 |
 | B-87 | strcpy in input.c VK names — no size guard | S131 sweep3 |
