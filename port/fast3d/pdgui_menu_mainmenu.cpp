@@ -1669,6 +1669,7 @@ static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
     "HUD",           /* ASSET_HUD */
     "Effect",        /* ASSET_EFFECT */
     "Model",         /* ASSET_MODEL */
+    "Lang",          /* ASSET_LANG — language string bank */
 };
 
 static const char *s_LoadStateNames[] = {
