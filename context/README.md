@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-02, Session S130 (Wire protocol v27 — all net_hash removed, catalog ID strings at every boundary. SAVE-COMPAT stripped. Comprehensive bug audit: 19 findings, 4 critical/high fixed (ChrResync desync, unbounded malloc, OOB array, sprintf overflow). Engine modernization vision documented. Phases A–G code complete, playtest pending.)
+> **Last updated**: 2026-04-03, Session S131 (Five systemic sweeps complete: sprintf→snprintf 344 sites, network bounds, fread/fwrite, strcpy→strncpy, realloc NULL. v0.0.25 released. Context system major cleanup — stale playtest backlog archived, session log trimmed to S119+. Next: D5 Settings/QoL.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,12 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| S130 | 2026-04-02 | Wire protocol v27 (all net_hash → catalog ID strings). SAVE-COMPAT stripped. Comprehensive bug audit (19 findings). C-01/C-02/H-01/H-02 critical fixes. Engine modernization vision. Phases A–G code complete. | [session-log.md](session-log.md) |
-| S119–S129 | 2026-04-02 | Playtest analysis → Catalog Universality Spec v1.0 → Phases A–G implementation (audit, API hardening, systematic conversion, server manifest, menu stack, spawn hardening, verification). Catalog-ID-native data model. UI pickers converted. | [session-log.md](session-log.md) |
-| S115–S118 | 2026-04-01 | Manifest Lifecycle Sprint Phase 6 (screenmfst), post-manifest audit fixes (langSafe, hash mismatch, synthetic IDs), linker fix, dead alias cleanup. | [session-log.md](session-log.md) |
-| S91–S97 | 2026-03-31–04-01 | SA-1 through SA-7 complete (session catalog, modular API, wire migration, persistence, load path, SP manifest, consolidation). S97: crash triage (runtime_index, stage aliases, hash backfill), universal numeric aliases (6255 entries), manifest chokepoints (bodyAllocateModel, setupLoadModeldef), kill plane, Catalog Settings tab, UI Scaling slider. v0.1.0 critical blockers cleared. | [session-log.md](session-log.md) |
-| S90 | 2026-03-31 | B-51/52/53 fixed (bot configs via SVC_STAGE_START, scenarioInitProps on client); asset reference audit ~180 sites; session catalog + modular API design doc; protocol v25 | [session-log.md](session-log.md) |
-| S87–S88 | 2026-03-30 | Match Startup Pipeline Phases C.5 (SP catalog registration), D (mod transfer), E (ready gate), F (sync countdown) | [session-log.md](session-log.md) |
+| S119–S131 | 2026-04-02/03 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps complete. v0.0.25 released. | [session-log.md](session-log.md) |
+| S93–S118 | 2026-04-01 | SA-series (session catalog + modular API), Manifest Lifecycle Sprint Phases 0–6, Match Startup Pipeline Phases A–F, menu system S99–S109, catalog investigation | [sessions-87-119.md](sessions-87-119.md) |
 | S79–S86 | 2026-03-29–30 | C-7 SFX, full TODO sweep, NAT traversal D8 (v23), Solo Room screen, bundled mod removal, B-55 fix, Match Startup Pipeline Phases A–C | [sessions-79-86.md](sessions-79-86.md) |
 | 47–78 | 2026-03-24–29 | SPF/join/room/catalog (C-series), mod system (T-series), bug fixes (B-27–B-53), network audits, null-guard audits, dedicated server | [sessions-47-78.md](sessions-47-78.md) |
 | 22-46 | 2026-03-22-24 | D3R component mod architecture, asset catalog, participant system, bot customizer, network distribution | [sessions-22-46.md](sessions-22-46.md) |
@@ -112,7 +108,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol **v27**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). v27 (S130): ALL net_hash u32 wire fields replaced with catalog ID strings — SVC_LOBBY_STATE, SVC_CATALOG_INFO, CLC_CATALOG_DIFF, SVC_DISTRIB_BEGIN/CHUNK/END, CLC_MANIFEST_STATUS, SVC_SESSION_CATALOG, SVC_MATCH_MANIFEST. **net_hash is dead — zero usage in wire protocol.** **Next bump**: remove chrslots (B-12 Phase 3).
+- **Net**: Protocol **v27**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). **net_hash is dead** — all wire fields use full catalog ID strings (v27, S130). **Next bump**: remove chrslots (B-12 Phase 3).
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.

@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS
-Last updated: 2026-04-02 (S130)
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS, **D5 NEXT**
+Last updated: 2026-04-03 (S131)
 
 ## Engine Modernization Vision
 
@@ -9,7 +9,7 @@ Last updated: 2026-04-02 (S130)
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v27, all net_hash removed, SAVE-COMPAT stripped. Playtest pending. |
+| **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v27, all net_hash removed, SAVE-COMPAT stripped. Five systemic sweeps done (S131). Playtest pending. |
 | **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | PLANNED |
 | **Option B** (Long-term) | Catalog becomes provider-agnostic asset bus. ROM is one provider (legacy). Modern asset pipeline is another. Each catalog entry declares which provider. PBR materials, modern meshes, advanced physics — all new provider types. Mods ship modern assets that bypass the GBI path entirely. | VISION |
 
@@ -87,9 +87,10 @@ Files: bot.c, botact.c, bondwalk.c, setup.c, modmgr.c
 
 The following reflects Mike's priority for implementation. Phases are listed in intended build order. Dependencies have been loosened since D4 is no longer a hard blocker — ImGui menus are built directly as needed.
 
-### 1. Phase D5: Settings, Graphics & QoL
+### 1. Phase D5: Settings, Graphics & QoL ⟵ **NEXT UP**
 FOV slider (60-110°), graphics settings (resolution, fullscreen, VSync), controls/bindings (rebindable). Audio: three independent volume layers — Music, Gameplay (SFX/weapons/footsteps/environment), UI (menu sounds/notifications) — each with its own slider, plus a master volume. Requires audio bus routing in the mixer.
 **Why first**: High bang-for-buck. Makes it feel like a real PC game. Infrastructure already exists.
+**Plan file**: [d5-settings-plan.md](d5-settings-plan.md)
 
 ### 2. Phase D13: Update System — IN PROGRESS (code written, needs build test)
 Semantic versioning (MAJOR.MINOR.PATCH + dev channel), GitHub Releases API via libcurl, SHA-256 verified download, rename-on-restart self-replacement, save migration framework, ImGui update notification + version picker, separate client/server versioning, release channels (Stable/Dev). See context/update-system.md.

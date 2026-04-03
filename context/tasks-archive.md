@@ -127,3 +127,104 @@ struct BotController {
 
 Wraps existing chr/aibot without rewriting AI. Extension points for physics, combat telemetry, lifecycle.
 **Depends on**: Build stabilization (done), BotController coding (not started).
+
+---
+
+## Catalog Activation (C-series) — ALL DONE (S74–S80)
+
+| Step | Session |
+|------|---------|
+| C-0: Wire assetCatalogInit + RegisterBaseGame + ScanComponents | S74 |
+| C-2-ext: source_filenum/texnum/animnum/soundnum in asset_entry_t | S74 |
+| catalogLoadInit: Reverse-index arrays + query functions | S74 |
+| C-4: catalogGetFileOverride intercept in romdataFileLoad() | S74 |
+| C-5: catalogGetTextureOverride intercept in texLoad() | S92 |
+| C-6: catalogGetAnimOverride intercept in animLoadFrame/Header() | S92 |
+| C-7: catalogGetSoundOverride in sndStart() | S80 |
+| C-8: Re-wire catalogLoadInit() on mod enable/disable | S80 |
+| C-9: Stage diff (catalogComputeStageDiff) | S80 |
+
+---
+
+## Mod System (T-series) — ALL DONE (S77–S80)
+
+Base table expansion (anim 1207, tex 3503, audio 1545), size_bytes walker, thumbnail queue, sound intercept, mod.json content, stage reset, texture flush. T-1 through T-10 all complete.
+
+---
+
+## Memory Modernization (D-MEM) — ALL DONE
+
+| Task | Session |
+|------|---------|
+| MEM-1: Load state fields | Pre-S90 |
+| MEM-2: assetCatalogLoad/Unload | Pre-S90 |
+| MEM-3: ref_count + eviction | Pre-S90 |
+
+---
+
+## Session Catalog + Modular API (SA-series) — ALL DONE (S91–S97)
+
+| Phase | Details | Session |
+|-------|---------|---------|
+| SA-1 | Session catalog infrastructure — sessioncatalog.h/c, SVC_SESSION_CATALOG (0x67) | S91 |
+| SA-2 | Modular catalog API — catalogResolveBody/Head/Stage/Weapon + wire helper structs | S91–S92 |
+| SA-3 | Network session catalog wire migration — raw N64 indices replaced with u16 session IDs across ~180 call sites | S91–S92 |
+| SA-4 | Persistence migration — session IDs in savefile, identity, scenario save | S91–S92 |
+| SA-5 | Load path migration + deprecation pass — all g_HeadsAndBodies/g_Stages load-path accesses migrated | S92–S93 |
+| SA-6 | SP load manifest (diff-based lifecycle) — counter-op body/head, manifestEnsureLoaded() safety net | S94/S96 |
+| SA-7 | Consolidation cleanup — modelcatalog.c kept, dead accessors removed, port/CLAUDE.md updated | S95 |
+
+---
+
+## Manifest Lifecycle Sprint — ALL DONE (S110–S116)
+
+| Phase | Task | Session |
+|-------|------|---------|
+| Phase 0 | Remove numeric alias entries; manifest uses human-readable catalog IDs | S110 |
+| Phase 1 | Manifest-diff transitions — load/unload delta via catalogLoadAsset/catalogUnloadAsset | S110 |
+| Phase 2 | Dependency graph — character → body + head + anims + textures | S111 |
+| Phase 3 | Language bank manifesting — 68 base lang banks as ASSET_LANG, langManifestEnsureId() | S112 |
+| Phase 4 | Pre-validation pass — manifestValidate() verifies all to_load entries before apply | S113 |
+| Phase 5 | Proper ref-counted unloads — load-before-unload ordering, cascade dep unloads | S114 |
+| Phase 6 | Menu/UI asset manifesting — screenmfst.h/c, per-frame enter/leave detection | S115 |
+| Post-sprint | langSafe() at 9 unsafe sites, manifest hash dedup fix (FNV-1a→CRC32), synthetic ID cleanup | S116 |
+
+---
+
+## Match Startup Pipeline — ALL DONE (S84–S88)
+
+| Phase | Task | Session |
+|-------|------|---------|
+| A | Protocol messages — SVC_MATCH_MANIFEST, CLC_MANIFEST_STATUS, SVC_MATCH_COUNTDOWN | S84 |
+| B | Server-side manifest build — manifestBuild(), manifestComputeHash() | S85 |
+| C | Client manifest processing — manifestCheck(), g_ClientManifest | S86 |
+| C.5 | SP bodies/heads from g_HeadsAndBodies[152] registered | S87 |
+| D | Mod transfer — netmsgClcManifestStatusRead resolves missing hashes, queues via netDistribServerHandleDiff | S88 |
+| E | Ready gate — s_ReadyGate bitmask, CLSTATE_PREPARING transitions, 30s timeout | S88 |
+| F | Sync countdown — SVC_MATCH_COUNTDOWN, 3-2-1-GO overlay | S104 |
+
+---
+
+## Catalog Universality Migration (Phases A–G) — CODE COMPLETE (S119–S130)
+
+Governing spec: PD2_Catalog_Universality_Spec_v1.0.docx
+
+| Phase | Task | Session |
+|-------|------|---------|
+| A | Full codebase audit — 47 raw-index sites mapped | S120 |
+| B | Catalog API hardening + human-readable IDs — FIX-24/7/13/11/12/14/10/15, new typed API | S121 |
+| C | Systematic conversion — bot alloc, SVC_STAGE_START, weapon spawn, arena selection, stage loading | S122 |
+| D | Server manifest model — manifestBuildForHost, SHA-256 in modinfo_t, CLC_LOBBY_START embeds host manifest, protocol v26 | S123 |
+| E | Menu stack architecture — full-stack duplicate rejection, endscreen mouse restore, palette save/restore | S124 |
+| F | Spawn system hardening — anti-repeat (F.1), bot stuck detection (F.5), spawn weapon fix (F.6/B-70), mouse capture (B-66) | S125 |
+| G (code) | Catalog-ID-native data model (S127), stage_id + bridge API (S128), UI picker conversion (S129) | S127–S129 |
+| G (wire) | Wire protocol v27 — all net_hash u32 wire fields replaced with catalog ID strings; SAVE-COMPAT stripped | S130 |
+
+**Phase G playtest verification still pending** — success criteria in tasks-current.md.
+
+---
+
+## Stale Playtest Backlog (Pre-S68) — ARCHIVED
+
+The "Awaiting Build Test / Playtest" items from sessions S40–S67 (SPF-1/3, SP-6 null guards, B-36 skyReset, 2-player Combat Sim, D3R-7 Modding Hub, B-12 Phase 1, B-13, Update tab staged version, Player Stats) predate the current architecture (catalog universality, session catalog, manifest lifecycle, match startup pipeline). Most of the underlying systems have been completely rewritten. These items are archived rather than carried forward — any actual remaining work was re-captured in the current tasks-current.md.
+
