@@ -480,7 +480,13 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 					if (ImGui::IsItemHovered()) {
 						ImGui::SetTooltip("Restart now to apply this update");
 					}
+				} else if (!rel->assetUrl[0] && !s_DownloadActive) {
+					/* No binary asset uploaded for this release (B-101) */
+					ImGui::TextDisabled("No binary");
 				} else if (rel->assetUrl[0] && !s_DownloadActive) {
+					/* URL present — disable button when size is unknown (download would fail) */
+					bool hasSize = rel->assetSize > 0;
+
 					const char *actionLabel;
 					if (s_DownloadFailed && s_SelectedRelease == i) {
 						actionLabel = "Retry";
@@ -494,7 +500,9 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 
 					float cellW = ImGui::GetContentRegionAvail().x;
 
-					if (isRollback) {
+					if (!hasSize) {
+						ImGui::BeginDisabled(true);
+					} else if (isRollback) {
 						ImGui::PushStyleColor(ImGuiCol_Button,
 							ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -513,7 +521,15 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 						updaterDownloadAsync(rel);
 						s_DownloadActive = true;
 					}
-					ImGui::PopStyleColor(2);
+
+					if (!hasSize) {
+						ImGui::EndDisabled();
+						if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+							ImGui::SetTooltip("No binary asset for this release");
+						}
+					} else {
+						ImGui::PopStyleColor(2);
+					}
 				} else if (s_DownloadActive) {
 					ImGui::TextDisabled("...");
 				}

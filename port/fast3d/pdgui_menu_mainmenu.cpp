@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -1746,10 +1747,19 @@ static void renderSettingsCatalog(float scale)
     ImGui::TextDisabled("Search");
     ImGui::Spacing();
 
-    /* Entry table */
-    static s32  s_EntSortedIdx[8192];
+    /* Entry table — dynamically sized to catalog pool, never outgrown by mods */
+    static s32 *s_EntSortedIdx   = nullptr;
+    static s32  s_EntSortedCap   = 0;
     static s32  s_EntSortedCount = 0;
     static bool s_EntSortDirty   = true; /* force rebuild on first frame */
+
+    /* Grow buffer to current pool size when catalog expands */
+    if (poolSize > s_EntSortedCap) {
+        free(s_EntSortedIdx);
+        s_EntSortedIdx = (s32 *)malloc((size_t)poolSize * sizeof(s32));
+        s_EntSortedCap = s_EntSortedIdx ? poolSize : 0;
+        s_EntSortDirty = true;
+    }
 
     ImGuiTableFlags tflags = ImGuiTableFlags_RowBg
                            | ImGuiTableFlags_BordersInnerV
@@ -1781,13 +1791,14 @@ static void renderSettingsCatalog(float scale)
 
                 /* Collect matching indices */
                 s_EntSortedCount = 0;
-                for (s32 i = 0; i < poolSize; i++) {
-                    const asset_entry_t *e = assetCatalogGetByIndex(i);
-                    if (!e) continue;
-                    if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
-                    if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
-                    if (s_EntSortedCount < 8192)
+                if (s_EntSortedIdx) {
+                    for (s32 i = 0; i < poolSize; i++) {
+                        const asset_entry_t *e = assetCatalogGetByIndex(i);
+                        if (!e) continue;
+                        if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                        if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
                         s_EntSortedIdx[s_EntSortedCount++] = i;
+                    }
                 }
 
                 /* Sort the collected indices */
@@ -1815,13 +1826,14 @@ static void renderSettingsCatalog(float scale)
                 /* Fallback: rebuild unsorted on filter change */
                 if (s_EntSortDirty) {
                     s_EntSortedCount = 0;
-                    for (s32 i = 0; i < poolSize; i++) {
-                        const asset_entry_t *e = assetCatalogGetByIndex(i);
-                        if (!e) continue;
-                        if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
-                        if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
-                        if (s_EntSortedCount < 8192)
+                    if (s_EntSortedIdx) {
+                        for (s32 i = 0; i < poolSize; i++) {
+                            const asset_entry_t *e = assetCatalogGetByIndex(i);
+                            if (!e) continue;
+                            if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                            if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
                             s_EntSortedIdx[s_EntSortedCount++] = i;
+                        }
                     }
                     s_EntSortDirty = false;
                 }
