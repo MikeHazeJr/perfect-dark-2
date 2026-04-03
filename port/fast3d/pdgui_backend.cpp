@@ -63,6 +63,9 @@ extern "C" s32 netGetMode(void);
 extern "C" s32 menuIsInCooldown(void);
 extern "C" s32 menuIsOpen(void);
 
+/* Input system -- for deferred SDL mouse-lock flush (B-92 solo mission path) */
+extern "C" s32 inputMouseIsLocked(void);
+
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
 
@@ -331,6 +334,29 @@ void pdguiRender(void)
      * the lobby sidebar active), the flag stays stale from the last menu
      * frame and pdguiIsActive/pdguiWantsInput block all game input. */
     pdguiHotswapRenderQueued((s32)winW, (s32)winH);
+
+    /* B-92 (solo mission ImGui path): pdguiHotswapRenderQueued() just updated
+     * s_HotswapMenuWasActive.  When a mission is accepted from the ImGui overview
+     * dialog, menuhandlerAcceptMission() calls menuStop() + inputLockMouse(1)
+     * from inside the hotswap render callback.  At that point pdguiIsActive()
+     * still returns true (WasActive is still set for this frame), so
+     * inputLockMouse() sets mouseLocked=true but defers SDL_SetRelativeMouseMode.
+     * The next frame the hotswap queue is empty, WasActive drops to false —
+     * but nothing applies the SDL state unless we do it here.
+     * Covers all hotswap→gameplay transitions: solo mission accept, endscreen
+     * retry/next, and any future hotswap dialog that calls menuStop(). */
+    {
+        bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
+        if (hotswapWasActive && !hotswapNowActive &&
+                !g_PdguiActive && !pdguiIsPauseMenuOpen()) {
+            if (inputMouseIsLocked()) {
+                SDL_ShowCursor(SDL_DISABLE);
+                SDL_SetRelativeMouseMode(SDL_TRUE);
+                sysLogPrintf(LOG_NOTE,
+                    "pdgui: hotswap closed, flushed deferred mouse capture (B-92 solo)");
+            }
+        }
+    }
 
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
