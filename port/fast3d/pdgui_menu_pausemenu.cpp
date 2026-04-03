@@ -527,9 +527,9 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(8.0f), pdguiScale(8.0f)));
 
-        if (PdPauseButton("Rankings", tabSize)) { s_PauseTab = 0; pdguiPlaySound(PDGUI_SND_FOCUS); }
+        if (PdPauseButton("Rankings##pm", tabSize)) { s_PauseTab = 0; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
-        if (PdPauseButton("Settings", tabSize)) { s_PauseTab = 1; pdguiPlaySound(PDGUI_SND_FOCUS); }
+        if (PdPauseButton("Settings##pm", tabSize)) { s_PauseTab = 1; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
 
         /* End Game button — danger styled */
@@ -537,7 +537,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-            if (PdPauseButton("End Game", tabSize)) {
+            if (PdPauseButton("End Game##pm", tabSize)) {
                 s_EndGameConfirm = true;
             }
             ImGui::PopStyleColor(3);
@@ -547,7 +547,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.05f, 0.05f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.1f, 0.1f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-            if (PdPauseButton("Confirm?", ImVec2(halfTab, 28.0f))) {
+            if (PdPauseButton("Confirm?##pm", ImVec2(halfTab, 28.0f))) {
                 /* Actually end the game */
                 pdguiPauseSetPlayerAborted();
                 if (g_NetMode == NETMODE_CLIENT) {
@@ -559,7 +559,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             }
             ImGui::PopStyleColor(3);
             ImGui::SameLine();
-            if (PdPauseButton("Cancel", ImVec2(halfTab, 28.0f))) {
+            if (PdPauseButton("Cancel##pm", ImVec2(halfTab, 28.0f))) {
                 s_EndGameConfirm = false;
             }
         }
@@ -587,7 +587,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         float resumeW = 180.0f;
         float resumeH = 36.0f;
         ImGui::SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - 10.0f));
-        if (PdPauseButton("Resume", ImVec2(resumeW, resumeH))) {
+        if (PdPauseButton("Resume##pm", ImVec2(resumeW, resumeH))) {
             pdguiPauseMenuClose();
         }
 
@@ -1119,7 +1119,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.2f, 0.35f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.2f, 0.3f, 0.55f, 1.0f));
         }
-        if (ImGui::Button("Rankings", tabSz)) {
+        if (ImGui::Button("Rankings##go", tabSz)) {
             s_GameOverTab = 0;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
@@ -1137,7 +1137,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.2f, 0.35f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.2f, 0.3f, 0.55f, 1.0f));
         }
-        if (ImGui::Button("Personal", tabSz)) {
+        if (ImGui::Button("Personal##go", tabSz)) {
             s_GameOverTab = 1;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
@@ -1169,7 +1169,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.08f, 0.25f, 0.55f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.40f, 0.80f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.25f, 0.55f, 1.00f, 1.0f));
-        if (ImGui::Button("Return to Lobby", ImVec2(lobbyBtnW, pdguiScale(28.0f)))) {
+        if (ImGui::Button("Return to Lobby##go", ImVec2(lobbyBtnW, pdguiScale(28.0f)))) {
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
             mainChangeToStage(0x26); /* STAGE_CITRAINING */

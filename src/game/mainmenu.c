@@ -35,6 +35,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "input.h"
 
 /* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
 extern struct menudialogdef g_MatchSetupMenuDialog;
@@ -726,6 +727,7 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 {
 	if (operation == MENUOP_SET) {
 		menuStop();
+		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
 
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();

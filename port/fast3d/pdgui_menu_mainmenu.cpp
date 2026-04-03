@@ -1747,7 +1747,7 @@ static void renderSettingsCatalog(float scale)
     ImGui::Spacing();
 
     /* Entry table */
-    static s32  s_EntSortedIdx[4096];
+    static s32  s_EntSortedIdx[8192];
     static s32  s_EntSortedCount = 0;
     static bool s_EntSortDirty   = true; /* force rebuild on first frame */
 
@@ -1786,7 +1786,7 @@ static void renderSettingsCatalog(float scale)
                     if (!e) continue;
                     if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
                     if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
-                    if (s_EntSortedCount < 4096)
+                    if (s_EntSortedCount < 8192)
                         s_EntSortedIdx[s_EntSortedCount++] = i;
                 }
 
@@ -1820,7 +1820,7 @@ static void renderSettingsCatalog(float scale)
                         if (!e) continue;
                         if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
                         if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
-                        if (s_EntSortedCount < 4096)
+                        if (s_EntSortedCount < 8192)
                             s_EntSortedIdx[s_EntSortedCount++] = i;
                     }
                     s_EntSortDirty = false;
@@ -1864,7 +1864,7 @@ static void renderSettingsCatalog(float scale)
             /* Load state */
             ImGui::TableSetColumnIndex(2);
             {
-                const char *sname = (e->load_state <= ASSET_STATE_ACTIVE)
+                const char *sname = (e->load_state >= 0 && e->load_state <= ASSET_STATE_ACTIVE)
                                     ? s_LoadStateNames[e->load_state] : "?";
                 if (e->load_state >= ASSET_STATE_LOADED) {
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
