@@ -16,6 +16,32 @@
 
 #define CONT_NUM_BUTTONS 32 // not including the stick axes
 
+/* Undefine Windows winuser.h VK_ macros that clash with our enum names */
+#ifdef VK_RETURN
+#undef VK_RETURN
+#endif
+#ifdef VK_ESCAPE
+#undef VK_ESCAPE
+#endif
+#ifdef VK_SPACE
+#undef VK_SPACE
+#endif
+#ifdef VK_DELETE
+#undef VK_DELETE
+#endif
+#ifdef VK_F1
+#undef VK_F1
+#endif
+#ifdef VK_F9
+#undef VK_F9
+#endif
+#ifdef VK_LSHIFT
+#undef VK_LSHIFT
+#endif
+#ifdef VK_RSHIFT
+#undef VK_RSHIFT
+#endif
+
 enum virtkey {
 	/* same order as SDL scancodes */
 	VK_KEYBOARD_BEGIN = 0,
