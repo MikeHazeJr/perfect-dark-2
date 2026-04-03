@@ -474,6 +474,11 @@ s32 matchStartFromChallenge(s32 slot)
 	mpStartMatch();
 	menuStop();
 
+	/* B-92 sibling: challenge start path was missing the mouse capture that
+	 * matchStartFromSetup applies.  pdguiIsActive() deferred the SDL
+	 * relative-mouse apply inside inputLockMouse(); force it now. */
+	inputLockMouse(1);
+
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;
 }

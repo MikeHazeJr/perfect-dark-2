@@ -40,6 +40,9 @@
 #include "fs.h"
 #include "romdata.h"
 #include "utils.h"
+#if !defined(PD_SERVER)
+#include "input.h"
+#endif
 
 s32 g_NetMode = NETMODE_NONE;
 
@@ -746,6 +749,9 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	// start the mission on the server
 	menuStop();
+#if !defined(PD_SERVER)
+	inputLockMouse(1);  /* B-92 sibling: co-op listen-server start — pdguiIsActive() deferred SDL lock */
+#endif
 	titleSetNextStage(stagenum);
 	setNumPlayers(g_NetNumClients > 1 ? 2 : 1);
 	lvSetDifficulty(difficulty);

@@ -48,6 +48,7 @@
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
 #include "game/mplayer/scenarios.h"
+#include "input.h"
 #endif
 #include "identity.h"
 #include "utils.h"
@@ -993,6 +994,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 
 		menuStop();
+#if !defined(PD_SERVER)
+		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
+#endif
 
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();
@@ -1113,6 +1117,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		scenarioInitProps();
 #endif
 		menuStop();
+#if !defined(PD_SERVER)
+		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
+#endif
 	}
 
 	return 0;

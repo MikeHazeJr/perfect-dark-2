@@ -25,6 +25,7 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -179,14 +180,24 @@ const char *catalogResolveStageByStagenum(s32 stagenum);
 
 struct arena_entry { char name[64]; char id[64]; s32 stagenum; };
 
-static arena_entry s_Arenas[256];
+static arena_entry *s_Arenas = NULL;
 static int s_NumArenas = 0;
+static int s_ArenasCapacity = 0;
 static bool s_ArenasBuilt = false;
 
 static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 {
     (void)userdata;
-    if (s_NumArenas >= 256) return;
+    if (s_NumArenas >= s_ArenasCapacity) {
+        int newCap = (s_ArenasCapacity == 0) ? 32 : s_ArenasCapacity * 2;
+        arena_entry *newBuf = (arena_entry *)realloc(s_Arenas, newCap * sizeof(arena_entry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "CATALOG: arena list realloc failed at %d entries", s_NumArenas);
+            return;
+        }
+        s_Arenas = newBuf;
+        s_ArenasCapacity = newCap;
+    }
 
     const char *name = arenaGetName((u16)e->ext.arena.name_langid);
     if (!name || !name[0]) {
@@ -209,7 +220,10 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 
 static void buildArenaListFromCatalog(void)
 {
+    free(s_Arenas);
+    s_Arenas = NULL;
     s_NumArenas = 0;
+    s_ArenasCapacity = 0;
     sysLogPrintf(LOG_NOTE, "CATALOG: building arena list from catalog (%d ASSET_ARENA entries)",
         assetCatalogGetCountByType(ASSET_ARENA));
     assetCatalogIterateByType(ASSET_ARENA, catalogArenaCollect, NULL);
@@ -2133,6 +2147,10 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    free(s_Arenas);
+    s_Arenas            = NULL;
+    s_NumArenas         = 0;
+    s_ArenasCapacity    = 0;
     s_ArenasBuilt       = false;
     s_CodeGenerated     = false;
     s_IsSoloMode        = false;  /* caller sets via pdguiRoomScreenSetSolo() after reset */
