@@ -494,7 +494,7 @@ void debugUpdateMenu(void)
 				break;
 			}
 
-			sprintf(g_DebugCutsceneLabelPtrs[i + 1], "scene %d", i);
+			snprintf(g_DebugCutsceneLabelPtrs[i + 1], 20, "scene %d", i);
 			g_DebugCutsceneOffsets[0]++;
 		}
 

@@ -16,11 +16,11 @@ void vmPrintStatsIfEnabled(void)
 			dhudSetFgColour(0xff, 0xff, 0xff, 0xff);
 			dhudSetBgColour(0, 0, 0, 0xff);
 
-			sprintf(buffer, "VM: Page Misses %d (%d Replaces)", g_VmNumPageMisses, g_VmNumPageReplaces);
+			snprintf(buffer, sizeof(buffer), "VM: Page Misses %d (%d Replaces)", g_VmNumPageMisses, g_VmNumPageReplaces);
 			dhudSetPos(2, 1);
 			dhudPrintString(buffer);
 
-			sprintf(buffer, "VM: TLB Misses %d", g_VmNumTlbMisses);
+			snprintf(buffer, sizeof(buffer), "VM: TLB Misses %d", g_VmNumTlbMisses);
 			dhudSetPos(2, 2);
 			dhudPrintString(buffer);
 		}

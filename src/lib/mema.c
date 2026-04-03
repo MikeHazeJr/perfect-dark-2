@@ -286,13 +286,13 @@ void memaPrint(void)
 		dhudSetFgColour(0xff, 0xff, 0xff, 0xff);
 		dhudSetBgColour(0, 0, 0, 0xff);
 
-		sprintf(buffer, "Lev0: %d", mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD));
+		snprintf(buffer, sizeof(buffer), "Lev0: %d", mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD));
 
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
 
-		sprintf(buffer, "Lev1: %d", mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION));
+		snprintf(buffer, sizeof(buffer), "Lev1: %d", mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION));
 
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
@@ -302,7 +302,7 @@ void memaPrint(void)
 			g_MemaLeastEverFree = memaGetLongestFree();
 		}
 
-		sprintf(buffer, "mema: %d (%d)", memaGetLongestFree(), g_MemaLeastEverFree);
+		snprintf(buffer, sizeof(buffer), "mema: %d (%d)", memaGetLongestFree(), g_MemaLeastEverFree);
 
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
@@ -325,14 +325,14 @@ void memaPrint(void)
 
 		onboard = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD);
 		expansion = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION);
-		sprintf(buffer, "F: %d %d", onboard, expansion);
+		snprintf(buffer, sizeof(buffer), "F: %d %d", onboard, expansion);
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
 
 		onboard = mempGetPoolSize(MEMPOOL_STAGE, MEMBANK_ONBOARD);
 		expansion = mempGetPoolSize(MEMPOOL_STAGE, MEMBANK_EXPANSION);
-		sprintf(buffer, "S: %d %d", onboard, expansion);
+		snprintf(buffer, sizeof(buffer), "S: %d %d", onboard, expansion);
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
@@ -342,9 +342,9 @@ void memaPrint(void)
 			- mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD);
 
 		if (over >= 0) {
-			sprintf(buffer, "Over: %d", over);
+			snprintf(buffer, sizeof(buffer), "Over: %d", over);
 		} else {
-			sprintf(buffer, "Free: %d", -over);
+			snprintf(buffer, sizeof(buffer), "Free: %d", -over);
 		}
 
 		dhudSetPos(31, line);
@@ -357,14 +357,14 @@ void memaPrint(void)
 
 		onboard = mempGetPoolFree(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
 		expansion = mempGetPoolFree(MEMPOOL_PERMANENT, MEMBANK_EXPANSION);
-		sprintf(buffer, "F: %d %d", onboard, expansion);
+		snprintf(buffer, sizeof(buffer), "F: %d %d", onboard, expansion);
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
 
 		onboard = mempGetPoolSize(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
 		expansion = mempGetPoolSize(MEMPOOL_PERMANENT, MEMBANK_EXPANSION);
-		sprintf(buffer, "S: %d %d", onboard, expansion);
+		snprintf(buffer, sizeof(buffer), "S: %d %d", onboard, expansion);
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
@@ -373,12 +373,12 @@ void memaPrint(void)
 		dhudPrintString("mema:");
 		line++;
 
-		sprintf(buffer, "LF: %d", memaGetLongestFree());
+		snprintf(buffer, sizeof(buffer), "LF: %d", memaGetLongestFree());
 		dhudSetPos(31, line);
 		dhudPrintString(buffer);
 		line++;
 
-		sprintf(buffer, "Audio Free: %d", g_SndHeap.base + (g_SndHeap.len - (uintptr_t) g_SndHeap.cur));
+		snprintf(buffer, sizeof(buffer), "Audio Free: %d", g_SndHeap.base + (g_SndHeap.len - (uintptr_t) g_SndHeap.cur));
 		dhudSetPos(30, line);
 		dhudPrintString(buffer);
 		line++;

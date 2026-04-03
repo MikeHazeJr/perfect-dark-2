@@ -128,7 +128,7 @@ void fileLoad(u8 *dst, u32 allocationlen, romptr_t *romaddrptr, struct fileinfo 
 
 #if VERSION < VERSION_NTSC_1_0
 			if (result == 0) {
-				sprintf(sp54, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x", "ob.c", 204,
+				snprintf(sp54, sizeof(sp54), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x", "ob.c", 204,
 						scratch[0], scratch[1], scratch[2], scratch[3],
 						scratch[4], scratch[5], scratch[6], scratch[7]);
 				crashSetMessage(sp54);
@@ -210,7 +210,7 @@ u32 fileGetInflatedSize(s32 filenum, u32 loadtype)
 	}
 
 #if VERSION < VERSION_NTSC_1_0
-	sprintf(message, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+	snprintf(message, sizeof(message), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
 			"ob.c", 446,
 			ptr[0x00], ptr[0x01], ptr[0x02], ptr[0x03],
 			ptr[0x04], ptr[0x05], ptr[0x06], ptr[0x07],

@@ -803,7 +803,7 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 
 	if (autonames) {
 		// "Player 1" etc
-		sprintf(g_PlayerConfigsArray[playernum].base.name, "%s %d\n", langGet(L_MISC_437), playernum + 1);
+		snprintf(g_PlayerConfigsArray[playernum].base.name, sizeof(g_PlayerConfigsArray[playernum].base.name), "%s %d\n", langGet(L_MISC_437), playernum + 1);
 	} else {
 		g_PlayerConfigsArray[playernum].base.name[0] = '\0';
 	}
@@ -1007,7 +1007,7 @@ void mpSetDefaultNamesIfEmpty(void)
 	// Player names
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (g_PlayerConfigsArray[i].base.name[0] == '\0') {
-			sprintf(g_PlayerConfigsArray[i].base.name, "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
+			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
 		}
 	}
 }
@@ -1749,7 +1749,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 #if VERSION >= VERSION_JPN_FINAL
 			countdownx = countdownx / g_ScaleX;
 #endif
-			sprintf(text, "%d\n", (g_Vars.currentplayer->deadtimer + TICKS(60) - 1) / TICKS(60));
+			snprintf(text, sizeof(text), "%d\n", (g_Vars.currentplayer->deadtimer + TICKS(60) - 1) / TICKS(60));
 
 			textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 			x = countdownx - textwidth / 2;
@@ -3644,11 +3644,11 @@ void mpGenerateBotNames(void)
 			if (counts[profilenum] >= 0) {
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
-				sprintf(name, "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
+				snprintf(name, sizeof(name), "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
 				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
 			} else {
 				// One bots using this profile - just use the profile name
-				sprintf(name, "%s\n", langGet(g_BotProfiles[profilenum].name));
+				snprintf(name, sizeof(name), "%s\n", langGet(g_BotProfiles[profilenum].name));
 				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
 			}
 		}
@@ -4153,7 +4153,7 @@ void mpApplyConfig(struct mpconfigfull *config)
 #if VERSION >= VERSION_NTSC_1_0
 		if (IS4MB()) {
 			// "ShockSim:%d"
-			sprintf(g_BotConfigsArray[i].base.name, langGet(L_MPWEAPONS_241), i + 1);
+			snprintf(g_BotConfigsArray[i].base.name, sizeof(g_BotConfigsArray[i].base.name), langGet(L_MPWEAPONS_241), i + 1);
 		} else {
 			strcpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i]);
 		}

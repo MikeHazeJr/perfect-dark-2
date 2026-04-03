@@ -379,10 +379,10 @@ char *frMenuTextTimeTakenValue(struct menuitem *item)
 			mins++;
 		}
 
-		sprintf(g_StringPointer, "%dm %2ds\n", mins, (s32)ceilf(secs));
+		snprintf(g_StringPointer, 300, "%dm %2ds\n", mins, (s32)ceilf(secs));
 		return g_StringPointer;
 	} else {
-		sprintf(g_StringPointer, "%s%s%2.2fs\n", "", "", secs);
+		snprintf(g_StringPointer, 300, "%s%s%2.2fs\n", "", "", secs);
 	}
 
 	return g_StringPointer;
@@ -392,14 +392,14 @@ char *frMenuTextScoreValue(struct menuitem *item)
 {
 	struct frdata *frdata = frGetData();
 
-	sprintf(g_StringPointer, "%d\n", frdata->score);
+	snprintf(g_StringPointer, 300, "%d\n", frdata->score);
 	return g_StringPointer;
 }
 
 char *frMenuTextGoalScoreValueUnconditional(struct menuitem *item)
 {
 	struct frdata *frdata = frGetData();
-	sprintf(g_StringPointer, "%d\n", frdata->goalscore);
+	snprintf(g_StringPointer, 300, "%d\n", frdata->goalscore);
 	return g_StringPointer;
 }
 
@@ -412,7 +412,7 @@ char *frMenuTextTargetsDestroyedValue(struct menuitem *item)
 {
 	struct frdata *frdata = frGetData();
 
-	sprintf(g_StringPointer, "%d\n", frdata->targetsdestroyed);
+	snprintf(g_StringPointer, 300, "%d\n", frdata->targetsdestroyed);
 	return g_StringPointer;
 }
 
@@ -430,7 +430,7 @@ char *frMenuTextAccuracyValue(struct menuitem *item)
 		accuracy = 100.0f;
 	}
 
-	sprintf(g_StringPointer, "%s%s%.1f%%\n", "", "", accuracy);
+	snprintf(g_StringPointer, 300, "%s%s%.1f%%\n", "", "", accuracy);
 	return g_StringPointer;
 }
 
@@ -439,7 +439,7 @@ char *frMenuTextGoalScoreLabel(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->goalscore > 0) {
-		sprintf(g_StringPointer, "%s", langGet(L_MPMENU_475)); // "Goal Score:"
+		snprintf(g_StringPointer, 300, "%s", langGet(L_MPMENU_475)); // "Goal Score:"
 		return g_StringPointer;
 	}
 
@@ -451,7 +451,7 @@ char *frMenuTextGoalScoreValue(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->goalscore > 0) {
-		sprintf(g_StringPointer2, "%d\n", frdata->goalscore);
+		snprintf(g_StringPointer2, 150, "%d\n", frdata->goalscore);
 		return g_StringPointer2;
 	}
 
@@ -463,9 +463,9 @@ char *frMenuTextMinAccuracyOrTargetsLabel(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->goalaccuracy > 0) {
-		sprintf(g_StringPointer, "%s", langGet(L_MPMENU_473)); // "Min Accuracy:"
+		snprintf(g_StringPointer, 300, "%s", langGet(L_MPMENU_473)); // "Min Accuracy:"
 	} else if (frdata->goaltargets != 255) {
-		sprintf(g_StringPointer, "%s", langGet(L_MPMENU_474)); // "Goal Targets:"
+		snprintf(g_StringPointer, 300, "%s", langGet(L_MPMENU_474)); // "Goal Targets:"
 	} else {
 		return NULL;
 	}
@@ -478,9 +478,9 @@ char *frMenuTextMinAccuracyOrTargetsValue(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->goalaccuracy > 0) {
-		sprintf(g_StringPointer2, "%d%%\n", frdata->goalaccuracy);
+		snprintf(g_StringPointer2, 150, "%d%%\n", frdata->goalaccuracy);
 	} else if (frdata->goaltargets != 255) {
-		sprintf(g_StringPointer2, "%d\n", frdata->goaltargets);
+		snprintf(g_StringPointer2, 150, "%d\n", frdata->goaltargets);
 	} else {
 		return NULL;
 	}
@@ -493,7 +493,7 @@ char *frMenuTextTimeLimitLabel(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->timelimit != 255) {
-		sprintf(g_StringPointer, "%s", langGet(L_MPMENU_472)); // "Time Limit:"
+		snprintf(g_StringPointer, 300, "%s", langGet(L_MPMENU_472)); // "Time Limit:"
 	} else {
 		return NULL;
 	}
@@ -515,9 +515,9 @@ char *frMenuTextTimeLimitValue(struct menuitem *item)
 		}
 
 		if (mins > 0) {
-			sprintf(g_StringPointer2, "%dm %ds\n", mins, secs);
+			snprintf(g_StringPointer2, 150, "%dm %ds\n", mins, secs);
 		} else {
-			sprintf(g_StringPointer2, "%ds\n", secs);
+			snprintf(g_StringPointer2, 150, "%ds\n", secs);
 		}
 	} else {
 		return NULL;
@@ -531,7 +531,7 @@ char *frMenuTextAmmoLimitLabel(struct menuitem *item)
 	struct frdata *frdata = frGetData();
 
 	if (frdata->ammolimit != 255) {
-		sprintf(g_StringPointer, "%s", langGet(L_MPMENU_471)); // "Ammo Limit:"
+		snprintf(g_StringPointer, 300, "%s", langGet(L_MPMENU_471)); // "Ammo Limit:"
 	} else {
 		return NULL;
 	}
@@ -549,12 +549,12 @@ char *frMenuTextAmmoLimitValue(struct menuitem *item)
 		weaponnum = frGetWeaponBySlot(frdata->slot);
 
 		if (weaponnum == WEAPON_SUPERDRAGON && frdata->sdgrenadelimit != 255) {
-			sprintf(suffix, "/%d", frdata->sdgrenadelimit);
+			snprintf(suffix, sizeof(suffix), "/%d", frdata->sdgrenadelimit);
 		} else {
 			suffix[0] = '\0';
 		}
 
-		sprintf(g_StringPointer2, "%d%s\n", frdata->ammolimit, suffix);
+		snprintf(g_StringPointer2, 150, "%d%s\n", frdata->ammolimit, suffix);
 	} else {
 		return NULL;
 	}
@@ -689,21 +689,21 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 #endif
 
 		// Bull's-eye count
-		sprintf(text, "%d\n", frdata->numhitsbullseye);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsbullseye);
 		x = renderdata->x + 93;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 15 : 14);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "Bull's-eye"
-		sprintf(text, langGet(L_MPMENU_461));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_461));
 		x = renderdata->x + 122;
 		y = renderdata->y + 14;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Bull's-eye score
-		sprintf(text, "%d\n", frdata->numhitsbullseye * 10);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsbullseye * 10);
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = renderdata->x - textheight + (VERSION == VERSION_JPN_FINAL ? 192 : 182);
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 15 : 14);
@@ -711,21 +711,21 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 1 count
-		sprintf(text, "%d\n", frdata->numhitsring1);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring1);
 		x = renderdata->x + 93;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 27 : 25);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "Zone 1"
-		sprintf(text, langGet(L_MPMENU_462));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_462));
 		x = renderdata->x + 122;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 26 : 25);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 1 score
-		sprintf(text, "%d\n", frdata->numhitsring1 * 5);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring1 * 5);
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = renderdata->x - textheight + (VERSION == VERSION_JPN_FINAL ? 192 : 182);
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 27 : 25);
@@ -733,21 +733,21 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 2 count
-		sprintf(text, "%d\n", frdata->numhitsring2);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring2);
 		x = renderdata->x + 93;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 39 : 36);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "Zone 2"
-		sprintf(text, langGet(L_MPMENU_463));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_463));
 		x = renderdata->x + 122;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 38 : 36);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 2 score
-		sprintf(text, "%d\n", frdata->numhitsring2 * 2);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring2 * 2);
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = renderdata->x - textheight + (VERSION == VERSION_JPN_FINAL ? 192 : 182);
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 39 : 36);
@@ -755,7 +755,7 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 3 count
-		sprintf(text, "%d\n", frdata->numhitsring3);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring3);
 		x = renderdata->x + 93;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 51 : 47);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
@@ -763,14 +763,14 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 
 		// "Zone 3"
 		// Note: developers forgot to remove last argument when copy/pasting
-		sprintf(text, langGet(L_MPMENU_464), frdata->numhitsring3);
+		snprintf(text, sizeof(text),langGet(L_MPMENU_464), frdata->numhitsring3);
 		x = renderdata->x + 122;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 50 : 47);
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Zone 3 score
-		sprintf(text, "%d\n", frdata->numhitsring3);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring3);
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = renderdata->x - textheight + (VERSION == VERSION_JPN_FINAL ? 192 : 182);
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 51 : 47);
@@ -778,7 +778,7 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "Hit total"
-		sprintf(text, langGet(L_MPMENU_465));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_465));
 		x = renderdata->x + 133;
 		y = renderdata->y + 63;
 
@@ -791,7 +791,7 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// Hit total count
-		sprintf(text, "%d\n", frdata->numhitsring3 + frdata->numhitsbullseye + frdata->numhitsring1 + frdata->numhitsring2);
+		snprintf(text, sizeof(text),"%d\n", frdata->numhitsring3 + frdata->numhitsbullseye + frdata->numhitsring1 + frdata->numhitsring2);
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = renderdata->x - textheight + 188;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 64 : 63);
@@ -805,35 +805,35 @@ MenuItemHandlerResult frScoringMenuHandler(s32 operation, struct menuitem *item,
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "Scoring"
-		sprintf(text, langGet(L_MPMENU_466));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_466));
 		x = renderdata->x + 83;
 		y = renderdata->y + 1;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, COLOUR(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "10"
-		sprintf(text, langGet(L_MPMENU_467));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_467));
 		x = renderdata->x + 38;
 		y = renderdata->y + 35;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, COLOURWHITE(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "5"
-		sprintf(text, langGet(L_MPMENU_468));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_468));
 		x = renderdata->x + 32;
 		y = renderdata->y + 26;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, COLOURWHITE(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "2"
-		sprintf(text, langGet(L_MPMENU_469));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_469));
 		x = renderdata->x + 24;
 		y = renderdata->y + 16;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, COLOURWHITE(), viGetWidth(), viGetHeight(), 0, 0);
 
 		// "1"
-		sprintf(text, langGet(L_MPMENU_470));
+		snprintf(text, sizeof(text),langGet(L_MPMENU_470));
 		x = renderdata->x + 14;
 		y = renderdata->y + 4;
 		gdl = text0f153858(gdl, &x, &y, &textheight, &textwidth);
@@ -1661,7 +1661,7 @@ MenuDialogHandlerResult ciCharacterProfileMenuDialog(s32 operation, struct menud
 char *ciMenuTextChrBioName(struct menuitem *item)
 {
 	struct chrbio *bio = ciGetChrBioByBodynum(ciGetChrBioBodynumBySlot(g_ChrBioSlot));
-	sprintf(g_StringPointer, "%s\n", langGet(bio->name));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(bio->name));
 
 	return g_StringPointer;
 }
@@ -1669,7 +1669,7 @@ char *ciMenuTextChrBioName(struct menuitem *item)
 char *ciMenuTextChrBioAge(struct menuitem *item)
 {
 	struct chrbio *bio = ciGetChrBioByBodynum(ciGetChrBioBodynumBySlot(g_ChrBioSlot));
-	sprintf(g_StringPointer, "%s\n", langGet(bio->age));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(bio->age));
 
 	return g_StringPointer;
 }
@@ -1677,7 +1677,7 @@ char *ciMenuTextChrBioAge(struct menuitem *item)
 char *ciMenuTextChrBioRace(struct menuitem *item)
 {
 	struct chrbio *bio = ciGetChrBioByBodynum(ciGetChrBioBodynumBySlot(g_ChrBioSlot));
-	sprintf(g_StringPointer, "%s\n", langGet(bio->race));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(bio->race));
 
 	return g_StringPointer;
 }
@@ -1686,7 +1686,7 @@ char *ciMenuTextMiscBioName(struct menuitem *item)
 {
 	struct miscbio *bio = ciGetMiscBio(ciGetMiscBioIndexBySlot(g_ChrBioSlot - ciGetNumUnlockedChrBios()));
 
-	sprintf(g_StringPointer, "%s\n", langGet(bio->name));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(bio->name));
 
 	return g_StringPointer;
 }
@@ -1997,10 +1997,10 @@ char *dtMenuTextTimeTakenValue(struct menuitem *item)
 			mins++;
 		}
 
-		sprintf(g_StringPointer, "%dm %2ds\n", mins, (s32)ceilf(secs));
+		snprintf(g_StringPointer, 300, "%dm %2ds\n", mins, (s32)ceilf(secs));
 		return g_StringPointer;
 	} else {
-		sprintf(g_StringPointer, "%s%s%2.2fs\n", "", "", secs);
+		snprintf(g_StringPointer, 300, "%s%s%2.2fs\n", "", "", secs);
 	}
 
 	return g_StringPointer;
@@ -2115,10 +2115,10 @@ char *htMenuTextTimeTakenValue(struct menuitem *item)
 			mins++;
 		}
 
-		sprintf(g_StringPointer, "%dm %2ds\n", mins, (s32)ceilf(secs));
+		snprintf(g_StringPointer, 300, "%dm %2ds\n", mins, (s32)ceilf(secs));
 		return g_StringPointer;
 	} else {
-		sprintf(g_StringPointer, "%s%s%2.2fs\n", "", "", secs);
+		snprintf(g_StringPointer, 300, "%s%s%2.2fs\n", "", "", secs);
 	}
 
 	return g_StringPointer;
@@ -2154,7 +2154,7 @@ char *ciMenuTextHangarBioSubheading(struct menuitem *item)
 		index++;
 	}
 
-	sprintf(g_StringPointer, "%s\n", &name[index + 1]);
+	snprintf(g_StringPointer, 300, "%s\n", &name[index + 1]);
 
 	return g_StringPointer;
 }

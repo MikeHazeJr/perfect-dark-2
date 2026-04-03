@@ -5628,9 +5628,9 @@ Gfx *menuRender(Gfx *gdl)
 
 			if (g_NetMode) {
 				if (g_NetMode == NETMODE_SERVER) {
-					sprintf(text, "Server: %d/%d %04x", g_NetNumClients, g_NetMaxClients, g_MpSetup.chrslots);
+					snprintf(text, sizeof(text), "Server: %d/%d %04x", g_NetNumClients, g_NetMaxClients, g_MpSetup.chrslots);
 				} else {
-					sprintf(text, "Client: ID %u", g_NetLocalClient->id);
+					snprintf(text, sizeof(text), "Client: ID %u", g_NetLocalClient->id);
 				}
 				x = viewleft + 2;
 				y = viewbottom - 9;
@@ -5648,7 +5648,7 @@ Gfx *menuRender(Gfx *gdl)
 					// or similar. Show "Ready" in their corner.
 					renderit = true;
 					// "Player %d: " and "Ready!"
-					sprintf(text, "%s%s", langGet(L_MPMENU_482), langGet(L_MISC_461));
+					snprintf(text, sizeof(text), "%s%s", langGet(L_MPMENU_482), langGet(L_MISC_461));
 				} else {
 					if (g_MenuData.root == MENUROOT_4MBMAINMENU) {
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_GENERAL) {
@@ -5667,7 +5667,7 @@ Gfx *menuRender(Gfx *gdl)
 					}
 
 					// "Player %d: " and "Press START!"
-					sprintf(text, "%s%s", langGet(L_MPMENU_482), langGet(L_MPMENU_483));
+					snprintf(text, sizeof(text), "%s%s", langGet(L_MPMENU_482), langGet(L_MPMENU_483));
 				}
 
 				if (renderit) {
@@ -5709,7 +5709,7 @@ Gfx *menuRender(Gfx *gdl)
 						u32 weight = menuGetSinOscFrac(20) * 255.0f;
 
 						// "Player %d: "
-						sprintf(text, langGet(L_MPMENU_482), i + 1);
+						snprintf(text, sizeof(text), langGet(L_MPMENU_482), i + 1);
 
 						if (i < 2) {
 							y = viewtop + 2;

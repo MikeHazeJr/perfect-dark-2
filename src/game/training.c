@@ -3349,36 +3349,36 @@ char *htGetTip2(void)
 #if VERSION >= VERSION_JPN_FINAL
 void frGetGoalTargetsText(char *buffer, char *buffer2)
 {
-	sprintf(buffer, "%s", langGet(L_MISC_417));
-	sprintf(buffer2, "%d\n", g_FrData.goaltargets);
+	snprintf(buffer, 128, "%s", langGet(L_MISC_417));
+	snprintf(buffer2, 128, "%d\n", g_FrData.goaltargets);
 }
 #else
 void frGetGoalTargetsText(char *buffer)
 {
 	// "GOAL TARGETS:"
-	sprintf(buffer, "%s %d\n", langGet(L_MISC_417), g_FrData.goaltargets);
+	snprintf(buffer, 128, "%s %d\n", langGet(L_MISC_417), g_FrData.goaltargets);
 }
 #endif
 
 void frGetTargetsDestroyedValue(char *buffer)
 {
-	sprintf(buffer, "%02d\n", g_FrData.targetsdestroyed);
+	snprintf(buffer, 128, "%02d\n", g_FrData.targetsdestroyed);
 }
 
 void frGetScoreValue(char *buffer)
 {
-	sprintf(buffer, "%03d\n", g_FrData.score);
+	snprintf(buffer, 128, "%03d\n", g_FrData.score);
 }
 
 #if VERSION >= VERSION_JPN_FINAL
 void frGetGoalScoreText(char *buffer1, char *buffer2)
 {
 	if (g_FrData.goalscore) {
-		sprintf(buffer1, "%s", langGet(L_MISC_418));
-		sprintf(buffer2, "%d\n", g_FrData.goalscore);
+		snprintf(buffer1, 128, "%s", langGet(L_MISC_418));
+		snprintf(buffer2, 128, "%d\n", g_FrData.goalscore);
 	} else {
-		sprintf(buffer1, "");
-		sprintf(buffer2, "");
+		*buffer1 = '\0';
+		*buffer2 = '\0';
 	}
 }
 #else
@@ -3386,9 +3386,9 @@ void frGetGoalScoreText(char *buffer)
 {
 	if (g_FrData.goalscore) {
 		// "GOAL SCORE:"
-		sprintf(buffer, "%s %d\n", langGet(L_MISC_418), g_FrData.goalscore);
+		snprintf(buffer, 128, "%s %d\n", langGet(L_MISC_418), g_FrData.goalscore);
 	} else {
-		sprintf(buffer, "");
+		*buffer = '\0';
 	}
 }
 #endif
@@ -3409,7 +3409,7 @@ f32 frGetAccuracy(char *buffer)
 		accuracy = 100.0f;
 	}
 
-	sprintf(buffer, "%s%s%.2f%%\n", "", "", accuracy);
+	snprintf(buffer, 128, "%s%s%.2f%%\n", "", "", accuracy);
 
 	return accuracy;
 }
@@ -3417,8 +3417,8 @@ f32 frGetAccuracy(char *buffer)
 #if VERSION >= VERSION_JPN_FINAL
 bool frGetMinAccuracy(char *buffer1, f32 accuracy, char *buffer2)
 {
-	sprintf(buffer1, "%s", langGet(L_MISC_419));
-	sprintf(buffer2, "%d%%\n", g_FrData.goalaccuracy);
+	snprintf(buffer1, 128, "%s", langGet(L_MISC_419));
+	snprintf(buffer2, 128, "%d%%\n", g_FrData.goalaccuracy);
 
 	return accuracy < g_FrData.goalaccuracy;
 }
@@ -3426,7 +3426,7 @@ bool frGetMinAccuracy(char *buffer1, f32 accuracy, char *buffer2)
 bool frGetMinAccuracy(char *buffer, f32 accuracy)
 {
 	// "MIN ACCURACY:"
-	sprintf(buffer, "%s %d%%\n", langGet(L_MISC_419), g_FrData.goalaccuracy);
+	snprintf(buffer, 128, "%s %d%%\n", langGet(L_MISC_419), g_FrData.goalaccuracy);
 
 	return accuracy < g_FrData.goalaccuracy;
 }
@@ -3468,7 +3468,7 @@ bool frFormatTime(char *buffer)
 		}
 	}
 
-	sprintf(buffer, "%02d:%02d\n", mult * mins, (s32)secs);
+	snprintf(buffer, 128, "%02d:%02d\n", mult * mins, (s32)secs);
 
 	return failed;
 }
@@ -3479,15 +3479,15 @@ bool frGetHudMiddleSubtext(char *buffer1, char *buffer2)
 	s32 secs;
 	s32 mins;
 
-	sprintf(buffer2, "");
+	*buffer2 = '\0';
 
 	if (g_FrData.timetaken < TICKS(-180)) {
-		sprintf(buffer1, "%s", langGet(L_MISC_420)); // "FIRE TO START"
+		snprintf(buffer1, 128, "%s", langGet(L_MISC_420)); // "FIRE TO START"
 		return false;
 	}
 
 	if (g_FrData.timetaken < 0) {
-		sprintf(buffer1, "%s", langGet(L_MISC_421)); // "GET READY!"
+		snprintf(buffer1, 128, "%s", langGet(L_MISC_421)); // "GET READY!"
 		return true;
 	}
 
@@ -3505,8 +3505,8 @@ bool frGetHudMiddleSubtext(char *buffer1, char *buffer2)
 		}
 	}
 
-	sprintf(buffer1, "%s", langGet(L_MISC_422)); // "LIMIT:"
-	sprintf(buffer2, "%02d:%02d\n", mins, secs);
+	snprintf(buffer1, 128, "%s", langGet(L_MISC_422)); // "LIMIT:"
+	snprintf(buffer2, 128, "%02d:%02d\n", mins, secs);
 	return true;
 }
 #else
@@ -3516,12 +3516,12 @@ bool frGetHudMiddleSubtext(char *buffer)
 	s32 mins;
 
 	if (g_FrData.timetaken < TICKS(-180)) {
-		sprintf(buffer, "%s", langGet(L_MISC_420)); // "FIRE TO START"
+		snprintf(buffer, 128, "%s", langGet(L_MISC_420)); // "FIRE TO START"
 		return false;
 	}
 
 	if (g_FrData.timetaken < 0) {
-		sprintf(buffer, "%s", langGet(L_MISC_421)); // "GET READY!"
+		snprintf(buffer, 128, "%s", langGet(L_MISC_421)); // "GET READY!"
 		return true;
 	}
 
@@ -3539,7 +3539,7 @@ bool frGetHudMiddleSubtext(char *buffer)
 		}
 	}
 
-	sprintf(buffer, "%s %02d:%02d\n", langGet(L_MISC_422), mins, secs); // "LIMIT:"
+	snprintf(buffer, 128, "%s %02d:%02d\n", langGet(L_MISC_422), mins, secs); // "LIMIT:"
 	return true;
 }
 #endif
@@ -3555,7 +3555,7 @@ bool frGetFeedback(char *scorebuffer, char *zonebuffer, char *extrabuffer)
 		L_MISC_427, // "EXPLODED"
 	};
 
-	sprintf(extrabuffer, "");
+	*extrabuffer = '\0';
 
 	if (g_FrData.feedbackzone) {
 		g_FrData.feedbackttl -= g_Vars.lvupdate60;
@@ -3567,30 +3567,30 @@ bool frGetFeedback(char *scorebuffer, char *zonebuffer, char *extrabuffer)
 		}
 
 		if (g_FrData.feedbackzone == FRZONE_EXPLODE) {
-			sprintf(scorebuffer, "010\n");
+			snprintf(scorebuffer, 128, "010\n");
 		} else {
-			sprintf(scorebuffer, "%03d\n", g_FrData.feedbackzone);
+			snprintf(scorebuffer, 128, "%03d\n", g_FrData.feedbackzone);
 		}
 
 		switch (g_FrData.feedbackzone) {
 		case FRZONE_RING3:
-			sprintf(zonebuffer, "%s", langGet(texts[0]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[0]));
 			return true;
 		case FRZONE_RING2:
-			sprintf(zonebuffer, "%s", langGet(texts[1]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[1]));
 			return true;
 		case FRZONE_RING1:
-			sprintf(zonebuffer, "%s", langGet(texts[2]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[2]));
 			return true;
 		case FRZONE_BULLSEYE:
-			sprintf(zonebuffer, "%s", langGet(texts[3]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[3]));
 			return true;
 		case FRZONE_EXPLODE:
-			sprintf(zonebuffer, "%s", langGet(texts[4]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[4]));
 			return true;
 		}
 
-		sprintf(zonebuffer, "\n");
+		snprintf(zonebuffer, 128, "\n");
 		return true;
 	}
 
@@ -3617,30 +3617,30 @@ bool frGetFeedback(char *scorebuffer, char *zonebuffer)
 		}
 
 		if (g_FrData.feedbackzone == FRZONE_EXPLODE) {
-			sprintf(scorebuffer, "010\n");
+			snprintf(scorebuffer, 128, "010\n");
 		} else {
-			sprintf(scorebuffer, "%03d\n", g_FrData.feedbackzone);
+			snprintf(scorebuffer, 128, "%03d\n", g_FrData.feedbackzone);
 		}
 
 		switch (g_FrData.feedbackzone) {
 		case FRZONE_RING3:
-			sprintf(zonebuffer, "%s", langGet(texts[0]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[0]));
 			return true;
 		case FRZONE_RING2:
-			sprintf(zonebuffer, "%s", langGet(texts[1]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[1]));
 			return true;
 		case FRZONE_RING1:
-			sprintf(zonebuffer, "%s", langGet(texts[2]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[2]));
 			return true;
 		case FRZONE_BULLSEYE:
-			sprintf(zonebuffer, "%s", langGet(texts[3]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[3]));
 			return true;
 		case FRZONE_EXPLODE:
-			sprintf(zonebuffer, "%s", langGet(texts[4]));
+			snprintf(zonebuffer, 128, "%s", langGet(texts[4]));
 			return true;
 		}
 
-		sprintf(zonebuffer, "\n");
+		snprintf(zonebuffer, 128, "\n");
 		return true;
 	}
 

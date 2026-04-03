@@ -16823,9 +16823,9 @@ void func0f0878c8pf(char *dst, s32 id, bool plural, bool full, bool dual, struct
 			}
 
 			if (determinertextid) {
-				sprintf(buffer, "%s%s", langGet(determinertextid), langGet(nametextid));
+				snprintf(buffer, sizeof(buffer), "%s%s", langGet(determinertextid), langGet(nametextid));
 			} else {
-				sprintf(buffer, "%s", langGet(nametextid));
+				snprintf(buffer, sizeof(buffer), "%s", langGet(nametextid));
 			}
 
 			ptr = buffer;
@@ -16841,19 +16841,19 @@ void func0f0878c8pf(char *dst, s32 id, bool plural, bool full, bool dual, struct
 #if VERSION == VERSION_JPN_FINAL
 			// JPN removes the full stops from the format strings
 			if (dual) {
-				sprintf(dst, "%s%s\n", langGet(L_PROPOBJ_008), buffer); // "Double"
+				snprintf(dst, 256, "%s%s\n", langGet(L_PROPOBJ_008), buffer); // "Double"
 			} else if (!full) {
-				sprintf(dst, langGet(L_PROPOBJ_000 + index), buffer); // "Picked up %s.\n"
+				snprintf(dst, 256, langGet(L_PROPOBJ_000 + index), buffer); // "Picked up %s.\n"
 			} else {
-				sprintf(dst, "%s\n", buffer);
+				snprintf(dst, 256, "%s\n", buffer);
 			}
 #else
 			if (dual) {
-				sprintf(dst, "%s%s.\n", langGet(L_PROPOBJ_008), buffer); // "Double"
+				snprintf(dst, 256, "%s%s.\n", langGet(L_PROPOBJ_008), buffer); // "Double"
 			} else if (!full) {
-				sprintf(dst, langGet(L_PROPOBJ_000 + index), buffer); // "Picked up %s.\n"
+				snprintf(dst, 256, langGet(L_PROPOBJ_000 + index), buffer); // "Picked up %s.\n"
 			} else {
-				sprintf(dst, "%s.\n", buffer);
+				snprintf(dst, 256, "%s.\n", buffer);
 			}
 #endif
 		}

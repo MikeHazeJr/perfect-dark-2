@@ -55,7 +55,7 @@ char *menuTextCurrentStageName(struct menuitem *item)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s\n", name);
+	snprintf(g_StringPointer, 300, "%s\n", name);
 	return g_StringPointer;
 }
 
@@ -797,7 +797,7 @@ char *soloMenuTitleStageOverview(struct menudialogdef *dialogdef)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *sname = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s: %s\n", sname, langGet(L_OPTIONS_273));
+	snprintf(g_StringPointer, 300, "%s: %s\n", sname, langGet(L_OPTIONS_273));
 
 	return g_StringPointer;
 }
@@ -891,7 +891,7 @@ MenuItemHandlerResult menuhandlerPdModeSetting(s32 operation, struct menuitem *i
 		if (item->param == 0) {
 			fvalue = fvalue * 4 + 1.0f;
 		}
-		sprintf(data->slider.label, "%s%s%.00f%%\n", "", "", fvalue * 100.0f);
+		snprintf(data->slider.label, 16, "%s%s%.00f%%\n", "", "", fvalue * 100.0f);
 		break;
 	}
 
@@ -1208,10 +1208,10 @@ char *soloMenuTextBestTime(struct menuitem *item)
 
 	if (hours == 0) {
 		s32 mins = time / 60;
-		sprintf(g_StringPointer, "%dm:%02ds", mins % 60, time % 60);
+		snprintf(g_StringPointer, 300, "%dm:%02ds", mins % 60, time % 60);
 	} else {
 		s32 mins = time / 60;
-		sprintf(g_StringPointer, "%dh:%02dm:%02ds", hours, mins % 60, time % 60);
+		snprintf(g_StringPointer, 300, "%dh:%02dm:%02ds", hours, mins % 60, time % 60);
 	}
 
 	return g_StringPointer;
@@ -4087,7 +4087,7 @@ char *invMenuTextWeaponDescription(struct menuitem *item)
 			}
 
 			// "Cassandra De Vries' replacement necklace.  Username: %s  Password: %s"
-			sprintf(g_StringPointer, langGet(L_GUN_239), &username, &password);
+			snprintf(g_StringPointer, 300, langGet(L_GUN_239), &username, &password);
 			return g_StringPointer;
 #else
 			// ntsc-beta stores the whole thing as a single plain text string
@@ -4514,7 +4514,7 @@ char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *sname2 = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s: %s\n", sname2, langGet(L_OPTIONS_172));
+	snprintf(g_StringPointer, 300, "%s: %s\n", sname2, langGet(L_OPTIONS_172));
 
 	return g_StringPointer;
 }
@@ -4735,7 +4735,7 @@ MenuItemHandlerResult menuhandlerCinema(s32 operation, struct menuitem *item, un
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->list.value == 0) {
-			sprintf(g_StringPointer, langGet(L_OPTIONS_448)); // "Play All"
+			snprintf(g_StringPointer, 300, langGet(L_OPTIONS_448)); // "Play All"
 			return (uintptr_t) g_StringPointer;
 		}
 		return (uintptr_t) langGet(g_Cutscenes[data->list.value - 1].name);

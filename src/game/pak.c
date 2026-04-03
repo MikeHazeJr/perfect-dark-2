@@ -911,15 +911,15 @@ void pakDumpBuffer(u8 *buffer, u32 len, char *name)
 	char tmp[256];
 
 	osSyncPrintf(name);
-	sprintf(line, "\n");
+	snprintf(line, sizeof(line), "\n");
 
 	for (i = 0; i != len; i++) {
 		if ((i % 16) == 0) {
 			osSyncPrintf(line);
-			sprintf(line, "\nAddress = %u : ", i);
+			snprintf(line, sizeof(line), "\nAddress = %u : ", i);
 		}
 
-		sprintf(tmp, "%2x ", buffer[i]);
+		snprintf(tmp, sizeof(tmp), "%2x ", buffer[i]);
 		strcat(line, tmp);
 	}
 

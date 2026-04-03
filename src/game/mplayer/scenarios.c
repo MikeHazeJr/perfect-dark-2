@@ -291,13 +291,13 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 
 char *mpMenuTextScenarioShortName(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].shortname));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].shortname));
 	return g_StringPointer;
 }
 
 char *mpMenuTextScenarioName(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
+	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 	return g_StringPointer;
 }
 
@@ -494,13 +494,13 @@ void scenarioCreateMatchStartHudmsgs(void)
 
 	if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
 #if VERSION >= VERSION_JPN_FINAL
-		sprintf(challengename, "%s\n", challengeGetNameBySlot(challengeGetCurrent()));
+		snprintf(challengename, sizeof(challengename), "%s\n", challengeGetNameBySlot(challengeGetCurrent()));
 #else
-		sprintf(challengename, "%s:\n", challengeGetNameBySlot(challengeGetCurrent()));
+		snprintf(challengename, sizeof(challengename), "%s:\n", challengeGetNameBySlot(challengeGetCurrent()));
 #endif
 	}
 
-	sprintf(scenarioname, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
+	snprintf(scenarioname, sizeof(scenarioname), "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 
 	for (i = 0; i < g_MpNumChrs; i++) {
 		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL) {
@@ -1129,13 +1129,13 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 #if VERSION >= VERSION_JPN_FINAL
 		// "%shas the Briefcase"
-		sprintf(text1, langGet(L_MPWEAPONS_000_2), scenarioRemoveLineBreaks(mpchr->name, 0), bgunGetShortName(WEAPON_BRIEFCASE2));
+		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), scenarioRemoveLineBreaks(mpchr->name, 0), bgunGetShortName(WEAPON_BRIEFCASE2));
 #elif VERSION >= VERSION_PAL_BETA
 		// "%shas the Briefcase"
-		sprintf(text1, langGet(L_MPWEAPONS_000_2), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
 #else
 		// "%shas the\n%s"
-		sprintf(text1, langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
 #endif
 
 		prevplayernum = g_Vars.currentplayernum;
@@ -1194,31 +1194,31 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 #if VERSION >= VERSION_JPN_FINAL
 				// "You captured the %s Briefcase"
-				sprintf(text1, langGet(L_MPWEAPONS_004), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 0));
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 0));
 
 				// "%scaptured our Briefcase"
-				sprintf(text2, langGet(L_MPWEAPONS_005), scenarioRemoveLineBreaks(mpchr->name, 0));
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), scenarioRemoveLineBreaks(mpchr->name, 0));
 
 				// "%scaptured the %s Briefcase"
-				sprintf(text3, langGet(L_MPWEAPONS_006), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 1));
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 1));
 #elif VERSION >= VERSION_PAL_BETA
 				// "You captured the %s Briefcase"
-				sprintf(text1, langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i]);
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i]);
 
 				// "%scaptured our Briefcase"
-				sprintf(text2, langGet(L_MPWEAPONS_005), mpchr->name);
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name);
 
 				// "%scaptured the %s Briefcase"
-				sprintf(text3, langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i]);
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i]);
 #else
 				// "You captured the %s%s"
-				sprintf(text1, langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
 
 				// "%scaptured our %s"
-				sprintf(text2, langGet(L_MPWEAPONS_005), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
 
 				// "%scaptured the %s%s"
-				sprintf(text3, langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
 #endif
 
 				prevplayernum = g_Vars.currentplayernum;
@@ -1270,31 +1270,31 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 #if VERSION >= VERSION_JPN_FINAL
 				// "%shas the %s Briefcase"
-				sprintf(text1, langGet(L_MPWEAPONS_000_3), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 1));
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 1));
 
 				// "%shas our\nBriefcase"
-				sprintf(text2, langGet(L_MPWEAPONS_002), scenarioRemoveLineBreaks(mpchr->name, 0));
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), scenarioRemoveLineBreaks(mpchr->name, 0));
 
 				// "Got the %s Briefcase"
-				sprintf(text3, langGet(L_MPWEAPONS_003), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 0));
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 0));
 #elif VERSION >= VERSION_PAL_BETA
 				// "%shas the %s Briefcase"
-				sprintf(text1, langGet(L_MPWEAPONS_000_3), mpchr->name, g_BossFile.teamnames[weapon->team]);
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), mpchr->name, g_BossFile.teamnames[weapon->team]);
 
 				// "%shas our\nBriefcase"
-				sprintf(text2, langGet(L_MPWEAPONS_002), mpchr->name);
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name);
 
 				// "Got the %s Briefcase"
-				sprintf(text3, langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team]);
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team]);
 #else
 				// "%shas the %s%s"
-				sprintf(text1, langGet(L_MPWEAPONS_001), mpchr->name, g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_001), mpchr->name, g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
 
 				// "%shas our %s"
-				sprintf(text2, langGet(L_MPWEAPONS_002), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
 
 				// "Got the %s%s"
-				sprintf(text3, langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
+				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
 #endif
 
 				prevplayernum = g_Vars.currentplayernum;
@@ -1424,13 +1424,13 @@ s32 scenarioPickUpUplink(struct chrdata *chr, struct prop *prop)
 
 #if VERSION >= VERSION_JPN_FINAL
 		// "%shas the\nData Uplink%s"
-		sprintf(message, langGet(L_MPWEAPONS_000), scenarioRemoveLineBreaks(mpchr->name, 0));
+		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), scenarioRemoveLineBreaks(mpchr->name, 0));
 #elif VERSION >= VERSION_PAL_BETA
 		// "%shas the\nData Uplink%s"
-		sprintf(message, langGet(L_MPWEAPONS_000), mpchr->name);
+		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name);
 #else
 		// "%shas the\n%s"
-		sprintf(message, langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_DATAUPLINK));
+		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_DATAUPLINK));
 #endif
 		playernum = g_Vars.currentplayernum;
 

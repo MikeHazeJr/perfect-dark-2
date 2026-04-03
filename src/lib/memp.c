@@ -203,11 +203,11 @@ void *mempAlloc(u32 len, u8 pool)
 		if (pool == MEMPOOL_STAGE) {
 			free = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD);
 			size = mempGetPoolSize(MEMPOOL_STAGE, MEMBANK_ONBOARD);
-			sprintf(buffer, "Out of mem - LEV: %d f %d s %d", len, free, size);
+			snprintf(buffer, sizeof(buffer), "Out of mem - LEV: %d f %d s %d", len, free, size);
 		} else {
 			free = mempGetPoolFree(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
 			size = mempGetPoolSize(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
-			sprintf(buffer, "Out of mem - ETR: %d f %d s %d", len, free, size);
+			snprintf(buffer, sizeof(buffer), "Out of mem - ETR: %d f %d s %d", len, free, size);
 		}
 
 		crashSetMessage(buffer);

@@ -1388,7 +1388,7 @@ void bgVerifyLightSums(char *file, s32 line)
 	}
 
 	if (sum != g_BgNumLightsChecksum) {
-		sprintf(message, "NumLightsChecksum failed %s %d", file, line);
+		snprintf(message, sizeof(message), "NumLightsChecksum failed %s %d", file, line);
 		crashSetMessage(message);
 		CRASH();
 	}
@@ -1400,7 +1400,7 @@ void bgVerifyLightSums(char *file, s32 line)
 	}
 
 	if (sum != g_BgLightsOffsetChecksum) {
-		sprintf(message, "LightsOffsetChecksum failed %s %d", file, line);
+		snprintf(message, sizeof(message), "LightsOffsetChecksum failed %s %d", file, line);
 		crashSetMessage(message);
 		CRASH();
 	}
@@ -2609,7 +2609,7 @@ u32 bgInflate(u8 *src, u8 *dst, u32 len)
 
 #if VERSION < VERSION_NTSC_1_0
 		if (!result) {
-			sprintf(message, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+			snprintf(message, sizeof(message), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
 					"bg.c", 6914,
 					src[0], src[1], src[2], src[3],
 					src[4], src[5], src[6], src[7],

@@ -650,7 +650,7 @@ bool eyespyTryLaunch(void)
 		propSetPerimEnabled(g_Vars.currentplayer->eyespy->prop, false);
 
 		// "Not enough room to launch "
-		sprintf(text, "%s%s", langGet(L_MISC_218), bgunGetName(WEAPON_EYESPY));
+		snprintf(text, sizeof(text), "%s%s", langGet(L_MISC_218), bgunGetName(WEAPON_EYESPY));
 		hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
 		launched = false;
 	} else {
