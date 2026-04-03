@@ -364,9 +364,20 @@ struct artifact *schedGetFrontArtifacts(void)
 }
 
 /**
- * The pending list is possibly misnamed. I'm not sure how this list works.
+ * The pending list is a third artifact buffer in the triple-buffering scheme.
  *
- * @TODO: Investigate.
+ * In the original N64 scheduler:
+ *   write   → game logic writes new artifacts here each frame
+ *   pending → just-written artifacts waiting to be promoted to front
+ *   front   → currently displayed by the renderer
+ *
+ * On each frame: write becomes pending, pending becomes front, old front
+ * becomes the new write buffer (cycled via schedIncrementWriteArtifacts /
+ * schedIncrementFrontArtifacts / schedIncrementPendingArtifacts).
+ *
+ * On PC the N64 RSP/RDP synchronisation that made three buffers necessary
+ * doesn't apply, but the three-index rotation is preserved to keep game
+ * logic unchanged.
  */
 struct artifact *schedGetPendingArtifacts(void)
 {

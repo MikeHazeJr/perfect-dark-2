@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
+#define SDL_MAIN_HANDLED
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/ultrasched.h>
 #include <PR/os_message.h>
@@ -122,7 +124,9 @@ static void cleanup(void)
 	configSave(CONFIG_PATH);
 	videoShutdown();
 	crashShutdown();
-	// TODO: actually shut down all subsystems
+	/* SDL_Quit tears down all SDL subsystems (video, audio, timer, etc.)
+	 * that were opened via SDL_Init / SDL_InitSubSystem during boot. */
+	SDL_Quit();
 }
 
 int main(int argc, const char **argv)

@@ -109,12 +109,19 @@ static stok_t s_next(sparse_t *p)
 	return tok;
 }
 
-static void s_skip_value(sparse_t *p)
+#define S_MAX_DEPTH 64  /* max JSON nesting depth — crafted saves can't stack-overflow */
+
+static void s_skip_value(sparse_t *p, s32 depth)
 {
+	if (depth > S_MAX_DEPTH) {
+		/* Skip to end-of-input to abort the parse cleanly. */
+		while (*p->pos) p->pos++;
+		return;
+	}
 	stok_t tok = s_next(p);
 	if (tok.type == STOK_LBRACE) {
 		while ((tok = s_next(p)).type != STOK_RBRACE && tok.type != STOK_EOF) {
-			if (tok.type == STOK_STRING) { s_next(p); s_skip_value(p); }
+			if (tok.type == STOK_STRING) { s_next(p); s_skip_value(p, depth + 1); }
 		}
 	} else if (tok.type == STOK_LBRACKET) {
 		while ((tok = s_next(p)).type != STOK_RBRACKET && tok.type != STOK_EOF) {
@@ -123,7 +130,7 @@ static void s_skip_value(sparse_t *p)
 			if (tok.type == STOK_LBRACE || tok.type == STOK_LBRACKET) {
 				/* back up and recurse */
 				p->pos = tok.start;
-				s_skip_value(p);
+				s_skip_value(p, depth + 1);
 			}
 		}
 	}
@@ -174,7 +181,12 @@ static char *readFileContents(const char *path, s32 *outLen)
 	char *buf = (char *)malloc(len + 1);
 	if (!buf) { fclose(fp); return NULL; }
 
-	fread(buf, 1, len, fp);
+	if (fread(buf, 1, len, fp) != (size_t)len) {
+		free(buf);
+		fclose(fp);
+		if (outLen) *outLen = 0;
+		return NULL;
+	}
 	buf[len] = '\0';
 	fclose(fp);
 
@@ -413,7 +425,7 @@ s32 saveLoadAgent(const char *name)
 			}
 		} else {
 			/* Unknown key — skip value for forward compatibility */
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		/* Consume comma between fields */
@@ -565,7 +577,7 @@ s32 saveLoadSystem(void)
 			tok = s_next(&p);
 			g_AltTitleEnabled = s_tok_bool(&tok);
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);
@@ -735,7 +747,7 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		} else if (strcmp(key, "options") == 0) {
 			tok = s_next(&p); pc->options = s_tok_uint(&tok);
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);
@@ -869,7 +881,7 @@ s32 saveLoadMpSetup(const char *name)
 				}
 			}
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);

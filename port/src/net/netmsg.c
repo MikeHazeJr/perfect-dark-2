@@ -54,6 +54,7 @@
 #if !defined(PD_SERVER)
 #include "pdgui.h"
 #endif
+#include <SDL.h>
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -61,6 +62,17 @@
 
 /* Phase E: Ready gate — timeout before forcing SVC_STAGE_START (30s at 60fps) */
 #define READY_GATE_TIMEOUT_TICKS 1800
+
+/* Chat rate limiter: max 5 messages per 2-second window per client.
+ * Keyed by client index (0..NET_MAX_CLIENTS). */
+#define CHAT_RATE_MAX_MSGS   5
+#define CHAT_RATE_WINDOW_MS  2000u
+
+struct chatrate {
+	u32 timestamps[CHAT_RATE_MAX_MSGS]; /* circular ring of send times (ms) */
+	u32 head;                           /* next slot to overwrite */
+};
+static struct chatrate s_ChatRate[NET_MAX_CLIENTS + 1];
 
 /* Phase E/F: Server-side per-client readiness tracker.
  * Active while the room is in ROOM_STATE_PREPARING.
@@ -431,9 +443,23 @@ u32 netmsgClcChatWrite(struct netbuf *dst, const char *str)
 
 u32 netmsgClcChatRead(struct netbuf *src, struct netclient *srccl)
 {
-	char tmp[1024];
 	const char *msg = netbufReadStr(src);
 	if (msg && !src->error) {
+		/* Rate limit: max CHAT_RATE_MAX_MSGS per CHAT_RATE_WINDOW_MS per client.
+		 * Ring buffer stores timestamps of last N sends; if the oldest slot is
+		 * still within the window the ring is full and we drop the message. */
+		u32 idx = (u32)(srccl - g_NetClients);
+		if (idx <= (u32)NET_MAX_CLIENTS) {
+			struct chatrate *rate = &s_ChatRate[idx];
+			u32 now = SDL_GetTicks();
+			u32 oldest = rate->timestamps[rate->head];
+			if (now - oldest < CHAT_RATE_WINDOW_MS) {
+				sysLogPrintf(LOG_WARNING, "NET: chat rate limit hit for client %u — message dropped", srccl->id);
+				return src->error;
+			}
+			rate->timestamps[rate->head] = now;
+			rate->head = (rate->head + 1) % CHAT_RATE_MAX_MSGS;
+		}
 		sysLogPrintf(LOG_CHAT, "%s", msg);
 		netbufStartWrite(&g_NetMsgRel);
 		netmsgSvcChatWrite(&g_NetMsgRel, msg);

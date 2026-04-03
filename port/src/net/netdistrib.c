@@ -62,6 +62,10 @@
  * Configurable via Net.DistribTrustThresholdMB in pd.ini (range 16–4096). */
 #define DISTRIB_TRUST_THRESHOLD_DEFAULT_MB  256
 
+/* Absolute hard cap on archive_bytes in a DISTRIB_BEGIN message.
+ * Prevents a malicious server from causing an unbounded malloc at decompress time. */
+#define MAX_DISTRIB_ARCHIVE_BYTES  (512u * 1024u * 1024u)  /* 512 MB */
+
 /* ========================================================================
  * Server Transfer Queue
  * ======================================================================== */
@@ -91,6 +95,7 @@ typedef struct distrib_recv_slot {
     char category[64];
     u16  total_chunks;
     u16  chunks_received;
+    u16  expected_chunk;      /* next chunk index we expect (for ordering validation) */
     u32  archive_bytes;       /* expected uncompressed archive size */
     u8  *compressed_buf;      /* accumulates compressed chunks */
     u32  compressed_cap;
@@ -187,14 +192,15 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
         u32 entry_size = 2 + path_len + 4 + fsize;
 
         while (*buf_len + entry_size > *buf_cap) {
-            *buf_cap = (*buf_cap < 65536) ? 65536 : *buf_cap * 2;
-            u8 *newbuf = (u8 *)realloc(buf, *buf_cap);
+            u32 new_cap = (*buf_cap < 65536) ? 65536 : *buf_cap * 2;
+            u8 *newbuf = (u8 *)realloc(buf, new_cap);
             if (!newbuf) {
-                sysLogPrintf(LOG_ERROR, "DISTRIB: OOM building archive (cap=%u)", *buf_cap);
+                sysLogPrintf(LOG_ERROR, "DISTRIB: OOM building archive (cap=%u)", new_cap);
                 fclose(fp);
                 closedir(d);
                 return buf;
             }
+            *buf_cap = new_cap;
             buf = newbuf;
         }
 
@@ -291,7 +297,10 @@ static void distribSendPacketToPeer(ENetPeer *peer, const u8 *data, u32 len, s32
         sysLogPrintf(LOG_ERROR, "DISTRIB: enet_packet_create failed (%u bytes)", len);
         return;
     }
-    enet_peer_send(peer, (u8)chan, p);
+    if (enet_peer_send(peer, (u8)chan, p) < 0) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: enet_peer_send failed (%u bytes, chan %d)", len, chan);
+        enet_packet_destroy(p);
+    }
 }
 
 /* ========================================================================
@@ -658,6 +667,13 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
 {
     if (!s_Initialized) return;
 
+    /* M-4: Validate archive_bytes before storing — reject oversized transfers. */
+    if (archive_bytes == 0 || archive_bytes > MAX_DISTRIB_ARCHIVE_BYTES) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: rejecting BEGIN '%s' — invalid archive_bytes=%u (max=%u)",
+                     catalog_id, archive_bytes, MAX_DISTRIB_ARCHIVE_BYTES);
+        return;
+    }
+
     /* Find a free receive slot */
     distrib_recv_slot_t *slot = NULL;
     for (s32 i = 0; i < RECV_SLOTS; i++) {
@@ -686,6 +702,7 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     slot->temporary = temporary;
     slot->total_chunks = (u16)total_chunks;
     slot->chunks_received = 0;
+    slot->expected_chunk = 0;
     slot->archive_bytes = archive_bytes;
     slot->compressed_buf = buf;
     slot->compressed_cap = initial_cap;
@@ -737,6 +754,15 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
         return;
     }
 
+    /* M-3: Validate chunk ordering — ENet reliable channels deliver in order,
+     * so out-of-sequence chunks indicate protocol tampering or a serious bug. */
+    if (chunk_idx != slot->expected_chunk) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: out-of-order chunk for '%s': expected %u got %u — dropping",
+                     catalog_id, slot->expected_chunk, chunk_idx);
+        return;
+    }
+    slot->expected_chunk++;
+
     /* Grow buffer if needed */
     while (slot->compressed_len + data_len > slot->compressed_cap) {
         slot->compressed_cap *= 2;
@@ -757,7 +783,6 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
     s_ClientStatus.session_bytes_total += data_len;
 
     (void)compression;  /* stored in slot for future use; we detect below from END */
-    (void)chunk_idx;
 }
 
 void netDistribClientHandleEnd(const char *catalog_id, u8 success)

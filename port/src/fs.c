@@ -141,7 +141,8 @@ s32 fsInit(void)
 	// if this is set, default to exe path for everything
 	const s32 portable = sysArgCheck("--portable");
 	if (portable) {
-		strcpy(homeDir, exeDir);
+		strncpy(homeDir, exeDir, FS_MAXPATH);
+		homeDir[FS_MAXPATH] = '\0';
 	} else {
 		sysGetHomePath(homeDir, FS_MAXPATH);
 	}
