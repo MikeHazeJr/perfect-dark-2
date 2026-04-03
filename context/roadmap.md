@@ -87,10 +87,19 @@ Files: bot.c, botact.c, bondwalk.c, setup.c, modmgr.c
 
 The following reflects Mike's priority for implementation. Phases are listed in intended build order. Dependencies have been loosened since D4 is no longer a hard blocker — ImGui menus are built directly as needed.
 
-### 1. Phase D5: Settings, Graphics & QoL ⟵ **NEXT UP**
-FOV slider (60-110°), graphics settings (resolution, fullscreen, VSync), controls/bindings (rebindable). Audio: three independent volume layers — Music, Gameplay (SFX/weapons/footsteps/environment), UI (menu sounds/notifications) — each with its own slider, plus a master volume. Requires audio bus routing in the mixer.
-**Why first**: High bang-for-buck. Makes it feel like a real PC game. Infrastructure already exists.
-**Plan file**: [d5-settings-plan.md](d5-settings-plan.md)
+### 1. Phase D5: Settings, Graphics & QoL ⟵ **NEXT UP (UI polish half)**
+Settings half (D5a–D5d) DONE: FOV slider, video settings, controls rebinding, audio volume layers. See [d5-settings-plan.md](d5-settings-plan.md).
+
+**UI Polish half** in progress — 6 sub-phases. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
+
+| Sub-phase | Description | Bugs |
+|-----------|-------------|------|
+| D5.1 | Mission select UX redesign — two-panel layout (list + detail), unlock filter, objectives panel, OG briefing images, star indicators, inline difficulty rows | B-90, B-91, B-96, B-97 |
+| D5.2 | Solo mission flow fixes — mouse capture, full pause menu (Objectives/Inventory/Abort/Restart), ImGui inventory renderer | B-92, B-93, B-94, B-98 |
+| D5.3 | Relative layout sweep — all `pdgui_menu_*.cpp` positions derived from `GetContentRegionAvail()` | B-60, overlaps |
+| D5.4 | OG menu texture/effect integration — briefing images, star textures, scan-line overlay; catalog-registered | — |
+| D5.5 | Update banner — hide during gameplay; verify updater zip extraction | B-95, B-99 |
+| D5.6 | Systematic OG menu conversion — audit + convert trapping legacy screens | B-98 (inventory) |
 
 ### 2. Phase D13: Update System — IN PROGRESS (code written, needs build test)
 Semantic versioning (MAJOR.MINOR.PATCH + dev channel), GitHub Releases API via libcurl, SHA-256 verified download, rename-on-restart self-replacement, save migration framework, ImGui update notification + version picker, separate client/server versioning, release channels (Stable/Dev). See context/update-system.md.

@@ -88,20 +88,22 @@ All code is complete. These items need in-game confirmation.
 
 ## NEXT UP: Phase D5 — Settings, Graphics & QoL + UI Polish
 
-**Goal**: FOV slider (60–110°), graphics settings (resolution, fullscreen, VSync), rebindable controls. Audio: Music / Gameplay / UI volume sliders with independent buses, master volume.
-**Why first**: High bang-for-buck. Infrastructure (video.c, audio.c, input.c) already exists. Makes it feel like a real PC game.
-**Plan file**: [d5-settings-plan.md](d5-settings-plan.md)
+**Settings half** (D5a–D5d): DONE. Audio sliders, video settings, controls rebinding — see [d5-settings-plan.md](d5-settings-plan.md).
 
-### D5 also includes: Solo Mission UI/UX Fixes (from S131 playtest)
+**UI Polish half** (D5.1–D5.6): PLANNED. Full plan: [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md)
 
-| Item | Bug(s) | Notes |
-|------|--------|-------|
-| Mission select UX redesign | B-90, B-91, B-96, B-97 | Unlock filtering; objectives from game data; pick mission → pick difficulty → see objectives → Start; separate Special Assignments/Challenges |
-| Solo mission flow fixes | B-92, B-93, B-98 | Mouse capture on mission start; full pause menu (Abort, Restart, objective checklist); convert OG fallback sections to ImGui |
-| ImGui duplicate ID cleanup | B-94 | Resume/Options buttons need `##id` suffixes; audit all pause menu widgets |
-| Update banner behavior | B-95 | Auto-dismiss or hide during active missions |
-| Relative layout pass — all menus | — | All menu positions relative to one another, not hardcoded x/y |
-| OG menu texture/effect integration | — | Integrate original PD menu textures/effects where applicable |
+### D5 UI Polish — Sub-phases
+
+| Sub-phase | Bugs Fixed | Description | Status |
+|-----------|-----------|-------------|--------|
+| **D5.1** | B-90, B-91, B-96, B-97 | Mission select UX redesign — two-panel layout, unlock filter, inline objectives, OG briefing images, star indicators, difficulty rows with best times | PLANNED |
+| **D5.2** | B-92, B-93, B-94, B-98 | Solo mission flow fixes — mouse capture on start, full pause menu (Objectives, Inventory, Abort, Restart), duplicate ID sweep | PLANNED |
+| **D5.3** | B-60, layout overlaps | Relative layout system sweep — all menus use `GetContentRegionAvail()`; no hardcoded pixel offsets | PLANNED |
+| **D5.4** | — | OG menu texture/effect integration — briefing images, star textures, scan-line overlay; catalog-registered so modders can retheme | PLANNED |
+| **D5.5** | B-95, B-99 | Update banner behavior — hide during gameplay; verify updater zip extraction end-to-end | PLANNED |
+| **D5.6** | B-98 (inventory) | Systematic OG menu conversion — audit remaining legacy screens; P0 = trapping screens (inventory, others) | PLANNED |
+
+**Recommended start sequence**: B-92 mouse fix → B-94 duplicate ID → D5.2 pause menu → D5.1 mission select → D5.5 banner → D5.3 layout sweep → D5.4 OG textures → D5.6 conversion audit
 
 ---
 
