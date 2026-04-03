@@ -5,14 +5,14 @@
  * Built server-side from the match manifest, broadcast via SVC_SESSION_CATALOG (0x67),
  * resolved client-side to local catalog entries.
  *
- * Wire format (SVC_SESSION_CATALOG):
+ * Wire format (SVC_SESSION_CATALOG, v27+):
  *   u8   opcode = 0x67
  *   u16  num_entries
  *   [for each entry]:
  *     u16  wire_id       compact match-scoped ID
  *     u8   asset_type    MANIFEST_TYPE_* from netmanifest.h
- *     u32  net_hash      CRC32 of catalog_id (client-side verification)
- *     str  catalog_id    null-terminated catalog string ID
+ *     str  catalog_id    catalog string ID (length-prefixed via netbufWriteStr)
+ * Note: net_hash u32 removed from wire in v27. String ID is the sole identity.
  *
  * Lifecycle:
  *   Server: sessionCatalogBuild()     -- after manifestBuild()
@@ -23,8 +23,8 @@
  *
  * Client resolution:
  *   sessionCatalogReceive() resolves each received entry to a local catalog
- *   pointer via assetCatalogResolveByNetHash() (CRC32 primary), with string ID
- *   fallback.  Results are stored in s_LocalTranslation[wire_id] for O(1) lookup
+ *   pointer via assetCatalogResolve(catalog_id) — string ID is the only path.
+ *   Results are stored in s_LocalTranslation[wire_id] for O(1) lookup
  *   during gameplay via sessionCatalogLocalResolve() / sessionCatalogLocalIsResolved().
  */
 

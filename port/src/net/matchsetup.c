@@ -76,7 +76,15 @@ void matchConfigInit(void)
 	 *   scorelimit: value + 1 kills.  0 = 1 kill, 9 = 10 kills, >=100 = no limit.
 	 *   teamscorelimit: similar, >=400 = no limit. */
 	g_MatchConfig.scenario = MPSCENARIO_COMBAT;
-	g_MatchConfig.stagenum = STAGE_MP_COMPLEX;
+	/* stage_id is PRIMARY — resolve stagenum from it at matchStart().
+	 * Default arena: Complex ("base:mp_complex"). */
+	strncpy(g_MatchConfig.stage_id, "base:mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
+	g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+	{
+		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
+		g_MatchConfig.stagenum = (ae && ae->type == ASSET_ARENA)
+		    ? (u8)ae->ext.arena.stagenum : 0u;
+	}
 	g_MatchConfig.timelimit = 60;     /* no time limit (>=60 disables timer) */
 	g_MatchConfig.scorelimit = 9;     /* first to 10 kills */
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
@@ -95,8 +103,24 @@ void matchConfigInit(void)
 	struct matchslot *s0 = &g_MatchConfig.slots[0];
 	s0->type = SLOT_PLAYER;
 	s0->team = 0;
-	s0->headnum = g_PlayerConfigsArray[0].base.mpheadnum;
-	s0->bodynum = g_PlayerConfigsArray[0].base.mpbodynum;
+	/* Resolve catalog IDs from mpbodynum/mpheadnum — these are the PRIMARY identity. */
+	{
+		const u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
+		const u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
+		const char *bid = catalogResolveBodyByMpIndex((s32)mpbody);
+		const char *hid = catalogResolveHeadByMpIndex((s32)mphead);
+		strncpy(s0->body_id,
+		        bid ? bid : "base:dark_combat",
+		        sizeof(s0->body_id) - 1);
+		s0->body_id[sizeof(s0->body_id) - 1] = '\0';
+		strncpy(s0->head_id,
+		        hid ? hid : "base:head_dark_combat",
+		        sizeof(s0->head_id) - 1);
+		s0->head_id[sizeof(s0->head_id) - 1] = '\0';
+		/* Cache derived mpbodynum/mpheadnum — matchStart re-derives but keep in sync */
+		s0->bodynum = mpbody;
+		s0->headnum = mphead;
+	}
 
 	/* Get the agent name from g_GameFile (loaded from save data).
 	 * The old menu flow copies this via dialog handlers, but since we
@@ -120,15 +144,16 @@ void matchConfigInit(void)
 	}
 	g_MatchConfig.numSlots = 1;
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: config initialized — player '%s' body=%d head=%d",
-	             s0->name, s0->bodynum, s0->headnum);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: config initialized — player '%s' body_id='%s' head_id='%s'",
+	             s0->name, s0->body_id, s0->head_id);
 }
 
 /* ========================================================================
  * Slot management — called from ImGui bridge
  * ======================================================================== */
 
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, const char *name)
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
+                      const char *head_id, const char *name)
 {
 	if (g_MatchConfig.numSlots >= MATCH_MAX_SLOTS) {
 		return -1;
@@ -139,9 +164,36 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, cons
 	slot->type = SLOT_BOT;
 	slot->botType = botType;
 	slot->botDifficulty = botDifficulty;
-	slot->headnum = headnum;
-	slot->bodynum = bodynum;
 	slot->team = 0;
+
+	/* Set catalog IDs as PRIMARY identity. */
+	strncpy(slot->body_id,
+	        (body_id && body_id[0]) ? body_id : "base:dark_combat",
+	        sizeof(slot->body_id) - 1);
+	slot->body_id[sizeof(slot->body_id) - 1] = '\0';
+	strncpy(slot->head_id,
+	        (head_id && head_id[0]) ? head_id : "base:head_dark_combat",
+	        sizeof(slot->head_id) - 1);
+	slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+
+	/* Derive cached mpbodynum/mpheadnum from catalog for legacy path.
+	 * matchStart() re-derives at the last moment; these are just for display. */
+	slot->bodynum = 0; /* MPBODY_DARK_COMBAT default */
+	slot->headnum = 0; /* MPHEAD_DARK_COMBAT default */
+	{
+		const asset_entry_t *be = assetCatalogResolve(slot->body_id);
+		if (be && be->type == ASSET_BODY) {
+			const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+			if (mpb >= 0) slot->bodynum = (u8)mpb;
+		}
+	}
+	{
+		const asset_entry_t *he = assetCatalogResolve(slot->head_id);
+		if (he && he->type == ASSET_HEAD) {
+			const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+			if (mph >= 0) slot->headnum = (u8)mph;
+		}
+	}
 
 	if (name && name[0]) {
 		strncpy(slot->name, name, MAX_PLAYER_NAME - 1);
@@ -187,8 +239,8 @@ s32 matchConfigRemoveSlot(s32 idx)
 
 s32 matchStart(void)
 {
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage=0x%02x",
-	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stagenum);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage='%s'",
+	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stage_id);
 
 	/* --- Set up global vars like the old handler does --- */
 	g_Vars.bondplayernum = 0;
@@ -199,7 +251,24 @@ s32 matchStart(void)
 
 	/* --- Configure g_MpSetup from our match config --- */
 	g_MpSetup.scenario = g_MatchConfig.scenario;
-	g_MpSetup.stagenum = g_MatchConfig.stagenum;
+
+	/* Resolve stagenum from stage_id (PRIMARY). stage_id may refer to an ASSET_ARENA
+	 * (MP arena) or ASSET_MAP (co-op/counter-op mission). */
+	{
+		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
+		if (ae && ae->type == ASSET_ARENA) {
+			g_MpSetup.stagenum = (u8)ae->ext.arena.stagenum;
+		} else if (ae && ae->type == ASSET_MAP) {
+			g_MpSetup.stagenum = (u8)ae->ext.map.stagenum;
+		} else {
+			sysLogPrintf(LOG_ERROR,
+			    "MATCHSETUP: cannot resolve stage '%s' — aborting",
+			    g_MatchConfig.stage_id);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE, "MATCHSETUP: stage '%s' → stagenum=0x%02x",
+		             g_MatchConfig.stage_id, g_MpSetup.stagenum);
+	}
 	g_MpSetup.timelimit = g_MatchConfig.timelimit;
 	g_MpSetup.scorelimit = g_MatchConfig.scorelimit;
 	g_MpSetup.teamscorelimit = g_MatchConfig.teamscorelimit;
@@ -229,18 +298,41 @@ s32 matchStart(void)
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 
-			/* ms->bodynum / ms->headnum are already in mpbodynum / mpheadnum domain.
-			 * Use them directly — no domain conversion needed. */
-			cfg->mpbodynum = ms->bodynum;
-			cfg->mpheadnum = ms->headnum;
+			/* Resolve mpbodynum/mpheadnum from body_id/head_id (PRIMARY identity).
+			 * catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx are the ONLY valid
+			 * integer-domain conversion — called here at the last moment before
+			 * handing off to the legacy engine. */
+			if (ms->body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					cfg->mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				} else {
+					cfg->mpbodynum = ms->bodynum; /* cached fallback */
+				}
+			} else {
+				cfg->mpbodynum = ms->bodynum;
+			}
+			if (ms->head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					cfg->mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				} else {
+					cfg->mpheadnum = ms->headnum; /* cached fallback */
+				}
+			} else {
+				cfg->mpheadnum = ms->headnum;
+			}
 			cfg->team = ms->team;
 
 			strncpy(cfg->name, ms->name, 14);
 			cfg->name[14] = '\0';
 
 			sysLogPrintf(LOG_NOTE,
-			    "MATCHSETUP: player slot %d: %s mpbody=%d mphead=%d team=%d",
-			    playerSlot, cfg->name, cfg->mpbodynum, cfg->mpheadnum, ms->team);
+			    "MATCHSETUP: player slot %d: %s body='%s' head='%s' mpbody=%d mphead=%d team=%d",
+			    playerSlot, cfg->name, ms->body_id, ms->head_id,
+			    cfg->mpbodynum, cfg->mpheadnum, ms->team);
 			playerSlot++;
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
@@ -249,9 +341,29 @@ s32 matchStart(void)
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 
-			/* ms->bodynum / ms->headnum are already in mpbodynum / mpheadnum domain. */
-			bot->base.mpbodynum = ms->bodynum;
-			bot->base.mpheadnum = ms->headnum;
+			/* Same last-moment resolution from body_id/head_id (PRIMARY). */
+			if (ms->body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					bot->base.mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				} else {
+					bot->base.mpbodynum = ms->bodynum;
+				}
+			} else {
+				bot->base.mpbodynum = ms->bodynum;
+			}
+			if (ms->head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					bot->base.mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				} else {
+					bot->base.mpheadnum = ms->headnum;
+				}
+			} else {
+				bot->base.mpheadnum = ms->headnum;
+			}
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;
@@ -260,8 +372,9 @@ s32 matchStart(void)
 			bot->base.name[14] = '\0';
 
 			sysLogPrintf(LOG_NOTE,
-			    "MATCHSETUP: bot slot %d: %s type=%d diff=%d mpbody=%d mphead=%d",
+			    "MATCHSETUP: bot slot %d: %s type=%d diff=%d body='%s' head='%s' mpbody=%d mphead=%d",
 			    botSlot, bot->base.name, ms->botType, ms->botDifficulty,
+			    ms->body_id, ms->head_id,
 			    bot->base.mpbodynum, bot->base.mpheadnum);
 			botSlot++;
 		}
@@ -339,9 +452,20 @@ s32 matchStartFromChallenge(s32 slot)
 	challengeSetCurrentBySlot(slot);
 
 	/* Sync back the challenge's stage into g_MatchConfig so our port-side
-	 * tracking stays consistent (arena picker, etc.). */
+	 * tracking stays consistent (arena picker, etc.).
+	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */
 	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
 	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
+	{
+		const char *sid = catalogResolveArenaByStagenum((s32)g_MpSetup.stagenum);
+		if (!sid) sid = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
+		if (sid) {
+			strncpy(g_MatchConfig.stage_id, sid, sizeof(g_MatchConfig.stage_id) - 1);
+			g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.stage_id[0] = '\0';
+		}
+	}
 
 	g_NotLoadMod = false;
 	romdataFileFreeForSolo();

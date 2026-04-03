@@ -1035,12 +1035,6 @@ void bwalkUpdateVertical(void)
 		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 
 		if (proberes != CDRESULT_NOCOLLISION) {
-			sysLogPrintf(LOG_NOTE,
-				"B49_PROP_FLOOR: prop/block surface at feet, "
-				"ground %.1f -> %.1f (manground=%.1f vel=%.2f)",
-				ground, g_Vars.currentplayer->vv_manground,
-				g_Vars.currentplayer->vv_manground,
-				g_Vars.currentplayer->bdeltapos.y);
 			ground = g_Vars.currentplayer->vv_manground;
 		}
 	}
@@ -1072,13 +1066,6 @@ void bwalkUpdateVertical(void)
 
 		if (capsuleGround > ground + 1.0f
 				&& capsuleGround <= g_Vars.currentplayer->vv_manground + 5.0f) {
-			sysLogPrintf(LOG_NOTE,
-				"CAPSULE_FLOOR: accepting capsuleGround=%.1f (was bgGround=%.1f) "
-				"manground=%.1f vel=%.2f prop=%s",
-				capsuleGround, ground,
-				g_Vars.currentplayer->vv_manground,
-				g_Vars.currentplayer->bdeltapos.y,
-				floorprop ? "yes" : "no");
 			ground = capsuleGround;
 		}
 	}
@@ -1210,28 +1197,10 @@ void bwalkUpdateVertical(void)
 		}
 	}
 
-	/* Log every frame when player has upward velocity but airborne check
-	 * might fail — this catches the bug where vv_ground gets set to
-	 * manground by the prop surface code, preventing airborne physics. */
-	if (g_Vars.currentplayer->bdeltapos.y > 0.5f
-			&& g_Vars.currentplayer->vv_manground <= g_Vars.currentplayer->vv_ground) {
-		sysLogPrintf(LOG_NOTE,
-			"JUMP_STUCK: vel=%.2f but manground(%.1f) <= ground(%.1f)! "
-			"bgGround=%.1f isfalling=%d onladder=%d",
-			g_Vars.currentplayer->bdeltapos.y,
-			g_Vars.currentplayer->vv_manground,
-			g_Vars.currentplayer->vv_ground,
-			ground, g_Vars.currentplayer->isfalling,
-			g_Vars.currentplayer->onladder);
-	}
-
 	if (g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground) {
 		// Not standing on ground - probably falling, or on an object of some sort
 		fallspeed = g_Vars.currentplayer->bdeltapos.y;
 		newmanground = g_Vars.currentplayer->vv_manground;
-
-		sysLogPrintf(LOG_NOTE, "JUMP_AIRBORNE: manground=%.2f ground=%.2f vel=%.2f dt=%.3f",
-			newmanground, g_Vars.currentplayer->vv_ground, fallspeed, g_Vars.lvupdate60freal);
 
 		if (debugIsTurboModeEnabled()
 				&& g_Vars.currentplayer->bondforcespeed.x == 0
@@ -1388,13 +1357,6 @@ void bwalkUpdateVertical(void)
 				if (headheight < 80.0f) {
 					headheight = 80.0f;
 				}
-
-				sysLogPrintf(LOG_NOTE,
-					"CAPSULE_CEIL: ceilY=%.1f manground=%.1f headroom=%.1f "
-					"headheight=%.1f ground=%.1f vel=%.2f prop=%s",
-					ceilY, g_Vars.currentplayer->vv_manground, headroom,
-					headheight, g_Vars.currentplayer->vv_ground, fallspeed,
-					ceilprop ? "yes" : "no");
 
 				if (ceilY < 99990.0f && headroom < headheight) {
 					f32 clampedground = ceilY - headheight;

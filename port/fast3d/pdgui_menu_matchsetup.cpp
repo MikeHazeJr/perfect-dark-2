@@ -78,21 +78,24 @@ const char *langSafe(s32 textid);
 #define MATCH_MAX_SLOTS 32  /* = PARTICIPANT_DEFAULT_CAPACITY */
 
 struct matchslot {
-    u8 type;
-    u8 team;
-    u8 headnum;       /* mpheadnum (g_MpHeads[] index) */
-    u8 bodynum;       /* mpbodynum (g_MpBodies[] index) */
+    u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
+    u8 team;          /* team number (0-7) */
+    /* PRIMARY: catalog IDs — always set by matchConfigInit/matchConfigAddBot.
+     * bodynum/headnum are DERIVED (legacy engine indices), resolved at matchStart. */
+    char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
+    char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
+    u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
+    u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
     u8 botType;
     u8 botDifficulty;
     char name[MAX_PLAYER_NAME];
-    char body_id[64]; /* catalog ID e.g. "base:theking" */
-    char head_id[64]; /* catalog ID e.g. "base:head_dark_combat" */
 };
 
 struct matchconfig {
     struct matchslot slots[MATCH_MAX_SLOTS];
     u8 scenario;
-    u8 stagenum;
+    char stage_id[64];  /* PRIMARY: catalog ID e.g. "base:mp_complex" */
+    u8 stagenum;        /* DERIVED: resolved from stage_id at matchStart */
     u8 timelimit;
     u8 scorelimit;
     u16 teamscorelimit;
@@ -100,11 +103,12 @@ struct matchconfig {
     u8 weapons[6];
     s8 weaponSetIndex;
     u8 numSlots;
+    u8 spawnWeaponNum;
 };
 
 extern struct matchconfig g_MatchConfig;
 void matchConfigInit(void);
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, const char *name);
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id, const char *head_id, const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
 s32 matchStart(void);
 
@@ -450,7 +454,7 @@ extern "C" s32 matchSetupGetArenaInfo(s32 idx, u8 *stagenum, const char **name)
 
 static bool s_Registered = false;
 static bool s_Initialized = false;
-static s32 s_ArenaIndex = 0;         /* Index into modmgr arena list */
+static char s_ArenaId[CATALOG_ID_LEN] = {0};  /* catalog ID of selected arena */
 static bool s_NeedsFocus = false;
 static s32 s_Tab = 0;                /* 0=Slots, 1=Settings */
 
@@ -467,7 +471,7 @@ static char s_AddBotName[MAX_PLAYER_NAME] = {0};
 
 /* Arena picker modal state */
 static bool s_ArenaModalOpen = false;
-static s32  s_ArenaModalHover = -1;  /* runtime_index of hovered arena for preview */
+static char s_ArenaHoverId[CATALOG_ID_LEN] = {0};  /* catalog ID of hovered arena for preview */
 
 /* ========================================================================
  * Selection helpers
@@ -496,19 +500,6 @@ static void selectionSet(s32 idx)
  * removed — were used by the old renderSlotDetail multi-select panel,
  * now replaced by per-bot popup editing in renderPlayersPanel. */
 
-/* ========================================================================
- * Helper: find arena index from stagenum
- * ======================================================================== */
-
-static s32 findArenaIndex(u8 stagenum)
-{
-    s32 total = modmgrGetTotalArenas();
-    for (s32 i = 0; i < total; i++) {
-        struct mparena *arena = modmgrGetArena(i);
-        if (arena->stagenum == (s16)stagenum) return i;
-    }
-    return 0;
-}
 
 /* ========================================================================
  * Sound-playing widget wrappers (matching main menu style)
@@ -745,12 +736,20 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
                 for (u32 b = 0; b < numBodies && b < 200; b++) {
                     const char *bName = mpGetBodyName((u8)b);
                     if (!bName || !bName[0]) continue;
-                    bool isSel = (bot->bodynum == (u8)b);
+                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    bool isSel = bid && bot->body_id[0] && strcmp(bid, bot->body_id) == 0;
                     char itemLabel[64];
                     snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
                     if (ImGui::Selectable(itemLabel, isSel)) {
-                        bot->bodynum = (u8)b;
-                        bot->headnum = (u8)b;
+                        if (bid) {
+                            strncpy(bot->body_id, bid, sizeof(bot->body_id) - 1);
+                            bot->body_id[sizeof(bot->body_id) - 1] = '\0';
+                        }
+                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        if (hid) {
+                            strncpy(bot->head_id, hid, sizeof(bot->head_id) - 1);
+                            bot->head_id[sizeof(bot->head_id) - 1] = '\0';
+                        }
                         s_BotPreviewRotY = 0.0f;
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
@@ -995,7 +994,7 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
     if (PdButton("Add Bot", ImVec2(addBtnW, addBtnH))) {
         s32 newIdx = matchConfigAddBot(
             (u8)s_AddBotType, (u8)s_AddBotDiff,
-            0, BODY_DARK_COMBAT, NULL);
+            "base:dark_combat", "base:head_dark_combat", NULL);
         if (newIdx >= 0) selectionSet(newIdx);
     }
     if (!canAdd) ImGui::EndDisabled();
@@ -1038,7 +1037,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         const char *curArenaGroup = "";
         for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
             for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                if (s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum == (s16)s_ArenaIndex) {
+                if (s_ArenaId[0] && strcmp(s_ArenaGroupCache[g].entries[a]->id, s_ArenaId) == 0) {
                     curArenaName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
                     curArenaGroup = s_ArenaGroupNames[g];
                     goto found_arena_label;
@@ -1059,7 +1058,7 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                           - ImGui::GetStyle().WindowPadding.x;
         if (PdButton(arenaBtnLabel, ImVec2(arenaBtnW, 0))) {
             s_ArenaModalOpen = true;
-            s_ArenaModalHover = s_ArenaIndex;
+            strncpy(s_ArenaHoverId, s_ArenaId, CATALOG_ID_LEN);
             ImGui::OpenPopup("##arena_modal");
         }
 
@@ -1127,26 +1126,27 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
                     const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
                     if (!arenaName || !arenaName[0]) continue;
 
-                    bool isSel = (ae->ext.arena.stagenum == (s16)s_ArenaIndex);
-                    bool isHov = (ae->ext.arena.stagenum == (s16)s_ArenaModalHover);
+                    bool isSel = (ae->id[0] && s_ArenaId[0] && strcmp(ae->id, s_ArenaId) == 0);
+                    bool isHov = (ae->id[0] && s_ArenaHoverId[0] && strcmp(ae->id, s_ArenaHoverId) == 0);
                     char arenaLabel[96];
                     snprintf(arenaLabel, sizeof(arenaLabel), "  %s##arena_%d_%d",
                              arenaName, g, a);
 
                     if (ImGui::Selectable(arenaLabel, isSel || isHov,
                                           ImGuiSelectableFlags_None)) {
-                        s_ArenaIndex = ae->ext.arena.stagenum;
-                        s_ArenaModalHover = ae->ext.arena.stagenum;
-                        g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
-                        sysLogPrintf(LOG_NOTE,
-                            "Arena: \"%s\" ri=%d stage=0x%02x",
-                            arenaName, ae->runtime_index,
-                            ae->ext.arena.stagenum);
+                        strncpy(s_ArenaId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaId[CATALOG_ID_LEN - 1] = '\0';
+                        strncpy(s_ArenaHoverId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaHoverId[CATALOG_ID_LEN - 1] = '\0';
+                        strncpy(g_MatchConfig.stage_id, ae->id, sizeof(g_MatchConfig.stage_id) - 1);
+                        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                        sysLogPrintf(LOG_NOTE, "Arena: \"%s\" id='%s'", arenaName, ae->id);
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                         ImGui::CloseCurrentPopup();
                     }
                     if (ImGui::IsItemHovered()) {
-                        s_ArenaModalHover = ae->ext.arena.stagenum;
+                        strncpy(s_ArenaHoverId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaHoverId[CATALOG_ID_LEN - 1] = '\0';
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
                 }
@@ -1166,10 +1166,11 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
             u8 hoverStage = 0;
             for (s32 g = 0; g < ARENA_NUM_GROUPS && !hoverName; g++) {
                 for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                    if (s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum == (s16)s_ArenaModalHover) {
-                        hoverName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
+                    const asset_entry_t *he = s_ArenaGroupCache[g].entries[a];
+                    if (s_ArenaHoverId[0] && he->id[0] && strcmp(he->id, s_ArenaHoverId) == 0) {
+                        hoverName  = arenaGetName((u16)he->ext.arena.name_langid);
                         hoverGroup = s_ArenaGroupNames[g];
-                        hoverStage = (u8)s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum;
+                        hoverStage = (u8)he->ext.arena.stagenum;
                         break;
                     }
                 }
@@ -1420,7 +1421,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     /* Initialize match config on first appearance */
     if (!s_Initialized) {
         matchConfigInit();
-        s_ArenaIndex = (s32)g_MatchConfig.stagenum;
+        strncpy(s_ArenaId, g_MatchConfig.stage_id, CATALOG_ID_LEN - 1);
+        s_ArenaId[CATALOG_ID_LEN - 1] = '\0';
         selectionClear();
         s_Tab = 0;
         s_Initialized = true;
@@ -1520,8 +1522,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (!canStart) ImGui::BeginDisabled();
 
     if (PdButton("Start Match", ImVec2(footerBtnW, footerBtnH))) {
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup START MATCH pressed (slots=%d stage=0x%02x)",
-                     g_MatchConfig.numSlots, g_MatchConfig.stagenum);
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup START MATCH pressed (slots=%d stage='%s')",
+                     g_MatchConfig.numSlots, g_MatchConfig.stage_id);
         s_Initialized = false; /* Reset for next time */
         matchStart();
     }

@@ -170,7 +170,7 @@ Asset identity stored as integer in a runtime struct where it should be a catalo
 
 ---
 
-### H-1. matchsetup.h:58 — `matchconfig.stagenum` is u8, no string counterpart
+### H-1. matchsetup.h:58 — `matchconfig.stagenum` is u8, no string counterpart ✅ RESOLVED (S128)
 
 **File**: `port/include/net/matchsetup.h:55–70`
 **Pattern**:
@@ -183,11 +183,11 @@ struct matchconfig {
 ```
 **Violation**: The match config struct has no `stage_id[CATALOG_ID_LEN]` string field. Stage identity in g_MatchConfig is integer-only. All UI code (room.cpp, matchsetup.cpp) and network code (netmsgClcLobbyStartWrite) convert from this integer at the last moment. Compare: matchslot properly has both `body_id`/`head_id` strings AND derived `bodynum`/`headnum` integers.
 **Boundary**: Runtime — persisted across menu transitions; fed into CLC_LOBBY_START
-**Replace with**: Add `char stage_id[CATALOG_ID_LEN]` as PRIMARY identity in matchconfig. Keep `stagenum` as DERIVED (set at matchStart from `stage_id` lookup). Mirror the matchslot body_id/head_id pattern.
+**Fix (S128)**: Added `char stage_id[64]` as PRIMARY to `struct matchconfig`. `stagenum` annotated DERIVED. `matchConfigInit()` sets `stage_id = "base:mp_complex"`. `matchStart()` resolves stagenum from stage_id at handoff. `matchStartFromChallenge()` syncs stage_id back from challenge stagenum. Both targets build clean.
 
 ---
 
-### H-2. pdgui_bridge.c:611, 633 — `netLobbyRequestStart`/`WithSims` API takes u8 stagenum
+### H-2. pdgui_bridge.c:611, 633 — `netLobbyRequestStart`/`WithSims` API takes u8 stagenum ✅ RESOLVED (S128)
 
 **File**: `port/fast3d/pdgui_bridge.c:611–637`
 **Pattern**:
@@ -197,11 +197,11 @@ s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
 ```
 **Violation**: Public API for initiating a match takes `u8 stagenum` instead of a catalog ID string. Callers (pdgui_menu_room.cpp:1744, 1761, 1766) pass raw integer stage indices.
 **Boundary**: Internal C API boundary between UI and net layer
-**Replace with**: Accept `const char *stage_id` or `const char *arena_id`. Let the function resolve to stagenum internally for the CLC_LOBBY_START encoding.
+**Fix (S128)**: Both functions now accept `const char *stage_id`. Static helper `s_resolveStageIdToStagenum()` resolves to integer internally. Returns -3 on catalog failure (no fallback). `arena_entry` in `pdgui_menu_room.cpp` carries `char id[64]`. `syncArenaFromConfig()` matches by string. All three match-start paths (Combat Sim, COOP, Counter-Op) pass catalog ID strings.
 
 ---
 
-### H-3. mplayer.c:765–778, 826–827, 838 — Default player/bot identity set via MPBODY_*/MPHEAD_*/STAGE_* constants
+### H-3. mplayer.c:765–778, 826–827, 838 — Default player/bot identity set via MPBODY_*/MPHEAD_*/STAGE_* constants ✅ RESOLVED (S128)
 
 **File**: `src/game/mplayer/mplayer.c:765–778, 826–838`
 **Pattern**:
@@ -215,11 +215,11 @@ g_MpSetup.stagenum                             = STAGE_MP_SKEDAR;
 ```
 **Violation**: Player and bot defaults are set using integer enum constants directly, without going through the catalog. If the catalog mapping of these constants changes (e.g., a mod replaces an asset), these defaults silently point to wrong assets.
 **Boundary**: Runtime struct — these values propagate to wire on match start
-**Replace with**: Resolve defaults by catalog ID string: `catalogBodynumToMpBodyIdx(assetCatalogResolve("base:dark_combat")->runtime_index)`. Or store defaults as catalog ID strings in a config table.
+**Fix (S128)**: Player defaults in `func0f187fec()` and bot defaults in `func0f1881d4()` replaced with `assetCatalogResolve("base:dark_combat")` etc. → `catalogBodynumToMpBodyIdx(be->runtime_index)`. Error logged on failure; no silent integer fallback. `assetcatalog.h` included in mplayer.c (safe: no stdbool.h pull-in).
 
 ---
 
-### H-4. mplayer.c:286–302, setup.c passim — `g_MpSetup.stagenum` as primary stage identity
+### H-4. mplayer.c:286–302, setup.c passim — `g_MpSetup.stagenum` as primary stage identity ✅ RESOLVED (S128)
 
 **File**: `src/game/mplayer/mplayer.c:197, 286–302, 522, 527`
 **Pattern**:
@@ -233,7 +233,7 @@ mainChangeToStage(stagenum);
 ```
 **Violation**: `g_MpSetup.stagenum` is read, mutated (random resolution), and used to drive stage loading. No catalog ID string is consulted at any point in this path. The stage is fully identified by an integer that originated from UI without catalog resolution.
 **Boundary**: Runtime — stage loading is a critical transition
-**Replace with**: Add `char stage_id[CATALOG_ID_LEN]` to `struct mpsetup`. Random resolution should pick a catalog entry by ID, not by integer. Derive stagenum from the ID just before calling `titleSetNextStage`.
+**Fix (S128)**: Added `char stage_id[64]` as PRIMARY to `struct mpsetup` in `src/include/types.h`. `mpInit()` sets `stage_id` via `assetCatalogResolve("base:mp_skedar")`; integer fallback only if catalog unavailable at boot. `mpStartMatch()` syncs `stage_id` after random stagenum resolution via `catalogResolveArenaByStagenum`/`catalogResolveStageByStagenum`. The critical load path (`titleSetNextStage`, `mainChangeToStage`) still takes stagenum — those are at the legacy engine boundary where integer derivation is correct.
 
 ---
 
@@ -292,68 +292,31 @@ typedef struct { ...; s32 prop_type;  ... } catalog_prop_result_t;
 
 ---
 
-### M-2. pdgui_menu_matchsetup.cpp:1041, 1130–1138 — UI selection state stored as stagenum integer
+### M-2. pdgui_menu_matchsetup.cpp — UI selection state stored as stagenum integer ✅ FIXED 2026-04-02
 
-**File**: `port/fast3d/pdgui_menu_matchsetup.cpp:1041, 1130–1138`
-**Pattern**:
-```c
-if (s_ArenaGroupCache[g].entries[a]->ext.arena.stagenum == (s16)s_ArenaIndex) ...
-bool isSel  = (ae->ext.arena.stagenum == (s16)s_ArenaIndex);
-bool isHov  = (ae->ext.arena.stagenum == (s16)s_ArenaModalHover);
-s_ArenaIndex = ae->ext.arena.stagenum;
-g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
-```
-**Violation**: UI selection state (`s_ArenaIndex`, `s_ArenaModalHover`) is tracked as a raw stagenum integer. The arena picker compares catalog entry stagenums to find the selected item. This works only because stagenums happen to be unique, but if/when two catalog entries map to the same stagenum (e.g., variants), selection will break.
-**Boundary**: UI → Runtime struct
-**Replace with**: Track selection by catalog ID string: `s_ArenaId[CATALOG_ID_LEN]`. Compare `strcmp(ae->id, s_ArenaId)` for selection. Write `stage_id` (once added to matchconfig) instead of `stagenum`.
+**File**: `port/fast3d/pdgui_menu_matchsetup.cpp`
+**Fix**: `s_ArenaIndex`/`s_ArenaModalHover` (raw stagenum s32) replaced with `s_ArenaId[CATALOG_ID_LEN]`/`s_ArenaHoverId[CATALOG_ID_LEN]`. All comparisons use `strcmp(ae->id, s_ArenaId)`. On selection, `g_MatchConfig.stage_id` is set from `ae->id`. Also fixed the local `matchslot`/`matchconfig` struct definitions that were out of sync with the canonical `net/matchsetup.h` layout (body_id/head_id field ordering and missing stage_id/spawnWeaponNum fields).
 
 ---
 
-### M-3. pdgui_menu_room.cpp:1203, 1729, 1744, 1761, 1766 — Stage selection and match start via stagenum
+### M-3. pdgui_menu_room.cpp — Stage selection and match start via stagenum ✅ ALREADY CLEAN (verified 2026-04-02)
 
-**File**: `port/fast3d/pdgui_menu_room.cpp:1203, 1729–1768`
-**Pattern**:
-```c
-g_MatchConfig.stagenum = (u8)s_Arenas[ai].stagenum;          // arena click
-g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;  // match start
-netLobbyRequestStartWithSims(GAMEMODE_MP, (u8)s_Arenas[s_SelectedArena].stagenum, ...);
-netLobbyRequestStart(GAMEMODE_COOP, s_Missions[s_CampaignMission].stagenum, ...);
-```
-**Violation**: UI writes raw stagenum to `g_MatchConfig.stagenum` and passes it directly to the net layer. No catalog ID string is set.
-**Boundary**: UI → Runtime struct → Net API
-**Replace with**: After H-1 (stage_id in matchconfig) and H-2 (API takes string) are fixed, write `stage_id` and pass `ae->id` to the net API.
+**File**: `port/fast3d/pdgui_menu_room.cpp`
+**Status**: Already fixed as part of Batch 1 (H-1/H-2). The arena picker sets `g_MatchConfig.stage_id` from `ae->id`; `netLobbyRequestStartWithSims`/`netLobbyRequestStart` accept `const char *stage_id`. The `stagenum` field in the local `arena_entry` struct is retained only for debug log display; it is not used as identity. No violation at these call sites.
 
 ---
 
-### M-4. pdgui_menu_matchsetup.cpp:748–753 — Bot body/head assignment uses raw array index
+### M-4. pdgui_menu_matchsetup.cpp:748–753 — Bot body/head assignment uses raw array index ✅ FIXED 2026-04-02
 
-**File**: `port/fast3d/pdgui_menu_matchsetup.cpp:748–753`
-**Pattern**:
-```c
-bool isSel = (bot->bodynum == (u8)b);
-if (ImGui::Selectable(itemLabel, isSel)) {
-    bot->bodynum = (u8)b;
-    bot->headnum = (u8)b;
-```
-**Violation**: Character selection loop variable `b` (0..N) is written directly to `matchslot.bodynum/headnum`. While these fields are documented as DERIVED, the write path bypasses the catalog — it doesn't set `body_id`/`head_id` strings first.
-**Boundary**: UI → Runtime struct
-**Replace with**: Set `bot->body_id`/`bot->head_id` from the catalog entry name (`mpGetBodyCatalogId(b)`). Derive bodynum/headnum from the string at matchStart, not at selection time.
+**File**: `port/fast3d/pdgui_menu_matchsetup.cpp`
+**Fix**: `isSel` comparison now uses `strcmp(catalogResolveBodyByMpIndex(b), bot->body_id)`. On selection, `bot->body_id` and `bot->head_id` are set via `catalogResolveBodyByMpIndex(b)` / `catalogResolveHeadByMpIndex(b)`. `bodynum`/`headnum` are not written at selection time — derived at `matchStart()`.
 
 ---
 
-### M-5. pdgui_menu_room.cpp:1850–1865 — Lobby slot body/head assignment via index
+### M-5. pdgui_menu_room.cpp:1850–1865 — Lobby slot body/head assignment via index ✅ FIXED 2026-04-02
 
-**File**: `port/fast3d/pdgui_menu_room.cpp:1850–1865`
-**Pattern**:
-```c
-bool sel = (b == (u32)sl->bodynum);
-if (ImGui::Selectable(itemLabel, sel)) {
-    sl->bodynum = (u8)b;
-    sl->headnum = (u8)b;
-```
-**Violation**: Same pattern as M-4, in the lobby character picker.
-**Boundary**: UI → Runtime struct
-**Replace with**: Same as M-4.
+**File**: `port/fast3d/pdgui_menu_room.cpp`
+**Fix**: `isSel` comparison uses `strcmp(catalogResolveBodyByMpIndex(b), sl->body_id)`. Current display name resolved from `sl->body_id` via a scan of body entries. On selection, `sl->body_id` and `sl->head_id` set via catalog resolvers. `bodynum`/`headnum` not written at selection time.
 
 ---
 
@@ -490,10 +453,10 @@ The following are permitted internal uses inside the catalog module:
 | H-5 | savefile.c | 832–834 | HIGH | Disk | legacy stagenum int fallback in load |
 | H-6 | savefile.c | 693–698 | HIGH | Disk | legacy mpheadnum/mpbodynum int fallback |
 | M-1 | assetcatalog.h | ~671, ~680, ~689 | MEDIUM | API | result structs expose stagenum/weapon_num/prop_type |
-| M-2 | pdgui_menu_matchsetup.cpp | 1041, 1130–1138 | MEDIUM | UI→Runtime | s_ArenaIndex tracks by stagenum int |
-| M-3 | pdgui_menu_room.cpp | 1203, 1729, 1744, 1761 | MEDIUM | UI→Net API | stagenum written to matchconfig, passed to net |
-| M-4 | pdgui_menu_matchsetup.cpp | 748–753 | MEDIUM | UI→Runtime | bot bodynum/headnum written without catalog |
-| M-5 | pdgui_menu_room.cpp | 1850–1865 | MEDIUM | UI→Runtime | slot bodynum/headnum written without catalog |
+| M-2 | pdgui_menu_matchsetup.cpp | — | MEDIUM | UI→Runtime | **FIXED 2026-04-02** — s_ArenaId[CATALOG_ID_LEN] replaces s_ArenaIndex; local struct layout fixed |
+| M-3 | pdgui_menu_room.cpp | — | MEDIUM | UI→Net API | **ALREADY CLEAN** — uses stage_id throughout (verified 2026-04-02) |
+| M-4 | pdgui_menu_matchsetup.cpp | — | MEDIUM | UI→Runtime | **FIXED 2026-04-02** — body_id/head_id set via catalogResolveBodyByMpIndex |
+| M-5 | pdgui_menu_room.cpp | — | MEDIUM | UI→Runtime | **FIXED 2026-04-02** — body_id/head_id set via catalogResolveBodyByMpIndex |
 | M-6 | bg.c | 974, 1027–1057, 1251–1257 | MEDIUM | Internal | stagenum comparisons and bgGetStageIndex(s32) |
 | M-7 | mplayer.c | 2841–2910 | MEDIUM | C API | mpGetHeadId/mpGetBodyId/mpGetBodyName take u8 |
 | L-1 | mplayer.c | 765, 826 | LOW | Runtime | MPBODY_*/MPHEAD_* enum literals (see H-3) |

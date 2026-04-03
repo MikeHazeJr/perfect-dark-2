@@ -1200,6 +1200,11 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
+	if (id >= NET_MAX_CLIENTS) {
+		sysLogPrintf(LOG_WARNING, "NET: PlayerMove: client id %u out of range", id);
+		return 1;
+	}
+
 	struct netclient *movecl = &g_NetClients[id];
 
 	// make space in the move stack
@@ -2756,12 +2761,6 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 	for (u8 i = 0; i < botcount; ++i) {
 		struct prop *prop = netbufReadPropPtr(src);
 
-		if (!prop) {
-			// Skip null entries but still need to consume the rest of the data
-			// — this shouldn't happen in practice, but guard against it
-			continue;
-		}
-
 		// Position and orientation
 		struct coord pos;
 		netbufReadCoord(src, &pos);
@@ -2802,7 +2801,7 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 			return src->error;
 		}
 
-		if (!prop->chr || !prop->chr->aibot) {
+		if (!prop || !prop->chr || !prop->chr->aibot) {
 			continue;
 		}
 
@@ -3468,16 +3467,16 @@ u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl)
 			}
 
 			char buffer[50] = "";
-			sprintf(buffer, "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective N: "
+			snprintf(buffer, sizeof(buffer), "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective N: "
 
 			if (status == OBJECTIVE_COMPLETE) {
-				strcat(buffer, langGet(L_MISC_045)); // "Completed"
+				strncat(buffer, langGet(L_MISC_045), sizeof(buffer) - strlen(buffer) - 1); // "Completed"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
 			} else if (status == OBJECTIVE_INCOMPLETE) {
-				strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
+				strncat(buffer, langGet(L_MISC_046), sizeof(buffer) - strlen(buffer) - 1); // "Incomplete"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
 			} else if (status == OBJECTIVE_FAILED) {
-				strcat(buffer, langGet(L_MISC_047)); // "Failed"
+				strncat(buffer, langGet(L_MISC_047), sizeof(buffer) - strlen(buffer) - 1); // "Failed"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVEFAILED, HUDMSGFLAG_ALLOWDUPES);
 			}
 		}
@@ -3558,27 +3557,28 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload: gamemode (u8), stage_hash (u32 net_hash of ASSET_ARENA catalog entry),
+ * Payload (v27+): gamemode (u8), stage_id (str catalog ID),
  *          difficulty (u8), numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
- *          weapons (u32[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON net_hash
- *          Per-bot (repeated numSims times): name (str), mpbodynum (u8), mpheadnum (u8),
+ *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
+ *          Per-bot (repeated numSims times): name (str), body_id (str), head_id (str),
  *          botDifficulty (u8), botType (u8)
  *
- * Phase C: stagenum and weapons use net_hash (u32 CRC32 of catalog ID) instead
- * of raw indices.  Bot body/head use mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[]
- * position) after bodynum/headnum→mpbodynum/mpheadnum conversion at the write site.
+ * v27: all asset references are catalog ID strings — no u32 net_hash on wire.
+ * stage_id written from g_MatchConfig.stage_id (Single Source of Truth).
+ * Server resolves stage_id → stagenum and weapon IDs → weapon_id via assetCatalogResolve().
  * ======================================================================== */
 
 u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
+	(void)stagenum; /* stage identity comes from g_MatchConfig.stage_id, not stagenum */
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
-	/* FIX-1: send arena net_hash (u32 CRC32 of catalog ID) instead of raw stagenum u8.
-	 * catalogResolveArenaByStagenum() finds the ASSET_ARENA entry; both client and
-	 * server have g_MpArenas[] so catalogReadPreSessionRef() succeeds on the server. */
-	catalogWritePreSessionRef(dst, catalogResolveArenaByStagenum((s32)stagenum));
+	/* C-1: write arena as catalog ID string — Single Source of Truth from matchconfig.
+	 * g_MatchConfig.stage_id is set by the arena picker UI (M-2 fix, S129).
+	 * Server reads this string and resolves via assetCatalogResolve(). */
+	netbufWriteStr(dst, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
 	netbufWriteU8(dst, difficulty);
 	netbufWriteU8(dst, numSims);
 	netbufWriteU8(dst, simType);
@@ -3588,16 +3588,19 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* FIX-3: per-slot ASSET_WEAPON net_hash instead of bulk raw MPWEAPON_* bytes.
-	 * catalogWritePreSessionRef encodes each weapon's CRC32 catalog ID hash (u32).
-	 * The server resolves each hash via catalogReadPreSessionRef() and extracts
-	 * ext.weapon.weapon_id to populate g_MpSetup.weapons[].
-	 * Both client and server have identical weapon registrations from s_BaseWeapons[]. */
+	/* C-1: per-slot weapon catalog ID string.
+	 * catalogResolveWeaponByGameId() returns the catalog ID string ("base:falcon2" etc.)
+	 * or NULL for empty/unset slots. Server resolves string → weapon_id via assetCatalogResolve(). */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			catalogWritePreSessionRef(dst,
-				catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[wi]));
+			if (g_MpSetup.weapons[wi] == 0) {
+				netbufWriteStr(dst, "");
+			} else {
+				const char *wcanon = catalogResolveWeaponByGameId(
+					(s32)g_MpSetup.weapons[wi]);
+				netbufWriteStr(dst, wcanon ? wcanon : "");
+			}
 		}
 	}
 
@@ -3605,32 +3608,27 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	 * Count must equal numSims; extra slots are skipped, missing ones
 	 * write empty defaults so the server always reads exactly numSims entries.
 	 *
-	 * FIX-5: matchslot.bodynum / matchslot.headnum store BODY_x / HEAD_x
-	 * constants (g_HeadsAndBodies[] indices, range 0..151).  The server stores
-	 * these as mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions, 0..62/0..75).
-	 * Convert here via catalogBodynumToMpBodyIdx / catalogHeadnumToMpHeadIdx before
-	 * sending so the server receives the correct index domain.
-	 * Falls back to 0 (MPBODY_DARK_COMBAT / MPHEAD_DARK_COMBAT) on conversion fail. */
+	 * Catalog-ID-native: send body_id/head_id strings directly — the server
+	 * resolves them via assetCatalogResolve() + catalogBodynumToMpBodyIdx()
+	 * to obtain the correct mpbodynum/mpheadnum at the last moment.
+	 * No integer-domain conversion on the client send path. */
 	s32 botIdx = 0;
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
 		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
 			const struct matchslot *sl = &g_MatchConfig.slots[si];
-			const s32 mpbody = catalogBodynumToMpBodyIdx((s32)sl->bodynum);
-			const s32 mphead = catalogHeadnumToMpHeadIdx((s32)sl->headnum);
 			netbufWriteStr(dst, sl->name);
-			netbufWriteU8(dst, mpbody >= 0 ? (u8)mpbody : 0u); /* mpbodynum */
-			netbufWriteU8(dst, mphead >= 0 ? (u8)mphead : 0u); /* mpheadnum */
+			netbufWriteStr(dst, sl->body_id[0] ? sl->body_id : "base:dark_combat");
+			netbufWriteStr(dst, sl->head_id[0] ? sl->head_id : "base:head_dark_combat");
 			netbufWriteU8(dst, sl->botDifficulty);
 			netbufWriteU8(dst, sl->botType);
 			botIdx++;
 		}
 	}
-	/* Pad any missing slots with defaults (shouldn't happen in practice).
-	 * Use mpbodynum=0 / mpheadnum=0 (MPBODY_DARK_COMBAT / MPHEAD_DARK_COMBAT). */
+	/* Pad any missing slots with defaults (shouldn't happen in practice). */
 	for (; botIdx < (s32)numSims; botIdx++) {
 		netbufWriteStr(dst, "");
-		netbufWriteU8(dst, 0u); /* mpbodynum=0 default */
-		netbufWriteU8(dst, 0u); /* mpheadnum=0 default */
+		netbufWriteStr(dst, "base:dark_combat");
+		netbufWriteStr(dst, "base:head_dark_combat");
 		netbufWriteU8(dst, 2);  /* BOTDIFF_NORMAL */
 		netbufWriteU8(dst, simType);
 	}
@@ -3803,10 +3801,21 @@ static void readyGateAbort(const char *canceller_name)
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
-	/* FIX-2: read arena net_hash (u32), resolve to ASSET_ARENA entry, extract stagenum.
-	 * Falls back to stagenum=0 if the hash doesn't resolve (unknown arena). */
-	const asset_entry_t *stage_entry = catalogReadPreSessionRef(src);
-	const u8 stagenum        = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
+	/* C-2: read arena as catalog ID string (v27+), resolve via assetCatalogResolve().
+	 * No fallback — if the string doesn't resolve, stagenum=0 and an error is logged.
+	 * stage_id is also stored in g_MatchConfig for server-side reference. */
+	{
+		char *stage_id_str = netbufReadStr(src);
+		const char *stage_id = stage_id_str ? stage_id_str : "";
+		const asset_entry_t *stage_entry = stage_id[0] ? assetCatalogResolve(stage_id) : NULL;
+		if (stage_id[0] && !stage_entry) {
+			sysLogPrintf(LOG_ERROR,
+			             "NET: CLC_LOBBY_START arena '%s' not in catalog -- rejecting", stage_id);
+		}
+		g_MpSetup.stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
+		strncpy(g_MatchConfig.stage_id, stage_id, sizeof(g_MatchConfig.stage_id) - 1);
+		g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+	}
 	const u8 difficulty      = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
 	const u8 simType         = netbufReadU8(src);
@@ -3816,12 +3825,26 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);
-	/* FIX-4: per-slot ASSET_WEAPON net_hash — resolve each to weapon_id. */
+	/* C-2: per-slot weapon catalog ID string — resolve each to weapon_id.
+	 * No fallback: if a non-empty string can't resolve, log error and use 0 (no weapon). */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			const asset_entry_t *we = catalogReadPreSessionRef(src);
-			g_MpSetup.weapons[wi] = we ? (u8)we->ext.weapon.weapon_id : 0;
+			char *wid_str = netbufReadStr(src);
+			const char *wid = wid_str ? wid_str : "";
+			if (wid[0]) {
+				const asset_entry_t *we = assetCatalogResolve(wid);
+				if (we) {
+					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+				} else {
+					sysLogPrintf(LOG_ERROR,
+					             "NET: CLC_LOBBY_START weapon slot %d '%s' not in catalog -- skipping",
+					             wi, wid);
+					g_MpSetup.weapons[wi] = 0;
+				}
+			} else {
+				g_MpSetup.weapons[wi] = 0;
+			}
 		}
 	}
 	(void)weaponSetIndex; /* retained for logging/future use */
@@ -3871,8 +3894,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u tl=%u opt=0x%08x",
-	             srccl->settings.name, gamemode, stagenum, difficulty, timelimit, (unsigned)options);
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage='%s'(num=%u) diff=%u tl=%u opt=0x%08x",
+	             srccl->settings.name, gamemode, g_MatchConfig.stage_id, (unsigned)g_MpSetup.stagenum,
+	             difficulty, timelimit, (unsigned)options);
 
 	/* Apply settings */
 	g_NetGameMode = gamemode;
@@ -3888,13 +3912,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * each client's playernum.  Without this, clients receive a
 		 * zero chrslots and no slot assignments, so mpStartMatch() never
 		 * spawns anyone. */
-		g_MpSetup.stagenum        = stagenum; /* resolved from arena net_hash in FIX-2 */
+		/* g_MpSetup.stagenum already set above from arena catalog ID resolution */
 		g_MpSetup.scenario        = scenario;
 		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
 		g_MpSetup.scorelimit      = scorelimit;
 		g_MpSetup.teamscorelimit  = teamscorelimit;
 		g_MpSetup.options         = options;
-		/* g_MpSetup.weapons[] populated above by FIX-4 per-slot catalogReadPreSessionRef. */
+		/* g_MpSetup.weapons[] populated above by FIX-4 per-slot weapon catalog ID string resolution. */
 
 		/* Assign sequential playernums and build chrslots bitmask.
 		 * Bits 0..n-1 of chrslots represent the n connected players. */
@@ -3917,13 +3941,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
 			g_MpSetup.chrslots |= (u64)1 << slot;
-			/* FIX-6: read mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions).
-			 * FIX-5 on the write side converts matchslot bodynum/headnum
-			 * (BODY_x/HEAD_x g_HeadsAndBodies[] indices) to mpbodynum/mpheadnum
-			 * before sending, so storing directly as mpbodynum/mpheadnum is correct. */
+			/* Catalog-ID-native: read body_id/head_id strings, resolve to
+			 * mpbodynum/mpheadnum here at the server read site — the ONLY
+			 * integer-domain conversion point for bot characters. */
 			const char *botName    = netbufReadStr(src);
-			const u8 bodynum       = netbufReadU8(src); /* mpbodynum (g_MpBodies[] pos) */
-			const u8 headnum       = netbufReadU8(src); /* mpheadnum (g_MpHeads[] pos) */
+			const char *body_id    = netbufReadStr(src); /* catalog ID e.g. "base:dark_combat" */
+			const char *head_id    = netbufReadStr(src); /* catalog ID e.g. "base:head_dark_combat" */
 			const u8 botDifficulty = netbufReadU8(src);
 			const u8 botType       = netbufReadU8(src);
 			if (src->error) {
@@ -3934,22 +3957,40 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 			g_BotConfigsArray[bi].type       = botType;
 			g_BotConfigsArray[bi].difficulty = botDifficulty;
-			g_BotConfigsArray[bi].base.mpbodynum = bodynum;
-			g_BotConfigsArray[bi].base.mpheadnum = headnum;
+			/* Resolve catalog IDs → mpbodynum/mpheadnum (last-moment conversion). */
+			g_BotConfigsArray[bi].base.mpbodynum = 0; /* MPBODY_DARK_COMBAT default */
+			g_BotConfigsArray[bi].base.mpheadnum = 0; /* MPHEAD_DARK_COMBAT default */
+			if (body_id && body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					if (mpb >= 0) g_BotConfigsArray[bi].base.mpbodynum = (u8)mpb;
+				}
+			}
+			if (head_id && head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					if (mph >= 0) g_BotConfigsArray[bi].base.mpheadnum = (u8)mph;
+				}
+			}
 			if (botName && botName[0]) {
 				strncpy(g_BotConfigsArray[bi].base.name, botName, sizeof(g_BotConfigsArray[bi].base.name) - 1);
 				g_BotConfigsArray[bi].base.name[sizeof(g_BotConfigsArray[bi].base.name) - 1] = '\0';
 			} else {
 				g_BotConfigsArray[bi].base.name[0] = '\0';
 			}
-			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body=%u head=%u type=%u diff=%u",
+			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body_id='%s' head_id='%s' mpbody=%u mphead=%u type=%u diff=%u",
 			             bi,
 			             g_BotConfigsArray[bi].base.name[0] ? g_BotConfigsArray[bi].base.name : "(empty)",
-			             bodynum, headnum, botType, botDifficulty);
+			             body_id ? body_id : "", head_id ? head_id : "",
+			             g_BotConfigsArray[bi].base.mpbodynum,
+			             g_BotConfigsArray[bi].base.mpheadnum,
+			             botType, botDifficulty);
 		}
 		g_Lobby.settings.numSimulants = clampedSims;
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
-		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
+		             (unsigned)g_MpSetup.stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
 
 		/* Phase D.3: receive host-built manifest from CLC_LOBBY_START payload,
 		 * then supplement with other connected players' body/head (which the
@@ -3981,14 +4022,14 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 					{
 						const asset_entry_t *be = assetCatalogResolve(ncl->settings.body_id);
 						if (be) {
-							manifestAddEntry(&g_ServerManifest, be->net_hash, be->id,
+							manifestAddEntry(&g_ServerManifest, be->id,
 							                 MANIFEST_TYPE_BODY, supp_slot);
 						}
 					}
 					{
 						const asset_entry_t *he = assetCatalogResolve(ncl->settings.head_id);
 						if (he) {
-							manifestAddEntry(&g_ServerManifest, he->net_hash, he->id,
+							manifestAddEntry(&g_ServerManifest, he->id,
 							                 MANIFEST_TYPE_HEAD, supp_slot);
 						}
 					}
@@ -4003,10 +4044,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 						const asset_entry_t *se = assetCatalogResolve(me->id);
 						if (se) {
 							const u8 manifest_stagenum = (u8)se->ext.map.stagenum;
-							if (manifest_stagenum != stagenum) {
+							if (manifest_stagenum != g_MpSetup.stagenum) {
 								sysLogPrintf(LOG_WARNING,
-								             "NET: D.5 stage mismatch: arena hash→0x%02x, manifest→0x%02x ('%s') — using arena hash",
-								             (unsigned)stagenum, (unsigned)manifest_stagenum, me->id);
+								             "NET: D.5 stage mismatch: arena ID→0x%02x, manifest→0x%02x ('%s') — using arena ID",
+								             (unsigned)g_MpSetup.stagenum, (unsigned)manifest_stagenum, me->id);
 							}
 						}
 						break;
@@ -4054,7 +4095,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			s_ReadyGate.ready_mask    = 0;
 			s_ReadyGate.declined_mask = 0;
 			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
-			s_ReadyGate.stagenum      = stagenum;
+			s_ReadyGate.stagenum      = g_MpSetup.stagenum;
 			s_ReadyGate.total_count   = total_count;
 
 			hub_room_t *room = roomGetById(0);
@@ -4068,7 +4109,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				if (room) {
 					roomTransition(room, ROOM_STATE_LOADING);
 				}
-				mainChangeToStage(stagenum);
+				mainChangeToStage(g_MpSetup.stagenum);
 				netServerStageStart();
 			} else {
 				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
@@ -4079,10 +4120,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 	} else {
 		/* Co-op or Counter-op — uses mission config */
-		g_MissionConfig.stagenum = stagenum;
+		g_MissionConfig.stagenum = g_MpSetup.stagenum;
 		g_MissionConfig.difficulty = difficulty;
-		mainChangeToStage(stagenum);
-		netServerCoopStageStart(stagenum, difficulty);
+		mainChangeToStage(g_MpSetup.stagenum);
+		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
 	}
 
 	return src->error;
@@ -4138,8 +4179,8 @@ u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
  * stage changed, match starting/ending). Clients update their local
  * lobby display accordingly.
  *
- * Payload: gamemode (u8), arena (u32 net_hash via catalogWritePreSessionRef), status (u8)
- * B-72: arena was raw stagenum u8; now catalog wire format so mod arenas resolve correctly.
+ * Payload: gamemode (u8), arena (catalog ID str), status (u8)
+ * v27: arena encoded as catalog ID string (no net_hash on wire).
  * Status: 0=waiting, 1=starting, 2=in-game
  * ======================================================================== */
 
@@ -4147,9 +4188,8 @@ u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 st
 {
 	netbufWriteU8(dst, SVC_LOBBY_STATE);
 	netbufWriteU8(dst, gamemode);
-	/* B-72: encode arena as catalog wire format (u32 net_hash) so clients with
-	 * mod arenas resolve by CRC rather than relying on a matching stagenum u8. */
-	catalogWritePreSessionRef(dst, catalogResolveArenaByStagenum((s32)stagenum));
+	/* v27: encode arena as catalog ID string — no net_hash on wire. */
+	netbufWriteStr(dst, catalogResolveArenaByStagenum((s32)stagenum));
 	netbufWriteU8(dst, status);
 	return dst->error;
 }
@@ -4157,9 +4197,9 @@ u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 st
 u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode = netbufReadU8(src);
-	/* B-72: read arena net_hash (u32), resolve to ASSET_ARENA entry, extract stagenum.
-	 * Falls back to stagenum=0 if the hash doesn't resolve (unknown arena). */
-	const asset_entry_t *stage_entry = catalogReadPreSessionRef(src);
+	/* v27: read arena catalog ID string, resolve to ASSET_ARENA entry, extract stagenum. */
+	const char *arena_id = netbufReadStr(src);
+	const asset_entry_t *stage_entry = arena_id ? assetCatalogResolve(arena_id) : NULL;
 	const u8 stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
 	const u8 status   = netbufReadU8(src);
 
@@ -4218,7 +4258,7 @@ u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
 	netbufWriteU16(dst, (u16)s_CatalogCollectN);
 	for (s32 i = 0; i < s_CatalogCollectN; i++) {
 		const asset_entry_t *e = s_CatalogCollectBuf[i];
-		netbufWriteU32(dst, e->net_hash);
+		/* v27: no net_hash on wire — catalog ID string only. */
 		netbufWriteStr(dst, e->id);
 		netbufWriteStr(dst, e->category);
 	}
@@ -4234,13 +4274,11 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	/* Collect hashes + strings while buffer is live */
-	u32     hashes[CATALOG_COLLECT_MAX];
-	char    ids[CATALOG_COLLECT_MAX][64];
-	char    cats[CATALOG_COLLECT_MAX][64];
+	/* v27: no net_hash on wire — collect catalog ID strings only. */
+	char ids[CATALOG_COLLECT_MAX][64];
+	char cats[CATALOG_COLLECT_MAX][64];
 
 	for (u16 i = 0; i < count; i++) {
-		hashes[i] = netbufReadU32(src);
 		char *id  = netbufReadStr(src);
 		char *cat = netbufReadStr(src);
 		strncpy(ids[i],  id  ? id  : "", 63);  ids[i][63]  = '\0';
@@ -4249,8 +4287,7 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleCatalogInfo(hashes,
-	                                  (const char (*)[64])ids,
+	netDistribClientHandleCatalogInfo((const char (*)[64])ids,
 	                                  (const char (*)[64])cats,
 	                                  count);
 	return src->error;
@@ -4258,14 +4295,15 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 
 /* ---- CLC_CATALOG_DIFF ---- */
 
-u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes,
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const char (*missing_ids)[CATALOG_ID_LEN],
                                u16 count, u8 temporary)
 {
 	netbufWriteU8(dst, CLC_CATALOG_DIFF);
 	netbufWriteU8(dst, temporary);
 	netbufWriteU16(dst, count);
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
 	for (u16 i = 0; i < count; i++) {
-		netbufWriteU32(dst, missing_hashes[i]);
+		netbufWriteStr(dst, missing_ids ? missing_ids[i] : "");
 	}
 	return dst->error;
 }
@@ -4279,25 +4317,28 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	u32 hashes[256];
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
+	char missing_ids[256][CATALOG_ID_LEN];
 	for (u16 i = 0; i < count; i++) {
-		hashes[i] = netbufReadU32(src);
+		char *id = netbufReadStr(src);
+		strncpy(missing_ids[i], id ? id : "", CATALOG_ID_LEN - 1);
+		missing_ids[i][CATALOG_ID_LEN - 1] = '\0';
 	}
 
 	if (src->error) return src->error;
 
-	netDistribServerHandleDiff(srccl, hashes, count, temporary);
+	netDistribServerHandleDiff(srccl, (const char (*)[CATALOG_ID_LEN])missing_ids, count, temporary);
 	return src->error;
 }
 
 /* ---- SVC_DISTRIB_BEGIN ---- */
 
-u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
                                 const char *category, u32 total_chunks, u32 archive_bytes)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_BEGIN);
-	netbufWriteU32(dst, net_hash);
-	netbufWriteStr(dst, id);
+	/* v27: catalog ID string is the component identity — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteStr(dst, category);
 	netbufWriteU32(dst, total_chunks);
 	netbufWriteU32(dst, archive_bytes);
@@ -4307,16 +4348,20 @@ u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
 u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32  net_hash     = netbufReadU32(src);
-	char *id          = netbufReadStr(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id  = netbufReadStr(src);
 	char *category    = netbufReadStr(src);
 	u32  total_chunks = netbufReadU32(src);
 	u32  archive_bytes = netbufReadU32(src);
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleBegin(net_hash,
-	                             id       ? id       : "",
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_BEGIN: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleBegin(catalog_id,
 	                             category ? category : "",
 	                             total_chunks, archive_bytes, 0);
 	return src->error;
@@ -4330,11 +4375,12 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
  * without copying to avoid large stack allocations.
  */
 
-u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, const char *catalog_id, u16 chunk_idx,
                                 u8 compression, const u8 *data, u16 data_len)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_CHUNK);
-	netbufWriteU32(dst, net_hash);
+	/* v27: catalog ID string identifies the transfer — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteU16(dst, chunk_idx);
 	netbufWriteU8(dst, compression);
 	netbufWriteU16(dst, data_len);
@@ -4345,10 +4391,11 @@ u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
 u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32  net_hash   = netbufReadU32(src);
-	u16  chunk_idx  = netbufReadU16(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id = netbufReadStr(src);
+	u16  chunk_idx   = netbufReadU16(src);
 	u8   compression = netbufReadU8(src);
-	u16  data_len   = netbufReadU16(src);
+	u16  data_len    = netbufReadU16(src);
 
 	/* Sanity bound: compressed data can't exceed 2× chunk size */
 	if (data_len > NET_DISTRIB_CHUNK_SIZE * 2) {
@@ -4362,16 +4409,22 @@ u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleChunk(net_hash, chunk_idx, compression, data, data_len);
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_CHUNK: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleChunk(catalog_id, chunk_idx, compression, data, data_len);
 	return src->error;
 }
 
 /* ---- SVC_DISTRIB_END ---- */
 
-u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, const char *catalog_id, u8 success)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_END);
-	netbufWriteU32(dst, net_hash);
+	/* v27: catalog ID string identifies the transfer — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteU8(dst, success);
 	return dst->error;
 }
@@ -4379,12 +4432,18 @@ u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
 u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32 net_hash = netbufReadU32(src);
-	u8  success  = netbufReadU8(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id = netbufReadStr(src);
+	u8    success    = netbufReadU8(src);
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleEnd(net_hash, success);
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_END: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleEnd(catalog_id, success);
 	return src->error;
 }
 
@@ -4480,15 +4539,16 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 /* ---- CLC_MANIFEST_STATUS ---- */
 
 u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
-                                  const u32 *missing_hashes, u8 num_missing)
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing)
 {
 	netbufWriteU8(dst, CLC_MANIFEST_STATUS);
 	netbufWriteU32(dst, manifest_hash);
 	netbufWriteU8(dst, status);
 	netbufWriteU8(dst, num_missing);
 
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
 	for (u8 i = 0; i < num_missing; i++) {
-		netbufWriteU32(dst, missing_hashes[i]);
+		netbufWriteStr(dst, missing_ids ? missing_ids[i] : "");
 	}
 
 	return dst->error;
@@ -4509,18 +4569,20 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 	             srccl ? srccl->id : 0xFF,
 	             (unsigned)manifest_hash, (unsigned)status, (unsigned)num_missing);
 
-	/* Collect missing hashes (needed for Phase D distribution).
+	/* v27: catalog ID strings only — no u32 net_hash on wire.
 	 * num_missing is u8 (0-255) — bounded by wire protocol. */
-	u32 missing_hashes[256];
-	u8  missing_count = 0;
+	char missing_ids[256][CATALOG_ID_LEN];
+	u8   missing_count = 0;
 	for (s32 mi = 0; mi < (s32)num_missing; mi++) {
-		const u32 hash = netbufReadU32(src);
+		char *id = netbufReadStr(src);
 		if (src->error) {
 			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%d]", mi);
 			return 1;
 		}
-		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%d] hash=0x%08x", mi, (unsigned)hash);
-		missing_hashes[missing_count++] = hash;
+		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%d] id=%s", mi, id ? id : "(null)");
+		strncpy(missing_ids[missing_count], id ? id : "", CATALOG_ID_LEN - 1);
+		missing_ids[missing_count][CATALOG_ID_LEN - 1] = '\0';
+		missing_count++;
 	}
 
 	/* Phase E: ready gate — update per-client readiness and check for completion.
@@ -4544,7 +4606,8 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 					sysLogPrintf(LOG_NOTE,
 					             "NET: ready gate: client %d NEED_ASSETS (%u missing), queuing transfer",
 					             ci, (unsigned)missing_count);
-					netDistribServerHandleDiff(srccl, missing_hashes,
+					netDistribServerHandleDiff(srccl,
+					                           (const char (*)[CATALOG_ID_LEN])missing_ids,
 					                           (u16)missing_count, 1);
 				}
 				readyGateBroadcastCountdown(MANIFEST_PHASE_TRANSFERRING);

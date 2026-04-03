@@ -21,7 +21,7 @@ binary replacement on Windows.
 Client and server have **independent** version numbers:
 - `BUILD_VERSION_CLIENT` — injected at build time
 - `BUILD_VERSION_SERVER` — injected at build time
-- `NET_PROTOCOL_VER` (currently 18) — stays separate, only bumped on wire-format changes
+- `NET_PROTOCOL_VER` (currently 27) — stays separate, only bumped on wire-format changes
 
 ### Release Channels
 - **Stable**: GitHub releases NOT marked as prerelease. Tags: `client-v1.0.0`, `server-v1.0.0`

@@ -49,15 +49,30 @@
 
 ---
 
+## Recently Completed (S130 — 2026-04-02)
+
+| Item | Status |
+|------|--------|
+| **Wire protocol v27 — all net_hash removed** (S130) | **DONE** — All net_hash u32 wire fields replaced with catalog ID strings across 7+ message types. ~30 call sites updated. manifestSerialize/Deserialize drop net_hash. |
+| **SAVE-COMPAT branches stripped** (S130) | **DONE** — scenario_save.c and savefile.c: all integer fallback paths removed. Write/read paths use catalog ID strings only. |
+| **Comprehensive bug audit** (S130) | **DONE** — 19 findings (2 CRITICAL, 3 HIGH, 8 MEDIUM, 6 LOW). 5 systemic patterns. See `audit-comprehensive-bugs.md`. |
+| **B-73 ChrResync desync (CRITICAL)** (S130) | **FIXED** — NULL prop no longer skips buffer reads. All fields always consumed. |
+| **B-74 Unbounded malloc (CRITICAL)** (S130) | **FIXED** — MAX_DISTRIB_ARCHIVE_BYTES (64MB) guard before malloc. |
+| **B-75 SVC_PLAYER_MOVE OOB (HIGH)** (S130) | **FIXED** — Bounds check on network-received client ID. |
+| **B-76 sprintf overflow (HIGH)** (S130) | **FIXED** — snprintf + strncat with size limits. |
+| **Per-frame log spammers removed** (S130) | **DONE** — 5 bondwalk.c spammers removed, one-shot events preserved. |
+| **Catalog-based defaults in mplayer.c** (S130) | **DONE** — MPBODY_*/MPHEAD_*/STAGE_* replaced with assetCatalogResolve. |
+| **Engine modernization vision documented** (S130) | **DONE** — ROM as legacy provider → catalog as provider-agnostic bus → PBR/physics. |
+
 ## Recently Completed (S109 — 2026-04-01)
 
 | Item | Status |
 |------|--------|
-| **Credits/storyboard removal** (S109, f5cf0da) | **DONE** — Debug > About updated. "PD2 Port Director: MikeHazeJr" in intro credits. F11 storyboard + menu builder system fully removed (pdgui_storyboard.cpp/h, pdgui_menubuilder.cpp/h). 719/719 clean. |
-| **Updater download freeze fix** (S109, 3b593ed) | **DONE** — UPDATER_ASSET_ZIP_SUFFIX ".zip", double SDL_LockMutex deadlock fixed. v0.0.20→v0.0.21 update path now works. |
-| **Mission select UX redesign** (S109) | **DONE** — Flat blip-dot list, per-difficulty record times, objective tooltips, chapter header counts. Removed dead stubs from S106. |
-| **v0.0.22 released to GitHub** (S109) | **DONE** — Full distribution ZIP (26.1 MB, EXEs + data/ + .sha256). Manual gh CLI release (release.ps1 hung). |
-| **B-56 / B-57 / B-58 fixed** (S109) | **DONE** — Arena dropdown duplicate ID, scenario save weapon persistence, catalogResolveByRuntimeIndex assert all resolved. |
+| **Credits/storyboard removal** (S109, f5cf0da) | **DONE** |
+| **Updater download freeze fix** (S109, 3b593ed) | **DONE** |
+| **Mission select UX redesign** (S109) | **DONE** |
+| **v0.0.22 released to GitHub** (S109) | **DONE** |
+| **B-56 / B-57 / B-58 fixed** (S109) | **DONE** |
 
 ---
 
@@ -168,18 +183,19 @@
 
 ---
 
-## Bugs Still Open
+## Bugs Still Open (Pre-Audit)
 
 | Bug | Severity | Status |
 |-----|----------|--------|
-| [B-58](bugs.md) `catalogResolveByRuntimeIndex` assert: type=16, index=103 | HIGH | **FIXED (S109)** — bounds checks against catalogGetNumHeads/Bodies. |
-| [B-57](bugs.md) Scenario save: weaponset index only, not individual weapon picks | MED | **FIXED (S109)** — serializes g_MpSetup.weapons[] alongside weaponset. |
-| [B-56](bugs.md) ImGui duplicate ID in arena dropdown (Room screen) | LOW | **FIXED (S109)** — PushID()/PopID() added around arena selector. |
-| [B-50](bugs.md) Dedicated server match-end freeze | HIGH | FIXED (S81) hub.c SDL timer. Needs playtest: start timed match on dedicated server. |
 | [B-17](bugs.md) Mod stages load wrong maps | HIGH | Structurally fixed (S32). Needs broader testing. |
 | B-18 Pink sky on Skedar Ruins | MEDIUM | Reported S48. Needs investigation. |
-| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — needs test to confirm dispersal works. |
-| B-21 Menu double-press / hierarchy issues | MEDIUM | Escape registering multiple times, menu state confusion. |
+| B-19 Bot spawn stacking on Skedar Ruins | MEDIUM | **PARTIAL FIX (S54)** — Phase F.1 adds anti-repeat (S125). Needs test. |
+| B-21 Menu double-press / hierarchy issues | MEDIUM | **LIKELY FIXED (S124 Phase E)** — full-stack duplicate rejection in menuPush(). Needs playtest. |
+| B-60 Stray 'g'+'s' visible behind Video/Audio tabs | LOW | OPEN |
+| B-72 SVC_LOBBY_STATE raw stagenum | LOW | OPEN — display-only, does not block v0.1.0 |
+
+> B-56/B-57/B-58 all **FIXED (S109)**. B-50 **FIXED (S81)**. See bugs.md for full history.
+> B-73 through B-89 are from the S130 comprehensive audit — tracked in "Comprehensive Bug Audit" section above.
 
 ---
 
@@ -196,7 +212,48 @@
 | **Phase D** | **Server Manifest Model** — server receives match manifest from host (catalog IDs, not raw indices). No server-side catalog. Mod distribution with SHA-256 validation. Protocol version bump. Fixes B-65 (SVC_STARTGAME stage gap). | CRITICAL | **DONE (S123, commit e517633)** — manifestBuildForHost, manifestSerialize/Deserialize, SHA-256 in modinfo_t, CLC_LOBBY_START embeds host manifest, SVC_MATCH_MANIFEST uses serialize helpers, server supplements player body/head, D.5 stage validation, protocol v26. Needs playtest: CLC_LOBBY_START host manifest flow in real MP match. |
 | **Phase E** | **Menu Stack Architecture** — push/pop menu stack, input context stack, duplicate rejection on push, theme/tint separation (tint cleared on any menu pop back to root), Esc fix. Fixes B-68/B-69/B-21. | HIGH | **DONE (S124, commit 5eab8d3)** — menuPush full-stack duplicate rejection; endscreen releases mouse on IsWindowAppearing(); menumgr restores SDL mouse on stack-empty; main menu enforces palette 1; endscreen save/restore palette. Needs playtest: post-mission buttons, MP lobby→gameplay mouse, green tint. |
 | **Phase F** | **Spawn System Hardening** — randomization verified, navmesh fallback, floor fallback, stuck detection with 1/4 damage relocation for 2 seconds. Fixes B-71, hardens B-19. Also wire `inputSetMode()` on match start and post-mission transition. Fixes B-66/B-67. | HIGH | **DONE (S125, commit 27b1e08)** — F.1 anti-repeat (s_LastSpawnPad), F.5 stuck detection (bot.c, 180-frame snapshot, 300u relo, 25% penalty), F.6 B-70 MPOPTION_SPAWNWITHWEAPON default + spawnWeaponNum resolution, B-66 inputLockMouse(1) after menuStop(). F.2/F.3/F.4 already done in playerReset(). Needs playtest: spawn variety, bot unstick, spawn weapons. |
-| **Phase G** | **Full Verification Pass** — all game modes, clean logs, mod testing, spawn testing, menu transition testing. Success criteria: zero CATALOG-ASSERT warnings, zero type=16 in any log, all MP game modes run to completion with bots, all menu transitions clean (no tint bleed, no duplicate instances). | HIGH | **CODE AUDIT + BUILD DONE (S126)** — playtest verification pending. See session-log.md S126 for full findings. New issue: B-72 (SVC_LOBBY_STATE raw stagenum, LOW). Save file fallback debt documented. Both targets build clean. |
+| **Phase G** | **Full Verification Pass** — all game modes, clean logs, mod testing, spawn testing, menu transition testing. Success criteria: zero CATALOG-ASSERT warnings, zero type=16 in any log, all MP game modes run to completion with bots, all menu transitions clean (no tint bleed, no duplicate instances). | HIGH | **CODE COMPLETE (S126–S130)** — S127: catalog-ID-native data model (8 files). S128: stage_id + bridge API + catalog defaults (6 files). S129: UI picker conversion (2 files). S130: wire protocol v27 (all net_hash → catalog ID strings), SAVE-COMPAT stripped, comprehensive bug audit (19 findings), C-01/C-02/H-01/H-02 critical fixes. **PLAYTEST VERIFICATION PENDING.** |
+
+---
+
+## Comprehensive Bug Audit — Remaining Fixes (S130)
+
+> **Source**: `context/audit-comprehensive-bugs.md` — 19 findings total
+> **Fixed (S130)**: C-01 (ChrResync desync), C-02 (unbounded malloc), H-01 (OOB array), H-02 (sprintf overflow)
+
+### Tier 2 — Fix Before Public Release
+
+| Finding | Description | File | Effort | Status |
+|---------|-------------|------|--------|--------|
+| **M-2** | Chat rebroadcast without rate limiting — DoS amplification | netmsg.c | S | OPEN |
+| **M-3** | Chunk ordering ignored in mod distribution — silent data corruption | netdistrib.c | M | OPEN |
+| **M-4** | archive_bytes not validated at BEGIN time (companion to C-02) | netdistrib.c | XS | OPEN |
+| **M-7** | JSON tokenizer unbounded recursion on deep nesting — crafted save crash | savefile.c | S–M | OPEN |
+| **H-3** | fread return unchecked in savefile load — silent save corruption | savefile.c | S | OPEN |
+
+### Tier 3 — Quality Pass
+
+| Finding | Description | File | Effort | Status |
+|---------|-------------|------|--------|--------|
+| **M-1** | Dead `tmp[1024]` variable in chat handler | netmsg.c | XS | OPEN |
+| **M-5** | pdsched.c TODO — scheduling investigation | pdsched.c | M | OPEN |
+| **M-6** | Audio sample rate 22020 Hz (should be 22050?) | audio.c | S | OPEN |
+| **M-8** | Incomplete shutdown sequence on quit | main.c | M | OPEN |
+| **L-1** | buildArchiveDir stale pointer on realloc failure | netdistrib.c | S | OPEN |
+| **L-2** | enet_peer_send return value unchecked | netdistrib.c | XS | OPEN |
+| **L-3** | strcpy → strncpy in input.c VK names | input.c | XS | OPEN |
+| **L-4** | strcpy → strncpy in mpsetups.c | mpsetups.c | XS | OPEN |
+| **L-5** | strcpy → strncpy in fs.c homeDir | fs.c | XS | OPEN |
+
+### Systemic Sweeps (Cleanup Sprint)
+
+| Pattern | Scope | Status |
+|---------|-------|--------|
+| sprintf → snprintf | 350+ instances across src/ and port/ | OPEN |
+| Network array bounds checks | All netbufReadU8/U16 used as array indices | OPEN |
+| fread/fwrite return checks | All file I/O in port/src/ | OPEN |
+| strcpy → strncpy | 20+ instances in port/src/ | OPEN |
+| malloc/realloc NULL checks | Selective — smaller allocations in game code | OPEN |
 
 ---
 
@@ -204,10 +261,11 @@
 
 ---
 
-### ⚡ SESSION CATALOG + MODULAR API — HIGHEST INFRASTRUCTURE PRIORITY
+### SESSION CATALOG + MODULAR API — COMPLETE
 
 > **Design doc**: [`context/designs/session-catalog-and-modular-api.md`](designs/session-catalog-and-modular-api.md)
 > **Principle**: The catalog replaces the **entire** legacy loading pipeline, not just networking. All asset references at interface boundaries (wire protocol, save files, public APIs) must use catalog IDs — never raw N64 indices.
+> **Status**: ALL DONE (S91–S97). Wire protocol fully migrated to catalog ID strings in S130 (v27). This track is complete.
 
 | Phase | Task | Details |
 |-------|------|---------|

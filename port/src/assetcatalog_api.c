@@ -435,12 +435,16 @@ u16 catalogReadAssetRef(struct netbuf *buf)
  * bodynum→mpbodynum conversion applied at the write site (FIX-5).
  * ------------------------------------------------------------------------- */
 
+/* DEPRECATED (v27-04-02): net_hash wire format replaced by catalog ID strings.
+ * No live callers remain in wire paths. Retained only to avoid link errors
+ * if any tool or test binary still references these symbols. Remove on next cleanup. */
 void catalogWritePreSessionRef(struct netbuf *buf, const char *id)
 {
     const asset_entry_t *e = id ? assetCatalogResolve(id) : NULL;
     netbufWriteU32(buf, e ? e->net_hash : 0u);
 }
 
+/* DEPRECATED (v27-04-02): see catalogWritePreSessionRef. */
 const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf)
 {
     const u32 hash = netbufReadU32(buf);

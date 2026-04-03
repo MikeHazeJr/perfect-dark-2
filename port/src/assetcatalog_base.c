@@ -483,22 +483,35 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	/* ---- Register heads ---- */
 	/*
-	 * Heads are registered as ASSET_HEAD with ext.head fields populated
-	 * from g_MpHeads[]. Same catalog-as-truth pattern as bodies and arenas.
+	 * Register ALL 76 g_MpHeads[] entries as ASSET_HEAD — including any not
+	 * covered by s_BaseHeads[].  s_BaseHeads[] serves as the human-readable
+	 * name lookup table; entries not found there get a "head_%d" fallback ID.
+	 * This ensures SP-only and unlockable heads are all in the catalog;
+	 * availability for MP selection is an unlock/gameplay decision, not a
+	 * registration decision.
 	 */
 	s32 head_count = 0;
-	for (s32 i = 0; i < (s32)NUM_BASE_HEADS; i++) {
-		const s32 idx = s_BaseHeads[i].index;
-		if (idx < 0 || idx >= 76) {
-			continue;
+	for (s32 mpidx = 0; mpidx < 76; mpidx++) {
+		/* Look up the human-readable name in s_BaseHeads[] */
+		const char *head_name = NULL;
+		for (s32 j = 0; j < (s32)NUM_BASE_HEADS; j++) {
+			if (s_BaseHeads[j].index == mpidx) {
+				head_name = s_BaseHeads[j].name;
+				break;
+			}
+		}
+		char fallback_name[32];
+		if (!head_name) {
+			snprintf(fallback_name, sizeof(fallback_name), "head_%d", mpidx);
+			head_name = fallback_name;
 		}
 
-		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseHeads[i].name);
+		snprintf(idbuf, sizeof(idbuf), "base:%s", head_name);
 
 		asset_entry_t *e = assetCatalogRegisterHead(
 			idbuf,
-			g_MpHeads[idx].headnum,
-			g_MpHeads[idx].requirefeature
+			g_MpHeads[mpidx].headnum,
+			g_MpHeads[mpidx].requirefeature
 		);
 		if (!e) {
 			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base head %s", idbuf);
@@ -508,16 +521,16 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = g_MpHeads[idx].headnum;  /* g_HeadsAndBodies[] index, not g_MpHeads[] index */
+		e->runtime_index = g_MpHeads[mpidx].headnum;  /* g_HeadsAndBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
 		/* C-2-ext: record the ROM filenum for this head model */
-		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
 		head_count++;
 	}
 
-	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads", head_count);
+	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads (all g_MpHeads[])", head_count);
 	count += head_count;
 
 	/* ---- Register arenas ---- */

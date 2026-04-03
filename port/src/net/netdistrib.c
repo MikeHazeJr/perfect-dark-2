@@ -15,7 +15,7 @@
  *
  * Transfer sequence:
  *   1. Server sends SVC_CATALOG_INFO (list of non-bundled enabled entries).
- *   2. Client diffs, sends CLC_CATALOG_DIFF with missing net_hashes.
+ *   2. Client diffs, sends CLC_CATALOG_DIFF with missing catalog ID strings (v27: no net_hash).
  *   3. Server queues each missing component for transfer.
  *   4. Per frame: server calls netDistribServerTick() which sends the next
  *      pending component (SVC_DISTRIB_BEGIN then all SVC_DISTRIB_CHUNK).
@@ -44,6 +44,7 @@
 #include "assetcatalog_scanner.h"
 #include "system.h"
 #include "fs.h"
+#include "config.h"
 
 /* ========================================================================
  * Constants
@@ -56,13 +57,18 @@
 /* Max pending transfers per server (one per client × max concurrent) */
 #define DISTRIB_MAX_QUEUE 64
 
+/* Default trust threshold in MB — transfers above this require user approval.
+ * No hard size ceiling exists; the only protection is this user approval prompt.
+ * Configurable via Net.DistribTrustThresholdMB in pd.ini (range 16–4096). */
+#define DISTRIB_TRUST_THRESHOLD_DEFAULT_MB  256
+
 /* ========================================================================
  * Server Transfer Queue
  * ======================================================================== */
 
 typedef struct distrib_queue_entry {
     struct netclient *cl;        /* destination client */
-    u32  net_hash;               /* component to send */
+    char catalog_id[64];         /* v27: component to send — catalog ID string */
     s32  active;
     s32  temporary;              /* client requested session-only */
 } distrib_queue_entry_t;
@@ -80,7 +86,7 @@ static s32 s_Initialized = 0;
 
 typedef struct distrib_recv_slot {
     s32  active;
-    u32  net_hash;
+    /* v27: identified by id[] string — net_hash removed from wire. */
     char id[64];
     char category[64];
     u16  total_chunks;
@@ -90,6 +96,10 @@ typedef struct distrib_recv_slot {
     u32  compressed_cap;
     u32  compressed_len;
     s32  temporary;
+    /* Trust threshold approval (set when archive_bytes > s_TrustThresholdMb*1MB) */
+    s32  needs_approval;
+    char mod_name[64];        /* display name for the approval prompt */
+    u32  archive_bytes_pending; /* size shown in the prompt */
 } distrib_recv_slot_t;
 
 static distrib_recv_slot_t s_RecvSlots[RECV_SLOTS];
@@ -103,6 +113,10 @@ static s32 s_KillFeedNext = 0;  /* circular write head */
 
 /* Pending diff decision (before user confirms) */
 static s32 s_PendingTemporary = 0;
+
+/* Configurable trust threshold (MB) — transfers above this need user approval.
+ * Bound to Net.DistribTrustThresholdMB in pd.ini. */
+static s32 s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
 
 /* ========================================================================
  * PDCA Archive Builder (server side)
@@ -284,11 +298,12 @@ static void distribSendPacketToPeer(ENetPeer *peer, const u8 *data, u32 len, s32
  * Server: Build and Stream Component to Client
  * ======================================================================== */
 
-static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temporary)
+static void streamComponentToClient(struct netclient *cl, const char *catalog_id, s32 temporary)
 {
-    const asset_entry_t *entry = assetCatalogResolveByNetHash(net_hash);
+    /* v27: resolve by catalog ID string — no net_hash. */
+    const asset_entry_t *entry = assetCatalogResolve(catalog_id);
     if (!entry) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: unknown net_hash 0x%08x requested", net_hash);
+        sysLogPrintf(LOG_WARNING, "DISTRIB: unknown catalog_id '%s' requested", catalog_id);
         return;
     }
 
@@ -308,7 +323,7 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
         if (raw) free(raw);
         /* Send END with failure */
         netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, net_hash, 0);
+        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
         netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
         return;
     }
@@ -317,7 +332,7 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
         sysLogPrintf(LOG_WARNING, "DISTRIB: '%s' exceeds 50MB limit (%u bytes) -- skipped", entry->id, raw_len);
         free(raw);
         netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, net_hash, 0);
+        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
         netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
         return;
     }
@@ -339,7 +354,7 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
         sysLogPrintf(LOG_ERROR, "DISTRIB: zlib compress failed (%d) for '%s'", zret, entry->id);
         free(compressed);
         netbufStartWrite(&g_NetMsgRel);
-        netmsgSvcDistribEndWrite(&g_NetMsgRel, net_hash, 0);
+        netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 0);
         netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
         return;
     }
@@ -358,20 +373,22 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
 
     /* SVC_DISTRIB_BEGIN */
     netbufStartWrite(&g_NetMsgRel);
-    netmsgSvcDistribBeginWrite(&g_NetMsgRel, net_hash, entry->id, entry->category,
+    netmsgSvcDistribBeginWrite(&g_NetMsgRel, entry->id, entry->category,
                                total_chunks, raw_len);
     netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 
-    /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER */
+    /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER.
+     * v27: packet format: msgid(1) + id_str(2+idlen) + chunk_idx(2) + compression(1)
+     *                   + data_len(2) + data(this_len).
+     * String format mirrors netbufWriteStr: u16 length (incl. null) + bytes. */
+    u16 id_wire_len = (u16)(strlen(entry->id) + 1);   /* include null terminator */
     for (u32 i = 0; i < total_chunks; i++) {
         u32 offset = i * chunk_size;
         u16 this_len = (u16)((offset + chunk_size <= compressed_len)
                              ? chunk_size
                              : compressed_len - offset);
 
-        /* Build chunk packet: msgid(1) + net_hash(4) + chunk_idx(2) + compression(1)
-         *                   + data_len(2) + data(this_len) */
-        u32 pkt_len = 1 + 4 + 2 + 1 + 2 + this_len;
+        u32 pkt_len = 1 + sizeof(u16) + id_wire_len + 2 + 1 + 2 + this_len;
         u8 *pkt = (u8 *)malloc(pkt_len);
         if (!pkt) {
             sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for chunk packet");
@@ -379,11 +396,12 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
         }
         u8 *p = pkt;
         *p++ = SVC_DISTRIB_CHUNK;
-        memcpy(p, &net_hash, 4);    p += 4;
+        memcpy(p, &id_wire_len, 2);             p += 2;
+        memcpy(p, entry->id, id_wire_len);      p += id_wire_len;
         u16 cidx = (u16)i;
-        memcpy(p, &cidx, 2);        p += 2;
+        memcpy(p, &cidx, 2);                    p += 2;
         *p++ = NET_DISTRIB_COMP_DEFLATE;
-        memcpy(p, &this_len, 2);    p += 2;
+        memcpy(p, &this_len, 2);                p += 2;
         memcpy(p, compressed + offset, this_len);
 
         distribSendPacketToPeer(cl->peer, pkt, pkt_len, NETCHAN_TRANSFER);
@@ -394,7 +412,7 @@ static void streamComponentToClient(struct netclient *cl, u32 net_hash, s32 temp
 
     /* SVC_DISTRIB_END */
     netbufStartWrite(&g_NetMsgRel);
-    netmsgSvcDistribEndWrite(&g_NetMsgRel, net_hash, 1);
+    netmsgSvcDistribEndWrite(&g_NetMsgRel, entry->id, 1);
     netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 }
 
@@ -412,6 +430,8 @@ void netDistribInit(void)
     s_QueueTail = 0;
     s_KillFeedNext = 0;
     s_PendingTemporary = 0;
+    s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
+    configRegisterInt("Net.DistribTrustThresholdMB", &s_TrustThresholdMb, 16, 4096);
     s_Initialized = 1;
 }
 
@@ -427,7 +447,7 @@ void netDistribServerSendCatalogInfo(struct netclient *cl)
 }
 
 void netDistribServerHandleDiff(struct netclient *cl,
-                                const u32 *missing_hashes,
+                                const char (*missing_ids)[64],
                                 u16 count,
                                 u8 temporary)
 {
@@ -445,7 +465,8 @@ void netDistribServerHandleDiff(struct netclient *cl,
         for (s32 j = 0; j < DISTRIB_MAX_QUEUE; j++) {
             if (!s_Queue[j].active) {
                 s_Queue[j].cl = cl;
-                s_Queue[j].net_hash = missing_hashes[i];
+                strncpy(s_Queue[j].catalog_id, missing_ids[i], sizeof(s_Queue[j].catalog_id) - 1);
+                s_Queue[j].catalog_id[sizeof(s_Queue[j].catalog_id) - 1] = '\0';
                 s_Queue[j].temporary = (s32)temporary;
                 s_Queue[j].active = 1;
                 found = 1;
@@ -453,7 +474,7 @@ void netDistribServerHandleDiff(struct netclient *cl,
             }
         }
         if (!found) {
-            sysLogPrintf(LOG_WARNING, "DISTRIB: transfer queue full, dropping hash 0x%08x", missing_hashes[i]);
+            sysLogPrintf(LOG_WARNING, "DISTRIB: transfer queue full, dropping '%s'", missing_ids[i]);
         }
     }
 }
@@ -467,7 +488,9 @@ void netDistribServerTick(void)
         if (!s_Queue[i].active) continue;
 
         struct netclient *cl = s_Queue[i].cl;
-        u32 net_hash = s_Queue[i].net_hash;
+        char catalog_id[64];
+        strncpy(catalog_id, s_Queue[i].catalog_id, sizeof(catalog_id) - 1);
+        catalog_id[sizeof(catalog_id) - 1] = '\0';
         s32 temporary = s_Queue[i].temporary;
 
         /* Check client is still connected */
@@ -482,7 +505,7 @@ void netDistribServerTick(void)
         s_Queue[i].active = 0;  /* consume immediately */
 
         if (valid) {
-            streamComponentToClient(cl, net_hash, temporary);
+            streamComponentToClient(cl, catalog_id, temporary);
         }
 
         break;  /* one transfer per tick */
@@ -583,23 +606,23 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
  * Client Public API
  * ======================================================================== */
 
-void netDistribClientHandleCatalogInfo(const u32 *hashes,
-                                       const char (*ids)[64],
+void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        const char (*categories)[64],
                                        u16 count)
 {
     if (!s_Initialized) return;
 
-    /* Compute diff: which hashes we don't have */
-    u32 missing[256];
+    /* v27: diff by catalog ID string — no net_hash lookup. */
+    char missing_ids[256][64];
     u16 missing_count = 0;
 
     for (u16 i = 0; i < count && missing_count < 256; i++) {
-        const asset_entry_t *e = assetCatalogResolveByNetHash(hashes[i]);
+        const asset_entry_t *e = assetCatalogResolve(ids[i]);
         if (!e) {
-            missing[missing_count++] = hashes[i];
-            sysLogPrintf(LOG_NOTE, "DISTRIB: missing component '%s' (0x%08x)",
-                         ids[i], hashes[i]);
+            strncpy(missing_ids[missing_count], ids[i], 63);
+            missing_ids[missing_count][63] = '\0';
+            missing_count++;
+            sysLogPrintf(LOG_NOTE, "DISTRIB: missing component '%s'", ids[i]);
         }
     }
 
@@ -624,12 +647,12 @@ void netDistribClientHandleCatalogInfo(const u32 *hashes,
 
     /* Send CLC_CATALOG_DIFF */
     netbufStartWrite(&g_NetMsgRel);
-    netmsgClcCatalogDiffWrite(&g_NetMsgRel, missing, missing_count, (u8)s_PendingTemporary);
+    netmsgClcCatalogDiffWrite(&g_NetMsgRel, (const char (*)[64])missing_ids,
+                              missing_count, (u8)s_PendingTemporary);
     netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 }
 
-void netDistribClientHandleBegin(u32 net_hash, const char *id,
-                                  const char *category,
+void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
                                   s32 temporary)
 {
@@ -645,7 +668,7 @@ void netDistribClientHandleBegin(u32 net_hash, const char *id,
     }
 
     if (!slot) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: no free recv slot for '%s'", id);
+        sysLogPrintf(LOG_ERROR, "DISTRIB: no free recv slot for '%s'", catalog_id);
         return;
     }
 
@@ -659,7 +682,7 @@ void netDistribClientHandleBegin(u32 net_hash, const char *id,
 
     memset(slot, 0, sizeof(*slot));
     slot->active = 1;
-    slot->net_hash = net_hash;
+    /* v27: identified by id[] string — no net_hash. */
     slot->temporary = temporary;
     slot->total_chunks = (u16)total_chunks;
     slot->chunks_received = 0;
@@ -667,36 +690,50 @@ void netDistribClientHandleBegin(u32 net_hash, const char *id,
     slot->compressed_buf = buf;
     slot->compressed_cap = initial_cap;
     slot->compressed_len = 0;
-    strncpy(slot->id, id, sizeof(slot->id) - 1);
+    strncpy(slot->id, catalog_id, sizeof(slot->id) - 1);
     strncpy(slot->category, category, sizeof(slot->category) - 1);
+
+    /* Trust threshold check: if size exceeds threshold, set approval flag instead
+     * of proceeding silently. The transfer is still staged so chunks can be buffered
+     * after the user approves — the UI should call netDistribApproveTransfer(). */
+    u32 threshold_bytes = (u32)s_TrustThresholdMb * 1024u * 1024u;
+    if (archive_bytes > threshold_bytes) {
+        slot->needs_approval = 1;
+        strncpy(slot->mod_name, catalog_id, sizeof(slot->mod_name) - 1);
+        slot->archive_bytes_pending = archive_bytes;
+        sysLogPrintf(LOG_WARNING, "DISTRIB: '%s' (%u bytes) exceeds trust threshold (%u MB) — awaiting user approval",
+                     catalog_id, archive_bytes, (u32)s_TrustThresholdMb);
+        /* Don't update the "receiving" UI state yet — wait for approval. */
+        return;
+    }
 
     /* Update UI */
     s_ClientStatus.state = DISTRIB_CSTATE_RECEIVING;
-    strncpy(s_ClientStatus.current_id, id, sizeof(s_ClientStatus.current_id) - 1);
+    strncpy(s_ClientStatus.current_id, catalog_id, sizeof(s_ClientStatus.current_id) - 1);
     s_ClientStatus.current_bytes_total = archive_bytes;
     s_ClientStatus.current_bytes_received = 0;
     s_ClientStatus.temporary = temporary;
 
-    sysLogPrintf(LOG_NOTE, "DISTRIB: recv begin '%s' (%u chunks, %u bytes)", id, total_chunks, archive_bytes);
+    sysLogPrintf(LOG_NOTE, "DISTRIB: recv begin '%s' (%u chunks, %u bytes)", catalog_id, total_chunks, archive_bytes);
 }
 
-void netDistribClientHandleChunk(u32 net_hash, u16 chunk_idx,
+void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
                                   u8 compression,
                                   const u8 *data, u16 data_len)
 {
     if (!s_Initialized) return;
 
-    /* Find slot */
+    /* v27: find slot by catalog ID string. */
     distrib_recv_slot_t *slot = NULL;
     for (s32 i = 0; i < RECV_SLOTS; i++) {
-        if (s_RecvSlots[i].active && s_RecvSlots[i].net_hash == net_hash) {
+        if (s_RecvSlots[i].active && strncmp(s_RecvSlots[i].id, catalog_id, sizeof(s_RecvSlots[i].id)) == 0) {
             slot = &s_RecvSlots[i];
             break;
         }
     }
 
     if (!slot) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: chunk for unknown hash 0x%08x (idx %u)", net_hash, chunk_idx);
+        sysLogPrintf(LOG_WARNING, "DISTRIB: chunk for unknown catalog_id '%s' (idx %u)", catalog_id, chunk_idx);
         return;
     }
 
@@ -723,21 +760,21 @@ void netDistribClientHandleChunk(u32 net_hash, u16 chunk_idx,
     (void)chunk_idx;
 }
 
-void netDistribClientHandleEnd(u32 net_hash, u8 success)
+void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 {
     if (!s_Initialized) return;
 
-    /* Find slot */
+    /* v27: find slot by catalog ID string. */
     distrib_recv_slot_t *slot = NULL;
     for (s32 i = 0; i < RECV_SLOTS; i++) {
-        if (s_RecvSlots[i].active && s_RecvSlots[i].net_hash == net_hash) {
+        if (s_RecvSlots[i].active && strncmp(s_RecvSlots[i].id, catalog_id, sizeof(s_RecvSlots[i].id)) == 0) {
             slot = &s_RecvSlots[i];
             break;
         }
     }
 
     if (!slot) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: END for unknown hash 0x%08x", net_hash);
+        sysLogPrintf(LOG_WARNING, "DISTRIB: END for unknown catalog_id '%s'", catalog_id);
         return;
     }
 
@@ -752,6 +789,10 @@ void netDistribClientHandleEnd(u32 net_hash, u8 success)
     }
 
     /* Decompress */
+    if (slot->archive_bytes == 0) {
+        sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes is zero — rejecting '%s'", slot->id);
+        goto done;
+    }
     uLongf raw_len = (uLongf)(slot->archive_bytes + 1024); /* a bit of headroom */
     if (raw_len < 65536) raw_len = 65536;
     u8 *raw = (u8 *)malloc(raw_len);
@@ -880,6 +921,55 @@ s32 netDistribClientGetKillFeed(killfeed_entry_t *out, s32 maxout)
 void netDistribClientSetTemporary(s32 temporary)
 {
     s_PendingTemporary = temporary;
+}
+
+/* ========================================================================
+ * Transfer Approval API
+ * ======================================================================== */
+
+s32 netDistribGetPendingApproval(char *name_out, u32 *size_out)
+{
+    for (s32 i = 0; i < RECV_SLOTS; i++) {
+        distrib_recv_slot_t *slot = &s_RecvSlots[i];
+        if (slot->active && slot->needs_approval) {
+            if (name_out) strncpy(name_out, slot->mod_name, 64);
+            if (size_out) *size_out = slot->archive_bytes_pending;
+            return i;  /* slot index, acts as approval handle */
+        }
+    }
+    return -1;
+}
+
+void netDistribApproveTransfer(s32 slot_idx)
+{
+    if (slot_idx < 0 || slot_idx >= RECV_SLOTS) return;
+    distrib_recv_slot_t *slot = &s_RecvSlots[slot_idx];
+    if (!slot->active || !slot->needs_approval) return;
+
+    slot->needs_approval = 0;
+
+    /* Now activate the UI receiving state that was deferred. */
+    s_ClientStatus.state = DISTRIB_CSTATE_RECEIVING;
+    strncpy(s_ClientStatus.current_id, slot->id, sizeof(s_ClientStatus.current_id) - 1);
+    s_ClientStatus.current_bytes_total = slot->archive_bytes;
+    s_ClientStatus.current_bytes_received = slot->compressed_len;
+    s_ClientStatus.temporary = slot->temporary;
+
+    sysLogPrintf(LOG_NOTE, "DISTRIB: user approved transfer of '%s' (%u bytes)",
+                 slot->id, slot->archive_bytes);
+}
+
+void netDistribDeclineTransfer(s32 slot_idx)
+{
+    if (slot_idx < 0 || slot_idx >= RECV_SLOTS) return;
+    distrib_recv_slot_t *slot = &s_RecvSlots[slot_idx];
+    if (!slot->active || !slot->needs_approval) return;
+
+    sysLogPrintf(LOG_NOTE, "DISTRIB: user declined transfer of '%s' (%u bytes)",
+                 slot->id, slot->archive_bytes);
+
+    free(slot->compressed_buf);
+    memset(slot, 0, sizeof(*slot));
 }
 
 /* ========================================================================

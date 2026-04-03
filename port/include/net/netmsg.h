@@ -51,7 +51,7 @@
 #define SVC_SESSION_CATALOG 0x67 // server→room: session ID mapping table
 
 /* D3R-9: Network Distribution (protocol v20) */
-#define SVC_CATALOG_INFO    0x70 // server→client: list of required component (net_hash, id, category)
+#define SVC_CATALOG_INFO    0x70 // server→client: list of required component (id, category) — v27: no net_hash
 #define SVC_DISTRIB_BEGIN   0x71 // server→client: start of a component archive transfer
 #define SVC_DISTRIB_CHUNK   0x72 // server→client: one compressed chunk of the component archive
 #define SVC_DISTRIB_END     0x73 // server→client: component transfer complete (success/fail)
@@ -68,7 +68,7 @@
 #define CLC_LOBBY_START 0x08 // lobby leader requests match start {gamemode, stagenum, difficulty}
 
 /* D3R-9: Network Distribution (protocol v20) */
-#define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component net_hashes
+#define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component catalog ID strings
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -167,18 +167,20 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst);
 u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl);
 
-/* CLC_CATALOG_DIFF: client→server, which components the client is missing */
-u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes, u16 count, u8 temporary);
+/* CLC_CATALOG_DIFF: client→server, which components the client is missing.
+ * v27: catalog ID strings replace u32 net_hash values. */
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const char (*missing_ids)[CATALOG_ID_LEN], u16 count, u8 temporary);
 u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl);
 
-/* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream */
-u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+/* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream.
+ * v27: catalog ID string replaces u32 net_hash as component identity on the wire. */
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
                                 const char *category, u32 total_chunks, u32 archive_bytes);
 u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, const char *catalog_id, u16 chunk_idx,
                                 u8 compression, const u8 *data, u16 data_len);
 u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success);
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, const char *catalog_id, u8 success);
 u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl);
 
 /* SVC_LOBBY_KILL_FEED: server→spectating clients, pre-resolved kill event */
@@ -192,9 +194,10 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest);
 u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl);
 
-/* CLC_MANIFEST_STATUS: client→server, catalog check result */
+/* CLC_MANIFEST_STATUS: client→server, catalog check result.
+ * v27: missing list uses catalog ID strings, not net_hash u32 values. */
 u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
-                                  const u32 *missing_hashes, u8 num_missing);
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing);
 u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl);
 
 /* SVC_MATCH_COUNTDOWN: server→room, ready-gate progress broadcast */

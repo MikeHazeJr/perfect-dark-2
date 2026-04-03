@@ -4081,7 +4081,11 @@ struct mpsetup {
 	/*0x800acb88*/ char name[MPSETUP_MAXNAME+1];
 	/*0x800acb94*/ u32 options;
 	/*0x800acb98*/ u8 scenario;
-	/*0x800acb99*/ u8 stagenum;
+	/* PRIMARY: catalog ID string (e.g. "base:mp_complex", "base:mp_skedar").
+	 * stagenum is DERIVED — resolved from stage_id at the point of stage load.
+	 * PC-only field; no N64 offset applies. */
+	char stage_id[64];             /* PRIMARY: catalog stage identity */
+	/*0x800acb99*/ u8 stagenum;   /* DERIVED from stage_id — set by mpStartMatch */
 	/*0x800acb9a*/ u8 timelimit;
 	/*0x800acb9b*/ u8 scorelimit;
 	/*0x800acb9c*/ u16 teamscorelimit;

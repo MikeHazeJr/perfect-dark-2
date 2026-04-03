@@ -300,27 +300,19 @@ s32 scenarioSave(const char *name)
         if (!first) fprintf(fp, ",\n");
         first = 0;
 
-        /* SA-4: include catalog string IDs alongside legacy integer fields.
-         * FIX-16: bounds check against the actual g_HeadsAndBodies[] array size (152),
-         * not catalogGetNumBodies()/catalogGetNumHeads() which returns the count of
-         * registered ASSET_BODY/HEAD catalog entries and may be smaller than 152.
-         * An SP-only head at index 103 is within g_HeadsAndBodies[] bounds even if
-         * fewer than 104 bodies are registered. */
+        /* Catalog-ID-native: body_id/head_id are the PRIMARY identity on the
+         * matchslot — use them directly.  The legacy "body"/"head" integer fields
+         * are kept for backward-compatible reading of old saves written before
+         * catalog IDs were primary; new writes always have the string fields. */
         {
-            const char *body_id = ((s32)sl->bodynum < 152)
-                ? catalogResolveByRuntimeIndex(ASSET_BODY, (s32)sl->bodynum) : NULL;
-            const char *head_id = ((s32)sl->headnum < 152)
-                ? catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)sl->headnum) : NULL;
             fprintf(fp, "    {\"name\": \"");
             jsonEscapeStr(fp, sl->name);
-            fprintf(fp, "\", \"difficulty\": %u, \"body\": %u, \"head\": %u"
+            fprintf(fp, "\", \"difficulty\": %u"
                         ", \"bodyId\": \"",
-                    (unsigned)sl->botDifficulty,
-                    (unsigned)sl->bodynum,
-                    (unsigned)sl->headnum);
-            jsonEscapeStr(fp, body_id ? body_id : "");
+                    (unsigned)sl->botDifficulty);
+            jsonEscapeStr(fp, sl->body_id[0] ? sl->body_id : "");
             fprintf(fp, "\", \"headId\": \"");
-            jsonEscapeStr(fp, head_id ? head_id : "");
+            jsonEscapeStr(fp, sl->head_id[0] ? sl->head_id : "");
             fprintf(fp, "\"}");
         }
     }
@@ -508,25 +500,28 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 /* Clamp legacy integer values to safe ranges */
                 if (difficulty < 0) difficulty = 0;
                 if (difficulty > 5) difficulty = 5;
-                if (body < 0)       body = 0;
-                if (head < 0)       head = 0;
 
-                /* SA-4: resolve string IDs to runtime indices; fall back to integers */
-                if (body_id[0]) {
-                    const asset_entry_t *e = assetCatalogResolve(body_id);
-                    if (e && e->type == ASSET_BODY)
-                        body = e->runtime_index;
+                /* Catalog-ID-native: prefer string IDs as the primary identity.
+                 * Fall back to legacy integer → catalog lookup for old saves. */
+                if (!body_id[0] && body >= 0 && body < 152) {
+                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, body);
+                    if (bid) {
+                        strncpy(body_id, bid, sizeof(body_id) - 1);
+                        body_id[sizeof(body_id) - 1] = '\0';
+                    }
                 }
-                if (head_id[0]) {
-                    const asset_entry_t *e = assetCatalogResolve(head_id);
-                    if (e && e->type == ASSET_HEAD)
-                        head = e->runtime_index;
+                if (!head_id[0] && head >= 0 && head < 152) {
+                    const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, head);
+                    if (hid) {
+                        strncpy(head_id, hid, sizeof(head_id) - 1);
+                        head_id[sizeof(head_id) - 1] = '\0';
+                    }
                 }
 
                 matchConfigAddBot(0 /* BOTTYPE_NORMAL */,
                                   (u8)difficulty,
-                                  (u8)head,
-                                  (u8)body,
+                                  body_id[0] ? body_id : NULL,
+                                  head_id[0] ? head_id : NULL,
                                   botName[0] ? botName : NULL);
                 botCount++;
                 p = objEnd + 1;

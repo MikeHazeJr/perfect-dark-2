@@ -92,9 +92,10 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
  * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYERS 8
 
-/* Bridge: send CLC_LOBBY_START */
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
-s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
+/* Bridge: send CLC_LOBBY_START.
+ * stage_id: catalog ID string ("base:mp_complex", "base:defection", etc.) */
+s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty);
+s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty,
                                   u8 numSims, u8 simType, u8 timelimit, u32 options,
                                   u8 scenario, u8 scorelimit, u16 teamscorelimit,
                                   u8 weaponSetIndex);
@@ -173,7 +174,10 @@ extern const char *arenaGetName(u16 textId);
  * Replaces the old hardcoded table: catalog is the single source of truth.
  * ======================================================================== */
 
-struct arena_entry { char name[64]; s32 stagenum; };
+/* Catalog resolution — used to convert co-op mission stagenums to catalog IDs. */
+const char *catalogResolveStageByStagenum(s32 stagenum);
+
+struct arena_entry { char name[64]; char id[64]; s32 stagenum; };
 
 static arena_entry s_Arenas[256];
 static int s_NumArenas = 0;
@@ -194,9 +198,12 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 
     strncpy(s_Arenas[s_NumArenas].name, name, 63);
     s_Arenas[s_NumArenas].name[63] = '\0';
+    strncpy(s_Arenas[s_NumArenas].id, e->id, 63);
+    s_Arenas[s_NumArenas].id[63] = '\0';
     s_Arenas[s_NumArenas].stagenum = e->ext.arena.stagenum;
-    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" stagenum=0x%02x registered",
-        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].stagenum);
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" id='%s' stagenum=0x%02x registered",
+        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].id,
+        s_Arenas[s_NumArenas].stagenum);
     s_NumArenas++;
 }
 
@@ -889,22 +896,27 @@ static void syncSpawnWeaponFromConfig(void)
 }
 
 /* ========================================================================
- * Helper: ensure arena index is consistent with g_MatchConfig.stagenum
+ * Helper: ensure arena index is consistent with g_MatchConfig.stage_id
  * ======================================================================== */
 
 static void syncArenaFromConfig(void)
 {
     if (s_NumArenas == 0) return;
 
-    for (int i = 0; i < s_NumArenas; i++) {
-        if (s_Arenas[i].stagenum == (s32)g_MatchConfig.stagenum) {
-            s_SelectedArena = i;
-            return;
+    /* Match by catalog ID (PRIMARY). */
+    if (g_MatchConfig.stage_id[0]) {
+        for (int i = 0; i < s_NumArenas; i++) {
+            if (strcmp(s_Arenas[i].id, g_MatchConfig.stage_id) == 0) {
+                s_SelectedArena = i;
+                return;
+            }
         }
     }
-    /* stagenum not in arena list — clamp picker and write it back */
+    /* stage_id not in list — clamp and write back the selected arena's id. */
     if (s_SelectedArena >= s_NumArenas) s_SelectedArena = 0;
-    g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
+    strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
+            sizeof(g_MatchConfig.stage_id) - 1);
+    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
 }
 
 /* ========================================================================
@@ -1140,17 +1152,19 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                   && (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
     if (!canAdd) ImGui::BeginDisabled();
     if (ImGui::Button("Add Bot", ImVec2(-1.0f, btnH))) {
-        /* If a bot is currently selected, copy its settings to the new bot */
-        u8   headnum = 0, bodynum = 0, diff = 2 /* NormalSim */;
+        /* If a bot is currently selected, copy its catalog IDs to the new bot */
+        const char *copy_body_id = nullptr;
+        const char *copy_head_id = nullptr;
+        u8 diff = 2 /* NormalSim */;
         if (s_SelectedBotSlot >= 1
             && s_SelectedBotSlot < g_MatchConfig.numSlots
             && g_MatchConfig.slots[s_SelectedBotSlot].type == SLOT_BOT) {
             struct matchslot *src = &g_MatchConfig.slots[s_SelectedBotSlot];
-            headnum = src->headnum;
-            bodynum = src->bodynum;
+            copy_body_id = src->body_id[0] ? src->body_id : nullptr;
+            copy_head_id = src->head_id[0] ? src->head_id : nullptr;
             diff    = src->botDifficulty;
         }
-        matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, diff, headnum, bodynum, nullptr);
+        matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, diff, copy_body_id, copy_head_id, nullptr);
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
     if (!canAdd) ImGui::EndDisabled();
@@ -1198,9 +1212,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             bool sel = (ai == s_SelectedArena);
             if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
                 s_SelectedArena = ai;
-                g_MatchConfig.stagenum = (u8)s_Arenas[ai].stagenum;
-                sysLogPrintf(LOG_NOTE, "CATALOG: arena selected \"%s\" stagenum=0x%02x",
-                    s_Arenas[ai].name, s_Arenas[ai].stagenum);
+                strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
+                        sizeof(g_MatchConfig.stage_id) - 1);
+                g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
+                    s_Arenas[ai].name, s_Arenas[ai].id);
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();
@@ -1722,15 +1738,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 case 0: {
                     /* Combat Simulator */
                     if (s_NumArenas == 0) break;
-                    /* Sync the arena picker selection back into g_MatchConfig
-                     * so matchStart() reads the correct stagenum. */
-                    g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
+                    /* Write stage_id (PRIMARY) into g_MatchConfig so matchStart()
+                     * can resolve stagenum from the catalog. */
+                    strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
+                            sizeof(g_MatchConfig.stage_id) - 1);
+                    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
                     sysLogPrintf(LOG_NOTE,
-                        "CATALOG: stage load initiated from arena picker: \"%s\" stagenum=0x%02x",
+                        "ROOM: stage selected: \"%s\" id='%s' stagenum=0x%02x",
                         s_Arenas[s_SelectedArena].name,
+                        s_Arenas[s_SelectedArena].id,
                         (int)s_Arenas[s_SelectedArena].stagenum);
                     if (s_IsSoloMode) {
-                        /* Solo play: configure g_MpSetup directly and start. */
+                        /* Solo play: matchStart() resolves stage_id → stagenum. */
                         pdguiSoloRoomClose();
                         s_MatchConfigInited = false;
                         matchStart();
@@ -1739,7 +1758,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         u8 simType  = getLeadSimType();
                         netLobbyRequestStartWithSims(
                             GAMEMODE_MP,
-                            (u8)s_Arenas[s_SelectedArena].stagenum,
+                            s_Arenas[s_SelectedArena].id,
                             0,
                             (u8)numBots,
                             simType,
@@ -1752,20 +1771,32 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                     }
                     break;
                 }
-                case 1:
-                    /* Campaign */
-                    netLobbyRequestStart(
-                        GAMEMODE_COOP,
-                        s_Missions[s_CampaignMission].stagenum,
-                        (u8)s_CampaignDiff);
+                case 1: {
+                    /* Campaign — resolve mission stagenum to catalog ID at callsite. */
+                    const char *coop_id = catalogResolveStageByStagenum(
+                        (s32)s_Missions[s_CampaignMission].stagenum);
+                    if (!coop_id) {
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM: no catalog entry for coop stagenum=0x%02x",
+                            (unsigned)s_Missions[s_CampaignMission].stagenum);
+                        break;
+                    }
+                    netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);
                     break;
-                case 2:
-                    /* Counter-Operative */
-                    netLobbyRequestStart(
-                        GAMEMODE_ANTI,
-                        s_Missions[s_CounterOpMission].stagenum,
-                        (u8)s_CounterOpDiff);
+                }
+                case 2: {
+                    /* Counter-Operative — same pattern. */
+                    const char *anti_id = catalogResolveStageByStagenum(
+                        (s32)s_Missions[s_CounterOpMission].stagenum);
+                    if (!anti_id) {
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM: no catalog entry for anti stagenum=0x%02x",
+                            (unsigned)s_Missions[s_CounterOpMission].stagenum);
+                        break;
+                    }
+                    netLobbyRequestStart(GAMEMODE_ANTI, anti_id, (u8)s_CounterOpDiff);
                     break;
+                }
             }
         }
 
@@ -1845,22 +1876,39 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
             /* Character */
             u32 numBodies = mpGetNumBodies();
-            const char *curBody = (sl->bodynum < (u8)numBodies)
-                                   ? mpGetBodyName(sl->bodynum) : "?";
+            /* Resolve current display name from catalog ID (PRIMARY). */
+            const char *curBody = "?";
+            if (sl->body_id[0]) {
+                for (u32 b2 = 0; b2 < numBodies; b2++) {
+                    const char *bid2 = catalogResolveBodyByMpIndex((s32)b2);
+                    if (bid2 && strcmp(bid2, sl->body_id) == 0) {
+                        char *n = mpGetBodyName((u8)b2);
+                        if (n && n[0]) curBody = n;
+                        break;
+                    }
+                }
+            }
             ImGui::Text("Character:");
             ImGui::SameLine(labelCol);
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##botmodalchar",
-                                   curBody ? curBody : "?")) {
+            if (ImGui::BeginCombo("##botmodalchar", curBody)) {
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
                     if (!bodyName || !bodyName[0]) continue;
-                    bool sel = (b == (u32)sl->bodynum);
+                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
                     char bLabel[64];
                     snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
                     if (ImGui::Selectable(bLabel, sel)) {
-                        sl->bodynum = (u8)b;
-                        sl->headnum = (u8)b;
+                        if (bid) {
+                            strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
+                            sl->body_id[sizeof(sl->body_id) - 1] = '\0';
+                        }
+                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        if (hid) {
+                            strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
+                            sl->head_id[sizeof(sl->head_id) - 1] = '\0';
+                        }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
                     if (sel) ImGui::SetItemDefaultFocus();

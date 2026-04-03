@@ -27,6 +27,7 @@
 #include "game/mainmenu.h"
 #include "game/menu.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -608,7 +609,28 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
  * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
  * ======================================================================== */
 
-s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
+/* Resolve a catalog stage_id to a stagenum for legacy wire encoding.
+ * Accepts both ASSET_ARENA (MP arenas) and ASSET_MAP (co-op/counter-op maps).
+ * Returns the stagenum on success, -1 if the catalog entry cannot be found. */
+static s32 s_resolveStageIdToStagenum(const char *stage_id)
+{
+    if (!stage_id || !stage_id[0]) {
+        sysLogPrintf(LOG_ERROR, "BRIDGE: null/empty stage_id");
+        return -1;
+    }
+    const asset_entry_t *ae = assetCatalogResolve(stage_id);
+    if (!ae) {
+        sysLogPrintf(LOG_ERROR, "BRIDGE: stage_id '%s' not found in catalog", stage_id);
+        return -1;
+    }
+    if (ae->type == ASSET_ARENA) return ae->ext.arena.stagenum;
+    if (ae->type == ASSET_MAP)   return ae->ext.map.stagenum;
+    sysLogPrintf(LOG_ERROR, "BRIDGE: stage_id '%s' is not ASSET_ARENA or ASSET_MAP (type=%d)",
+                 stage_id, (int)ae->type);
+    return -1;
+}
+
+s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -617,23 +639,30 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 num
         return -2;
     }
 
+    /* Resolve catalog ID → stagenum for wire encoding (temporary — will be
+     * replaced by full catalog ID string wire format in the next protocol bump). */
+    const s32 stagenum = s_resolveStageIdToStagenum(stage_id);
+    if (stagenum < 0) {
+        return -3;
+    }
+
     /* Write to a fresh out-buffer then send immediately.
      * g_NetLocalClient->out is the per-client reliable send buffer; calling
      * netSend(cl, NULL, reliable, chan) flushes it via enet_peer_send to the
      * server.  Without the explicit netSend the packet sits unsent — the
      * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
     netbufStartWrite(&g_NetLocalClient->out);
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
     netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
-                 gamemode, stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+                 gamemode, stage_id, (unsigned)stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
     return 0;
 }
 
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 {
     /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
-    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+    return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
 }
 
 /* ========================================================================

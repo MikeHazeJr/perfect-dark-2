@@ -115,18 +115,19 @@ void netDistribInit(void);
 
 /**
  * Send SVC_CATALOG_INFO to a newly lobbied client.
- * Lists all enabled, non-bundled catalog entries with their net_hash + id + category.
- * Call when a client transitions to CLSTATE_LOBBY.
+ * Lists all enabled, non-bundled catalog entries with their id + category.
+ * v27: no net_hash on wire. Call when a client transitions to CLSTATE_LOBBY.
  */
 void netDistribServerSendCatalogInfo(struct netclient *cl);
 
 /**
  * Server received CLC_CATALOG_DIFF from a client.
  * Queues transfer of all missing components to that client.
- * Called by netmsgClcCatalogDiffRead().
+ * v27: missing_ids are catalog ID strings, not u32 net_hash values.
+ * Called by netmsgClcCatalogDiffRead() and netmsgClcManifestStatusRead().
  */
 void netDistribServerHandleDiff(struct netclient *cl,
-                                const u32 *missing_hashes,
+                                const char (*missing_ids)[64],
                                 u16 count,
                                 u8 temporary);
 
@@ -158,38 +159,40 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
  * Client received SVC_CATALOG_INFO from server.
  * Computes diff (which components are missing locally), updates UI state,
  * and sends CLC_CATALOG_DIFF. If nothing is missing, sends empty diff.
+ * v27: resolved by catalog ID string only — no net_hash.
  * Called by netmsgSvcCatalogInfoRead().
  */
-void netDistribClientHandleCatalogInfo(const u32 *hashes,
-                                       const char (*ids)[64],
+void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        const char (*categories)[64],
                                        u16 count);
 
 /**
  * Client received SVC_DISTRIB_BEGIN from server.
  * Allocates receive buffer for the component.
+ * v27: identified by catalog ID string, not net_hash.
  * Called by netmsgSvcDistribBeginRead().
  */
-void netDistribClientHandleBegin(u32 net_hash, const char *id,
-                                  const char *category,
+void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
                                   s32 temporary);
 
 /**
  * Client received SVC_DISTRIB_CHUNK.
  * Accumulates compressed data in receive buffer.
+ * v27: identified by catalog ID string, not net_hash.
  * Called by netmsgSvcDistribChunkRead().
  */
-void netDistribClientHandleChunk(u32 net_hash, u16 chunk_idx,
+void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
                                   u8 compression,
                                   const u8 *data, u16 data_len);
 
 /**
  * Client received SVC_DISTRIB_END.
  * Decompresses accumulated archive, extracts files, hot-registers in catalog.
+ * v27: identified by catalog ID string, not net_hash.
  * Called by netmsgSvcDistribEndRead().
  */
-void netDistribClientHandleEnd(u32 net_hash, u8 success);
+void netDistribClientHandleEnd(const char *catalog_id, u8 success);
 
 /**
  * Client received SVC_LOBBY_KILL_FEED.
@@ -217,6 +220,27 @@ s32 netDistribClientGetKillFeed(killfeed_entry_t *out, s32 maxout);
  * is dismissed). The default is permanent.
  */
 void netDistribClientSetTemporary(s32 temporary);
+
+/**
+ * Query whether any pending transfer is awaiting user approval (size exceeded
+ * Net.DistribTrustThresholdMB). Returns the slot index (>= 0) if one is
+ * pending, or -1 if no approval is needed. Fills name_out (up to 64 bytes)
+ * and size_out with the mod name and byte count for the prompt.
+ */
+s32 netDistribGetPendingApproval(char *name_out, u32 *size_out);
+
+/**
+ * Approve the pending large-mod transfer identified by slot_idx (from
+ * netDistribGetPendingApproval). Clears the approval flag and activates the
+ * receiving state; buffered chunks will continue to accumulate normally.
+ */
+void netDistribApproveTransfer(s32 slot_idx);
+
+/**
+ * Decline the pending large-mod transfer identified by slot_idx. Frees the
+ * recv slot so the server's chunks will be silently dropped.
+ */
+void netDistribDeclineTransfer(s32 slot_idx);
 
 /* ========================================================================
  * Crash Recovery API

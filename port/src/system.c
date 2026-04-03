@@ -70,11 +70,13 @@ static u32 s_LogChannelMask = LOG_CH_ALL;
 static s32 s_LogVerbose = 0;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
-	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match"
+	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match",
+	"Catalog", "Distrib", "Render"
 };
 const u32 sysLogChannelBits[LOG_CH_COUNT] = {
 	LOG_CH_NETWORK, LOG_CH_GAME, LOG_CH_COMBAT, LOG_CH_AUDIO,
-	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM, LOG_CH_MATCH
+	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM, LOG_CH_MATCH,
+	LOG_CH_CATALOG, LOG_CH_DISTRIB, LOG_CH_RENDER
 };
 
 u32 sysLogGetChannelMask(void) { return s_LogChannelMask; }
@@ -126,15 +128,18 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "MATCHSETUP:", 11) == 0) return LOG_CH_NETWORK;
 
 	/* Game */
-	if (strncmp(msg, "STAGE:",  6) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "INTRO:",  6) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "CATALOG:",8) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "LOAD:",   5) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "PLAYER:", 7) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "STAGE:",   6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "INTRO:",   6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "LOAD:",    5) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "PLAYER:",  7) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "SIMULANT:",9) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "SETUP:",  6) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "JUMP:",   5) == 0) return LOG_CH_GAME;
-	if (strncmp(msg, "MATCH:",  6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "SETUP:",   6) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "JUMP:",    5) == 0) return LOG_CH_GAME;
+
+	/* Match */
+	if (strncmp(msg, "MATCH:",    6) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "CHRSLOTS:",  9) == 0) return LOG_CH_MATCH;
+	if (strncmp(msg, "BOT_ALLOC:",10) == 0) return LOG_CH_MATCH;
 
 	/* Combat */
 	if (strncmp(msg, "COMBAT:", 7) == 0) return LOG_CH_COMBAT;
@@ -164,6 +169,21 @@ static u32 sysLogClassifyMessage(const char *msg)
 	/* Mods */
 	if (strncmp(msg, "MOD:",    4) == 0) return LOG_CH_MOD;
 	if (strncmp(msg, "MODMGR:", 7) == 0) return LOG_CH_MOD;
+	if (strncmp(msg, "MODLOAD:",8) == 0) return LOG_CH_MOD;
+
+	/* Catalog / asset pipeline */
+	if (strncmp(msg, "CATALOG:",  8) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "MANIFEST:", 9) == 0) return LOG_CH_CATALOG;
+	if (strncmp(msg, "ASSET:",    6) == 0) return LOG_CH_CATALOG;
+
+	/* Distrib */
+	if (strncmp(msg, "DISTRIB:", 8) == 0) return LOG_CH_DISTRIB;
+
+	/* Render */
+	if (strncmp(msg, "RENDER:",  7) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "GFX:",     4) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "TEXTURE:", 8) == 0) return LOG_CH_RENDER;
+	if (strncmp(msg, "FAST3D:",  7) == 0) return LOG_CH_RENDER;
 
 	/* System */
 	if (strncmp(msg, "SYS:",     4) == 0) return LOG_CH_SYSTEM;
@@ -320,21 +340,34 @@ s32 sysLogIsOpen(void)
 	return (logPath[0] != '\0');
 }
 
-/* Ring buffer for on-screen log display (dedicated server overlay) */
-#define SYSLOG_RING_LINES 256
-#define SYSLOG_RING_LINELEN 256
-static char s_LogRing[SYSLOG_RING_LINES][SYSLOG_RING_LINELEN];
+/* Structured ring buffer for on-screen log display and log viewer */
+#define SYSLOG_RING_SIZE 2048
+static LogEntry s_LogRing[SYSLOG_RING_SIZE];
 static s32 s_LogRingHead = 0;
 static s32 s_LogRingCount = 0;
+static u32 s_LogSequence = 0;
 
-s32 sysLogRingGetCount(void) { return s_LogRingCount < SYSLOG_RING_LINES ? s_LogRingCount : SYSLOG_RING_LINES; }
+s32 sysLogRingGetCount(void) { return s_LogRingCount < SYSLOG_RING_SIZE ? s_LogRingCount : SYSLOG_RING_SIZE; }
+
 const char *sysLogRingGetLine(s32 idx)
 {
 	s32 total = sysLogRingGetCount();
 	if (idx < 0 || idx >= total) return "";
-	s32 start = (s_LogRingHead - total + SYSLOG_RING_LINES) % SYSLOG_RING_LINES;
-	return s_LogRing[(start + idx) % SYSLOG_RING_LINES];
+	s32 start = (s_LogRingHead - total + SYSLOG_RING_SIZE) % SYSLOG_RING_SIZE;
+	return s_LogRing[(start + idx) % SYSLOG_RING_SIZE].text;
 }
+
+s32 sysLogEntryGetCount(void) { return sysLogRingGetCount(); }
+
+const LogEntry *sysLogEntryGet(s32 idx)
+{
+	s32 total = sysLogRingGetCount();
+	if (idx < 0 || idx >= total) return NULL;
+	s32 start = (s_LogRingHead - total + SYSLOG_RING_SIZE) % SYSLOG_RING_SIZE;
+	return &s_LogRing[(start + idx) % SYSLOG_RING_SIZE];
+}
+
+u32 sysLogEntryGetSequence(void) { return s_LogSequence; }
 
 void sysLogPrintf(s32 level, const char *fmt, ...)
 {
@@ -378,13 +411,17 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 		snprintf(timestamp, sizeof(timestamp), "[%02d:%05.2f]", mins, secs);
 	}
 
-	/* Capture to ring buffer for on-screen display (no timestamp, keep compact) */
+	/* Capture to structured ring buffer */
 	{
-		char combined[SYSLOG_RING_LINELEN];
-		snprintf(combined, sizeof(combined), "%s%s", pfx, logmsg);
-		strncpy(s_LogRing[s_LogRingHead], combined, SYSLOG_RING_LINELEN - 1);
-		s_LogRing[s_LogRingHead][SYSLOG_RING_LINELEN - 1] = '\0';
-		s_LogRingHead = (s_LogRingHead + 1) % SYSLOG_RING_LINES;
+		LogEntry *entry = &s_LogRing[s_LogRingHead];
+		entry->channel   = sysLogClassifyMessage(logmsg);
+		entry->level     = lvl;
+		entry->timestamp = sysGetSeconds();
+		entry->sequence  = ++s_LogSequence;
+		/* text field stores the raw message (no level prefix) for easy filtering */
+		strncpy(entry->text, logmsg, sizeof(entry->text) - 1);
+		entry->text[sizeof(entry->text) - 1] = '\0';
+		s_LogRingHead = (s_LogRingHead + 1) % SYSLOG_RING_SIZE;
 		s_LogRingCount++;
 	}
 

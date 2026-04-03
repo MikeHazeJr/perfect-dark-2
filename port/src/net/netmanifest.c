@@ -255,15 +255,15 @@ void manifestFree(match_manifest_t *m)
     m->manifest_hash = 0;
 }
 
-void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
+void manifestAddEntry(match_manifest_t *m, const char *id,
                       u8 type, u8 slot_index)
 {
     s32 i;
     match_manifest_entry_t *e;
 
-    /* Dedup by net_hash — skip if already present */
+    /* v27: dedup by catalog ID string comparison. */
     for (i = 0; i < (s32)m->num_entries; i++) {
-        if (m->entries[i].net_hash == net_hash) {
+        if (id && strncmp(m->entries[i].id, id, sizeof(m->entries[i].id)) == 0) {
             return;
         }
     }
@@ -279,7 +279,11 @@ void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
     }
 
     e = &m->entries[m->num_entries++];
-    e->net_hash   = net_hash;
+    /* Derive net_hash locally for internal use (not sent on wire). */
+    {
+        const asset_entry_t *ce = id ? assetCatalogResolve(id) : NULL;
+        e->net_hash = ce ? ce->net_hash : (id ? s_fnv1a(id) : 0);
+    }
     e->type       = type;
     e->slot_index = slot_index;
     memset(e->sha256, 0, sizeof(e->sha256));
@@ -291,15 +295,15 @@ void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
     }
 }
 
-void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
+void manifestAddModEntry(match_manifest_t *m, const char *id,
                          u8 slot_index, const u8 *sha256)
 {
     s32 i;
     match_manifest_entry_t *e;
 
-    /* Dedup by net_hash */
+    /* v27: dedup by catalog ID string comparison. */
     for (i = 0; i < (s32)m->num_entries; i++) {
-        if (m->entries[i].net_hash == net_hash) {
+        if (id && strncmp(m->entries[i].id, id, sizeof(m->entries[i].id)) == 0) {
             return;
         }
     }
@@ -314,7 +318,11 @@ void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
     }
 
     e = &m->entries[m->num_entries++];
-    e->net_hash   = net_hash;
+    /* Derive net_hash locally for internal use (not sent on wire). */
+    {
+        const asset_entry_t *ce = id ? assetCatalogResolve(id) : NULL;
+        e->net_hash = ce ? ce->net_hash : (id ? s_fnv1a(id) : 0);
+    }
     e->type       = MANIFEST_TYPE_COMPONENT;
     e->slot_index = slot_index;
     if (sha256) {
@@ -332,16 +340,16 @@ void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
 
 u32 manifestComputeHash(match_manifest_t *m)
 {
-    /* FNV-1a over (net_hash bytes, type, slot_index) for each entry in order */
+    /* v27: FNV-1a over (id string bytes, type, slot_index) for each entry in order.
+     * net_hash removed from the computation so both sides can agree without the
+     * hash being on the wire. */
     u32 h = 0x811c9dc5u;
     s32 i;
     for (i = 0; i < (s32)m->num_entries; i++) {
         const match_manifest_entry_t *e = &m->entries[i];
-        /* Feed all 4 bytes of net_hash */
-        h ^= (u8)(e->net_hash);        h *= 0x01000193u;
-        h ^= (u8)(e->net_hash >> 8);   h *= 0x01000193u;
-        h ^= (u8)(e->net_hash >> 16);  h *= 0x01000193u;
-        h ^= (u8)(e->net_hash >> 24);  h *= 0x01000193u;
+        /* Feed id string bytes */
+        const char *s = e->id;
+        while (*s) { h ^= (u8)*s++; h *= 0x01000193u; }
         h ^= e->type;                  h *= 0x01000193u;
         h ^= e->slot_index;            h *= 0x01000193u;
     }
@@ -381,7 +389,7 @@ static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
     const asset_entry_t *de = assetCatalogResolve(dep_id);
     if (de) {
         u8 mtype = s_assetTypeToManifestType(de->type);
-        manifestAddEntry(ctx->manifest, de->net_hash, de->id,
+        manifestAddEntry(ctx->manifest, de->id,
                          mtype, ctx->slot_index);
     }
     /* Unresolved dep_id is silently skipped — mod may be partially loaded */
@@ -427,7 +435,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
         const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
-            manifestAddEntry(out, e->net_hash, e->id,
+            manifestAddEntry(out, e->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
             /* Stage not in catalog — skip rather than emit a dead synthetic ID */
@@ -447,7 +455,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         canon_id = catalogResolveWeaponByGameId((s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
-            manifestAddEntry(out, e->net_hash, e->id,
+            manifestAddEntry(out, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         } else {
             /* Weapon not in catalog — skip rather than emit a dead synthetic ID */
@@ -468,22 +476,22 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         {
             const asset_entry_t *be = assetCatalogResolve(ncl->settings.body_id);
             if (be) {
-                manifestAddEntry(out, be->net_hash, be->id,
+                manifestAddEntry(out, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
             } else {
-                manifestAddEntry(out, s_fnv1a(ncl->settings.body_id), ncl->settings.body_id,
+                manifestAddEntry(out, ncl->settings.body_id,
                                  MANIFEST_TYPE_BODY, slot_index);
             }
         }
         {
             const asset_entry_t *he = assetCatalogResolve(ncl->settings.head_id);
             if (he) {
-                manifestAddEntry(out, he->net_hash, he->id,
+                manifestAddEntry(out, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             } else {
-                manifestAddEntry(out, s_fnv1a(ncl->settings.head_id), ncl->settings.head_id,
+                manifestAddEntry(out, ncl->settings.head_id,
                                  MANIFEST_TYPE_HEAD, slot_index);
             }
         }
@@ -505,14 +513,14 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
 
             if (be) {
-                manifestAddEntry(out, be->net_hash, be->id,
+                manifestAddEntry(out, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
             }
             /* else: bodynum not registered in catalog — skip (Phase 0 removed aliases) */
 
             if (he) {
-                manifestAddEntry(out, he->net_hash, he->id,
+                manifestAddEntry(out, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             }
@@ -530,7 +538,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
             if (!mod || !mod->enabled || mod->contenthash == 0) {
                 continue;
             }
-            manifestAddModEntry(out, mod->contenthash, mod->id,
+            manifestAddModEntry(out, mod->id,
                                 MANIFEST_SLOT_MATCH, mod->sha256);
         }
     }
@@ -600,7 +608,7 @@ void manifestBuildForHost(match_manifest_t *out)
         const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
         const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
-            manifestAddEntry(out, e->net_hash, e->id,
+            manifestAddEntry(out, e->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
             sysLogPrintf(LOG_WARNING,
@@ -620,7 +628,7 @@ void manifestBuildForHost(match_manifest_t *out)
         canon_id = catalogResolveWeaponByGameId((s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
-            manifestAddEntry(out, e->net_hash, e->id,
+            manifestAddEntry(out, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         }
     }
@@ -630,13 +638,13 @@ void manifestBuildForHost(match_manifest_t *out)
     if (g_NetLocalClient) {
         const asset_entry_t *be = assetCatalogResolve(g_NetLocalClient->settings.body_id);
         if (be) {
-            manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, slot_index);
+            manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_index);
             s_manifestExpandDeps(out, be->id, slot_index);
         }
         {
             const asset_entry_t *he = assetCatalogResolve(g_NetLocalClient->settings.head_id);
             if (he) {
-                manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, slot_index);
+                manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             }
         }
@@ -644,24 +652,22 @@ void manifestBuildForHost(match_manifest_t *out)
     }
 
     /* ---- Bots from g_MatchConfig ---- */
+    /* body_id/head_id are the PRIMARY identity — use them directly; no
+     * integer-domain conversion on the manifest build path. */
     for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
         const struct matchslot *sl = &g_MatchConfig.slots[i];
         if (sl->type != SLOT_BOT) {
             continue;
         }
         {
-            const s32 mpbody = catalogBodynumToMpBodyIdx((s32)sl->bodynum);
-            const s32 mphead = catalogHeadnumToMpHeadIdx((s32)sl->headnum);
-            const char *body_canon = (mpbody >= 0) ? catalogResolveBodyByMpIndex(mpbody) : NULL;
-            const char *head_canon = (mphead >= 0) ? catalogResolveHeadByMpIndex(mphead) : NULL;
-            const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
-            const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
+            const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
+            const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
             if (be) {
-                manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, slot_index);
+                manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
             }
             if (he) {
-                manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, slot_index);
+                manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             }
         }
@@ -676,7 +682,7 @@ void manifestBuildForHost(match_manifest_t *out)
             if (!mod || !mod->enabled || mod->contenthash == 0) {
                 continue;
             }
-            manifestAddModEntry(out, mod->contenthash, mod->id,
+            manifestAddModEntry(out, mod->id,
                                 MANIFEST_SLOT_MATCH, mod->sha256);
         }
     }
@@ -691,11 +697,14 @@ void manifestBuildForHost(match_manifest_t *out)
  * manifestSerialize -- write manifest entries into netbuf (D.3 wire helper).
  *
  * Format: u16 num_entries, then per entry:
- *   u32 net_hash, u8 type, u8 slot_index, str id,
+ *   u8 type, u8 slot_index, str id,
  *   [u8[32] sha256] only when type == MANIFEST_TYPE_COMPONENT.
  *
+ * v27: net_hash removed from wire format. Both sides derive it locally from
+ * the asset catalog (or s_fnv1a) after deserialization.
+ *
  * Used for embedding the host manifest in CLC_LOBBY_START and is the
- * same per-entry format used by SVC_MATCH_MANIFEST (protocol 26+).
+ * same per-entry format used by SVC_MATCH_MANIFEST (protocol 27).
  */
 u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m)
 {
@@ -703,7 +712,7 @@ u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m)
     netbufWriteU16(dst, (u16)m->num_entries);
     for (i = 0; i < (s32)m->num_entries; i++) {
         const match_manifest_entry_t *e = &m->entries[i];
-        netbufWriteU32(dst, e->net_hash);
+        /* v27: no net_hash on wire — id string is the sole identity. */
         netbufWriteU8(dst, e->type);
         netbufWriteU8(dst, e->slot_index);
         netbufWriteStr(dst, e->id);
@@ -731,7 +740,7 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
         return 1;
     }
     for (i = 0; i < (s32)num_entries; i++) {
-        const u32  net_hash   = netbufReadU32(src);
+        /* v27: no net_hash on wire — derive locally from catalog or s_fnv1a. */
         const u8   type       = netbufReadU8(src);
         const u8   slot_index = netbufReadU8(src);
         const char *id        = netbufReadStr(src);
@@ -740,15 +749,21 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
                          "MANIFEST: deserialize: truncated at entry %d", i);
             return 1;
         }
+        /* Derive net_hash from local catalog (CRC32) or s_fnv1a as fallback. */
+        u32 net_hash;
+        {
+            const asset_entry_t *ce = id ? assetCatalogResolve(id) : NULL;
+            net_hash = ce ? ce->net_hash : (id ? s_fnv1a(id) : 0);
+        }
         if (type == MANIFEST_TYPE_COMPONENT) {
             u8 sha256[32];
             netbufReadData(src, sha256, sizeof(sha256));
             if (src->error) {
                 return 1;
             }
-            manifestAddModEntry(out, net_hash, id, slot_index, sha256);
+            manifestAddModEntry(out, id, slot_index, sha256);
         } else {
-            manifestAddEntry(out, net_hash, id, type, slot_index);
+            manifestAddEntry(out, id, type, slot_index);
         }
     }
     return 0;
@@ -783,7 +798,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         const char *stage_canon = catalogResolveStageByStagenum(stagenum);
         if (stage_canon && catalogResolveStage(stage_canon, &stage_result)
                 && stage_result.entry) {
-            manifestAddEntry(out, stage_result.net_hash, stage_result.entry->id,
+            manifestAddEntry(out, stage_result.entry->id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
             /* Stage not in catalog — skip rather than emit a dead synthetic ID */
@@ -799,13 +814,13 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
     be = assetCatalogResolve("base:dark_combat");
     he = assetCatalogResolve("base:head_dark_combat");
     if (be) {
-        manifestAddEntry(out, be->net_hash, be->id, MANIFEST_TYPE_BODY, 0);
+        manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, 0);
         s_manifestExpandDeps(out, be->id, 0);
     } else {
         sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna body (base:dark_combat) not in catalog");
     }
     if (he) {
-        manifestAddEntry(out, he->net_hash, he->id, MANIFEST_TYPE_HEAD, 0);
+        manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, 0);
         s_manifestExpandDeps(out, he->id, 0);
     } else {
         sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna head (base:head_dark_combat) not in catalog");
@@ -832,7 +847,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                                                      (s32)chr->bodynum);
                     const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
                     if (cbe) {
-                        manifestAddEntry(out, cbe->net_hash, cbe->id,
+                        manifestAddEntry(out, cbe->id,
                                          MANIFEST_TYPE_BODY, 0);
                         s_manifestExpandDeps(out, cbe->id, 0);
                     }
@@ -845,7 +860,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                                                      (s32)chr->headnum);
                     const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
                     if (che) {
-                        manifestAddEntry(out, che->net_hash, che->id,
+                        manifestAddEntry(out, che->id,
                                          MANIFEST_TYPE_HEAD, 0);
                         s_manifestExpandDeps(out, che->id, 0);
                     }
@@ -892,11 +907,11 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                     if (model_id) {
                         me = assetCatalogResolve(model_id);
                         if (me) {
-                            manifestAddEntry(out, me->net_hash, me->id,
+                            manifestAddEntry(out, me->id,
                                              MANIFEST_TYPE_MODEL,
                                              MANIFEST_SLOT_MATCH);
                         } else {
-                            manifestAddEntry(out, s_fnv1a(model_id), model_id,
+                            manifestAddEntry(out, model_id,
                                              MANIFEST_TYPE_MODEL,
                                              MANIFEST_SLOT_MATCH);
                         }
@@ -922,7 +937,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                                              (s32)g_Vars.antibodynum);
             const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
             if (cbe) {
-                manifestAddEntry(out, cbe->net_hash, cbe->id,
+                manifestAddEntry(out, cbe->id,
                                  MANIFEST_TYPE_BODY, 1);
                 s_manifestExpandDeps(out, cbe->id, 1);
             }
@@ -934,7 +949,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                                              (s32)g_Vars.antiheadnum);
             const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
             if (che) {
-                manifestAddEntry(out, che->net_hash, che->id,
+                manifestAddEntry(out, che->id,
                                  MANIFEST_TYPE_HEAD, 1);
                 s_manifestExpandDeps(out, che->id, 1);
             }
@@ -1313,7 +1328,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST-SP: late-add '%s' type=%d (missed by pre-scan)",
                      catalog_id, asset_type);
-        manifestAddEntry(&g_CurrentLoadedManifest, e->net_hash, e->id,
+        manifestAddEntry(&g_CurrentLoadedManifest, e->id,
                          (u8)asset_type, MANIFEST_SLOT_MATCH);
         catalogLoadAsset(e->id);
         return 1;
@@ -1324,7 +1339,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
     sysLogPrintf(LOG_WARNING,
                  "MANIFEST-SP: late-add '%s' not in catalog, using synthetic hash",
                  catalog_id);
-    manifestAddEntry(&g_CurrentLoadedManifest, hash, catalog_id,
+    manifestAddEntry(&g_CurrentLoadedManifest, catalog_id,
                      (u8)asset_type, MANIFEST_SLOT_MATCH);
     return 0;
 }
@@ -1338,9 +1353,8 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
  *
  * Called client-side after SVC_MATCH_MANIFEST is parsed into *manifest.
  * Iterates all entries.  For each one:
- *   1. Try assetCatalogResolveByNetHash(net_hash).
- *   2. If not found, try assetCatalogResolve(id) by string.
- *   3. If still not found:
+ *   1. Try assetCatalogResolve(id) by catalog ID string (v27: sole resolution method).
+ *   2. If not found:
  *      - MANIFEST_TYPE_COMPONENT → add to missing list (must be downloaded).
  *      - Other types → assume present (base game asset, always local).
  *
@@ -1354,8 +1368,9 @@ void manifestCheck(const match_manifest_t *manifest)
         "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG"
     };
 
-    /* missing_hashes bounded by wire protocol: num_missing sent as u8 (0-255) */
-    u32 missing_hashes[256];
+    /* v27: catalog ID strings only — no u32 net_hash on wire.
+     * num_missing bounded at 255 by CLC_MANIFEST_STATUS wire field (u8). */
+    char missing_ids[256][CATALOG_ID_LEN];
     s32 num_missing = 0;
     u8  status;
     s32 i;
@@ -1372,12 +1387,8 @@ void manifestCheck(const match_manifest_t *manifest)
         type_name = (e->type < ARRAYCOUNT(s_type_names))
                     ? s_type_names[e->type] : "?";
 
-        /* Try hash lookup first — most reliable since net_hash is the canonical
-         * wire identity.  Then fall back to string ID for synthetic entries. */
-        local = assetCatalogResolveByNetHash(e->net_hash);
-        if (!local && e->id[0]) {
-            local = assetCatalogResolve(e->id);
-        }
+        /* v27: resolve by catalog ID string only. */
+        local = e->id[0] ? assetCatalogResolve(e->id) : NULL;
 
         if (local) {
             /* D.6: for mod COMPONENT entries, validate SHA-256 against local mod. */
@@ -1399,7 +1410,9 @@ void manifestCheck(const match_manifest_t *manifest)
                                          "MANIFEST: [%2d] COMPONENT id='%s' SHA-256 MISMATCH: want %s got %s",
                                          i, e->id, expected_hex, local_hex);
                             if (num_missing < 255) {
-                                missing_hashes[num_missing++] = e->net_hash;
+                                strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+                                missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+                                num_missing++;
                             }
                             continue;
                         }
@@ -1407,8 +1420,8 @@ void manifestCheck(const match_manifest_t *manifest)
                 }
             }
             sysLogPrintf(LOG_NOTE,
-                         "MANIFEST: [%2d] %-9s hash=0x%08x id='%s' — OK",
-                         i, type_name, (unsigned)e->net_hash, e->id);
+                         "MANIFEST: [%2d] %-9s id='%s' — OK",
+                         i, type_name, e->id);
             continue;
         }
 
@@ -1416,17 +1429,19 @@ void manifestCheck(const match_manifest_t *manifest)
          * locally even if the catalog doesn't have a named entry for them. */
         if (e->type != MANIFEST_TYPE_COMPONENT) {
             sysLogPrintf(LOG_NOTE,
-                         "MANIFEST: [%2d] %-9s hash=0x%08x id='%s' — not in catalog, assumed base game",
-                         i, type_name, (unsigned)e->net_hash, e->id);
+                         "MANIFEST: [%2d] %-9s id='%s' — not in catalog, assumed base game",
+                         i, type_name, e->id);
             continue;
         }
 
         /* Mod component — must be present.  Report as missing. */
         sysLogPrintf(LOG_WARNING,
-                     "MANIFEST: [%2d] COMPONENT  hash=0x%08x id='%s' — MISSING",
-                     i, (unsigned)e->net_hash, e->id);
+                     "MANIFEST: [%2d] COMPONENT  id='%s' — MISSING",
+                     i, e->id);
         if (num_missing < 255) {
-            missing_hashes[num_missing++] = e->net_hash;
+            strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+            missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+            num_missing++;
         }
     }
 
@@ -1445,6 +1460,8 @@ void manifestCheck(const match_manifest_t *manifest)
 
     netbufStartWrite(&g_NetMsgRel);
     netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest->manifest_hash,
-                                 status, missing_hashes, (u8)num_missing);
+                                 status,
+                                 (const char (*)[CATALOG_ID_LEN])missing_ids,
+                                 (u8)num_missing);
     netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
 }

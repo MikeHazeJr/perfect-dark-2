@@ -349,80 +349,6 @@ static void pdguiDebugThemeSection(void)
 }
 
 /* -----------------------------------------------------------------------
- * Log Filters section -- toggle log channels on/off
- * ----------------------------------------------------------------------- */
-
-static void pdguiDebugLogSection(void)
-{
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::Text("LOG FILTERS");
-    ImGui::PopStyleColor();
-
-    ImGui::Separator();
-
-    u32 mask = sysLogGetChannelMask();
-
-    /* Preset buttons: All / None */
-    bool isAll = (mask == LOG_CH_ALL);
-    bool isNone = (mask == LOG_CH_NONE);
-
-    if (isAll) {
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
-    }
-    if (ImGui::Button("All", ImVec2(S(60), S(20)))) {
-        sysLogSetChannelMask(LOG_CH_ALL);
-        mask = LOG_CH_ALL;
-    }
-    if (isAll) ImGui::PopStyleColor();
-
-    ImGui::SameLine();
-
-    if (isNone) {
-        ImVec4 redBg = ImVec4(0.6f, 0.1f, 0.1f, 0.85f);
-        ImGui::PushStyleColor(ImGuiCol_Button, redBg);
-    }
-    if (ImGui::Button("None", ImVec2(S(60), S(20)))) {
-        sysLogSetChannelMask(LOG_CH_NONE);
-        mask = LOG_CH_NONE;
-    }
-    if (isNone) ImGui::PopStyleColor();
-
-    ImGui::Spacing();
-
-    /* Individual channel toggles */
-    bool changed = false;
-    for (int i = 0; i < LOG_CH_COUNT; i++) {
-        bool enabled = (mask & sysLogChannelBits[i]) != 0;
-        if (ImGui::Checkbox(sysLogChannelNames[i], &enabled)) {
-            if (enabled) {
-                mask |= sysLogChannelBits[i];
-            } else {
-                mask &= ~sysLogChannelBits[i];
-            }
-            changed = true;
-        }
-    }
-
-    if (changed) {
-        sysLogSetChannelMask(mask);
-    }
-
-    ImGui::Spacing();
-
-    /* Verbose toggle */
-    bool verbose = sysLogGetVerbose() != 0;
-    if (ImGui::Checkbox("Verbose", &verbose)) {
-        sysLogSetVerbose(verbose ? 1 : 0);
-    }
-
-    /* Show current mask value for reference */
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-    ImGui::Text("Mask: 0x%04X%s", mask, verbose ? " +V" : "");
-    ImGui::PopStyleColor();
-}
-
-/* -----------------------------------------------------------------------
  * Frame/performance section
  * ----------------------------------------------------------------------- */
 
@@ -513,9 +439,6 @@ extern "C" void pdguiDebugMenuRender(s32 winW, s32 winH)
         ImGui::Spacing();
         ImGui::Spacing();
         pdguiDebugThemeSection();
-        ImGui::Spacing();
-        ImGui::Spacing();
-        pdguiDebugLogSection();
         ImGui::Spacing();
         ImGui::Spacing();
         pdguiDebugFlagsSection();

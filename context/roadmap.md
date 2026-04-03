@@ -1,13 +1,25 @@
 # Modernization Roadmap
 
 ## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 LARGELY DONE, D13 IN PROGRESS
-Last updated: 2026-04-02
+Last updated: 2026-04-02 (S130)
+
+## Engine Modernization Vision
+
+> The ROM should be used exclusively as a legacy asset provider. All gameplay, rendering, and engine systems will be rebuilt/replaced over time. The catalog is the foundation for this evolution.
+
+| Stage | Description | Status |
+|-------|-------------|--------|
+| **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v27, all net_hash removed, SAVE-COMPAT stripped. Playtest pending. |
+| **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | PLANNED |
+| **Option B** (Long-term) | Catalog becomes provider-agnostic asset bus. ROM is one provider (legacy). Modern asset pipeline is another. Each catalog entry declares which provider. PBR materials, modern meshes, advanced physics — all new provider types. Mods ship modern assets that bypass the GBI path entirely. | VISION |
+
+The catalog-as-single-source-of-truth principle means migration is incremental — upgrade assets one at a time, game runs with mixed legacy/modern content. fast3d stays for anything not yet upgraded.
 
 ## ⚡ PRIMARY WORKSTREAM: Catalog Universality Migration
 
-> **Status**: PHASES A–G CODE AUDIT DONE (S126). Playtest verification pending.
+> **Status**: PHASES A–G CODE COMPLETE (S130). Wire protocol v27. All net_hash removed. SAVE-COMPAT stripped. Playtest verification pending.
 > **Governing spec**: `PD2_Catalog_Universality_Spec_v1.0.docx`
-> **S126 audit result**: No remaining raw-index bypass patterns in critical paths. One LOW issue found (B-72: SVC_LOBBY_STATE raw stagenum, display-only). Save file fallbacks are intentional backward-compat debt, write side is already catalog-first.
+> **S130 result**: Full wire protocol migration to catalog ID strings. 4 critical/high bug fixes from comprehensive audit. 15 remaining findings (MEDIUM/LOW) tracked in tasks-current.md.
 
 Phases A–G complete (code). Dependency order:
 
@@ -18,7 +30,7 @@ Phase A (Audit) ✓
               └── Phase D (Server Manifest Model) ✓
 Phase E (Menu Stack Architecture) ✓
 Phase F (Spawn + Input Mode Hardening) ✓
-  └── Phase G (Full Verification Pass) — code audit ✓, playtest PENDING
+  └── Phase G (Full Verification Pass) — code ✓, wire protocol v27 ✓, bug fixes ✓, playtest PENDING
 ```
 
 **Phase G playtest success criteria**: zero CATALOG-ASSERT in logs, zero type=16, all MP game modes run to completion with bots, menu transitions clean (no tint bleed, no duplicate instances), spawn variety, bot unstick, spawn weapons present.
@@ -43,8 +55,8 @@ Dedicated server process with CLI args (`--port`, `--maxclients`, `--gamemode`, 
 
 **Remaining D9 items:**
 - ~~End-to-end playtest~~ **DONE (S81)** — J-1 verified: connect code → CLSTATE_LOBBY → match loads → runs → ends
-- Protocol v22: weapon array in CLC_LOBBY_START (S81); chrslots+options in SVC_STAGE_START (already wired)
-- Combat Sim stage selection (currently hardcoded to Complex)
+- Protocol v27 (S130): all net_hash removed from wire, catalog ID strings everywhere
+- ~~Combat Sim stage selection (currently hardcoded to Complex)~~ **FIXED (S128)** — stage_id in matchconfig, bridge API string-native
 - Authoritative leader broadcast (SVC_LOBBY_LEADER on leader change — handlers written, not yet called from lobbyUpdate)
 - "Quick Play" button (auto-launch server subprocess + connect to localhost)
 - ~~B-51/B-52/B-53: bot visibility, weapon pickup, door interaction~~ **ALL FIXED (S90)** — bot configs via SVC_STAGE_START + scenarioInitProps on client; protocol v25

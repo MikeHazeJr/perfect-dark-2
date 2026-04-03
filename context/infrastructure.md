@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-04-01, Session 97
+> **Last updated**: 2026-04-02, Session S130 — Wire protocol v27 (all net_hash removed), SAVE-COMPAT stripped, comprehensive bug audit (4 critical/high fixes)
 
 ---
 
@@ -163,7 +163,7 @@ See [constraints.md](constraints.md) — Index Domain Warning section.
 ### B-12: Dynamic Participant System — 🔶 PHASE 1–2 DONE (S47b)
 - **Phase 1 Parallel Pool**: ✅ Done (S26). `participant.h/c`, heap-allocated pool (capacity MAX_MPCHRS=40), parallel sync hooks.
 - **Phase 2 Callsite Migration**: ✅ Done (S47b). 7 files, ~25 mplayer.c sites + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()` API. Build pass.
-- **Phase 3 Remove chrslots**: NEXT. Delete u64 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v22.
+- **Phase 3 Remove chrslots**: NEXT. Delete u64 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v28 (next after v27).
 
 ### SPF: Server Platform Foundation — 🔶 SPF-1–3 IN PROGRESS, R-series PLANNED (S51)
 New track building the community platform layer on top of the dedicated server.

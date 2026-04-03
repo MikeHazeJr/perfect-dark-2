@@ -39,22 +39,26 @@
 struct matchslot {
 	u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
 	u8 team;          /* team number (0-7) */
-	u8 headnum;       /* mpheadnum (g_MpHeads[] index) — authoritative for runtime */
-	u8 bodynum;       /* mpbodynum (g_MpBodies[] index) — authoritative for runtime */
+	/* body_id/head_id are the PRIMARY identity — always set by matchConfigInit/
+	 * matchConfigAddBot.  bodynum/headnum are DERIVED (mpbodynum/mpheadnum cache)
+	 * used only for legacy engine handoff; resolved from body_id/head_id at
+	 * matchStart() time via catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx. */
+	char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
+	char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
+	u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
+	u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
 	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
 	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
 	char name[MAX_PLAYER_NAME];  /* display name */
-	/* Catalog ID strings — the authoritative identity; headnum/bodynum are derived
-	 * from these at matchStart() time.  Set by matchConfigInit/matchConfigAddBot.
-	 * Empty string means "use headnum/bodynum directly". */
-	char body_id[64]; /* e.g. "base:theking", "base:dark_combat" */
-	char head_id[64]; /* e.g. "base:head_dark_combat" */
 };
 
 struct matchconfig {
 	struct matchslot slots[MATCH_MAX_SLOTS];
 	u8 scenario;                    /* MPSCENARIO_* */
-	u8 stagenum;                    /* stage index */
+	/* PRIMARY: catalog ID string (e.g. "base:mp_complex", "base:defection").
+	 * stagenum is DERIVED — resolved from stage_id at matchStart() only. */
+	char stage_id[64];              /* PRIMARY: catalog ID — e.g. "base:mp_complex" */
+	u8 stagenum;                    /* DERIVED: resolved from stage_id at matchStart */
 	u8 timelimit;                   /* minutes (0 = unlimited) */
 	u8 scorelimit;                  /* score to win (0 = unlimited) */
 	u16 teamscorelimit;             /* team score limit */
@@ -69,8 +73,10 @@ struct matchconfig {
 extern struct matchconfig g_MatchConfig;
 
 void matchConfigInit(void);
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum,
-                      const char *name);
+/* body_id/head_id: catalog IDs (e.g. "base:dark_combat").  Pass NULL/"" to use
+ * the default (base:dark_combat / base:head_dark_combat). */
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
+                      const char *head_id, const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
 s32 matchStart(void);
 

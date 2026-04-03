@@ -6,16 +6,16 @@
  * SVC_MATCH_MANIFEST, and each client checks its local catalog against it
  * (Phase C) before responding with CLC_MANIFEST_STATUS.
  *
- * Wire format (SVC_MATCH_MANIFEST, protocol 26+):
+ * Wire format (SVC_MATCH_MANIFEST, protocol 27+):
  *   u8   opcode = 0x62
- *   u32  manifest_hash     FNV-1a over all entries
+ *   u32  manifest_hash     FNV-1a over catalog ID bytes for all entries
  *   u16  num_entries
  *   [for each entry]:
- *     u32  net_hash        CRC32 of catalog ID — primary key
  *     u8   type            MANIFEST_TYPE_*
  *     u8   slot_index      participant slot, or MANIFEST_SLOT_MATCH
- *     str  id              catalog string ID (null-terminated)
+ *     str  id              catalog string ID (length-prefixed)
  *     [u8[32] sha256]      only present when type == MANIFEST_TYPE_COMPONENT
+ * Note: net_hash u32 removed from wire in v27. String ID is the sole identity.
  *
  * CLC_LOBBY_START (protocol 26+) embeds the host-built manifest using the
  * same per-entry format (no opcode or manifest_hash prefix — those come from
@@ -153,17 +153,19 @@ void manifestSetMaxEntries(s32 n);
 
 /**
  * Add one entry to the manifest.
- * Deduplicates by net_hash (silently skips duplicates).
+ * v27: deduplicates by catalog ID string comparison (not net_hash).
+ * Populates e->net_hash internally from the asset catalog for internal use.
  * sha256 field is zeroed.  For mod (COMPONENT) entries use manifestAddModEntry.
  */
-void manifestAddEntry(match_manifest_t *m, u32 net_hash, const char *id,
+void manifestAddEntry(match_manifest_t *m, const char *id,
                       u8 type, u8 slot_index);
 
 /**
  * Add a mod component entry to the manifest, carrying the mod's SHA-256.
- * Deduplicates by net_hash.  sha256 may be NULL (zeroed in that case).
+ * v27: deduplicates by catalog ID string comparison (not net_hash).
+ * sha256 may be NULL (zeroed in that case).
  */
-void manifestAddModEntry(match_manifest_t *m, u32 net_hash, const char *id,
+void manifestAddModEntry(match_manifest_t *m, const char *id,
                          u8 slot_index, const u8 *sha256);
 
 /**
@@ -187,14 +189,14 @@ void manifestBuildForHost(match_manifest_t *out);
 /**
  * Serialise a manifest into dst (for embedding in CLC_LOBBY_START).
  *
- * Wire format:
+ * Wire format (v27+):
  *   u16  num_entries
  *   per entry:
- *     u32  net_hash
  *     u8   type
  *     u8   slot_index
- *     str  id            (null-terminated)
+ *     str  id            (length-prefixed, via netbufWriteStr)
  *     [u8[32] sha256]    (only present when type == MANIFEST_TYPE_COMPONENT)
+ * Note: net_hash u32 removed from wire in v27.
  *
  * Returns dst->error.
  */
@@ -317,7 +319,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out);
  *   to_unload[] — in current, not in needed
  *   to_keep[]   — in both
  *
- * Matching is by net_hash only (canonical catalog identity).
+ * Matching is by catalog ID string (strcmp on entry->id).
  */
 void manifestDiff(const match_manifest_t *current,
                   const match_manifest_t *needed,

@@ -31,14 +31,17 @@ enum LogLevel {
  * ----------------------------------------------------------------------- */
 
 #define LOG_CH_NETWORK   0x0001  /* NET, UPNP, SERVER, LOBBY, MATCHSETUP  */
-#define LOG_CH_GAME      0x0002  /* STAGE, INTRO, CATALOG, LOAD, PLAYER, SIMULANT, SETUP */
+#define LOG_CH_GAME      0x0002  /* STAGE, INTRO, LOAD, PLAYER, SIMULANT, SETUP, JUMP */
 #define LOG_CH_COMBAT    0x0004  /* DAMAGE, WEAPON, AMMO, HEALTH, PICKUP  */
 #define LOG_CH_AUDIO     0x0008  /* SND, AUDIO, MUSIC, SFX               */
 #define LOG_CH_MENU      0x0010  /* MENU, HOTSWAP, DIALOG, FONT          */
 #define LOG_CH_SAVE      0x0020  /* SAVE, SAVEMIGRATE, CONFIG             */
 #define LOG_CH_MOD       0x0040  /* MOD, MODMGR, MODLOAD                 */
 #define LOG_CH_SYSTEM    0x0080  /* SYS, MEM, MEMPC, CRASH, FS, UPDATER  */
-#define LOG_CH_MATCH     0x0100  /* MATCH, CHRSLOTS, BOT_ALLOC, MATCHSETUP pipeline */
+#define LOG_CH_MATCH     0x0100  /* MATCH, CHRSLOTS, BOT_ALLOC           */
+#define LOG_CH_CATALOG   0x0200  /* CATALOG, MANIFEST, ASSET             */
+#define LOG_CH_DISTRIB   0x0400  /* DISTRIB                              */
+#define LOG_CH_RENDER    0x0800  /* RENDER, GFX, TEXTURE, FAST3D         */
 #define LOG_CH_ALL       0xFFFF
 #define LOG_CH_NONE      0x0000
 
@@ -51,13 +54,34 @@ s32  sysLogGetVerbose(void);
 void sysLogSetVerbose(s32 enabled);
 
 /* Channel names/count for UI enumeration */
-#define LOG_CH_COUNT 9
+#define LOG_CH_COUNT 12
 extern const char *sysLogChannelNames[LOG_CH_COUNT];
 extern const u32   sysLogChannelBits[LOG_CH_COUNT];
 
-/* Log ring buffer for live console */
+/* -----------------------------------------------------------------------
+ * Structured log ring buffer.
+ *
+ * Each entry captures the channel, severity level, timestamp, sequence
+ * number, and formatted message text. The ring holds 2048 entries.
+ * sysLogRingGetLine() remains for backward compatibility (returns .text).
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    u32  channel;    /* LOG_CH_* bitmask of the message's channel */
+    s32  level;      /* LOG_VERBOSE..LOG_CHAT */
+    f32  timestamp;  /* sysGetSeconds() at log time */
+    u32  sequence;   /* monotonic counter, 1-based */
+    char text[256];  /* formatted message without level prefix */
+} LogEntry;
+
+/* Legacy line-based access (backward compat) */
 s32  sysLogRingGetCount(void);
 const char *sysLogRingGetLine(s32 idx);
+
+/* Structured entry access */
+s32             sysLogEntryGetCount(void);
+const LogEntry *sysLogEntryGet(s32 idx);
+u32             sysLogEntryGetSequence(void);
 
 void sysInitArgs(s32 argc, const char **argv);
 void sysInit(void);

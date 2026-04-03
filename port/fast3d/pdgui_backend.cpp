@@ -41,6 +41,9 @@ extern "C" s32  pdguiUpdateIsActive(void);
 extern "C" void pdguiModdingHubRender(s32 winW, s32 winH);
 extern "C" s32  pdguiModdingHubIsVisible(void);
 
+/* Log Viewer Dev Window tab — declared in pdgui_menu_logviewer.cpp */
+extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
+
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
 
@@ -316,6 +319,8 @@ void pdguiRender(void)
     /* F12 debug menu — PD-styled, game-relative scaling */
     if (g_PdguiActive) {
         pdguiDebugMenuRender((s32)winW, (s32)winH);
+        /* Log Viewer Dev Window — shown alongside the debug menu */
+        pdguiLogViewerRender((s32)winW, (s32)winH);
     }
 
     /* F8 hot-swap: render any ImGui menu replacements that were queued

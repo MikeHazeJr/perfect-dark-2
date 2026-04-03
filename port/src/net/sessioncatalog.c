@@ -8,9 +8,9 @@
  * Wire ID assignment: entries are numbered 1..num_entries in manifest order.
  * Wire ID 0 is reserved as "not found / no entry".
  *
- * Client-side resolution: each received entry is resolved to a local catalog
- * pointer via assetCatalogResolveByNetHash() (CRC32 primary), with string ID
- * fallback.  Results are stored in s_LocalTranslation[] for O(1) gameplay lookup.
+ * v27: net_hash removed from wire.  Client-side resolution uses catalog ID
+ * string only via assetCatalogResolve().  Results stored in s_LocalTranslation[]
+ * for O(1) gameplay lookup.
  */
 
 #include <string.h>
@@ -65,16 +65,9 @@ void sessionCatalogBuild(const match_manifest_t *manifest)
         e->asset_type = manifest->entries[i].type;
         strncpy(e->catalog_id, manifest->entries[i].id, SESSION_CATALOG_ID_LEN - 1);
         e->catalog_id[SESSION_CATALOG_ID_LEN - 1] = '\0';
-
-        /* Populate CRC32 net_hash from asset catalog entry for client-side verification. */
-        /* Note: manifest->entries[i].net_hash is FNV-1a; we need CRC32 from asset_entry_t */
-        /* for compatibility with assetCatalogResolveByNetHash() on the client side.        */
+        /* v27: net_hash not sent on wire; kept internally for legacy code that may read it. */
         ae = assetCatalogResolve(manifest->entries[i].id);
-        if (ae) {
-            e->net_hash = ae->net_hash;  /* CRC32 from catalog entry */
-        } else {
-            e->net_hash = 0;  /* fallback -- should not happen if manifest is valid */
-        }
+        e->net_hash = ae ? ae->net_hash : 0;
     }
 
     g_SessionCatalog.num_entries = count;
@@ -101,7 +94,7 @@ void sessionCatalogBroadcast(void)
         e = &g_SessionCatalog.entries[i];
         netbufWriteU16(&g_NetMsgRel, e->wire_id);
         netbufWriteU8(&g_NetMsgRel,  e->asset_type);
-        netbufWriteU32(&g_NetMsgRel, e->net_hash);
+        /* v27: catalog ID string only — no net_hash on wire. */
         netbufWriteStr(&g_NetMsgRel, e->catalog_id);
     }
 
@@ -121,7 +114,6 @@ void sessionCatalogReceive(struct netbuf *src)
     u16 count;
     u16 wire_id;
     u8  asset_type;
-    u32 net_hash;
     char *id;
     session_catalog_entry_t *e;
     session_translation_t *t;
@@ -145,7 +137,7 @@ void sessionCatalogReceive(struct netbuf *src)
     for (i = 0; i < (s32)count; i++) {
         wire_id    = netbufReadU16(src);
         asset_type = netbufReadU8(src);
-        net_hash   = netbufReadU32(src);
+        /* v27: catalog ID string only — no net_hash on wire. */
         id         = netbufReadStr(src);
 
         if (src->error) {
@@ -156,23 +148,15 @@ void sessionCatalogReceive(struct netbuf *src)
         e             = &g_SessionCatalog.entries[i];
         e->wire_id    = wire_id;
         e->asset_type = asset_type;
-        e->net_hash   = net_hash;
         if (id) {
             strncpy(e->catalog_id, id, SESSION_CATALOG_ID_LEN - 1);
             e->catalog_id[SESSION_CATALOG_ID_LEN - 1] = '\0';
         }
 
-        /* Resolve local catalog entry: CRC32 hash first, string ID fallback. */
-        /* Design doc §5.3 and §5.8: missing at this point is a pipeline bug. */
-        local = assetCatalogResolveByNetHash(net_hash);
-        if (!local && e->catalog_id[0]) {
-            local = assetCatalogResolve(e->catalog_id);
-        }
-
-        /* If server sent hash=0 (pre-registration bug) but string ID resolved,
-         * back-fill net_hash from the local entry so subsequent hash lookups work. */
-        if (local && e->net_hash == 0) {
-            e->net_hash = local->net_hash;
+        /* v27: resolve by catalog ID string only — no net_hash fallback. */
+        local = e->catalog_id[0] ? assetCatalogResolve(e->catalog_id) : NULL;
+        if (local) {
+            e->net_hash = local->net_hash;  /* back-fill for internal use */
         }
 
         /* Store result in translation table (wire_id is 1-based; 0 unused). */
@@ -185,9 +169,8 @@ void sessionCatalogReceive(struct netbuf *src)
 
         if (!local) {
             sysLogPrintf(LOG_WARNING,
-                "[SESSION-CATALOG-ASSERT] entry '%s' (hash 0x%08x) not resolved "
-                "in local catalog -- pipeline bug",
-                e->catalog_id, (unsigned)net_hash);
+                "[SESSION-CATALOG-ASSERT] entry '%s' not resolved in local catalog -- pipeline bug",
+                e->catalog_id);
         }
     }
 

@@ -11,7 +11,7 @@
 
 ## SUMMARY (50 lines)
 
-**Protocol**: v21, ENet UDP, 3 channels (DEFAULT unreliable/reliable, CONTROL reliable, TRANSFER reliable).
+**Protocol**: v27 (as of S130; was v21 when this audit was written), ENet UDP, 3 channels (DEFAULT unreliable/reliable, CONTROL reliable, TRANSFER reliable). **Note**: net_hash removed from wire in S130; all asset identity uses catalog ID strings.
 **Architecture**: Server-authoritative, dedicated-only. 32-client cap. 60 Hz tick.
 **Messages**: 39 SVC (server→client) + 10 CLC (client→server) defined. 2 SVC dead (PLAYER_GUNS, partially LOBBY_LEADER/STATE).
 

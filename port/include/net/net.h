@@ -9,7 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 26  /* protocol 26: host-built manifest in CLC_LOBBY_START + SHA-256 mod validation */
+#define NET_PROTOCOL_VER 27  /* v27: net_hash removed from wire; all asset identity uses catalog ID strings.
+                               * CLC_LOBBY_START stage/weapons, SVC_LOBBY_STATE arena, SVC_MATCH_MANIFEST entries,
+                               * CLC_MANIFEST_STATUS missing list, CLC_CATALOG_DIFF, SVC_DISTRIB_BEGIN/CHUNK/END,
+                               * SVC_SESSION_CATALOG — all now transmit catalog ID strings, never u32 CRC32 hashes. */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 

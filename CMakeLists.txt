@@ -549,6 +549,13 @@ set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
 # Server defines -- used by shared headers
 target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
 
+# ---------------------------------------------------------------------------
+# logview: standalone log filter CLI tool
+# ---------------------------------------------------------------------------
+add_executable(logview "${CMAKE_SOURCE_DIR}/tools/logview.c")
+target_include_directories(logview PRIVATE "${CMAKE_SOURCE_DIR}/port/include")
+set_target_properties(logview PROPERTIES OUTPUT_NAME "logview")
+
 # Additional commands for specific platforms.
 
 if(NINTENDO_SWITCH)
