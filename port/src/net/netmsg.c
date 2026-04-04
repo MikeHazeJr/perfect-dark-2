@@ -3668,6 +3668,13 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	{
 		match_manifest_t hostManifest;
 		memset(&hostManifest, 0, sizeof(hostManifest));
+		/* Sync stage into g_MpSetup.stage_id so manifestBuildForHost includes it.
+		 * g_MatchConfig.stage_id is set by the UI; g_MpSetup.stage_id is what
+		 * the manifest builder and SVC_STAGE_START write both read. */
+		if (g_MatchConfig.stage_id[0]) {
+			strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		}
 		manifestBuildForHost(&hostManifest);
 		manifestSerialize(dst, &hostManifest);
 		manifestFree(&hostManifest);
@@ -3844,6 +3851,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
 		strncpy(g_MatchConfig.stage_id, stage_id, sizeof(g_MatchConfig.stage_id) - 1);
 		g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+		/* Also populate g_MpSetup.stage_id — used by SVC_STAGE_START write and
+		 * the server-side manifest builder (manifestBuild fallback path). */
+		strncpy(g_MpSetup.stage_id, stage_id, sizeof(g_MpSetup.stage_id) - 1);
+		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 	}
 	const u8 difficulty      = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
