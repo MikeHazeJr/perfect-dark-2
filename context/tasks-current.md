@@ -33,8 +33,8 @@ All code is complete. These items need in-game confirmation.
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| End match → lobby transition broken | HIGH | Can't return to lobby cleanly after match ends |
-| Post-match menus janky (buttons non-interactive) | HIGH | Mouse/input state issue after match end |
+| End match → lobby transition broken | ~~HIGH~~ | **Fixed S139** — Return to Lobby calls pdguiSetInRoom(1); Quit to Menu calls netDisconnect/mainChangeToStage |
+| Post-match menus janky (buttons non-interactive) | ~~HIGH~~ | **Fixed S139** — pdmainSetInputMode(INPUTMODE_MENU) on window appear |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
 | Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps |
 | Room/menu navigation janky | MED | Back/Esc behavior inconsistent |
@@ -106,7 +106,7 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
 | **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
-| **D5.4** | End Game Flow — mission complete screen (objectives/stats/nav), MP match end scoreboard | PLANNED |
+| **D5.4** | End Game Flow — MP match end scoreboard (S139: accuracy col, team sort, dual exit buttons, mouse fix). Mission complete screen still PLANNED | PARTIAL (S139) |
 | **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); bot name dictionary (Adj+Noun), arena/weapon set verification still open | PARTIAL (S138) |
 | **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
 | **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |

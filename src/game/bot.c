@@ -305,15 +305,12 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 		chr->hidden |= CHRHFLAG_WARPONSCREEN;
 		chrMoveToPos(chr, &pos, rooms, thing, true);
-		/* If room lookup failed during spawn, fall back to bgFindRoomsByPos. */
-		if (chr->prop && chr->prop->rooms[0] == -1) {
-			RoomNum aboverooms[8];
-			RoomNum bestroom = -1;
-			bgFindRoomsByPos(&chr->prop->pos, chr->prop->rooms, aboverooms, 8, &bestroom);
-			if (chr->prop->rooms[0] == -1 && bestroom != -1) {
-				chr->prop->rooms[0] = bestroom;
-				chr->prop->rooms[1] = -1;
-			}
+		/* FIX 3: if spawn position has no room assignment, derive from floorroom
+		 * (set by cdFindGroundInfoAtCyl inside chrMoveToPos). Without this,
+		 * prop->rooms[0]==-1 and CLC_BOT_MOVE relays an invalid room to the server. */
+		if (chr->prop && chr->prop->rooms[0] == -1 && chr->floorroom != -1) {
+			chr->prop->rooms[0] = chr->floorroom;
+			chr->prop->rooms[1] = -1;
 		}
 		chr->aibot->roty = modelGetChrRotY(chr->model);
 		chr->aibot->angleoffset = 0;

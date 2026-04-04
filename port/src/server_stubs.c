@@ -24,7 +24,7 @@
 #include "system.h"
 #include "lib/main.h"
 #include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
-#include "net/netlobby.h"   /* g_Lobby.settings.numSimulants for mpStartMatch stub */
+#include "net/netlobby.h"   /* g_Lobby for server lobby state */
 
 /* ========================================================================
  * Globals — definitions for everything bss.h declares as extern.
@@ -218,15 +218,12 @@ void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
  */
 void mpStartMatch(void)
 {
-	/* Count bot slots from g_MpSetup.chrslots — the authoritative source set by
-	 * netmsgClcLobbyStartRead when the match was configured. Bits BOT_SLOT_OFFSET
-	 * through BOT_SLOT_OFFSET+MAX_BOTS-1 each represent one bot. */
+	/* Count bots from chrslots (bits BOT_SLOT_OFFSET..BOT_SLOT_OFFSET+MAX_BOTS-1).
+	 * More reliable than g_Lobby.settings.numSimulants which may not be in sync. */
 	s32 numBots = 0;
-	{
-		for (s32 bi = 0; bi < MAX_BOTS; bi++) {
-			if (g_MpSetup.chrslots & ((u64)1 << (BOT_SLOT_OFFSET + bi))) {
-				numBots++;
-			}
+	for (s32 b = 0; b < MAX_BOTS; b++) {
+		if (g_MpSetup.chrslots & ((u64)1 << (BOT_SLOT_OFFSET + b))) {
+			numBots++;
 		}
 	}
 

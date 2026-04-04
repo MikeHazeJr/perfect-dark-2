@@ -1401,12 +1401,6 @@ void netEndFrame(void)
 				if (needrel || netClientNeedMove(g_NetLocalClient)) {
 					netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
 				}
-				/* Bot authority: relay all bot positions to server each frame so it can
-				 * broadcast via SVC_CHR_MOVE. Loop iterates g_MpBotChrPtrs; the batch
-				 * write sends position/angle/rooms for every valid entry in one message. */
-				if (g_NetLocalBotAuthority && g_BotCount > 0) {
-					netmsgClcBotMoveWrite(&g_NetMsg);
-				}
 			}
 			if (g_NetNextUpdate <= g_NetTick) {
 				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
@@ -1546,6 +1540,14 @@ void netEndFrame(void)
 				g_NetPendingResyncFlags = 0;
 			}
 		}
+	}
+
+	/* Bot authority: relay bot positions to server even when local player is respawning.
+	 * Outside the player->prop guard so it fires regardless of local player state. */
+	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient
+			&& g_NetLocalClient->state == CLSTATE_GAME
+			&& g_NetLocalBotAuthority && g_BotCount > 0) {
+		netmsgClcBotMoveWrite(&g_NetMsg);
 	}
 
 	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
