@@ -2291,7 +2291,7 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpDiff     = DIFF_A;
     s_CounterOpPlayer   = 0;
     s_SelectedArena     = 0;
-    s_SelectedBotSlot   = -1;
+    botSelectClear();
     s_BotModalOpen      = false;
     s_EditBotSlotIdx    = -1;
     s_SpawnWeaponIdx    = 0;
