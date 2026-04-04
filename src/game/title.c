@@ -188,7 +188,7 @@ void titleTickLegal(void)
 			g_TitleTimer, titleGuardCanSkip(2000));
 	}
 
-	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(180)) {
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(210)) {
 		sysLogPrintf(LOG_NOTE, "INTRO: Legal done -> CHECKCONTROLLERS (timer=%d)", g_TitleTimer);
 		titleSetNextMode(TITLEMODE_CHECKCONTROLLERS);
 	}
@@ -412,6 +412,12 @@ Gfx *titleRenderLegal(Gfx *gdl)
 				font1 = g_CharsHandelGothicLg;
 				font2 = g_FontHandelGothicLg;
 				break;
+			}
+
+			// Gold colour for "MikeHazeJr" credit
+			if (elem->textptr && elem->textptr[0] == 'M' && elem->textptr[1] == 'i' &&
+					elem->textptr[2] == 'k' && elem->textptr[3] == 'e') {
+				colour = 0xffd700ff;
 			}
 
 			if (elem->type == LEGALELEMENTTYPE_LINE) {
