@@ -999,6 +999,26 @@ s32 botTick(struct prop *prop)
 			return TICKOP_NONE;
 		}
 
+		/* PC failsafe: On solo mission maps used as MP arenas, the AI script
+		 * doesn't contain aiMpInitSimulants so botSpawnAll() never fires.
+		 * Detect this on the first updateable frame: if this bot's rooms[0]==-1,
+		 * it was allocated but never spawned. Call botSpawnAll() once to place
+		 * all bots at valid spawn positions. Must happen during tick, not setup,
+		 * because the stage (waypoints, pads, rooms) isn't fully loaded during
+		 * setupCreateProps. */
+		{
+			static bool s_BotSpawnFailsafeDone = false;
+			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
+				s_BotSpawnFailsafeDone = true;
+				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
+				botSpawnAll();
+			}
+			/* Reset the flag on stage change (lvframe60 resets to 0) */
+			if (g_Vars.lvframe60 == 0) {
+				s_BotSpawnFailsafeDone = false;
+			}
+		}
+
 		/* MATCH-TRACE: botTick entry — first 10 frames only */
 		if (g_Vars.lvframe60 < 10) {
 			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: botTick frame=%d slot=%d chr=%p rooms[0]=%d updateable=%d pos=(%.0f,%.0f,%.0f)",

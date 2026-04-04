@@ -2171,16 +2171,6 @@ void setupCreateProps(s32 stagenum)
 				}
 
 				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning done total=%d", chrnum);
-
-				/* PC: Explicitly spawn bots now. On dedicated MP arenas the AI script
-				 * runs aiMpInitSimulants → botSpawnAll(), but solo mission maps used
-				 * as MP arenas don't have that AI command. Call botSpawnAll() here as
-				 * a failsafe — it's safe to call even if the AI script calls it again
-				 * (botSpawn checks and re-places each bot). */
-				if (g_BotCount > 0) {
-					sysLogPrintf(LOG_NOTE, "SETUP: calling botSpawnAll() for %d bots (failsafe)", g_BotCount);
-					botSpawnAll();
-				}
 			} else {
 				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%08x",
 					g_Vars.normmplayerisrunning, mpHasSimulants(), g_MpSetup.chrslots);
