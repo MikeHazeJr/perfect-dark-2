@@ -109,7 +109,7 @@ char *endscreenMenuTitleRetryMission(struct menudialogdef *dialogdef)
 	name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
 
-	sprintf(g_StringPointer, "%s: %s\n", prefix, name);
+	snprintf(g_StringPointer, 300, "%s: %s\n", prefix, name);
 
 	return g_StringPointer;
 }
@@ -128,7 +128,7 @@ char *endscreenMenuTitleNextMission(struct menudialogdef *dialogdef)
 	name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
 
-	sprintf(g_StringPointer, "%s: %s\n", prefix, name);
+	snprintf(g_StringPointer, 300, "%s: %s\n", prefix, name);
 
 	return g_StringPointer;
 }
@@ -239,38 +239,38 @@ struct menudialogdef g_NextMissionMenuDialog = {
 
 char *endscreenMenuTextNumKills(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%d", mpstatsGetPlayerKillCount());
+	snprintf(g_StringPointer, 300, "%d", mpstatsGetPlayerKillCount());
 	return g_StringPointer;
 }
 
 char *endscreenMenuTextNumShots(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_TOTAL));
+	snprintf(g_StringPointer, 300, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_TOTAL));
 	return g_StringPointer;
 }
 
 char *endscreenMenuTextNumHeadShots(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_HEAD));
+	snprintf(g_StringPointer, 300, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_HEAD));
 	return g_StringPointer;
 }
 
 char *endscreenMenuTextNumBodyShots(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_BODY));
+	snprintf(g_StringPointer, 300, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_BODY));
 	return g_StringPointer;
 }
 
 char *endscreenMenuTextNumLimbShots(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_LIMB));
+	snprintf(g_StringPointer, 300, "%d", mpstatsGetPlayerShotCountByRegion(SHOTREGION_LIMB));
 	return g_StringPointer;
 }
 
 char *endscreenMenuTextNumOtherShots(struct menuitem *item)
 {
 	u32 total = mpstatsGetPlayerShotCountByRegion(SHOTREGION_GUN) + mpstatsGetPlayerShotCountByRegion(SHOTREGION_HAT);
-	sprintf(g_StringPointer, "%d", total);
+	snprintf(g_StringPointer, 300, "%d", total);
 	return g_StringPointer;
 }
 
@@ -296,7 +296,7 @@ char *endscreenMenuTextAccuracy(struct menuitem *item)
 		accuracy = 100.0f;
 	}
 
-	sprintf(g_StringPointer, "%s%s%.1f%%", "", "", accuracy);
+	snprintf(g_StringPointer, 300, "%s%s%.1f%%", "", "", accuracy);
 	return g_StringPointer;
 }
 
@@ -406,13 +406,13 @@ char *endscreenMenuTitleStageCompleted(struct menuitem *item)
 		s32 si = g_Menus[g_MpPlayerNum].endscreen.stageindex;
 		// PC: guard — mod stages have no solo stage entry
 		char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
-		sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
+		snprintf(g_StringPointer, 300, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
 	}
 #else
 	{
 		s32 si = g_MissionConfig.stageindex;
 		char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
-		sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
+		snprintf(g_StringPointer, 300, "%s: %s\n", n, langGet(L_OPTIONS_276)); // "Completed"
 	}
 #endif
 
@@ -425,7 +425,7 @@ char *endscreenMenuTextCurrentStageName3(struct menuitem *item)
 	s32 si = g_MissionConfig.stageindex;
 	// PC: guard — mod stages have no solo stage entry
 	char *name = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
-	sprintf(g_StringPointer, "%s\n", name);
+	snprintf(g_StringPointer, 300, "%s\n", name);
 
 	return g_StringPointer;
 }
@@ -436,7 +436,7 @@ char *endscreenMenuTitleStageFailed(struct menuitem *item)
 	s32 si = g_MissionConfig.stageindex;
 	// PC: guard — mod stages have no solo stage entry
 	char *n = (si >= 0 && si < NUM_SOLOSTAGES) ? langGet(g_SoloStages[si].name3) : "";
-	sprintf(g_StringPointer, "%s: %s\n", n, langGet(L_OPTIONS_277)); // "Failed"
+	snprintf(g_StringPointer, 300, "%s: %s\n", n, langGet(L_OPTIONS_277)); // "Failed"
 
 	return g_StringPointer;
 }

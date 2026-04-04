@@ -49,4 +49,16 @@ void pdguiToggle(void);
  * Call on disconnect so the menu re-opens at the root, not "Online Play". */
 void pdguiMainMenuReset(void);
 
+/* D5.0: Return an ImTextureID (GLuint cast to void*) for a named UI texture.
+ * Delegates to pdguiThemeGetTexture() in pdgui_theme.cpp.
+ * Textures are decoded from ROM (N64 RGBA16/IA16/IA8/CI4/CI8 → RGBA32 → GL)
+ * during pdguiInit() and registered in the asset catalog as ASSET_UI.
+ * NULL return = pipeline bug (unknown id or GBI decode not yet done):
+ *   LOG_ERROR + assert, no fallback. */
+void* pdguiGetUiTexture(const char *id);
+
+/* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
+ * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */
+const char *langSafe(s32 textid);
+
 #endif /* _IN_PDGUI_H */

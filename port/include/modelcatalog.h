@@ -97,24 +97,6 @@ void catalogValidateAll(void);
 s32 catalogGetCount(void);
 
 /**
- * Get a catalog entry by its g_HeadsAndBodies index.
- * Returns NULL if index is out of range.
- */
-const struct catalogentry *catalogGetEntry(s32 index);
-
-/**
- * Get a catalog entry by multiplayer body index.
- * Returns NULL if mpIndex is out of range.
- */
-const struct catalogentry *catalogGetBodyByMpIndex(s32 mpIndex);
-
-/**
- * Get a catalog entry by multiplayer head index.
- * Returns NULL if mpIndex is out of range.
- */
-const struct catalogentry *catalogGetHeadByMpIndex(s32 mpIndex);
-
-/**
  * Get the number of valid MP-selectable bodies.
  */
 s32 catalogGetNumBodies(void);

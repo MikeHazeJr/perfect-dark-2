@@ -1777,7 +1777,7 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 
 	// Render objective number
 	gdl = text0f153628(gdl);
-	sprintf(buffer, "%d: ", position);
+	snprintf(buffer, sizeof(buffer), "%d: ", position);
 	textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 	x = objx - textwidth + 25;
 	gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, sp12c, width, height, 0, 0);
@@ -1788,7 +1788,7 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 		textWrap(85, sp120, buffer, g_CharsHandelGothicXs, g_FontHandelGothicXs);
 		gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicXs, g_FontHandelGothicXs, sp12c, width, height, 0, 0);
 	} else {
-		sprintf(buffer, "%s", sp120);
+		snprintf(buffer, sizeof(buffer), "%s", sp120);
 		gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, sp12c, width, height, 0, 0);
 	}
 
@@ -2517,8 +2517,7 @@ Gfx *menuitemSliderRender(Gfx *gdl, struct menurendercontext *context)
 	gdl = textRenderProjected(gdl, &x, &y, label, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, context->width, context->height, 0, 0);
 
 	if ((context->item->flags & MENUITEMFLAG_SLIDER_HIDEVALUE) == 0) {
-		strcpy(buffer, "");
-		sprintf(buffer, "%d\n", slidervalue);
+		snprintf(buffer, sizeof(buffer), "%d\n", slidervalue);
 
 		if (context->item->handler != NULL) {
 			data.slider.value = slidervalue;
@@ -3673,7 +3672,7 @@ Gfx *menuitemRankingRender(Gfx *gdl, struct menurendercontext *context)
 		if (!team) {
 			// Deaths value (red)
 			textcolour = colourBlend(0xcf0000ff, 0xff4040ff, weight);
-			sprintf(valuebuffer, "%d\n", ranking->mpchr->numdeaths);
+			snprintf(valuebuffer, sizeof(valuebuffer), "%d\n", ranking->mpchr->numdeaths);
 			textMeasure(&textheight, &textwidth, valuebuffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 			x = context->x - textwidth + 91;
 #if VERSION >= VERSION_JPN_FINAL
@@ -3687,7 +3686,7 @@ Gfx *menuitemRankingRender(Gfx *gdl, struct menurendercontext *context)
 
 		// Score value (green)
 		textcolour = colourBlend(0x009f00ff, 0x00ff00ff, weight);
-		sprintf(valuebuffer, "%d\n", ranking->score);
+		snprintf(valuebuffer, sizeof(valuebuffer), "%d\n", ranking->score);
 		textMeasure(&textheight, &textwidth, valuebuffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 		x = context->x - textwidth + 120;
 #if VERSION >= VERSION_JPN_FINAL
@@ -3812,7 +3811,7 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 #if VERSION >= VERSION_NTSC_1_0
 	x = context->x - textwidth + 119;
 #endif
-	sprintf(buffer, "%d\n", mpchr->killcounts[playernum]);
+	snprintf(buffer, sizeof(buffer), "%d\n", mpchr->killcounts[playernum]);
 	textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 #if VERSION >= VERSION_NTSC_1_0
 	x -= textwidth;
@@ -3963,7 +3962,7 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 							0x00ffffff, context->width, context->height, 0, 0);
 
 					// Num deaths
-					sprintf(buffer, "%d\n", loopmpchr->killcounts[playernum]);
+					snprintf(buffer, sizeof(buffer), "%d\n", loopmpchr->killcounts[playernum]);
 					textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 					x = context->x - textwidth + 120;
 					y = context->y + ypos;
@@ -3971,7 +3970,7 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 							0xff4040ff, context->width, context->height, 0, 0);
 
 					// Num kills
-					sprintf(buffer, "%d\n", mpchr->killcounts[i]);
+					snprintf(buffer, sizeof(buffer), "%d\n", mpchr->killcounts[i]);
 					textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
 #if VERSION == VERSION_JPN_FINAL
@@ -4487,15 +4486,15 @@ Gfx *menuitemControllerRender(Gfx *gdl, struct menurendercontext *context)
 			g_MenuWave1Colours[dialog->type].item_unfocused);
 
 	if (g_Menus[g_MpPlayerNum].main.controlmode == CONTROLMODE_PC) {
-		sprintf(text, langGet(L_MPWEAPONS_213), // "Control Style %s %s"
+		snprintf(text, sizeof(text), langGet(L_MPWEAPONS_213), // "Control Style %s %s"
 				"Ext",
 				langGet(L_MPWEAPONS_215)); // "(Two-Handed)"
 	} else if (g_Menus[g_MpPlayerNum].main.controlmode >= CONTROLMODE_21) {
-		sprintf(text, langGet(L_MPWEAPONS_213), // "Control Style %s %s"
+		snprintf(text, sizeof(text), langGet(L_MPWEAPONS_213), // "Control Style %s %s"
 				langGet(g_ControlStyleOptions[g_Menus[g_MpPlayerNum].main.controlmode]),
 				langGet(L_MPWEAPONS_215)); // "(Two-Handed)"
 	} else {
-		sprintf(text, langGet(L_MPWEAPONS_213), // "Control Style %s %s"
+		snprintf(text, sizeof(text), langGet(L_MPWEAPONS_213), // "Control Style %s %s"
 				langGet(g_ControlStyleOptions[g_Menus[g_MpPlayerNum].main.controlmode]),
 				langGet(L_MPWEAPONS_214)); // "(One-Handed)"
 	}

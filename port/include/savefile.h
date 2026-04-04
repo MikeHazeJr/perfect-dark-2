@@ -28,6 +28,7 @@
 #define _IN_SAVEFILE_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,7 +38,7 @@ extern "C" {
  * Constants
  * ======================================================================== */
 
-#define SAVE_VERSION           1       /* increment when format changes */
+#define SAVE_VERSION           2       /* SA-4: string IDs replace raw integers */
 #define SAVE_NAME_MAX         32       /* max agent/player name */
 #define SAVE_TEAM_NAME_MAX    32       /* max team name */
 #define SAVE_SETUP_NAME_MAX   32       /* max MP setup name */
@@ -117,8 +118,8 @@ struct savemplayer {
     char name[SAVE_NAME_MAX];
 
     /* Appearance */
-    u8  mpheadnum;
-    u8  mpbodynum;
+    char head_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for head */
+    char body_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for body */
     u8  team;
     u32 displayoptions;
 
@@ -162,10 +163,10 @@ struct savemplayer {
 struct savempbot {
     u8  type;                          /* BOTTYPE_* */
     u8  difficulty;                    /* BOTDIFF_* */
-    u8  mpheadnum;
-    u8  mpbodynum;
     u8  team;
     char name[SAVE_NAME_MAX];          /* bot display name */
+    char head_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for head */
+    char body_id[CATALOG_ID_LEN];      /* SA-4: catalog string ID for body */
 };
 
 struct savempsetup {
@@ -174,7 +175,7 @@ struct savempsetup {
 
     /* Match config */
     u8  scenario;                      /* MPSCENARIO_* */
-    u8  stagenum;
+    char stage_id[CATALOG_ID_LEN];     /* SA-4: catalog string ID for stage */
     u8  timelimit;                     /* minutes */
     u8  scorelimit;
     u16 teamscorelimit;

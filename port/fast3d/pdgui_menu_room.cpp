@@ -25,6 +25,7 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -92,9 +93,10 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
  * Cannot include constants.h here (types.h bool conflict with C++). */
 #define MAX_PLAYERS 8
 
-/* Bridge: send CLC_LOBBY_START */
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty);
-s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty,
+/* Bridge: send CLC_LOBBY_START.
+ * stage_id: catalog ID string ("base:mp_complex", "base:defection", etc.) */
+s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty);
+s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty,
                                   u8 numSims, u8 simType, u8 timelimit, u32 options,
                                   u8 scenario, u8 scorelimit, u16 teamscorelimit,
                                   u8 weaponSetIndex);
@@ -161,6 +163,19 @@ s32 matchStart(void);
 /* Solo room close — defined in pdgui_lobby.cpp */
 void pdguiSoloRoomClose(void);
 
+/* Bot randomization (matchsetup.c) */
+void matchConfigRerollBot(s32 idx);
+
+/* R-3: Room networking — send leave to server */
+struct netbuf;
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+extern struct netbuf g_NetMsgRel;
+void netbufStartWrite(struct netbuf *buf);
+extern s32 g_NetMode;
+#define RM_NETMODE_NONE   0
+#define RM_NETMODE_CLIENT 2
+
 } /* extern "C" */
 
 /* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
@@ -173,16 +188,29 @@ extern const char *arenaGetName(u16 textId);
  * Replaces the old hardcoded table: catalog is the single source of truth.
  * ======================================================================== */
 
-struct arena_entry { char name[64]; s32 stagenum; };
+/* Catalog resolution — used to convert co-op mission stagenums to catalog IDs. */
+const char *catalogResolveStageByStagenum(s32 stagenum);
 
-static arena_entry s_Arenas[256];
+struct arena_entry { char name[64]; char id[64]; s32 stagenum; };
+
+static arena_entry *s_Arenas = NULL;
 static int s_NumArenas = 0;
+static int s_ArenasCapacity = 0;
 static bool s_ArenasBuilt = false;
 
 static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 {
     (void)userdata;
-    if (s_NumArenas >= 256) return;
+    if (s_NumArenas >= s_ArenasCapacity) {
+        int newCap = (s_ArenasCapacity == 0) ? 32 : s_ArenasCapacity * 2;
+        arena_entry *newBuf = (arena_entry *)realloc(s_Arenas, newCap * sizeof(arena_entry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "CATALOG: arena list realloc failed at %d entries", s_NumArenas);
+            return;
+        }
+        s_Arenas = newBuf;
+        s_ArenasCapacity = newCap;
+    }
 
     const char *name = arenaGetName((u16)e->ext.arena.name_langid);
     if (!name || !name[0]) {
@@ -194,15 +222,21 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 
     strncpy(s_Arenas[s_NumArenas].name, name, 63);
     s_Arenas[s_NumArenas].name[63] = '\0';
+    strncpy(s_Arenas[s_NumArenas].id, e->id, 63);
+    s_Arenas[s_NumArenas].id[63] = '\0';
     s_Arenas[s_NumArenas].stagenum = e->ext.arena.stagenum;
-    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" stagenum=0x%02x registered",
-        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].stagenum);
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" id='%s' stagenum=0x%02x registered",
+        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].id,
+        s_Arenas[s_NumArenas].stagenum);
     s_NumArenas++;
 }
 
 static void buildArenaListFromCatalog(void)
 {
+    free(s_Arenas);
+    s_Arenas = NULL;
     s_NumArenas = 0;
+    s_ArenasCapacity = 0;
     sysLogPrintf(LOG_NOTE, "CATALOG: building arena list from catalog (%d ASSET_ARENA entries)",
         assetCatalogGetCountByType(ASSET_ARENA));
     assetCatalogIterateByType(ASSET_ARENA, catalogArenaCollect, NULL);
@@ -339,10 +373,44 @@ static int s_CounterOpPlayer   = 0;  /* index into lobby player list = the count
 /* Arena picker state (index into s_Arenas[]) */
 static int s_SelectedArena = 0;
 
-/* Bot management state */
-static int  s_SelectedBotSlot = -1; /* g_MatchConfig.slots index; -1 = none selected */
+/* Bot management state — multi-select */
+static bool s_BotSelected[MATCH_MAX_SLOTS]; /* per-slot selection */
+static int  s_BotSelectCount  = 0;          /* cached count of selected bots */
 static bool s_BotModalOpen    = false;
-static int  s_EditBotSlotIdx  = -1; /* slot index being edited in the modal */
+static int  s_EditBotSlotIdx  = -1;         /* slot index being edited in the modal */
+
+/* Bot type names for context menu */
+static const char *s_BotTypeNames[] = {
+    "Normal", "Peace", "Shield", "Rocket", "Kaze", "Fist",
+    "Prey", "Coward", "Judge", "Feud", "Speed", "Turtle", "Venge",
+};
+static const int s_NumBotTypes = 13;
+
+static void botSelectClear(void) {
+    memset(s_BotSelected, 0, sizeof(s_BotSelected));
+    s_BotSelectCount = 0;
+}
+
+static void botSelectSet(int idx) {
+    botSelectClear();
+    if (idx >= 0 && idx < MATCH_MAX_SLOTS) {
+        s_BotSelected[idx] = true;
+        s_BotSelectCount = 1;
+    }
+}
+
+static void botSelectToggle(int idx) {
+    if (idx < 0 || idx >= MATCH_MAX_SLOTS) return;
+    s_BotSelected[idx] = !s_BotSelected[idx];
+    s_BotSelectCount += s_BotSelected[idx] ? 1 : -1;
+}
+
+static int botSelectFirst(void) {
+    for (int i = 0; i < MATCH_MAX_SLOTS; i++) {
+        if (s_BotSelected[i]) return i;
+    }
+    return -1;
+}
 
 /* Spawn weapon picker — index into s_SpawnWeapons (0 = Random) */
 static int s_SpawnWeaponIdx = 0;
@@ -357,7 +425,520 @@ static bool s_ShowLoadScenario  = false;
 static char s_SaveNameBuf[64]   = "";
 static char s_ScenarioFiles[SCENARIO_MAX_LIST][SCENARIO_PATH_MAX];
 static int  s_ScenarioCount     = 0;
+static int  s_ScenarioSelected  = -1;
 static char s_ScenarioStatusMsg[128] = "";
+
+/* ========================================================================
+ * Level Editor — state, data tables, and catalog helpers (tab 3)
+ * ======================================================================== */
+
+#define LE_MAX_SPAWNED      128     /* max objects that can be spawned */
+#define LE_CATALOG_MAX      512     /* catalog snapshot size */
+
+#define LE_INTERACT_STATIC  0
+#define LE_INTERACT_PICKUP  1
+#define LE_INTERACT_USE     2
+#define LE_INTERACT_DOOR    3
+
+/* Spawned object descriptor */
+struct le_spawned_t {
+    char  id[64];           /* catalog asset ID */
+    int   asset_type;       /* asset_type_e value */
+    float pos[3];           /* world position (set to camera pos on spawn) */
+    float scale[3];         /* per-axis scale */
+    bool  uniform_scale;    /* when true, X drives Y and Z */
+    int   tex_override_idx; /* index into catalog texture list, -1 = default */
+    bool  collision;        /* collision enabled */
+    int   interaction;      /* LE_INTERACT_* */
+};
+
+/* Catalog snapshot entry for the browser */
+struct le_cat_entry_t { char id[64]; int type; };
+
+static le_spawned_t   s_LESpawned[LE_MAX_SPAWNED];
+static int            s_LENumSpawned        = 0;
+static int            s_LESelectedSpawned   = -1;
+
+static le_cat_entry_t s_LECatalog[LE_CATALOG_MAX];
+static int            s_LECatalogCount      = 0;
+static bool           s_LECatalogBuilt      = false;
+static int            s_LECatalogBuiltType  = -99;
+
+/* Catalog browser UI state */
+static int  s_LETypeFilter = 0;
+static char s_LESearch[64] = "";
+static char s_LESelId[64]  = "";
+static int  s_LESelType    = 0;
+
+/* Whether the editor overlay is active */
+static bool  s_LEActive     = false;
+
+/* Stub free-fly camera state shown in overlay */
+static float s_LECamPos[3]  = { 0.0f, 100.0f, 0.0f };
+static float s_LECamYaw     = 0.0f;
+static float s_LECamPitch   = 0.0f;
+
+/* Type filter table */
+struct le_type_filter_t { const char *label; int type; };
+
+static const le_type_filter_t s_LETypeFilters[] = {
+    { "All",        -1              },
+    { "Props",      ASSET_PROP      },
+    { "Characters", ASSET_CHARACTER },
+    { "Weapons",    ASSET_WEAPON    },
+    { "Models",     ASSET_MODEL     },
+    { "Vehicles",   ASSET_VEHICLE   },
+    { "Maps",       ASSET_MAP       },
+    { "Textures",   ASSET_TEXTURE   },
+    { "Skins",      ASSET_SKIN      },
+};
+static const int s_LENumTypeFilters =
+    (int)(sizeof(s_LETypeFilters) / sizeof(s_LETypeFilters[0]));
+
+/* Interaction type names */
+static const char *s_LEInteractNames[] = { "Static", "Pickup", "Use", "Door" };
+static const int   s_LENumInteractTypes = 4;
+
+/* Catalog collect callback */
+static void leCatalogCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_LECatalogCount >= LE_CATALOG_MAX) return;
+    strncpy(s_LECatalog[s_LECatalogCount].id, e->id, 63);
+    s_LECatalog[s_LECatalogCount].id[63] = '\0';
+    s_LECatalog[s_LECatalogCount].type   = (int)e->type;
+    s_LECatalogCount++;
+}
+
+/* Build or rebuild the catalog snapshot for the current type filter */
+static void leBuildCatalog(void)
+{
+    int filterType = s_LETypeFilters[s_LETypeFilter].type;
+    int t;
+    s_LECatalogCount = 0;
+    if (filterType < 0) {
+        for (t = 1; t < (int)ASSET_TYPE_COUNT; t++) {
+            assetCatalogIterateByType((asset_type_e)t, leCatalogCollect, NULL);
+        }
+    } else {
+        assetCatalogIterateByType((asset_type_e)filterType, leCatalogCollect, NULL);
+    }
+    s_LECatalogBuilt     = true;
+    s_LECatalogBuiltType = filterType;
+}
+
+/* ========================================================================
+ * Level Editor — left panel: categorized catalog browser + spawn
+ * ======================================================================== */
+
+static void renderLevelEditorTab(float panelW, float panelH)
+{
+    float comboW     = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float btnH       = pdguiScale(26.0f);
+    int   filterType;
+    float listH;
+    float usedY;
+
+    ImGui::BeginChild("##le_left", ImVec2(panelW, panelH), false);
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor");
+    ImGui::TextDisabled("Spawn catalog assets into an empty level and explore freely.");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Asset type filter */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Asset Type");
+    ImGui::SetNextItemWidth(comboW);
+    if (ImGui::BeginCombo("##le_type", s_LETypeFilters[s_LETypeFilter].label)) {
+        for (int i = 0; i < s_LENumTypeFilters; i++) {
+            bool sel = (i == s_LETypeFilter);
+            if (ImGui::Selectable(s_LETypeFilters[i].label, sel)) {
+                s_LETypeFilter   = i;
+                s_LECatalogBuilt = false;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+
+    /* Search */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Search");
+    ImGui::SetNextItemWidth(comboW);
+    ImGui::InputText("##le_search", s_LESearch, sizeof(s_LESearch));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Rebuild catalog snapshot when filter changes */
+    filterType = s_LETypeFilters[s_LETypeFilter].type;
+    if (!s_LECatalogBuilt || s_LECatalogBuiltType != filterType) {
+        leBuildCatalog();
+    }
+
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f),
+                       "Catalog  (%d entries)", s_LECatalogCount);
+
+    usedY = ImGui::GetCursorPosY();
+    listH = panelH - usedY - btnH
+            - ImGui::GetStyle().ItemSpacing.y * 3.0f
+            - ImGui::GetStyle().WindowPadding.y;
+    if (listH < pdguiScale(60.0f)) listH = pdguiScale(60.0f);
+
+    ImGui::BeginChild("##le_catlist", ImVec2(comboW, listH), true,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    for (int i = 0; i < s_LECatalogCount; i++) {
+        /* Case-insensitive substring search */
+        if (s_LESearch[0] != '\0') {
+            char loID[64], loQ[64];
+            int  j;
+            const char *id = s_LECatalog[i].id;
+            const char *q  = s_LESearch;
+            for (j = 0; j < 63 && id[j]; j++)
+                loID[j] = (char)tolower((unsigned char)id[j]);
+            loID[j] = '\0';
+            for (j = 0; j < 63 && q[j]; j++)
+                loQ[j] = (char)tolower((unsigned char)q[j]);
+            loQ[j] = '\0';
+            if (!strstr(loID, loQ)) continue;
+        }
+
+        ImGui::PushID(i);
+        bool isSel = (strcmp(s_LESelId, s_LECatalog[i].id) == 0);
+
+        /* Short type tag */
+        const char *tag;
+        switch ((asset_type_e)s_LECatalog[i].type) {
+            case ASSET_PROP:        tag = "PROP"; break;
+            case ASSET_CHARACTER:   tag = "CHR";  break;
+            case ASSET_WEAPON:      tag = "WPN";  break;
+            case ASSET_MODEL:       tag = "MDL";  break;
+            case ASSET_VEHICLE:     tag = "VEH";  break;
+            case ASSET_MAP:         tag = "MAP";  break;
+            case ASSET_TEXTURE:     tag = "TEX";  break;
+            case ASSET_SKIN:        tag = "SKN";  break;
+            case ASSET_ARENA:       tag = "AREA"; break;
+            case ASSET_BODY:        tag = "BODY"; break;
+            case ASSET_HEAD:        tag = "HEAD"; break;
+            case ASSET_AUDIO:       tag = "SFX";  break;
+            default:                tag = "???";  break;
+        }
+
+        char row[96];
+        snprintf(row, sizeof(row), "[%s] %s", tag, s_LECatalog[i].id);
+
+        if (ImGui::Selectable(row, isSel)) {
+            strncpy(s_LESelId, s_LECatalog[i].id, 63);
+            s_LESelId[63] = '\0';
+            s_LESelType   = s_LECatalog[i].type;
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::EndChild(); /* ##le_catlist */
+
+    ImGui::Spacing();
+
+    /* Spawn button — only active when editor running and an entry is selected */
+    {
+        bool canSpawn = s_LEActive
+                        && (s_LESelId[0] != '\0')
+                        && (s_LENumSpawned < LE_MAX_SPAWNED);
+        if (!canSpawn) ImGui::BeginDisabled();
+        if (ImGui::Button("Spawn at Camera##le_spawn", ImVec2(comboW, btnH))) {
+            le_spawned_t *obj = &s_LESpawned[s_LENumSpawned++];
+            strncpy(obj->id, s_LESelId, 63);
+            obj->id[63]           = '\0';
+            obj->asset_type       = s_LESelType;
+            obj->pos[0]           = s_LECamPos[0];
+            obj->pos[1]           = s_LECamPos[1];
+            obj->pos[2]           = s_LECamPos[2];
+            obj->scale[0]         = 1.0f;
+            obj->scale[1]         = 1.0f;
+            obj->scale[2]         = 1.0f;
+            obj->uniform_scale    = true;
+            obj->tex_override_idx = -1;
+            obj->collision        = true;
+            obj->interaction      = LE_INTERACT_STATIC;
+            s_LESelectedSpawned   = s_LENumSpawned - 1;
+            sysLogPrintf(LOG_NOTE,
+                "LEVEL_EDITOR: spawned \"%s\" (type %d) at (%.1f, %.1f, %.1f)",
+                obj->id, obj->asset_type,
+                obj->pos[0], obj->pos[1], obj->pos[2]);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (!canSpawn) ImGui::EndDisabled();
+    }
+
+    if (!s_LEActive) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 1.0f),
+                           "Launch the editor below to enable spawning.");
+    }
+
+    ImGui::EndChild(); /* ##le_left */
+}
+
+/* ========================================================================
+ * Level Editor — right panel: spawned object list + property editor
+ * ======================================================================== */
+
+static void renderLevelEditorObjectPanel(float panelW, float panelH)
+{
+    float scale  = pdguiScaleFactor();
+    float btnH   = pdguiScale(24.0f);
+    float fieldW = 0.0f;
+
+    ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH), true);
+
+    /* ---- Spawned objects list ---- */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                       "Spawned Objects  (%d)", s_LENumSpawned);
+    ImGui::Separator();
+
+    {
+        float listH = panelH * 0.38f;
+        ImGui::BeginChild("##le_spawned_list", ImVec2(0.0f, listH), false,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+        if (s_LENumSpawned == 0) {
+            ImGui::TextDisabled("(none yet)");
+        }
+        for (int i = 0; i < s_LENumSpawned; i++) {
+            le_spawned_t *obj = &s_LESpawned[i];
+            ImGui::PushID(i);
+
+            bool isSel = (i == s_LESelectedSpawned);
+            char rowlabel[80];
+            snprintf(rowlabel, sizeof(rowlabel), "%s##obj%d", obj->id, i);
+            if (ImGui::Selectable(rowlabel, isSel,
+                                  ImGuiSelectableFlags_None,
+                                  ImVec2(panelW - pdguiScale(32.0f), 0.0f))) {
+                s_LESelectedSpawned = i;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            ImGui::SameLine();
+            {
+                char delLabel[16];
+                snprintf(delLabel, sizeof(delLabel), "X##d%d", i);
+                if (ImGui::SmallButton(delLabel)) {
+                    s_LESpawned[i] = s_LESpawned[s_LENumSpawned - 1];
+                    s_LENumSpawned--;
+                    if (s_LESelectedSpawned >= s_LENumSpawned)
+                        s_LESelectedSpawned = s_LENumSpawned - 1;
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild(); /* ##le_spawned_list */
+    }
+
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* ---- Property editor ---- */
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Properties");
+
+    if (s_LESelectedSpawned < 0 || s_LESelectedSpawned >= s_LENumSpawned) {
+        ImGui::TextDisabled("Select a spawned object to edit.");
+    } else {
+        le_spawned_t *obj = &s_LESpawned[s_LESelectedSpawned];
+        fieldW = panelW
+                 - 80.0f * scale
+                 - ImGui::GetStyle().WindowPadding.x * 2.0f
+                 - ImGui::GetStyle().ItemSpacing.x;
+        if (fieldW < pdguiScale(60.0f)) fieldW = pdguiScale(60.0f);
+
+        /* Position (read-only) */
+        ImGui::Text("Position:");
+        ImGui::SameLine(80.0f * scale);
+        ImGui::TextDisabled("(%.0f, %.0f, %.0f)",
+                            obj->pos[0], obj->pos[1], obj->pos[2]);
+
+        ImGui::Spacing();
+
+        /* Scale */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scale");
+        ImGui::Checkbox("Uniform##le_uni", &obj->uniform_scale);
+        if (obj->uniform_scale) {
+            ImGui::SetNextItemWidth(fieldW);
+            if (ImGui::SliderFloat("##le_scaleU", &obj->scale[0],
+                                   0.1f, 10.0f, "%.2f")) {
+                obj->scale[1] = obj->scale[0];
+                obj->scale[2] = obj->scale[0];
+            }
+        } else {
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("X##le_scaleX", &obj->scale[0], 0.1f, 10.0f, "%.2f");
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("Y##le_scaleY", &obj->scale[1], 0.1f, 10.0f, "%.2f");
+            ImGui::SetNextItemWidth(fieldW);
+            ImGui::SliderFloat("Z##le_scaleZ", &obj->scale[2], 0.1f, 10.0f, "%.2f");
+        }
+
+        ImGui::Spacing();
+
+        /* Collision */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Collision");
+        ImGui::Checkbox("Enabled##le_col", &obj->collision);
+
+        ImGui::Spacing();
+
+        /* Interaction type */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Interaction");
+        ImGui::SetNextItemWidth(fieldW);
+        if (ImGui::BeginCombo("##le_interact",
+                              s_LEInteractNames[obj->interaction])) {
+            for (int ii = 0; ii < s_LENumInteractTypes; ii++) {
+                bool sel = (ii == obj->interaction);
+                if (ImGui::Selectable(s_LEInteractNames[ii], sel)) {
+                    obj->interaction = ii;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Spacing();
+
+        /* Texture override */
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Texture Override");
+        {
+            int texCount = (int)assetCatalogGetCountByType(ASSET_TEXTURE);
+            if (texCount == 0) {
+                ImGui::TextDisabled("(no textures in catalog)");
+            } else {
+                int  showMax  = (texCount < 32) ? texCount : 32;
+                const char *texLabel = (obj->tex_override_idx < 0)
+                                       ? "Default" : "Custom";
+                ImGui::SetNextItemWidth(fieldW);
+                if (ImGui::BeginCombo("##le_tex", texLabel)) {
+                    bool selDef = (obj->tex_override_idx < 0);
+                    if (ImGui::Selectable("Default", selDef)) {
+                        obj->tex_override_idx = -1;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (selDef) ImGui::SetItemDefaultFocus();
+                    for (int ti = 0; ti < showMax; ti++) {
+                        char texEntry[32];
+                        snprintf(texEntry, sizeof(texEntry), "Texture %d", ti);
+                        bool selT = (obj->tex_override_idx == ti);
+                        if (ImGui::Selectable(texEntry, selT)) {
+                            obj->tex_override_idx = ti;
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        }
+                        if (selT) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (texCount > 32) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%d total)", texCount);
+                }
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* Clear All */
+        if (s_LENumSpawned > 0) {
+            if (ImGui::Button("Clear All##le_clearall",
+                              ImVec2(-1.0f, btnH))) {
+                s_LENumSpawned      = 0;
+                s_LESelectedSpawned = -1;
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+        }
+    }
+
+    ImGui::EndChild(); /* ##le_right_outer */
+}
+
+/* ========================================================================
+ * Level Editor — in-game floating overlay (shown when s_LEActive)
+ * ======================================================================== */
+
+static void renderLevelEditorOverlay(void)
+{
+    float oW     = pdguiScale(280.0f);
+    float oH     = pdguiScale(340.0f);
+    float exitW;
+    ImVec2 disp  = ImGui::GetIO().DisplaySize;
+
+    /* Pin to top-right corner */
+    ImGui::SetNextWindowPos(
+        ImVec2(disp.x - oW - pdguiScale(8.0f), pdguiScale(8.0f)),
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(oW, oH));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+
+    ImGuiWindowFlags oflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (!ImGui::Begin("Level Editor##leoverlay", nullptr, oflags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor  [Active]");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Camera info — stub until free-fly is wired to game camera */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Camera");
+    ImGui::Text("Pos:   %.1f, %.1f, %.1f",
+                s_LECamPos[0], s_LECamPos[1], s_LECamPos[2]);
+    ImGui::Text("Yaw: %.1f   Pitch: %.1f", s_LECamYaw, s_LECamPitch);
+    ImGui::TextDisabled("(free-fly: WASD + mouse -- in development)");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f),
+                       "Objects: %d / %d", s_LENumSpawned, LE_MAX_SPAWNED);
+
+    /* Selected object summary */
+    if (s_LESelectedSpawned >= 0 && s_LESelectedSpawned < s_LENumSpawned) {
+        le_spawned_t *obj = &s_LESpawned[s_LESelectedSpawned];
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Selected:");
+        ImGui::Text("  %s", obj->id);
+        ImGui::Text("  Pos (%.0f, %.0f, %.0f)",
+                    obj->pos[0], obj->pos[1], obj->pos[2]);
+        ImGui::Text("  Scale %.2f x %.2f x %.2f",
+                    obj->scale[0], obj->scale[1], obj->scale[2]);
+        ImGui::Text("  Collision: %s   Interact: %s",
+                    obj->collision ? "on" : "off",
+                    s_LEInteractNames[obj->interaction]);
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    exitW = oW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    if (ImGui::Button("Exit Level Editor##le_exit",
+                      ImVec2(exitW, pdguiScale(26.0f)))) {
+        s_LEActive = false;
+        sysLogPrintf(LOG_NOTE, "LEVEL_EDITOR: overlay closed.");
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+
+    ImGui::End();
+}
 
 /* ========================================================================
  * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawnWeaponNum
@@ -376,22 +957,27 @@ static void syncSpawnWeaponFromConfig(void)
 }
 
 /* ========================================================================
- * Helper: ensure arena index is consistent with g_MatchConfig.stagenum
+ * Helper: ensure arena index is consistent with g_MatchConfig.stage_id
  * ======================================================================== */
 
 static void syncArenaFromConfig(void)
 {
     if (s_NumArenas == 0) return;
 
-    for (int i = 0; i < s_NumArenas; i++) {
-        if (s_Arenas[i].stagenum == (s32)g_MatchConfig.stagenum) {
-            s_SelectedArena = i;
-            return;
+    /* Match by catalog ID (PRIMARY). */
+    if (g_MatchConfig.stage_id[0]) {
+        for (int i = 0; i < s_NumArenas; i++) {
+            if (strcmp(s_Arenas[i].id, g_MatchConfig.stage_id) == 0) {
+                s_SelectedArena = i;
+                return;
+            }
         }
     }
-    /* stagenum not in arena list — clamp picker and write it back */
+    /* stage_id not in list — clamp and write back the selected arena's id. */
     if (s_SelectedArena >= s_NumArenas) s_SelectedArena = 0;
-    g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
+    strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
+            sizeof(g_MatchConfig.stage_id) - 1);
+    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
 }
 
 /* ========================================================================
@@ -558,13 +1144,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 0.9f), "Bots");
     }
 
-    /* X-button width so we can right-justify it */
-    float xBtnW  = pdguiScale(20.0f);
-    float rowW   = panelW
-                   - ImGui::GetStyle().WindowPadding.x * 2.0f
-                   - xBtnW
-                   - ImGui::GetStyle().ItemSpacing.x * 2.0f
-                   - 4.0f; /* border */
+    /* Row layout */
+    float rowW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f - 4.0f;
 
     int removeSlot = -1; /* deferred removal — can't remove while iterating */
     for (int i = 1; i < g_MatchConfig.numSlots; i++) {
@@ -573,16 +1154,21 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
         ImGui::PushID(i);
 
-        bool selected = (s_SelectedBotSlot == i);
+        bool selected = s_BotSelected[i];
 
         char rowLabel[80];
         snprintf(rowLabel, sizeof(rowLabel), "[BOT] %s", sl->name);
 
-        /* Selectable row — single-click selects, double-click opens modal */
+        /* Selectable row — click selects, ctrl-click toggles, double-click edits */
         if (ImGui::Selectable(rowLabel, selected,
                               ImGuiSelectableFlags_AllowDoubleClick,
                               ImVec2(rowW, 0.0f))) {
-            s_SelectedBotSlot = selected ? -1 : i;
+            bool ctrl = ImGui::GetIO().KeyCtrl;
+            if (ctrl) {
+                botSelectToggle(i);
+            } else {
+                botSelectSet(i);
+            }
             if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
                 s_EditBotSlotIdx = i;
                 s_BotModalOpen   = true;
@@ -590,24 +1176,127 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
 
+        /* Right-click context menu OR gamepad X button */
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
+            (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft))) {
+            if (!s_BotSelected[i]) botSelectSet(i);
+            ImGui::OpenPopup("##bot_ctx");
+        }
+
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.4f, 0.8f),
                            "[%s]", s_SimDiffNames[sl->botDifficulty]);
 
-        /* X remove button — right-aligned */
-        ImGui::SameLine(panelW
-                        - ImGui::GetStyle().WindowPadding.x * 2.0f
-                        - xBtnW
-                        - 4.0f);
-        if (!isLeader) ImGui::BeginDisabled();
-        char xLabel[16];
-        snprintf(xLabel, sizeof(xLabel), "X##bx%d", i);
-        if (ImGui::SmallButton(xLabel)) {
-            removeSlot = i;
-            if (s_SelectedBotSlot == i) s_SelectedBotSlot = -1;
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        /* Context menu popup */
+        if (ImGui::BeginPopup("##bot_ctx")) {
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                               s_BotSelectCount > 1 ? "%d Bots Selected" : "Bot Options",
+                               s_BotSelectCount);
+            ImGui::Separator();
+
+            /* Rename (single bot only) */
+            if (s_BotSelectCount == 1 && isLeader) {
+                int si = botSelectFirst();
+                if (si >= 0 && si < g_MatchConfig.numSlots) {
+                    ImGui::Text("Name:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(pdguiScale(140.0f));
+                    ImGui::InputText("##ctx_name", g_MatchConfig.slots[si].name, MAX_PLAYER_NAME);
+                }
+            }
+
+            /* Bot AI (difficulty) — applies to all selected */
+            if (isLeader && ImGui::BeginMenu("Bot AI")) {
+                for (int d = 0; d < s_NumSimDiffs; d++) {
+                    if (ImGui::MenuItem(s_SimDiffNames[d])) {
+                        for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                            if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
+                                g_MatchConfig.slots[j].botDifficulty = (u8)d;
+                        }
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            /* Bot Type — applies to all selected */
+            if (isLeader && ImGui::BeginMenu("Bot Type")) {
+                for (int t = 0; t < s_NumBotTypes; t++) {
+                    if (ImGui::MenuItem(s_BotTypeNames[t])) {
+                        for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                            if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
+                                g_MatchConfig.slots[j].botType = (u8)t;
+                        }
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            /* Character — applies to all selected */
+            if (isLeader && ImGui::BeginMenu("Character")) {
+                u32 numBodies = mpGetNumBodies();
+                for (u32 b = 0; b < numBodies; b++) {
+                    char *bodyName = mpGetBodyName((u8)b);
+                    if (!bodyName || !bodyName[0]) continue;
+                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    if (ImGui::MenuItem(bodyName)) {
+                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                            if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                            if (bid) {
+                                strncpy(g_MatchConfig.slots[j].body_id, bid, sizeof(g_MatchConfig.slots[j].body_id) - 1);
+                                g_MatchConfig.slots[j].body_id[sizeof(g_MatchConfig.slots[j].body_id) - 1] = '\0';
+                            }
+                            if (hid) {
+                                strncpy(g_MatchConfig.slots[j].head_id, hid, sizeof(g_MatchConfig.slots[j].head_id) - 1);
+                                g_MatchConfig.slots[j].head_id[sizeof(g_MatchConfig.slots[j].head_id) - 1] = '\0';
+                            }
+                        }
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::Separator();
+
+            /* Duplicate — copies selected bots */
+            if (isLeader && ImGui::MenuItem("Duplicate")) {
+                for (int j = g_MatchConfig.numSlots - 1; j >= 1; j--) {
+                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                        struct matchslot *src = &g_MatchConfig.slots[j];
+                        matchConfigAddBot(src->botType, src->botDifficulty,
+                                          src->body_id, src->head_id, src->name);
+                    }
+                }
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+
+            /* Re-roll — random name + character for all selected */
+            if (isLeader && ImGui::MenuItem("Re-roll")) {
+                for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                        matchConfigRerollBot(j);
+                    }
+                }
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+
+            /* Remove — delete all selected */
+            if (isLeader && ImGui::MenuItem("Remove")) {
+                /* Remove in reverse to avoid index shifting */
+                for (int j = g_MatchConfig.numSlots - 1; j >= 1; j--) {
+                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                        matchConfigRemoveSlot(j);
+                    }
+                }
+                botSelectClear();
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+
+            ImGui::EndPopup();
         }
-        if (!isLeader) ImGui::EndDisabled();
 
         ImGui::PopID();
     }
@@ -615,6 +1304,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     /* Deferred removal */
     if (removeSlot >= 1) {
         matchConfigRemoveSlot(removeSlot);
+        botSelectClear();
     }
 
     ImGui::EndChild(); /* ##room_players_list */
@@ -627,17 +1317,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                   && (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
     if (!canAdd) ImGui::BeginDisabled();
     if (ImGui::Button("Add Bot", ImVec2(-1.0f, btnH))) {
-        /* If a bot is currently selected, copy its settings to the new bot */
-        u8   headnum = 0, bodynum = 0, diff = 2 /* NormalSim */;
-        if (s_SelectedBotSlot >= 1
-            && s_SelectedBotSlot < g_MatchConfig.numSlots
-            && g_MatchConfig.slots[s_SelectedBotSlot].type == SLOT_BOT) {
-            struct matchslot *src = &g_MatchConfig.slots[s_SelectedBotSlot];
-            headnum = src->headnum;
-            bodynum = src->bodynum;
-            diff    = src->botDifficulty;
-        }
-        matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, diff, headnum, bodynum, nullptr);
+        /* Random bot — no explicit body/head/name triggers generators */
+        matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, nullptr, nullptr, nullptr);
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
     if (!canAdd) ImGui::EndDisabled();
@@ -685,9 +1366,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             bool sel = (ai == s_SelectedArena);
             if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
                 s_SelectedArena = ai;
-                g_MatchConfig.stagenum = (u8)s_Arenas[ai].stagenum;
-                sysLogPrintf(LOG_NOTE, "CATALOG: arena selected \"%s\" stagenum=0x%02x",
-                    s_Arenas[ai].name, s_Arenas[ai].stagenum);
+                strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
+                        sizeof(g_MatchConfig.stage_id) - 1);
+                g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
+                    s_Arenas[ai].name, s_Arenas[ai].id);
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();
@@ -848,6 +1531,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     ImGui::SameLine();
     if (ImGui::Button("Load Scenario", ImVec2(halfW, sbtnH))) {
         s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+        s_ScenarioSelected = -1;
         s_ShowLoadScenario = true;
         s_ScenarioStatusMsg[0] = '\0';
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -1036,7 +1720,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
         matchConfigInit();
         syncArenaFromConfig();
-        s_SelectedBotSlot = -1;
+        botSelectClear();
         s_SpawnWeaponIdx  = 0;
         s_CodeGenerated   = false;
         s_MatchConfigInited = true;
@@ -1071,6 +1755,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)", s_IsSoloMode);
     }
 
     /* Opaque backdrop */
@@ -1129,7 +1814,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     bool isLeader = s_IsSoloMode || (lobbyIsLocalLeader() != 0);
 
     static const char *s_TabNames[] = {
-        "Combat Simulator", "Campaign", "Counter-Operative"
+        "Combat Simulator", "Campaign", "Counter-Operative", "Level Editor"
     };
 
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));
@@ -1138,7 +1823,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0.3f, 0.6f, 1.0f, 1.0f));
 
     if (ImGui::BeginTabBar("##room_tabs")) {
-        for (int t = 0; t < 3; t++) {
+        for (int t = 0; t < 4; t++) {
             bool tabOpen = ImGui::BeginTabItem(s_TabNames[t]);
             if (tabOpen) {
                 if (s_ActiveTab != t) {
@@ -1164,12 +1849,17 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         case 0: renderCombatSimTab(leftW, contentH, isLeader); break;
         case 1: renderCampaignTab (leftW, contentH, isLeader); break;
         case 2: renderCounterOpTab(leftW, contentH, isLeader); break;
+        case 3: renderLevelEditorTab(leftW, contentH); break;
     }
 
     ImGui::SameLine(0.0f, pad);
 
-    /* Right panel */
-    renderPlayerPanel(rightW, contentH, isLeader);
+    /* Right panel — Level Editor uses its own object/property panel */
+    if (s_ActiveTab == 3) {
+        renderLevelEditorObjectPanel(rightW, contentH);
+    } else {
+        renderPlayerPanel(rightW, contentH, isLeader);
+    }
 
     /* ---- Footer ---- */
     ImGui::Separator();
@@ -1177,7 +1867,23 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     float btnH = pdguiScale(28.0f);
 
-    if (isLeader) {
+    if (s_ActiveTab == 3) {
+        /* Level Editor tab: everyone can launch their own editor session */
+        float launchW = pdguiScale(180.0f);
+        if (ImGui::Button("Launch Level Editor##le_launch",
+                          ImVec2(launchW, btnH))) {
+            s_LEActive          = true;
+            s_LENumSpawned      = 0;
+            s_LESelectedSpawned = -1;
+            sysLogPrintf(LOG_NOTE,
+                "LEVEL_EDITOR: editor activated (free-fly camera in development).");
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (s_LEActive) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "[Editor Active]");
+        }
+    } else if (isLeader) {
         float startW = pdguiScale(140.0f);
         if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -1186,15 +1892,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 case 0: {
                     /* Combat Simulator */
                     if (s_NumArenas == 0) break;
-                    /* Sync the arena picker selection back into g_MatchConfig
-                     * so matchStart() reads the correct stagenum. */
-                    g_MatchConfig.stagenum = (u8)s_Arenas[s_SelectedArena].stagenum;
+                    /* Write stage_id (PRIMARY) into g_MatchConfig so matchStart()
+                     * can resolve stagenum from the catalog. */
+                    strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
+                            sizeof(g_MatchConfig.stage_id) - 1);
+                    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
                     sysLogPrintf(LOG_NOTE,
-                        "CATALOG: stage load initiated from arena picker: \"%s\" stagenum=0x%02x",
+                        "ROOM: stage selected: \"%s\" id='%s' stagenum=0x%02x",
                         s_Arenas[s_SelectedArena].name,
+                        s_Arenas[s_SelectedArena].id,
                         (int)s_Arenas[s_SelectedArena].stagenum);
                     if (s_IsSoloMode) {
-                        /* Solo play: configure g_MpSetup directly and start. */
+                        /* Solo play: matchStart() resolves stage_id → stagenum. */
                         pdguiSoloRoomClose();
                         s_MatchConfigInited = false;
                         matchStart();
@@ -1203,7 +1912,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         u8 simType  = getLeadSimType();
                         netLobbyRequestStartWithSims(
                             GAMEMODE_MP,
-                            (u8)s_Arenas[s_SelectedArena].stagenum,
+                            s_Arenas[s_SelectedArena].id,
                             0,
                             (u8)numBots,
                             simType,
@@ -1216,20 +1925,32 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                     }
                     break;
                 }
-                case 1:
-                    /* Campaign */
-                    netLobbyRequestStart(
-                        GAMEMODE_COOP,
-                        s_Missions[s_CampaignMission].stagenum,
-                        (u8)s_CampaignDiff);
+                case 1: {
+                    /* Campaign — resolve mission stagenum to catalog ID at callsite. */
+                    const char *coop_id = catalogResolveStageByStagenum(
+                        (s32)s_Missions[s_CampaignMission].stagenum);
+                    if (!coop_id) {
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM: no catalog entry for coop stagenum=0x%02x",
+                            (unsigned)s_Missions[s_CampaignMission].stagenum);
+                        break;
+                    }
+                    netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);
                     break;
-                case 2:
-                    /* Counter-Operative */
-                    netLobbyRequestStart(
-                        GAMEMODE_ANTI,
-                        s_Missions[s_CounterOpMission].stagenum,
-                        (u8)s_CounterOpDiff);
+                }
+                case 2: {
+                    /* Counter-Operative — same pattern. */
+                    const char *anti_id = catalogResolveStageByStagenum(
+                        (s32)s_Missions[s_CounterOpMission].stagenum);
+                    if (!anti_id) {
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM: no catalog entry for anti stagenum=0x%02x",
+                            (unsigned)s_Missions[s_CounterOpMission].stagenum);
+                        break;
+                    }
+                    netLobbyRequestStart(GAMEMODE_ANTI, anti_id, (u8)s_CounterOpDiff);
                     break;
+                }
             }
         }
 
@@ -1249,12 +1970,20 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE via %s/ESC (solo=%d)",
+                     leaveLabel, s_IsSoloMode);
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
         if (s_IsSoloMode) {
             pdguiSoloRoomClose();  /* return to main menu */
         } else {
+            /* R-3: Tell server we're leaving the room */
+            if (g_NetMode == RM_NETMODE_CLIENT) {
+                netbufStartWrite(&g_NetMsgRel);
+                netmsgClcRoomLeaveWrite(&g_NetMsgRel);
+                netSend(NULL, &g_NetMsgRel, 1, 0);
+            }
             pdguiSetInRoom(0);  /* return to social lobby, stay connected */
         }
     }
@@ -1307,22 +2036,39 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
             /* Character */
             u32 numBodies = mpGetNumBodies();
-            const char *curBody = (sl->bodynum < (u8)numBodies)
-                                   ? mpGetBodyName(sl->bodynum) : "?";
+            /* Resolve current display name from catalog ID (PRIMARY). */
+            const char *curBody = "?";
+            if (sl->body_id[0]) {
+                for (u32 b2 = 0; b2 < numBodies; b2++) {
+                    const char *bid2 = catalogResolveBodyByMpIndex((s32)b2);
+                    if (bid2 && strcmp(bid2, sl->body_id) == 0) {
+                        char *n = mpGetBodyName((u8)b2);
+                        if (n && n[0]) curBody = n;
+                        break;
+                    }
+                }
+            }
             ImGui::Text("Character:");
             ImGui::SameLine(labelCol);
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##botmodalchar",
-                                   curBody ? curBody : "?")) {
+            if (ImGui::BeginCombo("##botmodalchar", curBody)) {
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
                     if (!bodyName || !bodyName[0]) continue;
-                    bool sel = (b == (u32)sl->bodynum);
+                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
                     char bLabel[64];
                     snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
                     if (ImGui::Selectable(bLabel, sel)) {
-                        sl->bodynum = (u8)b;
-                        sl->headnum = (u8)b;
+                        if (bid) {
+                            strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
+                            sl->body_id[sizeof(sl->body_id) - 1] = '\0';
+                        }
+                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        if (hid) {
+                            strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
+                            sl->head_id[sizeof(sl->head_id) - 1] = '\0';
+                        }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
                     if (sel) ImGui::SetItemDefaultFocus();
@@ -1371,10 +2117,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         float bw = pdguiScale(100.0f);
         if (ImGui::Button("Save", ImVec2(bw, 0.0f))) {
             if (s_SaveNameBuf[0]) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE \"%s\"", s_SaveNameBuf);
                 if (scenarioSave(s_SaveNameBuf) == 0) {
+                    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE OK \"%s\"", s_SaveNameBuf);
                     snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
                              "Saved: %s", s_SaveNameBuf);
                 } else {
+                    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE FAILED \"%s\"", s_SaveNameBuf);
                     snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
                              "Save failed.");
                 }
@@ -1428,23 +2177,31 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
 
                 ImGui::PushID(i);
-                if (ImGui::Selectable(displayName, false,
+                bool isSel = (i == s_ScenarioSelected);
+                if (ImGui::Selectable(displayName, isSel,
                                       ImGuiSelectableFlags_AllowDoubleClick)) {
-                    /* Single-click or double-click: load and close */
-                    s32 humanCount = lobbyGetPlayerCount();
-                    if (humanCount < 1) humanCount = 1;
-                    if (scenarioLoad(fullPath, humanCount) == 0) {
-                        syncArenaFromConfig();
-                        syncSpawnWeaponFromConfig();
-                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
-                                 "Loaded: %s", displayName);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
-                    } else {
-                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
-                                 "Load failed.");
-                        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_ScenarioSelected = i;
+                    if (ImGui::IsMouseDoubleClicked(0)) {
+                        /* Double-click: load and close */
+                        s32 humanCount = lobbyGetPlayerCount();
+                        if (humanCount < 1) humanCount = 1;
+                        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d",
+                                     displayName, humanCount);
+                        if (scenarioLoad(fullPath, humanCount) == 0) {
+                            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD OK \"%s\"", displayName);
+                            syncArenaFromConfig();
+                            syncSpawnWeaponFromConfig();
+                            snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                     "Loaded: %s", displayName);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        } else {
+                            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD FAILED \"%s\"", displayName);
+                            snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                     "Load failed.");
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        }
+                        ImGui::CloseCurrentPopup();
                     }
-                    ImGui::CloseCurrentPopup();
                 }
                 ImGui::PopID();
             }
@@ -1453,7 +2210,62 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
 
         ImGui::Spacing();
-        if (ImGui::Button("Close", ImVec2(pdguiScale(100.0f), 0.0f))) {
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        float fbw = pdguiScale(100.0f);
+        bool hasSelection = (s_ScenarioSelected >= 0 && s_ScenarioSelected < s_ScenarioCount);
+
+        if (!hasSelection) ImGui::BeginDisabled();
+        if (ImGui::Button("Load", ImVec2(fbw, 0.0f))) {
+            const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
+            const char *slash = strrchr(fullPath, '/');
+            if (!slash) slash = strrchr(fullPath, '\\');
+            const char *fname = slash ? slash + 1 : fullPath;
+            char displayName[SCENARIO_PATH_MAX];
+            strncpy(displayName, fname, sizeof(displayName) - 1);
+            displayName[sizeof(displayName) - 1] = '\0';
+            size_t dlen2 = strlen(displayName);
+            if (dlen2 > 5 && strcmp(displayName + dlen2 - 5, ".json") == 0)
+                displayName[dlen2 - 5] = '\0';
+            s32 humanCount = lobbyGetPlayerCount();
+            if (humanCount < 1) humanCount = 1;
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d", displayName, humanCount);
+            if (scenarioLoad(fullPath, humanCount) == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD OK \"%s\"", displayName);
+                syncArenaFromConfig();
+                syncSpawnWeaponFromConfig();
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Loaded: %s", displayName);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD FAILED \"%s\"", displayName);
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Load failed.");
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (!hasSelection) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        if (!hasSelection) ImGui::BeginDisabled();
+        if (ImGui::Button("Delete", ImVec2(fbw, 0.0f))) {
+            const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario DELETE \"%s\"", fullPath);
+            if (scenarioDelete(fullPath) == 0) {
+                /* Refresh list */
+                s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+                s_ScenarioSelected = -1;
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Deleted.");
+            } else {
+                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Delete failed.");
+            }
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        if (!hasSelection) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(fbw, 0.0f))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             ImGui::CloseCurrentPopup();
         }
@@ -1462,6 +2274,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     }
 
     ImGui::End();
+
+    /* Level editor floating overlay — rendered as a separate window */
+    if (s_LEActive) {
+        renderLevelEditorOverlay();
+    }
 }
 
 /* ========================================================================
@@ -1476,6 +2293,10 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    free(s_Arenas);
+    s_Arenas            = NULL;
+    s_NumArenas         = 0;
+    s_ArenasCapacity    = 0;
     s_ArenasBuilt       = false;
     s_CodeGenerated     = false;
     s_IsSoloMode        = false;  /* caller sets via pdguiRoomScreenSetSolo() after reset */
@@ -1486,7 +2307,7 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpDiff     = DIFF_A;
     s_CounterOpPlayer   = 0;
     s_SelectedArena     = 0;
-    s_SelectedBotSlot   = -1;
+    botSelectClear();
     s_BotModalOpen      = false;
     s_EditBotSlotIdx    = -1;
     s_SpawnWeaponIdx    = 0;

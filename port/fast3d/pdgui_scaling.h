@@ -5,7 +5,8 @@
  *
  * All ImGui menus use these helpers instead of hardcoded pixel values.
  *
- * Baseline: 720p (1280x720). Scale factor = DisplaySize.y / 720.0f
+ * Baseline: 720p (1280x720). Scale factor = (DisplaySize.y / 720.0f) * uiScaleMult
+ * uiScaleMult is user-configurable (0.5–2.0, default 1.0) via Video settings.
  *
  * Usage
  * -----
@@ -33,15 +34,23 @@
 
 #include "imgui/imgui.h"
 
+/* Forward declaration so pdguiScaleFactor() can apply the user multiplier
+ * without pulling in all of video.h (which uses C types incompatible with
+ * some C++ translation units). */
+extern "C" float videoGetUiScaleMult(void);
+
 /**
- * Base scale factor relative to 720p.
- * Floor: 0.5 (readability minimum below ~360p).
+ * Base scale factor relative to 720p, multiplied by the user's UI scale setting.
+ * Auto-scale floor: 0.5 (readability minimum below ~360p).
+ * Combined result floor: 0.25 (allows user to shrink UI on very small displays).
  */
 static inline float pdguiScaleFactor()
 {
     float h = ImGui::GetIO().DisplaySize.y;
     float f = (h > 0.0f) ? h / 720.0f : 1.0f;
     if (f < 0.5f) f = 0.5f;
+    f *= videoGetUiScaleMult();
+    if (f < 0.25f) f = 0.25f;
     return f;
 }
 

@@ -25,8 +25,14 @@
 #include "game/challenge.h"
 #include "romdata.h"
 #include "modelcatalog.h"
+#include "assetcatalog.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
+#include "input.h"
+#include "pdmain.h"
+#include "fs.h"
+#include <stdlib.h>
+#include <stdio.h>
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -74,13 +80,22 @@ void matchConfigInit(void)
 	 *   scorelimit: value + 1 kills.  0 = 1 kill, 9 = 10 kills, >=100 = no limit.
 	 *   teamscorelimit: similar, >=400 = no limit. */
 	g_MatchConfig.scenario = MPSCENARIO_COMBAT;
-	g_MatchConfig.stagenum = STAGE_MP_COMPLEX;
+	/* stage_id is PRIMARY — resolve stagenum from it at matchStart().
+	 * Default arena: Complex ("base:mp_complex"). */
+	strncpy(g_MatchConfig.stage_id, "base:mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
+	g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+	{
+		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
+		g_MatchConfig.stagenum = (ae && ae->type == ASSET_ARENA)
+		    ? (u8)ae->ext.arena.stagenum : 0u;
+	}
 	g_MatchConfig.timelimit = 60;     /* no time limit (>=60 disables timer) */
 	g_MatchConfig.scorelimit = 9;     /* first to 10 kills */
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
-	g_MatchConfig.options = 0;
+	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
+	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
-	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
 	g_MatchConfig.numSlots = 0;
 
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
@@ -92,8 +107,24 @@ void matchConfigInit(void)
 	struct matchslot *s0 = &g_MatchConfig.slots[0];
 	s0->type = SLOT_PLAYER;
 	s0->team = 0;
-	s0->headnum = g_PlayerConfigsArray[0].base.mpheadnum;
-	s0->bodynum = g_PlayerConfigsArray[0].base.mpbodynum;
+	/* Resolve catalog IDs from mpbodynum/mpheadnum — these are the PRIMARY identity. */
+	{
+		const u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
+		const u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
+		const char *bid = catalogResolveBodyByMpIndex((s32)mpbody);
+		const char *hid = catalogResolveHeadByMpIndex((s32)mphead);
+		strncpy(s0->body_id,
+		        bid ? bid : "base:dark_combat",
+		        sizeof(s0->body_id) - 1);
+		s0->body_id[sizeof(s0->body_id) - 1] = '\0';
+		strncpy(s0->head_id,
+		        hid ? hid : "base:head_dark_combat",
+		        sizeof(s0->head_id) - 1);
+		s0->head_id[sizeof(s0->head_id) - 1] = '\0';
+		/* Cache derived mpbodynum/mpheadnum — matchStart re-derives but keep in sync */
+		s0->bodynum = mpbody;
+		s0->headnum = mphead;
+	}
 
 	/* Get the agent name from g_GameFile (loaded from save data).
 	 * The old menu flow copies this via dialog handlers, but since we
@@ -117,15 +148,236 @@ void matchConfigInit(void)
 	}
 	g_MatchConfig.numSlots = 1;
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: config initialized — player '%s' body=%d head=%d",
-	             s0->name, s0->bodynum, s0->headnum);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: config initialized — player '%s' body_id='%s' head_id='%s'",
+	             s0->name, s0->body_id, s0->head_id);
+}
+
+/* ========================================================================
+ * Bot name + character randomization
+ * ======================================================================== */
+
+/* Bot name dictionaries — 256 entries each.
+ * Combined "[adj] [name]" must fit in 14 chars (mpchrconfig.name limit).
+ * Mods can override by placing botnames_adj.txt / botnames_noun.txt in their
+ * mod folder (one word per line, max 8 chars each). The FS layer resolves
+ * mod files with priority over base data. */
+
+static const char *s_DefaultBotAdj[] = {
+	/* Action/verb-style */
+	"Runnin","Sneaky","Farmin","Slidin","Lurkin","Jumpin","Rollin","Creepin",
+	"Dozin","Flexin","Fumblin","Hustlin","Idlin","Joggin","Kickin","Loafin",
+	"Nappin","Pacin","Roamin","Sittin","Vibin","Walkin","Yeelin","Zoomin",
+	/* Physical */
+	"Fat","Tiny","Big","Lanky","Pudgy","Lumpy","Blobby","Stumpy",
+	"Thicc","Scrawny","Chunky","Gangly","Broad","Gaunt","Husky","Burly",
+	"Petite","Stocky","Wiry","Squat","Hulkin","Beefy","Tubby","Stout",
+	/* Adjective */
+	"Crusty","Dopey","Greasy","Manky","Mushy","Nasal","Soggy","Wonky",
+	"Gassy","Clammy","Grumpy","Salty","Wheezy","Clunky","Funky","Squishy",
+	"Cranky","Stinky","Wobbly","Dizzy","Rusty","Floppy","Burpy","Drippy",
+	"Queasy","Rancid","Bumpy","Crushed","Dusty","Fizzy","Grimy","Gusty",
+	/* Personality */
+	"Angry","Sad","Shy","Bold","Calm","Dense","Edgy","Fierce",
+	"Gentle","Hardy","Jolly","Keen","Loud","Meek","Noble","Plucky",
+	"Rowdy","Sly","Tense","Uptight","Vivid","Wild","Zany","Moody",
+	/* Texture/material */
+	"Crispy","Crunchy","Gooey","Fuzzy","Slimy","Slick","Smooth","Rough",
+	"Sticky","Flaky","Chalky","Silky","Gritty","Foamy","Chewy","Soggy",
+	/* Name-style first words */
+	"Hingle","Doink","Bimbus","Shmoop","Gronk","Skuzz","Plimbo","Fingle",
+	"Blorp","Chumbo","Dweeb","Flonk","Gunge","Honk","Jimbo","Klonk",
+	/* Greased-up / compound (short) */
+	"Greased","Oiled","Buttery","Sweaty","Soaked","Frosted","Toasty","Cooked",
+	"Baked","Fried","Steamed","Grilled","Poached","Smoked","Salted","Pickled",
+	/* Funny misc */
+	"Gay","Moist","Turbo","Ultra","Mega","Hyper","Super","Uber",
+	"Lil","Old","Wee","Raw","Hot","Cold","Dry","Wet",
+	"Evil","Holy","Dark","Void","Dank","Rare","Epic","Bogus",
+	"Spicy","Zesty","Tangy","Bland","Mild","Tart","Sweet","Sour",
+	/* More variety */
+	"Basic","Fancy","Plain","Slap","Limp","Brisk","Stark","Blunt",
+	"Cheap","Posh","Rank","Sketchy","Dodgy","Iffy","Grim","Dire",
+	"Wack","Bonk","Gonk","Dank","Jank","Yeet","Based","Cringe",
+	"Spooky","Eerie","Cursed","Haunted","Ghostly","Ashy","Musty","Moldy",
+};
+#define NUM_DEFAULT_ADJ (sizeof(s_DefaultBotAdj) / sizeof(s_DefaultBotAdj[0]))
+
+static const char *s_DefaultBotNoun[] = {
+	/* User-specified names */
+	"Hershel","Doris","Irene","Truman","Hatman","Lad","Skittle","Smiff",
+	"Teeth","Nick","Carlos","Gork","EEEEEEE",
+	/* Original set */
+	"Tud","Rodrick","Frunge","Stanley","Jenkins","Gorp","Blimpo","Sneed",
+	"Winkle","Gribble","Plonk","Dingle","Spudge","Crambo","Muggins","Dorkus",
+	"Flimble","Noodge","Cletus","Gormley","Pickles","Barnaby","Squib",
+	/* Classic silly names */
+	"Grungo","Bort","Clump","Thud","Splunk","Drongo","Fungus","Grelb",
+	"Honkus","Jimbus","Klang","Lorf","Morp","Nub","Ogbert","Prunt",
+	"Quimby","Runt","Slurp","Twerp","Ulp","Vronk","Whelk","Yonk","Zonk",
+	/* Surname-style */
+	"Smithers","Higgins","Perkins","Dawkins","Dobbs","Griggs","Hobbs","Judkins",
+	"Kruggs","Lumley","Muffins","Norbert","Pudding","Quentin","Ruggles","Snodgrass",
+	"Tompkins","Wiggins","Crumbs","Figgins","Guppy","Hubble","Dibbles","Fudge",
+	/* Pop-culture-ish */
+	"Bingus","Dingus","Goober","Boomer","Zoomer","Gamer","Karen","Chad",
+	"Chonk","Stonks","Yolo","Bruh","Pleb","Noob","Simp","Chungus",
+	/* Food names */
+	"Turnip","Potato","Biscuit","Waffle","Nugget","Dumpling","Pretzel","Muffin",
+	"Sausage","Pancake","Crouton","Gherkin","Noodle","Radish","Tofu","Sprout",
+	/* Object names */
+	"Bucket","Plunger","Sponge","Wrench","Cactus","Anvil","Brick","Cork",
+	"Hinge","Knob","Plug","Shelf","Stump","Wedge","Trunk","Bolt",
+	/* Animal-adjacent */
+	"Badger","Ferret","Newt","Toad","Gecko","Stoat","Slug","Grub",
+	"Shrimp","Roach","Gnat","Moth","Crab","Clam","Snail","Worm",
+	/* More fun names */
+	"Herb","Mort","Earl","Ned","Gus","Bud","Clem","Vern",
+	"Otis","Floyd","Merle","Bruno","Angus","Rufus","Boris","Hank",
+	"Agnes","Mabel","Ethel","Pearl","Myrtle","Gladys","Eunice","Bertha",
+	"Norma","Edna","Selma","Wilma","Helga","Olga","Brunhild","Maude",
+	/* Absurd compound */
+	"Bingbong","Dingdong","Goopus","Shlorp","Blungus","Crumbus","Dongus","Flarb",
+	"Glorb","Hunkus","Jelp","Klonkus","Mungus","Norkle","Plimbus","Quonk",
+	/* More names */
+	"Reginald","Percival","Thaddeus","Chadwick","Montague","Cornelius","Barnacle","Numbskull",
+	"Bumstead","Thudwick","Plonker","Shlumpf","Gruntle","Smorkle","Blarney","Crumpet",
+	"Scooter","Binky","Moomoo","Chowder","Brisket","Baguette","Crimp","Dweezil",
+	"Flange","Giblet","Haggis","Inkblot","Jetsam","Kibble","Lint","Morsel",
+};
+#define NUM_DEFAULT_NOUN (sizeof(s_DefaultBotNoun) / sizeof(s_DefaultBotNoun[0]))
+
+/* Runtime name pools — initialized from defaults, can be overridden by mod files.
+ * botnames_adj.txt and botnames_noun.txt: one word per line, max 8 chars per word.
+ * Placed in data/ or a mod's root folder. */
+#define BOT_NAME_MAX_WORD 14 /* 13 chars + null — words can be longer for ImGui display */
+#define BOT_NAME_POOL_MAX 256
+
+static char s_AdjPool[BOT_NAME_POOL_MAX][BOT_NAME_MAX_WORD];
+static s32  s_AdjCount = 0;
+static char s_NounPool[BOT_NAME_POOL_MAX][BOT_NAME_MAX_WORD];
+static s32  s_NounCount = 0;
+static bool s_NamesLoaded = false;
+
+static s32 loadNameFile(const char *filename, char pool[][BOT_NAME_MAX_WORD], s32 maxEntries)
+{
+	s32 count = 0;
+	FILE *f = fsFileOpenRead(filename);
+	if (!f) return 0;
+
+	char line[64];
+	while (count < maxEntries && fgets(line, sizeof(line), f)) {
+		/* Strip newline/carriage return */
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+			line[--len] = '\0';
+		}
+		if (len == 0 || len >= BOT_NAME_MAX_WORD) continue;
+		strncpy(pool[count], line, BOT_NAME_MAX_WORD - 1);
+		pool[count][BOT_NAME_MAX_WORD - 1] = '\0';
+		count++;
+	}
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "BOTNAMES: loaded %d entries from %s", count, filename);
+	return count;
+}
+
+static void ensureNamePoolsLoaded(void)
+{
+	if (s_NamesLoaded) return;
+	s_NamesLoaded = true;
+
+	/* Try loading mod-overridable files first */
+	s_AdjCount = loadNameFile("botnames_adj.txt", s_AdjPool, BOT_NAME_POOL_MAX);
+	s_NounCount = loadNameFile("botnames_noun.txt", s_NounPool, BOT_NAME_POOL_MAX);
+
+	/* Fall back to built-in defaults if no files found */
+	if (s_AdjCount == 0) {
+		s32 n = NUM_DEFAULT_ADJ < BOT_NAME_POOL_MAX ? (s32)NUM_DEFAULT_ADJ : BOT_NAME_POOL_MAX;
+		for (s32 i = 0; i < n; i++) {
+			strncpy(s_AdjPool[i], s_DefaultBotAdj[i], BOT_NAME_MAX_WORD - 1);
+			s_AdjPool[i][BOT_NAME_MAX_WORD - 1] = '\0';
+		}
+		s_AdjCount = n;
+	}
+	if (s_NounCount == 0) {
+		s32 n = NUM_DEFAULT_NOUN < BOT_NAME_POOL_MAX ? (s32)NUM_DEFAULT_NOUN : BOT_NAME_POOL_MAX;
+		for (s32 i = 0; i < n; i++) {
+			strncpy(s_NounPool[i], s_DefaultBotNoun[i], BOT_NAME_MAX_WORD - 1);
+			s_NounPool[i][BOT_NAME_MAX_WORD - 1] = '\0';
+		}
+		s_NounCount = n;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BOTNAMES: %d adjectives, %d nouns ready", s_AdjCount, s_NounCount);
+}
+
+static void generateBotName(char *dst, s32 maxLen)
+{
+	ensureNamePoolsLoaded();
+	if (s_AdjCount == 0 || s_NounCount == 0) {
+		snprintf(dst, maxLen, "Bot %d", rand() % 999);
+		return;
+	}
+	s32 ai = rand() % s_AdjCount;
+	s32 ni = rand() % s_NounCount;
+	snprintf(dst, maxLen, "%s %s", s_AdjPool[ai], s_NounPool[ni]);
+}
+
+static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)
+{
+	u32 numBodies = mpGetNumBodies();
+	if (numBodies == 0) {
+		strncpy(body_id, "base:dark_combat", bodyLen - 1);
+		body_id[bodyLen - 1] = '\0';
+		strncpy(head_id, "base:head_dark_combat", headLen - 1);
+		head_id[headLen - 1] = '\0';
+		return;
+	}
+
+	/* Try up to 10 times to avoid duplicate body with existing bots */
+	const char *picked_body = NULL;
+	for (s32 attempt = 0; attempt < 10; attempt++) {
+		u32 idx = rand() % numBodies;
+		picked_body = catalogResolveBodyByMpIndex(idx);
+		if (!picked_body || !picked_body[0]) continue;
+
+		/* Check for duplicates among existing slots */
+		bool dup = false;
+		for (s32 s = 0; s < g_MatchConfig.numSlots; s++) {
+			if (g_MatchConfig.slots[s].type != SLOT_EMPTY &&
+			    strcmp(g_MatchConfig.slots[s].body_id, picked_body) == 0) {
+				dup = true;
+				break;
+			}
+		}
+		if (!dup || attempt == 9) break;
+		picked_body = NULL;
+	}
+
+	if (!picked_body || !picked_body[0]) {
+		picked_body = "base:dark_combat";
+	}
+
+	strncpy(body_id, picked_body, bodyLen - 1);
+	body_id[bodyLen - 1] = '\0';
+
+	/* Pair with default head for this body */
+	const char *paired_head = catalogGetBodyDefaultHead(picked_body);
+	if (paired_head && paired_head[0]) {
+		strncpy(head_id, paired_head, headLen - 1);
+	} else {
+		strncpy(head_id, "base:head_dark_combat", headLen - 1);
+	}
+	head_id[headLen - 1] = '\0';
 }
 
 /* ========================================================================
  * Slot management — called from ImGui bridge
  * ======================================================================== */
 
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, const char *name)
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
+                      const char *head_id, const char *name)
 {
 	if (g_MatchConfig.numSlots >= MATCH_MAX_SLOTS) {
 		return -1;
@@ -136,26 +388,45 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, cons
 	slot->type = SLOT_BOT;
 	slot->botType = botType;
 	slot->botDifficulty = botDifficulty;
-	slot->headnum = headnum;
-	slot->bodynum = bodynum;
 	slot->team = 0;
+
+	/* Set catalog IDs as PRIMARY identity. Random if not specified. */
+	if (body_id && body_id[0]) {
+		strncpy(slot->body_id, body_id, sizeof(slot->body_id) - 1);
+		slot->body_id[sizeof(slot->body_id) - 1] = '\0';
+		strncpy(slot->head_id,
+		        (head_id && head_id[0]) ? head_id : "base:head_dark_combat",
+		        sizeof(slot->head_id) - 1);
+		slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+	} else {
+		pickRandomBodyHead(slot->body_id, sizeof(slot->body_id),
+		                   slot->head_id, sizeof(slot->head_id));
+	}
+
+	/* Derive cached mpbodynum/mpheadnum from catalog for legacy path.
+	 * matchStart() re-derives at the last moment; these are just for display. */
+	slot->bodynum = 0; /* MPBODY_DARK_COMBAT default */
+	slot->headnum = 0; /* MPHEAD_DARK_COMBAT default */
+	{
+		const asset_entry_t *be = assetCatalogResolve(slot->body_id);
+		if (be && be->type == ASSET_BODY) {
+			const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+			if (mpb >= 0) slot->bodynum = (u8)mpb;
+		}
+	}
+	{
+		const asset_entry_t *he = assetCatalogResolve(slot->head_id);
+		if (he && he->type == ASSET_HEAD) {
+			const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+			if (mph >= 0) slot->headnum = (u8)mph;
+		}
+	}
 
 	if (name && name[0]) {
 		strncpy(slot->name, name, MAX_PLAYER_NAME - 1);
 		slot->name[MAX_PLAYER_NAME - 1] = '\0';
 	} else {
-		/* Generate default name from bot type */
-		static const char *botTypeNames[] = {
-			"NormalSim", "PeaceSim", "ShieldSim", "RocketSim",
-			"KazeSim", "FistSim", "PreySim", "CowardSim",
-			"JudgeSim", "FeudSim", "SpeedSim", "TurtleSim", "VengeSim"
-		};
-		if (botType < ARRAYCOUNT(botTypeNames)) {
-			strncpy(slot->name, botTypeNames[botType], MAX_PLAYER_NAME - 1);
-		} else {
-			snprintf(slot->name, MAX_PLAYER_NAME, "Bot %d", idx);
-		}
-		slot->name[MAX_PLAYER_NAME - 1] = '\0';
+		generateBotName(slot->name, MAX_PLAYER_NAME);
 	}
 
 	g_MatchConfig.numSlots++;
@@ -178,14 +449,39 @@ s32 matchConfigRemoveSlot(s32 idx)
 	return 0;
 }
 
+void matchConfigRerollBot(s32 idx)
+{
+	if (idx < 1 || idx >= g_MatchConfig.numSlots) return;
+	struct matchslot *sl = &g_MatchConfig.slots[idx];
+	if (sl->type != SLOT_BOT) return;
+
+	generateBotName(sl->name, MAX_PLAYER_NAME);
+	pickRandomBodyHead(sl->body_id, sizeof(sl->body_id),
+	                   sl->head_id, sizeof(sl->head_id));
+
+	/* Re-derive cached mpbodynum/mpheadnum */
+	sl->bodynum = 0;
+	sl->headnum = 0;
+	const asset_entry_t *be = assetCatalogResolve(sl->body_id);
+	if (be && be->type == ASSET_BODY) {
+		s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+		if (mpb >= 0) sl->bodynum = (u8)mpb;
+	}
+	const asset_entry_t *he = assetCatalogResolve(sl->head_id);
+	if (he && he->type == ASSET_HEAD) {
+		s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+		if (mph >= 0) sl->headnum = (u8)mph;
+	}
+}
+
 /* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */
 
 s32 matchStart(void)
 {
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage=0x%02x",
-	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stagenum);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage='%s'",
+	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stage_id);
 
 	/* --- Set up global vars like the old handler does --- */
 	g_Vars.bondplayernum = 0;
@@ -196,7 +492,24 @@ s32 matchStart(void)
 
 	/* --- Configure g_MpSetup from our match config --- */
 	g_MpSetup.scenario = g_MatchConfig.scenario;
-	g_MpSetup.stagenum = g_MatchConfig.stagenum;
+
+	/* Resolve stagenum from stage_id (PRIMARY). stage_id may refer to an ASSET_ARENA
+	 * (MP arena) or ASSET_MAP (co-op/counter-op mission). */
+	{
+		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
+		if (ae && ae->type == ASSET_ARENA) {
+			g_MpSetup.stagenum = (u8)ae->ext.arena.stagenum;
+		} else if (ae && ae->type == ASSET_MAP) {
+			g_MpSetup.stagenum = (u8)ae->ext.map.stagenum;
+		} else {
+			sysLogPrintf(LOG_ERROR,
+			    "MATCHSETUP: cannot resolve stage '%s' — aborting",
+			    g_MatchConfig.stage_id);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE, "MATCHSETUP: stage '%s' → stagenum=0x%02x",
+		             g_MatchConfig.stage_id, g_MpSetup.stagenum);
+	}
 	g_MpSetup.timelimit = g_MatchConfig.timelimit;
 	g_MpSetup.scorelimit = g_MatchConfig.scorelimit;
 	g_MpSetup.teamscorelimit = g_MatchConfig.teamscorelimit;
@@ -221,38 +534,77 @@ s32 matchStart(void)
 		struct matchslot *ms = &g_MatchConfig.slots[i];
 
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
-			/* Configure player — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << playerSlot);
 			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
-			/* catalogGetSafeBodyPaired: if the body is invalid, picks a random base
-			 * game body and writes its paired head into safeHead, guaranteeing a
-			 * matched body+head pair.  If the body is valid, safeHead stays as the
-			 * player's chosen head and catalogGetSafeHead validates it normally. */
-			s32 safeHead = (s32)ms->headnum;
-			cfg->mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &safeHead);
-			cfg->mpheadnum = (u8)catalogGetSafeHead(safeHead);
+
+			/* Resolve mpbodynum/mpheadnum from body_id/head_id (PRIMARY identity).
+			 * catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx are the ONLY valid
+			 * integer-domain conversion — called here at the last moment before
+			 * handing off to the legacy engine. */
+			if (ms->body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					cfg->mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				} else {
+					cfg->mpbodynum = ms->bodynum; /* cached fallback */
+				}
+			} else {
+				cfg->mpbodynum = ms->bodynum;
+			}
+			if (ms->head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					cfg->mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				} else {
+					cfg->mpheadnum = ms->headnum; /* cached fallback */
+				}
+			} else {
+				cfg->mpheadnum = ms->headnum;
+			}
 			cfg->team = ms->team;
 
-			/* Name: keep the first 14 chars + newline as PD expects */
 			strncpy(cfg->name, ms->name, 14);
 			cfg->name[14] = '\0';
 
-			sysLogPrintf(LOG_NOTE, "MATCHSETUP: player slot %d: %s body=%d→%d head=%d→%d team=%d",
-			             playerSlot, cfg->name, ms->bodynum, cfg->mpbodynum,
-			             ms->headnum, cfg->mpheadnum, ms->team);
+			sysLogPrintf(LOG_NOTE,
+			    "MATCHSETUP: player slot %d: %s body='%s' head='%s' mpbody=%d mphead=%d team=%d",
+			    playerSlot, cfg->name, ms->body_id, ms->head_id,
+			    cfg->mpbodynum, cfg->mpheadnum, ms->team);
 			playerSlot++;
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
-			/* Configure bot — use catalog for safe body/head indices */
 			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
 			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
-			s32 botSafeHead = (s32)ms->headnum;
-			bot->base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)ms->bodynum, &botSafeHead);
-			bot->base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+
+			/* Same last-moment resolution from body_id/head_id (PRIMARY). */
+			if (ms->body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					bot->base.mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				} else {
+					bot->base.mpbodynum = ms->bodynum;
+				}
+			} else {
+				bot->base.mpbodynum = ms->bodynum;
+			}
+			if (ms->head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					bot->base.mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				} else {
+					bot->base.mpheadnum = ms->headnum;
+				}
+			} else {
+				bot->base.mpheadnum = ms->headnum;
+			}
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;
@@ -260,10 +612,11 @@ s32 matchStart(void)
 			strncpy(bot->base.name, ms->name, 14);
 			bot->base.name[14] = '\0';
 
-			sysLogPrintf(LOG_NOTE, "MATCHSETUP: bot slot %d: %s type=%d diff=%d body=%d→%d head=%d→%d team=%d",
-			             botSlot, bot->base.name, ms->botType, ms->botDifficulty,
-			             ms->bodynum, bot->base.mpbodynum,
-			             ms->headnum, bot->base.mpheadnum, ms->team);
+			sysLogPrintf(LOG_NOTE,
+			    "MATCHSETUP: bot slot %d: %s type=%d diff=%d body='%s' head='%s' mpbody=%d mphead=%d",
+			    botSlot, bot->base.name, ms->botType, ms->botDifficulty,
+			    ms->body_id, ms->head_id,
+			    bot->base.mpbodynum, bot->base.mpheadnum);
 			botSlot++;
 		}
 	}
@@ -287,6 +640,87 @@ s32 matchStart(void)
 	/* Stop the menu system and let the game take over */
 	menuStop();
 
+	/* B-66: Capture mouse for gameplay. The lobby UI holds pdguiIsActive() true
+	 * during setup, which deferred the SDL relative-mouse apply inside
+	 * inputLockMouse(). Now that menus are stopped, force the capture. */
+	inputLockMouse(1);
+	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
+	return 0;
+}
+
+/* ========================================================================
+ * Handicap accessors (wrap g_PlayerConfigsArray without exposing types.h)
+ * ======================================================================== */
+
+u8 matchGetPlayerHandicap(s32 playernum)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return 0x80;
+	}
+	return g_PlayerConfigsArray[playernum].handicap;
+}
+
+void matchSetPlayerHandicap(s32 playernum, u8 val)
+{
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		g_PlayerConfigsArray[playernum].handicap = val;
+	}
+}
+
+void matchResetHandicaps(void)
+{
+	s32 i;
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_PlayerConfigsArray[i].handicap = 0x80;
+	}
+}
+
+/* ========================================================================
+ * Challenge start — sets the challenge, bypasses g_MatchConfig → g_MpSetup
+ * copy so the challenge's own config (stage, bots, weapons) survives intact.
+ * ======================================================================== */
+
+s32 matchStartFromChallenge(s32 slot)
+{
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting challenge slot %d", slot);
+
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = -1;
+	g_Vars.antiplayernum = -1;
+
+	/* Apply challenge config → sets g_MpSetup (scenario, stage, bots, etc.) */
+	challengeSetCurrentBySlot(slot);
+
+	/* Sync back the challenge's stage into g_MatchConfig so our port-side
+	 * tracking stays consistent (arena picker, etc.).
+	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */
+	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
+	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
+	{
+		/* Use catalog ID directly — stage_id is the primary key */
+		if (g_MpSetup.stage_id[0]) {
+			strncpy(g_MatchConfig.stage_id, g_MpSetup.stage_id, sizeof(g_MatchConfig.stage_id) - 1);
+			g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.stage_id[0] = '\0';
+		}
+	}
+
+	g_NotLoadMod = false;
+	romdataFileFreeForSolo();
+
+	/* Start directly — g_MpSetup already fully configured by challengeApply() */
+	mpStartMatch();
+	menuStop();
+
+	/* B-92 sibling: challenge start path was missing the mouse capture that
+	 * matchStartFromSetup applies.  pdguiIsActive() deferred the SDL
+	 * relative-mouse apply inside inputLockMouse(); force it now. */
+	inputLockMouse(1);
+	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;
 }

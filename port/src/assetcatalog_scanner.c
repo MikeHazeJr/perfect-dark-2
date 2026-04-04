@@ -220,6 +220,7 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
 	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
 	if (strcmp(dirname, "audio") == 0)       return ASSET_AUDIO;
+	if (strcmp(dirname, "lang_banks") == 0)  return ASSET_LANG;
 	return ASSET_NONE;
 }
 
@@ -246,6 +247,7 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
 	if (strcmp(section, "audio") == 0)        return ASSET_AUDIO;
 	if (strcmp(section, "texture") == 0)      return ASSET_TEXTURE;
+	if (strcmp(section, "lang_bank") == 0)    return ASSET_LANG;
 	return ASSET_NONE;
 }
 
@@ -258,7 +260,7 @@ static asset_type_e sectionToType(const char *section)
  *
  * @param ini       Parsed INI section
  * @param dirpath   Absolute path to the component directory
- * @param mod_id    Mod identifier (e.g., "mod_gex")
+ * @param mod_id    Mod identifier (e.g., "my_mod")
  * @return 1 on success, 0 on failure
  */
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
@@ -407,6 +409,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
 		break;
 
+	case ASSET_LANG:
+		/* bank_id: the LANGBANK_* slot this mod lang bank occupies.
+		 * Mod declares an integer bank_id (0-68) in its component INI. */
+		e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
+		break;
+
 	default:
 		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
 		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
@@ -461,7 +469,7 @@ static s32 findAndParseIni(const char *component_dir, ini_section_t *out)
 
 /**
  * Scan a single category directory within a mod's _components/ folder.
- * e.g., mods/mod_gex/_components/maps/
+ * e.g., mods/my_mod/_components/maps/
  *
  * @param category_dir  Full path to the category directory
  * @param category_name Directory name ("maps", "characters", etc.)
@@ -530,8 +538,8 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 /**
  * Scan a single mod directory for _components/ subdirectory.
  *
- * @param mod_dir  Full path to the mod directory (e.g., mods/mod_gex)
- * @param mod_id   Mod identifier (e.g., "mod_gex")
+ * @param mod_dir  Full path to the mod directory (e.g., mods/my_mod)
+ * @param mod_id   Mod identifier (e.g., "my_mod")
  * @return Number of components registered
  */
 static s32 scanModDir(const char *mod_dir, const char *mod_id)

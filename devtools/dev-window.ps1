@@ -1640,7 +1640,7 @@ function Start-PushRelease {
     $isStable = $script:ChkStable.Checked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        ("Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub"),
+        ("Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub" + $(if ($isStable) { "`n4. Merge dev -> stable and push stable branch" } else { "" })),
         ($kind + " Release v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -1676,6 +1676,37 @@ function Start-PushRelease {
     # Append the release step after all build steps
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
+
+    # For stable releases: merge dev -> stable and push stable before tagging.
+    # This keeps the stable branch in sync so the release tag lands on a commit
+    # that is reachable from both dev and stable.
+    if ($isStable) {
+        [void]$script:BuildStepQueue.Add(@{
+            Name   = "Merge dev -> stable"
+            Exe    = "git"
+            Args   = "-C `"" + $script:ProjectRoot + "`" checkout stable"
+            Target = "client"
+        })
+        [void]$script:BuildStepQueue.Add(@{
+            Name   = "Merge dev -> stable (merge)"
+            Exe    = "git"
+            Args   = "-C `"" + $script:ProjectRoot + "`" merge dev --no-ff -m `"chore(release): merge dev -> stable for v" + $vs + "`""
+            Target = "client"
+        })
+        [void]$script:BuildStepQueue.Add(@{
+            Name   = "Push stable"
+            Exe    = "git"
+            Args   = "-C `"" + $script:ProjectRoot + "`" push origin stable"
+            Target = "client"
+        })
+        [void]$script:BuildStepQueue.Add(@{
+            Name   = "Return to dev"
+            Exe    = "git"
+            Args   = "-C `"" + $script:ProjectRoot + "`" checkout dev"
+            Target = "client"
+        })
+    }
+
     [void]$script:BuildStepQueue.Add(@{
         Name   = $kind + " Release v" + $vs
         Exe    = $psExe

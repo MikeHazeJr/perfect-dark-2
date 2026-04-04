@@ -12405,7 +12405,7 @@ Gfx *bgunDrawHudInteger(Gfx *gdl, s32 value, s32 x, bool halign, s32 y, s32 vali
 {
 	char buffer[12];
 
-	sprintf(buffer, "%d\n", value);
+	snprintf(buffer, sizeof(buffer), "%d\n", value);
 	gdl = bgunDrawHudString(gdl, buffer, x, halign, y, valign, colour);
 
 	return gdl;
@@ -13135,9 +13135,9 @@ Gfx *bgunDrawHud(Gfx *gdl)
 			secs60 = speedpilltime - mins * TICKS(3600);
 
 			if (mins >= 1) {
-				sprintf(text, "%02d:%02d:%02d\n", mins, secs60 / TICKS(60), (secs60 - (secs60 / TICKS(60)) * TICKS(60)) * 100 / TICKS(60));
+				snprintf(text, sizeof(text), "%02d:%02d:%02d\n", mins, secs60 / TICKS(60), (secs60 - (secs60 / TICKS(60)) * TICKS(60)) * 100 / TICKS(60));
 			} else {
-				sprintf(text, "%02d:%02d\n", secs60 / TICKS(60), (secs60 - (secs60 / TICKS(60)) * TICKS(60)) * 100 / TICKS(60));
+				snprintf(text, sizeof(text), "%02d:%02d\n", secs60 / TICKS(60), (secs60 - (secs60 / TICKS(60)) * TICKS(60)) * 100 / TICKS(60));
 			}
 
 			gdl = bgunDrawHudString(gdl, text, xpos + barwidth - 2, false, bottom - reserveheight + 1, 0, 0x00ffc0a0);

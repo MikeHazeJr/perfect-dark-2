@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <string.h>
+#include <time.h>
 #include "platform.h"
 #include "net/netenet.h"
 #include "net/net.h"
@@ -39,8 +40,13 @@
 #include "fs.h"
 #include "romdata.h"
 #include "utils.h"
+#include "room.h"
+#if !defined(PD_SERVER)
+#include "input.h"
+#endif
 
 s32 g_NetMode = NETMODE_NONE;
+u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 
 s32 g_NetHostLatch = false;
 s32 g_NetJoinLatch = false;
@@ -77,6 +83,10 @@ s32 g_NetNumPreserved = 0;
 struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 s32 g_NetNumRecentServers = 0;
 
+/* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
+ * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
+bool g_NetLocalBotAuthority = false;
+
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
 static ENetSocket g_NetQuerySocket = ENET_SOCKET_NULL;
@@ -91,7 +101,7 @@ u8 g_NetCoopRadar = 1;
 static u8 g_NetMsgBuf[NET_BUFSIZE];
 struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
 
-static u8 g_NetMsgRelBuf[NET_BUFSIZE * 4]; // reliable buffer can be reliably fragmented
+static u8 g_NetMsgRelBuf[65536]; // 64KB reliable buffer (control/auth/lobby — no bot bulk data)
 struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRelBuf) };
 
 static s32 g_NetInit = false;
@@ -201,6 +211,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->out.size = sizeof(cl->out_data);
 	cl->id = cl - g_NetClients;
 	cl->settings.team = 0xff;
+	cl->room_id = 0xFF;
 }
 
 static inline void netClientResetAll(void)
@@ -315,8 +326,26 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 static inline void netClientReadConfig(struct netclient *cl, const s32 playernum)
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
-	cl->settings.bodynum = g_PlayerConfigsArray[playernum].base.mpbodynum;
-	cl->settings.headnum = g_PlayerConfigsArray[playernum].base.mpheadnum;
+	{
+		/* FIX-14: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions;
+		 * use the dedicated converters to get the correct runtime_index. */
+		const char *bid = catalogResolveBodyByMpIndex(
+			(s32)g_PlayerConfigsArray[playernum].base.mpbodynum);
+		const char *hid = catalogResolveHeadByMpIndex(
+			(s32)g_PlayerConfigsArray[playernum].base.mpheadnum);
+		if (bid) {
+			strncpy(cl->settings.body_id, bid, CATALOG_ID_LEN - 1);
+			cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+		} else {
+			cl->settings.body_id[0] = '\0';
+		}
+		if (hid) {
+			strncpy(cl->settings.head_id, hid, CATALOG_ID_LEN - 1);
+			cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+		} else {
+			cl->settings.head_id[0] = '\0';
+		}
+	}
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
@@ -618,13 +647,30 @@ void netServerStageStart(void)
 		netClientReadConfig(g_NetLocalClient, 0);
 	}
 
-	/* Transition ALL connected clients to CLSTATE_GAME.
-	 * The server must do this before stage initialization code runs,
-	 * because the init code assumes all clients are in GAME state.
-	 * Remote clients will also transition on their end when they
-	 * receive and process SVC_STAGE_START. */
+	{
+		int clientCount = 0;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_LOBBY || g_NetClients[ci].state == CLSTATE_PREPARING) {
+				clientCount++;
+			}
+		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: netServerStageStart called, stage_id='%s', sending SVC_STAGE_START to %d clients",
+		             g_MpSetup.stage_id, clientCount);
+		if (!g_MpSetup.stage_id[0]) {
+			sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at netServerStageStart");
+		}
+	}
+
+	/* R-3: Transition room members (or all clients if no room) to CLSTATE_GAME.
+	 * Phase E: also transition CLSTATE_PREPARING clients (those who sent READY
+	 * through the ready gate); declined clients are already back in CLSTATE_LOBBY
+	 * and are intentionally left there as spectators. */
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-		if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+		if (g_NetClients[ci].state == CLSTATE_LOBBY ||
+		    g_NetClients[ci].state == CLSTATE_PREPARING) {
+			if (g_NetMatchRoomId != 0xFF && g_NetClients[ci].room_id != g_NetMatchRoomId) {
+				continue;
+			}
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
 	}
@@ -637,10 +683,10 @@ void netServerStageStart(void)
 	// Log each connected client's state for debugging
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state != CLSTATE_DISCONNECTED) {
-			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head=%u body=%u team=%u",
+			sysLogPrintf(LOG_NOTE, "NET:   client %u '%s' state=%u playernum=%u head='%s' body='%s' team=%u",
 			             g_NetClients[ci].id, g_NetClients[ci].settings.name,
 			             g_NetClients[ci].state, g_NetClients[ci].playernum,
-			             g_NetClients[ci].settings.headnum, g_NetClients[ci].settings.bodynum,
+			             g_NetClients[ci].settings.head_id, g_NetClients[ci].settings.body_id,
 			             g_NetClients[ci].settings.team);
 		}
 	}
@@ -651,7 +697,30 @@ void netServerStageStart(void)
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageStartWrite(&g_NetMsgRel);
-	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	if (g_NetMatchRoomId != 0xFF) {
+		netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	} else {
+		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	}
+
+	/* Dedicated server: allocate minimal bot stubs and designate the first
+	 * connected client as the bot AI authority.  On a listen server the host
+	 * runs the full game engine and bot AI directly — no relay needed. */
+	if (g_NetDedicated) {
+		mpStartMatch(); /* server_stubs.c version: allocates stub chrdata/prop/aibot from heap */
+
+		/* Send SVC_BOT_AUTHORITY to the first CLSTATE_GAME client */
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_GAME) {
+				netbufStartWrite(&g_NetMsgRel);
+				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
+				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+				sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY sent to client %u ('%s') — %u bot stubs ready",
+				             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
+				break;
+			}
+		}
+	}
 
 	// Schedule a full state resync shortly after stage start.
 	// Bots and props are created deterministically from the same RNG seed,
@@ -707,8 +776,8 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		struct netclient *cl = &g_NetClients[i];
 		if (cl->state >= CLSTATE_LOBBY) {
-			sysLogPrintf(LOG_NOTE, "NET: player %d (%s) body=%u head=%u",
-				i, cl->settings.name, cl->settings.bodynum, cl->settings.headnum);
+			sysLogPrintf(LOG_NOTE, "NET: player %d (%s) body='%s' head='%s'",
+				i, cl->settings.name, cl->settings.body_id, cl->settings.head_id);
 		}
 	}
 
@@ -723,6 +792,9 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	// start the mission on the server
 	menuStop();
+#if !defined(PD_SERVER)
+	inputLockMouse(1);  /* B-92 sibling: co-op listen-server start — pdguiIsActive() deferred SDL lock */
+#endif
 	titleSetNextStage(stagenum);
 	setNumPlayers(g_NetNumClients > 1 ? 2 : 1);
 	lvSetDifficulty(difficulty);
@@ -865,6 +937,7 @@ s32 netDisconnect(void)
 	g_NetHost = NULL;
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
+	g_NetLocalBotAuthority = false;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -985,9 +1058,13 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 
 	// apply settings to the config
 	struct mpplayerconfig *cfg = cl->config;
+	{
+		const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
+		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+	}
 	cfg->controlmode = CONTROLMODE_NA;
-	cfg->base.mpbodynum = cl->settings.bodynum;
-	cfg->base.mpheadnum = cl->settings.headnum;
 	snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
 	cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
 	cfg->options |= cl->settings.options & ~OPTION_PAINTBALL;
@@ -1073,6 +1150,14 @@ static void netServerEvDisconnect(struct netclient *cl)
 		}
 	}
 
+	/* R-3: Remove from room before reset (room_id cleared by netClientReset) */
+	if (cl->room_id != 0xFF) {
+		hub_room_t *room = roomGetById(cl->room_id);
+		if (room) {
+			roomLeave(room, cl->id);
+		}
+	}
+
 	if (cl->settings.name[0]) {
 		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) disconnected", cl->id, cl->settings.name);
 		netChatPrintf(NULL, "%s disconnected", cl->settings.name);
@@ -1083,15 +1168,23 @@ static void netServerEvDisconnect(struct netclient *cl)
 	netClientReset(cl);
 
 	--g_NetNumClients;
+
+	/* R-3: Broadcast updated room list after client leaves */
+	netBroadcastRoomList();
 }
 
 static void netServerEvReceive(struct netclient *cl)
 {
+	static u32 s_dispatchTraceCount = 0;
 	u32 rc = 0;
 	u8 msgid = 0;
 
 	while (!rc && netbufReadLeft(&cl->in) > 0) {
 		msgid = netbufReadU8(&cl->in);
+		if (s_dispatchTraceCount < 10) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: server dispatch msgtype=0x%02x from client %d", msgid, cl->id);
+			++s_dispatchTraceCount;
+		}
 		switch (msgid) {
 			case CLC_NOP: rc = 0; break;
 			case CLC_AUTH: rc = netmsgClcAuthRead(&cl->in, cl); break;
@@ -1100,8 +1193,17 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
-			case CLC_LOBBY_START:  rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
-			case CLC_CATALOG_DIFF: rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
+			case CLC_LOBBY_START:      rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
+			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
+			/* Bot authority relay */
+			case CLC_BOT_MOVE:         rc = netmsgClcBotMoveRead(&cl->in, cl); break;
+			/* R-3: Room networking */
+			case CLC_ROOM_CREATE:      rc = netmsgClcRoomCreateRead(&cl->in, cl); break;
+			case CLC_ROOM_JOIN:        rc = netmsgClcRoomJoinRead(&cl->in, cl); break;
+			case CLC_ROOM_LEAVE:       rc = netmsgClcRoomLeaveRead(&cl->in, cl); break;
+			/* Phase C: Match Startup Pipeline */
+			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
+			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -1167,6 +1269,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_NPC_STATE: rc = netmsgSvcNpcStateRead(&cl->in, cl); break;
 			case SVC_NPC_SYNC: rc = netmsgSvcNpcSyncRead(&cl->in, cl); break;
 			case SVC_NPC_RESYNC: rc = netmsgSvcNpcResyncRead(&cl->in, cl); break;
+			/* Bot authority relay */
+			case SVC_BOT_AUTHORITY: rc = netmsgSvcBotAuthorityRead(&cl->in, cl); break;
 			case SVC_STAGE_FLAG: rc = netmsgSvcStageFlagRead(&cl->in, cl); break;
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
@@ -1179,6 +1283,16 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_DISTRIB_CHUNK:   rc = netmsgSvcDistribChunkRead(&cl->in, cl); break;
 			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
 			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
+			/* R-3: Room networking */
+			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
+			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
+			/* Phase C: Match Startup Pipeline */
+			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
+			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
+			case SVC_MATCH_CANCELLED:  rc = netmsgSvcMatchCancelledRead(&cl->in, cl); break;
+			case SVC_SESSION_CATALOG:
+				netmsgSvcSessionCatalogRead(&cl->in, NULL);
+				break;
 			default:
 				rc = 1;
 				break;
@@ -1308,158 +1422,185 @@ void netEndFrame(void)
 	// send whatever messages have accumulated so far
 	netFlushSendBuffers();
 
-	if (g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
-		if (g_NetMode == NETMODE_CLIENT) {
-			if (g_NetTick > 100) {
-				netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
-				const bool needrel = netClientNeedReliableMove(g_NetLocalClient);
-				if (needrel || netClientNeedMove(g_NetLocalClient)) {
-					netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
+	/* --- Client: send player move --- */
+	if (g_NetMode == NETMODE_CLIENT
+			&& g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME
+			&& g_NetLocalClient->player && g_NetLocalClient->player->prop) {
+		if (g_NetTick > 100) {
+			netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
+			const bool needrel = netClientNeedReliableMove(g_NetLocalClient);
+			if (needrel || netClientNeedMove(g_NetLocalClient)) {
+				netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
+			}
+		}
+		if (g_NetNextUpdate <= g_NetTick) {
+			g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
+		}
+		// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
+		// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
+		// making any direct write inside a recv handler silently dropped.
+		if (g_NetPendingResyncReqFlags) {
+			netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
+			g_NetPendingResyncReqFlags = 0;
+		}
+	}
+
+	/* --- Server: broadcast game state to all clients ---
+	 * CRITICAL: This block must NOT be guarded by g_NetLocalClient — on a
+	 * dedicated server g_NetLocalClient is NULL, so putting this inside a
+	 * g_NetLocalClient guard makes the entire server broadcast path dead code.
+	 * Instead, check g_NetMode == NETMODE_SERVER and use g_NetNumClients to
+	 * know whether any clients are connected and need updates. */
+	if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0) {
+		for (s32 i = 0; i < g_NetMaxClients; ++i) {
+			struct netclient *cl = &g_NetClients[i];
+			if (cl->state >= CLSTATE_GAME && cl->player) {
+				netClientRecordMove(cl, cl->player);
+				const bool needrel = netClientNeedReliableMove(cl);
+				if (needrel || netClientNeedMove(cl)) {
+					netmsgSvcPlayerMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg, cl);
 				}
 			}
-			if (g_NetNextUpdate <= g_NetTick) {
-				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
-			}
-			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
-			// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
-			// making any direct write inside a recv handler silently dropped.
-			if (g_NetPendingResyncReqFlags) {
-				netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
-				g_NetPendingResyncReqFlags = 0;
-			}
-		} else {
-			for (s32 i = 0; i < g_NetMaxClients; ++i) {
-				struct netclient *cl = &g_NetClients[i];
-				if (cl->state >= CLSTATE_GAME && cl->player) {
-					netClientRecordMove(cl, cl->player);
-					const bool needrel = netClientNeedReliableMove(cl);
-					if (needrel || netClientNeedMove(cl)) {
-						netmsgSvcPlayerMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg, cl);
+		}
+
+		// Broadcast bot/simulant positions to all clients every update frame
+		if (g_NetNextUpdate <= g_NetTick) {
+			if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+				s32 validBots = 0;
+				for (s32 bi = 0; bi < g_BotCount; ++bi) {
+					if (g_MpBotChrPtrs[bi] && g_MpBotChrPtrs[bi]->prop && g_MpBotChrPtrs[bi]->aibot) {
+						validBots++;
 					}
+				}
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: SVC_CHR_MOVE broadcast frame=%d bots=%d valid=%d",
+					g_NetTick, g_BotCount, validBots);
+			}
+			for (s32 i = 0; i < g_BotCount; ++i) {
+				struct chrdata *chr = g_MpBotChrPtrs[i];
+				if (chr && chr->prop && chr->aibot) {
+					netmsgSvcChrMoveWrite(&g_NetMsg, chr);
 				}
 			}
 
-			// Broadcast bot/simulant positions to all clients every update frame
-			if (g_NetNextUpdate <= g_NetTick) {
+			// Send bot state less frequently (every 15 frames ~= 4 times/sec at 60fps)
+			if ((g_NetTick % 15) == 0) {
 				for (s32 i = 0; i < g_BotCount; ++i) {
 					struct chrdata *chr = g_MpBotChrPtrs[i];
 					if (chr && chr->prop && chr->aibot) {
-						netmsgSvcChrMoveWrite(&g_NetMsg, chr);
-					}
-				}
-
-				// Send bot state less frequently (every 15 frames ~= 4 times/sec at 60fps)
-				if ((g_NetTick % 15) == 0) {
-					for (s32 i = 0; i < g_BotCount; ++i) {
-						struct chrdata *chr = g_MpBotChrPtrs[i];
-						if (chr && chr->prop && chr->aibot) {
-							netmsgSvcChrStateWrite(&g_NetMsgRel, chr);
-						}
-					}
-				}
-
-				// Send desync detection checksum every 60 frames (~1/sec)
-				if ((g_NetTick % 60) == 0 && g_BotCount > 0) {
-					netmsgSvcChrSyncWrite(&g_NetMsgRel);
-				}
-
-				// Send prop desync detection checksum every 120 frames (~2/sec)
-				if ((g_NetTick % 120) == 0) {
-					netmsgSvcPropSyncWrite(&g_NetMsgRel);
-				}
-
-				g_NetNextUpdate = g_NetTick + g_NetServerUpdateRate;
-			}
-
-			// Co-op NPC replication: broadcast NPC positions and state
-			// NPCs are server-authoritative in co-op mode (AI runs only on server)
-			if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
-				// Ensure we're in GAME state to prevent sending NPCs during stage load.
-				// Do NOT use g_NetLocalClient here — it is NULL on dedicated server, making
-				// the original guard always false (NPC broadcasts silently dropped, CRIT-1).
-				// Check g_NetNumClients instead: if any client is connected, the stage is running.
-				if (g_NetNumClients > 0) {
-					static bool s_npcBroadcastStarted = false;
-					if (!s_npcBroadcastStarted) {
-						sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
-						s_npcBroadcastStarted = true;
-					}
-
-					// NPC position updates every 3 frames (~20 Hz)
-					if ((g_NetTick % 3) == 0) {
-						if (g_NumChrSlots > 0) {
-							for (s32 i = 0; i < g_NumChrSlots; ++i) {
-								struct chrdata *chr = &g_ChrSlots[i];
-								if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
-									netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
-								}
-							}
-						}
-					}
-
-					// NPC state updates every 30 frames (~2/sec)
-					if ((g_NetTick % 30) == 0) {
-						if (g_NumChrSlots > 0) {
-							for (s32 i = 0; i < g_NumChrSlots; ++i) {
-								struct chrdata *chr = &g_ChrSlots[i];
-								if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
-									netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
-								}
-							}
-						}
-					}
-
-					// NPC sync checksum every 120 frames (~0.5/sec)
-					if ((g_NetTick % 120) == 0) {
-						netmsgSvcNpcSyncWrite(&g_NetMsgRel);
+						netmsgSvcChrStateWrite(&g_NetMsgRel, chr);
 					}
 				}
 			}
 
-			// Expire preserved player slots after timeout
-			if (g_NetNumPreserved > 0 && (g_NetTick % 600) == 0) {
-				for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-					if (g_NetPreservedPlayers[i].active
-							&& (g_NetTick - g_NetPreservedPlayers[i].preserveframe) > NET_PRESERVE_TIMEOUT_FRAMES) {
-						sysLogPrintf(LOG_NOTE, "NET: preserved player %s timed out", g_NetPreservedPlayers[i].name);
-						g_NetPreservedPlayers[i].active = false;
-						--g_NetNumPreserved;
+			// Send desync detection checksum every 60 frames (~1/sec)
+			if ((g_NetTick % 60) == 0 && g_BotCount > 0) {
+				netmsgSvcChrSyncWrite(&g_NetMsgRel);
+			}
+
+			// Send prop desync detection checksum every 120 frames (~2/sec)
+			if ((g_NetTick % 120) == 0) {
+				netmsgSvcPropSyncWrite(&g_NetMsgRel);
+			}
+
+			g_NetNextUpdate = g_NetTick + g_NetServerUpdateRate;
+		}
+
+		// Co-op NPC replication: broadcast NPC positions and state
+		// NPCs are server-authoritative in co-op mode (AI runs only on server)
+		if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
+			static bool s_npcBroadcastStarted = false;
+			if (!s_npcBroadcastStarted) {
+				sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
+				s_npcBroadcastStarted = true;
+			}
+
+			// NPC position updates every 3 frames (~20 Hz)
+			if ((g_NetTick % 3) == 0) {
+				if (g_NumChrSlots > 0) {
+					for (s32 i = 0; i < g_NumChrSlots; ++i) {
+						struct chrdata *chr = &g_ChrSlots[i];
+						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+						}
 					}
 				}
 			}
 
-			// Handle pending resync requests from clients
-			if (g_NetPendingResyncFlags) {
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_CHRS) {
-					sysLogPrintf(LOG_NOTE, "NET: sending chr resync to all clients (%u bots)", g_BotCount);
-					netmsgSvcChrResyncWrite(&g_NetMsgRel);
-				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_PROPS) {
-					sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
-					netmsgSvcPropResyncWrite(&g_NetMsgRel);
-				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
-					sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
-					netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
-				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
-					u32 npccount = netNpcCount();
-					sysLogPrintf(LOG_NOTE, "NET: sending npc resync to all clients (%u npcs)", npccount);
-					netmsgSvcNpcResyncWrite(&g_NetMsgRel);
-					// Also sync co-op mission state (stage flags + objective statuses)
-					netmsgSvcStageFlagWrite(&g_NetMsgRel);
-					for (s32 i = 0; i <= g_ObjectiveLastIndex; ++i) {
-						netmsgSvcObjStatusWrite(&g_NetMsgRel, (u8)i, (u8)g_ObjectiveStatuses[i]);
+			// NPC state updates every 30 frames (~2/sec)
+			if ((g_NetTick % 30) == 0) {
+				if (g_NumChrSlots > 0) {
+					for (s32 i = 0; i < g_NumChrSlots; ++i) {
+						struct chrdata *chr = &g_ChrSlots[i];
+						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+						}
 					}
 				}
-				g_NetPendingResyncFlags = 0;
+			}
+
+			// NPC sync checksum every 120 frames (~0.5/sec)
+			if ((g_NetTick % 120) == 0) {
+				netmsgSvcNpcSyncWrite(&g_NetMsgRel);
 			}
 		}
+
+		// Expire preserved player slots after timeout
+		if (g_NetNumPreserved > 0 && (g_NetTick % 600) == 0) {
+			for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+				if (g_NetPreservedPlayers[i].active
+						&& (g_NetTick - g_NetPreservedPlayers[i].preserveframe) > NET_PRESERVE_TIMEOUT_FRAMES) {
+					sysLogPrintf(LOG_NOTE, "NET: preserved player %s timed out", g_NetPreservedPlayers[i].name);
+					g_NetPreservedPlayers[i].active = false;
+					--g_NetNumPreserved;
+				}
+			}
+		}
+
+		// Handle pending resync requests from clients
+		if (g_NetPendingResyncFlags) {
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_CHRS) {
+				sysLogPrintf(LOG_NOTE, "NET: sending chr resync to all clients (%u bots)", g_BotCount);
+				netmsgSvcChrResyncWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_PROPS) {
+				sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
+				netmsgSvcPropResyncWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
+				sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
+				netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
+				u32 npccount = netNpcCount();
+				sysLogPrintf(LOG_NOTE, "NET: sending npc resync to all clients (%u npcs)", npccount);
+				netmsgSvcNpcResyncWrite(&g_NetMsgRel);
+				// Also sync co-op mission state (stage flags + objective statuses)
+				netmsgSvcStageFlagWrite(&g_NetMsgRel);
+				for (s32 i = 0; i <= g_ObjectiveLastIndex; ++i) {
+					netmsgSvcObjStatusWrite(&g_NetMsgRel, (u8)i, (u8)g_ObjectiveStatuses[i]);
+				}
+			}
+			g_NetPendingResyncFlags = 0;
+		}
+	}
+
+	/* Bot authority: relay bot positions to server even when local player is respawning.
+	 * Outside the player->prop guard so it fires regardless of local player state. */
+	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient
+			&& g_NetLocalClient->state == CLSTATE_GAME
+			&& g_NetLocalBotAuthority && g_BotCount > 0) {
+		if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE frame=%d bots=%d authority=%d",
+				g_NetTick, g_BotCount, (s32)g_NetLocalBotAuthority);
+		}
+		netmsgClcBotMoveWrite(&g_NetMsg);
 	}
 
 	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
 	if (g_NetMode == NETMODE_SERVER) {
 		netDistribServerTick();
+		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
+		readyGateTickCountdown();
 	}
 
 	// send position updates
@@ -1504,6 +1645,25 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	return ret;
 }
 
+void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
+{
+	if (!g_NetHost || !buf || !buf->wp) return;
+
+	const u32 flags = reliable ? ENET_PACKET_FLAG_RELIABLE : 0;
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (cl->state >= CLSTATE_LOBBY && cl->peer && cl->room_id == room_id) {
+			ENetPacket *p = enet_packet_create(buf->data, buf->wp, flags);
+			if (p) {
+				enet_peer_send(cl->peer, chan, p);
+			}
+		}
+	}
+
+	netbufStartWrite(buf);
+}
+
 /* Snapshot of remote player configs before netPlayersAllocate overwrites them.
  * Indexed by playernum (0..MAX_PLAYERS-1). Available for restoration if a match
  * fails to start after configs have been overwritten (e.g. on a SVC_STAGE_END
@@ -1541,9 +1701,13 @@ void netPlayersAllocate(void)
 			if (cl->playernum < MAX_PLAYERS) {
 				s_RemoteConfigBackups[cl->playernum] = *cfg;
 			}
+			{
+				const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+				const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+				cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
+				cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+			}
 			cfg->controlmode = CONTROLMODE_NA;
-			cfg->base.mpbodynum = cl->settings.bodynum;
-			cfg->base.mpheadnum = cl->settings.headnum;
 			snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
 			// take some of the options from our local player and others from the client
 			cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
@@ -1563,8 +1727,8 @@ void netPlayersAllocate(void)
 		}
 
 		// Log player allocation
-		sysLogPrintf(LOG_NOTE, "NET: allocated playernum=%d body=%d head=%d name=%s",
-			cl->playernum, cl->settings.bodynum, cl->settings.headnum, cl->settings.name);
+		sysLogPrintf(LOG_NOTE, "NET: allocated playernum=%d body='%s' head='%s' name=%s",
+			cl->playernum, cl->settings.body_id, cl->settings.head_id, cl->settings.name);
 	}
 }
 
@@ -1738,7 +1902,7 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
 				srv->hostname[NET_MAX_NAME - 1] = '\0';
 			}
-			srv->lastresponse = g_NetTick;
+			srv->lastresponse = (u32)time(NULL);
 			srv->online = true;
 			return;
 		}
@@ -1886,11 +2050,17 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	configRegisterUInt("Net.Server.UpdateFrames", &g_NetServerUpdateRate, 0, 60);
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
-	// register recent server addresses for persistence
-	static char recentKeys[NET_MAX_RECENT_SERVERS][32];
+	// register recent server fields for persistence
+	static char recentAddrKeys[NET_MAX_RECENT_SERVERS][32];
+	static char recentHostKeys[NET_MAX_RECENT_SERVERS][36];
+	static char recentTimeKeys[NET_MAX_RECENT_SERVERS][36];
 	for (s32 i = 0; i < NET_MAX_RECENT_SERVERS; ++i) {
-		snprintf(recentKeys[i], sizeof(recentKeys[i]), "Net.RecentServer.%d", i);
-		configRegisterString(recentKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
+		snprintf(recentAddrKeys[i], sizeof(recentAddrKeys[i]), "Net.RecentServer.%d", i);
+		configRegisterString(recentAddrKeys[i], g_NetRecentServers[i].addr, NET_MAX_ADDR);
+		snprintf(recentHostKeys[i], sizeof(recentHostKeys[i]), "Net.RecentServer.%d.Host", i);
+		configRegisterString(recentHostKeys[i], g_NetRecentServers[i].hostname, NET_MAX_NAME - 1);
+		snprintf(recentTimeKeys[i], sizeof(recentTimeKeys[i]), "Net.RecentServer.%d.Time", i);
+		configRegisterUInt(recentTimeKeys[i], &g_NetRecentServers[i].lastresponse, 0, 0xFFFFFFFF);
 	}
 	configRegisterInt("Net.RecentServerCount", &g_NetNumRecentServers, 0, NET_MAX_RECENT_SERVERS);
 }

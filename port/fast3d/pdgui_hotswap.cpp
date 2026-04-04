@@ -28,6 +28,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "screenmfst.h"
 #include "system.h"
 
 /* ========================================================================
@@ -125,6 +126,7 @@ void pdguiHotswapInit(void)
 
 void pdguiHotswapShutdown(void)
 {
+    screenManifestShutdown();
     s_EntryCount = 0;
     s_QueueCount = 0;
     s_HotswapActive = false;
@@ -308,6 +310,19 @@ void pdguiHotswapRenderQueued(s32 winW, s32 winH)
             s_ActiveMenuName = qr->entry->name;
             s_RenderingThisFrame = true;
         }
+    }
+
+    /* Phase 6: notify screen manifest system which dialogs were active.
+     * Collect dialogdef pointers before clearing the queue. */
+    {
+        void *active_defs[HOTSWAP_MAX_QUEUED];
+        s32 n = 0;
+        for (s32 qi = 0; qi < s_QueueCount; qi++) {
+            if (s_Queue[qi].entry && s_Queue[qi].entry->dialogdef) {
+                active_defs[n++] = (void*)s_Queue[qi].entry->dialogdef;
+            }
+        }
+        screenManifestTick(active_defs, n);
     }
 
     /* Clear the queue for next frame */

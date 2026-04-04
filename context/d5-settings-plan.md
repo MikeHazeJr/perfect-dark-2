@@ -1,7 +1,11 @@
 # Phase D5: Settings, Graphics & QoL — Implementation Plan
 
-## Status: PLANNED
-Last updated: 2026-03-19
+## Status: DONE
+Last updated: 2026-04-01
+
+> **D5a, D5b, D5c all implemented** — Audio tab (4 volume sliders), Video tab (fullscreen/resolution/VSync/MSAA/UI Scale/etc.), Controls tab (full key rebinding), Game tab (FOV/crosshair/crouch/jump). Build clean. UI Scale multiplier (`Video.UIScaleMult`, 50–200%) added 2026-04-01 to close the v0.1.0 "UI Scaling" blocker. See `context/tasks-current.md`.
+
+Last updated: 2026-03-19 (implementation); 2026-04-01 (status updated)
 
 ## Overview
 

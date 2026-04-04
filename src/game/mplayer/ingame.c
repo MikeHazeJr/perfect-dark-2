@@ -136,13 +136,13 @@ char *mpMenuTextInGameLimit(struct menuitem *item)
 
 	switch (item->param) {
 	case 0:
-		sprintf(g_StringPointer, langGet(L_MPMENU_114), g_MpSetup.timelimit + 1);
+		snprintf(g_StringPointer, 300, langGet(L_MPMENU_114), g_MpSetup.timelimit + 1);
 		break;
 	case 1:
-		sprintf(g_StringPointer, langGet(L_MPMENU_113), g_MpSetup.scorelimit + 1);
+		snprintf(g_StringPointer, 300, langGet(L_MPMENU_113), g_MpSetup.scorelimit + 1);
 		break;
 	case 2:
-		sprintf(g_StringPointer, langGet(L_MPMENU_113), mpCalculateTeamScoreLimit() + 1);
+		snprintf(g_StringPointer, 300, langGet(L_MPMENU_113), mpCalculateTeamScoreLimit() + 1);
 		break;
 	}
 
@@ -499,7 +499,7 @@ char *mpMenuTextWeaponDescription(struct menuitem *item)
 					password[i] -= i * 4 + 4;
 				}
 
-				sprintf(g_StringPointer, langGet(L_GUN_239), username, password);
+				snprintf(g_StringPointer, 300, langGet(L_GUN_239), username, password);
 
 				return g_StringPointer;
 			}
@@ -528,7 +528,7 @@ char *mpMenuTitleStatsFor(struct menudialogdef *dialogdef)
 	struct mpchrconfig *mpchr = MPCHR(g_MpSelectedPlayersForStats[g_MpPlayerNum]);
 
 	// "Stats for %s"
-	sprintf(g_StringPointer, langGet(L_MPMENU_280), mpchr->name);
+	snprintf(g_StringPointer, 300, langGet(L_MPMENU_280), mpchr->name);
 	return g_StringPointer;
 }
 

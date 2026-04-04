@@ -17,6 +17,8 @@ s32 langGetFileId(s32 bank);
 void langLoad(s32 bank);
 void langLoadToAddr(s32 bank, u8 *dst, s32 size);
 void langClearBank(s32 bank);
+/* Returns 1 if the bank is currently loaded (g_LangBanks[bank] != NULL). */
+s32 langIsBankLoaded(s32 bank);
 char *langGet(s32 textid);
 void langReload(void);
 void langSetEuropean(u32 arg0);

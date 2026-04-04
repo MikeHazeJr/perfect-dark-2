@@ -89,6 +89,78 @@ hub_room_t *roomCreate(const char *name)
     return r;
 }
 
+hub_room_t *roomCreateConfigured(const char *name, u8 maxPlayers,
+                                  room_access_t access, const char *password,
+                                  u8 creatorClientId)
+{
+    hub_room_t *r = roomCreate(name);
+    if (!r) return NULL;
+
+    r->max_players       = maxPlayers ? maxPlayers : 32;
+    r->access            = access;
+    r->creator_client_id = creatorClientId;
+
+    if (password && access == ROOM_ACCESS_PASSWORD) {
+        strncpy(r->password, password, sizeof(r->password) - 1);
+        r->password[sizeof(r->password) - 1] = '\0';
+    }
+
+    /* Auto-join the creator */
+    roomJoin(r, creatorClientId);
+
+    sysLogPrintf(LOG_NOTE, "HUB ROOM: room %u configured by client %u",
+                 (unsigned)r->id, (unsigned)creatorClientId);
+    return r;
+}
+
+s32 roomJoin(hub_room_t *room, u8 clientId)
+{
+    if (!room || room->state == ROOM_STATE_CLOSED) return 0;
+
+    /* Check if already in room */
+    for (u8 i = 0; i < room->client_count; i++) {
+        if (room->clients[i] == clientId) return 0;
+    }
+
+    if (room->client_count >= HUB_MAX_CLIENTS) return 0;
+
+    room->clients[room->client_count++] = clientId;
+    sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u joined room %u \"%s\" (%u/%u)",
+                 (unsigned)clientId, (unsigned)room->id, room->name,
+                 (unsigned)room->client_count, (unsigned)room->max_players);
+    return 1;
+}
+
+void roomLeave(hub_room_t *room, u8 clientId)
+{
+    if (!room) return;
+
+    s32 found = -1;
+    for (u8 i = 0; i < room->client_count; i++) {
+        if (room->clients[i] == clientId) {
+            found = i;
+            break;
+        }
+    }
+
+    if (found < 0) return;
+
+    /* Shift remaining clients down */
+    for (u8 i = found; i < room->client_count - 1; i++) {
+        room->clients[i] = room->clients[i + 1];
+    }
+    room->client_count--;
+
+    sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u left room %u \"%s\" (%u remaining)",
+                 (unsigned)clientId, (unsigned)room->id, room->name,
+                 (unsigned)room->client_count);
+
+    /* Destroy empty rooms (except room 0) */
+    if (room->client_count == 0 && room->id != 0) {
+        roomDestroy(room);
+    }
+}
+
 void roomDestroy(hub_room_t *room)
 {
     if (!room) return;
@@ -151,17 +223,7 @@ s32 roomGetActiveCount(void)
     return n;
 }
 
-const char *roomStateName(room_state_t state)
-{
-    switch (state) {
-        case ROOM_STATE_LOBBY:    return "Lobby";
-        case ROOM_STATE_LOADING:  return "Loading";
-        case ROOM_STATE_MATCH:    return "Match";
-        case ROOM_STATE_POSTGAME: return "Postgame";
-        case ROOM_STATE_CLOSED:   return "Closed";
-        default:                  return "?";
-    }
-}
+/* roomStateName() moved to room.h as static inline for client/server shared use */
 
 /* -------------------------------------------------------------------------
  * Room name generator -- adjective + noun combo

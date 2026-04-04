@@ -26,6 +26,8 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 
 extern "C" {
@@ -83,7 +85,7 @@ void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
 
 void menuPushDialog(struct menudialogdef *dialogdef);
 
-char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 struct solostage {
     u32 stagenum;
@@ -400,8 +402,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 char stageName[128] = "New Recruit";
                 if (stage > 0) {
                     snprintf(stageName, sizeof(stageName), "%s %s",
-                             langGet(g_SoloStages[stage - 1].name1),
-                             langGet(g_SoloStages[stage - 1].name2));
+                             langSafe(g_SoloStages[stage - 1].name1),
+                             langSafe(g_SoloStages[stage - 1].name2));
                 }
 
                 char timeStr[64] = "";
@@ -542,6 +544,28 @@ void pdguiMenuAgentSelectRegister(void)
     );
 
     s_Registered = true;
+
+    /* Phase 6: Screen mini-manifest.
+     * Agent Select shows a character preview — declare the Joanna body/head
+     * and misc UI language bank.  Bundled base-game assets are no-op retains;
+     * mod overrides of these assets (non-bundled) go through the full
+     * ref-counted load/unload lifecycle. */
+    {
+        static const char *ids[] = {
+            "base:dark_combat",       /* Joanna body (default preview) */
+            "base:head_dark_combat",  /* Joanna head (default preview) */
+            "base:lang_misc",         /* General UI strings */
+        };
+        static const u8 types[] = {
+            MANIFEST_TYPE_BODY,
+            MANIFEST_TYPE_HEAD,
+            MANIFEST_TYPE_LANG,
+        };
+        screenManifestRegister(
+            (void*)&g_FilemgrFileSelectMenuDialog,
+            ids, types, 3);
+    }
+
     sysLogPrintf(LOG_NOTE, "pdgui_menu_agentselect: Registered");
 }
 

@@ -43,7 +43,12 @@ static void meshGrow(struct colmesh *mesh, s32 needed)
 	if (newcap < 64) {
 		newcap = 64;
 	}
-	mesh->tris = realloc(mesh->tris, newcap * sizeof(struct meshtri));
+	struct meshtri *newptr = realloc(mesh->tris, newcap * sizeof(struct meshtri));
+	if (!newptr) {
+		sysLogPrintf(LOG_WARNING, "MESHCOL: meshGrow realloc failed (%d tris)", newcap);
+		return;
+	}
+	mesh->tris = newptr;
 	mesh->capacity = newcap;
 }
 
@@ -52,7 +57,12 @@ static void gridCellAdd(struct meshgridcell *cell, s32 triindex)
 	if (cell->count >= cell->capacity) {
 		s32 newcap = cell->capacity * 2;
 		if (newcap < 16) newcap = 16;
-		cell->triindices = realloc(cell->triindices, newcap * sizeof(s32));
+		s32 *newptr = realloc(cell->triindices, newcap * sizeof(s32));
+		if (!newptr) {
+			sysLogPrintf(LOG_WARNING, "MESHCOL: gridCellAdd realloc failed (%d)", newcap);
+			return;
+		}
+		cell->triindices = newptr;
 		cell->capacity = newcap;
 	}
 	cell->triindices[cell->count++] = triindex;
@@ -323,7 +333,12 @@ void meshWorldAddMesh(struct colmesh *mesh, Mtxf *transform)
 		s32 newcap = g_WorldMesh.tricapacity * 2;
 		if (newcap < needed) newcap = needed;
 		if (newcap < 1024) newcap = 1024;
-		g_WorldMesh.tris = realloc(g_WorldMesh.tris, newcap * sizeof(struct meshtri));
+		struct meshtri *newptr = realloc(g_WorldMesh.tris, newcap * sizeof(struct meshtri));
+		if (!newptr) {
+			sysLogPrintf(LOG_WARNING, "MESHCOL: world mesh realloc failed (%d tris)", newcap);
+			return;
+		}
+		g_WorldMesh.tris = newptr;
 		g_WorldMesh.tricapacity = newcap;
 	}
 

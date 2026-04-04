@@ -34,6 +34,7 @@
 #include "system.h"
 #include "modmgr.h"
 #include "mpsetups.h"
+#include "assetcatalog.h"
 
 #include "system.h"
 
@@ -300,6 +301,19 @@ void mpStartMatch(void)
 	 * any code reading it after match start gets the actual stage, not a
 	 * RANDOM token.  The log line above captures both values for history. */
 	g_MpSetup.stagenum = (u8)stagenum;
+
+	/* Sync stage_id (PRIMARY) from the resolved stagenum. */
+	{
+		const char *sid = catalogResolveArenaByStagenum((s32)stagenum);
+		if (!sid) sid = catalogResolveStageByStagenum((s32)stagenum);
+		if (sid) {
+			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPLAYER: no catalog entry for stagenum=0x%02x", stagenum);
+			g_MpSetup.stage_id[0] = '\0';
+		}
+	}
 
 	// Set textures surfacetype based on stagenum (Resets when multiplayer ends)
 	switch (stagenum) {
@@ -759,20 +773,27 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 
 	g_PlayerConfigsArray[playernum].handicap = 128;
 
-	switch (playernum) {
-	case 0:
-	default:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_DARK_COMBAT;
-		break;
-	case 1:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CASSANDRA;
-		break;
-	case 2:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CARRINGTON;
-		break;
-	case 3:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CILABTECH;
-		break;
+	/* Resolve default body from catalog (PRIMARY).  Player slots each get a distinct
+	 * character; fall through to the catalog default if a lookup fails. */
+	{
+		static const char *s_playerDefaults[] = {
+			"base:dark_combat",  /* player 0 */
+			"base:cassandra",    /* player 1 */
+			"base:carrington",   /* player 2 */
+			"base:cilabtech",    /* player 3 */
+		};
+		const char *body_id = (playernum >= 0 && playernum < 4)
+		    ? s_playerDefaults[playernum] : s_playerDefaults[0];
+		const asset_entry_t *be = assetCatalogResolve(body_id);
+		if (be && be->type == ASSET_BODY) {
+			const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+			if (mpb >= 0) {
+				g_PlayerConfigsArray[playernum].base.mpbodynum = (u8)mpb;
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog body '%s' not found for player %d",
+			             body_id, playernum);
+		}
 	}
 
 	g_PlayerConfigsArray[playernum].base.mpheadnum = mpGetMpheadnumByMpbodynum(g_PlayerConfigsArray[playernum].base.mpbodynum);
@@ -782,7 +803,7 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 
 	if (autonames) {
 		// "Player 1" etc
-		sprintf(g_PlayerConfigsArray[playernum].base.name, "%s %d\n", langGet(L_MISC_437), playernum + 1);
+		snprintf(g_PlayerConfigsArray[playernum].base.name, sizeof(g_PlayerConfigsArray[playernum].base.name), "%s %d\n", langGet(L_MISC_437), playernum + 1);
 	} else {
 		g_PlayerConfigsArray[playernum].base.name[0] = '\0';
 	}
@@ -823,8 +844,25 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 void func0f1881d4(s32 index)
 {
 	g_BotConfigsArray[index].base.name[0] = '\0';
-	g_BotConfigsArray[index].base.mpheadnum = MPHEAD_DARK_COMBAT;
-	g_BotConfigsArray[index].base.mpbodynum = MPBODY_DARK_COMBAT;
+	/* Resolve default bot body and head from catalog ("base:dark_combat"). */
+	{
+		const asset_entry_t *be = assetCatalogResolve("base:dark_combat");
+		if (be && be->type == ASSET_BODY) {
+			const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+			if (mpb >= 0) g_BotConfigsArray[index].base.mpbodynum = (u8)mpb;
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog body 'base:dark_combat' not found for bot %d", index);
+		}
+	}
+	{
+		const asset_entry_t *he = assetCatalogResolve("base:head_dark_combat");
+		if (he && he->type == ASSET_HEAD) {
+			const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+			if (mph >= 0) g_BotConfigsArray[index].base.mpheadnum = (u8)mph;
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog head 'base:head_dark_combat' not found for bot %d", index);
+		}
+	}
 	g_BotConfigsArray[index].type = BOTTYPE_GENERAL;
 	g_BotConfigsArray[index].difficulty = BOTDIFF_DISABLED;
 }
@@ -835,7 +873,19 @@ void mpInit(bool resetplayers)
 	s32 j;
 
 	g_MpSetup.scenario = MPSCENARIO_COMBAT;
-	g_MpSetup.stagenum = STAGE_MP_SKEDAR;
+	/* Default stage: Skedar (MP) — resolve via catalog. */
+	{
+		const asset_entry_t *ae = assetCatalogResolve("base:mp_skedar");
+		if (ae && ae->type == ASSET_ARENA) {
+			strncpy(g_MpSetup.stage_id, ae->id, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+			g_MpSetup.stagenum = (u8)ae->ext.arena.stagenum;
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog arena 'base:mp_skedar' not found");
+			g_MpSetup.stage_id[0] = '\0';
+			g_MpSetup.stagenum = STAGE_MP_SKEDAR; /* last-resort legacy fallback */
+		}
+	}
 	g_MpSetup.options = MPOPTION_DISPLAYTEAM
 		| MPOPTION_KILLSSCORE
 		| MPOPTION_HTB_HIGHLIGHTBRIEFCASE
@@ -858,7 +908,7 @@ void mpInit(bool resetplayers)
 	g_MpSetup.fileguid.fileid = 0;
 	g_MpSetup.fileguid.deviceserial = 0;
 
-	strcpy(g_MpSetup.name, "");
+	g_MpSetup.name[0] = '\0';
 
 	if (resetplayers) {
 		for (i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
@@ -932,7 +982,7 @@ void mpSetTeamNamesToDefault(u8 mask)
 
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
 		if (mask & (1 << i)) {
-			strcpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i));
+			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0';
 		}
 	}
 }
@@ -944,20 +994,20 @@ void mpSetDefaultNamesIfEmpty(void)
 
 	// Setup file name
 	if (g_MpSetup.name[0] == '\0') {
-		strcpy(g_MpSetup.name, langGet(L_MISC_438)); // empty string
+		strncpy(g_MpSetup.name, langGet(L_MISC_438), MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0'; // empty string
 	}
 
 	// Team names
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
 		if (g_BossFile.teamnames[i][0] == '\0') {
-			strcpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i)); // "Red", "Yellow" etc
+			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0'; // "Red", "Yellow" etc
 		}
 	}
 
 	// Player names
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (g_PlayerConfigsArray[i].base.name[0] == '\0') {
-			sprintf(g_PlayerConfigsArray[i].base.name, "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
+			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
 		}
 	}
 }
@@ -1621,7 +1671,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 
 		gdl = text0f153628(gdl);
 
-		strcpy(text, langGet(L_MPWEAPONS_040)); // "Paused"
+		strncpy(text, langGet(L_MPWEAPONS_040), 49); text[49] = '\0'; // "Paused"
 
 		x = viGetViewLeft() + viGetViewWidth() / 2;
 
@@ -1672,7 +1722,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 		// Render "Press START" text
 		gdl = text0f153628(gdl);
 
-		strcpy(text, langGet(L_MPWEAPONS_039));
+		strncpy(text, langGet(L_MPWEAPONS_039), 49); text[49] = '\0';
 
 		x = viGetViewLeft() + viGetViewWidth() / 2;
 
@@ -1699,7 +1749,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 #if VERSION >= VERSION_JPN_FINAL
 			countdownx = countdownx / g_ScaleX;
 #endif
-			sprintf(text, "%d\n", (g_Vars.currentplayer->deadtimer + TICKS(60) - 1) / TICKS(60));
+			snprintf(text, sizeof(text), "%d\n", (g_Vars.currentplayer->deadtimer + TICKS(60) - 1) / TICKS(60));
 
 			textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 			x = countdownx - textwidth / 2;
@@ -3418,7 +3468,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	g_MpSetup.chrslots |= 1ull << (botnum + BOT_SLOT_OFFSET);
 	mpAddParticipantAt(botnum + BOT_SLOT_OFFSET, PARTICIPANT_BOT, team, -1, 0xFF); /* B-12 Phase 2 */
-	strcpy(g_BotConfigsArray[botnum].base.name, "Sim\n");
+	strncpy(g_BotConfigsArray[botnum].base.name, "Sim\n", 14); g_BotConfigsArray[botnum].base.name[14] = '\0';
 	g_BotConfigsArray[botnum].base.team = team;
 
 	while (!available) {
@@ -3594,12 +3644,12 @@ void mpGenerateBotNames(void)
 			if (counts[profilenum] >= 0) {
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
-				sprintf(name, "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
-				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
+				snprintf(name, sizeof(name), "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
+				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			} else {
 				// One bots using this profile - just use the profile name
-				sprintf(name, "%s\n", langGet(g_BotProfiles[profilenum].name));
-				strcpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name);
+				snprintf(name, sizeof(name), "%s\n", langGet(g_BotProfiles[profilenum].name));
+				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			}
 		}
 	}
@@ -4103,12 +4153,12 @@ void mpApplyConfig(struct mpconfigfull *config)
 #if VERSION >= VERSION_NTSC_1_0
 		if (IS4MB()) {
 			// "ShockSim:%d"
-			sprintf(g_BotConfigsArray[i].base.name, langGet(L_MPWEAPONS_241), i + 1);
+			snprintf(g_BotConfigsArray[i].base.name, sizeof(g_BotConfigsArray[i].base.name), langGet(L_MPWEAPONS_241), i + 1);
 		} else {
-			strcpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i]);
+			strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
 		}
 #else
-		strcpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i]);
+		strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
 #endif
 
 		g_BotConfigsArray[i].base.mpheadnum = config->config.simulants[i].mpheadnum;

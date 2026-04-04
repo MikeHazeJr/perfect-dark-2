@@ -78,16 +78,6 @@ static void modmgrRebuildBodyCache(void);
 static void modmgrRebuildHeadCache(void);
 static void modmgrRebuildAllCaches(void);
 
-// Bundled mod IDs (these are the 5 original mods shipped with the game)
-static const char *g_BundledModIds[] = {
-	"allinone",
-	"gex",
-	"kakariko",
-	"dark_noon",
-	"goldfinger_64",
-};
-#define NUM_BUNDLED_MODS (sizeof(g_BundledModIds) / sizeof(g_BundledModIds[0]))
-
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
@@ -97,7 +87,6 @@ static bool modmgrParseModJson(modinfo_t *mod);
 static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
-static bool modmgrIsBundled(const char *id);
 static u32  modmgrHashString(const char *str);
 static void modmgrParseEnabledList(void);
 static void modmgrBuildEnabledList(void);
@@ -580,20 +569,6 @@ done:
 }
 
 // ---------------------------------------------------------------------------
-// Bundled mod detection
-// ---------------------------------------------------------------------------
-
-static bool modmgrIsBundled(const char *id)
-{
-	for (s32 i = 0; i < (s32)NUM_BUNDLED_MODS; i++) {
-		if (strcmp(id, g_BundledModIds[i]) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-// ---------------------------------------------------------------------------
 // Simple CRC32 for string hashing
 // ---------------------------------------------------------------------------
 
@@ -718,24 +693,34 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
-		// Detect bundled status
-		mod->bundled = modmgrIsBundled(mod->id);
+		// mod->bundled is always 0 — no hardcoded bundled mods exist
+		mod->bundled = 0;
 
 		// Compute content hash from ID + version
 		char hashsrc[256];
 		snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
 		mod->contenthash = modmgrHashString(hashsrc);
 
+		// Compute SHA-256 for authoritative network verification.
+		// Primary: hash mod.json content (stable, covers declared assets).
+		// Fallback: hash the "id:version" string so sha256 is never all-zeroes.
+		{
+			char modjsonpath[FS_MAXPATH + 1];
+			snprintf(modjsonpath, sizeof(modjsonpath), "%s/mod.json", fullpath);
+			if (sha256HashFile(modjsonpath, mod->sha256) != 0) {
+				sha256Hash(hashsrc, strlen(hashsrc), mod->sha256);
+			}
+		}
+
 		// Compute directory size for download estimation
 		mod->size_bytes = modmgrComputeDirSize(fullpath);
 
-		// Default: bundled mods enabled, others disabled
-		mod->enabled = mod->bundled;
+		// Default: disabled until user explicitly enables
+		mod->enabled = 0;
 
 		g_ModRegistryCount++;
-		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s%s",
+		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s",
 			g_ModRegistryCount - 1, mod->id, mod->name,
-			mod->bundled ? "[BUNDLED] " : "",
 			mod->has_modjson ? "[mod.json]" : "[legacy]");
 	}
 
@@ -751,7 +736,7 @@ static void modmgrScanDirectory(void)
 static void modmgrParseEnabledList(void)
 {
 	if (g_ModEnabledList[0] == '\0') {
-		// Empty config = use defaults (bundled mods enabled)
+		// Empty config = use defaults (all mods disabled)
 		return;
 	}
 
@@ -857,11 +842,7 @@ static int modmgrCompare(const void *a, const void *b)
 	const modinfo_t *ma = (const modinfo_t *)a;
 	const modinfo_t *mb = (const modinfo_t *)b;
 
-	// Bundled mods first
-	if (ma->bundled && !mb->bundled) return -1;
-	if (!ma->bundled && mb->bundled) return 1;
-
-	// Then alphabetical by name
+	// Alphabetical by name
 	return strcmp(ma->name, mb->name);
 }
 
@@ -1295,11 +1276,18 @@ static void modmgrEnsureCaches(void)
 
 static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 {
-	(void)userdata;
-	s32 idx = entry->runtime_index;
+	/*
+	 * FIX: Index by mpbodynum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (g_HeadsAndBodies bodynum, e.g. 86 for BODY_DARK_COMBAT).
+	 * modmgrGetBody(mpbodynum) accesses s_CatalogBodies[mpbodynum], so the cache
+	 * must be in mpbodynum order.  Bodies are registered in g_MpBodies[] order
+	 * (s_BaseBodies indices 0..62), so the iteration order matches mpbodynum order.
+	 */
+	s32 *idx_ptr = (s32 *)userdata;
+	s32 idx = *idx_ptr;
 
 	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_BODIES) {
-		sysLogPrintf(LOG_WARNING, "modmgr: body \"%s\" runtime_index %d out of cache range",
+		sysLogPrintf(LOG_WARNING, "modmgr: body \"%s\" position %d out of cache range",
 			entry->id, idx);
 		return;
 	}
@@ -1310,28 +1298,37 @@ static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 	b->headnum = entry->ext.body.headnum;
 	b->requirefeature = entry->ext.body.requirefeature;
 
-	if (idx + 1 > s_CatalogBodyCount) {
-		s_CatalogBodyCount = idx + 1;
+	(*idx_ptr)++;
+	if (*idx_ptr > s_CatalogBodyCount) {
+		s_CatalogBodyCount = *idx_ptr;
 	}
 }
 
 static void modmgrRebuildBodyCache(void)
 {
+	s32 idx = 0;
 	memset(s_CatalogBodies, 0, sizeof(s_CatalogBodies));
 	s_CatalogBodyCount = 0;
 
-	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, NULL);
+	assetCatalogIterateByType(ASSET_BODY, modmgrBodyCollectCb, &idx);
 }
 
 // ---- Head collect callback + rebuild ----
 
 static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 {
-	(void)userdata;
-	s32 idx = entry->runtime_index;
+	/*
+	 * FIX: Index by mpheadnum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (g_HeadsAndBodies headnum, e.g. HEAD_BEAU1=0x18).
+	 * modmgrGetHead(mpheadnum) accesses s_CatalogHeads[mpheadnum], so the cache
+	 * must be in mpheadnum order.  Heads are registered in g_MpHeads[] order
+	 * (loop mpidx 0..75), so the iteration order matches mpheadnum order.
+	 */
+	s32 *idx_ptr = (s32 *)userdata;
+	s32 idx = *idx_ptr;
 
 	if (idx < 0 || idx >= MODMGR_MAX_CATALOG_HEADS) {
-		sysLogPrintf(LOG_WARNING, "modmgr: head \"%s\" runtime_index %d out of cache range",
+		sysLogPrintf(LOG_WARNING, "modmgr: head \"%s\" position %d out of cache range",
 			entry->id, idx);
 		return;
 	}
@@ -1340,17 +1337,19 @@ static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 	h->headnum = entry->ext.head.headnum;
 	h->requirefeature = entry->ext.head.requirefeature;
 
-	if (idx + 1 > s_CatalogHeadCount) {
-		s_CatalogHeadCount = idx + 1;
+	(*idx_ptr)++;
+	if (*idx_ptr > s_CatalogHeadCount) {
+		s_CatalogHeadCount = *idx_ptr;
 	}
 }
 
 static void modmgrRebuildHeadCache(void)
 {
+	s32 idx = 0;
 	memset(s_CatalogHeads, 0, sizeof(s_CatalogHeads));
 	s_CatalogHeadCount = 0;
 
-	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, NULL);
+	assetCatalogIterateByType(ASSET_HEAD, modmgrHeadCollectCb, &idx);
 }
 
 // ---- Arena collect callback + rebuild ----

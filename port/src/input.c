@@ -609,7 +609,8 @@ static inline void inputInitKeyNames(void)
 
 	// special characters
 	for (SDL_Scancode key = SDL_SCANCODE_MINUS; key < SDL_SCANCODE_CAPSLOCK; ++key) {
-		strcpy(vkNames[key], vkPunctNames[key - SDL_SCANCODE_MINUS]);
+		strncpy(vkNames[key], vkPunctNames[key - SDL_SCANCODE_MINUS], sizeof(vkNames[key]) - 1);
+		vkNames[key][sizeof(vkNames[key]) - 1] = '\0';
 	}
 
 	for (SDL_Scancode key = SDL_SCANCODE_CAPSLOCK; key <= SDL_SCANCODE_NUMLOCKCLEAR; ++key) {

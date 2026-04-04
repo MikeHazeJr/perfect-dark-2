@@ -200,10 +200,10 @@ void filemgrGetSelectName(char *buffer, struct filelistfile *file, u32 filetype)
 	case FILETYPE_MPPLAYER:
 		// MP Player filenames have the play duration appended to the name
 		mpplayerfileGetOverview(file->name, namebuffer, &totalinseconds);
-		pos = sprintf(tmpbuffer1, "%s-", namebuffer);
+		pos = snprintf(tmpbuffer1, sizeof(tmpbuffer1), "%s-", namebuffer);
 
 		if (totalinseconds >= 0x7ffffff) { // about 4.25 years
-			sprintf(tmpbuffer1 + pos, "==:==");
+			snprintf(tmpbuffer1 + pos, sizeof(tmpbuffer1) - pos, "==:==");
 		} else {
 			seconds = totalinseconds % 60;
 			totalinseconds = totalinseconds / 60;
@@ -214,15 +214,15 @@ void filemgrGetSelectName(char *buffer, struct filelistfile *file, u32 filetype)
 
 			if (days == 0) {
 				// seconds is passed but has no placeholder
-				sprintf(tmpbuffer1 + pos, "%d:%02d", hours, minutes, seconds);
+				snprintf(tmpbuffer1 + pos, sizeof(tmpbuffer1) - pos, "%d:%02d", hours, minutes, seconds);
 			} else {
-				sprintf(tmpbuffer1 + pos, "%d:%02d:%02d", days, hours, minutes);
+				snprintf(tmpbuffer1 + pos, sizeof(tmpbuffer1) - pos, "%d:%02d:%02d", days, hours, minutes);
 			}
 		}
 		break;
 	}
 
-	sprintf(buffer, "%s\n", tmpbuffer1);
+	snprintf(buffer, 32, "%s\n", tmpbuffer1);
 }
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -304,7 +304,7 @@ char *filemgrMenuTextFailReason(struct menuitem *item)
  */
 char *filemgr0f108484(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "location: controller pak 1\n");
+	snprintf(g_StringPointer, 300, "location: controller pak 1\n");
 	return g_StringPointer;
 }
 
@@ -335,7 +335,7 @@ MenuItemHandlerResult filemgrDeviceNameForErrorMenuHandler(s32 operation, struct
 
 char *filemgrMenuTextDeviceNameForError(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s", filemgrGetDeviceName(g_Menus[g_MpPlayerNum].fm.device1 & 0x7f));
+	snprintf(g_StringPointer, 300, "%s", filemgrGetDeviceName(g_Menus[g_MpPlayerNum].fm.device1 & 0x7f));
 
 	if (g_Menus[g_MpPlayerNum].fm.errnum != FILEERROR_PAKREMOVED) {
 		s32 i = 0;
@@ -717,7 +717,7 @@ char *filemgrMenuTextInsertOriginalPak(struct menuitem *item)
 	char namebuffer[100];
 	s32 i;
 
-	sprintf(namebuffer, filemgrMenuTextFileType(item));
+	snprintf(namebuffer, sizeof(namebuffer), "%s", filemgrMenuTextFileType(item));
 
 	// Replace first line break in namebuffer with a terminator
 	i = 0;
@@ -731,7 +731,7 @@ char *filemgrMenuTextInsertOriginalPak(struct menuitem *item)
 	}
 
 	// "Please insert the Controller Pak containing your %s into any controller."
-	sprintf(fullbuffer, langGet(L_OPTIONS_363), namebuffer);
+	snprintf(fullbuffer, sizeof(fullbuffer), langGet(L_OPTIONS_363), namebuffer);
 
 	textWrap(120, fullbuffer, g_StringPointer, g_CharsHandelGothicSm, g_FontHandelGothicSm);
 
@@ -1281,7 +1281,7 @@ void filemgrGetFileName(char *dst, struct filelistfile *file)
 		break;
 	}
 
-	sprintf(dst, "%s", localbuffer);
+	snprintf(dst, 32, "%s", localbuffer);
 }
 #endif
 
@@ -1298,7 +1298,7 @@ void filemgrGetRenameName(char *buffer)
 	case 9:
 	case 10:
 	case 11:
-		strcpy(buffer, g_GameFile.name);
+		strncpy(buffer, g_GameFile.name, sizeof(g_GameFile.name) - 1); buffer[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case 1:
 	case 2:
@@ -1307,7 +1307,7 @@ void filemgrGetRenameName(char *buffer)
 	case 15:
 	case 16:
 	case 17:
-		strcpy(buffer, g_Menus[g_MpPlayerNum].fm.filename);
+		strncpy(buffer, g_Menus[g_MpPlayerNum].fm.filename, 15); buffer[15] = '\0';
 		break;
 	case 6:
 	case 12:
@@ -1327,7 +1327,7 @@ void filemgrGetRenameName(char *buffer)
 		break;
 	case 7:
 	case 13:
-		strcpy(buffer, g_MpSetup.name);
+		strncpy(buffer, g_MpSetup.name, MPSETUP_MAXNAME); buffer[MPSETUP_MAXNAME] = '\0';
 		break;
 	}
 }
@@ -1341,7 +1341,7 @@ void filemgrSetRenameName(char *name)
 	case 9:
 	case 10:
 	case 11:
-		strcpy(g_GameFile.name, name);
+		strncpy(g_GameFile.name, name, sizeof(g_GameFile.name) - 1); g_GameFile.name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case 1:
 	case 2:
@@ -1350,15 +1350,15 @@ void filemgrSetRenameName(char *name)
 	case 15:
 	case 16:
 	case 17:
-		strcpy(g_Menus[g_MpPlayerNum].fm.filename, name);
+		strncpy(g_Menus[g_MpPlayerNum].fm.filename, name, 15); g_Menus[g_MpPlayerNum].fm.filename[15] = '\0';
 		break;
 	case 6:
 	case 12:
-		sprintf(g_PlayerConfigsArray[g_MpPlayerNum].base.name, "%s\n", name);
+		snprintf(g_PlayerConfigsArray[g_MpPlayerNum].base.name, 18, "%s\n", name);
 		break;
 	case 7:
 	case 13:
-		strcpy(g_MpSetup.name, name);
+		strncpy(g_MpSetup.name, name, MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0';
 		break;
 	}
 }
@@ -1556,7 +1556,7 @@ char *filemgrMenuTextDuplicateFileName(struct menuitem *item)
 	char buffer[32];
 
 	filemgrGetRenameName(buffer);
-	sprintf(g_StringPointer, "%s\n", buffer);
+	snprintf(g_StringPointer, 300, "%s\n", buffer);
 
 	return g_StringPointer;
 }
@@ -1710,7 +1710,7 @@ char *filemgrMenuTextSaveLocationSpaces(struct menuitem *item)
 		return langGet(L_OPTIONS_372); // "Full"
 	}
 
-	sprintf(g_StringPointer, "%d", spacesfree);
+	snprintf(g_StringPointer, 300, "%d", spacesfree);
 	return g_StringPointer;
 }
 
@@ -2259,7 +2259,7 @@ MenuItemHandlerResult pakGameNoteListMenuHandler(s32 operation, struct menuitem 
 		note = &g_EditingPak->notes[data->list.unk04];
 
 		// Render note number (1-16)
-		sprintf(generalbuffer, "%d:\n", data->list.unk04 + 1);
+		snprintf(generalbuffer, sizeof(generalbuffer), "%d:\n", data->list.unk04 + 1);
 		x = renderdata->x + 4;
 		y = renderdata->y + 1;
 		gdl = textRenderProjected(gdl, &x, &y, generalbuffer, g_CharsHandelGothicSm, g_FontHandelGothicSm,
@@ -2272,13 +2272,13 @@ MenuItemHandlerResult pakGameNoteListMenuHandler(s32 operation, struct menuitem 
 
 			tmpext[1] = '\0';
 
-			sprintf(generalbuffer, "%s\n", tmpname);
-			sprintf(extbuffer, "%s\n", tmpext);
-			sprintf(pagesbuffer, "%d\n", note->file_size / 256);
+			snprintf(generalbuffer, sizeof(generalbuffer), "%s\n", tmpname);
+			snprintf(extbuffer, sizeof(extbuffer), "%s\n", tmpext);
+			snprintf(pagesbuffer, sizeof(pagesbuffer), "%d\n", note->file_size / 256);
 		} else {
-			sprintf(generalbuffer, langGet(L_OPTIONS_392)); // "Empty"
-			sprintf(pagesbuffer, langGet(L_OPTIONS_393)); // "--"
-			sprintf(extbuffer, "", tmpname, tmpext);
+			snprintf(generalbuffer, sizeof(generalbuffer), "%s", langGet(L_OPTIONS_392)); // "Empty"
+			snprintf(pagesbuffer, sizeof(pagesbuffer), "%s", langGet(L_OPTIONS_393)); // "--"
+			snprintf(extbuffer, sizeof(extbuffer), "%s", "");
 		}
 
 		// Render note name
@@ -2351,9 +2351,9 @@ MenuDialogHandlerResult pakGameNotesMenuDialog(s32 operation, struct menudialogd
 char *pakMenuTextPagesFree(struct menuitem *item)
 {
 	if (g_EditingPak == NULL) {
-		sprintf(g_StringPointer, langGet(L_OPTIONS_394)); // "Pages Free: "
+		snprintf(g_StringPointer, 300, "%s", langGet(L_OPTIONS_394)); // "Pages Free: "
 	} else {
-		sprintf(g_StringPointer, langGet(L_OPTIONS_395), g_EditingPak->pagesfree); // "Pages Free: %d"
+		snprintf(g_StringPointer, 300, langGet(L_OPTIONS_395), g_EditingPak->pagesfree); // "Pages Free: %d"
 	}
 
 	return g_StringPointer;
@@ -2362,9 +2362,9 @@ char *pakMenuTextPagesFree(struct menuitem *item)
 char *pakMenuTextPagesUsed(struct menuitem *item)
 {
 	if (g_EditingPak == NULL) {
-		sprintf(g_StringPointer2, langGet(L_OPTIONS_396)); // "Pages Used: "
+		snprintf(g_StringPointer2, 150, "%s", langGet(L_OPTIONS_396)); // "Pages Used: "
 	} else {
-		sprintf(g_StringPointer2, langGet(L_OPTIONS_397), g_EditingPak->pagesused); // "Pages Used: %d"
+		snprintf(g_StringPointer2, 150, langGet(L_OPTIONS_397), g_EditingPak->pagesused); // "Pages Used: %d"
 	}
 
 	return g_StringPointer2;
@@ -2530,10 +2530,10 @@ MenuItemHandlerResult filemgrAgentNameKeyboardMenuHandler(s32 operation, struct 
 
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		strcpy(name, g_GameFile.name);
+		strncpy(name, g_GameFile.name, sizeof(g_GameFile.name) - 1); name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case MENUOP_SETTEXT:
-		strcpy(g_GameFile.name, name);
+		strncpy(g_GameFile.name, name, sizeof(g_GameFile.name) - 1); g_GameFile.name[sizeof(g_GameFile.name) - 1] = '\0';
 		break;
 	case MENUOP_SET:
 		filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
@@ -2699,12 +2699,12 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 			x = renderdata->x + 62;
 
 			if (stage > 0) {
-				sprintf(buffer, "%s %s",
+				snprintf(buffer, sizeof(buffer), "%s %s",
 						langGet(g_SoloStages[stage - 1].name1),
 						langGet(g_SoloStages[stage - 1].name2));
 			} else {
 				// "New Recruit"
-				strcpy(buffer, langGet(L_OPTIONS_404));
+				strncpy(buffer, langGet(L_OPTIONS_404), 99); buffer[99] = '\0';
 			}
 
 			strcat(buffer, "\n");
@@ -2721,10 +2721,10 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 
 			if (days > 0) {
 				// "Mission Time:"
-				sprintf(buffer, "%s %d:%02d:%02d", langGet(L_OPTIONS_405), days, hours, minutes);
+				snprintf(buffer, sizeof(buffer), "%s %d:%02d:%02d", langGet(L_OPTIONS_405), days, hours, minutes);
 			} else {
 				// "Mission Time:"
-				sprintf(buffer, "%s %02d:%02d", langGet(L_OPTIONS_405), hours, minutes);
+				snprintf(buffer, sizeof(buffer), "%s %02d:%02d", langGet(L_OPTIONS_405), hours, minutes);
 			}
 
 			// Useless - textwidth and textheight are not used
@@ -2740,7 +2740,7 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 			// Render seconds part of mission time (uses a smaller font)
 			y += (VERSION == VERSION_JPN_FINAL) ? 3 : 1;
 			x++;
-			sprintf(buffer, ".%02d", seconds);
+			snprintf(buffer, sizeof(buffer), ".%02d", seconds);
 			gdl = textRenderProjected(gdl, &x, &y, buffer,
 					g_CharsHandelGothicXs, g_FontHandelGothicXs, renderdata->colour, viGetWidth(), viGetHeight(), 0, 0);
 		}
@@ -2798,7 +2798,7 @@ MenuDialogHandlerResult filemgrMainMenuDialog(s32 operation, struct menudialogde
 		// Set MP player names to "Player 1" through 4 if blank
 		for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			if (g_PlayerConfigsArray[i].base.name[0] == '\0') {
-				sprintf(g_PlayerConfigsArray[i].base.name, "%s %d\n", langGet(L_MISC_437), i + 1);
+				snprintf(g_PlayerConfigsArray[i].base.name, 18, "%s %d\n", langGet(L_MISC_437), i + 1);
 			}
 		}
 		break;

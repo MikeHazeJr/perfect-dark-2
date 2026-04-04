@@ -76,6 +76,80 @@ if ($Nightly) {
 
 $ReleaseNotes = "UNRELEASED.md"
 
+# ============================================================================
+# Step 0: Rebuild from source (cmake reconfigure + compile)
+# Version is baked in at cmake configure time via versioninfo.h.in.
+# Pre-existing binaries may embed a stale version — always reconfigure + build.
+# ============================================================================
+
+Write-Host ""
+Write-Host "[0/7] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
+
+# Version parts for cmake -D flags (already resolved above from CMakeLists.txt or -Version param)
+$vParts = $Version -split '\.'
+$vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } else { "0" }
+$vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
+$vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
+
+# Build tool paths — same as build-headless.ps1 and dev-window.ps1
+$CMakeExe  = "cmake"
+$MakeExe   = "C:\msys64\usr\bin\make.exe"
+$CCExe     = "C:/msys64/mingw64/bin/cc.exe"
+$Cores     = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
+
+# MSYS2/MinGW64 environment
+$env:MSYSTEM      = "MINGW64"
+$env:MINGW_PREFIX = "/mingw64"
+$env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
+$env:TEMP         = "$env:USERPROFILE\AppData\Local\Temp"
+$env:TMP          = $env:TEMP
+
+$vFlags  = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
+$targets = @(
+    @{ Name = "client"; BuildDir = "build\client"; Target = "pd"        },
+    @{ Name = "server"; BuildDir = "build\server"; Target = "pd-server" }
+)
+
+$buildOk = $true
+foreach ($t in $targets) {
+    $bdir = Join-Path $PSScriptRoot $t.BuildDir
+    Write-Host "  [$($t.Name)] cmake configure..." -ForegroundColor Gray
+
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
+    $cfgArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CCExe`" -B `"$bdir`" -S `"$PSScriptRoot`" $vFlags"
+    $cfgOut  = & $CMakeExe -G "Unix Makefiles" "-DCMAKE_MAKE_PROGRAM=$MakeExe" "-DCMAKE_C_COMPILER=$CCExe" "-B" $bdir "-S" $PSScriptRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
+    $cfgExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($cfgExit -ne 0) {
+        $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host "  ERROR: cmake configure failed for $($t.Name) (exit $cfgExit)" -ForegroundColor Red
+        $buildOk = $false; break
+    }
+
+    Write-Host "  [$($t.Name)] cmake build..." -ForegroundColor Gray
+    $ErrorActionPreference = "Continue"
+    $bldOut  = & $CMakeExe --build $bdir --target $t.Target -j $Cores 2>&1
+    $bldExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($bldExit -ne 0) {
+        $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
+        $buildOk = $false; break
+    }
+    Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
+}
+
+if (-not $buildOk) {
+    Write-Host ""
+    Write-Host "  ERROR: Build failed. Fix errors before releasing." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
+
 # Build artifact paths -- supports both flat and subdirectory layouts
 # Prefer build/client/ and build/server/ (current CMake), fall back to build/
 $ClientExe = $(if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
@@ -178,7 +252,7 @@ if (-not $hasClient -and -not $hasServer) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[1/6] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
+Write-Host "[1/7] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
 
 if (Test-Path $DistDir) {
     Remove-Item $DistDir -Recurse -Force
@@ -246,7 +320,7 @@ if ($hasMods) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[2/6] Creating zip archive..." -ForegroundColor Yellow
+Write-Host "[2/7] Creating zip archive..." -ForegroundColor Yellow
 
 $zipName = $(if ($Nightly) { "PerfectDark-nightly-$DateCode-win64.zip" } else { "PerfectDark-v$Version-win64.zip" })
 $zipPath = "dist/$zipName"
@@ -299,7 +373,7 @@ Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 # ============================================================================
 
 Write-Host ""
-Write-Host "[3/6] Git tagging..." -ForegroundColor Yellow
+Write-Host "[3/7] Git tagging..." -ForegroundColor Yellow
 
 # Create unified release tag
 $existingTag = git tag -l $ReleaseTag 2>$null
@@ -317,7 +391,7 @@ if ($existingTag) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[4/6] Pushing to remote..." -ForegroundColor Yellow
+Write-Host "[4/7] Pushing to remote..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun) {
     Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
@@ -377,7 +451,7 @@ if ($SkipPush -or $DryRun) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[5/6] Creating GitHub releases..." -ForegroundColor Yellow
+Write-Host "[5/7] Creating GitHub releases..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = $(if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" })
@@ -430,12 +504,21 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     }
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
-    # Only the zip is attached. Separate exe files are not needed --
-    # the zip contains everything (client, server, data, mods, DLLs).
+    # The zip is the full distribution for new users (client + server + data + mods).
+    # The bare exe files and their .sha256 sidecars are ALSO uploaded as individual
+    # release assets so the in-game updater (updater.c) can find them by exact filename.
+    # The updater looks for "PerfectDark.exe" and "PerfectDark.exe.sha256" -- if those
+    # assets are absent it constructs a fallback URL that doesn't exist, downloads garbage,
+    # and corrupts the install. Always upload the bare exes alongside the zip.
     # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
     if (Test-Path $zipPath) { $assets += $zipPath }
+    # Bare executables for in-game updater
+    if (Test-Path "$DistDir/PerfectDark.exe")               { $assets += "$DistDir/PerfectDark.exe" }
+    if (Test-Path "$DistDir/PerfectDark.exe.sha256")        { $assets += "$DistDir/PerfectDark.exe.sha256" }
+    if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
+    if (Test-Path "$DistDir/PerfectDarkServer.exe.sha256")  { $assets += "$DistDir/PerfectDarkServer.exe.sha256" }
 
     $ghExit = Push-GhRelease $ReleaseTag $ReleaseTitle $assets $true
 
@@ -455,7 +538,7 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[6/6] Cleanup and backup..." -ForegroundColor Yellow
+Write-Host "[6/7] Cleanup and backup..." -ForegroundColor Yellow
 
 # For STABLE releases, keep a local backup of the zip
 if (-not $Prerelease -and (Test-Path $zipPath)) {

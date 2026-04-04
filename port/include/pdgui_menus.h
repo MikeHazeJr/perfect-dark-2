@@ -25,6 +25,13 @@ void pdguiMenuAgentCreateRegister(void);
 void pdguiMenuWarningRegister(void);
 void pdguiMenuNetworkRegister(void);
 void pdguiMenuMatchSetupRegister(void);
+void pdguiMenuSoloMissionRegister(void);  /* Group 1: Solo Mission Flow */
+void pdguiMenuTeamSetupRegister(void);    /* Group 4: Team assignment screen */
+void pdguiMenuMpSettingsRegister(void);   /* Group 4: Player handicaps screen */
+void pdguiMenuChallengesRegister(void);   /* Group 4: Combat challenge browser */
+void pdguiMpIngameRegister(void);         /* Group 5: MP In-Game overlays + endscreen suppression */
+void pdguiMenuEndscreenRegister(void);    /* Group 2: SP/MP end screens */
+void pdguiMenuTrainingRegister(void);     /* Group 6: Firing Range, DT, HT, Bio dialogs */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -40,6 +47,13 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuWarningRegister();
     pdguiMenuNetworkRegister();
     pdguiMenuMatchSetupRegister();
+    pdguiMenuSoloMissionRegister();
+    pdguiMenuTeamSetupRegister();
+    pdguiMenuMpSettingsRegister();
+    pdguiMenuChallengesRegister();
+    pdguiMpIngameRegister();
+    pdguiMenuEndscreenRegister();
+    pdguiMenuTrainingRegister();
 }
 
 #ifdef __cplusplus

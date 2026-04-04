@@ -13,6 +13,8 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <stdio.h>
+#include <string>
+#include <unordered_map>
 
 #include "glad/glad.h"
 #include <string.h>
@@ -24,11 +26,14 @@
 /* PD-authentic style — colors, metrics, shimmer effects */
 #include "pdgui_style.h"
 
+/* D5.0 ROM texture decode layer + theme draw functions */
+#include "pdgui_theme.h"
+
+/* D5.1 input ownership boundary */
+#include "pdmain.h"
+
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
-
-/* F11 menu storyboard */
-#include "pdgui_storyboard.h"
 
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
@@ -44,11 +49,20 @@ extern "C" s32  pdguiUpdateIsActive(void);
 extern "C" void pdguiModdingHubRender(s32 winW, s32 winH);
 extern "C" s32  pdguiModdingHubIsVisible(void);
 
+/* Log Viewer Dev Window tab — declared in pdgui_menu_logviewer.cpp */
+extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
+
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
 
 /* In-match HUD overlay (top scorers + timer) */
 #include "pdgui_hud.h"
+
+/* MP In-Game overlays: kill ticker + endscreen suppression */
+extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
+
+/* Pre-match countdown popup: 3-2-1-GO + cancel support */
+extern "C" void pdguiCountdownRender(s32 winW, s32 winH);
 
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
@@ -56,6 +70,9 @@ extern "C" s32 netGetMode(void);
 /* Menu state manager (menumgr.c) */
 extern "C" s32 menuIsInCooldown(void);
 extern "C" s32 menuIsOpen(void);
+
+/* Input system -- for deferred SDL mouse-lock flush (B-92 solo mission path) */
+extern "C" s32 inputMouseIsLocked(void);
 
 /* Handel Gothic — PD's original menu font, embedded as a C array */
 #include "pdgui_font_handelgothic.h"
@@ -65,6 +82,33 @@ extern "C" s32 menuIsOpen(void);
 
 /* Logging */
 #include "system.h"
+
+/* Forward declaration only — game/lang.h includes data.h which #define bool s32 */
+extern "C" char *langGet(s32 textid);
+
+/* ---------------------------------------------------------------------------
+ * Exported utilities
+ * --------------------------------------------------------------------------- */
+
+extern "C" const char *langSafe(s32 textid)
+{
+    const char *s = langGet(textid);
+    return s ? s : "";
+}
+
+/* ---------------------------------------------------------------------------
+ * D5.0: UI Texture bridge
+ *
+ * pdguiGetUiTexture() delegates to pdguiThemeGetTexture() in pdgui_theme.cpp.
+ * All decode, GL upload, and catalog registration live in the theme layer.
+ *
+ * D5.0a test-pattern (buildTestPattern / s_UiTexCache) has been removed.
+ * --------------------------------------------------------------------------- */
+
+extern "C" void* pdguiGetUiTexture(const char *id)
+{
+    return pdguiThemeGetTexture(id);
+}
 
 /* ---------------------------------------------------------------------------
  * State
@@ -175,9 +219,6 @@ void pdguiInit(void *sdlWindow)
     g_PdguiInitialized = true;
     g_PdguiActive = false;
 
-    /* Initialize the F11 menu storyboard (D4) */
-    pdguiStoryboardInit();
-
     /* Initialize the F8 in-game hot-swap system (D4) */
     pdguiHotswapInit();
 
@@ -186,6 +227,9 @@ void pdguiInit(void *sdlWindow)
 
     /* Initialize the character preview FBO system */
     pdguiCharPreviewInit();
+
+    /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
+    pdguiThemeInit();
 }
 
 void pdguiNewFrame(void)
@@ -195,8 +239,7 @@ void pdguiNewFrame(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !pdguiStoryboardIsActive() &&
-         !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+        (!g_PdguiActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
          !networkActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -274,7 +317,6 @@ void pdguiRender(void)
         pdguiConsoleRender();
     }
 
-    bool storyboardActive = pdguiStoryboardIsActive() != 0;
     bool hotswapQueued = pdguiHotswapHasQueued() != 0;
     bool hotswapWasActive = pdguiHotswapWasActive() != 0;
 
@@ -285,7 +327,7 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !s_ConsoleVisible && !storyboardActive && !hotswapQueued && !hotswapWasActive &&
+        (!g_PdguiActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -302,14 +344,11 @@ void pdguiRender(void)
         winH = 480;
     }
 
-    /* F11 storyboard takes over full screen when active */
-    if (storyboardActive) {
-        pdguiStoryboardRender((s32)winW, (s32)winH);
-    }
-
     /* F12 debug menu — PD-styled, game-relative scaling */
     if (g_PdguiActive) {
         pdguiDebugMenuRender((s32)winW, (s32)winH);
+        /* Log Viewer Dev Window — shown alongside the debug menu */
+        pdguiLogViewerRender((s32)winW, (s32)winH);
     }
 
     /* F8 hot-swap: render any ImGui menu replacements that were queued
@@ -321,12 +360,39 @@ void pdguiRender(void)
      * frame and pdguiIsActive/pdguiWantsInput block all game input. */
     pdguiHotswapRenderQueued((s32)winW, (s32)winH);
 
+    /* B-92 (solo mission ImGui path): pdguiHotswapRenderQueued() just updated
+     * s_HotswapMenuWasActive.  When a mission is accepted from the ImGui overview
+     * dialog, menuhandlerAcceptMission() calls menuStop() + inputLockMouse(1)
+     * from inside the hotswap render callback.  At that point pdguiIsActive()
+     * still returns true (WasActive is still set for this frame), so
+     * inputLockMouse() sets mouseLocked=true but defers SDL_SetRelativeMouseMode.
+     * The next frame the hotswap queue is empty, WasActive drops to false —
+     * but nothing applies the SDL state unless we do it here.
+     * Covers all hotswap→gameplay transitions: solo mission accept, endscreen
+     * retry/next, and any future hotswap dialog that calls menuStop(). */
+    {
+        bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
+        if (hotswapWasActive && !hotswapNowActive &&
+                !g_PdguiActive && !pdguiIsPauseMenuOpen()) {
+            if (inputMouseIsLocked()) {
+                SDL_ShowCursor(SDL_DISABLE);
+                SDL_SetRelativeMouseMode(SDL_TRUE);
+                sysLogPrintf(LOG_NOTE,
+                    "pdgui: hotswap closed, flushed deferred mouse capture (B-92 solo)");
+            }
+        }
+    }
+
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
 
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
     pdguiLobbyRender((s32)winW, (s32)winH);
+
+    /* Pre-match countdown: 3-2-1-GO popup + cancel banner.
+     * Renders over everything during MANIFEST_PHASE_LOADING; no-op otherwise. */
+    pdguiCountdownRender((s32)winW, (s32)winH);
 
     /* D13: Update notification banner, version picker, download progress.
      * Renders as overlay — independent of hotswap and menu state. */
@@ -340,6 +406,17 @@ void pdguiRender(void)
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
+
+    /* Kill/score ticker overlay: slide-in notifications for score events.
+     * Active during normmplayerisrunning; auto-suppressed on game over. */
+    pdguiMpIngameRender((s32)winW, (s32)winH);
+
+    /* Post-match overlay (MATCH OVER screen + "Return to Lobby" button).
+     * Without this call the game freezes on match end — the N64 menu system
+     * drove the post-match transition, but the PC port ImGui doesn't observe
+     * prevmenuroot.  pdguiGameOverRender is a no-op unless MPPAUSEMODE_GAMEOVER
+     * is active, so it is safe to call every frame. */
+    pdguiGameOverRender((s32)winW, (s32)winH);
 
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
@@ -456,7 +533,7 @@ void pdguiShutdown(void)
         return;
     }
 
-    pdguiStoryboardShutdown();
+    pdguiThemeShutdown();
     pdguiHotswapShutdown();
 
     ImGui_ImplOpenGL3_Shutdown();
@@ -500,17 +577,29 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
-    /* F11 storyboard toggle — check first, before F12 debug overlay */
-    {
-        s32 consumed = pdguiStoryboardProcessEvent(sdlEvent);
-        if (consumed) return 1;
-    }
-
     /* F12 debug overlay toggle */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
         g_PdguiActive = !g_PdguiActive;
         pdguiUpdateMouseGrab(g_PdguiActive);
         return 1;  /* consumed — PD never sees F12 */
+    }
+
+    /* D5.1: In GAMEPLAY mode with no active overlay, don't forward keyboard
+     * events to ImGui at all — game input owns everything. Mouse still forwarded
+     * so ImGui can track relative state for the HUD. */
+    if (g_InputMode == INPUTMODE_GAMEPLAY && !g_PdguiActive) {
+        if (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP || ev->type == SDL_TEXTINPUT) {
+            return 0;
+        }
+    }
+
+    /* D5.1: In MENU mode, suppress Tab before ImGui sees it.
+     * Tab is bound to CK_START (pause trigger) in input.c — passing it to ImGui
+     * as a nav key and also to the game causes a double-trigger on menu open. */
+    if (g_InputMode == INPUTMODE_MENU &&
+        (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP) &&
+        ev->key.keysym.scancode == SDL_SCANCODE_TAB) {
+        return 1;  /* consumed — Tab is not a nav key in PD menus */
     }
 
     /* Always forward events to ImGui so it can track mouse/keyboard state.
@@ -519,14 +608,13 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     /* Determine if any ImGui surface is actively wanting input:
      * - Debug overlay (F12)
-     * - Storyboard (F11)
      * - Hot-swapped menu (F8)
      * - Pause menu (in-game)
      *
      * For hotswap, use pdguiHotswapWasActive() which persists from the
      * previous frame's render. pdguiHotswapHasQueued() would be 0 here
      * because events are processed BEFORE the GBI phase queues new dialogs. */
-    bool overlayActive = g_PdguiActive || pdguiStoryboardIsActive();
+    bool overlayActive = g_PdguiActive;
     bool hotswapActive = pdguiHotswapWasActive() != 0 || pdguiHotswapHasQueued() != 0;
     bool pauseActive = pdguiIsPauseMenuOpen() != 0;
 
@@ -573,11 +661,6 @@ s32 pdguiWantsInput(void)
         return 0;
     }
 
-    /* Storyboard consumes ALL input when active */
-    if (pdguiStoryboardIsActive()) {
-        return 1;
-    }
-
     /* Hot-swapped menus (F8) consume all input while active.
      * Uses pdguiHotswapWasActive() which persists from the previous
      * frame's render — pdguiHotswapHasQueued() would be 0 here
@@ -601,8 +684,8 @@ s32 pdguiWantsInput(void)
 
 s32 pdguiIsActive(void)
 {
-    /* F12 debug overlay, F11 storyboard, F8 hot-swapped menus, or ImGui pause menu */
-    return (g_PdguiActive || pdguiStoryboardIsActive() || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
+    /* F12 debug overlay, F8 hot-swapped menus, or ImGui pause menu */
+    return (g_PdguiActive || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
 }
 
 void pdguiToggle(void)

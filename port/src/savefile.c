@@ -28,6 +28,7 @@
 #include "bss.h"
 #include "system.h"
 #include "savefile.h"
+#include "assetcatalog.h"
 #include "fs.h"
 
 /* ========================================================================
@@ -108,12 +109,19 @@ static stok_t s_next(sparse_t *p)
 	return tok;
 }
 
-static void s_skip_value(sparse_t *p)
+#define S_MAX_DEPTH 64  /* max JSON nesting depth — crafted saves can't stack-overflow */
+
+static void s_skip_value(sparse_t *p, s32 depth)
 {
+	if (depth > S_MAX_DEPTH) {
+		/* Skip to end-of-input to abort the parse cleanly. */
+		while (*p->pos) p->pos++;
+		return;
+	}
 	stok_t tok = s_next(p);
 	if (tok.type == STOK_LBRACE) {
 		while ((tok = s_next(p)).type != STOK_RBRACE && tok.type != STOK_EOF) {
-			if (tok.type == STOK_STRING) { s_next(p); s_skip_value(p); }
+			if (tok.type == STOK_STRING) { s_next(p); s_skip_value(p, depth + 1); }
 		}
 	} else if (tok.type == STOK_LBRACKET) {
 		while ((tok = s_next(p)).type != STOK_RBRACKET && tok.type != STOK_EOF) {
@@ -122,7 +130,7 @@ static void s_skip_value(sparse_t *p)
 			if (tok.type == STOK_LBRACE || tok.type == STOK_LBRACKET) {
 				/* back up and recurse */
 				p->pos = tok.start;
-				s_skip_value(p);
+				s_skip_value(p, depth + 1);
 			}
 		}
 	}
@@ -173,7 +181,12 @@ static char *readFileContents(const char *path, s32 *outLen)
 	char *buf = (char *)malloc(len + 1);
 	if (!buf) { fclose(fp); return NULL; }
 
-	fread(buf, 1, len, fp);
+	if (fread(buf, 1, len, fp) != (size_t)len) {
+		free(buf);
+		fclose(fp);
+		if (outLen) *outLen = 0;
+		return NULL;
+	}
 	buf[len] = '\0';
 	fclose(fp);
 
@@ -412,7 +425,7 @@ s32 saveLoadAgent(const char *name)
 			}
 		} else {
 			/* Unknown key — skip value for forward compatibility */
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		/* Consume comma between fields */
@@ -564,7 +577,7 @@ s32 saveLoadSystem(void)
 			tok = s_next(&p);
 			g_AltTitleEnabled = s_tok_bool(&tok);
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);
@@ -597,9 +610,16 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	writeJsonString(fp, "name", name);
 	fprintf(fp, ",\n");
 
-	/* Appearance */
-	fprintf(fp, "  \"mpheadnum\": %u,\n", pc->base.mpheadnum);
-	fprintf(fp, "  \"mpbodynum\": %u,\n", pc->base.mpbodynum);
+	/* Appearance — SA-4: write catalog string IDs.
+	 * FIX-11: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions; convert. */
+	{
+		const char *head_id = catalogResolveHeadByMpIndex((s32)pc->base.mpheadnum);
+		const char *body_id = catalogResolveBodyByMpIndex((s32)pc->base.mpbodynum);
+		writeJsonString(fp, "head_id", head_id ? head_id : "");
+		fprintf(fp, ",\n");
+		writeJsonString(fp, "body_id", body_id ? body_id : "");
+		fprintf(fp, ",\n");
+	}
 	fprintf(fp, "  \"team\": %u,\n", pc->base.team);
 	fprintf(fp, "  \"displayoptions\": %u,\n", pc->base.displayoptions);
 
@@ -656,9 +676,37 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		if (strcmp(key, "name") == 0) {
 			tok = s_next(&p);
 			s_tok_str(&tok, pc->base.name, 15);
+		} else if (strcmp(key, "head_id") == 0) {
+			/* SA-4: catalog string ID for head.
+			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
+			 * g_MpHeads[] position before storing in mpheadnum. */
+			char id_buf[CATALOG_ID_LEN];
+			const asset_entry_t *e;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			e = assetCatalogResolve(id_buf);
+			if (e && e->type == ASSET_HEAD) {
+				s32 mpidx = catalogHeadnumToMpHeadIdx((s32)e->runtime_index);
+				if (mpidx >= 0) pc->base.mpheadnum = (u8)mpidx;
+			}
+		} else if (strcmp(key, "body_id") == 0) {
+			/* SA-4: catalog string ID for body.
+			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
+			 * g_MpBodies[] position before storing in mpbodynum. */
+			char id_buf[CATALOG_ID_LEN];
+			const asset_entry_t *e;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			e = assetCatalogResolve(id_buf);
+			if (e && e->type == ASSET_BODY) {
+				s32 mpidx = catalogBodynumToMpBodyIdx((s32)e->runtime_index);
+				if (mpidx >= 0) pc->base.mpbodynum = (u8)mpidx;
+			}
 		} else if (strcmp(key, "mpheadnum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
 		} else if (strcmp(key, "mpbodynum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpbodynum = s_tok_int(&tok);
 		} else if (strcmp(key, "team") == 0) {
 			tok = s_next(&p); pc->base.team = s_tok_int(&tok);
@@ -699,7 +747,7 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		} else if (strcmp(key, "options") == 0) {
 			tok = s_next(&p); pc->options = s_tok_uint(&tok);
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);
@@ -729,13 +777,28 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
-	fprintf(fp, "  \"stagenum\": %u,\n", g_MpSetup.stagenum);
+	/* SA-4: write stage as catalog string ID.
+	 * FIX-10: g_MpSetup.stagenum is a logical stage ID, not a g_Stages[] array index;
+	 * use catalogResolveStageByStagenum() which searches by ext.map.stagenum field. */
+	{
+		const char *stage_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
+		writeJsonString(fp, "stage_id", stage_id ? stage_id : "");
+		fprintf(fp, ",\n");
+	}
 	fprintf(fp, "  \"timelimit\": %u,\n", g_MpSetup.timelimit);
 	fprintf(fp, "  \"scorelimit\": %u,\n", g_MpSetup.scorelimit);
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);
 	fprintf(fp, "  \"options\": %u,\n", g_MpSetup.options);
 
-	/* Weapons */
+	/* FIX-21: Weapons as catalog string IDs (universality principle).
+	 * "weapon_ids" is the catalog string array (new format); "weapons" is kept as
+	 * raw MPWEAPON_* integers for backward-compat reading of old saves. */
+	fprintf(fp, "  \"weapon_ids\": [");
+	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		const char *wid = catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[i]);
+		fprintf(fp, "\"%s\"%s", wid ? wid : "", i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
+	}
+	fprintf(fp, "],\n");
 	fprintf(fp, "  \"weapons\": [");
 	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		fprintf(fp, "%u%s", g_MpSetup.weapons[i], i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
@@ -769,7 +832,17 @@ s32 saveLoadMpSetup(const char *name)
 
 		if (strcmp(key, "scenario") == 0) {
 			tok = s_next(&p); g_MpSetup.scenario = s_tok_int(&tok);
+		} else if (strcmp(key, "stage_id") == 0) {
+			/* SA-4: catalog string ID for stage */
+			char id_buf[CATALOG_ID_LEN];
+			s32 idx;
+			tok = s_next(&p);
+			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			idx = assetCatalogResolveStageIndex(id_buf);
+			if (idx >= 0)
+				g_MpSetup.stagenum = (u8)idx;
 		} else if (strcmp(key, "stagenum") == 0) {
+			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); g_MpSetup.stagenum = s_tok_int(&tok);
 		} else if (strcmp(key, "timelimit") == 0) {
 			tok = s_next(&p); g_MpSetup.timelimit = s_tok_int(&tok);
@@ -779,7 +852,25 @@ s32 saveLoadMpSetup(const char *name)
 			tok = s_next(&p); g_MpSetup.teamscorelimit = s_tok_int(&tok);
 		} else if (strcmp(key, "options") == 0) {
 			tok = s_next(&p); g_MpSetup.options = s_tok_uint(&tok);
+		} else if (strcmp(key, "weapon_ids") == 0) {
+			/* FIX-21: catalog string IDs take precedence over raw "weapons" integers. */
+			tok = s_next(&p);
+			if (tok.type == STOK_LBRACKET) {
+				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+					char wid_buf[128];
+					tok = s_next(&p);
+					s_tok_str(&tok, wid_buf, sizeof(wid_buf));
+					if (wid_buf[0]) {
+						const asset_entry_t *we = assetCatalogResolve(wid_buf);
+						if (we && we->type == ASSET_WEAPON)
+							g_MpSetup.weapons[i] = (u8)we->ext.weapon.weapon_id;
+					}
+					tok = s_next(&p);
+					if (tok.type == STOK_RBRACKET) break;
+				}
+			}
 		} else if (strcmp(key, "weapons") == 0) {
+			/* Legacy fallback: raw MPWEAPON_* integers from old saves. */
 			tok = s_next(&p);
 			if (tok.type == STOK_LBRACKET) {
 				for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
@@ -790,7 +881,7 @@ s32 saveLoadMpSetup(const char *name)
 				}
 			}
 		} else {
-			s_skip_value(&p);
+			s_skip_value(&p, 0);
 		}
 
 		tok = s_next(&p);

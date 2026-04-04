@@ -9,7 +9,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 - **Tick rate**: 60 Hz
 - **Player cap**: `NET_MAX_CLIENTS 32` is the hard ceiling (ENet peer allocation). Runtime cap is `g_NetMaxClients`, set at server start and sent to clients via `SVC_AUTH`. Do not hardcode player-count assumptions — a planned network benchmark will call `hubSetMaxSlots()` to lower the runtime cap dynamically based on measured bandwidth/latency/tick sustainability.
 - **Channels**: `NETCHAN_DEFAULT`(0) unreliable positions, `NETCHAN_CONTROL`(1) reliable state/events, `NETCHAN_TRANSFER`(2) reliable mod distribution
-- **Protocol version**: 20 (bumped from 19: NETCHAN_TRANSFER + D3R-9 distribution messages)
+- **Protocol version**: **27** (v20: D3R-9 NETCHAN_TRANSFER; v21: chrslots u64; v22: CLC_LOBBY_START weapons; v23: NAT traversal; v24: match manifest; v25: SVC_STAGE_START bot config; v27: all net_hash replaced with catalog ID strings). **net_hash is dead — zero usage in wire protocol.**
 - **Modes**: `g_NetMode` — NETMODE_NONE(0), NETMODE_SERVER(1), NETMODE_CLIENT(2)
 - **Game modes**: `g_NetGameMode` — NETGAMEMODE_MP(0), NETGAMEMODE_COOP(1), NETGAMEMODE_ANTI(2)
 

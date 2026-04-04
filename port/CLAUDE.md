@@ -28,3 +28,21 @@ All C++ and PC-specific code. Auto-discovered by CMake `GLOB_RECURSE port/*.cpp`
 - C interop: All public APIs use `extern "C"` linkage
 - ImGui v1.91.8 vendored in `fast3d/imgui/`, uses glad (not imgl3w)
 - SDL2 + OpenGL3 backends, GLSL 1.30 (#version 130)
+
+## Asset Catalog — Mandatory Rules (SA-7)
+
+### Net message asset references
+`catalogWriteAssetRef` / `catalogReadAssetRef` are the **only** permitted functions
+for encoding/decoding asset references in net messages.  Never write or read raw
+`bodynum`/`headnum` integers directly into message buffers.
+
+### Catalog-first file resolution
+All asset file resolution must go through catalog accessor functions:
+- **Bodies**: `catalogGetSafeBody()`, `catalogGetSafeBodyPaired()`
+- **Heads**: `catalogGetSafeHead()`
+- **Filenames/filenums**: `catalogGetBodyFilenumByIndex()`, `catalogGetHeadFilenumByIndex()`
+- **String IDs → entries**: `assetCatalogResolve()`
+
+Never access `g_HeadsAndBodies[]` directly from networking, UI, or gameplay code.
+Allowed read-sites are: `assetcatalog_base.c` (registration), `assetcatalog_api.c`
+(implementation), `modelcatalog.c` (validation/thumbnail system).

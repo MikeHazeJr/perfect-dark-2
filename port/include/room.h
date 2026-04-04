@@ -37,13 +37,25 @@ extern "C" {
  * Types
  * ------------------------------------------------------------------------- */
 
-/** Five-state room lifecycle. */
+/** Room lifecycle state machine.
+ *
+ *  LOBBY --> PREPARING --> LOADING --> MATCH --> POSTGAME --> CLOSED
+ *    ^            |                                  |
+ *    |            | (manifest + ready gate)          |
+ *    +------------+----------------------------------+  (rematch / cancel)
+ *
+ *  PREPARING is entered when the leader triggers match start.  The server
+ *  broadcasts SVC_MATCH_MANIFEST; all clients must respond READY (or DECLINE)
+ *  before the room advances to LOADING.  Clients that DECLINE stay in
+ *  CLSTATE_LOBBY as spectators.
+ */
 typedef enum {
-    ROOM_STATE_LOBBY    = 0, /**< Waiting for players / match not started. */
-    ROOM_STATE_LOADING  = 1, /**< Stage assets loading / countdown.        */
-    ROOM_STATE_MATCH    = 2, /**< Match in progress.                       */
-    ROOM_STATE_POSTGAME = 3, /**< Scoreboard / brief results phase.        */
-    ROOM_STATE_CLOSED   = 4, /**< Room destroyed, slot available.          */
+    ROOM_STATE_LOBBY     = 0, /**< Waiting for players / match not started.          */
+    ROOM_STATE_LOADING   = 1, /**< Stage assets loading; SVC_STAGE_START sent.       */
+    ROOM_STATE_MATCH     = 2, /**< Match in progress.                                */
+    ROOM_STATE_POSTGAME  = 3, /**< Scoreboard / brief results phase.                 */
+    ROOM_STATE_CLOSED    = 4, /**< Room destroyed, slot available.                   */
+    ROOM_STATE_PREPARING = 5, /**< Manifest sent; waiting for all clients READY.     */
 } room_state_t;
 
 /** Room access mode. */
@@ -74,6 +86,25 @@ typedef struct hub_room_s {
     u32          created_tick;                /**< g_NetTick when created.  */
     u32          state_enter_tick;            /**< g_NetTick of last transition. */
 } hub_room_t;
+
+/* -------------------------------------------------------------------------
+ * Client-side room cache (populated by SVC_ROOM_LIST, no server memory access)
+ * ------------------------------------------------------------------------- */
+
+#define ROOM_CACHE_MAX HUB_MAX_ROOMS
+
+typedef struct {
+    u8   id;
+    u8   state;          /* room_state_t */
+    u8   client_count;
+    u8   max_players;
+    u8   creator_client_id;
+    char name[ROOM_NAME_MAX];
+} room_cache_entry_t;
+
+extern room_cache_entry_t g_RoomCache[ROOM_CACHE_MAX];
+extern s32 g_RoomCacheCount;
+extern u8  g_LocalRoomId;  /* 0xFF = in lounge (no room) */
 
 /* -------------------------------------------------------------------------
  * API
@@ -121,8 +152,26 @@ hub_room_t *roomGetByIndex(s32 idx);
 /** Total non-CLOSED room count. */
 s32 roomGetActiveCount(void);
 
-/** Human-readable name for a room_state_t value. */
-const char *roomStateName(room_state_t state);
+/** Human-readable name for a room_state_t value.
+ * Inline so both client and server can use it without linking room.c. */
+static inline const char *roomStateName(room_state_t state)
+{
+    switch (state) {
+        case ROOM_STATE_LOBBY:     return "Lobby";
+        case ROOM_STATE_LOADING:   return "Loading";
+        case ROOM_STATE_MATCH:     return "Match";
+        case ROOM_STATE_POSTGAME:  return "Postgame";
+        case ROOM_STATE_CLOSED:    return "Closed";
+        case ROOM_STATE_PREPARING: return "Preparing";
+        default:                   return "?";
+    }
+}
+
+/** Add a client to a room. Returns 1 on success, 0 if full or already in room. */
+s32 roomJoin(hub_room_t *room, u8 clientId);
+
+/** Remove a client from a room. Destroys room if empty (except room 0). */
+void roomLeave(hub_room_t *room, u8 clientId);
 
 #ifdef __cplusplus
 }

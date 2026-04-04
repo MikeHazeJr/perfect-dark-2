@@ -1499,7 +1499,7 @@ void sndInit(void)
 		// Allocate some space at the start of the heap for a string identifier.
 		// This might be used to determine if the heap has overflowed.
 		g_SndGuardStringPtr = alHeapAlloc(&g_SndHeap, 1, ALIGN16(sizeof(g_SndGuardString)));
-		strcpy(g_SndGuardStringPtr, g_SndGuardString);
+		strncpy(g_SndGuardStringPtr, g_SndGuardString, sizeof(g_SndGuardString) - 1); g_SndGuardStringPtr[sizeof(g_SndGuardString) - 1] = '\0';
 
 		// Load sfx.ctl
 		sndLoadSfxCtl();
@@ -1695,7 +1695,7 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 #if VERSION < VERSION_NTSC_1_0
 	if (ziplen == 0) {
 		char message[128];
-		sprintf(message, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+		snprintf(message, sizeof(message), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
 				"snd.c", 1676,
 				zipstart[0], zipstart[1], zipstart[2], zipstart[3],
 				zipstart[4], zipstart[5], zipstart[6], zipstart[7],

@@ -431,9 +431,9 @@ void objectivesCheckAll(void)
 					u8 jpnstr[] = {0, 0, 0};
 					jpnstr[0] = 0x80;
 					jpnstr[1] = 0x80 | (0x11 + availableindex);
-					sprintf(buffer, "%s %s: ", langGet(L_MISC_044), jpnstr); // "Objective"
+					snprintf(buffer, sizeof(buffer), "%s %s: ", langGet(L_MISC_044), jpnstr); // "Objective"
 #else
-					sprintf(buffer, "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective"
+					snprintf(buffer, sizeof(buffer), "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective"
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0

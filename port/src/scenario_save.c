@@ -43,14 +43,18 @@
 #include "game/mplayer/participant.h"   /* PARTICIPANT_DEFAULT_CAPACITY */
 
 #include "scenario_save.h"
+#include "assetcatalog.h"
 #include "fs.h"
 #include "system.h"
 
 /* g_MatchConfig is defined in matchsetup.c (the match configuration module).
  * scenario_save.c uses it via the extern in scenario_save.h. */
 
-/* mpSetWeaponSet: applies weapon set index to g_MpSetup.weapons[]. */
+/* mpSetWeaponSet/mpGetWeaponSlot/mpSetWeaponSlot: weapon set management. */
 #include "game/mplayer/mplayer.h"
+
+/* catalogGetNumHeads/catalogGetNumBodies: bounds-check for reverse index lookup. */
+#include "modelcatalog.h"
 
 /* ========================================================================
  * Internal helpers
@@ -256,17 +260,35 @@ s32 scenarioSave(const char *name)
 
     /* --- Write JSON --- */
     fprintf(fp, "{\n");
-    fprintf(fp, "  \"version\": 1,\n");
+    fprintf(fp, "  \"version\": 2,\n");
     fprintf(fp, "  \"name\": \"");
     jsonEscapeStr(fp, name);
     fprintf(fp, "\",\n");
     fprintf(fp, "  \"arena\": %u,\n",        (unsigned)g_MatchConfig.stagenum);
+    /* SA-4: catalog string ID for arena.
+     * FIX-15: g_MatchConfig.stagenum is a logical stage ID, not a g_Stages[] index. */
+    {
+        const char *stage_id = catalogResolveStageByStagenum((s32)g_MatchConfig.stagenum);
+        fprintf(fp, "  \"arenaId\": \"");
+        jsonEscapeStr(fp, stage_id ? stage_id : "");
+        fprintf(fp, "\",\n");
+    }
     fprintf(fp, "  \"scenario\": %u,\n",     (unsigned)g_MatchConfig.scenario);
     fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
     fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
     fprintf(fp, "  \"teamscorelimit\": %u,\n",(unsigned)g_MatchConfig.teamscorelimit);
     fprintf(fp, "  \"options\": %u,\n",      (unsigned)g_MatchConfig.options);
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
+
+    /* FIX-22: Individual weapon slot picks as catalog string IDs + legacy integers.
+     * "weapon_id%d" is the catalog string ID (universality principle).
+     * "weapon%d" is kept for backward-compatible reading of old saves. */
+    for (s32 slot = 0; slot < 6; slot++) {
+        s32 wval = mpGetWeaponSlot(slot);
+        const char *wid = catalogResolveWeaponByGameId(wval);
+        fprintf(fp, "  \"weapon_id%d\": \"%s\",\n", slot, wid ? wid : "");
+        fprintf(fp, "  \"weapon%d\": %d,\n", slot, wval);
+    }
 
     /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
     fprintf(fp, "  \"bots\": [\n");
@@ -278,12 +300,21 @@ s32 scenarioSave(const char *name)
         if (!first) fprintf(fp, ",\n");
         first = 0;
 
-        fprintf(fp, "    {\"name\": \"");
-        jsonEscapeStr(fp, sl->name);
-        fprintf(fp, "\", \"difficulty\": %u, \"body\": %u, \"head\": %u}",
-                (unsigned)sl->botDifficulty,
-                (unsigned)sl->bodynum,
-                (unsigned)sl->headnum);
+        /* Catalog-ID-native: body_id/head_id are the PRIMARY identity on the
+         * matchslot — use them directly.  The legacy "body"/"head" integer fields
+         * are kept for backward-compatible reading of old saves written before
+         * catalog IDs were primary; new writes always have the string fields. */
+        {
+            fprintf(fp, "    {\"name\": \"");
+            jsonEscapeStr(fp, sl->name);
+            fprintf(fp, "\", \"difficulty\": %u"
+                        ", \"bodyId\": \"",
+                    (unsigned)sl->botDifficulty);
+            jsonEscapeStr(fp, sl->body_id[0] ? sl->body_id : "");
+            fprintf(fp, "\", \"headId\": \"");
+            jsonEscapeStr(fp, sl->head_id[0] ? sl->head_id : "");
+            fprintf(fp, "\"}");
+        }
     }
     if (!first) fprintf(fp, "\n");
     fprintf(fp, "  ]\n");
@@ -331,7 +362,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     /* --- Parse version check --- */
     s32 version = 0;
     jsonFindInt(buf, "version", &version);
-    if (version != 1) {
+    if (version != 1 && version != 2) {
         sysLogPrintf(LOG_WARNING, "SCENARIO: unsupported version %d in '%s'",
                      version, filepath);
         free(buf);
@@ -350,7 +381,9 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     s32 weaponset      = 0;
     u32 teamscorelimit = 400;
     u32 options        = 0;
+    char arena_id[CATALOG_ID_LEN];
 
+    arena_id[0] = '\0';
     jsonFindInt (buf, "arena",          &arena);
     jsonFindInt (buf, "scenario",       &scenario);
     jsonFindInt (buf, "timelimit",      &timelimit);
@@ -358,12 +391,22 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     jsonFindInt (buf, "weaponset",      &weaponset);
     jsonFindUInt(buf, "teamscorelimit", &teamscorelimit);
     jsonFindUInt(buf, "options",        &options);
+    /* SA-4: prefer catalog string ID for arena over legacy integer */
+    jsonFindString(buf, "arenaId", arena_id, sizeof(arena_id));
 
     /* --- Reset match config and apply loaded settings --- */
     matchConfigInit();
 
-    if (arena >= 0)
+    /* SA-4: prefer catalog string ID for arena; fall back to legacy integer */
+    if (arena_id[0]) {
+        s32 idx = assetCatalogResolveStageIndex(arena_id);
+        if (idx >= 0)
+            g_MatchConfig.stagenum = (u8)idx;
+        else if (arena >= 0)
+            g_MatchConfig.stagenum = (u8)arena;
+    } else if (arena >= 0) {
         g_MatchConfig.stagenum     = (u8)arena;
+    }
     if (scenario >= 0 && scenario < 16)
         g_MatchConfig.scenario     = (u8)scenario;
     if (timelimit >= 0)
@@ -374,6 +417,28 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     g_MatchConfig.options          = options;
     g_MatchConfig.weaponSetIndex   = (s8)weaponset;
     mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+
+    /* FIX-22: Restore weapon slot picks — prefer catalog string ID over raw integer. */
+    for (s32 slot = 0; slot < 6; slot++) {
+        char idkey[24], wkey[16], idbuf[128];
+        snprintf(idkey, sizeof(idkey), "weapon_id%d", slot);
+        snprintf(wkey,  sizeof(wkey),  "weapon%d",    slot);
+        if (jsonFindString(buf, idkey, idbuf, sizeof(idbuf)) && idbuf[0]) {
+            const asset_entry_t *we = assetCatalogResolve(idbuf);
+            if (we && we->type == ASSET_WEAPON) {
+                s32 wval = (s32)we->ext.weapon.weapon_id;
+                mpSetWeaponSlot(slot, wval);
+                g_MatchConfig.weapons[slot] = (u8)wval;
+            }
+        } else {
+            /* Legacy fallback: raw MPWEAPON_* integer from old saves. */
+            s32 wval = -1;
+            if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
+                mpSetWeaponSlot(slot, wval);
+                g_MatchConfig.weapons[slot] = (u8)wval;
+            }
+        }
+    }
 
     /* --- Parse and add bots ---
      *
@@ -414,26 +479,49 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
 
                 /* Extract fields */
                 char botName[MAX_PLAYER_NAME];
-                botName[0] = '\0';
+                char body_id[CATALOG_ID_LEN];
+                char head_id[CATALOG_ID_LEN];
                 s32 difficulty = 2; /* NormalSim default */
                 s32 body       = 0;
                 s32 head       = 0;
+
+                botName[0] = '\0';
+                body_id[0] = '\0';
+                head_id[0] = '\0';
 
                 jsonFindString(obj, "name",       botName, MAX_PLAYER_NAME);
                 jsonFindInt   (obj, "difficulty", &difficulty);
                 jsonFindInt   (obj, "body",        &body);
                 jsonFindInt   (obj, "head",        &head);
+                /* SA-4: prefer catalog string IDs */
+                jsonFindString(obj, "bodyId",      body_id, sizeof(body_id));
+                jsonFindString(obj, "headId",      head_id, sizeof(head_id));
 
-                /* Clamp values to safe ranges */
+                /* Clamp legacy integer values to safe ranges */
                 if (difficulty < 0) difficulty = 0;
                 if (difficulty > 5) difficulty = 5;
-                if (body < 0)       body = 0;
-                if (head < 0)       head = 0;
+
+                /* Catalog-ID-native: prefer string IDs as the primary identity.
+                 * Fall back to legacy integer → catalog lookup for old saves. */
+                if (!body_id[0] && body >= 0 && body < 152) {
+                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, body);
+                    if (bid) {
+                        strncpy(body_id, bid, sizeof(body_id) - 1);
+                        body_id[sizeof(body_id) - 1] = '\0';
+                    }
+                }
+                if (!head_id[0] && head >= 0 && head < 152) {
+                    const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, head);
+                    if (hid) {
+                        strncpy(head_id, hid, sizeof(head_id) - 1);
+                        head_id[sizeof(head_id) - 1] = '\0';
+                    }
+                }
 
                 matchConfigAddBot(0 /* BOTTYPE_NORMAL */,
                                   (u8)difficulty,
-                                  (u8)head,
-                                  (u8)body,
+                                  body_id[0] ? body_id : NULL,
+                                  head_id[0] ? head_id : NULL,
                                   botName[0] ? botName : NULL);
                 botCount++;
                 p = objEnd + 1;
@@ -448,6 +536,22 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
         scenarioName[0] ? scenarioName : filepath,
         g_MatchConfig.stagenum, g_MatchConfig.scenario,
         botCount, maxBots, humanCount);
+    return 0;
+}
+
+s32 scenarioDelete(const char *filepath)
+{
+    if (!filepath || !filepath[0]) {
+        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete called with empty path");
+        return -1;
+    }
+
+    if (remove(filepath) != 0) {
+        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete failed for '%s'", filepath);
+        return -1;
+    }
+
+    sysLogPrintf(LOG_NOTE, "SCENARIO: deleted '%s'", filepath);
     return 0;
 }
 

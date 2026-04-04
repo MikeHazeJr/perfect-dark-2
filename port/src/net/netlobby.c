@@ -17,9 +17,16 @@
 #include "constants.h"
 #include "net/net.h"
 #include "net/netlobby.h"
+#include "assetcatalog.h"
 #include "system.h"
+#include "room.h"
 
 struct lobbystate g_Lobby;
+
+/* R-3: Client-side room cache — populated by SVC_ROOM_LIST */
+room_cache_entry_t g_RoomCache[ROOM_CACHE_MAX];
+s32 g_RoomCacheCount = 0;
+u8  g_LocalRoomId = 0xFF;
 
 void lobbyInit(void)
 {
@@ -64,8 +71,12 @@ void lobbyUpdate(void)
         struct lobbyplayer *lp = &g_Lobby.players[count];
         lp->active = 1;
         lp->clientId = (u8)i;
-        lp->headnum = cl->settings.headnum;
-        lp->bodynum = cl->settings.bodynum;
+        {
+            const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
+            const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
+            lp->bodynum = be ? (u8)be->runtime_index : 0;
+            lp->headnum = he ? (u8)he->runtime_index : 0;
+        }
         lp->team = cl->settings.team;
 
         /* Copy player name — use Agent name from settings.
@@ -101,8 +112,9 @@ void lobbyUpdate(void)
             currentLeaderFound = 1;
         }
 
-        /* Ready state: in-game means ready */
-        lp->isReady = (cl->state >= CLSTATE_GAME) ? 1 : 0;
+        /* Ready state: in-game (CLSTATE_GAME exactly) means ready.
+         * CLSTATE_PREPARING (5) > CLSTATE_GAME (4) — use == to avoid false positives. */
+        lp->isReady = (cl->state == CLSTATE_GAME) ? 1 : 0;
         lp->isLeader = 0; /* Will be set below */
 
         count++;
@@ -141,9 +153,12 @@ void lobbyUpdate(void)
     /* g_NetLocalClient is NULL on dedicated server, so checking it directly always yields inGame=0.
      * Walk g_NetClients[] instead to check if any client is actively in a match. */
     {
+        /* Use == CLSTATE_GAME, not >= CLSTATE_GAME.
+         * CLSTATE_PREPARING (5) > CLSTATE_GAME (4), so the >= check incorrectly
+         * fires the "Preparing -> Match" room transition during the ready gate. */
         u8 anyInGame = 0;
         for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-            if (g_NetClients[i].state >= CLSTATE_GAME) {
+            if (g_NetClients[i].state == CLSTATE_GAME) {
                 anyInGame = 1;
                 break;
             }

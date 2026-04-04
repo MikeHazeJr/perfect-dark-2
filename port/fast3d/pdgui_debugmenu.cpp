@@ -85,6 +85,9 @@ extern void *g_NetLocalClient; /* actually struct netclient* */
 
 extern s32 g_StageNum;
 extern s32 g_OsMemSizeMb;
+extern s32 g_JumpLoggingEnabled;
+
+s32 configSave(const char *fname);
 
 /* Function declarations */
 s32 netStartServer(u16 port, s32 maxclients);
@@ -102,6 +105,8 @@ u32 mempPCGetTotalAllocated(void);
 u32 mempPCGetNumAllocations(void);
 
 } /* extern "C" */
+
+#define PDGUI_CONFIG_PATH "$S/pd.ini"
 
 /* -----------------------------------------------------------------------
  * Safe accessors for netclient data.
@@ -344,80 +349,6 @@ static void pdguiDebugThemeSection(void)
 }
 
 /* -----------------------------------------------------------------------
- * Log Filters section -- toggle log channels on/off
- * ----------------------------------------------------------------------- */
-
-static void pdguiDebugLogSection(void)
-{
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::Text("LOG FILTERS");
-    ImGui::PopStyleColor();
-
-    ImGui::Separator();
-
-    u32 mask = sysLogGetChannelMask();
-
-    /* Preset buttons: All / None */
-    bool isAll = (mask == LOG_CH_ALL);
-    bool isNone = (mask == LOG_CH_NONE);
-
-    if (isAll) {
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
-    }
-    if (ImGui::Button("All", ImVec2(S(60), S(20)))) {
-        sysLogSetChannelMask(LOG_CH_ALL);
-        mask = LOG_CH_ALL;
-    }
-    if (isAll) ImGui::PopStyleColor();
-
-    ImGui::SameLine();
-
-    if (isNone) {
-        ImVec4 redBg = ImVec4(0.6f, 0.1f, 0.1f, 0.85f);
-        ImGui::PushStyleColor(ImGuiCol_Button, redBg);
-    }
-    if (ImGui::Button("None", ImVec2(S(60), S(20)))) {
-        sysLogSetChannelMask(LOG_CH_NONE);
-        mask = LOG_CH_NONE;
-    }
-    if (isNone) ImGui::PopStyleColor();
-
-    ImGui::Spacing();
-
-    /* Individual channel toggles */
-    bool changed = false;
-    for (int i = 0; i < LOG_CH_COUNT; i++) {
-        bool enabled = (mask & sysLogChannelBits[i]) != 0;
-        if (ImGui::Checkbox(sysLogChannelNames[i], &enabled)) {
-            if (enabled) {
-                mask |= sysLogChannelBits[i];
-            } else {
-                mask &= ~sysLogChannelBits[i];
-            }
-            changed = true;
-        }
-    }
-
-    if (changed) {
-        sysLogSetChannelMask(mask);
-    }
-
-    ImGui::Spacing();
-
-    /* Verbose toggle */
-    bool verbose = sysLogGetVerbose() != 0;
-    if (ImGui::Checkbox("Verbose", &verbose)) {
-        sysLogSetVerbose(verbose ? 1 : 0);
-    }
-
-    /* Show current mask value for reference */
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-    ImGui::Text("Mask: 0x%04X%s", mask, verbose ? " +V" : "");
-    ImGui::PopStyleColor();
-}
-
-/* -----------------------------------------------------------------------
  * Frame/performance section
  * ----------------------------------------------------------------------- */
 
@@ -433,6 +364,30 @@ static void pdguiDebugPerfSection(void)
     ImGui::Text("FPS:   %.1f", io.Framerate);
     ImGui::Text("Frame: %.2f ms", 1000.0f / io.Framerate);
     ImGui::Text("Stage: 0x%02x", g_StageNum);
+}
+
+/* -----------------------------------------------------------------------
+ * Debug flags section -- runtime toggles persisted to pd.ini
+ * ----------------------------------------------------------------------- */
+
+static void pdguiDebugFlagsSection(void)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::Text("DEBUG FLAGS");
+    ImGui::PopStyleColor();
+
+    ImGui::Separator();
+
+    bool jumpLog = g_JumpLoggingEnabled != 0;
+    if (ImGui::Checkbox("Jump/Move Logging", &jumpLog)) {
+        g_JumpLoggingEnabled = jumpLog ? 1 : 0;
+        configSave(PDGUI_CONFIG_PATH);
+        sysLogPrintf(LOG_NOTE, "DEBUG_MENU: JumpLogging -> %d", g_JumpLoggingEnabled);
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+    ImGui::TextWrapped("Gates JUMP_DEBUG/JUMP_MOVE log spam in bwalkUpdateVertical");
+    ImGui::PopStyleColor();
 }
 
 /* -----------------------------------------------------------------------
@@ -486,7 +441,7 @@ extern "C" void pdguiDebugMenuRender(s32 winW, s32 winH)
         pdguiDebugThemeSection();
         ImGui::Spacing();
         ImGui::Spacing();
-        pdguiDebugLogSection();
+        pdguiDebugFlagsSection();
     }
     ImGui::End();
 

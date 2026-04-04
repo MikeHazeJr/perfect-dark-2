@@ -207,13 +207,13 @@
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 26 | Startup log: weapon count | Log shows "assetcatalog: weapons: 47 entries" | [ ] |
-| 27 | Startup log: prop count | Log shows "assetcatalog: props: 8 entries" | [ ] |
-| 28 | Startup log: gamemode count | Log shows "assetcatalog: gamemodes: 6 entries" | [ ] |
-| 29 | Startup log: hud count | Log shows "assetcatalog: hud elements: 6 entries" | [ ] |
-| 30 | Startup log: extended total | Log shows "extended registration added N entries (N >= 67)" | [ ] |
-| 31 | No crash on startup | Game reaches main menu without crash after asset catalog expansion | [ ] |
-| 32 | Weapon INI scanner | `[weapon]` INI in mod `_components/weapons/` dir — registers without error in log | [ ] |
+| 26 | Startup log: weapon count | Log shows "assetcatalog: weapons: 47 entries" | [x] |
+| 27 | Startup log: prop count | Log shows "assetcatalog: props: 8 entries" | [x] |
+| 28 | Startup log: gamemode count | Log shows "assetcatalog: gamemodes: 6 entries" | [x] |
+| 29 | Startup log: hud count | Log shows "assetcatalog: hud elements: 6 entries" | [x] |
+| 30 | Startup log: extended total | Log shows "extended registration added N entries (N >= 67)" | [!] |
+| 31 | No crash on startup | Game reaches main menu without crash after asset catalog expansion | [x] |
+| 32 | Weapon INI scanner | `[weapon]` INI in mod `_components/weapons/` dir — registers without error in log | [-] |
 
 ## Death Loop + Font Descenders + Dashboard (S42) — Awaiting Test
 
@@ -221,8 +221,8 @@
 |---|------|----------------|--------|-------|
 | 19 | Death loop — mod stage with no spawn pads | Load a mod stage with no INTROCMD_SPAWN. Player should spawn at a valid pad (room >= 0), not loop-die in void | [x] | We removed modded maps for now and will re-add them when we have a conversion tool for existing mod maps, and level editor for our own custom ones, native. |
 | 20 | Death loop — log check | Console log shows "SPAWN: no spawn pads available, using pad N fallback (room=X)" with room >= 0 | [-] |  |
-| 21 | Font descenders at 800x600 | Letters q, y, p, g fully visible in all menus — no bottom clipping | [ ] |  |
-| 22 | Font descenders at 1080p | Same letters fully visible and proportionally sized at 1080p | [ ] |  |
+| 21 | Font descenders at 800x600 | Letters q, y, p, g fully visible in all menus — no bottom clipping | [x] |  |
+| 22 | Font descenders at 1080p | Same letters fully visible and proportionally sized at 1080p | [x] |  |
 | 23 | Dashboard commit button | Click Commit — window stays responsive during git add + commit. Spinner/status shows "Committing...", then "Committed" | [-] | No commit button, decided against it. Still, committing seems to work when we build / push. |
 | 24 | Dashboard commit freeze (push) | Check "Push to GitHub" — window still responsive during push operation | [-] | We do not have a commit button, we opted not to. |
 | 25 | QC notes TextChanged | Type a note in any QC row — save to disk immediately (not on focus-leave). Verify by closing + reopening dashboard | [x] | QC Note, here it is. |

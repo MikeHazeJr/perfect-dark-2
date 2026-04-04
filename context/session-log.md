@@ -1,2049 +1,949 @@
 # Session Log (Active)
 
-> Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md)
+> Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
-## Session S83 -- 2026-03-30
+## Session S144 — 2026-04-04
 
-**Focus**: NAT traversal (all 4 phases), protocol v23, connect code port encoding, mouse capture, Solo Room screen routing, build/log tools, online MP crash fix, spawn weapon logging
+**Focus**: Endscreen UI overhaul, multi-select bot list, 256-entry name dictionaries, B-104 fix, stale slot cleanup
 
 ### What Was Done
 
-1. **NAT Traversal — Phase D8 (all 4 phases implemented)**
-   - **STUN client** (`port/src/net/netstun.c`): Sends RFC 5389 STUN Binding Request to public STUN server; parses XOR-MAPPED-ADDRESS response; populates `g_StunPublicIP` / `g_StunPublicPort`. Called on server start and client connect.
-   - **Query advertising** (`port/src/net/netlobby.c`): SVC_ADDR_QUERY / CLC_ADDR_REPORT messages added. Server broadcasts STUN-discovered external IP+port to all clients in lobby. Clients cache peer addresses for hole-punch pre-dialing.
-   - **Hole punch** (`port/src/net/netholepunch.c`): Symmetric hole-punch handshake (CLC_PUNCH_REQ / SVC_PUNCH_REPLY). Client sends 5 probe packets to each peer's external address. Server relays confirmation when both sides have punched. Timeout: 3s, fallback to relay.
-   - **NAT diagnostics** (`port/fast3d/pdgui_debugmenu.cpp`): New "NAT" section in debug menu shows STUN result, punch status per peer, relay fallback indicator. Port accessible from dev window.
+**Commits `af86c3b`, `2d75636`, `b92a421`, `6b9e498` pushed to `dev`.**
 
-2. **Protocol version bumped to 23** (`port/include/net/net.h`): `PROTOCOL_VERSION 23`. CLC_AUTH / SVC_AUTH reject mismatched versions with log message.
+**1. Endscreen overhaul + B-104 fix** (`af86c3b`):
+- **B-104 fixed**: both `renderSoloEndscreen` and `renderMpEndscreen` in `pdgui_menu_endscreen.cpp` now call `pdmainSetInputMode(INPUTMODE_MENU)` on `IsWindowAppearing()`. Previously both used direct `SDL_SetRelativeMouseMode(SDL_FALSE)` calls, leaving `g_InputMode = INPUTMODE_GAMEPLAY` and blocking ImGui input.
+- **Return to Lobby / Quit to Menu buttons** added to endscreen.
+- **Random bot names** now displayed on post-match endscreen.
+- `#include "../include/pdmain.h"` added to endscreen.cpp.
 
-3. **Connect code port encoding** (`port/src/connectcode.c`, `port/include/connectcode.h`): Extended 6-word sentence encoding for non-default ports. Words 5–6 encode a port delta from `NET_DEFAULT_PORT`. Default-port servers still produce 4-word codes (backwards-compatible). Decoder detects word count (4 vs 6) and applies delta.
+**2. Multi-select bot list** (`2d75636`):
+- Combat Sim bot list now supports multi-select with right-click context menu for batch operations.
 
-4. **Mouse capture fix** (`port/fast3d/gfx_sdl2.cpp`): SDL_SetRelativeMouseMode now gated on game state. Captured during gameplay (`g_Vars.mplayerisrunning || g_GamePhase == GAMEPHASE_INGAME`); released in menus / lobby / room screen. Eliminates cursor-trapped-in-menu issue.
+**3. 256-entry bot name dictionaries** (`b92a421`):
+- Replaced random generator with 256-entry Adjective+Noun word lists.
+- Dictionaries are mod-overridable (loaded from data files if present).
+- Bot name display columns widened to accommodate longer names.
+- Also touches `pdgui_menu_room.cpp` and `port/src/net/matchsetup.c`.
 
-5. **Solo Play → Room screen routing** (`port/fast3d/pdgui_menu_mainmenu.cpp`, `pdgui_lobby.cpp`, `pdgui_menu_room.cpp`): "Combat Simulator" button routes to Room screen in solo mode rather than legacy N64 menu dialog. Implemented in S82 — verified route working.
+**4. Stale slot reference fix** (`6b9e498`):
+- Removed stale `s_SelectedBotSlot` reference in room screen reset path — crash hazard on room screen revisit.
 
-6. **Build scripts created** (`tools/build.sh`, `tools/build.cmd`, `tools/build-cleanup.sh`): Cross-session clean build pipeline. `--target both` builds client + server in one pass. Temp-dir workaround for MSYS2 `C:\WINDOWS` permission issue baked in.
+**Build**: v0.0.32 clean.
 
-7. **Log parser created** (`tools/parse-log.sh`, `tools/parse-log.cmd`): Filters `sysLogPrintf` output by tag prefix (SPAWN, NET, PLAYER_SPAWN, etc.). Used for AI session log analysis.
+### Decisions
+- `pdmainSetInputMode` doesn't warp cursor; kept explicit `SDL_WarpMouseInWindow` to center — cursor would otherwise restore to off-screen pre-mission position.
+- Name dictionaries use flat arrays (not JSON) for load performance; mod override path uses same directory convention as other data assets.
 
-8. **Online MP crash diagnosed and fixed** — `catalogGetSafeBodyPaired()` was not called on client in `SVC_STAGE_START` handler. Client received stage start message, tried to load body assets, and crashed or showed white textures on Felicity intro camera. Fixed: `catalogGetSafeBodyPaired()` added to client-side `SVC_STAGE_START` path (`port/src/net/net_server_callbacks.c`). Bug logged as B-54.
+### Next Steps
+- Playtest: verify endscreen buttons usable after mission complete, bot names display correctly, multi-select works in Combat Sim
+- D5.3 (Pause Menu) remains the biggest open gap
 
-9. **Worktree cleanup** — 89 stale worktrees cleaned (0 remaining). Tools: `git worktree prune`.
+---
 
-10. **Scheduled tasks created** — 3 cron-style tasks via Claude Code scheduled tasks: nightly build (2:00 AM), context maintenance (Sunday 10:00 PM), context briefing (session start trigger).
+## Session S143 — 2026-04-04
 
-11. **Spawn weapon logging added** (`src/game/player.c:1202`, `src/game/bot.c:313`):
-    - Player path: logs `"SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand"` after `bgunEquipWeapon2(HAND_RIGHT, ...)`.
-    - Player no-weapon path: logs `"SPAWN: player %d -- no spawn weapon (options=... weapons[0]=...)"` when `normmplayerisrunning` and SPAWNWITHWEAPON not set.
-    - Bot path: logs `"SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped"` after `botinvSwitchToWeapon`.
-    - Bot no-weapon path: logs `"SPAWN: bot chr=%p -- no spawn weapon ..."`.
-    - Auto-equip already worked correctly via `bgunEquipWeapon2` (player) and `botinvSwitchToWeapon` (bot) — no code change needed, logging only.
-    - Build: client + server clean (41s).
+**Focus**: R-3 Room Networking — clients see rooms, create/join, room-scoped match start
+
+### What Was Done
+
+**`commit 892f1e8` pushed to `dev`.**
+
+Implemented R-3 room networking from `context/room-architecture-plan.md`:
+- Server broadcasts room list to clients on lobby join.
+- Clients can create and join rooms via the room screen.
+- Match start is room-scoped: only players in the same room participate in a match.
+- Room screen (`pdgui_menu_room.cpp`) updated to display active rooms and occupant counts.
+
+**Build**: v0.0.30 clean.
+
+### Decisions
+- Room IDs are server-assigned, consistent with R-1/R-2 foundation.
+- R-4 (demand-driven rooms) and R-5 (room federation) remain planned.
+- L-series (lobby/room UX polish) depends on R-3 being done; can now begin.
+
+### Next Steps
+- L-series lobby/room UX work.
+- Endscreen + name system polish (S144).
+
+---
+
+## Session S142 — 2026-04-04
+
+**Focus**: Network + bot stabilization sprint — fixes for match start, bot freeze, server broadcast, buffer overflow, auth client desync storm
+
+### What Was Done
+
+**Commits `2634716`, `e5f7d4a`, `41431a3`, `3645e28`, `2de61ab`, `07b9729` pushed to `dev`.**
+
+Fixed all root causes identified in S141 analysis plus related issues:
+
+- **CLC_LOBBY_START buffer overflow** (`2de61ab`): `netLobbyRequestStartWithSims` in `pdgui_bridge.c` switched from `g_NetLocalClient->out` (1440 bytes) to a 256KB static send buffer. This was the root cause of the 23/31 bot count mismatch. Server-side dispatch trace logging also added.
+- **Bot rooms=-1 freeze** (`41431a3`): `botmgrAllocateBot` now uses `PROPFLAG_NOTYETTICKED` gate; bots tick continuously until `botSpawn` assigns valid rooms and clears the flag. Room recovery path added for bots that stall.
+- **Dedicated server broadcast blocked** (`3645e28`): `g_NetLocalClient` guard was incorrectly blocking relay; server can now broadcast state updates to all connected clients.
+- **Bot names / per-frame relay / room fallback / server bot count** (`2634716`): bot display names populated correctly; relay runs every frame; room fallback logic corrected; server accurately reports bot count.
+- **Authority client desync storm** (`07b9729`): authority client now skips chr desync detection — was triggering continuous resync storm on dedicated server with many bots.
+- **Head picker human-readable names** (`e5f7d4a`): head picker now shows catalog-resolved display names sorted A-Z instead of raw catalog IDs.
+
+**Builds**: v0.0.28 (initial batch) → v0.0.29 (post auth-client fix).
+
+### Decisions
+- 256KB static buffer for CLC_LOBBY_START is a pragmatic fix; streaming/chunked approach deferred until packet sizes are better understood.
+- Auth client desync skip is intentional on dedicated server where the server is always the authority.
+
+### Next Steps
+- Playtest with 31 bots: verify full count transmitted, all bots spawn with valid rooms, CLC_BOT_MOVE flows to server.
+- R-3 room networking (S143).
+
+---
+
+## Session S141 — 2026-04-04
+
+**Focus**: Bot count mismatch audit + bot freeze root cause analysis (no code changes — analysis only, session terminated by user before fixes applied)
+
+### What Was Done
+
+**Audit findings** (no fixes implemented):
+
+**Root Cause 1 — CLC_LOBBY_START buffer overflow** (CRITICAL):
+- `NET_BUFSIZE = 1440` bytes. `g_NetLocalClient->out` is this size.
+- CLC_LOBBY_START writes: header (~34 bytes) + weapons (6 strings, ~12–84 bytes) + per-bot (3 strings + 2 bytes ≈ 45 bytes/bot) + manifest.
+- At 31 bots: ~34 + 12 + 31×45 + manifest ≈ 1441+ bytes — overflows the buffer.
+- After overflow, `netbuf->error = 1`; writes are no-ops but `botIdx` keeps incrementing.
+- The packet declares `numSims=31` (written before overflow), but only ~23 bots have valid data.
+- Server reads 31 entries: 23 valid + 8 garbage (empty strings → dark_combat defaults). Sets `clampedSims=31`, allocates 31 stubs, sends SVC_STAGE_START with 31 bot chrslots bits.
+- **Fix location**: `port/fast3d/pdgui_bridge.c:657` — `netLobbyRequestStartWithSims`. Change from `g_NetLocalClient->out` to a static large buffer (e.g. `NET_BUFSIZE * 8 = 11520` bytes).
+
+**Root Cause 2 — Bot rooms=-1 / freeze**:
+- `botmgrAllocateBot` (botmgr.c) creates prop with `rooms[0] = -1`.
+- `propActivate` sets `forceonetick = true` → bot ticks ONCE (the first-run log fires here).
+- After first tick: rooms still -1, not in foreground → prop NOT ticked again.
+- Actual bot spawn (valid rooms assigned) happens via stage setup AI → `aiMpInitSimulants` → `botSpawnAll` → `botSpawn` → `scenarioChooseSpawnLocation` → `chrMoveToPos` with valid rooms. This runs DURING stage loading (setup.c AI script), not from botTick.
+- After `botSpawn`, bots have valid rooms. They get added to foreground normally.
+- **Fix**: In `botmgrAllocateBot`, set `prop->forcetick = true` after `propActivate` so bots always tick until properly spawned. Clear `forcetick` in `botSpawn` after rooms are assigned.
+
+**Root Cause 3 — CLC_BOT_MOVE not sent**:
+- `netEndFrame` (net.c:1407): `if (g_NetLocalBotAuthority && g_BotCount > 0)` gates the write.
+- On dedicated server: `g_NetLocalBotAuthority = true` set when `SVC_BOT_AUTHORITY` received. `g_BotCount` set by `setup.c` allocating bots from `g_MpSetup.chrslots`.
+- If `g_NetLocalBotAuthority` is never set (SVC_BOT_AUTHORITY not received/processed), or `g_BotCount = 0` (bots not allocated due to overflow-corrupted chrslots), no CLC_BOT_MOVE is sent.
+- After fixing CLC_LOBBY_START overflow → correct 31-bot chrslots → correct bot allocation → correct g_BotCount → CLC_BOT_MOVE flows.
+
+**Key files for next session fixes**:
+- `port/fast3d/pdgui_bridge.c:652–659` — CLC_LOBBY_START buffer
+- `src/game/botmgr.c:72–74` — prop->forcetick after propActivate/propEnable
+- `src/game/bot.c:307` — clear forcetick after chrMoveToPos in botSpawn
+- `port/src/net/net.c:1407` — verify CLC_BOT_MOVE gate
 
 ### Decisions Made
 
-- NAT hole-punch uses 3s timeout with relay fallback — avoids blocking match start for peers behind symmetric NAT.
-- Connect code 6-word extension is backwards-compatible — 4-word codes still work for default-port servers.
-- Mouse capture state driven by `g_Vars.mplayerisrunning` — same flag used elsewhere for game-state gating.
-- STUN server selection: public Google STUN (`stun.l.google.com:19302`) with compile-time override `STUN_SERVER` / `STUN_PORT`.
-
-### Build Status
-
-All changes build clean: client + server via `tools/build.sh --target both`.
+- Session terminated before fixes; user will restart with explicit fix instructions.
+- CLC_LOBBY_START buffer overflow is the root cause of the 23/31 bot count mismatch.
+- rooms=-1 freeze is a secondary issue from forceonetick being cleared before spawn runs.
 
 ### Next Steps
 
-- Playtest NAT: two peers behind NAT → verify hole punch succeeds (debug menu shows punch status).
-- Playtest spawn weapon: enable "Start Armed" in room → verify SPAWN log lines appear in match log.
-- B-51/B-52/B-53: Networked MP verification (bots visible, weapons/doors interactive).
-- C-5/C-6: Texture + anim override wiring.
+- **S142**: Implement the three fixes above. Build verify. Commit + push.
+- Playtest with 31 bots: verify full count transmitted, all spawn with valid rooms, CLC_BOT_MOVE flows.
 
 ---
 
-## Session 82 -- 2026-03-30
+## Session S139 — 2026-04-04
 
-**Focus**: Solo Room screen — route "Combat Simulator" to Room screen (offline mode) instead of old N64 lobby dialog
+**Focus**: D5.4 — MP post-match scoreboard (pdgui_menu_pausemenu.cpp)
 
 ### What Was Done
 
-**Solo Room Screen implemented and build-verified**:
-- `pdgui_lobby.cpp`: Added `s_SoloRoomActive` flag, `pdguiSoloRoomOpen()` / `pdguiSoloRoomClose()` (extern "C"). `pdguiLobbyRender()` NETMODE_NONE branch now calls `pdguiRoomScreenRender()` when `s_SoloRoomActive`.
-- `pdgui_menu_room.cpp`: Added `s_IsSoloMode` flag and `pdguiRoomScreenSetSolo()` function. Solo mode: hides network UI (connect code, server player list), shows local player name, renames title to "Combat Simulator", "Leave Room" → "Back to Menu", Start Match calls `matchStart()` directly (not `netLobbyRequestStartWithSims()`).
-- `pdgui_menu_mainmenu.cpp`: "Combat Simulator" button now calls `pdguiSoloRoomOpen()` instead of pushing `g_MatchSetupMenuDialog`.
-- **Build**: Client + server both build clean with `TEMP=/tmp` workaround for MSYS2 temp-dir issue.
+**`commit 36d03a5` pushed to `dev`.**
 
-### Key Decisions
-- `matchStart()` in `matchsetup.c` is the correct solo path — already handles `g_MpSetup` config, participant setup, and `mpStartMatch()` + `menuStop()`.
-- Room screen rendered as opaque overlay in `pdguiLobbyRender()` NETMODE_NONE branch — no new render path needed.
-- `pdguiRoomScreenReset()` called before `pdguiRoomScreenSetSolo(1)` in `pdguiSoloRoomOpen()` to avoid reset wiping the solo flag.
+Rewrote `pdguiGameOverRender()` and supporting helpers in `pdgui_menu_pausemenu.cpp`:
+
+- **Accuracy column** — `ScorecardRow.accuracy` field added. Computed for local player via `mpstatsGetPlayerShotCountByRegion` (PM_SHOT_TOTAL, _HEAD, _BODY, _LIMB, _GUN, _HAT, _OBJECT). Bots display "--".
+- **Team section headers** — `renderGameOverRankings()` rewritten. Inserts "-- Team N --" headers (team-colored) between team groups when teams are enabled.
+- **Stable team sort** — `sortRowsByTeam()` insertion sort added. `mpGetPlayerRankings()` returns score-sorted rows; stable sort by team applied before rendering for team mode.
+- **Mouse capture fix** — `pdmainSetInputMode(INPUTMODE_MENU)` called on `ImGui::IsWindowAppearing()`. Fixes non-interactive buttons (B-103 symptom: game held SDL in relative mouse mode during gameplay).
+- **Dual exit buttons** — "Return to Lobby" (blue, stays in room: `mainChangeToStage(STAGE_CITRAINING)` + `pdguiSetInRoom(1)`) and "Quit to Menu" (red: `netDisconnect()` for CLIENT, `mainChangeToStage(STAGE_TITLE)` for offline/server).
+
+**Build**: full client+server incremental build clean (exit 0).
+
+### Decisions
+- Accuracy computed from local player's stats only — `mpstatsGetPlayerShotCountByRegion` is per-local-player, not per-chrnum. Bots always show "--".
+- "Return to Lobby" does NOT call `netDisconnect()` — player stays connected and in-room. Only `pdguiSetInRoom(1)` is needed to show the room interior UI.
+- Forward-declared `pdguiSetInRoom` and `mpstatsGetPlayerShotCountByRegion` inline in the cpp extern block (not added to headers — not needed elsewhere).
 
 ### Next Steps
-- Playtest: Main Menu → Combat Simulator → configure bots/map → Start Match → verify match loads and runs.
-- Playtest: "Back to Menu" returns to main menu cleanly.
+- Playtest: verify scoreboard appears at match end, buttons work, accuracy shows for local player
+- D5.4 mission complete screen still PLANNED
+- D5.5: bot name dictionary + arena/weapon verification still open
 
 ---
 
-## Session 81 -- 2026-03-30
+## Session S138 — 2026-04-04
 
-**Focus**: Networked MP playtest fix cycle — B-49 footstep crash, weapon spawn, server build guards, match-end timer; J-1/J-5 join flow; 6 branch merges
-
-### What Was Done
-
-**B-49 FULLY FIXED + VERIFIED** — footstepChooseSound infinite loop when `g_RngSeed=0`:
-- `footstepChooseSound()` in `bondmove.c` entered an infinite loop when `g_RngSeed` was 0 (all bits masked out). Added loop guard (max 32 iterations) + return -1 on no-sound. Added `if (sound > 0)` guard on the `psCreate` call so a -1 return doesn't attempt to create a sound prop.
-- Mike's playtest confirmed: landing on all surfaces (including toilet/vent shaft geometry) no longer freezes. B-49 CLOSED.
-- Commit: `e603985`
-
-**Weapon spawn on dedicated server fixed** — server never received resolved weapon array:
-- Root cause: `CLC_LOBBY_START` handler was not sending `g_MpSetup.weapons[6]` to the server. Server-side bots had no weapons on spawn.
-- Fix: Added 6-element `weapons[]` array to `CLC_LOBBY_START` payload in `netmsg.c`. Also added null guard on `g_NetLocalClient` in the bot weapon sync path.
-- Protocol bumped to **v22**.
-- Commit: `4b2f0a9`
-
-**Server build errors fixed** — multiple `PD_SERVER` guard gaps:
-- `port/fast3d/pdgui_backend.cpp`: guarded `#include "pdgui.h"` and `pdguiMainMenuReset()` call with `#ifndef PD_SERVER`. Commit: `aac52be`
-- `port/src/net/netmsg.c`: fixed `struct mpsetup` redefinition (scenario_save.h included twice in server build) and missing `sysLogPrintf` declaration. Commit: `6247eed`
-- `port/src/net/netlobby.c`: resolved `mpSetWeaponSet` link error — function not compiled in server build, replaced with direct array copy. Commit: `630faf2`
-
-**B-50 FIXED** — dedicated server match-end freeze:
-- Dedicated server never runs `lv.c`, so the engine timelimit code that sends `SVC_STAGE_END` never fires. Client waited forever.
-- Added SDL wall-clock timer to `hubTick()` in `port/src/hub.c`: `s_MatchStartMs` / `s_MatchEndSent` statics. On match start records `SDL_GetTicks()`. Each tick: if `timelimit < 60` and elapsed ≥ `(tl+1)*60*1000 ms`, calls `netServerStageEnd()` and sets `s_MatchEndSent`.
-- Timer is wall-clock (SDL_GetTicks) not game ticks — fires correctly even before stage fully loads.
-
-**Options/chrslots sync verified** — both were already fixed in prior sessions:
-- `g_MpSetup.options`: set by `optToggle()`, passed through `CLC_LOBBY_START`, read by server at netmsg.c:3444. No change needed.
-- `g_MpSetup.chrslots`: `netmsgSvcStageStartWrite` lines 641-642 already write both chrslots and options. No change needed.
-
-**J-1: End-to-end join flow VERIFIED** — full test cycle complete:
-- Server starts → client enters connect code → CLSTATE_LOBBY reached → match loads → match runs → match ends.
-
-**J-5: Menu dismiss on lobby join** — fixed:
-- `pdguiMainMenuReset()` now called on `SVC_AUTH` receipt (already covered by the `aac52be` server build guard fix which also wired the reset call on client path).
-
-**6 branches merged into dev**:
-- `claude/sweet-bouman` — S80 session log + tasks-current refresh
-- `claude/youthful-robinson` — S74 asset reference audit
-- `claude/stupefied-lalande` — S59 Social Lobby routing (L-1)
-- `claude/serene-booth` — connectcode + SPF-1 modules
-- `claude/suspicious-jones` — S69 player count constants audit
-- `claude/serene-margulis` — S72 bot names/player name in CLC_AUTH
-
-**Playtest backlog cleanup** — closed implicitly verified items S68–S80:
-- B-43 first-tick crash, B-44/B-26 bot names, B-40/41 timelimit/options, B-42 bot cap, B-46 void spawn — all confirmed working in live networked play. Commit: `defffc8`
-
-### Files Modified
-- `src/game/bondmove.c` — B-49: footstepChooseSound loop guard + psCreate null guard
-- `port/src/net/netmsg.c` — weapon array in CLC_LOBBY_START; protocol v22; struct redefinition fix; sysLogPrintf declaration
-- `port/src/net/netlobby.c` — mpSetWeaponSet link error (direct array copy for server build)
-- `port/fast3d/pdgui_backend.cpp` — PD_SERVER guard on pdgui.h + pdguiMainMenuReset
-- `port/src/hub.c` — B-50: SDL wall-clock match timer
-
-### Decisions Made
-- Protocol bumped to v22 (weapon array added to CLC_LOBBY_START)
-- Options flags and chrslots were already fully wired in prior sessions — no netmsg.c format changes needed
-- hub.c timer uses wall-clock so it fires even if stage hasn't fully loaded on server side
-
-### Build Status
-VERIFIED clean — client (pd) and server (pd-server) both build with no errors or warnings
-
-### Still Needs Playtest Verification
-- B-50: Start timed match on dedicated server, verify match ends at timelimit
-- B-51/B-52/B-53: Bot stuck under map, can't pick up weapons/ammo, can't open doors — may all be resolved by chrslots+options sync now working
-
-### Next Steps
-- Run B-50 playtest (timed dedicated server match)
-- Verify B-51/B-52/B-53 resolved in next Combat Sim session
-- C-5/C-6: Texture + anim override wiring
-- R-2: Room lifecycle (expand hub slots, room_id, leader_client_id)
-
-## Session 80 -- 2026-03-29
-
-**Focus**: Full codebase TODO sweep + enet ABA vulnerability fix
+**Focus**: Fix body/head picker auto-head selection (combat sim + agent create)
 
 ### What Was Done
 
-**Arena picker fix confirmed working** (from S78): `arenaGetName` override for langid 0x5126–0x5152 functional.
-
-**T-3/T-4/T-5: Base table expansion** — `assetcatalog_base_extended.c`:
-- Animation entries: 1207 registered
-- Texture entries: 3503 registered
-- Audio entries: 1545 registered
-
-**T-10: Mod size_bytes** — `modmgrComputeDirSize()` recursive directory walker implemented in `modmgr.c`.
-
-**T-6: Thumbnail queue system** — `catalogRequestThumbnail()` / `catalogPollThumbnails()` circular buffer added.
-
-**C-7 audio-from-file** — `audioPlayFileSound()` via `SDL_LoadWAV` in `audio.c`; intercept wired in `snd.c`.
-
-**D5 thumbnail batch render** — `pdguiCharPreviewBakeToTexture()` FBO readback + unique GL textures in `pdgui_charpreview.c`.
-
-**Mixer buffer fix** — MP3 decode staging buffer prevents overrun in `mixer.c`.
-
-**Port TODO batch 1** (6 items): `main.c` `statsShutdown`+`catalogClear`, `video.c` `videoClearScreen`, `pdsched.c` documentation, `input.c` `VK_JOY1_LTRIG/RTRIG_IDX` constants, `mpsetups.c` save/delete dialog TODOs documented.
-
-**Net + savefile batch** (7 items): O(1) syncid prop map `s_PropBySyncId[2048]`, ROM CRC validation via `utilCrc32()`, local player count `PLAYERCOUNT()`, `SVC_PROP_USE` removal documented, game mode flags in server query, player config backup `s_RemoteConfigBackups[]`, `saveListAgents()` full directory scan.
-
-**Game + lib batch 1** (8 items): `bg.c` alloclen, `bondgun.c` mem size + texture purge, `bondmove.c` anglespeed + bare TODO + headroll, `file.c` `g_FileTable`, `memp.c` config.
-
-**Renderer + fast3d batch** (12 items): all `gfx_pc.cpp` texture/mip/LOD/widescreen TODOs documented; `gfx_destroy` cleanup implemented (free `tex_upload_buffer`, `clear_shaders`, `wapi close`); depth clamp explained; alpha discard resolved; **server history fully implemented** (`serverhistory.json` + Recent Servers panel + relative timestamps in `pdgui_menu_network.cpp`).
-
-**Game + lib batch 2** (15 items):
-- `bondeyespy` framerate-independent scaling fix
-- `bondview` GBI documented
-- `chraicommands` audio timing
-- `player.c` arguments recovered + `CONTROLMODE_NA` explained
-- `propobj` fire rate + damage sentinel documented
-- `setup.c` `AVOID_UB` guard explained
-- `texreset` pointer table documented
-- `audiomgr` frame sizing
-- `mtx.c` fixed-point unpack
-- `sched.c` triple-buffer ring
-- **`n_resample` minimum ratio clamp IMPLEMENTED** (was a real bug — clamp prevents divide-by-zero)
-- `snd.c` stub, `viint.h` `VI_STATE_01`
-
-**Preprocess + headers batch** (9 items): `audio.c` 22020Hz confirmed, `filemodel.c` host_ structs explained, `misc.c` 3 items analyzed, `platform.h`/`types.h`/`math.h` documented, `pdgui_menus.h` clarified.
-
-**Enet ABA fix** — `ENET_ATOMIC_CAS` macro now returns `bool` on all 4 paths (MSVC, clang analyzer, GCC `__atomic`, `__sync`); call site updated; clang analyzer typo fixed. Commits: `ef8c7b7` / `c151a26`.
-
-**Modding pipeline design document** created: `PD2_Modding_Pipeline_Design.docx`.
-
-**All project-owned TODO/HACK/FIXME markers resolved** — only upstream/third-party markers remain: 3x OTRTODO heritage, minimp3.h NEON detection, enet.h (already fixed). Commit: `0104acc`.
-
-### Files Modified
-- `assetcatalog_base_extended.c` — T-3/T-4/T-5 base entries
-- `port/src/modmgr.c` — T-10 `modmgrComputeDirSize()`
-- `port/src/assetcatalog.c` / `assetcatalog_load.c` — T-6 thumbnail queue
-- `port/src/audio.c` — C-7 `audioPlayFileSound()`
-- `src/game/snd.c` — C-7 intercept wiring
-- `port/fast3d/pdgui_charpreview.c` — thumbnail FBO readback
-- `port/src/mixer.c` — staging buffer overrun fix
-- `port/src/main.c`, `video.c`, `pdsched.c`, `input.c`, `mpsetups.c` — TODO sweep
-- `port/src/net/net.c`, `net_server_callbacks.c`, `netlobby.c` — TODO sweep
-- `port/src/savefile.c` — TODO sweep
-- `src/game/bg.c`, `bondgun.c`, `bondmove.c`, `file.c`, `memp.c` — TODO sweep
-- `port/fast3d/gfx_pc.cpp`, `gfx_sdl2.cpp`, `pdgui_menu_network.cpp` — TODO sweep + server history + gfx_destroy
-- `src/game/bondeyespy.c` — framerate-independent scaling fix
-- `src/lib/n_resample.c` — minimum ratio clamp (real bug fix)
-- `port/external/enet.h` — ABA vulnerability fix
-
-### Decisions Made
-- `n_resample` ratio clamp: divide-by-zero was a real latent bug, not just a TODO — fixed in place
-- Server history: stored as `serverhistory.json` in user data dir; Recent Servers panel uses relative timestamps ("2m ago")
-- `gfx_destroy`: implemented cleanup rather than documenting as intentional leak
-- Modding pipeline deferred to implementation until matches are stable
-- All upstream/third-party TODO markers (enet heritage, minimp3 NEON) deliberately left untouched
-
-### Build Status
-VERIFIED clean — `PerfectDark.exe` 43.3 MB, `PerfectDarkServer.exe` 21.1 MB
-
-### Next Steps
-- B-49 CRITICAL: Felicity/toilet landing freeze — JUMP_DEBUG already instrumented, needs reproduction + log capture
-- B-38: `setupCreateProps` crash — needs investigation
-- C-5/C-6: Remaining catalog intercept wiring (texture + anim overrides)
-- J-1: End-to-end join verification
-## Session 79 -- 2026-03-29
-
-**Focus**: C-7 — File-based SFX playback for mod sound overrides
-
-### What Was Done
-
-**C-7 implemented — `audioPlayFileSound()` added to `audio.c` / `audio.h`:**
-
-- New function `audioPlayFileSound(const char *path, u16 volume, u8 pan)` in `port/src/audio.c`
-- Uses `SDL_LoadWAV` to load the sound file, `SDL_BuildAudioCVT` / `SDL_ConvertAudio` to convert to device format (22020 Hz, AUDIO_S16SYS, stereo), then applies volume + pan scaling and queues PCM via `SDL_QueueAudio`
-- Volume: engine scale 0–0x7fff (AL_VOL_FULL). Pan: 0 = full left, 64 = centre, 127 = full right — linear-taper law applied per stereo channel
-- On failure (SDL_LoadWAV returns NULL, conversion error, alloc failure) returns 0 so caller falls back to ROM sound
-- Bypasses the N64 ADPCM/RSP pipeline deliberately — mod files are standard WAV, not ADPCM-encoded N64 SFX
-
-**C-7 wired in `src/lib/snd.c`:**
-
-- Added `#include "audio.h"` to snd.c includes
-- Replaced TODO block in the `r.is_mod_override` branch with `audioPlayFileSound(r.path, volume, pan)`
-- On success: sets `*handle = NULL` (matching sndStartMp3 pattern) and returns NULL
-- On failure: logs `LOG_WARNING` "MOD: sound %d catalog override failed … falling back to ROM" and falls through to normal ROM path
-
-**Build**: Both `audio.c` and `snd.c` pass `gcc -fsyntax-only` (exit 0). Full cmake build blocked by pre-existing TEMP dir permission issue (same as S76/S77).
-
-### Files Modified
-- `port/include/audio.h` — `audioPlayFileSound()` declaration added
-- `port/src/audio.c` — `audioPlayFileSound()` implementation added
-- `src/lib/snd.c` — `#include "audio.h"` added; C-7 TODO replaced with live call
-
-### Decisions Made
-- Routed WAV playback through SDL_QueueAudio (not the N64 audio emulator) — same rationale as the MP3 path: mod files are standard PCM, ADPCM is for ROM SFX only
-- Used the existing SDL audio device (`dev`) already open in `audio.c` — no new device needed
-- Pitch parameter not yet supported (WAV resampling would require complex SRC work; deferred)
-- Used `SDL_FreeWAV = SDL_free` — both calls use the same allocator so ownership transfer is safe
-
-### Next Steps
-- Playtest: enable a mod that declares a `sound` override in its component `.ini`, trigger the sound in-game, verify the file plays instead of ROM SFX, and no crash on fallback when file is missing
-- Continue C-5 texture intercept and C-6 anim intercept
-
----
-
-## Session 78 -- 2026-03-29
-
-**Focus**: T-8 + T-9 — Stage table restore and texture cache flush on mod reload (D3e)
-
-### What Was Done
-
-**T-8: `stageTableReset()` added to `src/game/stagetable.c`:**
-- New function truncates `g_Stages` back to the base count (from `s_StagesInit`) and re-memcpy's
-- Declared in `src/include/game/stagetable.h`
-- Called from `modmgrUnloadAllMods()` — replaces the D3e TODO comment
-- On reload, any mod-appended stage entries are discarded before fresh scan
-
-**T-9: Texture cache flush + title return added to `modmgrReload()`:**
-- `videoResetTextureCache()` called at end of modmgrReload() — clears all stale texrefs from fast3d's LRU
-- `mainChangeToStage(MODMGR_STAGE_TITLE)` called immediately after — forces clean load of title screen under new mod state
-- `#include "game/stagetable.h"` and `#include "video.h"` added to modmgr.c
-
-**Build**: `stagetable.c` and `modmgr.c` compile clean (individual file builds, exit 0).
-
-### Files Modified
-- `src/game/stagetable.c` — new `stageTableReset()` after `stageTableAppend()`
-- `src/include/game/stagetable.h` — declaration added
-- `port/src/modmgr.c` — two includes added; TODOs replaced with live calls
-
-### Decisions Made
-- Used `s_StagesInit` (the static base array) as the restore source — no snapshot needed, source of truth already exists
-- Used `videoResetTextureCache()` from `video.h` (the port's public C API for the fast3d cache) rather than calling `gfx_texture_cache_clear()` directly
-- Both T-8 and T-9 are now complete; D3e is fully closed
-
-### Next Steps
-- Playtest: enable a mod, disable it, re-enable — verify no stale textures or ghost stages
-- Continue T-7 playtest (mod.json body/head/arena catalog)
-- Continue C-5 tex intercept
-
----
-
-## Session 77 -- 2026-03-29
-
-**Focus**: T-7 — Parse mod.json body/head/arena sections into catalog (D3b)
-
-### What Was Done
-
-**T-7 implemented — `modmgrRegisterModJsonContent()` added to `modmgr.c`:**
-
-- New static function `modmgrRegisterModJsonContent(modinfo_t *mod)` re-reads mod.json and parses the `content.bodies`, `content.heads`, and `content.arenas` arrays
-- For each item, calls `assetCatalogRegisterBody/Head/Arena()` with parsed fields; sets `category = mod->id`, `bundled = 0`, `enabled = 1`
-- `runtime_index` is computed as `assetCatalogGetCountByType(type)` + sequential offset — slots new entries after all existing base + prior mod entries
-- `modmgrLoadMod()` TODO (D3b) replaced with call to `modmgrRegisterModJsonContent()`
-- Forward declaration added in the forward-declarations section
-
-**mod.json content schema defined:**
-```json
-"bodies":  [ { "id": "...", "bodynum": N, "name_langid": N, "headnum": N, "requirefeature": N } ]
-"heads":   [ { "id": "...", "headnum": N, "requirefeature": N } ]
-"arenas":  [ { "id": "...", "stagenum": N, "name_langid": N, "requirefeature": N } ]
-```
-Catalog IDs are `"{modid}:{item_id}"`. Parser handles `0x`-prefixed hex values (existing json_tok_int uses `strtol(…,0)`).
-
-**Build**: `modmgr.c` compiles clean (individual file build, exit 0). Full parallel build blocked by pre-existing TEMP dir permission issue (same as S76).
-
-### Files Modified
-`port/src/modmgr.c` (new function + modmgrLoadMod wiring + forward decl)
-
-### Decisions Made
-- Re-parse mod.json at load time (not scan time) — scanning stays cheap; loading is where registration happens
-- Component-based content (maps, characters via `_components/` dirs) handled by `assetCatalogScanComponents()`; mod.json bodies/heads/arenas are the complementary path for assets declared by global index
-- `runtime_index` assignment: query catalog count before starting each type's loop, then increment local counter — avoids races and works correctly across multiple mods
-
-### Next Steps
-- Playtest: enable a mod with mod.json bodies/heads/arenas, verify they appear in character/arena pickers
-- Continue C-5 tex intercept (see S74 next steps)
-- B-49: get crash log from toilet/Carrington Institute scenario
-
----
-
-## Session 76 -- 2026-03-29
-
-**Focus**: B-49 diagnostic logging — post-landing freeze investigation
-
-### What Was Done
-
-**B-49 instrumented — JUMP_DEBUG: logging added to `bwalkUpdateVertical()`:**
-
-All logging uses `LOG_NOTE` with a `JUMP_DEBUG:` prefix (filterable in log output).
-
-Checkpoints added (in order of execution on a landing tick):
-1. **NOCOLLISION branch entry** — logs `newManground`, `newVelY`, `isfalling` immediately when CDRESULT_NOCOLLISION is taken
-2. **COLLIDED branch** — logs `isfalling` cleared with `manground`/`ground` state
-3. **Landing block entry** (line ~1443) — logs `bdeltaY`, `manground`, `ground`, `floortype`, `floorflags`; fires whenever `bdeltapos.y < 0 && vv_manground <= vv_ground`
-4. **Landing sound block entry** — logs `bdeltaY`, `floortype`, `chr` pointer
-5. **footstepChooseSound (1st)** — before and after, with `footstep` and returned `sound` value
-6. **psCreate footstep1** — before and after
-7. **footstepChooseSound (2nd)** — before and after
-8. **psCreate footstep2** — before and after (conditional on sound != -1)
-9. **Landing grunt check** — logs `mplayerisrunning`, `headnum`, `fallframes`
-10. **psCreate landing grunt** — before and after (conditional)
-11. **Landing block complete** — before `bdeltapos.y = 0`
-12. **Pre-crouchloop** — logs `lvupdate240`, `crouchtime240`, `crouchfall` (confirms the 4-iter cap)
-13. **func0f065e74 entry** — logs old pos + new pos (room traversal — key suspect for movable-prop freeze)
-14. **func0f065e74 done** — immediately after return
-15. **Function complete** — logs final `manground`, `ground`, `bdeltaY`, `isfalling`
-
-Also fixed misleading log comment: `"JUMP_MOVE: ... result=%d (0=nocol)"` → `(1=nocol)` (CDRESULT_NOCOLLISION=1).
-
-Syntax check (`gcc -fsyntax-only`) passed clean.
-
-### Files Modified
-`src/game/bondwalk.c`
-
-### Decisions Made
-- Logging is unconditional (fires every relevant tick, not just on landing) — provides context even for non-landing ticks showing the grounded loop state
-- All casts use `(s32)` for enum/u8 fields to avoid format-string warnings
-
-### Next Steps
-- Reproduce B-49 (fall from vent in Felicity, or landing on toilet in Carrington Institute), filter log for `JUMP_DEBUG:`
-- The last `JUMP_DEBUG:` line before silence identifies the exact hang location
-- Key suspects: `psCreate` calls (sound system deadlock) vs `func0f065e74` (room traversal loop on movable prop)
-- If freeze is in `func0f065e74`: check whether player is in a room-0 or no-room state on landing; the toilet's room membership may confuse the traversal
-
----
-
-## Session 75 -- 2026-03-29
-
-**Focus**: Arena picker garbled names (B-48 fixed) + Felicity freeze investigation (B-49)
-
-### What Was Done
-
-**B-48 fixed — arena picker garbled/duplicate names:**
-- Root cause: `catalogArenaCollect()` in `pdgui_menu_room.cpp` called `langGet(e->ext.arena.name_langid)` directly. For langids 0x5126–0x5152 (GoldenEye X, Bonus, Random arena groups), the AIO mod's runtime language file maps those IDs to old PerfectHead/Game Boy Camera UI strings (e.g., "Load A Saved Head" instead of "Frigate"). These returned non-empty garbage strings that passed the `!name[0]` filter and polluted the dropdown.
-- `pdgui_menu_matchsetup.cpp` already had `arenaGetName()` — a wrapper with a 43-entry override table for the broken range that falls back to `langGet()` for non-broken IDs.
-- Fix: removed `static` from `arenaGetName()` in `pdgui_menu_matchsetup.cpp`; added forward declaration in `pdgui_menu_room.cpp`; changed `catalogArenaCollect` to call `arenaGetName((u16)e->ext.arena.name_langid)`.
-- Both files pass syntax check (`-fsyntax-only`). Full build blocked by TEMP dir permission issue on this machine.
-
-**B-49 investigated — Felicity/toilet freeze:**
-- Log analyzed: freeze on Felicity (stagenum=0x43) after long fall from vent. Last log: `JUMP_MOVE: tryMove=-3.30 result=1` — result=1 = CDRESULT_NOCOLLISION (comment label was misleading).
-- **Important**: Felicity MP setup (mp_setupmp11.c) has NO toilets — only weapons and ammo crates. The toilet freeze described by user (landing on toilet in bathroom, Carrington Institute) is a SEPARATE scenario from this log.
-- Freeze point is within same tick as JUMP_MOVE NOCOLLISION, before next tick starts. After NOCOLLISION: `vv_manground=-480`, `bdeltapos.y=fallspeed` (negative) → landing block triggers → `psCreate` for landing sounds. `lvupdate240` capped at 4, no loop risk.
-- Cannot isolate exact hang point without debugger or more targeted logging. Registered as B-49.
-
-### Files Modified
-`port/fast3d/pdgui_menu_matchsetup.cpp` (removed `static` from `arenaGetName`),
-`port/fast3d/pdgui_menu_room.cpp` (forward decl + use `arenaGetName` in `catalogArenaCollect`)
-
-### Decisions Made
-- Arena name lookup uses `arenaGetName()` as single source of truth; no duplicate override table in room.cpp.
-- B-49 toilet/fall freeze: needs reproduction log from Carrington Institute (not Felicity) to investigate the toilet scenario specifically.
-
-### Next Steps
-- Test arena picker in-game to confirm names are correct (especially GEX arenas: Frigate, Archives, Bunker, etc.)
-- Get crash log from toilet scenario (Rit/Carrington Institute stage) for B-49
-- Continue C-5 tex intercept from S74 roadmap
-
----
-
-## Session 74 -- 2026-03-28
-
-**Focus**: Catalog activation — C-2-ext, catalogLoadInit, C-4 file intercept
-
-### What Was Done
-
-**C-0 verified** — `assetCatalogInit()`, `assetCatalogRegisterBaseGame()` (which internally calls `assetCatalogRegisterBaseGameExtended()`), `assetCatalogScanComponents()`, and `assetCatalogScanBotVariants()` were already wired in `main.c`. No work needed.
-
-**C-2-ext: source numeric ID fields added to `asset_entry_t`**
-- Four new fields: `source_filenum`, `source_texnum`, `source_animnum`, `source_soundnum` (all initialized to -1 in `assetCatalogRegister()`)
-- `assetCatalogGetByIndex(s32 index)` added for O(1) pool access
-- `assetcatalog_base.c`: base body/head entries now carry their ROM filenum from `g_HeadsAndBodies[bodynum/headnum].filenum`
-- `assetcatalog_scanner.c`: ASSET_CHARACTER entries resolve `bodyfile` basename to ROM filenum via `romdataFileGetNumForName()` — mod characters get `source_filenum` set during scan
-
-**catalogLoadInit (new `assetcatalog_load.c/h`)**
-- Four static reverse-index arrays: `s_FilenumOverride[2048]`, `s_TexnumOverride[4096]`, `s_AnimnumOverride[2048]`, `s_SoundnumOverride[4096]`
-- `catalogLoadInit()` scans non-bundled enabled entries, populates arrays
-- `catalogGetFileOverride/TextureOverride/AnimOverride/SoundOverride()` answer in O(1)
-- Called from `main.c` after catalog population and before `modmgrLoadComponentState()`
-
-**C-4: file intercept in `romdataFileLoad()`**
-- Checks `catalogGetFileOverride(fileNum)` before the `files/` directory lookup
-- Hit: loads from mod path, logs `C-4: file N loaded from catalog mod`
-- Miss: falls through to existing `files/` + ROM path unchanged
-- All 16+ `fileLoadToNew` callers benefit transparently — zero call site changes
-
-**Build**: both `pd` and `pd-server` clean. Server stub added for `romdataFileGetNumForName`.
-
-**Commit**: `b01084b` — "Catalog activation: C-2-ext + catalogLoadInit + C-4 file intercept"
-
-### Files Modified
-`port/include/assetcatalog.h`, `port/include/assetcatalog_load.h` (new), `port/src/assetcatalog.c`, `port/src/assetcatalog_base.c`, `port/src/assetcatalog_load.c` (new), `port/src/assetcatalog_scanner.c`, `port/src/main.c`, `port/src/romdata.c`, `port/src/server_stubs.c`
-
-### Decisions Made
-- `catalogGetFileOverride` returns `ext.character.bodyfile` for ASSET_CHARACTER entries — this is the mod's body model path, which is what C-4 needs for character overrides
-- Server has `romdataFileGetNumForName` stubbed to return -1 (server never loads ROM files; source_filenum on server catalog entries stays -1, override arrays stay empty)
-- `assetCatalogGetByIndex` returns `const asset_entry_t *` (read-only) to prevent load module from accidentally mutating catalog entries
-
-### Next Steps
-- **C-5 tex intercept**: locate `texLoad()` / `texDecompress()` bottleneck and add `catalogGetTextureOverride(texnum)` check
-- **C-6 anim intercept**: find `animLoadFrame`/`animLoadHeader`, add `catalogGetAnimOverride(animnum)`
-- **C-7 snd intercept**: find `sndStart` path, add `catalogGetSoundOverride(soundnum)`
-- **C-8 mod enable/disable**: wire `catalogLoadInit()` re-call into `modmgrSetComponentEnabled()` so override arrays rebuild when mods are toggled
-- **Playtest C-4**: install a mod character that declares a `bodyfile` matching a ROM filenum; load a stage with that character; verify `C-4:` log line appears
-
----
-
-## Session 73 -- 2026-03-28
-
-**Focus**: B-46 void spawn (Felicity 0x2b) + B-47 exit freeze on window close
-
-### What Was Done
-
-**B-46 fixed — void spawn on MP stages:**
-- `setup.c`: intro validator no longer nulls intro for official MP setup files. MP setups have a 1-word intro section (`[INTROCMD_END]`, dist=4 bytes from props). The 64-byte distance heuristic was added for corrupt mod files — skipped when `filenum == mpsetupfileid`. firstCmd validity check still applies for all files.
-- `playerreset.c`: B-19 pads fallback condition expanded from `g_NetMode != NETMODE_NONE` to `g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning`. Covers local Combat Sim where netmode=NETMODE_NONE but normmplay=true. Added `LOG_WARNING` when fallback finds 0 valid pads (numpads + netmode + normmplay logged for diagnosis).
-
-**B-47 fixed — exit freeze on window close:**
-- `system.h/c`: Added `bool g_AppQuitting` global. Added `#include <stdbool.h>` to system.h.
-- `main.c`: Set `g_AppQuitting = true` at start of `cleanup()` atexit, before `netDisconnect()`.
-- `net.c`: Stage-transition block in `netDisconnect()` gated on `!g_AppQuitting`. Prevents deadlock from calling `mainEndStage()` + `mainChangeToStage()` with no render loop.
-- `netupnp.c`: `netUpnpTeardown()` skips `UPNP_DeletePortMapping` when `g_AppQuitting`. The synchronous HTTP call blocked 10–30 s on unreachable routers; port mapping expires naturally.
-
-**Files modified:** `src/game/setup.c`, `src/game/playerreset.c`, `port/include/system.h`, `port/src/system.c`, `port/src/main.c`, `port/src/net/net.c`, `port/src/net/netupnp.c`
-
-### Decisions Made
-- Used `filenum == mpsetupfileid` (not `normmplayerisrunning`) for the dist check in setup.c — more precise, independent of runtime state that may not be set at load time.
-- `g_AppQuitting` lives in system.h/c so both net.c and netupnp.c can check it without circular includes.
-- UPnP port mapping is NOT removed on quit — mappings expire naturally; blocking HTTP on exit is worse.
-
-### Next Steps
-- Build: `build-headless.ps1`
-- Playtest Felicity: no more void spawns. Watch for "populated N spawn points from pad file (B-19 fallback)" log.
-- Test window X close during match: should exit cleanly within <1 s. Watch for "UPNP: skipping port mapping removal (app quitting)" in log.
-- If B-19 still finds 0 pads: check new diagnostic "B-19 fallback found 0 valid pads (numpads=X netmode=Y normmplay=Z)".
-
----
-
-## Session 72 -- 2026-03-28
-
-**Focus**: Bot name/char sync in CLC_LOBBY_START + player identity name fallback (worktree merge from serene-margulis)
-
-### What Was Done
-
-**B-44 fixed** — `netmsgClcLobbyStartWrite` now appends a per-bot config payload from `g_MatchConfig.slots[]` for each `SLOT_BOT` entry up to `numSims`. Each bot entry encodes: name (32 chars, NUL-padded), bodynum, headnum, difficulty, type. `netmsgClcLobbyStartRead` on the server side decodes and populates `g_BotConfigsArray[bi]` with all five fields. Bots now arrive with the names and appearance the room host configured.
-
-**B-26 re-fixed** — `netClientReadConfig` now uses `g_GameFile.name` as a middle fallback between the identity profile (always empty on clients that never call `identityInit`) and the legacy N64 name. The original fix (S49) relied on `identityGetActiveProfile()`, which is always null on clients. The new fallback uses the agent name already loaded from the save file, which is correct.
-
-**Y-axis inversion (B-43)** — No code change needed. `inputControllerSetInvertRStickY` + `configSave` are already correctly wired from the checkbox in `pdgui_menu_mainmenu.cpp`.
-
-**Header unification** — `netmsg.c` was updated to `#include "scenario_save.h"` (the canonical matchslot/matchconfig source, established in S71) instead of the new `matchsetup.h` that serene-margulis created. `matchsetup.h` was not imported — would have duplicated types already in `scenario_save.h`. Dev's `matchsetup.c` already uses `scenario_save.h` from S71.
-
-**Files modified:**
-- `port/src/net/net.c` — `netClientReadConfig` player name fallback via `g_GameFile.name`
-- `port/src/net/netmsg.c` — per-bot payload in `netmsgClcLobbyStartWrite/Read`; include swapped to `scenario_save.h`
-
-### Decisions Made
-- Serene-margulis created `port/include/net/matchsetup.h` with the same types as `scenario_save.h`. Not merged — scenario_save.h is canonical (S71 decision). Only the functional changes (netmsg.c, net.c) were brought over.
-- Commit went to `dev` branch directly. Session number bumped to S72 since S71 was already taken by the scenario save commit from youthful-goldstine.
-
-### Next Steps
-- Build: `build-headless.ps1`
-- Playtest: Start match with bots → verify bot names/appearances match room config
-- Server log check: after CLC_AUTH, verify name shows agent name not "Player 1"
-- Smoke test S71 scenario save too — both changes need first build validation
-
----
-
-## Session 71 -- 2026-03-28
-
-**Focus**: Combat Simulator scenario save/load system
-
-### What Was Done
-
-**New feature: scenario save/load** — players can save and reload complete Combat Simulator match configurations (arena, game mode, limits, options, weapon set, bot roster) as JSON files.
-
-**Files created:**
-- `port/include/scenario_save.h` — Canonical header for `struct matchslot`, `struct matchconfig`, constants (MATCH_MAX_SLOTS, SLOT_*, NUM_MPWEAPONSLOTS, MAX_PLAYER_NAME), and API declarations for both matchsetup.c and scenario_save.c. Safe for C and C++ (no types.h).
-- `port/src/scenario_save.c` — Full implementation: JSON writer (fprintf + manual escaping), minimal JSON reader (strstr + sscanf based, handles flat objects + bots array), directory create, file listing via POSIX opendir/readdir.
-
-**Files modified:**
-- `port/src/net/matchsetup.c` — Added `#include "scenario_save.h"`, removed ~37 lines of now-redundant local struct/constant definitions. Consolidates ownership to single source.
-- `port/fast3d/pdgui_menu_room.cpp` — Replaced duplicate extern "C" struct block with `#include "scenario_save.h"`. Added Save/Load UI to Combat Sim tab: "Save Scenario" button opens popup with name input; "Load Scenario" button shows list of saved files with click-to-load. Popups follow the same modal pattern as bot settings. Status message shows after save/load. `pdguiRoomScreenReset()` clears new state.
-
-**Dynamic player count handling (spec):**
-- `scenarioLoad(filepath, humanCount)` — calls `matchConfigInit()` first (sets up local player), applies saved settings, then adds bots up to `MATCH_MAX_SLOTS - humanCount` in order; excess silently dropped.
-- humanCount passed from `lobbyGetPlayerCount()` in the UI at load time.
-
-**Save path:** `$S/scenarios/<name>.json` — directory auto-created on first save.
-
-**MPOPTION_NODOORS** also added to the options toggles in the Combat Sim tab (was missing).
-
-**New helper `syncSpawnWeaponFromConfig()`** — syncs `s_SpawnWeaponIdx` dropdown from `g_MatchConfig.spawnWeaponNum` after a load.
-
-### Decisions Made
-- No external JSON library — hand-rolled writer (fprintf) and reader (strstr/sscanf). The format is self-generated and predictable; no general-purpose parser needed.
-- `scenario_save.h` is the single source of truth for matchslot/matchconfig types. Both C and C++ callers include it; C++ inside `extern "C" {}`.
-- `MATCH_MAX_SLOTS` in the header uses `#ifndef` guard so matchsetup.c (which defines it as `PARTICIPANT_DEFAULT_CAPACITY`) is not conflicted.
-- Human player slots are NOT saved in scenario files — they're session-specific. Only bot slots are serialized.
-
-### Next Steps
-- Build: `build-headless.ps1`
-- Smoke test: Launch → Room → Combat Sim tab → Save Scenario "test1" → verify `$S/scenarios/test1.json` created
-- Load test: Load Scenario → select test1 → arena/bots/options should match what was saved
-- Multi-human test: Save with 1 human; load with 4 humans in room — only 28 bots should populate
-
----
-
-## Session 70 -- 2026-03-28
-
-**Focus**: First-tick crash after stage load: g_MpAllChrPtrs NULL dereference in lvTick + deep investigation of scenarioTick and bot AI first-tick safety
-
-### What Was Done
-
-**B-43 fixed** -- Game crashed on the first game tick after a successful stage load (Ravine, 1 player + 5 bots).
-
-**Root cause**: `lv.c:2391` iterates `for (i = 0; i < g_MpNumChrs; i++) { g_MpAllChrPtrs[i]->actiontype }` with no NULL check.
-`mpReset()` increments `g_MpNumChrs` for player slots (1 for 1 human) and then NULLS the entire `g_MpAllChrPtrs[0..MAX_MPCHRS]` array.
-Bot spawns (`botmgrAllocateBot`) then insert chrs at indices `g_MpNumChrs..g_MpNumChrs+5` (= 1..6 for 5 bots).
-The player chr is ONLY written to `g_MpAllChrPtrs[0]` lazily by `playerTickChrBody()`, which runs from `playerTick` inside `propsTick` -- which hasn’t run yet on the first tick.
-So `g_MpAllChrPtrs[0] == NULL` when the loop runs. Deref crashes.
-
-**Propagation check -- same class found in two more places:**
-- `bot.c:2358` `botGetTeamSize()` -- iterated from i=0, no NULL guard. Would crash on first bot AI tick in same frame.
-- `mplayer.c:712` `mpCalculateTeamIsOnlyAi()` -- inner player-loop `g_MpAllChrPtrs[j]` with no NULL guard (benign today because teams are disabled by default, but latent for teams-enabled matches).
-
-**Three files changed (B-43):**
-- `src/game/lv.c:2391` -- added `if (g_MpAllChrPtrs[i] && ...)` guard in numdying loop
-- `src/game/bot.c:2358` -- added `if (!g_MpAllChrPtrs[i]) continue;` in botGetTeamSize
-- `src/game/mplayer/mplayer.c:712` -- added `if (!g_MpAllChrPtrs[j]) continue;` in mpCalculateTeamIsOnlyAi team loop
-
-**scenarioTick() first-tick safety investigation:**
-- `scenarioTick()` checks `g_Vars.normmplayerisrunning`, then dispatches to `g_MpScenarios[scenario].tickfunc`.
-- For Combat Sim (scenario 0), `tickfunc` is **NULL** -- the dispatch is gated by `if (tickfunc)`. **SAFE on tick 0.**
-- Tick-0 risk for other scenarios (HTB/HTM/PAC/KOH/CTC) would be their `tickfunc` bodies -- not audited as they are not tested yet.
-- Added first-call trace log to `scenarioTick()`: logs `lvframe60/scenario/normmplayerisrunning/tickfunc`.
-
-**botTick() / botApplyMovement() first-tick safety investigation:**
-- `botTick()`: the full AI block (`botTickUnpaused`, angle calc, `g_MpAllChrPtrs[followingplayernum]` deref) is guarded by `if (updateable && g_Vars.lvframe60 >= 145)`. **SAFE on tick 0.**
-- `botApplyMovement()` runs UNCONDITIONALLY every tick. It calls `playerChooseThirdPersonAnimation(chr, ...)` and then `modelSetChrRotY(chr->model, ...)`. Both crash if `chr->model == NULL`.
-- `playerChooseThirdPersonAnimation` directly dereferences `chr->model` for `modelGetAnimNum(chr->model)` without a guard.
-- **Fixed**: added `if (!chr->model) return false;` guard in `botApplyMovement()` after the existing `!chr || !chr->aibot` check.
-- Added first-call trace log to `botTick()`: logs `lvframe60/chr/model/rooms[0]/aibot`.
-
-**Trace logging added (all sessions):**
-- `lv.c:2151` -- first-call log `tick=%d stagenum=0x%02x g_MpNumChrs=%d`
-- `lv.c:2536` `lvTickPlayer` -- per-call `playernum/prop/MpAllChr`
-- `scenarios.c:scenarioTick` -- first-call `lvframe60/scenario/normmplayerisrunning/tickfunc`
-- `bot.c:botTick` -- first-call `lvframe60/chr/model/rooms[0]/aibot`
-
-**Build**: Awaiting. All changes are NULL guards + trace logs -- no new functions, no struct changes.
-
-### Decisions Made
-- `g_MpAllChrPtrs[0..PLAYERCOUNT-1]` being NULL on first tick is by design (lazy init via playerTickChrBody); any loop iterating `g_MpAllChrPtrs[0..g_MpNumChrs-1]` must NULL-guard, not assume all populated
-- Do not eagerly call playerTickChrBody during playerSpawn to avoid changing spawn timing; NULL guard is the correct minimal fix
-- `botApplyMovement()` model guard is defense-in-depth: bots spawned at level setup should have models by first tick, but a NULL model is undefined behavior and the guard costs nothing
-- `scenarioTick()` for Combat Sim is architecturally safe (no tickfunc); risk only exists for non-Combat-Sim scenarios which are untested
-
-### Next Steps
-- Build: `build-headless.ps1`
-- Playtest: 1 player + 5 bots Combat Sim on Ravine -- match should now start and run through tick 1
-- Watch for "TICK: lvTick enter tick=0" + "TICK: lvTickPlayer playernum=0" in log -- confirms tick and player path both reached
-- Watch for "TICK: scenarioTick first call lvframe60=0 scenario=0 tickfunc=0x0" -- confirms no tickfunc dispatched tick 0
-- Watch for "TICK: botTick first call lvframe60=..." -- confirms bot chr props are being ticked
-- If still crashing: suspect `chrTick()` path (called unconditionally from botTick) -- investigate `chraTick(chr)` which is called from `chrTick` and may access chr state
-
----
-
-## Session 68 — 2026-03-28
-
-**Focus**: Combat Sim post-milestone fixes: jump crash, time limit alarm, spawn weapon, Add Bot cap
-
-### What Was Done
-
-**MILESTONE**: Combat Sim match running (confirmed in playtest — 7 bots on Jungle, 25+ seconds gameplay).
-
-**B-39 fixed** — Jump crash in `bmoveFindEnteredRoomsByPos` (bondmove.c:2424).
-Root cause: `g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_eyeheight/headheight` — same players[-1] OOB class as S66 audit. Crash at specific Jungle map geometry during ceiling probe binary search. Fix: read `player->vv_eyeheight/player->vv_headheight` directly (same struct, no lookup).
-
-**B-40 fixed** — Time limit alarm fires at match start.
-Root cause: `netmsgClcLobbyStartRead` hardcoded `g_MpSetup.timelimit = 0` — comment said "unlimited" but timelimit=0 means 1 minute (mpApplyLimits: `timelimit >= 60` = unlimited). Fix: added `u8 timelimit` + `u32 options` to CLC_LOBBY_START payload; `g_MatchConfig.timelimit` now flows from room UI to server.
-
-**B-41 fixed** — Spawn weapon not auto-equipping.
-Root cause: `g_MpSetup.options = 0` hardcoded in CLC_LOBBY_START handler stripped `MPOPTION_SPAWNWITHWEAPON`. player.c:1186 gates equip on that flag. Fix: `g_MatchConfig.options` also wired through CLC_LOBBY_START.
-
-**B-42 fixed** — Add Bot button limited to 7 bots.
-Root cause: `maxBots = MAX_PLAYERS - humanCount` (= 7 with 1 human). Fix: changed to `MATCH_MAX_SLOTS - humanCount` (up to 31 bots with 1 human).
-
-**Protocol change**: CLC_LOBBY_START gains 5 bytes (u8 timelimit + u32 options). All callers updated: pdgui_bridge.c, pdgui_menu_room.cpp, netmenu.c. `netLobbyRequestStart` (co-op path) defaults timelimit=60, options=0.
-
-**Build**: client + server both clean. Commit: `169d5ab` S68.
-
-### Decisions Made
-- bmoveFindEnteredRoomsByPos: direct `player->` field access is canonical; no reason to go through `g_Vars.players[]` lookup when the player struct is already available
-- timelimit=60 chosen as "unlimited" sentinel (matching mpApplyLimits convention)
-- options wired alongside timelimit so all match settings flow together; future R-4 wiring can extend this pattern
-
-### Next Steps
-- Playtest B-39: jump should no longer crash on Jungle (or any map)
-- Playtest B-40: time limit alarm should not fire immediately; match should run until the configured limit
-- Playtest B-41: enable "Start Armed" in room UI; player should spawn holding the weapon
-- Playtest B-42: add more than 7 bots in room UI; button should stay enabled up to 31
-- If jump still crashes: check `bmoveFindEnteredRooms` (line 2440) — also accesses `player->prop->pos` which could be NULL on dedicated server
-
----
-
-## Session 67 — 2026-03-28
-
-**Focus**: bodiesReset crash fix — Combat Sim stage load
-
-### What Was Done
-
-**B-37 fixed** — client crash in `bodiesReset()` during Combat Sim stage load (stagenum=0x1f, Ravine).
-
-**Root cause**: `bodiesReset` was not MP-aware. It calls `rngRandom() % g_NumBondBodies` first (div-by-zero if `g_NumBondBodies == 0`) then iterates guard head model lists. In a networked Combat Sim match there are no guards — only players and bots — so the entire guard-body randomization pass is both useless and unsafe. The init-order audit (S64) had previously classified bodiesReset as "safe", but that audit was done when the crash was manifesting further down in `setupCreateProps`. After the S64/S65 fixes, the crash surfaced here.
-
-**Fix** (`src/game/bodyreset.c`):
-- Added `#include "system.h"` for logging
-- Entry log: dumps `normmplay`, `g_NumBondBodies`, `g_NumMaleGuardHeads`, `g_NumFemaleGuardHeads`
-- After modeldef-clear loop: log with count
-- Early return when `g_Vars.normmplayerisrunning` — zeroes both head indices, returns
-- Remaining SP-path logs at each crash-candidate site (rng, male heads, female heads, done)
-
-**Server stubs verified**: `server_stubs.c` `mainChangeToStage()` already sets `g_MainChangeToStageNum = stagenum` — fix was committed in a prior session.
-
-**Build**: client + server both compile clean.
-**Commit**: `22c7861` S67
-
-### Decisions Made
-- MP path skips guard body randomization entirely — no guards in any MP scenario, data never used
-- Trace logs left in permanently for stage-load diagnostic coverage
-
-### Next Steps
-- Playtest: 1 player + 1 bot Combat Sim on Ravine (stagenum=0x1f) — confirm B-37 resolved
-- Watch for "BODIES: normmplay active — skipping guard body randomization" in the log
-- If still crashing: logs now identify exactly which line fails
-
----
-
-## Session 65 — 2026-03-27
-
-**Focus**: Audit 3 — Stage Load Initialization Order (fresh start)
-
-### What Was Done
-
-Produced `context/init-order-audit.md` — full documentation of the networked Combat Sim stage load sequence.
-
-**Three-phase sequence documented:**
-- **Phase 0** (`netmsgSvcStageStartRead`): SVC_STAGE_START parsing, g_MpSetup population, `mpParticipantsFromLegacyChrslots` (malloc pool, survives MEMPOOL_STAGE reset), `mpStartMatch` (queues async stage change, sets `g_Vars.perfectbuddynum = 1`)
-- **Phase 1** (`pdmain.c`): Pool reset (MEMPOOL_STAGE wiped), `playermgrReset` (players[] = NULL), `playermgrAllocatePlayers` (players non-null, no props yet), `mpReset` (sets `normmplayerisrunning`)
-- **Phase 2** (`lvReset`): Full init sequence from `bgReset` through `playerSpawn` — first valid `->prop` access
-
-**Key dependency graph produced:**
-- `mpParticipantsFromLegacyChrslots` MUST run before `mpReset` and before `setupLoadFiles`
-- `setNumPlayers` MUST run before `playermgrAllocatePlayers`
-- `mpReset` (setting normmplayerisrunning) MUST run before `lvReset`
-- `setupLoadFiles` MUST run before `varsReset` (sets g_Vars.maxprops)
-- `playerSpawn()` is the FIRST point where `players[i]->prop` is valid
-
-**N64 vs PC differences documented:**
-- N64 `mainChangeToStage` is synchronous; PC is async (queued, fires next frame)
-- Participant pool must use `malloc` (not `mempAlloc`) to survive MEMPOOL_STAGE reset
-- `musicSetStageAndStartMusic` called pre-spawn on PC (B-36 fix required)
-
-**Current crash analysis (§4.2):**
-- Crash is after "setupLoadFiles done" log, in `setupCreateProps` → `chrmgrConfigure` or props iteration
-- H1: chrslots inconsistency between setupLoadFiles and setupCreateProps numchrs counts
-- H2: model slot under-allocation → OOB in modelmgrInstantiateModel
-- H3: bad g_Vars.roomcount before varsReset
-- Instrumentation recommendations: add log after chrmgrConfigure call to isolate crash location
-
-### Decisions Made
-- `init-order-audit.md` added to context domain files (README.md updated)
-- Three-phase model (Network → Frame Boundary → lvReset) is the canonical mental model for stage load debugging
-
-### Next Steps
-- Build verify SP-6 + B-36 fixes (build-headless.ps1)
-- Use instrumentation recs from §5.1 to isolate current crash in setupCreateProps
-- Playtest: 2-player Combat Sim end-to-end
-
----
-
-## Session 66 — 2026-03-27
-
-**Focus**: Deep Audit 4 of 4 — Bot / Simulant / AI System null-guard sweep
-
-### What Was Done
-
-**28 critical/high bugs fixed across 6 files** — all instances of the same 4 bug classes:
-
-**CAT-1 — `g_Vars.currentplayer` NULL on dedicated server** (5 fixes):
-- `chraction.c:4416` — invincibility check: added `currentplayer != NULL` guard
-- `botcmd.c:205–230` — all 4 AI commands (FOLLOW/PROTECT/DEFEND/HOLD): wrapped with `currentplayer != NULL`
-
-**CAT-2 — PLAYERCOUNT()=0 on server → bot loops hit human chrs (aibot=NULL)** (3 fixes):
-- `mplayer/mplayer.c:688` — `mpCalculateTeamIsOnlyAi`: added `!g_MpAllChrPtrs[i]->aibot` guard
-- `bot.c:2364` — `botGetCountInTeamDoingCommand`: added aibot NULL guard
-- `bot.c:2407` — `botGetNumTeammatesDefendingHill`: added aibot NULL guard
-
-**CAT-3 — g_MpAllChrPtrs[] accessed without bounds or NULL check** (9 fixes):
-- `botcmd.c:61,81` — followingplayernum / attackingplayernum: added `< g_MpNumChrs && != NULL` guards
-- `botact.c:241` — Farsight loop: added `if (!oppchr) continue`
-- `bot.c:1685` — attackingplayernum: added bounds/NULL guard
-- `bot.c:3009,3056` — POPACAP victim index: full bounds-checked lookup with NULL-result handling
-- `bot.c:3311` — MA_AIBOTFOLLOW: added `>= g_MpNumChrs || == NULL` guards
-- `bot.c:2434` — `botGetNumOpponentsInHill`: added `!g_MpAllChrPtrs[i]` guard
-- `mplayer/scenarios.c:504` — `scenarioCreateMatchStartHudmsgs`: added `!= NULL` before `->aibot`
-
-**CAT-5 — chrGetTargetProp()/target->chr dereferenced without NULL check** (11 fixes):
-- `botcmd.c:67–80` — follow-distance: `if (target != NULL)` wrapper
-- `botact.c:366` — throw: `target != NULL` + `target->chr` fallback
-- `botact.c:547` — Slayer rocket: `target == NULL` → immediate detonate
-- `bot.c:3193` — fallback attack: `chtarget != NULL && ->chr != NULL` guard
-- `bot.c:3303–3305` — MA_AIBOTATTACK inline: guard added
-- `bot.c:3317–3339` — canbreakfollow: refactored to `fbtarget` local with full guard
-- `bot.c:3379–3387` — defend/hold canbreak: refactored to `dhtarget` local with full guard
-- `bot.c:2741` — KazeSim attack: `kazetarget` local with ternary fallback (-1)
-- `bot.c:2899–2902` — KotH hill attack: `kohtarget` local with full guard
-- `bot.c:3680` — firing check: added `!= NULL && ->chr != NULL` before `chrIsDead`
-
-**CAT-4 — playermgrGetPlayerNumByProp() → players[-1] OOB** (5 fixes):
-- `chraction.c:4462–4512` — healthscale/armourscale (3 branches): `chrpnum >= 0` guard
-- `chraction.c:4689` — isdead check: guard + remote fallback via `ACT_DEAD`
-- `botact.c:248` — Farsight speed prediction: guard + remote fallback via `ACT_STAND`
-- `bot.c:823` — `botGetWeaponNum`: guard + return `WEAPON_NONE`
-- `bot.c:3166` — weakest player health: guard + remote fallback via `maxdamage - damage`
-
-**Context created**: `context/null-guard-audit-bots.md` — full findings, CAT labels, code before/after
-
-**Build**: Code changes syntactically correct. Direct build blocked by pre-existing DevkitPro/mingw64
-environment conflict in Claude shell (not a code issue — same as S63/S64/S65). Needs `build-headless.ps1`.
-
-### Decisions Made
-- `chrGetTargetProp(chr)->chr` inline calls are always unsafe — must extract to local variable first
-- Remote player fallbacks: `ACT_DEAD` for isdead, `maxdamage - damage` for health, `ACT_STAND` for speed
-- Slayer rocket with NULL target detonates immediately (`timer240 = 0`) — safe fallback
-- `attackingplayernum` / `followingplayernum` must always be checked: `>= 0 && < g_MpNumChrs && != NULL`
-
-### Next Steps
-- **Build verify**: `powershell -File devtools/build-headless.ps1 -Target all` from PowerShell
-- **Playtest**: Combat Sim, dedicated server — bots should spawn and fight without crash
-- B-36 playtest (client crash on stage load) still pending from S63
-- R-2 / Room lifecycle or J-1 end-to-end join verification
-
----
-
-## Session 64 — 2026-03-27
-
-**Focus**: SP-6 Systemic Null-Guard Audit — Full PLAYERCOUNT() loop sweep across src/game/
-
-### What Was Done
-
-**Trigger**: S63 fixed `music.c::musicIsAnyPlayerInAmbientRoom` (B-36) and identified SP-6:
-PLAYERCOUNT() counts non-null entries but loops iterate by index — sparse slots crash.
-Full audit of all PLAYERCOUNT() loops across 29 files in src/game/.
-
-**CRITICAL fix (pre-spawn call path)**:
-- `src/game/roomreset.c:33` — `roomsReset()` called via `bgReset()` at `lvReset:364`, BEFORE
-  players are spawned (init loop is at `lvReset:483`). Added guard.
-
-**HIGH fixes — 13 loops across 8 files**:
-- `src/game/bondgun.c` (`bgunSetPassiveMode`) — guard added
-- `src/game/lv.c:2184` (`lvTick` hasdotinfo) — guard added
-- `src/game/lv.c:2194` (`lvTick` joybutinhibit) — guard added
-- `src/game/lv.c:2217` (`lvTick` smart slowmo outer) — player + prop guard (`->prop->rooms`)
-- `src/game/lv.c:2225` (`lvTick` smart slowmo inner otherplayernum) — guard added
-- `src/game/lv.c:2371` (`lvTick` numdying) — guard added
-- `src/game/bondcutscene.c:15` (`bcutsceneInit`) — guard added
-- `src/game/bondgunstop.c:15` (`bgunStop`) — guard added
-- `src/game/chr.c:1476` (`chrNoteLookedAtPropRemoved`) — guard added
-- `src/game/chraction.c:3033` (`chractionDestroyEyespy`) — guard added
-- `src/game/chraction.c:5438` (`chrIsOffScreen`) — player + prop guard (`->prop->pos`, `->prop->rooms`)
-- `src/game/chraicommands.c:1952` (`aicommand_if_eyespy_at_pad`) — guard added
-- `src/game/radar.c:338` (`radarRender`) — full 3-level chain guard (player + prop + chr)
-
-**Already had guards (confirmed safe)**:
-- `src/game/lv.c:227` (slayer rocket), `lv.c:483` (player init), `camera.c` (all 4 loops)
-
-**Context created**: `context/systemic-null-guard-audit.md` — full instance table, risk levels,
-fix patterns, and future-prevention rules.
-
-**Compile check**: All 7 edited files pass `-fsyntax-only` with project include paths.
-
-### Decisions Made
-- All PLAYERCOUNT() loops that dereference `players[i]` MUST have `if (!g_Vars.players[i]) continue;`
-  as their first loop-body statement. Canonical rule documented in audit file.
-- `->prop` access additionally needs `!players[i]->prop` guard.
-- `->prop->chr` chain needs all three guards.
-
-### Next Steps
-- Build verify via PowerShell build-headless.ps1 (sandbox TMP issue prevented automated build).
-- Playtest: Combat Sim stage load — confirm no crash on stage with ambient music (B-36 scenario).
-- **Audit 2**: `g_ChrSlots[i]` and `g_MpAllChrPtrs[i]` access patterns (chr.c, chraction.c).
-- **Audit 3**: `mplayer/*.c` participant system interactions during match start.
-
----
-
-## Session 65 — 2026-03-27
-
-**Focus**: Deep Audit 2 of 4 — Prop + Object System null-guard sweep
-
-### What Was Done
-
-**Files audited**: prop.c, propobj.c, propsnd.c, propanim.c, explosions.c, smoke.c, bg.c, objectives.c. door.c / lift.c / weapon.c do not exist in src/game/ — door/lift/weapon logic is in propobj.c.
-
-**New systemic pattern documented**: SP-8 — `prop->chr` accessed without NULL check after PROPTYPE_CHR/PROPTYPE_PLAYER type check.
-
-**7 critical fixes applied to main working copy**:
-
-1. `propobj.c:4455` — `parent->chr->hidden` in weapon drop/throw — added `if (parent->chr)` guard (CRITICAL)
-2. `propobj.c:8392` — `playerprop->chr->hidden` in `cctvTick()` — added `playerprop->chr &&` short-circuit (CRITICAL)
-3. `propobj.c:9334-9350` — `hitchr` (hitprop->chr) in laser fence damage block — added `hitchr &&` to team check; wrapped damage calls with `if (hitchr)` (CRITICAL)
-4. `propobj.c:9462` — `chrDamageByImpact(targetprop->chr, ...)` in enemy autogun — added `if (targetprop->chr)` wrapper (HIGH)
-5. `explosions.c:379` — `g_Rooms[exproom]` OOB when rooms[0] = -1 — extended condition to `|| exproom < 0` (HIGH)
-6. `explosions.c:1004` — `chrDamageByExplosion(chr, ...)` with possibly-NULL chr — added `if (chr)` guard (HIGH)
-7. `smoke.c:210` — `roomGetFinalBrightnessForPlayer(rooms[0])` with rooms[0] = -1 — added ternary validity guard (HIGH)
-
-**4 files clean** (zero findings): propanim.c, propsnd.c, objectives.c, bg.c.
-
-**New context file**: `context/null-guard-audit-props.md` (full findings, line refs, risk levels, deferred items).
-
-### Decisions Made
-- PROPTYPE_PLAYER chr = NULL is valid transitional state; PROPTYPE_CHR chr = NULL is a coding error. Guard player, trust chr.
-- `exproom < 0` explosions → numbb=0 (same as HUGE25 path) — visual explosion still plays, no damage BBoxes.
-- `rooms[0] = -1` smoke → brightness 0 fallback (invisible but no crash).
-
-### Next Steps
-- Build: full client + server build verify
-- Playtest: CCTV level with cloak active, laser fence in MP, grenade drops, explosions at map edge, smoke near map seam
-- Deep Audit 3 of 4: bot.c, botinv.c, chr.c (g_ChrSlots iteration + target->chr access)
-
----
-
-## Session 63 — 2026-03-27
-
-**Focus**: B-36 — Client crash on Combat Sim stage load (after skyReset, in music init)
-
-### What Was Done
-
-**Root cause analysis** (`src/game/music.c`, `src/game/lv.c`):
-- Trace: `lvReset` → `skyReset` done → `musicSetStageAndStartMusic` (because `normmplayerisrunning=true`) → `musicStartPrimary` then `musicStartAmbient` for stages with ambient tracks → `musicIsAnyPlayerInAmbientRoom()` → `g_Vars.players[i]->prop` without NULL check on `players[i]` → crash.
-- During stage load, `PLAYERCOUNT()` can return >0 while `players[0]` is NULL (e.g., prior match cleaned up slot 0 but not slot 1, or player slots in partial state). `PLAYERCOUNT()` macro counts non-null entries but loop iterates by index — slot 0 can be NULL while count is 1.
-- `musicStartPrimary` also called `PRIMARYTRACK()` twice, running `mpChooseTrack()` twice (double side-effects on `g_MpLockInfo` and `g_MusicLife60`).
-
-**Fixes applied**:
-- `musicIsAnyPlayerInAmbientRoom`: added `g_Vars.players[i]` NULL check before `->prop` dereference. Players not yet spawned correctly return "not in any room".
-- `musicStartPrimary`: cache `PRIMARYTRACK()` in local `track` var, call `mpChooseTrack` once only.
-- `musicSetStageAndStartMusic`: added step-by-step log lines (enter, before primary, before ambient, done).
-- `lv.c` skyReset block: added log with `players[0..3]` null-ness to confirm the scenario.
-- Added `#include "system.h"` to `music.c` for `sysLogPrintf`.
-
-**Build result**: Both `lv.c` and `music.c` compile cleanly (verified via direct gcc invocation). Full link blocked by TEMP directory environment issue in current shell context — not a code issue (same build env limitation seen before).
-
-### Decisions Made
-- NULL check in `musicIsAnyPlayerInAmbientRoom` is the correct fix: if no player is spawned, no player is in an ambient room, so returning `false` is semantically correct. Ambient track will start naturally once player is in-room during the first tick.
-- This is a class of bug: any code that iterates `for (i = 0; i < PLAYERCOUNT(); i++)` and then accesses `players[i]->anything` without a NULL check can crash if slots are sparse. See systemic-bugs.md.
-
-### Next Steps
-- Build and playtest: run Combat Sim match on a stage with ambient music (MBR/DD Tower, Maian SOS, Skedar Ruins). Confirm "MUSIC: calling musicStartAmbient" appears in log without crash.
-- If crash still occurs: check the new logs for which specific call in `musicSetStageAndStartMusic` is the last one seen — may indicate a different path (e.g., `musicStartPrimary` for stages with no ambient).
-
----
-
-## Session 61 — 2026-03-27
-
-**Focus**: netSend usage audit + three critical netcode bug fixes (CLC_RESYNC_REQ dropped, g_Lobby.inGame always 0, NPC broadcast guard)
-
-### What Was Done
-
-**Audit — `context/netsend-audit.md` created (NEW)**:
-- Full audit of every buffer write + netSend call across 6 files: `net.c`, `netmsg.c`, `netlobby.c`, `netmenu.c`, `pdgui_bridge.c`, `netdistrib.c`.
-- Documented 4 message send patterns (per-client out, accumulate-flush, immediate standalone, local buffer).
-- Found 3 bugs (CRIT-0, CRIT-1, CRIT-2) — all fixed this session.
-- Documented polling patterns: `lobbyUpdate()` called 2–3x/frame (intentional, S55 race fix), `g_Lobby.inGame` always 0 (bug — fixed).
-- Finding: SVC_LOBBY_LEADER IS sent (network-audit.md said "NEVER SENT" — corrected).
-
-**Bug-1 (CRITICAL) — CLC_RESYNC_REQ silently dropped** (`port/src/net/netmsg.c`, `net.c`, `net.h`):
-- Root cause: handlers for SVC_CHR_SYNC, SVC_PROP_SYNC, SVC_NPC_SYNC wrote resync requests directly to `g_NetMsgRel`. But `netStartFrame()` calls `netbufStartWrite(&g_NetMsgRel)` *after* the event dispatch loop — silently wiping any write made during dispatch. Desync recovery was completely non-functional.
-- Fix: Added `g_NetPendingResyncReqFlags` (mirrors server-side `g_NetPendingResyncFlags` pattern). Handlers now set flags; `netEndFrame()` writes the CLC_RESYNC_REQ message before flush.
-- Files changed: `net.h` (extern), `netmsg.c` (global + 3 handler fixes), `net.c` (consumer in netEndFrame CLSTATE_GAME block).
-
-**Bug-2 (CRIT-2) — `g_Lobby.inGame` always 0 on dedicated server** (`port/src/net/netlobby.c`):
-- Root cause: `g_Lobby.inGame` was set from `g_NetLocalClient->state`. On dedicated server `g_NetLocalClient == NULL`, so check was always false → `inGame` always 0.
-- Fix: Walk `g_NetClients[]` array, set `inGame` if any client is `>= CLSTATE_GAME`. Used in `hub.c` room state machine and server GUI.
-
-**Bug-3 (CRIT-1) — NPC broadcast guard never fires on dedicated server** (`port/src/net/net.c`):
-- Root cause: Co-op path checked `if (g_NetLocalClient && ...)` before broadcasting SVC_NPC_SYNC. Always false on dedicated server.
-- Fix: Changed guard to `if (g_NetNumClients > 0)`.
-
-**`context/network-audit.md` updated**:
-- §8 Recommendations: marked CRIT-0 (new, CLC_RESYNC_REQ), CRIT-1, CRIT-2 as Fixed S61. Updated HIGH-1 (SVC_LOBBY_LEADER) — IS sent on join via per-client out buffer; audited correctly.
-
-### Build Result
-- **Client**: PASS (`pd` target, 0 errors, verified via `make -C build/client`)
-- **Server**: PASS (`pd-server` target, 0 errors, verified via `make -C build/client`)
-
-### Decisions Made
-- **`g_NetPendingResyncReqFlags` pattern** is now the canonical way for client recv handlers to send messages back to the server. Direct writes to `g_NetMsgRel` inside event handlers are silently dropped (netStartFrame resets after dispatch).
-- **`g_NetLocalClient == NULL` guard is a systemic hazard**: dedicated server has NULL local client, so any `g_NetLocalClient &&` check is a silent bug on server. Use `g_NetNumClients > 0` or walk `g_NetClients[]` instead.
-
-### Next Steps
-- Playtest: verify desync recovery actually fires (requires a desync to trigger) — hard to test directly.
-- Continue with J-1 end-to-end join verification or R-2 room lifecycle.
-
----
-
-## Session 60 — 2026-03-27
-
-**Focus**: Five playtest fixes: Leave Room, Start Match (netSend bug), bot modal UX, score slider, lobby player count
-
-### What Was Done
-
-**Fix 1 — Leave Room returns to social lobby** (`port/fast3d/pdgui_menu_room.cpp`):
-- Leave Room button was calling `netDisconnect()` instead of `pdguiSetInRoom(0)`.
-- Added forward declaration for `pdguiSetInRoom()` in the extern "C" block.
-- Now correctly returns to social lobby while staying connected.
-
-**Fix 2 — Start Match actually sends CLC_LOBBY_START** (`port/fast3d/pdgui_bridge.c`, `port/src/net/netmenu.c`):
-- Root cause: `netLobbyRequestStartWithSims` wrote to `g_NetLocalClient->out` but never called `netSend()`. On the client, only `g_NetMsgRel`/`g_NetMsg` are auto-flushed by `netFlushSendBuffers()`; per-client `->out` buffers are only sent when `netSend(cl, NULL, ...)` is called explicitly. The packet sat unsent every time.
-- Fix: added `netbufStartWrite(&g_NetLocalClient->out)` before the write, then `netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL)` after.
-- Same bug in legacy `menuhandlerCoopConfigStart` (`netmenu.c`) — patched there too (propagation check).
-
-**Fix 3 — Bot modal left-aligned labels** (`port/fast3d/pdgui_menu_room.cpp`):
-- Name / Difficulty / Character labels now sit on the LEFT with `ImGui::Text(...)` + `ImGui::SameLine(110.0f * scale)` before the control.
-- Controls use `SetNextItemWidth(-1)` to fill the remaining width. No clipping.
-
-**Fix 4 — Score limit slider 1-based** (`port/fast3d/pdgui_menu_room.cpp`):
-- Slider now shows 1–100; `g_MatchConfig.scorelimit` still stored 0-based (val-1) for wire compatibility.
-- Label shows `sl` directly (no +1) — "9 kills" slider = label "9 kills", not "10 kills".
-- "No limit" triggered at scorelimit ≥ 99 (displayed as 100 on slider).
-
-**Fix 5 — Social lobby player count** (`port/fast3d/pdgui_menu_lobby.cpp`):
-- Added "Players: X / Y" next to "Connected to dedicated server" in the header.
-- X = `lobbyGetPlayerCount()`, Y = `netGetMaxClients()`. Yellow text for visibility.
-
-### Build Result
-- **Client**: PASS (PerfectDark.exe, 0 errors)
-- **Server**: PASS (PerfectDarkServer.exe, 0 errors)
-
-### Decisions Made
-- The `g_NetLocalClient->out` pattern for sending client→server is now documented: **must call `netSend(g_NetLocalClient, NULL, reliable, chan)` explicitly** — the auto-flush path only covers `g_NetMsgRel`/`g_NetMsg`.
-
-### Next Steps
-- **Playtest**: Leave Room → verify stays in social lobby. Start Match → verify CLC_LOBBY_START reaches server + match loads. Bot modal → verify labels readable.
-
----
-
-## Session 59 — 2026-03-27
-
-**Focus**: Match Start bug root cause (SVC_STAGE_START) + UX status audit
-
-### What Was Done
-
-**Root cause identified and fixed** (`port/src/net/netmsg.c`):
-- `netmsgSvcStageStartWrite()` was reading `g_StageNum` directly, but the server
-  idles at `STAGE_CITRAINING` and `mainChangeToStage()` is deferred (g_StageNum
-  doesn't update until next frame). Result: SVC_STAGE_START always encoded
-  `STAGE_CITRAINING`, clients interpreted it as "server returned to lobby" and
-  dropped it — matches never started.
-- Fix: read `g_MainChangeToStageNum` when >= 0 (pending stage set by `mainChangeToStage()`),
-  fall back to `g_StageNum` mid-game (resets to -1 once stage loads).
-- Note: `netServerStageStart()` already had its outer STAGE_CITRAINING guard removed
-  in a prior session — the bug was one level deeper inside the write function.
-
-**UX audit (main project already complete)**:
-- UX Ref 1 (bot list with X buttons, Add Bot, double-click modal): FULLY IMPLEMENTED in main project (`pdgui_menu_room.cpp` lines 517–608, modal at lines 1160–1239).
-- UX Ref 2 (spawn weapon dropdown): FULLY IMPLEMENTED in main project (lines 741–758, `s_SpawnWeaponIdx`).
-- No additional code changes needed for these features.
-
-### Build Result
-- Headless build still cannot run from Claude's Bash tool (MSYS2 TEMP dir permission issue, known since S58). Must run from Mike's MSYS2 terminal.
-
-### Decisions Made
-- The async `g_MainChangeToStageNum` pattern is now used in two places: `netServerStageStart()` (comment explaining the issue) and `netmsgSvcStageStartWrite()` (the actual fix).
-
-### Next Steps
-- **Build + playtest** from Mike's MSYS2 terminal.
-- **J-1**: End-to-end test — connect client, enter code, verify CLSTATE_LOBBY, click Start Match in Combat Sim tab, verify match loads.
-
----
-
-## Session 58 — 2026-03-27
-
-**Focus**: Headless build pipeline architecture + merge S57 worktree changes
-
-### What Was Done
-
-**`devtools/build-headless.ps1`** (updated):
-- Added `-Version "X.Y.Z"` parameter — parsed into major/minor/patch and injected as `-DVERSION_SEM_*` cmake flags, mirroring `Get-BuildSteps` in `dev-window.ps1` exactly.
-- Added worktree safety guard: if `$ProjectDir` contains `.claude\worktrees\`, strips the path to redirect to the real project root. Prevents AI sessions from building worktree source.
-- Added version auto-read from `CMakeLists.txt` when `-Version` is omitted (same as GUI's `Get-ProjectVersion`).
-- Version shown in build header output.
-
-**`context/CRITICAL-PROCEDURES.md`** (updated):
-- Added §3 Build Tool Architecture: documents canonical cmake flags, the sync rule between `build-headless.ps1` and `dev-window.ps1 Get-BuildSteps`, and the worktree prohibition.
-
-**`port/fast3d/pdgui_lobby.cpp`** (merged from lucid-lamport worktree):
-- Added forward decl for `pdguiRoomScreenRender()`.
-- Changed NETMODE_CLIENT lobby path: now calls `pdguiRoomScreenRender(winW, winH)` instead of `pdguiLobbyScreenRender()`. Game clients see the tab-based room interior; dedicated server keeps `pdguiLobbyScreenRender`.
-
-### Build Result
-- **Client**: PASS (PerfectDark.exe, 0 errors)
-- **Server**: PASS (PerfectDarkServer.exe, 0 errors)
-- `pdgui_menu_room.cpp` (1108 lines, first build test) compiles clean.
-
-### Decisions Made
-- `build-headless.ps1` duplicates `Get-BuildSteps` logic (no dot-source — dev-window.ps1 loads WinForms at module scope). SYNC RULE: if cmake flags change in one, change both.
-- Subprocess threading in `Invoke-BuildStep` hangs when called through Claude's Bash tool (PowerShell process spawning limitation). Works from Mike's terminal normally (verified session 56). No change to the threading approach.
-
-### Next Steps
-- **Playtest**: connect client to server, verify room interior tab screen appears (pdguiRoomScreenRender), all 3 tabs visible.
-- **J-1**: End-to-end join test — build server target, start server, enter code in client, verify CLSTATE_LOBBY + match start.
-- **R-2**: Room lifecycle — expand hub slot pool, on-demand room creation.
-
----
-
-## Session 57 — 2026-03-27
-
-**Focus**: Room interior UX — tab-based match setup screen replacing flat lobby for game clients
-
-### What Was Done
-
-**`context/lobby-flow-plan.md`** (created):
-- New plan file documenting the full lobby flow: connection phase → lobby overview → room interior.
-- §3 Room Interior tab-based UX spec (Combat Simulator / Campaign / Counter-Operative).
-- §4 Mode-specific settings: full MPOPTION_* catalog, bot settings, campaign missions §4.2a, counter-op assignment.
-- §5 Network protocol: current CLC_LOBBY_START payload vs. future CLC_ROOM_SETTINGS (R-4).
-- §6 Implementation status table.
-
-**`port/fast3d/pdgui_menu_room.cpp`** (created, ~570 lines):
-- Entry point: `extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)`
-- Tab bar: Combat Simulator | Campaign | Counter-Operative. Non-leaders see all tabs read-only.
-- Left panel (55%): mode-specific settings. Right panel (40%): room player list.
-- **Combat Simulator**: Scenario combo, arena picker, time/score sliders, weapon set, 10 MPOPTION toggles (including inverted flags), scenario-specific sub-options (HTB/CTC/KOH/HTM/PAC), bot count slider 0–31, per-bot TreeNode rows (name, difficulty MeatSim–DarkSim, body combo).
-- **Campaign**: Mission picker (17 missions, §4.2a), difficulty (Agent/SA/PA), friendly fire toggle.
-- **Counter-Op**: Mission picker, counter-op player assignment dropdown (from lobbyGetPlayerInfo), difficulty.
-- Player panel: leader=gold, local=green, others=white; body name muted; state indicator.
-- Bottom bar: **Start Match** (leader only) → `netLobbyRequestStartWithSims` (MP) / `netLobbyRequestStart` (COOP/ANTI); **Leave Room** → `netDisconnect()`.
-- Connect code display for server instances.
-
-**`port/fast3d/pdgui_lobby.cpp`** (modified):
-- Added forward decl for `pdguiRoomScreenRender`.
-- In `pdguiLobbyRender()`: NETMODE_CLIENT + `netLocalClientInLobby()` path now calls `pdguiRoomScreenRender` instead of `pdguiLobbyScreenRender`. Dedicated server path unchanged.
-
-### Decisions Made
-- Game clients see room interior (`pdguiRoomScreenRender`). Dedicated server keeps `pdguiLobbyScreenRender`.
-- Full settings sync (time limit, score, options bitmask, per-bot config) deferred to CLC_ROOM_SETTINGS (R-4). Today only stagenum/numSims/simType are sent via CLC_LOBBY_START.
-- Campaign mission stage constants 0x35–0x40 are tentative — need verification from `src/include/constants.h` when wiring mission picker fully.
-
-### Next Steps
-- **Build test**: verify `pdgui_menu_room.cpp` compiles clean; check for ODR issues with `struct matchconfig` redeclaration vs. `pdgui_menu_matchsetup.cpp`.
-- **Playtest**: connect → room interior shows → leader can change settings → Start Match launches.
-- **R-4**: CLC_ROOM_SETTINGS full sync (time limit, score limit, options bitmask, weapon set, per-bot config).
-
----
-
-## Session 56 — 2026-03-27
-
-**Focus**: Audit and fix 5 lobby issues found in Mike's playtest of the S55 build
-
-### What Was Done
-
-**Issue 1 & 5 — Client lobby empty + no leader** (`port/src/net/netlobby.c`):
-- Root cause: `lobbyUpdate()` skip guard `if (cl == g_NetLocalClient)` ran on clients too. After SVC_AUTH, `g_NetLocalClient = &g_NetClients[id]`, so the client's own slot was being skipped → 0 players found → "Waiting for players..." and `lobbyIsLocalLeader()` always returned 0.
-- Fix: Changed guard to `if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient)` — clients always include their own slot. With the slot visible, eager leader election fires immediately and `lobbyIsLocalLeader()` returns 1 for the first connected client. (B-32)
-
-**Issue 2 — Player name shows "Player 1" not agent name** (`port/src/net/netmsg.c`):
-- Root cause: `netmsgClcSettingsWrite()` sent `g_NetLocalClient->settings.name` directly without the identity override check that `netmsgClcAuthWrite()` had. CLC_SETTINGS is processed after CLC_AUTH on the server and overwrites the correct identity name with the stale/legacy `settings.name` from `netClientReadConfig()`.
-- Fix: Added identity profile check to `netmsgClcSettingsWrite()` — same pattern as `netmsgClcAuthWrite()`. Also syncs `settings.name` so future sends are consistent. (B-33)
-
-**Issue 3 — Server SDL window title shows raw IP** (`port/src/server_main.c`, `port/src/video.c`):
-- Two locations, two fixes:
-  - `server_main.c`: Added `#include "connectcode.h"`. Parse `sscanf` into u32, call `connectCodeEncode()`. Show connect code if available, else fall back to port number. (B-35)
-  - `video.c`: Same connect code logic (inline `extern` declaration since video.c doesn't include `connectcode.h`). (B-29 secondary, same session)
-
-**Issue 4 — Server GUI shows "0/32 connected"** (`port/src/server_main.c`):
-- Root cause: `displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0` — pre-B-28 compensation that subtracts 1 for the server's own slot. After B-28, dedicated server has `g_NetLocalClient = NULL` and `g_NetNumClients` counts only real players. `1 - 1 = 0` with one player connected. `server_gui.cpp` was already corrected; `server_main.c` was not.
-- Fix: `g_NetDedicated ? g_NetNumClients : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0)`. (B-34)
-
-**SVC_LOBBY_LEADER broadcast after auth** (`port/src/net/netmsg.c`):
-- Added: after successful `netmsgClcAuthRead`, call `lobbyUpdate()` then broadcast `SVC_LOBBY_LEADER` to all CLSTATE_LOBBY+ clients. Ensures new joiners and existing players all get the authoritative leader assignment from the server, not just client-side inference.
-
-**Build verified**: All 4 modified files compile clean in both client and server headless builds.
-
-### Decisions Made
-- SVC_LOBBY_LEADER broadcast is the canonical source of truth for leader identity; client-side inference in `lobbyUpdate()` serves as a fallback for single-player/offline mode.
-- `video.c` uses inline `extern` for `connectCodeEncode` rather than adding a new `#include` — avoids pulling in unnecessary headers in a large file.
-
-### Bugs Fixed
-- B-32: `lobbyUpdate()` client skip guard
-- B-33: CLC_SETTINGS name override
-- B-34: `server_main.c` player count off-by-one (B-28 missed location)
-- B-35: `server_main.c` raw IP in SDL window title (B-29 missed location)
-
-### Next Steps
-- Playtest: connect one client, verify lobby shows player name (not "Player 1"), client sees themselves as leader, server title shows connect code and correct count.
-- Playtest: two clients, verify leader broadcast reaches both and the non-first-joined client is not shown as leader.
-
----
-
-## Session 55 — 2026-03-27
-
-**Focus**: Harden lobby leader assignment + room display fixes (follow-up to S54)
-
-### What Was Done
-
-**Eager leader assignment in lobbyUpdate()** (`port/src/net/netlobby.c`):
-- Added in-loop eager assignment: when `g_Lobby.leaderSlot == 0xFF` and the first CLSTATE_LOBBY+ client is seen, assign them immediately rather than waiting for the post-loop election block.
-- Closes a same-frame race: if CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch, CLC_LOBBY_START is processed before the post-loop election has any chance to run.
-
-**lobbyUpdate() refresh before leader validation** (`port/src/net/netmsg.c`):
-- `netmsgClcLobbyStartRead()` now calls `lobbyUpdate()` before checking `leaderSlot`.
-- Added fallback: if `leaderSlot == 0xFF` (still unset after refresh), scan `g_NetClients` for first CLSTATE_LOBBY+ client and accept if it matches `srccl`.
-- Better rejection log: includes `leaderSlot` value for debugging.
-
-**Empty room display fix** (`port/fast3d/pdgui_menu_lobby.cpp`):
-- Room sidebar now skips rooms with `client_count == 0` — prevents permanent "Lounge" (Room 0) from appearing before any players join.
-- Added `roomsShown` counter; "No active rooms" shows when `roomsShown == 0`.
-
-### Decisions Made
-- These are belt-and-suspenders hardening on top of S54's fixes; the root causes were already addressed but edge cases remained.
-- Not removing Room 0 creation yet — hub.c still depends on roomGetById(0) for state sync in hubTick().
-
-### Next Steps
-- Build and playtest the 2-player Combat Sim flow end-to-end.
-- If match starts but players don't spawn, check g_SpawnPoints (B-19 partial fix in S54).
-
----
-
-## Session 54 — 2026-03-27
-
-**Focus**: Full implementation to get two players into a working Combat Simulator match
-
-### What Was Done
-
-**lobbyUpdate() B-28 regression fixed** (`port/src/net/netlobby.c`):
-- `i == 0` skip guard replaced with `cl == g_NetLocalClient` — which is `NULL` on dedicated servers, so no slot is ever skipped. First real player (slot 0) now appears in `g_Lobby.players[]`.
-- Off-by-one: `i <= NET_MAX_CLIENTS` → `i < NET_MAX_CLIENTS`.
-- Root cause: B-28 (S52) set `g_NetLocalClient = NULL` for dedicated servers but didn't update lobbyUpdate's hardcoded slot-0 skip. Leader validation in `netmsgClcLobbyStartRead()` always failed because the leader (slot 0) was invisible.
-
-**Duplicate Room 0 display fixed** (`port/src/room.c`):
-- Added `if (!s_Initialised) return 0/NULL;` guards to `roomGetActiveCount()` and `roomGetByIndex()`.
-- Root cause: `s_Rooms[]` is a C static array zero-initialized to `ROOM_STATE_LOBBY=0`, so all 4 slots appeared "active" on the client (which never calls `hubInit()`).
-
-**g_MpSetup configured for Combat Sim** (`port/src/net/netmsg.c`):
-- `netmsgClcLobbyStartRead()` now sets `g_MpSetup.stagenum`, `scenario=0` (MPSCENARIO_COMBAT), `timelimit=0`, `chrslots` with bits 0..n-1 for n connected players.
-- Assigns sequential `playernum` values to each connected client before calling `netServerStageStart()`.
-- Without this, `SVC_STAGE_START` broadcast `chrslots=0` and `playernum=0` for everyone, so `mpStartMatch()` never spawned players.
-
-**Off-by-one in netServerStageStart()** (`port/src/net/net.c`):
-- Two loops `i <= NET_MAX_CLIENTS` → `i < NET_MAX_CLIENTS`.
-
-**Simulant settings in lobby UI** (`port/fast3d/pdgui_menu_lobby.cpp`, `port/fast3d/pdgui_bridge.c`, `port/include/net/netmsg.h`, `port/src/net/netmsg.c`):
-- CLC_LOBBY_START payload extended: `gamemode, stagenum, difficulty, numSims, simType` (added 2 bytes).
-- Server reads numSims/simType, populates `g_BotConfigsArray[]` and bits 8+ of `g_MpSetup.chrslots`.
-- Lobby UI: arena selector (20 maps), simulant count slider (0-8), difficulty dropdown (Meat/Easy/Normal/Hard/Perfect/Dark).
-- `netLobbyRequestStartWithSims()` bridge function added; original `netLobbyRequestStart()` wraps it with zeros.
-
-**Spawn point fallback for MP maps without INTROCMD_SPAWN** (`src/game/playerreset.c`):
-- After intro cmd loop, if `g_NumSpawnPoints == 0` and `g_NetMode != NETMODE_NONE`, scans `g_PadsFile` for pads with valid room numbers and populates `g_SpawnPoints`.
-- Fixes B-19 (bot spawn stacking) for mod stages and MP maps without proper setup sequences.
-- Added `#include "net/net.h"` to playerreset.c.
-
-### Decisions Made
-- CLC_LOBBY_START protocol extension is backward-compatible within a single session (client/server always built together). No protocol version bump needed yet.
-- Spawn fallback uses `g_NetMode != NETMODE_NONE` guard so solo missions are unaffected.
-- Arena selector uses hardcoded stage numbers (0x1f..0x32) matching known PD MP maps. No stage table dependency.
-
-### Bugs Fixed
-- **B-28 regression in lobbyUpdate()** (unlabeled): `i == 0` skip broke leader detection after B-28.
-- **B-19** (partial): spawn stacking reduced by pre-populating g_SpawnPoints from pad data.
-
-### Next Steps
-- Build and run end-to-end 2-player test: start dedicated server, both clients connect, leader hits Combat Simulator button.
-- Verify `mpStartMatch()` fires on both clients with correct playernum and chrslots.
-- R-2: Room lifecycle expansion if first match test passes.
-
----
-
-## Session 53 — 2026-03-26
-
-**Focus**: Two bugs blocking clients from reaching lobby after connecting to dedicated server
-
-### What Was Done
-
-**B-31 FIXED — SVC_AUTH malformed on client** (`port/src/net/netmsg.c`):
-- Root cause: `netmsgSvcAuthRead` had guard `|| id == 0` that was correct pre-B-28 (slot 0 = server's own local client, never assigned to remote clients). After B-28 (S52), dedicated servers start slot search at `i=0`, so the first real client legitimately gets `g_NetClients[0]`, making `authcl - g_NetClients = 0`. The old guard rejected this valid ID.
-- Fix: removed `|| id == 0` from the malformed-message check in `netmsgSvcAuthRead`. Applied to both main repo and worktree.
-- Secondary fix: `netmsgClcAuthRead` (server side) previously called `netDistribServerSendCatalogInfo` BEFORE sending `SVC_AUTH`. Client was in `CLSTATE_AUTH` when catalog info arrived, which is incorrect ordering. Reordered so `SVC_AUTH` is sent first (client transitions to `CLSTATE_LOBBY`), then catalog info follows. Applied to both repos.
-
-**B-26 fully fixed — Player name sends identity profile name** (`port/src/net/netmsg.c`, `port/src/net/net.c`):
-- S49 fix was incomplete: identity was only used as empty-name fallback. "Player 1" (the N64 default) is non-empty, so identity was never consulted.
-- Fix 1: `netClientReadConfig()` in `net.c` — identity profile is now the PRIMARY source; legacy N64 config is fallback only. (Main repo already had this; applied to worktree.)
-- Fix 2: `netmsgClcAuthWrite()` in `netmsg.c` — directly reads `identityGetActiveProfile()->name` when available, so the wire packet uses the profile name regardless of what's in `settings.name`. Applied to both repos.
-- Added `#include "identity.h"` to `netmsg.c`.
-
-### Decisions Made
-- `id == 0` guard removal is correct and safe: `NET_NULL_CLIENT = 0xFF` remains the "no client" sentinel. Slot 0 being valid is the correct post-B-28 state.
-- Identity profile name is authoritative on PC; legacy N64 config name is a fallback only.
-
-### Next Steps
-- Build and run end-to-end join test to confirm client reaches lobby (B-31 and B-26 are testable together)
-- R-2: Room lifecycle after lobby is confirmed working
-
----
-
-## Session 52 — 2026-03-26
-
-**Focus**: Phase R-1 implementation — hub slot pool API, dedicated server slot fix, IP scrubbing
-
-### What Was Done
-
-**R-1a: Hub slot pool API implemented** (`port/src/hub.c`):
-- Added `#include "net/net.h"` so hub.c can read `g_NetMaxClients` / `g_NetNumClients`
-- Implemented all 4 stubs declared in `hub.h` but missing in `hub.c`:
-  - `hubGetMaxSlots()` → returns `g_NetMaxClients`
-  - `hubSetMaxSlots(s32)` → clamps to [1, NET_MAX_CLIENTS], writes `g_NetMaxClients`
-  - `hubGetUsedSlots()` → returns `g_NetNumClients`
-  - `hubGetFreeSlots()` → returns `max - used`, clamped to 0
-
-**R-1b: Dedicated server no longer occupies slot 0** (`port/src/net/net.c`, B-28 FIXED):
-- `netStartServer()`: when `g_NetDedicated`, sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` (slot 0 stays free). When not dedicated, existing listen-server path unchanged.
-- `netServerEvConnect()` slot search: changed from always starting at `i=1` to `i = g_NetDedicated ? 0 : 1`, so slot 0 is assignable to real players on dedicated servers.
-- NULL guards added to `netServerStageStart()` for lines that unconditionally wrote `g_NetLocalClient->state` and called `netClientReadConfig(g_NetLocalClient, 0)` (two sites).
-- NULL guard added to `netServerStageEnd()` for `g_NetLocalClient->state = CLSTATE_LOBBY`.
-- Verified `netServerEvConnect()` line 942 already had NULL guard: `const bool ingame = (g_NetLocalClient && ...)`.
-
-**R-1c: Raw IP removed from server GUI status bar** (`port/fast3d/server_gui.cpp`, B-29 FIXED):
-- Line 695: Replaced `ImGui::TextColored(..., "%s:%u", ip, g_NetServerPort)` with `"Port %u"` (port only, no IP).
-- Line 707: Fixed `displayClients` — dedicated servers now show `g_NetNumClients` directly (no `-1` compensation needed since slot 0 is no longer occupied by the server).
-
-**R-1d: IP-bearing log lines replaced** (`port/src/net/net.c`, B-30 FIXED):
-- `netServerEvConnect()`: Removed `addrstr = netFormatPeerAddr(peer)`. Connection event logs show "incoming connection", rejection logs show reason only (no IP).
-- `netServerEvDisconnect()`: `"disconnect event from %s"` → `"disconnect event from client %u"` using `cl->id`.
-- Spurious-peer logs (no attached client): replaced `netFormatPeerAddr(ev.peer)` with generic "unknown peer" messages.
-- UPnP IP logs in `netupnp.c` left intact (internal infrastructure — not user-facing).
-
-### Decisions Made
-- `g_NetNumClients = 0` set when dedicated (not left at 1 from `netClientResetAll()`), so player count is accurate from the start.
-- `hubSetMaxSlots` clamps to `[1, NET_MAX_CLIENTS]` — no silent negative or overflow.
-- UPnP log lines (`UPNP: [thread] External IP: ...`) are classified as internal infrastructure and left as-is per R-1 design.
-
-### Next Steps
-- Build dedicated server target and run end-to-end join test (J-1) to verify R-1 changes
-- Confirm slot 0 is now available (expect `Players: 1/32` with one client vs old `1/32` that was really `0/31`)
-- R-2: Room lifecycle (expand HUB_MAX_ROOMS/CLIENTS, add `leader_client_id`, demand-driven rooms)
-
----
-
-## Session 51 — 2026-03-26
-
-**Focus**: Room architecture plan — code audit, struct corrections, message IDs, phase file refs
-
-### What Was Done
-
-**Code audit against draft `context/room-architecture-plan.md`** (created S50):
-
-**Key findings from reading hub.h/hub.c, room.h/room.c, net.h, net.c, netmsg.h, server_gui.cpp, netlobby.c**:
-
-1. **hub.h slot pool API not implemented**: `hubGetMaxSlots/SetMaxSlots/GetUsedSlots/GetFreeSlots` are declared but have no implementation in `hub.c`. Phase R-1 must add these.
-
-2. **g_NetLocalClient = &g_NetClients[0] on server CONFIRMED**: `netStartServer()` lines 519-521 unconditionally claims slot 0 for the server. `lobbyUpdate()` already has a dedicated-server guard skipping slot 0, and `server_gui.cpp` compensates with `g_NetNumClients - 1`. Fix in R-1: set `g_NetLocalClient = NULL` when `g_NetDedicated`. (B-28)
-
-3. **IP in server GUI status bar CONFIRMED**: `server_gui.cpp:695` shows raw `"%s:%u"` IP/port in gray below the connect code. Connect code display already exists (lines 689-693). Remove gray IP line. (B-29)
-
-4. **IPs in log output CONFIRMED**: `netFormatClientAddr()` returns raw `"IP:port"` strings used in connection log calls. (B-30)
-
-5. **hub_room_t struct**: `id` is `u8` (not `s32`). No `leader_client_id` field — needs to be added. `creator_client_id` exists. Types verified. Draft plan struct was close but types wrong.
-
-6. **HUB_MAX_CLIENTS = 8** in room.h stale — `NET_MAX_CLIENTS` is 32. Must expand.
-
-7. **HUB_MAX_ROOMS = 4** — needs expansion (plan: 16).
-
-8. **Message ID ranges confirmed**: SVC free from `0x75`, CLC free from `0x0A`. Plan assigns SVC 0x75-0x77, CLC 0x0A-0x0F.
-
-9. **roomsInit() creates room 0 permanently** — conflicts with demand-driven design. Phase R-2 removes this.
-
-10. **Draft B-28 (player name)** = already B-26 (fixed). Removed from plan. Bugs renumbered: B-28 = slot 0, B-29 = server GUI IP, B-30 = log IPs.
-
-**Plan revised**: `context/room-architecture-plan.md` rewritten with all corrections, specific code locations, and phase-level file references.
-
-**Context files updated**:
-- `context/room-architecture-plan.md`: full code-verified rewrite
-- `context/tasks-current.md`: R-1 through R-5 added to Active Work Tracks + Prioritized Next Up
-- `context/bugs.md`: B-28, B-29, B-30 added (all OPEN, part of R-1)
-- `context/session-log.md`: this entry
-- `context/infrastructure.md`: SPF section updated with R-series
-- `context/README.md`: last-updated bumped
-
-### Decisions Made
-- `room_id` on `struct netclient` uses `s32` with `-1` as sentinel (not 0 — room IDs are 0-based)
-- `CLC_LOBBY_START (0x08)` remains for backward compat; `CLC_ROOM_START (0x0F)` is the new primary; deprecated in R-4 but not removed until tested
-- B-28/29/30 grouped into Phase R-1 (no protocol change required for any of them)
-
-### Next Steps
-- R-1: Start with hub slot pool stubs + `g_NetLocalClient = NULL` fix in `net.c`
-- Continue J-1: Build server target, verify end-to-end join flow
-
----
-
-## Session 50 — 2026-03-26/27
-
-**Focus**: Server crash fix (B-27, 9 fixes), multiplayer regressions, build system hardening, v0.0.7 release
-
-### What Was Done
-
-**B-27 FIXED — Dedicated server crash on first client connect (9 fixes, 6 files)**:
-
-Nine separate bugs all in the server connect path, discovered via real cross-machine playtest:
-
-1. **`g_RomName` type mismatch** (`port/src/server_stubs.c`): stub declared `char g_RomName[64]` but `port/include/versioninfo.h` declared `const char *g_RomName`. Fix: changed stub to `const char *g_RomName = "pd-server"`.
-
-2. **ROM/mod check not gated on dedicated** (`port/src/net/net.c`): The ROM hash + mod check ran unconditionally in `CLC_AUTH`, rejecting all real clients connecting to a dedicated server (which has no valid ROM). Fix: wrapped behind `!g_NetDedicated` guard.
-
-3. **`SVC_AUTH` rejecting `id == 0`** (`port/src/net/net.c`): Handler had `if (id == 0) reject`. Now that dedicated servers assign slot 0 to real players (not reserved for server), this guard wrongly rejected the first player. Fix: removed the `id == 0` check.
-
-4. **Hardcoded `g_NetClients[0].state` assumption** (`port/src/net/netmsg.c`): `netmsgClcAuthRead()` unconditionally read `g_NetLocalClient->state` instead of the connecting client's state. Fix: use `cl->state` directly.
-
-5. **NULL guard missing on `g_NetLocalClient`** (`port/src/net/netmsg.c`): Dedicated server has `g_NetLocalClient = NULL`; dereference in `netmsgClcAuthRead` crashed. Fix: NULL guard added.
-
-6. **`ev.packet` NULL check missing** (`port/src/net/net.c`): ENet receive callback could deliver an event with `ev.packet = NULL`; crash on `enet_packet_destroy`. Fix: NULL check added.
-
-7. **`LOBBY_MAX_PLAYERS = 8` mismatch** (`port/src/net/netlobby.c`): Lobby capacity was still 8 while `NET_MAX_CLIENTS` was 32. Fix: `LOBBY_MAX_PLAYERS` updated to 32.
-
-8. **Stale `#define NET_MAX_CLIENTS 8`** (`port/fast3d/server_gui.cpp`): Server GUI had its own local define shadowing the updated value in `net.h`. Fix: removed local define.
-
-9. **GUI ping/kick used loop index instead of `clientId`** (`port/fast3d/server_gui.cpp`): Server action commands (ping/kick) passed the iteration index `i` instead of `cl->id`. Fix: use `cl->id`.
-
-**B-22 FIXED — Version not baking into exe (third report)**:
-- Root cause: `Get-BuildSteps` in `devtools/dev-window.ps1` built cmake configure args with no `-DVERSION_SEM_*` flags
-- CMake used its cached value (from prior run) or the hardcoded CACHE default — Dev Window version boxes had no effect
-- Fix: added `Get-UiVersion` call inside `Get-BuildSteps`; appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to both Configure steps (client + server)
-
-**B-23 FIXED — Quit Game button clipped on right edge**:
-- Root cause: fixed `quitBtnW = 100 * scale` placed button's right edge at the ImGui clip boundary with no margin; "Confirm Quit" label also wider than 100px
-- Fix in `port/fast3d/pdgui_menu_mainmenu.cpp`: width now `CalcTextSize("Confirm Quit").x + FramePadding*2`; position now `dialogW - WindowPadding.x - quitBtnW - 4*scale`; Cancel button cursor updated
-
-**F8 hotswap badge removed from main menu** (`port/fast3d/pdgui_menu_mainmenu.cpp`):
-- Removed the F8 indicator badge from the main menu corner. The toggle (F8 / R3) still works — badge was visual noise.
-
-**Always-clean build enforced** (`devtools/dev-window.ps1`):
-- "Clean Build" toggle removed from Dev Window GUI. Every build now unconditionally deletes build directories before configure.
-- Rationale: stale CMake CACHE caused B-22 and an entire class of version-baking/config-drift bugs. Clean builds eliminate this class.
-
-**Auto-commit version from UI boxes** (`devtools/dev-window.ps1`):
-- Auto-commit message (triggered before release builds) now reads version from the Dev Window boxes, not from CMakeLists.txt defaults.
-- Ensures the auto-commit label always matches the actual binary being built.
-
-**Update tab — cross-session staged version persistence** (`port/src/updater.c`, `port/include/updater.h`):
-- Downloads now write a `.update.ver` sidecar file alongside the staged binary.
-- `updaterGetStagedVersion()` reads this sidecar on startup.
-- "Switch" button now appears immediately on reopen without requiring a re-download.
-
-**Update tab button sizing** (`port/fast3d/pdgui_menu_update.cpp`):
-- Download/Rollback/Switch buttons now use `CalcTextSize`-based widths instead of fixed pixel values.
-- Per-row layout: each version row gets its own Download/Rollback/Switch button inline.
-
-**v0.0.7 released to GitHub**:
-- Built and tested as v0.0.6, released as v0.0.7.
-- Includes all changes from S27–S50 (component mod architecture, room system, connect codes, participant system, update tab, all multiplayer regression fixes from S49d).
-
-### Decisions Made
-- Version boxes in the Dev Window are the single source of truth for ALL builds (not just releases). `Get-BuildSteps` is the authoritative cmake path.
-- All builds are clean builds. No toggle. No exceptions. Stale CMake CACHE is eliminated by design.
-- ROM/mod check is skipped on dedicated server via `!g_NetDedicated`. No hack guards.
-- `id == 0` is a valid player slot on dedicated servers. The SVC_AUTH guard that rejected slot 0 is gone.
-
-### Next Steps
-- SPF-2b: verify SPF-1 server build end-to-end (J-1)
-- SPF-3a: lobby ImGui screen
-- Wire remaining menus through menu manager
-- Collision Phase 2 design (HIGH PRIORITY)
-
----
-
-## Session 49b — 2026-03-26
-
-**Focus**: SPF-3 lobby+join, catalog audit, plan docs, stats, connect codes, IP fallback, updater
-
-### What Was Done
-
-**SPF-2a Build Pass**: menumgr.h was missing `extern "C"` guards → undefined reference errors in C++ TUs. Fix applied (`5e55e62`). SPF-2a (menumgr.c/h, 100ms cooldown) now builds.
-
-**Release Pipeline**: `-Nightly` flag added to release.ps1: nightly builds use `nightly-YYYY-MM-DD` tag. Fixed post-batch-addin path (Split-Path parent traversal).
-
-**SPF-3 — Lobby + Join by Code** (commit `3b588c1`): `pdgui_menu_lobby.cpp` integrated hub.h/room.h — lobby shows server state, room list with color-coded states and player counts. `pdgui_menu_mainmenu.cpp`: new menu view 4 "Join by Code" with phonetic code input + decode via `phoneticDecode()` (falls back to direct IP). Wired through menu manager (MENU_JOIN push/pop).
-
-**Asset Catalog Audit Phase 1** (commit `3b588c1`): Failure logging at all critical asset load points: `fileLoadToNew`, `modeldefLoad`, `bodyLoad`, `tilesReset`, setup pad loading, lang bank loading.
-
-**New Plan Documents** (commit `636b404`): `context/catalog-loading-plan.md` (C-1–C-9 phases). `context/menu-replacement-plan.md` (240 legacy menus → 9 ImGui groups, Group 1 highest priority).
-
-**Player Stats System**: New `port/include/playerstats.h` + `port/src/playerstats.c`. `statIncrement(key, amount)` — named counter system, JSON persistence.
-
-**Connect Code System Rewrite**: Sentence-based codes ("fat vampire running to the park") replace phonetic syllables as primary connect method. 256 words per slot × 4 slots = 32-bit IPv4.
-
-**HTTP Public IP Fallback**: `netGetPublicIP()` tries UPnP first, then `curl` → `api.ipify.org`. Result cached after first success.
-
-**Updater Unified Tag Format**: `versionParseTag()` now handles `"v0.1.1"` (unified) in addition to `"client-v0.1.1"` (legacy).
-
-### Decisions Made
-- Sentence-based connect codes are primary (phonetic module remains for lobby display)
-- Menu replacement: Group 1 (Solo Mission Flow, 11 menus) first
-- Stats: named counters (not fixed schema) for forward compatibility
-
-### Next Steps
-- SPF-3 playtest: lobby rooms, join-by-code
-- Catalog Phase C-1/C-2; Menu Replacement Group 1
-
----
-
-## Session 49c — 2026-03-26
-
-**Focus**: Join flow audit, S49 architecture documentation, context hardening
-
-### What Was Done
-
-**Context audit — S49 architectural decisions captured**: Sentence-based connect codes, menu replacement plan, rooms + slot allocation, asset catalog as single source of truth (C-1–C-9 phases), campaign as co-op, player stats, HTTP IP fallback, updater unified tag format.
-
-**Join flow audit — `context/join-flow-plan.md` created**: Full end-to-end flow mapped: code input → decode → netStartClient → ENet → CLC_AUTH → SVC_AUTH_OK → CLSTATE_LOBBY → lobby UI → netLobbyRequestStart → match. Gaps found: room state not synced to clients (SVC_ROOM_LIST needed), server GUI missing connect code display, recent server history stubbed.
-
-**Plan: J-1 verify end-to-end, J-2 server GUI code display, J-3 SVC_ROOM_LIST protocol, J-4 server history UI, J-5 lobby handoff polish.**
-
-Context files updated: networking.md (protocol v21, HTTP IP fallback), update-system.md (unified tag format), constraints.md (no raw IP in UI), infrastructure.md, tasks-current.md.
-
-### Decisions Made
-- Recent server history MUST encode IPs to codes, not store raw IP
-- Server GUI should display connect code (currently only in logs)
-
-### Next Steps
-- J-1: Build server target, verify end-to-end join → match flow
-- J-2: Add connect code display to server_gui.cpp
-
----
-
-## Session 49d — 2026-03-26
-
-**Focus**: Cross-machine multiplayer bug fixes (3 regressions from real playtest)
-
-### What Was Done
-
-**B-24 (was B-22) — Connect code byte-order reversal (CRITICAL, FIXED)**: `pdgui_menu_mainmenu.cpp` extracted bytes MSB-first `(ip>>24, ip>>16, ip>>8, ip)` while encoder + all other decode callers use LSB-first `(ip, ip>>8, ip>>16, ip>>24)`. Fix: 3-line change to LSB-first extraction.
-
-**B-25 (was B-23) — Server max clients hardcoded to 8 (FIXED)**: `NET_MAX_CLIENTS` was `MAX_PLAYERS` (=8). Fixed: `NET_MAX_CLIENTS 32` in `net.h`, independent of `MAX_PLAYERS`. `PDGUI_NET_MAX_CLIENTS 32` in debug menu.
-
-**B-26 (was B-24) — Player name shows "Player1" (FIXED)**: `netClientReadConfig()` reads from legacy N64 save field; empty on fresh PC client. Fix: identity profile fallback in `netClientReadConfig()` — copies from `identityGetActiveProfile()->name` when legacy name is empty.
-
-### Decisions Made
-- `NET_MAX_CLIENTS` = 32, decoupled from `MAX_PLAYERS` = 8. Server accepts 32 connections; match caps at 8 active slots.
-- Identity profile is the authoritative source of local player display name. Legacy g_PlayerConfigsArray is fallback only.
-
----
-
-## Session 49e — 2026-03-26
-
-**Focus**: Version system full audit + fix
-
-### What Was Done
-
-**Root cause found**: CMake's `CACHE` variable behavior — when `CMakeCache.txt` exists, `set(VERSION_SEM_PATCH N CACHE STRING ...)` is silently ignored. `Set-ProjectVersion` edited CMakeLists.txt correctly but cmake configure didn't override the stale cache.
-
-**Fixes**: `Get-BuildSteps` accepts `$ver` param, appends `-DVERSION_SEM_MAJOR/MINOR/PATCH` flags to BOTH configure steps. `Start-PushRelease` passes `$ver` to `Get-BuildSteps`. `port/src/video.c:91`: replaced hardcoded `"Perfect Dark 2.0 - Client (v0.0.2)"` with `"Perfect Dark 2.0 - v" VERSION_STRING`.
-
-**`context/build.md`**: Added full Version System section documenting the CACHE pitfall and fix.
-
-### Decisions Made
-- (Note: later superseded by S49i — ALL builds now use version flags, not just releases)
-
----
-
-## Session 49f — 2026-03-26
-
-**Focus**: Updater UI — banner fix, per-row actions, server update mechanism
-
-### What Was Done
-
-**Client update banner (`pdgui_menu_update.cpp`)**: Replaced `SmallButton` with `Button` sized via `pdguiScale`; right-aligned via `SameLine(GetContentRegionMax().x - totalW)`. Added `s_DownloadingIndex` + `s_StagedReleaseIndex` state for per-release tracking.
-
-**Settings > Updates tab**: 5-column table (added Action column). Per-row buttons: Download, Switch (staged), % (in-progress). Error message moved below table. Table shown during active download.
-
-**Server update mechanism**: `server_main.c` added `updaterTick()` per frame, logs update availability. `server_gui.cpp`: "Updates (*)" tab with per-row Download/Switch buttons, progress display, Restart & Update button.
-
-### Decisions Made
-- `SameLine(GetContentRegionMax().x - totalW)` is the canonical ImGui right-align pattern
-- Server headless update path: log URL + manual restart
-
----
-
-## Session 49g — 2026-03-26
-
-**Focus**: F8 hotswap hint removal
-
-### What Was Done
-- Removed deprecated F8 footer hint ("F8: toggle OLD/NEW") from `pdgui_menu_mainmenu.cpp` (footer block at bottom of `renderMainMenu`).
-
----
-
-## Session 49h — 2026-03-26
-
-**Focus**: Update tab button sizing audit
-
-### What Was Done
-
-**`pdgui_menu_update.cpp` button sizing overhaul**:
-- `renderNotificationBanner`: `CalcTextSize()`-based widths for "Update Now", "Details", "Dismiss". Explicit `btnH = GetFontSize() + FramePadding.y * 2` — descender-safe.
-- `renderVersionPickerContent`: `CalcTextSize("Check Now")` for "Check Now" button. Action column width from `CalcTextSize("Download")`.
-- `TableSetupScrollFreeze(0, 1)` — header stays visible on scroll. Column widths use `pdguiScale()`. `ImGuiSelectableFlags_AllowOverlap` so per-row buttons receive input.
-- Removed below-table "Download & Install" button (was off-screen, invisible).
-- Download = green, Rollback = amber styling.
-
-### Decisions Made
-- Action buttons live in table rows (always visible), not below table (was off-screen)
-- `AllowOverlap` is the correct pattern for interactive items in `SpanAllColumns` rows
-
----
-
-## Session 49i — 2026-03-26
-
-**Focus**: Build pipeline overhaul — always-clean, version baking on every build
-
-### What Was Done
-
-**`devtools/dev-window.ps1` overhaul**:
-- **Always-clean builds**: `Start-Build` unconditionally deletes `build/client` + `build/server` before every build. No stale CMakeCache possible.
-- **Version from UI on every build**: `Start-Build` reads `Get-UiVersion` → `$script:BuildVersion`, passes to `Get-BuildSteps $script:BuildVersion`. Version boxes are single source of truth.
-- **Get-BuildSteps**: Accepts `$ver` parameter, injects `-DVERSION_SEM_MAJOR/MINOR/PATCH` flags into BOTH configure steps.
-- **CMakeLists.txt updated after build**: On successful completion, `Set-ProjectVersion` called from `$script:BuildVersion` — file always reflects what was actually built.
-- **`Start-PushRelease` updated**: Also cleans before queuing, sets `$script:BuildVersion = $ver`, passes to `Get-BuildSteps`.
-- **Removed**: `$script:CleanBuildActive`, `$script:BtnCleanBuild` toggle, associated handler. BUILD button now full hero height.
-
-### Decisions Made
-- All builds are clean builds. "Incremental" option removed entirely.
-- Version boxes initialize from CMakeLists.txt at startup (reflects last built state).
-- CMakeLists.txt updated END of build; -D flags are authoritative during build, file updated after.
-- For releases: CMakeLists.txt still updated BEFORE build (pre-release auto-commit).
-
-### Next Steps
-- Test full build to verify version bakes correctly
-- Verify Release flow (clean → configure with -D → build → release.ps1)
-
----
-
-## Session 50 — 2026-03-26
-
-**Focus**: Update tab — cross-session staged version persistence
-
-### What Was Done
-
-**Staged version sidecar** (`updater.c`, `updater.h`):
-- Added `versionPath` field to state (`exePath.update.ver`)
-- `detectExePath()` now computes `versionPath` for both Win32 and Unix paths
-- `writeStagedVersionFile()` / `readStagedVersionFile()` helpers — tiny text file, one version string
-- `downloadThread()`: on DOWNLOAD_DONE, writes version sidecar outside mutex, then sets `stagedVersion` + `stagedVersionValid` in state
-- `updaterInit()`: if `.update` file exists on disk, reads sidecar to restore staged version
-- `updaterApplyPending()`: removes `.update.ver` after successful rename (both Win32 + Unix paths)
-- New public API: `updaterGetStagedVersion()` — returns `&stagedVersion` if valid, NULL otherwise
-
-**UI fix** (`pdgui_menu_update.cpp`):
-- `isStaged` check now queries `updaterGetStagedVersion()` in addition to `s_StagedReleaseIndex`
-- Cross-session staged version: if `.update.ver` matches this row's version, shows amber "Switch to this version" button immediately on launch
-- Syncs `s_StagedReleaseIndex` from disk-persisted version so same-session Switch/restart flow works
-
-**context/update-system.md**: Updated Self-Replacement section with sidecar file details and cross-session staged version note.
-
-### Why This Matters
-Before: if you downloaded a version then closed the game without restarting, reopening the Update tab showed no "Switch" button — you had to re-download. After: the sidecar file persists the staged version across sessions; the Switch button appears immediately.
-
-### Decisions Made
-- Sidecar is cleaned up by `updaterApplyPending()` so it's never stale post-apply
-- `updaterGetStagedVersion()` is the cross-session source of truth; `s_StagedReleaseIndex` remains for same-session download tracking
-
-### Next Steps
-- Build test: Download a version, close without restarting, reopen — verify Switch button appears
-- (Unchanged from S49) SPF-3 playtest, catalog C-1/C-2, menu replacement Group 1
-
----
-
-## Session 48 -- 2026-03-25
-
-**Focus**: Dev Window overhaul, project cleanup, infrastructure hardening
-
-### What Was Done
-
-**Dev Window (dev-window.ps1)**:
-- Fixed UI thread hang: git status moved to background runspace, then to Activated event
-- NotesSaveTimer race condition fixed (no more dispose-in-tick)
-- Font caching in paint handlers (no per-frame allocation)
-- Tab background white strip eliminated (dark panel wrapper)
-- Auth label: clickable button, opens `gh auth login` if unauthenticated
-- GitHub + Folder buttons moved to main UI (bottom of Build tab)
-- Two font size settings (Button + Detail) with live refresh
-- Stable/Dev toggle checkbox for releases
-- Documentation tab (split pane: file list + content reader, 30/70 ratio)
-- Clean Build toggle button (beneath BUILD, wipes build dirs before configure)
-- Post-build copy list configurable via settings
-- Client/server status labels show exe existence on startup
-- Latest release label shows tag + dev/stable + color
-- Background runspaces now pass PATH for gh CLI access
-
-**Release pipeline (release.ps1)**:
-- All 7 PS7-only syntax violations fixed for PS5 compatibility
-- All em dashes replaced with ASCII
-- Unified release: single tag (v0.0.1) with both client + server attached
-- Auto-overwrite existing releases (delete + recreate with sound notification)
-- GIT_TERMINAL_PROMPT=0 in subprocess environment
-
-**Project cleanup**:
-- Deleted: 6 runbuild scripts, fix_endscreen, phase3 docs, context-recovery.skill, mods folder info, PROMPT.md, context.md (106KB monolithic), ROADMAP.md, pd-port-director-SKILL.md, CHANGES.md, old devtools (build-gui, playtest-dashboard, doc-reader + .bat launchers)
-- Deleted: 4.3GB of abandoned Claude Code worktrees
-- Created: UNRELEASED.md (player-facing changelog), dist/windows/icon.ico + icon.rc
-- Session log archived (S22-46 to sessions-22-46.md, active trimmed to 229 lines)
-- tasks-current.md cleaned (completed items removed)
-- COWORK_START.md rewritten as lean bootstrap pointer
-
-**Code fixes**:
-- fs.c: data directory search priority fixed (exe dir first, then cwd, then AppData)
-- romdata.c: creates data/ dir + README.txt when ROM missing, then opens correct folder
-- .build-settings.json: ROM path updated to new project location
-
-**Skill + context**:
-- game-port-director skill updated with Sections 8-9 (design principles, tool patterns)
-- Skill packaged as .skill for reinstallation
-- Context canonical location documented in CLAUDE.md
-- 6 memories saved (profile, event-driven, clean structure, no worktrees, ACK messages, no ambiguous intent)
-
-### Decisions Made
-- Event-driven over polling (standing principle)
-- Unified release tag (v0.0.1) replaces split client/server tags
-- context/ is canonical location, parent copies are convenience mirrors
-- No worktrees: all code changes in working copy
-
-### Bugs Noted
-- B-18: Pink sky on Skedar Ruins (possible texture/clear color issue)
-- B-19: Bot spawn stacking on Skedar Ruins (all bots spawn at same pad)
-
-### Session 48 continued -- Collision Rewrite + Debug Vis
-
-**Collision system** (meshcollision.c + meshcollision.h):
-- Triangle extraction from model DL nodes (G_TRI1, G_TRI4) -- WORKING
-- Room geometry extraction (geotilei, geotilef, geoblock) -- WORKING, 7,110 tris on Skedar
-- Static world mesh with spatial grid (256-unit cells) -- WORKING
-- Dynamic mesh attachment via colmesh* field on struct prop -- CODED
-- capsuleSweep: mesh primary, legacy fallback -- ACTIVE
-- capsuleFindFloor: mesh primary -- ACTIVE, confirmed in logs
-- capsuleFindCeiling: mesh primary -- FIXED slack formula, needs retest
-- Stage lifecycle hooks in lv.c -- ACTIVE on all gameplay stages
-
-**Debug visualization** (meshdebug.c):
-- F9 toggles surface tinting in the GBI vertex pipeline
-- Green=floor, Red=wall, Blue=ceiling based on vertex normals
-- Zero overhead when off (cached flag check per frame)
-
-**Data path fixes**:
-- fs.c: exe dir searched first for data/ folder
-- romdata.c: creates data/ dir + README.txt when ROM missing, opens correct folder
-- dev-window.ps1: Copy-AddinFiles server guard removed (was blocking all copies)
-- release.ps1: unified tag, auto-overwrite, PS5 compat, all em dashes fixed
-
-### Session 48 continued -- Collision Disabled + Multiplayer Planning
-
-**Collision rewrite DISABLED**: original system fully restored. Mesh collision code preserved
-in meshcollision.c/h for Phase 2 redesign. Needs proper design accounting for: no original
-ceiling colliders, jump-from-prop detection (simple downward raycast), slope behavior,
-Thrown Laptop Gun as ceiling detection reference. HIGH PRIORITY return.
-
-**ASSET_EFFECT type** added to catalog: 6 effect types (tint, glow, shimmer, darken, screen,
-particle), 6 targets (scene, player, chr, prop, weapon, level). First effect mod pending.
-
-**Live console**: backtick toggle, 256-line ring buffer, color-coded ImGui window.
-
-**Multiplayer infrastructure vision confirmed (Mike)**: server = social hub with persistent
-connections. Players connect and exist as presence regardless of activity (solo campaign,
-MP match, co-op, splitscreen, level editor). Rooms for concurrent activities. Server mesh/
-federation for load distribution. Player profiles with stats/achievements/shared content.
-Menu system audit needed (double-press issues, hierarchy).
-
-### Session 48 continued -- Menu Manager + Multiplayer Plan
-
-**Menu State Manager (SPF-2a)**:
-- New files: `port/src/menumgr.c` + `port/include/menumgr.h`
-- Stack-based (8 deep), 2-frame input cooldown on push/pop
-- Initialized in main.c, ticks in mainTick() (src/lib/main.c)
-- pdguiProcessEvent blocks all key/button input during cooldown
-- Pause menu wired: open checks cooldown, pushes MENU_PAUSE; close pops
-- Modding hub wired: open pushes MENU_MODDING, back pops
-- End Game confirm button now uses pdguiPauseMenuClose() instead of direct flag set
-- Legacy PD menus (g_MenuData.root) not yet wrapped -- separate task
-
-**Multiplayer Plan** (context/multiplayer-plan.md):
-- Full design doc written covering server-as-hub, rooms, federation, profiles, phonetic
-- Confirmed decisions: all MP through dedicated server, campaign = co-op (offline OK),
-  automatic federation routing, stats framework first, editor pre-1.0 but lower priority
-- Splitscreen works offline, treated as group when connected to server
-- Campaign has dual authority: local (offline) or server (online)
-
-**ASSET_EFFECT** added to catalog enum (12th asset type). Effect types + targets defined.
-Release script updated: only zip attached (no separate exe files).
-Collision mesh system disabled, original restored. Code preserved for Phase 2.
-
-### Next Steps
-- SPF-2b: verify SPF-1 build (hub/room/identity/phonetic)
-- SPF-3a: lobby ImGui screen design + implementation
-- ASSET_EFFECT mod creation + mods copy pipeline
-- Wire remaining menus through menu manager (settings, etc.)
-- B-19, B-20, B-18 bug investigation
-- Collision Phase 2 design (HIGH PRIORITY)
-
----
-
-## Session 47d — 2026-03-24
-
-**Focus**: SPF-1 — Server Platform Foundation (hub lifecycle, room system, identity, phonetic encoding)
-
-### What Was Done
-
-Implemented the server platform foundation layer on top of the existing ENet dedicated server.
-Four new module pairs + wiring into server_main.c + server_gui.cpp tab bar.
-
-**New files (8):**
-
-1. **`port/include/phonetic.h`** / **`port/src/phonetic.c`** — CV syllable IP:port encoding.
-   16 consonants × 4 vowels = 6 bits/syllable × 8 syllables = 48 bits (IPv4 + port).
-   Format: `"BALE-GIFE-NOME-RIVA"` — shorter than word-based connect codes. Both coexist.
-2. **`port/include/identity.h`** / **`port/src/identity.c`** — `pd-identity.dat` persistence.
-   Magic `PDID`, version byte, 16-byte UUID (xorshift128 seeded from SDL perf counter + time),
-   up to 4 profiles (name/head/body/flags). Validates on load, rebuilds default on corruption.
-3. **`port/include/room.h`** / **`port/src/room.c`** — Room struct + 5-state lifecycle.
-   Pool of 4 rooms. Room 0 permanently wraps the existing match lifecycle (never truly closes).
-   States: LOBBY→LOADING→MATCH→POSTGAME→CLOSED. Transitions logged via `sysLogPrintf`.
-4. **`port/include/hub.h`** / **`port/src/hub.c`** — Hub singleton owning rooms + identity.
-   `hubTick()` reads `g_Lobby.inGame` each frame → drives room 0 state machine.
-   One-frame POSTGAME bridge on match end. Derives hub state from aggregate room states.
-
-**Modified files (3):**
-
-5. **`port/src/server_main.c`** — Added `hubInit()` / `hubTick()` / `hubShutdown()` calls.
-6. **`port/fast3d/server_gui.cpp`** — Middle panel converted to tabbed layout.
-   "Server" tab: existing player list + match controls. "Hub" tab: hub state + room table
-   with color-coded states. Log panel: HUB: prefix highlighted purple.
-7. **`context/server-architecture.md`** — SPF-1 section added (hub/room diagram, phonetic,
-   GUI changes, new file table).
-
-**Commit**: `fb5450b feat(SPF-1): hub lifecycle, room system, player identity, phonetic encoding`
-
-### Decisions Made
-
-- **Backward compatibility**: Room 0 driven by `g_Lobby.inGame` observation — zero changes
-  to `net.c` or `netlobby.c`. Existing single-match path unchanged.
-- **Protocol**: v21 unchanged. No new ENet messages. Both phonetic and word connect codes
-  remain available.
-- **`HUB_MAX_CLIENTS`**: Defined directly in `room.h` (= 8) rather than including `net/net.h`
-  to keep hub modules standalone and avoid the full game header chain.
-- **Boolean fields**: Used `int` not `_Bool`/`bool` in new C modules (port/ files, but
-  matching the project convention of `s32` for boolean-like values).
-- **Room 0 persistence**: `roomDestroy()` on room 0 resets to LOBBY instead of CLOSED —
-  room 0 is the permanent lounge for the existing server lifecycle.
-
-### Dev Build Status
-
-**UNVERIFIED** — Build environment broken in session (GCC TEMP path issue in sandbox).
-`build-headless.ps1` TEMP/TMP fix committed. User to verify build from local environment.
-
-### Session 47e Follow-up — 2026-03-24
-
-**Focus**: Fix server build — SPF-1 symbols undefined in pd-server
-
-**Root cause**: SRC_SERVER in CMakeLists.txt is a manually curated list; the 4 new SPF-1
-files (hub.c, room.c, identity.c, phonetic.c) were not added when coded in S47d.
-Client uses GLOB_RECURSE so it picked them up automatically; server did not.
-
-**Fix**: Added 4 entries to SRC_SERVER block in CMakeLists.txt (lines 478–482).
-Commit `c788486`. Pushed to dev.
-
-**Build status**: Cannot verify in sandbox (GCC DLL loading issue — cc1.exe needs
-libmpfr-6.dll via Windows PATH, not POSIX PATH). Run `.\devtools\build-headless.ps1 -Target server`
-from PowerShell to confirm.
+**`commit a65207e` pushed to `dev`.**
+
+Root cause: two UI pickers were selecting the wrong default head when a body was chosen.
+
+- `pdgui_menu_matchsetup.cpp` (Combat Sim bot editor, line 748): called
+  `catalogResolveHeadByMpIndex((s32)b)` where `b` is the **body** mpbodynum.
+  This treated the body index as a head index — body 5 would select head 5,
+  not the body's paired head. Wrong for nearly every character.
+
+- `pdgui_menu_agentcreate.cpp` `autoSelectHead()`: called
+  `mpGetMpheadnumByMpbodynum` — an N64-era function that uses `rngRandom()`
+  for headnum==1000 sentinel bodies and bypasses the catalog layer.
+
+**Fix — two new catalog API functions:**
+- `catalogGetBodyDefaultHead(const char *body_id)` → head catalog ID string
+  Reads `entry->ext.body.headnum` (default head's g_HeadsAndBodies[] index)
+  and resolves it via `catalogResolveByRuntimeIndex(ASSET_HEAD, headnum)`.
+- `catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)` → mpheadnum for carousels
+  Wraps the above, converts mpbodynum → body catalog ID → ext.body.headnum →
+  `catalogHeadnumToMpHeadIdx()`. Returns -1 for unregistered heads (including
+  the headnum==1000 random-gender sentinel — caller keeps existing selection).
+
+Both are declared in `assetcatalog.h`, implemented in `assetcatalog_api.c`.
+Wire protocol unchanged — body_id/head_id remain catalog ID strings throughout.
+
+**Changed files (4):**
+- `port/src/assetcatalog_api.c` — two new functions after `catalogHeadnumToMpHeadIdx`
+- `port/include/assetcatalog.h` — declarations for both new functions
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — `catalogGetBodyDefaultHead(bid)` replaces wrong call
+- `port/fast3d/pdgui_menu_agentcreate.cpp` — `catalogGetBodyDefaultMpHeadIdx` in `autoSelectHead`, forward decl added
+
+**Build**: both client and server link clean (full incremental build from main copy).
 
 ### Next Steps
 
-- Run `.\devtools\build-headless.ps1 -Target server` from PowerShell to confirm fix
-- Build and QC test SPF-1 modules (see qc-tests.md)
-- SPF-2: Room federation / multi-room support
-- D5: Settings persistence for server configuration
+- Playtest: verify body selection in Combat Sim and Agent Create picks correct paired head
+- D5.5 (Combat Sim Polish) — this fix is a prerequisite; bot name dictionary + arena/weapon verification still open
 
 ---
 
-## Session 47b — 2026-03-24
+## Session S137 — 2026-04-03
 
-**Focus**: B-12 Phase 2 — Migrate chrslots callsites to participant API
+**Focus**: Online match start bug (B-103) — critical path fix for multiplayer
 
 ### What Was Done
 
-Completed the Phase 2 migration of all chrslots bitmask read/write sites across 5 files.
-Phase 1 bulk-sync calls (`mpParticipantsFromLegacyChrslots`) replaced with targeted
-`mpAddParticipantAt`/`mpRemoveParticipant` at each write site.
+**B-103 fixed and pushed (`commit 184922a`).**
 
-**Key design established:**
-- Pool capacity is `MAX_MPCHRS` (40), not the Phase 1 default 32
-- Pool slot `i` == chrslots bit `i` (players 0–7, bots 8–39)
-- `mpIsParticipantActive(i)` is a direct drop-in for `chrslots & (1ull << i)`
-- New `mpAddParticipantAt(slot, type, ...)` API for exact-slot placement
+Root cause: `g_MpSetup.stage_id` was never populated by the match setup flow.
+- UI sets `g_MatchConfig.stage_id`, not `g_MpSetup.stage_id`.
+- `manifestBuildForHost()` (client side) reads `g_MpSetup.stage_id` → found empty → stage skipped from manifest → stage not in session catalog.
+- `netmsgSvcStageStartWrite()` (server side) reads `g_MpSetup.stage_id` → found empty → writes `stage_session=0` → returns early.
+- Client reads `stage_session=0` → silent `return 1` with no log → surfaces as "malformed or unknown message 0x10 from server". Stage never loaded.
 
-**Files changed (7):**
+**Two-line fix in `port/src/net/netmsg.c`:**
+1. `netmsgClcLobbyStartWrite`: sync `g_MatchConfig.stage_id → g_MpSetup.stage_id` before `manifestBuildForHost` so stage enters manifest and session catalog.
+2. `netmsgClcLobbyStartRead` (server): copy parsed `stage_id → g_MpSetup.stage_id` alongside existing `g_MatchConfig` and `stagenum` assignments.
 
-1. **`src/include/game/mplayer/participant.h`** — Added `mpAddParticipantAt()` declaration
-2. **`src/game/mplayer/participant.c`** — Added `mpAddParticipantAt()` impl; rewrote
-   `mpParticipantsToLegacyChrslots` (slot index IS bit index) and
-   `mpParticipantsFromLegacyChrslots` (use `mpAddParticipantAt` for exact placement)
-3. **`src/game/mplayer/mplayer.c`** — ~25 sites: mpInit, match lifecycle, bot create/copy/
-   remove, score, team assignment, name generation, save/load config and WAD
-4. **`src/game/mplayer/setup.c`** — 10 sites: handicap CHECKHIDDEN, team loop ×3,
-   bot slot UI, simulant name display, player file availability
-5. **`src/game/challenge.c`** — Read check + fix `1u`→`1ull` write bug + add participant
-   calls alongside chrslots writes in `challengePerformSanityChecks`
-6. **`src/game/filemgr.c`** — 2 player-file presence checks
-7. **`port/src/net/matchsetup.c`** — `mpClearAllParticipants()` + `mpAddParticipantAt`
-   at each player/bot write site
+No protocol changes. S130 constraint respected (catalog IDs throughout, no raw indices).
 
-**Commit**: `94a2b1e feat(B-12-P2): migrate chrslots callsites to participant API`
+**Build**: client clean (exit 0). Server CMake arch error is pre-existing, unrelated.
 
-### Dev Build Status
+### Additional Work (same session, post-context-commit)
 
-**PASS** — `cmake --build --target pd` clean (exit 0). All 7 files compiled without errors.
+After the context commit, the session continued with several more fixes and features before S138 began:
 
-### Decisions Made
-
-- `challengeIsAvailableToAnyPlayer` reads `chrslots & 0x000F` as a bitmask for challenge
-  availability computation — left as-is (no clean participant API equivalent, chrslots
-  still dual-written in Phase 2)
-- `mp0f18dec4` VERSION guard retained (PC builds are >= JPN_FINAL, always included)
-- `setup.c` fixes applied via line-by-line PowerShell replace (Edit tool had CRLF mismatch)
+- `c474baa` **feat(title)**: gold name colour + +0.5s legal screen duration.
+- `ba6983f` **diag**: MATCH-START trace logging added + fix for premature `inGame` flag and false "malformed or unknown message 0x10" warning.
+- `124d195` **fix(net)**: `catalogResolveStageBySession` now accepts `ASSET_ARENA` type — was failing to resolve arena stages sent from server.
+- `e148aee` **fix(net)**: bot AI enabled on client side + countdown dismiss on match start.
+- `d343273` **feat(net)**: server-authoritative bot sync for dedicated server — server now owns bot state and syncs to clients.
 
 ### Next Steps
 
-- B-12 Phase 3: Remove `chrslots` field + legacy shims + BOT_SLOT_OFFSET
-- Protocol version bump to v21 (SVC_STAGE_START uses participant list)
-- QC: in-game bot add/remove, match start/end, save/load bot config
+- Playtest with Chris — match should now start when countdown reaches zero
+- D5.3 (Pause Menu) — unblocked by D5.1 input ownership
 
 ---
 
-## Session 47c — 2026-03-24
+## Session S136 — 2026-04-03
 
-**Focus**: Stage Decoupling Phase 2 (Dynamic stage table) + Phase 3 (Index domain separation)
+**Focus**: D5.1 — Input Ownership Boundary
 
 ### What Was Done
 
-**Phase 2 — Dynamic stage table** (7 files):
+**D5.1 implemented and pushed (`commit 001dba8`).**
 
-1. **`src/game/stagetable.c`** — Renamed static array to `s_StagesInit[]`, added heap pointer `g_Stages` + `g_NumStages`. `stageTableInit()` mallocs+memcpys. `stageGetEntry(index)` bounds-checked accessor. `stageTableAppend(entry)` realloc-based. Both `stageGetCurrent()` and `stageGetIndex()` rewritten to use `g_NumStages`. `soloStageGetIndex(stagenum)` iterates `g_SoloStages[0..NUM_SOLOSTAGES-1]`.
-2. **`src/include/data.h`** — `extern struct stagetableentry *g_Stages` + `extern s32 g_NumStages` (was array).
-3. **`src/include/game/stagetable.h`** — Full declaration set for all Phase 2 + 3 functions.
-4. **`src/game/bg.c`** — `ARRAYCOUNT(g_Stages)` replaced with `g_NumStages` (2 occurrences).
-5. **`port/src/assetcatalog_base.c`** — Removed local `extern struct stagetableentry g_Stages[]` (conflicted with pointer decl). Bounds check `idx >= 87` → `idx >= g_NumStages`.
-6. **`port/src/main.c`** — Added `stageTableInit()` call before `assetCatalogRegisterBaseGame()`.
+Introduces `InputOwnerMode` enum (`INPUTMODE_MENU` / `INPUTMODE_GAMEPLAY`) and
+`pdmainSetInputMode()` as the single canonical transition function.
 
-**Phase 3 — Index domain guards** (2 files):
+**New files:**
+- `port/include/pdmain.h` — enum + extern g_InputMode + pdmainSetInputMode() declaration (extern "C" guards for C++ callers)
 
-7. **`src/game/endscreen.c`** — 9 guard sites: `endscreenMenuTitleRetryMission`, `endscreenMenuTitleNextMission`, `endscreenMenuTitleStageCompleted`, `endscreenMenuTextCurrentStageName3`, `endscreenMenuTitleStageFailed`, `endscreenHandleReplayPreviousMission` (underflow), `endscreenAdvance()` (overflow), `endscreenHandleReplayLastLevel`, `endscreenContinue` DEEPSEA (2 paths, both guarded).
-8. **`src/game/mainmenu.c`** — 4 guard sites: `menuTextCurrentStageName`, `soloMenuTitleStageOverview`, `soloMenuTitlePauseStatus`, `isStageDifficultyUnlocked` (top guard returns true for out-of-range — mod stages treated as unlocked).
+**Changed files (9):**
+- `port/src/pdmain.c` — `g_InputMode` global + `pdmainSetInputMode()` implementation: GAMEPLAY→SDL mouse capture bypassing pdguiIsActive() guard; MENU→SDL_SetRelativeMouseMode(FALSE) + ShowCursor
+- `port/fast3d/pdgui_backend.cpp` — GAMEPLAY-mode early return: keyboard events not forwarded to ImGui when `!g_PdguiActive`; Tab suppressed before ImGui sees it in MENU mode (fixes CK_START double-trigger)
+- `port/fast3d/pdgui_menu_pausemenu.cpp` — replaced direct SDL calls in Open/Close with `pdmainSetInputMode(INPUTMODE_MENU/GAMEPLAY)`
+- `port/fast3d/pdgui_bridge.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` after both `menuhandlerAcceptMission()` calls
+- `port/fast3d/pdgui_menu_solomission.cpp` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` after both `menuhandlerAcceptMission()` calls
+- `port/src/net/matchsetup.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` in `matchStart()` and `matchStartFromChallenge()`
+- `port/src/net/netmsg.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` in SVC_STAGE_START (co-op/anti path and MP path), inside `#if !defined(PD_SERVER)`
+- `port/src/menumgr.c` — `restoreGameplayMouseCapture()` body replaced with single `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` call
 
-**Bonus fix**: Restored `src/game/mplayer/setup.c` and `src/game/setup.c` from commit `4704eab` after auto-commit `0a36981` corrupted them (all tabs replaced with literal `\t`). Pre-existing bug revealed by full rebuild.
+**Build**: both client and server link clean.
 
-### Decisions Made
+### Bugs Addressed
 
-- `soloStageGetIndex()` lives in `stagetable.c` (iterates `g_SoloStages[]`). It is the Phase 3 domain translation function.
-- `isStageDifficultyUnlocked(stageindex < 0 || >= NUM_SOLOSTAGES)` returns `true` — mod stages are "unlocked" by definition (no solo-stage-based unlock system applies to them).
-- `ARRAYCOUNT(g_Stages)` was eliminated. Any future code must use `g_NumStages`.
-
-### Dev Build Status
-
-**PASS** — `build-headless.ps1 -Target client` clean (exit 0). All modified files compiled without errors. Warnings in bg.c are pre-existing.
+- **B-92 class** (mouse not captured on mission start): `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` calls SDL directly, bypassing the `pdguiIsActive()` defer guard in `inputLockMouse()`. All known start paths covered.
+- **Tab double-trigger** (CK_START conflict): Tab suppressed before `ImGui_ImplSDL2_ProcessEvent()` in MENU mode.
+- **Esc double-path**: in GAMEPLAY with no active overlay, keyboard events never reach ImGui at all.
 
 ### Next Steps
 
-- MEM-2: `assetCatalogLoad()` / `assetCatalogUnload()`
-- MEM-1 build test: full cmake pass confirms `assetcatalog.h` struct changes are stable
-- S46b: Full asset catalog enumeration (animations, SFX, textures)
+- D5.0 (Visual Layer): still PLANNED before D5.3 (pause menu) per execution order
+- D5.3 (Pause Menu): now unblocked by D5.1 — input ownership is clean for pause transitions
 
 ---
 
-## Session 47a — 2026-03-24
+## Session S135 — 2026-04-03
 
-**Focus**: MEM-1 — Asset Catalog load state tracking fields
+**Focus**: D5.0a Technical Spike — Fast3D → OpenGL → ImGui texture bridge
 
 ### What Was Done
 
-Added lifecycle state tracking to `asset_entry_t` as the foundation for Phase D-MEM
-memory management. This is purely additive — no existing behavior changes.
+**D5.0a spike implemented and pushed (`commit 824415e`).**
 
-**Files changed (4 files):**
+Validates that the ImGui::Image() pipeline works end-to-end before the full D5.0 ROM
+texture decode layer is built.
 
-1. **`port/include/assetcatalog.h`** — Added `asset_load_state_t` enum
-   (`REGISTERED`/`ENABLED`/`LOADED`/`ACTIVE`). Added `#define ASSET_REF_BUNDLED 0x7FFFFFFF`.
-   Added 4 fields to `asset_entry_t`: `load_state`, `loaded_data`, `data_size_bytes`,
-   `ref_count`. Added `assetCatalogGetLoadState()` and `assetCatalogSetLoadState()`
-   declarations in new "Load State API (MEM-1)" section.
+**Architecture findings (from code study):**
+- `ImTextureID` in this codebase is `(void*)(uintptr_t)GLuint` — confirmed by `gfx_opengl_get_framebuffer_texture_id()`.
+- `GfxRenderingAPI` exposes `new_texture()`, `select_texture()`, `upload_texture()` — but raw GLAD GL calls are equally valid since `pdgui_backend.cpp` already includes `glad.h`.
+- `struct tex` in the shared texpool has `data` (N64-native pixels), `width`, `height`, `gbiformat`, `depth` — the full decode path for D5.0 is: `texLoadFromTextureNum(texnum)` → `texFindInPool()` → decode N64 format → `glTexImage2D`.
+- N64 formats to implement for D5.0: RGBA16 (5-5-5-1), IA16 (8-8), IA8 (4-4), CI4/CI8 (palette-indexed). All handled by `import_texture_*` in `gfx_pc.cpp` — that code is the decode reference.
 
-2. **`port/src/assetcatalog.c`** — `assetCatalogRegister()` initializes new fields:
-   `ASSET_STATE_REGISTERED`, `loaded_data=NULL`, `data_size_bytes=0`, `ref_count=0`.
-   `assetCatalogSetEnabled()` now advances `REGISTERED→ENABLED` on first enable.
-   Added `assetCatalogGetLoadState()` and `assetCatalogSetLoadState()` implementations.
+**Changes made:**
+1. `pdgui_backend.cpp`: `pdguiGetUiTexture(const char *id)` — static `unordered_map<string, uint32_t>` cache, synthesizes 64×64 PD-blue RGBA32 test pattern, uploads to GL, returns ImTextureID.
+2. `pdgui.h`: declared `pdguiGetUiTexture()`.
+3. `pdgui_menu_mainmenu.cpp`: Settings > Catalog tab shows `ImGui::Image()` with PASS/FAIL label.
+4. `assetcatalog_base.c`: registered `ui/test_panel` as `ASSET_UI` (placeholder for D5.0).
 
-3. **`port/src/assetcatalog_base.c`** — All 4 bundled registration sites (stages, bodies,
-   heads, arenas) now set `load_state=ASSET_STATE_LOADED` and `ref_count=ASSET_REF_BUNDLED`.
+**Build**: Both client (`PerfectDark.exe`) and server (`PerfectDarkServer.exe`) link clean. No new errors.
 
-4. **`port/src/assetcatalog_base_extended.c`** — All 7 bundled registration sites (weapons,
-   animations, textures, props, gamemodes, audio, HUD) now set `ASSET_STATE_LOADED` and
-   `ref_count=ASSET_REF_BUNDLED`.
+### Spike Result
 
-### Decisions Made
+**PASS** — `pdguiGetUiTexture()` compiles, uploads a GL texture, and is called from `ImGui::Image()`. Visual confirmation requires playtest (see Settings > Catalog tab).
 
-- `ASSET_REF_BUNDLED = 0x7FFFFFFF` (S32_MAX) as documented in MEM-1 spec.
-- `REGISTERED→ENABLED` transition happens in `setEnabled(id, 1)`. If load_state is already
-  LOADED or ACTIVE (bundled assets), setEnabled does not downgrade state.
-- `assetCatalogSetLoadState()` is a raw setter — callers own the validity of transitions.
-  Future eviction logic will use `ref_count` to guard bundled assets.
-- `loaded_data` / `data_size_bytes` fields left at NULL/0 for all existing entries —
-  wired for the future loader, not populated yet.
+**D5.0 unblocked.** The D5.0 task is to replace `buildTestPattern()` with actual ROM texture decode.
 
-### Dev Build Status
+### Pipeline Gap Identified for D5.0
 
-- Syntax-check (MinGW gcc -fsyntax-only): **PASS** on all 3 modified .c files
-- Full cmake build: needs Mike's `build-headless.ps1` run (cmake env not available in session)
+No standalone N64 → RGBA32 decode function is currently exposed outside `gfx_pc.cpp`. D5.0 must either:
+- Export a `gfxDecodeN64Texture(data, fmt, siz, w, h, out_rgba32)` helper from `gfx_pc.cpp`, OR
+- Implement a standalone decode function in `pdgui_backend.cpp` (copy-referencing the `import_texture_*` logic).
+
+Recommendation: standalone decode in `pdgui_backend.cpp` — avoids coupling the bridge to gfx_pc internals and keeps the UI texture path self-contained.
 
 ### Next Steps
 
-- MEM-2: Implement `assetCatalogLoad()` / `assetCatalogUnload()` (allocate/free loaded_data)
-- MEM-3: ref_count acquire/release + eviction policy (skip if `ref_count == ASSET_REF_BUNDLED`)
-- Wire load state into mod manager UI (show loaded/active indicators)
+- D5.0 (Visual Layer): replace `buildTestPattern()` with real ROM texture decode, implement `pdguiThemeDrawPanel()` etc., register all `ui/` catalog entries with real texnums.
+- Per `context/tasks-current.md`, D5.1 (Input boundary) and D5.2 (Pause menu) follow after D5.0 validates.
 
 ---
 
-## Session S79 — 2026-03-29
+## Session S134 -- 2026-04-03
 
-### Focus
-
-T-1 and T-2 from mod-system-features-and-todos.md (nice-to-have TODOs).
+**Focus**: Static array audit — dynamic/growable data, enum-indexed array completeness
 
 ### What Was Done
 
-1. **T-1: Map mode string parsing** (`port/src/assetcatalog_scanner.c`, `port/include/assetcatalog.h`)
-   - Added `MAP_MODE_MP`, `MAP_MODE_SOLO`, `MAP_MODE_COOP` bitmask constants to `assetcatalog.h`
-   - Added `parseModeString()` static helper in `assetcatalog_scanner.c` — parses pipe-separated
-     tokens ("mp|solo", "coop", etc.) into the bitmask
-   - Replaced `e->ext.map.mode = 0; /* TODO: parse mode string */` with
-     `e->ext.map.mode = parseModeString(iniGet(ini, "mode", ""));`
+**Full audit of port/src/ and port/fast3d/ for static arrays holding dynamic/growable data.**
 
-2. **T-2: Weapon table coverage audit** (`port/src/assetcatalog_base.c`)
-   - Verified: active registration table in `assetcatalog_base_extended.c` covers all 47
-     MPWEAPON_* constants (0x01 FALCON2 through 0x2f SHIELD). Full coverage confirmed.
-   - MPWEAPON_NONE (0x00) and MPWEAPON_DISABLED (0x30) are sentinels, not real weapons —
-     correctly excluded.
-   - `s_BaseWeapons[]` in `assetcatalog_base.c` is dead code (37 entries, never iterated).
-     Updated its comment to clarify it is superseded; removed misleading TODO.
+Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
+
+**Findings — what was NOT a problem:**
+- `assetcatalog_load.c` override arrays (s_FilenumOverride etc.): ROM-bounded reverse-index maps with existing bounds checks. ROM source numbers don't grow with mods. No change needed.
+- `pdgui_hotswap.cpp` s_Entries[128]: registered from code at init time, not mod data.
+- Network/player/bot arrays (MAX_PLAYERS, MAX_BOTS etc.): genuine protocol constants.
+- `s_MfSortedIdx[MANIFEST_MAX_ENTRIES]`: UI sort buffer bounded by protocol maximum (4096), already matches the dynamically allocated manifest struct.
+- All `s_AssetTypeNames[ASSET_TYPE_COUNT]` arrays: verified complete (25 entries, NONE through LANG). Already fixed in S133.
+
+**Fix 1 — assetcatalog_deps.c** (`commit ab69868`):
+- `s_DepTable[CATALOG_MAX_DEP_PAIRS]` (256 static) → heap-allocated `s_DepPair *s_DepTable` + `s32 s_DepCap`.
+- Grows by doubling on demand (starting at CATALOG_MAX_DEP_PAIRS = 256).
+- `catalogDepClear()` now frees the buffer. `catalogDepClearMods()` compact-in-place (no realloc — keeps allocated capacity).
+- Previously: mods with many asset dependencies silently dropped entries at 256 with a LOG_WARNING.
+
+**Fix 2 — pdgui_menu_mainmenu.cpp** (`commit ab69868`):
+- `s_ManifestTypeNames[]`: added "Lang" at index 8 (= MANIFEST_TYPE_LANG, added in S130).
+- Bounds check: changed hardcoded `me->type < 8` → `me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0]))` so it auto-tracks the array.
+- Previously: Lang entries in the catalog debug tab showed "?" instead of "Lang".
+
+### Build
+- Build script redirects to main working copy when run from worktree. Changes applied directly to `dev` branch and pushed. Both targets build clean (no structural changes — all callers unchanged).
+
+### Decisions Made
+- The four `s_*Override[]` arrays in assetcatalog_load.c are NOT dynamic data: they're fixed-domain reverse-index maps (filenum/texnum/animnum/soundnum → pool_index). ROM source numbers don't grow. Correct as-is.
+- `CATALOG_MAX_DEP_PAIRS` constant retained in header as initial/minimum capacity for the dep table.
+
+### Next Steps
+- D5 UI Polish (B-91, B-92, B-93, B-96 are the recommended starting sequence per tasks-current.md).
+
+---
+
+## Session S130 -- 2026-04-02
+
+**Focus**: Wire protocol v27 (catalog ID strings everywhere), SAVE-COMPAT strip, comprehensive bug audit + critical fixes, engine modernization vision
+
+### What Was Done
+
+**Major Milestones:**
+
+1. **Wire protocol fully migrated to catalog ID strings (v27)**
+   - All remaining `net_hash` u32 CRC32 wire fields replaced with full catalog ID strings across: SVC_LOBBY_STATE, SVC_CATALOG_INFO, CLC_CATALOG_DIFF, SVC_DISTRIB_BEGIN/CHUNK/END, CLC_MANIFEST_STATUS, SVC_SESSION_CATALOG, SVC_MATCH_MANIFEST
+   - `manifestAddEntry`/`manifestAddModEntry` net_hash parameter removed (~30 call sites updated)
+   - `manifestComputeHash` hashes ID string bytes instead of net_hash bytes
+   - `manifestSerialize`/`manifestDeserialize` drop net_hash field
+   - `sessioncatalog.c` broadcast/receive uses `assetCatalogResolve(catalog_id)` only
+   - `netdistrib.c` queue entries use `char catalog_id[64]` instead of `u32 net_hash`
+   - NET_PROTOCOL_VER bumped to 27
+
+2. **SAVE-COMPAT branches fully stripped**
+   - `scenario_save.c`: Write path only writes catalog ID strings (arenaId, bodyId, headId, weapon_id). Load path only accepts catalog ID strings. All integer fallback branches removed. `scenarioDelete()` function added.
+   - `savefile.c`: Raw "weapons" integer array write removed (only "weapon_ids" strings). "stagenum", "mpheadnum", "mpbodynum" integer fallback paths removed.
+
+3. **CLC_LOBBY_START fully catalog-native**
+   - Arena and weapons sent as catalog ID strings via `netbufWriteStr`/`netbufReadStr`
+   - SVC_LOBBY_STATE converted from `catalogWritePreSessionRef` to catalog ID strings
+
+4. **Per-frame log spammers removed** (`bondwalk.c`)
+   - 5 per-frame spammers removed: JUMP_AIRBORNE, JUMP_STUCK, CAPSULE_CEIL, B49_PROP_FLOOR, CAPSULE_FLOOR
+   - One-shot event logs preserved (JUMP press, JUMP_BLOCKED, JUMP_LANDING, etc.)
+
+5. **Legacy default replacements** (`mplayer.c`)
+   - Hardcoded MPBODY_*/MPHEAD_*/STAGE_* defaults replaced with `assetCatalogResolve("base:dark_combat")` etc.
+   - `g_MpSetup` has `stage_id` field
+
+6. **Comprehensive project-wide bug audit**
+   - Full audit of `src/game/`, `src/lib/`, `port/src/`, `port/fast3d/`, `port/include/`, `port/src/net/`
+   - 19 findings: 2 CRITICAL, 3 HIGH, 8 MEDIUM, 6 LOW
+   - 5 systemic patterns identified (sprintf, network bounds, fread, strcpy, malloc)
+   - Results in `context/audit-comprehensive-bugs.md`
+
+7. **Critical + high-severity bug fixes**
+   - **C-01 (CRITICAL)**: ChrResync null-prop buffer desync — removed early `continue` on NULL prop in netmsg.c ChrResync handler; all 20+ fields always read from buffer to maintain cursor alignment
+   - **C-02 (CRITICAL)**: Unbounded malloc in netdistrib.c — added `MAX_DISTRIB_ARCHIVE_BYTES (64MB)` upper bound before malloc
+   - **H-01 (HIGH)**: SVC_PLAYER_MOVE bounds check — added `if (id >= NET_MAX_CLIENTS)` guard
+   - **H-02 (HIGH)**: sprintf → snprintf in chat handler — buffer overflow prevention with size limits
+
+8. **Constraints + context updated**
+   - constraints.md: Protocol v27, net_hash fully deprecated, ImGui sole menu system, mouse capture state machine, catalog registers ALL assets
+   - Engine modernization vision documented as auto-memory
+
+9. **Multiple independent deep audits**
+   - `audit-catalog-id-compliance.md`: Initial compliance audit (8 CRITICAL + 6 HIGH + 7 MEDIUM + 4 LOW)
+   - `audit-legacy-hacks.md`: 35+ legacy pattern findings across 10 categories
+   - `audit-pipeline-compliance-1.md`: Post-batch verification audit #1
+   - `audit-infrastructure-integrity.md`: Post-batch verification audit #2
+   - `audit-comprehensive-bugs.md`: Full project bug audit (19 findings)
+
+### Key Files Changed
+- `port/src/net/netmsg.c` — CLC_LOBBY_START strings, SVC_LOBBY_STATE strings, ChrResync fix (C-01), SVC_PLAYER_MOVE bounds (H-01), chat snprintf (H-02)
+- `port/src/net/netdistrib.c` — catalog_id strings, MAX_DISTRIB_ARCHIVE_BYTES guard (C-02)
+- `port/src/net/netmanifest.c` — net_hash param removed, string-based hashing
+- `port/src/net/sessioncatalog.c` — net_hash removed from broadcast/receive
+- `port/src/scenario_save.c` — SAVE-COMPAT stripped, catalog ID strings only
+- `port/src/savefile.c` — SAVE-COMPAT stripped, integer fallbacks removed
+- `port/include/net/net.h` — NET_PROTOCOL_VER = 27
+- `src/game/bondwalk.c` — per-frame log spammers removed
+- `src/game/mplayer/mplayer.c` — catalog-based defaults
+
+### Decisions Made
+- net_hash is permanently dead. The wire format uses full catalog ID strings everywhere. No compact hash representation.
+- SAVE-COMPAT branches removed entirely — Mike and Chris can clear saves.
+- Engine modernization vision: ROM is a legacy asset provider. Catalog becomes provider-agnostic asset bus enabling modern PBR/physics pipeline. Current work (Option A) → catalog-backed internals (Option A+) → provider-agnostic bus (Option B).
+- ChrResync fix: always read all fields even when prop is NULL, only skip the apply step.
+
+### Remaining Work
+- 8 MEDIUM findings from comprehensive audit (dead code, rate limiting, chunk ordering, audio Hz, JSON depth, shutdown sequence)
+- 6 LOW findings (realloc error handling, enet_peer_send check, strcpy → strncpy)
+- Systemic sweeps: 350+ sprintf → snprintf (done separately), **network bounds checks DONE (S131)**, fread/fwrite return checks, malloc NULL checks
+- Phase G playtest verification still pending
+
+---
+
+## Session S131 -- 2026-04-03
+
+**Focus**: Comprehensive bug audit fixes (14 Tier 2+3 findings), five systemic sweeps, v0.0.25 release, context cleanup, playtest → 10 new UI/UX bugs
+
+### What Was Done
+
+1. **Systemic sweep 1: sprintf → snprintf** — 344 sites across 36 files. All unbounded sprintf calls replaced with snprintf to eliminate buffer overflow risk.
+
+2. **Systemic sweep 2: network array bounds** — Full audit of all `netbufReadU8/U16/U32` → array-index paths in `port/src/net/`. One unguarded site fixed: `netmsgSvcAuthRead` — added `id >= NET_MAX_CLIENTS` and `maxclients > NET_MAX_CLIENTS` guards (B-75 / S131 sweep2).
+
+3. **Systemic sweep 3: fread/fwrite checks, strcpy→strncpy, realloc NULL guards** — Fixed B-77 (fread unchecked in savefile), B-85 (buildArchiveDir stale pointer on realloc failure), B-87 (strcpy VK names in input.c), B-88 (three strcpy in mpsetups.c), B-89 (strcpy homeDir in fs.c).
+
+4. **v0.0.25 released as pre-release** — version bump, update tab column fix (Title column stretched, Size column 80px), title intro alignment fix, update notification banner overlap fixed.
+
+5. **Context system major cleanup** — archived completed work, trimmed stale playtest backlog, updated for S131 state.
+
+6. **Playtest session** — Revealed 10 new UI/UX bugs (B-90 through B-99): mission select unlock filtering missing, objectives not loading, mouse not captured on solo start, pause menu incomplete, ImGui duplicate ID on pause menu, update banner visible during missions, difficulty flow wrong, special assignments not separated, pause menu OG fallback, updater extraction reliability.
+
+### Key Files Changed
+- `port/src/net/netmsg.c` — sweep2 (auth bounds), sweep1 (sprintf)
+- `port/src/savefile.c` — sweep3 (fread checks)
+- `port/src/net/netdistrib.c` — sweep3 (realloc NULL guard)
+- `port/src/input.c` — sweep3 (strcpy VK names)
+- `port/src/mpsetups.c` — sweep3 (three strcpy calls)
+- `port/src/fs.c` — sweep3 (strcpy homeDir)
+- 30+ additional files — sweep1 (sprintf→snprintf)
+- `port/include/versioninfo.h.in` — v0.0.25 bump
+- `port/fast3d/pdgui_menu_update.cpp` — column widths fix
+- `port/fast3d/pdgui_backend.cpp` — title intro alignment
+
+### Decisions Made
+- Network bounds sweep complete. All netbufRead → array-index paths are now guarded.
+- v0.0.25 is the current pre-release. Next release will address playtest findings.
+
+### Next Steps
+- Fix B-90 through B-99 (solo mission flow, pause menu, mouse capture, ImGui IDs)
+- Phase D5: Settings/QoL + UI Polish pass (relative layout for all menus)
+- Phase G playtest verification (MP bots, match completion)
+
+---
+
+## Session S133 -- 2026-04-03
+
+**Focus**: Merge state audit + catalog tab crash root cause (B-102)
+
+### What Was Done
+
+1. **Merge state audit (all clear)**
+   - `git log --oneline -20`, `git worktree list`, `git diff --stat HEAD`, `git stash list` all clean.
+   - All 35 Claude worktrees are at or behind `dev` HEAD (`1e7ca59`). No unmerged commits. No uncommitted changes.
+   - Stash list has 3 old entries (pre-existing, not from today).
+   - All today's fixes (dynamic catalog buffer, B-92 mouse capture, B-94 ImGui IDs, B-100 modmgr, B-101 updater button, propagation sweep) confirmed fully merged into `dev`.
+
+2. **B-102: Catalog tab NULL crash — root cause found and fixed**
+   - **Root cause**: `ASSET_LANG` was added to `asset_type_e` (index 24) and 68 base language banks are registered with it, but `s_AssetTypeNames[ASSET_TYPE_COUNT]` in `pdgui_menu_mainmenu.cpp` only had 24 initializers (indices 0–23). `s_AssetTypeNames[24]` = NULL.
+   - Every call to open the type-filter combo called `ImGui::Selectable(NULL, sel)` for ASSET_LANG → immediate crash. The per-type stat row also crashed via `TextDisabled("%-12s", NULL)` since `assetCatalogGetCountByType(ASSET_LANG)` returns 68.
+   - **Fix**: Added `"Lang"` at index 24. One line. Propagation check confirmed `typeName()` in modmgr uses a `default: return "Unknown"` switch — safe. No other NULL name arrays.
+   - Build verified: `pdgui_menu_mainmenu.cpp` compiles clean (exit 0, only pre-existing `/*` within comment warning on line 17).
+
+### Key Files Changed
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — add `"Lang"` to `s_AssetTypeNames[]` (7fb1831)
+
+### Next Steps
+- Playtest: verify Settings → Catalog tab opens without crash, shows Lang entries
+- B-90 through B-99 solo mission flow bugs remain
+- Phase D5.2: pause menu + mouse capture polish
+
+---
+
+## Session S132 -- 2026-04-03
+
+**Focus**: Propagation scan — 5 bug pattern classes across all pdgui_menu_*.cpp and port/src/
+
+### What Was Done
+
+**Scan + fix of all 5 pattern classes:**
+
+1. **Pattern 1 — Fixed-size static arrays (overflow on catalog growth)**
+   - `pdgui_menu_room.cpp`: `s_Arenas[256]` converted to `malloc`/`realloc` dynamic buffer with `s_ArenasCapacity` tracking. Silently dropped arenas >255; now unbounded. Free+null on `buildArenaListFromCatalog` reset and `pdguiRoomScreenReset`.
+   - All other static arrays in pdgui_menu_*.cpp and port/src/ are fixed-size by design (status bufs, search inputs, etc.) — no action needed.
+
+2. **Pattern 2 — runtime_index as array subscript** — No unsafe siblings. All runtime_index usages go through typed conversion functions (`catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, etc.). No raw `[e->runtime_index]` subscripts found.
+
+3. **Pattern 3 — Missing inputLockMouse on gameplay transitions** — 4 siblings of B-66/B-92 fix found and fixed:
+   - `matchsetup.c matchStartFromChallenge()`: was missing `inputLockMouse(1)` after `menuStop()` (only the normal match path had it)
+   - `netmsg.c SVC_STAGE co-op/anti branch`: networked co-op/counter-op client missing lock
+   - `netmsg.c SVC_STAGE MP branch`: networked MP client missing lock
+   - `net.c netServerStageStart()`: listen-server co-op host missing lock
+   - `input.h` added to client-only `#if !defined(PD_SERVER)` include blocks in `netmsg.c` and `net.c`
+
+4. **Pattern 4 — Empty/duplicate ImGui IDs** — No siblings. All button/selectable labels already use `##pm`, `##go`, `PushID(i)` wrappers, `##diff_row` etc. Pause menu B-94 already resolved.
+
+5. **Pattern 5 — Action buttons without backing data guards** — No siblings. Apply Changes is guarded by `pending == 0` BeginDisabled. No null-data action buttons found.
+
+### Key Files Changed
+- `port/fast3d/pdgui_menu_room.cpp` — dynamic arena buffer
+- `port/src/net/matchsetup.c` — inputLockMouse on challenge start
+- `port/src/net/netmsg.c` — inputLockMouse on co-op + MP SVC_STAGE
+- `port/src/net/net.c` — inputLockMouse on listen-server co-op start
+
+### Build Verification
+All 4 changed files pass `-fsyntax-only` check for both client and PD_SERVER builds.
+
+### Next Steps
+- Phase D5.2: pause menu + mouse capture fixes remain in playtest backlog
+- B-90 through B-99 solo mission flow bugs remain
+
+---
+
+## Session S129 -- 2026-04-02
+
+**Focus**: Catalog ID Compliance Audit — M-2, M-3, M-4, M-5 UI picker fixes
+
+### What Was Done
+
+**2 files changed** — both targets build clean (zero new errors).
+
+**Changes:**
+
+1. **`port/fast3d/pdgui_menu_matchsetup.cpp`** (M-2 + M-4 + struct fix)
+   - Fixed local `struct matchslot` layout: reordered `body_id[64]`/`head_id[64]` to be PRIMARY (before `headnum`/`bodynum`) matching the canonical `net/matchsetup.h` definition. Previous ordering was wrong and caused silent field offset mismatches.
+   - Fixed local `struct matchconfig`: added missing `char stage_id[64]` (PRIMARY) between `scenario` and `stagenum`, and `u8 spawnWeaponNum` at end. Without these, all code reading `g_MatchConfig.stage_id` in matchsetup.cpp was reading wrong bytes.
+   - M-2: Replaced `static s32 s_ArenaIndex` / `s_ArenaModalHover` (raw stagenum integers) with `static char s_ArenaId[CATALOG_ID_LEN]` / `s_ArenaHoverId[CATALOG_ID_LEN]`. All selection comparisons use `strcmp(ae->id, s_ArenaId)`. On selection: `g_MatchConfig.stage_id` written (not `stagenum`). Init: copies `g_MatchConfig.stage_id` to `s_ArenaId`. Hover name resolution loop now compares by ID. Removed dead `findArenaIndex(u8 stagenum)` function. Start Match log updated to show `stage_id`.
+   - M-4: Bot character selector loop now resolves `catalogResolveBodyByMpIndex(b)` / `catalogResolveHeadByMpIndex(b)` and sets `bot->body_id`/`bot->head_id`. `isSel` comparison uses catalog ID strcmp. `bodynum`/`headnum` NOT written at selection time — derived at `matchStart()`.
+
+2. **`port/fast3d/pdgui_menu_room.cpp`** (M-3 verified + M-5 fixed)
+   - M-3: Verified already clean from Session S128 — arena picker and match start paths all use `stage_id`. No changes needed.
+   - M-5: Lobby bot slot editor character picker updated. `curBody` display name now resolved from `sl->body_id` via scan of body entries. `isSel` uses `catalogResolveBodyByMpIndex(b)` strcmp. On selection: `sl->body_id`/`sl->head_id` set via catalog resolvers. `bodynum`/`headnum` NOT written at selection time.
+
+**Build verification**: Both `pd` (client) and `pd-server` build clean. Only pre-existing `/*` within comment warnings in file headers.
+
+### Decisions Made
+- Stagenum is still displayed in the arena hover preview badge (0x%02X) — this is debug info derived FROM the catalog entry at display time, not identity.
+- `lobbyplayer_view.bodynum` in room.cpp (the right panel player list) uses integer bodynum — this is data received from the network, not a selection. Not a violation; left as-is.
+
+### Next Steps
+- Remaining audit findings: C-1/C-2/C-3 (wire net_hash), C-4 (netdistrib), C-5 (sessioncatalog) — Batch 3 (netmsg/netdistrib/sessioncatalog).
+- H-5/H-6 (save fallbacks) — accepted debt post-v1.0.
+- M-6/M-7/L-1/M-1 — lower priority.
+- Playtest: confirm body/head variety in bot selection, arena selection, and match start all work end-to-end.
+- These changes (S127/S128/S129) not yet committed — commit together when Mike confirms clean in-game.
+
+---
+
+## Session S128 -- 2026-04-02
+
+**Focus**: Catalog ID Compliance Audit — H-1, H-2, H-3, H-4 implementation
+
+### What Was Done
+
+**6 files changed** — no new commits yet; both targets build clean (zero errors).
+
+**Mandate**: All asset references must use catalog ID strings `"namespace:readable_name"` at every interface boundary. Raw integer indices (bodynum, headnum, stagenum) are ONLY permitted as DERIVED values resolved at the final legacy engine handoff.
+
+**Changes:**
+
+1. **`port/include/net/matchsetup.h`** (H-1) — Added `char stage_id[64]` as PRIMARY field to `struct matchconfig`. `stagenum` annotated DERIVED. Mirrors the `body_id`/`head_id` pattern from matchslot.
+
+2. **`port/src/net/matchsetup.c`** (H-1 follow-through) — `matchConfigInit()`: sets `stage_id = "base:mp_complex"`, resolves `stagenum` from catalog. `matchStart()`: resolves `g_MpSetup.stagenum` from `g_MatchConfig.stage_id` (handles ASSET_ARENA + ASSET_MAP); returns -1 on failure (no fallback). `matchStartFromChallenge()`: syncs `g_MatchConfig.stage_id` from challenge stagenum via `catalogResolveArenaByStagenum()` / `catalogResolveStageByStagenum()`.
+
+3. **`port/fast3d/pdgui_bridge.c`** (H-2) — `netLobbyRequestStart` and `netLobbyRequestStartWithSims` signatures changed from `u8 stagenum` to `const char *stage_id`. Static helper `s_resolveStageIdToStagenum()` resolves internally. Returns -3 if catalog resolution fails; no fallback.
+
+4. **`port/fast3d/pdgui_menu_room.cpp`** (H-2 callers) — `arena_entry` struct now carries `char id[64]`. `catalogArenaCollect()` populates `id` from `e->id`. `syncArenaFromConfig()` matches by `stage_id` string comparison (not stagenum integer). Arena picker click writes `stage_id` not `stagenum`. All three match-start paths (MP Combat Sim, COOP Campaign, Counter-Op) pass catalog ID strings to the bridge API.
+
+5. **`src/game/mplayer/mplayer.c`** (H-3, H-4) — Player defaults in `func0f187fec()` and bot defaults in `func0f1881d4()` replaced with `assetCatalogResolve("base:dark_combat")` etc.; error logged on failure; no integer fallback. `mpInit()` default stage uses `assetCatalogResolve("base:mp_skedar")` to set both `stage_id` and `stagenum`; last-resort integer fallback only if catalog unavailable at boot. `mpStartMatch()` random resolution: syncs `stage_id` via `catalogResolveArenaByStagenum` / `catalogResolveStageByStagenum` after integer resolution.
+
+6. **`src/include/types.h`** (H-4) — Added `char stage_id[64]` as PRIMARY field to `struct mpsetup`, above `stagenum`. PC-only field; no N64 offset. Comment explains DERIVED relationship.
+
+**Build verification**: Both `pd` (client) and `pd-server` build clean. Zero errors; only pre-existing warnings (dangling pointer in modelasm_c.c, uninitialized frac in model.c).
+
+### Decisions Made
+- `netLobbyRequestStart`/`WithSims` are permanently string-based. No integer overload.
+- Campaign/Counter-Op missions: `s_Missions[]` internal UI struct retains stagenum for display; conversion to catalog ID string happens AT the API boundary callsite via `catalogResolveStageByStagenum()`. Valid per mandate (internal UI state, not a catalog boundary).
+- `netmenu.c` legacy `menuPush`/`menuPop` path left untouched per task constraints (that system is being stripped entirely).
+- `stage_id` in `mpsetup` is a PC-only addition; zero N64 struct impact.
+
+### Next Steps
+- **Playtest required**: zero CATALOG-ASSERT in logs, all MP game modes with bots, bot body/head variety in-game, arena selection via UI writes stage_id correctly.
+- These changes (S128) and S127 changes are not yet committed — commit together when Mike confirms clean in-game.
+- Audit findings H-1/H-2/H-3/H-4 fully implemented. H-5/H-6 (save file legacy integer fallbacks) are ACCEPTED DEBT (SA-4 backward-compat; removal requires migration tool, planned post-v1.0).
+
+---
+
+## Session S127 -- 2026-04-02
+
+**Focus**: Game Director Mandate — Catalog-ID-native data model (complete the ba30dcc revert properly)
+
+### What Was Done
+
+**8 files changed** — no new commits yet; all changes in main working copy. Both targets build clean.
+
+**Root cause**: ba30dcc revert added `body_id`/`head_id` fields to `matchslot` but did NOT populate them anywhere, and did NOT remove conversion calls in `netmsg.c:3618-3619` and `netmanifest.c:653-656`. Mandate: catalog ID strings are the ONLY valid way to reference assets on the match config path. Integer indices are resolved ONLY at the legacy engine handoff in `matchStart()`.
+
+**Changes:**
+
+1. **`port/include/net/matchsetup.h`** — `body_id`/`head_id` annotated PRIMARY, `bodynum`/`headnum` annotated DERIVED. `matchConfigAddBot` signature changed from integer `(headnum, bodynum)` to string `(body_id, head_id)`.
+
+2. **`port/src/net/matchsetup.c`** — `matchConfigInit()`: populates `body_id`/`head_id` from `catalogResolveBodyByMpIndex`/`catalogResolveHeadByMpIndex` immediately. `matchConfigAddBot()`: new string-based signature; sets body_id/head_id primary; derives bodynum/headnum via catalog. `matchStart()`: resolves bodynum/headnum from body_id/head_id via `assetCatalogResolve` + `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx` at handoff.
+
+3. **`port/src/net/netmsg.c`** — `CLC_LOBBY_START` write: removed raw u8 mpbodynum/mpheadnum; now `netbufWriteStr(sl->body_id)` + `netbufWriteStr(sl->head_id)`. Read (server): replaced two `netbufReadU8` with `netbufReadStr` + catalog resolve to mpbodynum/mpheadnum.
+
+4. **`port/src/net/netmanifest.c`** — `manifestBuildForHost()` bot section: removed double-conversion chain; now uses `sl->body_id`/`sl->head_id` directly with `assetCatalogResolve`.
+
+5. **`port/fast3d/pdgui_menu_matchsetup.cpp`** — forward decl updated; `matchConfigAddBot` call changed to use `"base:dark_combat"`, `"base:head_dark_combat"` literals. Local `#define BODY_DARK_COMBAT 0` now dead.
+
+6. **`port/fast3d/pdgui_menu_room.cpp`** — Add Bot call: copies `body_id`/`head_id` strings instead of integers.
+
+7. **`port/src/scenario_save.c`** — Write: uses `sl->body_id`/`sl->head_id` directly; removed legacy integer `"body"`/`"head"` fields. Read: passes `bodyId`/`headId` strings to `matchConfigAddBot`; fallback to `catalogResolveByRuntimeIndex` if no string present for old saves.
+
+8. **`port/src/assetcatalog_base.c`** — Head registration loop now covers all 76 `g_MpHeads[]` entries (was 75 via `s_BaseHeads[]`). Fallback name `"head_%d"` for missing entries.
+
+**Build verification**: Both `pd` (client) and `pd-server` build clean. Zero errors; only pre-existing warnings (dangling pointer in modelasm_c.c, uninitialized frac in model.c).
+
+### Decisions Made
+- Conversion calls (`catalogBodynumToMpBodyIdx`, etc.) are ONLY valid at legacy engine handoff in `matchStart()`. All earlier call sites on the match config path are wrong and were removed.
+- `matchConfigAddBot` signature is permanently string-based. No integer overload.
+- Scenario save: legacy integer fallback kept for backward-compat with pre-SA-4 saves; write side is fully string-first.
+- `manifestBuild()` (server-side, post-matchStart) still reads from `g_BotConfigsArray` with mpbodynum — this is correct; it runs after matchStart has resolved integers from catalog.
+
+### Next Steps
+- **Playtest required**: zero CATALOG-ASSERT in logs, all MP game modes with bots, bot body/head variety in-game.
+- These changes are not yet committed — commit when Mike confirms clean in-game.
+- Phase G playtest verification still outstanding.
+
+---
+
+## Session S126 -- 2026-04-02
+
+**Focus**: Phase G — Full Verification Pass (code audit + build)
+
+### What Was Done
+
+**0 files changed** — audit + context update session only. No code changes.
+
+**Grep audit — catalog universality (codebase-wide)**
+
+Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHeads[]/g_MpWeapons[] with raw indices, raw stagenum bypassing catalog resolve functions, filenum_t passed as catalog ID, TODO/FIXME/HACK comments related to catalog migration, netbuf writes of raw body/head/weapon indices.
+
+**Confirmed clean (Phases B–F fixes verified in place):**
+- `CLC_LOBBY_START` write: stagenum → `catalogWritePreSessionRef(catalogResolveArenaByStagenum(...))` ✓
+- `CLC_LOBBY_START` write: weapons → per-slot `catalogWritePreSessionRef(catalogResolveWeaponByGameId(...))` ✓
+- `CLC_LOBBY_START` write: bot body/head → `catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx` (correct domain conversion) ✓
+- `SVC_STAGE_START` write: stage → `catalogWriteAssetRef(sessionCatalogGetId(catalogResolveStageByStagenum(...)))` ✓
+- `SVC_STAGE_START` write: weapons → per-slot `catalogWriteAssetRef(sessionCatalogGetId(...))` ✓
+- `CLC_LOBBY_START` read: arena → `catalogReadPreSessionRef()` → `ext.arena.stagenum` ✓
+- `CLC_LOBBY_START` read: weapons → per-slot `catalogReadPreSessionRef()` → `ext.weapon.weapon_id` ✓
+- Host manifest embedded in CLC_LOBBY_START (Phase D.2/D.3) ✓
+- Save file write: `weapon_ids` (catalog string IDs), `head_id`/`body_id`, `stage_id` — all using catalog ✓
+- Scenario save write: `weapon_id%d`, `arena_id` — catalog ✓
+- Zero TODO/FIXME/HACK related to catalog migration anywhere in port code ✓
+- B-63/B-64/B-65/B-66/B-67/B-68/B-69/B-70/B-71: all fixed in Phases B–F ✓
+
+**Findings (new issues documented):**
+- **G-1 (LOW)**: `SVC_LOBBY_STATE` (`netmsg.c:4149`) still sends raw stagenum u8. Display-only lobby broadcast; doesn't affect match load. Documented as B-72.
+- **G-2 (DEBT)**: Save file legacy integer fallbacks (`savefile.c:693-698, 832-834, 860-869`) — `mpheadnum`, `mpbodynum`, `stagenum`, `weapons` raw integers for old saves. Write side is fully catalog-first. Read fallbacks intentional for backward-compat with pre-SA-4 saves. Removal requires save migration tool; planned post-v1.0.
+- **G-3 (ACCEPTED)**: Bot body/head in `CLC_LOBBY_START` wire as raw u8 mpbodynum/mpheadnum. Index domain conversion (bodynum→mpbodynum) applied at write site per Phase C spec. Both sides have identical tables. Could use net_hash for full universality in a future pass.
+
+**Build verification:**
+- `pd` (client): CLEAN via `msys2_shell.cmd -mingw64` make ✓
+- `pd-server`: CLEAN ✓
+- Note: direct bash invocation fails with TEMP=C:\WINDOWS permission error in MinGW GCC. Must use msys2_shell.cmd -mingw64 for bash builds. PowerShell build-headless.ps1 works correctly from dev machine.
+
+### Decisions Made
+- Phase G code audit is COMPLETE. Playtest verification still pending (Mike must run in-game).
+- SVC_LOBBY_STATE raw stagenum documented as B-72 (LOW) — won't block v0.1.0.
+- Save file fallbacks: keep until post-v1.0 save migration. Document as planned debt.
+- Bot body/head raw u8: accepted as Phase C decision; document in audit file.
+
+### Next Steps
+- **Playtest required for Phase G to be fully DONE**: zero CATALOG-ASSERT in logs, all MP game modes run to completion with bots, menu transitions clean (no tint bleed, no duplicate instances), spawn variety, bot unstick, spawn weapons.
+- After clean playtest: Phase G DONE, catalog universality migration COMPLETE.
+- Post-migration: R-series (room architecture), L-series (lobby UX), v0.1.0 QC pass.
+
+---
+
+## Session S125 -- 2026-04-02
+
+**Focus**: Phase F — Spawn System Hardening (commit 27b1e08)
+
+### What Was Done
+
+**5 files changed, 257 insertions / 46 deletions** — pushed to `dev`.
+
+**F.1 — Anti-repeat spawn tracking** (`src/game/player.c`):
+- Added `static s16 s_LastSpawnPad = -1` before `playerChooseSpawnLocation`.
+- After shortlist is built: if `sllen > 1` and `s_LastSpawnPad` is set, the matching entry is swapped-to-end and removed, preventing the same pad winning back-to-back.
+- `s_LastSpawnPad` recorded on every shortlist pick; fallback path (no shortlist) skipped — anti-repeat only applies when alternatives exist.
+
+**F.5 — Bot stuck detection** (`src/game/bot.c`):
+- `struct botstuckstate` + `static s_BotStuck[MAX_BOTS]` — one snapshot per bot slot.
+- Constants: `STUCK_CHECK_FRAMES=180` (~3s), `STUCK_EPSILON_SQ=100`, `STUCK_RELO_MIN_SQ=90000`, `STUCK_RELO_FRACTION=0.25f`.
+- In `botTick()`, after `botTickUnpaused`: every 180 frames, if bot has pathfinding intent (`MA_AIBOTMAINLOOP/GOTOPOS/GETITEM/GOTOPROP/RUNAWAY/DOWNLOAD`) and has moved < 10 units, find a waypoint ≥300u away via random probe loop (up to 2×numwpts attempts), teleport with `CHRHFLAG_WARPONSCREEN`, apply 25% damage via `chrAddHealth(chr, -(chr->maxdamage * 0.25f))`, set `bs->relocating = 1`.
+
+**F.6 / B-70 — Bot spawn weapon fix** (`port/src/net/matchsetup.c`, `src/game/bot.c`, `src/game/player.c`):
+- `matchConfigInit()`: changed `g_MatchConfig.options = 0` → `g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON`. Root cause: bit never set, so spawn weapon block always skipped.
+- `botSpawn()` and `playerStartNewLife()`: resolve `g_MatchConfig.spawnWeaponNum` first (search g_MpWeapons for matching weaponnum), fall back to `g_MpSetup.weapons[0]` when 0xFF (Random). Bots use `botinvGiveSingleWeapon` / `botinvSwitchToWeapon`.
+
+**B-66 — Mouse capture on match start** (`port/src/net/matchsetup.c`):
+- Added `#include "input.h"` and `inputLockMouse(1)` after `menuStop()` in `matchStart()`.
+- Root cause: `pdguiIsActive()` was true during lobby setup, deferring SDL relative-mouse apply inside `inputLockMouse()`. Explicit call after menus stop forces it.
+
+**F.2 / F.3 / F.4** — Already implemented: `playerReset()` has navmesh-waypoint fallback + pad-scan fallback; `playerChooseSpawnLocation()` has numpads==0 floor fallback. No changes needed.
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean. Only pre-existing uninitialized-var warnings in player.c (unrelated to our changes).
+
+### Decisions Made
+- `s_LastSpawnPad` is static to the compilation unit (not per-player) — good enough for the common 1-local-player case; bot spawns go through different path.
+- Bot stuck check uses `aibot->aibotnum` (s16 slot field) for O(1) lookup — no linear search per tick.
+- `STUCK_RELO_FRACTION=0.25f` matches spec's "25% max-damage penalty".
+
+### Next Steps
+- Playtest Phase F: spawn variety (should not repeat same pad consecutively), bot unstick (observe STUCK: log line if a bot gets cornered), spawn weapons present (check log for MATCHSETUP: weapon set applied lines + in-game weapon in hand).
+- Phase G (Full Verification Pass) is next: zero CATALOG-ASSERT warnings, all game modes run to completion.
+
+---
+
+## Session S124 -- 2026-04-02
+
+**Focus**: Phase E — Menu Stack Architecture + Input Context (commit 5eab8d3)
+
+### What Was Done
+
+**3 files changed, 69 insertions / 2 deletions** — pushed to `dev`.
+
+**E.1 — Full duplicate rejection in `menuPush`** (`menumgr.c`):
+- Was: only rejected same menu on top of stack.
+- Now: `menuIsInStack(menu)` — rejects if menu is anywhere in stack. Prevents Esc or rapid input stacking duplicate instances (B-21).
+
+**E.2 — Post-mission buttons non-interactive** (`pdgui_menu_endscreen.cpp`):
+- `renderSoloEndscreen` and `renderMpEndscreen`: on `ImGui::IsWindowAppearing()`, call `SDL_SetRelativeMouseMode(SDL_FALSE)` + `SDL_ShowCursor(SDL_ENABLE)` + warp cursor to center.
+- Root cause: game is still in SDL relative mouse mode when endscreen appears after gameplay.
+
+**E.2 — Lobby→gameplay mouse capture** (`menumgr.c`):
+- Added `restoreGameplayMouseCapture()` helper: checks `inputMouseIsLocked()` and applies `SDL_SetRelativeMouseMode(SDL_TRUE)`.
+- Called from `menuPop()` when stack empties and from `menuPopAll()`.
+- Root cause: `inputLockMouse(1)` defers the SDL call if `pdguiIsActive()` is true during the lobby→match transition. This restores it when the menu stack clears.
+
+**E.3 — Green tint bleed** (`pdgui_menu_mainmenu.cpp`, `pdgui_menu_endscreen.cpp`):
+- `renderMainMenu()`: `pdguiSetPalette(1)` at entry — defensive baseline for blue palette.
+- `renderSoloEndscreen` / `renderMpEndscreen`: save `prevPalette` before setting screen palette; restore at all exit paths (including early `Begin()` failure).
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean.
+
+### Decisions Made
+- Mouse restore in menumgr mirrors the existing `pdguiPauseMenuClose()` pattern.
+- Palette save/restore covers the transition frame where endscreen and main menu both render.
+- Main menu explicit set is defensive insurance; endscreen restore is the structural fix.
+
+### Next Steps
+- Playtest needed: post-mission buttons clickable, lobby→gameplay mouse capture, no green tint on main menu after mission complete.
+- Phase F (Spawn System Hardening + inputSetMode wiring) is next.
+
+---
+
+## Session S123 -- 2026-04-02
+
+**Focus**: Phase D — Server Manifest Model (commit e517633)
+
+### What Was Done
+
+**8 files changed, 426 insertions / 55 deletions** — pushed to `dev`.
+
+**D.1 — `match_manifest_entry_t` gains `u8 sha256[32]`** (`netmanifest.h`):
+- New field carries SHA-256 for MANIFEST_TYPE_COMPONENT entries; zeroed for all other types.
+- Wire format only includes sha256 bytes when type == MANIFEST_TYPE_COMPONENT.
+
+**D.2 — `manifestBuildForHost()`** (`netmanifest.c`):
+- Client-callable; builds manifest from `g_MpSetup` (stage/weapons), `g_NetLocalClient->settings` (host body/head at slot 0), `g_MatchConfig.slots[]` (bots at slots 1..N), `modmgrGetMod()` (mods with SHA-256).
+- Called in `netmsgClcLobbyStartWrite()` at the end of CLC_LOBBY_START serialization.
+
+**D.3 — Host manifest embedded in CLC_LOBBY_START** (`netmsg.c`):
+- Server reads manifest via `manifestDeserialize`; supplements with other players' body/head from `g_NetClients[].settings`.
+- D.5: validates MANIFEST_TYPE_STAGE entry against arena-hash stagenum; logs warning on mismatch, uses arena hash for safety.
+- Falls back to server-side `manifestBuild()` if deserialization fails.
+
+**D.4 — SVC_MATCH_MANIFEST uses serialize helpers** (`netmsg.c`):
+- `netmsgSvcMatchManifestWrite/Read` replaced inline loops with `manifestSerialize`/`manifestDeserialize`.
+
+**D.6 — SHA-256 in `modinfo_t`** (`modmgr.h`, `modmgr.c`):
+- `u8 sha256[SHA256_DIGEST_SIZE]` added to `modinfo_t`.
+- Computed from mod.json file content at scan time; falls back to hash of "id:version" string.
+- `manifestCheck()` validates SHA-256 for MANIFEST_TYPE_COMPONENT entries via `modmgrFindMod()`.
+- `server_stubs.c`: added `modmgrFindMod` stub so dedicated server links clean.
+
+**D.7 — Protocol version bump**: `NET_PROTOCOL_VER` → 26 (breaking; old clients cannot connect).
+
+### Build
+- Client (`pd`) and server (`pd-server`): both clean.
+
+### Decisions Made
+- Server supplements host-sent manifest with other players' settings rather than building from scratch — server stays catalog-free.
+- SHA-256 only transmitted on wire for COMPONENT entries; all other types zero the field (saves ~32 bytes × N entries per message).
+- Fallback to server-side `manifestBuild()` preserved as safety net for malformed/legacy connections.
+
+### Next Steps
+- Playtest needed: real MP match to verify CLC_LOBBY_START host manifest embedding/deserialization flows end-to-end.
+- Phase E (Menu Stack Architecture) is next.
+
+---
+
+## Session S122 -- 2026-04-02
+
+**Focus**: Phase C — Systematic Catalog Conversion (commit ee0810c)
+
+### What Was Done
+
+FIX-1 through FIX-23 across all subsystems: bot allocation, SVC_STAGE_START bot config, weapon spawn, arena selection, stage loading. All raw N64 index references in the server path replaced with catalog ID resolution via new Phase B API. Both targets build clean.
+
+---
+
+## Session S121 -- 2026-04-02
+
+**Focus**: Phase B — Catalog API Hardening + Arena Human-Readable IDs (commit b13a6b5)
+
+### What Was Done
+
+**8 files changed, 192 insertions / 45 deletions** — pushed to `dev`.
+
+**B.1 (FIX-24) — Register ALL g_HeadsAndBodies[] entries** (`assetcatalog_base.c`):
+- Root cause: covered-mask loop iterated all 76 g_MpHeads[] entries, marking g_MpHeads[75].headnum as covered. But the MP registration loop only iterates s_BaseHeads[] (75 entries), so that headnum (103 in playtests) was marked covered but never registered → `CATALOG-ASSERT type=16 index=103`.
+- Fix: covered-mask now iterates s_BaseBodies[]/s_BaseHeads[] (the actually-registered tables), not the full g_MpBodies[]/g_MpHeads[] arrays. All unregistered entries are now picked up by the SP-only fallback sweep.
+
+**B.2 — New index-domain-safe API** (`assetcatalog_api.c`, `assetcatalog.h`):
+- Added `catalogResolveBodyByMpIndex(mpbodynum)` and `catalogResolveHeadByMpIndex(mpheadnum)` — convert mpXnum (g_MpBodies/Heads[] position) to bodynum/headnum before catalog lookup.
+- Added `catalogBodynumToMpBodyIdx(bodynum)` and `catalogHeadnumToMpHeadIdx(headnum)` — reverse lookup for load path.
+- 7 call sites fixed: FIX-7 (netmsg.c), FIX-13 (netmanifest.c), FIX-14 (net.c), FIX-11/12 (savefile.c), FIX-10 (savefile.c stage), FIX-15 (scenario_save.c stage).
+
+**B.3 — Improved error logging**: `catalogResolveByRuntimeIndex` warning now includes type name (from static `s_typeNames[]`) for easier diagnostics.
+
+**Part 2 — Arena human-readable IDs** (`assetcatalog_base.c`):
+- `s_ArenaNames[75]` static table mapping each arena slot index to a human-readable name.
+- Arena registration loop now emits `base:arena_<name>` instead of `base:arena_<N>`.
+- NULL entries in the table cause the slot to be skipped gracefully.
+
+### Build
+- Client (`pd`) and server (`pd-server`): both 100% clean.
+
+### Decisions Made
+- Three index domains (mpbodynum, bodynum/runtime_index, catalog array position) must never be conflated. New API encapsulates the conversion at the boundary.
+- Arena ID migration is non-breaking: old `base:arena_<N>` IDs only existed in the catalog (no persisted save data references them).
+
+### Next Steps
+- Playtest needed: verify no CATALOG-ASSERT type=16 in log during MP match with bots.
+- Remaining Phase B fixes not yet addressed: FIX-16 (scenario_save.c:302 bounds), FIX-17/18/19 (netmanifest.c defaults/SP manifest/anti-player), FIX-20 (identity.c mpbodynum migration), FIX-21/22/23 (weapon save/scenario/dropdown).
+- Phase C (Systematic Catalog Conversion) is next after playtest confirms Phase B clears the B-63/B-64 errors.
+
+---
+
+## Session S119 -- 2026-04-02
+
+**Focus**: Comprehensive playtest analysis → catalog universality engineering spec + bug triage
+
+### What Was Done
+
+- **Playtest analysis**: Reviewed 3 client logs, 1 server error log, and screenshots from April 1, 2026 playtest session. Identified root causes for all observed failures.
+- **Catalog type=16 root cause** (B-63/B-64): `catalogResolveByRuntimeIndex` called on bot allocation with type=16, which is out of range for the catalog asset type enum (valid 0–7). Every bot allocation triggers CATALOG-ASSERT; all bots invisible; access violation downstream. Root cause: bot config path passes unvalidated type field into the resolver.
+- **Server catalog gap** (B-65): `SVC_STARTGAME` server side still emits raw hex stagenum (e.g. `0x1f`) rather than catalog ID. Client-side catalog cannot resolve raw hex. All networked play blocked.
+- **Menu input state machine gaps** (B-66/B-67/B-68/B-69/B-70): `inputSetMode()` not called on match-start code path from MP lobby → mouse capture misses. Post-mission input context not switched → debrief buttons non-interactive. Tint not cleared on menu pop → green bleeds to main menu. Esc re-registers menu in same frame → stacked instances.
+- **Bot spawn weapons** (B-70): `options=0x00000000` in bot spawn log → options bitmask not reaching bots during match start.
+- **Spec produced**: `PD2_Catalog_Universality_Spec_v1.0.docx` — governing engineering specification covering catalog universality migration (Phases A–C), server manifest model (Phase D), menu stack architecture (Phase E), spawn/input hardening (Phase F), and full verification pass (Phase G). All phases defined with success criteria.
+- **Context updated**: bugs.md (B-63–B-71), tasks-current.md (Phases A–G), roadmap.md (primary workstream declaration), session-log.md (this entry).
 
 ### Decisions Made
 
-- MAP_MODE_* flags are bitmask (not enum) to allow combinations like `mp|solo`.
-- 0 means "no mode restriction specified" (same as before — callers treat 0 as "all modes").
-- Dead weapon table in base.c left in place (removal would be a separate clean-up task);
-  comment updated to prevent future confusion.
-
-### Build Status
-
-- Syntax-check (MinGW gcc -fsyntax-only): **PASS** on both modified .c files
-- Full cmake build: blocked by pre-existing `C:\WINDOWS\` temp-dir permission issue (unrelated
-  to these changes)
+- Catalog universality migration (Phases A–C) is now the primary workstream and blocks all other feature work. The catalog is the load-bearing wall of the entire asset system — surface bug fixes on top of a broken catalog just shift the crash site.
+- Phase A is research-only (audit + mapping, no code changes) to ensure full scope is understood before any API changes.
+- Server manifest model (Phase D) supersedes server-side catalog concept: server receives manifest from host, never maintains its own catalog.
+- Menu stack architecture (Phase E) and spawn/input hardening (Phase F) can proceed in parallel with Phases C/D.
 
 ### Next Steps
 
-- T-3 through T-5 (animation/texture/SFX enumeration) — marked Important in audit
-- T-10: size_bytes in mod manifest for download estimation
+- **Phase A**: Catalog universality audit — `grep` for all raw-index call sites, map type+index origins, identify which paths produce type=16.
+- After Phase A report: review findings with Mike before beginning Phase B (API hardening).
+
+---
+
+

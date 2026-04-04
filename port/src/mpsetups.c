@@ -568,13 +568,16 @@ static MenuItemHandlerResult menuhandlerRenameSetup(s32 operation, struct menuit
 
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		strcpy(name, setup->bytes);
+		strncpy(name, setup->bytes, MPSETUP_MAXNAME);
+		name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SETTEXT:
-		strcpy(g_MpSetup.name, name);
+		strncpy(g_MpSetup.name, name, MPSETUP_MAXNAME);
+		g_MpSetup.name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SET:
-		strcpy(setup->bytes, name);
+		strncpy(setup->bytes, name, sizeof(setup->bytes) - 1);
+		setup->bytes[sizeof(setup->bytes) - 1] = '\0';
 		err = mpsetupSaveSetup(slotindex, true);
 		if (!err) {
 			menuPopDialog();

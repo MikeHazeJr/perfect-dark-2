@@ -214,7 +214,7 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 		if (rzipInflate(g_TexBitstring, scratch2, scratch) == 0) {
 #if VERSION < VERSION_NTSC_1_0
 			char message[128];
-			sprintf(message, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+			snprintf(message, sizeof(message), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
 					"texdecompress.c", 357,
 					g_TexBitstring[0], g_TexBitstring[1], g_TexBitstring[2], g_TexBitstring[3],
 					g_TexBitstring[4], g_TexBitstring[5], g_TexBitstring[6], g_TexBitstring[7],

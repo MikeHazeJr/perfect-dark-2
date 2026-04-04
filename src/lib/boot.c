@@ -318,7 +318,7 @@ void bootCheckStackOverflow(void)
 
 					bootCountUnusedStack();
 
-					sprintf(message, "Stack overflow thread %d", threadid);
+					snprintf(message, sizeof(message), "Stack overflow thread %d", threadid);
 					crashSetMessage(message);
 					CRASH();
 				}

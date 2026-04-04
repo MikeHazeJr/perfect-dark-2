@@ -224,7 +224,12 @@ s32 saveMigrateFile(const char *filepath, savetype_t type,
 		return -1;
 	}
 
-	fwrite(json, 1, jsonlen, f);
+	if (fwrite(json, 1, jsonlen, f) != (size_t)jsonlen) {
+		sysLogPrintf(LOG_ERROR, "SAVEMIGRATE: write error for %s", filepath);
+		fclose(f);
+		free(json);
+		return -1;
+	}
 	fclose(f);
 	free(json);
 

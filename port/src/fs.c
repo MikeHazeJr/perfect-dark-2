@@ -115,7 +115,7 @@ const char *fsFullPath(const char *relPath)
 		return pathBuf;
 	}
 
-	// Fall back to legacy modDir (mod_allinone or --moddir)
+	// Fall back to legacy modDir (--moddir flag)
 	if (modDir[0]) {
 		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDir, relPath);
 		if (fsFileSize(pathBuf) >= 0) {
@@ -141,7 +141,8 @@ s32 fsInit(void)
 	// if this is set, default to exe path for everything
 	const s32 portable = sysArgCheck("--portable");
 	if (portable) {
-		strcpy(homeDir, exeDir);
+		strncpy(homeDir, exeDir, FS_MAXPATH);
+		homeDir[FS_MAXPATH] = '\0';
 	} else {
 		sysGetHomePath(homeDir, FS_MAXPATH);
 	}
@@ -165,11 +166,9 @@ s32 fsInit(void)
 	baseDir[FS_MAXPATH - 1] = '\0';
 
 	// get path to mod dir and expand it if needed
-	// mod directory is overlaid on top of base directory
+	// mod directory is overlaid on top of base directory (legacy --moddir only)
+	// Mod discovery is now handled by modmgrInit() scanning mods/
 	path = sysArgGetString("--moddir");
-	if (!path) {
-		path = "mods/mod_allinone";
-	}
 	if (path) {
 		if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
 			// path is explicit; check as-is
@@ -194,8 +193,7 @@ s32 fsInit(void)
 		}
 	}
 
-	// Per-mod directories (--gexmoddir, --kakarikomoddir, etc.) removed.
-	// Mod directories are now discovered dynamically by modmgrInit() scanning mods/.
+	// Mod directories are discovered dynamically by modmgrInit() scanning mods/.
 
 	// get path to save dir and expand it if needed
 	path = sysArgGetString("--savedir");
@@ -257,7 +255,10 @@ s32 fsInit(void)
 							u8 buf[4096];
 							size_t n;
 							while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
-								fwrite(buf, 1, n, dst);
+								if (fwrite(buf, 1, n, dst) != n) {
+									sysLogPrintf(LOG_WARNING, "fs: short write during migration copy");
+									break;
+								}
 							}
 							fclose(dst);
 							sysLogPrintf(LOG_NOTE, "migrated %s -> %s", oldPath, newPath);
@@ -320,7 +321,11 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 		return -1;
 	}
 
-	fread(dst, 1, size, f);
+	if (fread(dst, 1, size, f) != (size_t)size) {
+		sysLogPrintf(LOG_WARNING, "fsFileLoadTo: short read: %s", fullName);
+		fclose(f);
+		return -1;
+	}
 	fclose(f);
 
 	return size;
@@ -354,7 +359,13 @@ void *fsFileLoad(const char *name, u32 *outSize)
 			fclose(f);
 			return NULL;
 		}
-		fread(buf, 1, size, f);
+		if (fread(buf, 1, size, f) != (size_t)size) {
+			sysLogPrintf(LOG_WARNING, "fsFileLoad: short read: %s", fullName);
+			free(buf);
+			fclose(f);
+			if (outSize) *outSize = 0;
+			return NULL;
+		}
 	}
 
 	fclose(f);

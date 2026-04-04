@@ -159,6 +159,13 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 		break;
 	}
 	case MENUOP_SET:
+		/* FIX-23: Legacy N64 dropdown character picker.
+		 * Sets mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions) directly.
+		 * Catalog conversion (mpbodynum → body_id string) happens downstream in
+		 * netClientSettingsChanged() via catalogResolveBodyByMpIndex/catalogResolveHeadByMpIndex.
+		 * Note: mpGetMpheadnumByMpbodynum() is stubbed to return 0 on the server,
+		 * so the server always uses head 0 (MPHEAD_DARK_COMBAT) regardless of selection.
+		 * This is acceptable for this legacy code path — the ImGui picker is the real UI. */
 		if (data->dropdown.value == 0) {
 			g_PlayerConfigsArray[0].base.mpbodynum = 0;
 			g_PlayerConfigsArray[0].base.mpheadnum = 0;
@@ -169,7 +176,7 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 		}
 		sysLogPrintf(LOG_NOTE, "NET: co-op character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
-		/* Notify server of updated settings */
+		/* Notify server of updated settings — triggers catalog ID conversion */
 		if (g_NetMode == NETMODE_CLIENT) {
 			netClientSettingsChanged();
 		}
@@ -381,6 +388,8 @@ static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menu
 		break;
 	}
 	case MENUOP_SET:
+		/* FIX-23 (second dropdown instance): same catalog conversion as co-op handler above.
+		 * mpbodynum → body_id conversion happens in netClientSettingsChanged(). */
 		if (data->dropdown.value == 0) {
 			g_PlayerConfigsArray[0].base.mpbodynum = 0;
 			g_PlayerConfigsArray[0].base.mpheadnum = 0;

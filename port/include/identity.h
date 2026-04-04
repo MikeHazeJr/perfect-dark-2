@@ -17,6 +17,7 @@
 #define _IN_IDENTITY_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,11 +40,11 @@ extern "C" {
 
 /** One agent profile stored in the identity file. */
 typedef struct identity_profile_s {
-    char name[IDENTITY_NAME_MAX];  /**< Agent display name.        */
-    u8   headnum;                  /**< Character head index.      */
-    u8   bodynum;                  /**< Character body index.      */
-    u8   flags;                    /**< Reserved, set to 0.        */
-    u8   _pad;
+    char name[IDENTITY_NAME_MAX];          /**< Agent display name.              */
+    char head_id[CATALOG_ID_LEN];          /**< SA-4: head catalog string ID.    */
+    char body_id[CATALOG_ID_LEN];          /**< SA-4: body catalog string ID.    */
+    u8   flags;                            /**< Reserved, set to 0.              */
+    u8   _pad[3];
 } identity_profile_t;
 
 /** Full in-memory identity state. */

@@ -28,9 +28,12 @@
 #include "fs.h"
 #include "net/net.h"
 #include "net/netupnp.h"
+#include "net/netstun.h"
 #include "net/netlobby.h"
 #include "connectcode.h"
 #include "hub.h"
+#include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
@@ -232,6 +235,9 @@ int main(int argc, char **argv)
         updaterCheckAsync();
     }
 
+    assetCatalogInit();
+    assetCatalogRegisterBaseGame();
+
     netInit();
     lobbyInit();
     hubInit();
@@ -360,12 +366,19 @@ int main(int argc, char **argv)
             if (++titleCounter >= 60) {
                 titleCounter = 0;
                 char title[256];
-                const char *ip = netUpnpIsActive() ? netUpnpGetExternalIP() : "";
+                /* IP priority: UPnP (real external IP + mapped port) > STUN > empty.
+                 * STUN runs in parallel with UPnP; use it when UPnP fails. */
+                const char *ip = "";
+                if (netUpnpIsActive() && netUpnpGetExternalIP()[0]) {
+                    ip = netUpnpGetExternalIP();
+                } else if (stunGetStatus() == STUN_STATUS_SUCCESS && stunGetExternalIP()[0]) {
+                    ip = stunGetExternalIP();
+                }
                 /* After B-28: dedicated server's g_NetNumClients already counts only real
                  * players (no server slot).  No -1 needed for dedicated. */
                 s32 displayClients = g_NetDedicated ? g_NetNumClients
                                                     : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0);
-                if (ip && ip[0]) {
+                if (ip[0]) {
                     /* Show connect code, not raw IP (B-29). */
                     char connectCode[256] = "";
                     u32 a = 0, b = 0, c = 0, d = 0;
@@ -380,7 +393,7 @@ int main(int argc, char **argv)
                         snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - port %u - %d/%d connected",
                                  g_NetServerPort, displayClients, g_NetMaxClients);
                     }
-                } else if (netUpnpGetStatus() == UPNP_STATUS_WORKING) {
+                } else if (netUpnpGetStatus() == UPNP_STATUS_WORKING || stunGetStatus() == STUN_STATUS_WORKING) {
                     snprintf(title, sizeof(title), "PD2 Server v" VERSION_STRING " - resolving... - %d/%d connected",
                              displayClients, g_NetMaxClients);
                 } else {

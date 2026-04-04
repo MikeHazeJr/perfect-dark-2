@@ -16273,11 +16273,11 @@ Gfx *chrsRenderChrStats(Gfx *gdl, RoomNum *rooms)
 				if (chr->aibot) {
 					if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
 						aibot = 1;
-						sprintf(aibotbuffer, "\nTEAM %d: Cmd: %s", chr->team, botGetCommandName(chr->aibot->command));
+						snprintf(aibotbuffer, sizeof(aibotbuffer), "\nTEAM %d: Cmd: %s", chr->team, botGetCommandName(chr->aibot->command));
 					}
 				}
 
-				sprintf(fullbuffer, "CHR[%d]\n%s\n%s\n%s%s", chr->chrnum,
+				snprintf(fullbuffer, sizeof(fullbuffer), "CHR[%d]\n%s\n%s\n%s%s", chr->chrnum,
 						chr->myaction >= ARRAYCOUNT(g_ChrMyActionNames) ? "myaction?" : g_ChrMyActionNames[chr->myaction],
 						chr->actiontype >= ARRAYCOUNT(g_ChrActionNames) || chr->actiontype < 0 ? "ACT_?" : g_ChrActionNames2[chr->actiontype],
 						chr->actiontype == ACT_GOPOS || chr->actiontype == ACT_PATROL ? g_ChrLiftActionNames[chr->liftaction] : g_ChrLiftActionNames[0],

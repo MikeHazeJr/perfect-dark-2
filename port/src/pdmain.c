@@ -76,7 +76,11 @@
 #include "console.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "net/netmanifest.h"
 #include "modelcatalog.h"
+#include <SDL.h>
+#include "pdmain.h"
+#include "input.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -102,6 +106,8 @@ u32 var8005dd4c = 0x00000000;
 u32 var8005dd50 = 0x00000000;
 s32 g_MainChangeToStageNum = -1;
 s32 g_MainIsDebugMenuOpen = 0;
+
+InputOwnerMode g_InputMode = INPUTMODE_MENU;
 
 struct stageallocation g_StageAllocations8Mb[] = {
 	{ STAGE_CITRAINING,    "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
@@ -268,6 +274,27 @@ Gfx var8005dcc8[] = {
 };
 
 s32 g_MainIsBooting = 1;
+
+void pdmainSetInputMode(InputOwnerMode mode)
+{
+	if (g_InputMode == mode) {
+		return;
+	}
+	g_InputMode = mode;
+	if (mode == INPUTMODE_GAMEPLAY) {
+		/* Apply mouse capture immediately — bypass the pdguiIsActive() defer
+		 * guard in inputLockMouse(). Only capture if game requested it. */
+		if (inputMouseIsLocked()) {
+			SDL_ShowCursor(SDL_DISABLE);
+			SDL_SetRelativeMouseMode(SDL_TRUE);
+		}
+		sysLogPrintf(LOG_NOTE, "INPUT: mode=GAMEPLAY");
+	} else {
+		SDL_SetRelativeMouseMode(SDL_FALSE);
+		SDL_ShowCursor(SDL_ENABLE);
+		sysLogPrintf(LOG_NOTE, "INPUT: mode=MENU");
+	}
+}
 
 void mainInit(void)
 {
@@ -731,6 +758,28 @@ void mainEndStage(void)
 void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
+
+	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
+	 * stage is committed.  Only fires for gameplay stages (not title,
+	 * credits, menus).
+	 *
+	 * MP path: g_ClientManifest was populated by SVC_MATCH_MANIFEST from
+	 * the server; use it directly as the "needed" manifest.
+	 *
+	 * SP path: g_ClientManifest is empty (pure SP, no active server
+	 * manifest); build the mission manifest from catalog + setup data.
+	 *
+	 * Non-gameplay: clear any stale client manifest so the next SP
+	 * mission takes the SP path, not a leftover MP manifest. */
+	if (STAGE_IS_GAMEPLAY(stagenum)) {
+		if (g_ClientManifest.num_entries > 0) {
+			manifestMPTransition();
+		} else {
+			manifestSPTransition(stagenum);
+		}
+	} else {
+		manifestClear(&g_ClientManifest);
+	}
 
 	g_MainChangeToStageNum = stagenum;
 }

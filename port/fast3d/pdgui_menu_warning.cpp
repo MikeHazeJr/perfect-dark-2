@@ -75,7 +75,7 @@ struct menudialogdef {
 };
 
 /* Language strings */
-char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 /* Menu stack */
 void menuPopDialog(void);
@@ -109,7 +109,7 @@ static const char *getDialogTitle(struct menudialogdef *def, const char *fallbac
     }
 
     if (def->title != 0) {
-        char *s = langGet((s32)def->title);
+        const char *s = langSafe((s32)def->title);
         if (s && s[0]) return s;
     }
 
@@ -121,7 +121,7 @@ static const char *getItemLabel(struct menuitem *item)
     if (!item) return "";
 
     if (item->param2 != 0) {
-        char *s = langGet((s32)item->param2);
+        const char *s = langSafe((s32)item->param2);
         if (s && s[0]) return s;
     }
 

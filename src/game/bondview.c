@@ -297,7 +297,7 @@ Gfx *bviewDrawSlayerRocketInterlace(Gfx *gdl, u32 colour, u32 alpha)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "interlaceGfx");
+	strncpy(var800a41c0, "interlaceGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -347,7 +347,7 @@ Gfx *bviewDrawFilmInterlace(Gfx *gdl, u32 colour, u32 alpha)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "BlueInterlaceGfx");
+	strncpy(var800a41c0, "BlueInterlaceGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -413,7 +413,7 @@ Gfx *bviewDrawZoomBlur(Gfx *gdl, u32 colour, s32 alpha, f32 arg3, f32 arg4)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "stretchBlurGfx");
+	strncpy(var800a41c0, "stretchBlurGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -575,7 +575,7 @@ Gfx *bviewDrawFisheye(Gfx *gdl, u32 colour, u32 alpha, s32 shuttertime60, s8 sta
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "blurGfxFisheye");
+	strncpy(var800a41c0, "blurGfxFisheye", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	s3 = 1;
 
@@ -990,7 +990,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 	}
 
 	// "S/MPS"
-	sprintf(text, "%s %s%5.2f", langGet(L_MISC_073), "", movedist * 0.6f);
+	snprintf(text, sizeof(text), "%s %s%5.2f", langGet(L_MISC_073), "", movedist * 0.6f);
 	savedy = viewtop + 14;
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 	x = viewleft + 25 * scale;
@@ -1008,7 +1008,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 	// "H/M"
-	sprintf(text, "%s %s%4.2f", langGet(L_MISC_074), "", g_Vars.currentplayer->eyespy->height * 0.01f);
+	snprintf(text, sizeof(text), "%s %s%4.2f", langGet(L_MISC_074), "", g_Vars.currentplayer->eyespy->height * 0.01f);
 	savedy += 9;
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 	x = viewleft + 25 * scale;
@@ -1025,7 +1025,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 	// "Y/D"
-	sprintf(text, "%s %d", langGet(L_MISC_075), (s32)g_Vars.currentplayer->eyespy->theta);
+	snprintf(text, sizeof(text), "%s %d", langGet(L_MISC_075), (s32)g_Vars.currentplayer->eyespy->theta);
 	savedy += 9;
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 	x = viewleft + 25 * scale;
@@ -1042,7 +1042,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 	// "P/D"
-	sprintf(text, "%s %d", langGet(L_MISC_076), (s32)g_Vars.currentplayer->eyespy->verta);
+	snprintf(text, sizeof(text), "%s %d", langGet(L_MISC_076), (s32)g_Vars.currentplayer->eyespy->verta);
 	savedy += 9;
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 	x = viewleft + 25 * scale;
@@ -1059,7 +1059,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 	// "CI 2023"
-	sprintf(text, "%s", langGet(L_MISC_077));
+	snprintf(text, sizeof(text), "%s", langGet(L_MISC_077));
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -1081,11 +1081,11 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 	if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_CAMSPY) {
-		sprintf(text, "%s", langGet(L_MISC_078)); // "YKK: 95935"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_078)); // "YKK: 95935"
 	} else if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_DRUGSPY) {
-		sprintf(text, "%s", langGet(L_MISC_208)); // "JM: 201172"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_208)); // "JM: 201172"
 	} else {
-		sprintf(text, "%s", langGet(L_MISC_217)); // "BNC: 15877"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_217)); // "BNC: 15877"
 	}
 
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
@@ -1111,7 +1111,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 
 	if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_CAMSPY) {
 		// "CAMSPY"
-		sprintf(text, "   %s", langGet(L_MISC_079));
+		snprintf(text, sizeof(text), "   %s", langGet(L_MISC_079));
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1136,7 +1136,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 	} else if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_DRUGSPY) {
 		// "DRUGSPY"
-		sprintf(text, "   %s", langGet(L_MISC_468));
+		snprintf(text, sizeof(text), "   %s", langGet(L_MISC_468));
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1161,7 +1161,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 	} else {
 		// "BOMBSPY"
-		sprintf(text, "   %s", langGet(L_MISC_469));
+		snprintf(text, sizeof(text), "   %s", langGet(L_MISC_469));
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1188,11 +1188,11 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 
 	// Model number
 	if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_CAMSPY) {
-		sprintf(text, "%s", langGet(L_MISC_080)); // "MODEL 1.2"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_080)); // "MODEL 1.2"
 	} else if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_DRUGSPY) {
-		sprintf(text, "%s", langGet(L_MISC_207)); // "MODEL 1.4"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_207)); // "MODEL 1.4"
 	} else {
-		sprintf(text, "%s", langGet(L_MISC_216)); // "MODEL 1.3"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_216)); // "MODEL 1.3"
 	}
 
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
@@ -1220,9 +1220,9 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 	// Gyrostat/dartammo text
 	if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_CAMSPY
 			|| g_Vars.currentplayer->eyespy->mode == EYESPYMODE_BOMBSPY) {
-		sprintf(text, "%s", langGet(L_MISC_081)); // "GYROSTAT"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_081)); // "GYROSTAT"
 	} else {
-		sprintf(text, "%s", langGet(L_MISC_206)); // "DARTAMMO"
+		snprintf(text, sizeof(text), "%s", langGet(L_MISC_206)); // "DARTAMMO"
 	}
 
 	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
@@ -1983,7 +1983,7 @@ Gfx *bviewDrawNvLens(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "Fullscreen_DrawFaultScope");
+	strncpy(var800a41c0, "Fullscreen_DrawFaultScope", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	var8009caec = 0xbc;
 	var8009caef = 0xbe;
@@ -2083,7 +2083,7 @@ Gfx *bviewDrawIrLens(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "Fullscreen_DrawFaultScope");
+	strncpy(var800a41c0, "Fullscreen_DrawFaultScope", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 #if VERSION < VERSION_NTSC_1_0
 	osSyncPrintf("Fault Scope is active\n");
@@ -2280,7 +2280,7 @@ Gfx *bviewDrawIntroFaderBlur(Gfx *gdl, s32 arg1)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "IntroFaderBlurGfx");
+	strncpy(var800a41c0, "IntroFaderBlurGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -2328,7 +2328,7 @@ Gfx *bviewDrawIntroText(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "IntroTextInterfereGfx");
+	strncpy(var800a41c0, "IntroTextInterfereGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	gDPPipeSync(gdl++);
 
@@ -2389,7 +2389,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		return gdl;
 	}
 
-	strcpy(var800a41c0, "BinocularViewGfx");
+	strncpy(var800a41c0, "BinocularViewGfx", sizeof(var800a41c0) - 1); var800a41c0[sizeof(var800a41c0) - 1] = '\0';
 
 	if (!PAL && g_ViRes == VIRES_HI) {
 		scale = 2;
@@ -2404,9 +2404,9 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 	}
 
 	if (((s32)(g_20SecIntervalFrac * 30.0f) & 1) == 1) {
-		sprintf(arrows, ">> ");
+		snprintf(arrows, sizeof(arrows), ">> ");
 	} else {
-		sprintf(arrows, " >>");
+		snprintf(arrows, sizeof(arrows), " >>");
 	}
 
 	lensheight = tmplensheight;
@@ -2421,8 +2421,8 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 	gdl = text0f153838(gdl);
 
 	// Prepare text buffers
-	sprintf(directiontext, "%s %s:%03d", arrows, &directions[(turnangle + 22) / 45], turnangle);
-	sprintf(hertztext, "%s %s%s%4.2fh", arrows, "", "", menuGetCosOscFrac(4) * 4.6f + 917.4f);
+	snprintf(directiontext, sizeof(directiontext), "%s %s:%03d", arrows, &directions[(turnangle + 22) / 45], turnangle);
+	snprintf(hertztext, sizeof(hertztext), "%s %s%s%4.2fh", arrows, "", "", menuGetCosOscFrac(4) * 4.6f + 917.4f);
 
 	fovy = viGetFovY();
 
@@ -2432,7 +2432,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		fovy = ADJUST_ZOOM_FOV(60.0f) / fovy;
 	}
 
-	sprintf(zoomtext, "%s %s%s%4.2fX", arrows, "", "", fovy);
+	snprintf(zoomtext, sizeof(zoomtext), "%s %s%s%4.2fX", arrows, "", "", fovy);
 
 	gdl = text0f153628(gdl);
 
@@ -2449,7 +2449,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 
 	// Product name
 #if VERSION >= VERSION_NTSC_1_0
-	strcpy(nametext, " JMBC");
+	strncpy(nametext, " JMBC", sizeof(nametext) - 1); nametext[sizeof(nametext) - 1] = '\0';
 
 	if (!vsplit) {
 		strcat(nametext, " WIDE BAND");

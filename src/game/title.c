@@ -33,6 +33,7 @@
 #include "string.h"
 #include "video.h"
 #include "system.h"
+#include "assetcatalog.h" /* SA-5d: catalogGetPropFilenumByIndex */
 
 #define TITLE_ASPECT (videoGetAspect())
 
@@ -187,7 +188,7 @@ void titleTickLegal(void)
 			g_TitleTimer, titleGuardCanSkip(2000));
 	}
 
-	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(180)) {
+	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(210)) {
 		sysLogPrintf(LOG_NOTE, "INTRO: Legal done -> CHECKCONTROLLERS (timer=%d)", g_TitleTimer);
 		titleSetNextMode(TITLEMODE_CHECKCONTROLLERS);
 	}
@@ -290,17 +291,19 @@ struct legalelement g_LegalElements[] = {
 	{ 249, 211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083   }, // "NUS-NPDE-USA"
 	{ 249, 231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084   }, // "NTSC version 8.7 final"
 	{ 249, 251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085   }, // "Rare Ltd. (twycross)"
-	{ 69,  274, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
-	{ 69,  283, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076   }, // "N64 EXPANSION PAK"
-	{ -1,  283, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074   }, // "NOT DETECTED"
-	{ 69,  304, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
-	{ 69,  312, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_087   }, // "The Rarewere Logo and Perfect Dark are ..."
-	{ 69,  328, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_MPWEAPONS_280 }, // "Perfect Dark Registered Trademark No..."
-	{ 138, 343, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_088   }, // "Presented in Dolby Surround. Dolby and ..."
-	{ 69,  372, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_089   }, // "Uses Miles Sound System ..."
-	{ 69,  428, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
-	{ 69,  433, 0, 1, LEGALELEMENTTYPE_BLUETEXTSM,  L_OPTIONS_093   }, // "rare designs on the future <<<"
-	{ 69,  343, 0, 1, LEGALELEMENTTYPE_DOLBYLOGO,   0               },
+	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "PD2 Port Director:" },
+	{ 249, 271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "MikeHazeJr" },
+	{ 69,  294, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
+	{ 69,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076   }, // "N64 EXPANSION PAK"
+	{ -1,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074   }, // "NOT DETECTED"
+	{ 69,  324, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
+	{ 69,  332, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_087   }, // "The Rarewere Logo and Perfect Dark are ..."
+	{ 69,  348, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_MPWEAPONS_280 }, // "Perfect Dark Registered Trademark No..."
+	{ 138, 363, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_088   }, // "Presented in Dolby Surround. Dolby and ..."
+	{ 69,  392, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_089   }, // "Uses Miles Sound System ..."
+	{ 69,  448, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
+	{ 69,  453, 0, 1, LEGALELEMENTTYPE_BLUETEXTSM,  L_OPTIONS_093   }, // "rare designs on the future <<<"
+	{ 69,  363, 0, 1, LEGALELEMENTTYPE_DOLBYLOGO,   0               },
 #else
 	{ 49,  179, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_077 }, // "Nintendo 64 Product Identification"
 	{ 49,  200, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
@@ -312,22 +315,24 @@ struct legalelement g_LegalElements[] = {
 	{ 249, 227, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083 }, // "NUS-NPDE-USA"
 	{ 249, 247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084 }, // "NTSC version 8.7 final"
 	{ 249, 267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085 }, // "Rare Ltd. (twycross)"
-	{ 69,  290, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
-	{ 69,  299, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076 }, // "N64 EXPANSION PAK"
+	{ 69,  287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "PD2 Port Director:" },
+	{ 249, 287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "MikeHazeJr" },
+	{ 69,  310, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
+	{ 69,  319, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076 }, // "N64 EXPANSION PAK"
 #if VERSION >= VERSION_PAL_BETA
-	{ -1,  296, 0, 1, LEGALELEMENTTYPE_WHITETEXTSM, L_OPTIONS_075 }, // "tm"
-	{ -1,  299, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074 }, // "NOT DETECTED"
+	{ -1,  316, 0, 1, LEGALELEMENTTYPE_WHITETEXTSM, L_OPTIONS_075 }, // "tm"
+	{ -1,  319, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074 }, // "NOT DETECTED"
 #else
-	{ 266, 296, 0, 1, LEGALELEMENTTYPE_WHITETEXTSM, L_OPTIONS_075 }, // "tm"
-	{ 286, 299, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074 }, // "NOT DETECTED"
+	{ 266, 316, 0, 1, LEGALELEMENTTYPE_WHITETEXTSM, L_OPTIONS_075 }, // "tm"
+	{ 286, 319, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074 }, // "NOT DETECTED"
 #endif
-	{ 69,  320, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
-	{ 69,  328, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_087 }, // "The Rarewere Logo and Perfect Dark are ..."
-	{ 138, 343, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_088 }, // "Presented in Dolby Surround. Dolby and ..."
-	{ 69,  372, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_089 }, // "Uses Miles Sound System ..."
-	{ 69,  428, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
-	{ 69,  433, 0, 1, LEGALELEMENTTYPE_BLUETEXTSM,  L_OPTIONS_093 }, // "rare designs on the future <<<"
-	{ 69,  344, 0, 1, LEGALELEMENTTYPE_DOLBYLOGO,   0             },
+	{ 69,  340, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
+	{ 69,  348, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_087 }, // "The Rarewere Logo and Perfect Dark are ..."
+	{ 138, 363, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_088 }, // "Presented in Dolby Surround. Dolby and ..."
+	{ 69,  392, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_089 }, // "Uses Miles Sound System ..."
+	{ 69,  448, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
+	{ 69,  453, 0, 1, LEGALELEMENTTYPE_BLUETEXTSM,  L_OPTIONS_093 }, // "rare designs on the future <<<"
+	{ 69,  364, 0, 1, LEGALELEMENTTYPE_DOLBYLOGO,   0             },
 #endif
 };
 
@@ -407,6 +412,12 @@ Gfx *titleRenderLegal(Gfx *gdl)
 				font1 = g_CharsHandelGothicLg;
 				font2 = g_FontHandelGothicLg;
 				break;
+			}
+
+			// Gold colour for "MikeHazeJr" credit
+			if (elem->textptr && elem->textptr[0] == 'M' && elem->textptr[1] == 'i' &&
+					elem->textptr[2] == 'k' && elem->textptr[3] == 'e') {
+				colour = 0xffd700ff;
 			}
 
 			if (elem->type == LEGALELEMENTTYPE_LINE) {
@@ -565,8 +576,9 @@ void titleInitPdLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
-		g_ModelStates[MODEL_NLOGO].modeldef = modeldefLoad(g_ModelStates[MODEL_NLOGO].fileid, nextaddr, TITLE_ALLOCSIZE, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_NLOGO].fileid));
+		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO); /* SA-5d */
+		g_ModelStates[MODEL_NLOGO].modeldef = modeldefLoad(fid, nextaddr, TITLE_ALLOCSIZE, 0);
+		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining = TITLE_ALLOCSIZE - size;
 		modelAllocateRwData(g_ModelStates[MODEL_NLOGO].modeldef);
@@ -578,8 +590,9 @@ void titleInitPdLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
-		g_ModelStates[MODEL_NLOGO2].modeldef = modeldefLoad(g_ModelStates[MODEL_NLOGO2].fileid, nextaddr, remaining, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_NLOGO2].fileid));
+		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO2); /* SA-5d */
+		g_ModelStates[MODEL_NLOGO2].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
 		modelAllocateRwData(g_ModelStates[MODEL_NLOGO2].modeldef);
@@ -591,8 +604,9 @@ void titleInitPdLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
-		g_ModelStates[MODEL_PDTWO].modeldef = modeldefLoad(g_ModelStates[MODEL_PDTWO].fileid, nextaddr, remaining, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_PDTWO].fileid));
+		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTWO); /* SA-5d */
+		g_ModelStates[MODEL_PDTWO].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
 		modelAllocateRwData(g_ModelStates[MODEL_PDTWO].modeldef);
@@ -605,8 +619,9 @@ void titleInitPdLogo(void)
 #if VERSION == VERSION_JPN_FINAL
 	{
 		struct coord coord = {0, 0, 0};
-		g_ModelStates[MODEL_JPNLOGO].modeldef = modeldefLoad(g_ModelStates[MODEL_JPNLOGO].fileid, nextaddr, remaining, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_JPNLOGO].fileid));
+		s32 fid_jpnlogo = catalogGetPropFilenumByIndex(MODEL_JPNLOGO); /* SA-5d */
+		g_ModelStates[MODEL_JPNLOGO].modeldef = modeldefLoad(fid_jpnlogo, nextaddr, remaining, 0);
+		size = ALIGN64(fileGetLoadedSize(fid_jpnlogo));
 		nextaddr += size;
 		remaining -= size;
 		modelAllocateRwData(g_ModelStates[MODEL_JPNLOGO].modeldef);
@@ -618,8 +633,11 @@ void titleInitPdLogo(void)
 		modelSetRootPosition(g_TitleModelJpnLogo1, &coord);
 		modelSetRootPosition(g_TitleModelJpnLogo2, &coord);
 
-		g_ModelStates[MODEL_JPNPD].modeldef = modeldefLoad(g_ModelStates[MODEL_JPNPD].fileid, nextaddr, remaining, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_JPNPD].fileid));
+		{
+			s32 fid_jpnpd = catalogGetPropFilenumByIndex(MODEL_JPNPD); /* SA-5d */
+			g_ModelStates[MODEL_JPNPD].modeldef = modeldefLoad(fid_jpnpd, nextaddr, remaining, 0);
+			size = ALIGN64(fileGetLoadedSize(fid_jpnpd));
+		}
 		nextaddr += size;
 		remaining -= size;
 		modelAllocateRwData(g_ModelStates[MODEL_JPNPD].modeldef);
@@ -632,8 +650,9 @@ void titleInitPdLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
-		g_ModelStates[MODEL_PDTHREE].modeldef = modeldefLoad(g_ModelStates[MODEL_PDTHREE].fileid, nextaddr, remaining, 0);
-		size = ALIGN64(fileGetLoadedSize(g_ModelStates[MODEL_PDTHREE].fileid));
+		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTHREE); /* SA-5d */
+		g_ModelStates[MODEL_PDTHREE].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
 		modelAllocateRwData(g_ModelStates[MODEL_PDTHREE].modeldef);
@@ -1817,7 +1836,7 @@ void titleInitNintendoLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 
-		g_ModelStates[MODEL_NINTENDOLOGO].modeldef = modeldefLoad(g_ModelStates[MODEL_NINTENDOLOGO].fileid, nextaddr, TITLE_ALLOCSIZE, 0);
+		g_ModelStates[MODEL_NINTENDOLOGO].modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_NINTENDOLOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
 
 		modelAllocateRwData(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
 		g_TitleModel = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
@@ -1977,7 +1996,7 @@ void titleInitRareLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 
-		g_ModelStates[MODEL_RARELOGO].modeldef = modeldefLoad(g_ModelStates[MODEL_RARELOGO].fileid, nextaddr, TITLE_ALLOCSIZE, 0);
+		g_ModelStates[MODEL_RARELOGO].modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_RARELOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
 
 		modelAllocateRwData(g_ModelStates[MODEL_RARELOGO].modeldef);
 		g_TitleModel = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_RARELOGO].modeldef);

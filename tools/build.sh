@@ -126,10 +126,11 @@ if [[ ! -f "$SOURCE_DIR/CMakeLists.txt" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build directory — unique per invocation
+# Build directory — unique per invocation, nested under ClaudeBuilds/
 # ---------------------------------------------------------------------------
 BUILD_ID="build_test_$$_$(date +%Y%m%d_%H%M%S)"
-BUILD_DIR="$SOURCE_DIR/$BUILD_ID"
+CLAUDE_BUILDS_DIR="$SOURCE_DIR/ClaudeBuilds"
+BUILD_DIR="$CLAUDE_BUILDS_DIR/$BUILD_ID"
 LOG_FILE="$BUILD_DIR/build.log"
 
 mkdir -p "$BUILD_DIR"
@@ -367,6 +368,7 @@ if [[ $ALL_OK -eq 1 ]]; then
     echo "  Cleaning up build directory..."
     rm -rf "$BUILD_DIR"
     echo "  Cleaned: $BUILD_DIR"
+    rmdir "$CLAUDE_BUILDS_DIR" 2>/dev/null && echo "  Removed empty ClaudeBuilds/" || true
 else
     echo "  Result: FAILED"
     echo "  Build dir preserved: $BUILD_DIR"

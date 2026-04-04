@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 #include "net/net.h"
 #include "net/netbuf.h"
+#include "net/netmanifest.h"
 
 #define SVC_BAD           0x00 // trash
 #define SVC_NOP           0x01 // does nothing
@@ -34,6 +35,7 @@
 #define SVC_NPC_STATE     0x49 // NPC state update (co-op only: health, flags, alertness)
 #define SVC_NPC_SYNC      0x4A // NPC sync checksum for desync detection (co-op only)
 #define SVC_NPC_RESYNC    0x4B // full NPC state correction (co-op only)
+#define SVC_BOT_AUTHORITY 0x4C // server→designated client: you are the bot AI authority (relay positions via CLC_BOT_MOVE)
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
@@ -41,12 +43,24 @@
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
 #define SVC_LOBBY_STATE   0x61 // server broadcasts lobby state (game mode, stage, etc.)
 
+/* Phase A: Match Startup Pipeline (protocol v24) */
+#define SVC_MATCH_MANIFEST  0x62 // server→room: full asset manifest for the upcoming match
+#define SVC_MATCH_COUNTDOWN 0x63 // server→room: ready-gate progress (n/total ready, phase, countdown)
+#define SVC_MATCH_CANCELLED 0x64 // server→room: countdown aborted; includes canceller name
+
+/* SA-1: Session Catalog */
+#define SVC_SESSION_CATALOG 0x67 // server→room: session ID mapping table
+
 /* D3R-9: Network Distribution (protocol v20) */
-#define SVC_CATALOG_INFO    0x70 // server→client: list of required component (net_hash, id, category)
+#define SVC_CATALOG_INFO    0x70 // server→client: list of required component (id, category) — v27: no net_hash
 #define SVC_DISTRIB_BEGIN   0x71 // server→client: start of a component archive transfer
 #define SVC_DISTRIB_CHUNK   0x72 // server→client: one compressed chunk of the component archive
 #define SVC_DISTRIB_END     0x73 // server→client: component transfer complete (success/fail)
 #define SVC_LOBBY_KILL_FEED 0x74 // server→spectating clients: kill event with pre-resolved names
+
+/* R-3: Room networking (protocol v29) */
+#define SVC_ROOM_LIST   0x75 // server→all: full room list snapshot (on any room change)
+#define SVC_ROOM_ASSIGN 0x76 // server→client: "you are now in room X" (0xFF = lounge)
 
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
@@ -58,8 +72,21 @@
 #define CLC_COOP_READY  0x07 // client signals ready for co-op mission start
 #define CLC_LOBBY_START 0x08 // lobby leader requests match start {gamemode, stagenum, difficulty}
 
+
 /* D3R-9: Network Distribution (protocol v20) */
-#define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component net_hashes
+#define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component catalog ID strings
+
+/* Bot authority relay (protocol v28) */
+#define CLC_BOT_MOVE      0x0A // bot-authority client→server: bot positions for server relay via SVC_CHR_MOVE
+
+/* R-3: Room networking (protocol v29) */
+#define CLC_ROOM_CREATE  0x10 // client→server: create a new room
+#define CLC_ROOM_JOIN    0x11 // client→server: join room by id
+#define CLC_ROOM_LEAVE   0x12 // client→server: leave current room
+
+/* Phase A: Match Startup Pipeline (protocol v24) */
+#define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
+#define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)
 
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
@@ -145,7 +172,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
 u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status);
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, const char *stage_id, u8 status);
 u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 
 /* D3R-9: Network Distribution (protocol v20) */
@@ -154,24 +181,99 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst);
 u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl);
 
-/* CLC_CATALOG_DIFF: client→server, which components the client is missing */
-u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes, u16 count, u8 temporary);
+/* CLC_CATALOG_DIFF: client→server, which components the client is missing.
+ * v27: catalog ID strings replace u32 net_hash values. */
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const char (*missing_ids)[CATALOG_ID_LEN], u16 count, u8 temporary);
 u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl);
 
-/* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream */
-u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+/* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream.
+ * v27: catalog ID string replaces u32 net_hash as component identity on the wire. */
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
                                 const char *category, u32 total_chunks, u32 archive_bytes);
 u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, const char *catalog_id, u16 chunk_idx,
                                 u8 compression, const u8 *data, u16 data_len);
 u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success);
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, const char *catalog_id, u8 success);
 u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl);
 
 /* SVC_LOBBY_KILL_FEED: server→spectating clients, pre-resolved kill event */
 u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker, const char *victim,
                                  const char *weapon, u8 flags);
 u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
+
+/* Phase A: Match Startup Pipeline (protocol v24) */
+
+/* SVC_MATCH_MANIFEST: server→room, complete asset list for the upcoming match */
+u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest);
+u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl);
+
+/* CLC_MANIFEST_STATUS: client→server, catalog check result.
+ * v27: missing list uses catalog ID strings, not net_hash u32 values. */
+u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing);
+u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_MATCH_COUNTDOWN: server→room, ready-gate progress broadcast */
+u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_count,
+                                  u8 phase, u8 countdown_secs);
+u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl);
+
+/* CLC_LOBBY_CANCEL: any client→server, abort the countdown */
+u32 netmsgClcLobbyCancelWrite(struct netbuf *dst);
+u32 netmsgClcLobbyCancelRead(struct netbuf *src, struct netclient *srccl);
+
+/* SVC_MATCH_CANCELLED: server→room, countdown aborted; includes canceller name */
+u32 netmsgSvcMatchCancelledWrite(struct netbuf *dst, const char *canceller_name);
+u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl);
+
+/* SA-1: SVC_SESSION_CATALOG */
+u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl);
+
+/* Bot authority relay (protocol v28) */
+u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst);
+u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcBotMoveWrite(struct netbuf *dst);
+u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
+
+/* Phase F: client-side countdown display state — updated by SVC_MATCH_COUNTDOWN handler. */
+struct match_countdown_state {
+    u8  ready_count;     /* clients that have responded READY */
+    u8  total_count;     /* total expected clients */
+    u8  phase;           /* MANIFEST_PHASE_* */
+    u8  countdown_secs;  /* seconds remaining (meaningful when phase == MANIFEST_PHASE_LOADING) */
+    s32 active;          /* 1 once at least one countdown has been received */
+};
+extern struct match_countdown_state g_MatchCountdownState;
+
+/* Max length for the canceller name in SVC_MATCH_CANCELLED (matches lobby name limit). */
+#define MATCH_CANCEL_NAME_LEN 32
+
+/* Client-side cancellation state — updated by SVC_MATCH_CANCELLED handler.
+ * UI reads this to display "[Name] cancelled the match start". */
+struct match_cancelled_state {
+    s32  active;                      /* 1 while the message is pending display */
+    char name[MATCH_CANCEL_NAME_LEN]; /* name of the player who cancelled */
+};
+extern struct match_cancelled_state g_MatchCancelledState;
+
+/* R-3: Room networking (protocol v29) */
+u32 netmsgSvcRoomListWrite(struct netbuf *dst);
+u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
+u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl);
+
+void netBroadcastRoomList(void);
+
+/* Phase F: Drive the server-side launch countdown.
+ * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
+void readyGateTickCountdown(void);
 
 /* Prop syncid → prop* lookup map.
  * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.

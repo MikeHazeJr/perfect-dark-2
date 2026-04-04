@@ -469,7 +469,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = idx;
+		e->runtime_index = g_MpBodies[idx].bodynum;  /* g_HeadsAndBodies[] index, not g_MpBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
@@ -483,22 +483,35 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	/* ---- Register heads ---- */
 	/*
-	 * Heads are registered as ASSET_HEAD with ext.head fields populated
-	 * from g_MpHeads[]. Same catalog-as-truth pattern as bodies and arenas.
+	 * Register ALL 76 g_MpHeads[] entries as ASSET_HEAD — including any not
+	 * covered by s_BaseHeads[].  s_BaseHeads[] serves as the human-readable
+	 * name lookup table; entries not found there get a "head_%d" fallback ID.
+	 * This ensures SP-only and unlockable heads are all in the catalog;
+	 * availability for MP selection is an unlock/gameplay decision, not a
+	 * registration decision.
 	 */
 	s32 head_count = 0;
-	for (s32 i = 0; i < (s32)NUM_BASE_HEADS; i++) {
-		const s32 idx = s_BaseHeads[i].index;
-		if (idx < 0 || idx >= 76) {
-			continue;
+	for (s32 mpidx = 0; mpidx < 76; mpidx++) {
+		/* Look up the human-readable name in s_BaseHeads[] */
+		const char *head_name = NULL;
+		for (s32 j = 0; j < (s32)NUM_BASE_HEADS; j++) {
+			if (s_BaseHeads[j].index == mpidx) {
+				head_name = s_BaseHeads[j].name;
+				break;
+			}
+		}
+		char fallback_name[32];
+		if (!head_name) {
+			snprintf(fallback_name, sizeof(fallback_name), "head_%d", mpidx);
+			head_name = fallback_name;
 		}
 
-		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseHeads[i].name);
+		snprintf(idbuf, sizeof(idbuf), "base:%s", head_name);
 
 		asset_entry_t *e = assetCatalogRegisterHead(
 			idbuf,
-			g_MpHeads[idx].headnum,
-			g_MpHeads[idx].requirefeature
+			g_MpHeads[mpidx].headnum,
+			g_MpHeads[mpidx].requirefeature
 		);
 		if (!e) {
 			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base head %s", idbuf);
@@ -508,16 +521,16 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = idx;
+		e->runtime_index = g_MpHeads[mpidx].headnum;  /* g_HeadsAndBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
 		/* C-2-ext: record the ROM filenum for this head model */
-		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[idx].headnum].filenum;
+		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
 		head_count++;
 	}
 
-	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads", head_count);
+	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base heads (all g_MpHeads[])", head_count);
 	count += head_count;
 
 	/* ---- Register arenas ---- */
@@ -526,7 +539,38 @@ s32 assetCatalogRegisterBaseGame(void)
 	 * Group mapping reads stagenum, requirefeature, and name directly
 	 * from g_MpArenas[] (preserves VERSION-conditional lang IDs).
 	 * Category field stores the arena group name for dropdown grouping.
+	 *
+	 * Human-readable arena names (Part 2: Phase B human-readable ID migration).
+	 * Maps g_MpArenas[] index → slug used in "base:arena_<slug>" catalog ID.
+	 * Indices 32-54 (GEX stages) are never registered; those slots use NULL.
 	 */
+	static const char *const s_ArenaNames[75] = {
+		/* Dark MP arenas (0-12) */
+		"mp_skedar",    "mp_pipes",     "mp_ravine",    "mp_g5building",
+		"mp_sewers",    "mp_warehouse", "mp_grid",      "mp_ruins",
+		"mp_area52",    "mp_base",      "mp_fortress",  "mp_villa",
+		"mp_carpark",
+		/* Solo Mission arenas (13-26) */
+		"defection",    "investigation","villa",        "chicago",
+		"g5building",   "infiltration", "airbase",      "airforceone",
+		"crashsite",    "pelagic",      "deepsea",      "defense",
+		"attackship",   "skedarruins",
+		/* Classic arenas (27-31) */
+		"mp_temple",    "mp_complex",   "mp_grid6",     "mp_grid2",
+		"mp_felicity",
+		/* GEX (32-54) — never registered; keep slots as NULL */
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+		/* Bonus arenas (55-70) */
+		"stage_24",     "mp_grid7",     "test_arch",    "test_dest",
+		"extra16",      "extra17",      "extra18",      "extra19",
+		"extra20",      "extra21",      "extra22",      "extra23",
+		"extra24",      "extra26",      "test_lam",     /* index 69 */
+		NULL,           /* index 70: extra25=Paradox, removed */
+		/* Random (71-72) */
+		"mp_random_multi", "mp_random_solo",
+		/* 73-74: Random GEX + junk — not registered */
+	};
 	static const struct {
 		s32 first;           /* first index in g_MpArenas[] */
 		s32 count;           /* number of arenas in this group */
@@ -535,10 +579,11 @@ s32 assetCatalogRegisterBaseGame(void)
 		{  0, 13, "Dark" },
 		{ 13, 14, "Solo Missions" },
 		{ 27,  5, "Classic" },
-		{ 32, 11, "GoldenEye X" },
-		{ 43, 12, "GoldenEye X Bonus" },
+		/* indices 32-54 (GoldenEye X / GoldenEye X Bonus) intentionally
+		 * omitted — those mod maps are not part of this project. */
 		{ 55, 16, "Bonus" },
-		{ 71,  4, "Random" },
+		{ 71,  2, "Random" }, /* Random Multi (71) + Random Solo (72) only;
+		                       * index 73 (Random GEX) and 74 (junk) omitted */
 	};
 	#define NUM_ARENA_GROUPS (sizeof(s_ArenaGroupMap) / sizeof(s_ArenaGroupMap[0]))
 
@@ -550,7 +595,17 @@ s32 assetCatalogRegisterBaseGame(void)
 				continue;
 			}
 
-			snprintf(idbuf, sizeof(idbuf), "base:arena_%d", idx);
+			/* Paradox (STAGE_EXTRA25 = 0x5e): map data removed from game, skip */
+			if (g_MpArenas[idx].stagenum == 0x5e) {
+				continue;
+			}
+
+			/* Skip any arena whose name entry is NULL (GEX slots, missing entries) */
+			if (!s_ArenaNames[idx]) {
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf), "base:arena_%s", s_ArenaNames[idx]);
 
 			asset_entry_t *e = assetCatalogRegisterArena(
 				idbuf,
@@ -582,9 +637,107 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	#undef NUM_ARENA_GROUPS
 
+	/* ---- Register full-game bodies/heads not covered by MP arrays ---- */
+	/*
+	 * g_HeadsAndBodies[152] contains every character model in the game.
+	 * g_MpBodies[]/g_MpHeads[] are the MP-selectable subsets. Build a
+	 * coverage mask to find entries not yet registered, then register them
+	 * as "base:sp_body_N" / "base:sp_head_N" so the manifest pipeline and
+	 * future character selectors can reference any base-game model.
+	 *
+	 * unk00_01 == 1 means the entry is a standalone head model;
+	 * unk00_01 == 0 means it is a full body model.
+	 * filenum == 0 marks the null sentinel at index 0x97 — skip it.
+	 * BODY_TESTCHR (0x70) is a dev placeholder — skip it.
+	 */
+	{
+		s32 sp_body_count = 0;
+		s32 sp_head_count = 0;
+		u8 covered[152] = {0};
+
+		/* Mark only indices that were ACTUALLY registered by the MP loops above.
+		 * Previously this loop iterated all 63/76 entries of g_MpBodies[]/g_MpHeads[],
+		 * but the MP registration loop only covers entries present in s_BaseBodies[]/
+		 * s_BaseHeads[].  Any g_MpBodies[]/g_MpHeads[] entry not in those tables would
+		 * be marked "covered" here without ever being registered — FIX-24. */
+		for (s32 i = 0; i < (s32)NUM_BASE_BODIES; i++) {
+			s32 idx = s_BaseBodies[i].index;
+			if (idx >= 0 && idx < 63) {
+				s32 bn = (s32)g_MpBodies[idx].bodynum;
+				if (bn > 0 && bn < 152) covered[bn] = 1;
+			}
+		}
+		for (s32 i = 0; i < (s32)NUM_BASE_HEADS; i++) {
+			s32 idx = s_BaseHeads[i].index;
+			if (idx >= 0 && idx < 76) {
+				s32 hn = (s32)g_MpHeads[idx].headnum;
+				if (hn > 0 && hn < 152) covered[hn] = 1;
+			}
+		}
+
+		for (s32 i = 0; i < 152; i++) {
+			if (covered[i]) {
+				continue;
+			}
+			if (g_HeadsAndBodies[i].filenum == 0) {
+				continue; /* null sentinel */
+			}
+			if (i == BODY_TESTCHR) {
+				continue; /* dev placeholder */
+			}
+
+			if (g_HeadsAndBodies[i].unk00_01) {
+				/* Standalone head model */
+				snprintf(idbuf, sizeof(idbuf), "base:sp_head_%d", i);
+				asset_entry_t *e = assetCatalogRegisterHead(idbuf, (s16)i, 0);
+				if (e) {
+					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+					e->bundled = 1;
+					e->enabled = 1;
+					e->runtime_index = i;
+					e->load_state = ASSET_STATE_LOADED;
+					e->ref_count = ASSET_REF_BUNDLED;
+					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					sp_head_count++;
+				}
+			} else {
+				/* Full body model */
+				snprintf(idbuf, sizeof(idbuf), "base:sp_body_%d", i);
+				asset_entry_t *e = assetCatalogRegisterBody(idbuf, (s16)i, 0, -1, 0);
+				if (e) {
+					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+					e->bundled = 1;
+					e->enabled = 1;
+					e->runtime_index = i;
+					e->load_state = ASSET_STATE_LOADED;
+					e->ref_count = ASSET_REF_BUNDLED;
+					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					sp_body_count++;
+				}
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d sp bodies, %d sp heads from g_HeadsAndBodies[152]",
+			sp_body_count, sp_head_count);
+		count += sp_body_count + sp_head_count;
+	}
+
 	/* Weapons and game modes are registered by assetCatalogRegisterBaseGameExtended()
 	 * below with full rich ext fields. Do not register them here to avoid
 	 * duplicate catalog entries. */
+
+	/* D5.0a spike: register placeholder UI texture entry.
+	 * pdguiGetUiTexture("ui/test_panel") uses this catalog entry as the ID key
+	 * for its synthetic test pattern.  D5.0 will replace the placeholder with
+	 * real ROM texture data (texnum, width, height, format). */
+	{
+		asset_entry_t *e = assetCatalogRegister("ui/test_panel", ASSET_UI);
+		if (e) {
+			e->bundled = 1;
+			e->enabled = 1;
+			count++;
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: base game registration complete (%d total entries)", count);
 

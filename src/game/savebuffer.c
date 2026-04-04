@@ -607,9 +607,9 @@ void formatTime(char *dst, s32 time60, s32 precision)
 
 	for (i = 0; i <= precision; i++) {
 		if (donefirst) {
-			len += sprintf(&dst[len], ":%02d", parts[i]);
+			len += snprintf(&dst[len], 32, ":%02d", parts[i]);
 		} else if (parts[i] != 0 || i >= TIMEPRECISION_MINUTES) {
-			len += sprintf(&dst[len], "%d", parts[i]);
+			len += snprintf(&dst[len], 32, "%d", parts[i]);
 			donefirst = true;
 		}
 	}

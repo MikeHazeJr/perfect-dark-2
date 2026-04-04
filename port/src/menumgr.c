@@ -10,7 +10,9 @@
  */
 
 #include "menumgr.h"
+#include "input.h"
 #include "system.h"
+#include "pdmain.h"
 #include <string.h>
 #include <SDL.h>
 
@@ -41,6 +43,37 @@ static void startCooldown(void)
     s_CooldownEndMs = SDL_GetTicks() + MENU_COOLDOWN_MS;
 }
 
+/* Dump the full stack contents to the log as a single MENU_STACK: line.
+ * Called after every push/pop so diagnostics show the exact stack state. */
+static void logStack(const char *action)
+{
+    char buf[256];
+    s32 pos = 0;
+    s32 i;
+    for (i = 0; i < s_StackDepth && pos < (s32)(sizeof(buf) - 2); i++) {
+        if (i > 0) {
+            buf[pos++] = '>';
+        }
+        const char *name = menuGetName(s_MenuStack[i]);
+        while (*name && pos < (s32)(sizeof(buf) - 2)) {
+            buf[pos++] = *name++;
+        }
+    }
+    buf[pos] = '\0';
+    if (s_StackDepth == 0) {
+        sysLogPrintf(LOG_NOTE, "MENU_STACK: %s [] depth=0", action);
+    } else {
+        sysLogPrintf(LOG_NOTE, "MENU_STACK: %s [%s] depth=%d top=%s",
+            action, buf, s_StackDepth, menuGetName(menuGetCurrent()));
+    }
+}
+
+/* E.2: Called when the menu stack empties to restore gameplay input ownership. */
+static void restoreGameplayMouseCapture(void)
+{
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+}
+
 void menuMgrInit(void)
 {
     memset(s_MenuStack, 0, sizeof(s_MenuStack));
@@ -52,12 +85,15 @@ void menuMgrInit(void)
 s32 menuPush(menu_state_e menu)
 {
     if (s_StackDepth >= MENU_STACK_MAX) {
-        sysLogPrintf(LOG_WARNING, "MENU: stack full, cannot push %s", menuGetName(menu));
+        sysLogPrintf(LOG_WARNING, "MENU_STACK: FULL cannot push %s (max=%d)", menuGetName(menu), MENU_STACK_MAX);
         return 0;
     }
 
-    /* Don't push the same menu that's already on top */
-    if (s_StackDepth > 0 && s_MenuStack[s_StackDepth - 1] == menu) {
+    /* E.1: Reject if this menu is already anywhere in the stack (not just on top).
+     * Prevents Esc or rapid input from creating duplicate menu instances. */
+    if (menuIsInStack(menu)) {
+        sysLogPrintf(LOG_NOTE, "MENU_STACK: REJECTED push %s (already in stack, depth=%d)",
+            menuGetName(menu), s_StackDepth);
         return 1;
     }
 
@@ -65,7 +101,7 @@ s32 menuPush(menu_state_e menu)
     s_StackDepth++;
     startCooldown();
 
-    sysLogPrintf(LOG_NOTE, "MENU: push %s (depth=%d)", menuGetName(menu), s_StackDepth);
+    logStack("push");
     return 1;
 }
 
@@ -80,20 +116,31 @@ menu_state_e menuPop(void)
     s_MenuStack[s_StackDepth] = MENU_NONE;
     startCooldown();
 
-    sysLogPrintf(LOG_NOTE, "MENU: pop %s -> now %s (depth=%d)",
-        menuGetName(popped), menuGetName(menuGetCurrent()), s_StackDepth);
+    logStack("pop");
+    sysLogPrintf(LOG_NOTE, "MENU_STACK: popped=%s", menuGetName(popped));
+
+    /* E.2: Restore gameplay mouse capture when returning to MENU_NONE. */
+    if (s_StackDepth == 0) {
+        restoreGameplayMouseCapture();
+    }
+
     return popped;
 }
 
 void menuPopAll(void)
 {
     if (s_StackDepth > 0) {
-        sysLogPrintf(LOG_NOTE, "MENU: popAll from %s (depth=%d)",
+        sysLogPrintf(LOG_NOTE, "MENU_STACK: popAll from %s depth=%d",
             menuGetName(menuGetCurrent()), s_StackDepth);
     }
     s_StackDepth = 0;
     memset(s_MenuStack, 0, sizeof(s_MenuStack));
     startCooldown();
+
+    logStack("popAll");
+
+    /* E.2: Restore gameplay mouse capture now that no menus are on the stack. */
+    restoreGameplayMouseCapture();
 }
 
 menu_state_e menuGetCurrent(void)

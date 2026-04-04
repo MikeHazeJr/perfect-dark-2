@@ -181,7 +181,7 @@ static MenuItemHandlerResult menuhandlerMouseSpeedX(s32 operation, struct menuit
 		inputMouseSetSpeed((f32)data->slider.value / 100.f, y);
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%.2f", (f32)data->slider.value / 100.f);
+		snprintf(data->slider.label, 16, "%.2f", (f32)data->slider.value / 100.f);
 	}
 
 	return 0;
@@ -207,7 +207,7 @@ static MenuItemHandlerResult menuhandlerMouseSpeedY(s32 operation, struct menuit
 		inputMouseSetSpeed(x, (f32)data->slider.value / 100.f);
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%.2f", (f32)data->slider.value / 100.f);
+		snprintf(data->slider.label, 16, "%.2f", (f32)data->slider.value / 100.f);
 	}
 
 	return 0;
@@ -229,7 +229,7 @@ static MenuItemHandlerResult menuhandlerMouseAimSpeedX(s32 operation, struct men
 		g_PlayerExtCfg[g_ExtMenuPlayer].mouseaimspeedx = (f32)data->slider.value / 100.f;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%.2f", (f32)data->slider.value / 100.f);
+		snprintf(data->slider.label, 16, "%.2f", (f32)data->slider.value / 100.f);
 	}
 
 	return 0;
@@ -251,7 +251,7 @@ static MenuItemHandlerResult menuhandlerMouseAimSpeedY(s32 operation, struct men
 		g_PlayerExtCfg[g_ExtMenuPlayer].mouseaimspeedy = (f32)data->slider.value / 100.f;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%.2f", (f32)data->slider.value / 100.f);
+		snprintf(data->slider.label, 16, "%.2f", (f32)data->slider.value / 100.f);
 	}
 
 	return 0;
@@ -273,7 +273,7 @@ static MenuItemHandlerResult menuhandlerRadialMenuSpeed(s32 operation, struct me
 		g_PlayerExtCfg[0].radialmenuspeed = (f32)data->slider.value / 100.f;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%.2f", (f32)data->slider.value / 100.f);
+		snprintf(data->slider.label, 16, "%.2f", (f32)data->slider.value / 100.f);
 	}
 
 	return 0;
@@ -780,9 +780,9 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 	case MENUOP_GETSLIDERLABEL:
 		// NOTE: data->slider.label length must not exceed 15.
 		if (data->slider.value == 0) {
-			strcpy(data->slider.label, "Off");
+			strncpy(data->slider.label, "Off", 15); data->slider.label[15] = '\0';
 		} else {
-			sprintf(data->slider.label, "%d FPS", data->slider.value);
+			snprintf(data->slider.label, 16, "%d FPS", data->slider.value);
 		}
 	}
 
@@ -1507,9 +1507,9 @@ static MenuItemHandlerResult menuhandlerPlayerJumpHeight(s32 operation, struct m
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 0) {
-			strcpy(data->slider.label, "Match");
+			strncpy(data->slider.label, "Match", 15); data->slider.label[15] = '\0';
 		} else {
-			sprintf(data->slider.label, "%.1f", (f32)data->slider.value / 10.f);
+			snprintf(data->slider.label, 16, "%.1f", (f32)data->slider.value / 10.f);
 		}
 		break;
 	}

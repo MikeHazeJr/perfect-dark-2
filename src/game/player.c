@@ -57,6 +57,7 @@
 #include "bss.h"
 #include "lib/ailist.h"
 #include "lib/collision.h"
+#include "lib/meshcollision.h"
 #include "lib/joy.h"
 #include "lib/lib_17ce0.h"
 #include "lib/vi.h"
@@ -76,6 +77,8 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "net/matchsetup.h"
+#include "assetcatalog.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -219,7 +222,12 @@ s32 g_NumDeathAnimations = 0;
  *
  * Arrays sized to MAX_MPCHRS (32) to support stock maps (max 21 pads)
  * and future custom maps with up to 32 spawn points.
- */
+ *
+ * F.1: Anti-repeat tracking. The last-used pad number is remembered across
+ * calls. When the shortlist has >1 entry, the previously used pad is removed
+ * so the same spawn can't repeat back-to-back. */
+static s16 s_LastSpawnPad = -1;
+
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
 	u8 verybadpads[MAX_MPCHRS];
@@ -516,6 +524,23 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		padsqdists[i] = -1.0f;
 	}
 
+	// F.1: Remove last-used pad from the shortlist to prevent back-to-back repeats.
+	// Only applies when there are at least 2 entries so we always have a choice.
+	if (sllen > 1 && s_LastSpawnPad >= 0) {
+		s32 li;
+		for (li = 0; li < sllen; li++) {
+			if (pads[slpadindexes[li]] == s_LastSpawnPad) {
+				// Swap to end and shrink — preserves order of other entries
+				sllen--;
+				slpadindexes[li] = slpadindexes[sllen];
+				slpositions[li] = slpositions[sllen];
+				slangles[li] = slangles[sllen];
+				roomsCopy(slrooms[sllen], slrooms[li]);
+				break;
+			}
+		}
+	}
+
 	// Finally, choose a random pad from the shortlist
 	if (sllen > 0) {
 		p = rngRandom() % sllen;
@@ -527,6 +552,8 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		roomsCopy(slrooms[p], dstrooms);
 
 		dstangle = slangles[p];
+
+		s_LastSpawnPad = pads[slpadindexes[p]];
 	} else {
 		// No shortlisted pads, so pick a random one from the full selection
 		padUnpack(pads[rngRandom() % numpads], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
@@ -1183,32 +1210,54 @@ void playerSpawn(void)
 				invGiveSingleWeapon(WEAPON_NIGHTVISION);
 			}
 
-			if ((g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-					&& g_MpSetup.weapons[0] != MPWEAPON_NONE
-					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-				struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-				invGiveSingleWeapon(mpweapon->weaponnum);
-				const s32 ammotype = (g_MpSetup.weapons[0] == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
-				if (ammotype) {
-					s32 startammo = mpweapon->priammoqty / 2;
-					if (startammo == 0) {
-						startammo = 1;
+			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+				/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+				 * 0xFF = Random → fall through to weapons[0] from the active set. */
+				struct mpweapon *mpweapon = NULL;
+				s32 resolvedWeaponNum = 0;
+				if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+					s32 wi;
+					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
+					for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
+						if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
+							mpweapon = &g_MpWeapons[wi];
+							break;
+						}
 					}
-					bgunSetAmmoQuantity(ammotype, startammo);
+				} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
+						&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
+						&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
+					mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
+					resolvedWeaponNum = mpweapon->weaponnum;
 				}
-				bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
-				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
-				sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
-						g_Vars.currentplayernum, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
-			} else
-			{
+				if (resolvedWeaponNum > 0) {
+					invGiveSingleWeapon(resolvedWeaponNum);
+					if (mpweapon) {
+						const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
+							? AMMOTYPE_BOOST : mpweapon->priammotype;
+						if (ammotype) {
+							s32 startammo = mpweapon->priammoqty / 2;
+							if (startammo == 0) {
+								startammo = 1;
+							}
+							bgunSetAmmoQuantity(ammotype, startammo);
+						}
+					}
+					bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+					bgunEquipWeapon2(HAND_RIGHT, resolvedWeaponNum);
+					sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
+							g_Vars.currentplayernum, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
+				} else {
+					bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
+					bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
+					if (g_Vars.normmplayerisrunning) {
+						sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
+								g_Vars.currentplayernum, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+					}
+				}
+			} else {
 				bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
 				bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
-				if (g_Vars.normmplayerisrunning) {
-					sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- no spawn weapon (options=0x%08x weapons[0]=%d)",
-							g_Vars.currentplayernum, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
-				}
 			}
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -1538,14 +1587,18 @@ void playerTickChrBody(void)
 			offset1 += sizeof(struct weaponobj);
 			offset1 = ALIGN64(offset1);
 
-			offset2 = offset1 + ALIGN64(fileGetInflatedSize(g_HeadsAndBodies[bodynum].filenum, LOADTYPE_MODEL));
+			/* SA-5a: resolve mod-override-aware filenums once for this load sequence */
+			s32 body_filenum_1p = catalogGetBodyFilenumByIndex(bodynum);
+			s32 head_filenum_1p = (headnum >= 0) ? catalogGetHeadFilenumByIndex(headnum) : -1;
+
+			offset2 = offset1 + ALIGN64(fileGetInflatedSize(body_filenum_1p, LOADTYPE_MODEL));
 
 			if (headnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(g_HeadsAndBodies[headnum].filenum, LOADTYPE_MODEL));
+				offset2 += ALIGN64(fileGetInflatedSize(head_filenum_1p, LOADTYPE_MODEL));
 			}
 
 			if (weaponmodelnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(g_ModelStates[weaponmodelnum].fileid, LOADTYPE_MODEL));
+				offset2 += ALIGN64(fileGetInflatedSize(catalogGetPropFilenumByIndex(weaponmodelnum), LOADTYPE_MODEL)); /* SA-5c */
 			}
 
 			offset2 += 0x4000;
@@ -1555,24 +1608,24 @@ void playerTickChrBody(void)
 			bgunCalculateGunMemCapacity();
 			spe8 = g_Vars.currentplayer->gunmem2 + offset2;
 			texInitPool(&texpool, spe8, bgunCalculateGunMemCapacity() - offset2);
-			bodymodeldef = modeldefLoad(g_HeadsAndBodies[bodynum].filenum, allocation + offset1, offset2 - offset1, &texpool);
+			bodymodeldef = modeldefLoad(body_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
 
 			if (bodymodeldef == NULL) {
 				// Body model failed to load — player will be invisible but won't crash
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL for bodynum=%d filenum=0x%04x",
-					bodynum, g_HeadsAndBodies[bodynum].filenum);
+					bodynum, body_filenum_1p);
 				return;
 			}
 
-			offset1 = ALIGN64(fileGetLoadedSize(g_HeadsAndBodies[bodynum].filenum) + offset1);
+			offset1 = ALIGN64(fileGetLoadedSize(body_filenum_1p) + offset1);
 
 			if (headnum >= 0) {
-				headmodeldef = modeldefLoad(g_HeadsAndBodies[headnum].filenum, allocation + offset1, offset2 - offset1, &texpool);
+				headmodeldef = modeldefLoad(head_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
 				if (headmodeldef != NULL) {
-					offset1 = ALIGN64(fileGetLoadedSize(g_HeadsAndBodies[headnum].filenum) + offset1);
+					offset1 = ALIGN64(fileGetLoadedSize(head_filenum_1p) + offset1);
 				} else {
 					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
-						headnum, g_HeadsAndBodies[headnum].filenum);
+						headnum, head_filenum_1p);
 				}
 			}
 
@@ -1603,7 +1656,7 @@ void playerTickChrBody(void)
 		} else {
 			// 2-4 players
 			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 			}
 
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
@@ -1619,12 +1672,12 @@ void playerTickChrBody(void)
 				|| bodymodeldef->numparts <= 0
 				|| bodymodeldef->numparts > 500) {
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
-					bodynum, g_HeadsAndBodies[bodynum].filenum);
+					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5-cleanup */
 				bodynum = BODY_DARK_COMBAT;
 				headnum = HEAD_DARK_COMBAT;
 
 				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 				}
 				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
@@ -1638,14 +1691,9 @@ void playerTickChrBody(void)
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
-			} else if (g_Vars.normmplayerisrunning && IS8MB()) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
-				g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
-				bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 			} else {
 				if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 				}
 
 				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
@@ -1662,12 +1710,12 @@ void playerTickChrBody(void)
 			headnum = HEAD_DARK_COMBAT;
 
 			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 			}
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
 			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			}
 			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 
@@ -1726,8 +1774,9 @@ void playerTickChrBody(void)
 
 		if (weaponmodelnum >= 0) {
 			if (g_Vars.mplayerisrunning == false) {
-				weaponmodeldef = modeldefLoad(g_ModelStates[weaponmodelnum].fileid, allocation + offset1, offset2 - offset1, &texpool);
-				fileGetLoadedSize(g_ModelStates[weaponmodelnum].fileid);
+				s32 wfn = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
+				weaponmodeldef = modeldefLoad(wfn, allocation + offset1, offset2 - offset1, &texpool);
+				fileGetLoadedSize(wfn);
 				modelAllocateRwData(weaponmodeldef);
 			} else {
 				weaponobj = NULL;
@@ -3487,6 +3536,34 @@ void playerTick(bool arg0)
 
 	if (g_Vars.currentplayer->devicesactive & DEVICE_SUICIDEPILL) {
 		playerDieByShooter(g_Vars.currentplayernum, true);
+	}
+
+	/* Kill plane: if the player falls below the world geometry, force-kill them.
+	 * Threshold = miny - max(level_height * 6, 2000), where level_height is
+	 * derived from the world collision mesh bounds.  Falls back to -10000 if
+	 * the mesh isn't ready yet (e.g. very early in level load). */
+	if (!g_Vars.currentplayer->isdead
+			&& g_Vars.currentplayer->prop != NULL
+			&& g_Vars.tickmode == TICKMODE_NORMAL) {
+		f32 killplane;
+		f32 player_y = g_Vars.currentplayer->prop->pos.y;
+
+		if (g_WorldMesh.ready && g_WorldMesh.numtris > 0) {
+			f32 level_height = g_WorldMesh.maxy - g_WorldMesh.miny;
+			f32 drop = level_height * 6.0f;
+			if (drop < 2000.0f) {
+				drop = 2000.0f;
+			}
+			killplane = g_WorldMesh.miny - drop;
+		} else {
+			killplane = -10000.0f;
+		}
+
+		if (player_y < killplane) {
+			sysLogPrintf(LOG_NOTE, "KILLPLANE: player %d at Y=%.1f below killplane=%.1f, forcing death",
+				g_Vars.currentplayernum, player_y, killplane);
+			playerDie(true);
+		}
 	}
 
 	playerTickDamageAndHealth();

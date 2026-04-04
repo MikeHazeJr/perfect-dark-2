@@ -24,6 +24,8 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"
+#include "net/netmanifest.h"
 
 s32 g_NumActiveHeadsPerGender;
 u32 var8009cd24;
@@ -158,12 +160,15 @@ u32 bodyGetRace(s32 bodynum)
 
 bool bodyLoad(s32 bodynum)
 {
+	s32 filenum; /* SA-5a: catalog-resolved filenum */
+
 	if (!g_HeadsAndBodies[bodynum].modeldef) {
-		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+		filenum = catalogGetBodyFilenumByIndex(bodynum);
+		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(filenum);
 		if (!g_HeadsAndBodies[bodynum].modeldef) {
 			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: bodyLoad failed bodynum=%d filenum=%d -- "
 				"body model not in catalog or ROM data missing",
-				bodynum, g_HeadsAndBodies[bodynum].filenum);
+				bodynum, filenum);
 		}
 		return true;
 	}
@@ -180,7 +185,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		bodynum = 0;
 	}
 
-	f32 scale = g_HeadsAndBodies[bodynum].scale * 0.10000001f;
+	f32 scale = catalogGetBodyScaleByIndex(bodynum) * 0.10000001f; /* SA-5-cleanup */
 	f32 animscale = g_HeadsAndBodies[bodynum].animscale;
 	struct modelnode *node = NULL;
 	u32 stack[2];
@@ -191,10 +196,11 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	if (bodymodeldef == NULL) {
 		if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
+			s32 body_filenum = catalogGetBodyFilenumByIndex(bodynum); /* SA-5a */
+			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(body_filenum);
 			if (!g_HeadsAndBodies[bodynum].modeldef) {
 				sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
-					"model not in catalog", bodynum, g_HeadsAndBodies[bodynum].filenum);
+					"model not in catalog", bodynum, body_filenum);
 			}
 		}
 
@@ -211,8 +217,8 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| bodymodeldef->numparts <= 0
 		|| bodymodeldef->numparts > 500) {
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
-		             "ptr=%p skel=%p root=%p parts=%d — skipping",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum,
+		             "ptr=%p skel=%p root=%p parts=%d -- skipping",
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, /* SA-5f: raw access for diagnostic log only */
 		             (void *)bodymodeldef,
 		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
 		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
@@ -225,12 +231,12 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	 * 1.0 destroyed model geometry, hit radii, and animation positions.
 	 * Only reject truly degenerate values (zero/negative). */
 	if (bodymodeldef->scale <= 0.0f) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) — setting to 1.0",
-		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum);
+		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) -- setting to 1.0",
+		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum); /* SA-5f: raw access for diagnostic log only */
 		bodymodeldef->scale = 1.0f;
 	} else {
 		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale);
+		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale); /* SA-5f: raw access for diagnostic log only */
 	}
 
 	modelAllocateRwData(bodymodeldef);
@@ -244,27 +250,13 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				} else if (headnum > 0) {
-					if (headmodeldef == NULL) {
-						if (g_Vars.normmplayerisrunning && !IS4MB()) {
-							headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-							if (!headmodeldef) {
-								sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (mp path)",
-									headnum, g_HeadsAndBodies[headnum].filenum);
-							}
-							g_HeadsAndBodies[headnum].modeldef = headmodeldef;
-							g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
-							bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
-						} else {
-							if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-								g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-								if (!g_HeadsAndBodies[headnum].modeldef) {
-									sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: head load failed headnum=%d filenum=%d (solo path)",
-										headnum, g_HeadsAndBodies[headnum].filenum);
-								}
-							}
-
-							headmodeldef = g_HeadsAndBodies[headnum].modeldef;
-						}
+					if (g_HeadsAndBodies[headnum].modeldef == NULL) {
+						s32 head_filenum = catalogGetHeadFilenumByIndex(headnum); /* SA-5a */
+						headmodeldef = modeldefLoadToNew(head_filenum);
+						g_HeadsAndBodies[headnum].modeldef = headmodeldef;
+						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
+					} else {
+						headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 					}
 
 					modelAllocateRwData(headmodeldef);
@@ -352,6 +344,19 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 {
 	bool sunglasses = false;
 	u8 varyheight = true;
+	const char *body_canon;
+	const char *head_canon;
+
+	/* Ensure body/head are tracked in the active SP asset manifest.
+	 * This covers all spawn paths including AI-command spawns (chrSpawnAtCoord)
+	 * that bypass bodyAllocateChr.  manifestEnsureLoaded is a no-op in MP mode
+	 * or before the manifest is built, so this call is unconditionally safe. */
+	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
+	if (headnum >= 0) {
+		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
+	}
 
 	if (spawnflags & SPAWNFLAG_FORCESUNGLASSES) {
 		sunglasses = true;
@@ -412,6 +417,8 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	s32 headnum;
 	f32 angle;
 	s32 index;
+	const char *body_canon;
+	const char *head_canon;
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
 
@@ -453,6 +460,18 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 		} else if (headnum == -55555) {
 			headnum = bodyChooseHead(bodynum);
 		}
+	}
+
+	/* Ensure body and head are tracked in the SP asset manifest.
+	 * manifestEnsureLoaded() is a no-op if no SP manifest is active (MP mode
+	 * or pre-load), so this guard is safe to leave unconditional.
+	 * headnum -55555 means the head is built into the body model — no
+	 * separate head catalog entry exists for that case. */
+	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
+	if (headnum >= 0) {
+		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
 
 	if (headnum < 0) {

@@ -39,21 +39,71 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/netmanifest.h"
 #include "net/matchsetup.h"
+#include "net/sessioncatalog.h"
+#include "room.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
+#include "game/mplayer/scenarios.h"
+#include "input.h"
 #endif
 #include "identity.h"
 #include "utils.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
+#include "pdmain.h"
 #endif
+#include <SDL.h>
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
 #define NET_RESYNC_COOLDOWN    300 // minimum frames between resync requests (~5 sec at 60fps)
+
+/* Phase E: Ready gate — timeout before forcing SVC_STAGE_START (30s at 60fps) */
+#define READY_GATE_TIMEOUT_TICKS 1800
+
+/* Chat rate limiter: max 5 messages per 2-second window per client.
+ * Keyed by client index (0..NET_MAX_CLIENTS). */
+#define CHAT_RATE_MAX_MSGS   5
+#define CHAT_RATE_WINDOW_MS  2000u
+
+struct chatrate {
+	u32 timestamps[CHAT_RATE_MAX_MSGS]; /* circular ring of send times (ms) */
+	u32 head;                           /* next slot to overwrite */
+};
+static struct chatrate s_ChatRate[NET_MAX_CLIENTS + 1];
+
+/* Phase E/F: Server-side per-client readiness tracker.
+ * Active while the room is in ROOM_STATE_PREPARING.
+ * Bit i in each mask corresponds to g_NetClients[i]. */
+static struct {
+	s32 active;              /* 1 while waiting for CLC_MANIFEST_STATUS responses */
+	u32 expected_mask;       /* clients that were in CLSTATE_LOBBY when manifest broadcast */
+	u32 ready_mask;          /* clients that replied MANIFEST_STATUS_READY */
+	u32 declined_mask;       /* clients that replied MANIFEST_STATUS_DECLINE */
+	u32 deadline_ticks;      /* g_NetTick value at which timeout fires */
+	u8  stagenum;            /* saved for mainChangeToStage() when gate fires */
+	u8  total_count;         /* popcount(expected_mask) */
+	/* Phase F: countdown */
+	s32 countdown_active;    /* 1 during the 3-second pre-launch countdown */
+	u32 countdown_next_tick; /* g_NetTick at which to decrement + re-broadcast */
+	u8  countdown_secs;      /* current countdown value (3→2→1→0) */
+	/* R-3: which room this ready gate belongs to */
+	u8  room_id;             /* 0xFF = global (no room), else room slot index */
+} s_ReadyGate;
+
+/* Phase F: Client-side countdown display state.
+ * Updated by netmsgSvcMatchCountdownRead().  UI reads this to display
+ * "Match starting in N..." during MANIFEST_PHASE_LOADING. */
+struct match_countdown_state g_MatchCountdownState;
+
+/* Phase F: Client-side cancellation state.
+ * Updated by netmsgSvcMatchCancelledRead(). UI reads this to display
+ * "[Name] cancelled the match start". */
+struct match_cancelled_state g_MatchCancelledState;
 
 /* Desync tracking state (client-side) */
 static u32 g_NetChrDesyncCount = 0;
@@ -385,6 +435,9 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_NOTE, "NET: broadcast SVC_LOBBY_LEADER: client %u is leader", leaderClientId);
 	}
 
+	/* R-3: Send initial room list to the newly authenticated client */
+	netBroadcastRoomList();
+
 	return 0;
 }
 
@@ -397,9 +450,23 @@ u32 netmsgClcChatWrite(struct netbuf *dst, const char *str)
 
 u32 netmsgClcChatRead(struct netbuf *src, struct netclient *srccl)
 {
-	char tmp[1024];
 	const char *msg = netbufReadStr(src);
 	if (msg && !src->error) {
+		/* Rate limit: max CHAT_RATE_MAX_MSGS per CHAT_RATE_WINDOW_MS per client.
+		 * Ring buffer stores timestamps of last N sends; if the oldest slot is
+		 * still within the window the ring is full and we drop the message. */
+		u32 idx = (u32)(srccl - g_NetClients);
+		if (idx <= (u32)NET_MAX_CLIENTS) {
+			struct chatrate *rate = &s_ChatRate[idx];
+			u32 now = SDL_GetTicks();
+			u32 oldest = rate->timestamps[rate->head];
+			if (now - oldest < CHAT_RATE_WINDOW_MS) {
+				sysLogPrintf(LOG_WARNING, "NET: chat rate limit hit for client %u — message dropped", srccl->id);
+				return src->error;
+			}
+			rate->timestamps[rate->head] = now;
+			rate->head = (rate->head + 1) % CHAT_RATE_MAX_MSGS;
+		}
 		sysLogPrintf(LOG_CHAT, "%s", msg);
 		netbufStartWrite(&g_NetMsgRel);
 		netmsgSvcChatWrite(&g_NetMsgRel, msg);
@@ -461,8 +528,9 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, CLC_SETTINGS);
 	netbufWriteU16(dst, g_NetLocalClient->settings.options);
-	netbufWriteU8(dst, g_NetLocalClient->settings.bodynum);
-	netbufWriteU8(dst, g_NetLocalClient->settings.headnum);
+	/* SA-3: body/head as session IDs (0 if catalog not yet active — server skips update) */
+	catalogWriteAssetRef(dst, sessionCatalogGetId(g_NetLocalClient->settings.body_id));
+	catalogWriteAssetRef(dst, sessionCatalogGetId(g_NetLocalClient->settings.head_id));
 	netbufWriteU8(dst, g_NetLocalClient->settings.team);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovy);
 	netbufWriteF32(dst, g_NetLocalClient->settings.fovzoommult);
@@ -486,8 +554,9 @@ u32 netmsgClcSettingsWrite(struct netbuf *dst)
 u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u16 options = netbufReadU16(src);
-	const u8 bodynum = netbufReadU8(src);
-	const u8 headnum = netbufReadU8(src);
+	/* SA-3: body/head arrive as session IDs; 0 means catalog not yet active, skip update */
+	const u16 body_session = catalogReadAssetRef(src);
+	const u16 head_session = catalogReadAssetRef(src);
 	const u8 team = netbufReadU8(src);
 	const f32 fovy = netbufReadF32(src);
 	const f32 fovzoommult = netbufReadF32(src);
@@ -503,16 +572,34 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 		netChatPrintf(NULL, "%s is now known as %s", srccl->settings.name, name);
 	}
 
-	// Log character body/head changes if different
-	if (srccl->settings.bodynum != bodynum || srccl->settings.headnum != headnum) {
-		sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u changed character body=%u head=%u", srccl->id, bodynum, headnum);
+	/* Resolve body/head session IDs to catalog string IDs.
+	 * Session 0 = catalog not yet active (lobby phase) — keep existing id. */
+	if (body_session > 0) {
+		const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+		if (be) {
+			if (strncmp(srccl->settings.body_id, be->id, CATALOG_ID_LEN) != 0) {
+				sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u body '%s' -> '%s'",
+				             srccl->id, srccl->settings.body_id, be->id);
+			}
+			strncpy(srccl->settings.body_id, be->id, CATALOG_ID_LEN - 1);
+			srccl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+		}
+	}
+	if (head_session > 0) {
+		const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+		if (he) {
+			if (strncmp(srccl->settings.head_id, he->id, CATALOG_ID_LEN) != 0) {
+				sysLogPrintf(LOG_NOTE, "NET: CLC_SETTINGS client %u head '%s' -> '%s'",
+				             srccl->id, srccl->settings.head_id, he->id);
+			}
+			strncpy(srccl->settings.head_id, he->id, CATALOG_ID_LEN - 1);
+			srccl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+		}
 	}
 
 	strncpy(srccl->settings.name, name, sizeof(srccl->settings.name) - 1);
 	srccl->settings.name[sizeof(srccl->settings.name) - 1] = '\0';
 	srccl->settings.options = options;
-	srccl->settings.bodynum = bodynum;
-	srccl->settings.headnum = headnum;
 	srccl->settings.fovy = fovy;
 	srccl->settings.fovzoommult = fovzoommult;
 
@@ -548,8 +635,9 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u8 id = netbufReadU8(src);
 	const u8 maxclients = netbufReadU8(src);
 	g_NetTick = netbufReadU32(src);
-	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || maxclients == 0) {
-		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server");
+	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || id >= NET_MAX_CLIENTS
+			|| maxclients == 0 || maxclients > NET_MAX_CLIENTS) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server (id=%u maxclients=%u)", id, maxclients);
 		return 1;
 	}
 
@@ -600,6 +688,7 @@ u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+
 u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, SVC_STAGE_START);
@@ -609,22 +698,25 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	netbufWriteU64(dst, g_RngSeed);
 	netbufWriteU64(dst, g_Rng2Seed);
 
-	/* mainChangeToStage() is async: it sets g_MainChangeToStageNum but g_StageNum
-	 * isn't updated until the next frame.  When called from netServerStageStart()
-	 * immediately after mainChangeToStage(), g_StageNum is still STAGE_CITRAINING,
-	 * which would cause the client to think the server returned to lobby.
-	 * Use the pending stage when available; fall back to g_StageNum mid-game
-	 * (g_MainChangeToStageNum is reset to -1 once the stage actually loads). */
-	extern s32 g_MainChangeToStageNum;
-	const u8 effectiveStage = (g_MainChangeToStageNum >= 0)
-	                          ? (u8)g_MainChangeToStageNum
-	                          : g_StageNum;
-
-	netbufWriteU8(dst, effectiveStage);
-
-	if (effectiveStage == STAGE_TITLE || effectiveStage == STAGE_CITRAINING) {
-		// going back to lobby, don't need anything else
+	/* SA-3: stage as session ID. session_id=0 signals "return to lobby" on the client.
+	 * Use g_MpSetup.stage_id (the primary catalog ID) directly — no reverse-resolve
+	 * from stagenum needed.  The dedicated server has no ASSET_MAP entries so
+	 * stagenum-based lookups fail there; catalog IDs work everywhere. */
+	if (g_MpSetup.stage_id[0] == '\0') {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at SVC_STAGE_START write");
+		catalogWriteAssetRef(dst, 0);
 		return dst->error;
+	}
+	{
+		u16 sid = sessionCatalogGetId(g_MpSetup.stage_id);
+		if (!sid) {
+			sysLogPrintf(LOG_WARNING, "SVC_STARTGAME: stage '%s' not in session catalog",
+			             g_MpSetup.stage_id);
+			catalogWriteAssetRef(dst, 0);
+		} else {
+			catalogWriteAssetRef(dst, sid);
+		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: writing SVC_STAGE_START, stage_session=%d, stage_id='%s'", (int)sid, g_MpSetup.stage_id);
 	}
 
 	// game settings
@@ -643,7 +735,23 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
 		netbufWriteU64(dst, g_MpSetup.chrslots);  /* u64 since protocol v21: 8 players + 32 bots */
 		netbufWriteU32(dst, g_MpSetup.options);
-		netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+		/* SA-3: weapons as session IDs (NUM_MPWEAPONSLOTS u16 entries) */
+		{
+			s32 wi;
+			for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+				if (g_MpSetup.weapons[wi] == 0) {
+					catalogWriteAssetRef(dst, 0);
+				} else {
+					const char *wcanon = catalogResolveWeaponByGameId(
+						(s32)g_MpSetup.weapons[wi]);
+					if (wcanon) {
+						catalogWriteAssetRef(dst, sessionCatalogGetId(wcanon));
+					} else {
+						catalogWriteAssetRef(dst, 0);
+					}
+				}
+			}
+		}
 	}
 
 	// who the fuck is in the game
@@ -658,8 +766,9 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			netbufWriteU8(dst, ncl->playernum);
 			netbufWriteU8(dst, ncl->settings.team);
 			netbufWriteU16(dst, ncl->settings.options);
-			netbufWriteU8(dst, ncl->settings.bodynum);
-			netbufWriteU8(dst, ncl->settings.headnum);
+			/* SA-3: body/head as session IDs */
+			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.body_id));
+			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.head_id));
 			netbufWriteF32(dst, ncl->settings.fovy);
 			netbufWriteF32(dst, ncl->settings.fovzoommult);
 			netbufWriteStr(dst, ncl->settings.name);
@@ -671,12 +780,59 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		}
 	}
 
+	/* Serialize per-bot configs (combat sim only; bots don't apply to co-op). */
+	if (g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI) {
+		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
+			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+				continue;
+			}
+			struct mpbotconfig *bc = &g_BotConfigsArray[botidx];
+			netbufWriteStr(dst, bc->base.name);
+
+			/* SA-3 / FIX-7: bot body/head as session IDs.
+			 * On dedicated server, mpbodynum is 0 (unresolved) so we use the
+			 * catalog ID strings from g_MatchConfig.slots[] (populated from
+			 * CLC_LOBBY_START). On client/listen server, fall back to mpbodynum
+			 * resolution for backward compat. */
+			{
+				const char *body_canon = NULL;
+				const char *head_canon = NULL;
+
+				/* Try matchslot catalog IDs first (reliable on dedicated server) */
+				s32 slotIdx = botidx + MAX_PLAYERS;
+				if (slotIdx < g_MatchConfig.numSlots &&
+				    g_MatchConfig.slots[slotIdx].body_id[0]) {
+					body_canon = g_MatchConfig.slots[slotIdx].body_id;
+				}
+				if (slotIdx < g_MatchConfig.numSlots &&
+				    g_MatchConfig.slots[slotIdx].head_id[0]) {
+					head_canon = g_MatchConfig.slots[slotIdx].head_id;
+				}
+
+				/* Fallback: resolve from mpbodynum (works on listen server) */
+				if (!body_canon) {
+					body_canon = catalogResolveBodyByMpIndex((s32)bc->base.mpbodynum);
+				}
+				if (!head_canon) {
+					head_canon = catalogResolveHeadByMpIndex((s32)bc->base.mpheadnum);
+				}
+
+				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
+				catalogWriteAssetRef(dst, head_canon ? sessionCatalogGetId(head_canon) : 0);
+			}
+
+			netbufWriteU8(dst, bc->difficulty);
+			netbufWriteU8(dst, bc->type);
+		}
+	}
+
 	return dst->error;
 }
 
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 {
-	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME) {
+	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME
+	    && srccl->state != CLSTATE_PREPARING) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE from server but we're in state %u", srccl->state);
 		return 1;
 	}
@@ -687,11 +843,23 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_NetRngSeeds[1] = netbufReadU64(src);
 	g_NetRngLatch = true;
 
-	const u8 stagenum = netbufReadU8(src);
-
-	if (stagenum == STAGE_TITLE || stagenum == STAGE_CITRAINING) {
-		// server went back to lobby, we don't really care
-		return src->error;
+	/* SA-3: stage as session ID; 0 = return to lobby */
+	const u16 stage_session = catalogReadAssetRef(src);
+	sysLogPrintf(LOG_WARNING, "MATCH-START: client received SVC_STAGE_START, stage_session=%d", (int)stage_session);
+	u8 stagenum = 0;
+	if (stage_session == 0) {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_session is 0 — aborting");
+		return 1;  /* malformed stage start — stop processing */
+	}
+	{
+		catalog_stage_result_t sr;
+		if (catalogResolveStageBySession(stage_session, &sr)) {
+			stagenum = (u8)sr.stagenum;
+			sysLogPrintf(LOG_WARNING, "MATCH-START: stage_session=%d resolved to stagenum=0x%x", (int)stage_session, (unsigned)stagenum);
+		} else {
+			sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE unknown stage session %u", (unsigned)stage_session);
+			return 1;
+		}
 	}
 
 	const u8 mode = netbufReadU8(src);
@@ -714,7 +882,23 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
 		g_MpSetup.chrslots = netbufReadU64(src);  /* u64 since protocol v21 */
 		g_MpSetup.options = netbufReadU32(src);
-		netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+		/* SA-3: weapons as session IDs */
+		{
+			s32 wi;
+			for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+				const u16 wsession = catalogReadAssetRef(src);
+				if (wsession == 0) {
+					g_MpSetup.weapons[wi] = 0;
+				} else {
+					catalog_weapon_result_t wr;
+					if (catalogResolveWeaponBySession(wsession, &wr)) {
+						g_MpSetup.weapons[wi] = (u8)wr.weapon_num;
+					} else {
+						g_MpSetup.weapons[wi] = 0;
+					}
+				}
+			}
+		}
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
 
@@ -744,25 +928,44 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 		ncl->settings.team = netbufReadU8(src);
 		if (ncl != g_NetLocalClient) {
+			/* SA-3: body/head as session IDs */
+			u16 body_session;
+			u16 head_session;
 			ncl->id = id;
 			ncl->settings.options = netbufReadU16(src);
-			ncl->settings.bodynum = netbufReadU8(src);
-			ncl->settings.headnum = netbufReadU8(src);
+			body_session = catalogReadAssetRef(src);
+			head_session = catalogReadAssetRef(src);
 			ncl->settings.fovy = netbufReadF32(src);
 			ncl->settings.fovzoommult = netbufReadF32(src);
-			char *name = netbufReadStr(src);
-			if (name) {
-				strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
-				ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
-			} else {
-				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
-				return 3;
+			{
+				char *name = netbufReadStr(src);
+				if (name) {
+					strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
+					ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
+				} else {
+					sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
+					return 3;
+				}
+			}
+			if (body_session > 0) {
+				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+				if (be) {
+					strncpy(ncl->settings.body_id, be->id, CATALOG_ID_LEN - 1);
+					ncl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+				}
+			}
+			if (head_session > 0) {
+				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+				if (he) {
+					strncpy(ncl->settings.head_id, he->id, CATALOG_ID_LEN - 1);
+					ncl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+				}
 			}
 		} else {
-			// skip our own settings except for the team and player number
+			/* skip our own settings except for team and playernum */
 			netbufReadU16(src);
-			netbufReadU8(src);
-			netbufReadU8(src);
+			catalogReadAssetRef(src); /* body_session */
+			catalogReadAssetRef(src); /* head_session */
 			netbufReadF32(src);
 			netbufReadF32(src);
 			netbufReadStr(src);
@@ -812,7 +1015,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_Vars.antiplayernum = (numplayers > 1) ? 1 : -1;
 		}
 
+		/* Dismiss countdown overlay before changing stage. */
+		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
+#if !defined(PD_SERVER)
+		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
+		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+#endif
 
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();
@@ -821,6 +1030,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		setNumPlayers(numplayers);
 		lvSetDifficulty(g_MissionConfig.difficulty);
 		titleSetNextMode(TITLEMODE_SKIP);
+		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x (co-op)", (unsigned)stagenum);
 		mainChangeToStage(stagenum);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -848,30 +1058,72 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					pnum = pncl->playernum;
 				}
 				if (pnum < MAX_PLAYERS) {
-					s32 safeHead = (s32)pncl->settings.headnum;
-					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)pncl->settings.bodynum, &safeHead);
+					/* SA-3: resolve catalog string IDs → runtime indices */
+					const asset_entry_t *be = assetCatalogResolve(pncl->settings.body_id);
+					const asset_entry_t *he = assetCatalogResolve(pncl->settings.head_id);
+					s32 rawBody = be ? (s32)be->runtime_index : 0;
+					s32 safeHead = he ? (s32)he->runtime_index : 0;
+					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
 					g_PlayerConfigsArray[pnum].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
-					sysLogPrintf(LOG_NOTE, "NET: player %u body=%u->%u head=%u->%u",
-						pnum, pncl->settings.bodynum,
+					sysLogPrintf(LOG_NOTE, "NET: player %u body='%s'->%u head='%s'->%u",
+						pnum, pncl->settings.body_id,
 						g_PlayerConfigsArray[pnum].base.mpbodynum,
-						pncl->settings.headnum,
+						pncl->settings.head_id,
 						g_PlayerConfigsArray[pnum].base.mpheadnum);
 				}
 			}
 		}
 
-		/* Validate bot body/head indices for all active bot slots.
-		 * Per-bot body/head is not transmitted in SVC_STAGE; this ensures
-		 * g_HeadsAndBodies[].modeldef is loaded for whatever indices are set. */
+		/* Receive per-bot configs from wire; resolve catalog net_hash → local runtime_index.
+		 * The write side (netmsgSvcStageStartWrite) serialises name/body_hash/head_hash/
+		 * difficulty/type for every active bot slot.  We resolve the CRC32 hashes through
+		 * the asset catalog so local mpbodynum/mpheadnum are correct regardless of whether
+		 * the client and server have the same mod load order. */
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
-			if (g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET))) {
-				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired((s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
-				sysLogPrintf(LOG_NOTE, "NET: bot %d body=%u head=%u (catalog-validated)",
-					botidx, g_BotConfigsArray[botidx].base.mpbodynum,
-					g_BotConfigsArray[botidx].base.mpheadnum);
+			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+				continue;
 			}
+			/* SA-3: bot body/head as session IDs */
+			const char *botname = netbufReadStr(src);
+			const u16 body_session = catalogReadAssetRef(src);
+			const u16 head_session = catalogReadAssetRef(src);
+			const u8 difficulty = netbufReadU8(src);
+			const u8 bottype = netbufReadU8(src);
+			if (src->error) {
+				sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE bot config for bot %d", botidx);
+				return src->error;
+			}
+			if (botname) {
+				strncpy(g_BotConfigsArray[botidx].base.name, botname,
+				        sizeof(g_BotConfigsArray[botidx].base.name) - 1);
+				g_BotConfigsArray[botidx].base.name[sizeof(g_BotConfigsArray[botidx].base.name) - 1] = '\0';
+			}
+			g_BotConfigsArray[botidx].difficulty = difficulty;
+			g_BotConfigsArray[botidx].type = bottype;
+			{
+				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
+				if (be && be->type == ASSET_BODY) {
+					g_BotConfigsArray[botidx].base.mpbodynum = (u8)be->runtime_index;
+				}
+			}
+			{
+				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
+				if (he && he->type == ASSET_HEAD) {
+					g_BotConfigsArray[botidx].base.mpheadnum = (u8)he->runtime_index;
+				}
+			}
+			/* Final catalog safety-clamp: ensures modeldef is valid on first frame. */
+			{
+				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(
+					(s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+			}
+			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (sessions %u/%u)",
+				botidx, g_BotConfigsArray[botidx].base.name,
+				g_BotConfigsArray[botidx].base.mpbodynum,
+				g_BotConfigsArray[botidx].base.mpheadnum,
+				(unsigned)body_session, (unsigned)head_session);
 		}
 #endif /* !PD_SERVER */
 
@@ -882,8 +1134,22 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		 * never spawn on the client side. */
 		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
+		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x", (unsigned)g_MpSetup.stagenum);
 		mpStartMatch();
+#if !defined(PD_SERVER)
+		/* scenarioInitProps() configures gameplay flags on props (doors, pickups, etc.)
+		 * via the scenario's initpropsfunc.  On the server/solo paths this is driven by
+		 * setup.c's g_Vars.normmplayerisrunning guard; on a networked client that guard
+		 * can be false at stage-init time, so we call it explicitly here. */
+		scenarioInitProps();
+#endif
+		/* Dismiss countdown overlay before going in-game. */
+		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
+#if !defined(PD_SERVER)
+		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
+		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+#endif
 	}
 
 	return 0;
@@ -957,6 +1223,12 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 		mainEndStage();
 	}
 
+	/* SA-1: tear down session catalog on match end (client-side). */
+	sessionCatalogTeardown();
+
+	/* Bot authority relinquished at match end — next match will re-assign */
+	g_NetLocalBotAuthority = false;
+
 	return src->error;
 }
 
@@ -993,6 +1265,11 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error || srccl->state < CLSTATE_GAME) {
 		return src->error;
+	}
+
+	if (id >= NET_MAX_CLIENTS) {
+		sysLogPrintf(LOG_WARNING, "NET: PlayerMove: client id %u out of range", id);
+		return 1;
 	}
 
 	struct netclient *movecl = &g_NetClients[id];
@@ -2255,6 +2532,14 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
+	// Bot authority client IS the source of truth for bot state — the server's
+	// stub hash will always lag/differ due to network delay and lossy encoding.
+	// Skip desync detection entirely to prevent resync storms that overwrite
+	// our valid local simulation with stale server stubs.
+	if (g_NetLocalBotAuthority) {
+		return src->error;
+	}
+
 	// Validate bot count matches
 	if (botcount != g_BotCount) {
 		sysLogPrintf(LOG_WARNING, "NET: chr sync mismatch at tick %u: server has %u bots, we have %u",
@@ -2548,14 +2833,16 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 
 	sysLogPrintf(LOG_NOTE, "NET: received chr resync at tick %u for %u bots", tick, botcount);
 
+	// Bot authority client must never accept server resync — our local simulation
+	// is canonical and the server only has lightweight stubs. Consume the message
+	// (read all fields) but don't apply state changes.
+	const bool skipApply = g_NetLocalBotAuthority;
+	if (skipApply) {
+		sysLogPrintf(LOG_NOTE, "NET: skipping chr resync apply — we are bot authority");
+	}
+
 	for (u8 i = 0; i < botcount; ++i) {
 		struct prop *prop = netbufReadPropPtr(src);
-
-		if (!prop) {
-			// Skip null entries but still need to consume the rest of the data
-			// — this shouldn't happen in practice, but guard against it
-			continue;
-		}
 
 		// Position and orientation
 		struct coord pos;
@@ -2597,7 +2884,7 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 			return src->error;
 		}
 
-		if (!prop->chr || !prop->chr->aibot) {
+		if (!prop || !prop->chr || !prop->chr->aibot || skipApply) {
 			continue;
 		}
 
@@ -3263,16 +3550,16 @@ u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl)
 			}
 
 			char buffer[50] = "";
-			sprintf(buffer, "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective N: "
+			snprintf(buffer, sizeof(buffer), "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective N: "
 
 			if (status == OBJECTIVE_COMPLETE) {
-				strcat(buffer, langGet(L_MISC_045)); // "Completed"
+				strncat(buffer, langGet(L_MISC_045), sizeof(buffer) - strlen(buffer) - 1); // "Completed"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
 			} else if (status == OBJECTIVE_INCOMPLETE) {
-				strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
+				strncat(buffer, langGet(L_MISC_046), sizeof(buffer) - strlen(buffer) - 1); // "Incomplete"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
 			} else if (status == OBJECTIVE_FAILED) {
-				strcat(buffer, langGet(L_MISC_047)); // "Failed"
+				strncat(buffer, langGet(L_MISC_047), sizeof(buffer) - strlen(buffer) - 1); // "Failed"
 				hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVEFAILED, HUDMSGFLAG_ALLOWDUPES);
 			}
 		}
@@ -3353,19 +3640,32 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload: gamemode (u8), stagenum (u8), difficulty (u8), numSims (u8), simType (u8),
+ * Payload (v27+): gamemode (u8), stage_id (str catalog ID),
+ *          difficulty (u8), numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
- *          weapons (u8[NUM_MPWEAPONSLOTS]) — resolved mpweapon indices from client
- *          Per-bot (repeated numSims times): name (str), bodynum (u8), headnum (u8),
+ *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
+ *          Per-bot (repeated numSims times): name (str), body_id (str), head_id (str),
  *          botDifficulty (u8), botType (u8)
+ *
+ * v27: all asset references are catalog ID strings — no u32 net_hash on wire.
+ * stage_id written from g_MatchConfig.stage_id (Single Source of Truth).
+ * Server resolves stage_id → stagenum and weapon IDs → weapon_id via assetCatalogResolve().
  * ======================================================================== */
 
 u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
+	(void)stagenum; /* stage identity comes from g_MatchConfig.stage_id, not stagenum */
 	netbufWriteU8(dst, CLC_LOBBY_START);
 	netbufWriteU8(dst, gamemode);
-	netbufWriteU8(dst, stagenum);
+	/* C-1: write arena as catalog ID string — Single Source of Truth from matchconfig.
+	 * g_MatchConfig.stage_id is set by the arena picker UI (M-2 fix, S129).
+	 * Server reads this string and resolves via assetCatalogResolve(). */
+	if (!g_MatchConfig.stage_id[0]) {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at CLC_LOBBY_START write");
+	}
+	sysLogPrintf(LOG_WARNING, "MATCH-START: client sending CLC_LOBBY_START, stage_id='%s'", g_MatchConfig.stage_id);
+	netbufWriteStr(dst, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
 	netbufWriteU8(dst, difficulty);
 	netbufWriteU8(dst, numSims);
 	netbufWriteU8(dst, simType);
@@ -3375,41 +3675,253 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* Send the already-resolved weapon slots so the server can forward them
-	 * in SVC_STAGE_START without needing mplayer game engine code. */
-	netbufWriteData(dst, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+	/* C-1: per-slot weapon catalog ID string.
+	 * catalogResolveWeaponByGameId() returns the catalog ID string ("base:falcon2" etc.)
+	 * or NULL for empty/unset slots. Server resolves string → weapon_id via assetCatalogResolve(). */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			if (g_MpSetup.weapons[wi] == 0) {
+				netbufWriteStr(dst, "");
+			} else {
+				const char *wcanon = catalogResolveWeaponByGameId(
+					(s32)g_MpSetup.weapons[wi]);
+				netbufWriteStr(dst, wcanon ? wcanon : "");
+			}
+		}
+	}
 
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
-	 * write empty defaults so the server always reads exactly numSims entries. */
+	 * write empty defaults so the server always reads exactly numSims entries.
+	 *
+	 * Catalog-ID-native: send body_id/head_id strings directly — the server
+	 * resolves them via assetCatalogResolve() + catalogBodynumToMpBodyIdx()
+	 * to obtain the correct mpbodynum/mpheadnum at the last moment.
+	 * No integer-domain conversion on the client send path. */
 	s32 botIdx = 0;
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
 		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
 			const struct matchslot *sl = &g_MatchConfig.slots[si];
-			netbufWriteStr(dst, sl->name);
-			netbufWriteU8(dst, sl->bodynum);
-			netbufWriteU8(dst, sl->headnum);
+			netbufWriteStr(dst, sl->name[0] ? sl->name : "Bot");
+			netbufWriteStr(dst, sl->body_id[0] ? sl->body_id : "base:dark_combat");
+			netbufWriteStr(dst, sl->head_id[0] ? sl->head_id : "base:head_dark_combat");
 			netbufWriteU8(dst, sl->botDifficulty);
 			netbufWriteU8(dst, sl->botType);
 			botIdx++;
 		}
 	}
-	/* Pad any missing slots with defaults (shouldn't happen in practice) */
+	/* Pad any missing slots with defaults (shouldn't happen in practice). */
 	for (; botIdx < (s32)numSims; botIdx++) {
-		netbufWriteStr(dst, "");
-		netbufWriteU8(dst, 0xFF); /* default body */
-		netbufWriteU8(dst, 0xFF); /* default head */
-		netbufWriteU8(dst, 2);    /* BOTDIFF_NORMAL */
+		netbufWriteStr(dst, "Bot");
+		netbufWriteStr(dst, "base:dark_combat");
+		netbufWriteStr(dst, "base:head_dark_combat");
+		netbufWriteU8(dst, 2);  /* BOTDIFF_NORMAL */
 		netbufWriteU8(dst, simType);
+	}
+
+	/* Phase D.2/D.3: host-built manifest embedded in CLC_LOBBY_START.
+	 * The server receives this manifest, supplements it with other players'
+	 * body/head (from their CLC_SETTINGS), and broadcasts SVC_MATCH_MANIFEST. */
+	{
+		match_manifest_t hostManifest;
+		memset(&hostManifest, 0, sizeof(hostManifest));
+		/* Sync stage into g_MpSetup.stage_id so manifestBuildForHost includes it.
+		 * g_MatchConfig.stage_id is set by the UI; g_MpSetup.stage_id is what
+		 * the manifest builder and SVC_STAGE_START write both read. */
+		if (g_MatchConfig.stage_id[0]) {
+			strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		}
+		manifestBuildForHost(&hostManifest);
+		manifestSerialize(dst, &hostManifest);
+		manifestFree(&hostManifest);
 	}
 
 	return dst->error;
 }
 
+/* ---- Phase E: Ready gate helpers (server-side) ---- */
+
+static u8 readyGatePopcount(u32 mask)
+{
+	u8 n = 0;
+	while (mask) { n++; mask &= mask - 1; }
+	return n;
+}
+
+static void readyGateBroadcastCountdown(u8 phase)
+{
+	u8 ready_count = readyGatePopcount(s_ReadyGate.ready_mask);
+	u8 countdown_secs;
+	if (phase == MANIFEST_PHASE_LOADING) {
+		/* Phase F: use the dedicated countdown counter, not deadline_ticks */
+		countdown_secs = s_ReadyGate.countdown_secs;
+	} else {
+		u32 remaining = (g_NetTick < s_ReadyGate.deadline_ticks)
+		                ? (s_ReadyGate.deadline_ticks - g_NetTick) : 0;
+		countdown_secs = (u8)(remaining / 60);
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcMatchCountdownWrite(&g_NetMsgRel, ready_count,
+	                             s_ReadyGate.total_count, phase, countdown_secs);
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_COUNTDOWN %u/%u phase=%u secs=%u",
+	             (unsigned)ready_count, (unsigned)s_ReadyGate.total_count,
+	             (unsigned)phase, (unsigned)countdown_secs);
+}
+
+/* Called each time a client responds; starts Phase F countdown when all done. */
+static void readyGateCheck(void)
+{
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	/* Countdown already ticking — don't restart */
+	if (s_ReadyGate.countdown_active) {
+		return;
+	}
+
+	u8 ready   = readyGatePopcount(s_ReadyGate.ready_mask);
+	u8 decl    = readyGatePopcount(s_ReadyGate.declined_mask);
+	u8 total   = s_ReadyGate.total_count;
+	s32 all_responded = ((u8)(ready + decl) >= total);
+	s32 timed_out     = (g_NetTick >= s_ReadyGate.deadline_ticks);
+
+	if (!all_responded && !timed_out) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: ready gate — %u/%u ready %u declined timed_out=%d — starting countdown",
+	             (unsigned)ready, (unsigned)total, (unsigned)decl, timed_out);
+
+	/* Phase F: begin 3-second countdown; actual launch happens in readyGateTickCountdown(). */
+	s_ReadyGate.countdown_active    = 1;
+	s_ReadyGate.countdown_secs      = 3;
+	s_ReadyGate.countdown_next_tick = g_NetTick + 60;
+	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
+}
+
+/* Phase F: Called every server tick from netEndFrame() to drive the launch countdown. */
+void readyGateTickCountdown(void)
+{
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	/* Check timeout even if countdown hasn't started — handles the case where
+	 * all clients went silent (crash/disconnect) and no CLC arrives to trigger
+	 * readyGateCheck(). */
+	if (!s_ReadyGate.countdown_active && s_ReadyGate.active) {
+		if (g_NetTick >= s_ReadyGate.deadline_ticks) {
+			readyGateCheck();
+			if (!s_ReadyGate.active) return; /* gate fired */
+		}
+	}
+
+	if (!s_ReadyGate.countdown_active) {
+		return;
+	}
+
+	if (g_NetTick < s_ReadyGate.countdown_next_tick) {
+		return;
+	}
+
+	if (s_ReadyGate.countdown_secs > 0) {
+		s_ReadyGate.countdown_secs--;
+	}
+
+	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
+
+	if (s_ReadyGate.countdown_secs == 0) {
+		sysLogPrintf(LOG_NOTE, "NET: countdown complete — launching match (stage %u room %u)",
+		             (unsigned)s_ReadyGate.stagenum, (unsigned)s_ReadyGate.room_id);
+		s_ReadyGate.active           = 0;
+		s_ReadyGate.countdown_active = 0;
+
+		hub_room_t *room = (s_ReadyGate.room_id != 0xFF) ? roomGetById(s_ReadyGate.room_id) : roomGetById(0);
+		if (room) {
+			roomTransition(room, ROOM_STATE_LOADING);
+		}
+
+		/* R-3: Set the match room before calling netServerStageStart so it can scope broadcasts */
+		extern u8 g_NetMatchRoomId;
+		g_NetMatchRoomId = s_ReadyGate.room_id;
+
+		mainChangeToStage(s_ReadyGate.stagenum);
+		netServerStageStart();
+	} else {
+		s_ReadyGate.countdown_next_tick = g_NetTick + 60;
+	}
+}
+
+/* Phase F: Abort the ready gate — cancel the countdown, reset all preparing clients
+ * back to CLSTATE_LOBBY, and broadcast SVC_MATCH_CANCELLED to all connected clients. */
+static void readyGateAbort(const char *canceller_name)
+{
+	s32 i;
+	hub_room_t *room;
+
+	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: ready gate aborted by '%s'",
+	             canceller_name ? canceller_name : "?");
+
+	s_ReadyGate.active           = 0;
+	s_ReadyGate.countdown_active = 0;
+	s_ReadyGate.expected_mask    = 0;
+	s_ReadyGate.ready_mask       = 0;
+	s_ReadyGate.declined_mask    = 0;
+
+	/* Return all preparing clients to the lobby */
+	for (i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (g_NetClients[i].state == CLSTATE_PREPARING) {
+			g_NetClients[i].state = CLSTATE_LOBBY;
+		}
+	}
+
+	/* Return room to lobby state */
+	room = roomGetById(0);
+	if (room) {
+		roomTransition(room, ROOM_STATE_LOBBY);
+	}
+
+	/* Broadcast the cancellation so all clients can show the message */
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcMatchCancelledWrite(&g_NetMsgRel, canceller_name ? canceller_name : "?");
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+}
+
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
-	const u8 stagenum        = netbufReadU8(src);
+	/* C-2: read arena as catalog ID string (v27+), resolve via assetCatalogResolve().
+	 * No fallback — if the string doesn't resolve, stagenum=0 and an error is logged.
+	 * stage_id is also stored in g_MatchConfig for server-side reference. */
+	{
+		char *stage_id_str = netbufReadStr(src);
+		const char *stage_id = stage_id_str ? stage_id_str : "";
+		const asset_entry_t *stage_entry = stage_id[0] ? assetCatalogResolve(stage_id) : NULL;
+		if (stage_id[0] && !stage_entry) {
+			sysLogPrintf(LOG_ERROR,
+			             "NET: CLC_LOBBY_START arena '%s' not in catalog -- rejecting", stage_id);
+		}
+		g_MpSetup.stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
+		strncpy(g_MatchConfig.stage_id, stage_id, sizeof(g_MatchConfig.stage_id) - 1);
+		g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+		/* Also populate g_MpSetup.stage_id — used by SVC_STAGE_START write and
+		 * the server-side manifest builder (manifestBuild fallback path). */
+		strncpy(g_MpSetup.stage_id, stage_id, sizeof(g_MpSetup.stage_id) - 1);
+		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		if (!g_MpSetup.stage_id[0]) {
+			sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at CLC_LOBBY_START read");
+		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: server received CLC_LOBBY_START, stage_id='%s'", g_MpSetup.stage_id);
+	}
 	const u8 difficulty      = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
 	const u8 simType         = netbufReadU8(src);
@@ -3419,8 +3931,28 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);
-	/* Read the pre-resolved weapon slots sent by the client. */
-	netbufReadData(src, g_MpSetup.weapons, sizeof(g_MpSetup.weapons));
+	/* C-2: per-slot weapon catalog ID string — resolve each to weapon_id.
+	 * No fallback: if a non-empty string can't resolve, log error and use 0 (no weapon). */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			char *wid_str = netbufReadStr(src);
+			const char *wid = wid_str ? wid_str : "";
+			if (wid[0]) {
+				const asset_entry_t *we = assetCatalogResolve(wid);
+				if (we) {
+					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+				} else {
+					sysLogPrintf(LOG_ERROR,
+					             "NET: CLC_LOBBY_START weapon slot %d '%s' not in catalog -- skipping",
+					             wi, wid);
+					g_MpSetup.weapons[wi] = 0;
+				}
+			} else {
+				g_MpSetup.weapons[wi] = 0;
+			}
+		}
+	}
 	(void)weaponSetIndex; /* retained for logging/future use */
 
 	if (src->error) {
@@ -3433,43 +3965,50 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	/* Validate sender is the lobby leader.
-	 * Call lobbyUpdate() first to handle the same-frame auth+start race:
-	 * the server loop runs netStartFrame() before lobbyUpdate(), so if a
-	 * client's CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch
-	 * the lobby state from the previous tick is used.  Refreshing here
-	 * ensures leaderSlot reflects the just-authed client. */
+	/* R-3: Validate sender is in a room and is the room creator (room leader).
+	 * The room creator is the only one who can start the match for that room.
+	 * Also accept from global lobby leader as fallback for backward compat. */
 	lobbyUpdate();
 	bool isLeader = false;
-	u8 leaderSlot = lobbyGetLeader();
-	if (leaderSlot < LOBBY_MAX_PLAYERS) {
-		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
-		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+	hub_room_t *startRoom = NULL;
+
+	if (srccl->room_id != 0xFF) {
+		startRoom = roomGetById(srccl->room_id);
+		if (startRoom && startRoom->creator_client_id == srccl->id) {
 			isLeader = true;
 		}
 	}
 
-	/* Fallback: if leader slot is still 0xFF (no lobby-state clients seen
-	 * yet, e.g., sender is the only client and just reached CLSTATE_LOBBY
-	 * this same frame), accept from the first connected lobby-state client. */
-	if (!isLeader && leaderSlot == 0xFF) {
-		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-			struct netclient *ncl = &g_NetClients[ci];
-			if (ncl == g_NetLocalClient) continue;
-			if (ncl->state < CLSTATE_LOBBY) continue;
-			isLeader = (ncl == srccl);
-			break;
+	/* Fallback: if not in a room, check global lobby leader (backward compat) */
+	if (!isLeader && srccl->room_id == 0xFF) {
+		u8 leaderSlot = lobbyGetLeader();
+		if (leaderSlot < LOBBY_MAX_PLAYERS) {
+			struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+			if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+				isLeader = true;
+			}
+		}
+		/* Fallback: first connected lobby client if no leader assigned yet */
+		if (!isLeader && leaderSlot == 0xFF) {
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				struct netclient *ncl = &g_NetClients[ci];
+				if (ncl == g_NetLocalClient) continue;
+				if (ncl->state < CLSTATE_LOBBY) continue;
+				isLeader = (ncl == srccl);
+				break;
+			}
 		}
 	}
 
 	if (!isLeader) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not leader (leaderSlot=%u)",
-		             srccl->id, srccl->settings.name, (unsigned)leaderSlot);
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not room creator",
+		             srccl->id, srccl->settings.name);
 		return src->error;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage=%u diff=%u tl=%u opt=0x%08x",
-	             srccl->settings.name, gamemode, stagenum, difficulty, timelimit, (unsigned)options);
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage='%s'(num=%u) diff=%u tl=%u opt=0x%08x",
+	             srccl->settings.name, gamemode, g_MatchConfig.stage_id, (unsigned)g_MpSetup.stagenum,
+	             difficulty, timelimit, (unsigned)options);
 
 	/* Apply settings */
 	g_NetGameMode = gamemode;
@@ -3485,14 +4024,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * each client's playernum.  Without this, clients receive a
 		 * zero chrslots and no slot assignments, so mpStartMatch() never
 		 * spawns anyone. */
-		g_MpSetup.stagenum        = stagenum;
+		/* g_MpSetup.stagenum already set above from arena catalog ID resolution */
 		g_MpSetup.scenario        = scenario;
 		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
 		g_MpSetup.scorelimit      = scorelimit;
 		g_MpSetup.teamscorelimit  = teamscorelimit;
 		g_MpSetup.options         = options;
-		/* g_MpSetup.weapons[] was already populated from the client's resolved weapon slots
-		 * (read above from the CLC_LOBBY_START payload). No further resolution needed. */
+		/* g_MpSetup.weapons[] populated above by FIX-4 per-slot weapon catalog ID string resolution. */
 
 		/* Assign sequential playernums and build chrslots bitmask.
 		 * Bits 0..n-1 of chrslots represent the n connected players. */
@@ -3515,10 +4053,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
 			g_MpSetup.chrslots |= (u64)1 << slot;
-			/* Read per-bot config from the message. */
+			/* Catalog-ID-native: read body_id/head_id strings, resolve to
+			 * mpbodynum/mpheadnum here at the server read site — the ONLY
+			 * integer-domain conversion point for bot characters. */
 			const char *botName    = netbufReadStr(src);
-			const u8 bodynum       = netbufReadU8(src);
-			const u8 headnum       = netbufReadU8(src);
+			const char *body_id    = netbufReadStr(src); /* catalog ID e.g. "base:dark_combat" */
+			const char *head_id    = netbufReadStr(src); /* catalog ID e.g. "base:head_dark_combat" */
 			const u8 botDifficulty = netbufReadU8(src);
 			const u8 botType       = netbufReadU8(src);
 			if (src->error) {
@@ -3529,34 +4069,195 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 			g_BotConfigsArray[bi].type       = botType;
 			g_BotConfigsArray[bi].difficulty = botDifficulty;
-			g_BotConfigsArray[bi].base.mpbodynum = bodynum;
-			g_BotConfigsArray[bi].base.mpheadnum = headnum;
+			/* Resolve catalog IDs → mpbodynum/mpheadnum (last-moment conversion). */
+			g_BotConfigsArray[bi].base.mpbodynum = 0; /* MPBODY_DARK_COMBAT default */
+			g_BotConfigsArray[bi].base.mpheadnum = 0; /* MPHEAD_DARK_COMBAT default */
+			if (body_id && body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(body_id);
+				if (be && be->type == ASSET_BODY) {
+					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+					if (mpb >= 0) g_BotConfigsArray[bi].base.mpbodynum = (u8)mpb;
+				}
+			}
+			if (head_id && head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(head_id);
+				if (he && he->type == ASSET_HEAD) {
+					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+					if (mph >= 0) g_BotConfigsArray[bi].base.mpheadnum = (u8)mph;
+				}
+			}
 			if (botName && botName[0]) {
 				strncpy(g_BotConfigsArray[bi].base.name, botName, sizeof(g_BotConfigsArray[bi].base.name) - 1);
 				g_BotConfigsArray[bi].base.name[sizeof(g_BotConfigsArray[bi].base.name) - 1] = '\0';
 			} else {
 				g_BotConfigsArray[bi].base.name[0] = '\0';
 			}
-			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body=%u head=%u type=%u diff=%u",
+			sysLogPrintf(LOG_NOTE, "NET: bot %d: name='%s' body_id='%s' head_id='%s' mpbody=%u mphead=%u type=%u diff=%u",
 			             bi,
 			             g_BotConfigsArray[bi].base.name[0] ? g_BotConfigsArray[bi].base.name : "(empty)",
-			             bodynum, headnum, botType, botDifficulty);
+			             body_id ? body_id : "", head_id ? head_id : "",
+			             g_BotConfigsArray[bi].base.mpbodynum,
+			             g_BotConfigsArray[bi].base.mpheadnum,
+			             botType, botDifficulty);
 		}
 		g_Lobby.settings.numSimulants = clampedSims;
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
-		             stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
+		             (unsigned)g_MpSetup.stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
 
-		mainChangeToStage(stagenum);
-		netServerStageStart();
+		/* Phase D.3: receive host-built manifest from CLC_LOBBY_START payload,
+		 * then supplement with other connected players' body/head (which the
+		 * server knows from their CLC_SETTINGS but the host does not).
+		 * Falls back to server-side manifestBuild() if deserialization fails. */
+		manifestClear(&g_ServerManifest);
+		{
+			s32 deserOk = (manifestDeserialize(src, &g_ServerManifest) == 0);
+			if (!deserOk || src->error) {
+				sysLogPrintf(LOG_WARNING,
+				             "NET: CLC_LOBBY_START host manifest missing or corrupt — falling back to server-side build"
+				             " (deserOk=%d bufError=%d rp=%u wp=%u size=%u)",
+				             deserOk, (s32)src->error, (unsigned)src->rp, (unsigned)src->wp, (unsigned)src->size);
+				manifestBuild(&g_ServerManifest, NULL, NULL);
+			} else {
+				/* Supplement: add other players' body/head from their stored settings.
+				 * Slot assignment mirrors manifestBuild(): sequential CLSTATE_LOBBY clients.
+				 * The host is already in the manifest (slot 0); other players get subsequent
+				 * slots.  Dedup-by-net_hash prevents duplicates. */
+				u8 supp_slot = 0;
+				for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+					const struct netclient *ncl = &g_NetClients[ci];
+					if (ncl->state != CLSTATE_LOBBY && ncl->state != CLSTATE_GAME) {
+						continue;
+					}
+					if (ncl == srccl) {
+						/* Host already included in received manifest */
+						supp_slot++;
+						continue;
+					}
+					{
+						const asset_entry_t *be = assetCatalogResolve(ncl->settings.body_id);
+						if (be) {
+							manifestAddEntry(&g_ServerManifest, be->id,
+							                 MANIFEST_TYPE_BODY, supp_slot);
+						}
+					}
+					{
+						const asset_entry_t *he = assetCatalogResolve(ncl->settings.head_id);
+						if (he) {
+							manifestAddEntry(&g_ServerManifest, he->id,
+							                 MANIFEST_TYPE_HEAD, supp_slot);
+						}
+					}
+					supp_slot++;
+				}
+				/* D.5: extract stage catalog ID from manifest STAGE entry and
+				 * confirm it matches the stagenum resolved from the arena hash.
+				 * Log a warning on mismatch so misconfigurations are detectable. */
+				for (s32 mi = 0; mi < (s32)g_ServerManifest.num_entries; mi++) {
+					const match_manifest_entry_t *me = &g_ServerManifest.entries[mi];
+					if (me->type == MANIFEST_TYPE_STAGE) {
+						const asset_entry_t *se = assetCatalogResolve(me->id);
+						if (se) {
+							const u8 manifest_stagenum = (u8)se->ext.map.stagenum;
+							if (manifest_stagenum != g_MpSetup.stagenum) {
+								sysLogPrintf(LOG_WARNING,
+								             "NET: D.5 stage mismatch: arena ID→0x%02x, manifest→0x%02x ('%s') — using arena ID",
+								             (unsigned)g_MpSetup.stagenum, (unsigned)manifest_stagenum, me->id);
+							}
+						}
+						break;
+					}
+				}
+				manifestComputeHash(&g_ServerManifest);
+			}
+		}
+		manifestLog(&g_ServerManifest);
+
+		/* SA-1: build session catalog from manifest entries. */
+		sessionCatalogBuild(&g_ServerManifest);
+		sessionCatalogLogMapping();
+
+		/* R-3: Determine which room this match belongs to */
+		const u8 matchRoomId = srccl->room_id;
+
+		/* Phase C: broadcast SVC_MATCH_MANIFEST to room members (or all if no room).
+		 * Phase E will gate on CLC_MANIFEST_STATUS responses instead. */
+		netbufStartWrite(&g_NetMsgRel);
+		netmsgSvcMatchManifestWrite(&g_NetMsgRel, &g_ServerManifest);
+		if (matchRoomId != 0xFF) {
+			netSendToRoom(matchRoomId, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		} else {
+			netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		}
+		sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST broadcast (hash=0x%08x entries=%u room=%u)",
+		             (unsigned)g_ServerManifest.manifest_hash,
+		             (unsigned)g_ServerManifest.num_entries,
+		             (unsigned)matchRoomId);
+
+		/* SA-1: broadcast session catalog to room clients. */
+		sessionCatalogBroadcast();
+
+		/* Phase E: enter ready gate — transition room members from LOBBY to PREPARING,
+		 * initialize tracker, broadcast initial countdown.
+		 * SVC_STAGE_START is deferred until all clients respond READY (or timeout). */
+		{
+			u32 expected_mask = 0;
+			u8  total_count   = 0;
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+					/* R-3: Only transition clients in the same room */
+					if (matchRoomId != 0xFF && g_NetClients[ci].room_id != matchRoomId) {
+						continue;
+					}
+					g_NetClients[ci].state = CLSTATE_PREPARING;
+					expected_mask |= (1u << ci);
+					total_count++;
+				}
+			}
+
+			s_ReadyGate.active        = 1;
+			s_ReadyGate.expected_mask = expected_mask;
+			s_ReadyGate.ready_mask    = 0;
+			s_ReadyGate.declined_mask = 0;
+			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
+			s_ReadyGate.stagenum      = g_MpSetup.stagenum;
+			s_ReadyGate.total_count   = total_count;
+			s_ReadyGate.room_id       = matchRoomId;
+
+			hub_room_t *room = (matchRoomId != 0xFF) ? roomGetById(matchRoomId) : roomGetById(0);
+			if (room) {
+				roomTransition(room, ROOM_STATE_PREPARING);
+			}
+
+			if (total_count == 0) {
+				/* No clients in lobby; fire immediately */
+				s_ReadyGate.active = 0;
+				if (room) {
+					roomTransition(room, ROOM_STATE_LOADING);
+				}
+				extern u8 g_NetMatchRoomId;
+				g_NetMatchRoomId = matchRoomId;
+				mainChangeToStage(g_MpSetup.stagenum);
+				netServerStageStart();
+			} else {
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+				sysLogPrintf(LOG_NOTE,
+				             "NET: ready gate active — %u clients CLSTATE_PREPARING deadline=%u",
+				             (unsigned)total_count, (unsigned)s_ReadyGate.deadline_ticks);
+			}
+		}
 	} else {
 		/* Co-op or Counter-op — uses mission config */
-		g_MissionConfig.stagenum = stagenum;
+		g_MissionConfig.stagenum = g_MpSetup.stagenum;
 		g_MissionConfig.difficulty = difficulty;
-		mainChangeToStage(stagenum);
-		netServerCoopStageStart(stagenum, difficulty);
+		mainChangeToStage(g_MpSetup.stagenum);
+		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
 	}
 
-	return src->error;
+	/* Return 0 regardless of src->error: the buffer overflow on CLC_LOBBY_START
+	 * (31 bots × ~57 bytes exceeds the 1440-byte client out buffer) causes src->error
+	 * to be set after successful processing, producing a false "malformed 0x08" warning.
+	 * The message was handled correctly; don't abort the dispatch loop. */
+	return 0;
 }
 
 /* ========================================================================
@@ -3609,15 +4310,17 @@ u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
  * stage changed, match starting/ending). Clients update their local
  * lobby display accordingly.
  *
- * Payload: gamemode (u8), stagenum (u8), status (u8)
+ * Payload: gamemode (u8), arena (catalog ID str), status (u8)
+ * v27: arena encoded as catalog ID string (no net_hash on wire).
  * Status: 0=waiting, 1=starting, 2=in-game
  * ======================================================================== */
 
-u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status)
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, const char *stage_id, u8 status)
 {
 	netbufWriteU8(dst, SVC_LOBBY_STATE);
 	netbufWriteU8(dst, gamemode);
-	netbufWriteU8(dst, stagenum);
+	/* v27: encode arena as catalog ID string — no net_hash on wire. */
+	netbufWriteStr(dst, stage_id ? stage_id : "");
 	netbufWriteU8(dst, status);
 	return dst->error;
 }
@@ -3625,7 +4328,10 @@ u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 st
 u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode = netbufReadU8(src);
-	const u8 stagenum = netbufReadU8(src);
+	/* v27: read arena catalog ID string, resolve to ASSET_ARENA entry, extract stagenum. */
+	const char *arena_id = netbufReadStr(src);
+	const asset_entry_t *stage_entry = arena_id ? assetCatalogResolve(arena_id) : NULL;
+	const u8 stagenum = stage_entry ? (u8)stage_entry->ext.arena.stagenum : 0;
 	const u8 status   = netbufReadU8(src);
 
 	if (src->error) {
@@ -3683,7 +4389,7 @@ u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
 	netbufWriteU16(dst, (u16)s_CatalogCollectN);
 	for (s32 i = 0; i < s_CatalogCollectN; i++) {
 		const asset_entry_t *e = s_CatalogCollectBuf[i];
-		netbufWriteU32(dst, e->net_hash);
+		/* v27: no net_hash on wire — catalog ID string only. */
 		netbufWriteStr(dst, e->id);
 		netbufWriteStr(dst, e->category);
 	}
@@ -3699,13 +4405,11 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	/* Collect hashes + strings while buffer is live */
-	u32     hashes[CATALOG_COLLECT_MAX];
-	char    ids[CATALOG_COLLECT_MAX][64];
-	char    cats[CATALOG_COLLECT_MAX][64];
+	/* v27: no net_hash on wire — collect catalog ID strings only. */
+	char ids[CATALOG_COLLECT_MAX][64];
+	char cats[CATALOG_COLLECT_MAX][64];
 
 	for (u16 i = 0; i < count; i++) {
-		hashes[i] = netbufReadU32(src);
 		char *id  = netbufReadStr(src);
 		char *cat = netbufReadStr(src);
 		strncpy(ids[i],  id  ? id  : "", 63);  ids[i][63]  = '\0';
@@ -3714,8 +4418,7 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleCatalogInfo(hashes,
-	                                  (const char (*)[64])ids,
+	netDistribClientHandleCatalogInfo((const char (*)[64])ids,
 	                                  (const char (*)[64])cats,
 	                                  count);
 	return src->error;
@@ -3723,14 +4426,15 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 
 /* ---- CLC_CATALOG_DIFF ---- */
 
-u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const u32 *missing_hashes,
+u32 netmsgClcCatalogDiffWrite(struct netbuf *dst, const char (*missing_ids)[CATALOG_ID_LEN],
                                u16 count, u8 temporary)
 {
 	netbufWriteU8(dst, CLC_CATALOG_DIFF);
 	netbufWriteU8(dst, temporary);
 	netbufWriteU16(dst, count);
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
 	for (u16 i = 0; i < count; i++) {
-		netbufWriteU32(dst, missing_hashes[i]);
+		netbufWriteStr(dst, missing_ids ? missing_ids[i] : "");
 	}
 	return dst->error;
 }
@@ -3744,25 +4448,28 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	u32 hashes[256];
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
+	char missing_ids[256][CATALOG_ID_LEN];
 	for (u16 i = 0; i < count; i++) {
-		hashes[i] = netbufReadU32(src);
+		char *id = netbufReadStr(src);
+		strncpy(missing_ids[i], id ? id : "", CATALOG_ID_LEN - 1);
+		missing_ids[i][CATALOG_ID_LEN - 1] = '\0';
 	}
 
 	if (src->error) return src->error;
 
-	netDistribServerHandleDiff(srccl, hashes, count, temporary);
+	netDistribServerHandleDiff(srccl, (const char (*)[CATALOG_ID_LEN])missing_ids, count, temporary);
 	return src->error;
 }
 
 /* ---- SVC_DISTRIB_BEGIN ---- */
 
-u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
+u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
                                 const char *category, u32 total_chunks, u32 archive_bytes)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_BEGIN);
-	netbufWriteU32(dst, net_hash);
-	netbufWriteStr(dst, id);
+	/* v27: catalog ID string is the component identity — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteStr(dst, category);
 	netbufWriteU32(dst, total_chunks);
 	netbufWriteU32(dst, archive_bytes);
@@ -3772,16 +4479,20 @@ u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, u32 net_hash, const char *id,
 u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32  net_hash     = netbufReadU32(src);
-	char *id          = netbufReadStr(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id  = netbufReadStr(src);
 	char *category    = netbufReadStr(src);
 	u32  total_chunks = netbufReadU32(src);
 	u32  archive_bytes = netbufReadU32(src);
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleBegin(net_hash,
-	                             id       ? id       : "",
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_BEGIN: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleBegin(catalog_id,
 	                             category ? category : "",
 	                             total_chunks, archive_bytes, 0);
 	return src->error;
@@ -3795,11 +4506,12 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
  * without copying to avoid large stack allocations.
  */
 
-u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
+u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, const char *catalog_id, u16 chunk_idx,
                                 u8 compression, const u8 *data, u16 data_len)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_CHUNK);
-	netbufWriteU32(dst, net_hash);
+	/* v27: catalog ID string identifies the transfer — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteU16(dst, chunk_idx);
 	netbufWriteU8(dst, compression);
 	netbufWriteU16(dst, data_len);
@@ -3810,10 +4522,11 @@ u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, u32 net_hash, u16 chunk_idx,
 u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32  net_hash   = netbufReadU32(src);
-	u16  chunk_idx  = netbufReadU16(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id = netbufReadStr(src);
+	u16  chunk_idx   = netbufReadU16(src);
 	u8   compression = netbufReadU8(src);
-	u16  data_len   = netbufReadU16(src);
+	u16  data_len    = netbufReadU16(src);
 
 	/* Sanity bound: compressed data can't exceed 2× chunk size */
 	if (data_len > NET_DISTRIB_CHUNK_SIZE * 2) {
@@ -3827,16 +4540,22 @@ u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleChunk(net_hash, chunk_idx, compression, data, data_len);
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_CHUNK: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleChunk(catalog_id, chunk_idx, compression, data, data_len);
 	return src->error;
 }
 
 /* ---- SVC_DISTRIB_END ---- */
 
-u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
+u32 netmsgSvcDistribEndWrite(struct netbuf *dst, const char *catalog_id, u8 success)
 {
 	netbufWriteU8(dst, SVC_DISTRIB_END);
-	netbufWriteU32(dst, net_hash);
+	/* v27: catalog ID string identifies the transfer — no net_hash on wire. */
+	netbufWriteStr(dst, catalog_id);
 	netbufWriteU8(dst, success);
 	return dst->error;
 }
@@ -3844,12 +4563,18 @@ u32 netmsgSvcDistribEndWrite(struct netbuf *dst, u32 net_hash, u8 success)
 u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	u32 net_hash = netbufReadU32(src);
-	u8  success  = netbufReadU8(src);
+	/* v27: catalog ID string only — no u32 net_hash. */
+	char *catalog_id = netbufReadStr(src);
+	u8    success    = netbufReadU8(src);
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleEnd(net_hash, success);
+	if (!catalog_id || !catalog_id[0]) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_DISTRIB_END: empty catalog_id");
+		return 1;
+	}
+
+	netDistribClientHandleEnd(catalog_id, success);
 	return src->error;
 }
 
@@ -3882,4 +4607,693 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 		weapon   ? weapon   : "",
 		flags);
 	return src->error;
+}
+
+/* ========================================================================
+ * Phase A: Match Startup Pipeline (protocol v24)
+ *
+ * SVC_MATCH_MANIFEST  (0x62) — server → room, complete asset manifest
+ * CLC_MANIFEST_STATUS (0x0E) — client → server, catalog check result
+ * SVC_MATCH_COUNTDOWN (0x63) — server → room, ready-gate progress
+ *
+ * Wire format: see port/include/net/netmanifest.h
+ *
+ * Phase A scope: message types, structs, and read/write functions defined
+ * here.  Neither write nor read function is wired into any dispatch path
+ * yet — that happens in Phase B (server-side manifest build + send) and
+ * Phase C (client-side manifest check handler).
+ * ======================================================================== */
+
+/* ---- SVC_MATCH_MANIFEST ---- */
+
+/* Phase D.4: SVC_MATCH_MANIFEST now uses manifestSerialize/Deserialize (protocol 26+).
+ * Per-entry format: u32 net_hash, u8 type, u8 slot_index, str id,
+ *                   [u8[32] sha256] only for MANIFEST_TYPE_COMPONENT entries.
+ * The manifest_hash header is retained for integrity checking on the client. */
+
+u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest)
+{
+	netbufWriteU8(dst, SVC_MATCH_MANIFEST);
+	netbufWriteU32(dst, manifest->manifest_hash);
+	manifestSerialize(dst, manifest);
+	return dst->error;
+}
+
+u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u32 manifest_hash = netbufReadU32(src);
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_MANIFEST header");
+		return 1;
+	}
+
+	/* Phase D.4: use manifestDeserialize (handles sha256 for COMPONENT entries) */
+	manifestClear(&g_ClientManifest);
+	g_ClientManifest.manifest_hash = manifest_hash;
+
+	if (manifestDeserialize(src, &g_ClientManifest) != 0 || src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST parse error");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST hash=0x%08x entries=%u",
+	             (unsigned)manifest_hash, (unsigned)g_ClientManifest.num_entries);
+
+	/* Phase C: check local catalog against manifest, send CLC_MANIFEST_STATUS */
+	manifestCheck(&g_ClientManifest);
+
+	return src->error;
+}
+
+/* ---- CLC_MANIFEST_STATUS ---- */
+
+u32 netmsgClcManifestStatusWrite(struct netbuf *dst, u32 manifest_hash, u8 status,
+                                  const char (*missing_ids)[CATALOG_ID_LEN], u8 num_missing)
+{
+	netbufWriteU8(dst, CLC_MANIFEST_STATUS);
+	netbufWriteU32(dst, manifest_hash);
+	netbufWriteU8(dst, status);
+	netbufWriteU8(dst, num_missing);
+
+	/* v27: catalog ID strings only — no u32 net_hash on wire. */
+	for (u8 i = 0; i < num_missing; i++) {
+		netbufWriteStr(dst, missing_ids ? missing_ids[i] : "");
+	}
+
+	return dst->error;
+}
+
+u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u32 manifest_hash = netbufReadU32(src);
+	const u8  status        = netbufReadU8(src);
+	const u8  num_missing   = netbufReadU8(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_MANIFEST_STATUS header");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_MANIFEST_STATUS from client %u: hash=0x%08x status=%u missing=%u",
+	             srccl ? srccl->id : 0xFF,
+	             (unsigned)manifest_hash, (unsigned)status, (unsigned)num_missing);
+
+	/* v27: catalog ID strings only — no u32 net_hash on wire.
+	 * num_missing is u8 (0-255) — bounded by wire protocol. */
+	char missing_ids[256][CATALOG_ID_LEN];
+	u8   missing_count = 0;
+	for (s32 mi = 0; mi < (s32)num_missing; mi++) {
+		char *id = netbufReadStr(src);
+		if (src->error) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%d]", mi);
+			return 1;
+		}
+		sysLogPrintf(LOG_NOTE, "NET: MANIFEST MISSING[%d] id=%s", mi, id ? id : "(null)");
+		strncpy(missing_ids[missing_count], id ? id : "", CATALOG_ID_LEN - 1);
+		missing_ids[missing_count][CATALOG_ID_LEN - 1] = '\0';
+		missing_count++;
+	}
+
+	/* Phase E: ready gate — update per-client readiness and check for completion.
+	 * Dispatch on status: READY marks done, NEED_ASSETS queues Phase D transfer
+	 * (client will send READY again after transfer), DECLINE removes from match. */
+	if (s_ReadyGate.active && srccl) {
+		s32 ci = (s32)(srccl - g_NetClients);
+		if (ci >= 0 && ci < NET_MAX_CLIENTS &&
+		    (s_ReadyGate.expected_mask & (1u << ci))) {
+
+			if (status == MANIFEST_STATUS_READY) {
+				s_ReadyGate.ready_mask |= (1u << ci);
+				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d READY (%u/%u)",
+				             ci, (unsigned)readyGatePopcount(s_ReadyGate.ready_mask),
+				             (unsigned)s_ReadyGate.total_count);
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+
+			} else if (status == MANIFEST_STATUS_NEED_ASSETS) {
+				/* Phase D: queue missing components; client re-sends READY when done */
+				if (missing_count > 0) {
+					sysLogPrintf(LOG_NOTE,
+					             "NET: ready gate: client %d NEED_ASSETS (%u missing), queuing transfer",
+					             ci, (unsigned)missing_count);
+					netDistribServerHandleDiff(srccl,
+					                           (const char (*)[CATALOG_ID_LEN])missing_ids,
+					                           (u16)missing_count, 1);
+				}
+				readyGateBroadcastCountdown(MANIFEST_PHASE_TRANSFERRING);
+
+			} else if (status == MANIFEST_STATUS_DECLINE) {
+				s_ReadyGate.declined_mask |= (1u << ci);
+				srccl->state = CLSTATE_LOBBY;  /* spectator — excluded from match */
+				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d DECLINED (spectate)", ci);
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+			}
+
+			readyGateCheck();
+		}
+	}
+
+	return src->error;
+}
+
+/* ---- SVC_MATCH_COUNTDOWN ---- */
+
+u32 netmsgSvcMatchCountdownWrite(struct netbuf *dst, u8 ready_count, u8 total_count,
+                                  u8 phase, u8 countdown_secs)
+{
+	netbufWriteU8(dst, SVC_MATCH_COUNTDOWN);
+	netbufWriteU8(dst, ready_count);
+	netbufWriteU8(dst, total_count);
+	netbufWriteU8(dst, phase);
+	netbufWriteU8(dst, countdown_secs);
+	return dst->error;
+}
+
+u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u8 ready_count    = netbufReadU8(src);
+	const u8 total_count    = netbufReadU8(src);
+	const u8 phase          = netbufReadU8(src);
+	const u8 countdown_secs = netbufReadU8(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_COUNTDOWN");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_COUNTDOWN %u/%u ready phase=%u countdown=%us",
+	             (unsigned)ready_count, (unsigned)total_count,
+	             (unsigned)phase, (unsigned)countdown_secs);
+
+	/* Phase F: store countdown state so the room UI can display it. */
+	g_MatchCountdownState.ready_count    = ready_count;
+	g_MatchCountdownState.total_count    = total_count;
+	g_MatchCountdownState.phase          = phase;
+	g_MatchCountdownState.countdown_secs = countdown_secs;
+	g_MatchCountdownState.active         = 1;
+
+	return src->error;
+}
+
+/* ---- SVC_SESSION_CATALOG (SA-1) ---- */
+u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+	sessionCatalogReceive(src);
+	return src->error;
+}
+
+/* ---- CLC_LOBBY_CANCEL ---- */
+
+u32 netmsgClcLobbyCancelWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_LOBBY_CANCEL);
+	return dst->error;
+}
+
+u32 netmsgClcLobbyCancelRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_CANCEL received but not server");
+		return src->error;
+	}
+
+	if (!srccl) {
+		return src->error;
+	}
+
+	/* Only valid during the MANIFEST_PHASE_LOADING countdown */
+	if (!s_ReadyGate.active || !s_ReadyGate.countdown_active) {
+		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' but no countdown active — ignored",
+		             srccl->settings.name[0] ? srccl->settings.name : "?");
+		return src->error;
+	}
+
+	/* Only clients that are currently preparing can cancel */
+	if (srccl->state != CLSTATE_PREPARING) {
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' — aborting countdown",
+	             srccl->settings.name[0] ? srccl->settings.name : "?");
+
+	readyGateAbort(srccl->settings.name[0] ? srccl->settings.name : "Player");
+
+	return src->error;
+}
+
+/* ---- SVC_MATCH_CANCELLED ---- */
+
+u32 netmsgSvcMatchCancelledWrite(struct netbuf *dst, const char *canceller_name)
+{
+	netbufWriteU8(dst, SVC_MATCH_CANCELLED);
+	netbufWriteStr(dst, canceller_name ? canceller_name : "");
+	return dst->error;
+}
+
+u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
+{
+	char *name;
+
+	(void)srccl;
+
+	name = netbufReadStr(src);
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_MATCH_CANCELLED");
+		return 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_CANCELLED — cancelled by '%s'",
+	             name ? name : "?");
+
+	/* Clear the countdown so the overlay goes away */
+	memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
+
+	/* Record who cancelled so the UI can display the message */
+	g_MatchCancelledState.active = 1;
+	if (name) {
+		strncpy(g_MatchCancelledState.name, name, MATCH_CANCEL_NAME_LEN - 1);
+		g_MatchCancelledState.name[MATCH_CANCEL_NAME_LEN - 1] = '\0';
+	} else {
+		g_MatchCancelledState.name[0] = '\0';
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_BOT_AUTHORITY — server→designated client
+ * Tells the first connected client (slot 0 in a dedicated server game) that
+ * it is the bot AI authority: it should run full bot AI each frame and send
+ * CLC_BOT_MOVE updates back to the server for relay to all other clients.
+ *
+ * This message has no payload — it is a capability grant, not a data update.
+ * Only sent in dedicated-server mode (g_NetDedicated); in listen-server mode
+ * the server host runs bot AI directly and no authority designation is needed.
+ * ======================================================================== */
+
+u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, SVC_BOT_AUTHORITY);
+	return dst->error;
+}
+
+u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	if (src->error) {
+		return src->error;
+	}
+
+	g_NetLocalBotAuthority = true;
+	sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY received — this client runs bot AI and relays positions");
+	return src->error;
+}
+
+/* ========================================================================
+ * CLC_BOT_MOVE — bot-authority client→server
+ * Sent each update frame by the designated authority client for each active
+ * bot.  Carries: aibotnum (server stub index), syncid (so the server can
+ * write valid prop identifiers in its SVC_CHR_MOVE relay), position, facing
+ * angle, rooms, animation speed multipliers, and action state.
+ *
+ * The server's netmsgClcBotMoveRead() updates minimal stub fields and the
+ * existing SVC_CHR_MOVE broadcast loop (net.c:netEndFrame) relays the
+ * updated positions to all clients.
+ *
+ * No asset references (body/head/weapon) are transmitted — position/animation
+ * state only.  Asset catalog compliance: fully met.
+ * ======================================================================== */
+
+u32 netmsgClcBotMoveWrite(struct netbuf *dst)
+{
+	/* Count bots with valid data */
+	u8 count = 0;
+	for (s32 i = 0; i < g_BotCount; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		if (chr && chr->prop && chr->aibot) {
+			count++;
+		}
+	}
+
+	if (!count) {
+		return dst->error;
+	}
+
+	netbufWriteU8(dst, CLC_BOT_MOVE);
+	netbufWriteU8(dst, count);
+
+	if (g_Vars.lvframe60 < 600 && (g_Vars.lvframe60 % 60) == 0) {
+		sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE write count=%d frame=%d", (s32)count, g_Vars.lvframe60);
+	}
+
+	for (s32 i = 0; i < g_BotCount; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		if (!chr || !chr->prop || !chr->aibot) {
+			continue;
+		}
+		struct prop *prop = chr->prop;
+		struct aibot *aibot = chr->aibot;
+
+		netbufWriteU8(dst, (u8)i);                          /* aibotnum: server stub index */
+		netbufWriteU32(dst, prop->syncid);                  /* syncid: needed by server for SVC_CHR_MOVE relay */
+		netbufWriteCoord(dst, &prop->pos);
+		netbufWriteF32(dst, chrGetInverseTheta(chr));       /* yaw heading */
+		netbufWriteRooms(dst, prop->rooms, ARRAYCOUNT(prop->rooms));
+		netbufWriteF32(dst, aibot->speedmultforwards);
+		netbufWriteF32(dst, aibot->speedmultsideways);
+		netbufWriteF32(dst, aibot->speedtheta);
+		netbufWriteS8(dst, (s8)chr->myaction);
+		netbufWriteU8(dst, (u8)chr->actiontype);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u8 count = netbufReadU8(src);
+
+	if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+		sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE server recv count=%d tick=%d",
+			(s32)count, g_NetTick);
+	}
+
+	for (u8 j = 0; j < count; j++) {
+		const u8 aibotnum = netbufReadU8(src);
+		const u32 syncid  = netbufReadU32(src);
+		struct coord pos;
+		netbufReadCoord(src, &pos);
+		const f32 angle = netbufReadF32(src);
+		s16 rooms[8];
+		netbufReadRooms(src, rooms, ARRAYCOUNT(rooms));
+		const f32 speedmultfwd  = netbufReadF32(src);
+		const f32 speedmultside = netbufReadF32(src);
+		const f32 speedtheta    = netbufReadF32(src);
+		const s8  myaction      = netbufReadS8(src);
+		const u8  actiontype    = netbufReadU8(src);
+
+		if (src->error) {
+			return src->error;
+		}
+
+		if (aibotnum >= g_BotCount || !g_MpBotChrPtrs[aibotnum]) {
+			continue;
+		}
+
+		struct chrdata *chr = g_MpBotChrPtrs[aibotnum];
+		if (!chr->prop || !chr->aibot) {
+			continue;
+		}
+
+		struct prop  *prop  = chr->prop;
+		struct aibot *aibot = chr->aibot;
+
+		/* Update stub with authority data so the SVC_CHR_MOVE relay has valid fields */
+		prop->syncid = syncid;
+		prop->pos    = pos;
+
+		chr->myaction   = myaction;
+		chr->actiontype = actiontype;
+
+		aibot->speedmultforwards  = speedmultfwd;
+		aibot->speedmultsideways  = speedmultside;
+		aibot->speedtheta         = speedtheta;
+
+		/* Rooms: copy until terminator */
+		for (s32 ri = 0; ri < 8; ri++) {
+			prop->rooms[ri] = rooms[ri];
+			if (rooms[ri] < 0) {
+				break;
+			}
+		}
+
+		/* Store the angle — chrGetInverseTheta() is a stub that returns 0.0f on the
+		 * server, so we cache it directly into aibot for use if ever needed. */
+		aibot->roty = angle;
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * R-3: Room networking (protocol v29)
+ * ======================================================================== */
+
+u32 netmsgSvcRoomListWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, SVC_ROOM_LIST);
+
+	s32 count = roomGetActiveCount();
+	netbufWriteU8(dst, (u8)count);
+
+	for (s32 i = 0; i < count; i++) {
+		hub_room_t *room = roomGetByIndex(i);
+		if (!room) break;
+		netbufWriteU8(dst, room->id);
+		netbufWriteU8(dst, (u8)room->state);
+		netbufWriteStr(dst, room->name);
+		netbufWriteU8(dst, room->client_count);
+		netbufWriteU8(dst, room->max_players);
+		netbufWriteU8(dst, room->creator_client_id);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 count = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	g_RoomCacheCount = 0;
+
+	for (u8 i = 0; i < count && i < ROOM_CACHE_MAX; i++) {
+		room_cache_entry_t *entry = &g_RoomCache[i];
+		entry->id                = netbufReadU8(src);
+		entry->state             = netbufReadU8(src);
+		const char *name         = netbufReadStr(src);
+		if (name) {
+			strncpy(entry->name, name, ROOM_NAME_MAX - 1);
+			entry->name[ROOM_NAME_MAX - 1] = '\0';
+		} else {
+			entry->name[0] = '\0';
+		}
+		entry->client_count      = netbufReadU8(src);
+		entry->max_players       = netbufReadU8(src);
+		entry->creator_client_id = netbufReadU8(src);
+		g_RoomCacheCount++;
+	}
+
+	/* Skip any extra rooms beyond cache capacity */
+	for (u8 i = ROOM_CACHE_MAX; i < count; i++) {
+		netbufReadU8(src);
+		netbufReadU8(src);
+		netbufReadStr(src);
+		netbufReadU8(src);
+		netbufReadU8(src);
+		netbufReadU8(src);
+	}
+
+	if (src->error) return src->error;
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_LIST received (%d rooms)", (s32)count);
+	return src->error;
+}
+
+u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id)
+{
+	netbufWriteU8(dst, SVC_ROOM_ASSIGN);
+	netbufWriteU8(dst, room_id);
+	return dst->error;
+}
+
+u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 room_id = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	g_LocalRoomId = room_id;
+
+	if (room_id != 0xFF) {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_ASSIGN: assigned to room %u", (unsigned)room_id);
+#if !defined(PD_SERVER)
+		extern void pdguiSetInRoom(s32 inRoom);
+		pdguiSetInRoom(1);
+#endif
+	} else {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_ASSIGN: returned to lounge");
+#if !defined(PD_SERVER)
+		extern void pdguiSetInRoom(s32 inRoom);
+		pdguiSetInRoom(0);
+#endif
+	}
+
+	return src->error;
+}
+
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name)
+{
+	netbufWriteU8(dst, CLC_ROOM_CREATE);
+	netbufWriteStr(dst, name ? name : "");
+	return dst->error;
+}
+
+u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const char *name = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	/* Leave current room first if in one */
+	if (srccl->room_id != 0xFF) {
+		hub_room_t *old = roomGetById(srccl->room_id);
+		if (old) roomLeave(old, srccl->id);
+	}
+
+	/* Generate name if not provided */
+	char genName[ROOM_NAME_MAX];
+	if (!name || name[0] == '\0') {
+		roomGenerateName(genName, sizeof(genName));
+		name = genName;
+	}
+
+	hub_room_t *room = roomCreateConfigured(name, 32, ROOM_ACCESS_OPEN, NULL, srccl->id);
+	if (!room) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE failed — no free slots");
+		return src->error;
+	}
+
+	srccl->room_id = room->id;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_CREATE from client %u — created room %u \"%s\"",
+	             srccl->id, (unsigned)room->id, room->name);
+
+	/* Send room assignment to the creator */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list to everyone */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id)
+{
+	netbufWriteU8(dst, CLC_ROOM_JOIN);
+	netbufWriteU8(dst, room_id);
+	return dst->error;
+}
+
+u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 room_id = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	hub_room_t *room = roomGetById(room_id);
+	if (!room) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not found",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	if (room->state != ROOM_STATE_LOBBY) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not in lobby state",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	/* Leave current room first if in one */
+	if (srccl->room_id != 0xFF) {
+		hub_room_t *old = roomGetById(srccl->room_id);
+		if (old) roomLeave(old, srccl->id);
+	}
+
+	if (!roomJoin(room, srccl->id)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u full",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	srccl->room_id = room->id;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_JOIN from client %u — joined room %u \"%s\"",
+	             srccl->id, (unsigned)room->id, room->name);
+
+	/* Send assignment to the joiner */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_ROOM_LEAVE);
+	return dst->error;
+}
+
+u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	if (srccl->room_id == 0xFF) return src->error;
+
+	hub_room_t *room = roomGetById(srccl->room_id);
+	if (room) {
+		roomLeave(room, srccl->id);
+	}
+
+	srccl->room_id = 0xFF;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_LEAVE from client %u — returned to lounge", srccl->id);
+
+	/* Send assignment (lounge) to the leaver */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, 0xFF);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+void netBroadcastRoomList(void)
+{
+	if (g_NetMode != NETMODE_SERVER) return;
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcRoomListWrite(&g_NetMsgRel);
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 }

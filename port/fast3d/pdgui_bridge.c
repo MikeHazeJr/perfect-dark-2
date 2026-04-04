@@ -22,7 +22,13 @@
 #include "net/netlobby.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/cheats.h"
+#include "game/endscreen.h"
+#include "game/mainmenu.h"
+#include "game/menu.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
+#include "pdmain.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -124,6 +130,16 @@ const char *netGetPublicIP(void)
         }
     }
 
+    /* Try STUN next */
+    {
+        extern s32 stunGetStatus(void);
+        extern const char *stunGetExternalIP(void);
+        if (stunGetStatus() == 2) {  /* STUN_STATUS_SUCCESS */
+            const char *stunIp = stunGetExternalIP();
+            if (stunIp && stunIp[0]) return stunIp;
+        }
+    }
+
     /* Fallback: query external IP via HTTP (cached after first success).
      * Uses curl to query a lightweight IP echo service. */
     static char s_CachedIP[64] = "";
@@ -201,7 +217,10 @@ u8 netLobbyGetClientHead(s32 idx)
     s32 count = 0;
     for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
         if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].settings.headnum;
+            if (count == idx) {
+                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.head_id);
+                return e ? (u8)e->runtime_index : 0;
+            }
             count++;
         }
     }
@@ -213,7 +232,10 @@ u8 netLobbyGetClientBody(s32 idx)
     s32 count = 0;
     for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
         if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].settings.bodynum;
+            if (count == idx) {
+                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.body_id);
+                return e ? (u8)e->runtime_index : 0;
+            }
             count++;
         }
     }
@@ -383,11 +405,180 @@ const char *pdguiPauseGetStageName(u8 stagenum)
     for (s32 i = 0; i < count; i++) {
         struct mparena *arena = modmgrGetArena(i);
         if (arena && arena->stagenum == stagenum) {
-            return langGet(arena->name);
+            const char *s = langGet(arena->name);
+            return s ? s : "???";
         }
     }
 
     return "Unknown";
+}
+
+/* ========================================================================
+ * Endscreen bridge functions (pdgui_menu_pausemenu.cpp + pdgui_menu_mpingame.cpp)
+ * ======================================================================== */
+
+/* Forward declarations — no public headers for these */
+char *mpPlayerGetWeaponOfChoiceName(u32 playernum, u32 slot);
+s32   challengeIsCompleteForEndscreen(void);
+
+/**
+ * Placement index (0=1st, 1=2nd, ...) for the local player at match end.
+ * Returns -1 if no local player data is available.
+ */
+s32 pdguiEndscreenGetPlacementIndex(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (s32)g_PlayerConfigsArray[idx].base.placement;
+}
+
+/**
+ * Title string for the local player (e.g. "Agent", "Special Agent").
+ * Returns "" if not available.
+ */
+const char *pdguiEndscreenGetTitle(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    s32 title = g_PlayerConfigsArray[idx].title;
+    return langGet(L_MISC_185 + title);
+}
+
+/**
+ * New title text if title changed, else same as current title.
+ * Used to detect a title-change flash at endscreen.
+ */
+s32 pdguiEndscreenTitleChanged(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (g_PlayerConfigsArray[idx].title != g_PlayerConfigsArray[idx].newtitle) ? 1 : 0;
+}
+
+/**
+ * Weapon of choice name for the local player. Returns "" if none.
+ */
+const char *pdguiEndscreenGetWeaponOfChoiceName(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    char *name = mpPlayerGetWeaponOfChoiceName((u32)idx, 0);
+    return name ? name : "";
+}
+
+/**
+ * Award string 1 for the local player (e.g. "Most Kills"). Returns "" if none.
+ */
+const char *pdguiEndscreenGetAward1(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) return "";
+    if (!g_Vars.players[idx]) return "";
+    const char *a = g_Vars.players[idx]->award1;
+    return a ? a : "";
+}
+
+/**
+ * Award string 2 for the local player. Returns "" if none.
+ */
+const char *pdguiEndscreenGetAward2(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) return "";
+    if (!g_Vars.players[idx]) return "";
+    const char *a = g_Vars.players[idx]->award2;
+    return a ? a : "";
+}
+
+/**
+ * Medal bitmask for the local player.
+ * Bits: 0=Killmaster, 1=Headshot, 2=Accuracy, 3=Survivor
+ */
+u32 pdguiEndscreenGetMedals(void)
+{
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) idx = 0;
+    return (u32)g_PlayerConfigsArray[idx].medals;
+}
+
+/**
+ * Challenge outcome at match end.
+ * Returns: 0=not a challenge, 1=completed, 2=failed, 3=cheated
+ */
+s32 pdguiEndscreenGetChallengeStatus(void)
+{
+    if (g_BossFile.locktype != MPLOCKTYPE_CHALLENGE) return 0;
+    if (g_CheatsActiveBank0 || g_CheatsActiveBank1) return 3;
+    return challengeIsCompleteForEndscreen() ? 1 : 2;
+}
+
+/**
+ * Current mission difficulty (DIFF_A=0, DIFF_SA=1, DIFF_PA=2, DIFF_PD=3).
+ */
+s32 pdguiEndscreenGetDifficulty(void)
+{
+    return (s32)g_MissionConfig.difficulty;
+}
+
+/**
+ * Timed-cheat unlock name from the last mission, or NULL if none.
+ */
+const char *pdguiEndscreenGetCheatTimedName(void)
+{
+    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    if ((info & 0x100) && cheatGetTime(info & 0xff) > 0) {
+        return cheatGetName(info & 0xff);
+    }
+    return NULL;
+}
+
+/**
+ * Completion-cheat unlock name from the last mission, or NULL if none.
+ */
+const char *pdguiEndscreenGetCheatComplName(void)
+{
+    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    if (info & 0x800) {
+        return cheatGetName((info >> 16) & 0xff);
+    }
+    return NULL;
+}
+
+/**
+ * Restart the current mission (retry). Equivalent to pressing Accept on the
+ * retry dialog.
+ */
+void pdguiEndscreenStartMission(void)
+{
+    menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+}
+
+/**
+ * Advance to the next mission and start it. Equivalent to pressing Accept
+ * on the Next Mission dialog.
+ */
+void pdguiEndscreenNextMission(void)
+{
+    endscreenAdvance();
+    menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+}
+
+/**
+ * Exit the endscreen back to the main menu by popping all dialogs.
+ */
+void pdguiEndscreenExitToMainMenu(void)
+{
+    func0f0f8120();
+}
+
+/**
+ * Returns 1 if there is a next mission to advance to, 0 if at the last stage.
+ */
+s32 pdguiEndscreenHasNextMission(void)
+{
+    return (g_MissionConfig.stageindex + 1 < NUM_SOLOSTAGES) ? 1 : 0;
 }
 
 /* ========================================================================
@@ -421,7 +612,28 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
  * Lobby command bridge — send CLC_LOBBY_START from C++ lobby UI
  * ======================================================================== */
 
-s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
+/* Resolve a catalog stage_id to a stagenum for legacy wire encoding.
+ * Accepts both ASSET_ARENA (MP arenas) and ASSET_MAP (co-op/counter-op maps).
+ * Returns the stagenum on success, -1 if the catalog entry cannot be found. */
+static s32 s_resolveStageIdToStagenum(const char *stage_id)
+{
+    if (!stage_id || !stage_id[0]) {
+        sysLogPrintf(LOG_ERROR, "BRIDGE: null/empty stage_id");
+        return -1;
+    }
+    const asset_entry_t *ae = assetCatalogResolve(stage_id);
+    if (!ae) {
+        sysLogPrintf(LOG_ERROR, "BRIDGE: stage_id '%s' not found in catalog", stage_id);
+        return -1;
+    }
+    if (ae->type == ASSET_ARENA) return ae->ext.arena.stagenum;
+    if (ae->type == ASSET_MAP)   return ae->ext.map.stagenum;
+    sysLogPrintf(LOG_ERROR, "BRIDGE: stage_id '%s' is not ASSET_ARENA or ASSET_MAP (type=%d)",
+                 stage_id, (int)ae->type);
+    return -1;
+}
+
+s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -430,21 +642,84 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, u8 stagenum, u8 difficulty, u8 num
         return -2;
     }
 
+    /* Resolve catalog ID → stagenum for wire encoding (temporary — will be
+     * replaced by full catalog ID string wire format in the next protocol bump). */
+    const s32 stagenum = s_resolveStageIdToStagenum(stage_id);
+    if (stagenum < 0) {
+        return -3;
+    }
+
     /* Write to a fresh out-buffer then send immediately.
      * g_NetLocalClient->out is the per-client reliable send buffer; calling
      * netSend(cl, NULL, reliable, chan) flushes it via enet_peer_send to the
      * server.  Without the explicit netSend the packet sits unsent — the
      * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
     netbufStartWrite(&g_NetLocalClient->out);
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
     netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage=%u diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
-                 gamemode, stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+                 gamemode, stage_id, (unsigned)stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
     return 0;
 }
 
-s32 netLobbyRequestStart(u8 gamemode, u8 stagenum, u8 difficulty)
+s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 {
     /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
-    return netLobbyRequestStartWithSims(gamemode, stagenum, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+    return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+}
+
+/* ========================================================================
+ * Match countdown cancel bridge — send CLC_LOBBY_CANCEL from C++ overlay
+ * ======================================================================== */
+
+s32 netLobbyRequestCancel(void)
+{
+    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
+        return -1;
+    }
+    if (g_NetLocalClient->state != CLSTATE_PREPARING) {
+        return -2;
+    }
+
+    netbufStartWrite(&g_NetLocalClient->out);
+    netmsgClcLobbyCancelWrite(&g_NetLocalClient->out);
+    netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_CANCEL");
+    return 0;
+}
+
+/* ========================================================================
+ * Countdown state accessors — read-only bridge for C++ overlay
+ * ======================================================================== */
+
+/* Returns 1 when the MANIFEST_PHASE_LOADING countdown is active (3-2-1 visible). */
+s32 pdguiCountdownIsActive(void)
+{
+    return (g_MatchCountdownState.active &&
+            g_MatchCountdownState.phase == MANIFEST_PHASE_LOADING) ? 1 : 0;
+}
+
+/* Returns seconds remaining (3, 2, 1, 0 = GO). Only valid when pdguiCountdownIsActive(). */
+s32 pdguiCountdownGetSecs(void)
+{
+    return (s32)g_MatchCountdownState.countdown_secs;
+}
+
+/* Returns 1 if a SVC_MATCH_CANCELLED has been received and not yet cleared. */
+s32 pdguiCancelledIsActive(void)
+{
+    return g_MatchCancelledState.active;
+}
+
+/* Returns the name of the player who cancelled (valid when pdguiCancelledIsActive()). */
+const char *pdguiCancelledGetName(void)
+{
+    return g_MatchCancelledState.name;
+}
+
+/* Clears the cancel message after the UI has finished displaying it. */
+void pdguiCancelledClear(void)
+{
+    g_MatchCancelledState.active = 0;
+    g_MatchCancelledState.name[0] = '\0';
 }

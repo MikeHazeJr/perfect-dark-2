@@ -1,20 +1,30 @@
 /**
  * identity.c -- Player identity foundation (pd-identity.dat).
  *
- * Binary file layout (all fields little-endian):
+ * Binary file layout v2 (SA-4, all fields little-endian):
  *   [4]  u32  magic      = IDENTITY_MAGIC ("PDID")
- *   [1]  u8   version    = 1
+ *   [1]  u8   version    = 2
  *   [16] u8   device_uuid
  *   [1]  u8   profile_count
  *   [1]  u8   active_profile
  *   [2]  u8   _pad[2]
- *   [N * 20] identity_profile_t  profiles[profile_count]
- *     where N = profile_count, each profile is 20 bytes:
+ *   [N * IDENTITY_PROFILE_SIZE] identity_profile_t  profiles[profile_count]
+ *     where each profile is (IDENTITY_NAME_MAX + CATALOG_ID_LEN + CATALOG_ID_LEN + 4) bytes:
+ *       [16] char name[IDENTITY_NAME_MAX]
+ *       [64] char head_id[CATALOG_ID_LEN]
+ *       [64] char body_id[CATALOG_ID_LEN]
+ *       [1]  u8   flags
+ *       [3]  u8   _pad[3]
+ *
+ * Legacy v1 format (auto-migrated on load):
+ *   Each profile was 20 bytes:
  *       [16] char name[16]
- *       [1]  u8   headnum
- *       [1]  u8   bodynum
+ *       [1]  u8   headnum  (raw index)
+ *       [1]  u8   bodynum  (raw index)
  *       [1]  u8   flags
  *       [1]  u8   _pad
+ *   On load, headnum/bodynum are resolved via catalogResolveByRuntimeIndex()
+ *   and the file is immediately re-saved in v2 format.
  *
  * UUID generation: seeded from SDL performance counter + time(),
  * mixed with xorshift128.  Not cryptographically secure, but
@@ -22,6 +32,7 @@
  */
 
 #include "identity.h"
+#include "assetcatalog.h"
 #include "system.h"
 #include "fs.h"
 
@@ -37,13 +48,18 @@
  * Internal file structure (packed, written verbatim)
  * ------------------------------------------------------------------------- */
 
-#define IDENTITY_FILE_VERSION 1
+#define IDENTITY_FILE_VERSION  2   /* SA-4: string IDs replace raw integers */
+#define IDENTITY_FILE_VERSION_V1 1 /* legacy: headnum/bodynum as u8 */
 
 /* Total header size before profiles. */
 #define IDENTITY_HEADER_SIZE (4 + 1 + 16 + 1 + 1 + 2)  /* = 25 bytes */
 
-/* Bytes per serialised profile. */
-#define IDENTITY_PROFILE_SIZE 20
+/* Bytes per serialised profile (v2). */
+#define IDENTITY_PROFILE_SIZE \
+    (IDENTITY_NAME_MAX + CATALOG_ID_LEN + CATALOG_ID_LEN + 4)  /* = 148 bytes */
+
+/* Bytes per serialised profile (v1 legacy). */
+#define IDENTITY_PROFILE_SIZE_V1 20
 
 /* -------------------------------------------------------------------------
  * Module state
@@ -117,9 +133,10 @@ static void buildDefault(void)
     s_Identity.active_profile = 0;
 
     strncpy(s_Identity.profiles[0].name, "Agent", IDENTITY_NAME_MAX - 1);
-    s_Identity.profiles[0].headnum = 0;
-    s_Identity.profiles[0].bodynum = 0;
-    s_Identity.profiles[0].flags   = 0;
+    /* SA-4: default appearance stored as catalog IDs (empty = use catalog default) */
+    s_Identity.profiles[0].head_id[0] = '\0';
+    s_Identity.profiles[0].body_id[0] = '\0';
+    s_Identity.profiles[0].flags      = 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -140,6 +157,8 @@ static const char *identityFilePath(void)
 static int tryLoad(void)
 {
     const char *path = identityFilePath();
+    int need_resave = 0;
+    int i;
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
 
@@ -152,7 +171,8 @@ static int tryLoad(void)
 
     /* Read version. */
     uint8_t ver = 0;
-    if (fread(&ver, 1, 1, f) != 1 || ver != IDENTITY_FILE_VERSION) {
+    if (fread(&ver, 1, 1, f) != 1 ||
+        (ver != IDENTITY_FILE_VERSION && ver != IDENTITY_FILE_VERSION_V1)) {
         fclose(f);
         return 0;
     }
@@ -182,22 +202,71 @@ static int tryLoad(void)
         s_Identity.active_profile = 0;
     }
 
-    /* Read profiles. */
-    for (int i = 0; i < (int)s_Identity.profile_count; i++) {
-        uint8_t buf[IDENTITY_PROFILE_SIZE];
-        if (fread(buf, IDENTITY_PROFILE_SIZE, 1, f) != 1) {
-            fclose(f);
-            return 0;
+    if (ver == IDENTITY_FILE_VERSION_V1) {
+        /* SA-4: legacy v1 format — each profile is 20 bytes with u8 headnum/bodynum. */
+        sysLogPrintf(LOG_NOTE, "IDENTITY: v1 file detected — migrating to v2 (string IDs)");
+        need_resave = 1;
+        for (i = 0; i < (int)s_Identity.profile_count; i++) {
+            uint8_t buf[IDENTITY_PROFILE_SIZE_V1];
+            const char *resolved_head;
+            const char *resolved_body;
+            uint8_t headnum, bodynum;
+            if (fread(buf, IDENTITY_PROFILE_SIZE_V1, 1, f) != 1) {
+                fclose(f);
+                return 0;
+            }
+            memcpy(s_Identity.profiles[i].name, buf, IDENTITY_NAME_MAX);
+            s_Identity.profiles[i].name[IDENTITY_NAME_MAX - 1] = '\0';
+            headnum = buf[16];
+            bodynum = buf[17];
+            s_Identity.profiles[i].flags = buf[18];
+            /* FIX-20: Resolve legacy integers to catalog string IDs.
+             * Old identity format stored mpheadnum/mpbodynum (g_MpHeads[]/g_MpBodies[]
+             * position indices, range 0..75/0..62).  catalogResolveByRuntimeIndex uses
+             * g_HeadsAndBodies[] index (bodynum/headnum, range 0..151) — a different
+             * index domain.  Use the mp-index resolvers which do the conversion. */
+            resolved_head = catalogResolveHeadByMpIndex((s32)headnum);
+            resolved_body = catalogResolveBodyByMpIndex((s32)bodynum);
+            if (resolved_head) {
+                strncpy(s_Identity.profiles[i].head_id, resolved_head, CATALOG_ID_LEN - 1);
+                s_Identity.profiles[i].head_id[CATALOG_ID_LEN - 1] = '\0';
+            } else {
+                s_Identity.profiles[i].head_id[0] = '\0';
+            }
+            if (resolved_body) {
+                strncpy(s_Identity.profiles[i].body_id, resolved_body, CATALOG_ID_LEN - 1);
+                s_Identity.profiles[i].body_id[CATALOG_ID_LEN - 1] = '\0';
+            } else {
+                s_Identity.profiles[i].body_id[0] = '\0';
+            }
         }
-        memcpy(s_Identity.profiles[i].name, buf, IDENTITY_NAME_MAX);
-        s_Identity.profiles[i].name[IDENTITY_NAME_MAX - 1] = '\0';
-        s_Identity.profiles[i].headnum = buf[16];
-        s_Identity.profiles[i].bodynum = buf[17];
-        s_Identity.profiles[i].flags   = buf[18];
-        /* buf[19] = _pad */
+    } else {
+        /* v2 format — read string IDs directly. */
+        for (i = 0; i < (int)s_Identity.profile_count; i++) {
+            uint8_t buf[IDENTITY_PROFILE_SIZE];
+            if (fread(buf, IDENTITY_PROFILE_SIZE, 1, f) != 1) {
+                fclose(f);
+                return 0;
+            }
+            memcpy(s_Identity.profiles[i].name, buf, IDENTITY_NAME_MAX);
+            s_Identity.profiles[i].name[IDENTITY_NAME_MAX - 1] = '\0';
+            memcpy(s_Identity.profiles[i].head_id, buf + IDENTITY_NAME_MAX, CATALOG_ID_LEN);
+            s_Identity.profiles[i].head_id[CATALOG_ID_LEN - 1] = '\0';
+            memcpy(s_Identity.profiles[i].body_id,
+                   buf + IDENTITY_NAME_MAX + CATALOG_ID_LEN, CATALOG_ID_LEN);
+            s_Identity.profiles[i].body_id[CATALOG_ID_LEN - 1] = '\0';
+            s_Identity.profiles[i].flags = buf[IDENTITY_NAME_MAX + CATALOG_ID_LEN + CATALOG_ID_LEN];
+        }
     }
 
     fclose(f);
+
+    /* Re-save in v2 format if we migrated from v1. */
+    if (need_resave) {
+        identitySave();
+        sysLogPrintf(LOG_NOTE, "IDENTITY: migration complete — file re-saved in v2 format");
+    }
+
     return 1;
 }
 
@@ -234,16 +303,18 @@ void identitySave(void)
         return;
     }
 
+    int ok = 1;
+
     /* Magic */
     uint32_t magic = IDENTITY_MAGIC;
-    fwrite(&magic, 4, 1, f);
+    ok &= (fwrite(&magic, 4, 1, f) == 1);
 
     /* Version */
     uint8_t ver = IDENTITY_FILE_VERSION;
-    fwrite(&ver, 1, 1, f);
+    ok &= (fwrite(&ver, 1, 1, f) == 1);
 
     /* UUID */
-    fwrite(s_Identity.device_uuid, IDENTITY_UUID_LEN, 1, f);
+    ok &= (fwrite(s_Identity.device_uuid, IDENTITY_UUID_LEN, 1, f) == 1);
 
     /* profile_count, active_profile, pad, pad */
     uint8_t hdr[4] = {
@@ -251,21 +322,27 @@ void identitySave(void)
         s_Identity.active_profile,
         0, 0
     };
-    fwrite(hdr, 4, 1, f);
+    ok &= (fwrite(hdr, 4, 1, f) == 1);
 
-    /* Profiles */
+    /* Profiles (v2 format: name + head_id + body_id + flags + pad) */
     for (int i = 0; i < (int)s_Identity.profile_count; i++) {
         uint8_t buf[IDENTITY_PROFILE_SIZE];
         memset(buf, 0, sizeof(buf));
         memcpy(buf, s_Identity.profiles[i].name, IDENTITY_NAME_MAX);
-        buf[16] = s_Identity.profiles[i].headnum;
-        buf[17] = s_Identity.profiles[i].bodynum;
-        buf[18] = s_Identity.profiles[i].flags;
-        /* buf[19] = _pad = 0 */
-        fwrite(buf, IDENTITY_PROFILE_SIZE, 1, f);
+        memcpy(buf + IDENTITY_NAME_MAX,
+               s_Identity.profiles[i].head_id, CATALOG_ID_LEN);
+        memcpy(buf + IDENTITY_NAME_MAX + CATALOG_ID_LEN,
+               s_Identity.profiles[i].body_id, CATALOG_ID_LEN);
+        buf[IDENTITY_NAME_MAX + CATALOG_ID_LEN + CATALOG_ID_LEN] =
+               s_Identity.profiles[i].flags;
+        /* remaining bytes = _pad = 0 */
+        ok &= (fwrite(buf, IDENTITY_PROFILE_SIZE, 1, f) == 1);
     }
 
     fclose(f);
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "IDENTITY: write error saving %s", path);
+    }
 }
 
 pd_identity_t *identityGet(void)

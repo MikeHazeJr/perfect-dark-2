@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
+#define SDL_MAIN_HANDLED
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/ultrasched.h>
 #include <PR/os_message.h>
@@ -52,6 +54,8 @@ s32 g_TickRateDiv = 1;
 s32 g_TickExtraSleep = true;
 
 s32 g_SkipIntro = false;
+
+s32 g_JumpLoggingEnabled = 0;
 
 s32 g_FileAutoSelect = -1;
 
@@ -120,7 +124,9 @@ static void cleanup(void)
 	configSave(CONFIG_PATH);
 	videoShutdown();
 	crashShutdown();
-	// TODO: actually shut down all subsystems
+	/* SDL_Quit tears down all SDL subsystems (video, audio, timer, etc.)
+	 * that were opened via SDL_Init / SDL_InitSubSystem during boot. */
+	SDL_Quit();
 }
 
 int main(int argc, const char **argv)
@@ -311,6 +317,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Game.SkipIntro", &g_SkipIntro, 0, 1);
 	configRegisterInt("Game.DisableMpDeathMusic", &g_MusicDisableMpDeath, 0, 1);
 	configRegisterInt("Game.GEMuzzleFlashes", &g_BgunGeMuzzleFlashes, 0, 1);
+	configRegisterInt("Debug.JumpLogging", &g_JumpLoggingEnabled, 0, 1);
 	for (s32 j = 0; j < MAX_LOCAL_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);

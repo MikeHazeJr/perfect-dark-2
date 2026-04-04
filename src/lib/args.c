@@ -58,7 +58,7 @@ char *argParseString(char *str)
 
 void argSetString(char *string)
 {
-	strcpy((char *) g_ArgBuffer, string);
+	strncpy((char *) g_ArgBuffer, string, sizeof(g_ArgBuffer) - 1); ((char *)g_ArgBuffer)[sizeof(g_ArgBuffer) - 1] = '\0';
 	argParseString((char *) g_ArgBuffer);
 }
 

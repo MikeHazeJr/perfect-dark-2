@@ -12,6 +12,8 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "assetcatalog.h"
+#include "net/netmanifest.h"
 
 struct stagesetup g_StageSetup;
 u8 *g_GeCreditsData;
@@ -154,8 +156,22 @@ u32 setupGetCmdIndexByProp(struct prop *prop)
 
 bool setupLoadModeldef(s32 modelnum)
 {
+	s32 fileid;
+	const char *model_id;
+
+	/* Ensure this model is tracked in the active SP asset manifest.
+	 * manifestEnsureLoaded is a no-op in MP mode or before the manifest is
+	 * built, so this guard is unconditionally safe.  All prop/weapon/hat/
+	 * projectile model loads funnel through this function, making it the
+	 * canonical chokepoint for MANIFEST_TYPE_MODEL tracking. */
+	model_id = catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum);
+	if (model_id) {
+		manifestEnsureLoaded(model_id, MANIFEST_TYPE_MODEL);
+	}
+
 	if (g_ModelStates[modelnum].modeldef == NULL) {
-		g_ModelStates[modelnum].modeldef = modeldefLoadToNew(g_ModelStates[modelnum].fileid);
+		fileid = catalogGetPropFilenumByIndex(modelnum); /* SA-5c */
+		g_ModelStates[modelnum].modeldef = modeldefLoadToNew((u16)fileid);
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
 		return true;
 	}

@@ -63,7 +63,7 @@ s32 audioInit(void)
 
 	SDL_AudioSpec want, have;
 	SDL_zero(want);
-	want.freq = 22020; // TODO: this might cause trouble for some platforms
+	want.freq = 22050; /* standard half-rate (44100/2) — 22020 was a typo */
 	want.format = AUDIO_S16SYS;
 	want.channels = 2;
 	want.samples = bufferSize;

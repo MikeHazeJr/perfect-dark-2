@@ -30,6 +30,7 @@
 #include "game/mplayer/participant.h"
 #include "net/net.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 
 struct menuitem g_MpCharacterMenuItems[];
 struct menudialogdef g_MpAddSimulantMenuDialog;
@@ -421,7 +422,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 	case MENUOP_GETOPTIONTEXT:
 		switch (arenaMapIndex(data->list.value, &group, &arena)) {
 		case 0: // group header
-			sprintf(g_StringPointer, "%c %s",
+			snprintf(g_StringPointer, 300, "%c %s",
 				(g_ArenaGroupCollapsed & (1 << group)) ? '+' : '-',
 				langGet(g_ArenaGroupDefs[group].name));
 			return (uintptr_t)g_StringPointer;
@@ -662,10 +663,10 @@ MenuItemHandlerResult menuhandlerMpSetupName(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		strcpy(name, g_MpSetup.name);
+		strncpy(name, g_MpSetup.name, MPSETUP_MAXNAME); name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SETTEXT:
-		strcpy(g_MpSetup.name, name);
+		strncpy(g_MpSetup.name, name, MPSETUP_MAXNAME); g_MpSetup.name[MPSETUP_MAXNAME] = '\0';
 		break;
 	case MENUOP_SET:
 		err = mpsetupSaveSetup(g_MpSetupFile.numsetups, true);
@@ -720,7 +721,7 @@ MenuItemHandlerResult func0f179b68(s32 operation, struct menuitem *item, union h
 		g_PlayerConfigsArray[g_MpPlayerNum].base.unk18 = (u8) data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%d%%\n", data->slider.value + 20);
+		snprintf(data->slider.label, 16, "%d%%\n", data->slider.value + 20);
 		break;
 	}
 
@@ -737,7 +738,7 @@ MenuItemHandlerResult func0f179c14(s32 operation, struct menuitem *item, union h
 		g_PlayerConfigsArray[g_MpPlayerNum].base.unk1a = (u8) data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%d%%\n", data->slider.value + 20);
+		snprintf(data->slider.label, 16, "%d%%\n", data->slider.value + 20);
 		break;
 	}
 
@@ -754,7 +755,7 @@ MenuItemHandlerResult func0f179cc0(s32 operation, struct menuitem *item, union h
 		g_PlayerConfigsArray[g_MpPlayerNum].base.unk1c = data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%d%%\n", data->slider.value + 25);
+		snprintf(data->slider.label, 16, "%d%%\n", data->slider.value + 25);
 		break;
 	}
 
@@ -1001,61 +1002,61 @@ const char var7f1b7ed0[] = "Menu99 -> Calling Camera Module Finish\n";
 
 char *mpMenuTextKills(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].kills);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].kills);
 	return g_StringPointer;
 }
 
 char *mpMenuTextDeaths(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].deaths);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].deaths);
 	return g_StringPointer;
 }
 
 char *mpMenuTextGamesPlayed(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gamesplayed);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gamesplayed);
 	return g_StringPointer;
 }
 
 char *mpMenuTextGamesWon(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gameswon);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gameswon);
 	return g_StringPointer;
 }
 
 char *mpMenuTextGamesLost(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gameslost);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].gameslost);
 	return g_StringPointer;
 }
 
 char *mpMenuTextHeadShots(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].headshots);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].headshots);
 	return g_StringPointer;
 }
 
 char *mpMenuTextMedalAccuracy(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].accuracymedals);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].accuracymedals);
 	return g_StringPointer;
 }
 
 char *mpMenuTextMedalHeadShot(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].headshotmedals);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].headshotmedals);
 	return g_StringPointer;
 }
 
 char *mpMenuTextMedalKillMaster(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].killmastermedals);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].killmastermedals);
 	return g_StringPointer;
 }
 
 char *mpMenuTextMedalSurvivor(struct menuitem *item)
 { \
-	sprintf(g_StringPointer, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].survivormedals);
+	snprintf(g_StringPointer, 300, "%d\n", g_PlayerConfigsArray[g_MpPlayerNum].survivormedals);
 	return g_StringPointer;
 }
 
@@ -1068,12 +1069,12 @@ char *mpMenuTextAmmoUsed(struct menuitem *item)
 
 		if (value > 100000) {
 			value = value / 1000;
-			sprintf(g_StringPointer, "%dM\n", value);
+			snprintf(g_StringPointer, 300, "%dM\n", value);
 		} else {
-			sprintf(g_StringPointer, "%dK\n", value);
+			snprintf(g_StringPointer, 300, "%dK\n", value);
 		}
 	} else {
-		sprintf(g_StringPointer, "%d\n", value);
+		snprintf(g_StringPointer, 300, "%d\n", value);
 	}
 
 	return g_StringPointer;
@@ -1081,7 +1082,7 @@ char *mpMenuTextAmmoUsed(struct menuitem *item)
 
 char *mpMenuTextDistance(struct menuitem *item)
 {
-	sprintf(g_StringPointer, "%s%s%.1fkm\n", "", "", g_PlayerConfigsArray[g_MpPlayerNum].distance / 10.0f);
+	snprintf(g_StringPointer, 300, "%s%s%.1fkm\n", "", "", g_PlayerConfigsArray[g_MpPlayerNum].distance / 10.0f);
 	return g_StringPointer;
 }
 
@@ -1105,9 +1106,9 @@ char *mpMenuTextTime(struct menuitem *item)
 	days = hours / 24;
 
 	if (days == 0) {
-		sprintf(g_StringPointer, "%d:%02d.%02d", hours % 24, raw % 60, secs);
+		snprintf(g_StringPointer, 300, "%d:%02d.%02d", hours % 24, raw % 60, secs);
 	} else {
-		sprintf(g_StringPointer, "%d:%02d:%02d", days, hours % 24, raw % 60);
+		snprintf(g_StringPointer, 300, "%d:%02d:%02d", days, hours % 24, raw % 60);
 	}
 
 	return g_StringPointer;
@@ -1121,7 +1122,7 @@ char *mpMenuTextAccuracy(struct menuitem *item)
 	}
 #endif
 
-	sprintf(g_StringPointer, "%s%s%.1f%%", "", "", g_PlayerConfigsArray[g_MpPlayerNum].accuracy / 10.0f);
+	snprintf(g_StringPointer, 300, "%s%s%.1f%%", "", "", g_PlayerConfigsArray[g_MpPlayerNum].accuracy / 10.0f);
 	return g_StringPointer;
 }
 
@@ -1129,30 +1130,30 @@ void mpFormatDamageValue(char *dst, f32 damage)
 {
 #if VERSION >= VERSION_NTSC_1_0
 	if (damage < 1000) {
-		sprintf(dst, "%s%s%.1f", "", "", damage);
+		snprintf(dst, 300, "%s%s%.1f", "", "", damage);
 	} else if (damage < 10000) {
-		sprintf(dst, "%s%s%.0f", "", "", damage);
+		snprintf(dst, 300, "%s%s%.0f", "", "", damage);
 	} else if (damage < 100000) {
 		damage = damage / 1000;
-		sprintf(dst, "%s%s%.1fK", "", "", damage);
+		snprintf(dst, 300, "%s%s%.1fK", "", "", damage);
 	} else if (damage < 1000000) {
 		damage = damage / 1000;
-		sprintf(dst, "%s%s%.0fK", "", "", damage);
+		snprintf(dst, 300, "%s%s%.0fK", "", "", damage);
 	} else if (damage < 10000000) {
 		damage = damage / 1000;
 		damage = damage / 1000;
-		sprintf(dst, "%s%s%.1fM", "", "", damage);
+		snprintf(dst, 300, "%s%s%.1fM", "", "", damage);
 	} else {
 		damage = damage / 1000;
 		damage = damage / 1000;
-		sprintf(dst, "%s%s%.0fM", "", "", damage);
+		snprintf(dst, 300, "%s%s%.0fM", "", "", damage);
 	}
 #else
 	if (damage > 100000) {
 		damage = damage / 1000;
-		sprintf(dst, "%s%s%.1fKL", "", "", damage);
+		snprintf(dst, 300, "%s%s%.1fKL", "", "", damage);
 	} else {
-		sprintf(dst, "%s%s%.1fL", "", "", damage);
+		snprintf(dst, 300, "%s%s%.1fL", "", "", damage);
 	}
 #endif
 }
@@ -1230,7 +1231,7 @@ MenuItemHandlerResult mpMedalMenuHandler(s32 operation, struct menuitem *item, u
 char *mpMenuTitleStatsForPlayerName(struct menudialogdef *dialogdef)
 {
 	// "Stats for %s"
-	sprintf(g_StringPointer, langGet(L_MPMENU_145), g_PlayerConfigsArray[g_MpPlayerNum].base.name);
+	snprintf(g_StringPointer, 300, langGet(L_MPMENU_145), g_PlayerConfigsArray[g_MpPlayerNum].base.name);
 	return g_StringPointer;
 }
 
@@ -2342,12 +2343,12 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 		if (mpheadnum < mpGetNumHeads2()) {
 			headnum = mpGetHeadId(mpheadnum);
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = false;
 		} else {
 			headnum = mpGetBeauHeadId(func0f14a9f8(mpheadnum - mpGetNumHeads2()));
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = true;
 			g_Menus[g_MpPlayerNum].menumodel.perfectheadnum = mpheadnum - mpGetNumHeads2();
 		}
@@ -2593,7 +2594,7 @@ char *mpMenuTextMpconfigMarquee(struct menuitem *item)
 #if VERSION >= VERSION_NTSC_1_0
 		if (scenarionum <= 5 && arenanum != -1 && numsims >= 0 && filename[0] != '\0' && numsims <= MAX_BOTS) {
 			// "%s:  Scenario: %s   Arena: %s    Simulants: %d"
-			sprintf(g_StringPointer, langGet(L_MPMENU_140),
+			snprintf(g_StringPointer, 300, langGet(L_MPMENU_140),
 					filename,
 					langGet(g_MpScenarioOverviews[scenarionum].name),
 					langGet(modmgrGetArena(arenanum)->name),
@@ -2603,7 +2604,7 @@ char *mpMenuTextMpconfigMarquee(struct menuitem *item)
 		}
 #else
 		// "%s:  Scenario: %s   Arena: %s    Simulants: %d"
-		sprintf(g_StringPointer, langGet(L_MPMENU_140),
+		snprintf(g_StringPointer, 300, langGet(L_MPMENU_140),
 				filename,
 				langGet(g_MpScenarioOverviews[scenarionum].name),
 				langGet(modmgrGetArena(arenanum)->name),
@@ -2687,9 +2688,9 @@ MenuItemHandlerResult menuhandlerMpTimeLimitSlider(s32 operation, struct menuite
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 60) {
-			sprintf(data->slider.label, langGet(L_MPMENU_112)); // "No Limit"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_112)); // "No Limit"
 		} else {
-			sprintf(data->slider.label, langGet(L_MPMENU_114), data->slider.value + 1); // "%d Min"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_114), data->slider.value + 1); // "%d Min"
 		}
 	}
 	return 0;
@@ -2706,9 +2707,9 @@ MenuItemHandlerResult menuhandlerMpScoreLimitSlider(s32 operation, struct menuit
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 100) {
-			sprintf(data->slider.label, langGet(L_MPMENU_112)); // "No Limit"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_112)); // "No Limit"
 		} else {
-			sprintf(data->slider.label, langGet(L_MPMENU_113), data->slider.value + 1); // "%d"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_113), data->slider.value + 1); // "%d"
 		}
 	}
 
@@ -2726,9 +2727,9 @@ MenuItemHandlerResult menuhandlerMpTeamScoreLimitSlider(s32 operation, struct me
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 400) {
-			sprintf(data->slider.label, langGet(L_MPMENU_112)); // "No Limit"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_112)); // "No Limit"
 		} else {
-			sprintf(data->slider.label, langGet(L_MPMENU_113), data->slider.value + 1); // "%d"
+			snprintf(data->slider.label, 16, langGet(L_MPMENU_113), data->slider.value + 1); // "%d"
 		}
 	}
 
@@ -2759,7 +2760,7 @@ MenuItemHandlerResult menuhandlerMpHandicapPlayer(s32 operation, struct menuitem
 		g_PlayerConfigsArray[item->param].handicap = (u16)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		sprintf(data->slider.label, "%s%s%.00f%%\n", "", "", mpHandicapToDamageScale(g_PlayerConfigsArray[item->param].handicap) * 100);
+		snprintf(data->slider.label, 16, "%s%s%.00f%%\n", "", "", mpHandicapToDamageScale(g_PlayerConfigsArray[item->param].handicap) * 100);
 		break;
 	}
 
@@ -3481,7 +3482,7 @@ MenuItemHandlerResult menuhandlerMpCopySimulant(s32 operation, struct menuitem *
 
 char *mpMenuTitleEditSimulant(struct menudialogdef *dialogdef)
 {
-	sprintf(g_StringPointer, "%s", &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.name);
+	snprintf(g_StringPointer, 300, "%s", &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.name);
 	return g_StringPointer;
 }
 
@@ -3585,7 +3586,7 @@ char *func0f17d3dc(struct menuitem *item)
 		return "";
 	}
 
-	sprintf(g_StringPointer, "%d:\n", index + 1);
+	snprintf(g_StringPointer, 300, "%d:\n", index + 1);
 	return g_StringPointer;
 }
 
@@ -4653,7 +4654,7 @@ MenuItemHandlerResult menuhandlerMpTeamNameSlot(s32 operation, struct menuitem *
 
 char *func0f17e318(struct menudialogdef *dialogdef)
 {
-	sprintf(g_StringPointer, langGet(L_MPMENU_056), challengeGetNameBySlot(g_Menus[g_MpPlayerNum].mpsetup.slotindex));
+	snprintf(g_StringPointer, 300, langGet(L_MPMENU_056), challengeGetNameBySlot(g_Menus[g_MpPlayerNum].mpsetup.slotindex));
 	return g_StringPointer;
 }
 
@@ -5244,7 +5245,7 @@ char *mpMenuTextChallengeName(struct menuitem *item)
 	}
 #endif
 
-	sprintf(g_StringPointer, "%s:\n", challengeGetName(challengeGetCurrent()));
+	snprintf(g_StringPointer, 300, "%s:\n", challengeGetName(challengeGetCurrent()));
 	return g_StringPointer;
 }
 
@@ -5612,7 +5613,7 @@ MenuItemHandlerResult menuhandlerMpNumberOfSimulants(s32 operation, struct menui
 		data->dropdown.value = MAX_BOTS; /* PC: all bot slots available */
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
+		snprintf(g_StringPointer, 300, "%d\n", data->dropdown.value + 1);
 		return (uintptr_t) g_StringPointer;
 	case MENUOP_SET:
 		g_Vars.mpquickteamnumsims = data->dropdown.value + 1;
@@ -5638,7 +5639,7 @@ MenuItemHandlerResult menuhandlerMpSimulantsPerTeam(s32 operation, struct menuit
 		data->dropdown.value = 2;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);
+		snprintf(g_StringPointer, 300, "%d\n", data->dropdown.value + 1);
 		return (uintptr_t) g_StringPointer;
 	case MENUOP_SET:
 		g_Vars.unk0004a0 = data->dropdown.value + 1;

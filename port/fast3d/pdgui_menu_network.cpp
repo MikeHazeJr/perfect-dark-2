@@ -20,6 +20,8 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 #include "connectcode.h"
 
@@ -116,6 +118,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu OPEN");
         /* Restore last used address */
         extern char g_NetLastJoinAddr[];
         if (s_JoinAddress[0] == '\0') {
@@ -245,6 +248,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (enterPressed && canConnect) doConnect = true;
 
     if (doConnect) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network menu CONNECT pressed addr=\"%s\"", s_JoinAddress);
         pdguiPlaySound(PDGUI_SND_SELECT);
 
         /* Detect if input is a connect code (contains alpha chars) or raw IP */
@@ -287,6 +291,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (ImGui::Button("Back", ImVec2(btnW, btnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }
@@ -306,6 +311,23 @@ void pdguiMenuNetworkRegister(void)
     if (!s_Registered) {
         pdguiHotswapRegister(&g_NetMenuDialog, renderMultiplayerMenu, "Multiplayer");
         s_Registered = true;
+
+        /* Phase 6: Screen mini-manifest.
+         * Multiplayer hub displays mode names and lobby strings — declare
+         * the MP language bank it needs. */
+        {
+            static const char *ids[] = {
+                "base:lang_mpmenu",  /* MP menu / lobby strings */
+                "base:lang_misc",    /* General UI strings */
+            };
+            static const u8 types[] = {
+                MANIFEST_TYPE_LANG,
+                MANIFEST_TYPE_LANG,
+            };
+            screenManifestRegister(
+                (void*)&g_NetMenuDialog,
+                ids, types, 2);
+        }
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_network: Registered Multiplayer menu");
 }

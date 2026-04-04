@@ -35,6 +35,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "input.h"
 
 /* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
 extern struct menudialogdef g_MatchSetupMenuDialog;
@@ -55,7 +56,7 @@ char *menuTextCurrentStageName(struct menuitem *item)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *name = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s\n", name);
+	snprintf(g_StringPointer, 300, "%s\n", name);
 	return g_StringPointer;
 }
 
@@ -726,6 +727,7 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 {
 	if (operation == MENUOP_SET) {
 		menuStop();
+		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
 
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();
@@ -797,7 +799,7 @@ char *soloMenuTitleStageOverview(struct menudialogdef *dialogdef)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *sname = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s: %s\n", sname, langGet(L_OPTIONS_273));
+	snprintf(g_StringPointer, 300, "%s: %s\n", sname, langGet(L_OPTIONS_273));
 
 	return g_StringPointer;
 }
@@ -891,7 +893,7 @@ MenuItemHandlerResult menuhandlerPdModeSetting(s32 operation, struct menuitem *i
 		if (item->param == 0) {
 			fvalue = fvalue * 4 + 1.0f;
 		}
-		sprintf(data->slider.label, "%s%s%.00f%%\n", "", "", fvalue * 100.0f);
+		snprintf(data->slider.label, 16, "%s%s%.00f%%\n", "", "", fvalue * 100.0f);
 		break;
 	}
 
@@ -1208,10 +1210,10 @@ char *soloMenuTextBestTime(struct menuitem *item)
 
 	if (hours == 0) {
 		s32 mins = time / 60;
-		sprintf(g_StringPointer, "%dm:%02ds", mins % 60, time % 60);
+		snprintf(g_StringPointer, 300, "%dm:%02ds", mins % 60, time % 60);
 	} else {
 		s32 mins = time / 60;
-		sprintf(g_StringPointer, "%dh:%02dm:%02ds", hours, mins % 60, time % 60);
+		snprintf(g_StringPointer, 300, "%dh:%02dm:%02ds", hours, mins % 60, time % 60);
 	}
 
 	return g_StringPointer;
@@ -2145,14 +2147,14 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		gdl = text0f153628(gdl);
 
 		// Draw first part of name
-		strcpy(text, langGet(g_SoloStages[stageindex].name1));
-		strcat(text, "\n");
+		strncpy(text, langGet(g_SoloStages[stageindex].name1), 49); text[49] = '\0';
+		strncat(text, "\n", 49 - strlen(text));
 
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicMd, g_FontHandelGothicMd,
 				renderdata->colour, viGetWidth(), viGetHeight(), 0, 0);
 
 		// Draw last part of name
-		strcpy(text, langGet(g_SoloStages[stageindex].name2));
+		strncpy(text, langGet(g_SoloStages[stageindex].name2), 49); text[49] = '\0';
 
 		gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm,
 				renderdata->colour, viGetWidth(), viGetHeight(), 0, 0);
@@ -4087,7 +4089,7 @@ char *invMenuTextWeaponDescription(struct menuitem *item)
 			}
 
 			// "Cassandra De Vries' replacement necklace.  Username: %s  Password: %s"
-			sprintf(g_StringPointer, langGet(L_GUN_239), &username, &password);
+			snprintf(g_StringPointer, 300, langGet(L_GUN_239), &username, &password);
 			return g_StringPointer;
 #else
 			// ntsc-beta stores the whole thing as a single plain text string
@@ -4514,7 +4516,7 @@ char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 	// PC: guard — stageindex may be out of solo range for mod stages
 	char *sname2 = (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES)
 		? langGet(g_SoloStages[g_MissionConfig.stageindex].name3) : "";
-	sprintf(g_StringPointer, "%s: %s\n", sname2, langGet(L_OPTIONS_172));
+	snprintf(g_StringPointer, 300, "%s: %s\n", sname2, langGet(L_OPTIONS_172));
 
 	return g_StringPointer;
 }
@@ -4735,7 +4737,7 @@ MenuItemHandlerResult menuhandlerCinema(s32 operation, struct menuitem *item, un
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->list.value == 0) {
-			sprintf(g_StringPointer, langGet(L_OPTIONS_448)); // "Play All"
+			snprintf(g_StringPointer, 300, langGet(L_OPTIONS_448)); // "Play All"
 			return (uintptr_t) g_StringPointer;
 		}
 		return (uintptr_t) langGet(g_Cutscenes[data->list.value - 1].name);

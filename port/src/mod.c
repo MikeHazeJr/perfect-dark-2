@@ -39,7 +39,7 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
 	/* PC: When g_NotLoadMod is set (title screen, CI main menu, solo stages),
 	 * suppress mod texture overlay so base-game textures are used.  Without
-	 * this check, mod texture packs (GEX, kakariko, etc.) replace textures
+	 * this check, mod texture packs replace textures
 	 * globally for ALL stages, causing wrong textures on the CI background
 	 * environment and in non-mod multiplayer arenas. */
 	extern s32 g_NotLoadMod;
@@ -143,6 +143,24 @@ void *modAnimationLoadData(u16 num)
 		sysFatalError("External animation %04x has no data file.\nEnsure that it is placed at %s or delete the descriptor.", num, path);
 	}
 	return data;
+}
+
+void *modAnimationTryCatalogOverride(u16 num)
+{
+	/* C-6 supplement: catalog-only check for ROM-based animations.
+	 * Called from animLoadFrame/animLoadHeader when data != 0xffffffff.
+	 * Returns file data if a mod override is registered, NULL otherwise.
+	 * No legacy fallback, no sysFatalError — caller uses ROM DMA on NULL. */
+	const char *path = catalogGetAnimOverride((s32)num);
+	if (path) {
+		void *data = fsFileLoad(path, NULL);
+		if (data) {
+			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override (ROM base) \"%s\"", (s32)num, path);
+			return data;
+		}
+		sysLogPrintf(LOG_WARNING, "C-6: catalog override for ROM anim %d failed to load: %s", (s32)num, path);
+	}
+	return NULL;
 }
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)

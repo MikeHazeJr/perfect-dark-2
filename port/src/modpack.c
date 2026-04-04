@@ -277,7 +277,11 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
             sysLogPrintf(LOG_WARNING, "MODPACK: can't write %s", outpath);
             continue;
         }
-        fwrite(fdata, 1, dlen, fp);
+        if (fwrite(fdata, 1, dlen, fp) != dlen) {
+            sysLogPrintf(LOG_WARNING, "MODPACK: short write %s", outpath);
+            fclose(fp);
+            continue;
+        }
         fclose(fp);
         extracted++;
     }
@@ -422,9 +426,12 @@ s32 modpackExport(const char * const *component_ids, s32 count,
         u32 magic   = PDPK_MAGIC;
         u32 version = PDPK_VERSION;
         u32 ccount  = (u32)count;
-        fwrite(&magic,   4, 1, f);
-        fwrite(&version, 4, 1, f);
-        fwrite(&ccount,  4, 1, f);
+        if (fwrite(&magic,   4, 1, f) != 1 ||
+            fwrite(&version, 4, 1, f) != 1 ||
+            fwrite(&ccount,  4, 1, f) != 1) {
+            fclose(f); remove(output_path);
+            ERRF("Write error in PDPK header"); return -1;
+        }
     }
 
     /* --- Manifest text --- */
@@ -458,8 +465,14 @@ s32 modpackExport(const char * const *component_ids, s32 count,
             date, count, complist);
 
         u32 manifest_len = (mlen > 0) ? (u32)mlen : 0u;
-        fwrite(&manifest_len, 4, 1, f);
-        if (manifest_len > 0) fwrite(manifest, 1, manifest_len, f);
+        if (fwrite(&manifest_len, 4, 1, f) != 1) {
+            fclose(f); remove(output_path);
+            ERRF("Write error in manifest header"); return -1;
+        }
+        if (manifest_len > 0 && fwrite(manifest, 1, manifest_len, f) != manifest_len) {
+            fclose(f); remove(output_path);
+            ERRF("Write error in manifest body"); return -1;
+        }
     }
 
     /* --- Component records --- */
@@ -507,8 +520,11 @@ s32 modpackExport(const char * const *component_ids, s32 count,
             /* Write a zero-size placeholder so the file stays parseable */
             if (raw) free(raw);
             u32 zero = 0; u8 no_comp = 0;
-            fwrite(&zero, 4, 1, f); fwrite(&zero, 4, 1, f);
-            fwrite(&no_comp, 1, 1, f);
+            if (fwrite(&zero, 4, 1, f) != 1 || fwrite(&zero, 4, 1, f) != 1 ||
+                fwrite(&no_comp, 1, 1, f) != 1) {
+                fclose(f); remove(output_path);
+                ERRF("Write error in zero placeholder for '%s'", id); return -1;
+            }
             continue;
         }
 
@@ -531,10 +547,10 @@ s32 modpackExport(const char * const *component_ids, s32 count,
             }
         }
 
-        fwrite(&raw_len,     4, 1, f);
-        fwrite(&stored_size, 4, 1, f);
-        fwrite(&compression, 1, 1, f);
-        fwrite(stored, 1, stored_size, f);
+        if (fwrite(&raw_len,     4, 1, f) != 1 ||
+            fwrite(&stored_size, 4, 1, f) != 1 ||
+            fwrite(&compression, 1, 1, f) != 1 ||
+            fwrite(stored, 1, stored_size, f) != stored_size) goto write_error;
 
         sysLogPrintf(LOG_NOTE,
                      "MODPACK: export: '%s' raw=%u stored=%u comp=%d",

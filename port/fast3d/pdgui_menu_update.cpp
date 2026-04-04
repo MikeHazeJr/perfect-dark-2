@@ -76,10 +76,9 @@ static void renderNotificationBanner(void)
 
 	ImGuiIO &io = ImGui::GetIO();
 	float barHeight = pdguiScale(40.0f);
-	ImVec2 barPos(0, 0);
 	ImVec2 barSize(io.DisplaySize.x, barHeight);
 
-	ImGui::SetNextWindowPos(barPos);
+	ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - barHeight));
 	ImGui::SetNextWindowSize(barSize);
 	ImGui::SetNextWindowBgAlpha(0.92f);
 
@@ -283,8 +282,9 @@ static void renderRestartPrompt(void)
  * Render the version picker content (header, table, buttons).
  * Shared between the floating dialog and the inline Settings tab.
  * tableH: height for the version list table (use 0 for auto-fill).
+ * changelogH: height for the changelog child (use 0 for default).
  */
-static void renderVersionPickerContent(float tableH)
+static void renderVersionPickerContent(float tableH, float changelogH)
 {
 	/* Header: current version + channel */
 	const pdversion_t *cur = updaterGetCurrentVersion();
@@ -384,10 +384,10 @@ static void renderVersionPickerContent(float tableH)
 			ImVec2(0, tableH > 0 ? tableH : pdguiScale(280.0f)))) {
 
 			ImGui::TableSetupScrollFreeze(0, 1);
-			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(100.0f));
-			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(60.0f));
-			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(70.0f));
+			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(90.0f));
+			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(56.0f));
+			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(80.0f));
 			ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed,   actionColW);
 			ImGui::TableHeadersRow();
 
@@ -407,6 +407,25 @@ static void renderVersionPickerContent(float tableH)
 				bool isNewer    = cur && (versionCompare(&rel->version, cur) > 0);
 				bool isRollback = cur && (versionCompare(&rel->version, cur) < 0);
 
+				/* Pre-compute staged state here so color coding can use it */
+				bool isStaged = (s_StagedReleaseIndex == i);
+				if (!isStaged && !s_DownloadActive) {
+					const pdversion_t *staged = updaterGetStagedVersion();
+					if (staged && versionCompare(staged, &rel->version) == 0) {
+						isStaged = true;
+						if (s_StagedReleaseIndex < 0) s_StagedReleaseIndex = i;
+					}
+				}
+
+				/* Color: current=green, staged/cached=yellow, other=dim gray */
+				if (isCurrent) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+				} else if (isStaged) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.2f, 1.0f));
+				} else {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
+				}
+
 				bool selected = (s_SelectedRelease == i);
 				char selectableId[128];
 				snprintf(selectableId, sizeof(selectableId), "%s##rel_%d", verstr, i);
@@ -417,14 +436,7 @@ static void renderVersionPickerContent(float tableH)
 					ImVec2(0, rowBtnH))) {
 					s_SelectedRelease = i;
 				}
-
-				if (isCurrent) {
-					ImGui::SameLine();
-					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
-				} else if (isNewer) {
-					ImGui::SameLine();
-					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "*");
-				}
+				ImGui::PopStyleColor();
 
 				ImGui::TableNextColumn();
 				if (rel->isPrerelease) {
@@ -448,23 +460,10 @@ static void renderVersionPickerContent(float tableH)
 				ImGui::PushID(i);
 
 				bool isDownloading = (s_DownloadingIndex == i) && s_DownloadActive;
-
-				/* isStaged: downloaded this session, or .update file already exists
-				 * on disk from a previous session (restored via version sidecar). */
-				bool isStaged = (s_StagedReleaseIndex == i);
-				if (!isStaged && !s_DownloadActive) {
-					const pdversion_t *staged = updaterGetStagedVersion();
-					if (staged && versionCompare(staged, &rel->version) == 0) {
-						isStaged = true;
-						/* Sync session index so Switch/restart paths work */
-						if (s_StagedReleaseIndex < 0) {
-							s_StagedReleaseIndex = i;
-						}
-					}
-				}
+				/* isStaged already computed above for color coding */
 
 				if (isCurrent) {
-					ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "(current)");
+					/* Current version — no action needed */
 				} else if (isDownloading) {
 					updater_progress_t p = updaterGetProgress();
 					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%.0f%%", (double)p.percent);
@@ -481,7 +480,13 @@ static void renderVersionPickerContent(float tableH)
 					if (ImGui::IsItemHovered()) {
 						ImGui::SetTooltip("Restart now to apply this update");
 					}
+				} else if (!rel->assetUrl[0] && !s_DownloadActive) {
+					/* No binary asset uploaded for this release (B-101) */
+					ImGui::TextDisabled("No binary");
 				} else if (rel->assetUrl[0] && !s_DownloadActive) {
+					/* URL present — disable button when size is unknown (download would fail) */
+					bool hasSize = rel->assetSize > 0;
+
 					const char *actionLabel;
 					if (s_DownloadFailed && s_SelectedRelease == i) {
 						actionLabel = "Retry";
@@ -495,7 +500,9 @@ static void renderVersionPickerContent(float tableH)
 
 					float cellW = ImGui::GetContentRegionAvail().x;
 
-					if (isRollback) {
+					if (!hasSize) {
+						ImGui::BeginDisabled(true);
+					} else if (isRollback) {
 						ImGui::PushStyleColor(ImGuiCol_Button,
 							ImVec4(0.50f, 0.38f, 0.0f, 1.0f));
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -514,7 +521,15 @@ static void renderVersionPickerContent(float tableH)
 						updaterDownloadAsync(rel);
 						s_DownloadActive = true;
 					}
-					ImGui::PopStyleColor(2);
+
+					if (!hasSize) {
+						ImGui::EndDisabled();
+						if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+							ImGui::SetTooltip("No binary asset for this release");
+						}
+					} else {
+						ImGui::PopStyleColor(2);
+					}
 				} else if (s_DownloadActive) {
 					ImGui::TextDisabled("...");
 				}
@@ -531,7 +546,8 @@ static void renderVersionPickerContent(float tableH)
 			if (sel && sel->body[0]) {
 				ImGui::Spacing();
 				ImGui::Text("Changelog:");
-				ImGui::BeginChild("changelog", ImVec2(0, pdguiScale(80.0f)), true);
+				ImGui::BeginChild("changelog",
+					ImVec2(0, changelogH > 0 ? changelogH : pdguiScale(80.0f)), true);
 				ImGui::TextWrapped("%s", sel->body);
 				ImGui::EndChild();
 			}
@@ -561,7 +577,7 @@ static void renderVersionPicker(void)
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
-		renderVersionPickerContent(pdguiScale(280.0f));
+		renderVersionPickerContent(pdguiScale(280.0f), pdguiScale(80.0f));
 	}
 	ImGui::End();
 
@@ -596,6 +612,10 @@ static void renderVersionWatermark(void)
 	float padding = 8.0f;
 	float x = io.DisplaySize.x - textSize.x - padding;
 	float y = io.DisplaySize.y - textSize.y - padding;
+	/* Lift watermark above the notification banner if it's visible */
+	if (s_ShowNotification) {
+		y -= pdguiScale(40.0f);
+	}
 
 	ImGui::SetNextWindowPos(ImVec2(x - padding, y - padding * 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(textSize.x + padding * 2, textSize.y + padding));
@@ -678,8 +698,12 @@ void pdguiUpdateShowPicker(void)
  */
 void pdguiUpdateRenderSettingsTab(void)
 {
-	/* Auto-trigger a version check the first time the tab is viewed */
+	ImVec2 avail;
+	float tableH;
+	float changelogH;
 	static bool s_TabCheckTriggered = false;
+
+	/* Auto-trigger a version check the first time the tab is viewed */
 	if (!s_TabCheckTriggered) {
 		updater_status_t status = updaterGetStatus();
 		if (status == UPDATER_IDLE || status == UPDATER_CHECK_FAILED) {
@@ -688,8 +712,13 @@ void pdguiUpdateRenderSettingsTab(void)
 		s_TabCheckTriggered = true;
 	}
 
-	/* Use 0 for table height — let it fill available space */
-	renderVersionPickerContent(0);
+	/* Split available vertical space proportionally:
+	 * 65% version list, 30% changelog, ~5% for header label + spacing */
+	avail      = ImGui::GetContentRegionAvail();
+	tableH     = avail.y * 0.65f;
+	changelogH = avail.y * 0.30f;
+
+	renderVersionPickerContent(tableH, changelogH);
 }
 
 /**

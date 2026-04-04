@@ -36,6 +36,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/matchsetup.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -44,6 +45,23 @@
 struct chrdata *g_MpBotChrPtrs[MAX_BOTS];
 
 u8 g_BotCount = 0;
+
+/* F.5: Stuck detection — periodic position snapshot per bot slot.
+ * Every STUCK_CHECK_FRAMES, each bot's position is compared to its last
+ * snapshot. If it hasn't moved more than STUCK_EPSILON and has active
+ * pathfinding intent, the bot is stuck: relocate to a nearby waypoint and
+ * apply 25% max-damage penalty. */
+#define STUCK_CHECK_FRAMES  180   /* ~3 seconds at 60 fps */
+#define STUCK_EPSILON_SQ    (10.0f * 10.0f)   /* 10 units (~10 cm in PD scale) */
+#define STUCK_RELO_MIN_SQ   (300.0f * 300.0f) /* minimum relocation distance */
+#define STUCK_RELO_FRACTION 0.25f              /* 25% max-damage penalty on relocation */
+
+struct botstuckstate {
+	struct coord snapshot;
+	s32 snapshot_frame;
+	s32 relocating; /* non-zero if we just relocated; cleared on next snapshot */
+};
+static struct botstuckstate s_BotStuck[MAX_BOTS];
 
 /**
  * Async bot tick scheduler.
@@ -287,6 +305,13 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 		chr->hidden |= CHRHFLAG_WARPONSCREEN;
 		chrMoveToPos(chr, &pos, rooms, thing, true);
+		/* FIX 3: if spawn position has no room assignment, derive from floorroom
+		 * (set by cdFindGroundInfoAtCyl inside chrMoveToPos). Without this,
+		 * prop->rooms[0]==-1 and CLC_BOT_MOVE relays an invalid room to the server. */
+		if (chr->prop && chr->prop->rooms[0] == -1 && chr->floorroom != -1) {
+			chr->prop->rooms[0] = chr->floorroom;
+			chr->prop->rooms[1] = -1;
+		}
 		chr->aibot->roty = modelGetChrRotY(chr->model);
 		chr->aibot->angleoffset = 0;
 		chr->aibot->speedtheta = 0;
@@ -295,26 +320,49 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		chr->aibot->moveratey = 0;
 		func0f02e9a0(chr, 0);
 
-		if ((g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-				&& g_MpSetup.weapons[0] != MPWEAPON_NONE
-				&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-				&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-			struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-			botinvGiveSingleWeapon(chr, mpweapon->weaponnum);
-			const s32 ammotype = (g_MpSetup.weapons[0] == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
-			if (ammotype) {
-				s32 startammo = mpweapon->priammoqty / 2;
-				if (startammo == 0) {
-					startammo = 1;
+		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+			 * 0xFF = Random → fall through to weapons[0] from the active set.
+			 * Any other value is a WEAPON_* enum configured by the match host. */
+			struct mpweapon *mpweapon = NULL;
+			s32 resolvedWeaponNum = 0;
+			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+				/* Specific weapon chosen: find the mpweapon entry for ammo data */
+				s32 wi;
+				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
+				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
+					if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
+						mpweapon = &g_MpWeapons[wi];
+						break;
+					}
 				}
-				botactGiveAmmoByType(aibot, ammotype, startammo);
+			} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
+					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
+					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
+				/* Random / unset: use first weapon in the match set */
+				mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
+				resolvedWeaponNum = mpweapon->weaponnum;
 			}
-			botinvSwitchToWeapon(chr, mpweapon->weaponnum, FUNC_PRIMARY);
-			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
-					(void *)chr, mpweapon->weaponnum, bgunGetShortName(mpweapon->weaponnum));
-		} else {
-			sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- no spawn weapon (options=0x%08x weapons[0]=%d)",
-					(void *)chr, g_MpSetup.options, (s32)g_MpSetup.weapons[0]);
+			if (resolvedWeaponNum > 0) {
+				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
+				if (mpweapon) {
+					const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
+						? AMMOTYPE_BOOST : mpweapon->priammotype;
+					if (ammotype) {
+						s32 startammo = mpweapon->priammoqty / 2;
+						if (startammo == 0) {
+							startammo = 1;
+						}
+						botactGiveAmmoByType(aibot, ammotype, startammo);
+					}
+				}
+				botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
+						(void *)chr, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
+			} else {
+				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
+						(void *)chr, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+			}
 		}
 	}
 }
@@ -937,61 +985,155 @@ s32 botTick(struct prop *prop)
 	f32 targetangle;
 	f32 oldangle;
 	f32 newangle;
-	static s32 s_BotTickFirstRun = 1;
-
-	updateable = (prop->flags & PROPFLAG_NOTYETTICKED) && g_Vars.lvupdate240;
+	/* FIX 1: PROPFLAG_NOTYETTICKED is cleared by chrTick before botTick runs,
+	 * so using it here made updateable=false after frame 0 — bots never ticked.
+	 * Use g_Vars.lvupdate240 directly: bots should tick every update frame. */
+	updateable = g_Vars.lvupdate240 != 0;
 
 	if (aibot) {
-		if (s_BotTickFirstRun) {
-			sysLogPrintf(LOG_NOTE, "TICK: botTick first call lvframe60=%d chr=%p model=%p rooms[0]=%d aibot=%p",
-				g_Vars.lvframe60, (void *)chr, (void *)chr->model,
-				(s32)prop->rooms[0], (void *)aibot);
-			s_BotTickFirstRun = 0;
+		/* Non-authority clients defer to server-authoritative positions received via
+		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
+		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
+		 * On a listen server (NETMODE_SERVER) bots always run locally. */
+		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			return TICKOP_NONE;
 		}
-		// In netplay as client, skip bot AI and movement entirely.
-		// The server sends authoritative positions via SVC_CHR_MOVE.
-		// We still call chrTick for rendering/collision processing.
-		if (g_NetMode == NETMODE_CLIENT) {
-			// Sync weapon model to match server-authoritative weaponnum.
-			// The server sends weaponnum via SVC_CHR_STATE; we create/destroy
-			// the visual weapon model props on the client to match.
-			if (updateable) {
-				s32 wantmodel = playermgrGetModelOfWeapon(aibot->weaponnum);
-				s32 haveweapon = -1;
 
-				if (chr->weapons_held[HAND_RIGHT] && chr->weapons_held[HAND_RIGHT]->weapon) {
-					haveweapon = chr->weapons_held[HAND_RIGHT]->weapon->weaponnum;
-				}
-
-				if (haveweapon != aibot->weaponnum) {
-					// Delete existing held weapons
-					for (s32 h = 0; h < 2; h++) {
-						if (chr->weapons_held[h] && chr->weapons_held[h]->obj) {
-							chr->weapons_held[h]->obj->hidden |= OBJHFLAG_DELETING;
-							chr->weapons_held[h] = NULL;
-						}
-					}
-
-					// Create new weapon model if the bot is armed
-					if (wantmodel >= 0 && aibot->weaponnum != WEAPON_UNARMED &&
-						aibot->weaponnum != WEAPON_NONE) {
-						chrGiveWeapon(chr, wantmodel, aibot->weaponnum, 0);
-					}
-				}
+		/* PC failsafe: On solo mission maps used as MP arenas, the AI script
+		 * doesn't contain aiMpInitSimulants so botSpawnAll() never fires.
+		 * Detect this on the first updateable frame: if this bot's rooms[0]==-1,
+		 * it was allocated but never spawned. Call botSpawnAll() once to place
+		 * all bots at valid spawn positions. Must happen during tick, not setup,
+		 * because the stage (waypoints, pads, rooms) isn't fully loaded during
+		 * setupCreateProps. */
+		{
+			static bool s_BotSpawnFailsafeDone = false;
+			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
+				s_BotSpawnFailsafeDone = true;
+				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
+				botSpawnAll();
 			}
-
-			result = chrTick(prop);
-
-			if (g_Vars.lvframe60 >= 145 && updateable) {
-				scenarioTickChr(chr);
+			/* Reset the flag on stage change (lvframe60 resets to 0) */
+			if (g_Vars.lvframe60 == 0) {
+				s_BotSpawnFailsafeDone = false;
 			}
+		}
 
-			return result;
+		/* MATCH-TRACE: botTick entry — first 10 frames only */
+		if (g_Vars.lvframe60 < 10) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: botTick frame=%d slot=%d chr=%p rooms[0]=%d updateable=%d pos=(%.0f,%.0f,%.0f)",
+				g_Vars.lvframe60, (s32)aibot->aibotnum, (void *)chr,
+				(s32)prop->rooms[0], (s32)updateable,
+				prop->pos.x, prop->pos.y, prop->pos.z);
+		}
+
+		/* FIX 3: Room recovery — if bot has rooms[0]==-1, attempt room lookup
+		 * from current position every tick until a valid room is found. */
+		if (prop->rooms[0] == -1 && !chrIsDead(chr)) {
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum bestroom = -1;
+			inrooms[0] = -1;
+			bgFindRoomsByPos(&prop->pos, inrooms, aboverooms, 20, &bestroom);
+			if (inrooms[0] != -1) {
+				s32 ri;
+				for (ri = 0; ri < 8 && inrooms[ri] != -1; ri++) {
+					prop->rooms[ri] = inrooms[ri];
+				}
+				if (ri < 8) {
+					prop->rooms[ri] = -1;
+				}
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: bot room recovery slot=%d rooms[0]=%d from pos=(%.0f,%.0f,%.0f)",
+					(s32)aibot->aibotnum, (s32)prop->rooms[0],
+					prop->pos.x, prop->pos.y, prop->pos.z);
+			} else if (chr->floorroom != -1) {
+				prop->rooms[0] = chr->floorroom;
+				prop->rooms[1] = -1;
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: bot room recovery (floorroom) slot=%d rooms[0]=%d",
+					(s32)aibot->aibotnum, (s32)prop->rooms[0]);
+			}
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {
 			if (botShouldTickAI(chr)) {
 				botTickUnpaused(chr);
+			}
+
+			/* F.5: Stuck detection — periodic position snapshot.
+			 * Bots that have active pathfinding intent but haven't moved
+			 * more than STUCK_EPSILON over STUCK_CHECK_FRAMES are teleported
+			 * to a nearby waypoint and penalised 25% of their max damage. */
+			if (!chrIsDead(chr)) {
+				s32 slot = (s32)aibot->aibotnum;
+				if (slot >= 0 && slot < MAX_BOTS) {
+					struct botstuckstate *bs = &s_BotStuck[slot];
+					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
+					if (frames_since >= STUCK_CHECK_FRAMES) {
+						/* Active pathfinding: bot is trying to navigate */
+						bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP
+							|| chr->myaction == MA_AIBOTGOTOPOS
+							|| chr->myaction == MA_AIBOTGETITEM
+							|| chr->myaction == MA_AIBOTGOTOPROP
+							|| chr->myaction == MA_AIBOTRUNAWAY
+							|| chr->myaction == MA_AIBOTDOWNLOAD);
+						if (hasIntent && !bs->relocating) {
+							f32 dx = chr->prop->pos.x - bs->snapshot.x;
+							f32 dz = chr->prop->pos.z - bs->snapshot.z;
+							if (dx * dx + dz * dz < STUCK_EPSILON_SQ) {
+								/* Stuck — find a waypoint with adequate separation */
+								if (g_StageSetup.waypoints) {
+									struct waypoint *wpts = g_StageSetup.waypoints;
+									s32 numwpts = 0;
+									s32 best = -1;
+									f32 bestdist = 0;
+									s32 wi;
+									while (wpts[numwpts].padnum >= 0) {
+										numwpts++;
+									}
+									for (wi = 0; wi < numwpts * 2; wi++) {
+										s32 idx = rngRandom() % numwpts;
+										struct pad rpad;
+										f32 rdx;
+										f32 rdz;
+										f32 rdsq;
+										padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &rpad);
+										if (rpad.room < 0 || (rpad.flags & PADFLAG_AIDROP)) {
+											continue;
+										}
+										rdx = rpad.pos.x - chr->prop->pos.x;
+										rdz = rpad.pos.z - chr->prop->pos.z;
+										rdsq = rdx * rdx + rdz * rdz;
+										if (rdsq > STUCK_RELO_MIN_SQ && rdsq > bestdist) {
+											best = idx;
+											bestdist = rdsq;
+										}
+									}
+									if (best >= 0) {
+										struct pad dstpad;
+										RoomNum newrooms[2];
+										padUnpack(wpts[best].padnum, PADFIELD_POS | PADFIELD_ROOM, &dstpad);
+										newrooms[0] = dstpad.room;
+										newrooms[1] = -1;
+										chr->hidden |= CHRHFLAG_WARPONSCREEN;
+										chrMoveToPos(chr, &dstpad.pos, newrooms, 0, false);
+										chrAddHealth(chr, -(chr->maxdamage * STUCK_RELO_FRACTION));
+										bs->relocating = 1;
+										sysLogPrintf(LOG_NOTE, "STUCK: bot slot=%d chr=%p action=%d relocated to waypoint %d (%.0f,%.0f,%.0f) — penalty %.1f%%",
+											slot, (void *)chr, chr->myaction, best,
+											dstpad.pos.x, dstpad.pos.y, dstpad.pos.z,
+											STUCK_RELO_FRACTION * 100.0f);
+									}
+								}
+							} else {
+								bs->relocating = 0;
+							}
+						} else if (!hasIntent) {
+							bs->relocating = 0;
+						}
+						bs->snapshot = chr->prop->pos;
+						bs->snapshot_frame = g_Vars.lvframe60;
+					}
+				}
 			}
 
 			// Calculate cheap
@@ -2509,9 +2651,9 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
  */
 void botTickUnpaused(struct chrdata *chr)
 {
-	// In netplay, only the server runs bot AI.
-	// Clients receive bot positions/state via SVC_CHR_MOVE and SVC_CHR_STATE.
-	if (g_NetMode == NETMODE_CLIENT) {
+	/* In netplay, only the server (or the designated authority client) runs bot AI.
+	 * Non-authority clients receive positions via SVC_CHR_MOVE and do not simulate. */
+	if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
 		return;
 	}
 

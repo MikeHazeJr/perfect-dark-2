@@ -26,8 +26,11 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_charpreview.h"
 #include "assetcatalog.h"
 #include "botvariant.h"
+#include "screenmfst.h"
+#include "net/netmanifest.h"
 #include "system.h"
 
 /* ========================================================================
@@ -57,7 +60,7 @@ char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
 
 /* Language strings */
-char *langGet(s32 textid);
+const char *langSafe(s32 textid);
 
 /* Match config (from matchsetup.c — must match layout exactly).
  * Cannot include constants.h here (types.h bool conflict with C++). */
@@ -75,10 +78,14 @@ char *langGet(s32 textid);
 #define MATCH_MAX_SLOTS 32  /* = PARTICIPANT_DEFAULT_CAPACITY */
 
 struct matchslot {
-    u8 type;
-    u8 team;
-    u8 headnum;
-    u8 bodynum;
+    u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
+    u8 team;          /* team number (0-7) */
+    /* PRIMARY: catalog IDs — always set by matchConfigInit/matchConfigAddBot.
+     * bodynum/headnum are DERIVED (legacy engine indices), resolved at matchStart. */
+    char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
+    char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
+    u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
+    u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
     u8 botType;
     u8 botDifficulty;
     char name[MAX_PLAYER_NAME];
@@ -87,7 +94,8 @@ struct matchslot {
 struct matchconfig {
     struct matchslot slots[MATCH_MAX_SLOTS];
     u8 scenario;
-    u8 stagenum;
+    char stage_id[64];  /* PRIMARY: catalog ID e.g. "base:mp_complex" */
+    u8 stagenum;        /* DERIVED: resolved from stage_id at matchStart */
     u8 timelimit;
     u8 scorelimit;
     u16 teamscorelimit;
@@ -95,11 +103,12 @@ struct matchconfig {
     u8 weapons[6];
     s8 weaponSetIndex;
     u8 numSlots;
+    u8 spawnWeaponNum;
 };
 
 extern struct matchconfig g_MatchConfig;
 void matchConfigInit(void);
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, u8 headnum, u8 bodynum, const char *name);
+s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id, const char *head_id, const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
 s32 matchStart(void);
 
@@ -310,7 +319,7 @@ static const struct arenaNameOverride s_ArenaNameOverrides[] = {
     { 0x514d, "Mall" },                  /* L_MPMENU_333 */
     { 0x514e, "Tunnels" },               /* L_MPMENU_334 */
     { 0x514f, "Rogue" },                 /* L_MPMENU_335 */
-    { 0x5150, "Paradox" },               /* L_MPMENU_336 */
+    /* Paradox (0x5150 / L_MPMENU_336) omitted — map data removed */
     { 0x5151, "War Colors" },            /* L_MPMENU_337 */
     { 0x5152, "Grand Library" },         /* L_MPMENU_338 */
 };
@@ -328,7 +337,10 @@ const char *arenaGetName(u16 textId)
         }
     }
     /* Fall back to the language system for base-game strings */
-    return langGet(textId);
+    {
+        const char *s = langSafe(textId);
+        return s[0] ? s : "???";
+    }
 }
 
 /* ========================================================================
@@ -341,18 +353,21 @@ const char *arenaGetName(u16 textId)
  * The ImGui arena dropdown renders collapsible sections per group.
  * ======================================================================== */
 
-#define ARENA_NUM_GROUPS 7
+#define ARENA_NUM_GROUPS 6
+#define ARENA_MODS_GROUP (ARENA_NUM_GROUPS - 1)  /* catch-all index for mod arenas */
 #define MAX_ARENAS_PER_GROUP 32
 
-/* Group names in display order — must match categories in assetcatalog_base.c */
+/* Group names in display order.
+ * First (ARENA_NUM_GROUPS-1) must match categories in assetcatalog_base.c.
+ * Last entry ("Mods") is a catch-all for any mod-registered arena whose
+ * category does not match a named base-game group. */
 static const char *s_ArenaGroupNames[ARENA_NUM_GROUPS] = {
     "Dark",
     "Solo Missions",
     "Classic",
-    "GoldenEye X",
-    "GoldenEye X Bonus",
     "Bonus",
     "Random",
+    "Mods",
 };
 
 /* Per-group cache of catalog entry pointers */
@@ -366,17 +381,26 @@ static s32 s_ArenaCacheDirty = 1;
 /* Collapsed state: bit N = group N is collapsed */
 static u8 s_ArenaGroupCollapsed = 0;
 
-/* Callback: bucket each ASSET_ARENA entry into the right group by category */
+/* Callback: bucket each ASSET_ARENA entry into the right group by category.
+ * Named base-game groups are checked first (indices 0..ARENA_MODS_GROUP-1).
+ * Any entry whose category does not match a named group lands in the "Mods"
+ * catch-all bucket (index ARENA_MODS_GROUP), so mod-registered arenas are
+ * always visible in the dropdown. */
 static void arenaCollectCb(const asset_entry_t *entry, void *userdata)
 {
     (void)userdata;
-    for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
+    s32 g;
+    for (g = 0; g < ARENA_MODS_GROUP; g++) {
         if (strcmp(entry->category, s_ArenaGroupNames[g]) == 0) {
             if (s_ArenaGroupCache[g].count < MAX_ARENAS_PER_GROUP) {
                 s_ArenaGroupCache[g].entries[s_ArenaGroupCache[g].count++] = entry;
             }
-            break;
+            return;
         }
+    }
+    /* No named group matched — mod arena or unknown category */
+    if (s_ArenaGroupCache[ARENA_MODS_GROUP].count < MAX_ARENAS_PER_GROUP) {
+        s_ArenaGroupCache[ARENA_MODS_GROUP].entries[s_ArenaGroupCache[ARENA_MODS_GROUP].count++] = entry;
     }
 }
 
@@ -430,7 +454,7 @@ extern "C" s32 matchSetupGetArenaInfo(s32 idx, u8 *stagenum, const char **name)
 
 static bool s_Registered = false;
 static bool s_Initialized = false;
-static s32 s_ArenaIndex = 0;         /* Index into modmgr arena list */
+static char s_ArenaId[CATALOG_ID_LEN] = {0};  /* catalog ID of selected arena */
 static bool s_NeedsFocus = false;
 static s32 s_Tab = 0;                /* 0=Slots, 1=Settings */
 
@@ -444,6 +468,10 @@ static s32 s_PrimarySlot = -1;       /* Last-clicked slot (for detail display) *
 static s32 s_AddBotType = BOTTYPE_GENERAL;
 static s32 s_AddBotDiff = BOTDIFF_NORMAL;
 static char s_AddBotName[MAX_PLAYER_NAME] = {0};
+
+/* Arena picker modal state */
+static bool s_ArenaModalOpen = false;
+static char s_ArenaHoverId[CATALOG_ID_LEN] = {0};  /* catalog ID of hovered arena for preview */
 
 /* ========================================================================
  * Selection helpers
@@ -472,19 +500,6 @@ static void selectionSet(s32 idx)
  * removed — were used by the old renderSlotDetail multi-select panel,
  * now replaced by per-bot popup editing in renderPlayersPanel. */
 
-/* ========================================================================
- * Helper: find arena index from stagenum
- * ======================================================================== */
-
-static s32 findArenaIndex(u8 stagenum)
-{
-    s32 total = modmgrGetTotalArenas();
-    for (s32 i = 0; i < total; i++) {
-        struct mparena *arena = modmgrGetArena(i);
-        if (arena->stagenum == (s16)stagenum) return i;
-    }
-    return 0;
-}
 
 /* ========================================================================
  * Sound-playing widget wrappers (matching main menu style)
@@ -522,8 +537,9 @@ static bool PdCheckbox(const char *label, bool *v)
  * ======================================================================== */
 
 /* State for the bot edit popup */
-static bool s_BotPopupOpen = false;
-static s32 s_BotPopupSlot = -1;
+static bool  s_BotPopupOpen = false;
+static s32   s_BotPopupSlot = -1;
+static float s_BotPreviewRotY = 0.0f;  /* accumulated rotation for char preview */
 
 /* ========================================================================
  * D3R-8: Bot Customizer state
@@ -696,37 +712,50 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
         {
             struct matchslot *bot = &g_MatchConfig.slots[s_BotPopupSlot];
 
+            /* Two-column layout: left = controls, right = 3D character preview */
+            float previewSz = pdguiScale(160.0f);
+            float ctrlW     = pdguiScale(260.0f);
+
+            ImGui::BeginGroup();  /* --- Left: controls --- */
+
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Edit Bot");
             ImGui::Separator();
             ImGui::Spacing();
 
             /* Name */
+            ImGui::SetNextItemWidth(ctrlW);
             ImGui::InputText("Name", bot->name, sizeof(bot->name));
 
-            /* Character body */
+            /* Character body — scrollable list (no combo, full list visible) */
             {
                 u32 numBodies = mpGetNumBodies();
-                const char *bodyName = mpGetBodyName(bot->bodynum);
-                char bodyLabel[64];
-                snprintf(bodyLabel, sizeof(bodyLabel), "%s",
-                         bodyName ? bodyName : "???");
 
-                if (ImGui::BeginCombo("Character", bodyLabel)) {
-                    for (u32 b = 0; b < numBodies && b < 200; b++) {
-                        const char *bName = mpGetBodyName((u8)b);
-                        if (!bName || !bName[0]) continue;
-                        char itemLabel[64];
-                        snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
-                        bool isSel = (bot->bodynum == (u8)b);
-                        if (ImGui::Selectable(itemLabel, isSel)) {
-                            bot->bodynum = (u8)b;
-                            bot->headnum = (u8)b;
-                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                ImGui::Text("Character:");
+                ImGui::BeginChild("##char_list", ImVec2(ctrlW, pdguiScale(110.0f)),
+                                  true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+                for (u32 b = 0; b < numBodies && b < 200; b++) {
+                    const char *bName = mpGetBodyName((u8)b);
+                    if (!bName || !bName[0]) continue;
+                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    bool isSel = bid && bot->body_id[0] && strcmp(bid, bot->body_id) == 0;
+                    char itemLabel[64];
+                    snprintf(itemLabel, sizeof(itemLabel), "%s##body%d", bName, b);
+                    if (ImGui::Selectable(itemLabel, isSel)) {
+                        if (bid) {
+                            strncpy(bot->body_id, bid, sizeof(bot->body_id) - 1);
+                            bot->body_id[sizeof(bot->body_id) - 1] = '\0';
                         }
-                        if (isSel) ImGui::SetItemDefaultFocus();
+                        const char *hid = catalogGetBodyDefaultHead(bid);
+                        if (hid) {
+                            strncpy(bot->head_id, hid, sizeof(bot->head_id) - 1);
+                            bot->head_id[sizeof(bot->head_id) - 1] = '\0';
+                        }
+                        s_BotPreviewRotY = 0.0f;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
-                    ImGui::EndCombo();
+                    if (isSel) ImGui::SetItemDefaultFocus();
                 }
+                ImGui::EndChild();
             }
 
             /* Bot type */
@@ -889,6 +918,48 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
                 s_BotPopupShowAdvanced = false;
                 ImGui::CloseCurrentPopup();
             }
+
+            ImGui::EndGroup();  /* end left column */
+
+            /* ---- Right column: 3D character preview ---- */
+            ImGui::SameLine(0, pdguiScale(12.0f));
+            ImGui::BeginGroup();
+
+            /* Request preview render for current body+head */
+            s_BotPreviewRotY += 0.022f;  /* ~1.26 rad/s at 60fps */
+            if (s_BotPreviewRotY > 6.2832f) s_BotPreviewRotY -= 6.2832f;
+            pdguiCharPreviewSetRotY(s_BotPreviewRotY);
+            pdguiCharPreviewRequest(bot->headnum, bot->bodynum);
+
+            float previewSzR = pdguiScale(160.0f);
+            s32 prevW = 1, prevH = 1;
+            pdguiCharPreviewGetSize(&prevW, &prevH);
+
+            if (pdguiCharPreviewIsReady()) {
+                ImTextureID texId = (ImTextureID)(uintptr_t)pdguiCharPreviewGetTextureId();
+                ImGui::Image(texId, ImVec2(previewSzR, previewSzR));
+            } else {
+                /* Placeholder while first frame renders */
+                ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cursor,
+                    ImVec2(cursor.x + previewSzR, cursor.y + previewSzR),
+                    IM_COL32(20, 20, 30, 200));
+                ImGui::Dummy(ImVec2(previewSzR, previewSzR));
+            }
+
+            /* Character name label below preview */
+            {
+                const char *bName = mpGetBodyName(bot->bodynum);
+                if (bName && bName[0]) {
+                    float textW = ImGui::CalcTextSize(bName).x;
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+                                         + (previewSzR - textW) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%s", bName);
+                }
+            }
+
+            ImGui::EndGroup();  /* end right column */
         }
         ImGui::EndPopup();
     }
@@ -923,7 +994,7 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
     if (PdButton("Add Bot", ImVec2(addBtnW, addBtnH))) {
         s32 newIdx = matchConfigAddBot(
             (u8)s_AddBotType, (u8)s_AddBotDiff,
-            0, BODY_DARK_COMBAT, NULL);
+            "base:dark_combat", "base:head_dark_combat", NULL);
         if (newIdx >= 0) selectionSet(newIdx);
     }
     if (!canAdd) ImGui::EndDisabled();
@@ -955,78 +1026,226 @@ static void renderMatchSettings(float scale, float panelW, float panelH)
         }
     }
 
-    /* Arena/Stage — grouped, collapsible list from Asset Catalog */
+    /* Arena/Stage — button opens a full-screen submenu modal */
     {
         if (s_ArenaCacheDirty) {
             rebuildArenaCache();
         }
 
-        /* Find current arena entry for the combo preview label */
+        /* Resolve current arena name for the button label */
         const char *curArenaName = "???";
+        const char *curArenaGroup = "";
         for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
             for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                if (s_ArenaGroupCache[g].entries[a]->runtime_index == s_ArenaIndex) {
-                    curArenaName = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
-                    goto found_current;
+                if (s_ArenaId[0] && strcmp(s_ArenaGroupCache[g].entries[a]->id, s_ArenaId) == 0) {
+                    curArenaName  = arenaGetName((u16)s_ArenaGroupCache[g].entries[a]->ext.arena.name_langid);
+                    curArenaGroup = s_ArenaGroupNames[g];
+                    goto found_arena_label;
                 }
             }
         }
-        found_current:
+        found_arena_label:
 
-        if (ImGui::BeginCombo("Arena", curArenaName ? curArenaName : "???")) {
+        /* Row: "Arena:" label + button showing current selection */
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "Arena");
+        ImGui::SameLine();
+        char arenaBtnLabel[96];
+        snprintf(arenaBtnLabel, sizeof(arenaBtnLabel), "  %s  [%s]##arena_btn",
+                 curArenaName ? curArenaName : "???",
+                 curArenaGroup[0] ? curArenaGroup : "?");
+        float arenaBtnW = panelW - ImGui::GetCursorPosX()
+                          - ImGui::GetStyle().WindowPadding.x;
+        if (PdButton(arenaBtnLabel, ImVec2(arenaBtnW, 0))) {
+            s_ArenaModalOpen = true;
+            strncpy(s_ArenaHoverId, s_ArenaId, CATALOG_ID_LEN);
+            ImGui::OpenPopup("##arena_modal");
+        }
+
+        /* ---- Arena picker modal ---- */
+        ImVec2 center = ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f,
+                               ImGui::GetIO().DisplaySize.y * 0.5f);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        float modalW = pdguiMenuWidth() * 0.85f;
+        float modalH = pdguiMenuHeight() * 0.85f;
+        ImGui::SetNextWindowSize(ImVec2(modalW, modalH), ImGuiCond_Always);
+
+        if (ImGui::BeginPopup("##arena_modal",
+                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                              | ImGuiWindowFlags_NoTitleBar))
+        {
+            /* Backdrop */
+            ImVec2 mpos = ImGui::GetWindowPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                mpos, ImVec2(mpos.x + modalW, mpos.y + modalH),
+                IM_COL32(8, 8, 16, 250));
+
+            pdguiDrawPdDialog(mpos.x, mpos.y, modalW, modalH, "Select Arena", 1);
+
+            /* Title */
+            {
+                const char *title = "Select Arena";
+                float titleH = pdguiScale(26.0f);
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                pdguiDrawTextGlow(mpos.x + 8.0f, mpos.y + 2.0f,
+                                  modalW - 16.0f, titleH - 4.0f);
+                ImVec2 ts = ImGui::CalcTextSize(title);
+                dl->AddText(ImVec2(mpos.x + (modalW - ts.x) * 0.5f,
+                                   mpos.y + (titleH - ts.y) * 0.5f),
+                            IM_COL32(255, 255, 255, 255), title);
+                ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+            }
+
+            float footerH = pdguiScale(42.0f);
+            float contentH = modalH - pdguiScale(26.0f) - footerH
+                             - ImGui::GetStyle().WindowPadding.y * 2.0f;
+            float listW  = modalW * 0.52f;
+            float detailW = modalW - listW - pdguiScale(8.0f);
+
+            /* ---- Left: grouped arena list ---- */
+            ImGui::BeginChild("##arena_list", ImVec2(listW, contentH), true,
+                              ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
             for (s32 g = 0; g < ARENA_NUM_GROUPS; g++) {
-                /* Count unlocked arenas in this group */
                 s32 groupCount = 0;
                 for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                    if (challengeIsFeatureUnlocked(s_ArenaGroupCache[g].entries[a]->ext.arena.requirefeature)) {
+                    if (challengeIsFeatureUnlocked(s_ArenaGroupCache[g].entries[a]->ext.arena.requirefeature))
                         groupCount++;
-                    }
                 }
                 if (groupCount == 0) continue;
 
-                /* Separator between groups (except before the first) */
-                if (g > 0) ImGui::Separator();
+                /* Group header — always expanded in modal, no toggle needed */
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                                   "%s", s_ArenaGroupNames[g]);
+                ImGui::Separator();
 
-                /* Group header — clickable to toggle collapsed state */
-                bool isCollapsed = (s_ArenaGroupCollapsed & (1 << g)) != 0;
-                char groupLabel[80];
-                snprintf(groupLabel, sizeof(groupLabel), "%c  %s (%d)##grp%d",
-                         isCollapsed ? '+' : '-',
-                         s_ArenaGroupNames[g], groupCount, g);
+                for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                    const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
+                    if (!challengeIsFeatureUnlocked(ae->ext.arena.requirefeature)) continue;
 
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
-                if (ImGui::Selectable(groupLabel, false, ImGuiSelectableFlags_DontClosePopups)) {
-                    s_ArenaGroupCollapsed ^= (1 << g);
-                    isCollapsed = !isCollapsed;
+                    const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
+                    if (!arenaName || !arenaName[0]) continue;
+
+                    bool isSel = (ae->id[0] && s_ArenaId[0] && strcmp(ae->id, s_ArenaId) == 0);
+                    bool isHov = (ae->id[0] && s_ArenaHoverId[0] && strcmp(ae->id, s_ArenaHoverId) == 0);
+                    char arenaLabel[96];
+                    snprintf(arenaLabel, sizeof(arenaLabel), "  %s##arena_%d_%d",
+                             arenaName, g, a);
+
+                    if (ImGui::Selectable(arenaLabel, isSel || isHov,
+                                          ImGuiSelectableFlags_None)) {
+                        strncpy(s_ArenaId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaId[CATALOG_ID_LEN - 1] = '\0';
+                        strncpy(s_ArenaHoverId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaHoverId[CATALOG_ID_LEN - 1] = '\0';
+                        strncpy(g_MatchConfig.stage_id, ae->id, sizeof(g_MatchConfig.stage_id) - 1);
+                        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                        sysLogPrintf(LOG_NOTE, "Arena: \"%s\" id='%s'", arenaName, ae->id);
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        strncpy(s_ArenaHoverId, ae->id, CATALOG_ID_LEN - 1);
+                        s_ArenaHoverId[CATALOG_ID_LEN - 1] = '\0';
+                    }
+                    if (isSel) ImGui::SetItemDefaultFocus();
                 }
-                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
 
-                /* Render arenas in this group if expanded */
-                if (!isCollapsed) {
-                    for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
-                        const asset_entry_t *ae = s_ArenaGroupCache[g].entries[a];
-                        if (!challengeIsFeatureUnlocked(ae->ext.arena.requirefeature)) continue;
+            ImGui::EndChild();
 
-                        const char *arenaName = arenaGetName((u16)ae->ext.arena.name_langid);
-                        if (!arenaName || !arenaName[0]) continue;
+            ImGui::SameLine(0, pdguiScale(8.0f));
 
-                        bool isSel = (ae->runtime_index == s_ArenaIndex);
-                        char arenaLabel[96];
-                        snprintf(arenaLabel, sizeof(arenaLabel), "    %s##arena%d",
-                                 arenaName, ae->runtime_index);
-                        if (ImGui::Selectable(arenaLabel, isSel)) {
-                            s_ArenaIndex = ae->runtime_index;
-                            g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
-                            sysLogPrintf(LOG_NOTE, "Arena selected: \"%s\" ri=%d stagenum=0x%02x langid=0x%04x id=\"%s\"",
-                                arenaName, ae->runtime_index, ae->ext.arena.stagenum,
-                                ae->ext.arena.name_langid, ae->id);
-                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        }
-                        if (isSel) ImGui::SetItemDefaultFocus();
+            /* ---- Right: detail / preview panel ---- */
+            ImGui::BeginChild("##arena_detail", ImVec2(detailW, contentH), true);
+
+            /* Resolve hovered arena info */
+            const char *hoverName  = nullptr;
+            const char *hoverGroup = nullptr;
+            u8 hoverStage = 0;
+            for (s32 g = 0; g < ARENA_NUM_GROUPS && !hoverName; g++) {
+                for (s32 a = 0; a < s_ArenaGroupCache[g].count; a++) {
+                    const asset_entry_t *he = s_ArenaGroupCache[g].entries[a];
+                    if (s_ArenaHoverId[0] && he->id[0] && strcmp(he->id, s_ArenaHoverId) == 0) {
+                        hoverName  = arenaGetName((u16)he->ext.arena.name_langid);
+                        hoverGroup = s_ArenaGroupNames[g];
+                        hoverStage = (u8)he->ext.arena.stagenum;
+                        break;
                     }
                 }
             }
-            ImGui::EndCombo();
+
+            if (hoverName && hoverName[0]) {
+                /* Arena name — large */
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", hoverName);
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.8f), "%s",
+                                   hoverGroup ? hoverGroup : "");
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                /* Preview placeholder — stylized frame with stage number.
+                 * A real map thumbnail system would render here in future. */
+                float previewW = detailW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+                float previewH = previewW * 0.6f;   /* 5:3 aspect */
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                ImVec2 p1 = ImVec2(p0.x + previewW, p0.y + previewH);
+
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                /* Dark background */
+                dl->AddRectFilled(p0, p1, IM_COL32(12, 18, 30, 230), pdguiScale(4.0f));
+                /* Decorative border */
+                dl->AddRect(p0, p1, IM_COL32(60, 120, 180, 160),
+                            pdguiScale(4.0f), 0, pdguiScale(1.5f));
+                /* Stage ID badge */
+                char stageBadge[16];
+                snprintf(stageBadge, sizeof(stageBadge), "0x%02X", (unsigned)hoverStage);
+                ImVec2 badgePos = ImVec2(p0.x + pdguiScale(6.0f),
+                                         p0.y + pdguiScale(6.0f));
+                dl->AddText(badgePos, IM_COL32(80, 160, 220, 180), stageBadge);
+                /* Centered arena name in preview box */
+                ImVec2 nameSize = ImGui::CalcTextSize(hoverName);
+                ImVec2 namePos  = ImVec2(
+                    p0.x + (previewW - nameSize.x) * 0.5f,
+                    p0.y + (previewH - nameSize.y) * 0.5f);
+                dl->AddText(namePos, IM_COL32(200, 220, 255, 200), hoverName);
+
+                /* Diagonal scan-line effect for sci-fi feel */
+                for (float fy = p0.y + pdguiScale(6.0f);
+                     fy < p1.y - pdguiScale(2.0f);
+                     fy += pdguiScale(8.0f))
+                {
+                    dl->AddLine(ImVec2(p0.x, fy), ImVec2(p1.x, fy),
+                                IM_COL32(40, 80, 120, 30));
+                }
+
+                ImGui::Dummy(ImVec2(previewW, previewH));
+                ImGui::Spacing();
+                ImGui::TextDisabled("Stage 0x%02X", (unsigned)hoverStage);
+            } else {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Hover over an arena to preview");
+            }
+
+            ImGui::EndChild();
+
+            /* ---- Footer ---- */
+            ImGui::SetCursorPosY(modalH - footerH + pdguiScale(6.0f));
+            ImGui::Separator();
+            ImGui::Spacing();
+            float closeBtnW = pdguiScale(120.0f);
+            ImGui::SetCursorPosX((modalW - closeBtnW) * 0.5f);
+            if (PdButton("Close", ImVec2(closeBtnW, pdguiScale(26.0f)))
+                || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+                || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
+            {
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
         }
     }
 
@@ -1202,7 +1421,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     /* Initialize match config on first appearance */
     if (!s_Initialized) {
         matchConfigInit();
-        s_ArenaIndex = findArenaIndex(g_MatchConfig.stagenum);
+        strncpy(s_ArenaId, g_MatchConfig.stage_id, CATALOG_ID_LEN - 1);
+        s_ArenaId[CATALOG_ID_LEN - 1] = '\0';
         selectionClear();
         s_Tab = 0;
         s_Initialized = true;
@@ -1239,6 +1459,7 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         s_NeedsFocus = true;
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup OPEN");
     }
 
     /* Opaque backdrop */
@@ -1301,7 +1522,8 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (!canStart) ImGui::BeginDisabled();
 
     if (PdButton("Start Match", ImVec2(footerBtnW, footerBtnH))) {
-        sysLogPrintf(LOG_NOTE, "MATCHSETUP: user pressed Start Match");
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup START MATCH pressed (slots=%d stage='%s')",
+                     g_MatchConfig.numSlots, g_MatchConfig.stage_id);
         s_Initialized = false; /* Reset for next time */
         matchStart();
     }
@@ -1314,6 +1536,7 @@ static s32 renderMatchSetup(struct menudialog *dialog,
     if (PdButton("Back", ImVec2(footerBtnW, footerBtnH)) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: match setup CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_Initialized = false;
         menuPopDialog();
@@ -1334,6 +1557,24 @@ void pdguiMenuMatchSetupRegister(void)
     if (!s_Registered) {
         pdguiHotswapRegister(&g_MatchSetupMenuDialog, renderMatchSetup, "Match Setup");
         s_Registered = true;
+
+        /* Phase 6: Screen mini-manifest.
+         * Match Setup displays character names and weapon lists — declare
+         * the MP language banks it needs.  These are base-game bundled
+         * entries today; mod lang banks would go through full lifecycle. */
+        {
+            static const char *ids[] = {
+                "base:lang_mpmenu",    /* MP menu strings (character/mode names) */
+                "base:lang_mpweapons", /* Weapon name strings */
+            };
+            static const u8 types[] = {
+                MANIFEST_TYPE_LANG,
+                MANIFEST_TYPE_LANG,
+            };
+            screenManifestRegister(
+                (void*)&g_MatchSetupMenuDialog,
+                ids, types, 2);
+        }
     }
     sysLogPrintf(LOG_NOTE, "pdgui_menu_matchsetup: Registered Match Setup menu");
 }

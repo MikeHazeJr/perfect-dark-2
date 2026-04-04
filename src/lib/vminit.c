@@ -302,7 +302,7 @@ void vmInit(void)
 			len = rzipInflate(zip, s2, sp68);
 
 			if (len == 0) {
-				sprintf(message, "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+				snprintf(message, sizeof(message), "DMA-Crash %s %d Ram: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
 						"vm_m.c", 298,
 						chunkbuffer[0], chunkbuffer[1], chunkbuffer[2], chunkbuffer[3],
 						chunkbuffer[4], chunkbuffer[5], chunkbuffer[6], chunkbuffer[7],

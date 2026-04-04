@@ -19,9 +19,12 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <algorithm>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -30,6 +33,8 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
+#include "assetcatalog.h"
+#include "net/netmanifest.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -145,6 +150,8 @@ s32 videoGetCenterWindow(void);
 void videoSetCenterWindow(s32 center);
 s32 videoGetMaximizeWindow(void);
 void videoSetMaximizeWindow(s32 fs);
+f32 videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
 
 /* Display mode */
 typedef struct {
@@ -242,6 +249,12 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 /* Update UI — from pdgui_menu_update.cpp */
 void pdguiUpdateRenderSettingsTab(void);
 
+/* Update channel — from updater.c */
+typedef enum { UPDATE_CHANNEL_STABLE = 0, UPDATE_CHANNEL_DEV, UPDATE_CHANNEL_COUNT } update_channel_t;
+update_channel_t updaterGetChannel(void);
+void updaterSetChannel(update_channel_t channel);
+void updaterCheckAsync(void);
+
 /* Modding Hub UI — declared in pdgui_menu_moddinghub.cpp */
 void pdguiModdingHubShow(void);
 void pdguiModdingHubHide(void);
@@ -287,7 +300,56 @@ u32 mempPCGetTotalAllocated(void);
 u32 mempPCGetNumAllocations(void);
 extern s32 g_OsMemSizeMb;
 
+/* Screen size / screen split — options.c */
+s32  optionsGetScreenSize(void);
+void optionsSetScreenSize(s32 size);
+u8   optionsGetScreenSplit(void);
+void optionsSetScreenSplit(u8 split);
+
+/* Subtitle options — options.c */
+u8   optionsGetInGameSubtitles(void);
+void optionsSetInGameSubtitles(s32 enable);
+u8   optionsGetCutsceneSubtitles(void);
+void optionsSetCutsceneSubtitles(s32 enable);
+
+/* HUD display options (per-player) — options.c */
+s32  optionsGetSightOnScreen(s32 mpchrnum);
+void optionsSetSightOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetAlwaysShowTarget(s32 mpchrnum);
+void optionsSetAlwaysShowTarget(s32 mpchrnum, s32 enable);
+s32  optionsGetShowZoomRange(s32 mpchrnum);
+void optionsSetShowZoomRange(s32 mpchrnum, s32 enable);
+s32  optionsGetAmmoOnScreen(s32 mpchrnum);
+void optionsSetAmmoOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetShowGunFunction(s32 mpchrnum);
+void optionsSetShowGunFunction(s32 mpchrnum, s32 enable);
+s32  optionsGetShowMissionTime(s32 mpchrnum);
+void optionsSetShowMissionTime(s32 mpchrnum, s32 enable);
+s32  optionsGetPaintball(s32 mpchrnum);
+void optionsSetPaintball(s32 mpchrnum, s32 enable);
+s32  optionsGetHeadRoll(s32 mpchrnum);
+void optionsSetHeadRoll(s32 mpchrnum, s32 enable);
+
+/* Combat assist options (per-player) — options.c */
+s32  optionsGetAutoAim(s32 mpchrnum);
+void optionsSetAutoAim(s32 mpchrnum, s32 enable);
+s32  optionsGetLookAhead(s32 mpchrnum);
+void optionsSetLookAhead(s32 mpchrnum, s32 enable);
+s32  optionsGetAimControl(s32 mpchrnum);
+void optionsSetAimControl(s32 mpchrnum, s32 index);
+
+/* D5.0a: UI texture bridge — return ImTextureID for a named texture */
+void* pdguiGetUiTexture(const char *id);
+
 } /* extern "C" */
+
+/* Screen size constants (from src/include/constants.h).
+ * Prefixed PD_ to avoid any collision with external headers. */
+#define PD_SCREENSIZE_FULL    0
+#define PD_SCREENSIZE_WIDE    1
+#define PD_SCREENSIZE_CINEMA  2
+#define PD_SCREENSPLIT_HORIZ  0
+#define PD_SCREENSPLIT_VERT   1
 
 /* ========================================================================
  * State
@@ -295,7 +357,7 @@ extern s32 g_OsMemSizeMb;
 
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
-static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug */
+static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug, 6=Catalog */
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
@@ -411,6 +473,16 @@ static void renderSettingsVideo(float scale)
         }
 
         if (disabled) ImGui::EndDisabled();
+    }
+
+    /* UI Scale */
+    {
+        float uiScale = videoGetUiScaleMult() * 100.0f;
+        char uiScaleLabel[16];
+        snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
+        if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
+            videoSetUiScaleMult(uiScale / 100.0f);
+        }
     }
 
     bool centerWin = videoGetCenterWindow() != 0;
@@ -533,6 +605,38 @@ static void renderSettingsVideo(float scale)
         float shake = g_ViShakeIntensityMult;
         if (PdSliderFloat("Explosion Shake", &shake, 0.0f, 2.0f, "%.1f")) {
             g_ViShakeIntensityMult = shake;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Gameplay Screen ---- */
+    ImGui::TextDisabled("Gameplay Screen");
+    ImGui::Separator();
+
+    /* Screen Size — controls the 3D viewport clip region inside the window */
+    {
+        int sz = optionsGetScreenSize();
+        if (sz < 0 || sz > 2) sz = PD_SCREENSIZE_FULL;
+        const char *szOpts[] = { "Full", "Wide", "Cinema" };
+        if (PdCombo("Screen Size", &sz, szOpts, 3)) {
+            optionsSetScreenSize(sz);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Full:   standard viewport fills the frame\n"
+                "Wide:   moderate letterbox (top/bottom bars)\n"
+                "Cinema: heavy letterbox (cinematic crop)");
+        }
+    }
+
+    /* 2-Player Screen Split — orientation when two local players are active */
+    {
+        int sp = (int)optionsGetScreenSplit();
+        if (sp < 0 || sp > 1) sp = PD_SCREENSPLIT_HORIZ;
+        const char *spOpts[] = { "Horizontal", "Vertical" };
+        if (PdCombo("2-Player Screen Split", &sp, spOpts, 2)) {
+            optionsSetScreenSplit((u8)sp);
         }
     }
 }
@@ -1153,6 +1257,149 @@ static void renderSettingsGame(float scale)
             g_PlayerExtCfg[0].jumpheight = jump;
         }
     }
+
+    /* Update Channel */
+    {
+        int ch = (int)updaterGetChannel();
+        const char *chOpts[] = { "Stable", "Dev / Test" };
+        if (PdCombo("Update Channel", &ch, chOpts, 2)) {
+            updaterSetChannel((update_channel_t)ch);
+            updaterCheckAsync();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Stable: only show stable releases in the update notification\n"
+                "Dev / Test: also show pre-release and dev builds");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- HUD & Display ---- */
+    ImGui::TextDisabled("HUD & Display");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetSightOnScreen(0) != 0;
+        if (PdCheckbox("Sight on Screen", &v)) {
+            optionsSetSightOnScreen(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetAmmoOnScreen(0) != 0;
+        if (PdCheckbox("Ammo on Screen", &v)) {
+            optionsSetAmmoOnScreen(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowGunFunction(0) != 0;
+        if (PdCheckbox("Show Gun Function", &v)) {
+            optionsSetShowGunFunction(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetAlwaysShowTarget(0) != 0;
+        if (PdCheckbox("Always Show Target", &v)) {
+            optionsSetAlwaysShowTarget(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowZoomRange(0) != 0;
+        if (PdCheckbox("Show Zoom Range", &v)) {
+            optionsSetShowZoomRange(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetShowMissionTime(0) != 0;
+        if (PdCheckbox("Show Mission Time", &v)) {
+            optionsSetShowMissionTime(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetHeadRoll(0) != 0;
+        if (PdCheckbox("Head Roll", &v)) {
+            optionsSetHeadRoll(0, v ? 1 : 0);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Subtitles ---- */
+    ImGui::TextDisabled("Subtitles");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetInGameSubtitles() != 0;
+        if (PdCheckbox("In-Game Subtitles", &v)) {
+            optionsSetInGameSubtitles(v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetCutsceneSubtitles() != 0;
+        if (PdCheckbox("Cutscene Subtitles", &v)) {
+            optionsSetCutsceneSubtitles(v ? 1 : 0);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Visual Effects ---- */
+    ImGui::TextDisabled("Visual Effects");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetPaintball(0) != 0;
+        if (PdCheckbox("Paintball Mode", &v)) {
+            optionsSetPaintball(0, v ? 1 : 0);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Replace bullet wounds with coloured paint splatters");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Combat Assist ---- */
+    ImGui::TextDisabled("Combat Assist");
+    ImGui::Separator();
+
+    {
+        int aimMode = optionsGetAimControl(0);
+        if (aimMode < 0 || aimMode > 1) aimMode = 0;
+        const char *aimOpts[] = { "Hold", "Toggle" };
+        if (PdCombo("Aim Mode", &aimMode, aimOpts, 2)) {
+            optionsSetAimControl(0, aimMode);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Hold:   hold Fire to aim; release to holster\n"
+                "Toggle: press Fire to enter aim mode; press again to exit");
+        }
+    }
+
+    {
+        bool v = optionsGetAutoAim(0) != 0;
+        if (PdCheckbox("Auto Aim", &v)) {
+            optionsSetAutoAim(0, v ? 1 : 0);
+        }
+    }
+
+    {
+        bool v = optionsGetLookAhead(0) != 0;
+        if (PdCheckbox("Look Ahead", &v)) {
+            optionsSetLookAhead(0, v ? 1 : 0);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Camera tilts forward slightly when moving");
+        }
+    }
 }
 
 /* ========================================================================
@@ -1286,6 +1533,21 @@ static void renderSettingsDebug(float scale)
     ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
 
     ImGui::Spacing();
+
+    /* ManifestMaxEntries — hard cap on asset manifest size.
+     * Persisted to pd.ini as Debug.ManifestMaxEntries. */
+    {
+        int maxEnt = (int)manifestGetMaxEntries();
+        ImGui::SetNextItemWidth(120.0f * scale);
+        if (ImGui::InputInt("Manifest Max Entries", &maxEnt, 64, 256)) {
+            manifestSetMaxEntries((s32)maxEnt);
+            configSave("pd.ini");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(64 – 4096)");
+    }
+
+    ImGui::Spacing();
     ImGui::Spacing();
 
     /* ------ Theme Selector ------ */
@@ -1363,8 +1625,419 @@ static void renderSettingsDebug(float scale)
     /* ------ Keyboard Shortcuts Reminder ------ */
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
     ImGui::Separator();
-    ImGui::TextDisabled("F11  Menu Storyboard");
     ImGui::TextDisabled("F12  Debug Overlay");
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ About ------ */
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "About");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::Text("Perfect Dark 2.0, MikeHazeJr");
+    ImGui::Text("Version:  v%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+    ImGui::TextDisabled("Build:    %s", VERSION_BUILD);
+    ImGui::TextDisabled("Commit:   %.12s", VERSION_HASH);
+    ImGui::TextDisabled("ROM:      %-10s  Target: %s", VERSION_ROMID, VERSION_TARGET);
+    ImGui::TextDisabled("Branch:   %s", VERSION_BRANCH);
+}
+
+/* -----------------------------------------------------------------------
+ * Catalog tab helpers
+ * ----------------------------------------------------------------------- */
+
+static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
+    "None",          /* ASSET_NONE */
+    "Map",           /* ASSET_MAP */
+    "Character",     /* ASSET_CHARACTER */
+    "Skin",          /* ASSET_SKIN */
+    "Bot Variant",   /* ASSET_BOT_VARIANT */
+    "Weapon",        /* ASSET_WEAPON */
+    "Texture Pack",  /* ASSET_TEXTURES — collection/pack, distinct from individual Texture */
+    "SFX",           /* ASSET_SFX */
+    "Music",         /* ASSET_MUSIC */
+    "Prop",          /* ASSET_PROP */
+    "Vehicle",       /* ASSET_VEHICLE */
+    "Mission",       /* ASSET_MISSION */
+    "UI",            /* ASSET_UI */
+    "Tool",          /* ASSET_TOOL */
+    "Arena",         /* ASSET_ARENA */
+    "Body",          /* ASSET_BODY */
+    "Head",          /* ASSET_HEAD */
+    "Animation",     /* ASSET_ANIMATION */
+    "Texture",       /* ASSET_TEXTURE — individual texture entry */
+    "Game Mode",     /* ASSET_GAMEMODE */
+    "Voice",         /* ASSET_AUDIO — generic audio (voice/ambient); SFX and Music have own types */
+    "HUD",           /* ASSET_HUD */
+    "Effect",        /* ASSET_EFFECT */
+    "Model",         /* ASSET_MODEL */
+    "Lang",          /* ASSET_LANG — language string bank */
+};
+
+static const char *s_LoadStateNames[] = {
+    "Registered", "Enabled", "Loaded", "Active"
+};
+
+static const char *s_ManifestTypeNames[] = {
+    "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture",
+    "Lang",  /* MANIFEST_TYPE_LANG = 8 */
+};
+
+static void renderSettingsCatalog(float scale)
+{
+    s32 totalCount   = assetCatalogGetCount();
+    s32 poolSize     = assetCatalogGetPoolSize();
+
+    /* ------ D5.0a Spike: ROM texture bridge proof of concept ------ */
+    {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "D5.0a Texture Bridge Spike");
+        ImGui::SameLine();
+        ImGui::TextDisabled("catalog id: ui/test_panel");
+        void *tex = pdguiGetUiTexture("ui/test_panel");
+        if (tex) {
+            ImGui::Image((ImTextureID)tex, ImVec2(64.0f * scale, 64.0f * scale));
+            ImGui::SameLine();
+            ImGui::TextDisabled("PASS: ImGui::Image() rendered via pdguiGetUiTexture()");
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                               "FAIL: pdguiGetUiTexture() returned NULL");
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
+
+    /* ------ Summary ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Catalog");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Count loaded + mod-overridden */
+    s32 loadedCount = 0;
+    s32 modCount    = 0;
+    for (s32 i = 0; i < poolSize; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->load_state >= ASSET_STATE_LOADED) loadedCount++;
+        if (!e->bundled) modCount++;
+    }
+
+    ImGui::Text("Total registered: %d", totalCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Loaded: %d", loadedCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Mod-overridden: %d", modCount);
+    ImGui::Spacing();
+
+    /* Per-type breakdown — two columns */
+    ImGui::Columns(2, "##cat_type_cols", false);
+    for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+        s32 cnt = assetCatalogGetCountByType((asset_type_e)t);
+        if (cnt > 0) {
+            ImGui::TextDisabled("%-12s  %d", s_AssetTypeNames[t], cnt);
+            ImGui::NextColumn();
+        }
+    }
+    ImGui::Columns(1);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Browsable List ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Entries");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Type filter */
+    static s32 s_FilterType = 0;   /* 0 = All */
+    static char s_SearchBuf[64]  = {};
+
+    float filterW = 130.0f * scale;
+    ImGui::SetNextItemWidth(filterW);
+    if (ImGui::BeginCombo("##cat_type_filter",
+            s_FilterType == 0 ? "All Types" : s_AssetTypeNames[s_FilterType])) {
+        if (ImGui::Selectable("All Types", s_FilterType == 0)) s_FilterType = 0;
+        for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+            bool sel = (s_FilterType == t);
+            if (ImGui::Selectable(s_AssetTypeNames[t], sel)) s_FilterType = t;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##cat_search", s_SearchBuf, sizeof(s_SearchBuf));
+    ImGui::SameLine();
+    ImGui::TextDisabled("Search");
+    ImGui::Spacing();
+
+    /* Entry table — dynamically sized to catalog pool, never outgrown by mods */
+    static s32 *s_EntSortedIdx   = nullptr;
+    static s32  s_EntSortedCap   = 0;
+    static s32  s_EntSortedCount = 0;
+    static bool s_EntSortDirty   = true; /* force rebuild on first frame */
+
+    /* Grow buffer to current pool size when catalog expands */
+    if (poolSize > s_EntSortedCap) {
+        free(s_EntSortedIdx);
+        s_EntSortedIdx = (s32 *)malloc((size_t)poolSize * sizeof(s32));
+        s_EntSortedCap = s_EntSortedIdx ? poolSize : 0;
+        s_EntSortDirty = true;
+    }
+
+    ImGuiTableFlags tflags = ImGuiTableFlags_RowBg
+                           | ImGuiTableFlags_BordersInnerV
+                           | ImGuiTableFlags_ScrollY
+                           | ImGuiTableFlags_SizingStretchProp
+                           | ImGuiTableFlags_Resizable
+                           | ImGuiTableFlags_Sortable
+                           | ImGuiTableFlags_Reorderable;
+    float tableH = ImGui::GetContentRegionAvail().y * 0.55f;
+    if (ImGui::BeginTable("##cat_entries", 6, tflags, ImVec2(0, tableH))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
+        ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("State",    ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Idx",      ImGuiTableColumnFlags_WidthFixed,   40.0f * scale);
+        ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+        ImGui::TableSetupColumn("Src",      ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+        ImGui::TableHeadersRow();
+
+        /* Rebuild sorted index list when filter or sort changes */
+        {
+            bool hasSearch = s_SearchBuf[0] != '\0';
+            ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+            if (sortSpecs && (sortSpecs->SpecsDirty || s_EntSortDirty)) {
+                s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                bool asc = (sortSpecs->SpecsCount > 0)
+                           ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                           : true;
+
+                /* Collect matching indices */
+                s_EntSortedCount = 0;
+                if (s_EntSortedIdx) {
+                    for (s32 i = 0; i < poolSize; i++) {
+                        const asset_entry_t *e = assetCatalogGetByIndex(i);
+                        if (!e) continue;
+                        if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                        if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                        s_EntSortedIdx[s_EntSortedCount++] = i;
+                    }
+                }
+
+                /* Sort the collected indices */
+                std::sort(s_EntSortedIdx, s_EntSortedIdx + s_EntSortedCount,
+                    [col, asc](s32 ia, s32 ib) -> bool {
+                        const asset_entry_t *a = assetCatalogGetByIndex(ia);
+                        const asset_entry_t *b = assetCatalogGetByIndex(ib);
+                        if (!a || !b) return false;
+                        int cmp = 0;
+                        switch (col) {
+                            case 0: cmp = strcmp(a->id, b->id); break;
+                            case 1: cmp = (int)a->type - (int)b->type; break;
+                            case 2: cmp = (int)a->load_state - (int)b->load_state; break;
+                            case 3: cmp = a->runtime_index - b->runtime_index; break;
+                            case 4: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                            case 5: cmp = (int)a->bundled - (int)b->bundled; break;
+                            default: break;
+                        }
+                        return asc ? (cmp < 0) : (cmp > 0);
+                    });
+
+                sortSpecs->SpecsDirty = false;
+                s_EntSortDirty = false;
+            } else if (!sortSpecs) {
+                /* Fallback: rebuild unsorted on filter change */
+                if (s_EntSortDirty) {
+                    s_EntSortedCount = 0;
+                    if (s_EntSortedIdx) {
+                        for (s32 i = 0; i < poolSize; i++) {
+                            const asset_entry_t *e = assetCatalogGetByIndex(i);
+                            if (!e) continue;
+                            if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                            if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                            s_EntSortedIdx[s_EntSortedCount++] = i;
+                        }
+                    }
+                    s_EntSortDirty = false;
+                }
+            }
+        }
+
+        /* Mark dirty when filter/search changes next frame */
+        {
+            static s32  s_PrevFilter = -1;
+            static char s_PrevSearch[64] = {};
+            if (s_PrevFilter != s_FilterType || strcmp(s_PrevSearch, s_SearchBuf) != 0) {
+                s_EntSortDirty = true;
+                s_PrevFilter = s_FilterType;
+                memcpy(s_PrevSearch, s_SearchBuf, sizeof(s_PrevSearch));
+            }
+        }
+
+        for (s32 ri = 0; ri < s_EntSortedCount; ri++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(s_EntSortedIdx[ri]);
+            if (!e) continue;
+
+            ImGui::TableNextRow();
+
+            /* ID */
+            ImGui::TableSetColumnIndex(0);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", e->id);
+            } else {
+                ImGui::TextUnformatted(e->id);
+            }
+
+            /* Type */
+            ImGui::TableSetColumnIndex(1);
+            {
+                const char *tname = (e->type >= 0 && e->type < ASSET_TYPE_COUNT)
+                                    ? s_AssetTypeNames[e->type] : "?";
+                ImGui::TextDisabled("%s", tname);
+            }
+
+            /* Load state */
+            ImGui::TableSetColumnIndex(2);
+            {
+                const char *sname = (e->load_state >= 0 && e->load_state <= ASSET_STATE_ACTIVE)
+                                    ? s_LoadStateNames[e->load_state] : "?";
+                if (e->load_state >= ASSET_STATE_LOADED) {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
+                } else {
+                    ImGui::TextDisabled("%s", sname);
+                }
+            }
+
+            /* Runtime index */
+            ImGui::TableSetColumnIndex(3);
+            if (e->runtime_index >= 0) {
+                ImGui::Text("%d", e->runtime_index);
+            } else {
+                ImGui::TextDisabled("--");
+            }
+
+            /* Net hash */
+            ImGui::TableSetColumnIndex(4);
+            ImGui::TextDisabled("%08X", e->net_hash);
+
+            /* Source: mod indicator */
+            ImGui::TableSetColumnIndex(5);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "MOD");
+            } else {
+                ImGui::TextDisabled("base");
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Current Manifest ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Current Stage Manifest");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const match_manifest_t *mf = &g_CurrentLoadedManifest;
+    if (ImGui::BeginChild("ManifestList", ImVec2(0, 300.0f * scale))) {
+    if (mf->num_entries == 0) {
+        ImGui::TextDisabled("No manifest loaded (not in a match or SP stage)");
+    } else {
+        ImGui::Text("Entries: %d", (int)mf->num_entries);
+        ImGui::Spacing();
+
+        {
+            static s32  s_MfSortedIdx[MANIFEST_MAX_ENTRIES];
+            static s32  s_MfSortedCount = 0;
+            static bool s_MfSortDirty   = true;
+            static u16  s_MfPrevNum     = 0xFFFF;
+
+            ImGuiTableFlags mflags = ImGuiTableFlags_RowBg
+                                   | ImGuiTableFlags_BordersInnerV
+                                   | ImGuiTableFlags_ScrollY
+                                   | ImGuiTableFlags_SizingStretchProp
+                                   | ImGuiTableFlags_Resizable
+                                   | ImGuiTableFlags_Sortable
+                                   | ImGuiTableFlags_Reorderable;
+            float mTableH = ImGui::GetContentRegionAvail().y - 4.0f * scale;
+            if (mTableH < 60.0f * scale) mTableH = 60.0f * scale;
+            if (ImGui::BeginTable("##manifest_entries", 4, mflags, ImVec2(0, mTableH))) {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
+                ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+                ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+                ImGui::TableHeadersRow();
+
+                /* Rebuild sorted index list when manifest or sort changes */
+                if (s_MfPrevNum != mf->num_entries)
+                    s_MfSortDirty = true;
+
+                {
+                    ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+                    if (sortSpecs && (sortSpecs->SpecsDirty || s_MfSortDirty)) {
+                        s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                        bool asc = (sortSpecs->SpecsCount > 0)
+                                   ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                                   : true;
+
+                        s_MfSortedCount = (s32)mf->num_entries;
+                        for (s32 j = 0; j < s_MfSortedCount; j++)
+                            s_MfSortedIdx[j] = j;
+
+                        std::sort(s_MfSortedIdx, s_MfSortedIdx + s_MfSortedCount,
+                            [mf, col, asc](s32 ia, s32 ib) -> bool {
+                                const match_manifest_entry_t *a = &mf->entries[ia];
+                                const match_manifest_entry_t *b = &mf->entries[ib];
+                                int cmp = 0;
+                                switch (col) {
+                                    case 0: cmp = strcmp(a->id, b->id); break;
+                                    case 1: cmp = (int)a->type - (int)b->type; break;
+                                    case 2: cmp = (int)a->slot_index - (int)b->slot_index; break;
+                                    case 3: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                                    default: break;
+                                }
+                                return asc ? (cmp < 0) : (cmp > 0);
+                            });
+
+                        sortSpecs->SpecsDirty = false;
+                        s_MfSortDirty = false;
+                        s_MfPrevNum = mf->num_entries;
+                    }
+                }
+
+                for (s32 ri = 0; ri < s_MfSortedCount; ri++) {
+                    const match_manifest_entry_t *me = &mf->entries[s_MfSortedIdx[ri]];
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(me->id);
+
+                    ImGui::TableSetColumnIndex(1);
+                    {
+                        const char *mtype = (me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0])))
+                                            ? s_ManifestTypeNames[me->type] : "?";
+                        ImGui::TextDisabled("%s", mtype);
+                    }
+
+                    ImGui::TableSetColumnIndex(2);
+                    if (me->slot_index == MANIFEST_SLOT_MATCH) {
+                        ImGui::TextDisabled("all");
+                    } else {
+                        ImGui::Text("%d", (int)me->slot_index);
+                    }
+
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::TextDisabled("%08X", me->net_hash);
+                }
+                ImGui::EndTable();
+            }
+        }
+    }
+    } /* BeginChild ManifestList */
+    ImGui::EndChild();
 }
 
 /* Render the Settings sub-view with LB/RB bumper tab switching */
@@ -1376,14 +2049,14 @@ static void renderSettingsView(float scale, float contentH)
 
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 5;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 6;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 5) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > 6) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1402,6 +2075,7 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag6 = (s_BumperPendingTab == 6) ? ImGuiTabItemFlags_SetSelected : 0;
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -1470,6 +2144,17 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
+        if (ImGui::BeginTabItem("Catalog", nullptr, selFlag6)) {
+            s_SettingsSubTab = 6;
+            ImGui::BeginChild("##settings_scroll_cat", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsCatalog(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
         ImGui::EndTabBar();
     }
 
@@ -1481,6 +2166,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
                            struct menu *menu,
                            s32 winW, s32 winH)
 {
+    /* E.3: Always enforce blue palette — prevents tint bleed from post-mission
+     * endscreen (which sets palette 3=green or 2=red and never restores it). */
+    pdguiSetPalette(1);
+
     float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
     float dialogH = pdguiMenuHeight();
@@ -1510,6 +2199,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_MenuView = 0; /* Always open to main menu */
         s_NeedsFocus = true;
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
     /* Determine title based on current view */
@@ -1540,16 +2230,23 @@ static s32 renderMainMenu(struct menudialog *dialog,
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
-            if (s_MenuView == 3) {
+            if (s_MenuView == 2) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)");
+            } else if (s_MenuView == 3) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
                 if (menuGetCurrent() == MENU_MODDING) menuPop();
             } else if (s_MenuView == 4) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
                 if (menuGetCurrent() == MENU_JOIN) menuPop();
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
             s_MenuView = 0;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         } else {
             /* At top-level: close the menu, return to Carrington Institute */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
         }
@@ -1593,6 +2290,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Settings */
         if (PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f))) {
             s_MenuView = 2;
+            sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
         }
 
         /* Quit Game -- docked to bottom-right with confirmation */
@@ -1696,6 +2394,19 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * Join a server by connect code or direct IP.
          * After connecting, transitions to the server lobby.
          * ================================================================ */
+        /* Format a unix timestamp as a compact relative-time string.
+         * buf must be at least 32 bytes. Returns buf. */
+        auto fmtRelTime = [](char *buf, size_t bufsz, u32 ts) -> const char * {
+            if (ts == 0) { snprintf(buf, bufsz, "never"); return buf; }
+            time_t now = time(NULL);
+            if ((time_t)ts > now) { snprintf(buf, bufsz, "just now"); return buf; }
+            long diff = (long)(now - (time_t)ts);
+            if (diff < 60)             snprintf(buf, bufsz, "%lds ago", diff);
+            else if (diff < 3600)      snprintf(buf, bufsz, "%ldm ago", diff / 60);
+            else if (diff < 86400)     snprintf(buf, bufsz, "%ldh ago", diff / 3600);
+            else                       snprintf(buf, bufsz, "%ldd ago", diff / 86400);
+            return buf;
+        };
         static char s_JoinCodeInput[64] = "";
         static char s_JoinStatus[128] = "";
         static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
@@ -1842,9 +2553,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 }
                 ImGui::PopID();
 
-                /* Show connect code beneath the hostname when one is present. */
-                if (srv->hostname[0] != '\0' && code[0] != '\0') {
-                    ImGui::TextDisabled("    %s", code);
+                /* Show connect code and last-seen time beneath the hostname. */
+                {
+                    char timebuf[32];
+                    fmtRelTime(timebuf, sizeof(timebuf), srv->lastresponse);
+                    if (srv->hostname[0] != '\0' && code[0] != '\0') {
+                        ImGui::TextDisabled("    %s  ·  %s", code, timebuf);
+                    } else {
+                        ImGui::TextDisabled("    %s", timebuf);
+                    }
                 }
 
                 ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));

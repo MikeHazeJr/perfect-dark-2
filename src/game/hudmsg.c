@@ -264,7 +264,7 @@ Gfx *hudmsgRenderZoomRange(Gfx *gdl, u32 alpha)
 		curzoom = maxzoom - 1.0f / (zoomfov / zoominfovy) + 1;
 	}
 
-	sprintf(text, "%s%s%4.2fX", "", "", curzoom);
+	snprintf(text, sizeof(text), "%s%s%4.2fX", "", "", curzoom);
 	textMeasure(&textheight, &textwidth, text, g_CharsNumeric, g_FontNumeric, 0);
 
 	x = viewleft + viewhalfwidth - textwidth - 5;
@@ -280,7 +280,7 @@ Gfx *hudmsgRenderZoomRange(Gfx *gdl, u32 alpha)
 	gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, colour, 0x000000a0, viGetWidth(), viGetHeight(), 0, 0);
 
 	// Divider
-	sprintf(text, "/");
+	snprintf(text, sizeof(text), "/");
 	textMeasure(&textheight, &textwidth, text, g_CharsNumeric, g_FontNumeric, 0);
 
 	x = viewleft + viewhalfwidth - (textwidth >> 1);
@@ -292,7 +292,7 @@ Gfx *hudmsgRenderZoomRange(Gfx *gdl, u32 alpha)
 	gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, colour, 0x000000a0, viGetWidth(), viGetHeight(), 0, 0);
 
 	// Right side - max zoom level
-	sprintf(text, "%s%s%4.2fX", "", "", maxzoom);
+	snprintf(text, sizeof(text), "%s%s%4.2fX", "", "", maxzoom);
 	textMeasure(&textheight, &textwidth, text, g_CharsNumeric, g_FontNumeric, 0);
 
 	x = viewleft + viewhalfwidth + 5;

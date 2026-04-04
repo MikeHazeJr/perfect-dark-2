@@ -72,6 +72,8 @@ typedef enum {
     ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
     ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
     ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
+    ASSET_MODEL,               /* individual 3-D model (g_ModelStates[] entry, MODEL_* index) */
+    ASSET_LANG,                /* language string bank (LANGBANK_* constant) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -150,7 +152,7 @@ typedef struct asset_entry {
 
     /* Classification */
     asset_type_e type;                 /* ASSET_MAP, ASSET_CHARACTER, etc. */
-    char category[CATALOG_CATEGORY_LEN]; /* "goldfinger64", "base", etc. */
+    char category[CATALOG_CATEGORY_LEN]; /* mod id or "base" for ROM assets */
 
     /* Filesystem */
     char dirpath[FS_MAXPATH];          /* absolute path to component folder */
@@ -258,6 +260,9 @@ typedef struct asset_entry {
             f32 intensity;             /* effect strength 0.0-1.0 */
             f32 params[4];             /* generic effect parameters */
         } effect;
+        struct {
+            s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
+        } lang;
     } ext;
 
     /* Source numeric IDs for reverse-index (C-4 through C-7).
@@ -323,6 +328,13 @@ s32 assetCatalogGetCountByType(asset_type_e type);
  * Returns NULL if index is out of range or entry is not occupied.
  */
 const asset_entry_t *assetCatalogGetByIndex(s32 index);
+
+/**
+ * Get the current high-water mark of the entry pool.
+ * Callers should iterate [0, assetCatalogGetPoolSize()) with assetCatalogGetByIndex()
+ * to visit all entries (skipping NULL returns for holes / unoccupied slots).
+ */
+s32 assetCatalogGetPoolSize(void);
 
 /**
  * Mutable resolve by string ID.
@@ -616,6 +628,293 @@ asset_load_state_t assetCatalogGetLoadState(const char *id);
  * not decrement below that sentinel or force eviction of bundled data.
  */
 void assetCatalogSetLoadState(const char *id, asset_load_state_t state);
+
+/* ========================================================================
+ * SA-2: Modular Catalog API Layer
+ * ======================================================================== */
+
+/* Forward declaration for wire helper signatures (defined in net/netbuf.h). */
+struct netbuf;
+
+/**
+ * Result struct for body asset resolution.
+ * filenum is populated from source_filenum (set at registration from
+ * g_HeadsAndBodies[bodynum].filenum).
+ * display_name points into the catalog entry id[] -- stable for catalog lifetime.
+ * session_id is 0 if the session catalog is not active or entry is absent.
+ */
+typedef struct {
+    const asset_entry_t *entry;        /**< full catalog entry (NULL on failure) */
+    s32                  filenum;      /**< runtime filenum for model load calls */
+    f32                  model_scale;  /**< from catalog entry (default 1.0) */
+    const char          *display_name; /**< points to entry->id */
+    u32                  net_hash;     /**< CRC32 for manifest checks */
+    u16                  session_id;   /**< session wire ID (0 = not in session) */
+} catalog_body_result_t;
+
+/** Heads share the same result layout as bodies. */
+typedef catalog_body_result_t catalog_head_result_t;
+
+/**
+ * Result struct for stage (map) asset resolution.
+ * bgfileid/padsfileid/setupfileid/mpsetupfileid/tilefileid come from
+ * g_Stages[runtime_index] when the stage table is loaded (client);
+ * all -1 on server or unloaded stages.
+ */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  bgfileid;
+    s32                  padsfileid;
+    s32                  setupfileid;
+    s32                  mpsetupfileid; /**< multiplayer setup file id (-1 if not applicable) */
+    s32                  tilefileid;    /**< tile file id (-1 if not applicable) */
+    s32                  stagenum;    /**< logical stage ID (e.g. 0x5e) */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_stage_result_t;
+
+/** Result struct for weapon asset resolution. */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  filenum;     /**< weapon model file (source_filenum, -1 for base) */
+    s32                  weapon_num;  /**< runtime WEAPON_* enum value */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_weapon_result_t;
+
+/** Result struct for prop asset resolution. */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  filenum;    /**< prop model file (source_filenum, -1 for base) */
+    s32                  prop_type;  /**< runtime PROPTYPE_* value */
+    u32                  net_hash;
+    u16                  session_id;
+} catalog_prop_result_t;
+
+/* ── SA-2: Resolution by catalog string ID ─────────────────────────────── */
+
+/** Resolve a body asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveBody(const char *id, catalog_body_result_t *out);
+
+/** Resolve a head asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveHead(const char *id, catalog_head_result_t *out);
+
+/** Resolve a stage (map) asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveStage(const char *id, catalog_stage_result_t *out);
+
+/** Resolve a weapon asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out);
+
+/** Resolve a prop asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveProp(const char *id, catalog_prop_result_t *out);
+
+/* ── SA-2: Resolution by session wire ID ───────────────────────────────── */
+
+/** Resolve a body asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveBodyBySession(u16 session_id, catalog_body_result_t *out);
+
+/** Resolve a head asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveHeadBySession(u16 session_id, catalog_head_result_t *out);
+
+/** Resolve a stage (map) asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveStageBySession(u16 session_id, catalog_stage_result_t *out);
+
+/** Resolve a weapon asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveWeaponBySession(u16 session_id, catalog_weapon_result_t *out);
+
+/** Resolve a prop asset by session wire ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolvePropBySession(u16 session_id, catalog_prop_result_t *out);
+
+/* ── SA-2: Resolution by CRC32 net_hash ────────────────────────────────── */
+
+/**
+ * Resolve an asset entry by CRC32 net_hash.
+ * Thin wrapper around assetCatalogResolveByNetHash() -- O(n) linear scan.
+ * Use sparingly (manifest checks, connection-time only).
+ */
+const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
+
+/* ── SA-4: Reverse-index lookup (migration only) ───────────────────────── */
+
+/**
+ * Reverse-lookup: find catalog entry by asset type and runtime_index.
+ * Used only during save-file migration (SA-4) to convert legacy integer
+ * indices to catalog string IDs.  O(n) linear scan -- never call on the
+ * hot path.  Logs [CATALOG-ASSERT] and returns NULL if not found.
+ *
+ * @param type           Asset type (ASSET_BODY, ASSET_HEAD, ASSET_MAP, etc.)
+ * @param runtime_index  The integer index stored in asset_entry_t.runtime_index
+ * @return  Pointer to the catalog ID string (valid for catalog lifetime), or NULL.
+ */
+const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
+
+/**
+ * B.2: Resolve a body catalog entry by MP body index (g_MpBodies[] position, 0..62).
+ * Converts mpbodynum → g_HeadsAndBodies[] index via g_MpBodies[mpbodynum].bodynum,
+ * then looks up ASSET_BODY by runtime_index.  Logs a warning and returns NULL on miss.
+ * Use this instead of catalogResolveByRuntimeIndex(ASSET_BODY, mpbodynum) — those
+ * are different index spaces.
+ */
+const char *catalogResolveBodyByMpIndex(s32 mpbodynum);
+
+/**
+ * B.2: Resolve a head catalog entry by MP head index (g_MpHeads[] position, 0..75).
+ * Converts mpheadnum → g_HeadsAndBodies[] index via g_MpHeads[mpheadnum].headnum,
+ * then looks up ASSET_HEAD by runtime_index.  Logs a warning and returns NULL on miss.
+ * Use this instead of catalogResolveByRuntimeIndex(ASSET_HEAD, mpheadnum) — those
+ * are different index spaces.
+ */
+const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
+
+/**
+ * FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
+ * position (mpbodynum).  Returns -1 if bodynum is not found in g_MpBodies[].
+ * Use at save-load sites after assetCatalogResolve() to convert back to mpbodynum.
+ */
+s32 catalogBodynumToMpBodyIdx(s32 bodynum);
+
+/**
+ * FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position (mpheadnum).
+ * Returns -1 if headnum is not found in g_MpHeads[].
+ */
+s32 catalogHeadnumToMpHeadIdx(s32 headnum);
+
+/**
+ * Body → default head catalog ID string.
+ * Reads ext.body.headnum from the body catalog entry and resolves it to the
+ * matching ASSET_HEAD catalog ID.  Used by character pickers to auto-select the
+ * correct head when a body is chosen.
+ * Returns NULL if body_id is unknown, wrong type, or headnum < 0.
+ */
+const char *catalogGetBodyDefaultHead(const char *body_id);
+
+/**
+ * Body → default head mpheadnum (g_MpHeads[] position).
+ * Convenience wrapper for UI carousels that work in mpheadnum space.
+ * Returns -1 if the body is not found, has no default head, or the sentinel
+ * value 1000 (random-gender head) is stored — caller should keep existing head.
+ */
+s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
+
+/* ── SA-5 failure state ─────────────────────────────────────────────────── */
+
+/**
+ * Set to 1 by any catalogGet*ByIndex helper when the required asset is absent
+ * from the catalog.  Callers on the load path should check this after loading
+ * a stage or character to detect pipeline initialization failures.
+ * Reset by the caller (or catalog reload) before the next load sequence.
+ */
+extern s32  g_CatalogFailure;
+
+/**
+ * Human-readable description of the first catalog miss.
+ * Valid only when g_CatalogFailure == 1.  Populated by snprintf.
+ */
+extern char g_CatalogFailureMsg[256];
+
+/* ── SA-5a: Load-site helpers ───────────────────────────────────────────── */
+
+/**
+ * SA-5a: Resolve a body model filenum by runtime body index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].filenum at model
+ * load call sites.  Performs an O(n) catalog scan -- acceptable at load time
+ * (called once at match/stage start, not per frame).
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ * No silent fallback to legacy arrays.
+ */
+s32 catalogGetBodyFilenumByIndex(s32 bodynum);
+
+/**
+ * SA-5a: Resolve a head model filenum by runtime head index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[headnum].filenum at model
+ * load call sites.  Same behaviour as catalogGetBodyFilenumByIndex.
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ */
+s32 catalogGetHeadFilenumByIndex(s32 headnum);
+
+/**
+ * SA-5a: Resolve a body model scale by runtime body index.
+ * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].scale.
+ * Returns catalog entry model_scale (default 1.0 for base game).
+ * Mods that ship custom model scales will have their value respected here.
+ * On catalog miss: logs [CATALOG-FATAL] and falls back to legacy scale.
+ */
+f32 catalogGetBodyScaleByIndex(s32 bodynum);
+
+/**
+ * SA-5b: Resolve all stage file IDs by runtime stage array index.
+ * Mod-override-aware drop-in for g_Stages[stageindex].bgfileid / padsfileid /
+ * setupfileid / mpsetupfileid / tilefileid at file load call sites.
+ * Performs an O(n) catalog scan -- acceptable at load time (called once per
+ * stage transition, not per frame).
+ * Populates all file ID fields in *out from the catalog entry.
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0
+ * with *out zeroed.  No silent fallback to g_Stages[].
+ * Returns 1 on success (catalog hit), 0 on catalog miss.
+ */
+s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
+
+/**
+ * SA-5c: Resolve a prop model filenum by runtime model array index (MODEL_* enum).
+ * Mod-override-aware drop-in for g_ModelStates[modelnum].fileid at model file
+ * load call sites in setupLoadModeldef(), player.c, etc.
+ * Performs an O(n) catalog scan over ASSET_MODEL entries -- acceptable at load
+ * time (called once per model, result cached in g_ModelStates[].modeldef).
+ * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ * No silent fallback to g_ModelStates[].fileid.
+ */
+s32 catalogGetPropFilenumByIndex(s32 propnum);
+
+/**
+ * Phase 0: Return the canonical catalog ID for the ASSET_MAP entry whose
+ * ext.map.stagenum equals stagenum, or NULL if not found.
+ * Replaces assetCatalogResolve("stage_0x%02x") in manifest code after alias removal.
+ */
+const char *catalogResolveStageByStagenum(s32 stagenum);
+
+/**
+ * Phase C (FIX-1/2): Return the canonical catalog ID for the ASSET_ARENA entry
+ * whose ext.arena.stagenum equals stagenum, or NULL if not found.
+ * Used for CLC_LOBBY_START stage wire encoding (MP arenas, not solo maps).
+ * Both client and server have g_MpArenas[] so this resolves on both sides.
+ */
+const char *catalogResolveArenaByStagenum(s32 stagenum);
+
+/**
+ * Phase 0: Return the canonical catalog ID for the ASSET_WEAPON entry whose
+ * ext.weapon.weapon_id equals weapon_id (MPWEAPON_* constant), or NULL.
+ * Replaces assetCatalogResolve("weapon_%d") in manifest code after alias removal.
+ */
+const char *catalogResolveWeaponByGameId(s32 weapon_id);
+
+/* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
+
+/**
+ * Write a 2-byte session asset reference to a network buffer.
+ * The ONLY function that may serialize asset references onto the wire.
+ */
+void catalogWriteAssetRef(struct netbuf *buf, u16 session_id);
+
+/**
+ * Read a 2-byte session asset reference from a network buffer.
+ * The ONLY function that may deserialize asset references from the wire.
+ * Returns the session wire ID (0 = no asset / not assigned).
+ */
+u16 catalogReadAssetRef(struct netbuf *buf);
+
+/**
+ * Phase C wire helpers for PRE-SESSION-CATALOG boundaries (e.g., CLC_LOBBY_START).
+ * These use the stable CRC32 net_hash instead of session IDs, because the
+ * session catalog does not exist yet when CLC_LOBBY_START is transmitted.
+ * Both client and server have identical base catalog entries for arenas and
+ * weapons, so net_hash lookups succeed on both sides.
+ *
+ * Usage:
+ *   write: catalogWritePreSessionRef(buf, catalog_id);   -- writes u32 net_hash
+ *   read:  catalogReadPreSessionRef(buf);                -- returns asset_entry_t* or NULL
+ */
+void catalogWritePreSessionRef(struct netbuf *buf, const char *id);
+const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf);
 
 #ifdef __cplusplus
 }

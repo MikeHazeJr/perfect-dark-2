@@ -25,6 +25,31 @@
 #include "versioninfo.h"
 #include "updateversion.h"
 #include "sha256.h"
+#include "config.h"
+#include "platform.h"
+
+/* ========================================================================
+ * Config registration (PD_CONSTRUCTOR runs before main so configInit() can
+ * apply the loaded value on startup)
+ * ======================================================================== */
+
+/* s32 mirror of update_channel_t, registered with the config system */
+static s32 s_UpdateChannelCfg = UPDATE_CHANNEL_STABLE;
+
+/* Comma-separated list of folder/file names that the updater never deletes.
+ * Persisted in pd.ini under [Update]. Read directly from pd.ini at apply
+ * time (before config is formally initialized). pd.ini itself is always
+ * protected regardless of this setting. */
+#define UPDATER_DEFAULT_PROTECTED "mods,data,extracted,saves"
+static char s_ProtectedFoldersCfg[512] = UPDATER_DEFAULT_PROTECTED;
+
+PD_CONSTRUCTOR static void updaterConfigInit(void)
+{
+	configRegisterInt("Game.UpdateChannel", &s_UpdateChannelCfg,
+		UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_COUNT - 1);
+	configRegisterString("Update.ProtectedFolders", s_ProtectedFoldersCfg,
+		sizeof(s_ProtectedFoldersCfg));
+}
 
 /* ========================================================================
  * Internal state
@@ -57,9 +82,11 @@ static struct {
 
 	/* Paths */
 	char exePath[512];     /* full path to current executable */
-	char updatePath[512];  /* exePath + ".update" */
-	char oldPath[512];     /* exePath + ".old" */
-	char versionPath[512]; /* exePath + ".update.ver" — version sidecar for staged update */
+	char installDir[512];  /* directory containing the executable */
+	char updatePath[512];  /* installDir/pd.update.zip — downloaded update ZIP */
+	char oldPath[512];     /* exePath + ".old" — backup of current exe during apply */
+	char versionPath[512]; /* updatePath + ".ver" — version sidecar for staged update */
+	char stagingDir[512];  /* installDir/pd_update_staging — extraction working dir */
 
 	/* Staged version — persisted across sessions via versionPath sidecar */
 	pdversion_t stagedVersion;
@@ -181,6 +208,33 @@ static void jp_copystr(const jtok_t *tok, char *buf, s32 bufsize)
 	if (len >= bufsize) len = bufsize - 1;
 	if (len > 0) memcpy(buf, tok->start, len);
 	buf[len] = '\0';
+}
+
+/* Copy string token with JSON escape sequence unescaping (\n \r \t \\ \").
+ * GitHub release bodies contain literal \r\n sequences that must become
+ * real newlines for correct display. */
+static void jp_copystr_unescape(const jtok_t *tok, char *buf, s32 bufsize)
+{
+	const char *src = tok->start;
+	s32 srclen = tok->len;
+	s32 di = 0;
+	for (s32 si = 0; si < srclen && di < bufsize - 1; si++) {
+		if (src[si] == '\\' && si + 1 < srclen) {
+			si++;
+			switch (src[si]) {
+			case 'n':  buf[di++] = '\n'; break;
+			case 'r':  buf[di++] = '\r'; break;
+			case 't':  buf[di++] = '\t'; break;
+			case '"':  buf[di++] = '"';  break;
+			case '\\': buf[di++] = '\\'; break;
+			case '/':  buf[di++] = '/';  break;
+			default:   buf[di++] = src[si]; break;
+			}
+		} else {
+			buf[di++] = src[si];
+		}
+	}
+	buf[di] = '\0';
 }
 
 /* Skip an entire JSON value (object, array, or primitive) */
@@ -380,9 +434,10 @@ static const char *getTagPrefix(void)
 	return s_Updater.isServer ? UPDATER_TAG_SERVER : UPDATER_TAG_CLIENT;
 }
 
-static const char *getAssetName(void)
+static s32 str_ends_with(const char *str, const char *suffix)
 {
-	return s_Updater.isServer ? UPDATER_ASSET_SERVER : UPDATER_ASSET_CLIENT;
+	size_t sl = strlen(str), su = strlen(suffix);
+	return (sl >= su) && (strcmp(str + sl - su, suffix) == 0);
 }
 
 /**
@@ -395,7 +450,6 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 
 	char tagStr[UPDATER_MAX_TAG_LEN] = {0};
 	const char *prefix = getTagPrefix();
-	const char *assetName = getAssetName();
 	s32 depth = 1;
 
 	while (depth > 0) {
@@ -428,7 +482,7 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 		} else if (jp_iskey(&key, "body")) {
 			jtok_t val = jp_next(p);
 			if (val.type == JTOK_STRING) {
-				jp_copystr(&val, rel->body, sizeof(rel->body));
+				jp_copystr_unescape(&val, rel->body, sizeof(rel->body));
 			}
 		} else if (jp_iskey(&key, "prerelease")) {
 			jtok_t val = jp_next(p);
@@ -482,16 +536,16 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 							}
 						}
 
-						/* Match asset to our binary or hash */
-						if (strcmp(aname, assetName) == 0) {
+						/* Match the win64 ZIP asset (e.g. PerfectDark-v0.0.19-win64.zip) */
+						if (str_ends_with(aname, UPDATER_ASSET_ZIP_SUFFIX)) {
 							strncpy(rel->assetUrl, aurl, UPDATER_MAX_URL_LEN - 1);
 							rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 							rel->assetSize = asize;
 						} else {
-							/* Check for .sha256 sidecar */
-							char hashname[140];
-							snprintf(hashname, sizeof(hashname), "%s.sha256", assetName);
-							if (strcmp(aname, hashname) == 0) {
+							/* Check for .sha256 sidecar of the ZIP */
+							char zipSha[16];
+							snprintf(zipSha, sizeof(zipSha), "%s.sha256", UPDATER_ASSET_ZIP_SUFFIX);
+							if (str_ends_with(aname, zipSha)) {
 								strncpy(rel->hashUrl, aurl, UPDATER_MAX_URL_LEN - 1);
 								rel->hashUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 							}
@@ -514,6 +568,17 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 	if (versionParseTag(tagStr, prefixbuf, sizeof(prefixbuf), &rel->version) != 0) {
 		sysLogPrintf(LOG_WARNING, "UPDATER: failed to parse version from tag '%s'", tagStr);
 		return -1;
+	}
+
+	/* Fallback: if no ZIP URL was found in the assets array, construct the
+	 * conventional GitHub download URL from the tag.
+	 * e.g. tag "v0.0.19" → "PerfectDark-v0.0.19-win64.zip" */
+	if (!rel->assetUrl[0] && rel->tag[0]) {
+		snprintf(rel->assetUrl, UPDATER_MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s",
+			UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO, rel->tag,
+			rel->tag, UPDATER_ASSET_ZIP_SUFFIX);
+		rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 	}
 
 	return 0;
@@ -645,7 +710,7 @@ static int SDLCALL downloadThread(void *data)
 {
 	const updater_release_t *rel = (const updater_release_t *)data;
 
-	sysLogPrintf(LOG_NOTE, "UPDATER: Downloading %s (%lld bytes)",
+	sysLogPrintf(LOG_NOTE, "UPDATER: Downloading ZIP for %s (%lld bytes)",
 		rel->tag, (long long)rel->assetSize);
 
 	/* Download the .sha256 sidecar first (if available) */
@@ -740,6 +805,31 @@ static int SDLCALL downloadThread(void *data)
 		return 1;
 	}
 
+	/* Sanity check: verify the downloaded file starts with the ZIP magic bytes
+	 * ("PK\x03\x04" = 0x50 0x4B 0x03 0x04). If the download was redirected to
+	 * a GitHub 404 page or any other non-binary response, this catches it. */
+	{
+		FILE *zipcheck = fopen(s_Updater.updatePath, "rb");
+		unsigned char magic[4] = {0, 0, 0, 0};
+		if (zipcheck) {
+			(void)fread(magic, 1, 4, zipcheck);
+			fclose(zipcheck);
+		}
+		if (magic[0] != 0x50 || magic[1] != 0x4B || magic[2] != 0x03 || magic[3] != 0x04) {
+			remove(s_Updater.updatePath);
+			/* Mutex already held from the top of this function — do NOT re-lock. */
+			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+				"Downloaded file is not a valid ZIP archive (bad PK signature) — "
+				"release asset may be missing from GitHub. Update the game manually.");
+			s_Updater.status = UPDATER_DOWNLOAD_FAILED;
+			sysLogPrintf(LOG_ERROR, "UPDATER: ZIP signature check failed for %s "
+				"(first bytes: 0x%02X 0x%02X 0x%02X 0x%02X) — likely a 404 page or wrong asset",
+				rel->tag, magic[0], magic[1], magic[2], magic[3]);
+			SDL_UnlockMutex(s_Updater.mutex);
+			return 1;
+		}
+	}
+
 	/* SHA-256 verification */
 	if (hasHash) {
 		SDL_UnlockMutex(s_Updater.mutex);  /* hash check can take a moment */
@@ -776,7 +866,7 @@ static int SDLCALL downloadThread(void *data)
 
 	char verstr[32];
 	versionFormat(&rel->version, verstr, sizeof(verstr));
-	sysLogPrintf(LOG_NOTE, "UPDATER: Downloaded v%s to: %s — restart to apply",
+	sysLogPrintf(LOG_NOTE, "UPDATER: Downloaded ZIP v%s to: %s — restart to apply",
 		verstr, s_Updater.updatePath);
 
 	SDL_UnlockMutex(s_Updater.mutex);
@@ -828,12 +918,18 @@ static s32 readStagedVersionFile(pdversion_t *out)
 static void detectExePath(void)
 {
 	GetModuleFileNameA(NULL, s_Updater.exePath, sizeof(s_Updater.exePath));
-	snprintf(s_Updater.updatePath, sizeof(s_Updater.updatePath),
-		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
-	snprintf(s_Updater.oldPath, sizeof(s_Updater.oldPath),
-		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_OLD);
-	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath),
-		"%s%s.ver", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
+
+	/* installDir = directory containing the exe */
+	strncpy(s_Updater.installDir, s_Updater.exePath, sizeof(s_Updater.installDir) - 1);
+	s_Updater.installDir[sizeof(s_Updater.installDir) - 1] = '\0';
+	char *lastSep = strrchr(s_Updater.installDir, '\\');
+	if (!lastSep) lastSep = strrchr(s_Updater.installDir, '/');
+	if (lastSep) *lastSep = '\0';
+
+	snprintf(s_Updater.updatePath,  sizeof(s_Updater.updatePath),  "%s\\pd.update.zip",        s_Updater.installDir);
+	snprintf(s_Updater.oldPath,     sizeof(s_Updater.oldPath),     "%s%s",                     s_Updater.exePath, UPDATER_SUFFIX_OLD);
+	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath), "%s.ver",                   s_Updater.updatePath);
+	snprintf(s_Updater.stagingDir,  sizeof(s_Updater.stagingDir),  "%s\\pd_update_staging",    s_Updater.installDir);
 }
 #else
 #include <unistd.h>
@@ -846,12 +942,14 @@ static void detectExePath(void)
 	} else {
 		strncpy(s_Updater.exePath, "PerfectDark", sizeof(s_Updater.exePath));
 	}
-	snprintf(s_Updater.updatePath, sizeof(s_Updater.updatePath),
-		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
-	snprintf(s_Updater.oldPath, sizeof(s_Updater.oldPath),
-		"%s%s", s_Updater.exePath, UPDATER_SUFFIX_OLD);
-	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath),
-		"%s%s.ver", s_Updater.exePath, UPDATER_SUFFIX_UPDATE);
+	strncpy(s_Updater.installDir, s_Updater.exePath, sizeof(s_Updater.installDir) - 1);
+	s_Updater.installDir[sizeof(s_Updater.installDir) - 1] = '\0';
+	char *lastSep = strrchr(s_Updater.installDir, '/');
+	if (lastSep) *lastSep = '\0';
+	snprintf(s_Updater.updatePath,  sizeof(s_Updater.updatePath),  "%s/pd.update.zip",      s_Updater.installDir);
+	snprintf(s_Updater.oldPath,     sizeof(s_Updater.oldPath),     "%s%s",                  s_Updater.exePath, UPDATER_SUFFIX_OLD);
+	snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath), "%s.ver",                s_Updater.updatePath);
+	snprintf(s_Updater.stagingDir,  sizeof(s_Updater.stagingDir),  "%s/pd_update_staging",  s_Updater.installDir);
 }
 #endif
 
@@ -866,7 +964,12 @@ void updaterInit(void)
 	s_Updater.mutex = SDL_CreateMutex();
 	s_Updater.currentVersion = (pdversion_t)BUILD_VERSION_INIT;
 	versionFormat(&s_Updater.currentVersion, s_Updater.versionStr, sizeof(s_Updater.versionStr));
-	s_Updater.channel = UPDATE_CHANNEL_STABLE;
+	/* Apply channel from config (loaded before updaterInit via PD_CONSTRUCTOR) */
+	if (s_UpdateChannelCfg >= 0 && s_UpdateChannelCfg < UPDATE_CHANNEL_COUNT) {
+		s_Updater.channel = (update_channel_t)s_UpdateChannelCfg;
+	} else {
+		s_Updater.channel = UPDATE_CHANNEL_STABLE;
+	}
 	s_Updater.latestIndex = -1;
 
 #ifdef PD_SERVER
@@ -1070,6 +1173,233 @@ const pdversion_t *updaterGetStagedVersion(void)
 }
 
 /* ========================================================================
+ * ZIP extraction and install helpers (Windows)
+ * ======================================================================== */
+
+#ifdef _WIN32
+
+/* Dynamic protected path list — built from pd.ini at apply time.
+ * pd.ini itself is always protected and added last. */
+static char  s_ProtectedParseBuf[512 + 8]; /* +8 for "pd.ini\0" */
+static char *s_ProtectedList[64];
+static s32   s_ProtectedCount = 0;
+
+/* Scan pd.ini (without the config system) for Update.ProtectedFolders.
+ * Returns 1 and fills out[] on success; returns 0 and leaves out unchanged
+ * if the key is absent or the file can't be opened. */
+static s32 readProtectedFoldersFromIni(const char *iniPath, char *out, size_t outsize)
+{
+	FILE *fp = fopen(iniPath, "r");
+	if (!fp) return 0;
+	char line[512];
+	s32 inUpdate = 0;
+	while (fgets(line, sizeof(line), fp)) {
+		size_t l = strlen(line);
+		while (l > 0 && (line[l-1] == '\n' || line[l-1] == '\r')) line[--l] = '\0';
+		if (line[0] == '[') { inUpdate = (strcmp(line, "[Update]") == 0); continue; }
+		if (inUpdate && strncmp(line, "ProtectedFolders=", 17) == 0) {
+			strncpy(out, line + 17, outsize - 1);
+			out[outsize - 1] = '\0';
+			fclose(fp);
+			return 1;
+		}
+	}
+	fclose(fp);
+	return 0;
+}
+
+/* Parse a comma-separated list of folder/file names into s_ProtectedList[].
+ * pd.ini is always appended to the list regardless of the csv contents. */
+static void buildProtectedList(const char *csv)
+{
+	strncpy(s_ProtectedParseBuf, csv, sizeof(s_ProtectedParseBuf) - 8);
+	s_ProtectedParseBuf[sizeof(s_ProtectedParseBuf) - 8] = '\0';
+	s_ProtectedCount = 0;
+	char *p = s_ProtectedParseBuf;
+	while (*p && s_ProtectedCount < 62) {
+		while (*p == ' ' || *p == '\t') p++;
+		if (!*p) break;
+		s_ProtectedList[s_ProtectedCount++] = p;
+		char *comma = strchr(p, ',');
+		if (!comma) { p += strlen(p); break; }
+		*comma = '\0';
+		p = comma + 1;
+		/* Trim trailing whitespace from the entry we just ended */
+		char *end = s_ProtectedList[s_ProtectedCount - 1];
+		size_t elen = strlen(end);
+		while (elen > 0 && (end[elen-1] == ' ' || end[elen-1] == '\t')) end[--elen] = '\0';
+	}
+	/* pd.ini is always protected regardless of the setting */
+	s_ProtectedList[s_ProtectedCount++] = "pd.ini";
+}
+
+/* Return 1 if relPath is under a protected directory/file. */
+static s32 isProtectedRelPath(const char *relPath)
+{
+	char norm[512];
+	s32 i;
+	for (i = 0; relPath[i] && i < (s32)(sizeof(norm) - 1); i++) {
+		norm[i] = (relPath[i] == '\\') ? '/' : (char)tolower((unsigned char)relPath[i]);
+	}
+	norm[i] = '\0';
+	for (s32 j = 0; j < s_ProtectedCount; j++) {
+		const char *prot = s_ProtectedList[j];
+		size_t plen = strlen(prot);
+		if (strncmp(norm, prot, plen) == 0 && (norm[plen] == '\0' || norm[plen] == '/')) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Extract ZIP to stagingDir using PowerShell Expand-Archive. Returns 0 on success. */
+static s32 extractZipToStaging(const char *zipPath, const char *stagingDir)
+{
+	CreateDirectoryA(stagingDir, NULL);
+
+	char cmd[2048];
+	snprintf(cmd, sizeof(cmd),
+		"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
+		"-Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\"",
+		zipPath, stagingDir);
+
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	memset(&si, 0, sizeof(si));
+	memset(&pi, 0, sizeof(pi));
+	si.cb = sizeof(si);
+
+	if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE,
+			CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, NULL, NULL, &si, &pi)) {
+		fprintf(stderr, "UPDATER: Failed to launch PowerShell for extraction (error %lu)\n",
+			GetLastError());
+		return -1;
+	}
+
+	WaitForSingleObject(pi.hProcess, 300000); /* 5-minute timeout */
+	DWORD exitCode = 1;
+	GetExitCodeProcess(pi.hProcess, &exitCode);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	return (exitCode == 0) ? 0 : -1;
+}
+
+/* Recursively copy all files from srcDir into dstDir (overwrite existing). */
+static void copyDirRecursive(const char *srcDir, const char *dstDir)
+{
+	char pattern[MAX_PATH];
+	snprintf(pattern, sizeof(pattern), "%s\\*", srcDir);
+
+	WIN32_FIND_DATAA fd;
+	HANDLE h = FindFirstFileA(pattern, &fd);
+	if (h == INVALID_HANDLE_VALUE) return;
+
+	do {
+		if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+		char src[MAX_PATH], dst[MAX_PATH];
+		snprintf(src, sizeof(src), "%s\\%s", srcDir, fd.cFileName);
+		snprintf(dst, sizeof(dst), "%s\\%s", dstDir, fd.cFileName);
+		if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			CreateDirectoryA(dst, NULL);
+			copyDirRecursive(src, dst);
+		} else {
+			if (!CopyFileA(src, dst, FALSE)) {
+				fprintf(stderr, "UPDATER: Warning: could not copy %s (error %lu)\n",
+					fd.cFileName, GetLastError());
+			}
+		}
+	} while (FindNextFileA(h, &fd));
+	FindClose(h);
+}
+
+/* Recursively delete a directory and its contents. */
+static void removeDirRecursive(const char *dir)
+{
+	char pattern[MAX_PATH];
+	snprintf(pattern, sizeof(pattern), "%s\\*", dir);
+
+	WIN32_FIND_DATAA fd;
+	HANDLE h = FindFirstFileA(pattern, &fd);
+	if (h != INVALID_HANDLE_VALUE) {
+		do {
+			if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+			char path[MAX_PATH];
+			snprintf(path, sizeof(path), "%s\\%s", dir, fd.cFileName);
+			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+				removeDirRecursive(path);
+			} else {
+				DeleteFileA(path);
+			}
+		} while (FindNextFileA(h, &fd));
+		FindClose(h);
+	}
+	RemoveDirectoryA(dir);
+}
+
+/* Walk installDir, deleting any file/dir that is absent from stagingDir
+ * and not under a protected path. relBase is "" for the root pass. */
+static void cleanupStaleFiles(const char *installDir, const char *stagingDir, const char *relBase)
+{
+	char searchPath[MAX_PATH];
+	if (relBase[0]) {
+		snprintf(searchPath, sizeof(searchPath), "%s\\%s\\*", installDir, relBase);
+	} else {
+		snprintf(searchPath, sizeof(searchPath), "%s\\*", installDir);
+	}
+
+	WIN32_FIND_DATAA fd;
+	HANDLE h = FindFirstFileA(searchPath, &fd);
+	if (h == INVALID_HANDLE_VALUE) return;
+
+	do {
+		if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+		/* Skip the staging dir and any update artifacts */
+		if (strcmp(fd.cFileName, "pd_update_staging") == 0) continue;
+		{
+			const char *fn = fd.cFileName;
+			size_t fnl = strlen(fn);
+			if (fnl > 4  && strcmp(fn + fnl - 4,  ".old") == 0) continue;
+			if (fnl > 4  && strcmp(fn + fnl - 4,  ".zip") == 0) continue;
+			if (fnl > 4  && strcmp(fn + fnl - 4,  ".ver") == 0) continue;
+		}
+
+		char relPath[MAX_PATH];
+		if (relBase[0]) {
+			snprintf(relPath, sizeof(relPath), "%s\\%s", relBase, fd.cFileName);
+		} else {
+			snprintf(relPath, sizeof(relPath), "%s", fd.cFileName);
+		}
+
+		if (isProtectedRelPath(relPath)) continue;
+
+		char stagingPath[MAX_PATH];
+		snprintf(stagingPath, sizeof(stagingPath), "%s\\%s", stagingDir, relPath);
+		s32 inStaging = (GetFileAttributesA(stagingPath) != INVALID_FILE_ATTRIBUTES);
+
+		if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			if (inStaging) {
+				cleanupStaleFiles(installDir, stagingDir, relPath);
+			} else {
+				char fullPath[MAX_PATH];
+				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
+				removeDirRecursive(fullPath);
+				fprintf(stderr, "UPDATER: Removed stale dir: %s\n", relPath);
+			}
+		} else {
+			if (!inStaging) {
+				char fullPath[MAX_PATH];
+				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
+				DeleteFileA(fullPath);
+				fprintf(stderr, "UPDATER: Removed stale file: %s\n", relPath);
+			}
+		}
+	} while (FindNextFileA(h, &fd));
+	FindClose(h);
+}
+
+#endif /* _WIN32 */
+
+/* ========================================================================
  * Public API — Self-replacement
  * ======================================================================== */
 
@@ -1096,34 +1426,67 @@ s32 updaterApplyPending(void)
 	}
 	fclose(test);
 
-	sysLogPrintf(LOG_NOTE, "UPDATER: Found pending update: %s", s_Updater.updatePath);
+	sysLogPrintf(LOG_NOTE, "UPDATER: Found pending update ZIP: %s", s_Updater.updatePath);
 
 #ifdef _WIN32
-	/* Step 1: Rename current exe to .old */
+	/* Step 1: Extract ZIP to staging directory */
+	fprintf(stderr, "UPDATER: Extracting ZIP to staging: %s\n", s_Updater.stagingDir);
+	if (extractZipToStaging(s_Updater.updatePath, s_Updater.stagingDir) != 0) {
+		fprintf(stderr, "UPDATER: ZIP extraction failed\n");
+		sysLogPrintf(LOG_ERROR, "UPDATER: ZIP extraction failed");
+		return -1;
+	}
+
+	/* Step 2: Verify extraction produced the expected client binary */
+	{
+		char testExe[MAX_PATH];
+		snprintf(testExe, sizeof(testExe), "%s\\PerfectDark.exe", s_Updater.stagingDir);
+		if (GetFileAttributesA(testExe) == INVALID_FILE_ATTRIBUTES) {
+			fprintf(stderr, "UPDATER: Staging appears empty or invalid — extraction failed\n");
+			sysLogPrintf(LOG_ERROR, "UPDATER: Staging dir missing PerfectDark.exe after extraction");
+			removeDirRecursive(s_Updater.stagingDir);
+			return -1;
+		}
+	}
+
+	/* Step 3: Rename current exe → .old (frees the exe name so we can overwrite it) */
 	if (!MoveFileExA(s_Updater.exePath, s_Updater.oldPath,
 			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-		sysLogPrintf(LOG_ERROR, "UPDATER: Failed to rename current exe to .old (error %lu)",
-			GetLastError());
+		fprintf(stderr, "UPDATER: Failed to rename exe to .old (error %lu)\n", GetLastError());
+		sysLogPrintf(LOG_ERROR, "UPDATER: Failed to rename exe to .old (error %lu)", GetLastError());
+		removeDirRecursive(s_Updater.stagingDir);
 		return -1;
 	}
 
-	/* Step 2: Rename .update to current exe */
-	if (!MoveFileExA(s_Updater.updatePath, s_Updater.exePath,
-			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-		/* Rollback: put old exe back */
-		MoveFileExA(s_Updater.oldPath, s_Updater.exePath,
-			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-		sysLogPrintf(LOG_ERROR, "UPDATER: Failed to rename .update to exe (error %lu)",
-			GetLastError());
-		return -1;
-	}
+	/* Step 4: Copy all staging files → install dir (overwrite mode) */
+	fprintf(stderr, "UPDATER: Copying staging → install dir: %s\n", s_Updater.installDir);
+	copyDirRecursive(s_Updater.stagingDir, s_Updater.installDir);
 
-	/* Clean up version sidecar — update has been applied */
+	/* Step 5: Cleanup stale files (delete install files absent from ZIP, skip protected) */
+	{
+		/* Read protected folders from pd.ini directly (config not yet initialized).
+		 * Fall back to the compiled default if the setting is absent. */
+		char iniPath[MAX_PATH];
+		snprintf(iniPath, sizeof(iniPath), "%s\\pd.ini", s_Updater.installDir);
+		char protectedCsv[512];
+		strncpy(protectedCsv, UPDATER_DEFAULT_PROTECTED, sizeof(protectedCsv) - 1);
+		protectedCsv[sizeof(protectedCsv) - 1] = '\0';
+		readProtectedFoldersFromIni(iniPath, protectedCsv, sizeof(protectedCsv));
+		buildProtectedList(protectedCsv);
+		fprintf(stderr, "UPDATER: Protected folders: %s (+ pd.ini always)\n", protectedCsv);
+	}
+	fprintf(stderr, "UPDATER: Cleaning up stale files...\n");
+	cleanupStaleFiles(s_Updater.installDir, s_Updater.stagingDir, "");
+
+	/* Step 6: Remove staging dir, update ZIP, and version sidecar */
+	removeDirRecursive(s_Updater.stagingDir);
+	remove(s_Updater.updatePath);
 	remove(s_Updater.versionPath);
 
 	sysLogPrintf(LOG_NOTE, "UPDATER: Update applied successfully — restarting...");
+	fprintf(stderr, "UPDATER: Update applied — restarting...\n");
 
-	/* Step 3: Re-launch the new binary */
+	/* Step 7: Re-launch the new binary */
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;
 	memset(&si, 0, sizeof(si));
@@ -1137,7 +1500,6 @@ s32 updaterApplyPending(void)
 		ExitProcess(0);
 	}
 
-	/* If CreateProcess fails, we still applied the update — just continue */
 	sysLogPrintf(LOG_WARNING, "UPDATER: Re-launch failed (error %lu), continuing with new binary",
 		GetLastError());
 	return 1;
@@ -1189,6 +1551,8 @@ void updaterSetChannel(update_channel_t channel)
 {
 	if (channel >= UPDATE_CHANNEL_COUNT) channel = UPDATE_CHANNEL_STABLE;
 	s_Updater.channel = channel;
+	s_UpdateChannelCfg = (s32)channel;
+	configSave("pd.ini");
 }
 
 /* ========================================================================

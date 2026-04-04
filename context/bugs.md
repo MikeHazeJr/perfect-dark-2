@@ -1,77 +1,121 @@
 # Bug Tracker — One-Off Issues
 
-> Track individual bugs: open, in-progress, fixed. For recurring architectural patterns (MAX_PLAYERS indexing, memory aliasing, index domain confusion), see [systemic-bugs.md](systemic-bugs.md).
+> Open bugs only. For recurring architectural patterns, see [systemic-bugs.md](systemic-bugs.md).
+> Back to [index](README.md)
 
 ---
 
 ## Open Bugs
 
-| ID | Bug | Severity | Found | Root Cause | Status |
-| B-54 | **Online MP crash on Felicity intro camera / white textures** — client crashed or showed all-white textures immediately after match start on Felicity (stagenum 0x2b). Log showed crash during intro camera sequence. | CRITICAL | S83 | `SVC_STAGE_START` client handler in `port/src/net/net_server_callbacks.c` did not call `catalogGetSafeBodyPaired()` before loading body assets. Server path called it; client path was missing the call. Without it, body asset pointers were uninitialized → white textures on first render frame → crash on dereference during intro cam animation. | **FIXED (S83)**: Added `catalogGetSafeBodyPaired()` call to client-side `SVC_STAGE_START` handler. Build: client + server clean. |
-| B-53 | **Can't open doors in networked match** — doors non-interactive; player cannot open any door during Combat Sim on dedicated server. | HIGH | S81 playtest | Likely `g_MpSetup.options` or `g_MpSetup.chrslots` not transmitted correctly, causing game mode flags that gate interaction code to be zero/wrong. May be resolved by S81 chrslots+options sync verification. | **NEEDS PLAYTEST** — run networked match after S81 fixes |
-| B-52 | **Can't pick up weapons/ammo in networked match** — weapon and ammo props are visible but picking them up does nothing. | HIGH | S81 playtest | Likely options/chrslots propagation issue (MPOPTION_SPAWNWITHWEAPON or interaction flags). Weapon array in CLC_LOBBY_START now transmitted (S81 weapon spawn fix). May be resolved. | **NEEDS PLAYTEST** — run networked match after S81 fixes |
-| B-51 | **Bot stuck/invisible under map in networked match** — bots appear to spawn under the stage geometry or are invisible after match starts. | HIGH | S81 playtest | May be related to chrslots not being applied correctly on client, causing bot chr allocation to miss. chrslots+options now transmitted in SVC_STAGE_START (verified already wired). | **NEEDS PLAYTEST** — run networked match after S81 fixes |
-|----|-----|----------|-------|-----------|--------|
-| B-27 | **Dedicated server crash on first client connect** — server crashes immediately after "connection attempt" log, before processing CLC_AUTH | CRITICAL | S50 | Nine bugs in the connect path: (1) `g_RomName` type mismatch — `server_stubs.c` declared `char[64]` but header declared `const char *`; (2) ROM/mod check in `CLC_AUTH` ran unconditionally — rejected all real clients on dedicated server (no valid ROM); fix: `!g_NetDedicated` gate; (3) `SVC_AUTH` rejected `id == 0` — invalid now that dedicated servers assign slot 0 to real players; (4) `netmsgClcAuthRead` read `g_NetLocalClient->state` instead of `cl->state` (hardcoded slot 0 assumption); (5) `netmsgClcAuthRead` NULL-dereferenced `g_NetLocalClient` on dedicated; (6) no `ev.packet` NULL check in receive handler; (7) `LOBBY_MAX_PLAYERS=8` vs `NET_MAX_CLIENTS=32` mismatch; (8) `server_gui.cpp` had stale `#define NET_MAX_CLIENTS 8`; (9) GUI ping/kick used lobby loop index instead of `cl->id`. | **FIXED (S50)**: All 9 fixes applied across 6 files — see session log. |
-| B-28 | **Server occupies player slot 0 on dedicated** — `netStartServer()` unconditionally sets `g_NetLocalClient = &g_NetClients[0]`, consuming the first player slot even on dedicated server. Lobby skips it (guard in `netlobby.c`) and GUI compensates (`g_NetNumClients - 1` display), but real slot 0 is wasted; only 31 player slots available instead of 32. | MED | S51 | `net.c:519-521`: `g_NetLocalClient = &g_NetClients[0]` regardless of `g_NetDedicated`. Fix: when `g_NetDedicated`, set `g_NetLocalClient = NULL` and `g_NetNumClients = 0`; slot search loop starts at 0 for dedicated; NULL guards added to `netServerStageStart` and `netServerStageEnd`. `server_gui.cpp` player count display fixed (`g_NetDedicated ? g_NetNumClients : g_NetNumClients-1`). | **FIXED (S52)** |
-| B-29 | **Raw IP visible in server GUI status bar** — `server_gui.cpp:695` shows the public IP in gray text (`"%s:%u"` format) directly below the connect code. Violates the "no raw IP in any UI surface" constraint. | MED | S51 | `server_gui.cpp:695`: `ImGui::TextColored(..., "%s:%u", ip, g_NetServerPort)`. Connect code already displayed above this line. Remove or replace with just the port number. | **FIXED (S52)**: Replaced with `"Port %u"` (port only, no IP). |
-| B-30 | **Raw IPs in server log output** — connection/disconnect log lines use `netFormatClientAddr()` which returns `"IP:port"` strings. Server operators see all client IPs in log output. | LOW | S51 | `net.c`: `sysLogPrintf` calls pass `netFormatClientAddr(cl)` for connection events. Replace with client index + name where available (e.g., "client 3 (MikeHazeJr) disconnected"). `netFormatClientAddr()` stays for internal debugging only. | **FIXED (S52)**: Connection log shows "incoming connection" + rejection reason (no IP). Disconnect log uses `cl->id`. Spurious-peer logs say "unknown peer". |\n| B-32 | **Client lobby empty + no leader** — client `lobbyUpdate()` finds 0 players; lobby shows "Waiting for players..."; client never becomes leader | HIGH | S56 | `lobbyUpdate()` skip guard `if (cl == g_NetLocalClient)` fired on clients too. After SVC_AUTH, `g_NetLocalClient = &g_NetClients[id]`, so client skipped its own slot. 0 players → no leader elected → `lobbyIsLocalLeader()` always 0. | **FIXED (S56)**: Guard changed to `if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient)`. |
-| B-33 | **CLC_SETTINGS overwrites identity name on server** — player name shown as "Player 1" even after B-26 fix | HIGH | S56 | `netmsgClcSettingsWrite()` sent `g_NetLocalClient->settings.name` without the identity override check. CLC_SETTINGS is processed after CLC_AUTH on the server, overwriting the correct identity name with the stale legacy name from `netClientReadConfig()`. | **FIXED (S56)**: Added identity profile check to `netmsgClcSettingsWrite()` matching the pattern in `netmsgClcAuthWrite()`. Syncs `settings.name` for future sends. |
-| B-34 | **server_main.c shows "0/N connected" with 1 player** — SDL window title counts 1 player as 0 | MED | S56 | `displayClients = g_NetNumClients > 0 ? g_NetNumClients - 1 : 0` — pre-B-28 formula. After B-28, dedicated server `g_NetNumClients` counts only real players (no server slot). `1-1=0`. `server_gui.cpp` was fixed; `server_main.c` was not. | **FIXED (S56)**: `g_NetDedicated ? g_NetNumClients : (g_NetNumClients > 0 ? g_NetNumClients - 1 : 0)`. |
-| B-35 | **server_main.c SDL window title shows raw IP** — title format `"IP:port"` instead of connect code | MED | S56 | `server_main.c` window title update block used raw `ip` string from `netUpnpGetExternalIP()`. B-29 fixed `server_gui.cpp` in S52 but `server_main.c` was missed. `video.c` had the same issue. | **FIXED (S56)**: Both `server_main.c` and `video.c` now parse the IP into u32 and call `connectCodeEncode()`. Falls back to `"port N"` if encode fails. |
-| B-36 | **Client crash on Combat Sim stage load** — crash after "LOAD: skyReset done", before "music set done" | CRITICAL | S63 | `musicIsAnyPlayerInAmbientRoom()` dereferenced `g_Vars.players[i]->prop` without checking `players[i]` for NULL. During `lvReset()`, players aren't spawned yet. `PLAYERCOUNT()` may return >0 (from previous match or stale state) while a lower-indexed slot is NULL, causing null pointer dereference on stages with ambient music (MBR, Maian SOS, Skedar Ruins, Crash Site, etc.). Secondary: `musicStartPrimary` called `PRIMARYTRACK()` twice, running `mpChooseTrack()` twice with side effects. | **FIXED (S63)**: Added `g_Vars.players[i]` NULL check in `musicIsAnyPlayerInAmbientRoom`. Fixed double `PRIMARYTRACK()` call. Added step-by-step logging in `musicSetStageAndStartMusic` and before the music init in `lv.c`. Build: two files compile clean. |
-| B-37 | **Client crash in bodiesReset() during Combat Sim stage load** — crash after "calling bodiesReset stagenum=0x1f" (Ravine), inside `bodiesReset()` | CRITICAL | S67 | `bodiesReset` calls `rngRandom() % g_NumBondBodies` (div-by-zero if `bodiesInit` missed) then iterates guard head lists. In a networked Combat Sim match there are no guards — only players and bots — so the entire guard-body randomization pass is both useless and unsafe. Root cause: `bodiesReset` was not MP-aware; the init-order audit (S64) had classified it as "safe" while the crash was hiding behind the now-fixed setupCreateProps crash. | **FIXED (S67)**: Added `if (g_Vars.normmplayerisrunning)` early return after the modeldef-clear loop. Sets `g_ActiveMaleHeadsIndex = g_ActiveFemaleHeadsIndex = 0` on the MP path. Trace logs added at entry and all remaining crash-candidate sites for future diagnostics. `src/game/bodyreset.c`. Build: client + server clean. |
-| B-38 | **Possible setupCreateProps crash after B-37 fix** — init-order-audit.md §4.2 identified a crash after "LOAD: setupLoadFiles done" with four hypotheses: H1 chrmgrConfigure wrong numchrs (OOB write into MEMPOOL_STAGE); H2 setupCreateProps chr creation with wrong model slot count; H3 varsReset bad roomcount; H4 setupCreateProps g_Vars.currentplayer NULL. B-37 fixed bodiesReset (which was masking this zone). Trace logs added in S67. | CRITICAL | S67 | FALSE ALARM — all four hypotheses verified safe: H1: both setupLoadFiles:1478 and setupCreateProps:1562 use identical code to count g_MpSetup.chrslots bits; no divergence possible within lvReset. Even if they differed, chrInit returns NULL on out-of-slots (no crash). H2: same numchrs → same allocation; modelmgrAllocateSlots adds maxanimatedobjs=20 buffer for player headroom. H3: varsReset reads but never zeros roomcount; bgReset sets it earlier; even roomcount=0 yields zero-length alloc and no-op loop. H4: invInit loop at setup.c:1579 has `!g_Vars.players[j] → continue` guard; no other code in setupCreateProps dereferences currentplayer. bodiesReset interaction: body0f02ce8c lazy-loads NULL modeldefs on demand; botmgrAllocateBot uses explicit bodynum/headnum (no bodyChooseHead call); MP setup files have no OBJTYPE_CHR so bodyAllocateChr is never called. Empirical: S68–S79 ran networked Combat Sim repeatedly (B-40/41/45/46 fixed) with no setupCreateProps crash. | **CLOSED (S80) — FALSE ALARM** |
-| B-39 | **Jump crash in capsule ceiling path** — game crashes during jump at specific geometry position (Jungle stage, manground=42.5) | CRITICAL | S68 | `bmoveFindEnteredRoomsByPos` (bondmove.c:2424) called `g_Vars.players[playermgrGetPlayerNumByProp(player->prop)]->vv_eyeheight/headheight`. Same players[-1] OOB class as S66. Returns -1 when prop not found in table → OOB. | **FIXED (S68)**: Read `player->vv_eyeheight/player->vv_headheight` directly from the struct (same data, no lookup needed). |
-| B-40 | **Time limit alarm fires immediately at match start** — alarm sound plays right when match begins; game is set to 1 minute not unlimited | HIGH | S68 | `netmsgClcLobbyStartRead` hardcoded `g_MpSetup.timelimit = 0`. The comment said "unlimited" but `timelimit=0` means 1 minute; `timelimit>=60` means unlimited. `mpApplyLimits()` in mplayer.c:994 confirms this. | **FIXED (S68)**: Added `u8 timelimit` + `u32 options` to CLC_LOBBY_START payload. `g_MatchConfig.timelimit` from room UI now flows through to server. |
-| B-41 | **Spawn weapon not auto-equipping (just in inventory)** — when spawn-with-weapon is enabled, weapon is not held on spawn | LOW | S68 | `g_MpSetup.options` was hardcoded to 0 in CLC_LOBBY_START handler, stripping `MPOPTION_SPAWNWITHWEAPON`. player.c:1186 gates the equip logic on that bit. | **FIXED (S68)**: `g_MatchConfig.options` now wired through CLC_LOBBY_START alongside timelimit. Server applies both fields. |
-| B-42 | **Add Bot button limited to 7 bots** — button disabled after 7 bots with 1 human player | MED | S68 | `pdgui_menu_room.cpp:436`: `maxBots = MAX_PLAYERS - humanCount` used MAX_PLAYERS=8 as ceiling. With 1 human that's 7 max. Game/server support 32 via MATCH_MAX_SLOTS. | **FIXED (S68)**: Changed to `maxBots = MATCH_MAX_SLOTS - humanCount`. |
-| B-45 | **Match-end freeze** — game froze on `MPPAUSEMODE_GAMEOVER` with no path back to lobby | HIGH | S73 | `mpEndMatch()` sets `prevmenuroot=-6` which the N64 menu system observed for post-match transition. PC ImGui doesn't observe `prevmenuroot`. | **FIXED (S73)**: `pdguiGameOverRender()` shows "MATCH OVER" screen with rankings + "Return to Lobby" button. Called from `pdgui_backend.cpp` each frame. |
-| B-46 | **Void spawn on MP stages (Felicity 0x2b)** — client spawns at (0,0,0), falls into void | CRITICAL | S73 | Two causes: (1) intro validator in `setup.c` nulled the MP setup file's intro (dist=4 between intro/props is valid for a 1-word intro section; threshold was 64); (2) B-19 pads fallback only triggered on `g_NetMode != NETMODE_NONE` — missed local MP where `normmplayerisrunning=true` but `netmode=NETMODE_NONE`. | **FIXED (S74)**: (1) Skip dist check when `filenum == mpsetupfileid`. (2) Expand B-19 condition to `g_NetMode != NETMODE_NONE \|\| g_Vars.normmplayerisrunning`. Added diagnostic log when B-19 finds 0 valid pads. |
-| B-47 | **Exit freeze on window close** — clicking X / Alt-F4 during a match hung the process | CRITICAL | S74 | `cleanup()` atexit handler calls `netDisconnect()` which: (a) calls `netUpnpTeardown()` → `UPNP_DeletePortMapping()` — synchronous HTTP to router, blocks 10–30 s if unreachable; (b) calls `mainEndStage()` + `mainChangeToStage(STAGE_CITRAINING)` when `wasingame` — loading a stage from an atexit context with no render loop running can deadlock. | **FIXED (S74)**: Added `bool g_AppQuitting` in `system.h/c`, set in `cleanup()` before `netDisconnect()`. `netDisconnect()` skips stage-transition block when quitting. `netUpnpTeardown()` skips `UPNP_DeletePortMapping` when quitting (port mapping expires naturally). |
-| B-18 | **Pink sky on Skedar Ruins** — sky renders pink instead of correct color | MED | S48 | Possible missing texture or clear color issue in sky rendering path | OPEN |
-| B-19 | **Bot spawn stacking on Skedar Ruins** — all bots spawn at same pad | MED | S48 | Mod stages lack `INTROCMD_SPAWN` entries in setup file; fallback picks pad 0. Fix: populate `g_SpawnPoints` from arena pad data | OPEN |
-| B-21 | **Menu double-press / hierarchy issues** — Escape and other inputs register multiple times, menu state confusion | MED | S48 | Likely input not consumed by menu manager fast enough, or menu hierarchy not fully wired through menuPush/Pop | OPEN |
-| B-24 | **Connect code byte-order reversal** — Client decoded "wicked spider sliding under a savanna" as 199.148.8.67 instead of 67.8.148.199. Connected to wrong IP, timed out. | CRITICAL | S49 | `pdgui_menu_mainmenu.cpp` extracted bytes MSB-first `(ip>>24, ip>>16, ip>>8, ip)` while all other decode callers and the encoder use LSB-first `(ip, ip>>8, ip>>16, ip>>24)`. Only the main menu Join path had the wrong extraction order. | **FIXED (S49)**: Changed `pdgui_menu_mainmenu.cpp` to LSB-first extraction matching the encoder. |
-| B-25 | **Server max clients hardcoded to 8** — Server log "max 8 clients", should be 32. | MEDIUM | S49 | `NET_MAX_CLIENTS` was `MAX_PLAYERS` (= 8, match player slots). This conflated network connection capacity with in-match player count. | **FIXED (S49)**: `NET_MAX_CLIENTS` changed to 32 in `net.h`, independent of `MAX_PLAYERS`. `PDGUI_NET_MAX_CLIENTS` also updated to 32 in debug menu. |
-| B-26 | **Player name shows "Player1" instead of profile name** — Client connected with empty name; lobby showed "Player 1". | HIGH | S49 | `netClientReadConfig()` reads name from `g_PlayerConfigsArray[0].base.name` (legacy N64 save field). Only populated by `matchsetup.c` when `g_GameFile.name` is non-empty. Fresh PC client with no save file gets empty name. Identity profile has the correct name but was never consulted. S49 fix was incomplete — identity was fallback-only; "Player 1" is non-empty so identity was never used. | **FULLY FIXED (S53)**: `netClientReadConfig()` now uses identity profile as PRIMARY source (legacy config fallback only). `netmsgClcAuthWrite()` also directly reads `identityGetActiveProfile()->name` so wire packet uses profile name. |
-| B-31 | **SVC_AUTH malformed on client after B-28** — Client logs "malformed SVC_AUTH from server" then "malformed or unknown message 0x02" and fails to reach lobby. | CRITICAL | S53 | `netmsgSvcAuthRead` had guard `\|\| id == 0` that was valid pre-B-28 (server occupied slot 0). After B-28 (S52), dedicated servers assign first client to `g_NetClients[0]`, making `authcl - g_NetClients = 0`. The `id == 0` guard incorrectly rejected this valid assignment. Secondary issue: `netmsgClcAuthRead` (server) sent `netDistribServerSendCatalogInfo` before `SVC_AUTH`, so catalog info arrived while client was still in `CLSTATE_AUTH`. | **FIXED (S53)**: Removed `\|\| id == 0` from `netmsgSvcAuthRead`. Reordered server auth handler to send `SVC_AUTH` first, then catalog info. Applied to both main repo and worktree. |
-| B-10 | **End Game crash** — ACCESS_VIOLATION selecting End Game from pause menu | HIGH | S21 | Likely endscreen/results code. New ImGui pause menu path avoids crash (S26 build test). OG endscreen still shows and is broken but escapable. | LIKELY RESOLVED — needs Custom Post-Game Menu to fully replace |
-| B-11 | **rendering-trace.md stale header** — States "no ImGui game menus" but ImGui menus now exist | LOW | S25 | Documentation drift | NEEDS UPDATE |
-| B-12 | **24-bot cap** — Selected 32 bots, only 24 load | HIGH | S26 | `MAX_BOTS=24` in constants.h. u32 chrslots bitmask: 8 bits players + 24 bits bots = 32 total. | Phase 1 CODED (S26): Dynamic participant pool (`participant.h`/`.c`) runs parallel to chrslots. 6 sync hooks in mplayer.c. Phase 2: migrate callsites. Phase 3: remove chrslots. See [b12-participant-system.md](b12-participant-system.md). **Needs build test.** |
-| B-13 | **GE prop scaling ~10x on mod stages** — Ammo crates oversized on GEX maps (Facility, Temple, etc.) | MED | S26 | **Two-part root cause**: (1) `model.c` rendering used `model->scale` instead of `modelGetEffectiveScale()` — FIXED S26. (2) `g_ModNum` not set during catalog-loaded stage transitions (B-17 smart redirect bypasses `modConfigParseStage()`), so `objInit()` falls through to base PD `g_ModelStates[]` scale (1.0×) instead of GEX `g_GexModelStates[]` (0.1×). | **Part 1 FIXED** (S26): `modelGetEffectiveScale()` in renderer. **Part 2 ROOT CAUSE IDENTIFIED** (S36): `g_ModNum` not set → wrong scale array. **Interim**: Ensure `g_ModNum` is set during catalog stage load. **Long-term**: Model Correction Tool (D3R-7) — visual comparison + binary rewrite to fix model baselines at 1.0 scale. `model_scale` in `.ini` becomes creative modifier only. |
-| B-14 | **START on controller opens/closes pause immediately** — double-fire or input passthrough | MED | S26 | Legacy path (bondmove→ingame.c) opens pause, then ImGui render sees same GamepadStart press via polling and immediately closes it — all in one frame. | FIXED (S26): Frame guard `s_PauseJustOpened` skips close checks on the open frame. Also added pause menu to `pdguiProcessEvent` input consumption. **Verified.** |
-| B-15 | **OG 'Paused' text renders behind ImGui menu** — legacy overlay still drawing | LOW | S26 | Legacy pause rendering not suppressed when ImGui menu active. Will be stripped eventually. | KNOWN |
-| B-16 | **Back on controller does nothing** in ImGui pause menu | MED | S26 | Pause menu render function never handled `ImGuiKey_GamepadFaceRight` (B button). Input also wasn't consumed — `pdguiProcessEvent` excluded pause menu from the consumption check. | FIXED (S26): B button now navigates back (cancels End Game confirm, or closes pause). Added `pauseActive` to event consumption. **Verified.** |
-| B-17 | **Mod stages load wrong maps** — Kakariko selection loads different map, 4 garbage entries at end of stage list | HIGH | S26 | Root cause: `modConfigParseStage()` patches `g_Stages[]` with wrong file IDs. Legacy mods also shadow base game files via modmgr + `--moddir`. | **STRUCTURALLY FIXED (S32)**: Catalog smart bgdata redirect bypasses `g_Stages[]` patching. **FULLY FIXED (S37)**: Disabled legacy mod copy + launch args in `build-gui.ps1`. Base game Felicity confirmed loading correctly. |
+| ID | Severity | Description | File | Status |
+|----|----------|-------------|------|--------|
+| **B-18** | MED | Pink sky on Skedar Ruins — sky renders pink instead of correct color | sky rendering path | OPEN — needs investigation |
+| **B-19** | MED | Bot spawn stacking on Skedar Ruins — all bots spawn at same pad | player.c | PARTIAL FIX (S125 F.1 anti-repeat) — needs Skedar-specific playtest |
+| **B-21** | MED | Menu double-press / hierarchy issues — Esc registers multiple times | menumgr.c | LIKELY FIXED (S124 Phase E full-stack dedup) — needs playtest |
+| **B-60** | LOW | Stray 'g'+'s' visible behind Video/Audio tabs in Settings | pdgui_menu_mainmenu.cpp | OPEN |
+| **B-72** | LOW | SVC_LOBBY_STATE sends raw stagenum u8 — display-only, not a match blocker | netmsg.c:4149 | OPEN — LOW PRIORITY |
+| **B-78** | MED | Chat rebroadcast without rate limiting — DoS amplification vector | netmsg.c | OPEN |
+| **B-79** | MED | Mod distribution chunk ordering ignored — `chunk_idx` discarded; out-of-order delivery silently corrupts archive | netdistrib.c | OPEN |
+| **B-80** | MED | archive_bytes not validated at BEGIN time — stored without cap until END; companion to B-74 | netdistrib.c | OPEN |
+| **B-81** | MED | JSON tokenizer unbounded recursion — pathological save nesting causes stack overflow crash | savefile.c | OPEN |
+| **B-82** | MED | Audio sample rate 22020 Hz — unusual (not 22050 Hz), may cause pitch shift or driver issues | audio.c:66 | OPEN |
+| **B-83** | MED | Incomplete shutdown sequence — quit path doesn't flush saves, ENet, SDL audio; remote peers left dead-connected | main.c | OPEN |
+| **B-84** | LOW | Dead `tmp[1024]` in chat handler — unused stack variable, maintenance hazard | netmsg.c | OPEN |
+| **B-86** | LOW | enet_peer_send return value unchecked — failed sends go undetected | netdistrib.c | OPEN |
+| **B-90** | MED | Mission select shows all missions regardless of unlock status — should only show unlocked | pdgui_menu_solomission.cpp | OPEN |
+| **B-91** | HIGH | Mission detail popup shows "(No objectives)" — objectives not loading from game data | pdgui_menu_solomission.cpp | OPEN |
+| **B-93** | HIGH | Pause menu missing Abort Mission, Restart Mission, objective checklist — only Resume/Options work | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-95** | LOW | Update notification banner persists during active gameplay — should auto-dismiss or hide during missions | pdgui_menu_update.cpp | OPEN |
+| **B-96** | HIGH | Mission select difficulty flow wrong — should be pick mission → pick difficulty → see objectives → Start; currently shows minimal popup | pdgui_menu_solomission.cpp | OPEN |
+| **B-97** | LOW | Special Assignments / Challenges not separated from main mission list | pdgui_menu_solomission.cpp | OPEN |
+| **B-98** | HIGH | Solo mission pause menu falls back to OG rendering for empty sections — ImGui menu not fully implemented | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-99** | MED | Updater downloads zip but extraction may fail — needs retest with v0.0.25 fixed binaries | updater.c | OPEN — needs playtest |
 
 ---
 
-## Fixed Bugs
+## Fixed Bugs — Compact Reference (newest first)
 
-| ID | Bug | Root Cause | Fix | Session |
-|----|-----|-----------|-----|---------|
-| B-50 | **Dedicated server match-end freeze** — client froze waiting for SVC_STAGE_END that never arrived when timelimit expired on dedicated server. | Dedicated server never runs `lv.c`, so the engine timelimit timer that sends SVC_STAGE_END never fires. `hubTick()` had no wall-clock timer. | Added SDL_GetTicks() wall-clock timer to `hubTick()` in `port/src/hub.c`. Records `s_MatchStartMs` on match start. Each tick fires `netServerStageEnd()` when elapsed ≥ `(tl+1)*60*1000 ms`. `s_MatchEndSent` flag prevents double-fire. | S81 |
-| B-49 | **Felicity/toilet freeze after long fall** — game hung (no crash-to-desktop) after landing on certain surfaces; last log: `JUMP_MOVE: tryMove=-3.30 result=1` (NOCOLLISION). | Two-part fix: (1) `bondmove.c` prop surface NOCOLLISION path returned wrong state — fixed to return GROUND when manground is within landing tolerance at 60fps (S79/S80). (2) `footstepChooseSound()` entered an infinite loop when `g_RngSeed=0` (all bits masked), plus `psCreate` called with sound=-1. | (1) NOCOLLISION path returns GROUND on prop surfaces at landing tolerance. (2) Loop guard (max 32 iterations) in `footstepChooseSound`; return -1 on no-sound; `if (sound > 0)` guard before `psCreate`. **VERIFIED FIXED** by Mike's playtest — Felicity vent drop + toilet geometry both confirmed working. | S79/S81 |
-| B-38 | **Possible setupCreateProps crash after B-37 fix** | FALSE ALARM — all four hypotheses (H1 numchrs divergence, H2 model slot count, H3 roomcount=0, H4 currentplayer NULL) verified safe by code analysis. bodiesReset clears modeldefs but body0f02ce8c lazy-loads them; MP setup files have no OBJTYPE_CHR so bodyAllocateChr is never called; botmgrAllocateBot uses explicit bodynum/headnum. Empirical: S68–S79 ran networked Combat Sim without hitting this crash. | No code change needed. | S80 |
-| B-22 | **Version boxes not baking into exe** — dev window version fields ignored; exe always showed 0.0.7 regardless of setting | `Get-BuildSteps` in dev-window.ps1 built cmake configure args without any `-DVERSION_SEM_*` flags. CMake used its cached value (7) or the hardcoded `set(...CACHE...)` default on clean builds. | Added `Get-UiVersion` call inside `Get-BuildSteps`; appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to both client and server configure steps. Works for Build and Release paths (both call `Get-BuildSteps`). | S49 |
-| B-23 | **Quit Game button clipped on right edge** — button border cut off; "Confirm Quit" text also overflowed fixed 100px width | Fixed `quitBtnW = 100*scale` placed button's right edge flush against the content clip boundary (cursor `dialogW - WindowPadding.x - 100*scale` + width = `dialogW - WindowPadding.x` = clip edge). No right margin. Also "Confirm Quit" wider than "Quit Game" but same fixed width used. | Width now `CalcTextSize("Confirm Quit").x + FramePadding*2` (sized to widest label). Position now `dialogW - WindowPadding.x - quitBtnW - margin` where `margin = 4*scale`, keeping right edge inside clip rect. Cancel button cursor updated to use new local coords. | S49 |
-| B-01 | **Camera transition crash** (24-bot combat) | S18 POS_DESYNC diagnostic in `chrUpdateGeometry` called for all nearby props, including bots with unallocated model matrices | Removed diagnostic, hardened `chrTestHit` with `model->matrices` check | S20–21 |
-| B-02 | **Shots pass through bots** | `modeldef->scale > 100` clamp in body.c/modelcatalog.c destroyed valid mod model scales (~1162 → 1.0) | Removed clamp, now only rejects ≤ 0 | S20–21 |
-| B-03 | **Player instant death** (1-hit kills) | `g_PlayerConfigsArray[0].handicap = 0` (BSS zero-init). `mpHandicapToDamageScale(0) = 0.1` → `damage /= 0.1` = 10× multiplier | Force `handicap = 0x80` for any player with `handicap == 0` at match start | S21 |
-| B-04 | **Paradox crash** (0-bot and 24-bot) | `cheatIsUnlocked()` accessed `besttimes[85]` — OOB into 21-element array | Bounds check `stage_index >= NUM_SOLOSTAGES` in cheats.c | S22 |
-| B-05 | **Paradox match hang** | `g_StageSetup.intro` pointer aliases into props data for mod stages. Intro cmd loop reads garbage, never terminates. | Intro validation at load time (proximity + cmd type range check), NULL if invalid | S23 |
-| B-06 | **Uninitialized rooms[] after intro NULL** | When intro is NULL, spawn loop skipped → `rooms[8]` contains stack garbage → `cdFindGroundInfoAtCyl` reads garbage room numbers | Initialize `rooms[8]` with -1 sentinels, pad-0 fallback spawn | S23 |
-| B-07 | **Divide-by-zero in spawn selection** | `playerChooseSpawnLocation` does `rngRandom() % numpads` when `numpads == 0` | Early-return guard, pad 0 fallback | S23 |
-| B-08 | **Mod manager can't find mods directory** | `modmgrScanDirectory()` resolved to `./data/mods` instead of `./mods/` | Try CWD, exe dir, then base dir fallback | S23 |
-| B-09 | **CI overlay corruption** with mods | `g_NotLoadMod` was BSS zero-init (false). Boot CI load and post-MP CI return both got mod-overlaid props | Init `g_NotLoadMod = true`, re-set in `lvReset()` for non-gameplay stages | S24 |
-| B-09b | **Bundled mod ID mismatch** | `"darknoon"` and `"goldfinger64"` didn't match directory-derived IDs `"dark_noon"` and `"goldfinger_64"` | Fixed string literals in modmgr.c | S24 |
-| B-20 | **Mission 1 objective crash** — ACCESS_VIOLATION on mission objective completion | NULL guard added in modelmgrInstantiateModel | Objective completion spawns a chr whose body filenum fails to load → NULL modeldef → crash in `modelmgrInstantiateModel`. NULL guard added. | S48 |
-
----
-
-## How to Use
-
-- When you find a bug, add it to **Open Bugs** with an ID (B-XX, sequential).
-- When diagnosed, fill in Root Cause. When fixed, move to **Fixed Bugs** with the session number.
-- If a bug reveals a *class* of problems (it'll happen again in similar code), also log it in [systemic-bugs.md](systemic-bugs.md).
+| ID | Description | Fixed |
+|----|-------------|-------|
+| B-109 | Stale `s_SelectedBotSlot` reference in room screen reset — crash hazard on room screen revisit | S144 — pdgui_menu_room.cpp |
+| B-108 | Authority client chr desync detection active on dedicated server — triggered continuous resync storm with many bots | S142 — net.c (skip desync detection when not authority) |
+| B-107 | Dedicated server broadcast blocked — `g_NetLocalClient` guard prevented relay to all clients; no state updates reached players | S142 — net relay path (3645e28) |
+| B-106 | Bot rooms=-1 freeze — `botmgrAllocateBot` set rooms[0]=-1; prop ticked once then never again; bots invisible and frozen after frame 0 | S142 — botmgr.c/bot.c (PROPFLAG_NOTYETTICKED gate, 41431a3) |
+| B-105 | CLC_LOBBY_START buffer overflow — used 1440-byte struct field for match config; overflowed at ~23 bots (of 31), declaring numSims=31 but only ~23 valid entries; caused bot count mismatch and corrupt chrslots | S142 — pdgui_bridge.c (256KB static buffer, 2de61ab) |
+| B-104 | Solo/MP endscreen buttons unclickable — direct SDL_SetRelativeMouseMode calls left g_InputMode=GAMEPLAY, allowing re-lock and blocking ImGui keyboard events | S144 — pdgui_menu_endscreen.cpp (pdmainSetInputMode(INPUTMODE_MENU)) |
+| B-103 | Online match doesn't start when countdown hits zero — g_MpSetup.stage_id never set; stage missing from manifest/session catalog; SVC_STAGE_START writes stage_session=0; client silently bails ("malformed or unknown message 0x10") | S137 — port/src/net/netmsg.c (184922a) |
+| B-102 | Catalog tab (Settings → Catalog) crashes on open — NULL `s_AssetTypeNames[ASSET_LANG]`; 68 base lang banks registered but array had only 24 entries (ASSET_LANG = index 24, uninitialized = NULL) | S133 — port/fast3d/pdgui_menu_mainmenu.cpp (7fb1831) |
+| B-101 | Updater Download/Rollback button clickable when no binary asset (assetSize=0 or empty assetUrl) — clicking starts a download that will fail | S132 — port/fast3d/pdgui_menu_update.cpp |
+| B-94 | Dear ImGui duplicate ID on pause menu hover — Resume/Options buttons missing ##id suffixes | S132 (accdfb4) — pdgui_menu_pausemenu.cpp |
+| B-92 | Mouse not captured on solo mission start — cursor visible during gameplay | S132 (accdfb4) — pdmain.c / input.c |
+| B-100 | Combat Sim crash on match start — modmgr body/head cache indexed by g_HeadsAndBodies runtime_index instead of mpbodynum/mpheadnum; s_CatalogBodies[0]/s_CatalogHeads[0] always zero, mpGetBodyId(0)=0/mpGetHeadId(0)=0, catalogResolveByRuntimeIndex(HEAD,0) fails | S132 — port/src/modmgr.c |
+| B-77 | fread unchecked in savefile load — silent save corruption | S131 sweep3 |
+| B-85 | buildArchiveDir stale pointer on realloc failure | S131 sweep3 |
+| B-87 | strcpy in input.c VK names — no size guard | S131 sweep3 |
+| B-88 | strcpy in mpsetups.c — three strcpy calls | S131 sweep3 |
+| B-89 | strcpy in fs.c homeDir — copy without explicit bounds | S131 sweep3 |
+| B-75 | SVC_PLAYER_MOVE OOB array access from network id | S131 sweep2 |
+| B-73 | ChrResync null-prop buffer desync — CRITICAL | S130 |
+| B-74 | Unbounded malloc from network archive_bytes — CRITICAL | S130 |
+| B-76 | sprintf buffer overflow in objective HUD | S130 |
+| B-63 | catalogResolveByRuntimeIndex type=16 failure — all bots invisible | S121 Phase B |
+| B-64 | MP crash on bot model access (dependent on B-63) | S121 Phase B |
+| B-65 | Server catalog gap — SVC_STARTGAME sent raw hex stagenum | S123 Phase D |
+| B-66 | Mouse capture not activating on match start | S125 Phase F |
+| B-67 | Post-mission menu buttons non-interactive | S124 Phase E |
+| B-68 | Menu green tint bleeds to main menu | S124 Phase E |
+| B-69 | Esc key spawning duplicate menus | S124 Phase E |
+| B-70 | Bot spawn weapons missing | S125 Phase F |
+| B-71 | Spawn point not randomizing in MP | S125 Phase F |
+| B-62 | manifestEnsureLoaded dedup always misses — 31+ log entries per spawn | S116 |
+| B-61 | Difficulty select screen missing text — langSafe() fixes | S116 |
+| B-59 | Obj 1 crash — SP manifest overflow (MANIFEST_MAX_ENTRIES 128→1024) | S101 |
+| B-58 | catalogResolveByRuntimeIndex assert type=16 on scenario save | S109 |
+| B-57 | Scenario save: weaponset index only, not individual weapon picks | S109 |
+| B-56 | ImGui duplicate ID in arena dropdown | S109 |
+| B-55 | White textures + crash from shared head file loadedsize reset | S84 |
+| B-54 | Online MP crash on Felicity intro camera / white textures | S83 |
+| B-53 | Can't open doors in networked match | S90 |
+| B-52 | Can't pick up weapons/ammo in networked match | S90 |
+| B-51 | Bot stuck/invisible under map in networked match | S90 |
+| B-50 | Dedicated server match-end freeze (timelimit expiry) | S81 |
+| B-49 | Felicity/toilet freeze after long fall | S79/S81 |
+| B-47 | Exit freeze on window close (UPnP blocking) | S74 |
+| B-46 | Void spawn on MP stages (Felicity 0x2b) | S74 |
+| B-45 | Match-end freeze (MPPAUSEMODE_GAMEOVER no return path) | S73 |
+| B-42 | Add Bot button limited to 7 bots | S68 |
+| B-41 | Spawn weapon not auto-equipping | S68 |
+| B-40 | Time limit alarm fires immediately at match start | S68 |
+| B-39 | Jump crash in capsule ceiling path (players[-1] OOB) | S68 |
+| B-38 | Possible setupCreateProps crash — FALSE ALARM, all hypotheses verified safe | S80 |
+| B-37 | Client crash in bodiesReset() during Combat Sim stage load | S67 |
+| B-36 | Client crash after skyReset — ambient music NULL deref | S63 |
+| B-35 | server_main.c SDL window title shows raw IP | S56 |
+| B-34 | server_main.c shows "0/N connected" with 1 player | S56 |
+| B-33 | CLC_SETTINGS overwrites identity name on server | S56 |
+| B-32 | Client lobby empty + no leader | S56 |
+| B-31 | SVC_AUTH malformed on client after B-28 | S53 |
+| B-30 | Raw IPs in server log output | S52 |
+| B-29 | Raw IP visible in server GUI status bar | S52 |
+| B-28 | Server occupies player slot 0 on dedicated | S52 |
+| B-27 | Dedicated server crash on first client connect (9 bugs) | S50 |
+| B-26 | Player name shows "Player1" instead of profile name | S53 |
+| B-25 | Server max clients hardcoded to 8 | S49 |
+| B-24 | Connect code byte-order reversal | S49 |
+| B-23 | Quit Game button clipped on right edge | S49 |
+| B-22 | Version boxes not baking into exe | S49 |
+| B-17 | Mod stages load wrong maps | S32/S37 |
+| B-16 | Back on controller does nothing in pause menu | S26 |
+| B-14 | START on controller opens/closes pause immediately | S26 |
+| B-13 | GE prop scaling ~10x on mod stages (Part 1) | S26 |
+| B-12 | 24-bot cap — Phase 1 coded (dynamic participant system) | S26 |
+| B-10 | End Game crash | S21/S26 |
+| B-09 | CI overlay corruption with mods | S24 |
+| B-08 | Mod manager can't find mods directory | S23 |
+| B-07 | Divide-by-zero in spawn selection | S23 |
+| B-06 | Uninitialized rooms[] after intro NULL | S23 |
+| B-05 | Paradox match hang | S23 |
+| B-04 | Paradox crash (besttimes OOB) | S22 |
+| B-03 | Player instant death (handicap zero-init) | S21 |
+| B-02 | Shots pass through bots (model scale clamp) | S20 |
+| B-01 | Camera transition crash | S20 |

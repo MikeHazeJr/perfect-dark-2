@@ -14,6 +14,7 @@
 #include <PR/gbi.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Include types.h for struct definitions. Do NOT include bss.h — it only
  * has extern declarations that we need to DEFINE here. */
@@ -23,6 +24,7 @@
 #include "system.h"
 #include "lib/main.h"
 #include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
+#include "net/netlobby.h"   /* g_Lobby for server lobby state */
 
 /* ========================================================================
  * Globals — definitions for everything bss.h declares as extern.
@@ -104,7 +106,57 @@ struct fileguid g_GameFileGuid;
 /* MP bodies/heads/arenas */
 struct mpbody g_MpBodies[63];
 struct mphead g_MpHeads[76];
-struct mparena g_MpArenas[1];                  /* data.h:461 — array, provide 1 entry */
+/* Full arena table — stagenum values must match setup.c g_MpArenas[].
+ * requirefeature and name are unused server-side; only stagenum matters
+ * for catalog registration and match dispatch. */
+struct mparena g_MpArenas[] = {
+    /* Dark (0-12) */
+    { STAGE_MP_SKEDAR,      0, 0 }, { STAGE_MP_PIPES,       0, 0 },
+    { STAGE_MP_RAVINE,      0, 0 }, { STAGE_MP_G5BUILDING,  0, 0 },
+    { STAGE_MP_SEWERS,      0, 0 }, { STAGE_MP_WAREHOUSE,   0, 0 },
+    { STAGE_MP_GRID,        0, 0 }, { STAGE_MP_RUINS,       0, 0 },
+    { STAGE_MP_AREA52,      0, 0 }, { STAGE_MP_BASE,        0, 0 },
+    { STAGE_MP_FORTRESS,    0, 0 }, { STAGE_MP_VILLA,       0, 0 },
+    { STAGE_MP_CARPARK,     0, 0 },
+    /* Solo Missions (13-26) */
+    { STAGE_DEFECTION,      0, 0 }, { STAGE_INVESTIGATION,  0, 0 },
+    { STAGE_VILLA,          0, 0 }, { STAGE_CHICAGO,        0, 0 },
+    { STAGE_G5BUILDING,     0, 0 }, { STAGE_INFILTRATION,   0, 0 },
+    { STAGE_AIRBASE,        0, 0 }, { STAGE_AIRFORCEONE,    0, 0 },
+    { STAGE_CRASHSITE,      0, 0 }, { STAGE_PELAGIC,        0, 0 },
+    { STAGE_DEEPSEA,        0, 0 }, { STAGE_DEFENSE,        0, 0 },
+    { STAGE_ATTACKSHIP,     0, 0 }, { STAGE_SKEDARRUINS,    0, 0 },
+    /* Classic (27-31) */
+    { STAGE_MP_TEMPLE,      0, 0 }, { STAGE_MP_COMPLEX,     0, 0 },
+    { STAGE_TEST_MP6,       0, 0 }, { STAGE_TEST_MP2,       0, 0 },
+    { STAGE_MP_FELICITY,    0, 0 },
+    /* GoldenEye X (32-54, omitted from arena-list but stagenum still needed) */
+    { STAGE_EXTRA6,         0, 0 }, { STAGE_EXTRA2,         0, 0 },
+    { STAGE_EXTRA8,         0, 0 }, { STAGE_EXTRA9,         0, 0 },
+    { STAGE_EXTRA13,        0, 0 }, { STAGE_EXTRA15,        0, 0 },
+    { STAGE_EXTRA10,        0, 0 }, { STAGE_EXTRA11,        0, 0 },
+    { STAGE_EXTRA4,         0, 0 }, { STAGE_EXTRA12,        0, 0 },
+    { STAGE_EXTRA14,        0, 0 }, { STAGE_TEST_MP17,      0, 0 },
+    { STAGE_EXTRA1,         0, 0 }, { STAGE_TEST_SILO,      0, 0 },
+    { STAGE_TEST_MP16,      0, 0 }, { STAGE_TEST_MP14,      0, 0 },
+    { STAGE_EXTRA3,         0, 0 }, { STAGE_TEST_MP18,      0, 0 },
+    { STAGE_EXTRA5,         0, 0 }, { STAGE_TEST_MP20,      0, 0 },
+    { STAGE_TEST_MP19,      0, 0 }, { STAGE_EXTRA7,         0, 0 },
+    { STAGE_TEST_MP8,       0, 0 },
+    /* Bonus (55-70) */
+    { STAGE_24,             0, 0 }, { STAGE_TEST_MP7,       0, 0 },
+    { STAGE_TEST_ARCH,      0, 0 }, { STAGE_TEST_DEST,      0, 0 },
+    { STAGE_EXTRA16,        0, 0 }, { STAGE_EXTRA17,        0, 0 },
+    { STAGE_EXTRA18,        0, 0 }, { STAGE_EXTRA19,        0, 0 },
+    { STAGE_EXTRA20,        0, 0 }, { STAGE_EXTRA21,        0, 0 },
+    { STAGE_EXTRA22,        0, 0 }, { STAGE_EXTRA23,        0, 0 },
+    { STAGE_EXTRA24,        0, 0 }, { STAGE_EXTRA25,        0, 0 },
+    { STAGE_EXTRA26,        0, 0 }, { STAGE_TEST_LAM,       0, 0 },
+    /* Random (71-72) */
+    { STAGE_MP_RANDOM_MULTI,0, 0 }, { STAGE_MP_RANDOM_SOLO, 0, 0 },
+    /* 73-74: Random GEX + junk entry — omitted from arena-list, keep for index fidelity */
+    { STAGE_MP_RANDOM_GEX,  0, 0 }, { 1,                    0, 0 },
+};
 
 /* Solo stages */
 struct solostage g_SoloStages[21];
@@ -130,7 +182,15 @@ void chrSetPos(struct chrdata *chr, struct coord *pos, s16 *rooms, f32 angle, s3
     (void)chr; (void)pos; (void)rooms; (void)angle; (void)onground;
 }
 s32 chrIsDead(struct chrdata *chr) { (void)chr; return 0; }
-f32 chrGetInverseTheta(struct chrdata *chr) { (void)chr; return 0.0f; }
+f32 chrGetInverseTheta(struct chrdata *chr) {
+	/* On the dedicated server, CLC_BOT_MOVE stores the authority client's
+	 * angle into aibot->roty.  Return it here so SVC_CHR_MOVE relays the
+	 * real facing direction instead of always 0. */
+	if (chr && chr->aibot) {
+		return chr->aibot->roty;
+	}
+	return 0.0f;
+}
 void chrSetLookAngle(struct chrdata *chr, f32 angle) { (void)chr; (void)angle; }
 void chrDamage(struct prop *prop, f32 damage, struct coord *pos, s32 hitpart,
                s32 attackernum, s32 weaponnum, s32 arg6) {
@@ -151,7 +211,78 @@ struct defaultobj *weaponCreate(struct prop *prop, struct model *model, s32 weap
 void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
 
 /* --- Match / Stage --- */
-void mpStartMatch(void) { sysLogPrintf(LOG_NOTE, "STUB: mpStartMatch"); }
+/*
+ * mpStartMatch — dedicated server stub.
+ *
+ * The real implementation (mplayer.c) loads textures, calls mainChangeToStage(),
+ * etc. — none of which are available on the server binary.  Instead, allocate
+ * minimal chrdata/prop/aibot structs on the heap for each simulant so that:
+ *
+ *   1. g_BotCount > 0 → the SVC_CHR_MOVE broadcast loop in netEndFrame fires.
+ *   2. Each stub has chr->prop and chr->aibot set → netmsgSvcChrMoveWrite passes
+ *      its guard and writes a valid (if zeroed) position.
+ *   3. When the authority client sends CLC_BOT_MOVE, netmsgClcBotMoveRead fills
+ *      in prop->syncid and prop->pos so the relay carries real positions.
+ */
+void mpStartMatch(void)
+{
+	/* Count bots from chrslots (bits BOT_SLOT_OFFSET..BOT_SLOT_OFFSET+MAX_BOTS-1).
+	 * More reliable than g_Lobby.settings.numSimulants which may not be in sync. */
+	s32 numBots = 0;
+	for (s32 b = 0; b < MAX_BOTS; b++) {
+		if (g_MpSetup.chrslots & ((u64)1 << (BOT_SLOT_OFFSET + b))) {
+			numBots++;
+		}
+	}
+
+	/* Free any stubs left over from a previous match */
+	for (s32 i = 0; i < MAX_BOTS; i++) {
+		if (g_MpBotChrPtrs[i]) {
+			free(g_MpBotChrPtrs[i]->prop);
+			free(g_MpBotChrPtrs[i]->aibot);
+			free(g_MpBotChrPtrs[i]);
+			g_MpBotChrPtrs[i] = NULL;
+		}
+	}
+	g_BotCount = 0;
+
+	if (numBots <= 0) {
+		sysLogPrintf(LOG_NOTE, "SERVER: mpStartMatch: 0 simulants requested — no bot stubs allocated");
+		return;
+	}
+
+	if (numBots > MAX_BOTS) {
+		numBots = MAX_BOTS;
+	}
+
+	for (s32 i = 0; i < numBots; i++) {
+		struct chrdata *chr   = calloc(1, sizeof(struct chrdata));
+		struct prop    *prop  = calloc(1, sizeof(struct prop));
+		struct aibot   *aibot = calloc(1, sizeof(struct aibot));
+
+		if (!chr || !prop || !aibot) {
+			sysLogPrintf(LOG_ERROR, "SERVER: mpStartMatch: allocation failed for bot stub %d", i);
+			free(chr); free(prop); free(aibot);
+			break;
+		}
+
+		/* Minimal wiring so netmsgSvcChrMoveWrite passes its guards */
+		chr->prop  = prop;
+		prop->chr  = chr;
+		chr->aibot = aibot;
+
+		aibot->aibotnum = (u8)i;
+
+		/* prop->syncid and prop->pos are zero until the authority client sends
+		 * the first CLC_BOT_MOVE update — the relay will begin carrying real
+		 * data from that point onwards. */
+
+		g_MpBotChrPtrs[i] = chr;
+		g_BotCount = (u8)(i + 1);
+	}
+
+	sysLogPrintf(LOG_NOTE, "SERVER: mpStartMatch: allocated %u bot stubs (requested %d)", (u32)g_BotCount, numBots);
+}
 void mpSetPaused(s32 mode) { (void)mode; }
 void mainChangeToStage(s32 stagenum) {
     sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum);
@@ -191,6 +322,8 @@ void objSetDropped(struct prop *prop, s32 arg) { (void)prop; (void)arg; }
 void doorSetMode(struct prop *prop, s32 mode) { (void)prop; (void)mode; }
 void roomsCopy(s16 *dst, s16 *src) { if (dst && src) memcpy(dst, src, 8 * sizeof(s16)); }
 struct modeldef *setupLoadModeldef(s32 filenum) { (void)filenum; return NULL; }
+struct stagesetup g_StageSetup; /* zero-initialised; props=NULL so manifest scan skips */
+u32 setupGetCmdLength(u32 *cmd) { (void)cmd; return 1; } /* stub — never reached (props==NULL) */
 struct model *modelmgrInstantiateModelWithoutAnim(struct modeldef *def) { (void)def; return NULL; }
 void laptopDeploy(struct prop *prop) { (void)prop; }
 struct prop *psCreate(void *a, void *b, void *c, void *d) {
@@ -246,9 +379,10 @@ s32  romdataFileGetNumForName(const char *name) { (void)name; return -1; } /* se
 char *mpGetBodyName(u8 bodynum) { (void)bodynum; return "Default"; }
 u32 mpGetNumBodies(void) { return 0; }
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum) { (void)bodynum; return 0; }
-/* modmgr stubs — fs.c references these */
+/* modmgr stubs — dedicated server has no mod registry */
 s32 modmgrGetCount(void) { return 0; }
 void *modmgrGetMod(s32 idx) { (void)idx; return NULL; }
+void *modmgrFindMod(const char *id) { (void)id; return NULL; }
 const char *modmgrResolvePath(const char *path) { return path; }
 void modmgrInit(void) {}
 void modmgrCatalogChanged(void) {}
@@ -269,3 +403,12 @@ void mpParticipantsFromLegacyChrslots(u64 chrslots) { (void)chrslots; }
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}
 void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
+
+/* --- Game data tables (assetcatalog_base needs these; server has no real data) --- */
+struct headorbody g_HeadsAndBodies[152];    /* zero-initialised; no model data on server */
+struct stagetableentry *g_Stages = NULL;    /* no stage table on server */
+s32 g_NumStages = 0;
+
+/* --- assetcatalog_load stubs — server has no game asset filesystem --- */
+s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
+void catalogUnloadAsset(const char *assetId) { (void)assetId; }

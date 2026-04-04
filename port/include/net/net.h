@@ -4,11 +4,16 @@
 #include "types.h"
 #include "constants.h"
 #include "net/netbuf.h"
+#include "assetcatalog.h"
 
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 23  /* protocol 23: query response includes server external address for hole punch */
+#define NET_PROTOCOL_VER 29  /* v29: Room networking (R-3). SVC_ROOM_LIST, SVC_ROOM_ASSIGN,
+                               * CLC_ROOM_CREATE, CLC_ROOM_JOIN, CLC_ROOM_LEAVE.
+                               * Clients see room list, create/join rooms, match start is room-scoped.
+                               * v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
+                               * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
@@ -16,7 +21,8 @@ typedef struct _ENetAddress ENetAddress;
 #define NET_MAX_NAME MAX_PLAYERNAME
 #define NET_MAX_ADDR 256
 
-#define NET_BUFSIZE 1440
+#define NET_BUFSIZE 262144  /* 256KB — must handle 31+ bot broadcasts without overflow */
+#define NET_CLIENT_BUFSIZE 16384  /* 16KB per-client outbound (server→individual client) */
 
 #define NET_DEFAULT_PORT 27100
 
@@ -99,6 +105,7 @@ extern s32 g_NetNumRecentServers;
 #define CLSTATE_AUTH 2
 #define CLSTATE_LOBBY 3
 #define CLSTATE_GAME 4
+#define CLSTATE_PREPARING 5  /* received SVC_MATCH_MANIFEST; checking local catalog */
 
 #define UCMD_FIRE (1 << 0)
 #define UCMD_ACTIVATE (1 << 1)
@@ -142,8 +149,8 @@ struct netclient {
 	struct {
 		char name[NET_MAX_NAME];
 		u16 options;
-		u8 headnum;
-		u8 bodynum;
+		char body_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:dark_combat" */
+		char head_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:head_dark_combat" */
 		u8 team;
 		f32 fovy;
 		f32 fovzoommult;
@@ -160,10 +167,12 @@ struct netclient {
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position
 
+	u8 room_id; // hub room assignment (0xFF = in lounge, not in a room)
+
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
 
-	u8 out_data[NET_BUFSIZE]; // buffer for out
+	u8 out_data[NET_CLIENT_BUFSIZE]; // buffer for out
 };
 
 extern s32 g_NetMode;
@@ -194,6 +203,11 @@ extern s32 g_NetNumClients;
 extern struct netclient g_NetClients[NET_MAX_CLIENTS + 1]; // last is an extra temporary client
 extern struct netclient *g_NetLocalClient;
 
+/* Bot authority flag: true on the designated client that runs bot AI and relays positions
+ * to the server via CLC_BOT_MOVE (dedicated server games only). Set on receipt of
+ * SVC_BOT_AUTHORITY; cleared on disconnect and stage end. */
+extern bool g_NetLocalBotAuthority;
+
 extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;
 
@@ -215,6 +229,7 @@ s32 netStartServer(u16 port, s32 maxclients);
 s32 netStartClient(const char *addr);
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
 
 void netChat(struct netclient *dst, const char *text);
 void netChatPrintf(struct netclient *dst, const char *fmt, ...);

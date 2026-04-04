@@ -1,6 +1,6 @@
 # Build artifacts
 build/
-build_test_*/
+ClaudeBuilds/
 dist/
 backups/
 *.exe
@@ -43,6 +43,9 @@ build/game_output.log
 
 # Claude Code worktrees (prevent git add -A from scanning them)
 .claude/worktrees/
+
+# Claude Code local settings (machine-specific, not committed)
+.claude/settings.local.json
 
 # IDE / editor
 /.vs
