@@ -148,6 +148,11 @@ extern s32 g_NetMode;
 #define ES_NETMODE_SERVER 1
 #define ES_NETMODE_CLIENT 2
 
+/* Navigation */
+void netDisconnect(void);
+void pdguiSetInRoom(s32 inRoom);
+void pdguiSoloRoomOpen(void);
+
 /* Dialog definitions for registration */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
@@ -196,6 +201,11 @@ static const ImVec4 s_TeamColors[] = {
 /* Medal names in order of bit position */
 static const char *s_MedalNames[] = {
     "Kill Master", "Headshot Expert", "Most Accurate", "Last Man Standing"
+};
+
+/* Team display names indexed by team number */
+static const char *s_TeamNames[] = {
+    "Red", "Blue", "Green", "Yellow", "Orange", "Purple", "Grey", "White"
 };
 
 /* ========================================================================
@@ -307,6 +317,21 @@ static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
         rows[i].kills = kills;
     }
     return count;
+}
+
+/* Sort rankings by team (ascending) then score (descending within team) */
+static void sortRankingsByTeam(ESRankRow *rows, s32 count)
+{
+    for (s32 i = 1; i < count; i++) {
+        ESRankRow tmp = rows[i];
+        s32 j = i - 1;
+        while (j >= 0 && (rows[j].team > tmp.team ||
+               (rows[j].team == tmp.team && rows[j].score < tmp.score))) {
+            rows[j + 1] = rows[j];
+            j--;
+        }
+        rows[j + 1] = tmp;
+    }
 }
 
 /* ========================================================================
@@ -757,6 +782,10 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ESRankRow rows[ES_MAX_MPCHRS];
     s32 count = buildRankings(rows, ES_MAX_MPCHRS, teamsMode);
 
+    if (teamsMode) {
+        sortRankingsByTeam(rows, count);
+    }
+
     /* Header row */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.75f, 1.0f, 1.0f));
     if (teamsMode) {
@@ -769,23 +798,33 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::PopStyleColor();
     ImGui::Separator();
 
+    u8 currentTeam = 0xFF;
+    s32 teamRank = 0;
+
     for (s32 i = 0; i < count; i++) {
+        /* Team group header */
+        if (teamsMode && rows[i].team != currentTeam) {
+            currentTeam = rows[i].team;
+            teamRank = 0;
+            u8 tidx = currentTeam < 8 ? currentTeam : 7u;
+            if (i > 0) ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[tidx]);
+            ImGui::Text("--- Team %s ---", s_TeamNames[tidx]);
+            ImGui::PopStyleColor();
+            ImGui::Separator();
+        }
+
         bool localHighlight = rows[i].isLocalPlayer;
         if (localHighlight)
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.4f, 1.0f));
 
+        teamRank++;
         char rankStr[8];
-        snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
+        snprintf(rankStr, sizeof(rankStr), "%d.", teamsMode ? teamRank : (i + 1));
 
         if (teamsMode) {
-            u8 team = rows[i].team < 8 ? rows[i].team : 7u;
-            ImGui::Text("%-4s %-14s", rankStr, rows[i].name);
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[team]);
-            ImGui::Text("  T%-3d", (s32)team + 1);
-            ImGui::PopStyleColor();
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::Text("%6d %6d %7d",
+            ImGui::Text("  %-4s %-14s %7d %7d %7d",
+                        rankStr, rows[i].name,
                         rows[i].score, rows[i].kills, rows[i].deaths);
         } else {
             ImGui::Text("%-4s %-14s %7d %7d %7d",
@@ -834,20 +873,67 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     ImGui::EndChild();
 
-    /* ----- Main Menu button ------------------------------------------- */
+    /* ----- Action buttons ---------------------------------------------- */
     float btnH   = pdguiScale(32.0f);
-    float btnW   = menuW * 0.35f;
-    float btnX   = (menuW - btnW) * 0.5f;
+    float btnGap = pdguiScale(12.0f);
     float btnY   = menuH - btnH - pdguiScale(12.0f);
+    bool networked = (g_NetMode != ES_NETMODE_NONE);
 
-    ImGui::SetCursorPos(ImVec2(btnX, btnY));
-    if (PdEndButton("Main Menu", ImVec2(btnW, btnH))) {
-        pdguiEndscreenExitToMainMenu();
+    if (networked) {
+        /* Two buttons: Return to Room (blue) | Disconnect (red) */
+        float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
+
+        ImGui::SetCursorPos(ImVec2(padX, btnY));
+        if (PdEndButton("Return to Room", ImVec2(halfW, btnH))) {
+            pdguiEndscreenExitToMainMenu();
+            pdguiSetInRoom(1);
+        }
+
+        ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+        if (PdEndButton("Disconnect", ImVec2(halfW, btnH))) {
+            netDisconnect();
+            pdguiEndscreenExitToMainMenu();
+        }
+        ImGui::PopStyleColor(3);
+    } else {
+        /* Solo: Play Again (blue) | Quit (red) */
+        float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
+
+        ImGui::SetCursorPos(ImVec2(padX, btnY));
+        if (PdEndButton("Play Again", ImVec2(halfW, btnH))) {
+            pdguiEndscreenExitToMainMenu();
+            pdguiSoloRoomOpen();
+        }
+
+        ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+        if (PdEndButton("Quit", ImVec2(halfW, btnH))) {
+            pdguiEndscreenExitToMainMenu();
+        }
+        ImGui::PopStyleColor(3);
     }
 
+    /* Keyboard shortcuts */
     if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+        if (networked) {
+            netDisconnect();
+        }
         pdguiEndscreenExitToMainMenu();
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
+        pdguiEndscreenExitToMainMenu();
+        if (networked) {
+            pdguiSetInRoom(1);
+        } else {
+            pdguiSoloRoomOpen();
+        }
     }
 
     ImGui::End();

@@ -30,6 +30,7 @@
 #include "net/matchsetup.h"
 #include "input.h"
 #include "pdmain.h"
+#include <stdlib.h>
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -150,6 +151,81 @@ void matchConfigInit(void)
 }
 
 /* ========================================================================
+ * Bot name + character randomization
+ * ======================================================================== */
+
+static const char *s_BotAdjectives[] = {
+	"Bumbling","Crusty","Dopey","Greasy","Lumpy","Manky","Mushy","Nasal",
+	"Pudgy","Queasy","Rancid","Soggy","Wonky","Gassy","Clammy","Blobby",
+	"Grumpy","Salty","Wheezy","Clunky","Funky","Lanky","Squishy","Burpy",
+	"Drippy","Cranky","Slippery","Stinky","Wobbly","Dizzy","Rusty","Floppy",
+};
+#define NUM_BOT_ADJECTIVES (sizeof(s_BotAdjectives) / sizeof(s_BotAdjectives[0]))
+
+static const char *s_BotNames[] = {
+	"Tud","Rodrick","Frunge","Stanley","Buttersworth","Jenkins","Gorp",
+	"Blimpo","Sneed","Winkle","Gribble","Plonk","Dingle","Spudge",
+	"Crambo","Muggins","Dorkus","Flimble","Noodge","Bumstead",
+	"Cletus","Gormley","Pickles","Barnaby","Squib","Thudwick",
+};
+#define NUM_BOT_NAMES (sizeof(s_BotNames) / sizeof(s_BotNames[0]))
+
+static void generateBotName(char *dst, s32 maxLen)
+{
+	s32 ai = rand() % NUM_BOT_ADJECTIVES;
+	s32 ni = rand() % NUM_BOT_NAMES;
+	snprintf(dst, maxLen, "%s %s", s_BotAdjectives[ai], s_BotNames[ni]);
+}
+
+static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)
+{
+	u32 numBodies = mpGetNumBodies();
+	if (numBodies == 0) {
+		strncpy(body_id, "base:dark_combat", bodyLen - 1);
+		body_id[bodyLen - 1] = '\0';
+		strncpy(head_id, "base:head_dark_combat", headLen - 1);
+		head_id[headLen - 1] = '\0';
+		return;
+	}
+
+	/* Try up to 10 times to avoid duplicate body with existing bots */
+	const char *picked_body = NULL;
+	for (s32 attempt = 0; attempt < 10; attempt++) {
+		u32 idx = rand() % numBodies;
+		picked_body = catalogResolveBodyByMpIndex(idx);
+		if (!picked_body || !picked_body[0]) continue;
+
+		/* Check for duplicates among existing slots */
+		bool dup = false;
+		for (s32 s = 0; s < g_MatchConfig.numSlots; s++) {
+			if (g_MatchConfig.slots[s].type != SLOT_EMPTY &&
+			    strcmp(g_MatchConfig.slots[s].body_id, picked_body) == 0) {
+				dup = true;
+				break;
+			}
+		}
+		if (!dup || attempt == 9) break;
+		picked_body = NULL;
+	}
+
+	if (!picked_body || !picked_body[0]) {
+		picked_body = "base:dark_combat";
+	}
+
+	strncpy(body_id, picked_body, bodyLen - 1);
+	body_id[bodyLen - 1] = '\0';
+
+	/* Pair with default head for this body */
+	const char *paired_head = catalogGetBodyDefaultHead(picked_body);
+	if (paired_head && paired_head[0]) {
+		strncpy(head_id, paired_head, headLen - 1);
+	} else {
+		strncpy(head_id, "base:head_dark_combat", headLen - 1);
+	}
+	head_id[headLen - 1] = '\0';
+}
+
+/* ========================================================================
  * Slot management — called from ImGui bridge
  * ======================================================================== */
 
@@ -167,15 +243,18 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	slot->botDifficulty = botDifficulty;
 	slot->team = 0;
 
-	/* Set catalog IDs as PRIMARY identity. */
-	strncpy(slot->body_id,
-	        (body_id && body_id[0]) ? body_id : "base:dark_combat",
-	        sizeof(slot->body_id) - 1);
-	slot->body_id[sizeof(slot->body_id) - 1] = '\0';
-	strncpy(slot->head_id,
-	        (head_id && head_id[0]) ? head_id : "base:head_dark_combat",
-	        sizeof(slot->head_id) - 1);
-	slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+	/* Set catalog IDs as PRIMARY identity. Random if not specified. */
+	if (body_id && body_id[0]) {
+		strncpy(slot->body_id, body_id, sizeof(slot->body_id) - 1);
+		slot->body_id[sizeof(slot->body_id) - 1] = '\0';
+		strncpy(slot->head_id,
+		        (head_id && head_id[0]) ? head_id : "base:head_dark_combat",
+		        sizeof(slot->head_id) - 1);
+		slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+	} else {
+		pickRandomBodyHead(slot->body_id, sizeof(slot->body_id),
+		                   slot->head_id, sizeof(slot->head_id));
+	}
 
 	/* Derive cached mpbodynum/mpheadnum from catalog for legacy path.
 	 * matchStart() re-derives at the last moment; these are just for display. */
@@ -200,18 +279,7 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 		strncpy(slot->name, name, MAX_PLAYER_NAME - 1);
 		slot->name[MAX_PLAYER_NAME - 1] = '\0';
 	} else {
-		/* Generate default name from bot type */
-		static const char *botTypeNames[] = {
-			"NormalSim", "PeaceSim", "ShieldSim", "RocketSim",
-			"KazeSim", "FistSim", "PreySim", "CowardSim",
-			"JudgeSim", "FeudSim", "SpeedSim", "TurtleSim", "VengeSim"
-		};
-		if (botType < ARRAYCOUNT(botTypeNames)) {
-			strncpy(slot->name, botTypeNames[botType], MAX_PLAYER_NAME - 1);
-		} else {
-			snprintf(slot->name, MAX_PLAYER_NAME, "Bot %d", idx);
-		}
-		slot->name[MAX_PLAYER_NAME - 1] = '\0';
+		generateBotName(slot->name, MAX_PLAYER_NAME);
 	}
 
 	g_MatchConfig.numSlots++;
