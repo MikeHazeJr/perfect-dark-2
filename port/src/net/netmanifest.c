@@ -432,15 +432,11 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
 
     /* ---- Stage ---- */
     {
-        const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
-        const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
-        if (e) {
-            manifestAddEntry(out, e->id,
+        if (g_MpSetup.stage_id[0]) {
+            manifestAddEntry(out, g_MpSetup.stage_id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
-            /* Stage not in catalog — skip rather than emit a dead synthetic ID */
-            sysLogPrintf(LOG_WARNING, "manifest: stage 0x%02x not in catalog, skipping",
-                         (unsigned)g_MpSetup.stagenum);
+            sysLogPrintf(LOG_WARNING, "manifest: no stage_id set, skipping stage entry");
         }
     }
 
@@ -605,15 +601,12 @@ void manifestBuildForHost(match_manifest_t *out)
 
     /* ---- Stage ---- */
     {
-        const char *canon_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
-        const asset_entry_t *e = canon_id ? assetCatalogResolve(canon_id) : NULL;
-        if (e) {
-            manifestAddEntry(out, e->id,
+        if (g_MpSetup.stage_id[0]) {
+            manifestAddEntry(out, g_MpSetup.stage_id,
                              MANIFEST_TYPE_STAGE, MANIFEST_SLOT_MATCH);
         } else {
             sysLogPrintf(LOG_WARNING,
-                         "MANIFEST-HOST: stage 0x%02x not in catalog, skipping",
-                         (unsigned)g_MpSetup.stagenum);
+                         "MANIFEST-HOST: no stage_id set, skipping stage entry");
         }
     }
 

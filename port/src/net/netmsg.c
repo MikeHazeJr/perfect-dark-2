@@ -693,31 +693,22 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	netbufWriteU64(dst, g_RngSeed);
 	netbufWriteU64(dst, g_Rng2Seed);
 
-	/* mainChangeToStage() is async: it sets g_MainChangeToStageNum but g_StageNum
-	 * isn't updated until the next frame.  When called from netServerStageStart()
-	 * immediately after mainChangeToStage(), g_StageNum is still STAGE_CITRAINING,
-	 * which would cause the client to think the server returned to lobby.
-	 * Use the pending stage when available; fall back to g_StageNum mid-game
-	 * (g_MainChangeToStageNum is reset to -1 once the stage actually loads). */
-	extern s32 g_MainChangeToStageNum;
-	const u8 effectiveStage = (g_MainChangeToStageNum >= 0)
-	                          ? (u8)g_MainChangeToStageNum
-	                          : g_StageNum;
-
-	/* SA-3: stage as session ID. session_id=0 signals "return to lobby" on the client. */
-	if (effectiveStage == STAGE_TITLE || effectiveStage == STAGE_CITRAINING) {
+	/* SA-3: stage as session ID. session_id=0 signals "return to lobby" on the client.
+	 * Use g_MpSetup.stage_id (the primary catalog ID) directly — no reverse-resolve
+	 * from stagenum needed.  The dedicated server has no ASSET_MAP entries so
+	 * stagenum-based lookups fail there; catalog IDs work everywhere. */
+	if (g_MpSetup.stage_id[0] == '\0') {
 		catalogWriteAssetRef(dst, 0);
 		return dst->error;
 	}
 	{
-		const char *stage_canon = catalogResolveStageByStagenum((s32)effectiveStage);
-		if (!stage_canon) {
-			/* Stage not in catalog — write 0 (lobby) rather than a dead synthetic ID */
-			sysLogPrintf(LOG_WARNING, "SVC_STARTGAME: stage 0x%02x not in catalog",
-			             (unsigned)effectiveStage);
+		u16 sid = sessionCatalogGetId(g_MpSetup.stage_id);
+		if (!sid) {
+			sysLogPrintf(LOG_WARNING, "SVC_STARTGAME: stage '%s' not in session catalog",
+			             g_MpSetup.stage_id);
 			catalogWriteAssetRef(dst, 0);
 		} else {
-			catalogWriteAssetRef(dst, sessionCatalogGetId(stage_canon));
+			catalogWriteAssetRef(dst, sid);
 		}
 	}
 
@@ -814,7 +805,8 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 {
-	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME) {
+	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME
+	    && srccl->state != CLSTATE_PREPARING) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE from server but we're in state %u", srccl->state);
 		return 1;
 	}
@@ -4221,12 +4213,12 @@ u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl)
  * Status: 0=waiting, 1=starting, 2=in-game
  * ======================================================================== */
 
-u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status)
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, const char *stage_id, u8 status)
 {
 	netbufWriteU8(dst, SVC_LOBBY_STATE);
 	netbufWriteU8(dst, gamemode);
 	/* v27: encode arena as catalog ID string — no net_hash on wire. */
-	netbufWriteStr(dst, catalogResolveArenaByStagenum((s32)stagenum));
+	netbufWriteStr(dst, stage_id ? stage_id : "");
 	netbufWriteU8(dst, status);
 	return dst->error;
 }

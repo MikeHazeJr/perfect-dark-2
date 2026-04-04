@@ -459,10 +459,9 @@ s32 matchStartFromChallenge(s32 slot)
 	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
 	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
 	{
-		const char *sid = catalogResolveArenaByStagenum((s32)g_MpSetup.stagenum);
-		if (!sid) sid = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
-		if (sid) {
-			strncpy(g_MatchConfig.stage_id, sid, sizeof(g_MatchConfig.stage_id) - 1);
+		/* Use catalog ID directly — stage_id is the primary key */
+		if (g_MpSetup.stage_id[0]) {
+			strncpy(g_MatchConfig.stage_id, g_MpSetup.stage_id, sizeof(g_MatchConfig.stage_id) - 1);
 			g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
 		} else {
 			g_MatchConfig.stage_id[0] = '\0';

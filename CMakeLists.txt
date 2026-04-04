@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 27 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 28 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 

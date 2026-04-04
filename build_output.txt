@@ -1,0 +1,17 @@
+﻿
+  Perfect Dark PC Port  -  Headless Build
+  Target:  all
+  Version: 0.0.28
+  Clean:   False
+  Verbose: False
+  Cores:   24
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+============================================================
+  Building: Client
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\build\client
+============================================================
+
+------------------------------------------------------------
+  Configure (CMake) [Client]
+------------------------------------------------------------

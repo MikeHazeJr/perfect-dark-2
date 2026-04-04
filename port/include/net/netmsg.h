@@ -158,7 +158,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
 u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 status);
+u32 netmsgSvcLobbyStateWrite(struct netbuf *dst, u8 gamemode, const char *stage_id, u8 status);
 u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl);
 
 /* D3R-9: Network Distribution (protocol v20) */
