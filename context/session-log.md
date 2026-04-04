@@ -3,6 +3,52 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S138 — 2026-04-04
+
+**Focus**: Fix body/head picker auto-head selection (combat sim + agent create)
+
+### What Was Done
+
+**`commit a65207e` pushed to `dev`.**
+
+Root cause: two UI pickers were selecting the wrong default head when a body was chosen.
+
+- `pdgui_menu_matchsetup.cpp` (Combat Sim bot editor, line 748): called
+  `catalogResolveHeadByMpIndex((s32)b)` where `b` is the **body** mpbodynum.
+  This treated the body index as a head index — body 5 would select head 5,
+  not the body's paired head. Wrong for nearly every character.
+
+- `pdgui_menu_agentcreate.cpp` `autoSelectHead()`: called
+  `mpGetMpheadnumByMpbodynum` — an N64-era function that uses `rngRandom()`
+  for headnum==1000 sentinel bodies and bypasses the catalog layer.
+
+**Fix — two new catalog API functions:**
+- `catalogGetBodyDefaultHead(const char *body_id)` → head catalog ID string
+  Reads `entry->ext.body.headnum` (default head's g_HeadsAndBodies[] index)
+  and resolves it via `catalogResolveByRuntimeIndex(ASSET_HEAD, headnum)`.
+- `catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)` → mpheadnum for carousels
+  Wraps the above, converts mpbodynum → body catalog ID → ext.body.headnum →
+  `catalogHeadnumToMpHeadIdx()`. Returns -1 for unregistered heads (including
+  the headnum==1000 random-gender sentinel — caller keeps existing selection).
+
+Both are declared in `assetcatalog.h`, implemented in `assetcatalog_api.c`.
+Wire protocol unchanged — body_id/head_id remain catalog ID strings throughout.
+
+**Changed files (4):**
+- `port/src/assetcatalog_api.c` — two new functions after `catalogHeadnumToMpHeadIdx`
+- `port/include/assetcatalog.h` — declarations for both new functions
+- `port/fast3d/pdgui_menu_matchsetup.cpp` — `catalogGetBodyDefaultHead(bid)` replaces wrong call
+- `port/fast3d/pdgui_menu_agentcreate.cpp` — `catalogGetBodyDefaultMpHeadIdx` in `autoSelectHead`, forward decl added
+
+**Build**: both client and server link clean (full incremental build from main copy).
+
+### Next Steps
+
+- Playtest: verify body selection in Combat Sim and Agent Create picks correct paired head
+- D5.5 (Combat Sim Polish) — this fix is a prerequisite; bot name dictionary + arena/weapon verification still open
+
+---
+
 ## Session S137 — 2026-04-03
 
 **Focus**: Online match start bug (B-103) — critical path fix for multiplayer

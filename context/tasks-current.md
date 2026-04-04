@@ -107,7 +107,7 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
 | **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
 | **D5.4** | End Game Flow — mission complete screen (objectives/stats/nav), MP match end scoreboard | PLANNED |
-| **D5.5** | Combat Sim Polish — bot head/body dependency graph (no mismatched pairs), bot name dictionary (Adj+Noun), arena/weapon set verification | PLANNED |
+| **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); bot name dictionary (Adj+Noun), arena/weapon set verification still open | PARTIAL (S138) |
 | **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
 | **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
 | **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PLANNED |
