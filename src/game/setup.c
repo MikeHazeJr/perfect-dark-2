@@ -6,6 +6,7 @@
 #include "game/objectives.h"
 #include "game/playerreset.h"
 #include "game/botmgr.h"
+#include "game/bot.h"
 #include "game/chr.h"
 #include "game/chrmgr.h"
 #include "game/body.h"
