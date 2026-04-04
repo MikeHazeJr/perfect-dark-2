@@ -29,6 +29,7 @@
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
 #include "input.h"
+#include "pdmain.h"
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -403,6 +404,7 @@ s32 matchStart(void)
 	 * during setup, which deferred the SDL relative-mouse apply inside
 	 * inputLockMouse(). Now that menus are stopped, force the capture. */
 	inputLockMouse(1);
+	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
@@ -478,6 +480,7 @@ s32 matchStartFromChallenge(s32 slot)
 	 * matchStartFromSetup applies.  pdguiIsActive() deferred the SDL
 	 * relative-mouse apply inside inputLockMouse(); force it now. */
 	inputLockMouse(1);
+	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

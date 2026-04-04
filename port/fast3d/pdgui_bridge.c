@@ -28,6 +28,7 @@
 #include "game/menu.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "pdmain.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -550,6 +551,7 @@ const char *pdguiEndscreenGetCheatComplName(void)
 void pdguiEndscreenStartMission(void)
 {
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 }
 
 /**
@@ -560,6 +562,7 @@ void pdguiEndscreenNextMission(void)
 {
     endscreenAdvance();
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 }
 
 /**

@@ -54,6 +54,7 @@
 #include "utils.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
+#include "pdmain.h"
 #endif
 #include <SDL.h>
 
@@ -996,6 +997,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		menuStop();
 #if !defined(PD_SERVER)
 		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
+		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 #endif
 
 		g_NotLoadMod = true;
@@ -1119,6 +1121,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		menuStop();
 #if !defined(PD_SERVER)
 		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
+		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 #endif
 	}
 

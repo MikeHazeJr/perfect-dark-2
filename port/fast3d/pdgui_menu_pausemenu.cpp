@@ -21,6 +21,7 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
+#include "pdmain.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -195,8 +196,7 @@ void pdguiPauseMenuOpen(void)
 
     /* Release mouse grab so the cursor is visible and clickable in the menu.
      * Must happen before s_PauseMenuOpen = true (before pdguiIsActive blocks SDL). */
-    SDL_SetRelativeMouseMode(SDL_FALSE);
-    SDL_ShowCursor(SDL_ENABLE);
+    pdmainSetInputMode(INPUTMODE_MENU);
     {
         SDL_Window *win = SDL_GetMouseFocus();
         if (win) {
@@ -224,17 +224,8 @@ void pdguiPauseMenuClose(void)
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
 
-    /* Restore mouse state to what the game expects.
-     * inputMouseIsLocked() reflects the pre-pause state because the game's
-     * inputAutoLockMouse() is a no-op while pdguiIsActive() is true.
-     * Now that s_PauseMenuOpen is false, pdguiIsActive() returns false here,
-     * so SDL_SetRelativeMouseMode actually takes effect. */
-    if (inputMouseIsLocked()) {
-        SDL_ShowCursor(SDL_DISABLE);
-        SDL_SetRelativeMouseMode(SDL_TRUE);
-    } else {
-        SDL_ShowCursor(SDL_ENABLE);
-    }
+    /* Restore mouse state to what the game expects. */
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 
     menuPop(); /* deregister from menu manager */
 

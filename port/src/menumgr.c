@@ -12,6 +12,7 @@
 #include "menumgr.h"
 #include "input.h"
 #include "system.h"
+#include "pdmain.h"
 #include <string.h>
 #include <SDL.h>
 
@@ -67,18 +68,10 @@ static void logStack(const char *action)
     }
 }
 
-/* E.2: Called when the menu stack empties to restore gameplay mouse capture.
- * Mirrors the same pattern used by pdguiPauseMenuClose(): the game's input
- * system may have set mouseLocked=true during the menu/lobby transition, but
- * inputLockMouse() deferred the SDL apply because pdguiIsActive() was true.
- * Now that we're returning to gameplay, force the SDL state to match. */
+/* E.2: Called when the menu stack empties to restore gameplay input ownership. */
 static void restoreGameplayMouseCapture(void)
 {
-    if (inputMouseIsLocked()) {
-        SDL_ShowCursor(SDL_DISABLE);
-        SDL_SetRelativeMouseMode(SDL_TRUE);
-        sysLogPrintf(LOG_NOTE, "MENU: stack empty, restored mouse capture for gameplay");
-    }
+    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
 }
 
 void menuMgrInit(void)

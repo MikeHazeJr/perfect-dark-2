@@ -29,6 +29,9 @@
 /* D5.0 ROM texture decode layer + theme draw functions */
 #include "pdgui_theme.h"
 
+/* D5.1 input ownership boundary */
+#include "pdmain.h"
+
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
 
@@ -579,6 +582,24 @@ s32 pdguiProcessEvent(void *sdlEvent)
         g_PdguiActive = !g_PdguiActive;
         pdguiUpdateMouseGrab(g_PdguiActive);
         return 1;  /* consumed — PD never sees F12 */
+    }
+
+    /* D5.1: In GAMEPLAY mode with no active overlay, don't forward keyboard
+     * events to ImGui at all — game input owns everything. Mouse still forwarded
+     * so ImGui can track relative state for the HUD. */
+    if (g_InputMode == INPUTMODE_GAMEPLAY && !g_PdguiActive) {
+        if (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP || ev->type == SDL_TEXTINPUT) {
+            return 0;
+        }
+    }
+
+    /* D5.1: In MENU mode, suppress Tab before ImGui sees it.
+     * Tab is bound to CK_START (pause trigger) in input.c — passing it to ImGui
+     * as a nav key and also to the game causes a double-trigger on menu open. */
+    if (g_InputMode == INPUTMODE_MENU &&
+        (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP) &&
+        ev->key.keysym.scancode == SDL_SCANCODE_TAB) {
+        return 1;  /* consumed — Tab is not a nav key in PD menus */
     }
 
     /* Always forward events to ImGui so it can track mouse/keyboard state.
