@@ -74,6 +74,7 @@ u32 mpGetNumBodies(void);
 s32 mpGetBodyId(u8 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
 s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum);
+s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
 
 /* Feature checking — unlock system */
 s32 mpGetHeadRequiredFeature(u8 headnum);
@@ -153,7 +154,7 @@ static const char *getBodyDisplayName(s32 bodyIdx)
 static void autoSelectHead(void)
 {
     if (!s_HeadOverridden && s_SelectedBody >= 0 && s_SelectedBody < s_NumBodies) {
-        s32 headIdx = mpGetMpheadnumByMpbodynum(s_SelectedBody);
+        s32 headIdx = catalogGetBodyDefaultMpHeadIdx(s_SelectedBody);
         if (headIdx >= 0 && headIdx < s_NumHeads) {
             s_SelectedHead = headIdx;
         }

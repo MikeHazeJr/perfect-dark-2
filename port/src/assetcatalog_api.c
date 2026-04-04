@@ -406,6 +406,38 @@ s32 catalogHeadnumToMpHeadIdx(s32 headnum)
     return -1;
 }
 
+/* Body → default head catalog ID.  Reads ext.body.headnum from the body catalog
+ * entry and resolves it to a HEAD catalog ID string.  Used by UI character pickers
+ * (matchsetup bot editor, agentcreate carousel) so they never guess the head from
+ * the body index.  Returns NULL if body_id is unknown, wrong type, or headnum < 0. */
+const char *catalogGetBodyDefaultHead(const char *body_id)
+{
+    const asset_entry_t *e;
+    if (!body_id || !body_id[0]) return NULL;
+    e = assetCatalogResolve(body_id);
+    if (!e || e->type != ASSET_BODY) return NULL;
+    if (e->ext.body.headnum < 0) return NULL;
+    return catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)e->ext.body.headnum);
+}
+
+/* Body → default head mpheadnum.  Convenience wrapper for UI carousels that track
+ * position in g_MpHeads[] rather than catalog ID strings.
+ * Returns -1 if any step fails (unknown body, no head registered, headnum not in
+ * g_MpHeads[] — this includes the sentinel value 1000 used for random-gender heads
+ * since those have no single deterministic catalog entry). */
+s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)
+{
+    const char *bid;
+    const asset_entry_t *e;
+    if (mpbodynum < 0) return -1;
+    bid = catalogResolveBodyByMpIndex(mpbodynum);
+    if (!bid) return -1;
+    e = assetCatalogResolve(bid);
+    if (!e || e->type != ASSET_BODY) return -1;
+    if (e->ext.body.headnum < 0) return -1;
+    return catalogHeadnumToMpHeadIdx((s32)e->ext.body.headnum);
+}
+
 /* -------------------------------------------------------------------------
  * Wire helpers
  * The ONLY functions that may serialize/deserialize asset references on wire.

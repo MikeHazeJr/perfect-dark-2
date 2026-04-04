@@ -745,7 +745,7 @@ static void renderPlayersPanel(float scale, float panelW, float panelH)
                             strncpy(bot->body_id, bid, sizeof(bot->body_id) - 1);
                             bot->body_id[sizeof(bot->body_id) - 1] = '\0';
                         }
-                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        const char *hid = catalogGetBodyDefaultHead(bid);
                         if (hid) {
                             strncpy(bot->head_id, hid, sizeof(bot->head_id) - 1);
                             bot->head_id[sizeof(bot->head_id) - 1] = '\0';

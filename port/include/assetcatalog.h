@@ -779,6 +779,23 @@ s32 catalogBodynumToMpBodyIdx(s32 bodynum);
  */
 s32 catalogHeadnumToMpHeadIdx(s32 headnum);
 
+/**
+ * Body → default head catalog ID string.
+ * Reads ext.body.headnum from the body catalog entry and resolves it to the
+ * matching ASSET_HEAD catalog ID.  Used by character pickers to auto-select the
+ * correct head when a body is chosen.
+ * Returns NULL if body_id is unknown, wrong type, or headnum < 0.
+ */
+const char *catalogGetBodyDefaultHead(const char *body_id);
+
+/**
+ * Body → default head mpheadnum (g_MpHeads[] position).
+ * Convenience wrapper for UI carousels that work in mpheadnum space.
+ * Returns -1 if the body is not found, has no default head, or the sentinel
+ * value 1000 (random-gender head) is stored — caller should keep existing head.
+ */
+s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
+
 /* ── SA-5 failure state ─────────────────────────────────────────────────── */
 
 /**
