@@ -37,7 +37,12 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
-| B-104 | Solo/MP endscreen buttons unclickable — direct SDL_SetRelativeMouseMode calls left g_InputMode=GAMEPLAY, allowing re-lock and blocking ImGui keyboard events | S140 — pdgui_menu_endscreen.cpp (pdmainSetInputMode(INPUTMODE_MENU)) |
+| B-109 | Stale `s_SelectedBotSlot` reference in room screen reset — crash hazard on room screen revisit | S144 — pdgui_menu_room.cpp |
+| B-108 | Authority client chr desync detection active on dedicated server — triggered continuous resync storm with many bots | S142 — net.c (skip desync detection when not authority) |
+| B-107 | Dedicated server broadcast blocked — `g_NetLocalClient` guard prevented relay to all clients; no state updates reached players | S142 — net relay path (3645e28) |
+| B-106 | Bot rooms=-1 freeze — `botmgrAllocateBot` set rooms[0]=-1; prop ticked once then never again; bots invisible and frozen after frame 0 | S142 — botmgr.c/bot.c (PROPFLAG_NOTYETTICKED gate, 41431a3) |
+| B-105 | CLC_LOBBY_START buffer overflow — used 1440-byte struct field for match config; overflowed at ~23 bots (of 31), declaring numSims=31 but only ~23 valid entries; caused bot count mismatch and corrupt chrslots | S142 — pdgui_bridge.c (256KB static buffer, 2de61ab) |
+| B-104 | Solo/MP endscreen buttons unclickable — direct SDL_SetRelativeMouseMode calls left g_InputMode=GAMEPLAY, allowing re-lock and blocking ImGui keyboard events | S144 — pdgui_menu_endscreen.cpp (pdmainSetInputMode(INPUTMODE_MENU)) |
 | B-103 | Online match doesn't start when countdown hits zero — g_MpSetup.stage_id never set; stage missing from manifest/session catalog; SVC_STAGE_START writes stage_session=0; client silently bails ("malformed or unknown message 0x10") | S137 — port/src/net/netmsg.c (184922a) |
 | B-102 | Catalog tab (Settings → Catalog) crashes on open — NULL `s_AssetTypeNames[ASSET_LANG]`; 68 base lang banks registered but array had only 24 entries (ASSET_LANG = index 24, uninitialized = NULL) | S133 — port/fast3d/pdgui_menu_mainmenu.cpp (7fb1831) |
 | B-101 | Updater Download/Rollback button clickable when no binary asset (assetSize=0 or empty assetUrl) — clicking starts a download that will fail | S132 — port/fast3d/pdgui_menu_update.cpp |

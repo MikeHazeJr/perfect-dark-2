@@ -790,15 +790,34 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			netbufWriteStr(dst, bc->base.name);
 
 			/* SA-3 / FIX-7: bot body/head as session IDs.
-			 * bc->base.mpbodynum is a g_MpBodies[] position (0..62), NOT a
-			 * g_HeadsAndBodies[] index.  catalogResolveBodyByMpIndex() converts
-			 * correctly before looking up the catalog entry. */
+			 * On dedicated server, mpbodynum is 0 (unresolved) so we use the
+			 * catalog ID strings from g_MatchConfig.slots[] (populated from
+			 * CLC_LOBBY_START). On client/listen server, fall back to mpbodynum
+			 * resolution for backward compat. */
 			{
-				const char *body_canon = catalogResolveBodyByMpIndex((s32)bc->base.mpbodynum);
+				const char *body_canon = NULL;
+				const char *head_canon = NULL;
+
+				/* Try matchslot catalog IDs first (reliable on dedicated server) */
+				s32 slotIdx = botidx + MAX_PLAYERS;
+				if (slotIdx < g_MatchConfig.numSlots &&
+				    g_MatchConfig.slots[slotIdx].body_id[0]) {
+					body_canon = g_MatchConfig.slots[slotIdx].body_id;
+				}
+				if (slotIdx < g_MatchConfig.numSlots &&
+				    g_MatchConfig.slots[slotIdx].head_id[0]) {
+					head_canon = g_MatchConfig.slots[slotIdx].head_id;
+				}
+
+				/* Fallback: resolve from mpbodynum (works on listen server) */
+				if (!body_canon) {
+					body_canon = catalogResolveBodyByMpIndex((s32)bc->base.mpbodynum);
+				}
+				if (!head_canon) {
+					head_canon = catalogResolveHeadByMpIndex((s32)bc->base.mpheadnum);
+				}
+
 				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
-			}
-			{
-				const char *head_canon = catalogResolveHeadByMpIndex((s32)bc->base.mpheadnum);
 				catalogWriteAssetRef(dst, head_canon ? sessionCatalogGetId(head_canon) : 0);
 			}
 

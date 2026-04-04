@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-03, Session S131 (Five systemic sweeps complete: sprintf→snprintf 344 sites, network bounds, fread/fwrite, strcpy→strncpy, realloc NULL. v0.0.25 released. Context system major cleanup — stale playtest backlog archived, session log trimmed to S119+. Next: D5 Settings/QoL.)
+> **Last updated**: 2026-04-04, Session S144 (Network + bot stabilization S142: CLC_LOBBY_START overflow, bot freeze, server broadcast fixed. R-3 room networking done S143. Endscreen UI + 256-entry name dicts + multi-select bot list + B-104 fix S144. v0.0.32. Session numbering corrected: S141–S144 added. Next: D5.0 visual layer, D5.3 pause menu.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,7 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| S119–S131 | 2026-04-02/03 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps complete. v0.0.25 released. | [session-log.md](session-log.md) |
+| S140–S144 | 2026-04-04 | Bot count mismatch audit (S141). Network + bot stabilization sprint: CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync (S142). R-3 room networking: clients create/join rooms, room-scoped match start (S143). Endscreen overhaul + B-104 fix + 256-entry name dicts + multi-select bot list (S144). v0.0.28→v0.0.32. | [session-log.md](session-log.md) |
+| S119–S139 | 2026-04-02/04 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps. v0.0.25. D5.0a spike. D5.1 input boundary. MP scoreboard D5.4. | [session-log.md](session-log.md) |
 | S93–S118 | 2026-04-01 | SA-series (session catalog + modular API), Manifest Lifecycle Sprint Phases 0–6, Match Startup Pipeline Phases A–F, menu system S99–S109, catalog investigation | [sessions-87-119.md](sessions-87-119.md) |
 | S79–S86 | 2026-03-29–30 | C-7 SFX, full TODO sweep, NAT traversal D8 (v23), Solo Room screen, bundled mod removal, B-55 fix, Match Startup Pipeline Phases A–C | [sessions-79-86.md](sessions-79-86.md) |
 | 47–78 | 2026-03-24–29 | SPF/join/room/catalog (C-series), mod system (T-series), bug fixes (B-27–B-53), network audits, null-guard audits, dedicated server | [sessions-47-78.md](sessions-47-78.md) |

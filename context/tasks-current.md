@@ -6,7 +6,7 @@
 
 ---
 
-## Recently Completed (S130–S134 — 2026-04-02/03)
+## Recently Completed (S130–S144 — 2026-04-02/04)
 
 | Item | Status |
 |------|--------|
@@ -20,6 +20,13 @@
 | **Propagation scan — 5 bug patterns** | **DONE (S132)** — dynamic arena buf, inputLockMouse siblings (4 paths), no other propagations found. |
 | **Static array audit — dynamic/growable data** | **DONE (S134)** — s_DepTable dynamic, s_ManifestTypeNames "Lang" added. All other static arrays verified as protocol/ROM constants or already dynamic. |
 | **D5.0a Technical Spike** | **DONE (S135)** — `pdguiGetUiTexture()` + `ImGui::Image()` pipeline validated, builds clean. D5.0 unblocked. |
+| **D5.1 Input Ownership Boundary** | **DONE (S136)** — `InputOwnerMode` enum, `pdmainSetInputMode()`, Tab dedup, mouse capture unified. |
+| **B-103 match start fix** | **DONE (S137)** — `g_MpSetup.stage_id` sync on both CLC send and receive paths. |
+| **Server bot sync + match startup** | **DONE (S137+)** — server-authoritative bot sync, bot AI on client, ASSET_ARENA resolver fix, match trace. |
+| **D5.4 MP scoreboard** | **DONE (S139)** — accuracy col, team sort, dual exit buttons, mouse capture fix. |
+| **Network + bot stabilization** | **DONE (S142)** — CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync storm. |
+| **R-3 Room Networking** | **DONE (S143)** — clients see/create/join rooms, room-scoped match start. |
+| **Endscreen UI + name dictionaries** | **DONE (S144)** — endscreen buttons, multi-select bot list, 256-entry name dicts, B-104 fix. v0.0.32. |
 
 ---
 
@@ -85,7 +92,7 @@ All code is complete. These items need in-game confirmation.
 |------|--------|
 | **D3R-7**: Modding Hub — 6 files | OPEN — needs build + playtest |
 | **D3R-8**: Bot customizer Advanced toggle | OPEN |
-| **Bot name dictionary** | OPEN — replace random name generator with word-list dictionary |
+| **Bot name dictionary** | **DONE (S144)** — 256-entry Adj+Noun dictionaries, mod-overridable (b92a421) |
 
 ---
 
@@ -106,8 +113,8 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
 | **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
-| **D5.4** | End Game Flow — MP match end scoreboard (S139: accuracy col, team sort, dual exit buttons, mouse fix). Mission complete screen still PLANNED | PARTIAL (S139) |
-| **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); bot name dictionary (Adj+Noun), arena/weapon set verification still open | PARTIAL (S138) |
+| **D5.4** | End Game Flow — MP match end scoreboard (S139: accuracy col, team sort, dual exit buttons, mouse fix). Endscreen lobby/quit buttons done (S144). Mission complete screen still PLANNED | PARTIAL (S144) |
+| **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); **bot name dictionary DONE** (S144: 256-entry Adj+Noun word lists, mod-overridable). Multi-select bot list done (S144). Arena/weapon set verification still open | PARTIAL (S144) |
 | **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
 | **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
 | **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PLANNED |
@@ -124,6 +131,6 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D14a** | Counter-Operative Mode — NPC possession mechanic | PLANNED |
 | **D15** | Map Editor, Character Creator, Skin System | PLANNED |
 | **D16** | Master Server / Server Pool | PLANNED (after content tools) |
-| **R-2 through R-5** | Room Architecture — demand-driven rooms, protocol | R-1 done, R-2–R-5 planned |
+| **R-2 through R-5** | Room Architecture — demand-driven rooms, protocol | R-1 done, **R-3 done (S143: clients see/create/join rooms, room-scoped match start)**, R-2/R-4/R-5 planned |
 | **L-series** | Lobby/Room UX — social lobby, room create/join, interior | Depends on R-2/R-3 |
 | **B-12 Phase 3** | Remove chrslots — dynamic participant system | Phase 1 coded (S26), next protocol bump |

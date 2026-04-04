@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 NEXT**
-Last updated: 2026-04-03 (S135)
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 IN PROGRESS (D5.1+D5.4+D5.5 PARTIAL), R-3 DONE**
+Last updated: 2026-04-04 (S144)
 
 ## Engine Modernization Vision
 
@@ -104,13 +104,13 @@ Execution order: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
 | D5.0 | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line overlay; all menus use this foundation | PLANNED |
-| D5.1 | Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect, single input path | PLANNED |
+| D5.1 | Input Ownership Boundary — MENU/GAMEPLAY modes, Esc edge-detect, single input path | **DONE (S136)** — `InputOwnerMode`, `pdmainSetInputMode()` |
 | D5.3 | Pause Menu + Sub-screens — full ImGui pause menu (Objectives, Inventory, Restart, Abort), unblocks gameplay | PLANNED |
 | D5.2 | Mission Select Redesign — two-panel layout, unlock filter, OG briefing images, star indicators, inline difficulty rows | PLANNED |
-| D5.4 | End Game Flow — mission complete screen, MP match end scoreboard | PLANNED |
-| D5.5 | Combat Sim Polish — bot head/body dependency graph, bot name dictionary, arena/weapon verification | PLANNED |
+| D5.4 | End Game Flow — MP scoreboard done (S139: accuracy, team sort, dual exit buttons); endscreen lobby/quit buttons done (S144). Mission complete screen still PLANNED | PARTIAL (S144) |
+| D5.5 | Combat Sim Polish — head/body picker fixed (S138); bot name dictionary DONE (S144: 256-entry Adj+Noun, mod-overridable); multi-select bot list DONE (S144). Arena/weapon verification still open | PARTIAL (S144) |
 | D5.6 | Settings & QoL — layout sweep (no hardcoded pixels), update banner fix, scroll indicators | PLANNED |
-| D5.7 | Online Lobby Polish — disable unsupported tabs, room nav cleanup, Quick Play button | PLANNED |
+| D5.7 | Online Lobby Polish — disable unsupported tabs, room nav cleanup, Quick Play button | PLANNED (R-3 done unblocks this) |
 | D5.8 | Systematic OG Menu Removal — remove all legacy screen render paths once ImGui replacements verified | PLANNED |
 
 ### 2. Phase D13: Update System — IN PROGRESS (code written, needs build test)

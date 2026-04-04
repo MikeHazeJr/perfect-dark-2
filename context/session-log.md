@@ -3,27 +3,147 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
-## Session S140 — 2026-04-04
+## Session S144 — 2026-04-04
 
-**Focus**: B-104 — Solo/MP endscreen mouse not usable after mission complete
+**Focus**: Endscreen UI overhaul, multi-select bot list, 256-entry name dictionaries, B-104 fix, stale slot cleanup
 
 ### What Was Done
 
-Fixed B-104: both `renderSoloEndscreen` and `renderMpEndscreen` in `pdgui_menu_endscreen.cpp` were calling `SDL_SetRelativeMouseMode(SDL_FALSE)` directly on `IsWindowAppearing()`, without calling `pdmainSetInputMode(INPUTMODE_MENU)`.
+**Commits `af86c3b`, `2d75636`, `b92a421`, `6b9e498` pushed to `dev`.**
 
-**Root cause**: Direct SDL calls left `g_InputMode = INPUTMODE_GAMEPLAY`. This:
-1. Allowed any code path that calls `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` to re-lock the mouse (the no-op guard only fires if mode is already GAMEPLAY)
-2. Caused the event handler's `g_InputMode == INPUTMODE_GAMEPLAY` guard to block ImGui keyboard input
+**1. Endscreen overhaul + B-104 fix** (`af86c3b`):
+- **B-104 fixed**: both `renderSoloEndscreen` and `renderMpEndscreen` in `pdgui_menu_endscreen.cpp` now call `pdmainSetInputMode(INPUTMODE_MENU)` on `IsWindowAppearing()`. Previously both used direct `SDL_SetRelativeMouseMode(SDL_FALSE)` calls, leaving `g_InputMode = INPUTMODE_GAMEPLAY` and blocking ImGui input.
+- **Return to Lobby / Quit to Menu buttons** added to endscreen.
+- **Random bot names** now displayed on post-match endscreen.
+- `#include "../include/pdmain.h"` added to endscreen.cpp.
 
-**Fix**: Both screens now call `pdmainSetInputMode(INPUTMODE_MENU)` on `IsWindowAppearing()` (same pattern as the S139 fix for `##PdGameOver` in pausemenu). Also kept the `SDL_WarpMouseInWindow` to center the cursor.
-Added `#include "../include/pdmain.h"` to endscreen.cpp.
+**2. Multi-select bot list** (`2d75636`):
+- Combat Sim bot list now supports multi-select with right-click context menu for batch operations.
+
+**3. 256-entry bot name dictionaries** (`b92a421`):
+- Replaced random generator with 256-entry Adjective+Noun word lists.
+- Dictionaries are mod-overridable (loaded from data files if present).
+- Bot name display columns widened to accommodate longer names.
+- Also touches `pdgui_menu_room.cpp` and `port/src/net/matchsetup.c`.
+
+**4. Stale slot reference fix** (`6b9e498`):
+- Removed stale `s_SelectedBotSlot` reference in room screen reset path — crash hazard on room screen revisit.
+
+**Build**: v0.0.32 clean.
 
 ### Decisions
-- Kept the warp to center — `pdmainSetInputMode` doesn't warp; cursor would restore to pre-mission position which may be off-screen
-- Same fix applied to both solo and MP endscreen paths for consistency
+- `pdmainSetInputMode` doesn't warp cursor; kept explicit `SDL_WarpMouseInWindow` to center — cursor would otherwise restore to off-screen pre-mission position.
+- Name dictionaries use flat arrays (not JSON) for load performance; mod override path uses same directory convention as other data assets.
 
 ### Next Steps
-- Playtest: complete DataDyne Central → verify "Retry Mission" and "Next Mission" buttons are clickable
+- Playtest: verify endscreen buttons usable after mission complete, bot names display correctly, multi-select works in Combat Sim
+- D5.3 (Pause Menu) remains the biggest open gap
+
+---
+
+## Session S143 — 2026-04-04
+
+**Focus**: R-3 Room Networking — clients see rooms, create/join, room-scoped match start
+
+### What Was Done
+
+**`commit 892f1e8` pushed to `dev`.**
+
+Implemented R-3 room networking from `context/room-architecture-plan.md`:
+- Server broadcasts room list to clients on lobby join.
+- Clients can create and join rooms via the room screen.
+- Match start is room-scoped: only players in the same room participate in a match.
+- Room screen (`pdgui_menu_room.cpp`) updated to display active rooms and occupant counts.
+
+**Build**: v0.0.30 clean.
+
+### Decisions
+- Room IDs are server-assigned, consistent with R-1/R-2 foundation.
+- R-4 (demand-driven rooms) and R-5 (room federation) remain planned.
+- L-series (lobby/room UX polish) depends on R-3 being done; can now begin.
+
+### Next Steps
+- L-series lobby/room UX work.
+- Endscreen + name system polish (S144).
+
+---
+
+## Session S142 — 2026-04-04
+
+**Focus**: Network + bot stabilization sprint — fixes for match start, bot freeze, server broadcast, buffer overflow, auth client desync storm
+
+### What Was Done
+
+**Commits `2634716`, `e5f7d4a`, `41431a3`, `3645e28`, `2de61ab`, `07b9729` pushed to `dev`.**
+
+Fixed all root causes identified in S141 analysis plus related issues:
+
+- **CLC_LOBBY_START buffer overflow** (`2de61ab`): `netLobbyRequestStartWithSims` in `pdgui_bridge.c` switched from `g_NetLocalClient->out` (1440 bytes) to a 256KB static send buffer. This was the root cause of the 23/31 bot count mismatch. Server-side dispatch trace logging also added.
+- **Bot rooms=-1 freeze** (`41431a3`): `botmgrAllocateBot` now uses `PROPFLAG_NOTYETTICKED` gate; bots tick continuously until `botSpawn` assigns valid rooms and clears the flag. Room recovery path added for bots that stall.
+- **Dedicated server broadcast blocked** (`3645e28`): `g_NetLocalClient` guard was incorrectly blocking relay; server can now broadcast state updates to all connected clients.
+- **Bot names / per-frame relay / room fallback / server bot count** (`2634716`): bot display names populated correctly; relay runs every frame; room fallback logic corrected; server accurately reports bot count.
+- **Authority client desync storm** (`07b9729`): authority client now skips chr desync detection — was triggering continuous resync storm on dedicated server with many bots.
+- **Head picker human-readable names** (`e5f7d4a`): head picker now shows catalog-resolved display names sorted A-Z instead of raw catalog IDs.
+
+**Builds**: v0.0.28 (initial batch) → v0.0.29 (post auth-client fix).
+
+### Decisions
+- 256KB static buffer for CLC_LOBBY_START is a pragmatic fix; streaming/chunked approach deferred until packet sizes are better understood.
+- Auth client desync skip is intentional on dedicated server where the server is always the authority.
+
+### Next Steps
+- Playtest with 31 bots: verify full count transmitted, all bots spawn with valid rooms, CLC_BOT_MOVE flows to server.
+- R-3 room networking (S143).
+
+---
+
+## Session S141 — 2026-04-04
+
+**Focus**: Bot count mismatch audit + bot freeze root cause analysis (no code changes — analysis only, session terminated by user before fixes applied)
+
+### What Was Done
+
+**Audit findings** (no fixes implemented):
+
+**Root Cause 1 — CLC_LOBBY_START buffer overflow** (CRITICAL):
+- `NET_BUFSIZE = 1440` bytes. `g_NetLocalClient->out` is this size.
+- CLC_LOBBY_START writes: header (~34 bytes) + weapons (6 strings, ~12–84 bytes) + per-bot (3 strings + 2 bytes ≈ 45 bytes/bot) + manifest.
+- At 31 bots: ~34 + 12 + 31×45 + manifest ≈ 1441+ bytes — overflows the buffer.
+- After overflow, `netbuf->error = 1`; writes are no-ops but `botIdx` keeps incrementing.
+- The packet declares `numSims=31` (written before overflow), but only ~23 bots have valid data.
+- Server reads 31 entries: 23 valid + 8 garbage (empty strings → dark_combat defaults). Sets `clampedSims=31`, allocates 31 stubs, sends SVC_STAGE_START with 31 bot chrslots bits.
+- **Fix location**: `port/fast3d/pdgui_bridge.c:657` — `netLobbyRequestStartWithSims`. Change from `g_NetLocalClient->out` to a static large buffer (e.g. `NET_BUFSIZE * 8 = 11520` bytes).
+
+**Root Cause 2 — Bot rooms=-1 / freeze**:
+- `botmgrAllocateBot` (botmgr.c) creates prop with `rooms[0] = -1`.
+- `propActivate` sets `forceonetick = true` → bot ticks ONCE (the first-run log fires here).
+- After first tick: rooms still -1, not in foreground → prop NOT ticked again.
+- Actual bot spawn (valid rooms assigned) happens via stage setup AI → `aiMpInitSimulants` → `botSpawnAll` → `botSpawn` → `scenarioChooseSpawnLocation` → `chrMoveToPos` with valid rooms. This runs DURING stage loading (setup.c AI script), not from botTick.
+- After `botSpawn`, bots have valid rooms. They get added to foreground normally.
+- **Fix**: In `botmgrAllocateBot`, set `prop->forcetick = true` after `propActivate` so bots always tick until properly spawned. Clear `forcetick` in `botSpawn` after rooms are assigned.
+
+**Root Cause 3 — CLC_BOT_MOVE not sent**:
+- `netEndFrame` (net.c:1407): `if (g_NetLocalBotAuthority && g_BotCount > 0)` gates the write.
+- On dedicated server: `g_NetLocalBotAuthority = true` set when `SVC_BOT_AUTHORITY` received. `g_BotCount` set by `setup.c` allocating bots from `g_MpSetup.chrslots`.
+- If `g_NetLocalBotAuthority` is never set (SVC_BOT_AUTHORITY not received/processed), or `g_BotCount = 0` (bots not allocated due to overflow-corrupted chrslots), no CLC_BOT_MOVE is sent.
+- After fixing CLC_LOBBY_START overflow → correct 31-bot chrslots → correct bot allocation → correct g_BotCount → CLC_BOT_MOVE flows.
+
+**Key files for next session fixes**:
+- `port/fast3d/pdgui_bridge.c:652–659` — CLC_LOBBY_START buffer
+- `src/game/botmgr.c:72–74` — prop->forcetick after propActivate/propEnable
+- `src/game/bot.c:307` — clear forcetick after chrMoveToPos in botSpawn
+- `port/src/net/net.c:1407` — verify CLC_BOT_MOVE gate
+
+### Decisions Made
+
+- Session terminated before fixes; user will restart with explicit fix instructions.
+- CLC_LOBBY_START buffer overflow is the root cause of the 23/31 bot count mismatch.
+- rooms=-1 freeze is a secondary issue from forceonetick being cleared before spawn runs.
+
+### Next Steps
+
+- **S142**: Implement the three fixes above. Build verify. Commit + push.
+- Playtest with 31 bots: verify full count transmitted, all spawn with valid rooms, CLC_BOT_MOVE flows.
 
 ---
 
@@ -124,6 +244,16 @@ Root cause: `g_MpSetup.stage_id` was never populated by the match setup flow.
 No protocol changes. S130 constraint respected (catalog IDs throughout, no raw indices).
 
 **Build**: client clean (exit 0). Server CMake arch error is pre-existing, unrelated.
+
+### Additional Work (same session, post-context-commit)
+
+After the context commit, the session continued with several more fixes and features before S138 began:
+
+- `c474baa` **feat(title)**: gold name colour + +0.5s legal screen duration.
+- `ba6983f` **diag**: MATCH-START trace logging added + fix for premature `inGame` flag and false "malformed or unknown message 0x10" warning.
+- `124d195` **fix(net)**: `catalogResolveStageBySession` now accepts `ASSET_ARENA` type — was failing to resolve arena stages sent from server.
+- `e148aee` **fix(net)**: bot AI enabled on client side + countdown dismiss on match start.
+- `d343273` **feat(net)**: server-authoritative bot sync for dedicated server — server now owns bot state and syncs to clients.
 
 ### Next Steps
 
@@ -816,53 +946,4 @@ FIX-1 through FIX-23 across all subsystems: bot allocation, SVC_STAGE_START bot 
 
 ---
 
-## Session S140 — 2026-04-04
-
-**Focus**: Bot count mismatch audit + bot freeze root cause analysis (no code changes — analysis only, session terminated by user before fixes applied)
-
-### What Was Done
-
-**Audit findings** (no fixes implemented):
-
-**Root Cause 1 — CLC_LOBBY_START buffer overflow** (CRITICAL):
-- `NET_BUFSIZE = 1440` bytes. `g_NetLocalClient->out` is this size.
-- CLC_LOBBY_START writes: header (~34 bytes) + weapons (6 strings, ~12–84 bytes) + per-bot (3 strings + 2 bytes ≈ 45 bytes/bot) + manifest.
-- At 31 bots: ~34 + 12 + 31×45 + manifest ≈ 1441+ bytes — overflows the buffer.
-- After overflow, `netbuf->error = 1`; writes are no-ops but `botIdx` keeps incrementing.
-- The packet declares `numSims=31` (written before overflow), but only ~23 bots have valid data.
-- Server reads 31 entries: 23 valid + 8 garbage (empty strings → dark_combat defaults). Sets `clampedSims=31`, allocates 31 stubs, sends SVC_STAGE_START with 31 bot chrslots bits.
-- **Fix location**: `port/fast3d/pdgui_bridge.c:657` — `netLobbyRequestStartWithSims`. Change from `g_NetLocalClient->out` to a static large buffer (e.g. `NET_BUFSIZE * 8 = 11520` bytes).
-
-**Root Cause 2 — Bot rooms=-1 / freeze**:
-- `botmgrAllocateBot` (botmgr.c) creates prop with `rooms[0] = -1`.
-- `propActivate` sets `forceonetick = true` → bot ticks ONCE (the first-run log fires here).
-- After first tick: rooms still -1, not in foreground → prop NOT ticked again.
-- Actual bot spawn (valid rooms assigned) happens via stage setup AI → `aiMpInitSimulants` → `botSpawnAll` → `botSpawn` → `scenarioChooseSpawnLocation` → `chrMoveToPos` with valid rooms. This runs DURING stage loading (setup.c AI script), not from botTick.
-- After `botSpawn`, bots have valid rooms. They get added to foreground normally.
-- **Fix**: In `botmgrAllocateBot`, set `prop->forcetick = true` after `propActivate` so bots always tick until properly spawned. Clear `forcetick` in `botSpawn` after rooms are assigned.
-
-**Root Cause 3 — CLC_BOT_MOVE not sent**:
-- `netEndFrame` (net.c:1407): `if (g_NetLocalBotAuthority && g_BotCount > 0)` gates the write.
-- On dedicated server: `g_NetLocalBotAuthority = true` set when `SVC_BOT_AUTHORITY` received. `g_BotCount` set by `setup.c` allocating bots from `g_MpSetup.chrslots`.
-- If `g_NetLocalBotAuthority` is never set (SVC_BOT_AUTHORITY not received/processed), or `g_BotCount = 0` (bots not allocated due to overflow-corrupted chrslots), no CLC_BOT_MOVE is sent.
-- After fixing CLC_LOBBY_START overflow → correct 31-bot chrslots → correct bot allocation → correct g_BotCount → CLC_BOT_MOVE flows.
-
-**Key files for next session fixes**:
-- `port/fast3d/pdgui_bridge.c:652–659` — CLC_LOBBY_START buffer
-- `src/game/botmgr.c:72–74` — prop->forcetick after propActivate/propEnable
-- `src/game/bot.c:307` — clear forcetick after chrMoveToPos in botSpawn
-- `port/src/net/net.c:1407` — verify CLC_BOT_MOVE gate
-
-### Decisions Made
-
-- Session terminated before fixes; user will restart with explicit fix instructions.
-- CLC_LOBBY_START buffer overflow is the root cause of the 23/31 bot count mismatch.
-- rooms=-1 freeze is a secondary issue from forceonetick being cleared before spawn runs.
-
-### Next Steps
-
-- **S141**: Implement the three fixes above. Build verify. Commit + push.
-- Playtest with 31 bots: verify full count transmitted, all spawn with valid rooms, CLC_BOT_MOVE flows.
-
----
 
