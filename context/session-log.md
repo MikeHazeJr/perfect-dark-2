@@ -3,6 +3,35 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S137 — 2026-04-03
+
+**Focus**: Online match start bug (B-103) — critical path fix for multiplayer
+
+### What Was Done
+
+**B-103 fixed and pushed (`commit 184922a`).**
+
+Root cause: `g_MpSetup.stage_id` was never populated by the match setup flow.
+- UI sets `g_MatchConfig.stage_id`, not `g_MpSetup.stage_id`.
+- `manifestBuildForHost()` (client side) reads `g_MpSetup.stage_id` → found empty → stage skipped from manifest → stage not in session catalog.
+- `netmsgSvcStageStartWrite()` (server side) reads `g_MpSetup.stage_id` → found empty → writes `stage_session=0` → returns early.
+- Client reads `stage_session=0` → silent `return 1` with no log → surfaces as "malformed or unknown message 0x10 from server". Stage never loaded.
+
+**Two-line fix in `port/src/net/netmsg.c`:**
+1. `netmsgClcLobbyStartWrite`: sync `g_MatchConfig.stage_id → g_MpSetup.stage_id` before `manifestBuildForHost` so stage enters manifest and session catalog.
+2. `netmsgClcLobbyStartRead` (server): copy parsed `stage_id → g_MpSetup.stage_id` alongside existing `g_MatchConfig` and `stagenum` assignments.
+
+No protocol changes. S130 constraint respected (catalog IDs throughout, no raw indices).
+
+**Build**: client clean (exit 0). Server CMake arch error is pre-existing, unrelated.
+
+### Next Steps
+
+- Playtest with Chris — match should now start when countdown reaches zero
+- D5.3 (Pause Menu) — unblocked by D5.1 input ownership
+
+---
+
 ## Session S136 — 2026-04-03
 
 **Focus**: D5.1 — Input Ownership Boundary
