@@ -22,6 +22,8 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -75,6 +77,7 @@ s32 mpGetBodyId(u8 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
 s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum);
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
+const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
 
 /* Feature checking — unlock system */
 s32 mpGetHeadRequiredFeature(u8 headnum);
@@ -115,24 +118,98 @@ static bool s_FirstFrame = true;      /* Focus name input on first frame */
 static s32 s_NumHeads = 0;
 static s32 s_NumBodies = 0;
 
+/* Head sort map — alphabetically sorted by display name */
+#define MAX_HEAD_COUNT 128
+static s32  s_SortedHeadIndices[MAX_HEAD_COUNT];
+static char s_HeadDisplayNames[MAX_HEAD_COUNT][64];
+static s32  s_SortedHeadCount    = 0;
+static s32  s_SortedHeadNumHeads = 0; /* triggers rebuild when != s_NumHeads */
+
 /* ========================================================================
  * Helpers
  * ======================================================================== */
 
 /**
- * Get a display-friendly name for a head index.
- * PD heads don't have localized names in the base game — they're identified
- * by HEAD_* constant. We show a short description derived from the constant.
- * For now, show "Head XX" with the internal ID. Future: map to descriptive names.
+ * Format a catalog entry ID to a human-readable display name.
+ * Strips prefix, replaces underscores with spaces, title-cases each word.
+ * e.g. "head_dark_combat" with prefix "head_" -> "Dark Combat"
  */
-static void getHeadDisplayName(char *buf, size_t bufsize, s32 headIdx)
+static void formatCatalogId(const char *raw_id, const char *prefix,
+                             char *out, size_t outsz)
 {
-    if (headIdx < 0 || headIdx >= s_NumHeads) {
-        snprintf(buf, bufsize, "Head ???");
-        return;
+    const char *src = raw_id ? raw_id : "";
+    size_t prefixLen = strlen(prefix);
+    if (strncmp(src, prefix, prefixLen) == 0)
+        src += prefixLen;
+    bool capitalizeNext = true;
+    size_t i = 0;
+    while (*src && i + 1 < outsz) {
+        unsigned char c = (unsigned char)*src++;
+        if (c == '_') {
+            out[i++] = ' ';
+            capitalizeNext = true;
+        } else if (capitalizeNext) {
+            out[i++] = (char)toupper(c);
+            capitalizeNext = false;
+        } else {
+            out[i++] = (char)tolower(c);
+        }
     }
-    s32 headId = mpGetHeadId((u8)headIdx);
-    snprintf(buf, bufsize, "Head %d", headId);
+    out[i] = '\0';
+}
+
+static int s_compareHeadByName(const void *a, const void *b)
+{
+    return strcmp(s_HeadDisplayNames[*(const s32 *)a],
+                  s_HeadDisplayNames[*(const s32 *)b]);
+}
+
+/**
+ * Rebuild the sorted head index map.
+ * s_SortedHeadIndices[i] is the mpheadnum at sorted position i.
+ * s_HeadDisplayNames[mpheadnum] is the formatted display name.
+ */
+static void rebuildHeadSortMap(void)
+{
+    s32 n = s_NumHeads;
+    if (n > MAX_HEAD_COUNT) n = MAX_HEAD_COUNT;
+    s_SortedHeadCount = n;
+    for (s32 i = 0; i < n; i++) {
+        s_SortedHeadIndices[i] = i;
+        const char *catId = catalogResolveHeadByMpIndex(i);
+        if (catId)
+            formatCatalogId(catId, "head_",
+                            s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]));
+        else
+            snprintf(s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]),
+                     "Head %d", i);
+    }
+    qsort(s_SortedHeadIndices, n, sizeof(s_SortedHeadIndices[0]),
+          s_compareHeadByName);
+    s_SortedHeadNumHeads = s_NumHeads;
+}
+
+/**
+ * Find the sorted-list position for a given mpheadnum.
+ * Returns 0 if not found.
+ */
+static s32 findSortedPosForMpHeadnum(s32 mpheadnum)
+{
+    for (s32 i = 0; i < s_SortedHeadCount; i++) {
+        if (s_SortedHeadIndices[i] == mpheadnum) return i;
+    }
+    return 0;
+}
+
+/**
+ * Get the display name for the head at sorted position sortedPos.
+ * Returns a pointer into s_HeadDisplayNames (stable until rebuildHeadSortMap).
+ */
+static const char *getHeadDisplayName(s32 sortedPos)
+{
+    if (sortedPos < 0 || sortedPos >= s_SortedHeadCount)
+        return "Head ???";
+    return s_HeadDisplayNames[s_SortedHeadIndices[sortedPos]];
 }
 
 /**
@@ -154,10 +231,9 @@ static const char *getBodyDisplayName(s32 bodyIdx)
 static void autoSelectHead(void)
 {
     if (!s_HeadOverridden && s_SelectedBody >= 0 && s_SelectedBody < s_NumBodies) {
-        s32 headIdx = catalogGetBodyDefaultMpHeadIdx(s_SelectedBody);
-        if (headIdx >= 0 && headIdx < s_NumHeads) {
-            s_SelectedHead = headIdx;
-        }
+        s32 mpheadnum = catalogGetBodyDefaultMpHeadIdx(s_SelectedBody);
+        if (mpheadnum >= 0 && mpheadnum < s_NumHeads)
+            s_SelectedHead = findSortedPosForMpHeadnum(mpheadnum);
     }
 }
 
@@ -178,7 +254,7 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
     /* Request a new preview render if head/body changed */
     if (s_SelectedHead != s_PrevPreviewHead ||
         s_SelectedBody != s_PrevPreviewBody) {
-        pdguiCharPreviewRequest((u8)s_SelectedHead, (u8)s_SelectedBody);
+        pdguiCharPreviewRequest((u8)s_SortedHeadIndices[s_SelectedHead], (u8)s_SelectedBody);
         s_PrevPreviewHead = s_SelectedHead;
         s_PrevPreviewBody = s_SelectedBody;
     }
@@ -257,10 +333,16 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     s_NumHeads = mpGetNumHeads2();
     s_NumBodies = (s32)mpGetNumBodies();
 
+    /* Rebuild head sort map if head count changed */
+    if (s_SortedHeadNumHeads != s_NumHeads) {
+        rebuildHeadSortMap();
+        s_PrevPreviewHead = -1; /* force preview re-render after rebuild */
+    }
+
     /* Clamp selections */
     if (s_SelectedBody >= s_NumBodies) s_SelectedBody = s_NumBodies - 1;
     if (s_SelectedBody < 0) s_SelectedBody = 0;
-    if (s_SelectedHead >= s_NumHeads) s_SelectedHead = s_NumHeads - 1;
+    if (s_SelectedHead >= s_SortedHeadCount) s_SelectedHead = s_SortedHeadCount - 1;
     if (s_SelectedHead < 0) s_SelectedHead = 0;
 
     /* ---- Layout ---- */
@@ -444,8 +526,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImGui::SameLine();
 
         {
-            char headName[64];
-            getHeadDisplayName(headName, sizeof(headName), s_SelectedHead);
+            const char *headName = getHeadDisplayName(s_SelectedHead);
             float nameW = formW - 80.0f * scale;
             float textW = ImGui::CalcTextSize(headName).x;
             float padLeft = (nameW - textW) * 0.5f;
@@ -553,7 +634,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             s32 pnum = g_MpPlayerNum;
             if (pnum < 0) pnum = 0;
 
-            mpPlayerConfigSetHeadBody(pnum, (u8)s_SelectedHead, (u8)s_SelectedBody);
+            mpPlayerConfigSetHeadBody(pnum, (u8)s_SortedHeadIndices[s_SelectedHead], (u8)s_SelectedBody);
             mpPlayerConfigSetName(pnum, s_AgentName);
 
             /* Pop the Agent Create dialog to return to Agent Select */
@@ -567,7 +648,8 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
             sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
                          "body=%d head=%d (not loaded, requires selection)",
-                         s_AgentName, s_SelectedBody, s_SelectedHead);
+                         s_AgentName, s_SelectedBody,
+                         s_SortedHeadIndices[s_SelectedHead]);
 
             /* Reset state for next use */
             s_AgentName[0] = '\0';
