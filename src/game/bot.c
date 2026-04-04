@@ -335,6 +335,46 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				}
 			}
 		}
+		/* Ground clamp: if the bot spawned underground, relocate upward.
+		 * Probe from 2000 units above spawn pos to find the real floor.
+		 * If the floor is far above the bot's Y, the spawn is underground. */
+		if (chr->prop && chr->prop->rooms[0] >= 0) {
+			struct coord probePos = chr->prop->pos;
+			probePos.y += 2000.0f;
+			/* Need rooms valid for the raised probe position */
+			RoomNum probeRooms[21];
+			RoomNum probeAbove[21];
+			RoomNum probeBest = -1;
+			probeRooms[0] = chr->prop->rooms[0];
+			probeRooms[1] = -1;
+			bgFindRoomsByPos(&probePos, probeRooms, probeAbove, 20, &probeBest);
+
+			f32 floorY = cdFindFloorYColourTypeAtPos(&probePos,
+				probeRooms, NULL, NULL);
+			f32 yDiff = floorY - chr->prop->pos.y;
+
+			if (yDiff > 200.0f && floorY < 30000.0f) {
+				sysLogPrintf(LOG_WARNING,
+					"SPAWN: bot chr=%p underground — pos.y=%.0f floor=%.0f diff=%.0f, clamping to floor",
+					(void *)chr, chr->prop->pos.y, floorY, yDiff);
+				chr->prop->pos.y = floorY;
+				pos.y = floorY;
+				/* Re-resolve rooms at the corrected position */
+				RoomNum fixRooms[21];
+				RoomNum fixAbove[21];
+				RoomNum fixBest = -1;
+				fixRooms[0] = -1;
+				bgFindRoomsByPos(&chr->prop->pos, fixRooms, fixAbove, 20, &fixBest);
+				if (fixRooms[0] >= 0) {
+					s32 ri;
+					for (ri = 0; ri < 8 && fixRooms[ri] != -1; ri++) {
+						chr->prop->rooms[ri] = fixRooms[ri];
+					}
+					if (ri < 8) chr->prop->rooms[ri] = -1;
+				}
+			}
+		}
+
 		chr->aibot->roty = modelGetChrRotY(chr->model);
 		chr->aibot->angleoffset = 0;
 		chr->aibot->speedtheta = 0;

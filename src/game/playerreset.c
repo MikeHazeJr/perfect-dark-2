@@ -337,6 +337,27 @@ void playerReset(void)
 
 			if (added > 0) {
 				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from %d navmesh waypoints (adaptive spacing)", added, numwpts);
+
+				/* ONE-TIME diagnostic: dump all spawn pad positions */
+				for (s32 di = 0; di < g_NumSpawnPoints; di++) {
+					struct pad diagPad;
+					padUnpack(g_SpawnPoints[di], PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &diagPad);
+					sysLogPrintf(LOG_NOTE, "SPAWN-DIAG: pad[%d] padnum=%d pos=(%.0f,%.0f,%.0f) room=%d flags=0x%x",
+						di, (s32)g_SpawnPoints[di],
+						diagPad.pos.x, diagPad.pos.y, diagPad.pos.z,
+						(s32)diagPad.room, diagPad.flags);
+				}
+
+				/* ONE-TIME diagnostic: dump a few source waypoints for comparison */
+				s32 diagCount = numwpts < 6 ? numwpts : 6;
+				for (s32 di = 0; di < diagCount; di++) {
+					struct pad diagPad;
+					s32 wpPadnum = wpts[di].padnum;
+					padUnpack(wpPadnum, PADFIELD_POS | PADFIELD_ROOM, &diagPad);
+					sysLogPrintf(LOG_NOTE, "SPAWN-DIAG: waypoint[%d] padnum=%d pos=(%.0f,%.0f,%.0f) room=%d",
+						di, wpPadnum, diagPad.pos.x, diagPad.pos.y, diagPad.pos.z,
+						(s32)diagPad.room);
+				}
 			}
 		}
 
