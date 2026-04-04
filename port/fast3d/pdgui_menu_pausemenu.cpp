@@ -118,6 +118,19 @@ struct ranking_pm {
 s32 mpGetPlayerRankings(struct ranking_pm *rankings);
 s32 mpGetTeamRankings(struct ranking_pm *rankings);
 
+/* Shot region constants — for local player accuracy in the post-match scoreboard */
+#define PM_SHOT_TOTAL  0
+#define PM_SHOT_HEAD   1
+#define PM_SHOT_BODY   2
+#define PM_SHOT_LIMB   3
+#define PM_SHOT_GUN    4
+#define PM_SHOT_HAT    5
+#define PM_SHOT_OBJECT 6
+s32 mpstatsGetPlayerShotCountByRegion(u32 type);
+
+/* Room screen navigation (pdgui_lobby.cpp) — show room interior after match ends */
+void pdguiSetInRoom(s32 inRoom);
+
 /* Match setup access — bridge functions we declare in the bridge section below.
  * These avoid needing to include types.h for g_MpSetup. */
 u32 pdguiPauseGetChrSlots(void);
@@ -264,7 +277,8 @@ struct ScorecardRow {
     s32 kills;
     s32 deaths;
     u8 team;
-    bool isPlayer; /* true if slot < MAX_PLAYERS */
+    bool isPlayer;  /* true if slot < MAX_PLAYERS */
+    float accuracy; /* percentage 0–100, or -1.0f = N/A (only valid for local player) */
 };
 
 static s32 buildScorecardData(ScorecardRow *rows, s32 maxRows)
@@ -307,9 +321,46 @@ static s32 buildScorecardData(ScorecardRow *rows, s32 maxRows)
             }
         }
         rows[i].kills = kills;
+
+        /* Accuracy — available only for the local player (chrnum == g_MpPlayerNum) */
+        rows[i].accuracy = -1.0f;
+        if ((s32)rankings[i].chrnum == g_MpPlayerNum) {
+            s32 totalShots = mpstatsGetPlayerShotCountByRegion(PM_SHOT_TOTAL);
+            if (totalShots > 0) {
+                s32 hits = mpstatsGetPlayerShotCountByRegion(PM_SHOT_HEAD)
+                         + mpstatsGetPlayerShotCountByRegion(PM_SHOT_BODY)
+                         + mpstatsGetPlayerShotCountByRegion(PM_SHOT_LIMB)
+                         + mpstatsGetPlayerShotCountByRegion(PM_SHOT_GUN)
+                         + mpstatsGetPlayerShotCountByRegion(PM_SHOT_HAT)
+                         + mpstatsGetPlayerShotCountByRegion(PM_SHOT_OBJECT);
+                float acc = (float)hits / (float)totalShots;
+                if (acc > 1.0f) acc = 1.0f;
+                rows[i].accuracy = acc * 100.0f;
+            } else {
+                rows[i].accuracy = 0.0f;
+            }
+        }
     }
 
     return count;
+}
+
+/* ========================================================================
+ * Team sort — stable insertion sort by team number, preserving score order
+ * within each team.  Max 40 entries; negligible overhead.
+ * ======================================================================== */
+
+static void sortRowsByTeam(ScorecardRow *rows, s32 count)
+{
+    for (s32 i = 1; i < count; i++) {
+        ScorecardRow tmp = rows[i];
+        s32 j = i - 1;
+        while (j >= 0 && rows[j].team > tmp.team) {
+            rows[j + 1] = rows[j];
+            j--;
+        }
+        rows[j + 1] = tmp;
+    }
 }
 
 /* ========================================================================
@@ -797,21 +848,11 @@ static const MedalDef s_MedalDefs[] = {
     { 3, ImVec4(0.2f, 0.7f,  1.0f,  1.0f), "Survivor"     },
 };
 
-/* Render the Rankings tab content into the current child region */
+/* Render the Rankings tab content into the current child region.
+ * When teamsEnabled, rows must be pre-sorted by team (done by caller). */
 static void renderGameOverRankings(float contentW, s32 count,
                                    const ScorecardRow *rows, bool teamsEnabled)
 {
-    /* Column headers */
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
-    if (teamsEnabled) {
-        ImGui::Text("%-3s %-13s %4s %6s %5s %5s", "#", "Name", "Team", "Score", "K", "D");
-    } else {
-        ImGui::Text("%-3s %-16s %7s %5s %5s", "#", "Name", "Score", "K", "D");
-    }
-    ImGui::PopStyleColor();
-    ImGui::Separator();
-    ImGui::Spacing();
-
     /* Team color table */
     static const ImVec4 s_TeamCols[] = {
         ImVec4(1.0f, 0.3f, 0.3f, 1.0f), ImVec4(0.3f, 0.5f, 1.0f, 1.0f),
@@ -820,37 +861,57 @@ static void renderGameOverRankings(float contentW, s32 count,
         ImVec4(0.5f, 0.5f, 0.5f, 1.0f), ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
     };
 
-    for (s32 i = 0; i < count; i++) {
-        /* Gold for 1st, cyan for the local player, dim for bots */
-        ImVec4 rowColor;
-        if      (i == 0)               rowColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
-        else if (rows[i].isPlayer)     rowColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);
-        else                           rowColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+    /* Column header */
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
+    ImGui::Text("%-3s %-14s %6s %5s %5s %6s", "#", "Name", "Score", "K", "D", "Acc%");
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+    ImGui::Spacing();
 
-        ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
+    s32 prevTeam = -1;
+    for (s32 i = 0; i < count; i++) {
+        /* Team section header — emitted each time the team number changes */
+        if (teamsEnabled && (s32)rows[i].team != prevTeam) {
+            prevTeam = (s32)rows[i].team;
+            u8 hteam = rows[i].team < 8 ? rows[i].team : 7;
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamCols[hteam]);
+            ImGui::Text("  -- Team %d --", hteam + 1);
+            ImGui::PopStyleColor();
+        }
+
+        /* Row color: gold for overall 1st, team-color for team members,
+         * cyan for local human player, dim for bots */
+        ImVec4 rowColor;
+        if (i == 0) {
+            rowColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);   /* gold: overall 1st */
+        } else if (rows[i].isPlayer) {
+            rowColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);    /* cyan: local human */
+        } else if (teamsEnabled) {
+            u8 tc = rows[i].team < 8 ? rows[i].team : 7;
+            ImVec4 tc4 = s_TeamCols[tc];
+            rowColor = ImVec4(tc4.x * 0.85f, tc4.y * 0.85f, tc4.z * 0.85f, 1.0f);
+        } else {
+            rowColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);  /* dim: bot */
+        }
 
         char rankStr[8];
         snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
 
-        if (teamsEnabled) {
-            u8 team = (rows[i].team < 8) ? rows[i].team : 7;
-            ImGui::Text("%-3s %-13s", rankStr, rows[i].name);
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::PopStyleColor();
-            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamCols[team]);
-            ImGui::Text(" T%d  ", team + 1);
-            ImGui::PopStyleColor();
-            ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::Text("%6d %5d %5d", rows[i].score, rows[i].kills, rows[i].deaths);
+        char accBuf[10];
+        if (rows[i].accuracy >= 0.0f) {
+            snprintf(accBuf, sizeof(accBuf), "%.1f", rows[i].accuracy);
         } else {
-            ImGui::Text("%-3s %-16s %7d %5d %5d",
-                        rankStr, rows[i].name,
-                        rows[i].score, rows[i].kills, rows[i].deaths);
+            accBuf[0] = '-'; accBuf[1] = '-'; accBuf[2] = '\0';
         }
 
+        ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
+        ImGui::Text("%-3s %-14s %6d %5d %5d %6s",
+                    rankStr, rows[i].name,
+                    rows[i].score, rows[i].kills, rows[i].deaths, accBuf);
         ImGui::PopStyleColor();
     }
+    (void)contentW;
 }
 
 /* Render the Personal tab content into the current child region */
@@ -1007,6 +1068,11 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
     s32 challengeStatus = pdguiEndscreenGetChallengeStatus();
 
+    /* Sort by team when teams are enabled so section headers are contiguous */
+    if (teamsEnabled && count > 1) {
+        sortRowsByTeam(rows, count);
+    }
+
     float scale     = pdguiScaleFactor();
     float padX      = pdguiScale(16.0f);
     float titleH    = pdguiScale(42.0f);
@@ -1017,8 +1083,17 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     float btnH      = pdguiScale(36.0f);
     float bottomPad = pdguiScale(14.0f);
 
-    /* Content area height: large enough for max(rankings, personal) */
-    float rankingsH  = pdguiScale(22.0f) + (count > 0 ? count * rowH : rowH) + pdguiScale(8.0f);
+    /* Content area height: large enough for max(rankings, personal).
+     * When teams are enabled, add extra vertical space for team section headers. */
+    s32 numTeamHeaders = 0;
+    if (teamsEnabled && count > 0) {
+        s32 prevT = -1;
+        for (s32 ri = 0; ri < count; ri++) {
+            if ((s32)rows[ri].team != prevT) { prevT = (s32)rows[ri].team; numTeamHeaders++; }
+        }
+    }
+    float rankingsH  = pdguiScale(22.0f) + (count > 0 ? count * rowH : rowH)
+                     + numTeamHeaders * rowH + pdguiScale(8.0f);
     float personalH  = pdguiScale(160.0f); /* enough for all personal fields */
     float contentH   = (rankingsH > personalH) ? rankingsH : personalH;
 
@@ -1048,6 +1123,12 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     if (ImGui::Begin("##PdGameOver", NULL, flags)) {
+        /* Release mouse grab on first appear so buttons are clickable.
+         * The game holds SDL in relative mode during active gameplay. */
+        if (ImGui::IsWindowAppearing()) {
+            pdmainSetInputMode(INPUTMODE_MENU);
+        }
+
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "MATCH OVER", 1);
 
         /* Challenge outcome banner */
@@ -1149,21 +1230,51 @@ void pdguiGameOverRender(s32 winW, s32 winH)
         }
         ImGui::EndChild();
 
-        /* Return to Lobby button — pinned at bottom, centered */
+        /* Action buttons — pinned at bottom, two side-by-side */
         float btnY = menuH - btnH - bottomPad;
         ImGui::SetCursorPos(ImVec2(padX, btnY));
         ImGui::Separator();
         ImGui::Spacing();
 
-        float lobbyBtnW = pdguiScale(200.0f);
-        ImGui::SetCursorPosX((menuW - lobbyBtnW) * 0.5f - padX);
+        float contentW2 = menuW - padX * 2.0f;
+        float twoGap    = pdguiScale(8.0f);
+        float twoW      = (contentW2 - twoGap) * 0.5f;
+        float twoH      = pdguiScale(28.0f);
+
+        ImGui::SetCursorPosX(padX);
+
+        /* --- Return to Lobby: end match, stay connected, show room screen --- */
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.08f, 0.25f, 0.55f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.40f, 0.80f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.25f, 0.55f, 1.00f, 1.0f));
-        if (ImGui::Button("Return to Lobby##go", ImVec2(lobbyBtnW, pdguiScale(28.0f)))) {
+        if (ImGui::Button("Return to Lobby##go", ImVec2(twoW, twoH))) {
+            pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            mainChangeToStage(0x26); /* STAGE_CITRAINING */
+            pdmainSetInputMode(INPUTMODE_MENU);
+            mainChangeToStage(0x26); /* STAGE_CITRAINING — lobby hub */
+            if (g_NetMode != NETMODE_NONE) {
+                pdguiSetInRoom(1);   /* remain in room, show room screen */
+            }
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::SameLine(0.0f, twoGap);
+
+        /* --- Quit to Menu: disconnect (online) or go to title (offline) --- */
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.45f, 0.08f, 0.08f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.12f, 0.12f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.90f, 0.20f, 0.20f, 1.0f));
+        if (ImGui::Button("Quit to Menu##go", ImVec2(twoW, twoH))) {
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            s_prevWasGameOver = 0;
+            mpSetPaused(MPPAUSEMODE_UNPAUSED);
+            pdmainSetInputMode(INPUTMODE_MENU);
+            if (g_NetMode == NETMODE_CLIENT) {
+                netDisconnect(); /* handles mainEndStage + mainChangeToStage(CITRAINING) */
+            } else {
+                mainChangeToStage(0x5a); /* STAGE_TITLE — offline or server: main menu */
+            }
         }
         ImGui::PopStyleColor(3);
     }
