@@ -1426,6 +1426,16 @@ void netEndFrame(void)
 
 			// Broadcast bot/simulant positions to all clients every update frame
 			if (g_NetNextUpdate <= g_NetTick) {
+				if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+					s32 validBots = 0;
+					for (s32 bi = 0; bi < g_BotCount; ++bi) {
+						if (g_MpBotChrPtrs[bi] && g_MpBotChrPtrs[bi]->prop && g_MpBotChrPtrs[bi]->aibot) {
+							validBots++;
+						}
+					}
+					sysLogPrintf(LOG_NOTE, "MATCH-TRACE: SVC_CHR_MOVE broadcast frame=%d bots=%d valid=%d",
+						g_NetTick, g_BotCount, validBots);
+				}
 				for (s32 i = 0; i < g_BotCount; ++i) {
 					struct chrdata *chr = g_MpBotChrPtrs[i];
 					if (chr && chr->prop && chr->aibot) {
@@ -1547,6 +1557,10 @@ void netEndFrame(void)
 	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient
 			&& g_NetLocalClient->state == CLSTATE_GAME
 			&& g_NetLocalBotAuthority && g_BotCount > 0) {
+		if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE frame=%d bots=%d authority=%d",
+				g_NetTick, g_BotCount, (s32)g_NetLocalBotAuthority);
+		}
 		netmsgClcBotMoveWrite(&g_NetMsg);
 	}
 

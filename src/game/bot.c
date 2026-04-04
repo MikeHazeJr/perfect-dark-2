@@ -985,9 +985,10 @@ s32 botTick(struct prop *prop)
 	f32 targetangle;
 	f32 oldangle;
 	f32 newangle;
-	static s32 s_BotTickFirstRun = 1;
-
-	updateable = (prop->flags & PROPFLAG_NOTYETTICKED) && g_Vars.lvupdate240;
+	/* FIX 1: PROPFLAG_NOTYETTICKED is cleared by chrTick before botTick runs,
+	 * so using it here made updateable=false after frame 0 — bots never ticked.
+	 * Use g_Vars.lvupdate240 directly: bots should tick every update frame. */
+	updateable = g_Vars.lvupdate240 != 0;
 
 	if (aibot) {
 		/* Non-authority clients defer to server-authoritative positions received via
@@ -998,11 +999,39 @@ s32 botTick(struct prop *prop)
 			return TICKOP_NONE;
 		}
 
-		if (s_BotTickFirstRun) {
-			sysLogPrintf(LOG_NOTE, "TICK: botTick first call lvframe60=%d chr=%p model=%p rooms[0]=%d aibot=%p",
-				g_Vars.lvframe60, (void *)chr, (void *)chr->model,
-				(s32)prop->rooms[0], (void *)aibot);
-			s_BotTickFirstRun = 0;
+		/* MATCH-TRACE: botTick entry — first 10 frames only */
+		if (g_Vars.lvframe60 < 10) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: botTick frame=%d slot=%d chr=%p rooms[0]=%d updateable=%d pos=(%.0f,%.0f,%.0f)",
+				g_Vars.lvframe60, (s32)aibot->aibotnum, (void *)chr,
+				(s32)prop->rooms[0], (s32)updateable,
+				prop->pos.x, prop->pos.y, prop->pos.z);
+		}
+
+		/* FIX 3: Room recovery — if bot has rooms[0]==-1, attempt room lookup
+		 * from current position every tick until a valid room is found. */
+		if (prop->rooms[0] == -1 && !chrIsDead(chr)) {
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum bestroom = -1;
+			inrooms[0] = -1;
+			bgFindRoomsByPos(&prop->pos, inrooms, aboverooms, 20, &bestroom);
+			if (inrooms[0] != -1) {
+				s32 ri;
+				for (ri = 0; ri < 8 && inrooms[ri] != -1; ri++) {
+					prop->rooms[ri] = inrooms[ri];
+				}
+				if (ri < 8) {
+					prop->rooms[ri] = -1;
+				}
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: bot room recovery slot=%d rooms[0]=%d from pos=(%.0f,%.0f,%.0f)",
+					(s32)aibot->aibotnum, (s32)prop->rooms[0],
+					prop->pos.x, prop->pos.y, prop->pos.z);
+			} else if (chr->floorroom != -1) {
+				prop->rooms[0] = chr->floorroom;
+				prop->rooms[1] = -1;
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: bot room recovery (floorroom) slot=%d rooms[0]=%d",
+					(s32)aibot->aibotnum, (s32)prop->rooms[0]);
+			}
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {

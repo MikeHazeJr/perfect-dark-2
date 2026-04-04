@@ -4063,7 +4063,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			s32 deserOk = (manifestDeserialize(src, &g_ServerManifest) == 0);
 			if (!deserOk || src->error) {
 				sysLogPrintf(LOG_WARNING,
-				             "NET: CLC_LOBBY_START host manifest missing or corrupt — falling back to server-side build");
+				             "NET: CLC_LOBBY_START host manifest missing or corrupt — falling back to server-side build"
+				             " (deserOk=%d bufError=%d rp=%u wp=%u size=%u)",
+				             deserOk, (s32)src->error, (unsigned)src->rp, (unsigned)src->wp, (unsigned)src->size);
 				manifestBuild(&g_ServerManifest, NULL, NULL);
 			} else {
 				/* Supplement: add other players' body/head from their stored settings.
@@ -4883,6 +4885,10 @@ u32 netmsgClcBotMoveWrite(struct netbuf *dst)
 	netbufWriteU8(dst, CLC_BOT_MOVE);
 	netbufWriteU8(dst, count);
 
+	if (g_Vars.lvframe60 < 600 && (g_Vars.lvframe60 % 60) == 0) {
+		sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE write count=%d frame=%d", (s32)count, g_Vars.lvframe60);
+	}
+
 	for (s32 i = 0; i < g_BotCount; i++) {
 		struct chrdata *chr = g_MpBotChrPtrs[i];
 		if (!chr || !chr->prop || !chr->aibot) {
@@ -4911,6 +4917,11 @@ u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 	(void)srccl;
 
 	const u8 count = netbufReadU8(src);
+
+	if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+		sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE server recv count=%d tick=%d",
+			(s32)count, g_NetTick);
+	}
 
 	for (u8 j = 0; j < count; j++) {
 		const u8 aibotnum = netbufReadU8(src);
