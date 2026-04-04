@@ -989,46 +989,11 @@ s32 botTick(struct prop *prop)
 				(s32)prop->rooms[0], (void *)aibot);
 			s_BotTickFirstRun = 0;
 		}
-		// In netplay as client, skip bot AI and movement entirely.
-		// The server sends authoritative positions via SVC_CHR_MOVE.
-		// We still call chrTick for rendering/collision processing.
-		if (g_NetMode == NETMODE_CLIENT) {
-			// Sync weapon model to match server-authoritative weaponnum.
-			// The server sends weaponnum via SVC_CHR_STATE; we create/destroy
-			// the visual weapon model props on the client to match.
-			if (updateable) {
-				s32 wantmodel = playermgrGetModelOfWeapon(aibot->weaponnum);
-				s32 haveweapon = -1;
-
-				if (chr->weapons_held[HAND_RIGHT] && chr->weapons_held[HAND_RIGHT]->weapon) {
-					haveweapon = chr->weapons_held[HAND_RIGHT]->weapon->weaponnum;
-				}
-
-				if (haveweapon != aibot->weaponnum) {
-					// Delete existing held weapons
-					for (s32 h = 0; h < 2; h++) {
-						if (chr->weapons_held[h] && chr->weapons_held[h]->obj) {
-							chr->weapons_held[h]->obj->hidden |= OBJHFLAG_DELETING;
-							chr->weapons_held[h] = NULL;
-						}
-					}
-
-					// Create new weapon model if the bot is armed
-					if (wantmodel >= 0 && aibot->weaponnum != WEAPON_UNARMED &&
-						aibot->weaponnum != WEAPON_NONE) {
-						chrGiveWeapon(chr, wantmodel, aibot->weaponnum, 0);
-					}
-				}
-			}
-
-			result = chrTick(prop);
-
-			if (g_Vars.lvframe60 >= 145 && updateable) {
-				scenarioTickChr(chr);
-			}
-
-			return result;
-		}
+		// The dedicated server stubs out mpStartMatch/mainChangeToStage so bots
+		// are never spawned server-side and SVC_CHR_MOVE is never sent.
+		// Run full bot AI on the client so bots move and fight normally.
+		// (When server-side bot simulation is implemented, re-introduce the
+		// NETMODE_CLIENT guard here and rely on SVC_CHR_MOVE for positions.)
 
 		if (updateable && g_Vars.lvframe60 >= 145) {
 			if (botShouldTickAI(chr)) {

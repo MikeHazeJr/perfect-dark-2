@@ -117,8 +117,8 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
 
     /* ---- Check for cancel input (ESC or gamepad B) ---- */
     if (showCountdown) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
             sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player (ESC/B)");
             netLobbyRequestCancel();
         }

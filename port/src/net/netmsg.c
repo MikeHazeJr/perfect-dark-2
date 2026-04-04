@@ -991,6 +991,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_Vars.antiplayernum = (numplayers > 1) ? 1 : -1;
 		}
 
+		/* Dismiss countdown overlay before changing stage. */
+		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
 		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
@@ -1117,6 +1119,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		 * can be false at stage-init time, so we call it explicitly here. */
 		scenarioInitProps();
 #endif
+		/* Dismiss countdown overlay before going in-game. */
+		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
 		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
