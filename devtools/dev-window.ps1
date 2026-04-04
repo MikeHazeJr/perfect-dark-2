@@ -1180,7 +1180,7 @@ function Get-ProjectVersion {
     $cp  = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cp)) { return $ver }
     try {
-        $c = Get-Content $cp -Raw -ErrorAction Stop
+        $c = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
         if ($c -match 'VERSION_SEM_MAJOR\s+(\d+)') { $ver.Major = [int]$Matches[1] }
         if ($c -match 'VERSION_SEM_MINOR\s+(\d+)') { $ver.Minor = [int]$Matches[1] }
         if ($c -match 'VERSION_SEM_PATCH\s+(\d+)') { $ver.Patch = [int]$Matches[1] }
@@ -1192,7 +1192,7 @@ function Set-ProjectVersion($major, $minor, $patch) {
     $cp = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cp)) { return }
     try {
-        $c = Get-Content $cp -Raw -ErrorAction Stop
+        $c = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
         $c = $c -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $major)
         $c = $c -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $minor)
         $c = $c -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $patch)

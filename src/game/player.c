@@ -555,8 +555,26 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 
 		s_LastSpawnPad = pads[slpadindexes[p]];
 	} else {
-		// No shortlisted pads, so pick a random one from the full selection
-		padUnpack(pads[rngRandom() % numpads], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
+		/* No shortlisted pads (all pads crowded or chrAdjustPosForSpawn failed).
+		 * Scan from a random start for any pad with a valid room (>= 0) to
+		 * prevent spawning at void positions when bots outnumber spawn pads.
+		 * Falls back to the random pad only if every pad has room == -1. */
+		s32 startidx = (s32)(rngRandom() % (u32)numpads);
+		s32 fallback_p = startidx;
+		{
+			struct pad tmppad;
+			for (p = 0; p < numpads; p++) {
+				s32 idx = (startidx + p) % numpads;
+				padUnpack(pads[idx], PADFIELD_ROOM, &tmppad);
+				if (tmppad.room >= 0) {
+					fallback_p = idx;
+					break;
+				}
+			}
+		}
+		padUnpack(pads[fallback_p], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
+		sysLogPrintf(LOG_WARNING, "SPAWN: no shortlist — fallback pad idx=%d room=%d pos=(%.0f,%.0f,%.0f)",
+			fallback_p, (s32)pad.room, pad.pos.x, pad.pos.y, pad.pos.z);
 
 		dstrooms[0] = pad.room;
 		dstrooms[1] = -1;
