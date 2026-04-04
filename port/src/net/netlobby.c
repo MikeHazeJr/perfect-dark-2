@@ -19,8 +19,14 @@
 #include "net/netlobby.h"
 #include "assetcatalog.h"
 #include "system.h"
+#include "room.h"
 
 struct lobbystate g_Lobby;
+
+/* R-3: Client-side room cache — populated by SVC_ROOM_LIST */
+room_cache_entry_t g_RoomCache[ROOM_CACHE_MAX];
+s32 g_RoomCacheCount = 0;
+u8  g_LocalRoomId = 0xFF;
 
 void lobbyInit(void)
 {

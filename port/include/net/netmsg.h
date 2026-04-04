@@ -58,6 +58,10 @@
 #define SVC_DISTRIB_END     0x73 // server→client: component transfer complete (success/fail)
 #define SVC_LOBBY_KILL_FEED 0x74 // server→spectating clients: kill event with pre-resolved names
 
+/* R-3: Room networking (protocol v29) */
+#define SVC_ROOM_LIST   0x75 // server→all: full room list snapshot (on any room change)
+#define SVC_ROOM_ASSIGN 0x76 // server→client: "you are now in room X" (0xFF = lounge)
+
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
 #define CLC_AUTH     0x02 // auth request, sent immediately after connecting
@@ -68,11 +72,17 @@
 #define CLC_COOP_READY  0x07 // client signals ready for co-op mission start
 #define CLC_LOBBY_START 0x08 // lobby leader requests match start {gamemode, stagenum, difficulty}
 
+
 /* D3R-9: Network Distribution (protocol v20) */
 #define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component catalog ID strings
 
 /* Bot authority relay (protocol v28) */
 #define CLC_BOT_MOVE      0x0A // bot-authority client→server: bot positions for server relay via SVC_CHR_MOVE
+
+/* R-3: Room networking (protocol v29) */
+#define CLC_ROOM_CREATE  0x10 // client→server: create a new room
+#define CLC_ROOM_JOIN    0x11 // client→server: join room by id
+#define CLC_ROOM_LEAVE   0x12 // client→server: leave current room
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -246,6 +256,20 @@ struct match_cancelled_state {
     char name[MATCH_CANCEL_NAME_LEN]; /* name of the player who cancelled */
 };
 extern struct match_cancelled_state g_MatchCancelledState;
+
+/* R-3: Room networking (protocol v29) */
+u32 netmsgSvcRoomListWrite(struct netbuf *dst);
+u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
+u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl);
+
+void netBroadcastRoomList(void);
 
 /* Phase F: Drive the server-side launch countdown.
  * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */

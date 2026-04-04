@@ -40,11 +40,13 @@
 #include "fs.h"
 #include "romdata.h"
 #include "utils.h"
+#include "room.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #endif
 
 s32 g_NetMode = NETMODE_NONE;
+u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 
 s32 g_NetHostLatch = false;
 s32 g_NetJoinLatch = false;
@@ -209,6 +211,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->out.size = sizeof(cl->out_data);
 	cl->id = cl - g_NetClients;
 	cl->settings.team = 0xff;
+	cl->room_id = 0xFF;
 }
 
 static inline void netClientResetAll(void)
@@ -658,17 +661,16 @@ void netServerStageStart(void)
 		}
 	}
 
-	/* Transition ALL connected clients to CLSTATE_GAME.
-	 * The server must do this before stage initialization code runs,
-	 * because the init code assumes all clients are in GAME state.
-	 * Remote clients will also transition on their end when they
-	 * receive and process SVC_STAGE_START.
+	/* R-3: Transition room members (or all clients if no room) to CLSTATE_GAME.
 	 * Phase E: also transition CLSTATE_PREPARING clients (those who sent READY
 	 * through the ready gate); declined clients are already back in CLSTATE_LOBBY
 	 * and are intentionally left there as spectators. */
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		if (g_NetClients[ci].state == CLSTATE_LOBBY ||
 		    g_NetClients[ci].state == CLSTATE_PREPARING) {
+			if (g_NetMatchRoomId != 0xFF && g_NetClients[ci].room_id != g_NetMatchRoomId) {
+				continue;
+			}
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
 	}
@@ -695,7 +697,11 @@ void netServerStageStart(void)
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageStartWrite(&g_NetMsgRel);
-	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	if (g_NetMatchRoomId != 0xFF) {
+		netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	} else {
+		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	}
 
 	/* Dedicated server: allocate minimal bot stubs and designate the first
 	 * connected client as the bot AI authority.  On a listen server the host
@@ -1144,6 +1150,14 @@ static void netServerEvDisconnect(struct netclient *cl)
 		}
 	}
 
+	/* R-3: Remove from room before reset (room_id cleared by netClientReset) */
+	if (cl->room_id != 0xFF) {
+		hub_room_t *room = roomGetById(cl->room_id);
+		if (room) {
+			roomLeave(room, cl->id);
+		}
+	}
+
 	if (cl->settings.name[0]) {
 		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) disconnected", cl->id, cl->settings.name);
 		netChatPrintf(NULL, "%s disconnected", cl->settings.name);
@@ -1154,6 +1168,9 @@ static void netServerEvDisconnect(struct netclient *cl)
 	netClientReset(cl);
 
 	--g_NetNumClients;
+
+	/* R-3: Broadcast updated room list after client leaves */
+	netBroadcastRoomList();
 }
 
 static void netServerEvReceive(struct netclient *cl)
@@ -1180,6 +1197,10 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			/* Bot authority relay */
 			case CLC_BOT_MOVE:         rc = netmsgClcBotMoveRead(&cl->in, cl); break;
+			/* R-3: Room networking */
+			case CLC_ROOM_CREATE:      rc = netmsgClcRoomCreateRead(&cl->in, cl); break;
+			case CLC_ROOM_JOIN:        rc = netmsgClcRoomJoinRead(&cl->in, cl); break;
+			case CLC_ROOM_LEAVE:       rc = netmsgClcRoomLeaveRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
@@ -1262,6 +1283,9 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_DISTRIB_CHUNK:   rc = netmsgSvcDistribChunkRead(&cl->in, cl); break;
 			case SVC_DISTRIB_END:     rc = netmsgSvcDistribEndRead(&cl->in, cl); break;
 			case SVC_LOBBY_KILL_FEED: rc = netmsgSvcLobbyKillFeedRead(&cl->in, cl); break;
+			/* R-3: Room networking */
+			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
+			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
 			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
@@ -1619,6 +1643,25 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	netbufStartWrite(buf);
 
 	return ret;
+}
+
+void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
+{
+	if (!g_NetHost || !buf || !buf->wp) return;
+
+	const u32 flags = reliable ? ENET_PACKET_FLAG_RELIABLE : 0;
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (cl->state >= CLSTATE_LOBBY && cl->peer && cl->room_id == room_id) {
+			ENetPacket *p = enet_packet_create(buf->data, buf->wp, flags);
+			if (p) {
+				enet_peer_send(cl->peer, chan, p);
+			}
+		}
+	}
+
+	netbufStartWrite(buf);
 }
 
 /* Snapshot of remote player configs before netPlayersAllocate overwrites them.

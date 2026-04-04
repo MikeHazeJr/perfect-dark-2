@@ -96,6 +96,15 @@ const char *mpPlayerConfigGetName(s32 playernum);
 /* Routing: transition into room interior (pdgui_lobby.cpp) */
 void pdguiSetInRoom(s32 inRoom);
 
+/* R-3: Room networking — send create/join/leave to server */
+struct netbuf;
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+extern struct netbuf g_NetMsgRel;
+void netbufStartWrite(struct netbuf *buf);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -291,28 +300,29 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         ImGui::Spacing();
         if (ImGui::Button("+ Create Room", ImVec2(innerW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-            sysLogPrintf(LOG_NOTE, "LOBBY: transitioning to room interior");
-            pdguiSetInRoom(1);
+            sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
+            netbufStartWrite(&g_NetMsgRel);
+            netmsgClcRoomCreateWrite(&g_NetMsgRel, "");
+            netSend(NULL, &g_NetMsgRel, 1, 0);
         }
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
     }
 
-    /* Room list */
+    /* Room list — populated from SVC_ROOM_LIST cache */
     s32 roomsShown = 0;
-    for (s32 ri = 0; ri < HUB_MAX_ROOMS; ri++) {
-        hub_room_t *room = roomGetByIndex(ri);
-        if (!room) continue;
-        if (room->client_count == 0) continue;
+    for (s32 ri = 0; ri < g_RoomCacheCount; ri++) {
+        room_cache_entry_t *entry = &g_RoomCache[ri];
+        if (entry->client_count == 0 && entry->id == 0) continue; /* skip empty Lounge */
         roomsShown++;
 
         ImGui::PushID(ri);
 
         /* State color */
-        const char *stateName = roomStateName(room->state);
+        const char *stateName = roomStateName((room_state_t)entry->state);
         ImVec4 stateColor;
-        switch (room->state) {
+        switch (entry->state) {
             case ROOM_STATE_LOBBY:    stateColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f); break;
             case ROOM_STATE_LOADING:  stateColor = ImVec4(1.0f, 0.8f, 0.2f, 1.0f); break;
             case ROOM_STATE_MATCH:    stateColor = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
@@ -322,26 +332,27 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
         /* Room name row */
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 1.0f, 1.0f), "%s",
-                           room->name[0] ? room->name : "Unnamed Room");
+                           entry->name[0] ? entry->name : "Unnamed Room");
         ImGui::SameLine();
         ImGui::TextColored(stateColor, "[%s]", stateName);
 
-        /* Player count + greyed-out Join button on same row */
+        /* Player count + Join button on same row */
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f),
                            "  %d player%s",
-                           room->client_count,
-                           room->client_count == 1 ? "" : "s");
+                           entry->client_count,
+                           entry->client_count == 1 ? "" : "s");
 
-        if (!g_NetDedicated) {
+        if (!g_NetDedicated && entry->state == ROOM_STATE_LOBBY) {
             float joinW = pdguiScale(56.0f);
             char joinId[32];
             snprintf(joinId, sizeof(joinId), "Join##r%d", ri);
             ImGui::SameLine(innerW - joinW);
-            ImGui::BeginDisabled();
-            ImGui::Button(joinId, ImVec2(joinW, 0));
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Coming soon (R-3)");
+            if (ImGui::Button(joinId, ImVec2(joinW, 0))) {
+                pdguiPlaySound(PDGUI_SND_SELECT);
+                sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_JOIN for room %u", (unsigned)entry->id);
+                netbufStartWrite(&g_NetMsgRel);
+                netmsgClcRoomJoinWrite(&g_NetMsgRel, entry->id);
+                netSend(NULL, &g_NetMsgRel, 1, 0);
             }
         }
 

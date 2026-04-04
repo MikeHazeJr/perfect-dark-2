@@ -88,6 +88,25 @@ typedef struct hub_room_s {
 } hub_room_t;
 
 /* -------------------------------------------------------------------------
+ * Client-side room cache (populated by SVC_ROOM_LIST, no server memory access)
+ * ------------------------------------------------------------------------- */
+
+#define ROOM_CACHE_MAX HUB_MAX_ROOMS
+
+typedef struct {
+    u8   id;
+    u8   state;          /* room_state_t */
+    u8   client_count;
+    u8   max_players;
+    u8   creator_client_id;
+    char name[ROOM_NAME_MAX];
+} room_cache_entry_t;
+
+extern room_cache_entry_t g_RoomCache[ROOM_CACHE_MAX];
+extern s32 g_RoomCacheCount;
+extern u8  g_LocalRoomId;  /* 0xFF = in lounge (no room) */
+
+/* -------------------------------------------------------------------------
  * API
  * ------------------------------------------------------------------------- */
 
@@ -133,8 +152,26 @@ hub_room_t *roomGetByIndex(s32 idx);
 /** Total non-CLOSED room count. */
 s32 roomGetActiveCount(void);
 
-/** Human-readable name for a room_state_t value. */
-const char *roomStateName(room_state_t state);
+/** Human-readable name for a room_state_t value.
+ * Inline so both client and server can use it without linking room.c. */
+static inline const char *roomStateName(room_state_t state)
+{
+    switch (state) {
+        case ROOM_STATE_LOBBY:     return "Lobby";
+        case ROOM_STATE_LOADING:   return "Loading";
+        case ROOM_STATE_MATCH:     return "Match";
+        case ROOM_STATE_POSTGAME:  return "Postgame";
+        case ROOM_STATE_CLOSED:    return "Closed";
+        case ROOM_STATE_PREPARING: return "Preparing";
+        default:                   return "?";
+    }
+}
+
+/** Add a client to a room. Returns 1 on success, 0 if full or already in room. */
+s32 roomJoin(hub_room_t *room, u8 clientId);
+
+/** Remove a client from a room. Destroys room if empty (except room 0). */
+void roomLeave(hub_room_t *room, u8 clientId);
 
 #ifdef __cplusplus
 }

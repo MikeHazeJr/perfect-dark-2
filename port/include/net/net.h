@@ -9,9 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 28  /* v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
-                               * Authority client runs bot AI and sends CLC_BOT_MOVE; server updates stubs
-                               * and relays positions to all clients via existing SVC_CHR_MOVE.
+#define NET_PROTOCOL_VER 29  /* v29: Room networking (R-3). SVC_ROOM_LIST, SVC_ROOM_ASSIGN,
+                               * CLC_ROOM_CREATE, CLC_ROOM_JOIN, CLC_ROOM_LEAVE.
+                               * Clients see room list, create/join rooms, match start is room-scoped.
+                               * v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
                                * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
@@ -166,6 +167,8 @@ struct netclient {
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position
 
+	u8 room_id; // hub room assignment (0xFF = in lounge, not in a room)
+
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
 
@@ -226,6 +229,7 @@ s32 netStartServer(u16 port, s32 maxclients);
 s32 netStartClient(const char *addr);
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
 
 void netChat(struct netclient *dst, const char *text);
 void netChatPrintf(struct netclient *dst, const char *fmt, ...);

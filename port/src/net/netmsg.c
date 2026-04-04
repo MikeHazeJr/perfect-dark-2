@@ -91,6 +91,8 @@ static struct {
 	s32 countdown_active;    /* 1 during the 3-second pre-launch countdown */
 	u32 countdown_next_tick; /* g_NetTick at which to decrement + re-broadcast */
 	u8  countdown_secs;      /* current countdown value (3→2→1→0) */
+	/* R-3: which room this ready gate belongs to */
+	u8  room_id;             /* 0xFF = global (no room), else room slot index */
 } s_ReadyGate;
 
 /* Phase F: Client-side countdown display state.
@@ -432,6 +434,9 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		}
 		sysLogPrintf(LOG_NOTE, "NET: broadcast SVC_LOBBY_LEADER: client %u is leader", leaderClientId);
 	}
+
+	/* R-3: Send initial room list to the newly authenticated client */
+	netBroadcastRoomList();
 
 	return 0;
 }
@@ -3812,15 +3817,19 @@ void readyGateTickCountdown(void)
 	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
 
 	if (s_ReadyGate.countdown_secs == 0) {
-		sysLogPrintf(LOG_NOTE, "NET: countdown complete — launching match (stage %u)",
-		             (unsigned)s_ReadyGate.stagenum);
+		sysLogPrintf(LOG_NOTE, "NET: countdown complete — launching match (stage %u room %u)",
+		             (unsigned)s_ReadyGate.stagenum, (unsigned)s_ReadyGate.room_id);
 		s_ReadyGate.active           = 0;
 		s_ReadyGate.countdown_active = 0;
 
-		hub_room_t *room = roomGetById(0);
+		hub_room_t *room = (s_ReadyGate.room_id != 0xFF) ? roomGetById(s_ReadyGate.room_id) : roomGetById(0);
 		if (room) {
 			roomTransition(room, ROOM_STATE_LOADING);
 		}
+
+		/* R-3: Set the match room before calling netServerStageStart so it can scope broadcasts */
+		extern u8 g_NetMatchRoomId;
+		g_NetMatchRoomId = s_ReadyGate.room_id;
 
 		mainChangeToStage(s_ReadyGate.stagenum);
 		netServerStageStart();
@@ -3937,38 +3946,44 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	/* Validate sender is the lobby leader.
-	 * Call lobbyUpdate() first to handle the same-frame auth+start race:
-	 * the server loop runs netStartFrame() before lobbyUpdate(), so if a
-	 * client's CLC_AUTH and CLC_LOBBY_START arrive in the same ENet batch
-	 * the lobby state from the previous tick is used.  Refreshing here
-	 * ensures leaderSlot reflects the just-authed client. */
+	/* R-3: Validate sender is in a room and is the room creator (room leader).
+	 * The room creator is the only one who can start the match for that room.
+	 * Also accept from global lobby leader as fallback for backward compat. */
 	lobbyUpdate();
 	bool isLeader = false;
-	u8 leaderSlot = lobbyGetLeader();
-	if (leaderSlot < LOBBY_MAX_PLAYERS) {
-		struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
-		if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+	hub_room_t *startRoom = NULL;
+
+	if (srccl->room_id != 0xFF) {
+		startRoom = roomGetById(srccl->room_id);
+		if (startRoom && startRoom->creator_client_id == srccl->id) {
 			isLeader = true;
 		}
 	}
 
-	/* Fallback: if leader slot is still 0xFF (no lobby-state clients seen
-	 * yet, e.g., sender is the only client and just reached CLSTATE_LOBBY
-	 * this same frame), accept from the first connected lobby-state client. */
-	if (!isLeader && leaderSlot == 0xFF) {
-		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-			struct netclient *ncl = &g_NetClients[ci];
-			if (ncl == g_NetLocalClient) continue;
-			if (ncl->state < CLSTATE_LOBBY) continue;
-			isLeader = (ncl == srccl);
-			break;
+	/* Fallback: if not in a room, check global lobby leader (backward compat) */
+	if (!isLeader && srccl->room_id == 0xFF) {
+		u8 leaderSlot = lobbyGetLeader();
+		if (leaderSlot < LOBBY_MAX_PLAYERS) {
+			struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+			if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+				isLeader = true;
+			}
+		}
+		/* Fallback: first connected lobby client if no leader assigned yet */
+		if (!isLeader && leaderSlot == 0xFF) {
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				struct netclient *ncl = &g_NetClients[ci];
+				if (ncl == g_NetLocalClient) continue;
+				if (ncl->state < CLSTATE_LOBBY) continue;
+				isLeader = (ncl == srccl);
+				break;
+			}
 		}
 	}
 
 	if (!isLeader) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not leader (leaderSlot=%u)",
-		             srccl->id, srccl->settings.name, (unsigned)leaderSlot);
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not room creator",
+		             srccl->id, srccl->settings.name);
 		return src->error;
 	}
 
@@ -4142,21 +4157,27 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		sessionCatalogBuild(&g_ServerManifest);
 		sessionCatalogLogMapping();
 
-		/* Phase C: broadcast SVC_MATCH_MANIFEST to all clients.
-		 * Transitional: still send SVC_STAGE_START immediately after (via
-		 * netServerStageStart below) so matches continue to work end-to-end.
+		/* R-3: Determine which room this match belongs to */
+		const u8 matchRoomId = srccl->room_id;
+
+		/* Phase C: broadcast SVC_MATCH_MANIFEST to room members (or all if no room).
 		 * Phase E will gate on CLC_MANIFEST_STATUS responses instead. */
 		netbufStartWrite(&g_NetMsgRel);
 		netmsgSvcMatchManifestWrite(&g_NetMsgRel, &g_ServerManifest);
-		netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
-		sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST broadcast (hash=0x%08x entries=%u)",
+		if (matchRoomId != 0xFF) {
+			netSendToRoom(matchRoomId, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		} else {
+			netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		}
+		sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST broadcast (hash=0x%08x entries=%u room=%u)",
 		             (unsigned)g_ServerManifest.manifest_hash,
-		             (unsigned)g_ServerManifest.num_entries);
+		             (unsigned)g_ServerManifest.num_entries,
+		             (unsigned)matchRoomId);
 
-		/* SA-1: broadcast session catalog to all room clients. */
+		/* SA-1: broadcast session catalog to room clients. */
 		sessionCatalogBroadcast();
 
-		/* Phase E: enter ready gate — transition all LOBBY clients to PREPARING,
+		/* Phase E: enter ready gate — transition room members from LOBBY to PREPARING,
 		 * initialize tracker, broadcast initial countdown.
 		 * SVC_STAGE_START is deferred until all clients respond READY (or timeout). */
 		{
@@ -4164,6 +4185,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			u8  total_count   = 0;
 			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 				if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+					/* R-3: Only transition clients in the same room */
+					if (matchRoomId != 0xFF && g_NetClients[ci].room_id != matchRoomId) {
+						continue;
+					}
 					g_NetClients[ci].state = CLSTATE_PREPARING;
 					expected_mask |= (1u << ci);
 					total_count++;
@@ -4177,8 +4202,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
 			s_ReadyGate.stagenum      = g_MpSetup.stagenum;
 			s_ReadyGate.total_count   = total_count;
+			s_ReadyGate.room_id       = matchRoomId;
 
-			hub_room_t *room = roomGetById(0);
+			hub_room_t *room = (matchRoomId != 0xFF) ? roomGetById(matchRoomId) : roomGetById(0);
 			if (room) {
 				roomTransition(room, ROOM_STATE_PREPARING);
 			}
@@ -4189,6 +4215,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				if (room) {
 					roomTransition(room, ROOM_STATE_LOADING);
 				}
+				extern u8 g_NetMatchRoomId;
+				g_NetMatchRoomId = matchRoomId;
 				mainChangeToStage(g_MpSetup.stagenum);
 				netServerStageStart();
 			} else {
@@ -4994,4 +5022,259 @@ u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	return src->error;
+}
+
+/* ========================================================================
+ * R-3: Room networking (protocol v29)
+ * ======================================================================== */
+
+u32 netmsgSvcRoomListWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, SVC_ROOM_LIST);
+
+	s32 count = roomGetActiveCount();
+	netbufWriteU8(dst, (u8)count);
+
+	for (s32 i = 0; i < count; i++) {
+		hub_room_t *room = roomGetByIndex(i);
+		if (!room) break;
+		netbufWriteU8(dst, room->id);
+		netbufWriteU8(dst, (u8)room->state);
+		netbufWriteStr(dst, room->name);
+		netbufWriteU8(dst, room->client_count);
+		netbufWriteU8(dst, room->max_players);
+		netbufWriteU8(dst, room->creator_client_id);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 count = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	g_RoomCacheCount = 0;
+
+	for (u8 i = 0; i < count && i < ROOM_CACHE_MAX; i++) {
+		room_cache_entry_t *entry = &g_RoomCache[i];
+		entry->id                = netbufReadU8(src);
+		entry->state             = netbufReadU8(src);
+		const char *name         = netbufReadStr(src);
+		if (name) {
+			strncpy(entry->name, name, ROOM_NAME_MAX - 1);
+			entry->name[ROOM_NAME_MAX - 1] = '\0';
+		} else {
+			entry->name[0] = '\0';
+		}
+		entry->client_count      = netbufReadU8(src);
+		entry->max_players       = netbufReadU8(src);
+		entry->creator_client_id = netbufReadU8(src);
+		g_RoomCacheCount++;
+	}
+
+	/* Skip any extra rooms beyond cache capacity */
+	for (u8 i = ROOM_CACHE_MAX; i < count; i++) {
+		netbufReadU8(src);
+		netbufReadU8(src);
+		netbufReadStr(src);
+		netbufReadU8(src);
+		netbufReadU8(src);
+		netbufReadU8(src);
+	}
+
+	if (src->error) return src->error;
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_LIST received (%d rooms)", (s32)count);
+	return src->error;
+}
+
+u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id)
+{
+	netbufWriteU8(dst, SVC_ROOM_ASSIGN);
+	netbufWriteU8(dst, room_id);
+	return dst->error;
+}
+
+u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 room_id = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	g_LocalRoomId = room_id;
+
+	if (room_id != 0xFF) {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_ASSIGN: assigned to room %u", (unsigned)room_id);
+#if !defined(PD_SERVER)
+		extern void pdguiSetInRoom(s32 inRoom);
+		pdguiSetInRoom(1);
+#endif
+	} else {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_ASSIGN: returned to lounge");
+#if !defined(PD_SERVER)
+		extern void pdguiSetInRoom(s32 inRoom);
+		pdguiSetInRoom(0);
+#endif
+	}
+
+	return src->error;
+}
+
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name)
+{
+	netbufWriteU8(dst, CLC_ROOM_CREATE);
+	netbufWriteStr(dst, name ? name : "");
+	return dst->error;
+}
+
+u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const char *name = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	/* Leave current room first if in one */
+	if (srccl->room_id != 0xFF) {
+		hub_room_t *old = roomGetById(srccl->room_id);
+		if (old) roomLeave(old, srccl->id);
+	}
+
+	/* Generate name if not provided */
+	char genName[ROOM_NAME_MAX];
+	if (!name || name[0] == '\0') {
+		roomGenerateName(genName, sizeof(genName));
+		name = genName;
+	}
+
+	hub_room_t *room = roomCreateConfigured(name, 32, ROOM_ACCESS_OPEN, NULL, srccl->id);
+	if (!room) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE failed — no free slots");
+		return src->error;
+	}
+
+	srccl->room_id = room->id;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_CREATE from client %u — created room %u \"%s\"",
+	             srccl->id, (unsigned)room->id, room->name);
+
+	/* Send room assignment to the creator */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list to everyone */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id)
+{
+	netbufWriteU8(dst, CLC_ROOM_JOIN);
+	netbufWriteU8(dst, room_id);
+	return dst->error;
+}
+
+u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 room_id = netbufReadU8(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	hub_room_t *room = roomGetById(room_id);
+	if (!room) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not found",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	if (room->state != ROOM_STATE_LOBBY) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not in lobby state",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	/* Leave current room first if in one */
+	if (srccl->room_id != 0xFF) {
+		hub_room_t *old = roomGetById(srccl->room_id);
+		if (old) roomLeave(old, srccl->id);
+	}
+
+	if (!roomJoin(room, srccl->id)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u full",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	srccl->room_id = room->id;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_JOIN from client %u — joined room %u \"%s\"",
+	             srccl->id, (unsigned)room->id, room->name);
+
+	/* Send assignment to the joiner */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_ROOM_LEAVE);
+	return dst->error;
+}
+
+u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	if (srccl->room_id == 0xFF) return src->error;
+
+	hub_room_t *room = roomGetById(srccl->room_id);
+	if (room) {
+		roomLeave(room, srccl->id);
+	}
+
+	srccl->room_id = 0xFF;
+
+	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_LEAVE from client %u — returned to lounge", srccl->id);
+
+	/* Send assignment (lounge) to the leaver */
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, 0xFF);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Broadcast updated room list */
+	netBroadcastRoomList();
+
+	return src->error;
+}
+
+void netBroadcastRoomList(void)
+{
+	if (g_NetMode != NETMODE_SERVER) return;
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcRoomListWrite(&g_NetMsgRel);
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 }
