@@ -875,13 +875,13 @@ void mpInit(bool resetplayers)
 	g_MpSetup.scenario = MPSCENARIO_COMBAT;
 	/* Default stage: Skedar (MP) — resolve via catalog. */
 	{
-		const asset_entry_t *ae = assetCatalogResolve("base:mp_skedar");
+		const asset_entry_t *ae = assetCatalogResolve("base:arena_mp_skedar");
 		if (ae && ae->type == ASSET_ARENA) {
 			strncpy(g_MpSetup.stage_id, ae->id, sizeof(g_MpSetup.stage_id) - 1);
 			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 			g_MpSetup.stagenum = (u8)ae->ext.arena.stagenum;
 		} else {
-			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog arena 'base:mp_skedar' not found");
+			sysLogPrintf(LOG_ERROR, "MPLAYER: catalog arena 'base:arena_mp_skedar' not found");
 			g_MpSetup.stage_id[0] = '\0';
 			g_MpSetup.stagenum = STAGE_MP_SKEDAR; /* last-resort legacy fallback */
 		}

@@ -1019,14 +1019,6 @@ s32 botTick(struct prop *prop)
 			}
 		}
 
-		/* MATCH-TRACE: botTick entry — first 10 frames only */
-		if (g_Vars.lvframe60 < 10) {
-			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: botTick frame=%d slot=%d chr=%p rooms[0]=%d updateable=%d pos=(%.0f,%.0f,%.0f)",
-				g_Vars.lvframe60, (s32)aibot->aibotnum, (void *)chr,
-				(s32)prop->rooms[0], (s32)updateable,
-				prop->pos.x, prop->pos.y, prop->pos.z);
-		}
-
 		/* FIX 3: Room recovery — if bot has rooms[0]==-1, attempt room lookup
 		 * from current position every tick until a valid room is found. */
 		if (prop->rooms[0] == -1 && !chrIsDead(chr)) {
