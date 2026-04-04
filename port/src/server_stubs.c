@@ -182,7 +182,15 @@ void chrSetPos(struct chrdata *chr, struct coord *pos, s16 *rooms, f32 angle, s3
     (void)chr; (void)pos; (void)rooms; (void)angle; (void)onground;
 }
 s32 chrIsDead(struct chrdata *chr) { (void)chr; return 0; }
-f32 chrGetInverseTheta(struct chrdata *chr) { (void)chr; return 0.0f; }
+f32 chrGetInverseTheta(struct chrdata *chr) {
+	/* On the dedicated server, CLC_BOT_MOVE stores the authority client's
+	 * angle into aibot->roty.  Return it here so SVC_CHR_MOVE relays the
+	 * real facing direction instead of always 0. */
+	if (chr && chr->aibot) {
+		return chr->aibot->roty;
+	}
+	return 0.0f;
+}
 void chrSetLookAngle(struct chrdata *chr, f32 angle) { (void)chr; (void)angle; }
 void chrDamage(struct prop *prop, f32 damage, struct coord *pos, s32 hitpart,
                s32 attackernum, s32 weaponnum, s32 arg6) {

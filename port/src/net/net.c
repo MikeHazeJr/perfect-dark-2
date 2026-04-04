@@ -1393,162 +1393,165 @@ void netEndFrame(void)
 	// send whatever messages have accumulated so far
 	netFlushSendBuffers();
 
-	if (g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME && g_NetLocalClient->player && g_NetLocalClient->player->prop) {
-		if (g_NetMode == NETMODE_CLIENT) {
-			if (g_NetTick > 100) {
-				netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
-				const bool needrel = netClientNeedReliableMove(g_NetLocalClient);
-				if (needrel || netClientNeedMove(g_NetLocalClient)) {
-					netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
+	/* --- Client: send player move --- */
+	if (g_NetMode == NETMODE_CLIENT
+			&& g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME
+			&& g_NetLocalClient->player && g_NetLocalClient->player->prop) {
+		if (g_NetTick > 100) {
+			netClientRecordMove(g_NetLocalClient, g_NetLocalClient->player);
+			const bool needrel = netClientNeedReliableMove(g_NetLocalClient);
+			if (needrel || netClientNeedMove(g_NetLocalClient)) {
+				netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
+			}
+		}
+		if (g_NetNextUpdate <= g_NetTick) {
+			g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
+		}
+		// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
+		// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
+		// making any direct write inside a recv handler silently dropped.
+		if (g_NetPendingResyncReqFlags) {
+			netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
+			g_NetPendingResyncReqFlags = 0;
+		}
+	}
+
+	/* --- Server: broadcast game state to all clients ---
+	 * CRITICAL: This block must NOT be guarded by g_NetLocalClient — on a
+	 * dedicated server g_NetLocalClient is NULL, so putting this inside a
+	 * g_NetLocalClient guard makes the entire server broadcast path dead code.
+	 * Instead, check g_NetMode == NETMODE_SERVER and use g_NetNumClients to
+	 * know whether any clients are connected and need updates. */
+	if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0) {
+		for (s32 i = 0; i < g_NetMaxClients; ++i) {
+			struct netclient *cl = &g_NetClients[i];
+			if (cl->state >= CLSTATE_GAME && cl->player) {
+				netClientRecordMove(cl, cl->player);
+				const bool needrel = netClientNeedReliableMove(cl);
+				if (needrel || netClientNeedMove(cl)) {
+					netmsgSvcPlayerMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg, cl);
 				}
 			}
-			if (g_NetNextUpdate <= g_NetTick) {
-				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
-			}
-			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.
-			// Must be done here (netEndFrame) because netStartFrame resets g_NetMsgRel after dispatch,
-			// making any direct write inside a recv handler silently dropped.
-			if (g_NetPendingResyncReqFlags) {
-				netmsgClcResyncReqWrite(&g_NetMsgRel, g_NetPendingResyncReqFlags);
-				g_NetPendingResyncReqFlags = 0;
-			}
-		} else {
-			for (s32 i = 0; i < g_NetMaxClients; ++i) {
-				struct netclient *cl = &g_NetClients[i];
-				if (cl->state >= CLSTATE_GAME && cl->player) {
-					netClientRecordMove(cl, cl->player);
-					const bool needrel = netClientNeedReliableMove(cl);
-					if (needrel || netClientNeedMove(cl)) {
-						netmsgSvcPlayerMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg, cl);
+		}
+
+		// Broadcast bot/simulant positions to all clients every update frame
+		if (g_NetNextUpdate <= g_NetTick) {
+			if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
+				s32 validBots = 0;
+				for (s32 bi = 0; bi < g_BotCount; ++bi) {
+					if (g_MpBotChrPtrs[bi] && g_MpBotChrPtrs[bi]->prop && g_MpBotChrPtrs[bi]->aibot) {
+						validBots++;
 					}
+				}
+				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: SVC_CHR_MOVE broadcast frame=%d bots=%d valid=%d",
+					g_NetTick, g_BotCount, validBots);
+			}
+			for (s32 i = 0; i < g_BotCount; ++i) {
+				struct chrdata *chr = g_MpBotChrPtrs[i];
+				if (chr && chr->prop && chr->aibot) {
+					netmsgSvcChrMoveWrite(&g_NetMsg, chr);
 				}
 			}
 
-			// Broadcast bot/simulant positions to all clients every update frame
-			if (g_NetNextUpdate <= g_NetTick) {
-				if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
-					s32 validBots = 0;
-					for (s32 bi = 0; bi < g_BotCount; ++bi) {
-						if (g_MpBotChrPtrs[bi] && g_MpBotChrPtrs[bi]->prop && g_MpBotChrPtrs[bi]->aibot) {
-							validBots++;
-						}
-					}
-					sysLogPrintf(LOG_NOTE, "MATCH-TRACE: SVC_CHR_MOVE broadcast frame=%d bots=%d valid=%d",
-						g_NetTick, g_BotCount, validBots);
-				}
+			// Send bot state less frequently (every 15 frames ~= 4 times/sec at 60fps)
+			if ((g_NetTick % 15) == 0) {
 				for (s32 i = 0; i < g_BotCount; ++i) {
 					struct chrdata *chr = g_MpBotChrPtrs[i];
 					if (chr && chr->prop && chr->aibot) {
-						netmsgSvcChrMoveWrite(&g_NetMsg, chr);
+						netmsgSvcChrStateWrite(&g_NetMsgRel, chr);
 					}
 				}
+			}
 
-				// Send bot state less frequently (every 15 frames ~= 4 times/sec at 60fps)
-				if ((g_NetTick % 15) == 0) {
-					for (s32 i = 0; i < g_BotCount; ++i) {
-						struct chrdata *chr = g_MpBotChrPtrs[i];
-						if (chr && chr->prop && chr->aibot) {
-							netmsgSvcChrStateWrite(&g_NetMsgRel, chr);
+			// Send desync detection checksum every 60 frames (~1/sec)
+			if ((g_NetTick % 60) == 0 && g_BotCount > 0) {
+				netmsgSvcChrSyncWrite(&g_NetMsgRel);
+			}
+
+			// Send prop desync detection checksum every 120 frames (~2/sec)
+			if ((g_NetTick % 120) == 0) {
+				netmsgSvcPropSyncWrite(&g_NetMsgRel);
+			}
+
+			g_NetNextUpdate = g_NetTick + g_NetServerUpdateRate;
+		}
+
+		// Co-op NPC replication: broadcast NPC positions and state
+		// NPCs are server-authoritative in co-op mode (AI runs only on server)
+		if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
+			static bool s_npcBroadcastStarted = false;
+			if (!s_npcBroadcastStarted) {
+				sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
+				s_npcBroadcastStarted = true;
+			}
+
+			// NPC position updates every 3 frames (~20 Hz)
+			if ((g_NetTick % 3) == 0) {
+				if (g_NumChrSlots > 0) {
+					for (s32 i = 0; i < g_NumChrSlots; ++i) {
+						struct chrdata *chr = &g_ChrSlots[i];
+						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
 						}
 					}
 				}
-
-				// Send desync detection checksum every 60 frames (~1/sec)
-				if ((g_NetTick % 60) == 0 && g_BotCount > 0) {
-					netmsgSvcChrSyncWrite(&g_NetMsgRel);
-				}
-
-				// Send prop desync detection checksum every 120 frames (~2/sec)
-				if ((g_NetTick % 120) == 0) {
-					netmsgSvcPropSyncWrite(&g_NetMsgRel);
-				}
-
-				g_NetNextUpdate = g_NetTick + g_NetServerUpdateRate;
 			}
 
-			// Co-op NPC replication: broadcast NPC positions and state
-			// NPCs are server-authoritative in co-op mode (AI runs only on server)
-			if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
-				// Ensure we're in GAME state to prevent sending NPCs during stage load.
-				// Do NOT use g_NetLocalClient here — it is NULL on dedicated server, making
-				// the original guard always false (NPC broadcasts silently dropped, CRIT-1).
-				// Check g_NetNumClients instead: if any client is connected, the stage is running.
-				if (g_NetNumClients > 0) {
-					static bool s_npcBroadcastStarted = false;
-					if (!s_npcBroadcastStarted) {
-						sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
-						s_npcBroadcastStarted = true;
-					}
-
-					// NPC position updates every 3 frames (~20 Hz)
-					if ((g_NetTick % 3) == 0) {
-						if (g_NumChrSlots > 0) {
-							for (s32 i = 0; i < g_NumChrSlots; ++i) {
-								struct chrdata *chr = &g_ChrSlots[i];
-								if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
-									netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
-								}
-							}
+			// NPC state updates every 30 frames (~2/sec)
+			if ((g_NetTick % 30) == 0) {
+				if (g_NumChrSlots > 0) {
+					for (s32 i = 0; i < g_NumChrSlots; ++i) {
+						struct chrdata *chr = &g_ChrSlots[i];
+						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
 						}
 					}
-
-					// NPC state updates every 30 frames (~2/sec)
-					if ((g_NetTick % 30) == 0) {
-						if (g_NumChrSlots > 0) {
-							for (s32 i = 0; i < g_NumChrSlots; ++i) {
-								struct chrdata *chr = &g_ChrSlots[i];
-								if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
-									netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
-								}
-							}
-						}
-					}
-
-					// NPC sync checksum every 120 frames (~0.5/sec)
-					if ((g_NetTick % 120) == 0) {
-						netmsgSvcNpcSyncWrite(&g_NetMsgRel);
-					}
 				}
 			}
 
-			// Expire preserved player slots after timeout
-			if (g_NetNumPreserved > 0 && (g_NetTick % 600) == 0) {
-				for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-					if (g_NetPreservedPlayers[i].active
-							&& (g_NetTick - g_NetPreservedPlayers[i].preserveframe) > NET_PRESERVE_TIMEOUT_FRAMES) {
-						sysLogPrintf(LOG_NOTE, "NET: preserved player %s timed out", g_NetPreservedPlayers[i].name);
-						g_NetPreservedPlayers[i].active = false;
-						--g_NetNumPreserved;
-					}
-				}
+			// NPC sync checksum every 120 frames (~0.5/sec)
+			if ((g_NetTick % 120) == 0) {
+				netmsgSvcNpcSyncWrite(&g_NetMsgRel);
 			}
+		}
 
-			// Handle pending resync requests from clients
-			if (g_NetPendingResyncFlags) {
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_CHRS) {
-					sysLogPrintf(LOG_NOTE, "NET: sending chr resync to all clients (%u bots)", g_BotCount);
-					netmsgSvcChrResyncWrite(&g_NetMsgRel);
+		// Expire preserved player slots after timeout
+		if (g_NetNumPreserved > 0 && (g_NetTick % 600) == 0) {
+			for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+				if (g_NetPreservedPlayers[i].active
+						&& (g_NetTick - g_NetPreservedPlayers[i].preserveframe) > NET_PRESERVE_TIMEOUT_FRAMES) {
+					sysLogPrintf(LOG_NOTE, "NET: preserved player %s timed out", g_NetPreservedPlayers[i].name);
+					g_NetPreservedPlayers[i].active = false;
+					--g_NetNumPreserved;
 				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_PROPS) {
-					sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
-					netmsgSvcPropResyncWrite(&g_NetMsgRel);
-				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
-					sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
-					netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
-				}
-				if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
-					u32 npccount = netNpcCount();
-					sysLogPrintf(LOG_NOTE, "NET: sending npc resync to all clients (%u npcs)", npccount);
-					netmsgSvcNpcResyncWrite(&g_NetMsgRel);
-					// Also sync co-op mission state (stage flags + objective statuses)
-					netmsgSvcStageFlagWrite(&g_NetMsgRel);
-					for (s32 i = 0; i <= g_ObjectiveLastIndex; ++i) {
-						netmsgSvcObjStatusWrite(&g_NetMsgRel, (u8)i, (u8)g_ObjectiveStatuses[i]);
-					}
-				}
-				g_NetPendingResyncFlags = 0;
 			}
+		}
+
+		// Handle pending resync requests from clients
+		if (g_NetPendingResyncFlags) {
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_CHRS) {
+				sysLogPrintf(LOG_NOTE, "NET: sending chr resync to all clients (%u bots)", g_BotCount);
+				netmsgSvcChrResyncWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_PROPS) {
+				sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
+				netmsgSvcPropResyncWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
+				sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
+				netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
+			}
+			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
+				u32 npccount = netNpcCount();
+				sysLogPrintf(LOG_NOTE, "NET: sending npc resync to all clients (%u npcs)", npccount);
+				netmsgSvcNpcResyncWrite(&g_NetMsgRel);
+				// Also sync co-op mission state (stage flags + objective statuses)
+				netmsgSvcStageFlagWrite(&g_NetMsgRel);
+				for (s32 i = 0; i <= g_ObjectiveLastIndex; ++i) {
+					netmsgSvcObjStatusWrite(&g_NetMsgRel, (u8)i, (u8)g_ObjectiveStatuses[i]);
+				}
+			}
+			g_NetPendingResyncFlags = 0;
 		}
 	}
 
