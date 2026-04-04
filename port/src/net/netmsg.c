@@ -1202,6 +1202,9 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 	/* SA-1: tear down session catalog on match end (client-side). */
 	sessionCatalogTeardown();
 
+	/* Bot authority relinquished at match end — next match will re-assign */
+	g_NetLocalBotAuthority = false;
+
 	return src->error;
 }
 
@@ -4812,6 +4815,155 @@ u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
 		g_MatchCancelledState.name[MATCH_CANCEL_NAME_LEN - 1] = '\0';
 	} else {
 		g_MatchCancelledState.name[0] = '\0';
+	}
+
+	return src->error;
+}
+
+/* ========================================================================
+ * SVC_BOT_AUTHORITY — server→designated client
+ * Tells the first connected client (slot 0 in a dedicated server game) that
+ * it is the bot AI authority: it should run full bot AI each frame and send
+ * CLC_BOT_MOVE updates back to the server for relay to all other clients.
+ *
+ * This message has no payload — it is a capability grant, not a data update.
+ * Only sent in dedicated-server mode (g_NetDedicated); in listen-server mode
+ * the server host runs bot AI directly and no authority designation is needed.
+ * ======================================================================== */
+
+u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, SVC_BOT_AUTHORITY);
+	return dst->error;
+}
+
+u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	if (src->error) {
+		return src->error;
+	}
+
+	g_NetLocalBotAuthority = true;
+	sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY received — this client runs bot AI and relays positions");
+	return src->error;
+}
+
+/* ========================================================================
+ * CLC_BOT_MOVE — bot-authority client→server
+ * Sent each update frame by the designated authority client for each active
+ * bot.  Carries: aibotnum (server stub index), syncid (so the server can
+ * write valid prop identifiers in its SVC_CHR_MOVE relay), position, facing
+ * angle, rooms, animation speed multipliers, and action state.
+ *
+ * The server's netmsgClcBotMoveRead() updates minimal stub fields and the
+ * existing SVC_CHR_MOVE broadcast loop (net.c:netEndFrame) relays the
+ * updated positions to all clients.
+ *
+ * No asset references (body/head/weapon) are transmitted — position/animation
+ * state only.  Asset catalog compliance: fully met.
+ * ======================================================================== */
+
+u32 netmsgClcBotMoveWrite(struct netbuf *dst)
+{
+	/* Count bots with valid data */
+	u8 count = 0;
+	for (s32 i = 0; i < g_BotCount; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		if (chr && chr->prop && chr->aibot) {
+			count++;
+		}
+	}
+
+	if (!count) {
+		return dst->error;
+	}
+
+	netbufWriteU8(dst, CLC_BOT_MOVE);
+	netbufWriteU8(dst, count);
+
+	for (s32 i = 0; i < g_BotCount; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		if (!chr || !chr->prop || !chr->aibot) {
+			continue;
+		}
+		struct prop *prop = chr->prop;
+		struct aibot *aibot = chr->aibot;
+
+		netbufWriteU8(dst, (u8)i);                          /* aibotnum: server stub index */
+		netbufWriteU32(dst, prop->syncid);                  /* syncid: needed by server for SVC_CHR_MOVE relay */
+		netbufWriteCoord(dst, &prop->pos);
+		netbufWriteF32(dst, chrGetInverseTheta(chr));       /* yaw heading */
+		netbufWriteRooms(dst, prop->rooms, ARRAYCOUNT(prop->rooms));
+		netbufWriteF32(dst, aibot->speedmultforwards);
+		netbufWriteF32(dst, aibot->speedmultsideways);
+		netbufWriteF32(dst, aibot->speedtheta);
+		netbufWriteS8(dst, (s8)chr->myaction);
+		netbufWriteU8(dst, (u8)chr->actiontype);
+	}
+
+	return dst->error;
+}
+
+u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u8 count = netbufReadU8(src);
+
+	for (u8 j = 0; j < count; j++) {
+		const u8 aibotnum = netbufReadU8(src);
+		const u32 syncid  = netbufReadU32(src);
+		struct coord pos;
+		netbufReadCoord(src, &pos);
+		const f32 angle = netbufReadF32(src);
+		s16 rooms[8];
+		netbufReadRooms(src, rooms, ARRAYCOUNT(rooms));
+		const f32 speedmultfwd  = netbufReadF32(src);
+		const f32 speedmultside = netbufReadF32(src);
+		const f32 speedtheta    = netbufReadF32(src);
+		const s8  myaction      = netbufReadS8(src);
+		const u8  actiontype    = netbufReadU8(src);
+
+		if (src->error) {
+			return src->error;
+		}
+
+		if (aibotnum >= g_BotCount || !g_MpBotChrPtrs[aibotnum]) {
+			continue;
+		}
+
+		struct chrdata *chr = g_MpBotChrPtrs[aibotnum];
+		if (!chr->prop || !chr->aibot) {
+			continue;
+		}
+
+		struct prop  *prop  = chr->prop;
+		struct aibot *aibot = chr->aibot;
+
+		/* Update stub with authority data so the SVC_CHR_MOVE relay has valid fields */
+		prop->syncid = syncid;
+		prop->pos    = pos;
+
+		chr->myaction   = myaction;
+		chr->actiontype = actiontype;
+
+		aibot->speedmultforwards  = speedmultfwd;
+		aibot->speedmultsideways  = speedmultside;
+		aibot->speedtheta         = speedtheta;
+
+		/* Rooms: copy until terminator */
+		for (s32 ri = 0; ri < 8; ri++) {
+			prop->rooms[ri] = rooms[ri];
+			if (rooms[ri] < 0) {
+				break;
+			}
+		}
+
+		/* Store the angle — chrGetInverseTheta() is a stub that returns 0.0f on the
+		 * server, so we cache it directly into aibot for use if ever needed. */
+		aibot->roty = angle;
 	}
 
 	return src->error;

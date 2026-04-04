@@ -81,6 +81,10 @@ s32 g_NetNumPreserved = 0;
 struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 s32 g_NetNumRecentServers = 0;
 
+/* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
+ * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
+bool g_NetLocalBotAuthority = false;
+
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
 static ENetSocket g_NetQuerySocket = ENET_SOCKET_NULL;
@@ -693,6 +697,25 @@ void netServerStageStart(void)
 	netmsgSvcStageStartWrite(&g_NetMsgRel);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 
+	/* Dedicated server: allocate minimal bot stubs and designate the first
+	 * connected client as the bot AI authority.  On a listen server the host
+	 * runs the full game engine and bot AI directly — no relay needed. */
+	if (g_NetDedicated) {
+		mpStartMatch(); /* server_stubs.c version: allocates stub chrdata/prop/aibot from heap */
+
+		/* Send SVC_BOT_AUTHORITY to the first CLSTATE_GAME client */
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_GAME) {
+				netbufStartWrite(&g_NetMsgRel);
+				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
+				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+				sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY sent to client %u ('%s') — %u bot stubs ready",
+				             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
+				break;
+			}
+		}
+	}
+
 	// Schedule a full state resync shortly after stage start.
 	// Bots and props are created deterministically from the same RNG seed,
 	// but a full resync ensures all clients converge even if timing differs.
@@ -908,6 +931,7 @@ s32 netDisconnect(void)
 	g_NetHost = NULL;
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
+	g_NetLocalBotAuthority = false;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -1149,6 +1173,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
 			case CLC_LOBBY_START:      rc = netmsgClcLobbyStartRead(&cl->in, cl); break;
 			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
+			/* Bot authority relay */
+			case CLC_BOT_MOVE:         rc = netmsgClcBotMoveRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
@@ -1217,6 +1243,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_NPC_STATE: rc = netmsgSvcNpcStateRead(&cl->in, cl); break;
 			case SVC_NPC_SYNC: rc = netmsgSvcNpcSyncRead(&cl->in, cl); break;
 			case SVC_NPC_RESYNC: rc = netmsgSvcNpcResyncRead(&cl->in, cl); break;
+			/* Bot authority relay */
+			case SVC_BOT_AUTHORITY: rc = netmsgSvcBotAuthorityRead(&cl->in, cl); break;
 			case SVC_STAGE_FLAG: rc = netmsgSvcStageFlagRead(&cl->in, cl); break;
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
@@ -1375,6 +1403,10 @@ void netEndFrame(void)
 				}
 			}
 			if (g_NetNextUpdate <= g_NetTick) {
+				/* Bot authority: relay bot positions to server so it can broadcast via SVC_CHR_MOVE */
+				if (g_NetLocalBotAuthority && g_BotCount > 0) {
+					netmsgClcBotMoveWrite(&g_NetMsg);
+				}
 				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
 			}
 			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.

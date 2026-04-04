@@ -983,17 +983,20 @@ s32 botTick(struct prop *prop)
 	updateable = (prop->flags & PROPFLAG_NOTYETTICKED) && g_Vars.lvupdate240;
 
 	if (aibot) {
+		/* Non-authority clients defer to server-authoritative positions received via
+		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
+		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
+		 * On a listen server (NETMODE_SERVER) bots always run locally. */
+		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			return TICKOP_NONE;
+		}
+
 		if (s_BotTickFirstRun) {
 			sysLogPrintf(LOG_NOTE, "TICK: botTick first call lvframe60=%d chr=%p model=%p rooms[0]=%d aibot=%p",
 				g_Vars.lvframe60, (void *)chr, (void *)chr->model,
 				(s32)prop->rooms[0], (void *)aibot);
 			s_BotTickFirstRun = 0;
 		}
-		// The dedicated server stubs out mpStartMatch/mainChangeToStage so bots
-		// are never spawned server-side and SVC_CHR_MOVE is never sent.
-		// Run full bot AI on the client so bots move and fight normally.
-		// (When server-side bot simulation is implemented, re-introduce the
-		// NETMODE_CLIENT guard here and rely on SVC_CHR_MOVE for positions.)
 
 		if (updateable && g_Vars.lvframe60 >= 145) {
 			if (botShouldTickAI(chr)) {
@@ -2592,9 +2595,9 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
  */
 void botTickUnpaused(struct chrdata *chr)
 {
-	// In netplay, only the server runs bot AI.
-	// Clients receive bot positions/state via SVC_CHR_MOVE and SVC_CHR_STATE.
-	if (g_NetMode == NETMODE_CLIENT) {
+	/* In netplay, only the server (or the designated authority client) runs bot AI.
+	 * Non-authority clients receive positions via SVC_CHR_MOVE and do not simulate. */
+	if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
 		return;
 	}
 

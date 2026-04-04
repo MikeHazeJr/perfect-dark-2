@@ -14,6 +14,7 @@
 #include <PR/gbi.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Include types.h for struct definitions. Do NOT include bss.h — it only
  * has extern declarations that we need to DEFINE here. */
@@ -23,6 +24,7 @@
 #include "system.h"
 #include "lib/main.h"
 #include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
+#include "net/netlobby.h"   /* g_Lobby.settings.numSimulants for mpStartMatch stub */
 
 /* ========================================================================
  * Globals — definitions for everything bss.h declares as extern.
@@ -201,7 +203,71 @@ struct defaultobj *weaponCreate(struct prop *prop, struct model *model, s32 weap
 void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
 
 /* --- Match / Stage --- */
-void mpStartMatch(void) { sysLogPrintf(LOG_NOTE, "STUB: mpStartMatch"); }
+/*
+ * mpStartMatch — dedicated server stub.
+ *
+ * The real implementation (mplayer.c) loads textures, calls mainChangeToStage(),
+ * etc. — none of which are available on the server binary.  Instead, allocate
+ * minimal chrdata/prop/aibot structs on the heap for each simulant so that:
+ *
+ *   1. g_BotCount > 0 → the SVC_CHR_MOVE broadcast loop in netEndFrame fires.
+ *   2. Each stub has chr->prop and chr->aibot set → netmsgSvcChrMoveWrite passes
+ *      its guard and writes a valid (if zeroed) position.
+ *   3. When the authority client sends CLC_BOT_MOVE, netmsgClcBotMoveRead fills
+ *      in prop->syncid and prop->pos so the relay carries real positions.
+ */
+void mpStartMatch(void)
+{
+	s32 numBots = (s32)g_Lobby.settings.numSimulants;
+
+	/* Free any stubs left over from a previous match */
+	for (s32 i = 0; i < MAX_BOTS; i++) {
+		if (g_MpBotChrPtrs[i]) {
+			free(g_MpBotChrPtrs[i]->prop);
+			free(g_MpBotChrPtrs[i]->aibot);
+			free(g_MpBotChrPtrs[i]);
+			g_MpBotChrPtrs[i] = NULL;
+		}
+	}
+	g_BotCount = 0;
+
+	if (numBots <= 0) {
+		sysLogPrintf(LOG_NOTE, "SERVER: mpStartMatch: 0 simulants requested — no bot stubs allocated");
+		return;
+	}
+
+	if (numBots > MAX_BOTS) {
+		numBots = MAX_BOTS;
+	}
+
+	for (s32 i = 0; i < numBots; i++) {
+		struct chrdata *chr   = calloc(1, sizeof(struct chrdata));
+		struct prop    *prop  = calloc(1, sizeof(struct prop));
+		struct aibot   *aibot = calloc(1, sizeof(struct aibot));
+
+		if (!chr || !prop || !aibot) {
+			sysLogPrintf(LOG_ERROR, "SERVER: mpStartMatch: allocation failed for bot stub %d", i);
+			free(chr); free(prop); free(aibot);
+			break;
+		}
+
+		/* Minimal wiring so netmsgSvcChrMoveWrite passes its guards */
+		chr->prop  = prop;
+		prop->chr  = chr;
+		chr->aibot = aibot;
+
+		aibot->aibotnum = (u8)i;
+
+		/* prop->syncid and prop->pos are zero until the authority client sends
+		 * the first CLC_BOT_MOVE update — the relay will begin carrying real
+		 * data from that point onwards. */
+
+		g_MpBotChrPtrs[i] = chr;
+		g_BotCount = (u8)(i + 1);
+	}
+
+	sysLogPrintf(LOG_NOTE, "SERVER: mpStartMatch: allocated %u bot stubs (requested %d)", (u32)g_BotCount, numBots);
+}
 void mpSetPaused(s32 mode) { (void)mode; }
 void mainChangeToStage(s32 stagenum) {
     sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum);

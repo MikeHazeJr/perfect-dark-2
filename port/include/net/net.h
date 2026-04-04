@@ -9,10 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 27  /* v27: net_hash removed from wire; all asset identity uses catalog ID strings.
-                               * CLC_LOBBY_START stage/weapons, SVC_LOBBY_STATE arena, SVC_MATCH_MANIFEST entries,
-                               * CLC_MANIFEST_STATUS missing list, CLC_CATALOG_DIFF, SVC_DISTRIB_BEGIN/CHUNK/END,
-                               * SVC_SESSION_CATALOG — all now transmit catalog ID strings, never u32 CRC32 hashes. */
+#define NET_PROTOCOL_VER 28  /* v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
+                               * Authority client runs bot AI and sends CLC_BOT_MOVE; server updates stubs
+                               * and relays positions to all clients via existing SVC_CHR_MOVE.
+                               * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
 
@@ -198,6 +198,11 @@ extern s32 g_NetMaxClients;
 extern s32 g_NetNumClients;
 extern struct netclient g_NetClients[NET_MAX_CLIENTS + 1]; // last is an extra temporary client
 extern struct netclient *g_NetLocalClient;
+
+/* Bot authority flag: true on the designated client that runs bot AI and relays positions
+ * to the server via CLC_BOT_MOVE (dedicated server games only). Set on receipt of
+ * SVC_BOT_AUTHORITY; cleared on disconnect and stage end. */
+extern bool g_NetLocalBotAuthority;
 
 extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;

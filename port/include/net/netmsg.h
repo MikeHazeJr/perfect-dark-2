@@ -35,6 +35,7 @@
 #define SVC_NPC_STATE     0x49 // NPC state update (co-op only: health, flags, alertness)
 #define SVC_NPC_SYNC      0x4A // NPC sync checksum for desync detection (co-op only)
 #define SVC_NPC_RESYNC    0x4B // full NPC state correction (co-op only)
+#define SVC_BOT_AUTHORITY 0x4C // server→designated client: you are the bot AI authority (relay positions via CLC_BOT_MOVE)
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
@@ -69,6 +70,9 @@
 
 /* D3R-9: Network Distribution (protocol v20) */
 #define CLC_CATALOG_DIFF 0x09 // client→server: list of missing component catalog ID strings
+
+/* Bot authority relay (protocol v28) */
+#define CLC_BOT_MOVE      0x0A // bot-authority client→server: bot positions for server relay via SVC_CHR_MOVE
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -215,6 +219,12 @@ u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl);
 
 /* SA-1: SVC_SESSION_CATALOG */
 u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl);
+
+/* Bot authority relay (protocol v28) */
+u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst);
+u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcBotMoveWrite(struct netbuf *dst);
+u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
 
 /* Phase F: client-side countdown display state — updated by SVC_MATCH_COUNTDOWN handler. */
 struct match_countdown_state {
