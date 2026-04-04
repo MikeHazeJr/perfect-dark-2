@@ -4629,6 +4629,7 @@ enum weaponnum {
 
 // Heads and bodies
 #define HEAD_RANDOM           -1
+#define HEAD_RANDOM_GENDER    1000
 #define BODY_DJBOND           0x00
 #define BODY_CONNERY          0x01
 #define BODY_DALTON           0x02

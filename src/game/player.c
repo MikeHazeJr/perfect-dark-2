@@ -269,6 +269,22 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		dstrooms[0] = fallbackpad.room;
 		dstrooms[1] = -1;
 
+		/* If stored room is -1, derive from position */
+		if (dstrooms[0] == -1) {
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum bestroom = -1;
+			inrooms[0] = -1;
+			bgFindRoomsByPos(dstpos, inrooms, aboverooms, 20, &bestroom);
+			if (inrooms[0] >= 0) {
+				dstrooms[0] = inrooms[0];
+				dstrooms[1] = -1;
+			} else if (bestroom >= 0) {
+				dstrooms[0] = bestroom;
+				dstrooms[1] = -1;
+			}
+		}
+
 		for (dir = 0; dir < 8; dir++) {
 			struct coord probe;
 			probe.x = dstpos->x + dirX[dir] * 200.0f;
@@ -558,17 +574,33 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		/* No shortlisted pads (all pads crowded or chrAdjustPosForSpawn failed).
 		 * Scan from a random start for any pad with a valid room (>= 0) to
 		 * prevent spawning at void positions when bots outnumber spawn pads.
-		 * Falls back to the random pad only if every pad has room == -1. */
+		 * If a pad's stored room is -1, attempt bgFindRoomsByPos to derive one.
+		 * Falls back to the first pad whose room can be resolved. */
 		s32 startidx = (s32)(rngRandom() % (u32)numpads);
 		s32 fallback_p = startidx;
+		bool found = false;
 		{
 			struct pad tmppad;
 			for (p = 0; p < numpads; p++) {
 				s32 idx = (startidx + p) % numpads;
-				padUnpack(pads[idx], PADFIELD_ROOM, &tmppad);
+				padUnpack(pads[idx], PADFIELD_POS | PADFIELD_ROOM, &tmppad);
 				if (tmppad.room >= 0) {
 					fallback_p = idx;
+					found = true;
 					break;
+				}
+				/* Room stored in pad is -1 — try resolving from position */
+				{
+					RoomNum inrooms[21];
+					RoomNum aboverooms[21];
+					RoomNum bestroom = -1;
+					inrooms[0] = -1;
+					bgFindRoomsByPos(&tmppad.pos, inrooms, aboverooms, 20, &bestroom);
+					if (inrooms[0] >= 0) {
+						fallback_p = idx;
+						found = true;
+						break;
+					}
 				}
 			}
 		}
@@ -584,6 +616,33 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		dstpos->z = pad.pos.z;
 
 		dstangle = atan2f(pad.look.x, pad.look.z);
+	}
+
+	/* Final room validation: if dstrooms[0] is still -1 after either the
+	 * shortlist or fallback path, attempt bgFindRoomsByPos to derive a valid
+	 * room from the chosen position. This catches pads whose stored room is
+	 * invalid but whose position is actually inside valid geometry. */
+	if (dstrooms[0] == -1) {
+		RoomNum inrooms[21];
+		RoomNum aboverooms[21];
+		RoomNum bestroom = -1;
+		inrooms[0] = -1;
+		bgFindRoomsByPos(dstpos, inrooms, aboverooms, 20, &bestroom);
+		if (inrooms[0] >= 0) {
+			s32 ri;
+			for (ri = 0; ri < 7 && inrooms[ri] != -1; ri++) {
+				dstrooms[ri] = inrooms[ri];
+			}
+			dstrooms[ri] = -1;
+			sysLogPrintf(LOG_NOTE, "SPAWN: resolved room from position — rooms[0]=%d", (s32)dstrooms[0]);
+		} else if (bestroom >= 0) {
+			dstrooms[0] = bestroom;
+			dstrooms[1] = -1;
+			sysLogPrintf(LOG_NOTE, "SPAWN: resolved bestroom from position — rooms[0]=%d", (s32)dstrooms[0]);
+		} else {
+			sysLogPrintf(LOG_WARNING, "SPAWN: could not resolve room for pos=(%.0f,%.0f,%.0f) — spawn may be in void",
+				dstpos->x, dstpos->y, dstpos->z);
+		}
 	}
 
 	return dstangle;

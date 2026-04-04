@@ -305,12 +305,35 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 		chr->hidden |= CHRHFLAG_WARPONSCREEN;
 		chrMoveToPos(chr, &pos, rooms, thing, true);
-		/* FIX 3: if spawn position has no room assignment, derive from floorroom
-		 * (set by cdFindGroundInfoAtCyl inside chrMoveToPos). Without this,
-		 * prop->rooms[0]==-1 and CLC_BOT_MOVE relays an invalid room to the server. */
-		if (chr->prop && chr->prop->rooms[0] == -1 && chr->floorroom != -1) {
-			chr->prop->rooms[0] = chr->floorroom;
-			chr->prop->rooms[1] = -1;
+		/* Room recovery after spawn: if chrMoveToPos left rooms[0]==-1 the
+		 * position is likely in void geometry. Try floorroom first, then
+		 * bgFindRoomsByPos as a final fallback. Without a valid room,
+		 * CLC_BOT_MOVE relays an invalid room to the server and the bot
+		 * is invisible/non-collidable. */
+		if (chr->prop && chr->prop->rooms[0] == -1) {
+			if (chr->floorroom != -1) {
+				chr->prop->rooms[0] = chr->floorroom;
+				chr->prop->rooms[1] = -1;
+			} else {
+				RoomNum inrooms[21];
+				RoomNum aboverooms[21];
+				RoomNum bestroom = -1;
+				inrooms[0] = -1;
+				bgFindRoomsByPos(&chr->prop->pos, inrooms, aboverooms, 20, &bestroom);
+				if (inrooms[0] >= 0) {
+					s32 ri;
+					for (ri = 0; ri < 8 && inrooms[ri] != -1; ri++) {
+						chr->prop->rooms[ri] = inrooms[ri];
+					}
+					if (ri < 8) chr->prop->rooms[ri] = -1;
+				} else if (bestroom >= 0) {
+					chr->prop->rooms[0] = bestroom;
+					chr->prop->rooms[1] = -1;
+				} else {
+					sysLogPrintf(LOG_WARNING, "SPAWN: bot chr=%p rooms still -1 after bgFindRoomsByPos at (%.0f,%.0f,%.0f)",
+						(void *)chr, chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z);
+				}
+			}
 		}
 		chr->aibot->roty = modelGetChrRotY(chr->model);
 		chr->aibot->angleoffset = 0;
@@ -1012,6 +1035,20 @@ s32 botTick(struct prop *prop)
 				s_BotSpawnFailsafeDone = true;
 				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
 				botSpawnAll();
+
+				/* Verify all bots got valid rooms after the spawn wave.
+				 * If a bot's rooms[0] is still -1, its position is in void
+				 * geometry — re-spawn it individually to try a different pad. */
+				{
+					s32 bi;
+					for (bi = 0; bi < g_BotCount; bi++) {
+						struct chrdata *bchr = g_MpBotChrPtrs[bi];
+						if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
+							sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
+							botSpawn(bchr, false);
+						}
+					}
+				}
 			}
 			/* Reset the flag on stage change (lvframe60 resets to 0) */
 			if (g_Vars.lvframe60 == 0) {
@@ -1019,8 +1056,9 @@ s32 botTick(struct prop *prop)
 			}
 		}
 
-		/* FIX 3: Room recovery — if bot has rooms[0]==-1, attempt room lookup
-		 * from current position every tick until a valid room is found. */
+		/* Room recovery — if bot has rooms[0]==-1, attempt room lookup
+		 * from current position. If bgFindRoomsByPos fails (position truly
+		 * in void), re-spawn the bot at a different pad. */
 		if (prop->rooms[0] == -1 && !chrIsDead(chr)) {
 			RoomNum inrooms[21];
 			RoomNum aboverooms[21];
@@ -1043,6 +1081,11 @@ s32 botTick(struct prop *prop)
 				prop->rooms[1] = -1;
 				sysLogPrintf(LOG_NOTE, "MATCH-TRACE: bot room recovery (floorroom) slot=%d rooms[0]=%d",
 					(s32)aibot->aibotnum, (s32)prop->rooms[0]);
+			} else {
+				/* Position is truly in void — re-spawn at a different pad */
+				sysLogPrintf(LOG_WARNING, "SPAWN: bot slot=%d in void at (%.0f,%.0f,%.0f) — re-spawning",
+					(s32)aibot->aibotnum, prop->pos.x, prop->pos.y, prop->pos.z);
+				botSpawn(chr, false);
 			}
 		}
 

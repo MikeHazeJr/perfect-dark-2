@@ -353,7 +353,7 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 	 * or before the manifest is built, so this call is unconditionally safe. */
 	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
 	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
-	if (headnum >= 0) {
+	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER) {
 		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
 		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
@@ -469,7 +469,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	 * separate head catalog entry exists for that case. */
 	body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
 	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
-	if (headnum >= 0) {
+	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER) {
 		head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
 		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
