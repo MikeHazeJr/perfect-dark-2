@@ -1401,12 +1401,14 @@ void netEndFrame(void)
 				if (needrel || netClientNeedMove(g_NetLocalClient)) {
 					netmsgClcMoveWrite(needrel ? &g_NetMsgRel : &g_NetMsg);
 				}
-			}
-			if (g_NetNextUpdate <= g_NetTick) {
-				/* Bot authority: relay bot positions to server so it can broadcast via SVC_CHR_MOVE */
+				/* Bot authority: relay all bot positions to server each frame so it can
+				 * broadcast via SVC_CHR_MOVE. Loop iterates g_MpBotChrPtrs; the batch
+				 * write sends position/angle/rooms for every valid entry in one message. */
 				if (g_NetLocalBotAuthority && g_BotCount > 0) {
 					netmsgClcBotMoveWrite(&g_NetMsg);
 				}
+			}
+			if (g_NetNextUpdate <= g_NetTick) {
 				g_NetNextUpdate = g_NetTick + g_NetClientUpdateRate;
 			}
 			// Flush any pending resync requests that were flagged during netStartFrame's recv dispatch.

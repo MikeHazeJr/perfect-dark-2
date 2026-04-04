@@ -3663,7 +3663,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
 		if (g_MatchConfig.slots[si].type == SLOT_BOT) {
 			const struct matchslot *sl = &g_MatchConfig.slots[si];
-			netbufWriteStr(dst, sl->name);
+			netbufWriteStr(dst, sl->name[0] ? sl->name : "Bot");
 			netbufWriteStr(dst, sl->body_id[0] ? sl->body_id : "base:dark_combat");
 			netbufWriteStr(dst, sl->head_id[0] ? sl->head_id : "base:head_dark_combat");
 			netbufWriteU8(dst, sl->botDifficulty);
@@ -3673,7 +3673,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	}
 	/* Pad any missing slots with defaults (shouldn't happen in practice). */
 	for (; botIdx < (s32)numSims; botIdx++) {
-		netbufWriteStr(dst, "");
+		netbufWriteStr(dst, "Bot");
 		netbufWriteStr(dst, "base:dark_combat");
 		netbufWriteStr(dst, "base:head_dark_combat");
 		netbufWriteU8(dst, 2);  /* BOTDIFF_NORMAL */

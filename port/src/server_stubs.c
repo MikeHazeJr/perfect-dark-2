@@ -218,7 +218,17 @@ void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
  */
 void mpStartMatch(void)
 {
-	s32 numBots = (s32)g_Lobby.settings.numSimulants;
+	/* Count bot slots from g_MpSetup.chrslots — the authoritative source set by
+	 * netmsgClcLobbyStartRead when the match was configured. Bits BOT_SLOT_OFFSET
+	 * through BOT_SLOT_OFFSET+MAX_BOTS-1 each represent one bot. */
+	s32 numBots = 0;
+	{
+		for (s32 bi = 0; bi < MAX_BOTS; bi++) {
+			if (g_MpSetup.chrslots & ((u64)1 << (BOT_SLOT_OFFSET + bi))) {
+				numBots++;
+			}
+		}
+	}
 
 	/* Free any stubs left over from a previous match */
 	for (s32 i = 0; i < MAX_BOTS; i++) {
