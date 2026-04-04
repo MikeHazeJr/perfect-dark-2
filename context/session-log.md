@@ -3,6 +3,45 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S136 — 2026-04-03
+
+**Focus**: D5.1 — Input Ownership Boundary
+
+### What Was Done
+
+**D5.1 implemented and pushed (`commit 001dba8`).**
+
+Introduces `InputOwnerMode` enum (`INPUTMODE_MENU` / `INPUTMODE_GAMEPLAY`) and
+`pdmainSetInputMode()` as the single canonical transition function.
+
+**New files:**
+- `port/include/pdmain.h` — enum + extern g_InputMode + pdmainSetInputMode() declaration (extern "C" guards for C++ callers)
+
+**Changed files (9):**
+- `port/src/pdmain.c` — `g_InputMode` global + `pdmainSetInputMode()` implementation: GAMEPLAY→SDL mouse capture bypassing pdguiIsActive() guard; MENU→SDL_SetRelativeMouseMode(FALSE) + ShowCursor
+- `port/fast3d/pdgui_backend.cpp` — GAMEPLAY-mode early return: keyboard events not forwarded to ImGui when `!g_PdguiActive`; Tab suppressed before ImGui sees it in MENU mode (fixes CK_START double-trigger)
+- `port/fast3d/pdgui_menu_pausemenu.cpp` — replaced direct SDL calls in Open/Close with `pdmainSetInputMode(INPUTMODE_MENU/GAMEPLAY)`
+- `port/fast3d/pdgui_bridge.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` after both `menuhandlerAcceptMission()` calls
+- `port/fast3d/pdgui_menu_solomission.cpp` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` after both `menuhandlerAcceptMission()` calls
+- `port/src/net/matchsetup.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` in `matchStart()` and `matchStartFromChallenge()`
+- `port/src/net/netmsg.c` — `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` in SVC_STAGE_START (co-op/anti path and MP path), inside `#if !defined(PD_SERVER)`
+- `port/src/menumgr.c` — `restoreGameplayMouseCapture()` body replaced with single `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` call
+
+**Build**: both client and server link clean.
+
+### Bugs Addressed
+
+- **B-92 class** (mouse not captured on mission start): `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` calls SDL directly, bypassing the `pdguiIsActive()` defer guard in `inputLockMouse()`. All known start paths covered.
+- **Tab double-trigger** (CK_START conflict): Tab suppressed before `ImGui_ImplSDL2_ProcessEvent()` in MENU mode.
+- **Esc double-path**: in GAMEPLAY with no active overlay, keyboard events never reach ImGui at all.
+
+### Next Steps
+
+- D5.0 (Visual Layer): still PLANNED before D5.3 (pause menu) per execution order
+- D5.3 (Pause Menu): now unblocked by D5.1 — input ownership is clean for pause transitions
+
+---
+
 ## Session S135 — 2026-04-03
 
 **Focus**: D5.0a Technical Spike — Fast3D → OpenGL → ImGui texture bridge
