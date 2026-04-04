@@ -3,6 +3,30 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S140 — 2026-04-04
+
+**Focus**: B-104 — Solo/MP endscreen mouse not usable after mission complete
+
+### What Was Done
+
+Fixed B-104: both `renderSoloEndscreen` and `renderMpEndscreen` in `pdgui_menu_endscreen.cpp` were calling `SDL_SetRelativeMouseMode(SDL_FALSE)` directly on `IsWindowAppearing()`, without calling `pdmainSetInputMode(INPUTMODE_MENU)`.
+
+**Root cause**: Direct SDL calls left `g_InputMode = INPUTMODE_GAMEPLAY`. This:
+1. Allowed any code path that calls `pdmainSetInputMode(INPUTMODE_GAMEPLAY)` to re-lock the mouse (the no-op guard only fires if mode is already GAMEPLAY)
+2. Caused the event handler's `g_InputMode == INPUTMODE_GAMEPLAY` guard to block ImGui keyboard input
+
+**Fix**: Both screens now call `pdmainSetInputMode(INPUTMODE_MENU)` on `IsWindowAppearing()` (same pattern as the S139 fix for `##PdGameOver` in pausemenu). Also kept the `SDL_WarpMouseInWindow` to center the cursor.
+Added `#include "../include/pdmain.h"` to endscreen.cpp.
+
+### Decisions
+- Kept the warp to center — `pdmainSetInputMode` doesn't warp; cursor would restore to pre-mission position which may be off-screen
+- Same fix applied to both solo and MP endscreen paths for consistency
+
+### Next Steps
+- Playtest: complete DataDyne Central → verify "Retry Mission" and "Next Mission" buttons are clickable
+
+---
+
 ## Session S139 — 2026-04-04
 
 **Focus**: D5.4 — MP post-match scoreboard (pdgui_menu_pausemenu.cpp)
