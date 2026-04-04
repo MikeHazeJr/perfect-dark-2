@@ -302,6 +302,31 @@ s32 matchConfigRemoveSlot(s32 idx)
 	return 0;
 }
 
+void matchConfigRerollBot(s32 idx)
+{
+	if (idx < 1 || idx >= g_MatchConfig.numSlots) return;
+	struct matchslot *sl = &g_MatchConfig.slots[idx];
+	if (sl->type != SLOT_BOT) return;
+
+	generateBotName(sl->name, MAX_PLAYER_NAME);
+	pickRandomBodyHead(sl->body_id, sizeof(sl->body_id),
+	                   sl->head_id, sizeof(sl->head_id));
+
+	/* Re-derive cached mpbodynum/mpheadnum */
+	sl->bodynum = 0;
+	sl->headnum = 0;
+	const asset_entry_t *be = assetCatalogResolve(sl->body_id);
+	if (be && be->type == ASSET_BODY) {
+		s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
+		if (mpb >= 0) sl->bodynum = (u8)mpb;
+	}
+	const asset_entry_t *he = assetCatalogResolve(sl->head_id);
+	if (he && he->type == ASSET_HEAD) {
+		s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
+		if (mph >= 0) sl->headnum = (u8)mph;
+	}
+}
+
 /* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */

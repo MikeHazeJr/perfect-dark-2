@@ -78,6 +78,7 @@ void matchConfigInit(void);
 s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
                       const char *head_id, const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
+void matchConfigRerollBot(s32 idx);
 s32 matchStart(void);
 
 /* Handicap accessors (avoid exposing types.h to C++ translation units) */
