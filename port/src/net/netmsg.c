@@ -2508,6 +2508,14 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
+	// Bot authority client IS the source of truth for bot state — the server's
+	// stub hash will always lag/differ due to network delay and lossy encoding.
+	// Skip desync detection entirely to prevent resync storms that overwrite
+	// our valid local simulation with stale server stubs.
+	if (g_NetLocalBotAuthority) {
+		return src->error;
+	}
+
 	// Validate bot count matches
 	if (botcount != g_BotCount) {
 		sysLogPrintf(LOG_WARNING, "NET: chr sync mismatch at tick %u: server has %u bots, we have %u",
@@ -2801,6 +2809,14 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 
 	sysLogPrintf(LOG_NOTE, "NET: received chr resync at tick %u for %u bots", tick, botcount);
 
+	// Bot authority client must never accept server resync — our local simulation
+	// is canonical and the server only has lightweight stubs. Consume the message
+	// (read all fields) but don't apply state changes.
+	const bool skipApply = g_NetLocalBotAuthority;
+	if (skipApply) {
+		sysLogPrintf(LOG_NOTE, "NET: skipping chr resync apply — we are bot authority");
+	}
+
 	for (u8 i = 0; i < botcount; ++i) {
 		struct prop *prop = netbufReadPropPtr(src);
 
@@ -2844,7 +2860,7 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 			return src->error;
 		}
 
-		if (!prop || !prop->chr || !prop->chr->aibot) {
+		if (!prop || !prop->chr || !prop->chr->aibot || skipApply) {
 			continue;
 		}
 
