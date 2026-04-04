@@ -416,7 +416,7 @@ const char *catalogGetBodyDefaultHead(const char *body_id)
     if (!body_id || !body_id[0]) return NULL;
     e = assetCatalogResolve(body_id);
     if (!e || e->type != ASSET_BODY) return NULL;
-    if (e->ext.body.headnum < 0) return NULL;
+    if (e->ext.body.headnum < 0 || e->ext.body.headnum == HEAD_RANDOM_GENDER) return NULL;
     return catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)e->ext.body.headnum);
 }
 
@@ -525,6 +525,10 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
 {
     const char *id;
     catalog_head_result_t result;
+
+    if (headnum == HEAD_RANDOM_GENDER) {
+        return 0;
+    }
 
     id = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
     if (id && catalogResolveHead(id, &result)) {
