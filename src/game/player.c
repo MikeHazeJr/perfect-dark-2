@@ -380,6 +380,7 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		for (i = 0; i < g_BotCount; i++) {
 			if (g_MpBotChrPtrs[i]->prop
 					&& g_MpBotChrPtrs[i]->prop != prop
+					&& g_MpBotChrPtrs[i]->prop->rooms[0] >= 0
 					&& (!prop || chrCompareTeams(prop->chr, g_MpBotChrPtrs[i], COMPARE_ENEMIES))) {
 				xdiff = g_MpBotChrPtrs[i]->prop->pos.x - pad.pos.x;
 				ydiff = g_MpBotChrPtrs[i]->prop->pos.y - pad.pos.y;
@@ -540,6 +541,47 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		padsqdists[i] = -1.0f;
 	}
 
+	// Pass 4: If the shortlist is still empty after all 3 passes, try all pads
+	// with force=true (relaxed collision — ignores BG, only checks characters).
+	// This handles high bot-count scenarios where bots outnumber pads and the
+	// strict distance/collision checks reject everything.
+	if (sllen == 0) {
+		for (p = 0; p < numpads; p++) {
+			padUnpack(pads[p], PADFIELD_POS | PADFIELD_ROOM | PADFIELD_LOOK, &pad);
+
+			if (pad.room < 0) {
+				continue;
+			}
+
+			slrooms[sllen][0] = pad.room;
+			slrooms[sllen][1] = -1;
+
+			slpositions[sllen].x = pad.pos.x;
+			slpositions[sllen].y = pad.pos.y;
+			slpositions[sllen].z = pad.pos.z;
+
+			slangles[sllen] = atan2f(pad.look.x, pad.look.z);
+
+#if VERSION >= VERSION_NTSC_1_0
+			if (chrAdjustPosForSpawn(chrradius, &slpositions[sllen], slrooms[sllen], slangles[sllen], true, true, false)) {
+				slpadindexes[sllen] = p;
+				sllen++;
+				if (sllen >= 4) {
+					break;
+				}
+			}
+#else
+			if (chrAdjustPosForSpawn(chrradius, &slpositions[sllen], slrooms[sllen], slangles[sllen], true, true)) {
+				slpadindexes[sllen] = p;
+				sllen++;
+				if (sllen >= 4) {
+					break;
+				}
+			}
+#endif
+		}
+	}
+
 	// F.1: Remove last-used pad from the shortlist to prevent back-to-back repeats.
 	// Only applies when there are at least 2 entries so we always have a choice.
 	if (sllen > 1 && s_LastSpawnPad >= 0) {
@@ -571,14 +613,14 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 
 		s_LastSpawnPad = pads[slpadindexes[p]];
 	} else {
-		/* No shortlisted pads (all pads crowded or chrAdjustPosForSpawn failed).
-		 * Scan from a random start for any pad with a valid room (>= 0) to
-		 * prevent spawning at void positions when bots outnumber spawn pads.
-		 * If a pad's stored room is -1, attempt bgFindRoomsByPos to derive one.
-		 * Falls back to the first pad whose room can be resolved. */
-		s32 startidx = (s32)(rngRandom() % (u32)numpads);
+		/* No shortlisted pads — all passes exhausted (including force pass).
+		 * Use a cycling counter to distribute bots across pads instead of
+		 * relying solely on rngRandom(), which can repeat in rapid-fire
+		 * spawn bursts. Add a small position offset to prevent pile-ups. */
+		static s32 s_FallbackCycle = 0;
+		s32 startidx = (s32)((rngRandom() + s_FallbackCycle) % (u32)numpads);
 		s32 fallback_p = startidx;
-		bool found = false;
+		s_FallbackCycle++;
 		{
 			struct pad tmppad;
 			for (p = 0; p < numpads; p++) {
@@ -586,7 +628,6 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 				padUnpack(pads[idx], PADFIELD_POS | PADFIELD_ROOM, &tmppad);
 				if (tmppad.room >= 0) {
 					fallback_p = idx;
-					found = true;
 					break;
 				}
 				/* Room stored in pad is -1 — try resolving from position */
@@ -598,7 +639,6 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 					bgFindRoomsByPos(&tmppad.pos, inrooms, aboverooms, 20, &bestroom);
 					if (inrooms[0] >= 0) {
 						fallback_p = idx;
-						found = true;
 						break;
 					}
 				}
@@ -611,9 +651,15 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		dstrooms[0] = pad.room;
 		dstrooms[1] = -1;
 
-		dstpos->x = pad.pos.x;
-		dstpos->y = pad.pos.y;
-		dstpos->z = pad.pos.z;
+		/* Offset position slightly using the cycle counter to spread bots
+		 * out when multiple hit the same fallback pad. The offset circle
+		 * has radius 80 (~arm's length) so bots don't overlap exactly. */
+		{
+			f32 offsetAngle = (f32)(s_FallbackCycle % 8) * (M_BADTAU / 8.0f);
+			dstpos->x = pad.pos.x + sinf(offsetAngle) * 80.0f;
+			dstpos->y = pad.pos.y;
+			dstpos->z = pad.pos.z + cosf(offsetAngle) * 80.0f;
+		}
 
 		dstangle = atan2f(pad.look.x, pad.look.z);
 	}
