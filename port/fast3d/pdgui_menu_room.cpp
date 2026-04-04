@@ -166,6 +166,16 @@ void pdguiSoloRoomClose(void);
 /* Bot randomization (matchsetup.c) */
 void matchConfigRerollBot(s32 idx);
 
+/* R-3: Room networking — send leave to server */
+struct netbuf;
+u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+extern struct netbuf g_NetMsgRel;
+void netbufStartWrite(struct netbuf *buf);
+extern s32 g_NetMode;
+#define RM_NETMODE_NONE   0
+#define RM_NETMODE_CLIENT 2
+
 } /* extern "C" */
 
 /* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
@@ -1968,6 +1978,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (s_IsSoloMode) {
             pdguiSoloRoomClose();  /* return to main menu */
         } else {
+            /* R-3: Tell server we're leaving the room */
+            if (g_NetMode == RM_NETMODE_CLIENT) {
+                netbufStartWrite(&g_NetMsgRel);
+                netmsgClcRoomLeaveWrite(&g_NetMsgRel);
+                netSend(NULL, &g_NetMsgRel, 1, 0);
+            }
             pdguiSetInRoom(0);  /* return to social lobby, stay connected */
         }
     }

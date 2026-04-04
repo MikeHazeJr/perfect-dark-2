@@ -282,51 +282,61 @@ void playerReset(void)
 	if (g_NumSpawnPoints == 0 && (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning)) {
 		s32 added = 0;
 
-		/* Attempt 1: waypoint-based selection with spacing enforcement */
+		/* Attempt 1: waypoint-based selection with adaptive spacing.
+		 * Start with 500-unit spacing, halve it progressively if not enough
+		 * spawn points are found. Solo mission maps are often compact. */
 		if (g_StageSetup.waypoints) {
 			struct waypoint *wpts = g_StageSetup.waypoints;
 			s32 numwpts = 0;
 			struct coord chosen_pos[24];
-			s32 outer;
 
 			while (wpts[numwpts].padnum >= 0) {
 				numwpts++;
 			}
 
-			for (outer = 0; outer < numwpts * 4 && added < 24; outer++) {
-				s32 idx = rngRandom() % numwpts;
-				struct pad probePad;
-				s32 too_close;
-				s32 j;
+			/* Try with decreasing spacing: 500 → 250 → 125 → 60 → 0 */
+			f32 spacings[] = { 500.0f, 250.0f, 125.0f, 60.0f, 0.0f };
+			for (s32 pass = 0; pass < 5 && added < 8; pass++) {
+				f32 minDist = spacings[pass];
+				f32 minDistSq = minDist * minDist;
 
-				padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &probePad);
+				/* Reset for this pass */
+				added = 0;
+				g_NumSpawnPoints = 0;
 
-				if (probePad.room < 0) {
-					continue;
-				}
-				if (probePad.flags & PADFLAG_AIDROP) {
-					continue;
-				}
+				for (s32 outer = 0; outer < numwpts * 4 && added < 24; outer++) {
+					s32 idx = rngRandom() % numwpts;
+					struct pad probePad;
 
-				too_close = 0;
-				for (j = 0; j < added; j++) {
-					f32 dx = probePad.pos.x - chosen_pos[j].x;
-					f32 dz = probePad.pos.z - chosen_pos[j].z;
-					if (dx * dx + dz * dz < 500.0f * 500.0f) {
-						too_close = 1;
-						break;
+					padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &probePad);
+
+					if (probePad.room < 0) continue;
+					if (probePad.flags & PADFLAG_AIDROP) continue;
+
+					s32 too_close = 0;
+					if (minDistSq > 0.0f) {
+						for (s32 j = 0; j < added; j++) {
+							f32 dx = probePad.pos.x - chosen_pos[j].x;
+							f32 dz = probePad.pos.z - chosen_pos[j].z;
+							if (dx * dx + dz * dz < minDistSq) {
+								too_close = 1;
+								break;
+							}
+						}
+					}
+
+					if (!too_close) {
+						chosen_pos[added] = probePad.pos;
+						g_SpawnPoints[g_NumSpawnPoints++] = (s16)wpts[idx].padnum;
+						added++;
 					}
 				}
 
-				if (!too_close) {
-					chosen_pos[added] = probePad.pos;
-					g_SpawnPoints[g_NumSpawnPoints++] = (s16)wpts[idx].padnum;
-					added++;
-				}
+				if (added >= 8) break; /* enough for reasonable dispersal */
 			}
 
 			if (added > 0) {
-				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from navmesh waypoints (C-5 fallback)", added);
+				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from %d navmesh waypoints (adaptive spacing)", added, numwpts);
 			}
 		}
 
