@@ -251,7 +251,7 @@ s32 catalogResolveStageBySession(u16 session_id, catalog_stage_result_t *out)
             e = assetCatalogResolve(sc->catalog_id);
         }
     }
-    if (!e || e->type != ASSET_MAP) {
+    if (!e || (e->type != ASSET_MAP && e->type != ASSET_ARENA)) {
         sysLogPrintf(LOG_WARNING, "[CATALOG-ERROR] catalogResolveStageBySession: id %u not resolved or wrong type",
                      (unsigned)session_id);
         return 0;
