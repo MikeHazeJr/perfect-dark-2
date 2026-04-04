@@ -106,8 +106,9 @@ void lobbyUpdate(void)
             currentLeaderFound = 1;
         }
 
-        /* Ready state: in-game means ready */
-        lp->isReady = (cl->state >= CLSTATE_GAME) ? 1 : 0;
+        /* Ready state: in-game (CLSTATE_GAME exactly) means ready.
+         * CLSTATE_PREPARING (5) > CLSTATE_GAME (4) — use == to avoid false positives. */
+        lp->isReady = (cl->state == CLSTATE_GAME) ? 1 : 0;
         lp->isLeader = 0; /* Will be set below */
 
         count++;
@@ -146,9 +147,12 @@ void lobbyUpdate(void)
     /* g_NetLocalClient is NULL on dedicated server, so checking it directly always yields inGame=0.
      * Walk g_NetClients[] instead to check if any client is actively in a match. */
     {
+        /* Use == CLSTATE_GAME, not >= CLSTATE_GAME.
+         * CLSTATE_PREPARING (5) > CLSTATE_GAME (4), so the >= check incorrectly
+         * fires the "Preparing -> Match" room transition during the ready gate. */
         u8 anyInGame = 0;
         for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-            if (g_NetClients[i].state >= CLSTATE_GAME) {
+            if (g_NetClients[i].state == CLSTATE_GAME) {
                 anyInGame = 1;
                 break;
             }

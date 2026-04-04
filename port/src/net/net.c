@@ -640,6 +640,20 @@ void netServerStageStart(void)
 		netClientReadConfig(g_NetLocalClient, 0);
 	}
 
+	{
+		int clientCount = 0;
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_LOBBY || g_NetClients[ci].state == CLSTATE_PREPARING) {
+				clientCount++;
+			}
+		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: netServerStageStart called, stage_id='%s', sending SVC_STAGE_START to %d clients",
+		             g_MpSetup.stage_id, clientCount);
+		if (!g_MpSetup.stage_id[0]) {
+			sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at netServerStageStart");
+		}
+	}
+
 	/* Transition ALL connected clients to CLSTATE_GAME.
 	 * The server must do this before stage initialization code runs,
 	 * because the init code assumes all clients are in GAME state.

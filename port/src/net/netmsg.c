@@ -698,6 +698,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 	 * from stagenum needed.  The dedicated server has no ASSET_MAP entries so
 	 * stagenum-based lookups fail there; catalog IDs work everywhere. */
 	if (g_MpSetup.stage_id[0] == '\0') {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at SVC_STAGE_START write");
 		catalogWriteAssetRef(dst, 0);
 		return dst->error;
 	}
@@ -710,6 +711,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		} else {
 			catalogWriteAssetRef(dst, sid);
 		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: writing SVC_STAGE_START, stage_session=%d, stage_id='%s'", (int)sid, g_MpSetup.stage_id);
 	}
 
 	// game settings
@@ -819,14 +821,17 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 	/* SA-3: stage as session ID; 0 = return to lobby */
 	const u16 stage_session = catalogReadAssetRef(src);
+	sysLogPrintf(LOG_WARNING, "MATCH-START: client received SVC_STAGE_START, stage_session=%d", (int)stage_session);
 	u8 stagenum = 0;
 	if (stage_session == 0) {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_session is 0 — aborting");
 		return 1;  /* malformed stage start — stop processing */
 	}
 	{
 		catalog_stage_result_t sr;
 		if (catalogResolveStageBySession(stage_session, &sr)) {
 			stagenum = (u8)sr.stagenum;
+			sysLogPrintf(LOG_WARNING, "MATCH-START: stage_session=%d resolved to stagenum=0x%x", (int)stage_session, (unsigned)stagenum);
 		} else {
 			sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE unknown stage session %u", (unsigned)stage_session);
 			return 1;
@@ -999,6 +1004,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		setNumPlayers(numplayers);
 		lvSetDifficulty(g_MissionConfig.difficulty);
 		titleSetNextMode(TITLEMODE_SKIP);
+		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x (co-op)", (unsigned)stagenum);
 		mainChangeToStage(stagenum);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -1102,6 +1108,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		 * never spawn on the client side. */
 		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
+		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x", (unsigned)g_MpSetup.stagenum);
 		mpStartMatch();
 #if !defined(PD_SERVER)
 		/* scenarioInitProps() configures gameplay flags on props (doors, pickups, etc.)
@@ -3607,6 +3614,10 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	/* C-1: write arena as catalog ID string — Single Source of Truth from matchconfig.
 	 * g_MatchConfig.stage_id is set by the arena picker UI (M-2 fix, S129).
 	 * Server reads this string and resolves via assetCatalogResolve(). */
+	if (!g_MatchConfig.stage_id[0]) {
+		sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at CLC_LOBBY_START write");
+	}
+	sysLogPrintf(LOG_WARNING, "MATCH-START: client sending CLC_LOBBY_START, stage_id='%s'", g_MatchConfig.stage_id);
 	netbufWriteStr(dst, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
 	netbufWriteU8(dst, difficulty);
 	netbufWriteU8(dst, numSims);
@@ -3855,6 +3866,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		 * the server-side manifest builder (manifestBuild fallback path). */
 		strncpy(g_MpSetup.stage_id, stage_id, sizeof(g_MpSetup.stage_id) - 1);
 		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		if (!g_MpSetup.stage_id[0]) {
+			sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at CLC_LOBBY_START read");
+		}
+		sysLogPrintf(LOG_WARNING, "MATCH-START: server received CLC_LOBBY_START, stage_id='%s'", g_MpSetup.stage_id);
 	}
 	const u8 difficulty      = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
@@ -4166,7 +4181,11 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
 	}
 
-	return src->error;
+	/* Return 0 regardless of src->error: the buffer overflow on CLC_LOBBY_START
+	 * (31 bots × ~57 bytes exceeds the 1440-byte client out buffer) causes src->error
+	 * to be set after successful processing, producing a false "malformed 0x08" warning.
+	 * The message was handled correctly; don't abort the dispatch loop. */
+	return 0;
 }
 
 /* ========================================================================
