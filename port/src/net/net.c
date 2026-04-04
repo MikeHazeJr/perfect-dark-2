@@ -99,7 +99,7 @@ u8 g_NetCoopRadar = 1;
 static u8 g_NetMsgBuf[NET_BUFSIZE];
 struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
 
-static u8 g_NetMsgRelBuf[NET_BUFSIZE * 4]; // reliable buffer can be reliably fragmented
+static u8 g_NetMsgRelBuf[65536]; // 64KB reliable buffer (control/auth/lobby — no bot bulk data)
 struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRelBuf) };
 
 static s32 g_NetInit = false;
@@ -1158,11 +1158,16 @@ static void netServerEvDisconnect(struct netclient *cl)
 
 static void netServerEvReceive(struct netclient *cl)
 {
+	static u32 s_dispatchTraceCount = 0;
 	u32 rc = 0;
 	u8 msgid = 0;
 
 	while (!rc && netbufReadLeft(&cl->in) > 0) {
 		msgid = netbufReadU8(&cl->in);
+		if (s_dispatchTraceCount < 10) {
+			sysLogPrintf(LOG_NOTE, "MATCH-TRACE: server dispatch msgtype=0x%02x from client %d", msgid, cl->id);
+			++s_dispatchTraceCount;
+		}
 		switch (msgid) {
 			case CLC_NOP: rc = 0; break;
 			case CLC_AUTH: rc = netmsgClcAuthRead(&cl->in, cl); break;

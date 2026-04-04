@@ -20,7 +20,8 @@ typedef struct _ENetAddress ENetAddress;
 #define NET_MAX_NAME MAX_PLAYERNAME
 #define NET_MAX_ADDR 256
 
-#define NET_BUFSIZE 1440
+#define NET_BUFSIZE 262144  /* 256KB — must handle 31+ bot broadcasts without overflow */
+#define NET_CLIENT_BUFSIZE 16384  /* 16KB per-client outbound (server→individual client) */
 
 #define NET_DEFAULT_PORT 27100
 
@@ -168,7 +169,7 @@ struct netclient {
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
 
-	u8 out_data[NET_BUFSIZE]; // buffer for out
+	u8 out_data[NET_CLIENT_BUFSIZE]; // buffer for out
 };
 
 extern s32 g_NetMode;
