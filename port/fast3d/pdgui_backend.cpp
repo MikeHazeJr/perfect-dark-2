@@ -26,6 +26,9 @@
 /* PD-authentic style — colors, metrics, shimmer effects */
 #include "pdgui_style.h"
 
+/* D5.0 ROM texture decode layer + theme draw functions */
+#include "pdgui_theme.h"
+
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
 
@@ -91,80 +94,17 @@ extern "C" const char *langSafe(s32 textid)
 }
 
 /* ---------------------------------------------------------------------------
- * D5.0a: UI Texture bridge
+ * D5.0: UI Texture bridge
  *
- * pdguiGetUiTexture(id) returns an ImTextureID (GLuint cast to void*) for a
- * named UI texture.  The first call for a given ID generates a synthetic
- * 64x64 RGBA32 test pattern, uploads it to OpenGL, and caches the GL handle.
+ * pdguiGetUiTexture() delegates to pdguiThemeGetTexture() in pdgui_theme.cpp.
+ * All decode, GL upload, and catalog registration live in the theme layer.
  *
- * Purpose: validate that the ImGui::Image() pipeline works end-to-end before
- * writing the full D5.0 ROM texture decode layer.
- *
- * D5.0 will replace buildTestPattern() with actual ROM texture decode:
- *   texLoadFromTextureNum(texnum, NULL) → texFindInPool() → decode N64 format
- *   → glTexImage2D.
+ * D5.0a test-pattern (buildTestPattern / s_UiTexCache) has been removed.
  * --------------------------------------------------------------------------- */
 
-static std::unordered_map<std::string, uint32_t> s_UiTexCache;
-
-/** Generate a 64x64 RGBA32 PD-blue gradient grid (spike placeholder). */
-static void buildTestPattern(uint8_t *out, uint32_t w, uint32_t h)
-{
-    for (uint32_t y = 0; y < h; y++) {
-        for (uint32_t x = 0; x < w; x++) {
-            uint8_t *p = out + (y * w + x) * 4;
-            float t = (float)(x + y) / (float)(w + h - 2);
-            p[0] = (uint8_t)(20 + t * 10);    /* R */
-            p[1] = (uint8_t)(60 + t * 20);    /* G */
-            p[2] = (uint8_t)(140 - t * 60);   /* B */
-            p[3] = 200;                        /* A ~78% */
-            /* White 8-pixel grid lines for orientation check */
-            if ((x & 7) == 0 || (y & 7) == 0) {
-                p[0] = p[1] = p[2] = 180;
-                p[3] = 200;
-            }
-        }
-    }
-}
-
-/**
- * Return an ImTextureID for the named UI texture.  On first call the texture
- * is synthesized and uploaded to OpenGL; subsequent calls return the cached
- * GL handle.  Returns NULL if the GL context is not yet ready.
- *
- * Declared in pdgui.h; called from C++ menu files.
- */
 extern "C" void* pdguiGetUiTexture(const char *id)
 {
-    if (!id || !id[0]) return nullptr;
-
-    auto it = s_UiTexCache.find(id);
-    if (it != s_UiTexCache.end()) {
-        return (void*)(uintptr_t)it->second;
-    }
-
-    const uint32_t W = 64, H = 64;
-    uint8_t rgba32[W * H * 4];
-    buildTestPattern(rgba32, W, H);
-
-    GLuint tex = 0;
-    glGenTextures(1, &tex);
-    if (!tex) {
-        sysLogPrintf(LOG_ERROR, "PDGUI D5.0a: glGenTextures failed for '%s'", id);
-        return nullptr;
-    }
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)W, (GLsizei)H,
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    s_UiTexCache[id] = (uint32_t)tex;
-    sysLogPrintf(LOG_NOTE, "PDGUI D5.0a: uploaded UI texture '%s' → GL id %u", id, (unsigned)tex);
-    return (void*)(uintptr_t)tex;
+    return pdguiThemeGetTexture(id);
 }
 
 /* ---------------------------------------------------------------------------
@@ -284,6 +224,9 @@ void pdguiInit(void *sdlWindow)
 
     /* Initialize the character preview FBO system */
     pdguiCharPreviewInit();
+
+    /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
+    pdguiThemeInit();
 }
 
 void pdguiNewFrame(void)
@@ -587,6 +530,7 @@ void pdguiShutdown(void)
         return;
     }
 
+    pdguiThemeShutdown();
     pdguiHotswapShutdown();
 
     ImGui_ImplOpenGL3_Shutdown();
