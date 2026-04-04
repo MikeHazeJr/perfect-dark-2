@@ -30,7 +30,9 @@
 #include "net/matchsetup.h"
 #include "input.h"
 #include "pdmain.h"
+#include "fs.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 /* ========================================================================
  * Dialog definition for hotswap
@@ -154,27 +156,172 @@ void matchConfigInit(void)
  * Bot name + character randomization
  * ======================================================================== */
 
-static const char *s_BotAdjectives[] = {
-	"Bumbling","Crusty","Dopey","Greasy","Lumpy","Manky","Mushy","Nasal",
-	"Pudgy","Queasy","Rancid","Soggy","Wonky","Gassy","Clammy","Blobby",
-	"Grumpy","Salty","Wheezy","Clunky","Funky","Lanky","Squishy","Burpy",
-	"Drippy","Cranky","Slippery","Stinky","Wobbly","Dizzy","Rusty","Floppy",
-};
-#define NUM_BOT_ADJECTIVES (sizeof(s_BotAdjectives) / sizeof(s_BotAdjectives[0]))
+/* Bot name dictionaries — 256 entries each.
+ * Combined "[adj] [name]" must fit in 14 chars (mpchrconfig.name limit).
+ * Mods can override by placing botnames_adj.txt / botnames_noun.txt in their
+ * mod folder (one word per line, max 8 chars each). The FS layer resolves
+ * mod files with priority over base data. */
 
-static const char *s_BotNames[] = {
-	"Tud","Rodrick","Frunge","Stanley","Buttersworth","Jenkins","Gorp",
-	"Blimpo","Sneed","Winkle","Gribble","Plonk","Dingle","Spudge",
-	"Crambo","Muggins","Dorkus","Flimble","Noodge","Bumstead",
-	"Cletus","Gormley","Pickles","Barnaby","Squib","Thudwick",
+static const char *s_DefaultBotAdj[] = {
+	/* Action/verb-style */
+	"Runnin","Sneaky","Farmin","Slidin","Lurkin","Jumpin","Rollin","Creepin",
+	"Dozin","Flexin","Fumblin","Hustlin","Idlin","Joggin","Kickin","Loafin",
+	"Nappin","Pacin","Roamin","Sittin","Vibin","Walkin","Yeelin","Zoomin",
+	/* Physical */
+	"Fat","Tiny","Big","Lanky","Pudgy","Lumpy","Blobby","Stumpy",
+	"Thicc","Scrawny","Chunky","Gangly","Broad","Gaunt","Husky","Burly",
+	"Petite","Stocky","Wiry","Squat","Hulkin","Beefy","Tubby","Stout",
+	/* Adjective */
+	"Crusty","Dopey","Greasy","Manky","Mushy","Nasal","Soggy","Wonky",
+	"Gassy","Clammy","Grumpy","Salty","Wheezy","Clunky","Funky","Squishy",
+	"Cranky","Stinky","Wobbly","Dizzy","Rusty","Floppy","Burpy","Drippy",
+	"Queasy","Rancid","Bumpy","Crushed","Dusty","Fizzy","Grimy","Gusty",
+	/* Personality */
+	"Angry","Sad","Shy","Bold","Calm","Dense","Edgy","Fierce",
+	"Gentle","Hardy","Jolly","Keen","Loud","Meek","Noble","Plucky",
+	"Rowdy","Sly","Tense","Uptight","Vivid","Wild","Zany","Moody",
+	/* Texture/material */
+	"Crispy","Crunchy","Gooey","Fuzzy","Slimy","Slick","Smooth","Rough",
+	"Sticky","Flaky","Chalky","Silky","Gritty","Foamy","Chewy","Soggy",
+	/* Name-style first words */
+	"Hingle","Doink","Bimbus","Shmoop","Gronk","Skuzz","Plimbo","Fingle",
+	"Blorp","Chumbo","Dweeb","Flonk","Gunge","Honk","Jimbo","Klonk",
+	/* Greased-up / compound (short) */
+	"Greased","Oiled","Buttery","Sweaty","Soaked","Frosted","Toasty","Cooked",
+	"Baked","Fried","Steamed","Grilled","Poached","Smoked","Salted","Pickled",
+	/* Funny misc */
+	"Gay","Moist","Turbo","Ultra","Mega","Hyper","Super","Uber",
+	"Lil","Old","Wee","Raw","Hot","Cold","Dry","Wet",
+	"Evil","Holy","Dark","Void","Dank","Rare","Epic","Bogus",
+	"Spicy","Zesty","Tangy","Bland","Mild","Tart","Sweet","Sour",
+	/* More variety */
+	"Basic","Fancy","Plain","Slap","Limp","Brisk","Stark","Blunt",
+	"Cheap","Posh","Rank","Sketchy","Dodgy","Iffy","Grim","Dire",
+	"Wack","Bonk","Gonk","Dank","Jank","Yeet","Based","Cringe",
+	"Spooky","Eerie","Cursed","Haunted","Ghostly","Ashy","Musty","Moldy",
 };
-#define NUM_BOT_NAMES (sizeof(s_BotNames) / sizeof(s_BotNames[0]))
+#define NUM_DEFAULT_ADJ (sizeof(s_DefaultBotAdj) / sizeof(s_DefaultBotAdj[0]))
+
+static const char *s_DefaultBotNoun[] = {
+	/* User-specified names */
+	"Hershel","Doris","Irene","Truman","Hatman","Lad","Skittle","Smiff",
+	"Teeth","Nick","Carlos","Gork","EEEEEEE",
+	/* Original set */
+	"Tud","Rodrick","Frunge","Stanley","Jenkins","Gorp","Blimpo","Sneed",
+	"Winkle","Gribble","Plonk","Dingle","Spudge","Crambo","Muggins","Dorkus",
+	"Flimble","Noodge","Cletus","Gormley","Pickles","Barnaby","Squib",
+	/* Classic silly names */
+	"Grungo","Bort","Clump","Thud","Splunk","Drongo","Fungus","Grelb",
+	"Honkus","Jimbus","Klang","Lorf","Morp","Nub","Ogbert","Prunt",
+	"Quimby","Runt","Slurp","Twerp","Ulp","Vronk","Whelk","Yonk","Zonk",
+	/* Surname-style */
+	"Smithers","Higgins","Perkins","Dawkins","Dobbs","Griggs","Hobbs","Judkins",
+	"Kruggs","Lumley","Muffins","Norbert","Pudding","Quentin","Ruggles","Snodgrass",
+	"Tompkins","Wiggins","Crumbs","Figgins","Guppy","Hubble","Dibbles","Fudge",
+	/* Pop-culture-ish */
+	"Bingus","Dingus","Goober","Boomer","Zoomer","Gamer","Karen","Chad",
+	"Chonk","Stonks","Yolo","Bruh","Pleb","Noob","Simp","Chungus",
+	/* Food names */
+	"Turnip","Potato","Biscuit","Waffle","Nugget","Dumpling","Pretzel","Muffin",
+	"Sausage","Pancake","Crouton","Gherkin","Noodle","Radish","Tofu","Sprout",
+	/* Object names */
+	"Bucket","Plunger","Sponge","Wrench","Cactus","Anvil","Brick","Cork",
+	"Hinge","Knob","Plug","Shelf","Stump","Wedge","Trunk","Bolt",
+	/* Animal-adjacent */
+	"Badger","Ferret","Newt","Toad","Gecko","Stoat","Slug","Grub",
+	"Shrimp","Roach","Gnat","Moth","Crab","Clam","Snail","Worm",
+	/* More fun names */
+	"Herb","Mort","Earl","Ned","Gus","Bud","Clem","Vern",
+	"Otis","Floyd","Merle","Bruno","Angus","Rufus","Boris","Hank",
+	"Agnes","Mabel","Ethel","Pearl","Myrtle","Gladys","Eunice","Bertha",
+	"Norma","Edna","Selma","Wilma","Helga","Olga","Brunhild","Maude",
+	/* Absurd compound */
+	"Bingbong","Dingdong","Goopus","Shlorp","Blungus","Crumbus","Dongus","Flarb",
+	"Glorb","Hunkus","Jelp","Klonkus","Mungus","Norkle","Plimbus","Quonk",
+	/* More names */
+	"Reginald","Percival","Thaddeus","Chadwick","Montague","Cornelius","Barnacle","Numbskull",
+	"Bumstead","Thudwick","Plonker","Shlumpf","Gruntle","Smorkle","Blarney","Crumpet",
+	"Scooter","Binky","Moomoo","Chowder","Brisket","Baguette","Crimp","Dweezil",
+	"Flange","Giblet","Haggis","Inkblot","Jetsam","Kibble","Lint","Morsel",
+};
+#define NUM_DEFAULT_NOUN (sizeof(s_DefaultBotNoun) / sizeof(s_DefaultBotNoun[0]))
+
+/* Runtime name pools — initialized from defaults, can be overridden by mod files.
+ * botnames_adj.txt and botnames_noun.txt: one word per line, max 8 chars per word.
+ * Placed in data/ or a mod's root folder. */
+#define BOT_NAME_MAX_WORD 14 /* 13 chars + null — words can be longer for ImGui display */
+#define BOT_NAME_POOL_MAX 256
+
+static char s_AdjPool[BOT_NAME_POOL_MAX][BOT_NAME_MAX_WORD];
+static s32  s_AdjCount = 0;
+static char s_NounPool[BOT_NAME_POOL_MAX][BOT_NAME_MAX_WORD];
+static s32  s_NounCount = 0;
+static bool s_NamesLoaded = false;
+
+static s32 loadNameFile(const char *filename, char pool[][BOT_NAME_MAX_WORD], s32 maxEntries)
+{
+	s32 count = 0;
+	FILE *f = fsFileOpenRead(filename);
+	if (!f) return 0;
+
+	char line[64];
+	while (count < maxEntries && fgets(line, sizeof(line), f)) {
+		/* Strip newline/carriage return */
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+			line[--len] = '\0';
+		}
+		if (len == 0 || len >= BOT_NAME_MAX_WORD) continue;
+		strncpy(pool[count], line, BOT_NAME_MAX_WORD - 1);
+		pool[count][BOT_NAME_MAX_WORD - 1] = '\0';
+		count++;
+	}
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "BOTNAMES: loaded %d entries from %s", count, filename);
+	return count;
+}
+
+static void ensureNamePoolsLoaded(void)
+{
+	if (s_NamesLoaded) return;
+	s_NamesLoaded = true;
+
+	/* Try loading mod-overridable files first */
+	s_AdjCount = loadNameFile("botnames_adj.txt", s_AdjPool, BOT_NAME_POOL_MAX);
+	s_NounCount = loadNameFile("botnames_noun.txt", s_NounPool, BOT_NAME_POOL_MAX);
+
+	/* Fall back to built-in defaults if no files found */
+	if (s_AdjCount == 0) {
+		s32 n = NUM_DEFAULT_ADJ < BOT_NAME_POOL_MAX ? (s32)NUM_DEFAULT_ADJ : BOT_NAME_POOL_MAX;
+		for (s32 i = 0; i < n; i++) {
+			strncpy(s_AdjPool[i], s_DefaultBotAdj[i], BOT_NAME_MAX_WORD - 1);
+			s_AdjPool[i][BOT_NAME_MAX_WORD - 1] = '\0';
+		}
+		s_AdjCount = n;
+	}
+	if (s_NounCount == 0) {
+		s32 n = NUM_DEFAULT_NOUN < BOT_NAME_POOL_MAX ? (s32)NUM_DEFAULT_NOUN : BOT_NAME_POOL_MAX;
+		for (s32 i = 0; i < n; i++) {
+			strncpy(s_NounPool[i], s_DefaultBotNoun[i], BOT_NAME_MAX_WORD - 1);
+			s_NounPool[i][BOT_NAME_MAX_WORD - 1] = '\0';
+		}
+		s_NounCount = n;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BOTNAMES: %d adjectives, %d nouns ready", s_AdjCount, s_NounCount);
+}
 
 static void generateBotName(char *dst, s32 maxLen)
 {
-	s32 ai = rand() % NUM_BOT_ADJECTIVES;
-	s32 ni = rand() % NUM_BOT_NAMES;
-	snprintf(dst, maxLen, "%s %s", s_BotAdjectives[ai], s_BotNames[ni]);
+	ensureNamePoolsLoaded();
+	if (s_AdjCount == 0 || s_NounCount == 0) {
+		snprintf(dst, maxLen, "Bot %d", rand() % 999);
+		return;
+	}
+	s32 ai = rand() % s_AdjCount;
+	s32 ni = rand() % s_NounCount;
+	snprintf(dst, maxLen, "%s %s", s_AdjPool[ai], s_NounPool[ni]);
 }
 
 static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)

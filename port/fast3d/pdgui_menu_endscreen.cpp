@@ -274,7 +274,7 @@ static void StatRow(const char *label, const char *value, const ImVec4 *valueCol
  * ======================================================================== */
 
 struct ESRankRow {
-    char  name[16];
+    char  name[32];
     s32   score;
     s32   kills;
     s32   deaths;
@@ -300,7 +300,7 @@ static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
 
         /* Copy name (PD uses '\n' as terminator, not '\0') */
         s32 j;
-        for (j = 0; j < 14 && cfg->name[j] != '\0' && cfg->name[j] != '\n'; j++)
+        for (j = 0; j < 30 && cfg->name[j] != '\0' && cfg->name[j] != '\n'; j++)
             rows[i].name[j] = cfg->name[j];
         rows[i].name[j] = '\0';
 
