@@ -93,13 +93,13 @@ struct waypoint *waypointFindClosestToPos(struct coord *pos, RoomNum *rooms)
 	struct coord sp250[10];
 	struct coord sp1d8[10];
 
-	for (i = 0; rooms[i] != -1; i++) {
+	for (i = 0; i < 29 && rooms[i] != -1; i++) {
 		allrooms[i] = rooms[i];
 	}
 
 	allrooms[i] = -1;
 
-	for (i = 0; rooms[i] != -1; i++) {
+	for (i = 0; i < 8 && rooms[i] != -1; i++) {
 		bgRoomGetNeighbours(rooms[i], neighbours, 10);
 		roomsAppend(neighbours, allrooms, 30);
 	}
@@ -535,6 +535,10 @@ void waypointFindRoute(struct waypoint *from, struct waypoint *to)
 		curto->step += 10000;
 		curto = waypointChooseNeighbour(curto->neighbours, value, from->groupnum, IGNORE_OUTWARDS);
 
+		if (!curto) {
+			return;
+		}
+
 		value--;
 	}
 
@@ -565,6 +569,11 @@ s32 waypointCollectLocal(struct waypoint *from, struct waypoint *to, struct wayp
 
 		while (step <= to->step && step < arrlen) {
 			curfrom = waypointChooseNeighbour(curfrom->neighbours, step, from->groupnum, IGNORE_INWARDS);
+
+			if (!curfrom) {
+				break;
+			}
+
 			*arrptr = curfrom;
 			arrptr++;
 			step++;
