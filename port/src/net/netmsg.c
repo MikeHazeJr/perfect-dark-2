@@ -1103,13 +1103,19 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			{
 				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
 				if (be && be->type == ASSET_BODY) {
-					g_BotConfigsArray[botidx].base.mpbodynum = (u8)be->runtime_index;
+					s32 mpb = catalogBodynumToMpBodyIdx((s32)be->runtime_index);
+					if (mpb >= 0) {
+						g_BotConfigsArray[botidx].base.mpbodynum = (u8)mpb;
+					}
 				}
 			}
 			{
 				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
 				if (he && he->type == ASSET_HEAD) {
-					g_BotConfigsArray[botidx].base.mpheadnum = (u8)he->runtime_index;
+					s32 mph = catalogHeadnumToMpHeadIdx((s32)he->runtime_index);
+					if (mph >= 0) {
+						g_BotConfigsArray[botidx].base.mpheadnum = (u8)mph;
+					}
 				}
 			}
 			/* Final catalog safety-clamp: ensures modeldef is valid on first frame. */

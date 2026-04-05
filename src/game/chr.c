@@ -1334,6 +1334,11 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 
 	chr->ground = chr->manground = ground = cdFindGroundInfoAtCyl(&testpos, chr->radius, rooms, &chr->floorcol, &chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
+	if (ground < -4000000000.0f) {
+		ground = pos->y;
+		chr->ground = chr->manground = ground;
+	}
+
 	chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
 
 	prop->pos.x = testpos.x;
