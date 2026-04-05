@@ -137,16 +137,18 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 
 ---
 
-## Lobby Unification
+## Lobby Unification — Solo/Online Room Convergence
 
-Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)**
+Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)** (10 items, U-1 through U-10)
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| **Phase 1** | Close feature gaps in room screen (weapon slots, handicaps, team presets, save/load scenario, slow motion, SP chars) | OPEN |
-| **Phase 2** | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | OPEN |
-| **Phase 3** | Network sync handlers + post-match flow verification | OPEN |
-| **Phase 4** | Root-cause online bot spawn sequencing (match solo's synchronous path) | OPEN |
+Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Close the remaining feature gaps, retire `pdgui_menu_matchsetup.cpp`, add network sync, and root-cause the online bot spawn race condition.
+
+| Phase | Items | Description | Status |
+|-------|-------|-------------|--------|
+| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | OPEN |
+| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | OPEN |
+| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | OPEN |
+| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | OPEN |
 
 ---
 
