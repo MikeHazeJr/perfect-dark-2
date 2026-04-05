@@ -294,7 +294,11 @@ void playerReset(void)
 				numwpts++;
 			}
 
-			/* Try with decreasing spacing: 500 → 250 → 125 → 60 → 0 */
+			/* Try with decreasing spacing: 500 → 250 → 125 → 60 → 0
+			 * AIDROP pads are valid spawn locations — the flag only
+			 * affects AI pathfinding (drop-off-ledge behavior), not
+			 * spawn suitability.  Filtering them caused Chicago and
+			 * other multi-level maps to collapse all spawns to pad 0. */
 			f32 spacings[] = { 500.0f, 250.0f, 125.0f, 60.0f, 0.0f };
 			for (s32 pass = 0; pass < 5 && added < 8; pass++) {
 				f32 minDist = spacings[pass];
@@ -311,7 +315,6 @@ void playerReset(void)
 					padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &probePad);
 
 					if (probePad.room < 0) continue;
-					if (probePad.flags & PADFLAG_AIDROP) continue;
 
 					s32 too_close = 0;
 					if (minDistSq > 0.0f) {
@@ -335,28 +338,45 @@ void playerReset(void)
 				if (added >= 8) break; /* enough for reasonable dispersal */
 			}
 
+			/* Safety: if all spawn pads collapsed to the same padnum,
+			 * the random selection failed.  Re-populate sequentially
+			 * from the waypoint array to guarantee diversity. */
+			if (added > 1) {
+				s32 allSame = 1;
+				for (s32 v = 1; v < g_NumSpawnPoints; v++) {
+					if (g_SpawnPoints[v] != g_SpawnPoints[0]) {
+						allSame = 0;
+						break;
+					}
+				}
+				if (allSame) {
+					sysLogPrintf(LOG_WARNING, "SPAWN: all %d pads collapsed to padnum=%d — sequential fallback",
+						g_NumSpawnPoints, (s32)g_SpawnPoints[0]);
+					g_NumSpawnPoints = 0;
+					added = 0;
+					for (s32 si = 0; si < numwpts && added < 24; si++) {
+						struct pad p;
+						padUnpack(wpts[si].padnum, PADFIELD_POS | PADFIELD_ROOM, &p);
+						if (p.room >= 0) {
+							chosen_pos[added] = p.pos;
+							g_SpawnPoints[g_NumSpawnPoints++] = (s16)wpts[si].padnum;
+							added++;
+						}
+					}
+				}
+			}
+
 			if (added > 0) {
 				sysLogPrintf(LOG_NOTE, "SPAWN: populated %d spawn points from %d navmesh waypoints (adaptive spacing)", added, numwpts);
 
-				/* ONE-TIME diagnostic: dump all spawn pad positions */
-				for (s32 di = 0; di < g_NumSpawnPoints; di++) {
+				/* ONE-TIME diagnostic: dump first+last pad positions */
+				for (s32 di = 0; di < g_NumSpawnPoints && di < 6; di++) {
 					struct pad diagPad;
 					padUnpack(g_SpawnPoints[di], PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &diagPad);
 					sysLogPrintf(LOG_NOTE, "SPAWN-DIAG: pad[%d] padnum=%d pos=(%.0f,%.0f,%.0f) room=%d flags=0x%x",
 						di, (s32)g_SpawnPoints[di],
 						diagPad.pos.x, diagPad.pos.y, diagPad.pos.z,
 						(s32)diagPad.room, diagPad.flags);
-				}
-
-				/* ONE-TIME diagnostic: dump a few source waypoints for comparison */
-				s32 diagCount = numwpts < 6 ? numwpts : 6;
-				for (s32 di = 0; di < diagCount; di++) {
-					struct pad diagPad;
-					s32 wpPadnum = wpts[di].padnum;
-					padUnpack(wpPadnum, PADFIELD_POS | PADFIELD_ROOM, &diagPad);
-					sysLogPrintf(LOG_NOTE, "SPAWN-DIAG: waypoint[%d] padnum=%d pos=(%.0f,%.0f,%.0f) room=%d",
-						di, wpPadnum, diagPad.pos.x, diagPad.pos.y, diagPad.pos.z,
-						(s32)diagPad.room);
 				}
 			}
 		}
