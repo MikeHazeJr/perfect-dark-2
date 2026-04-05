@@ -167,7 +167,8 @@ struct netclient {
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position
 
-	u8 room_id; // hub room assignment (0xFF = in lounge, not in a room)
+	u8 room_id;    // hub room assignment (0xFF = in lounge, not in a room)
+	bool stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
 
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
@@ -207,6 +208,14 @@ extern struct netclient *g_NetLocalClient;
  * to the server via CLC_BOT_MOVE (dedicated server games only). Set on receipt of
  * SVC_BOT_AUTHORITY; cleared on disconnect and stage end. */
 extern bool g_NetLocalBotAuthority;
+
+/* U-10: Stage-ready handshake state (server-side, dedicated server only).
+ * g_NetStageReadyDeadline: g_NetTick value at which the server stops waiting and sends
+ *   BOT_AUTHORITY regardless; -1 means not currently waiting.
+ * g_NetBotAuthorityDelegated: set once SVC_BOT_AUTHORITY has been sent this match so
+ *   the timeout path and the CLC_STAGE_READY handler don't double-send. */
+extern s32  g_NetStageReadyDeadline;
+extern bool g_NetBotAuthorityDelegated;
 
 extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;

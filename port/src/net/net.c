@@ -87,6 +87,10 @@ s32 g_NetNumRecentServers = 0;
  * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
 bool g_NetLocalBotAuthority = false;
 
+/* U-10: Stage-ready handshake — server-side tracking (dedicated server only). */
+s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not waiting */
+bool g_NetBotAuthorityDelegated = false; /* true once SVC_BOT_AUTHORITY sent this match */
+
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
 static ENetSocket g_NetQuerySocket = ENET_SOCKET_NULL;
@@ -703,23 +707,21 @@ void netServerStageStart(void)
 		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 	}
 
-	/* Dedicated server: allocate minimal bot stubs and designate the first
-	 * connected client as the bot AI authority.  On a listen server the host
-	 * runs the full game engine and bot AI directly — no relay needed. */
+	/* Dedicated server: allocate minimal bot stubs.  BOT_AUTHORITY is now deferred
+	 * until all clients confirm their stage is loaded via CLC_STAGE_READY, so that
+	 * the authority client's pads/spawn-points are ready before botSpawnAll() fires.
+	 * On a listen server the host runs full bot AI directly — no relay needed. */
 	if (g_NetDedicated) {
 		mpStartMatch(); /* server_stubs.c version: allocates stub chrdata/prop/aibot from heap */
 
-		/* Send SVC_BOT_AUTHORITY to the first CLSTATE_GAME client */
+		/* Reset per-client stage-ready flags and arm the handshake deadline (5 s). */
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-			if (g_NetClients[ci].state == CLSTATE_GAME) {
-				netbufStartWrite(&g_NetMsgRel);
-				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
-				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
-				sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY sent to client %u ('%s') — %u bot stubs ready",
-				             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
-				break;
-			}
+			g_NetClients[ci].stage_ready = false;
 		}
+		g_NetBotAuthorityDelegated = false;
+		g_NetStageReadyDeadline    = (s32)(g_NetTick + 300); /* 300 ticks = 5 s at 60 fps */
+		sysLogPrintf(LOG_NOTE, "NET: waiting for CLC_STAGE_READY from %d client(s), deadline tick %d",
+		             g_NetNumClients, (int)g_NetStageReadyDeadline);
 	}
 
 	// Schedule a full state resync shortly after stage start.
@@ -811,6 +813,10 @@ void netServerStageEnd(void)
 	if (g_NetMode != NETMODE_SERVER) {
 		return;
 	}
+
+	/* U-10: disarm the stage-ready handshake for the next match. */
+	g_NetStageReadyDeadline    = -1;
+	g_NetBotAuthorityDelegated = false;
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
@@ -1197,6 +1203,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			/* Bot authority relay */
 			case CLC_BOT_MOVE:         rc = netmsgClcBotMoveRead(&cl->in, cl); break;
+			/* U-10: Stage-ready handshake */
+			case CLC_STAGE_READY:      rc = netmsgClcStageReadyRead(&cl->in, cl); break;
 			/* R-3: Room networking */
 			case CLC_ROOM_CREATE:      rc = netmsgClcRoomCreateRead(&cl->in, cl); break;
 			case CLC_ROOM_JOIN:        rc = netmsgClcRoomJoinRead(&cl->in, cl); break;
@@ -1601,6 +1609,36 @@ void netEndFrame(void)
 		netDistribServerTick();
 		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
 		readyGateTickCountdown();
+
+		/* U-10: Stage-ready timeout — if not all clients reported ready within the
+		 * deadline, delegate BOT_AUTHORITY to the first available CLSTATE_GAME client
+		 * anyway so the match can proceed. */
+		if (g_NetDedicated && !g_NetBotAuthorityDelegated
+				&& g_NetStageReadyDeadline >= 0 && (s32)g_NetTick >= g_NetStageReadyDeadline) {
+			s32 readyCount = 0, totalCount = 0;
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_GAME) {
+					totalCount++;
+					if (g_NetClients[ci].stage_ready) {
+						readyCount++;
+					}
+				}
+			}
+			sysLogPrintf(LOG_NOTE, "NET: stage ready timeout, sending BOT_AUTHORITY anyway (ready: %d/%d)",
+			             readyCount, totalCount);
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_GAME) {
+					netbufStartWrite(&g_NetMsgRel);
+					netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
+					netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+					sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY (timeout) sent to client %u ('%s') — %u bot stubs ready",
+					             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
+					break;
+				}
+			}
+			g_NetBotAuthorityDelegated = true;
+			g_NetStageReadyDeadline    = -1;
+		}
 	}
 
 	// send position updates

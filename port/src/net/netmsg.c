@@ -1158,6 +1158,16 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #if !defined(PD_SERVER)
 		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
 		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
+		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
+		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in
+		 * bot.c provides defence-in-depth for any remaining async load on the game thread. */
+		if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient) {
+			sysLogPrintf(LOG_NOTE, "NET: sending CLC_STAGE_READY");
+			netbufStartWrite(&g_NetMsgRel);
+			netmsgClcStageReadyWrite(&g_NetMsgRel);
+			netSend(g_NetLocalClient, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		}
 #endif
 	}
 
@@ -5316,4 +5326,74 @@ void netBroadcastRoomList(void)
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcRoomListWrite(&g_NetMsgRel);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+}
+
+/* ========================================================================
+ * CLC_STAGE_READY — client→server (U-10)
+ *
+ * Sent by the client immediately after mpStartMatch() completes in the
+ * SVC_STAGE_START handler.  When the server receives this from every
+ * CLSTATE_GAME client it sends SVC_BOT_AUTHORITY to the first ready client,
+ * ensuring the authority client's stage geometry and pad list are in flight
+ * before botSpawnAll() is triggered.
+ *
+ * A 5-second / 300-frame timeout in netEndFrame() delegates authority anyway
+ * if a slow client never responds, so the match is never permanently blocked.
+ * ======================================================================== */
+
+u32 netmsgClcStageReadyWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_STAGE_READY);
+	return dst->error;
+}
+
+u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (src->error) {
+		return src->error;
+	}
+
+	/* Only meaningful on a dedicated server during a match startup. */
+	if (!g_NetDedicated || g_NetBotAuthorityDelegated) {
+		return 0;
+	}
+
+	if (srccl->state != CLSTATE_GAME) {
+		sysLogPrintf(LOG_WARNING, "NET: ignored CLC_STAGE_READY from client %u (state=%u, not GAME)",
+		             srccl->id, srccl->state);
+		return 0;
+	}
+
+	srccl->stage_ready = true;
+
+	/* Count how many CLSTATE_GAME clients are ready. */
+	s32 readyCount = 0, totalCount = 0;
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		if (g_NetClients[ci].state == CLSTATE_GAME) {
+			totalCount++;
+			if (g_NetClients[ci].stage_ready) {
+				readyCount++;
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: client %u stage ready (%d/%d)", srccl->id, readyCount, totalCount);
+
+	if (totalCount > 0 && readyCount == totalCount) {
+		/* All clients ready — delegate bot authority to the first CLSTATE_GAME client. */
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			if (g_NetClients[ci].state == CLSTATE_GAME) {
+				sysLogPrintf(LOG_NOTE, "NET: all clients ready, sending BOT_AUTHORITY to client %u ('%s')",
+				             g_NetClients[ci].id, g_NetClients[ci].settings.name);
+				netbufStartWrite(&g_NetMsgRel);
+				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
+				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+				g_NetBotAuthorityDelegated = true;
+				g_NetStageReadyDeadline    = -1;
+				break;
+			}
+		}
+	}
+
+	return src->error;
 }
