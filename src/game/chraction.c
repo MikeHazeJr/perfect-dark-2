@@ -5629,6 +5629,11 @@ void chrGoPosInitExpensive(struct chrdata *chr)
  */
 void chrGoPosAdvanceWaypoint(struct chrdata *chr)
 {
+	/* Safety: if curindex is already at or past the limit, force recalculation */
+	if (chr->act_gopos.curindex >= MAX_CHRWAYPOINTS) {
+		chr->act_gopos.curindex = 0;
+	}
+
 	if (chr->act_gopos.curindex < 3) {
 		chr->act_gopos.curindex++;
 	} else {
@@ -6244,7 +6249,7 @@ bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 g
 		chr->act_gopos.endpos.x = pos->x;
 		chr->act_gopos.endpos.y = pos->y;
 		chr->act_gopos.endpos.z = pos->z;
-		roomsCopy(room, chr->act_gopos.endrooms);
+		roomsCopySafe(room, chr->act_gopos.endrooms, 8);
 
 		chr->act_gopos.target = lastwaypoint;
 		chr->act_gopos.curindex = 0;
@@ -12866,6 +12871,14 @@ void chrTickGoPos(struct chrdata *chr)
 
 	chr->act_gopos.flags &= ~(GOPOSFLAG_CROUCH | GOPOSFLAG_DUCK);
 
+	/* Safety: clamp curindex to valid range. On N64 this was always 0-3,
+	 * but memory corruption with 31+ bots can push it out of bounds. */
+	if (chr->act_gopos.curindex >= MAX_CHRWAYPOINTS) {
+		sysLogPrintf(LOG_WARNING, "GOPOS: curindex=%d out of range for chr %p, resetting to 0",
+			chr->act_gopos.curindex, (void *)chr);
+		chr->act_gopos.curindex = 0;
+	}
+
 	if (chr->hidden & CHRHFLAG_NEEDANIM) {
 		if (modelIsAnimMerging(chr->model)) {
 			return;
@@ -13021,7 +13034,11 @@ void chrTickGoPos(struct chrdata *chr)
 					// towards the next one if it's in sight.
 
 					// Load the next waypoint after the one the chr is running to
-					waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
+					if (chr->act_gopos.curindex + 1 < MAX_CHRWAYPOINTS) {
+						waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
+					} else {
+						waypoint = NULL;
+					}
 
 					if (waypoint) {
 						padUnpack(waypoint->padnum, PADFIELD_FLAGS, &pad);
@@ -13029,7 +13046,11 @@ void chrTickGoPos(struct chrdata *chr)
 						if ((pad.flags & PADFLAG_AIWALKDIRECT) == 0) {
 							// And this one doesn't have PADFLAG_AIWALKDIRECT either,
 							// so the chr can consider skipping this one too.
-							waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex + 2];
+							if (chr->act_gopos.curindex + 2 < MAX_CHRWAYPOINTS) {
+								waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex + 2];
+							} else {
+								waypoint = NULL;
+							}
 
 							if (waypoint) {
 								padUnpack(waypoint->padnum, PADFIELD_ROOM | PADFIELD_POS, &pad);
@@ -13045,7 +13066,7 @@ void chrTickGoPos(struct chrdata *chr)
 								nextpos.y = chr->act_gopos.endpos.y;
 								nextpos.z = chr->act_gopos.endpos.z;
 
-								roomsCopy(chr->act_gopos.endrooms, nextrooms);
+								roomsCopySafe(chr->act_gopos.endrooms, nextrooms, 8);
 							}
 
 							// Some bbox related check
@@ -13066,7 +13087,11 @@ void chrTickGoPos(struct chrdata *chr)
 				candosomething = (chr->act_gopos.flags & GOPOSFLAG_INIT) != 0;
 				padUnpack(waypoint->padnum, PADFIELD_FLAGS | PADFIELD_POS, &pad);
 
-				next = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
+				if (chr->act_gopos.curindex + 1 < MAX_CHRWAYPOINTS) {
+					next = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
+				} else {
+					next = NULL;
+				}
 
 				if (next) {
 					padUnpack(next->padnum, PADFIELD_ROOM | PADFIELD_POS, &pad2);
@@ -13090,7 +13115,7 @@ void chrTickGoPos(struct chrdata *chr)
 						nextpos.y = chr->act_gopos.endpos.y;
 						nextpos.z = chr->act_gopos.endpos.z;
 
-						roomsCopy(chr->act_gopos.endrooms, nextrooms);
+						roomsCopySafe(chr->act_gopos.endrooms, nextrooms, 8);
 					}
 
 					// I suspect this is making the chr turn to face the next pad

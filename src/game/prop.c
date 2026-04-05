@@ -3056,6 +3056,24 @@ void roomsCopy(RoomNum *src, RoomNum *dst)
 }
 
 /**
+ * Bounded version of roomsCopy. Copies at most maxdst-1 entries from src
+ * to dst, then always writes a -1 terminator. Prevents stack buffer overflow
+ * when the source room list has a missing or corrupted -1 terminator.
+ */
+void roomsCopySafe(RoomNum *src, RoomNum *dst, s32 maxdst)
+{
+	s32 i = 0;
+	s32 limit = maxdst - 1;
+
+	while (i < limit && src[i] != -1) {
+		dst[i] = src[i];
+		i++;
+	}
+
+	dst[i] = -1;
+}
+
+/**
  * Append newrooms to dstrooms without duplicates.
  */
 void roomsAppend(RoomNum *newrooms, RoomNum *dstrooms, s32 maxlen)

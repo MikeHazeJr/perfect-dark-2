@@ -23,6 +23,7 @@
 #include <dbghelp.h>
 #include <inttypes.h>
 #include <excpt.h>
+#include <signal.h>
 
 // NOTE: game builds with gcc, which means we have no PDBs for the windows version
 // this means that you generally won't get any symbol names in the main executable
@@ -379,6 +380,39 @@ s32 g_CrashEnabled = 0;
 
 static char crashMsg[1024];
 
+#ifdef PLATFORM_WIN32
+/**
+ * SIGABRT handler for GCC's -fstack-protector-strong.
+ * When __stack_chk_fail detects a smashed canary it calls abort(),
+ * which raises SIGABRT through the CRT. The VEH/UEF never see it,
+ * so we catch it here with signal().
+ */
+static void crashSigabrtHandler(int sig)
+{
+	static volatile long s_AbrtFired = 0;
+	if (InterlockedCompareExchange(&s_AbrtFired, 1, 0) != 0) {
+		_exit(3);
+	}
+
+	const char *logpath = sysLogGetPath();
+	if (logpath && logpath[0]) {
+		FILE *f = fopen(logpath, "ab");
+		if (f) {
+			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected by -fstack-protector-strong)\n");
+			fclose(f);
+		}
+	}
+	fputs("FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected)\n", stderr);
+	fflush(stderr);
+
+	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or explicit abort()");
+
+	sysFatalError("SIGABRT: Stack buffer overflow detected by -fstack-protector-strong.\n"
+		"Check the log — the corrupted function's canary was smashed.\n"
+		"This confirms a buffer overrun inside a game tick function.");
+}
+#endif
+
 void crashInit(void)
 {
 #ifdef PLATFORM_WIN32
@@ -387,6 +421,8 @@ void crashInit(void)
 	 * Critical for catching stack overflow where the UEF can't run. */
 	AddVectoredExceptionHandler(1, crashVectoredHandler);
 	prevExFilter = SetUnhandledExceptionFilter(crashHandler);
+	/* Catch SIGABRT from GCC's __stack_chk_fail (stack protector) */
+	signal(SIGABRT, crashSigabrtHandler);
 	g_CrashEnabled = 1;
 #elif defined(PLATFORM_LINUX)
 	struct sigaction sigact = { 0 };

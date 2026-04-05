@@ -188,6 +188,7 @@ add_compile_options(
   -fno-strict-aliasing
   -funsigned-char
   -fwrapv
+  -fstack-protector-strong
   -include "versioninfo.h"
 )
 
