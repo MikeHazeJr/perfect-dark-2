@@ -100,7 +100,17 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 
 ---
 
-## NEXT UP: Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
+## NEXT UP: Lobby Unification (Solo + Online)
+
+See full task list: [tasks-lobby-unification.md](tasks-lobby-unification.md)
+
+**Key finding**: Solo Combat Simulator and Online Play already share `pdgui_menu_room.cpp` via `s_IsSoloMode` flag. 90% unified. Remaining: 5 missing features (custom weapon slots, handicaps, team presets, save/load, slow motion), legacy file removal, network sync, and online spawn race root cause.
+
+**Estimated**: ~8-10 sessions
+
+---
+
+## Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
 
 **Settings half** (D5a–D5d): DONE. Audio sliders, video settings, controls rebinding — see [d5-settings-plan.md](d5-settings-plan.md).
 
