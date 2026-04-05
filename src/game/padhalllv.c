@@ -377,6 +377,11 @@ bool waygroupFindRoute(struct waygroup *from, struct waygroup *to, struct waygro
 		while (step >= 0) {
 			curto->step += 10000;
 			curto = waygroupChooseNeighbour(curto->neighbours, step, IGNORE_OUTWARDS);
+
+			if (!curto) {
+				return false;
+			}
+
 			step--;
 		}
 
@@ -652,6 +657,24 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 	struct waygroup *groups = g_StageSetup.waygroups;
 
 	if (groups && frompoint && topoint) {
+		/* Validate groupnum: walk the sentinel-terminated group list to count
+		 * valid groups. If either waypoint has an out-of-range groupnum, bail. */
+		s32 numgroups = 0;
+		{
+			struct waygroup *g = groups;
+			while (g->neighbours) {
+				numgroups++;
+				g++;
+			}
+		}
+
+		if (frompoint->groupnum < 0 || frompoint->groupnum >= numgroups
+				|| topoint->groupnum < 0 || topoint->groupnum >= numgroups) {
+			*arrptr = NULL;
+			arrptr++;
+			return arrptr - arr;
+		}
+
 		struct waygroup *fromgroup = &groups[frompoint->groupnum];
 		struct waygroup *togroup = &groups[topoint->groupnum];
 
@@ -666,7 +689,16 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 				struct waypoint *curgrouplastwp;
 				struct waypoint *nextgroupfirstwp;
 
+				if (!nextfromgroup) {
+					break;
+				}
+
 				waypointFindSegmentIntoGroup(curfromgroup, nextfromgroup, &curgrouplastwp, &nextgroupfirstwp);
+
+				if (!curgrouplastwp || !nextgroupfirstwp) {
+					break;
+				}
+
 				numwritten = waypointCollectLocal(curfrompoint, curgrouplastwp, arrptr, arrlen) - 1;
 
 				arrlen -= numwritten;
@@ -676,7 +708,9 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 				curfromgroup = nextfromgroup;
 			}
 
-			arrptr += waypointCollectLocal(curfrompoint, topoint, arrptr, arrlen) - 1;
+			if (curfrompoint) {
+				arrptr += waypointCollectLocal(curfrompoint, topoint, arrptr, arrlen) - 1;
+			}
 		}
 	}
 
