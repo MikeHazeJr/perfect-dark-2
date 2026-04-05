@@ -152,6 +152,7 @@ extern s32 g_NetMode;
 void netDisconnect(void);
 void pdguiSetInRoom(s32 inRoom);
 void pdguiSoloRoomOpen(void);
+void pdguiSoloRoomReturn(void); /* U-12: return to room preserving config */
 
 /* Dialog definitions for registration */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
@@ -905,7 +906,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::SetCursorPos(ImVec2(padX, btnY));
         if (PdEndButton("Play Again", ImVec2(halfW, btnH))) {
             pdguiEndscreenExitToMainMenu();
-            pdguiSoloRoomOpen();
+            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
         }
 
         ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
@@ -932,7 +933,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         if (networked) {
             pdguiSetInRoom(1);
         } else {
-            pdguiSoloRoomOpen();
+            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
         }
     }
 

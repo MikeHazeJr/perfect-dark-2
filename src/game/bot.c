@@ -1087,28 +1087,37 @@ s32 botTick(struct prop *prop)
 		 * setupCreateProps. */
 		{
 			static bool s_BotSpawnFailsafeDone = false;
+			static s32 s_BotSpawnDeferFrames = 0;
 			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
-				s_BotSpawnFailsafeDone = true;
-				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
-				botSpawnAll();
+				/* U-13: stage-readiness gate — defer if pads not loaded yet,
+				 * up to 60 frames, to avoid spawning into uninitialized geometry
+				 * on the online path where stage load is asynchronous. */
+				if (g_NumSpawnPoints == 0 && g_PadsFile == NULL && s_BotSpawnDeferFrames < 60) {
+					s_BotSpawnDeferFrames++;
+				} else {
+					s_BotSpawnFailsafeDone = true;
+					sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, defer=%d)", s_BotSpawnDeferFrames);
+					botSpawnAll();
 
-				/* Verify all bots got valid rooms after the spawn wave.
-				 * If a bot's rooms[0] is still -1, its position is in void
-				 * geometry — re-spawn it individually to try a different pad. */
-				{
-					s32 bi;
-					for (bi = 0; bi < g_BotCount; bi++) {
-						struct chrdata *bchr = g_MpBotChrPtrs[bi];
-						if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
-							sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
-							botSpawn(bchr, false);
+					/* Verify all bots got valid rooms after the spawn wave.
+					 * If a bot's rooms[0] is still -1, its position is in void
+					 * geometry — re-spawn it individually to try a different pad. */
+					{
+						s32 bi;
+						for (bi = 0; bi < g_BotCount; bi++) {
+							struct chrdata *bchr = g_MpBotChrPtrs[bi];
+							if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
+								sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
+								botSpawn(bchr, false);
+							}
 						}
 					}
 				}
 			}
-			/* Reset the flag on stage change (lvframe60 resets to 0) */
+			/* Reset the flags on stage change (lvframe60 resets to 0) */
 			if (g_Vars.lvframe60 == 0) {
 				s_BotSpawnFailsafeDone = false;
+				s_BotSpawnDeferFrames = 0;
 			}
 		}
 

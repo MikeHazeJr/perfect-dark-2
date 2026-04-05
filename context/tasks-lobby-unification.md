@@ -85,8 +85,8 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-8 | **Network sync for new features** | Custom weapon slots, handicaps, team presets, and slow motion toggle all need to be synced from leader to clients in online mode. Add the necessary netmsg handlers. | L | OPEN |
-| U-9 | **Post-match flow verification** | Confirm Solo returns to room screen via `pdguiSoloRoomOpen()`, Online returns via POSTGAME→LOBBY state transition. Both should preserve the match setup for quick rematch. | S | OPEN |
+| U-8 | **Network sync for new features** | Custom weapon slots, handicaps, team presets, and slow motion toggle all need to be synced from leader to clients in online mode. Add the necessary netmsg handlers. | L | PARTIAL — handicap sync added to `SVC_STAGE_START` (per-slot in player loop) and `CLC_LOBBY_START` (MAX_PLAYERS bytes) on 2026-04-05. Still needed: weapon slot sync, team preset sync, slow motion toggle sync. |
+| U-9 | **Post-match config preservation** | Solo returns to room screen and should preserve match config for quick rematch. Added `pdguiSoloRoomReturn()` (skips `pdguiRoomScreenReset()` call) — "Play Again" button and keyboard shortcut now use it. Online path unchanged (POSTGAME→LOBBY preserves state inherently). | S | DONE (2026-04-05) |
 
 ---
 
@@ -94,7 +94,7 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-10 | **Investigate fundamental sequencing difference** | Solo bot spawning is synchronous (pads load → bots allocate → spawn runs). Online has potential race conditions between `SVC_BOT_AUTHORITY`, stage loading, and spawn point population. The defensive fixes (void detection, underground clamp, stuck init, `chraTick` guard) are band-aids. The real fix is ensuring the online path has the same sequencing guarantees as solo. | L | OPEN |
+| U-10 | **Stage-readiness gate for online bot spawn** | Added 60-frame deferral gate to `botTick` failsafe: if `g_NumSpawnPoints==0 && g_PadsFile==NULL`, defer `botSpawnAll()` up to 60 frames so pads can finish loading. `s_BotSpawnDeferFrames` resets with `s_BotSpawnFailsafeDone` on stage change. Root-cause investigation (sequencing pads→spawn on online path) still open. | L | PARTIAL — gate added 2026-04-05; root cause (async stage load sequencing) still OPEN |
 
 ---
 
@@ -110,4 +110,4 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 **Suggested order**: U-5 (trivial) → U-6 (verify) → U-1 → U-2 → U-3 → U-4 → U-8 (net sync) → U-7 (retire legacy) → U-9 (post-match verify) → U-10 (spawn race root cause)
 
-U-1, U-2, U-3, U-4, U-5, U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed. Remaining: U-7 (retire legacy), U-8 (net sync), U-9 (post-match verify), U-10 (spawn race).
+U-1, U-2, U-3, U-4, U-5, U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed. U-9 (post-match config preservation) DONE 2026-04-05. U-8 PARTIAL (handicap sync done; weapon/team/slowmo sync still needed). U-10 PARTIAL (stage-readiness gate added; async sequencing root cause still open). Remaining: U-7 (retire legacy), U-8 remainder (weapon/team/slowmo sync), U-10 root cause.

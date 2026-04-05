@@ -766,6 +766,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			netbufWriteU8(dst, ncl->playernum);
 			netbufWriteU8(dst, ncl->settings.team);
 			netbufWriteU16(dst, ncl->settings.options);
+			netbufWriteU8(dst, g_PlayerConfigsArray[ncl->playernum].handicap); /* U-9: per-player handicap */
 			/* SA-3: body/head as session IDs */
 			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.body_id));
 			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.head_id));
@@ -933,6 +934,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			u16 head_session;
 			ncl->id = id;
 			ncl->settings.options = netbufReadU16(src);
+			g_PlayerConfigsArray[ncl->playernum].handicap = netbufReadU8(src); /* U-9: per-player handicap */
 			body_session = catalogReadAssetRef(src);
 			head_session = catalogReadAssetRef(src);
 			ncl->settings.fovy = netbufReadF32(src);
@@ -962,8 +964,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 		} else {
-			/* skip our own settings except for team and playernum */
+			/* skip our own settings except for team, playernum, and handicap */
 			netbufReadU16(src);
+			g_PlayerConfigsArray[ncl->playernum].handicap = netbufReadU8(src); /* U-9: leader may have changed it */
 			catalogReadAssetRef(src); /* body_session */
 			catalogReadAssetRef(src); /* head_session */
 			netbufReadF32(src);
@@ -3697,6 +3700,11 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		}
 	}
 
+	/* U-9: per-player handicap bytes — one per player slot */
+	for (s32 hi = 0; hi < MAX_PLAYERS; hi++) {
+		netbufWriteU8(dst, g_PlayerConfigsArray[hi].handicap);
+	}
+
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
 	 * write empty defaults so the server always reads exactly numSims entries.
@@ -3959,6 +3967,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 		}
 	}
+
+	/* U-9: per-player handicap bytes */
+	for (s32 hi = 0; hi < MAX_PLAYERS; hi++) {
+		g_PlayerConfigsArray[hi].handicap = netbufReadU8(src);
+	}
+
 	(void)weaponSetIndex; /* retained for logging/future use */
 
 	if (src->error) {
