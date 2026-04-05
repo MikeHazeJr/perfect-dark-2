@@ -369,11 +369,18 @@ void pdguiRender(void)
      * The next frame the hotswap queue is empty, WasActive drops to false —
      * but nothing applies the SDL state unless we do it here.
      * Covers all hotswap→gameplay transitions: solo mission accept, endscreen
-     * retry/next, and any future hotswap dialog that calls menuStop(). */
+     * retry/next, and any future hotswap dialog that calls menuStop().
+     *
+     * FIX-PLAYTEST-4 (B-114): Do NOT flush on lvframe60==0 (first tick of a new
+     * stage).  On mission→CI transitions, the hotswap was active in the previous
+     * stage's menus; the close fires on frame 0 of CI while lvTickPlayer is still
+     * initialising, potentially touching stale menu/ImGui state.  Deferring to
+     * frame 1+ lets the stage finish its first tick before we apply SDL state. */
     {
         bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
         if (hotswapWasActive && !hotswapNowActive &&
-                !g_PdguiActive && !pdguiIsPauseMenuOpen()) {
+                !g_PdguiActive && !pdguiIsPauseMenuOpen() &&
+                pdmainGetLvFrame60() > 0) {
             if (inputMouseIsLocked()) {
                 SDL_ShowCursor(SDL_DISABLE);
                 SDL_SetRelativeMouseMode(SDL_TRUE);

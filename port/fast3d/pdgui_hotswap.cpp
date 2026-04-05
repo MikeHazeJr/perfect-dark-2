@@ -28,6 +28,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdmain.h"
 #include "screenmfst.h"
 #include "system.h"
 
@@ -313,16 +314,26 @@ void pdguiHotswapRenderQueued(s32 winW, s32 winH)
     }
 
     /* Phase 6: notify screen manifest system which dialogs were active.
-     * Collect dialogdef pointers before clearing the queue. */
+     * Collect dialogdef pointers before clearing the queue.
+     * FIX-PLAYTEST-4: Skip screenManifestTick on frame 0/1 of a new stage.
+     * When a player dies/exits to CI hub, the stage transition frees menu
+     * memory.  On frame 1, s_HotswapMenuWasActive is still true from the
+     * last frame (keeping us in the render path), but s_Queue is empty.
+     * Calling screenManifestTick with count=0 triggers "leave" events that
+     * call catalogUnloadAsset while the catalog is reinitialising for the
+     * new stage → crash.  Defer the tick until lvframe60 >= 2. */
     {
-        void *active_defs[HOTSWAP_MAX_QUEUED];
-        s32 n = 0;
-        for (s32 qi = 0; qi < s_QueueCount; qi++) {
-            if (s_Queue[qi].entry && s_Queue[qi].entry->dialogdef) {
-                active_defs[n++] = (void*)s_Queue[qi].entry->dialogdef;
+        s32 lvframe = pdmainGetLvFrame60();
+        if (lvframe >= 2) {
+            void *active_defs[HOTSWAP_MAX_QUEUED];
+            s32 n = 0;
+            for (s32 qi = 0; qi < s_QueueCount; qi++) {
+                if (s_Queue[qi].entry && s_Queue[qi].entry->dialogdef) {
+                    active_defs[n++] = (void*)s_Queue[qi].entry->dialogdef;
+                }
             }
+            screenManifestTick(active_defs, n);
         }
-        screenManifestTick(active_defs, n);
     }
 
     /* Clear the queue for next frame */

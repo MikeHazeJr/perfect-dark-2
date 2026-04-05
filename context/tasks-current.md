@@ -46,6 +46,13 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | Bot spawn void geometry / underground | ~~HIGH~~ | **Fixed S145–S149** — AIDROP root cause removed, room==-1 hardened, ground-clamp, stuck-detect init (B-110, B-111 fixed) |
 | Stack overflow → silent crash (31 bots) | ~~HIGH~~ | **Fixed S150** — 8MB stack + VEH (B-113 fixed) |
 | **B-112: Chr pointer corruption (31-bot crashes)** | **HIGH** | Guard + diagnostics added S150; root cause unknown. Awaiting next VEH crash log. |
+| ~~All bots get dark_combat body (invisible)~~ | ~~CRIT~~ | **Fixed S151** — g_MatchConfig.slots not populated in CLC_LOBBY_START. MATCH_MAX_SLOTS 32→40. |
+| ~~Prop resync spam (0 props every 6s)~~ | ~~HIGH~~ | **Fixed S151** — Desync counter reset on 0-prop receive. Full event-driven sync TBD. |
+| ~~Death-in-hub crash (stagenum=0x00)~~ | ~~HIGH~~ | **Fixed S151** — titleSetNextStage guards against 0x00, redirects to CI. |
+| ~~Bot HP too low in local (maxdamage=4)~~ | ~~MED~~ | **Fixed S151** — botmgrAllocateBot sets maxdamage=8.0f. |
+| ~~B-114: CI crash frame 1 after mission fail exit~~ | ~~HIGH~~ | **Fixed S152** — screenManifestTick deferred until lvframe60>=2 (catalogUnloadAsset during catalog reinit). SDL flush deferred to lvframe60>0. |
+| **B-115: Post-game menu mouse unresponsive** | **MED** | Legacy menu steals input, ImGui hotswap doesn't recapture mouse. |
+| **Prop sync not event-driven** | **MED** | Current prop sync uses CRC polling. Should fire on pickup/door events per game director direction. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
 | Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps — may still exist on some maps post-AIDROP fix |
 | Room/menu navigation janky | MED | Back/Esc behavior inconsistent |

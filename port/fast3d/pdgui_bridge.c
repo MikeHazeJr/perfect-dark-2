@@ -723,3 +723,4 @@ void pdguiCancelledClear(void)
     g_MatchCancelledState.active = 0;
     g_MatchCancelledState.name[0] = '\0';
 }
+

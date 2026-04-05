@@ -3,6 +3,82 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S152 — 2026-04-05
+
+**Focus**: Verify all 5 playtest fixes committed; implement Bug 4 (hotswap frame-1 CI crash)
+
+### What Was Done
+
+Bugs 1–3 and 5 from S151 were already committed in `da40788`. Bug 4 was coded but uncommitted.
+
+**5. Hotswap frame-1 crash fix** (FIX-PLAYTEST-4):
+- After mission fail → legacy menu exit → CI load, `pdguiHotswapRenderQueued` fires with `s_HotswapMenuWasActive=true` (from prior stage). On frame 0, `screenManifestTick` with count=0 triggered "leave" events calling `catalogUnloadAsset` while catalog was reinitialising → crash at `+0xc1df3`.
+- Fix A: `pdgui_hotswap.cpp` — guard `screenManifestTick` behind `pdmainGetLvFrame60() >= 2`.
+- Fix B: `pdgui_backend.cpp` — guard hotswap-close mouse capture flush behind `pdmainGetLvFrame60() > 0`.
+- Bridge: `pdmain.c`/`pdmain.h` expose `pdmainGetLvFrame60()` so C++ code can read `g_Vars.lvframe60` without including `types.h`.
+- Files: `port/fast3d/pdgui_hotswap.cpp`, `port/fast3d/pdgui_backend.cpp`, `port/src/pdmain.c`, `port/include/pdmain.h`, `port/fast3d/pdgui_bridge.c`.
+
+### Decisions
+- All 5 playtest fixes confirmed in codebase and committed.
+
+### Next Steps
+- Playtest build to confirm all 5 fixes hold
+- Event-driven prop sync redesign (prop resync fix is a stop-gap)
+- catalogResolveBodyByMpIndex out-of-range (mpbodynum=63/65/66/67) — lobby UI issue separate from these fixes
+
+---
+
+## Session S151 — 2026-04-05
+
+**Focus**: Playtest bug diagnosis and fixes — invisible bots, broken doors/ammo, death-in-hub crash, bot HP
+
+### What Was Done
+
+**Commit `da40788` on `dev`.**
+
+**1. Bot body/head resolution fix** (FIX-PLAYTEST-1):
+- CLC_LOBBY_START server handler read body_id/head_id strings from wire but never stored them in `g_MatchConfig.slots[]`. SVC_STAGE_START write fell back to mpbodynum=0 → all bots got dark_combat body.
+- Fix: strncpy body_id/head_id into g_MatchConfig.slots[MAX_PLAYERS+bi] during server read.
+- Also bumped MATCH_MAX_SLOTS from 32→40 (MAX_PLAYERS(8)+MAX_BOTS(32) can reach slot 39).
+- Files: `port/src/net/netmsg.c`, `port/include/net/matchsetup.h`.
+
+**2. Prop resync spam fix** (FIX-PLAYTEST-2):
+- Dedicated server stubs mainChangeToStage → g_Vars.activeprops empty → prop resync always sends 0 props. Client polled every 6 seconds forever.
+- Fix: reset desync counter when receiving 0 props, stopping the spam loop.
+- Full event-driven prop sync is future work.
+- File: `port/src/net/netmsg.c`.
+
+**3. Death-in-hub crash fix** (FIX-PLAYTEST-3):
+- Falling through CI geometry → death → titleSetNextStage(0x00) → invalid stage → crash (bgGetStageIndex returns -1, loader uses garbage).
+- Fix: guard titleSetNextStage against stagenum=0, redirect to STAGE_CITRAINING (0x26).
+- File: `src/game/pdmode.c`.
+
+**4. Bot HP fix** (FIX-PLAYTEST-5):
+- chrAllocate defaults maxdamage=4. Online gets 8 from server chr resync, but local Combat Sim bots kept 4 (one-shot by any weapon).
+- Fix: set chr->maxdamage=8.0f in botmgrAllocateBot.
+- File: `src/game/botmgr.c`.
+
+### Log Analysis Findings (from Mike + Chris playtest logs)
+- **Invisible bots**: All bots got body=86/head=4 (dark_combat). Joanna+Elvis head combo from safety clamp on mpbody=0.
+- **Broken doors/ammo (Chris)**: Prop resync returns 0 props every 6s. 16+ consecutive resyncs in 2min session.
+- **Death crash (Chris)**: Fell through CI ceiling, ground=-667→-707, titleSetNextStage(0x00), bg_lue loaded with chrslots=0xffffff01.
+- **CI crash (Mike)**: Failed mission → legacy menu exit → frame 1 crash at +0xc1df3. Needs symbolication (DEFERRED).
+- **Post-game mouse dead (Mike)**: Legacy menu steals input, ImGui hotswap doesn't recapture. Related to hotswap state machine (DEFERRED).
+- **catalogResolveBodyByMpIndex out-of-range**: mpbodynum=63/65/66/67 queried against [0,63) — separate lobby UI issue.
+
+### Decisions
+- Prop sync should become event-driven (Mike's direction) — current fix is a stop-gap.
+- Bug 4 (frame 1 CI crash) deferred pending crash symbolication.
+- MATCH_MAX_SLOTS increased to 40 to accommodate full player+bot range.
+
+### Next Steps
+- Playtest the build to verify fixes
+- Event-driven prop sync redesign
+- Investigate Bug 4 (CI crash after mission fail)
+- Push commits to GitHub (16+ ahead of origin/dev)
+
+---
+
 ## Session S150 — 2026-04-04/05
 
 **Focus**: Credits update, bot stuck-detection init, chr pointer-corruption guard, 8MB stack + VEH → v0.0.38
