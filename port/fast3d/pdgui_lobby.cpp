@@ -165,6 +165,18 @@ extern "C" void pdguiSoloRoomOpen(void)
 }
 
 /**
+ * Return to the Room screen in solo mode after a match ends ("Play Again").
+ * Unlike pdguiSoloRoomOpen(), this preserves g_MatchConfig so the player
+ * returns to the same setup for quick rematch.
+ */
+extern "C" void pdguiSoloRoomReturn(void)
+{
+    s_SoloRoomActive = true;
+    pdguiRoomScreenSetSolo(1);
+    /* Do NOT call pdguiRoomScreenReset() — config must survive for rematch */
+}
+
+/**
  * Close the solo Room screen and return to the main menu.
  * Called from pdgui_menu_room.cpp "Back to Menu" button.
  */

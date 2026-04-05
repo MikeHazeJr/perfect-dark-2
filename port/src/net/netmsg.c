@@ -766,6 +766,9 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			netbufWriteU8(dst, ncl->playernum);
 			netbufWriteU8(dst, ncl->settings.team);
 			netbufWriteU16(dst, ncl->settings.options);
+			/* U-9: per-player handicap */
+			netbufWriteU8(dst, (ncl->playernum < MAX_PLAYERS)
+				? g_PlayerConfigsArray[ncl->playernum].handicap : 0x80);
 			/* SA-3: body/head as session IDs */
 			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.body_id));
 			catalogWriteAssetRef(dst, sessionCatalogGetId(ncl->settings.head_id));
@@ -933,6 +936,13 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			u16 head_session;
 			ncl->id = id;
 			ncl->settings.options = netbufReadU16(src);
+			/* U-9: per-player handicap */
+			{
+				u8 hc = netbufReadU8(src);
+				if (ncl->playernum < MAX_PLAYERS) {
+					g_PlayerConfigsArray[ncl->playernum].handicap = hc;
+				}
+			}
 			body_session = catalogReadAssetRef(src);
 			head_session = catalogReadAssetRef(src);
 			ncl->settings.fovy = netbufReadF32(src);
@@ -962,8 +972,15 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 		} else {
-			/* skip our own settings except for team and playernum */
+			/* skip our own settings except for team, playernum, and handicap */
 			netbufReadU16(src);
+			/* U-9: read our own handicap (leader may have changed it) */
+			{
+				u8 hc = netbufReadU8(src);
+				if (ncl->playernum < MAX_PLAYERS) {
+					g_PlayerConfigsArray[ncl->playernum].handicap = hc;
+				}
+			}
 			catalogReadAssetRef(src); /* body_session */
 			catalogReadAssetRef(src); /* head_session */
 			netbufReadF32(src);
@@ -3697,6 +3714,16 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		}
 	}
 
+	/* U-9: Per-player handicaps (MAX_PLAYERS u8 values, default 0x80).
+	 * Handicaps are set by the leader for all players; clients don't set their own.
+	 * The server stores these and includes them in SVC_STAGE_START. */
+	{
+		s32 pi;
+		for (pi = 0; pi < MAX_PLAYERS; pi++) {
+			netbufWriteU8(dst, g_PlayerConfigsArray[pi].handicap);
+		}
+	}
+
 	/* Per-bot config: iterate bot slots in g_MatchConfig in order.
 	 * Count must equal numSims; extra slots are skipped, missing ones
 	 * write empty defaults so the server always reads exactly numSims entries.
@@ -3960,6 +3987,14 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 	(void)weaponSetIndex; /* retained for logging/future use */
+
+	/* U-9: Per-player handicaps from leader */
+	{
+		s32 pi;
+		for (pi = 0; pi < MAX_PLAYERS; pi++) {
+			g_PlayerConfigsArray[pi].handicap = netbufReadU8(src);
+		}
+	}
 
 	if (src->error) {
 		return src->error;
