@@ -113,6 +113,12 @@ s32 func0f189058(s32 full);   /* count of available weapon sets (full=1 includes
 extern s32 g_MpWeaponSetNum;
 #define WEAPONSET_CUSTOM 0x0e
 
+/* Weapon slot editing (mplayer.c) */
+void mpSetWeaponSlot(s32 slot, s32 mpweaponnum);
+s32 mpGetWeaponSlot(s32 slot);
+char *mpGetWeaponLabel(s32 weaponnum);
+s32 mpGetNumWeaponOptions(void);
+
 /* Match config types and API — canonical definitions in scenario_save.h */
 #include "scenario_save.h"
 
@@ -125,6 +131,7 @@ extern s32 g_MpWeaponSetNum;
 #define MPOPTION_NOAUTOAIM             0x00000008
 #define MPOPTION_NOPLAYERHIGHLIGHT     0x00000010
 #define MPOPTION_NOPICKUPHIGHLIGHT     0x00000020
+#define MPOPTION_SLOWMOTION_ON         0x00000040
 #define MPOPTION_FASTMOVEMENT          0x00000100
 #define MPOPTION_DISPLAYTEAM           0x00000200
 #define MPOPTION_HTB_HIGHLIGHTBRIEFCASE 0x00000800
@@ -1448,6 +1455,40 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::EndDisabled();
     }
 
+    /* --- Custom Weapon Slots (visible when Custom set selected) --- */
+    if (g_MpWeaponSetNum == WEAPONSET_CUSTOM) {
+        ImGui::Spacing();
+        s32 numWeaponOptions = mpGetNumWeaponOptions();
+        static const char *slotLabels[NUM_MPWEAPONSLOTS] = {
+            "Slot 1##cws", "Slot 2##cws", "Slot 3##cws",
+            "Slot 4##cws", "Slot 5##cws", "Slot 6##cws"
+        };
+
+        if (!leader) ImGui::BeginDisabled();
+        for (s32 slot = 0; slot < NUM_MPWEAPONSLOTS; slot++) {
+            s32 curWeapon = mpGetWeaponSlot(slot);
+            char *curWeaponName = mpGetWeaponLabel(curWeapon);
+            ImGui::SetNextItemWidth(comboW);
+            if (ImGui::BeginCombo(slotLabels[slot],
+                                  curWeaponName ? curWeaponName : "???")) {
+                for (s32 w = 0; w < numWeaponOptions; w++) {
+                    char *wName = mpGetWeaponLabel(w);
+                    if (!wName || !wName[0]) continue;
+                    bool isSel = (w == curWeapon);
+                    char wLabel[64];
+                    snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d", wName, slot, w);
+                    if (ImGui::Selectable(wLabel, isSel)) {
+                        mpSetWeaponSlot(slot, w);
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (isSel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+        }
+        if (!leader) ImGui::EndDisabled();
+    }
+
     ImGui::Spacing();
     ImGui::Separator();
 
@@ -1483,6 +1524,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggleInverted("Player Highlight",MPOPTION_NOPLAYERHIGHLIGHT, leader);
     optToggleInverted("Pickup Highlight",MPOPTION_NOPICKUPHIGHLIGHT, leader);
     optToggle        ("No Doors",        MPOPTION_NODOORS,           leader);
+    optToggle        ("Slow Motion",     MPOPTION_SLOWMOTION_ON,     leader);
 
     /* Scenario-specific options */
     int sc = (int)g_MatchConfig.scenario;
