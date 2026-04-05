@@ -41,7 +41,9 @@
 extern "C" {
 
 #include "assetcatalog.h"
+#include "botvariant.h"
 char *langGet(s32 textid);
+char *langSafe(s32 textid);
 
 /* Network mode */
 #define NETMODE_NONE   0
@@ -191,10 +193,89 @@ extern struct menudialogdef g_MpTeamsMenuDialog;
 
 } /* extern "C" */
 
-/* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
- * Checks a hardcoded override table before calling langGet() to work around
- * the AIO mod language file returning wrong strings for IDs 0x5126-0x5152. */
-extern const char *arenaGetName(u16 textId);
+/* ========================================================================
+ * Arena name fallback table
+ *
+ * The allinone mod ships its own LmpmenuE language file that overrides the
+ * compiled binary at runtime.  The mod's version still contains the original
+ * PerfectHead / Game Boy Camera UI strings for IDs 296-338, which means
+ * langGet() returns garbage like "Load A Saved Head" instead of "Frigate".
+ * This table provides the correct names keyed by text-ID so the ImGui UI
+ * always shows readable arena names regardless of the language file state.
+ * Relocated from pdgui_menu_matchsetup.cpp (U-7b Step A).
+ * ======================================================================== */
+
+struct arenaNameOverride {
+    u16 textId;
+    const char *name;
+};
+
+static const struct arenaNameOverride s_ArenaNameOverrides[] = {
+    { 0x5126, "Random: PD Maps" },       /* L_MPMENU_294 - Random Multi */
+    { 0x5127, "Random: Solo Maps" },     /* L_MPMENU_295 - Random Solo */
+    { 0x5128, "GoldenEye X" },           /* L_MPMENU_296 - group header */
+    { 0x5129, "GoldenEye X Bonus" },     /* L_MPMENU_297 - group header */
+    { 0x512a, "Frigate" },               /* L_MPMENU_298 */
+    { 0x512b, "Archives" },              /* L_MPMENU_299 */
+    { 0x512c, "Bunker" },                /* L_MPMENU_300 */
+    { 0x512d, "Labyrinth" },             /* L_MPMENU_301 */
+    { 0x512e, "Basement" },              /* L_MPMENU_302 */
+    { 0x512f, "Library" },               /* L_MPMENU_303 */
+    { 0x5130, "Cradle" },                /* L_MPMENU_304 */
+    { 0x5131, "Caverns" },               /* L_MPMENU_305 */
+    { 0x5132, "Caves" },                 /* L_MPMENU_306 */
+    { 0x5133, "Facility BZ" },           /* L_MPMENU_307 */
+    { 0x5134, "Citadel" },               /* L_MPMENU_308 */
+    { 0x5135, "Stack" },                 /* L_MPMENU_309 */
+    { 0x5136, "Train" },                 /* L_MPMENU_310 */
+    { 0x5137, "Facility" },              /* L_MPMENU_311 */
+    { 0x5138, "Egyptian" },              /* L_MPMENU_312 */
+    { 0x5139, "Aztec" },                 /* L_MPMENU_313 */
+    { 0x513a, "Archives 1F" },           /* L_MPMENU_314 */
+    { 0x513b, "Streets" },               /* L_MPMENU_315 */
+    { 0x513c, "Icicle Pyramid" },        /* L_MPMENU_316 */
+    { 0x513d, "Random GoldenEye X" },    /* L_MPMENU_317 */
+    { 0x513e, "Kakariko Village" },       /* L_MPMENU_318 */
+    { 0x513f, "Kakariko Village (Stormy)" }, /* L_MPMENU_319 */
+    { 0x5140, "Dark Noon" },             /* L_MPMENU_320 */
+    { 0x5141, "Dark Noon Valley" },      /* L_MPMENU_321 */
+    { 0x5142, "Archives BZ" },           /* L_MPMENU_322 */
+    { 0x5143, "Cliff Base" },            /* L_MPMENU_323 */
+    { 0x5144, "Suburb" },                /* L_MPMENU_324 */
+    { 0x5145, "Training Day" },          /* L_MPMENU_325 */
+    { 0x5146, "Bonus" },                 /* L_MPMENU_326 - group header */
+    { 0x5147, "Runway" },                /* L_MPMENU_327 */
+    { 0x5148, "Control" },               /* L_MPMENU_328 */
+    { 0x5149, "Tawfret Ruins" },         /* L_MPMENU_329 */
+    { 0x514a, "Targitzan's Temple" },    /* L_MPMENU_330 */
+    { 0x514b, "Junkyard" },              /* L_MPMENU_331 */
+    { 0x514c, "Steel Mill" },            /* L_MPMENU_332 */
+    { 0x514d, "Mall" },                  /* L_MPMENU_333 */
+    { 0x514e, "Tunnels" },               /* L_MPMENU_334 */
+    { 0x514f, "Rogue" },                 /* L_MPMENU_335 */
+    /* Paradox (0x5150 / L_MPMENU_336) omitted — map data removed */
+    { 0x5151, "War Colors" },            /* L_MPMENU_337 */
+    { 0x5152, "Grand Library" },         /* L_MPMENU_338 */
+};
+
+static const s32 s_NumArenaNameOverrides = sizeof(s_ArenaNameOverrides) / sizeof(s_ArenaNameOverrides[0]);
+
+/* Look up arena name: check override table first, then fall back to langGet().
+ * Non-static: also used externally by pdgui_menu_matchsetup.cpp. */
+const char *arenaGetName(u16 textId)
+{
+    /* Check hardcoded overrides for the broken range */
+    for (s32 i = 0; i < s_NumArenaNameOverrides; i++) {
+        if (s_ArenaNameOverrides[i].textId == textId) {
+            return s_ArenaNameOverrides[i].name;
+        }
+    }
+    /* Fall back to the language system for base-game strings */
+    {
+        const char *s = langSafe(textId);
+        return s[0] ? s : "???";
+    }
+}
 
 /* ========================================================================
  * Arena list — built from the asset catalog at room init.
@@ -392,12 +473,76 @@ static int  s_BotSelectCount  = 0;          /* cached count of selected bots */
 static bool s_BotModalOpen    = false;
 static int  s_EditBotSlotIdx  = -1;         /* slot index being edited in the modal */
 
+/* ========================================================================
+ * D3R-8: Bot Customizer state (U-7b Step B — ported from matchsetup.cpp)
+ * ======================================================================== */
+
+struct BotTraits {
+    float accuracy;
+    float reactionTime;
+    float aggression;
+    char  baseType[32];
+};
+
+static BotTraits s_BotTraits[MATCH_MAX_SLOTS];
+static bool      s_BotTraitsInitialized = false;
+
+/* Whether the Advanced section is expanded in the current bot edit modal */
+static bool s_BotModalShowAdvanced = false;
+
+/* Bot preset cache — ASSET_BOT_VARIANT entries from catalog */
+#define MAX_BOT_PRESETS 64
+static const asset_entry_t *s_BotPresets[MAX_BOT_PRESETS];
+static s32                  s_BotPresetCount      = 0;
+static s32                  s_BotPresetCacheDirty = 1;
+static s32                  s_BotPresetSelected   = -1; /* index into s_BotPresets */
+
+/* Save-preset popup state */
+static char s_SavePresetName[MAX_PLAYER_NAME] = {0};
+
+/* Known base type strings — matching PD's simulant type naming */
+static const char *s_BaseTypeNames[] = {
+    "NormalSim", "MeatSim",  "EasySim",  "HardSim",
+    "PerfectSim","DarkSim",  "PeaceSim", "ShieldSim",
+    "RocketSim", "KazeSim",  "FistSim",  "PreySim",
+    "CowardSim", "JudgeSim", "FeudSim",  "SpeedSim",
+    "TurtleSim", "VengeSim",
+};
+static const s32 s_NumBaseTypes = 18;
+
 /* Bot type names for context menu */
 static const char *s_BotTypeNames[] = {
     "Normal", "Peace", "Shield", "Rocket", "Kaze", "Fist",
     "Prey", "Coward", "Judge", "Feud", "Speed", "Turtle", "Venge",
 };
 static const int s_NumBotTypes = 13;
+
+static void botPresetCacheCb(const asset_entry_t *entry, void *userdata)
+{
+    (void)userdata;
+    if (s_BotPresetCount < MAX_BOT_PRESETS) {
+        s_BotPresets[s_BotPresetCount++] = entry;
+    }
+}
+
+static void rebuildBotPresetCache(void)
+{
+    s_BotPresetCount = 0;
+    assetCatalogIterateByType(ASSET_BOT_VARIANT, botPresetCacheCb, NULL);
+    s_BotPresetCacheDirty = 0;
+}
+
+static void initBotTraits(void)
+{
+    for (s32 i = 0; i < MATCH_MAX_SLOTS; i++) {
+        s_BotTraits[i].accuracy     = 0.5f;
+        s_BotTraits[i].reactionTime = 0.5f;
+        s_BotTraits[i].aggression   = 0.5f;
+        strncpy(s_BotTraits[i].baseType, "NormalSim", sizeof(s_BotTraits[i].baseType) - 1);
+        s_BotTraits[i].baseType[sizeof(s_BotTraits[i].baseType) - 1] = '\0';
+    }
+    s_BotTraitsInitialized = true;
+}
 
 static void botSelectClear(void) {
     memset(s_BotSelected, 0, sizeof(s_BotSelected));
@@ -2061,7 +2206,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         s_BotModalOpen = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(300.0f), 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(360.0f), 0.0f));
     if (ImGui::BeginPopupModal("Bot Settings##botmodal", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         if (s_EditBotSlotIdx >= 1
@@ -2069,7 +2214,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             && g_MatchConfig.slots[s_EditBotSlotIdx].type == SLOT_BOT) {
 
             struct matchslot *sl = &g_MatchConfig.slots[s_EditBotSlotIdx];
-            float mw = pdguiScale(260.0f);
+            float mw = pdguiScale(320.0f);
 
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Bot Settings");
             ImGui::Separator();
@@ -2147,7 +2292,138 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::Separator();
             ImGui::Spacing();
 
+            /* ---- Advanced / Simple toggle ---- */
+            const char *advLabel = s_BotModalShowAdvanced ? "- Simple -" : "+ Advanced";
+            if (ImGui::Button(advLabel, ImVec2(pdguiScale(120.0f), 0.0f))) {
+                s_BotModalShowAdvanced = !s_BotModalShowAdvanced;
+                if (s_BotModalShowAdvanced && s_BotPresetCacheDirty) {
+                    rebuildBotPresetCache();
+                    s_BotPresetSelected = -1;
+                }
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+
+            /* ---- Advanced section ---- */
+            if (s_BotModalShowAdvanced && s_EditBotSlotIdx >= 0
+                && s_EditBotSlotIdx < MATCH_MAX_SLOTS)
+            {
+                BotTraits *traits = &s_BotTraits[s_EditBotSlotIdx];
+
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Custom Traits");
+                ImGui::Separator();
+
+                /* Load Preset combo */
+                {
+                    const char *previewLabel = (s_BotPresetSelected >= 0
+                        && s_BotPresetSelected < s_BotPresetCount)
+                        ? s_BotPresets[s_BotPresetSelected]->id
+                        : "-- None --";
+
+                    if (ImGui::BeginCombo("Load Preset", previewLabel)) {
+                        if (ImGui::Selectable("-- None --", s_BotPresetSelected == -1)) {
+                            s_BotPresetSelected = -1;
+                        }
+                        for (s32 p = 0; p < s_BotPresetCount; p++) {
+                            const asset_entry_t *preset = s_BotPresets[p];
+                            char pLabel[96];
+                            snprintf(pLabel, sizeof(pLabel), "%s##prs%d",
+                                     preset->id, p);
+                            bool isSel = (p == s_BotPresetSelected);
+                            if (ImGui::Selectable(pLabel, isSel)) {
+                                s_BotPresetSelected = p;
+                                traits->accuracy     = preset->ext.bot_variant.accuracy;
+                                traits->reactionTime = preset->ext.bot_variant.reaction_time;
+                                traits->aggression   = preset->ext.bot_variant.aggression;
+                                strncpy(traits->baseType,
+                                        preset->ext.bot_variant.base_type,
+                                        sizeof(traits->baseType) - 1);
+                                traits->baseType[sizeof(traits->baseType) - 1] = '\0';
+                                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                            }
+                            if (isSel) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+
+                /* Base Type combo */
+                {
+                    s32 curIdx = 0;
+                    for (s32 i = 0; i < s_NumBaseTypes; i++) {
+                        if (strcmp(traits->baseType, s_BaseTypeNames[i]) == 0) {
+                            curIdx = i;
+                            break;
+                        }
+                    }
+                    if (ImGui::Combo("Base Type", &curIdx,
+                                     s_BaseTypeNames, s_NumBaseTypes)) {
+                        strncpy(traits->baseType, s_BaseTypeNames[curIdx],
+                                sizeof(traits->baseType) - 1);
+                        traits->baseType[sizeof(traits->baseType) - 1] = '\0';
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                }
+
+                /* Trait sliders */
+                ImGui::SliderFloat("Accuracy",   &traits->accuracy,     0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Reaction",   &traits->reactionTime,  0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Aggression", &traits->aggression,    0.0f, 1.0f, "%.2f");
+
+                ImGui::Spacing();
+
+                /* Save as Preset button */
+                if (ImGui::Button("Save as Preset...",
+                                  ImVec2(pdguiScale(160.0f), 0.0f))) {
+                    s_SavePresetName[0] = '\0';
+                    ImGui::OpenPopup("##save_preset_room");
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+
+                /* Save preset nested popup */
+                if (ImGui::BeginPopup("##save_preset_room")) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                                       "Save Bot Preset");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::SetNextItemWidth(pdguiScale(200.0f));
+                    ImGui::InputText("Name##psname", s_SavePresetName,
+                                     sizeof(s_SavePresetName));
+                    ImGui::Spacing();
+
+                    bool canSave = (s_SavePresetName[0] != '\0');
+                    if (!canSave) ImGui::BeginDisabled();
+                    if (ImGui::Button("Save##pssave",
+                                      ImVec2(pdguiScale(80.0f), 0.0f))) {
+                        if (botVariantSave(s_SavePresetName,
+                                           traits->baseType,
+                                           traits->accuracy,
+                                           traits->reactionTime,
+                                           traits->aggression,
+                                           "custom", "", "")) {
+                            s_BotPresetCacheDirty = 1;
+                        }
+                        ImGui::CloseCurrentPopup();
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                    }
+                    if (!canSave) ImGui::EndDisabled();
+
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel##pscancel",
+                                      ImVec2(pdguiScale(80.0f), 0.0f))) {
+                        ImGui::CloseCurrentPopup();
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                    }
+                    ImGui::EndPopup();
+                }
+            } /* end Advanced section */
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
             if (ImGui::Button("Done", ImVec2(pdguiScale(80.0f), 0.0f))) {
+                s_BotModalShowAdvanced = false;
                 s_EditBotSlotIdx = -1;
                 ImGui::CloseCurrentPopup();
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -2375,8 +2651,11 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpPlayer   = 0;
     s_SelectedArena     = 0;
     botSelectClear();
-    s_BotModalOpen      = false;
-    s_EditBotSlotIdx    = -1;
+    s_BotModalOpen         = false;
+    s_EditBotSlotIdx       = -1;
+    s_BotModalShowAdvanced = false;
+    s_BotPresetCacheDirty  = 1;
+    initBotTraits();
     s_SpawnWeaponIdx    = 0;
     s_ShowSaveScenario  = false;
     s_ShowLoadScenario  = false;
