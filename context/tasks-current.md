@@ -137,6 +137,19 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 
 ---
 
+## Lobby Unification
+
+Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)**
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Phase 1** | Close feature gaps in room screen (weapon slots, handicaps, team presets, save/load scenario, slow motion, SP chars) | OPEN |
+| **Phase 2** | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | OPEN |
+| **Phase 3** | Network sync handlers + post-match flow verification | OPEN |
+| **Phase 4** | Root-cause online bot spawn sequencing (match solo's synchronous path) | OPEN |
+
+---
+
 ## Backlog (priority order)
 
 | Phase | Description | Status |
