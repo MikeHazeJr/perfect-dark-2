@@ -383,6 +383,22 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		chr->aibot->moveratey = 0;
 		func0f02e9a0(chr, 0);
 
+		/* Initialize stuck detection snapshot to the actual spawn position.
+		 * Without this, s_BotStuck starts zero-initialized so snapshot={0,0,0}
+		 * and snapshot_frame=0, causing ALL bots to trigger their first stuck
+		 * check simultaneously at frame 180 (STUCK_CHECK_FRAMES) with a
+		 * bogus distance-from-origin comparison.  Bots near the map origin
+		 * would be incorrectly "stuck"-relocated, and the mass simultaneous
+		 * check of 31 bots causes a crash. */
+		{
+			s32 slot = (s32)aibot->aibotnum;
+			if (slot >= 0 && slot < MAX_BOTS && chr->prop) {
+				s_BotStuck[slot].snapshot = chr->prop->pos;
+				s_BotStuck[slot].snapshot_frame = g_Vars.lvframe60;
+				s_BotStuck[slot].relocating = 0;
+			}
+		}
+
 		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
 			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
@@ -1142,6 +1158,15 @@ s32 botTick(struct prop *prop)
 				s32 slot = (s32)aibot->aibotnum;
 				if (slot >= 0 && slot < MAX_BOTS) {
 					struct botstuckstate *bs = &s_BotStuck[slot];
+
+					/* Safety: if snapshot was never initialized (e.g. bot
+					 * entered play without going through botSpawn), seed
+					 * it now instead of running a bogus distance check. */
+					if (bs->snapshot_frame == 0 && g_Vars.lvframe60 > 0) {
+						bs->snapshot = chr->prop->pos;
+						bs->snapshot_frame = g_Vars.lvframe60;
+					}
+
 					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
 					if (frames_since >= STUCK_CHECK_FRAMES) {
 						/* Active pathfinding: bot is trying to navigate */
