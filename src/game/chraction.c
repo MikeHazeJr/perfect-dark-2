@@ -13368,6 +13368,25 @@ void chrTickSkJump(struct chrdata *chr)
 	}
 }
 
+/**
+ * Quick pointer-range check: is chr inside g_ChrSlots or g_BgChrs?
+ * Used only as a crash-guard diagnostic — not a general-purpose validator.
+ */
+static bool chrPtrIsValid(struct chrdata *chr)
+{
+	if (g_ChrSlots && g_NumChrSlots > 0) {
+		if (chr >= g_ChrSlots && chr < g_ChrSlots + g_NumChrSlots) {
+			return true;
+		}
+	}
+	if (g_BgChrs && g_NumBgChrs > 0) {
+		if (chr >= g_BgChrs && chr < g_BgChrs + g_NumBgChrs) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void chraTick(struct chrdata *chr)
 {
 	u32 race = CHRRACE(chr);
@@ -13423,7 +13442,26 @@ void chraTick(struct chrdata *chr)
 		u8 pass = race == RACE_HUMAN || race == RACE_SKEDAR;
 		chr->sleep = 0;
 
+		/* Canary: save chr identity before AI + action dispatch.
+		 * Stack corruption in a callee can overwrite the saved rbx register,
+		 * making chr point to garbage when execution resumes here.
+		 * We save the pointer to a volatile local so the compiler doesn't
+		 * keep it in the same register, then compare after each major call. */
+		volatile struct chrdata *chrCanary = chr;
+
 		chraiExecute(chr, PROPTYPE_CHR);
+
+		if ((struct chrdata *)chrCanary != chr || !chrPtrIsValid(chr)) {
+			sysLogPrintf(LOG_WARNING,
+				"CHRCRASH: chr corrupted after chraiExecute! "
+				"chr=%p canary=%p frame=%d slots=%p..%p bgchrs=%p..%p",
+				(void *)chr, (void *)chrCanary, g_Vars.lvframe60,
+				(void *)g_ChrSlots,
+				(void *)(g_ChrSlots ? g_ChrSlots + g_NumChrSlots : NULL),
+				(void *)g_BgChrs,
+				(void *)(g_BgChrs ? g_BgChrs + g_NumBgChrs : NULL));
+			return;
+		}
 
 		// Consider setting shootingatmelist
 		if (chr->prop) {
@@ -13516,6 +13554,20 @@ void chraTick(struct chrdata *chr)
 				case ACT_SKJUMP:          chrTickSkJump(chr);          break;
 				}
 			}
+		}
+
+		/* Guard: verify chr pointer is still valid before final field access.
+		 * A stack corruption in any chrTick* callee can trash the saved rbx
+		 * (which holds chr), causing an access violation at chr->hidden. */
+		if ((struct chrdata *)chrCanary != chr || !chrPtrIsValid(chr)) {
+			sysLogPrintf(LOG_WARNING,
+				"CHRCRASH: chr corrupted after action tick! "
+				"chr=%p canary=%p action=%d frame=%d",
+				(void *)chr, (void *)chrCanary,
+				chrPtrIsValid((struct chrdata *)chrCanary)
+					? ((struct chrdata *)chrCanary)->actiontype : -1,
+				g_Vars.lvframe60);
+			return;
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
