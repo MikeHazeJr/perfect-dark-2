@@ -18,10 +18,12 @@
 #define MAX_PLAYER_NAME 32
 #endif
 
-/* Total match slots = participant pool size.
- * Must equal PARTICIPANT_DEFAULT_CAPACITY (32). */
+/* Total match slots = MAX_PLAYERS + MAX_BOTS.
+ * Bots occupy slots[MAX_PLAYERS .. MAX_PLAYERS+MAX_BOTS-1], so the array
+ * must be large enough to hold both player and bot entries.  The old value
+ * of 32 was too small when MAX_PLAYERS=8 and MAX_BOTS=32 (need 40). */
 #ifndef MATCH_MAX_SLOTS
-#define MATCH_MAX_SLOTS 32
+#define MATCH_MAX_SLOTS 40
 #endif
 
 /* Weapon slots per match (must match constants.h NUM_MPWEAPONSLOTS) */

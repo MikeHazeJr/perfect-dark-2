@@ -90,6 +90,13 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 			chr->team = 1 << g_BotConfigsArray[aibotnum].base.team;
 			chr->squadron = 0;
 
+			/* FIX-PLAYTEST-5: MP bots default to chrAllocate's maxdamage=4.
+			 * Standard MP health is 8.0 (matching what server chr resync sends
+			 * in online matches).  Set it here so local Combat Sim matches
+			 * also get the correct health. */
+			chr->maxdamage = 8.0f;
+			chr->damage = 0;
+
 			if (g_BotCount < MAX_BOTS) {
 				g_MpBotChrPtrs[g_BotCount] = chr;
 				g_BotCount++;

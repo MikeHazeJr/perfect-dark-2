@@ -3042,6 +3042,14 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 
 	sysLogPrintf(LOG_NOTE, "NET: received prop resync at tick %u for %u props", tick, count);
 
+	/* FIX-PLAYTEST-2: If server sends 0 props (dedicated server has no stage
+	 * loaded), reset the desync counter to stop the 6-second resync spam loop.
+	 * Prop sync should be event-driven (pickup/door interactions), not polled. */
+	if (count == 0) {
+		g_NetPropDesyncCount = 0;
+		return src->error;
+	}
+
 	for (u16 i = 0; i < count; ++i) {
 		struct prop *prop = netbufReadPropPtr(src);
 		const u8 objtype = netbufReadU8(src);
@@ -4099,6 +4107,40 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 			g_BotConfigsArray[bi].type       = botType;
 			g_BotConfigsArray[bi].difficulty = botDifficulty;
+
+			/* FIX-PLAYTEST-1: Store body_id/head_id into g_MatchConfig.slots[]
+			 * so SVC_STAGE_START write can find them.  Without this, the write
+			 * path falls back to catalogResolveBodyByMpIndex(0) → dark_combat
+			 * for every bot, because the dedicated server can't resolve
+			 * mpbodynum (g_MpBodies[] is zeroed on server). */
+			if (slot < MATCH_MAX_SLOTS) {
+				g_MatchConfig.slots[slot].type = SLOT_BOT;
+				g_MatchConfig.slots[slot].botType = botType;
+				g_MatchConfig.slots[slot].botDifficulty = botDifficulty;
+				if (body_id && body_id[0]) {
+					strncpy(g_MatchConfig.slots[slot].body_id, body_id,
+					        sizeof(g_MatchConfig.slots[slot].body_id) - 1);
+					g_MatchConfig.slots[slot].body_id[sizeof(g_MatchConfig.slots[slot].body_id) - 1] = '\0';
+				} else {
+					g_MatchConfig.slots[slot].body_id[0] = '\0';
+				}
+				if (head_id && head_id[0]) {
+					strncpy(g_MatchConfig.slots[slot].head_id, head_id,
+					        sizeof(g_MatchConfig.slots[slot].head_id) - 1);
+					g_MatchConfig.slots[slot].head_id[sizeof(g_MatchConfig.slots[slot].head_id) - 1] = '\0';
+				} else {
+					g_MatchConfig.slots[slot].head_id[0] = '\0';
+				}
+				if (botName && botName[0]) {
+					strncpy(g_MatchConfig.slots[slot].name, botName,
+					        sizeof(g_MatchConfig.slots[slot].name) - 1);
+					g_MatchConfig.slots[slot].name[sizeof(g_MatchConfig.slots[slot].name) - 1] = '\0';
+				}
+				if (slot >= g_MatchConfig.numSlots) {
+					g_MatchConfig.numSlots = (u8)(slot + 1);
+				}
+			}
+
 			/* Resolve catalog IDs → mpbodynum/mpheadnum (last-moment conversion). */
 			g_BotConfigsArray[bi].base.mpbodynum = 0; /* MPBODY_DARK_COMBAT default */
 			g_BotConfigsArray[bi].base.mpheadnum = 0; /* MPHEAD_DARK_COMBAT default */

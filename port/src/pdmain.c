@@ -296,6 +296,13 @@ void pdmainSetInputMode(InputOwnerMode mode)
 	}
 }
 
+/* FIX-PLAYTEST-4: C accessor so C++ port code can check the stage frame counter
+ * without including types.h (which #defines bool as s32, breaking C++ bool). */
+s32 pdmainGetLvFrame60(void)
+{
+	return (s32)g_Vars.lvframe60;
+}
+
 void mainInit(void)
 {
 	s32 x;
