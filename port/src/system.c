@@ -340,6 +340,11 @@ s32 sysLogIsOpen(void)
 	return (logPath[0] != '\0');
 }
 
+const char *sysLogGetPath(void)
+{
+	return logPath;
+}
+
 /* Structured ring buffer for on-screen log display and log viewer */
 #define SYSLOG_RING_SIZE 2048
 static LogEntry s_LogRing[SYSLOG_RING_SIZE];

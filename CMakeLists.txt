@@ -463,6 +463,9 @@ target_link_libraries(pd ${LIBS})
 set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
 if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
+  # 8 MB stack: default 2 MB is too small for 31-bot matches where deep
+  # collision/AI call chains consume significant stack per bot tick.
+  target_link_options(pd PRIVATE -Wl,--stack,8388608)
 endif()
 
 # Dedicated server target -- MINIMAL source list, decoupled from game rendering.
