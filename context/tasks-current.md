@@ -6,7 +6,7 @@
 
 ---
 
-## Recently Completed (S130–S144 — 2026-04-02/04)
+## Recently Completed (S130–S150 — 2026-04-02/05)
 
 | Item | Status |
 |------|--------|
@@ -27,12 +27,13 @@
 | **Network + bot stabilization** | **DONE (S142)** — CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync storm. |
 | **R-3 Room Networking** | **DONE (S143)** — clients see/create/join rooms, room-scoped match start. |
 | **Endscreen UI + name dictionaries** | **DONE (S144)** — endscreen buttons, multi-select bot list, 256-entry name dicts, B-104 fix. v0.0.32. |
+| **Post-playtest spawn stability sprint** | **DONE (S145–S150)** — room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, AIDROP root-cause removal, 31-bots-on-24-pads fallback hardening, underground ground-clamp, CMakeLists.txt repair, credits update (smarch added), bot stuck-detect init (B-111), chr corruption guard (B-112 partial), 8MB stack + VEH (B-113). v0.0.32→v0.0.38. |
 
 ---
 
-## Phase G — Playtest Verification Pending
+## Phase G — Playtest Verification (In Progress)
 
-All code is complete. These items need in-game confirmation.
+Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–S150). Many spawn issues have been resolved. The remaining stability concern is **B-112** (chr pointer corruption in 31-bot matches — root cause unknown, guard applied in S150).
 
 **Success criteria**: zero CATALOG-ASSERT in logs, zero type=16, all MP game modes run to completion with bots, menu transitions clean.
 
@@ -42,8 +43,11 @@ All code is complete. These items need in-game confirmation.
 |-------|----------|-------|
 | End match → lobby transition broken | ~~HIGH~~ | **Fixed S139** — Return to Lobby calls pdguiSetInRoom(1); Quit to Menu calls netDisconnect/mainChangeToStage |
 | Post-match menus janky (buttons non-interactive) | ~~HIGH~~ | **Fixed S139** — pdmainSetInputMode(INPUTMODE_MENU) on window appear |
+| Bot spawn void geometry / underground | ~~HIGH~~ | **Fixed S145–S149** — AIDROP root cause removed, room==-1 hardened, ground-clamp, stuck-detect init (B-110, B-111 fixed) |
+| Stack overflow → silent crash (31 bots) | ~~HIGH~~ | **Fixed S150** — 8MB stack + VEH (B-113 fixed) |
+| **B-112: Chr pointer corruption (31-bot crashes)** | **HIGH** | Guard + diagnostics added S150; root cause unknown. Awaiting next VEH crash log. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
-| Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps |
+| Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps — may still exist on some maps post-AIDROP fix |
 | Room/menu navigation janky | MED | Back/Esc behavior inconsistent |
 | Settings text overlaps tabs | MED | Relative positioning needed in settings screen |
 | Scroll indicators too small / scrollbox-in-scrollbox UX | LOW | Scrollable lists hard to navigate |

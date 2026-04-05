@@ -3,6 +3,196 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S150 — 2026-04-04/05
+
+**Focus**: Credits update, bot stuck-detection init, chr pointer-corruption guard, 8MB stack + VEH → v0.0.38
+
+### What Was Done
+
+**Commits `ccf1bae`, `87b3388`, `375292c`, `85928d9` pushed to `dev`. Build auto-commits `ddc742e`, `ab31c6b`, `4d07510`, `d92f4e3`.**
+
+**1. Credits update** (`ccf1bae`):
+- Removed Variant line from title info block.
+- Moved "PD2 Port Director: MikeHazeJr" up to the vacated slot.
+- Added "Tester: smarch" in grass green (0x00CC00).
+- Developer / Rare Ltd. row shifted down.
+- File: `src/game/title.c`.
+
+**2. Bot stuck-detection initialization** (`87b3388`) — **B-111 fixed**:
+- `s_BotStuck` was zero-initialized, causing all 31 bots to fire their first stuck check simultaneously at frame 180 (`STUCK_CHECK_FRAMES`) with a bogus distance-from-origin comparison.
+- Fix: initialize snapshot position and frame in `botSpawn()`; safety fallback in `botTick()` for bots that enter play without going through `botSpawn()`.
+- File: `src/game/bot.c`.
+
+**3. Chr pointer-corruption guard** (`375292c`) — **B-112 partial**:
+- Access violation at `chr->hidden` when `chr` pointer (rbx) gets corrupted during AI execution or action tick dispatch in 31-bot matches.
+- Added volatile canary + pointer range validation at two checkpoints: after `chraiExecute` and after the action switch.
+- Diagnostic logging identifies whether corruption originates in AI scripts or action handlers.
+- Root cause still unknown — guard reduces crash frequency; investigation continues.
+- File: `src/game/chraction.c`.
+
+**4. Stack increase to 8MB + VEH** (`85928d9`) — **B-113 fixed**:
+- Silent crash in 31-bot matches caused by 2MB default stack being exhausted during deep AI/collision call chains.
+- Existing crash handler (UEF) allocated 8KB on stack, causing double fault → process terminated with no log output.
+- Fix: increase stack reserve from 2MB to 8MB via linker flag. Add first-chance vectored exception handler (VEH) using static buffers and minimal stack. `crashHandler`'s 8KB msg buffer moved from stack to static storage. `sysLogGetPath()` added so VEH can write directly to log. `_resetstkoflw()` called for stack-overflow recovery.
+- Files: `CMakeLists.txt`, `port/include/system.h`, `port/src/crash.c`, `port/src/system.c`.
+
+**Build**: v0.0.38 clean.
+
+### Decisions
+- B-112 (chr pointer corruption) gets a guard + diagnostics now; full root-cause fix deferred until the diagnostic log identifies the corruption source.
+- VEH is first-chance so it fires before the debugger, ensuring crash logs even on the dev machine.
+
+### Next Steps
+- Review VEH crash log from next 31-bot playtest to identify B-112 root cause.
+- D5.3 (Pause Menu) is the biggest remaining open gap.
+
+---
+
+## Session S149 — 2026-04-04
+
+**Focus**: Bot spawn root-cause deep-dive — 31 bots on 24 pads + underground ground-clamp + AIDROP filter removal
+
+### What Was Done
+
+**Commits `d2e558e`, `e03a990`, `a81926e` pushed to `dev`. Build commits `fc3a94e`, `2386bbb`.**
+
+**1. Bot spawn crash (31 bots / 24 pads)** (`d2e558e`) — **B-110 further hardened**:
+- Root cause: unspawned bots (rooms={-1}) were counted as real enemies in the pad-scoring loop, polluting distance calculations and marking all pads as bad. Bots 9-31 all fell through to the fallback which always picked idx=0, piling 23 bots at the same position → crash ~3 seconds in.
+- Three-part fix: (1) skip unspawned bots in scoring loop; (2) pass 4 with `force=true` when all strict passes fail; (3) improved fallback with cycling counter + 80-unit jitter.
+
+**2. Underground ground-clamp + SPAWN-DIAG** (`e03a990`):
+- Bots spawning at underground positions (e.g. Chicago y=-634) now clamped upward to real floor via probe from 2000 units above.
+- One-time `SPAWN-DIAG` logging at match start dumps all spawn pad positions and source waypoint data.
+
+**3. AIDROP filter root-cause fix** (`a81926e`) — **B-110 root cause**:
+- PADFLAG_AIDROP (0x2000) is set on nearly all waypoint pads in multi-level maps (Chicago, etc.). The spawn population code filtered these out, leaving only padnum=0 as valid → all 24 spawn slots got padnum=0 → all bots at same underground position → crash at frame ~180.
+- Fix: removed AIDROP filter from both `playerreset.c` and `navspawn.c`. AIDROP is a pathfinding behavior hint (drop off ledge), not a spawn validity marker.
+- Sequential fallback added if all spawn pads still collapse to same padnum.
+- Diagnostic logging trimmed to first 6 pads.
+
+### Decisions
+- AIDROP filter removal is correct — the flag documents pathfinding behavior, not spawn eligibility. No other spawn filter should use pathfinding hint flags.
+
+### Next Steps
+- Playtest Chicago map with 31 bots — verify all bots spawn at valid positions.
+- S150: credits + crash stability work.
+
+---
+
+## Session S148 — 2026-04-04
+
+**Focus**: CMakeLists.txt corruption repair, Chicago bot spawn root cause (void geometry + HEAD 1000 catalog spam), v0.0.36, design doc
+
+### What Was Done
+
+**Commits `b84c6ba`, `59818e3`, `6ed6a67`, `1235806` pushed to `dev`. Build commits `1ddb77c`.**
+
+**1. CMakeLists.txt corruption repair** (`b84c6ba`) — **B-114 fixed**:
+- CMakeLists.txt had two lines (181, 532) with ~30MB of garbage bytes each — encoding bug from devtools.
+- File restored to valid CMake.
+
+**2. Bot spawn crash on Chicago + HEAD 1000 catalog spam** (`59818e3`) — **B-110 partially fixed**:
+- `playerChooseSpawnLocation`: all fallback paths now use `bgFindRoomsByPos` to resolve rooms when pad data has `room==-1`; final validation ensures no spawn ever returns with `dstrooms[0]==-1`.
+- `botSpawn`: after `chrMoveToPos`, if `rooms[0]` still -1 and `floorroom` also -1, call `bgFindRoomsByPos` as last resort.
+- `botSpawnAll` failsafe: after initial spawn wave, re-spawn any bots still with `rooms[0]==-1`. Per-tick room recovery now re-spawns bots stuck in void geometry.
+- HEAD sentinel value 1000 (random-gender) guarded against catalog lookup — was producing 18× "type=HEAD index=1000 not found" warnings per match. Added `HEAD_RANDOM_GENDER` constant.
+
+**3. v0.0.36 version bump** (`6ed6a67`).
+
+**4. Design doc: implementation-plan-mods-and-d5.md** (`1235806`):
+- New file: `context/designs/implementation-plan-mods-and-d5.md` (549 lines).
+- Covers mod pipeline (P1-P6) and D5 UI screens (P7-P10) with dependency graph, per-phase specs, and sequencing.
+
+### Decisions
+- HEAD_RANDOM_GENDER constant prevents catalog lookup on sentinel — catalog should never be called with magic index 1000.
+
+### Next Steps
+- Playtest Chicago with 31 bots to verify void spawn fix.
+- Deeper root-cause investigation into AIDROP filter (S149).
+
+---
+
+## Session S147 — 2026-04-04
+
+**Focus**: Three online playtest crash fixes — void spawn fallback, Skedar catalog ID, bot.c log flood
+
+### What Was Done
+
+**Commit `6f8bbfe` pushed to `dev`. Build commits `dd062b2`, `b35cf4f`.**
+
+Three fixes from online playtest analysis:
+
+1. **`player.c`** (void spawn fallback): In `playerChooseSpawnLocation`'s shortlist-empty fallback, scan pads from a random offset for the first one with `room >= 0` rather than picking blindly. Prevents void spawns when bots outnumber spawn pads and some pads have `room == -1`. Adds WARNING log for future incidents.
+
+2. **`mplayer.c`** (Skedar catalog ID): Wrong catalog ID for Skedar arena default — was `"base:mp_skedar"`, must be `"base:arena_mp_skedar"` (arena_ prefix required by Phase B naming). Caused Skedar map to fail catalog resolution.
+
+3. **`bot.c`** (log flood): Removed per-tick MATCH-TRACE botTick entry log — 31 bots × 240fps = ~7,440 lines/sec. Room-recovery logs kept.
+
+**Build**: v0.0.34 clean.
+
+### Next Steps
+- Playtest to verify Skedar loads, bots spawn correctly, log no longer floods.
+
+---
+
+## Session S146 — 2026-04-04
+
+**Focus**: botSpawnAll structure fix — move failsafe from setup.c to botTick
+
+### What Was Done
+
+**Commits `d91489e`, `b43ecb7` pushed to `dev`. Build commit `c42e6ac`.**
+
+1. **`d91489e`** fix(build): add missing `bot.h` include in `setup.c` for `botSpawnAll` — compile error from S145 explicit `botSpawnAll()` call.
+
+2. **`b43ecb7`** fix(spawn): moved `botSpawnAll` failsafe from `setup.c` to `botTick`:
+   - The explicit `botSpawnAll()` call in `setup.c` ran too early (before bots had valid rooms from the AI script). Moving the failsafe to `botTick` ensures re-spawn happens after the AI script has had a chance to assign rooms.
+
+**Build**: v0.0.33 clean.
+
+### Next Steps
+- Online playtest to verify 31-bot spawn with adaptive spacing and failsafe.
+
+---
+
+## Session S145 — 2026-04-04
+
+**Focus**: Room leave fix (CLC_ROOM_LEAVE), botSpawnAll failsafe for non-MP maps, server catalog IDs for bot bodies; context updated S141–S144
+
+### What Was Done
+
+**Commits `7d08f78`, `80cee04` pushed to `dev`.**
+
+**1. Room leave fix** (`7d08f78`):
+- "Leave Room" button only called `pdguiSetInRoom(0)` without telling the server. Room stayed open showing 1 occupant.
+- Fix: now sends `CLC_ROOM_LEAVE` to server before transitioning to lobby view.
+- File: `port/fast3d/pdgui_menu_room.cpp`.
+
+**2. Adaptive spawn spacing** (`7d08f78`):
+- Solo maps used as MP arenas (Villa, etc.) have compact layouts where 500-unit minimum spacing rejected most waypoint candidates, leaving too few spawn points.
+- Now uses adaptive passes: 500 → 250 → 125 → 60 → 0 unit spacing, stopping when ≥ 8 spawn points found.
+- File: `src/game/playerreset.c`.
+
+**3. botSpawnAll failsafe for non-MP maps** (`80cee04`):
+- `botSpawnAll` never called on solo mission maps used as MP arenas (Villa, Complex, etc.) — their AI script lacks `aiMpInitSimulants`. Added explicit `botSpawnAll()` call in `setup.c` after bot allocation.
+
+**4. Server uses catalog IDs for bot bodies** (`80cee04`):
+- Server `SVC_STAGE_START` used `catalogResolveBodyByMpIndex()` which returns NULL on dedicated server. All bots rendered as the same character.
+- Fix: now uses `g_MatchConfig.slots[]` `body_id`/`head_id` strings directly.
+
+**5. Context update** (`80cee04`): Session log backfilled with S141–S144; README and bugs.md updated.
+
+**Build**: still v0.0.32.
+
+### Decisions
+- Explicit `botSpawnAll()` in `setup.c` is a pragmatic stop-gap; moved to `botTick` failsafe in S146.
+
+### Next Steps
+- Fix build error (missing bot.h include) from explicit botSpawnAll call → S146.
+- Online playtest with 31 bots.
+
+---
+
 ## Session S144 — 2026-04-04
 
 **Focus**: Endscreen UI overhaul, multi-select bot list, 256-entry name dictionaries, B-104 fix, stale slot cleanup

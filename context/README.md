@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-04, Session S144 (Network + bot stabilization S142: CLC_LOBBY_START overflow, bot freeze, server broadcast fixed. R-3 room networking done S143. Endscreen UI + 256-entry name dicts + multi-select bot list + B-104 fix S144. v0.0.32. Session numbering corrected: S141–S144 added. Next: D5.0 visual layer, D5.3 pause menu.)
+> **Last updated**: 2026-04-05, Session S150 (Post-S144 playtest sprint S145–S150: room leave CLC_ROOM_LEAVE fix, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback hardening, underground ground-clamp, CMakeLists.txt corruption repair, credits update, bot stuck-detection init, chr pointer corruption guard, 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114 logged. B-112 open (chr corruption, root cause TBD). Next: D5.3 pause menu.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S145–S150 | 2026-04-04/05 | Post-playtest spawn stability sprint: room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback, underground ground-clamp, CMakeLists.txt repair, credits update, bot stuck-detection init, chr pointer corruption guard + 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114. | [session-log.md](session-log.md) |
 | S140–S144 | 2026-04-04 | Bot count mismatch audit (S141). Network + bot stabilization sprint: CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync (S142). R-3 room networking: clients create/join rooms, room-scoped match start (S143). Endscreen overhaul + B-104 fix + 256-entry name dicts + multi-select bot list (S144). v0.0.28→v0.0.32. | [session-log.md](session-log.md) |
 | S119–S139 | 2026-04-02/04 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps. v0.0.25. D5.0a spike. D5.1 input boundary. MP scoreboard D5.4. | [session-log.md](session-log.md) |
 | S93–S118 | 2026-04-01 | SA-series (session catalog + modular API), Manifest Lifecycle Sprint Phases 0–6, Match Startup Pipeline Phases A–F, menu system S99–S109, catalog investigation | [sessions-87-119.md](sessions-87-119.md) |

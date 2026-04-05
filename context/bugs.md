@@ -9,6 +9,7 @@
 
 | ID | Severity | Description | File | Status |
 |----|----------|-------------|------|--------|
+| **B-112** | HIGH | Chr pointer (rbx) corruption in `chraTick` during 31-bot matches — access violation at `chr->hidden`; guard + diagnostics added (S150), root cause still unknown | src/game/chraction.c | PARTIAL — VEH guard in place, awaiting next crash log to identify corruption source |
 | **B-18** | MED | Pink sky on Skedar Ruins — sky renders pink instead of correct color | sky rendering path | OPEN — needs investigation |
 | **B-19** | MED | Bot spawn stacking on Skedar Ruins — all bots spawn at same pad | player.c | PARTIAL FIX (S125 F.1 anti-repeat) — needs Skedar-specific playtest |
 | **B-21** | MED | Menu double-press / hierarchy issues — Esc registers multiple times | menumgr.c | LIKELY FIXED (S124 Phase E full-stack dedup) — needs playtest |
@@ -37,6 +38,10 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-114 | CMakeLists.txt corruption — ~30MB of garbage bytes injected at lines 181 and 532 by devtools encoding bug; broke all builds | S148 — CMakeLists.txt (b84c6ba) |
+| B-113 | Stack overflow → silent crash in 31-bot matches — 2MB default stack exhausted in deep AI/collision chains; UEF double-faulted (8KB on stack); process died with no log. Fixed: 8MB reserve + VEH with static buffers | S150 — CMakeLists.txt / crash.c / system.c (85928d9) |
+| B-111 | Bot stuck-detection all 31 bots fire simultaneously at frame 180 — `s_BotStuck` zero-initialized, bogus distance-from-origin comparison on first check → all bots marked stuck at frame 180 | S150 — bot.c (87b3388) |
+| B-110 | Bot spawn void geometry crashes — bots spawned at underground/invalid positions (y=-634 on Chicago) due to AIDROP filter collapsing all valid pads to padnum=0; then 31-bots-on-24-pads fallback stacking; then room==-1 persistence. Root-cause fix: remove AIDROP filter (S149); pad-scoring skip of unspawned bots + jitter fallback (S149); room resolution hardening + botSpawnAll failsafe (S148) | S148–S149 — playerreset.c / navspawn.c / botSpawn / botSpawnAll (59818e3, d2e558e, e03a990, a81926e) |
 | B-109 | Stale `s_SelectedBotSlot` reference in room screen reset — crash hazard on room screen revisit | S144 — pdgui_menu_room.cpp |
 | B-108 | Authority client chr desync detection active on dedicated server — triggered continuous resync storm with many bots | S142 — net.c (skip desync detection when not authority) |
 | B-107 | Dedicated server broadcast blocked — `g_NetLocalClient` guard prevented relay to all clients; no state updates reached players | S142 — net relay path (3645e28) |
