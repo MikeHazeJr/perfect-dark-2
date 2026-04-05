@@ -81,11 +81,23 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 ---
 
+### U-8 Audit Results (2026-04-05)
+
+**Verdict: All three remaining items already on the wire. No new code needed.**
+
+| Item | Data | Where synced | Verdict |
+|------|------|--------------|---------|
+| **Custom weapon slots** | `g_MpSetup.weapons[0..5]` | `CLC_LOBBY_START` write (netmsg.c:3690–3701) as catalog ID strings; `SVC_STAGE_START` write (netmsg.c:740–754) as session IDs | DONE — already synced |
+| **Team preset sync** | `ncl->settings.team` (per client) | `SVC_STAGE_START` write (netmsg.c:763–767): copies `ncl->config->base.team` into `ncl->settings.team` and writes per client | DONE — when leader applies preset it sets each player's team, SVC_STAGE_START carries it |
+| **Slow motion toggle** | `MPOPTION_SLOWMOTION_ON` bit in `g_MpSetup.options` | `CLC_LOBBY_START` write (netmsg.c:3682) `netbufWriteU32(options)`; `SVC_STAGE_START` write (netmsg.c:737) `netbufWriteU32(g_MpSetup.options)` | DONE — options u32 carries all bits including slow motion |
+
+---
+
 ## Phase 3: Online-Specific Polish
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-8 | **Network sync for new features** | Custom weapon slots, handicaps, team presets, and slow motion toggle all need to be synced from leader to clients in online mode. Add the necessary netmsg handlers. | L | PARTIAL — handicap sync added to `SVC_STAGE_START` (per-slot in player loop) and `CLC_LOBBY_START` (MAX_PLAYERS bytes) on 2026-04-05. Still needed: weapon slot sync, team preset sync, slow motion toggle sync. |
+| U-8 | **Network sync for new features** | Custom weapon slots, handicaps, team presets, and slow motion toggle all need to be synced from leader to clients in online mode. Add the necessary netmsg handlers. | L | DONE (2026-04-05) — all items verified on-wire. See U-8 audit below. |
 | U-9 | **Post-match config preservation** | Solo returns to room screen and should preserve match config for quick rematch. Added `pdguiSoloRoomReturn()` (skips `pdguiRoomScreenReset()` call) — "Play Again" button and keyboard shortcut now use it. Online path unchanged (POSTGAME→LOBBY preserves state inherently). | S | DONE (2026-04-05) |
 
 ---
@@ -110,4 +122,4 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 **Suggested order**: U-5 (trivial) → U-6 (verify) → U-1 → U-2 → U-3 → U-4 → U-8 (net sync) → U-7 (retire legacy) → U-9 (post-match verify) → U-10 (spawn race root cause)
 
-U-1, U-2, U-3, U-4, U-5, U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed. U-9 (post-match config preservation) DONE 2026-04-05. U-8 PARTIAL (handicap sync done; weapon/team/slowmo sync still needed). U-10 PARTIAL (stage-readiness gate added; async sequencing root cause still open). Remaining: U-7 (retire legacy), U-8 remainder (weapon/team/slowmo sync), U-10 root cause.
+U-1 through U-6 completed 2026-04-05. Phase 1 complete. U-8 DONE 2026-04-05 (all net sync verified on-wire — no new code needed). U-9 DONE 2026-04-05. U-10 PARTIAL (stage-readiness gate added; async sequencing root cause still open). Remaining: U-7 (retire legacy), U-10 root cause.
