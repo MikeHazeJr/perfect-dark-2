@@ -183,6 +183,12 @@ extern s32 g_NetMode;
 #define RM_NETMODE_NONE   0
 #define RM_NETMODE_CLIENT 2
 
+/* Sub-screen dialog defs (U-2, U-3) */
+struct menudialogdef;
+void menuPushDialog(struct menudialogdef *dialogdef);
+extern struct menudialogdef g_MpHandicapsMenuDialog;
+extern struct menudialogdef g_MpTeamsMenuDialog;
+
 } /* extern "C" */
 
 /* Arena name resolver — defined in pdgui_menu_matchsetup.cpp.
@@ -1525,6 +1531,25 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggleInverted("Pickup Highlight",MPOPTION_NOPICKUPHIGHLIGHT, leader);
     optToggle        ("No Doors",        MPOPTION_NODOORS,           leader);
     optToggle        ("Slow Motion",     MPOPTION_SLOWMOTION_ON,     leader);
+
+    ImGui::Spacing();
+
+    /* Sub-screen buttons: Handicaps (U-2) and Team Setup (U-3) */
+    {
+        float subBtnW = comboW;
+        float subBtnH = pdguiScale(24.0f);
+
+        if (!leader) ImGui::BeginDisabled();
+        if (ImGui::Button("Player Handicaps...", ImVec2(subBtnW, subBtnH))) {
+            menuPushDialog(&g_MpHandicapsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (ImGui::Button("Team Setup...", ImVec2(subBtnW, subBtnH))) {
+            menuPushDialog(&g_MpTeamsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (!leader) ImGui::EndDisabled();
+    }
 
     /* Scenario-specific options */
     int sc = (int)g_MatchConfig.scenario;
