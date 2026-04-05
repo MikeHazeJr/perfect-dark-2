@@ -657,19 +657,25 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 	struct waygroup *groups = g_StageSetup.waygroups;
 
 	if (groups && frompoint && topoint) {
-		/* Validate groupnum: walk the sentinel-terminated group list to count
-		 * valid groups. If either waypoint has an out-of-range groupnum, bail. */
-		s32 numgroups = 0;
-		{
+		/* Validate groupnum: count valid groups (cached per stage load).
+		 * The group list is sentinel-terminated (neighbours == NULL).
+		 * Limit scan to 4096 to prevent infinite loop if data is corrupt. */
+		static struct waygroup *s_CachedGroups = NULL;
+		static s32 s_NumGroups = 0;
+
+		if (s_CachedGroups != groups) {
 			struct waygroup *g = groups;
-			while (g->neighbours) {
-				numgroups++;
+			s32 count = 0;
+			while (g->neighbours && count < 4096) {
+				count++;
 				g++;
 			}
+			s_NumGroups = count;
+			s_CachedGroups = groups;
 		}
 
-		if (frompoint->groupnum < 0 || frompoint->groupnum >= numgroups
-				|| topoint->groupnum < 0 || topoint->groupnum >= numgroups) {
+		if (frompoint->groupnum < 0 || frompoint->groupnum >= s_NumGroups
+				|| topoint->groupnum < 0 || topoint->groupnum >= s_NumGroups) {
 			*arrptr = NULL;
 			arrptr++;
 			return arrptr - arr;

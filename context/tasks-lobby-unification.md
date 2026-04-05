@@ -27,12 +27,12 @@ These features exist in Solo (via legacy paths or separate screens) but aren't e
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-1 | **Custom Weapon Slot Editing** | Solo has 6 individually configurable weapon slots. Online only has the weapon set preset dropdown. Add the 6-slot custom editor to the room screen, synced via network for online mode. | M | OPEN |
+| U-1 | **Custom Weapon Slot Editing** | Solo has 6 individually configurable weapon slots. Online only has the weapon set preset dropdown. Add the 6-slot custom editor to the room screen, synced via network for online mode. | M | DONE (UI done, network sync deferred to U-8) |
 | U-2 | **Handicap Sliders** | Per-player damage modifiers exist in `pdgui_menu_mpsettings.cpp` but aren't wired into the room screen. Add handicap controls to the room UI, networked for online. | M | OPEN |
 | U-3 | **Team Auto-Presets** | `pdgui_menu_teamsetup.cpp` has 5 presets (Two/Three/Four Teams, Humans vs Sims, Human-Sim Pairs). Wire these into the room screen's team setup section. | S | OPEN |
 | U-4 | **Save/Load Scenario** | JSON scenario save/load exists (`port/src/scenario_save.c`) but isn't surfaced in the room UI. Add save/load buttons. For online, only the room leader can load a scenario. | M | OPEN |
-| U-5 | **Slow Motion Toggle** | Available in Solo's options but missing from the Online options list in the room screen. Add it. | XS | OPEN |
-| U-6 | **SP Characters in MP** | 76 heads and 63 bodies registered in catalog with feature-lock gates. Verify all SP characters are selectable in both Solo and Online character pickers when unlocked. Memory note: "ALL heads registered in catalog, SP-only available via unlock system." | S | OPEN |
+| U-5 | **Slow Motion Toggle** | Available in Solo's options but missing from the Online options list in the room screen. Add it. | XS | DONE |
+| U-6 | **SP Characters in MP** | 76 heads and 63 bodies registered in catalog with feature-lock gates. Verify all SP characters are selectable in both Solo and Online character pickers when unlocked. Memory note: "ALL heads registered in catalog, SP-only available via unlock system." | S | DONE (confirmed: no filter; all chars shown in both paths) |
 
 ---
 
@@ -73,4 +73,4 @@ These features exist in Solo (via legacy paths or separate screens) but aren't e
 
 **Suggested order**: U-5 (trivial) → U-6 (verify) → U-1 → U-2 → U-3 → U-4 → U-8 (net sync) → U-7 (retire legacy) → U-9 (post-match verify) → U-10 (spawn race root cause)
 
-All items OPEN as of 2026-04-05.
+U-1, U-5, U-6 completed 2026-04-05. Remaining items OPEN.
