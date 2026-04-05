@@ -85,8 +85,8 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-8 | **Network sync for new features** | Weapon slots, team assignments, slow motion already synced via CLC_LOBBY_START/SVC_STAGE_START. Added per-player handicap sync (u8 × MAX_PLAYERS) to both message paths. | L | DONE |
-| U-9 | **Post-match flow verification** | Solo: created `pdguiSoloRoomReturn()` that preserves config (unlike `pdguiSoloRoomOpen()` which resets). Wired into endscreen "Play Again" and Enter/Start shortcut. Online: POSTGAME→LOBBY already preserves config. | S | DONE |
+| U-8 | **Network sync for new features** | Custom weapon slots, handicaps, team presets, and slow motion toggle all need to be synced from leader to clients in online mode. Add the necessary netmsg handlers. | L | OPEN |
+| U-9 | **Post-match flow verification** | Confirm Solo returns to room screen via `pdguiSoloRoomOpen()`, Online returns via POSTGAME→LOBBY state transition. Both should preserve the match setup for quick rematch. | S | OPEN |
 
 ---
 
@@ -94,7 +94,7 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-10 | **Bot spawn stage-readiness gate** | Added U-13 hardening to `botTick` failsafe: defers `botSpawnAll()` until `g_NumSpawnPoints > 0` or `g_PadsFile != NULL` (stage data loaded). 60-frame timeout (~1s) prevents infinite deferral. Logs diagnostic on every deferral. Architecture was already sound (`lvupdate240` gate), this adds explicit spawn-point readiness verification. | L | DONE |
+| U-10 | **Investigate fundamental sequencing difference** | Solo bot spawning is synchronous (pads load → bots allocate → spawn runs). Online has potential race conditions between `SVC_BOT_AUTHORITY`, stage loading, and spawn point population. The defensive fixes (void detection, underground clamp, stuck init, `chraTick` guard) are band-aids. The real fix is ensuring the online path has the same sequencing guarantees as solo. | L | OPEN |
 
 ---
 
@@ -103,15 +103,11 @@ These may be dead paths (ImGui overlay intercepts at every entry point via `pdgu
 - `s_IsSoloMode` flag in `pdgui_menu_room.cpp` controls Solo vs Online behavior differences
 - `matchStart()` in `port/src/net/matchsetup.c` is the Solo launch path
 - `netLobbyRequestStartWithSims()` is the Online launch path
-- Post-match: Solo → `pdguiSoloRoomReturn()` (preserves config), Online → room state POSTGAME → LOBBY
+- Post-match: Solo → `pdguiSoloRoomOpen()`, Online → room state POSTGAME → LOBBY
 - Phase 1 tasks are independent — can be done in any order
 - Phase 3 U-8 depends on Phase 1 completion (can't sync features that don't exist yet)
 - Phase 4 is independent and can be investigated in parallel with Phases 1–3
 
 **Suggested order**: U-5 (trivial) → U-6 (verify) → U-1 → U-2 → U-3 → U-4 → U-8 (net sync) → U-7 (retire legacy) → U-9 (post-match verify) → U-10 (spawn race root cause)
 
-U-1 through U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed.
-U-8, U-9, U-10 completed 2026-04-05. Phases 3 & 4 complete — net sync, post-match flow, bot spawn hardening done.
-Remaining: U-7 (retire legacy matchsetup.cpp — blocked on 2 feature gaps + arenaGetName relocation).
-
-U-1 through U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed.
+U-1, U-2, U-3, U-4, U-5, U-6 completed 2026-04-05. Phase 1 complete — all feature gaps closed. Remaining: U-7 (retire legacy), U-8 (net sync), U-9 (post-match verify), U-10 (spawn race).

@@ -1084,29 +1084,12 @@ s32 botTick(struct prop *prop)
 		 * it was allocated but never spawned. Call botSpawnAll() once to place
 		 * all bots at valid spawn positions. Must happen during tick, not setup,
 		 * because the stage (waypoints, pads, rooms) isn't fully loaded during
-		 * setupCreateProps.
-		 *
-		 * U-13: Stage-readiness gate — defer spawn until spawn points are
-		 * populated (g_NumSpawnPoints > 0) or pads file is loaded. This
-		 * prevents a race where bot tick runs before stage geometry is ready
-		 * in online mode. After 60 frames (~1 second), proceed anyway using
-		 * the playerChooseSpawnLocation fallback path. */
+		 * setupCreateProps. */
 		{
 			static bool s_BotSpawnFailsafeDone = false;
-			static s32 s_BotSpawnDeferFrames = 0;
 			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
-				/* Check stage readiness: spawn points populated OR pad file loaded */
-				if (g_NumSpawnPoints == 0 && g_PadsFile == NULL && s_BotSpawnDeferFrames < 60) {
-					s_BotSpawnDeferFrames++;
-					if (s_BotSpawnDeferFrames == 1 || (s_BotSpawnDeferFrames % 15) == 0) {
-						sysLogPrintf(LOG_NOTE, "SPAWN: deferring botSpawnAll — stage not ready (npts=%d pads=%s frame=%d)",
-							g_NumSpawnPoints, g_PadsFile ? "ok" : "null", s_BotSpawnDeferFrames);
-					}
-					return TICKOP_NONE;
-				}
 				s_BotSpawnFailsafeDone = true;
-				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, npts=%d, pads=%s, deferred=%d)",
-					g_NumSpawnPoints, g_PadsFile ? "ok" : "null", s_BotSpawnDeferFrames);
+				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
 				botSpawnAll();
 
 				/* Verify all bots got valid rooms after the spawn wave.
@@ -1123,10 +1106,9 @@ s32 botTick(struct prop *prop)
 					}
 				}
 			}
-			/* Reset the flags on stage change (lvframe60 resets to 0) */
+			/* Reset the flag on stage change (lvframe60 resets to 0) */
 			if (g_Vars.lvframe60 == 0) {
 				s_BotSpawnFailsafeDone = false;
-				s_BotSpawnDeferFrames = 0;
 			}
 		}
 
