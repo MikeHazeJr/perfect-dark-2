@@ -51,40 +51,8 @@ f32  mpHandicapToDamageScale(u8 value);
 /* Player names (for labels) */
 const char *mpPlayerConfigGetName(s32 playernum);
 
-/* Match config read (how many human players are active) */
-#define MAX_PLAYER_NAME 32
-#define MATCH_MAX_SLOTS 32
-#define SLOT_EMPTY  0
-#define SLOT_PLAYER 1
-#define SLOT_BOT    2
-
-struct matchslot {
-    u8 type;
-    u8 team;
-    u8 headnum;
-    u8 bodynum;
-    u8 botType;
-    u8 botDifficulty;
-    char name[MAX_PLAYER_NAME];
-    char body_id[64];
-    char head_id[64];
-};
-
-struct matchconfig {
-    struct matchslot slots[MATCH_MAX_SLOTS];
-    u8 scenario;
-    u8 stagenum;
-    u8 timelimit;
-    u8 scorelimit;
-    u16 teamscorelimit;
-    u32 options;
-    u8 weapons[6];
-    s8 weaponSetIndex;
-    u8 numSlots;
-    u8 spawnWeaponNum;
-};
-
-extern struct matchconfig g_MatchConfig;
+/* Match config types, struct definitions, and g_MatchConfig */
+#include "net/matchsetup.h"
 
 } /* extern "C" */
 

@@ -62,55 +62,10 @@ u32 mpGetNumBodies(void);
 /* Language strings */
 const char *langSafe(s32 textid);
 
-/* Match config (from matchsetup.c — must match layout exactly).
- * Cannot include constants.h here (types.h bool conflict with C++). */
-#define MAX_PLAYER_NAME 32
+/* Match config types, struct definitions, and g_MatchConfig (canonical: net/matchsetup.h) */
+#include "net/matchsetup.h"
 #define MAX_PLAYERS     8   /* = MAX_PLAYERS in src/include/constants.h */
-#define MAX_BOTS        32  /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY in src/include/constants.h */
-
-#define SLOT_EMPTY    0
-#define SLOT_PLAYER   1
-#define SLOT_BOT      2
-
-/* Total slots = participant pool capacity = PARTICIPANT_DEFAULT_CAPACITY (src/include/constants.h).
- * Cannot use that constant here (types.h bool conflict). Must stay in sync manually.
- * Also defined in matchsetup.c as MATCH_MAX_SLOTS = PARTICIPANT_DEFAULT_CAPACITY. */
-#define MATCH_MAX_SLOTS 32  /* = PARTICIPANT_DEFAULT_CAPACITY */
-
-struct matchslot {
-    u8 type;          /* SLOT_EMPTY, SLOT_PLAYER, SLOT_BOT */
-    u8 team;          /* team number (0-7) */
-    /* PRIMARY: catalog IDs — always set by matchConfigInit/matchConfigAddBot.
-     * bodynum/headnum are DERIVED (legacy engine indices), resolved at matchStart. */
-    char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
-    char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
-    u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
-    u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
-    u8 botType;
-    u8 botDifficulty;
-    char name[MAX_PLAYER_NAME];
-};
-
-struct matchconfig {
-    struct matchslot slots[MATCH_MAX_SLOTS];
-    u8 scenario;
-    char stage_id[64];  /* PRIMARY: catalog ID e.g. "base:mp_complex" */
-    u8 stagenum;        /* DERIVED: resolved from stage_id at matchStart */
-    u8 timelimit;
-    u8 scorelimit;
-    u16 teamscorelimit;
-    u32 options;
-    u8 weapons[6];
-    s8 weaponSetIndex;
-    u8 numSlots;
-    u8 spawnWeaponNum;
-};
-
-extern struct matchconfig g_MatchConfig;
-void matchConfigInit(void);
-s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id, const char *head_id, const char *name);
-s32 matchConfigRemoveSlot(s32 idx);
-s32 matchStart(void);
+#define MAX_BOTS        32  /* = MAX_BOTS in src/include/constants.h */
 
 /* Model catalog (from modelcatalog.c) */
 #define MODELSTATUS_VALID      1
@@ -137,7 +92,6 @@ s32 mpGetNumWeaponOptions(void);
 extern s32 g_MpWeaponSetNum;
 
 #define WEAPONSET_CUSTOM     0x0e
-#define NUM_MPWEAPONSLOTS    6
 
 /* Arena / stage system (from modmgr + setup.c) */
 struct mparena {
