@@ -817,7 +817,13 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 				}
 
 				if (root->type == PROPTYPE_CHR || root->type == PROPTYPE_PLAYER) {
-					chrHit(&shotdata, &shotdata.hits[i]);
+					/* B-112 crash guard: validate chr pointer before entering
+					 * chrHit → chrBruise → modelApplyDistanceRelations path */
+					if (root->chr && chrPtrIsValid(root->chr)) {
+						chrHit(&shotdata, &shotdata.hits[i]);
+					} else {
+						sysLogPrintf(LOG_WARNING, "CHRCRASH: shotCalculateHits skipped hit %d — chr %p is stale/invalid", i, (void *)root->chr);
+					}
 				} else if (hitprop->type == PROPTYPE_OBJ || hitprop->type == PROPTYPE_WEAPON || hitprop->type == PROPTYPE_DOOR) {
 					objHit(&shotdata, &shotdata.hits[i]);
 				}

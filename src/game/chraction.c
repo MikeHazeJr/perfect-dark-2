@@ -13395,9 +13395,10 @@ void chrTickSkJump(struct chrdata *chr)
 
 /**
  * Quick pointer-range check: is chr inside g_ChrSlots or g_BgChrs?
- * Used only as a crash-guard diagnostic — not a general-purpose validator.
+ * Used as a crash-guard in the damage path (chrHit/shotCalculateHits)
+ * and the AI tick path (chraTick). Not a general-purpose validator.
  */
-static bool chrPtrIsValid(struct chrdata *chr)
+bool chrPtrIsValid(struct chrdata *chr)
 {
 	if (g_ChrSlots && g_NumChrSlots > 0) {
 		if (chr >= g_ChrSlots && chr < g_ChrSlots + g_NumChrSlots) {

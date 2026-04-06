@@ -4619,6 +4619,14 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 
 	chr = prop->chr;
 
+	/* B-112 crash guard: if chr pointer is stale (freed/reallocated between
+	 * matches), skip the entire hit to avoid ACCESS_VIOLATION in chrBruise →
+	 * modelApplyDistanceRelations.  Mirrors the S150 canary pattern in chraTick. */
+	if (!chr || !chrPtrIsValid(chr)) {
+		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrHit skipped — chr %p is stale/invalid", (void *)chr);
+		return;
+	}
+
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
 		sp98.x = shotdata->gunpos2d.x - (hit->distance * shotdata->gundir2d.x) / shotdata->gundir2d.z;
 		sp98.y = shotdata->gunpos2d.y - (hit->distance * shotdata->gundir2d.y) / shotdata->gundir2d.z;

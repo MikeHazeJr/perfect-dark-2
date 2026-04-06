@@ -98,6 +98,10 @@ void matchConfigInit(void)
 	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
 	g_MatchConfig.numSlots = 0;
 
+	/* Ensure handicaps start at 100% (0x80).  g_PlayerConfigsArray is BSS
+	 * (zero-initialized), and handicap=0 maps to ~0% — not the intended default. */
+	matchResetHandicaps();
+
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
 	 * mpSetWeaponSet() maps the user-facing index through the unlock filter
 	 * and calls mpApplyWeaponSet() to fill the 6 weapon slots. */
