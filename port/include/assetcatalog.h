@@ -166,6 +166,8 @@ typedef struct asset_entry {
     /* Runtime binding */
     s32  runtime_index;                /* index in relevant runtime array */
                                        /* (g_Stages, g_HeadsAndBodies, etc.) */
+    s16  mp_index;                     /* position in g_MpBodies[]/g_MpHeads[] */
+                                       /* -1 if not in the mp selection table */
 
     /* Type-specific extension (union keeps entry size bounded) */
     union {
@@ -751,24 +753,35 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 
 /* ── SA-4: Reverse-index lookup (migration only) ───────────────────────── */
 
-/**
- * Reverse-lookup: find catalog entry by asset type and runtime_index.
- * Used only during save-file migration (SA-4) to convert legacy integer
- * indices to catalog string IDs.  O(n) linear scan -- never call on the
- * hot path.  Logs [CATALOG-ASSERT] and returns NULL if not found.
- *
- * @param type           Asset type (ASSET_BODY, ASSET_HEAD, ASSET_MAP, etc.)
- * @param runtime_index  The integer index stored in asset_entry_t.runtime_index
- * @return  Pointer to the catalog ID string (valid for catalog lifetime), or NULL.
- */
-const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
+/* ── Phase 8: O(1) cached runtime lookups ───────────────────────────────
+ * Built once by catalogBuildRuntimeCaches() after catalog population.
+ * Zero O(n) scans at runtime — all integer↔string resolution is cached. */
 
 /**
- * B.2: Unified reverse lookup — runtime_index → mp array position.
- * Scans g_MpBodies[] then g_MpHeads[] to find which mp-index position holds
- * a given g_HeadsAndBodies[] runtime_index.  Returns -1 if not found.
+ * Build all runtime↔catalog-ID caches (mp body/head, stage, weapon, model).
+ * Call once after assetCatalogRegisterBaseGame() + component scanning.
+ * Also populates entry->mp_index on each body/head asset_entry_t.
  */
-s32 catalogGetMpIndex(s32 runtime_index);
+void catalogBuildRuntimeCaches(void);
+
+/**
+ * O(1) mp body table position → catalog ID string.
+ * Returns NULL if mp_idx is out of range or has no registered catalog entry.
+ */
+const char *catalogMpBodyId(s32 mp_idx);
+
+/**
+ * O(1) mp head table position → catalog ID string.
+ * Returns NULL if mp_idx is out of range or has no registered catalog entry.
+ */
+const char *catalogMpHeadId(s32 mp_idx);
+
+/**
+ * O(1) cached lookup: (asset_type, runtime_index) → catalog ID string.
+ * Covers all asset types (MAP, ARENA, WEAPON, MODEL, BODY, HEAD, etc.).
+ * Returns NULL if not found or runtime_index is out of cache range.
+ */
+const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index);
 
 /**
  * Body → default head catalog ID string.

@@ -506,14 +506,14 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 /* Catalog-ID-native: prefer string IDs as the primary identity.
                  * Fall back to legacy integer → catalog lookup for old saves. */
                 if (!body_id[0] && body >= 0 && body < 152) {
-                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, body);
+                    const char *bid = catalogIdByRuntime(ASSET_BODY, body);
                     if (bid) {
                         strncpy(body_id, bid, sizeof(body_id) - 1);
                         body_id[sizeof(body_id) - 1] = '\0';
                     }
                 }
                 if (!head_id[0] && head >= 0 && head < 152) {
-                    const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, head);
+                    const char *hid = catalogIdByRuntime(ASSET_HEAD, head);
                     if (hid) {
                         strncpy(head_id, hid, sizeof(head_id) - 1);
                         head_id[sizeof(head_id) - 1] = '\0';

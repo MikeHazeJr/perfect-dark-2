@@ -44,7 +44,7 @@ struct matchslot {
 	/* body_id/head_id are the PRIMARY identity — always set by matchConfigInit/
 	 * matchConfigAddBot.  bodynum/headnum are DERIVED (mpbodynum/mpheadnum cache)
 	 * used only for legacy engine handoff; resolved from body_id/head_id at
-	 * matchStart() time via catalogGetMpIndex(). */
+	 * matchStart() time via entry->mp_index. */
 	char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
 	char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
 	u8 headnum;       /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. Kept temporarily for unmigrated consumers. */

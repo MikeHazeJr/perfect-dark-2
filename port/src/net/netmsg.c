@@ -742,7 +742,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				if (g_MpSetup.weapons[wi] == 0) {
 					catalogWriteAssetRef(dst, 0);
 				} else {
-					const char *wcanon = catalogResolveByRuntimeIndex(
+					const char *wcanon = catalogIdByRuntime(
 						ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
 					if (wcanon) {
 						catalogWriteAssetRef(dst, sessionCatalogGetId(wcanon));
@@ -819,14 +819,12 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 					head_canon = g_MatchConfig.slots[slotIdx].head_id;
 				}
 
-				/* Fallback: resolve from mpbodynum/mpheadnum (runtime_index).
-				 * These now hold g_HeadsAndBodies[] indices directly — use
-				 * catalogResolveByRuntimeIndex directly. */
+				/* Fallback: resolve from mpbodynum/mpheadnum via cached lookup. */
 				if (!body_canon) {
-					body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bc->base.mpbodynum);
+					body_canon = catalogIdByRuntime(ASSET_BODY, (s32)bc->base.mpbodynum);
 				}
 				if (!head_canon) {
-					head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)bc->base.mpheadnum);
+					head_canon = catalogIdByRuntime(ASSET_HEAD, (s32)bc->base.mpheadnum);
 				}
 
 				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
@@ -1087,17 +1085,17 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					pnum = pncl->playernum;
 				}
 				if (pnum < MAX_PLAYERS) {
-					/* SA-3: resolve catalog string IDs → runtime indices */
-					const asset_entry_t *be = assetCatalogResolve(pncl->settings.body_id);
-					const asset_entry_t *he = assetCatalogResolve(pncl->settings.head_id);
-					s32 rawBody = be ? (s32)be->runtime_index : 0;
-					s32 safeHead = he ? (s32)he->runtime_index : 0;
-					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
-					g_PlayerConfigsArray[pnum].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
-					/* Phase 2: populate PRIMARY catalog ID string fields */
-					strncpy(g_PlayerConfigsArray[pnum].base.body_id, pncl->settings.body_id, sizeof(g_PlayerConfigsArray[pnum].base.body_id) - 1);
+					/* Phase 8: validate catalog IDs, derive mp indices from entry */
+					const char *vbody = catalogValidateBodyId(pncl->settings.body_id);
+					const char *vhead = catalogValidateHeadId(pncl->settings.head_id);
+					const asset_entry_t *be = assetCatalogResolve(vbody);
+					const asset_entry_t *he = assetCatalogResolve(vhead);
+					g_PlayerConfigsArray[pnum].base.mpbodynum = (be && be->mp_index >= 0) ? (u8)be->mp_index : 0;
+					g_PlayerConfigsArray[pnum].base.mpheadnum = (he && he->mp_index >= 0) ? (u8)he->mp_index : 0;
+					/* PRIMARY catalog ID string fields */
+					strncpy(g_PlayerConfigsArray[pnum].base.body_id, vbody, sizeof(g_PlayerConfigsArray[pnum].base.body_id) - 1);
 					g_PlayerConfigsArray[pnum].base.body_id[sizeof(g_PlayerConfigsArray[pnum].base.body_id) - 1] = '\0';
-					strncpy(g_PlayerConfigsArray[pnum].base.head_id, pncl->settings.head_id, sizeof(g_PlayerConfigsArray[pnum].base.head_id) - 1);
+					strncpy(g_PlayerConfigsArray[pnum].base.head_id, vhead, sizeof(g_PlayerConfigsArray[pnum].base.head_id) - 1);
 					g_PlayerConfigsArray[pnum].base.head_id[sizeof(g_PlayerConfigsArray[pnum].base.head_id) - 1] = '\0';
 					sysLogPrintf(LOG_NOTE, "NET: player %u body='%s'->%u head='%s'->%u",
 						pnum, pncl->settings.body_id,
@@ -1141,26 +1139,20 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_BotConfigsArray[botidx].difficulty = difficulty;
 			g_BotConfigsArray[botidx].type = bottype;
 
-			/* Resolve session → runtime_index, then safety-clamp and store.
-			 * Mirrors the player path (lines 1073-1084): runtime_index goes
-			 * directly into catalogGetSafeBodyPaired — no mpbody/mphead
-			 * conversion beforehand.  The result IS the mpbodynum/mpheadnum. */
+			/* Phase 8: resolve session → catalog ID, validate, derive mp_index */
 			{
 				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
 				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
-				s32 rawBody = (be && be->type == ASSET_BODY) ? (s32)be->runtime_index : 0;
-				s32 safeHead = (he && he->type == ASSET_HEAD) ? (s32)he->runtime_index : 0;
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
-				/* Phase 2: populate PRIMARY catalog ID string fields */
-				if (be && be->id[0]) {
-					strncpy(g_BotConfigsArray[botidx].base.body_id, be->id, sizeof(g_BotConfigsArray[botidx].base.body_id) - 1);
-					g_BotConfigsArray[botidx].base.body_id[sizeof(g_BotConfigsArray[botidx].base.body_id) - 1] = '\0';
-				}
-				if (he && he->id[0]) {
-					strncpy(g_BotConfigsArray[botidx].base.head_id, he->id, sizeof(g_BotConfigsArray[botidx].base.head_id) - 1);
-					g_BotConfigsArray[botidx].base.head_id[sizeof(g_BotConfigsArray[botidx].base.head_id) - 1] = '\0';
-				}
+				const char *vbody = (be && be->type == ASSET_BODY) ? catalogValidateBodyId(be->id) : "base:dark_combat";
+				const char *vhead = (he && he->type == ASSET_HEAD) ? catalogValidateHeadId(he->id) : "base:head_dark_combat";
+				const asset_entry_t *vbe = assetCatalogResolve(vbody);
+				const asset_entry_t *vhe = assetCatalogResolve(vhead);
+				g_BotConfigsArray[botidx].base.mpbodynum = (vbe && vbe->mp_index >= 0) ? (u8)vbe->mp_index : 0;
+				g_BotConfigsArray[botidx].base.mpheadnum = (vhe && vhe->mp_index >= 0) ? (u8)vhe->mp_index : 0;
+				strncpy(g_BotConfigsArray[botidx].base.body_id, vbody, sizeof(g_BotConfigsArray[botidx].base.body_id) - 1);
+				g_BotConfigsArray[botidx].base.body_id[sizeof(g_BotConfigsArray[botidx].base.body_id) - 1] = '\0';
+				strncpy(g_BotConfigsArray[botidx].base.head_id, vhead, sizeof(g_BotConfigsArray[botidx].base.head_id) - 1);
+				g_BotConfigsArray[botidx].base.head_id[sizeof(g_BotConfigsArray[botidx].base.head_id) - 1] = '\0';
 			}
 			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body='%s'->%u head='%s'->%u (sessions %u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
@@ -1382,7 +1374,7 @@ static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
 {
 #if !defined(PD_SERVER)
 	s32 mpw = weaponToMpWeapon(weaponnum);
-	const char *wid = (mpw >= 0) ? catalogResolveByRuntimeIndex(ASSET_WEAPON, mpw) : NULL;
+	const char *wid = (mpw >= 0) ? catalogIdByRuntime(ASSET_WEAPON, mpw) : NULL;
 	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
 #else
 	catalogWriteAssetRef(dst, 0);
@@ -1408,7 +1400,7 @@ static s32 netReadWeaponRef(struct netbuf *src)
  * All g_ModelStates entries are registered as ASSET_MODEL in the catalog. */
 static void netWriteModelRef(struct netbuf *dst, s32 modelnum)
 {
-	const char *id = catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum);
+	const char *id = catalogIdByRuntime(ASSET_MODEL, modelnum);
 	catalogWriteAssetRef(dst, id ? sessionCatalogGetId(id) : 0);
 }
 
@@ -3824,16 +3816,14 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* C-1: per-slot weapon catalog ID string.
-	 * catalogResolveByRuntimeIndex(ASSET_WEAPON, ...) returns the catalog ID string
-	 * ("base:falcon2" etc.) or NULL for empty/unset slots. */
+	/* Phase 8: per-slot weapon catalog ID via cached lookup */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
 			if (g_MpSetup.weapons[wi] == 0) {
 				netbufWriteStr(dst, "");
 			} else {
-				const char *wcanon = catalogResolveByRuntimeIndex(
+				const char *wcanon = catalogIdByRuntime(
 					ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
 				netbufWriteStr(dst, wcanon ? wcanon : "");
 			}
@@ -3851,7 +3841,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	 *
 	 * Catalog-ID-native: send body_id/head_id strings directly — the server
 	 * resolves them via assetCatalogResolve() → runtime_index, then stores
-	 * directly as mpbodynum/mpheadnum via catalogGetSafeBodyPaired().
+	 * directly as mpbodynum/mpheadnum via entry->mp_index.
 	 * No integer-domain conversion on the client send path. */
 	s32 botIdx = 0;
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
@@ -4232,7 +4222,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 
 			/* FIX-PLAYTEST-1: Store body_id/head_id into g_MatchConfig.slots[]
 			 * so SVC_STAGE_START write can find them.  Without this, the write
-			 * path falls back to catalogResolveByRuntimeIndex(ASSET_BODY, 0) →
+			 * path falls back to "base:dark_combat" →
 			 * dark_combat for every bot. */
 			if (slot < MATCH_MAX_SLOTS) {
 				g_MatchConfig.slots[slot].type = SLOT_BOT;
@@ -4262,25 +4252,17 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 
-			/* Resolve catalog IDs → runtime_index (g_HeadsAndBodies[] index),
-			 * stored directly as mpbodynum/mpheadnum.  No intermediate
-			 * intermediate mp-index conversion — catalog resolves to
-			 * what the engine needs. */
+			/* Phase 8: validate catalog IDs, derive mp_index from entry */
 #ifndef PD_SERVER
 			{
-				s32 rawBody = 0, rawHead = 0;
-				if (body_id && body_id[0]) {
-					const asset_entry_t *be = assetCatalogResolve(body_id);
-					if (be && be->type == ASSET_BODY) rawBody = (s32)be->runtime_index;
-				}
-				if (head_id && head_id[0]) {
-					const asset_entry_t *he = assetCatalogResolve(head_id);
-					if (he && he->type == ASSET_HEAD) rawHead = (s32)he->runtime_index;
-				}
+				const char *vbody = catalogValidateBodyId(body_id);
+				const char *vhead = catalogValidateHeadId(head_id);
+				const asset_entry_t *be = assetCatalogResolve(vbody);
+				const asset_entry_t *he = assetCatalogResolve(vhead);
 				g_BotConfigsArray[bi].base.mpbodynum =
-					(u8)catalogGetSafeBodyPaired(rawBody, &rawHead);
+					(be && be->mp_index >= 0) ? (u8)be->mp_index : 0;
 				g_BotConfigsArray[bi].base.mpheadnum =
-					(u8)catalogGetSafeHead(rawHead);
+					(he && he->mp_index >= 0) ? (u8)he->mp_index : 0;
 				/* Phase 2: populate PRIMARY catalog ID string fields */
 				if (body_id && body_id[0]) {
 					strncpy(g_BotConfigsArray[bi].base.body_id, body_id, sizeof(g_BotConfigsArray[bi].base.body_id) - 1);

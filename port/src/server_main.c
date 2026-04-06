@@ -237,6 +237,7 @@ int main(int argc, char **argv)
 
     assetCatalogInit();
     assetCatalogRegisterBaseGame();
+    catalogBuildRuntimeCaches();
 
     netInit();
     lobbyInit();

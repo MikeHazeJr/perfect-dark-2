@@ -23,7 +23,7 @@
  *       [1]  u8   bodynum  (raw index)
  *       [1]  u8   flags
  *       [1]  u8   _pad
- *   On load, headnum/bodynum are resolved via catalogResolveByRuntimeIndex()
+ *   On load, headnum/bodynum are resolved via catalogMpHeadId/catalogMpBodyId()
  *   and the file is immediately re-saved in v2 format.
  *
  * UUID generation: seeded from SDL performance counter + time(),
@@ -224,11 +224,9 @@ static int tryLoad(void)
             s_Identity.profiles[i].flags = buf[18];
             /* FIX-20: Resolve legacy integers to catalog string IDs.
              * Old identity format stored mpheadnum/mpbodynum (g_MpHeads[]/g_MpBodies[]
-             * position indices, range 0..75/0..62).  catalogResolveByRuntimeIndex uses
-             * g_HeadsAndBodies[] index (bodynum/headnum, range 0..151) — a different
-             * index domain.  Use the mp-index resolvers which do the conversion. */
-            resolved_head = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[headnum].headnum);
-            resolved_body = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[bodynum].bodynum);
+             * position indices, range 0..75/0..62).  Phase 8 O(1) cached lookup. */
+            resolved_head = catalogMpHeadId(headnum);
+            resolved_body = catalogMpBodyId(bodynum);
             if (resolved_head) {
                 strncpy(s_Identity.profiles[i].head_id, resolved_head, CATALOG_ID_LEN - 1);
                 s_Identity.profiles[i].head_id[CATALOG_ID_LEN - 1] = '\0';

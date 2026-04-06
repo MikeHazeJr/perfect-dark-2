@@ -1433,7 +1433,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     char *bodyName = mpGetBodyName((u8)b);
                     /* Fallback for bodies with empty display names */
                     if (!bodyName || !bodyName[0]) {
-                        const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
+                        const char *bid = catalogMpBodyId(b);
                         if (bid && strcmp(bid, "base:drcaroll") == 0) bodyName = (char *)"Dr. Caroll";
                         else if (bid && strcmp(bid, "base:skedar") == 0) bodyName = (char *)"Skedar";
                         else continue;
@@ -1454,9 +1454,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
                 for (u32 si = 0; si < sortedCount; si++) {
                     u32 b = sorted[si].idx;
-                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
+                    const char *bid = catalogMpBodyId(b);
                     if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
-                        const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[b].headnum);
+                        const char *hid = catalogMpHeadId(b);
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                             if (bid) {
@@ -2196,7 +2196,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
                 case 1: {
                     /* Campaign — resolve mission stagenum to catalog ID at callsite. */
-                    const char *coop_id = catalogResolveByRuntimeIndex(
+                    const char *coop_id = catalogIdByRuntime(
                         ASSET_MAP, (s32)s_Missions[s_CampaignMission].stagenum);
                     if (!coop_id) {
                         sysLogPrintf(LOG_ERROR,
@@ -2209,7 +2209,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
                 case 2: {
                     /* Counter-Operative — same pattern. */
-                    const char *anti_id = catalogResolveByRuntimeIndex(
+                    const char *anti_id = catalogIdByRuntime(
                         ASSET_MAP, (s32)s_Missions[s_CounterOpMission].stagenum);
                     if (!anti_id) {
                         sysLogPrintf(LOG_ERROR,
@@ -2311,7 +2311,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             const char *curBody = "?";
             if (sl->body_id[0]) {
                 for (u32 b2 = 0; b2 < numBodies; b2++) {
-                    const char *bid2 = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b2].bodynum);
+                    const char *bid2 = catalogMpBodyId(b2);
                     if (bid2 && strcmp(bid2, sl->body_id) == 0) {
                         char *n = mpGetBodyName((u8)b2);
                         if (n && n[0]) curBody = n;
@@ -2326,7 +2326,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
                     if (!bodyName || !bodyName[0]) continue;
-                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
+                    const char *bid = catalogMpBodyId(b);
                     bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
                     char bLabel[64];
                     snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
@@ -2335,7 +2335,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
                             sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         }
-                        const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[b].headnum);
+                        const char *hid = catalogMpHeadId(b);
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
                             sl->head_id[sizeof(sl->head_id) - 1] = '\0';

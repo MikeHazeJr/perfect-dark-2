@@ -498,7 +498,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	 * source_filenum to replace a specific prop model.
 	 *
 	 * runtime_index = MODEL_* enum value (index into g_ModelStates[]).
-	 * The manifest pipeline uses catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum)
+	 * The manifest pipeline uses catalogIdByRuntime(ASSET_MODEL, modelnum)
 	 * to get the canonical "base:model_%04x" ID.
 	 * source_filenum = g_ModelStates[i].fileid (FILE_* ROM constant)
 	 *

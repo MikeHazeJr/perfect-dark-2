@@ -459,6 +459,7 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->temporary = 0;
     entry->bundled = 0;
     entry->runtime_index = -1;
+    entry->mp_index = -1;
     entry->source_filenum  = -1;
     entry->source_texnum   = -1;
     entry->source_animnum  = -1;

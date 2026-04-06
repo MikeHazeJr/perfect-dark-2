@@ -220,6 +220,10 @@ int main(int argc, const char **argv)
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
 
+	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
+	// Must run after all catalog entries are registered.
+	catalogBuildRuntimeCaches();
+
 	// C-4 prerequisite: build filenum/texnum/animnum/soundnum → pool-index reverse-index.
 	// Must run after full catalog population (base game + mod scan).
 	// catalogGetFileOverride() etc. return NULL until this is called.

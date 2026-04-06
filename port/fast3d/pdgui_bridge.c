@@ -81,17 +81,15 @@ void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *b
 
     if (head_id && head_id[0]) {
         const asset_entry_t *he = assetCatalogResolve(head_id);
-        if (he && he->type == ASSET_HEAD) {
-            s32 idx = catalogGetMpIndex(he->runtime_index);
-            if (idx >= 0) cfg->mpheadnum = (u8)idx;
+        if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+            cfg->mpheadnum = (u8)he->mp_index;
         }
     }
 
     if (body_id && body_id[0]) {
         const asset_entry_t *be = assetCatalogResolve(body_id);
-        if (be && be->type == ASSET_BODY) {
-            s32 idx = catalogGetMpIndex(be->runtime_index);
-            if (idx >= 0) cfg->mpbodynum = (u8)idx;
+        if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+            cfg->mpbodynum = (u8)be->mp_index;
         }
     }
 }

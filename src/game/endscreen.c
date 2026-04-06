@@ -36,7 +36,7 @@
 static void missionSetStagenum(u8 stagenum)
 {
 	g_MissionConfig.stagenum = stagenum;
-	const char *cid = catalogResolveByRuntimeIndex(ASSET_MAP, stagenum);
+	const char *cid = catalogIdByRuntime(ASSET_MAP, stagenum);
 	if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 	else { g_MissionConfig.stage_id[0] = '\0'; }
 }

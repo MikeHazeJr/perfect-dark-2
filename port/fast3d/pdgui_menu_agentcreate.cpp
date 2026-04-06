@@ -180,7 +180,7 @@ static void rebuildHeadSortMap(void)
     s_SortedHeadCount = n;
     for (s32 i = 0; i < n; i++) {
         s_SortedHeadIndices[i] = i;
-        const char *catId = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[i].headnum);
+        const char *catId = catalogMpHeadId(i);
         if (catId)
             formatCatalogId(catId, "head_",
                             s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]));
@@ -258,8 +258,8 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
     /* Request a new preview render if head/body changed */
     if (s_SelectedHead != s_PrevPreviewHead ||
         s_SelectedBody != s_PrevPreviewBody) {
-        const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[s_SortedHeadIndices[s_SelectedHead]].headnum);
-        const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[s_SelectedBody].bodynum);
+        const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+        const char *bid = catalogMpBodyId(s_SelectedBody);
         pdguiCharPreviewRequest(hid ? hid : "", bid ? bid : "");
         s_PrevPreviewHead = s_SelectedHead;
         s_PrevPreviewBody = s_SelectedBody;
@@ -641,8 +641,8 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             if (pnum < 0) pnum = 0;
 
             {
-                const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[s_SortedHeadIndices[s_SelectedHead]].headnum);
-                const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[s_SelectedBody].bodynum);
+                const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+                const char *bid = catalogMpBodyId(s_SelectedBody);
                 mpPlayerConfigSetHeadBody(pnum, hid ? hid : "", bid ? bid : "");
             }
             mpPlayerConfigSetName(pnum, s_AgentName);

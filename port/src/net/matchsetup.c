@@ -342,7 +342,7 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 	const char *picked_body = NULL;
 	for (s32 attempt = 0; attempt < 10; attempt++) {
 		u32 idx = rand() % numBodies;
-		picked_body = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[idx].bodynum);
+		picked_body = catalogMpBodyId(idx);
 		if (!picked_body || !picked_body[0]) continue;
 
 		/* Check for duplicates among existing slots */
@@ -412,16 +412,14 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	slot->headnum = 0; /* MPHEAD_DARK_COMBAT default */
 	{
 		const asset_entry_t *be = assetCatalogResolve(slot->body_id);
-		if (be && be->type == ASSET_BODY) {
-			const s32 mpb = catalogGetMpIndex(be->runtime_index);
-			if (mpb >= 0) slot->bodynum = (u8)mpb;
+		if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+			slot->bodynum = (u8)be->mp_index;
 		}
 	}
 	{
 		const asset_entry_t *he = assetCatalogResolve(slot->head_id);
-		if (he && he->type == ASSET_HEAD) {
-			const s32 mph = catalogGetMpIndex(he->runtime_index);
-			if (mph >= 0) slot->headnum = (u8)mph;
+		if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+			slot->headnum = (u8)he->mp_index;
 		}
 	}
 
@@ -466,14 +464,12 @@ void matchConfigRerollBot(s32 idx)
 	sl->bodynum = 0;
 	sl->headnum = 0;
 	const asset_entry_t *be = assetCatalogResolve(sl->body_id);
-	if (be && be->type == ASSET_BODY) {
-		s32 mpb = catalogGetMpIndex(be->runtime_index);
-		if (mpb >= 0) sl->bodynum = (u8)mpb;
+	if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+		sl->bodynum = (u8)be->mp_index;
 	}
 	const asset_entry_t *he = assetCatalogResolve(sl->head_id);
-	if (he && he->type == ASSET_HEAD) {
-		s32 mph = catalogGetMpIndex(he->runtime_index);
-		if (mph >= 0) sl->headnum = (u8)mph;
+	if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+		sl->headnum = (u8)he->mp_index;
 	}
 }
 
@@ -542,15 +538,11 @@ s32 matchStart(void)
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 
-			/* Resolve mpbodynum/mpheadnum from body_id/head_id (PRIMARY identity).
-			 * catalogGetMpIndex returns the pre-cached mpIndex from the model
-			 * catalog — called here at the last moment before handing off to
-			 * the legacy engine. */
+			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
 			if (ms->body_id[0]) {
 				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY) {
-					const s32 mpb = catalogGetMpIndex(be->runtime_index);
-					cfg->mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+					cfg->mpbodynum = (u8)be->mp_index;
 				} else {
 					cfg->mpbodynum = ms->bodynum; /* cached fallback */
 				}
@@ -559,9 +551,8 @@ s32 matchStart(void)
 			}
 			if (ms->head_id[0]) {
 				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD) {
-					const s32 mph = catalogGetMpIndex(he->runtime_index);
-					cfg->mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+					cfg->mpheadnum = (u8)he->mp_index;
 				} else {
 					cfg->mpheadnum = ms->headnum; /* cached fallback */
 				}
@@ -590,12 +581,11 @@ s32 matchStart(void)
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 
-			/* Same last-moment resolution from body_id/head_id (PRIMARY). */
+			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
 			if (ms->body_id[0]) {
 				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY) {
-					const s32 mpb = catalogGetMpIndex(be->runtime_index);
-					bot->base.mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+					bot->base.mpbodynum = (u8)be->mp_index;
 				} else {
 					bot->base.mpbodynum = ms->bodynum;
 				}
@@ -604,9 +594,8 @@ s32 matchStart(void)
 			}
 			if (ms->head_id[0]) {
 				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD) {
-					const s32 mph = catalogGetMpIndex(he->runtime_index);
-					bot->base.mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+					bot->base.mpheadnum = (u8)he->mp_index;
 				} else {
 					bot->base.mpheadnum = ms->headnum;
 				}
