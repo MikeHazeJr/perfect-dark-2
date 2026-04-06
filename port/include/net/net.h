@@ -9,9 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 29  /* v29: Room networking (R-3). SVC_ROOM_LIST, SVC_ROOM_ASSIGN,
-                               * CLC_ROOM_CREATE, CLC_ROOM_JOIN, CLC_ROOM_LEAVE.
-                               * Clients see room list, create/join rooms, match start is room-scoped.
+#define NET_PROTOCOL_VER 30  /* v30: Weapon identity on wire uses catalog session refs (u16) instead
+                               * of raw WEAPON_* s8/u8.  Affects SVC_PLAYER_STATS, SVC_PROP_SPAWN,
+                               * SVC_PROP_DAMAGE, SVC_CHR_DISARM, SVC_CHR_STATE, SVC_CHR_RESYNC.
+                               * v29: Room networking (R-3).
                                * v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
                                * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
 

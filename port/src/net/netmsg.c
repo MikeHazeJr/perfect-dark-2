@@ -1095,6 +1095,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
 				continue;
 			}
+			/* Zero-init body/head each iteration so stale values never leak */
+			g_BotConfigsArray[botidx].base.mpbodynum = 0;
+			g_BotConfigsArray[botidx].base.mpheadnum = 0;
+
 			/* SA-3: bot body/head as session IDs */
 			const char *botname = netbufReadStr(src);
 			const u16 body_session = catalogReadAssetRef(src);
@@ -1112,30 +1116,36 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 			g_BotConfigsArray[botidx].difficulty = difficulty;
 			g_BotConfigsArray[botidx].type = bottype;
+
+			/* Resolve session → catalog bodynum/headnum (g_HeadsAndBodies indices).
+			 * Safety-clamp operates on these catalog indices, NOT on mpbody/mphead
+			 * indices.  Previous code converted runtime_index → mpbodynum BEFORE
+			 * the clamp, passing the wrong index space to catalogGetSafeBodyPaired. */
+			s32 bodyIdx = -1;
+			s32 headIdx = -1;
 			{
 				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
 				if (be && be->type == ASSET_BODY) {
-					s32 mpb = catalogBodynumToMpBodyIdx((s32)be->runtime_index);
-					if (mpb >= 0) {
-						g_BotConfigsArray[botidx].base.mpbodynum = (u8)mpb;
-					}
+					bodyIdx = (s32)be->runtime_index;
 				}
 			}
 			{
 				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
 				if (he && he->type == ASSET_HEAD) {
-					s32 mph = catalogHeadnumToMpHeadIdx((s32)he->runtime_index);
-					if (mph >= 0) {
-						g_BotConfigsArray[botidx].base.mpheadnum = (u8)mph;
-					}
+					headIdx = (s32)he->runtime_index;
 				}
 			}
-			/* Final catalog safety-clamp: ensures modeldef is valid on first frame. */
+			/* Safety-clamp on catalog indices, then convert to mpbody/mphead */
 			{
-				s32 botSafeHead = (s32)g_BotConfigsArray[botidx].base.mpheadnum;
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(
-					(s32)g_BotConfigsArray[botidx].base.mpbodynum, &botSafeHead);
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(botSafeHead);
+				s32 safeHead = headIdx >= 0 ? headIdx : 0;
+				s32 safeBody = bodyIdx >= 0
+					? catalogGetSafeBodyPaired(bodyIdx, &safeHead)
+					: catalogGetSafeBodyPaired(0, &safeHead);
+				safeHead = catalogGetSafeHead(safeHead);
+				s32 mpb = catalogBodynumToMpBodyIdx(safeBody);
+				s32 mph = catalogHeadnumToMpHeadIdx(safeHead);
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)(mpb >= 0 ? mpb : 0);
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)(mph >= 0 ? mph : 0);
 			}
 			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (sessions %u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
@@ -1319,6 +1329,30 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+/* ── Weapon wire helpers ─────────────────────────────────────────────────
+ * Write/read a WEAPON_* enum as a catalog session reference (2 bytes).
+ * Used by SVC_PLAYER_STATS, SVC_PROP_SPAWN, SVC_PROP_DAMAGE,
+ * SVC_CHR_DISARM, SVC_CHR_STATE, and SVC_CHR_RESYNC. */
+
+static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
+{
+	const char *wid = catalogResolveWeaponByGameId(weaponnum);
+	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
+}
+
+static s32 netReadWeaponRef(struct netbuf *src)
+{
+	u16 wsession = catalogReadAssetRef(src);
+	if (wsession == 0) {
+		return WEAPON_UNARMED;
+	}
+	catalog_weapon_result_t wr;
+	if (catalogResolveWeaponBySession(wsession, &wr)) {
+		return wr.weapon_num;
+	}
+	return WEAPON_UNARMED;
+}
+
 u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl)
 {
 	if (actcl->state < CLSTATE_GAME || !actcl->player || !actcl->player->prop) {
@@ -1330,7 +1364,7 @@ u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl)
 	netbufWriteU8(dst, SVC_PLAYER_STATS);
 	netbufWriteU8(dst, actcl->id);
 	netbufWriteU8(dst, flags);
-	netbufWriteS8(dst, pl->gunctrl.weaponnum);
+	netWriteWeaponRef(dst, pl->gunctrl.weaponnum);
 	netbufWriteF32(dst, pl->prop->chr->damage);
 	netbufWriteF32(dst, pl->bondhealth);
 	netbufWriteF32(dst, pl->prop->chr->cshield);
@@ -1367,7 +1401,7 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 clid = netbufReadU8(src);
 	const u8 flags = netbufReadU8(src);
-	const s8 newweaponnum = netbufReadS8(src);
+	const s32 newweaponnum = netReadWeaponRef(src);
 	const f32 newdamage = netbufReadF32(src);
 	const f32 newhealth = netbufReadF32(src);
 	const f32 newshield = netbufReadF32(src);
@@ -1649,8 +1683,9 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 		case PROPTYPE_WEAPON:
 			// dropped gun or projectile
 			netbufWriteS16(dst, prop->weapon->base.modelnum);
-			netbufWriteU8(dst, prop->weapon->weaponnum);
-			netbufWriteS8(dst, prop->weapon->dualweaponnum);
+			netWriteWeaponRef(dst, prop->weapon->weaponnum);
+			netWriteWeaponRef(dst, prop->weapon->dualweaponnum >= 0
+				? prop->weapon->dualweaponnum : WEAPON_UNARMED);
 			netbufWriteS8(dst, prop->weapon->unk5d);
 			netbufWriteS8(dst, prop->weapon->unk5e);
 			netbufWriteU8(dst, prop->weapon->gunfunc);
@@ -1734,8 +1769,11 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 
 	if (type == PROPTYPE_WEAPON) {
 		const s16 modelnum = netbufReadS16(src);
-		const u8 weaponnum = netbufReadU8(src);
-		const s8 dualweaponnum = netbufReadS8(src);
+		const s32 weaponnum_raw = netReadWeaponRef(src);
+		const s32 dualweaponnum_raw = netReadWeaponRef(src);
+		const u8 weaponnum = (u8)weaponnum_raw;
+		const s8 dualweaponnum = dualweaponnum_raw > WEAPON_UNARMED
+			? (s8)dualweaponnum_raw : -1;
 		const s8 unk5d = netbufReadS8(src);
 		const s8 unk5e = netbufReadS8(src);
 		const u8 gunfunc = netbufReadU8(src);
@@ -1899,7 +1937,7 @@ u32 netmsgSvcPropDamageWrite(struct netbuf *dst, struct prop *prop, f32 damage, 
 	netbufWriteCoord(dst, pos);
 	netbufWriteF32(dst, prop->obj->damage);
 	netbufWriteF32(dst, damage);
-	netbufWriteS8(dst, weaponnum);
+	netWriteWeaponRef(dst, weaponnum);
 	netbufWriteS8(dst, playernum);
 	netbufWriteU32(dst, prop->obj->hidden & ~(OBJHFLAG_PROJECTILE | OBJHFLAG_EMBEDDED));
 	return dst->error;
@@ -1911,7 +1949,7 @@ u32 netmsgSvcPropDamageRead(struct netbuf *src, struct netclient *srccl)
 	struct coord pos; netbufReadCoord(src, &pos);
 	const f32 damagepre = netbufReadF32(src);
 	const f32 damage = netbufReadF32(src);
-	const s8 weaponnum = netbufReadS8(src);
+	const s32 weaponnum = netReadWeaponRef(src);
 	const s8 playernum = netbufReadS8(src);
 	const u32 hidden = netbufReadHidden(src);
 	if (srccl->state < CLSTATE_GAME) {
@@ -2232,7 +2270,7 @@ u32 netmsgSvcChrDisarmWrite(struct netbuf *dst, struct chrdata *chr, struct prop
 	netbufWriteU8(dst, SVC_CHR_DISARM);
 	netbufWritePropPtr(dst, chr->prop);
 	netbufWritePropPtr(dst, aprop);
-	netbufWriteU8(dst, weaponnum);
+	netWriteWeaponRef(dst, weaponnum);
 	netbufWriteF32(dst, wpndamage);
 	if (wpndamage > 0.f && wpnpos) {
 		netbufWriteCoord(dst, wpnpos);
@@ -2244,7 +2282,7 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 {
 	struct prop *chrprop = netbufReadPropPtr(src);
 	struct prop *aprop = netbufReadPropPtr(src);
-	const u8 weaponnum = netbufReadU8(src);
+	const s32 weaponnum = netReadWeaponRef(src);
 	const f32 weapondmg = netbufReadF32(src);
 	struct coord pos = { 0.f, 0.f, 0.f };
 
@@ -2462,7 +2500,7 @@ u32 netmsgSvcChrStateWrite(struct netbuf *dst, struct chrdata *chr)
 	netbufWriteU8(dst, flags);
 	netbufWriteF32(dst, chr->damage);
 	netbufWriteF32(dst, chr->cshield);
-	netbufWriteS8(dst, aibot->weaponnum);
+	netWriteWeaponRef(dst, aibot->weaponnum);
 	netbufWriteS8(dst, aibot->gunfunc);
 	netbufWriteS16(dst, aibot->loadedammo[0]);
 	netbufWriteS16(dst, aibot->loadedammo[1]);
@@ -2480,7 +2518,7 @@ u32 netmsgSvcChrStateRead(struct netbuf *src, struct netclient *srccl)
 	const u8 flags = netbufReadU8(src);
 	const f32 damage = netbufReadF32(src);
 	const f32 shield = netbufReadF32(src);
-	const s8 weaponnum = netbufReadS8(src);
+	const s32 weaponnum = netReadWeaponRef(src);
 	const s8 gunfunc = netbufReadS8(src);
 	const s16 loadedammo0 = netbufReadS16(src);
 	const s16 loadedammo1 = netbufReadS16(src);
@@ -2829,7 +2867,7 @@ u32 netmsgSvcChrResyncWrite(struct netbuf *dst)
 		// Health and combat
 		netbufWriteF32(dst, chr->damage);
 		netbufWriteF32(dst, chr->cshield);
-		netbufWriteS8(dst, aibot->weaponnum);
+		netWriteWeaponRef(dst, aibot->weaponnum);
 		netbufWriteS8(dst, aibot->gunfunc);
 		netbufWriteS16(dst, aibot->loadedammo[0]);
 		netbufWriteS16(dst, aibot->loadedammo[1]);
@@ -2895,7 +2933,7 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 		// Health and combat
 		f32 damage = netbufReadF32(src);
 		f32 shield = netbufReadF32(src);
-		s8 weaponnum = netbufReadS8(src);
+		s32 weaponnum = netReadWeaponRef(src);
 		s8 gunfunc = netbufReadS8(src);
 		s16 loadedammo0 = netbufReadS16(src);
 		s16 loadedammo1 = netbufReadS16(src);

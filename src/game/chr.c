@@ -3942,6 +3942,15 @@ void chr0f0260c4(struct model *model, s32 hitpart, struct modelnode *node, struc
  */
 void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct coord *arg3)
 {
+	/* B-112 defense-in-depth: shot path can reach here with stale pointers
+	 * if a chr is freed between matches.  Bail early to avoid crash in
+	 * modelNodeGetModelRelativePosition / modelApplyDistanceRelations. */
+	if (!model || !node || !arg3) {
+		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrBruise skipped — model=%p node=%p arg3=%p",
+			(void *)model, (void *)node, (void *)arg3);
+		return;
+	}
+
 	struct modelnode *bestnode = NULL;
 	bool ok;
 	s32 nodetype;
