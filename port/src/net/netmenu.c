@@ -29,6 +29,7 @@
 #include "bss.h"
 #include "net/net.h"
 #include "net/netbuf.h"
+#include "net/netholepunch.h"
 #include "game/options.h"
 #include "game/lang.h"
 #include "game/lv.h"
@@ -561,7 +562,7 @@ MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item,
 					snprintf(resolved, sizeof(resolved), "%u.%u.%u.%u:%u",
 					         ip & 0xFF, (ip >> 8) & 0xFF,
 					         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
-					if (netStartClient(resolved) == 0) {
+					if (netStartClientWithHolePunch(resolved) == 0) {
 						menuPushDialog(&g_NetJoiningDialog);
 					}
 				} else {

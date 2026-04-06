@@ -3,6 +3,49 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S157 — 2026-04-06 (Post-S156 Code Sessions)
+
+**Focus**: Phase 8 conversion function elimination, deep array-bypass audit, D5.0 visual layer implementation
+
+### What Was Done
+
+**Catalog Phase 8 — O(n) conversion function elimination** (`3a05532`):
+- Eliminated all O(n) conversion functions that scanned arrays linearly.
+- Context updated with current migration status.
+
+**Deep array-bypass audit** (`0b4aed2`, `2b409b4`):
+- Full audit of direct array access patterns (`g_Weapons[]`, `g_HeadsAndBodies[]`).
+- Found 2 hidden `catalogGetMpIndex` reimplementations.
+- Fixed all 15 deep audit bypass items — zero gaps remaining.
+
+**D5.0 Visual Layer — revised plan + full implementation** (`8189edb`, `a040275`):
+- Deep investigation revealed ~70% of D5.0 was already built (pdgui_theme.cpp, pdgui_style.cpp).
+- Phase 1: Split `pdguiThemeInit()` into early + `pdguiThemeLateInit()` (called after `texInit()`).
+- Phase 2: ROM texture extraction tool (`--extract-ui-textures` CLI flag).
+- Phase 3: Base UI mod (`mods/base-ui/`) with 13 UI texture catalog entries.
+- Phase 4: Haze overlay in `pdguiDrawPdDialog()` — green-tinted IA8 compositing.
+- Phase 5: CRT scanline pass — 2px-interval horizontal lines, configurable via `pd.ini`.
+- Phase 6: Multi-palette support — all 7 palettes (Grey, Blue, Red, Green, White, Silver, BlackGold) now drive theme draw functions.
+- Also: Procedural modern-UI mod (`mods/pd-modern-ui/`), TGA loader for mod textures, procedural fallback textures.
+
+**QUICKSTART.md created** (this session — S157 context-only):
+- Comprehensive cold-start onboarding document for AI sessions.
+- README.md updated to link to it.
+
+### Decisions
+- D5.0 visual layer is now substantially complete (implementation, not just plan).
+- Phase 8 (O(n) elimination) complete — conversion functions no longer do linear scans.
+- Deep audit closed with zero gaps — all 15 bypass items addressed.
+
+### Next Steps
+- **Build verification** of all post-S156 commits (Phase 8 + deep audit + D5.0)
+- Phase 7 caller elimination: ~85 calls to conversion wrappers
+- Weapons (~660 refs), stages (~80), models (~83) migration
+- D5.3 Pause Menu
+- B-112 root cause (awaiting VEH crash log)
+
+---
+
 ## Session S156 — 2026-04-06 (Handoff / End of Night)
 
 **Focus**: Phase 7 audit, triple audit verification, session handoff

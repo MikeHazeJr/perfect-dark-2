@@ -408,35 +408,40 @@ s32 assetCatalogRegisterBaseGame(void)
 	char idbuf[CATALOG_ID_LEN];
 
 	/* ---- Register stages ---- */
-	for (s32 i = 0; i < (s32)NUM_BASE_STAGES; i++) {
-		const s32 idx = s_BaseStages[i].index;
-		if (idx < 0 || idx >= g_NumStages) {
-			continue;
+	/* Stage table is populated from ROM data by stageTableInit() in the client.
+	 * The dedicated server never calls stageTableInit() (ROM-agnostic), so
+	 * g_NumStages == 0 and stage registration is correctly skipped. */
+	if (g_NumStages > 0) {
+		for (s32 i = 0; i < (s32)NUM_BASE_STAGES; i++) {
+			const s32 idx = s_BaseStages[i].index;
+			if (idx < 0 || idx >= g_NumStages) {
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseStages[i].name);
+
+			asset_entry_t *e = assetCatalogRegisterMap(
+				idbuf,
+				g_Stages[idx].id,  /* logical stage ID, not array index */
+				""                 /* base game stages have no component directory */
+			);
+
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base stage %s", idbuf);
+				continue;
+			}
+
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			e->runtime_index = idx;
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			count++;
 		}
 
-		snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseStages[i].name);
-
-		asset_entry_t *e = assetCatalogRegisterMap(
-			idbuf,
-			g_Stages[idx].id,  /* logical stage ID, not array index */
-			""                 /* base game stages have no component directory */
-		);
-
-		if (!e) {
-			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base stage %s", idbuf);
-			continue;
-		}
-
-		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
-		e->bundled = 1;
-		e->enabled = 1;
-		e->runtime_index = idx;
-		e->load_state = ASSET_STATE_LOADED;
-		e->ref_count = ASSET_REF_BUNDLED;
-		count++;
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base stages", count);
 	}
-
-	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base stages", count);
 
 	/* ---- Register bodies ---- */
 	/*

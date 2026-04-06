@@ -6,15 +6,15 @@
 
 ---
 
-## Recently Completed (S130–S155 — 2026-04-02/06)
+## Recently Completed (S130–S157 — 2026-04-02/06)
 
 | Item | Status |
 |------|--------|
-| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155, 2026-04-06)** | **DONE** — 41 files changed, 837 insertions. All 11 original audit findings migrated. Phase 7 (eliminate all conversion function wrappers) audited — callers remain (~85 calls), cannot delete yet. Bot body wire fix, B-112 crash guards, handicap UI fix, bot context menu UX, U-7+U-10 complete, infrastructure (release pipeline, worktree cleanup, .gitignore). Triple audit PASSED (11/11). |
-| **Catalog ID Migration Phases 0–6 (bodies/heads)** | **DONE (S155)** — Generation counter + hot-reload API (Phase 0), catalog ID string fields in config/data structs (Phase 2), function APIs migrated to catalog ID strings (Phase 3), integer comparisons replaced with catalog ID checks (Phase 4), UI shadow structs + save paths + lobby accessors fixed (Phase 5+6). CLC_LOBBY_START server guard + validation index space fix. v0.0.45. |
-| **B-112 additional crash guards (shot/damage path)** | **DONE (S155)** — Defense-in-depth guards in chrBruise/chrDamage + handicap default init (chr->handicap=1.0). |
-| **UX: bot context menu + handicap slider + release script** | **DONE (S155)** — Checkmarks, alphabetical sort, display name fallbacks; handicap slider percentage fix; release tag push fix. |
-| **Eliminate integer asset identity from wire (Phase 1+2)** | **DONE (S154)** — All 6 weapon messages already migrated (v30). SVC_PROP_SPAWN modelnum migrated to catalog session refs (`netWriteModelRef`/`netReadModelRef`). Bot body/head: `catalogBodynumToMpBodyIdx` eliminated from netmsg.c (fallback uses `catalogResolveByRuntimeIndex`, server decode uses `catalogGetSafeBodyPaired` directly). chrBruise guard enhanced with `model->definition` check. NET_PROTOCOL_VER 30→31. |
+| **D5.0 Visual Layer (S157, 2026-04-06)** | **DONE** — Init ordering fix (`pdguiThemeLateInit` after `texInit`), ROM texture extraction tool (`--extract-ui-textures`), base-ui mod (13 textures), haze overlay, CRT scanlines, multi-palette support (all 7 palettes). Procedural modern-UI mod. TGA loader. |
+| **Catalog Phase 8 — O(n) conversion elimination (S157)** | **DONE** — All O(n) linear-scan conversion functions eliminated. |
+| **Deep array-bypass audit (S157)** | **DONE** — All 15 bypass items fixed. 2 hidden `catalogGetMpIndex` reimplementations found and removed. Zero gaps remaining. |
+| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155)** | **DONE** — 41 files, 837 insertions. Triple audit PASSED (11/11). Bot body wire fix, B-112 crash guards, handicap UI, bot context menu UX, U-7+U-10, infrastructure. |
+| **Eliminate integer asset identity from wire (S154)** | **DONE** — SVC_PROP_SPAWN modelnum → catalog session refs. Bot body/head conversion eliminated from netmsg.c. Protocol v31. |
 
 ---
 
@@ -26,9 +26,10 @@
 |-------|--------|--------|
 | **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
 | **Phase 7 — Conversion function wrapper elimination** | **AUDITED / IN PROGRESS** | ~85 calls to `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody/Head` etc. remain. Cannot delete wrappers until all callers migrated. |
+| **Phase 8 — O(n) conversion elimination** | **DONE (S157)** | All linear-scan conversion functions eliminated. |
 | **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
-| **Phases 8–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
-| **Deep audit — direct array access** | **NOT STARTED** | `g_Weapons[]`, `g_HeadsAndBodies[]` direct indexed lookups. |
+| **Deep audit — direct array access** | **DONE (S157)** | All 15 bypass items fixed. 2 hidden reimplementations removed. Zero gaps. |
+| **Phases 9–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
 | **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
 | **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
 
@@ -164,7 +165,7 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
 | **D5.0a** | Technical Spike — `pdguiGetUiTexture()` bridge, synthetic test pattern, `ImGui::Image()` in Catalog tab | **DONE (S135)** — compile clean, both targets. Playtest: open Settings > Catalog tab to see PASS label. |
-| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog (`ui/panels`, `ui/fx`, `ui/stars`, `ui/briefing`), scan-line pass; all menus use this as foundation | PLANNED — implement N64 decode in `buildTestPattern` replacement, then `pdguiThemeDrawPanel` etc. |
+| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
 | **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
 | **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |

@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <PR/ultratypes.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FS_MAXPATH 1024
 
 s32 fsInit(void);
@@ -23,5 +27,9 @@ void fsFileFree(FILE *f);
 
 const char *fsGetModDir(void);
 s32 fsCreateDir(const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

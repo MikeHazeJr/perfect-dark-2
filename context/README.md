@@ -1,15 +1,17 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-06, Session S155 (S151–S155: Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI crash). Lobby Unification complete (U-1 through U-10, matchsetup.cpp retired). Wire protocol v31 (SVC_PROP_SPAWN modelnum migration). Catalog ID Migration Phases 0–6 for bodies/heads (zero-conversion mandate). v0.0.38→v0.0.45. B-112 additional guards (shot/damage path). Next: continue catalog migration (weapons, stages, models), build verification, playtest.)
+> **Last updated**: 2026-04-06, Session S157+ (S151–S156: Playtest bug fixes, Lobby Unification complete, Wire protocol v31, Catalog ID Migration Phases 0–8 + deep audit (all 15 bypass items fixed). D5.0 visual layer landed (init ordering, ROM extraction, base-ui mod, haze overlay, scanlines, multi-palette). v0.0.45. Next: build verification, Phase 7 caller elimination (~85 calls), weapons/stages/models migration, D5.3 pause menu.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
+
+> **COLD START?** Read **[QUICKSTART.md](QUICKSTART.md)** first — it's a single comprehensive onboarding document that gets you productive in under a minute. Then come back here for deep dives.
 
 **Project**: PC port of Perfect Dark (N64 FPS, Rare 2000). C11 codebase, CMake + MinGW/GCC.
 **Developer**: Mike (sole dev, builds on Windows via MSYS2). AI writes code, Mike compiles and tests.
 **Role**: Collaborative engineering partner. Depth over shortcuts. Root cause over patches.
 
-**Session start protocol**: Read this index → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last 3) → [tasks-current.md](tasks-current.md). Load domain files only when relevant to the active task.
+**Session start protocol**: Read [QUICKSTART.md](QUICKSTART.md) → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last 3) → [tasks-current.md](tasks-current.md). Load domain files only when relevant to the active task.
 
 ---
 
@@ -35,7 +37,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
-| S155 | 2026-04-06 | UX polish (bot context menu, handicap slider). B-112 additional guards (shot/damage). Catalog ID Migration Phases 0–6 (bodies/heads): generation counter, struct fields, API migration, comparison replacement, UI/save/lobby fixes. v0.0.45. | [session-log.md](session-log.md) |
+| S157 | 2026-04-06 | Phase 8 O(n) conversion elimination, deep array-bypass audit (15 items fixed, zero gaps), D5.0 visual layer (init ordering, ROM extraction, base-ui mod, haze overlay, scanlines, multi-palette). QUICKSTART.md created. | [session-log.md](session-log.md) |
+| S155–S156 | 2026-04-06 | UX polish, B-112 guards, Catalog ID Migration Phases 0–7 (bodies/heads), triple audit PASSED 11/11. v0.0.45. | [session-log.md](session-log.md) |
 | S151–S154 | 2026-04-05/06 | Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI frame-1 crash). Lobby Unification complete (U-1–U-10, matchsetup.cpp retired). B-116 bot catalog ID fix. Wire identity elimination (SVC_PROP_SPAWN modelnum → catalog ref). Protocol v31. v0.0.38→v0.0.44. | [session-log.md](session-log.md) |
 | S145–S150 | 2026-04-04/05 | Post-playtest spawn stability sprint: room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback, underground ground-clamp, CMakeLists.txt repair, credits update, bot stuck-detection init, chr pointer corruption guard + 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114. | [session-log.md](session-log.md) |
 | S140–S144 | 2026-04-04 | Bot count mismatch audit (S141). Network + bot stabilization sprint: CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync (S142). R-3 room networking: clients create/join rooms, room-scoped match start (S143). Endscreen overhaul + B-104 fix + 256-entry name dicts + multi-select bot list (S144). v0.0.28→v0.0.32. | [session-log.md](session-log.md) |
