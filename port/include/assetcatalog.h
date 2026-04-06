@@ -306,10 +306,25 @@ void assetCatalogClear(void);
 
 /**
  * Remove all entries where bundled == false.
- * Rehashes remaining entries.
+ * Rehashes remaining entries. Increments generation counter.
  * Call when disabling/toggling mods (partial reload).
  */
 void assetCatalogClearMods(void);
+
+/**
+ * Get the catalog generation counter.
+ * Incremented on every catalog rebuild (clear, clearMods, refreshMods).
+ * Consumers can cache a local generation and compare to detect stale data.
+ */
+u32 assetCatalogGetGeneration(void);
+
+/**
+ * Hot-reload mod catalog entries.
+ * Clears all non-bundled entries, re-scans the mods directory,
+ * rebuilds the hash table, and increments the generation counter.
+ * If modsdir is NULL, only the clear + generation bump is performed.
+ */
+void catalogRefreshMods(const char *modsdir);
 
 /**
  * Get total number of registered entries (base + mods).
