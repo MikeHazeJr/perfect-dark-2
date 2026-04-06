@@ -764,35 +764,11 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
 
 /**
- * B.2: Resolve a body catalog entry by MP body index (g_MpBodies[] position, 0..62).
- * Converts mpbodynum → g_HeadsAndBodies[] index via g_MpBodies[mpbodynum].bodynum,
- * then looks up ASSET_BODY by runtime_index.  Logs a warning and returns NULL on miss.
- * Use this instead of catalogResolveByRuntimeIndex(ASSET_BODY, mpbodynum) — those
- * are different index spaces.
+ * B.2: Unified reverse lookup — runtime_index → mp array position.
+ * Scans g_MpBodies[] then g_MpHeads[] to find which mp-index position holds
+ * a given g_HeadsAndBodies[] runtime_index.  Returns -1 if not found.
  */
-const char *catalogResolveBodyByMpIndex(s32 mpbodynum);
-
-/**
- * B.2: Resolve a head catalog entry by MP head index (g_MpHeads[] position, 0..75).
- * Converts mpheadnum → g_HeadsAndBodies[] index via g_MpHeads[mpheadnum].headnum,
- * then looks up ASSET_HEAD by runtime_index.  Logs a warning and returns NULL on miss.
- * Use this instead of catalogResolveByRuntimeIndex(ASSET_HEAD, mpheadnum) — those
- * are different index spaces.
- */
-const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
-
-/**
- * FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
- * position (mpbodynum).  Returns -1 if bodynum is not found in g_MpBodies[].
- * Use at save-load sites after assetCatalogResolve() to convert back to mpbodynum.
- */
-s32 catalogBodynumToMpBodyIdx(s32 bodynum);
-
-/**
- * FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position (mpheadnum).
- * Returns -1 if headnum is not found in g_MpHeads[].
- */
-s32 catalogHeadnumToMpHeadIdx(s32 headnum);
+s32 catalogGetMpIndex(s32 runtime_index);
 
 /**
  * Body → default head catalog ID string.
@@ -880,27 +856,9 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
  */
 s32 catalogGetPropFilenumByIndex(s32 propnum);
 
-/**
- * Phase 0: Return the canonical catalog ID for the ASSET_MAP entry whose
- * ext.map.stagenum equals stagenum, or NULL if not found.
- * Replaces assetCatalogResolve("stage_0x%02x") in manifest code after alias removal.
- */
-const char *catalogResolveStageByStagenum(s32 stagenum);
-
-/**
- * Phase C (FIX-1/2): Return the canonical catalog ID for the ASSET_ARENA entry
- * whose ext.arena.stagenum equals stagenum, or NULL if not found.
- * Used for CLC_LOBBY_START stage wire encoding (MP arenas, not solo maps).
- * Both client and server have g_MpArenas[] so this resolves on both sides.
- */
-const char *catalogResolveArenaByStagenum(s32 stagenum);
-
-/**
- * Phase 0: Return the canonical catalog ID for the ASSET_WEAPON entry whose
- * ext.weapon.weapon_id equals weapon_id (MPWEAPON_* constant), or NULL.
- * Replaces assetCatalogResolve("weapon_%d") in manifest code after alias removal.
- */
-const char *catalogResolveWeaponByGameId(s32 weapon_id);
+/* Stage/arena/weapon numeric-ID resolvers DELETED (Phase 7).
+ * Callers use stage_id/weapon catalog IDs directly or inline
+ * assetCatalogGetByIndex scans for the few remaining conversion sites. */
 
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 

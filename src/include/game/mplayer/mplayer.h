@@ -59,7 +59,12 @@ s32 mpGetBodyId(u8 bodynum);
 s32 mpGetMpbodynumByBodynum(u16 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
 u8 mpGetBodyRequiredFeature(u8 bodynum);
-s32 mpGetMpheadnumByMpbodynum(s32 bodynum);
+s32 mpDefaultHeadForBody(s32 mpbodynum);
+/* Centralized setters: set deprecated integer + resolve PRIMARY catalog ID */
+void mpchrSetBodyByIndex(struct mpchrconfig *cfg, s32 mpbodynum);
+void mpchrSetHeadByIndex(struct mpchrconfig *cfg, s32 mpheadnum);
+void mpchrSetBodyById(struct mpchrconfig *cfg, const char *body_id);
+void mpchrSetHeadById(struct mpchrconfig *cfg, const char *head_id);
 s32 mpChooseRandomLockPlayer(void);
 bool mpSetLock(s32 locktype, s32 playernum);
 s32 mpGetLockType(void);

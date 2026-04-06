@@ -35,6 +35,8 @@
 #include "assetcatalog.h"
 #include "system.h"
 #include "fs.h"
+#include "types.h"
+#include "data.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -225,8 +227,8 @@ static int tryLoad(void)
              * position indices, range 0..75/0..62).  catalogResolveByRuntimeIndex uses
              * g_HeadsAndBodies[] index (bodynum/headnum, range 0..151) — a different
              * index domain.  Use the mp-index resolvers which do the conversion. */
-            resolved_head = catalogResolveHeadByMpIndex((s32)headnum);
-            resolved_body = catalogResolveBodyByMpIndex((s32)bodynum);
+            resolved_head = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[headnum].headnum);
+            resolved_body = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[bodynum].bodynum);
             if (resolved_head) {
                 strncpy(s_Identity.profiles[i].head_id, resolved_head, CATALOG_ID_LEN - 1);
                 s_Identity.profiles[i].head_id[CATALOG_ID_LEN - 1] = '\0';

@@ -742,8 +742,8 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				if (g_MpSetup.weapons[wi] == 0) {
 					catalogWriteAssetRef(dst, 0);
 				} else {
-					const char *wcanon = catalogResolveWeaponByGameId(
-						(s32)g_MpSetup.weapons[wi]);
+					const char *wcanon = catalogResolveByRuntimeIndex(
+						ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
 					if (wcanon) {
 						catalogWriteAssetRef(dst, sessionCatalogGetId(wcanon));
 					} else {
@@ -821,7 +821,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 				/* Fallback: resolve from mpbodynum/mpheadnum (runtime_index).
 				 * These now hold g_HeadsAndBodies[] indices directly — use
-				 * catalogResolveByRuntimeIndex, not catalogResolveBodyByMpIndex. */
+				 * catalogResolveByRuntimeIndex directly. */
 				if (!body_canon) {
 					body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bc->base.mpbodynum);
 				}
@@ -1382,7 +1382,7 @@ static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
 {
 #if !defined(PD_SERVER)
 	s32 mpw = weaponToMpWeapon(weaponnum);
-	const char *wid = (mpw >= 0) ? catalogResolveWeaponByGameId(mpw) : NULL;
+	const char *wid = (mpw >= 0) ? catalogResolveByRuntimeIndex(ASSET_WEAPON, mpw) : NULL;
 	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
 #else
 	catalogWriteAssetRef(dst, 0);
@@ -3825,16 +3825,16 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
 	/* C-1: per-slot weapon catalog ID string.
-	 * catalogResolveWeaponByGameId() returns the catalog ID string ("base:falcon2" etc.)
-	 * or NULL for empty/unset slots. Server resolves string → weapon_id via assetCatalogResolve(). */
+	 * catalogResolveByRuntimeIndex(ASSET_WEAPON, ...) returns the catalog ID string
+	 * ("base:falcon2" etc.) or NULL for empty/unset slots. */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
 			if (g_MpSetup.weapons[wi] == 0) {
 				netbufWriteStr(dst, "");
 			} else {
-				const char *wcanon = catalogResolveWeaponByGameId(
-					(s32)g_MpSetup.weapons[wi]);
+				const char *wcanon = catalogResolveByRuntimeIndex(
+					ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
 				netbufWriteStr(dst, wcanon ? wcanon : "");
 			}
 		}
@@ -4264,7 +4264,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 
 			/* Resolve catalog IDs → runtime_index (g_HeadsAndBodies[] index),
 			 * stored directly as mpbodynum/mpheadnum.  No intermediate
-			 * catalogBodynumToMpBodyIdx conversion — catalog resolves to
+			 * intermediate mp-index conversion — catalog resolves to
 			 * what the engine needs. */
 #ifndef PD_SERVER
 			{

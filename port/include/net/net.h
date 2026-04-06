@@ -11,7 +11,7 @@ typedef struct _ENetAddress ENetAddress;
 
 #define NET_PROTOCOL_VER 31  /* v31: SVC_PROP_SPAWN modelnum on wire uses catalog session refs (u16)
                                * instead of raw s16 model index.  Bot body/head decode uses
-                               * runtime_index directly (no catalogBodynumToMpBodyIdx conversion).
+                               * runtime_index directly (no intermediate mp-index conversion).
                                * v30: Weapon identity on wire uses catalog session refs (u16).
                                * v29: Room networking (R-3).
                                * v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.

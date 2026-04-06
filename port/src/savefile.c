@@ -30,6 +30,7 @@
 #include "savefile.h"
 #include "assetcatalog.h"
 #include "fs.h"
+#include "game/mplayer/mplayer.h"
 
 /* ========================================================================
  * Mini JSON tokenizer (shared approach with modmgr.c)
@@ -685,8 +686,13 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
 			if (e && e->type == ASSET_HEAD) {
-				s32 mpidx = catalogHeadnumToMpHeadIdx((s32)e->runtime_index);
-				if (mpidx >= 0) pc->base.mpheadnum = (u8)mpidx;
+				/* Derive mpheadnum by scanning g_MpHeads[] for matching headnum */
+				for (s32 hi = 0; hi < ARRAYCOUNT(g_MpHeads); hi++) {
+					if ((s32)g_MpHeads[hi].headnum == (s32)e->runtime_index) {
+						pc->base.mpheadnum = (u8)hi;
+						break;
+					}
+				}
 			}
 		} else if (strcmp(key, "body_id") == 0) {
 			/* SA-4: catalog string ID for body.
@@ -701,25 +707,22 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
 			if (e && e->type == ASSET_BODY) {
-				s32 mpidx = catalogBodynumToMpBodyIdx((s32)e->runtime_index);
-				if (mpidx >= 0) pc->base.mpbodynum = (u8)mpidx;
+				/* Derive mpbodynum by scanning g_MpBodies[] for matching bodynum */
+				for (s32 bi = 0; bi < ARRAYCOUNT(g_MpBodies); bi++) {
+					if ((s32)g_MpBodies[bi].bodynum == (s32)e->runtime_index) {
+						pc->base.mpbodynum = (u8)bi;
+						break;
+					}
+				}
 			}
 		} else if (strcmp(key, "mpheadnum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
-			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
-			/* Phase 2: reverse-resolve to catalog ID string */
-			{
-				const char *cid = catalogResolveHeadByMpIndex(pc->base.mpheadnum);
-				if (cid) { strncpy(pc->base.head_id, cid, sizeof(pc->base.head_id) - 1); pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0'; }
-			}
+			tok = s_next(&p);
+			mpchrSetHeadByIndex(&pc->base, s_tok_int(&tok));
 		} else if (strcmp(key, "mpbodynum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
-			tok = s_next(&p); pc->base.mpbodynum = s_tok_int(&tok);
-			/* Phase 2: reverse-resolve to catalog ID string */
-			{
-				const char *cid = catalogResolveBodyByMpIndex(pc->base.mpbodynum);
-				if (cid) { strncpy(pc->base.body_id, cid, sizeof(pc->base.body_id) - 1); pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0'; }
-			}
+			tok = s_next(&p);
+			mpchrSetBodyByIndex(&pc->base, s_tok_int(&tok));
 		} else if (strcmp(key, "team") == 0) {
 			tok = s_next(&p); pc->base.team = s_tok_int(&tok);
 		} else if (strcmp(key, "displayoptions") == 0) {
@@ -802,7 +805,14 @@ s32 saveSaveMpSetup(const char *name)
 	 * raw MPWEAPON_* integers for backward-compat reading of old saves. */
 	fprintf(fp, "  \"weapon_ids\": [");
 	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
-		const char *wid = catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[i]);
+		/* Resolve MPWEAPON_* integer to catalog ID by scanning ASSET_WEAPON entries */
+		const char *wid = NULL;
+		s32 wval = (s32)g_MpSetup.weapons[i];
+		for (s32 wi = 0; ; wi++) {
+			const asset_entry_t *we = assetCatalogGetByIndex(wi);
+			if (!we) break;
+			if (we->type == ASSET_WEAPON && we->ext.weapon.weapon_id == wval) { wid = we->id; break; }
+		}
 		fprintf(fp, "\"%s\"%s", wid ? wid : "", i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
 	}
 	fprintf(fp, "],\n");

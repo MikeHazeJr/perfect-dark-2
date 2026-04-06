@@ -107,6 +107,10 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
+struct mpbody { s16 bodynum; s16 name; s16 headnum; u8 requirefeature; };
+struct mphead { s16 headnum; u8 requirefeature; };
+extern struct mpbody g_MpBodies[63];
+extern struct mphead g_MpHeads[76];
 /* Phase 5: catalog ID accessors for lobby players */
 const char *lobbyGetPlayerBodyId(s32 idx);
 const char *lobbyGetPlayerHeadId(s32 idx);
@@ -285,9 +289,6 @@ const char *arenaGetName(u16 textId)
  * Arena list — built from the asset catalog at room init.
  * Replaces the old hardcoded table: catalog is the single source of truth.
  * ======================================================================== */
-
-/* Catalog resolution — used to convert co-op mission stagenums to catalog IDs. */
-const char *catalogResolveStageByStagenum(s32 stagenum);
 
 struct arena_entry { char name[64]; char id[64]; s32 stagenum; };
 
@@ -1432,7 +1433,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     char *bodyName = mpGetBodyName((u8)b);
                     /* Fallback for bodies with empty display names */
                     if (!bodyName || !bodyName[0]) {
-                        const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                        const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
                         if (bid && strcmp(bid, "base:drcaroll") == 0) bodyName = (char *)"Dr. Caroll";
                         else if (bid && strcmp(bid, "base:skedar") == 0) bodyName = (char *)"Skedar";
                         else continue;
@@ -1453,9 +1454,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
                 for (u32 si = 0; si < sortedCount; si++) {
                     u32 b = sorted[si].idx;
-                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
                     if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
-                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[b].headnum);
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                             if (bid) {
@@ -2195,8 +2196,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
                 case 1: {
                     /* Campaign — resolve mission stagenum to catalog ID at callsite. */
-                    const char *coop_id = catalogResolveStageByStagenum(
-                        (s32)s_Missions[s_CampaignMission].stagenum);
+                    const char *coop_id = catalogResolveByRuntimeIndex(
+                        ASSET_MAP, (s32)s_Missions[s_CampaignMission].stagenum);
                     if (!coop_id) {
                         sysLogPrintf(LOG_ERROR,
                             "ROOM: no catalog entry for coop stagenum=0x%02x",
@@ -2208,8 +2209,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
                 case 2: {
                     /* Counter-Operative — same pattern. */
-                    const char *anti_id = catalogResolveStageByStagenum(
-                        (s32)s_Missions[s_CounterOpMission].stagenum);
+                    const char *anti_id = catalogResolveByRuntimeIndex(
+                        ASSET_MAP, (s32)s_Missions[s_CounterOpMission].stagenum);
                     if (!anti_id) {
                         sysLogPrintf(LOG_ERROR,
                             "ROOM: no catalog entry for anti stagenum=0x%02x",
@@ -2310,7 +2311,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             const char *curBody = "?";
             if (sl->body_id[0]) {
                 for (u32 b2 = 0; b2 < numBodies; b2++) {
-                    const char *bid2 = catalogResolveBodyByMpIndex((s32)b2);
+                    const char *bid2 = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b2].bodynum);
                     if (bid2 && strcmp(bid2, sl->body_id) == 0) {
                         char *n = mpGetBodyName((u8)b2);
                         if (n && n[0]) curBody = n;
@@ -2325,7 +2326,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
                     if (!bodyName || !bodyName[0]) continue;
-                    const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[b].bodynum);
                     bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
                     char bLabel[64];
                     snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
@@ -2334,7 +2335,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
                             sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         }
-                        const char *hid = catalogResolveHeadByMpIndex((s32)b);
+                        const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[b].headnum);
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
                             sl->head_id[sizeof(sl->head_id) - 1] = '\0';

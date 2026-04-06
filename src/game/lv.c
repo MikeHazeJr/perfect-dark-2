@@ -1888,7 +1888,7 @@ Gfx *lvRender(Gfx *gdl)
 			g_MissionConfig.stageindex = g_Cutscenes[g_Vars.autocutgroupcur].mission;
 			g_MissionConfig.stagenum = g_Cutscenes[g_Vars.autocutgroupcur].stage;
 			/* Phase 2: populate PRIMARY catalog ID string field */
-			{ const char *cid = catalogResolveStageByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
+			{ const char *cid = catalogResolveByRuntimeIndex(ASSET_MAP, g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
 			titleSetNextStage(g_Cutscenes[g_Vars.autocutgroupcur].stage);
 			mainChangeToStage(g_Cutscenes[g_Vars.autocutgroupcur].stage);
 		}

@@ -41,6 +41,7 @@
 #include "romdata.h"
 #include "utils.h"
 #include "room.h"
+#include "assetcatalog.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #endif
@@ -331,25 +332,18 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 static inline void netClientReadConfig(struct netclient *cl, const s32 playernum)
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
-	{
-		/* FIX-14: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions;
-		 * use the dedicated converters to get the correct runtime_index. */
-		const char *bid = catalogResolveBodyByMpIndex(
-			(s32)g_PlayerConfigsArray[playernum].base.mpbodynum);
-		const char *hid = catalogResolveHeadByMpIndex(
-			(s32)g_PlayerConfigsArray[playernum].base.mpheadnum);
-		if (bid) {
-			strncpy(cl->settings.body_id, bid, CATALOG_ID_LEN - 1);
-			cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
-		} else {
-			cl->settings.body_id[0] = '\0';
-		}
-		if (hid) {
-			strncpy(cl->settings.head_id, hid, CATALOG_ID_LEN - 1);
-			cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
-		} else {
-			cl->settings.head_id[0] = '\0';
-		}
+	/* Use PRIMARY catalog ID fields directly */
+	if (g_PlayerConfigsArray[playernum].base.body_id[0]) {
+		strncpy(cl->settings.body_id, g_PlayerConfigsArray[playernum].base.body_id, CATALOG_ID_LEN - 1);
+		cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+	} else {
+		cl->settings.body_id[0] = '\0';
+	}
+	if (g_PlayerConfigsArray[playernum].base.head_id[0]) {
+		strncpy(cl->settings.head_id, g_PlayerConfigsArray[playernum].base.head_id, CATALOG_ID_LEN - 1);
+		cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+	} else {
+		cl->settings.head_id[0] = '\0';
 	}
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
@@ -743,7 +737,7 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	g_MissionConfig.stagenum = stagenum;
 	/* Phase 2: populate PRIMARY catalog ID string field */
 	{
-		const char *cid = catalogResolveStageByStagenum(stagenum);
+		const char *cid = catalogResolveByRuntimeIndex(ASSET_MAP, stagenum);
 		if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 		else { g_MissionConfig.stage_id[0] = '\0'; }
 	}

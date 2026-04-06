@@ -36,6 +36,7 @@
 #include "types.h"
 #include "net/net.h"
 #include "input.h"
+#include "assetcatalog.h"
 
 /* PC port: ImGui room screen (replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
@@ -1967,7 +1968,7 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		g_MissionConfig.stagenum = g_SoloStages[sp188].stagenum;
 		/* Phase 2: populate PRIMARY catalog ID string field */
 		{
-			const char *cid = catalogResolveStageByStagenum(g_SoloStages[sp188].stagenum);
+			const char *cid = catalogResolveByRuntimeIndex(ASSET_MAP, g_SoloStages[sp188].stagenum);
 			if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 			else { g_MissionConfig.stage_id[0] = '\0'; }
 		}

@@ -448,7 +448,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        canon_id = catalogResolveByRuntimeIndex(ASSET_WEAPON, (s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -613,7 +613,7 @@ void manifestBuildForHost(match_manifest_t *out)
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        canon_id = catalogResolveByRuntimeIndex(ASSET_WEAPON, (s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -783,7 +783,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
     /* ---- Stage ---- */
     {
-        const char *stage_canon = catalogResolveStageByStagenum(stagenum);
+        const char *stage_canon = catalogResolveByRuntimeIndex(ASSET_MAP, stagenum);
         if (stage_canon && catalogResolveStage(stage_canon, &stage_result)
                 && stage_result.entry) {
             manifestAddEntry(out, stage_result.entry->id,

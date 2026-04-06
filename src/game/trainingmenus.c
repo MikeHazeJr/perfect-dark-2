@@ -23,6 +23,7 @@
 #include "data.h"
 #include "types.h"
 #include "video.h"
+#include "assetcatalog.h"
 
 #define NUM_BIO_LOCATIONS 14
 
@@ -1528,7 +1529,8 @@ MenuDialogHandlerResult ciCharacterProfileMenuDialog(s32 operation, struct menud
 {
 	u32 bodynum = ciGetChrBioBodynumBySlot(g_ChrBioSlot);
 	u32 mpbodynum = mpGetMpbodynumByBodynum(bodynum);
-	u32 mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
+	s32 _dh = catalogGetBodyDefaultMpHeadIdx((s32)mpbodynum);
+	u32 mpheadnum = _dh >= 0 ? (u32)_dh : 0;
 	f32 x;
 	f32 y;
 	f32 scale;

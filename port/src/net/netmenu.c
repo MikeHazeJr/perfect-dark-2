@@ -38,6 +38,7 @@
 #include "system.h"
 #include "lib/vi.h"
 #include "romdata.h"
+#include "assetcatalog.h"
 #include "connectcode.h"
 
 /* Non-static so ImGui network menus can access them */
@@ -160,29 +161,15 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 	}
 	case MENUOP_SET:
 		/* FIX-23: Legacy N64 dropdown character picker.
-		 * Sets mpbodynum/mpheadnum (g_MpBodies[]/g_MpHeads[] positions) directly.
-		 * Catalog conversion (mpbodynum → body_id string) happens downstream in
-		 * netClientSettingsChanged() via catalogResolveBodyByMpIndex/catalogResolveHeadByMpIndex.
-		 * Note: mpGetMpheadnumByMpbodynum() is stubbed to return 0 on the server,
-		 * so the server always uses head 0 (MPHEAD_DARK_COMBAT) regardless of selection.
-		 * This is acceptable for this legacy code path — the ImGui picker is the real UI. */
+		 * Sets mpbodynum/mpheadnum via the centralized setters which keep
+		 * both catalog ID strings and deprecated integer fields in sync. */
 		if (data->dropdown.value == 0) {
-			g_PlayerConfigsArray[0].base.mpbodynum = 0;
-			g_PlayerConfigsArray[0].base.mpheadnum = 0;
+			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, 0);
+			mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
 		} else if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
 			s32 mpbodynum = data->dropdown.value - 1;
-			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
-			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
-		}
-		/* Phase 2: populate PRIMARY catalog ID string fields */
-		{
-			const char *cid;
-			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[0].base.mpbodynum);
-			if (cid) { strncpy(g_PlayerConfigsArray[0].base.body_id, cid, sizeof(g_PlayerConfigsArray[0].base.body_id) - 1); g_PlayerConfigsArray[0].base.body_id[sizeof(g_PlayerConfigsArray[0].base.body_id) - 1] = '\0'; }
-			else { g_PlayerConfigsArray[0].base.body_id[0] = '\0'; }
-			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[0].base.mpheadnum);
-			if (cid) { strncpy(g_PlayerConfigsArray[0].base.head_id, cid, sizeof(g_PlayerConfigsArray[0].base.head_id) - 1); g_PlayerConfigsArray[0].base.head_id[sizeof(g_PlayerConfigsArray[0].base.head_id) - 1] = '\0'; }
-			else { g_PlayerConfigsArray[0].base.head_id[0] = '\0'; }
+			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, mpbodynum);
+			{ s32 dh = catalogGetBodyDefaultMpHeadIdx(mpbodynum); mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, dh >= 0 ? dh : 0); }
 		}
 		sysLogPrintf(LOG_NOTE, "NET: co-op character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
@@ -401,22 +388,12 @@ static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menu
 		/* FIX-23 (second dropdown instance): same catalog conversion as co-op handler above.
 		 * mpbodynum → body_id conversion happens in netClientSettingsChanged(). */
 		if (data->dropdown.value == 0) {
-			g_PlayerConfigsArray[0].base.mpbodynum = 0;
-			g_PlayerConfigsArray[0].base.mpheadnum = 0;
+			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, 0);
+			mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
 		} else if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
 			s32 mpbodynum = data->dropdown.value - 1;
-			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
-			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
-		}
-		/* Phase 2: populate PRIMARY catalog ID string fields */
-		{
-			const char *cid;
-			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[0].base.mpbodynum);
-			if (cid) { strncpy(g_PlayerConfigsArray[0].base.body_id, cid, sizeof(g_PlayerConfigsArray[0].base.body_id) - 1); g_PlayerConfigsArray[0].base.body_id[sizeof(g_PlayerConfigsArray[0].base.body_id) - 1] = '\0'; }
-			else { g_PlayerConfigsArray[0].base.body_id[0] = '\0'; }
-			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[0].base.mpheadnum);
-			if (cid) { strncpy(g_PlayerConfigsArray[0].base.head_id, cid, sizeof(g_PlayerConfigsArray[0].base.head_id) - 1); g_PlayerConfigsArray[0].base.head_id[sizeof(g_PlayerConfigsArray[0].base.head_id) - 1] = '\0'; }
-			else { g_PlayerConfigsArray[0].base.head_id[0] = '\0'; }
+			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, mpbodynum);
+			{ s32 dh = catalogGetBodyDefaultMpHeadIdx(mpbodynum); mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, dh >= 0 ? dh : 0); }
 		}
 		sysLogPrintf(LOG_NOTE, "NET: client character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);

@@ -665,9 +665,9 @@ const char *catalogValidateBodyIdPaired(const char *body_id, char *out_head_id, 
 	/* Body is invalid — pick fallback body and pair head */
 	s32 safeHead = CATALOG_FALLBACK_HEAD;
 	s32 safeBody = catalogGetSafeBodyPaired(CATALOG_FALLBACK_BODY, &safeHead);
-	const char *bid = catalogResolveBodyByMpIndex(safeBody);
+	const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[safeBody].bodynum);
 	if (out_head_id && out_len > 0) {
-		const char *hid = catalogResolveHeadByMpIndex(safeHead);
+		const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[safeHead].headnum);
 		if (hid) {
 			strncpy(out_head_id, hid, out_len - 1);
 			out_head_id[out_len - 1] = '\0';
@@ -778,10 +778,10 @@ void catalogPollThumbnails(void)
 			const char *hid = "";
 			const char *bid = "";
 			if (ce->category == MODELCAT_HEAD) {
-				const char *resolved = catalogResolveHeadByMpIndex(ce->mpIndex);
+				const char *resolved = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)ce->index);
 				if (resolved) hid = resolved;
 			} else {
-				const char *resolved = catalogResolveBodyByMpIndex(ce->mpIndex);
+				const char *resolved = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)ce->index);
 				if (resolved) bid = resolved;
 			}
 			pdguiCharPreviewRequest(hid, bid);
