@@ -1368,10 +1368,29 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 }
             }
 
+            /* Determine common settings across selected bots for checkmarks.
+             * If all selected share the same value, mark it; otherwise -1. */
+            int commonDiff = -1, commonType = -1, commonBody = -1;
+            {
+                bool first = true;
+                for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                    if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                    int d = (int)g_MatchConfig.slots[j].botDifficulty;
+                    int t = (int)g_MatchConfig.slots[j].botType;
+                    int b = (int)g_MatchConfig.slots[j].bodynum;
+                    if (first) { commonDiff = d; commonType = t; commonBody = b; first = false; }
+                    else {
+                        if (commonDiff != d) commonDiff = -1;
+                        if (commonType != t) commonType = -1;
+                        if (commonBody != b) commonBody = -1;
+                    }
+                }
+            }
+
             /* Bot AI (difficulty) — applies to all selected */
             if (isLeader && ImGui::BeginMenu("Bot AI")) {
                 for (int d = 0; d < s_NumSimDiffs; d++) {
-                    if (ImGui::MenuItem(s_SimDiffNames[d])) {
+                    if (ImGui::MenuItem(s_SimDiffNames[d], NULL, d == commonDiff)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
                                 g_MatchConfig.slots[j].botDifficulty = (u8)d;
@@ -1385,7 +1404,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* Bot Type — applies to all selected */
             if (isLeader && ImGui::BeginMenu("Bot Type")) {
                 for (int t = 0; t < s_NumBotTypes; t++) {
-                    if (ImGui::MenuItem(s_BotTypeNames[t])) {
+                    if (ImGui::MenuItem(s_BotTypeNames[t], NULL, t == commonType)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
                                 g_MatchConfig.slots[j].botType = (u8)t;
@@ -1396,14 +1415,43 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 ImGui::EndMenu();
             }
 
-            /* Character — applies to all selected */
+            /* Character — applies to all selected, sorted alphabetically */
             if (isLeader && ImGui::BeginMenu("Character")) {
                 u32 numBodies = mpGetNumBodies();
+
+                /* Build sortable list of (displayName, mpIndex) pairs */
+                static const u32 MAX_BODY_ENTRIES = 256;
+                struct BodyEntry { const char *name; u32 idx; };
+                BodyEntry sorted[MAX_BODY_ENTRIES];
+                if (numBodies > MAX_BODY_ENTRIES) numBodies = MAX_BODY_ENTRIES;
+                u32 sortedCount = 0;
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
-                    if (!bodyName || !bodyName[0]) continue;
+                    /* Fallback for bodies with empty display names */
+                    if (!bodyName || !bodyName[0]) {
+                        const char *bid = catalogResolveBodyByMpIndex((s32)b);
+                        if (bid && strcmp(bid, "base:drcaroll") == 0) bodyName = (char *)"Dr. Caroll";
+                        else if (bid && strcmp(bid, "base:skedar") == 0) bodyName = (char *)"Skedar";
+                        else continue;
+                    }
+                    sorted[sortedCount++] = { bodyName, b };
+                }
+
+                /* Sort alphabetically by display name (case-insensitive) */
+                for (u32 a = 0; a < sortedCount; a++) {
+                    for (u32 c = a + 1; c < sortedCount; c++) {
+                        if (strcasecmp(sorted[a].name, sorted[c].name) > 0) {
+                            BodyEntry tmp = sorted[a];
+                            sorted[a] = sorted[c];
+                            sorted[c] = tmp;
+                        }
+                    }
+                }
+
+                for (u32 si = 0; si < sortedCount; si++) {
+                    u32 b = sorted[si].idx;
                     const char *bid = catalogResolveBodyByMpIndex((s32)b);
-                    if (ImGui::MenuItem(bodyName)) {
+                    if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
                         const char *hid = catalogResolveHeadByMpIndex((s32)b);
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
