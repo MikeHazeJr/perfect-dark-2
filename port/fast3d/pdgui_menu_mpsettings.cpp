@@ -45,9 +45,6 @@ u8   matchGetPlayerHandicap(s32 playernum);
 void matchSetPlayerHandicap(s32 playernum, u8 val);
 void matchResetHandicaps(void);
 
-/* Damage scale display (mplayer.c) */
-f32  mpHandicapToDamageScale(u8 value);
-
 /* Player names (for labels) */
 const char *mpPlayerConfigGetName(s32 playernum);
 
@@ -173,23 +170,23 @@ static s32 renderHandicap(struct menudialog *dialog,
                                playerSlot + 1,
                                pname && pname[0] ? pname : "Player");
 
-            /* Read current handicap */
+            /* Read current handicap — internal 0-255, where 0x80 (128) = 100%.
+             * Display as linear percentage: (h * 100) / 128.
+             * mpHandicapToDamageScale() is unusable here — it returns 1.0f
+             * unconditionally when g_NetMode != 0, making every value show 100%. */
             u8 h = matchGetPlayerHandicap(playerSlot);
-            int hInt = (int)h;
-
-            /* Slider: 0–255. Display as damage percent. */
-            float pct = mpHandicapToDamageScale(h) * 100.0f;
-            char fmtBuf[32];
-            snprintf(fmtBuf, sizeof(fmtBuf), "%.0f%%", pct);
+            int pct = ((int)h * 100) / 128;
 
             ImGui::SetNextItemWidth(sliderW);
-            if (ImGui::SliderInt("##h", &hInt, 0, 255, fmtBuf)) {
-                matchSetPlayerHandicap(playerSlot, (u8)hInt);
+            if (ImGui::SliderInt("##h", &pct, 0, 200, "%d%%")) {
+                u8 raw = (u8)(((int)pct * 128) / 100);
+                if (pct > 0 && raw == 0) raw = 1; /* avoid 0% meaning "nearly dead" */
+                matchSetPlayerHandicap(playerSlot, raw);
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 0.8f),
-                               "%.0f%% dmg received", pct);
+                               "%d%% dmg received", pct);
 
             ImGui::Spacing();
             ImGui::PopID();
