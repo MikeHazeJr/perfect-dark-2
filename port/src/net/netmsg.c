@@ -54,7 +54,7 @@
 #include "utils.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
-#include "pdmain.h"
+#include "inputctx.h"
 #endif
 #include <SDL.h>
 
@@ -1046,8 +1046,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
-		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+			inputCtxPopDeferred(&g_CtxImGuiMenu);
+		}
 #endif
 
 		g_NotLoadMod = true;
@@ -1184,8 +1185,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
-		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+			inputCtxPopDeferred(&g_CtxImGuiMenu);
+		}
 		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
 		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
 		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in

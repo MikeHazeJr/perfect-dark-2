@@ -40,7 +40,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
-#include "pdmain.h"
+#include "inputctx.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -1052,7 +1052,9 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     if (doAccept) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+        }
         ImGui::End();
         return 1;
     }
@@ -1128,7 +1130,9 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     if (drawBtn(0, langSafe(L_OPTIONS_274), IM_COL32(80, 160, 80, 255))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+        }
         ImGui::End();
         return 1;
     }

@@ -29,7 +29,7 @@
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
 #include "input.h"
-#include "pdmain.h"
+#include "inputctx.h"
 #include "fs.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -642,11 +642,10 @@ s32 matchStart(void)
 	/* Stop the menu system and let the game take over */
 	menuStop();
 
-	/* B-66: Capture mouse for gameplay. The lobby UI holds pdguiIsActive() true
-	 * during setup, which deferred the SDL relative-mouse apply inside
-	 * inputLockMouse(). Now that menus are stopped, force the capture. */
-	inputLockMouse(1);
-	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+	/* Pop menu context — gameplay context's on_push handles mouse capture. */
+	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+		inputCtxPopDeferred(&g_CtxImGuiMenu);
+	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
@@ -717,11 +716,10 @@ s32 matchStartFromChallenge(s32 slot)
 	mpStartMatch();
 	menuStop();
 
-	/* B-92 sibling: challenge start path was missing the mouse capture that
-	 * matchStartFromSetup applies.  pdguiIsActive() deferred the SDL
-	 * relative-mouse apply inside inputLockMouse(); force it now. */
-	inputLockMouse(1);
-	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+	/* Pop menu context — gameplay context's on_push handles mouse capture. */
+	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+		inputCtxPopDeferred(&g_CtxImGuiMenu);
+	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

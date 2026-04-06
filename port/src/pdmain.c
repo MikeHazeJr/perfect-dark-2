@@ -78,10 +78,8 @@
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
 #include "modelcatalog.h"
-#include <SDL.h>
 #include "pdmain.h"
 #include "pdgui_theme.h"
-#include "input.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -108,7 +106,6 @@ u32 var8005dd50 = 0x00000000;
 s32 g_MainChangeToStageNum = -1;
 s32 g_MainIsDebugMenuOpen = 0;
 
-InputOwnerMode g_InputMode = INPUTMODE_MENU;
 
 struct stageallocation g_StageAllocations8Mb[] = {
 	{ STAGE_CITRAINING,    "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
@@ -275,27 +272,6 @@ Gfx var8005dcc8[] = {
 };
 
 s32 g_MainIsBooting = 1;
-
-void pdmainSetInputMode(InputOwnerMode mode)
-{
-	if (g_InputMode == mode) {
-		return;
-	}
-	g_InputMode = mode;
-	if (mode == INPUTMODE_GAMEPLAY) {
-		/* Apply mouse capture immediately — bypass the pdguiIsActive() defer
-		 * guard in inputLockMouse(). Only capture if game requested it. */
-		if (inputMouseIsLocked()) {
-			SDL_ShowCursor(SDL_DISABLE);
-			SDL_SetRelativeMouseMode(SDL_TRUE);
-		}
-		sysLogPrintf(LOG_NOTE, "INPUT: mode=GAMEPLAY");
-	} else {
-		SDL_SetRelativeMouseMode(SDL_FALSE);
-		SDL_ShowCursor(SDL_ENABLE);
-		sysLogPrintf(LOG_NOTE, "INPUT: mode=MENU");
-	}
-}
 
 /* FIX-PLAYTEST-4: C accessor so C++ port code can check the stage frame counter
  * without including types.h (which #defines bool as s32, breaking C++ bool). */

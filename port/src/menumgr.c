@@ -12,7 +12,7 @@
 #include "menumgr.h"
 #include "input.h"
 #include "system.h"
-#include "pdmain.h"
+#include "inputctx.h"
 #include <string.h>
 #include <SDL.h>
 
@@ -71,7 +71,9 @@ static void logStack(const char *action)
 /* E.2: Called when the menu stack empties to restore gameplay input ownership. */
 static void restoreGameplayMouseCapture(void)
 {
-    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
 }
 
 void menuMgrInit(void)

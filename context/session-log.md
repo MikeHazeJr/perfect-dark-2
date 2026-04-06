@@ -3,6 +3,111 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S160 — 2026-04-06 (D5 Full Menu Overhaul — Phase 1, Session 3)
+
+**Focus**: Migrate all `pdmainSetInputMode()` callers to input context stack; remove `g_InputMode` system entirely.
+
+### What Was Done
+
+**All 15 `pdmainSetInputMode()` call sites migrated** across 7 files:
+- `port/src/net/netmsg.c` (2 sites): `inputLockMouse(1) + pdmainSetInputMode(GAMEPLAY)` → `inputCtxPopDeferred(&g_CtxImGuiMenu)` with `inputCtxIsActive()` guard. Both co-op/anti and MP SVC_STAGE paths.
+- `port/src/net/matchsetup.c` (2 sites): Same pattern — match start and challenge start paths.
+- `port/src/net/net.c` (1 site): Standalone `inputLockMouse(1)` removed — context stack handles mouse capture via gameplay's `on_push`.
+- `port/src/menumgr.c` (1 site): `restoreGameplayMouseCapture()` now pops `g_CtxImGuiMenu` instead of calling `pdmainSetInputMode`.
+- `port/fast3d/pdgui_bridge.c` (2 sites): Endscreen mission restart/advance — pop ImGui menu context.
+- `port/fast3d/pdgui_menu_solomission.cpp` (2 sites): Accept mission buttons — pop ImGui menu context.
+- `port/fast3d/pdgui_menu_pausemenu.cpp` (5 sites):
+  - `pdguiPauseMenuOpen()`: `pdmainSetInputMode(MENU)` → `inputCtxPush(&g_CtxPauseMenu)`.
+  - `pdguiPauseMenuClose()`: `pdmainSetInputMode(GAMEPLAY)` → `inputCtxPopDeferred(&g_CtxPauseMenu)`.
+  - Game-over screen (3 sites): `pdmainSetInputMode(MENU)` → `inputCtxPush(&g_CtxImGuiMenu)` with double-push guard.
+
+**Old system removed**:
+- `pdmainSetInputMode()` function deleted from `port/src/pdmain.c` (~20 LOC).
+- `InputOwnerMode g_InputMode` global variable deleted from `port/src/pdmain.c`.
+- `InputOwnerMode` enum, `g_InputMode` extern, and `pdmainSetInputMode()` declaration removed from `port/include/pdmain.h`.
+- `pdmain.h` now contains only `pdmainGetLvFrame60()` — the sole remaining function.
+- Unused `#include <SDL.h>` and `#include "input.h"` removed from pdmain.c.
+- All 7 migrated files: `#include "pdmain.h"` → `#include "inputctx.h"`.
+
+**Build verified**: Both client (`pd`) and server (`pd-server`) compile cleanly with zero errors.
+
+### Decisions
+- All GAMEPLAY transitions use `inputCtxPopDeferred` with `inputCtxIsActive` guard (safe if context not on stack).
+- All MENU transitions use `inputCtxPush` with `!inputCtxIsActive` guard (prevents double-push).
+- Pause menu uses `g_CtxPauseMenu`; all other menus use `g_CtxImGuiMenu`.
+- `inputmodes.c`'s own `g_InputMode[]` array (for doubletap/hold per-action config) is completely unrelated and untouched.
+
+### Next Steps
+- **Phase 1, Session 4**: Wire `inputCtxInit()` into startup, `inputCtxEndFrame()` into main loop, `inputCtxPollFrame()` for continuous input. Push `g_CtxGameplay` at boot.
+
+---
+
+## Session S159 — 2026-04-06 (D5 Full Menu Overhaul — Phase 1, Session 2)
+
+**Focus**: Rewrite `pdgui_backend.cpp` event filter to use input context stack
+
+### What Was Done
+
+**pdguiProcessEvent() rewritten** from scratch:
+- Removed the entire old event filter (~110 LOC of manual mode checks, cooldown handling, `io.WantCapture*` decisions, Tab suppression, `g_InputMode` references).
+- New function (~40 LOC): global hotkeys (F8/F12/RS-click) → `ImGui_ImplSDL2_ProcessEvent()` for state tracking → `inputCtxDispatch(ev)` for routing.
+- F12 toggle now pushes/pops `g_CtxDebugOverlay` on the context stack instead of manually calling `pdguiUpdateMouseGrab()`.
+
+**pdguiWantsInput() simplified**:
+- Old: checked hotswap, pause menu, overlay, and `io.WantCapture*` separately (~20 LOC).
+- New: `inputCtxGetTop() != &g_CtxGameplay` — if top context isn't gameplay, ImGui wants input (3 LOC).
+
+**pdguiToggle() updated**: Uses context stack push/pop instead of direct `g_PdguiActive` + `pdguiUpdateMouseGrab()`.
+
+**pdguiIsActive() simplified**: Was checking `g_PdguiActive || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()`. Now: `inputCtxGetTop() != &g_CtxGameplay` — same pattern as `pdguiWantsInput()`.
+
+**pdguiUpdateMouseGrab() removed**: Context `on_push`/`on_pop` callbacks handle mouse state. Saved mouse state variables (`g_PdguiSavedRelativeMode`, `g_PdguiSavedShowCursor`) also removed (dead code).
+
+**menuIsInCooldown()/menuIsOpen() externs removed**: No longer needed — context stack handles transition safety via deferred pop.
+
+**inputCtxDispatch() fix**: Changed to respect `on_event()` return value. Gameplay's `on_event` returns 0 (game processes it), ImGui contexts return 1 (consumed). Critical for correct event routing.
+
+**g_InputMode references eliminated** from pdgui_backend.cpp. The `pdmain.h` include kept only for `pdmainGetLvFrame60()` (B-92 render path).
+
+### Decisions
+- ImGui always sees every event via `ImGui_ImplSDL2_ProcessEvent()` before context dispatch. This ensures ImGui tracks internal state (mouse pos, key state) even when the game owns input.
+- `inputCtxDispatch()` return value now comes from `on_event()`, not hardcoded 1. This lets gameplay context return 0 ("not consumed, game processes it") while menu contexts return 1 ("consumed").
+
+### Next Steps
+- **Phase 1, Session 3**: Migrate all `pdmainSetInputMode()` callers (~20 sites) to use `inputCtxPush`/`inputCtxPopDeferred`; remove `g_InputMode` enum entirely.
+- **Phase 1, Session 4**: Wire `inputCtxInit()` into startup, `inputCtxEndFrame()` into main loop, `inputCtxPollFrame()` for continuous input.
+
+---
+
+## Session S158 — 2026-04-06 (D5 Full Menu Overhaul — Phase 1, Session 1)
+
+**Focus**: Input Context Stack foundation — `inputctx.h` + `inputctx.c`
+
+### What Was Done
+
+**Input Context Stack created** (Phase 1, Session 1 of D5 Full Menu Overhaul):
+- Created `port/include/inputctx.h` — public API for priority-based input context pushdown automaton.
+- Created `port/src/inputctx.c` — full implementation (~340 LOC).
+- Stack API: `inputCtxInit/Shutdown/Push/PopDeferred/PopImmediate/Dispatch/PollFrame/EndFrame`.
+- Query API: `inputCtxGetTop/IsActive/GetDepth/GetTopName`.
+- 4 built-in contexts: `g_CtxGameplay`, `g_CtxImGuiMenu`, `g_CtxPauseMenu`, `g_CtxDebugOverlay`.
+- Gameplay context: captures mouse (relative mode), eats all input, delegates to existing game pipeline.
+- ImGui/Pause/Debug contexts: release mouse, consume keyboard/mouse/gamepad events, return 1 (consumed) — actual ImGui forwarding deferred to Session 2 integration layer.
+- Deferred pop pattern: `marked_for_removal` flag, cleanup in `inputCtxEndFrame()` — never mid-frame.
+- Double-push protection, stack overflow guard, comprehensive logging via `sysLogPrintf`.
+- Build verified: compiles cleanly with exact cmake flags (zero errors, zero warnings).
+- Auto-discovered by CMake's `file(GLOB_RECURSE)` — no CMakeLists.txt changes needed.
+
+### Decisions
+- ImGui context callbacks do NOT call ImGui directly (C code can't call C++ ImGui). They return 1 (consumed) and the pdgui_backend.cpp integration layer (Session 2) handles actual forwarding.
+- Pause menu sets a `s_GamePaused` static flag on push/pop — will be exposed via getter when needed.
+
+### Next Steps
+- **Phase 1, Session 2**: Rewrite `pdgui_backend.cpp` event filter to use context stack; wire into SDL loop (~200 LOC).
+- **Phase 1, Session 3**: Migrate all `pdmainSetInputMode()` callers (~20 sites); remove `g_InputMode`.
+
+---
+
 ## Session S157 — 2026-04-06 (Post-S156 Code Sessions)
 
 **Focus**: Phase 8 conversion function elimination, deep array-bypass audit, D5.0 visual layer implementation

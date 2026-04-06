@@ -21,7 +21,7 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
-#include "pdmain.h"
+#include "inputctx.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -210,9 +210,8 @@ void pdguiPauseMenuOpen(void)
 {
     if (menuIsInCooldown()) return; /* prevent double-press */
 
-    /* Release mouse grab so the cursor is visible and clickable in the menu.
-     * Must happen before s_PauseMenuOpen = true (before pdguiIsActive blocks SDL). */
-    pdmainSetInputMode(INPUTMODE_MENU);
+    /* Push pause context — handles mouse release and game pause via on_push. */
+    inputCtxPush(&g_CtxPauseMenu);
     {
         SDL_Window *win = SDL_GetMouseFocus();
         if (win) {
@@ -240,8 +239,10 @@ void pdguiPauseMenuClose(void)
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
 
-    /* Restore mouse state to what the game expects. */
-    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+    /* Pop pause context — gameplay context's on_push restores mouse capture. */
+    if (inputCtxIsActive(&g_CtxPauseMenu)) {
+        inputCtxPopDeferred(&g_CtxPauseMenu);
+    }
 
     menuPop(); /* deregister from menu manager */
 
@@ -1126,10 +1127,12 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     if (ImGui::Begin("##PdGameOver", NULL, flags)) {
-        /* Release mouse grab on first appear so buttons are clickable.
+        /* Push menu context on first appear so buttons are clickable.
          * The game holds SDL in relative mode during active gameplay. */
         if (ImGui::IsWindowAppearing()) {
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
         }
 
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "MATCH OVER", 1);
@@ -1254,7 +1257,9 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
             mainChangeToStage(0x26); /* STAGE_CITRAINING — lobby hub */
             if (g_NetMode != NETMODE_NONE) {
                 pdguiSetInRoom(1);   /* remain in room, show room screen */
@@ -1272,7 +1277,9 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
             if (g_NetMode == NETMODE_CLIENT) {
                 netDisconnect(); /* handles mainEndStage + mainChangeToStage(CITRAINING) */
             } else {

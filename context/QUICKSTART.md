@@ -2,7 +2,7 @@
 
 > **Read this file FIRST on every cold start.** It is the single onboarding document.
 > After reading this, you should be able to contribute productively without re-reading the entire context system.
-> For deep dives, follow the links to domain files. Updated: 2026-04-06.
+> For deep dives, follow the links to domain files. Updated: 2026-04-06 (S157+).
 
 ---
 
@@ -61,16 +61,21 @@ These are the most commonly relevant. Full list in `context/constraints.md`.
 | **Catalog ID everywhere** | `char[64]` strings at ALL boundaries. No integer identity on wire/save/API. |
 | **`bool` is `s32`** | Defined in `types.h`. **Never include `<stdbool.h>`** in game code. |
 | **C11 game / C++ port** | No C++ in `src/game/` or `src/lib/`. |
-| **ImGui is sole menu system** | Legacy `menuPush`/`menuPop` deprecated. ALL menu work in `pdgui_menu_*.cpp`. |
+| **Legacy N64 menus are DEAD** | `menuPush`/`menuPop`/`menuTick`/`menumgr.c` are deprecated trash. Do NOT fix, extend, integrate with, or reference them. ALL menu work targets `pdgui_menu_*.cpp` (ImGui). The legacy system will be stripped entirely. |
+| **ImGui is sole menu system** | All menus in `pdgui_menu_*.cpp`. Push/pop via input context stack. |
 | **No raw IP in UI** | 4-word sentence connect codes only. |
+| **Server is ROM-agnostic** | Server has no ROM. `g_NumStages == 0` is normal. Server gets everything from host manifest. Don't log warnings about missing ROM data on server. |
 | **Server is not a player** | `g_NetLocalClient = NULL` on dedicated server. Always NULL-guard. |
 | **Protocol v31** | All wire fields use catalog ID strings or session refs. net_hash is dead. |
+| **Zero-config networking** | Players must NEVER need to touch router settings, port forwarding, or UPnP. STUN + hole punch is the solution. All client joins use `netStartClientWithHolePunch()`, never raw `netStartClient()`. |
 | **MAX_MPCHRS=36** | MAX_PLAYERS=4 (local), MAX_BOTS=32. chrslots is u64. |
 | **30 agent save slots** | Hardcoded in filelist struct. Cannot change without save migration. |
+| **Zero DLL dependencies** | Executables must be fully static — no runtime DLLs. Release is: exes + data/ (README only) + mods/ (self-generating). libcurl static linking is currently broken (CMakeLists.txt copies ~15 DLLs as workaround). Needs fix. |
 | **Clean builds only** | Every build deletes build dirs first. No incremental. |
 | **No worktrees** | Work in main copy only. Never create worktrees. Prune stale ones. |
+| **Self-generating content** | Base UI mods (`mods/base-ui/`, `mods/pd-modern-ui/`) create themselves at runtime if missing. Don't rely on the release zip bundling them. Textures auto-extract from ROM on first launch. |
 
-**Removed constraints** (do NOT work around these — they're gone): N64 platform guards, 4MB memory mode, N64 dead code, micro-optimizations, host-based MP, N64 collision workarounds, 4-player bot limit, net_hash wire format, legacy N64 menu system, integer-native match config, g_ModNum, modconfig.txt, shadow arrays, fileSlots 2D array.
+**Removed constraints** (do NOT work around these — they're gone): N64 platform guards, 4MB memory mode, N64 dead code, micro-optimizations, host-based MP, N64 collision workarounds, 4-player bot limit, net_hash wire format, legacy N64 menu system, integer-native match config, g_ModNum, modconfig.txt, shadow arrays, fileSlots 2D array, UPnP-only networking.
 
 ---
 
@@ -113,15 +118,19 @@ tools/                  Log parser, utilities
 - **155+ sessions** of development. 5 systemic sweeps. Comprehensive bug audit.
 
 ### What's Active
+- **D5 Full Menu Overhaul** — master design doc at `context/designs/d5-full-menu-overhaul.md`. Five phases:
+  - Phase 1: Input Context Stack (replacing binary INPUTMODE system) — **IN PROGRESS**
+  - Phase 2: Controller Navigation (D-pad wrap, A/B, device detection)
+  - Phase 3: Full Menu Roster Port (120 screens, 61 remaining)
+  - Phase 4: Theme System (auto-extract textures, mod themes in settings)
+  - Phase 5: Planned Features (player portraits, lobby scene rendering)
+- **Networking**: Client hole punch wired in (`netStartClientWithHolePunch`). Zero-config goal.
 - **Catalog Phase 7 caller elimination**: ~85 calls to conversion wrappers remain
-- **Catalog Phases 8–14**: Weapons (~660 refs), stages (~80), models (~83), textures, audio, animations, game modes, lang banks, props, HUD
 - **B-112**: Chr pointer corruption in 31-bot matches. Root cause unknown. VEH + guards in place.
-- **D5.3 Pause Menu**: Highest-priority menu item (missing Abort, Restart, objectives)
-- **Mod + D5 implementation plan**: 10-phase, 33-session, ~3,800 LOC roadmap committed
 
 ### What's Planned (Priority Order)
-1. Catalog deep migration (eliminate all integer identity)
-2. D5 menu system (pause menu → mission select → settings polish → OG removal)
+1. D5 Full Menu Overhaul (~25 sessions, ~6,500 LOC) — current primary workstream
+2. Catalog deep migration (eliminate all integer identity)
 3. Mod infrastructure (mod menu gateway → bot name dictionary mod → visual theme layer)
 4. B-12 Phase 3 (remove chrslots → dynamic participant system)
 5. D13 Update System (code written, needs build integration)
@@ -193,6 +202,11 @@ Before starting significant work, run through:
 4. **Cascade check**: Will this conflict with things already modernized?
 5. **Effort check**: Is this proportional to its importance?
 
+**Init ordering audit**: After any change that adds or moves init/shutdown calls, verify the full boot sequence resolves correctly. Systems must init in dependency order:
+1. SDL_Init → 2. inputInit (SDL event watch) → 3. inputCtxInit + push gameplay → 4. pdguiInit (ImGui) → 5. texInit/texReset → 6. pdguiThemeLateInit → 7. game logic.
+Frame loop: SDL_PollEvent → pdguiProcessEvent → inputCtxDispatch → game tick → render → inputCtxEndFrame.
+Shutdown: reverse order. Document any ordering dependencies discovered.
+
 **Rabbit Hole Protocol**: If you're going deeper than expected — **stop**. Explain, present options, recommend one, let Mike decide.
 
 ---
@@ -205,11 +219,16 @@ Before starting significant work, run through:
 - **When the fix is clear, just do it** — don't announce intent and wait.
 - **Update context as you go**, not as a follow-up.
 - **Run a build check** before reporting any code task as complete.
-- **Send progress updates** every 2-3 minutes during long work. Never go silent.
+- **Send progress updates** every 5 minutes during long work. Never go silent.
 - **Timestamps on every response.**
 - **No worktrees.** Work in the main copy. Prune stale ones proactively.
 - **Merge verification**: If a code session uses a worktree anyway, verify line counts post-merge (truncation risk).
 - **Protect .git internals** — never write to `.git/` directly.
+- **Audit everything twice**: Every code change gets verified for function, interoperability, UX, and bugs before reporting done. Use a second session/model for audit when appropriate.
+- **Don't touch legacy menus**: The N64 menu system (`menuPush`/`menuPop`/`menuTick`/`menumgr.c`) is deprecated. Don't fix it, extend it, or integrate with it. Build new, strip old.
+- **C headers included from C++ need `extern "C"` guards**: If a port header (`port/include/*.h`) declares C functions and gets included from `.cpp` files, it MUST have `#ifdef __cplusplus extern "C" {` guards. Missing guards cause linker errors (name mangling). Check `fs.h`, `config.h` as examples of this fix.
+- **Dev window auto-configures git identity**: The dev window sets `user.email` and `user.name` repo-level on startup if missing. No manual git config needed.
+- **Release auto-commits**: The dev window's build/release flow auto-commits pending changes before building. If git identity is missing, the pipeline stops with a clear error instead of silently failing.
 
 ---
 
@@ -227,6 +246,7 @@ Before starting significant work, run through:
 | `component-mod-architecture.md` | Mod system work |
 | `designs/match-startup-pipeline.md` | Match startup work |
 | `designs/d5-visual-layer-plan.md` | D5.0 visual layer work |
+| `designs/d5-full-menu-overhaul.md` | D5 master plan — input stack, controller nav, full menu port, themes, planned features |
 | `designs/implementation-plan-mods-and-d5.md` | Mod + D5 roadmap |
 | `designs/engine-vision-roadmap.md` | Long-term architecture |
 | `bugs.md` | Bug reference |

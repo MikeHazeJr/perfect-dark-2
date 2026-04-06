@@ -113,6 +113,7 @@ extern InputContext g_CtxTextInput;
 - **Right stick**: Reserved for camera in gameplay; ignored in menus
 - **Triggers**: Page up/down in long lists (optional)
 - **Device detection**: Track last-used device (KB/M vs gamepad) with 500ms debounce. Switch UI prompts.
+- **Input buffer for cheat codes**: Rolling circular buffer of recent button presses (last 20 inputs with timestamps) in the gameplay context's `on_poll` callback. When a sequence matches a known cheat code and cheats are enabled in solo/online options, fire the cheat action. Buffer only active when cheats are enabled. Supports both keyboard and controller sequences.
 
 ### ImGui Integration
 

@@ -796,7 +796,7 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	// start the mission on the server
 	menuStop();
 #if !defined(PD_SERVER)
-	inputLockMouse(1);  /* B-92 sibling: co-op listen-server start — pdguiIsActive() deferred SDL lock */
+	/* Input context stack handles mouse capture when gameplay context becomes top. */
 #endif
 	titleSetNextStage(stagenum);
 	setNumPlayers(g_NetNumClients > 1 ? 2 : 1);

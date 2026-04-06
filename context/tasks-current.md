@@ -10,6 +10,9 @@
 
 | Item | Status |
 |------|--------|
+| **D5 Phase 1 Session 3 — g_InputMode Elimination (S160, 2026-04-06)** | **DONE** — All 15 `pdmainSetInputMode()` callers migrated to `inputCtxPush`/`inputCtxPopDeferred`. `InputOwnerMode` enum, `g_InputMode` global, and `pdmainSetInputMode()` removed from pdmain.c/h. 7 files updated. Build clean. |
+| **D5 Phase 1 Session 2 — Event Filter Rewrite (S159, 2026-04-06)** | **DONE** — `pdguiProcessEvent()` rewritten to use context stack. `pdguiWantsInput()` + `pdguiIsActive()` simplified to `inputCtxGetTop() != &g_CtxGameplay`. F12/Toggle use push/pop. `pdguiUpdateMouseGrab` + saved mouse state removed. `menuIsInCooldown`/`menuIsOpen` externs removed. `g_InputMode` eliminated from backend. `inputCtxDispatch` respects `on_event` return. |
+| **D5 Phase 1 Session 1 — Input Context Stack (S158, 2026-04-06)** | **DONE** — `inputctx.h` + `inputctx.c` created. Stack API, 4 built-in contexts, deferred pop, double-push guard. Compiles clean. |
 | **D5.0 Visual Layer (S157, 2026-04-06)** | **DONE** — Init ordering fix (`pdguiThemeLateInit` after `texInit`), ROM texture extraction tool (`--extract-ui-textures`), base-ui mod (13 textures), haze overlay, CRT scanlines, multi-palette support (all 7 palettes). Procedural modern-UI mod. TGA loader. |
 | **Catalog Phase 8 — O(n) conversion elimination (S157)** | **DONE** — All O(n) linear-scan conversion functions eliminated. |
 | **Deep array-bypass audit (S157)** | **DONE** — All 15 bypass items fixed. 2 hidden `catalogGetMpIndex` reimplementations found and removed. Zero gaps remaining. |

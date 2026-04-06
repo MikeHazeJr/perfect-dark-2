@@ -14,6 +14,7 @@
 #include "video.h"
 #include "audio.h"
 #include "input.h"
+#include "inputctx.h"
 #include "fs.h"
 #include "romdata.h"
 #include "config.h"
@@ -116,6 +117,7 @@ static void cleanup(void)
 	mempPCValidate("shutdown");
 	mempPCFreeAll();
 
+	inputCtxShutdown();
 	updaterShutdown();
 	pdguiShutdown();
 	netDisconnect();
@@ -168,6 +170,13 @@ int main(int argc, const char **argv)
 	menuMgrInit();
 	statsInit();
 	inputInit();
+
+	/* Input context stack: must init after inputInit() (SDL event watch)
+	 * and push g_CtxGameplay as the base context before any menu/GUI code
+	 * that might reference the context stack. */
+	inputCtxInit();
+	inputCtxPush(&g_CtxGameplay);
+
 	audioInit();
 
 	/* Dedicated server: mute ALL audio — music and sound effects.

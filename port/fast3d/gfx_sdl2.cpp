@@ -15,6 +15,7 @@ extern "C" {
     void meshDebugToggle(void);
     void pdguiConsoleToggle(void);
     signed int pdguiIsActive(void);
+    void inputCtxEndFrame(void);
 }
 
 static SDL_Window* wnd;
@@ -338,6 +339,10 @@ static void gfx_sdl_handle_events(void) {
                 break;
         }
     }
+
+    /* End-of-frame cleanup: remove any contexts marked for deferred removal.
+     * Must happen after all events are dispatched, before next frame. */
+    inputCtxEndFrame();
 }
 
 static bool gfx_sdl_start_frame(void) {
