@@ -3,6 +3,42 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S156 — 2026-04-06 (Handoff / End of Night)
+
+**Focus**: Phase 7 audit, triple audit verification, session handoff
+
+### What Was Done
+
+**Catalog ID Migration — Phase 7 audit** (commit `f8b4d00`):
+- All conversion function wrappers reviewed: `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveHeadByMpIndex`, `catalogResolveStageByStagenum`, `catalogResolveArenaByStagenum`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody`, `catalogGetSafeBodyPaired`, `catalogGetSafeHead`.
+- Phase 7 commit landed but callers remain (~85 calls across codebase) — cannot fully delete wrappers yet.
+- Status: AUDITED. Elimination requires caller-by-caller migration (deep audit task).
+
+**Triple audit — PASSED (11/11)**:
+- All 11 original catalog audit findings verified present in codebase.
+- 1 gap fixed (validation functions passed wrong index space to `catalogGetSafeBody`/`Head` — corrected).
+- Full audit log recorded in session S155 notes.
+
+**Infrastructure**:
+- `.gitignore` additions (worktree artifacts, build outputs).
+- Worktree cleanup script added (`devtools/cleanup-worktrees.sh`).
+- Release pipeline tag-push fix.
+
+### Decisions
+- Phase 7 (conversion function elimination) is the next concrete migration task: ~85 call sites must be migrated before wrappers can be deleted.
+- Deep audit of direct array accesses (`g_Weapons[]`, `g_HeadsAndBodies[]`) is NOT yet started.
+- Catalog-as-data-provider (absorb ROM arrays) and gameplay-state-category-based tracks are NOT yet started.
+- All game director decisions stand: D-1 FULL, D-2 FULL, D-3 FULL — zero half measures, catalog is sole source of truth for identity AND state.
+
+### Next Steps
+- Build verification of Phases 0–6 (no regressions)
+- Phase 7 caller elimination: ~85 calls to `catalogBodynumToMpBodyIdx` et al. — migrate each call site to use catalog ID directly
+- Then: deep audit of `g_Weapons[]` / `g_HeadsAndBodies[]` direct array accesses
+- B-112 root cause still unknown; next VEH crash log needed
+- Playtest for Phase 0–6 regression check
+
+---
+
 ## Session S155 — 2026-04-06
 
 **Focus**: UX polish, B-112 hardening, Catalog ID Migration planning + Phases 0–6 execution

@@ -361,16 +361,16 @@ extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 
 /* Unified reverse lookup — runtime_index → mp array position.
- * Scans body array first, then head array.  Returns -1 if not found. */
+ * Scans body array first, then head array.  Returns -1 if not found.
+ * Uses hardcoded array sizes (63 bodies, 76 heads) to avoid modmgr
+ * dependency in the server build. */
 s32 catalogGetMpIndex(s32 runtime_index)
 {
     s32 i;
-    s32 totalBodies = modmgrGetTotalBodies();
-    for (i = 0; i < totalBodies; i++) {
+    for (i = 0; i < 63; i++) {
         if ((s32)g_MpBodies[i].bodynum == runtime_index) return i;
     }
-    s32 totalHeads = modmgrGetTotalHeads();
-    for (i = 0; i < totalHeads; i++) {
+    for (i = 0; i < 76; i++) {
         if ((s32)g_MpHeads[i].headnum == runtime_index) return i;
     }
     return -1;

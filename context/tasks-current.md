@@ -10,10 +10,31 @@
 
 | Item | Status |
 |------|--------|
+| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155, 2026-04-06)** | **DONE** — 41 files changed, 837 insertions. All 11 original audit findings migrated. Phase 7 (eliminate all conversion function wrappers) audited — callers remain (~85 calls), cannot delete yet. Bot body wire fix, B-112 crash guards, handicap UI fix, bot context menu UX, U-7+U-10 complete, infrastructure (release pipeline, worktree cleanup, .gitignore). Triple audit PASSED (11/11). |
 | **Catalog ID Migration Phases 0–6 (bodies/heads)** | **DONE (S155)** — Generation counter + hot-reload API (Phase 0), catalog ID string fields in config/data structs (Phase 2), function APIs migrated to catalog ID strings (Phase 3), integer comparisons replaced with catalog ID checks (Phase 4), UI shadow structs + save paths + lobby accessors fixed (Phase 5+6). CLC_LOBBY_START server guard + validation index space fix. v0.0.45. |
 | **B-112 additional crash guards (shot/damage path)** | **DONE (S155)** — Defense-in-depth guards in chrBruise/chrDamage + handicap default init (chr->handicap=1.0). |
 | **UX: bot context menu + handicap slider + release script** | **DONE (S155)** — Checkmarks, alphabetical sort, display name fallbacks; handicap slider percentage fix; release tag push fix. |
 | **Eliminate integer asset identity from wire (Phase 1+2)** | **DONE (S154)** — All 6 weapon messages already migrated (v30). SVC_PROP_SPAWN modelnum migrated to catalog session refs (`netWriteModelRef`/`netReadModelRef`). Bot body/head: `catalogBodynumToMpBodyIdx` eliminated from netmsg.c (fallback uses `catalogResolveByRuntimeIndex`, server decode uses `catalogGetSafeBodyPaired` directly). chrBruise guard enhanced with `model->definition` check. NET_PROTOCOL_VER 30→31. |
+
+---
+
+## ACTIVE: Catalog ID Deep Migration
+
+**Goal**: Zero integer-to-catalog-ID conversion anywhere in the codebase. Catalog ID is sole identity for all asset types.
+
+| Phase | Status | Detail |
+|-------|--------|--------|
+| **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
+| **Phase 7 — Conversion function wrapper elimination** | **AUDITED / IN PROGRESS** | ~85 calls to `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody/Head` etc. remain. Cannot delete wrappers until all callers migrated. |
+| **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
+| **Phases 8–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
+| **Deep audit — direct array access** | **NOT STARTED** | `g_Weapons[]`, `g_HeadsAndBodies[]` direct indexed lookups. |
+| **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
+| **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
+
+**Next action**: Eliminate the ~85 remaining calls to conversion wrappers (Phase 7 caller migration), file by file.
+
+---
 
 ## Previously Completed (S130–S153 — 2026-04-02/05)
 
