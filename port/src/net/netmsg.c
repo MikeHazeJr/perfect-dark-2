@@ -4266,6 +4266,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			 * stored directly as mpbodynum/mpheadnum.  No intermediate
 			 * catalogBodynumToMpBodyIdx conversion — catalog resolves to
 			 * what the engine needs. */
+#ifndef PD_SERVER
 			{
 				s32 rawBody = 0, rawHead = 0;
 				if (body_id && body_id[0]) {
@@ -4294,6 +4295,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 					g_BotConfigsArray[bi].base.head_id[0] = '\0';
 				}
 			}
+#endif
 			if (botName && botName[0]) {
 				strncpy(g_BotConfigsArray[bi].base.name, botName, sizeof(g_BotConfigsArray[bi].base.name) - 1);
 				g_BotConfigsArray[bi].base.name[sizeof(g_BotConfigsArray[bi].base.name) - 1] = '\0';
