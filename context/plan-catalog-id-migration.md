@@ -1,5 +1,25 @@
 # Catalog ID Migration Plan — Full Codebase
 
+## Current Status (2026-04-06)
+
+| Track | Status | Notes |
+|-------|--------|-------|
+| **Phases 0–6** | **COMPLETE** | Identity layer complete for bodies/heads: generation counter, hot-reload API, catalog ID fields in structs, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. |
+| **Phase 7 — Conversion function elimination** | **IN PROGRESS** | Phase 7 commit landed (`f8b4d00`). ~85 calls to `catalogBodynumToMpBodyIdx` et al. remain. Wrappers cannot be deleted until all callers are migrated. |
+| **Phases 8–14 (texture/audio/anim/gamemode/lang/prop/HUD)** | **NOT STARTED** | High-priority files already migrated as part of Phase 2 work; full phase not started. |
+| **Triple audit** | **PASSED (11/11)** | All 11 original audit findings verified. 1 gap fixed (wrong index space in validation functions). |
+| **Deep migration — direct array access** | **NOT STARTED** | `g_Weapons[]`, `g_HeadsAndBodies[]` direct indexed lookups not yet migrated. |
+| **Catalog as data provider (absorb ROM arrays)** | **NOT STARTED** | Catalog to serve weapon/body/head data directly, eliminating ROM arrays as source of truth. |
+| **Gameplay state — category-based via catalog** | **NOT STARTED** | Match state, bot config, weapon slots all still use integer identity at runtime. |
+
+### Game Director Decisions — Binding
+- **D-1 FULL**: Every asset type in scope. No carve-outs, no deferrals.
+- **D-2 FULL**: Model numbers — full migration via `ASSET_MODEL`.
+- **D-3 FULL**: `mainChangeToStage` — full engine refactor to `mainChangeToStage(const char *stage_id)`.
+- **Zero half measures**: Catalog is the sole source of truth for identity AND state.
+
+---
+
 > **Mandate**: Zero integer-to-catalog-ID conversion anywhere, ever. Catalog ID (`char[64]` string) is the sole identity for **every** asset type — bodies, heads, weapons, stages, models, textures, sounds, animations, game modes, language banks, props, HUD elements. No carve-outs, no deferrals. Catalog ID goes all the way through — including engine internals.
 >
 > **Scope**: ~3,000+ references to integer asset identity across `port/`, `src/game/`, `src/include/`. Full asset type breakdown below.
