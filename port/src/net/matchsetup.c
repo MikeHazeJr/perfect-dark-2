@@ -6,7 +6,7 @@
  * directly from lobby state, then calls mpStartMatch() and triggers
  * stage load.
  *
- * Also defines g_MatchSetupMenuDialog for hotswap registration.
+ * Also defines g_MatchSetupMenuDialog (stub dialog — legacy; ImGui room screen replaced it).
  *
  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
  */

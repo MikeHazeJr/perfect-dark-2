@@ -42,6 +42,7 @@ extern "C" {
 
 #include "assetcatalog.h"
 #include "botvariant.h"
+#include "pdgui_charpreview.h"
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
 
@@ -489,6 +490,9 @@ static bool      s_BotTraitsInitialized = false;
 
 /* Whether the Advanced section is expanded in the current bot edit modal */
 static bool s_BotModalShowAdvanced = false;
+
+/* 3D character preview rotation (radians, wraps at 2pi) */
+static float s_BotPreviewRotY = 0.0f;
 
 /* Bot preset cache — ASSET_BOT_VARIANT entries from catalog */
 #define MAX_BOT_PRESETS 64
@@ -1330,6 +1334,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
                 s_EditBotSlotIdx = i;
                 s_BotModalOpen   = true;
+                s_BotPreviewRotY = 0.0f;
             }
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
@@ -2206,9 +2211,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         s_BotModalOpen = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(360.0f), 0.0f));
-    if (ImGui::BeginPopupModal("Bot Settings##botmodal", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(540.0f), 0.0f));
+    if (ImGui::BeginPopupModal("Bot Settings##botmodal", nullptr, 0)) {
         if (s_EditBotSlotIdx >= 1
             && s_EditBotSlotIdx < g_MatchConfig.numSlots
             && g_MatchConfig.slots[s_EditBotSlotIdx].type == SLOT_BOT) {
@@ -2219,6 +2223,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Bot Settings");
             ImGui::Separator();
             ImGui::Spacing();
+
+            /* Left column: controls */
+            ImGui::BeginGroup();
 
             /* Fixed label column offset keeps controls left-aligned */
             float labelCol = 110.0f * scale;
@@ -2424,10 +2431,51 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
             if (ImGui::Button("Done", ImVec2(pdguiScale(80.0f), 0.0f))) {
                 s_BotModalShowAdvanced = false;
+                s_BotPreviewRotY = 0.0f;
                 s_EditBotSlotIdx = -1;
                 ImGui::CloseCurrentPopup();
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
+
+            ImGui::EndGroup(); /* end left column */
+
+            /* ---- Right column: 3D character preview ---- */
+            ImGui::SameLine(0, pdguiScale(12.0f));
+            ImGui::BeginGroup();
+
+            /* Rotate and request preview for current body+head */
+            s_BotPreviewRotY += 0.022f; /* ~1.26 rad/s at 60fps */
+            if (s_BotPreviewRotY > 6.2832f) s_BotPreviewRotY -= 6.2832f;
+            pdguiCharPreviewSetRotY(s_BotPreviewRotY);
+            pdguiCharPreviewRequest(sl->headnum, sl->bodynum);
+
+            float previewSz = pdguiScale(160.0f);
+
+            if (pdguiCharPreviewIsReady()) {
+                ImTextureID texId = (ImTextureID)(uintptr_t)pdguiCharPreviewGetTextureId();
+                ImGui::Image(texId, ImVec2(previewSz, previewSz));
+            } else {
+                /* Dark placeholder while first frame renders */
+                ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cursor,
+                    ImVec2(cursor.x + previewSz, cursor.y + previewSz),
+                    IM_COL32(20, 20, 30, 200));
+                ImGui::Dummy(ImVec2(previewSz, previewSz));
+            }
+
+            /* Character name label below preview */
+            {
+                const char *bName = mpGetBodyName(sl->bodynum);
+                if (bName && bName[0]) {
+                    float textW = ImGui::CalcTextSize(bName).x;
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+                                         + (previewSz - textW) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%s", bName);
+                }
+            }
+
+            ImGui::EndGroup(); /* end right column */
         } else {
             ImGui::TextDisabled("No bot selected.");
             if (ImGui::Button("Close")) {

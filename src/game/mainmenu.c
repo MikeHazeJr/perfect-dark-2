@@ -37,8 +37,8 @@
 #include "net/net.h"
 #include "input.h"
 
-/* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* PC port: ImGui room screen (replaces old Match Setup dialog) */
+extern void pdguiSoloRoomOpen(void);
 
 bool g_NotLoadMod = true;
 
@@ -4842,7 +4842,8 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_NotLoadMod = false;
 		romdataFileFreeForSolo();
-		func0f0f820c(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
+		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 		func0f0f8300();
 	}
 

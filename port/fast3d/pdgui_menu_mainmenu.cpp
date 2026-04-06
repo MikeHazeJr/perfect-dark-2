@@ -54,7 +54,6 @@ extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
 extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
-extern struct menudialogdef g_MatchSetupMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
 
 /* Match setup init (from matchsetup.c) */

@@ -40,7 +40,7 @@ struct menudialogdef g_MpEditSimulantMenuDialog;
 struct menudialogdef g_MpSaveSetupNameMenuDialog;
 
 /* PC port: our lobby dialog that replaces g_CombatSimulatorMenuDialog */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* g_MatchSetupMenuDialog removed — ImGui room screen replaced it */
 
 extern struct menudialogdef g_ManageSettingsDialog;
 extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
@@ -5733,7 +5733,7 @@ MenuDialogHandlerResult menudialogCombatSimulator(s32 operation, struct menudial
 	}
 
 	if (g_Menus[g_MpPlayerNum].curdialog
-			&& (g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog || g_Menus[g_MpPlayerNum].curdialog->definition == &g_MatchSetupMenuDialog)
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog
 			&& operation == MENUOP_TICK) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_Vars.mpquickteam = MPQUICKTEAM_NONE;

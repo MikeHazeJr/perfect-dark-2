@@ -31,8 +31,8 @@
 #include "system.h"
 #include "net/net.h"
 
-/* PC port: redirect post-match menu to our new Match Setup lobby */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
+extern void pdguiSoloRoomOpen(void);
 
 u8 g_FileState = 0;
 u8 var80062944 = 0;
@@ -250,7 +250,8 @@ void menuTick(void)
 							if (IS4MB()) {
 								menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
 							} else {
-								menuPushRootDialog(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
+								menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+								pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 							}
 						} else {
 							g_Vars.waitingtojoin[i] = true;
@@ -533,8 +534,8 @@ void menuTick(void)
 				g_MenuData.prevmenudialog = &g_MainMenu4MbMenuDialog;
 			} else {
 				g_MenuData.prevmenuroot = MENUROOT_MPSETUP;
-				/* PC port: return to Match Setup lobby */
-				g_MenuData.prevmenudialog = &g_MatchSetupMenuDialog;
+				/* PC port: return to room screen after match */
+				g_MenuData.prevmenudialog = &g_CombatSimulatorMenuDialog;
 			}
 		}
 
