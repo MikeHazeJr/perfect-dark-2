@@ -87,8 +87,11 @@ s32         pdguiEndscreenGetChallengeStatus(void);  /* 0=none 1=complete 2=fail
 /* Must match struct mpchrconfig in types.h exactly (including alignment) */
 struct mpchrconfig_pm {
     /*0x00*/ char name[15];
-    /*0x0f*/ u8 mpheadnum;
-    /*0x10*/ u8 mpbodynum;
+    /* PRIMARY: catalog ID strings — must match types.h mpchrconfig layout */
+    char head_id[64];
+    char body_id[64];
+    /*0x0f*/ u8 mpheadnum; /* DEPRECATED */
+    /*0x10*/ u8 mpbodynum; /* DEPRECATED */
     /*0x11*/ u8 team;
     /*0x12*/ u8 _pad0[2];         /* alignment padding to 0x14 */
     /*0x14*/ u32 displayoptions;

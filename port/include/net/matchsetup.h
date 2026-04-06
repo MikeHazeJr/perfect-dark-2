@@ -18,10 +18,12 @@
 #define MAX_PLAYER_NAME 32
 #endif
 
-/* Total match slots = participant pool size.
- * Must equal PARTICIPANT_DEFAULT_CAPACITY (32). */
+/* Total match slots = MAX_PLAYERS + MAX_BOTS.
+ * Bots occupy slots[MAX_PLAYERS .. MAX_PLAYERS+MAX_BOTS-1], so the array
+ * must be large enough to hold both player and bot entries.  The old value
+ * of 32 was too small when MAX_PLAYERS=8 and MAX_BOTS=32 (need 40). */
 #ifndef MATCH_MAX_SLOTS
-#define MATCH_MAX_SLOTS 32
+#define MATCH_MAX_SLOTS 40
 #endif
 
 /* Weapon slots per match (must match constants.h NUM_MPWEAPONSLOTS) */
@@ -42,11 +44,11 @@ struct matchslot {
 	/* body_id/head_id are the PRIMARY identity — always set by matchConfigInit/
 	 * matchConfigAddBot.  bodynum/headnum are DERIVED (mpbodynum/mpheadnum cache)
 	 * used only for legacy engine handoff; resolved from body_id/head_id at
-	 * matchStart() time via catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx. */
+	 * matchStart() time via entry->mp_index. */
 	char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
 	char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
-	u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
-	u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
+	u8 headnum;       /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. Kept temporarily for unmigrated consumers. */
+	u8 bodynum;       /* DEPRECATED: integer g_MpBodies[] index. Use body_id instead. Kept temporarily for unmigrated consumers. */
 	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
 	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
 	char name[MAX_PLAYER_NAME];  /* display name */
@@ -58,7 +60,7 @@ struct matchconfig {
 	/* PRIMARY: catalog ID string (e.g. "base:mp_complex", "base:defection").
 	 * stagenum is DERIVED — resolved from stage_id at matchStart() only. */
 	char stage_id[64];              /* PRIMARY: catalog ID — e.g. "base:mp_complex" */
-	u8 stagenum;                    /* DERIVED: resolved from stage_id at matchStart */
+	u8 stagenum;                    /* DEPRECATED: integer stage index. Use stage_id instead. Kept temporarily for unmigrated consumers. */
 	u8 timelimit;                   /* minutes (0 = unlimited) */
 	u8 scorelimit;                  /* score to win (0 = unlimited) */
 	u16 teamscorelimit;             /* team score limit */

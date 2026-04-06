@@ -32,6 +32,7 @@ extern struct menudialogdef g_NetMenuDialog;
 
 /* Network functions */
 s32 netStartClient(const char *addr);
+s32 netStartClientWithHolePunch(const char *addr);
 
 /* Net menu state — shared with netmenu.c */
 extern char g_NetJoinAddr[];
@@ -269,7 +270,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
                 snprintf(g_NetJoinAddr, NET_MAX_ADDR, "%u.%u.%u.%u:%u",
                          ip & 0xFF, (ip >> 8) & 0xFF,
                          (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
-                if (netStartClient(g_NetJoinAddr) == 0) {
+                if (netStartClientWithHolePunch(g_NetJoinAddr) == 0) {
                     menuPushDialog(&g_NetJoiningDialog);
                 }
             }

@@ -618,17 +618,25 @@ static inline void inputInitKeyNames(void)
 	}
 
 	// keypad names
-	strcpy(vkNames[SDL_SCANCODE_KP_DIVIDE], "KP_DIVIDE");
-	strcpy(vkNames[SDL_SCANCODE_KP_MULTIPLY], "KP_MULTIPLY");
-	strcpy(vkNames[SDL_SCANCODE_KP_MINUS], "KP_MINUS");
-	strcpy(vkNames[SDL_SCANCODE_KP_PLUS], "KP_PLUS");
-	strcpy(vkNames[SDL_SCANCODE_KP_ENTER], "KP_ENTER");
-	strcpy(vkNames[SDL_SCANCODE_KP_PERIOD], "KP_PERIOD");
-	strcpy(vkNames[SDL_SCANCODE_KP_EQUALS], "KP_EQUALS");
+	strncpy(vkNames[SDL_SCANCODE_KP_DIVIDE], "KP_DIVIDE", sizeof(vkNames[SDL_SCANCODE_KP_DIVIDE]) - 1);
+	vkNames[SDL_SCANCODE_KP_DIVIDE][sizeof(vkNames[SDL_SCANCODE_KP_DIVIDE]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_MULTIPLY], "KP_MULTIPLY", sizeof(vkNames[SDL_SCANCODE_KP_MULTIPLY]) - 1);
+	vkNames[SDL_SCANCODE_KP_MULTIPLY][sizeof(vkNames[SDL_SCANCODE_KP_MULTIPLY]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_MINUS], "KP_MINUS", sizeof(vkNames[SDL_SCANCODE_KP_MINUS]) - 1);
+	vkNames[SDL_SCANCODE_KP_MINUS][sizeof(vkNames[SDL_SCANCODE_KP_MINUS]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_PLUS], "KP_PLUS", sizeof(vkNames[SDL_SCANCODE_KP_PLUS]) - 1);
+	vkNames[SDL_SCANCODE_KP_PLUS][sizeof(vkNames[SDL_SCANCODE_KP_PLUS]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_ENTER], "KP_ENTER", sizeof(vkNames[SDL_SCANCODE_KP_ENTER]) - 1);
+	vkNames[SDL_SCANCODE_KP_ENTER][sizeof(vkNames[SDL_SCANCODE_KP_ENTER]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_PERIOD], "KP_PERIOD", sizeof(vkNames[SDL_SCANCODE_KP_PERIOD]) - 1);
+	vkNames[SDL_SCANCODE_KP_PERIOD][sizeof(vkNames[SDL_SCANCODE_KP_PERIOD]) - 1] = '\0';
+	strncpy(vkNames[SDL_SCANCODE_KP_EQUALS], "KP_EQUALS", sizeof(vkNames[SDL_SCANCODE_KP_EQUALS]) - 1);
+	vkNames[SDL_SCANCODE_KP_EQUALS][sizeof(vkNames[SDL_SCANCODE_KP_EQUALS]) - 1] = '\0';
 	for (SDL_Scancode key = SDL_SCANCODE_KP_1; key < SDL_SCANCODE_KP_0; ++key) {
 		char tmp[8] = "KP_1";
 		tmp[3] = '1' + (key - SDL_SCANCODE_KP_1);
-		strcpy(vkNames[key], tmp);
+		strncpy(vkNames[key], tmp, sizeof(vkNames[key]) - 1);
+		vkNames[key][sizeof(vkNames[key]) - 1] = '\0';
 	}
 
 	for (SDL_Scancode key = SDL_SCANCODE_LCTRL; key <= SDL_SCANCODE_RGUI; ++key) {
@@ -637,14 +645,16 @@ static inline void inputInitKeyNames(void)
 
 	// mouse names
 	for (u32 vk = VK_MOUSE_BEGIN; vk < VK_JOY1_BEGIN; ++vk) {
-		strcpy(vkNames[vk], vkMouseNames[vk - VK_MOUSE_BEGIN]);
+		strncpy(vkNames[vk], vkMouseNames[vk - VK_MOUSE_BEGIN], sizeof(vkNames[vk]) - 1);
+		vkNames[vk][sizeof(vkNames[vk]) - 1] = '\0';
 	}
 
 	// joystick names
 	for (u32 vk = VK_JOY1_BEGIN; vk < VK_TOTAL_COUNT; ++vk) {
 		const u32 jidx = (vk - VK_JOY1_BEGIN) / INPUT_MAX_CONTROLLER_BUTTONS;
 		const u32 jbtn = (vk - VK_JOY1_BEGIN) % INPUT_MAX_CONTROLLER_BUTTONS;
-		strcpy(vkNames[vk], vkJoyNames[jbtn]);
+		strncpy(vkNames[vk], vkJoyNames[jbtn], sizeof(vkNames[vk]) - 1);
+		vkNames[vk][sizeof(vkNames[vk]) - 1] = '\0';
 		vkNames[vk][3] = '1' + jidx;
 	}
 }
@@ -666,7 +676,8 @@ void inputSaveBinds(void)
 				}
 			}
 			if (!bindstr[0]) {
-				strcpy(bindstr, "NONE");
+				strncpy(bindstr, "NONE", MAX_BIND_STR - 1);
+				bindstr[MAX_BIND_STR - 1] = '\0';
 			}
 		}
 	}

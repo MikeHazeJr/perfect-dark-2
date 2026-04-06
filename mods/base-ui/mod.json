@@ -1,0 +1,38 @@
+{
+    "name": "base-ui",
+    "display_name": "Perfect Dark Base UI",
+    "version": "1.0.0",
+    "description": "Original N64 UI textures extracted from ROM. This mod IS the native content — it proves mod-as-native-content and serves as a template for custom UI mods.",
+    "author": "Rare / PD2 Team",
+    "category": "ui",
+    "bundled": true,
+    "enabled": true,
+    "components": [
+        {
+            "type": "ui",
+            "textures": [
+                { "catalog_id": "base:ui_bg_haze",     "path": "textures/ui_bg_haze.tga",     "source_texnum": 485, "description": "64x64 IA8 green haze background (menugfxRenderBgGreenHaze)" },
+                { "catalog_id": "base:ui_particles",   "path": "textures/ui_particles.tga",   "source_texnum": 1,   "description": "1x1 RGBA32 solid pixel (color fills)" },
+                { "catalog_id": "base:ui_noise_sm",    "path": "textures/ui_noise_sm.tga",    "source_texnum": 27,  "description": "16x16 IA8 small noise/grain" },
+                { "catalog_id": "base:ui_noise_lg",    "path": "textures/ui_noise_lg.tga",    "source_texnum": 3223,"description": "16x16 IA8 large noise/grain" },
+                { "catalog_id": "base:ui_grad_bar",    "path": "textures/ui_grad_bar.tga",    "source_texnum": 28,  "description": "2x8 IA8 gradient bar" },
+                { "catalog_id": "base:ui_mirror_tile", "path": "textures/ui_mirror_tile.tga", "source_texnum": 29,  "description": "8x8 IA8 mirror-tiled element" },
+                { "catalog_id": "base:ui_dot_tile",    "path": "textures/ui_dot_tile.tga",    "source_texnum": 3224,"description": "8x8 IA8 tiled dot pattern" },
+                { "catalog_id": "base:ui_nuke",        "path": "textures/ui_nuke.tga",        "source_texnum": 1595,"description": "64x64 IA8 nuke detonation effect" },
+                { "catalog_id": "base:ui_bg_alt",      "path": "textures/ui_bg_alt.tga",      "source_texnum": 3226,"description": "64x64 IA8 alternative background" },
+                { "catalog_id": "base:ui_icon_a",      "path": "textures/ui_icon_a.tga",      "source_texnum": 2136,"description": "14x14 RGBA16 menu icon A" },
+                { "catalog_id": "base:ui_icon_b",      "path": "textures/ui_icon_b.tga",      "source_texnum": 2126,"description": "11x11 IA8 menu icon B" },
+                { "catalog_id": "base:ui_icon_c",      "path": "textures/ui_icon_c.tga",      "source_texnum": 2292,"description": "14x14 RGBA16 menu icon C" },
+                { "catalog_id": "base:ui_deco",        "path": "textures/ui_deco.tga",        "source_texnum": 1546,"description": "32x32 RGBA16 decorative texture" }
+            ]
+        }
+    ],
+    "theme": {
+        "default_palette": 1,
+        "background_texture": "base:ui_bg_haze",
+        "scanline_enabled": true,
+        "scanline_alpha": 0.8,
+        "tint_strength": 0.0,
+        "text_glow_intensity": 0.6
+    }
+}

@@ -41,6 +41,7 @@
 #include "romdata.h"
 #include "utils.h"
 #include "room.h"
+#include "assetcatalog.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #endif
@@ -86,6 +87,11 @@ s32 g_NetNumRecentServers = 0;
 /* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
  * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
 bool g_NetLocalBotAuthority = false;
+bool g_NetPendingBotAuthority = false;
+
+/* U-10: Stage-ready handshake — server-side tracking (dedicated server only). */
+s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not waiting */
+bool g_NetBotAuthorityDelegated = false; /* true once SVC_BOT_AUTHORITY sent this match */
 
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
@@ -326,25 +332,18 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 static inline void netClientReadConfig(struct netclient *cl, const s32 playernum)
 {
 	cl->settings.options = g_PlayerConfigsArray[playernum].options;
-	{
-		/* FIX-14: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions;
-		 * use the dedicated converters to get the correct runtime_index. */
-		const char *bid = catalogResolveBodyByMpIndex(
-			(s32)g_PlayerConfigsArray[playernum].base.mpbodynum);
-		const char *hid = catalogResolveHeadByMpIndex(
-			(s32)g_PlayerConfigsArray[playernum].base.mpheadnum);
-		if (bid) {
-			strncpy(cl->settings.body_id, bid, CATALOG_ID_LEN - 1);
-			cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
-		} else {
-			cl->settings.body_id[0] = '\0';
-		}
-		if (hid) {
-			strncpy(cl->settings.head_id, hid, CATALOG_ID_LEN - 1);
-			cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
-		} else {
-			cl->settings.head_id[0] = '\0';
-		}
+	/* Use PRIMARY catalog ID fields directly */
+	if (g_PlayerConfigsArray[playernum].base.body_id[0]) {
+		strncpy(cl->settings.body_id, g_PlayerConfigsArray[playernum].base.body_id, CATALOG_ID_LEN - 1);
+		cl->settings.body_id[CATALOG_ID_LEN - 1] = '\0';
+	} else {
+		cl->settings.body_id[0] = '\0';
+	}
+	if (g_PlayerConfigsArray[playernum].base.head_id[0]) {
+		strncpy(cl->settings.head_id, g_PlayerConfigsArray[playernum].base.head_id, CATALOG_ID_LEN - 1);
+		cl->settings.head_id[CATALOG_ID_LEN - 1] = '\0';
+	} else {
+		cl->settings.head_id[0] = '\0';
 	}
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
@@ -703,23 +702,21 @@ void netServerStageStart(void)
 		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 	}
 
-	/* Dedicated server: allocate minimal bot stubs and designate the first
-	 * connected client as the bot AI authority.  On a listen server the host
-	 * runs the full game engine and bot AI directly — no relay needed. */
+	/* Dedicated server: allocate minimal bot stubs.  BOT_AUTHORITY is now deferred
+	 * until all clients confirm their stage is loaded via CLC_STAGE_READY, so that
+	 * the authority client's pads/spawn-points are ready before botSpawnAll() fires.
+	 * On a listen server the host runs full bot AI directly — no relay needed. */
 	if (g_NetDedicated) {
 		mpStartMatch(); /* server_stubs.c version: allocates stub chrdata/prop/aibot from heap */
 
-		/* Send SVC_BOT_AUTHORITY to the first CLSTATE_GAME client */
+		/* Reset per-client stage-ready flags and arm the handshake deadline (5 s). */
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-			if (g_NetClients[ci].state == CLSTATE_GAME) {
-				netbufStartWrite(&g_NetMsgRel);
-				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
-				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
-				sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY sent to client %u ('%s') — %u bot stubs ready",
-				             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
-				break;
-			}
+			g_NetClients[ci].stage_ready = false;
 		}
+		g_NetBotAuthorityDelegated = false;
+		g_NetStageReadyDeadline    = (s32)(g_NetTick + 300); /* 300 ticks = 5 s at 60 fps */
+		sysLogPrintf(LOG_NOTE, "NET: waiting for CLC_STAGE_READY from %d client(s), deadline tick %d",
+		             g_NetNumClients, (int)g_NetStageReadyDeadline);
 	}
 
 	// Schedule a full state resync shortly after stage start.
@@ -738,6 +735,12 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	// configure mission on the server side
 	g_MissionConfig.stagenum = stagenum;
+	/* Phase 2: populate PRIMARY catalog ID string field */
+	{
+		const char *cid = catalogIdByRuntime(ASSET_MAP, stagenum);
+		if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
+		else { g_MissionConfig.stage_id[0] = '\0'; }
+	}
 	g_MissionConfig.difficulty = difficulty;
 	g_MissionConfig.iscoop = (g_NetGameMode == NETGAMEMODE_COOP);
 	g_MissionConfig.isanti = (g_NetGameMode == NETGAMEMODE_ANTI);
@@ -811,6 +814,10 @@ void netServerStageEnd(void)
 	if (g_NetMode != NETMODE_SERVER) {
 		return;
 	}
+
+	/* U-10: disarm the stage-ready handshake for the next match. */
+	g_NetStageReadyDeadline    = -1;
+	g_NetBotAuthorityDelegated = false;
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
@@ -938,6 +945,7 @@ s32 netDisconnect(void)
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
 	g_NetLocalBotAuthority = false;
+	g_NetPendingBotAuthority = false;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -1063,6 +1071,11 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
 		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
 		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
+		cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
+		strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
+		cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
 	}
 	cfg->controlmode = CONTROLMODE_NA;
 	snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
@@ -1197,6 +1210,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_CATALOG_DIFF:     rc = netmsgClcCatalogDiffRead(&cl->in, cl); break;
 			/* Bot authority relay */
 			case CLC_BOT_MOVE:         rc = netmsgClcBotMoveRead(&cl->in, cl); break;
+			/* U-10: Stage-ready handshake */
+			case CLC_STAGE_READY:      rc = netmsgClcStageReadyRead(&cl->in, cl); break;
 			/* R-3: Room networking */
 			case CLC_ROOM_CREATE:      rc = netmsgClcRoomCreateRead(&cl->in, cl); break;
 			case CLC_ROOM_JOIN:        rc = netmsgClcRoomJoinRead(&cl->in, cl); break;
@@ -1601,6 +1616,36 @@ void netEndFrame(void)
 		netDistribServerTick();
 		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
 		readyGateTickCountdown();
+
+		/* U-10: Stage-ready timeout — if not all clients reported ready within the
+		 * deadline, delegate BOT_AUTHORITY to the first available CLSTATE_GAME client
+		 * anyway so the match can proceed. */
+		if (g_NetDedicated && !g_NetBotAuthorityDelegated
+				&& g_NetStageReadyDeadline >= 0 && (s32)g_NetTick >= g_NetStageReadyDeadline) {
+			s32 readyCount = 0, totalCount = 0;
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_GAME) {
+					totalCount++;
+					if (g_NetClients[ci].stage_ready) {
+						readyCount++;
+					}
+				}
+			}
+			sysLogPrintf(LOG_NOTE, "NET: stage ready timeout, sending BOT_AUTHORITY anyway (ready: %d/%d)",
+			             readyCount, totalCount);
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_GAME) {
+					netbufStartWrite(&g_NetMsgRel);
+					netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
+					netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+					sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY (timeout) sent to client %u ('%s') — %u bot stubs ready",
+					             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
+					break;
+				}
+			}
+			g_NetBotAuthorityDelegated = true;
+			g_NetStageReadyDeadline    = -1;
+		}
 	}
 
 	// send position updates
@@ -1706,6 +1751,11 @@ void netPlayersAllocate(void)
 				const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
 				cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
 				cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+				/* Phase 2: populate PRIMARY catalog ID string fields */
+				strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
+				cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
+				strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
+				cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
 			}
 			cfg->controlmode = CONTROLMODE_NA;
 			snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);

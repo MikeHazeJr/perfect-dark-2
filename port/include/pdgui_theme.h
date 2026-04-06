@@ -4,19 +4,13 @@
 /**
  * pdgui_theme.h -- PD menu visual theme layer (D5.0)
  *
- * ROM texture decode pipeline + ImGui draw-list-based theme functions.
- * Replaces the D5.0a test-pattern placeholder from pdgui_backend.cpp.
+ * Two-stage lifecycle:
+ *   1. pdguiThemeInit()      -- early init, called from pdguiInit()
+ *   2. pdguiThemeLateInit()  -- loads textures from base-ui mod or procedural
+ *                               fallbacks, called after texInit()/texReset()
  *
- * Architecture:
- *   1. pdguiThemeInit()          -- decode known ROM UI textures → GL,
- *                                   register as ASSET_UI in catalog
- *   2. pdguiThemeGetTexture()    -- catalog ID → cached ImTextureID (GLuint*)
- *   3. pdguiThemeDraw*()         -- ImGui draw-list theme primitives
- *
- * ROM textures are always available (base game, ROM-backed).
- * NULL return from pdguiThemeGetTexture() is a pipeline bug:
- *   LOG_ERROR + assert.  No solid-color fallbacks for base content.
- * Mod textures fall back to base via catalog.
+ * Texture pipeline: mod TGA files → GL upload → s_ThemeTexCache → draw funcs
+ * Procedural fallback: generate noise/solid textures when mod files missing
  *
  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  * Part of Phase D5: Menu System Visual Layer.
@@ -32,93 +26,90 @@ extern "C" {
  * Lifecycle
  * --------------------------------------------------------------------- */
 
-/**
- * Initialize theme: decode known ROM UI textures → GL, register
- * ASSET_UI entries in the asset catalog.
- * Called from pdguiInit() after OpenGL context is ready.
- * Safe to call more than once (no-op after first call).
- */
+/** Early init: marks theme as initialized. No texture loading.
+ *  Called from pdguiInit() after OpenGL context is ready. */
 void pdguiThemeInit(void);
 
-/**
- * Shutdown: delete GL textures, clear theme cache.
- * Called from pdguiShutdown() before ImGui context is destroyed.
- */
+/** Late init: loads UI textures from base-ui mod TGA files, or generates
+ *  procedural fallbacks. Called after texInit()/texReset() have run.
+ *  Safe to call more than once (no-op after first call). */
+void pdguiThemeLateInit(void);
+
+/** Shutdown: delete GL textures, clear theme cache. */
 void pdguiThemeShutdown(void);
 
 /* -----------------------------------------------------------------------
- * Texture bridge  (replaces D5.0a pdguiGetUiTexture test-pattern)
+ * Texture bridge
  * --------------------------------------------------------------------- */
 
-/**
- * Return ImTextureID (GLuint cast to void*) for a named UI texture.
- * Texture must have been registered by pdguiThemeInit().
- *
- * NULL return means one of:
- *   a) catalog_id is unknown            -- pipeline bug: add to pdguiThemeInit()
- *   b) texture is texnum-based, not yet decoded via GBI pipeline
- *
- * Both cases LOG_ERROR + assert(false).
- * No fallback is provided: base game textures must always be available.
- */
+/** Return ImTextureID for a named UI texture.
+ *  Returns NULL gracefully if late init hasn't run or texture not found. */
 void *pdguiThemeGetTexture(const char *catalog_id);
+
+/* -----------------------------------------------------------------------
+ * Background texture config
+ * --------------------------------------------------------------------- */
+
+/** Get/set the catalog ID for dialog background haze overlay.
+ *  NULL = no overlay (solid fill only). Default: "base:ui_bg_haze". */
+const char *pdguiThemeGetBgTexId(void);
+void pdguiThemeSetBgTexId(const char *catalog_id);
+
+/* -----------------------------------------------------------------------
+ * Scanline config
+ * --------------------------------------------------------------------- */
+
+/** Enable/disable CRT scanline overlay. Default: enabled. */
+void pdguiThemeSetScanlineEnabled(s32 enabled);
+s32  pdguiThemeGetScanlineEnabled(void);
+
+/** Scanline opacity: 0.0 = invisible, 1.0 = max darkening (~16%). Default: 0.8 */
+void pdguiThemeSetScanlineAlpha(f32 alpha);
+f32  pdguiThemeGetScanlineAlpha(void);
+
+/* -----------------------------------------------------------------------
+ * Palette bridge (theme → style layer)
+ * --------------------------------------------------------------------- */
+
+/** Return the active palette as a flat array of 15 u32 values (0xRRGGBBAA).
+ *  Delegates to pdguiGetPalette() in pdgui_style.cpp. */
+const u32 *pdguiThemeGetActivePaletteColors(void);
 
 /* -----------------------------------------------------------------------
  * Draw functions  (ImGui draw-list based)
  *
- * All coordinates are in ImGui SCREEN-SPACE pixels (not window-relative).
- * Call these from within a ImGui::Begin() / ImGui::End() block, using
- * ImGui::GetWindowDrawList() for the draw list.
+ * All coordinates are in ImGui SCREEN-SPACE pixels.
  * --------------------------------------------------------------------- */
 
-/**
- * Draw a PD-style panel body fill (dark semi-transparent navy).
- * Optionally composites a ROM texture over the fill at low opacity.
- *   bg_tex_id -- catalog ID for background texture, or NULL for solid fill.
- */
 void pdguiThemeDrawPanel(float x, float y, float w, float h,
                          const char *bg_tex_id);
 
-/**
- * Draw PD-style left + right + bottom border lines in active palette colors.
- * Mirrors menugfxDrawDialogBorderLine():
- *   left/bottom: dialog_border1, right: dialog_border2.
- *   palette_idx: 0=Grey, 1=Blue (default), 2=Red, 3=Green, 6=BlackGold.
- *                Pass -1 to use the currently active global palette.
- */
 void pdguiThemeDrawBorder(float x, float y, float w, float h,
                           s32 palette_idx);
 
-/**
- * Draw the title gradient bar across the top of a panel.
- * Gradient: dialog_titlebg (top) → dialog_bodybg (bottom).
- * Title text is drawn centered, white, with a 1px drop shadow.
- */
 void pdguiThemeDrawHeader(float x, float y, float w, float h,
                           const char *title, s32 palette_idx);
 
-/**
- * Draw button background for focused or unfocused state.
- *   focused != 0: item_focused_outer fill + edge glow.
- *   focused == 0: transparent (body fill shows through).
- */
 void pdguiThemeDrawButton(float x, float y, float w, float h, s32 focused);
 
-/**
- * Draw PD-style star rating indicators.
- *   filled  -- number of filled (gold) stars
- *   total   -- total number of stars
- * Each star is a 5-pointed polygon; empties are dim outlines.
- * Coordinates are the top-left origin of the star row.
- */
 void pdguiThemeDrawStars(float x, float y, s32 filled, s32 total);
 
-/**
- * Draw subtle horizontal scanlines over a region (retro-CRT effect).
- *   alpha: 0.0 = invisible, 1.0 = maximum darkening (~16% at alpha=1).
- * One scanline per 2px row.
- */
 void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha);
+
+/** Scanline on foreground draw list (renders on top of all content). */
+void pdguiThemeDrawScanlineFg(float x, float y, float w, float h);
+
+/* -----------------------------------------------------------------------
+ * ROM Texture Extraction Tool
+ * --------------------------------------------------------------------- */
+
+/** Extract ROM UI textures to mods/base-ui/textures/ as TGA files.
+ *  Must be called after texReset() has run. Triggered by --extract-ui-textures. */
+void pdguiThemeExtractRomTextures(void);
+
+/** Frame check: run extraction once if --extract-ui-textures is set and
+ *  g_TexGeneralConfigs is available. Called from pdguiRender(). */
+void pdguiThemeCheckExtract(void);
 
 #ifdef __cplusplus
 }

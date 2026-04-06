@@ -166,6 +166,8 @@ typedef struct asset_entry {
     /* Runtime binding */
     s32  runtime_index;                /* index in relevant runtime array */
                                        /* (g_Stages, g_HeadsAndBodies, etc.) */
+    s16  mp_index;                     /* position in g_MpBodies[]/g_MpHeads[] */
+                                       /* -1 if not in the mp selection table */
 
     /* Type-specific extension (union keeps entry size bounded) */
     union {
@@ -306,10 +308,25 @@ void assetCatalogClear(void);
 
 /**
  * Remove all entries where bundled == false.
- * Rehashes remaining entries.
+ * Rehashes remaining entries. Increments generation counter.
  * Call when disabling/toggling mods (partial reload).
  */
 void assetCatalogClearMods(void);
+
+/**
+ * Get the catalog generation counter.
+ * Incremented on every catalog rebuild (clear, clearMods, refreshMods).
+ * Consumers can cache a local generation and compare to detect stale data.
+ */
+u32 assetCatalogGetGeneration(void);
+
+/**
+ * Hot-reload mod catalog entries.
+ * Clears all non-bundled entries, re-scans the mods directory,
+ * rebuilds the hash table, and increments the generation counter.
+ * If modsdir is NULL, only the clear + generation bump is performed.
+ */
+void catalogRefreshMods(const char *modsdir);
 
 /**
  * Get total number of registered entries (base + mods).
@@ -736,48 +753,35 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 
 /* ── SA-4: Reverse-index lookup (migration only) ───────────────────────── */
 
-/**
- * Reverse-lookup: find catalog entry by asset type and runtime_index.
- * Used only during save-file migration (SA-4) to convert legacy integer
- * indices to catalog string IDs.  O(n) linear scan -- never call on the
- * hot path.  Logs [CATALOG-ASSERT] and returns NULL if not found.
- *
- * @param type           Asset type (ASSET_BODY, ASSET_HEAD, ASSET_MAP, etc.)
- * @param runtime_index  The integer index stored in asset_entry_t.runtime_index
- * @return  Pointer to the catalog ID string (valid for catalog lifetime), or NULL.
- */
-const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index);
+/* ── Phase 8: O(1) cached runtime lookups ───────────────────────────────
+ * Built once by catalogBuildRuntimeCaches() after catalog population.
+ * Zero O(n) scans at runtime — all integer↔string resolution is cached. */
 
 /**
- * B.2: Resolve a body catalog entry by MP body index (g_MpBodies[] position, 0..62).
- * Converts mpbodynum → g_HeadsAndBodies[] index via g_MpBodies[mpbodynum].bodynum,
- * then looks up ASSET_BODY by runtime_index.  Logs a warning and returns NULL on miss.
- * Use this instead of catalogResolveByRuntimeIndex(ASSET_BODY, mpbodynum) — those
- * are different index spaces.
+ * Build all runtime↔catalog-ID caches (mp body/head, stage, weapon, model).
+ * Call once after assetCatalogRegisterBaseGame() + component scanning.
+ * Also populates entry->mp_index on each body/head asset_entry_t.
  */
-const char *catalogResolveBodyByMpIndex(s32 mpbodynum);
+void catalogBuildRuntimeCaches(void);
 
 /**
- * B.2: Resolve a head catalog entry by MP head index (g_MpHeads[] position, 0..75).
- * Converts mpheadnum → g_HeadsAndBodies[] index via g_MpHeads[mpheadnum].headnum,
- * then looks up ASSET_HEAD by runtime_index.  Logs a warning and returns NULL on miss.
- * Use this instead of catalogResolveByRuntimeIndex(ASSET_HEAD, mpheadnum) — those
- * are different index spaces.
+ * O(1) mp body table position → catalog ID string.
+ * Returns NULL if mp_idx is out of range or has no registered catalog entry.
  */
-const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
+const char *catalogMpBodyId(s32 mp_idx);
 
 /**
- * FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
- * position (mpbodynum).  Returns -1 if bodynum is not found in g_MpBodies[].
- * Use at save-load sites after assetCatalogResolve() to convert back to mpbodynum.
+ * O(1) mp head table position → catalog ID string.
+ * Returns NULL if mp_idx is out of range or has no registered catalog entry.
  */
-s32 catalogBodynumToMpBodyIdx(s32 bodynum);
+const char *catalogMpHeadId(s32 mp_idx);
 
 /**
- * FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position (mpheadnum).
- * Returns -1 if headnum is not found in g_MpHeads[].
+ * O(1) cached lookup: (asset_type, runtime_index) → catalog ID string.
+ * Covers all asset types (MAP, ARENA, WEAPON, MODEL, BODY, HEAD, etc.).
+ * Returns NULL if not found or runtime_index is out of cache range.
  */
-s32 catalogHeadnumToMpHeadIdx(s32 headnum);
+const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index);
 
 /**
  * Body → default head catalog ID string.
@@ -865,27 +869,9 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
  */
 s32 catalogGetPropFilenumByIndex(s32 propnum);
 
-/**
- * Phase 0: Return the canonical catalog ID for the ASSET_MAP entry whose
- * ext.map.stagenum equals stagenum, or NULL if not found.
- * Replaces assetCatalogResolve("stage_0x%02x") in manifest code after alias removal.
- */
-const char *catalogResolveStageByStagenum(s32 stagenum);
-
-/**
- * Phase C (FIX-1/2): Return the canonical catalog ID for the ASSET_ARENA entry
- * whose ext.arena.stagenum equals stagenum, or NULL if not found.
- * Used for CLC_LOBBY_START stage wire encoding (MP arenas, not solo maps).
- * Both client and server have g_MpArenas[] so this resolves on both sides.
- */
-const char *catalogResolveArenaByStagenum(s32 stagenum);
-
-/**
- * Phase 0: Return the canonical catalog ID for the ASSET_WEAPON entry whose
- * ext.weapon.weapon_id equals weapon_id (MPWEAPON_* constant), or NULL.
- * Replaces assetCatalogResolve("weapon_%d") in manifest code after alias removal.
- */
-const char *catalogResolveWeaponByGameId(s32 weapon_id);
+/* Stage/arena/weapon numeric-ID resolvers DELETED (Phase 7).
+ * Callers use stage_id/weapon catalog IDs directly or inline
+ * assetCatalogGetByIndex scans for the few remaining conversion sites. */
 
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 

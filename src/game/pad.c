@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "game/pad.h"
 #include "bss.h"
@@ -23,6 +24,13 @@ void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 	u8 *ptr;
 
 	if (pad);
+
+	/* Bounds check: prevent crash from garbage padnum (e.g. corrupted waypoint data) */
+	if (padnum < 0 || (g_PadsFile && padnum >= g_PadsFile->numpads)) {
+		memset(pad, 0, sizeof(*pad));
+		pad->room = -1;
+		return;
+	}
 
 	offset = g_PadOffsets[padnum];
 	ptr = (u8 *) &g_StageSetup.padfiledata[offset];

@@ -30,6 +30,16 @@
 #include "lib/str.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"
+
+/* Phase 2 helper: set stagenum + resolve PRIMARY stage_id string */
+static void missionSetStagenum(u8 stagenum)
+{
+	g_MissionConfig.stagenum = stagenum;
+	const char *cid = catalogIdByRuntime(ASSET_MAP, stagenum);
+	if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
+	else { g_MissionConfig.stage_id[0] = '\0'; }
+}
 
 MenuItemHandlerResult endscreenHandleDeclineMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -141,7 +151,7 @@ MenuItemHandlerResult endscreenHandleReplayPreviousMission(s32 operation, struct
 		if (g_MissionConfig.stageindex < 0) {
 			g_MissionConfig.stageindex = 0;
 		}
-		g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+		missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
 	}
 
 	return menuhandlerAcceptMission(operation, NULL, data);
@@ -453,7 +463,7 @@ struct menudialogdef *endscreenAdvance(void)
 {
 #if VERSION < VERSION_NTSC_1_0
 	if (g_MissionConfig.stagenum == STAGE_SKEDARRUINS) {
-		g_MissionConfig.stagenum = STAGE_CREDITS;
+		missionSetStagenum(STAGE_CREDITS);
 		titleSetNextStage(g_MissionConfig.stagenum);
 		lvSetDifficulty(g_MissionConfig.difficulty);
 		titleSetNextMode(TITLEMODE_SKIP);
@@ -494,7 +504,7 @@ MenuItemHandlerResult endscreenHandleReplayLastLevel(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		// PC: guard — stageindex may be out of solo range for mod stages
 		if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
-			g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+			missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
 		}
 		return menuhandlerAcceptMission(operation, NULL, data);
 	}
@@ -669,7 +679,7 @@ void endscreenContinue(s32 context)
 						if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 							g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
 						}
-						g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+						missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
 
 						titleSetNextStage(g_MissionConfig.stagenum);
 
@@ -699,7 +709,7 @@ void endscreenContinue(s32 context)
 					}
 				} else if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
 					// Commit to starting credits
-					g_MissionConfig.stagenum = STAGE_CREDITS;
+					missionSetStagenum(STAGE_CREDITS);
 					titleSetNextStage(g_MissionConfig.stagenum);
 					lvSetDifficulty(g_MissionConfig.difficulty);
 					titleSetNextMode(TITLEMODE_SKIP);
@@ -782,7 +792,7 @@ MenuDialogHandlerResult endscreenHandle2PCompleted(s32 operation, struct menudia
 								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
 								}
-								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+								missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
 
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);

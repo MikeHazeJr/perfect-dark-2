@@ -335,6 +335,46 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				}
 			}
 		}
+		/* Ground clamp: if the bot spawned underground, relocate upward.
+		 * Probe from 2000 units above spawn pos to find the real floor.
+		 * If the floor is far above the bot's Y, the spawn is underground. */
+		if (chr->prop && chr->prop->rooms[0] >= 0) {
+			struct coord probePos = chr->prop->pos;
+			probePos.y += 2000.0f;
+			/* Need rooms valid for the raised probe position */
+			RoomNum probeRooms[21];
+			RoomNum probeAbove[21];
+			RoomNum probeBest = -1;
+			probeRooms[0] = chr->prop->rooms[0];
+			probeRooms[1] = -1;
+			bgFindRoomsByPos(&probePos, probeRooms, probeAbove, 20, &probeBest);
+
+			f32 floorY = cdFindFloorYColourTypeAtPos(&probePos,
+				probeRooms, NULL, NULL);
+			f32 yDiff = floorY - chr->prop->pos.y;
+
+			if (yDiff > 200.0f && floorY < 30000.0f) {
+				sysLogPrintf(LOG_WARNING,
+					"SPAWN: bot chr=%p underground — pos.y=%.0f floor=%.0f diff=%.0f, clamping to floor",
+					(void *)chr, chr->prop->pos.y, floorY, yDiff);
+				chr->prop->pos.y = floorY;
+				pos.y = floorY;
+				/* Re-resolve rooms at the corrected position */
+				RoomNum fixRooms[21];
+				RoomNum fixAbove[21];
+				RoomNum fixBest = -1;
+				fixRooms[0] = -1;
+				bgFindRoomsByPos(&chr->prop->pos, fixRooms, fixAbove, 20, &fixBest);
+				if (fixRooms[0] >= 0) {
+					s32 ri;
+					for (ri = 0; ri < 8 && fixRooms[ri] != -1; ri++) {
+						chr->prop->rooms[ri] = fixRooms[ri];
+					}
+					if (ri < 8) chr->prop->rooms[ri] = -1;
+				}
+			}
+		}
+
 		chr->aibot->roty = modelGetChrRotY(chr->model);
 		chr->aibot->angleoffset = 0;
 		chr->aibot->speedtheta = 0;
@@ -342,6 +382,22 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		chr->aibot->moveratex = 0;
 		chr->aibot->moveratey = 0;
 		func0f02e9a0(chr, 0);
+
+		/* Initialize stuck detection snapshot to the actual spawn position.
+		 * Without this, s_BotStuck starts zero-initialized so snapshot={0,0,0}
+		 * and snapshot_frame=0, causing ALL bots to trigger their first stuck
+		 * check simultaneously at frame 180 (STUCK_CHECK_FRAMES) with a
+		 * bogus distance-from-origin comparison.  Bots near the map origin
+		 * would be incorrectly "stuck"-relocated, and the mass simultaneous
+		 * check of 31 bots causes a crash. */
+		{
+			s32 slot = (s32)aibot->aibotnum;
+			if (slot >= 0 && slot < MAX_BOTS && chr->prop) {
+				s_BotStuck[slot].snapshot = chr->prop->pos;
+				s_BotStuck[slot].snapshot_frame = g_Vars.lvframe60;
+				s_BotStuck[slot].relocating = 0;
+			}
+		}
 
 		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
 			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
@@ -1014,6 +1070,15 @@ s32 botTick(struct prop *prop)
 	updateable = g_Vars.lvupdate240 != 0;
 
 	if (aibot) {
+		/* U-10: Promote pending bot authority once stage load is confirmed.
+		 * SVC_BOT_AUTHORITY may arrive before pads/spawn points are loaded;
+		 * deferring activation prevents bots ticking into uninitialized geometry. */
+		if (g_NetPendingBotAuthority && g_PadsFile != NULL && g_NumSpawnPoints > 0) {
+			g_NetLocalBotAuthority = true;
+			g_NetPendingBotAuthority = false;
+			sysLogPrintf(LOG_NOTE, "NET: bot authority activated — stage ready (spawns=%d)", g_NumSpawnPoints);
+		}
+
 		/* Non-authority clients defer to server-authoritative positions received via
 		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
 		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
@@ -1032,20 +1097,29 @@ s32 botTick(struct prop *prop)
 		{
 			static bool s_BotSpawnFailsafeDone = false;
 			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
-				s_BotSpawnFailsafeDone = true;
-				sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1)");
-				botSpawnAll();
+				/* Stage-readiness check: pads must be loaded and spawn points
+				 * must be resolved before we can place bots. If not ready yet,
+				 * skip this frame — botTick will retry next frame. Failsafe:
+				 * if pads loaded but zero spawn points (broken map), proceed
+				 * anyway so botSpawnAll can use fallback pad logic. */
+				if (g_PadsFile == NULL) {
+					/* not ready yet — wait */
+				} else {
+					s_BotSpawnFailsafeDone = true;
+					sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, spawns=%d)", g_NumSpawnPoints);
+					botSpawnAll();
 
-				/* Verify all bots got valid rooms after the spawn wave.
-				 * If a bot's rooms[0] is still -1, its position is in void
-				 * geometry — re-spawn it individually to try a different pad. */
-				{
-					s32 bi;
-					for (bi = 0; bi < g_BotCount; bi++) {
-						struct chrdata *bchr = g_MpBotChrPtrs[bi];
-						if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
-							sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
-							botSpawn(bchr, false);
+					/* Verify all bots got valid rooms after the spawn wave.
+					 * If a bot's rooms[0] is still -1, its position is in void
+					 * geometry — re-spawn it individually to try a different pad. */
+					{
+						s32 bi;
+						for (bi = 0; bi < g_BotCount; bi++) {
+							struct chrdata *bchr = g_MpBotChrPtrs[bi];
+							if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
+								sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
+								botSpawn(bchr, false);
+							}
 						}
 					}
 				}
@@ -1102,6 +1176,15 @@ s32 botTick(struct prop *prop)
 				s32 slot = (s32)aibot->aibotnum;
 				if (slot >= 0 && slot < MAX_BOTS) {
 					struct botstuckstate *bs = &s_BotStuck[slot];
+
+					/* Safety: if snapshot was never initialized (e.g. bot
+					 * entered play without going through botSpawn), seed
+					 * it now instead of running a bogus distance check. */
+					if (bs->snapshot_frame == 0 && g_Vars.lvframe60 > 0) {
+						bs->snapshot = chr->prop->pos;
+						bs->snapshot_frame = g_Vars.lvframe60;
+					}
+
 					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
 					if (frames_since >= STUCK_CHECK_FRAMES) {
 						/* Active pathfinding: bot is trying to navigate */

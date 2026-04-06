@@ -34,14 +34,7 @@
 #define NUM_MPWEAPONSLOTS 6
 #endif
 
-/* MATCH_MAX_SLOTS: total participant pool (players + bots).
- * Mirrors PARTICIPANT_DEFAULT_CAPACITY = 32.
- * C code should #include "game/mplayer/participant.h" and define
- * MATCH_MAX_SLOTS as PARTICIPANT_DEFAULT_CAPACITY before this header
- * if stricter compile-time coupling is desired; otherwise 32 is used. */
-#ifndef MATCH_MAX_SLOTS
-#define MATCH_MAX_SLOTS 32
-#endif
+/* MATCH_MAX_SLOTS is provided by net/matchsetup.h (included below) as 40. */
 
 #ifndef SLOT_EMPTY
 #define SLOT_EMPTY  0

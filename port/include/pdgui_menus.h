@@ -24,7 +24,6 @@ void pdguiMenuMainMenuRegister(void);
 void pdguiMenuAgentCreateRegister(void);
 void pdguiMenuWarningRegister(void);
 void pdguiMenuNetworkRegister(void);
-void pdguiMenuMatchSetupRegister(void);
 void pdguiMenuSoloMissionRegister(void);  /* Group 1: Solo Mission Flow */
 void pdguiMenuTeamSetupRegister(void);    /* Group 4: Team assignment screen */
 void pdguiMenuMpSettingsRegister(void);   /* Group 4: Player handicaps screen */
@@ -46,7 +45,6 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuAgentCreateRegister();
     pdguiMenuWarningRegister();
     pdguiMenuNetworkRegister();
-    pdguiMenuMatchSetupRegister();
     pdguiMenuSoloMissionRegister();
     pdguiMenuTeamSetupRegister();
     pdguiMenuMpSettingsRegister();

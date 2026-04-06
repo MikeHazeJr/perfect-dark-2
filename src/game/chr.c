@@ -1334,6 +1334,11 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 
 	chr->ground = chr->manground = ground = cdFindGroundInfoAtCyl(&testpos, chr->radius, rooms, &chr->floorcol, &chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
+	if (ground < -4000000000.0f) {
+		ground = pos->y;
+		chr->ground = chr->manground = ground;
+	}
+
 	chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
 
 	prop->pos.x = testpos.x;
@@ -3937,6 +3942,18 @@ void chr0f0260c4(struct model *model, s32 hitpart, struct modelnode *node, struc
  */
 void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct coord *arg3)
 {
+	/* B-112 defense-in-depth: shot path can reach here with stale pointers
+	 * if a chr is freed between matches.  Bail early to avoid crash in
+	 * modelNodeGetModelRelativePosition / modelApplyDistanceRelations.
+	 * Also check model->definition — a non-NULL stale model pointer may
+	 * have had its definition freed during stage teardown. */
+	if (!model || !model->definition || !node || !arg3) {
+		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrBruise skipped — model=%p def=%p node=%p arg3=%p",
+			(void *)model, model ? (void *)model->definition : NULL,
+			(void *)node, (void *)arg3);
+		return;
+	}
+
 	struct modelnode *bestnode = NULL;
 	bool ok;
 	s32 nodetype;
@@ -4614,6 +4631,14 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 
 	chr = prop->chr;
 
+	/* B-112 crash guard: if chr pointer is stale (freed/reallocated between
+	 * matches), skip the entire hit to avoid ACCESS_VIOLATION in chrBruise →
+	 * modelApplyDistanceRelations.  Mirrors the S150 canary pattern in chraTick. */
+	if (!chr || !chrPtrIsValid(chr)) {
+		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrHit skipped — chr %p is stale/invalid", (void *)chr);
+		return;
+	}
+
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
 		sp98.x = shotdata->gunpos2d.x - (hit->distance * shotdata->gundir2d.x) / shotdata->gundir2d.z;
 		sp98.y = shotdata->gunpos2d.y - (hit->distance * shotdata->gundir2d.y) / shotdata->gundir2d.z;
@@ -4871,23 +4896,7 @@ void chrsCheckForNoise(f32 noiseradius)
 
 				if (distance > 1.0f) {
 					chrRecordLastHearTargetTime(&g_ChrSlots[i]);
-#if PIRACYCHECKS
-					{
-						s32 *i = (s32 *)&__scHandleRetrace;
-						s32 *end = (s32 *)&__scHandleTasks;
-						u32 checksum = 0;
-
-						while (i < end) {
-							checksum *= 2;
-							checksum += *i;
-							i++;
-						}
-
-						if (checksum != CHECKSUM_PLACEHOLDER) {
-							g_HeadsAndBodies[BODY_SKEDARKING].filenum = 0;
-						}
-					}
-#endif
+					/* Anti-piracy check removed — PC port, PIRACYCHECKS=0 */
 				}
 			}
 		}

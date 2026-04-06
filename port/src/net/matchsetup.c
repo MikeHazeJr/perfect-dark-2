@@ -6,7 +6,7 @@
  * directly from lobby state, then calls mpStartMatch() and triggers
  * stage load.
  *
- * Also defines g_MatchSetupMenuDialog for hotswap registration.
+ * Also defines g_MatchSetupMenuDialog (stub dialog — legacy; ImGui room screen replaced it).
  *
  * Auto-discovered by GLOB_RECURSE for port/*.c in CMakeLists.txt.
  */
@@ -98,6 +98,10 @@ void matchConfigInit(void)
 	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
 	g_MatchConfig.numSlots = 0;
 
+	/* Ensure handicaps start at 100% (0x80).  g_PlayerConfigsArray is BSS
+	 * (zero-initialized), and handicap=0 maps to ~0% — not the intended default. */
+	matchResetHandicaps();
+
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
 	 * mpSetWeaponSet() maps the user-facing index through the unlock filter
 	 * and calls mpApplyWeaponSet() to fill the 6 weapon slots. */
@@ -107,18 +111,17 @@ void matchConfigInit(void)
 	struct matchslot *s0 = &g_MatchConfig.slots[0];
 	s0->type = SLOT_PLAYER;
 	s0->team = 0;
-	/* Resolve catalog IDs from mpbodynum/mpheadnum — these are the PRIMARY identity. */
+	/* Copy catalog IDs directly from playerconfig; fall back to defaults
+	 * if the save file hasn't populated them yet. */
 	{
 		const u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
 		const u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
-		const char *bid = catalogResolveBodyByMpIndex((s32)mpbody);
-		const char *hid = catalogResolveHeadByMpIndex((s32)mphead);
 		strncpy(s0->body_id,
-		        bid ? bid : "base:dark_combat",
+		        g_PlayerConfigsArray[0].base.body_id[0] ? g_PlayerConfigsArray[0].base.body_id : "base:dark_combat",
 		        sizeof(s0->body_id) - 1);
 		s0->body_id[sizeof(s0->body_id) - 1] = '\0';
 		strncpy(s0->head_id,
-		        hid ? hid : "base:head_dark_combat",
+		        g_PlayerConfigsArray[0].base.head_id[0] ? g_PlayerConfigsArray[0].base.head_id : "base:head_dark_combat",
 		        sizeof(s0->head_id) - 1);
 		s0->head_id[sizeof(s0->head_id) - 1] = '\0';
 		/* Cache derived mpbodynum/mpheadnum — matchStart re-derives but keep in sync */
@@ -339,7 +342,7 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 	const char *picked_body = NULL;
 	for (s32 attempt = 0; attempt < 10; attempt++) {
 		u32 idx = rand() % numBodies;
-		picked_body = catalogResolveBodyByMpIndex(idx);
+		picked_body = catalogMpBodyId(idx);
 		if (!picked_body || !picked_body[0]) continue;
 
 		/* Check for duplicates among existing slots */
@@ -409,16 +412,14 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	slot->headnum = 0; /* MPHEAD_DARK_COMBAT default */
 	{
 		const asset_entry_t *be = assetCatalogResolve(slot->body_id);
-		if (be && be->type == ASSET_BODY) {
-			const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
-			if (mpb >= 0) slot->bodynum = (u8)mpb;
+		if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+			slot->bodynum = (u8)be->mp_index;
 		}
 	}
 	{
 		const asset_entry_t *he = assetCatalogResolve(slot->head_id);
-		if (he && he->type == ASSET_HEAD) {
-			const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
-			if (mph >= 0) slot->headnum = (u8)mph;
+		if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+			slot->headnum = (u8)he->mp_index;
 		}
 	}
 
@@ -463,14 +464,12 @@ void matchConfigRerollBot(s32 idx)
 	sl->bodynum = 0;
 	sl->headnum = 0;
 	const asset_entry_t *be = assetCatalogResolve(sl->body_id);
-	if (be && be->type == ASSET_BODY) {
-		s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
-		if (mpb >= 0) sl->bodynum = (u8)mpb;
+	if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+		sl->bodynum = (u8)be->mp_index;
 	}
 	const asset_entry_t *he = assetCatalogResolve(sl->head_id);
-	if (he && he->type == ASSET_HEAD) {
-		s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
-		if (mph >= 0) sl->headnum = (u8)mph;
+	if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+		sl->headnum = (u8)he->mp_index;
 	}
 }
 
@@ -539,15 +538,11 @@ s32 matchStart(void)
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 
-			/* Resolve mpbodynum/mpheadnum from body_id/head_id (PRIMARY identity).
-			 * catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx are the ONLY valid
-			 * integer-domain conversion — called here at the last moment before
-			 * handing off to the legacy engine. */
+			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
 			if (ms->body_id[0]) {
 				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY) {
-					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
-					cfg->mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+					cfg->mpbodynum = (u8)be->mp_index;
 				} else {
 					cfg->mpbodynum = ms->bodynum; /* cached fallback */
 				}
@@ -556,15 +551,19 @@ s32 matchStart(void)
 			}
 			if (ms->head_id[0]) {
 				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD) {
-					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
-					cfg->mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+					cfg->mpheadnum = (u8)he->mp_index;
 				} else {
 					cfg->mpheadnum = ms->headnum; /* cached fallback */
 				}
 			} else {
 				cfg->mpheadnum = ms->headnum;
 			}
+			/* Phase 2: populate PRIMARY catalog ID string fields */
+			strncpy(cfg->body_id, ms->body_id, sizeof(cfg->body_id) - 1);
+			cfg->body_id[sizeof(cfg->body_id) - 1] = '\0';
+			strncpy(cfg->head_id, ms->head_id, sizeof(cfg->head_id) - 1);
+			cfg->head_id[sizeof(cfg->head_id) - 1] = '\0';
 			cfg->team = ms->team;
 
 			strncpy(cfg->name, ms->name, 14);
@@ -582,12 +581,11 @@ s32 matchStart(void)
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 
-			/* Same last-moment resolution from body_id/head_id (PRIMARY). */
+			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
 			if (ms->body_id[0]) {
 				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY) {
-					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
-					bot->base.mpbodynum = (mpb >= 0) ? (u8)mpb : 0u;
+				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+					bot->base.mpbodynum = (u8)be->mp_index;
 				} else {
 					bot->base.mpbodynum = ms->bodynum;
 				}
@@ -596,15 +594,19 @@ s32 matchStart(void)
 			}
 			if (ms->head_id[0]) {
 				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD) {
-					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
-					bot->base.mpheadnum = (mph >= 0) ? (u8)mph : 0u;
+				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+					bot->base.mpheadnum = (u8)he->mp_index;
 				} else {
 					bot->base.mpheadnum = ms->headnum;
 				}
 			} else {
 				bot->base.mpheadnum = ms->headnum;
 			}
+			/* Phase 2: populate PRIMARY catalog ID string fields */
+			strncpy(bot->base.body_id, ms->body_id, sizeof(bot->base.body_id) - 1);
+			bot->base.body_id[sizeof(bot->base.body_id) - 1] = '\0';
+			strncpy(bot->base.head_id, ms->head_id, sizeof(bot->base.head_id) - 1);
+			bot->base.head_id[sizeof(bot->base.head_id) - 1] = '\0';
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;

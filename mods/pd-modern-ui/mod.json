@@ -1,0 +1,29 @@
+{
+    "name": "pd-modern-ui",
+    "display_name": "Perfect Dark Modern UI",
+    "version": "1.0.0",
+    "description": "Clean, modern-looking UI panels with smooth gradients instead of N64 dithered textures. Drop-in replacement for base-ui — same catalog IDs, different visual style.",
+    "author": "PD2 Team",
+    "category": "ui",
+    "bundled": true,
+    "enabled": false,
+    "components": [
+        {
+            "type": "ui",
+            "textures": [
+                { "catalog_id": "base:ui_bg_haze",     "path": "textures/ui_bg_haze.tga",     "description": "Clean gradient noise (no dithering)" },
+                { "catalog_id": "base:ui_particles",   "path": "textures/ui_particles.tga",   "description": "Solid white pixel" },
+                { "catalog_id": "base:ui_noise_sm",    "path": "textures/ui_noise_sm.tga",    "description": "Subtle fine grain" },
+                { "catalog_id": "base:ui_noise_lg",    "path": "textures/ui_noise_lg.tga",    "description": "Subtle coarse grain" }
+            ]
+        }
+    ],
+    "theme": {
+        "default_palette": 1,
+        "background_texture": "base:ui_bg_haze",
+        "scanline_enabled": false,
+        "scanline_alpha": 0.0,
+        "tint_strength": 0.0,
+        "text_glow_intensity": 0.4
+    }
+}

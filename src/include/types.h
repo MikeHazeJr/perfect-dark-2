@@ -723,7 +723,7 @@ struct aibot {
 	/*0x014*/ struct invitem *items;
 	/*0x018*/ s8 maxitems;
 	/*0x01c*/ s32 *ammoheld;
-	/*0x020*/ s32 weaponnum;
+	/*0x020*/ s32 weaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Will become catalog ID. */
 	/*0x024*/ s32 loadedammo[2]; // amount of ammo in current clip
 	/*0x02c*/ s16 timeuntilreload60[2];
 	/*0x030*/ u32 unk030; // unused
@@ -962,7 +962,7 @@ struct act_argh {
 
 // Gun settings
 struct gset {
-	u8 weaponnum;
+	u8 weaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Will become catalog ID. */
 	u8 unk0639;
 	u8 unk063a;
 	u8 weaponfunc; // 0 or 1
@@ -1457,7 +1457,7 @@ struct defaultobj {
 	/*0x00*/ u16 extrascale;
 	/*0x02*/ u8 hidden2;
 	/*0x03*/ u8 type;
-	/*0x04*/ s16 modelnum;
+	/*0x04*/ s16 modelnum; /* DEPRECATED(Phase4): integer g_ModelStates[] index. Will become catalog ID. */
 	/*0x06*/ s16 pad;
 	/*0x08*/ u32 flags;
 	/*0x0c*/ u32 flags2;
@@ -1569,7 +1569,7 @@ struct weaponobj { // objtype 0x08
 	union {
 		struct gset gset;
 		struct {
-			/*0x5c*/ u8 weaponnum;
+			/*0x5c*/ u8 weaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Mirrors gset.weaponnum. */
 			/*0x5d*/ s8 unk5d;
 			/*0x5e*/ s8 unk5e;
 			/*0x5f*/ u8 gunfunc;
@@ -1577,7 +1577,7 @@ struct weaponobj { // objtype 0x08
 	};
 
 	/*0x60*/ s8 fadeouttimer60;
-	/*0x61*/ s8 dualweaponnum;
+	/*0x61*/ s8 dualweaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Will become catalog ID. */
 
 	union {
 		/**
@@ -2068,7 +2068,7 @@ struct trackedprop {
 
 struct beam {
 	/*0x00*/ s8 age;
-	/*0x01*/ s8 weaponnum;
+	/*0x01*/ s8 weaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Will become catalog ID. */
 	/*0x04*/ struct coord from;
 	/*0x10*/ struct coord dir;
 	/*0x1c*/ f32 maxdist;
@@ -2320,7 +2320,7 @@ struct fileinfo {
 };
 
 struct gunctrl {
-	/*0x1580*/ s8 weaponnum;
+	/*0x1580*/ s8 weaponnum; /* DEPRECATED(Phase4): integer WEAPON_* enum. Will become catalog ID. */
 	/*0x1581*/ s8 prevweaponnum; // previously drawn weapon, switched to when throwing Dragon/Laptop or when ammo depleted
 	/*0x1582*/ s8 switchtoweaponnum; // weaponnum to change to
 	/*0x1583*/ u8 dualwielding : 1;
@@ -4004,8 +4004,12 @@ struct gamefile {
 
 struct mpchrconfig {
 	/*0x00*/ char name[15];
-	/*0x0f*/ u8 mpheadnum;
-	/*0x10*/ u8 mpbodynum;
+	/* PRIMARY: catalog ID strings — sole asset identity. Always set first.
+	 * e.g. "base:head_dark_combat", "base:dark_combat" */
+	char head_id[64];
+	char body_id[64];
+	/*0x0f*/ u8 mpheadnum; /* DEPRECATED: integer index into g_MpHeads[]. Use head_id instead. Kept temporarily for unmigrated consumers. */
+	/*0x10*/ u8 mpbodynum; /* DEPRECATED: integer index into g_MpBodies[]. Use body_id instead. Kept temporarily for unmigrated consumers. */
 	/*0x11*/ u8 team;
 	/*0x14*/ u32 displayoptions;
 	/*0x18*/ u16 unk18;
@@ -4061,7 +4065,9 @@ struct missionconfig {
 	u8 difficulty : 7;
 	u8 pdmode : 1;
 
-	/*0x01*/ u8 stagenum;
+	/* PRIMARY: catalog ID string — sole stage identity. e.g. "base:defection" */
+	char stage_id[64];
+	/*0x01*/ u8 stagenum; /* DEPRECATED: integer stage index. Use stage_id instead. Kept temporarily for unmigrated consumers. */
 	/*0x02*/ u8 stageindex;
 
 	u8 iscoop : 1;
@@ -4085,7 +4091,7 @@ struct mpsetup {
 	 * stagenum is DERIVED — resolved from stage_id at the point of stage load.
 	 * PC-only field; no N64 offset applies. */
 	char stage_id[64];             /* PRIMARY: catalog stage identity */
-	/*0x800acb99*/ u8 stagenum;   /* DERIVED from stage_id — set by mpStartMatch */
+	/*0x800acb99*/ u8 stagenum;   /* DEPRECATED: derived from stage_id. Use stage_id instead. Kept temporarily for unmigrated consumers. */
 	/*0x800acb9a*/ u8 timelimit;
 	/*0x800acb9b*/ u8 scorelimit;
 	/*0x800acb9c*/ u16 teamscorelimit;
@@ -5000,8 +5006,11 @@ struct menuinputs {
 
 struct mpconfigsim {
 	u8 type;
-	u8 mpheadnum;
-	u8 mpbodynum;
+	/* PRIMARY: catalog ID strings — sole asset identity for challenge simulants */
+	char head_id[64];
+	char body_id[64];
+	u8 mpheadnum; /* DEPRECATED: integer index into g_MpHeads[]. Use head_id instead. */
+	u8 mpbodynum; /* DEPRECATED: integer index into g_MpBodies[]. Use body_id instead. */
 	u8 team;
 	u8 difficulties[MAX_PLAYERS];
 };
@@ -5012,7 +5021,7 @@ struct mpconfig {
 };
 
 struct mpweapon {
-	/*0x00*/ u8 weaponnum;
+	/*0x00*/ u8 weaponnum; /* DEPRECATED(Phase4): integer MPWEAPON_* enum. Will become catalog ID. */
 	/*0x01*/ s8 priammotype;
 	/*0x02*/ u8 priammoqty;
 	/*0x03*/ s8 secammotype;

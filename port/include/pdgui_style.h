@@ -75,6 +75,10 @@ void pdguiDrawTextGlow(f32 x, f32 y, f32 textW, f32 textH);
  * Call after the button is drawn. Uses palette accent colors. */
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 
+/* Return the active palette as a raw pointer to u32[15] (0xRRGGBBAA format).
+ * Used by pdgui_theme.cpp for theme draw functions. */
+const void *pdguiGetActivePaletteRaw(void);
+
 #ifdef __cplusplus
 }
 #endif

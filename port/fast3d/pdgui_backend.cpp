@@ -312,6 +312,11 @@ static void pdguiConsoleRender(void)
 
 void pdguiRender(void)
 {
+    /* One-shot ROM texture extraction (--extract-ui-textures CLI flag).
+     * pdguiThemeCheckExtract() checks if g_TexGeneralConfigs is populated
+     * and --extract-ui-textures is set, then extracts once. */
+    pdguiThemeCheckExtract();
+
     /* Console renders independently of the debug overlay */
     if (s_ConsoleVisible && g_PdguiInitialized) {
         pdguiConsoleRender();
@@ -369,11 +374,18 @@ void pdguiRender(void)
      * The next frame the hotswap queue is empty, WasActive drops to false —
      * but nothing applies the SDL state unless we do it here.
      * Covers all hotswap→gameplay transitions: solo mission accept, endscreen
-     * retry/next, and any future hotswap dialog that calls menuStop(). */
+     * retry/next, and any future hotswap dialog that calls menuStop().
+     *
+     * FIX-PLAYTEST-4 (B-114): Do NOT flush on lvframe60==0 (first tick of a new
+     * stage).  On mission→CI transitions, the hotswap was active in the previous
+     * stage's menus; the close fires on frame 0 of CI while lvTickPlayer is still
+     * initialising, potentially touching stale menu/ImGui state.  Deferring to
+     * frame 1+ lets the stage finish its first tick before we apply SDL state. */
     {
         bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
         if (hotswapWasActive && !hotswapNowActive &&
-                !g_PdguiActive && !pdguiIsPauseMenuOpen()) {
+                !g_PdguiActive && !pdguiIsPauseMenuOpen() &&
+                pdmainGetLvFrame60() > 0) {
             if (inputMouseIsLocked()) {
                 SDL_ShowCursor(SDL_DISABLE);
                 SDL_SetRelativeMouseMode(SDL_TRUE);
@@ -422,6 +434,13 @@ void pdguiRender(void)
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */
     pdguiRenderAllWindowShimmers();
+
+    /* D5.0: CRT scanline overlay — subtle horizontal lines on all menu content.
+     * Renders on the foreground draw list so it's on top of everything.
+     * Enabled by default; toggle via Graphics settings or pdguiThemeSetScanlineEnabled(). */
+    if (pdguiThemeGetScanlineEnabled()) {
+        pdguiThemeDrawScanlineFg(0, 0, (float)winW, (float)winH);
+    }
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

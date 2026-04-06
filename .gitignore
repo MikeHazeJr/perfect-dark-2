@@ -49,9 +49,13 @@ build/game_output.log
 
 # IDE / editor
 /.vs
+/.vscode
 CppProperties.json
 .idea
 cmake-build-debug
+
+# Git recovery artifacts
+.git.broken/
 
 # Flatpak
 .flatpak-builder

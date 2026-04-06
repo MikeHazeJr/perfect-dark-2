@@ -93,13 +93,13 @@ struct waypoint *waypointFindClosestToPos(struct coord *pos, RoomNum *rooms)
 	struct coord sp250[10];
 	struct coord sp1d8[10];
 
-	for (i = 0; rooms[i] != -1; i++) {
+	for (i = 0; i < 29 && rooms[i] != -1; i++) {
 		allrooms[i] = rooms[i];
 	}
 
 	allrooms[i] = -1;
 
-	for (i = 0; rooms[i] != -1; i++) {
+	for (i = 0; i < 8 && rooms[i] != -1; i++) {
 		bgRoomGetNeighbours(rooms[i], neighbours, 10);
 		roomsAppend(neighbours, allrooms, 30);
 	}
@@ -377,6 +377,11 @@ bool waygroupFindRoute(struct waygroup *from, struct waygroup *to, struct waygro
 		while (step >= 0) {
 			curto->step += 10000;
 			curto = waygroupChooseNeighbour(curto->neighbours, step, IGNORE_OUTWARDS);
+
+			if (!curto) {
+				return false;
+			}
+
 			step--;
 		}
 
@@ -535,6 +540,10 @@ void waypointFindRoute(struct waypoint *from, struct waypoint *to)
 		curto->step += 10000;
 		curto = waypointChooseNeighbour(curto->neighbours, value, from->groupnum, IGNORE_OUTWARDS);
 
+		if (!curto) {
+			return;
+		}
+
 		value--;
 	}
 
@@ -565,6 +574,11 @@ s32 waypointCollectLocal(struct waypoint *from, struct waypoint *to, struct wayp
 
 		while (step <= to->step && step < arrlen) {
 			curfrom = waypointChooseNeighbour(curfrom->neighbours, step, from->groupnum, IGNORE_INWARDS);
+
+			if (!curfrom) {
+				break;
+			}
+
 			*arrptr = curfrom;
 			arrptr++;
 			step++;
@@ -643,6 +657,30 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 	struct waygroup *groups = g_StageSetup.waygroups;
 
 	if (groups && frompoint && topoint) {
+		/* Validate groupnum: count valid groups (cached per stage load).
+		 * The group list is sentinel-terminated (neighbours == NULL).
+		 * Limit scan to 4096 to prevent infinite loop if data is corrupt. */
+		static struct waygroup *s_CachedGroups = NULL;
+		static s32 s_NumGroups = 0;
+
+		if (s_CachedGroups != groups) {
+			struct waygroup *g = groups;
+			s32 count = 0;
+			while (g->neighbours && count < 4096) {
+				count++;
+				g++;
+			}
+			s_NumGroups = count;
+			s_CachedGroups = groups;
+		}
+
+		if (frompoint->groupnum < 0 || frompoint->groupnum >= s_NumGroups
+				|| topoint->groupnum < 0 || topoint->groupnum >= s_NumGroups) {
+			*arrptr = NULL;
+			arrptr++;
+			return arrptr - arr;
+		}
+
 		struct waygroup *fromgroup = &groups[frompoint->groupnum];
 		struct waygroup *togroup = &groups[topoint->groupnum];
 
@@ -657,7 +695,16 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 				struct waypoint *curgrouplastwp;
 				struct waypoint *nextgroupfirstwp;
 
+				if (!nextfromgroup) {
+					break;
+				}
+
 				waypointFindSegmentIntoGroup(curfromgroup, nextfromgroup, &curgrouplastwp, &nextgroupfirstwp);
+
+				if (!curgrouplastwp || !nextgroupfirstwp) {
+					break;
+				}
+
 				numwritten = waypointCollectLocal(curfrompoint, curgrouplastwp, arrptr, arrlen) - 1;
 
 				arrlen -= numwritten;
@@ -667,7 +714,9 @@ s32 navFindRoute(struct waypoint *frompoint, struct waypoint *topoint, struct wa
 				curfromgroup = nextfromgroup;
 			}
 
-			arrptr += waypointCollectLocal(curfrompoint, topoint, arrptr, arrlen) - 1;
+			if (curfrompoint) {
+				arrptr += waypointCollectLocal(curfrompoint, topoint, arrptr, arrlen) - 1;
+			}
 		}
 	}
 

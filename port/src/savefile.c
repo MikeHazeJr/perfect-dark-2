@@ -30,6 +30,7 @@
 #include "savefile.h"
 #include "assetcatalog.h"
 #include "fs.h"
+#include "game/mplayer/mplayer.h"
 
 /* ========================================================================
  * Mini JSON tokenizer (shared approach with modmgr.c)
@@ -610,16 +611,12 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	writeJsonString(fp, "name", name);
 	fprintf(fp, ",\n");
 
-	/* Appearance — SA-4: write catalog string IDs.
-	 * FIX-11: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions; convert. */
-	{
-		const char *head_id = catalogResolveHeadByMpIndex((s32)pc->base.mpheadnum);
-		const char *body_id = catalogResolveBodyByMpIndex((s32)pc->base.mpbodynum);
-		writeJsonString(fp, "head_id", head_id ? head_id : "");
-		fprintf(fp, ",\n");
-		writeJsonString(fp, "body_id", body_id ? body_id : "");
-		fprintf(fp, ",\n");
-	}
+	/* Appearance — write PRIMARY catalog ID strings directly.
+	 * Phase 5: head_id/body_id are the sole identity; no more resolving from deprecated mpheadnum. */
+	writeJsonString(fp, "head_id", pc->base.head_id[0] ? pc->base.head_id : "");
+	fprintf(fp, ",\n");
+	writeJsonString(fp, "body_id", pc->base.body_id[0] ? pc->base.body_id : "");
+	fprintf(fp, ",\n");
 	fprintf(fp, "  \"team\": %u,\n", pc->base.team);
 	fprintf(fp, "  \"displayoptions\": %u,\n", pc->base.displayoptions);
 
@@ -678,36 +675,40 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			s_tok_str(&tok, pc->base.name, 15);
 		} else if (strcmp(key, "head_id") == 0) {
 			/* SA-4: catalog string ID for head.
-			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
-			 * g_MpHeads[] position before storing in mpheadnum. */
+			 * Resolve via catalog; mp_index gives the mpheadnum directly. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			/* Phase 2: populate PRIMARY catalog ID string field */
+			strncpy(pc->base.head_id, id_buf, sizeof(pc->base.head_id) - 1);
+			pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_HEAD) {
-				s32 mpidx = catalogHeadnumToMpHeadIdx((s32)e->runtime_index);
-				if (mpidx >= 0) pc->base.mpheadnum = (u8)mpidx;
+			if (e && e->type == ASSET_HEAD && e->mp_index >= 0) {
+				pc->base.mpheadnum = (u8)e->mp_index;
 			}
 		} else if (strcmp(key, "body_id") == 0) {
 			/* SA-4: catalog string ID for body.
-			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
-			 * g_MpBodies[] position before storing in mpbodynum. */
+			 * Resolve via catalog; mp_index gives the mpbodynum directly. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			/* Phase 2: populate PRIMARY catalog ID string field */
+			strncpy(pc->base.body_id, id_buf, sizeof(pc->base.body_id) - 1);
+			pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_BODY) {
-				s32 mpidx = catalogBodynumToMpBodyIdx((s32)e->runtime_index);
-				if (mpidx >= 0) pc->base.mpbodynum = (u8)mpidx;
+			if (e && e->type == ASSET_BODY && e->mp_index >= 0) {
+				pc->base.mpbodynum = (u8)e->mp_index;
 			}
 		} else if (strcmp(key, "mpheadnum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
-			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
+			tok = s_next(&p);
+			mpchrSetHeadByIndex(&pc->base, s_tok_int(&tok));
 		} else if (strcmp(key, "mpbodynum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
-			tok = s_next(&p); pc->base.mpbodynum = s_tok_int(&tok);
+			tok = s_next(&p);
+			mpchrSetBodyByIndex(&pc->base, s_tok_int(&tok));
 		} else if (strcmp(key, "team") == 0) {
 			tok = s_next(&p); pc->base.team = s_tok_int(&tok);
 		} else if (strcmp(key, "displayoptions") == 0) {
@@ -777,14 +778,9 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
-	/* SA-4: write stage as catalog string ID.
-	 * FIX-10: g_MpSetup.stagenum is a logical stage ID, not a g_Stages[] array index;
-	 * use catalogResolveStageByStagenum() which searches by ext.map.stagenum field. */
-	{
-		const char *stage_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
-		writeJsonString(fp, "stage_id", stage_id ? stage_id : "");
-		fprintf(fp, ",\n");
-	}
+	/* Phase 5: write PRIMARY catalog ID string directly — no more resolving from deprecated stagenum. */
+	writeJsonString(fp, "stage_id", g_MpSetup.stage_id[0] ? g_MpSetup.stage_id : "");
+	fprintf(fp, ",\n");
 	fprintf(fp, "  \"timelimit\": %u,\n", g_MpSetup.timelimit);
 	fprintf(fp, "  \"scorelimit\": %u,\n", g_MpSetup.scorelimit);
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);
@@ -795,7 +791,14 @@ s32 saveSaveMpSetup(const char *name)
 	 * raw MPWEAPON_* integers for backward-compat reading of old saves. */
 	fprintf(fp, "  \"weapon_ids\": [");
 	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
-		const char *wid = catalogResolveWeaponByGameId((s32)g_MpSetup.weapons[i]);
+		/* Resolve MPWEAPON_* integer to catalog ID by scanning ASSET_WEAPON entries */
+		const char *wid = NULL;
+		s32 wval = (s32)g_MpSetup.weapons[i];
+		for (s32 wi = 0; ; wi++) {
+			const asset_entry_t *we = assetCatalogGetByIndex(wi);
+			if (!we) break;
+			if (we->type == ASSET_WEAPON && we->ext.weapon.weapon_id == wval) { wid = we->id; break; }
+		}
 		fprintf(fp, "\"%s\"%s", wid ? wid : "", i < NUM_MPWEAPONSLOTS - 1 ? ", " : "");
 	}
 	fprintf(fp, "],\n");

@@ -285,14 +285,14 @@ struct legalelement g_LegalElements[] = {
 	{ 49,  184, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
 	{ 69,  191, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_078   }, // "Product ID:"
 	{ 69,  211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_079   }, // "Product Code:"
-	{ 69,  231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_080   }, // "Variant:"
-	{ 69,  251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081   }, // "Developer:"
+	{ 69,  231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "PD2 Port Director:" },
+	{ 249, 231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "MikeHazeJr" },
+	{ 69,  251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "Tester:" },
+	{ 249, 251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "smarch" },
+	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081   }, // "Developer:"
 	{ 249, 191, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_082   }, // "Perfect Dark"
 	{ 249, 211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083   }, // "NUS-NPDE-USA"
-	{ 249, 231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084   }, // "NTSC version 8.7 final"
-	{ 249, 251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085   }, // "Rare Ltd. (twycross)"
-	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "PD2 Port Director:" },
-	{ 249, 271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,              "MikeHazeJr" },
+	{ 249, 271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085   }, // "Rare Ltd. (twycross)"
 	{ 69,  294, 1, 1, LEGALELEMENTTYPE_LINE,        0               },
 	{ 69,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076   }, // "N64 EXPANSION PAK"
 	{ -1,  303, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_074   }, // "NOT DETECTED"
@@ -309,14 +309,14 @@ struct legalelement g_LegalElements[] = {
 	{ 49,  200, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
 	{ 69,  207, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_078 }, // "Product ID:"
 	{ 69,  227, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_079 }, // "Product Code:"
-	{ 69,  247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_080 }, // "Variant:"
-	{ 69,  267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081 }, // "Developer:"
+	{ 69,  247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "PD2 Port Director:" },
+	{ 249, 247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "MikeHazeJr" },
+	{ 69,  267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "Tester:" },
+	{ 249, 267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "smarch" },
+	{ 69,  287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081 }, // "Developer:"
 	{ 249, 207, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_082 }, // "Perfect Dark"
 	{ 249, 227, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083 }, // "NUS-NPDE-USA"
-	{ 249, 247, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084 }, // "NTSC version 8.7 final"
-	{ 249, 267, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085 }, // "Rare Ltd. (twycross)"
-	{ 69,  287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "PD2 Port Director:" },
-	{ 249, 287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  0,            "MikeHazeJr" },
+	{ 249, 287, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085 }, // "Rare Ltd. (twycross)"
 	{ 69,  310, 1, 1, LEGALELEMENTTYPE_LINE,        0             },
 	{ 69,  319, 0, 1, LEGALELEMENTTYPE_WHITETEXTLG, L_OPTIONS_076 }, // "N64 EXPANSION PAK"
 #if VERSION >= VERSION_PAL_BETA
@@ -418,6 +418,13 @@ Gfx *titleRenderLegal(Gfx *gdl)
 			if (elem->textptr && elem->textptr[0] == 'M' && elem->textptr[1] == 'i' &&
 					elem->textptr[2] == 'k' && elem->textptr[3] == 'e') {
 				colour = 0xffd700ff;
+			}
+
+			// Grass green for "smarch" tester credit
+			if (elem->textptr && elem->textptr[0] == 's' && elem->textptr[1] == 'm' &&
+					elem->textptr[2] == 'a' && elem->textptr[3] == 'r' &&
+					elem->textptr[4] == 'c' && elem->textptr[5] == 'h') {
+				colour = 0x00cc00ff;
 			}
 
 			if (elem->type == LEGALELEMENTTYPE_LINE) {

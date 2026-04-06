@@ -2,6 +2,10 @@
 
 #include <PR/ultratypes.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CONFIG_FNAME "pd.ini"
 #define CONFIG_PATH "$S/" CONFIG_FNAME
 
@@ -19,3 +23,7 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
 void configRegisterUInt(const char* key, u32* var, u32 min, u32 max);
 void configRegisterFloat(const char *key, f32 *var, f32 min, f32 max);
 void configRegisterString(const char *key, char *var, u32 maxstr);
+
+#ifdef __cplusplus
+}
+#endif

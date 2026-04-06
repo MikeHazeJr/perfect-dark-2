@@ -448,7 +448,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        canon_id = catalogIdByRuntime(ASSET_WEAPON, (s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -495,35 +495,29 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         slot_index++;
     }
 
-    /* ---- Bots ---- */
-    {
-        const s32 num_bots = (s32)g_Lobby.settings.numSimulants;
-        for (i = 0; i < num_bots && i < MAX_BOTS; i++) {
-            /* FIX-13: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions,
-             * not g_HeadsAndBodies[] indices.  Use the dedicated API that converts. */
-            const u8 bodynum = g_BotConfigsArray[i].base.mpbodynum;
-            const u8 headnum = g_BotConfigsArray[i].base.mpheadnum;
-            const char *body_canon = catalogResolveBodyByMpIndex((s32)bodynum);
-            const char *head_canon = catalogResolveHeadByMpIndex((s32)headnum);
-            const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
-            const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
-
+    /* ---- Bots from g_MatchConfig (mirrors manifestBuildForHost pattern) ---- */
+    /* body_id/head_id are the PRIMARY identity — use catalog IDs directly;
+     * no integer-domain conversion needed. */
+    for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
+        const struct matchslot *sl = &g_MatchConfig.slots[i];
+        if (sl->type != SLOT_BOT) {
+            continue;
+        }
+        {
+            const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
+            const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
             if (be) {
                 manifestAddEntry(out, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
             }
-            /* else: bodynum not registered in catalog — skip (Phase 0 removed aliases) */
-
             if (he) {
                 manifestAddEntry(out, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             }
-            /* else: headnum not registered in catalog — skip */
-
-            slot_index++;
         }
+        slot_index++;
     }
 
     /* ---- Mod components (returns 0 on dedicated server stub) ---- */
@@ -618,7 +612,7 @@ void manifestBuildForHost(match_manifest_t *out)
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogResolveWeaponByGameId((s32)wnum);
+        canon_id = catalogIdByRuntime(ASSET_WEAPON, (s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -788,7 +782,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
     /* ---- Stage ---- */
     {
-        const char *stage_canon = catalogResolveStageByStagenum(stagenum);
+        const char *stage_canon = catalogIdByRuntime(ASSET_MAP, stagenum);
         if (stage_canon && catalogResolveStage(stage_canon, &stage_result)
                 && stage_result.entry) {
             manifestAddEntry(out, stage_result.entry->id,
@@ -801,7 +795,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
     }
 
     /* FIX-17: SP player character — Joanna Dark by named catalog ID.
-     * Previously used catalogResolveByRuntimeIndex(ASSET_BODY/HEAD, 0) which
+     * Previously used catalogIdByRuntime(ASSET_BODY/HEAD, 0) which
      * relies on registration order and would pick the wrong character if order
      * ever changed.  Use the canonical IDs directly. */
     be = assetCatalogResolve("base:dark_combat");
@@ -836,7 +830,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
                 /* bodynum 255 = random; no fixed catalog entry to require */
                 if (chr->bodynum != 255) {
-                    const char *bcan = catalogResolveByRuntimeIndex(ASSET_BODY,
+                    const char *bcan = catalogIdByRuntime(ASSET_BODY,
                                                                      (s32)chr->bodynum);
                     const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
                     if (cbe) {
@@ -849,7 +843,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
                 /* headnum < 0 = holograph / special; no fixed catalog entry */
                 if (chr->headnum >= 0) {
-                    const char *hcan = catalogResolveByRuntimeIndex(ASSET_HEAD,
+                    const char *hcan = catalogIdByRuntime(ASSET_HEAD,
                                                                      (s32)chr->headnum);
                     const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
                     if (che) {
@@ -895,7 +889,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                 case OBJTYPE_CHOPPER:
                 case OBJTYPE_MINE:
                 case OBJTYPE_ESCASTEP:
-                    model_id = catalogResolveByRuntimeIndex(ASSET_MODEL,
+                    model_id = catalogIdByRuntime(ASSET_MODEL,
                                                             (s32)sobj->modelnum);
                     if (model_id) {
                         me = assetCatalogResolve(model_id);
@@ -926,7 +920,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
      * these do not appear in the props spawn list, so they must be added here. */
     if (g_Vars.antiplayernum >= 0) {
         if (g_Vars.antibodynum >= 0) {
-            const char *bcan = catalogResolveByRuntimeIndex(ASSET_BODY,
+            const char *bcan = catalogIdByRuntime(ASSET_BODY,
                                                              (s32)g_Vars.antibodynum);
             const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
             if (cbe) {
@@ -938,7 +932,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         }
 
         if (g_Vars.antiheadnum >= 0) {
-            const char *hcan = catalogResolveByRuntimeIndex(ASSET_HEAD,
+            const char *hcan = catalogIdByRuntime(ASSET_HEAD,
                                                              (s32)g_Vars.antiheadnum);
             const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
             if (che) {

@@ -164,7 +164,7 @@ bool setupLoadModeldef(s32 modelnum)
 	 * built, so this guard is unconditionally safe.  All prop/weapon/hat/
 	 * projectile model loads funnel through this function, making it the
 	 * canonical chokepoint for MANIFEST_TYPE_MODEL tracking. */
-	model_id = catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum);
+	model_id = catalogIdByRuntime(ASSET_MODEL, modelnum);
 	if (model_id) {
 		manifestEnsureLoaded(model_id, MANIFEST_TYPE_MODEL);
 	}

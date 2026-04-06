@@ -31,6 +31,7 @@
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
+#include "pdgui_theme.h"
 
 /* -----------------------------------------------------------------------
  * PD Color Palette System
@@ -417,6 +418,35 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         ImVec2(x + w - 1, y + h),
         PdColor(pal->dialog_bodybg));
 
+    /* === Haze texture overlay ===
+     * OG PD composites a green IA8 noise texture (g_TexGeneralConfigs[6]) over
+     * the body fill at ~50% alpha via menugfxRenderBgGreenHaze(). We replicate
+     * this by drawing the base:ui_bg_haze texture from the base-ui mod.
+     * The texture is tinted green via the tint_col parameter (IA texture =
+     * greyscale intensity, tint provides the hue — matching N64 primitive color). */
+    {
+        const char *bgTex = pdguiThemeGetBgTexId();
+        if (bgTex) {
+            void *texId = pdguiThemeGetTexture(bgTex);
+            if (texId) {
+                /* Dual rotating layers like the OG — simplified to a single
+                 * tiled overlay at ~12% opacity with green tint.
+                 * OG used gDPSetPrimColor(0, 0, 0x00, 0x30, 0x00, 0x7f). */
+                float bw = (x + w - 1) - (x + 1);
+                float bh = (y + h) - bodyTop;
+                float tileU = bw / 64.0f;  /* 64px tile size */
+                float tileV = bh / 64.0f;
+                dl->AddImage(
+                    (ImTextureID)texId,
+                    ImVec2(x + 1, bodyTop),
+                    ImVec2(x + w - 1, y + h),
+                    ImVec2(0.0f, 0.0f),
+                    ImVec2(tileU, tileV),
+                    IM_COL32(0, 80, 0, 32));
+            }
+        }
+    }
+
     /* === Border lines (solid color) === */
     /* Right border */
     dl->AddRectFilled(ImVec2(x + w - 1, bodyTop), ImVec2(x + w, y + h), PdColor(pal->dialog_border2));
@@ -747,6 +777,16 @@ extern "C" void pdguiRenderAllWindowShimmers(void)
                                   borderAlpha1, 40, true);
         }
     }
+}
+
+/* -----------------------------------------------------------------------
+ * Raw palette access — returns the active palette as a flat u32[15] array.
+ * Used by pdgui_theme.cpp for theme draw functions.
+ * ----------------------------------------------------------------------- */
+
+extern "C" const void *pdguiGetActivePaletteRaw(void)
+{
+    return (const void *)s_ActivePalette;
 }
 
 /* -----------------------------------------------------------------------

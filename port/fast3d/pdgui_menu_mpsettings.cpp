@@ -45,46 +45,11 @@ u8   matchGetPlayerHandicap(s32 playernum);
 void matchSetPlayerHandicap(s32 playernum, u8 val);
 void matchResetHandicaps(void);
 
-/* Damage scale display (mplayer.c) */
-f32  mpHandicapToDamageScale(u8 value);
-
 /* Player names (for labels) */
 const char *mpPlayerConfigGetName(s32 playernum);
 
-/* Match config read (how many human players are active) */
-#define MAX_PLAYER_NAME 32
-#define MATCH_MAX_SLOTS 32
-#define SLOT_EMPTY  0
-#define SLOT_PLAYER 1
-#define SLOT_BOT    2
-
-struct matchslot {
-    u8 type;
-    u8 team;
-    u8 headnum;
-    u8 bodynum;
-    u8 botType;
-    u8 botDifficulty;
-    char name[MAX_PLAYER_NAME];
-    char body_id[64];
-    char head_id[64];
-};
-
-struct matchconfig {
-    struct matchslot slots[MATCH_MAX_SLOTS];
-    u8 scenario;
-    u8 stagenum;
-    u8 timelimit;
-    u8 scorelimit;
-    u16 teamscorelimit;
-    u32 options;
-    u8 weapons[6];
-    s8 weaponSetIndex;
-    u8 numSlots;
-    u8 spawnWeaponNum;
-};
-
-extern struct matchconfig g_MatchConfig;
+/* Match config types, struct definitions, and g_MatchConfig */
+#include "net/matchsetup.h"
 
 } /* extern "C" */
 
@@ -205,23 +170,23 @@ static s32 renderHandicap(struct menudialog *dialog,
                                playerSlot + 1,
                                pname && pname[0] ? pname : "Player");
 
-            /* Read current handicap */
+            /* Read current handicap — internal 0-255, where 0x80 (128) = 100%.
+             * Display as linear percentage: (h * 100) / 128.
+             * mpHandicapToDamageScale() is unusable here — it returns 1.0f
+             * unconditionally when g_NetMode != 0, making every value show 100%. */
             u8 h = matchGetPlayerHandicap(playerSlot);
-            int hInt = (int)h;
-
-            /* Slider: 0–255. Display as damage percent. */
-            float pct = mpHandicapToDamageScale(h) * 100.0f;
-            char fmtBuf[32];
-            snprintf(fmtBuf, sizeof(fmtBuf), "%.0f%%", pct);
+            int pct = ((int)h * 100) / 128;
 
             ImGui::SetNextItemWidth(sliderW);
-            if (ImGui::SliderInt("##h", &hInt, 0, 255, fmtBuf)) {
-                matchSetPlayerHandicap(playerSlot, (u8)hInt);
+            if (ImGui::SliderInt("##h", &pct, 0, 200, "%d%%")) {
+                u8 raw = (u8)(((int)pct * 128) / 100);
+                if (pct > 0 && raw == 0) raw = 1; /* avoid 0% meaning "nearly dead" */
+                matchSetPlayerHandicap(playerSlot, raw);
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 0.8f),
-                               "%.0f%% dmg received", pct);
+                               "%d%% dmg received", pct);
 
             ImGui::Spacing();
             ImGui::PopID();

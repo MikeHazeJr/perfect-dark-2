@@ -1462,9 +1462,13 @@ function Get-BuildSteps($ver) {
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
-    # Auto-commit any pending changes (async -- runs in the step pipeline, never blocks the UI thread)
+    # Auto-commit any pending changes before build.
+    # Uses a two-phase approach: stage all, then commit. If there are no staged
+    # changes (nothing to commit), exit 0 (success). If git commit fails for
+    # another reason (e.g., missing user.email), exit 1 so the pipeline stops
+    # before attempting branch switches that would fail on a dirty tree.
     $commitMsg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && git commit -m `"" + $commitMsg + "`" || exit 0"
+    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && (git diff --cached --quiet && exit 0 || git commit -m `"" + $commitMsg + "`")"
     [void]$steps.Add(@{Name="Auto-commit"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
     # Async cleanup: wipe both build dirs via cmd.exe so the UI thread is never blocked
     $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & (if exist `"" + $script:ServerBuildDir + "`" rmdir /s /q `"" + $script:ServerBuildDir + "`") & exit 0"
@@ -1994,6 +1998,21 @@ $script:Form.Add_Shown({
         $t2 = New-Object System.Windows.Forms.Timer; $t2.Interval = 100
         $t2.Add_Tick({ try { $this.Stop(); $this.Dispose(); $script:LastGitCheck = [DateTime]::MinValue; Update-GitChangeCount } catch {} })
         $t2.Start()
+
+        # Ensure git identity is configured (repo-level) so commits don't fail.
+        # This is separate from gh auth — git needs user.email and user.name for commits.
+        try {
+            $gitEmail = (git -C $script:ProjectRoot config user.email 2>$null)
+            $gitName  = (git -C $script:ProjectRoot config user.name 2>$null)
+            if (-not $gitEmail -or $gitEmail.Trim() -eq "") {
+                git -C $script:ProjectRoot config user.email "mikehaysjr@aol.com" 2>$null
+                if ($null -ne $script:TxtOutput) { Append-Output "[init] Set git user.email = mikehaysjr@aol.com (repo-level)" }
+            }
+            if (-not $gitName -or $gitName.Trim() -eq "") {
+                git -C $script:ProjectRoot config user.name "Mike Hays" 2>$null
+                if ($null -ne $script:TxtOutput) { Append-Output "[init] Set git user.name = Mike Hays (repo-level)" }
+            }
+        } catch {}
 
         # Background: gh auth check (use script-scoped vars so timer closures can access them)
         try {

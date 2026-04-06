@@ -422,6 +422,13 @@ if ($SkipPush -or $DryRun) {
     $tagsToPush = @($ReleaseTag)
     foreach ($t in $tagsToPush) {
         Write-Host "  Pushing tag '$t' ..." -ForegroundColor Gray
+        # Ensure the tag exists locally before pushing; create it if not.
+        $localTag = git tag -l $t 2>$null
+        if (-not $localTag) {
+            Write-Host "  Tag '$t' not found locally -- creating it on HEAD..." -ForegroundColor Yellow
+            git tag $t
+            Write-Host "  Created local tag: $t" -ForegroundColor Green
+        }
         $ErrorActionPreference = "Continue"
         $tagOut = git push origin $t --force --progress 2>&1
         $tagExit = $LASTEXITCODE

@@ -18,9 +18,10 @@ extern "C" {
 /* Initialize the preview system (create FBO). Call after gfx init. */
 void pdguiCharPreviewInit(void);
 
-/* Request a character preview render for the given head/body indices.
+/* Request a character preview render for the given head/body catalog IDs.
+ * Resolves catalog IDs to runtime indices internally.
  * The render happens during the next GBI frame. */
-void pdguiCharPreviewRequest(u8 headnum, u8 bodynum);
+void pdguiCharPreviewRequest(const char *head_id, const char *body_id);
 
 /* Set Y rotation angle (radians) applied on the next pdguiCharPreviewRequest.
  * Call each frame before pdguiCharPreviewRequest to animate rotation. */

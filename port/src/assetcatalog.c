@@ -25,6 +25,8 @@
 #include <stdlib.h>
 #include "types.h"
 #include "assetcatalog.h"
+#include "assetcatalog_scanner.h"
+#include "system.h"
 
 /* ========================================================================
  * Configuration Constants
@@ -46,6 +48,11 @@ static s32 s_HashTableCapacity = 0;    /* allocated capacity */
 static asset_entry_t *s_EntryPool = NULL;      /* array of entries */
 static s32 s_EntryPoolSize = 0;                /* current count */
 static s32 s_EntryPoolCapacity = 0;            /* allocated capacity */
+
+/* Generation counter: incremented on every catalog rebuild (clear, clearMods,
+ * refreshMods).  Consumers cache a local generation and compare to detect
+ * stale data without polling the catalog contents. */
+static u32 s_CatalogGeneration = 0;
 
 /* ========================================================================
  * Hash Functions
@@ -290,6 +297,11 @@ void assetCatalogInit(void)
     memset(s_EntryPool, 0, s_EntryPoolCapacity * sizeof(asset_entry_t));
 }
 
+u32 assetCatalogGetGeneration(void)
+{
+    return s_CatalogGeneration;
+}
+
 void assetCatalogClear(void)
 {
     /* Reset hash table to empty */
@@ -305,6 +317,7 @@ void assetCatalogClear(void)
     }
 
     s_EntryPoolSize = 0;
+    s_CatalogGeneration++;
 }
 
 void assetCatalogClearMods(void)
@@ -341,6 +354,8 @@ void assetCatalogClearMods(void)
 
         s_HashTable[slot] = i;
     }
+
+    s_CatalogGeneration++;
 }
 
 s32 assetCatalogGetCount(void)
@@ -444,6 +459,7 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->temporary = 0;
     entry->bundled = 0;
     entry->runtime_index = -1;
+    entry->mp_index = -1;
     entry->source_filenum  = -1;
     entry->source_texnum   = -1;
     entry->source_animnum  = -1;
@@ -1046,4 +1062,21 @@ asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
     }
 
     return entry;
+}
+
+/* ========================================================================
+ * Public API: Hot Reload
+ * ======================================================================== */
+
+void catalogRefreshMods(const char *modsdir)
+{
+    /* 1. Clear mod-provided entries, rebuild hash table.
+     * This also increments s_CatalogGeneration. */
+    assetCatalogClearMods();
+
+    /* 2. Re-scan enabled mods (if modsdir is available) */
+    if (modsdir && modsdir[0]) {
+        assetCatalogScanComponents(modsdir);
+        assetCatalogScanBotVariants(modsdir);
+    }
 }

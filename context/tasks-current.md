@@ -6,7 +6,38 @@
 
 ---
 
-## Recently Completed (S130–S144 — 2026-04-02/04)
+## Recently Completed (S130–S157 — 2026-04-02/06)
+
+| Item | Status |
+|------|--------|
+| **D5.0 Visual Layer (S157, 2026-04-06)** | **DONE** — Init ordering fix (`pdguiThemeLateInit` after `texInit`), ROM texture extraction tool (`--extract-ui-textures`), base-ui mod (13 textures), haze overlay, CRT scanlines, multi-palette support (all 7 palettes). Procedural modern-UI mod. TGA loader. |
+| **Catalog Phase 8 — O(n) conversion elimination (S157)** | **DONE** — All O(n) linear-scan conversion functions eliminated. |
+| **Deep array-bypass audit (S157)** | **DONE** — All 15 bypass items fixed. 2 hidden `catalogGetMpIndex` reimplementations found and removed. Zero gaps remaining. |
+| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155)** | **DONE** — 41 files, 837 insertions. Triple audit PASSED (11/11). Bot body wire fix, B-112 crash guards, handicap UI, bot context menu UX, U-7+U-10, infrastructure. |
+| **Eliminate integer asset identity from wire (S154)** | **DONE** — SVC_PROP_SPAWN modelnum → catalog session refs. Bot body/head conversion eliminated from netmsg.c. Protocol v31. |
+
+---
+
+## ACTIVE: Catalog ID Deep Migration
+
+**Goal**: Zero integer-to-catalog-ID conversion anywhere in the codebase. Catalog ID is sole identity for all asset types.
+
+| Phase | Status | Detail |
+|-------|--------|--------|
+| **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
+| **Phase 7 — Conversion function wrapper elimination** | **AUDITED / IN PROGRESS** | ~85 calls to `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody/Head` etc. remain. Cannot delete wrappers until all callers migrated. |
+| **Phase 8 — O(n) conversion elimination** | **DONE (S157)** | All linear-scan conversion functions eliminated. |
+| **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
+| **Deep audit — direct array access** | **DONE (S157)** | All 15 bypass items fixed. 2 hidden reimplementations removed. Zero gaps. |
+| **Phases 9–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
+| **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
+| **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
+
+**Next action**: Eliminate the ~85 remaining calls to conversion wrappers (Phase 7 caller migration), file by file.
+
+---
+
+## Previously Completed (S130–S153 — 2026-04-02/05)
 
 | Item | Status |
 |------|--------|
@@ -27,12 +58,18 @@
 | **Network + bot stabilization** | **DONE (S142)** — CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync storm. |
 | **R-3 Room Networking** | **DONE (S143)** — clients see/create/join rooms, room-scoped match start. |
 | **Endscreen UI + name dictionaries** | **DONE (S144)** — endscreen buttons, multi-select bot list, 256-entry name dicts, B-104 fix. v0.0.32. |
+| **Post-playtest spawn stability sprint** | **DONE (S145–S150)** — room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, AIDROP root-cause removal, 31-bots-on-24-pads fallback hardening, underground ground-clamp, CMakeLists.txt repair, credits update (smarch added), bot stuck-detect init (B-111), chr corruption guard (B-112 partial), 8MB stack + VEH (B-113). v0.0.32→v0.0.38. |
+| **S131 cleanup: strcpy→strncpy (input.c), MATCH_MAX_SLOTS canon, field renames** | **DONE (S153)** — 10 bare strcpy in `port/src/input.c` converted; local `#define MATCH_MAX_SLOTS 32` removed from 3 UI files + `scenario_save.h`; all now use canonical 40 from `matchsetup.h`; stale `headnum`/`bodynum` → `body_id`/`head_id` fixed in mpsettings + teamsetup. Commit 05d5f1d. |
+| **U-7: matchsetup.cpp retired (Lobby Unification Phase 2)** | **DONE (S153)** — Steps A–D complete: `arenaGetName()` + override table relocated to room.cpp; advanced bot trait sliders added to bot modal; 3D char preview ported (rotating, two-column layout, pdguiCharPreview pipeline); 4 `g_MatchSetupMenuDialog` push points redirected to `g_CombatSimulatorMenuDialog` + `pdguiSoloRoomOpen()`; file renamed `.cpp.retired`. Commit 9fe169e. |
+| **U-10: Deferred bot authority (Lobby Unification Phase 4)** | **DONE (S153)** — `g_NetPendingBotAuthority` flag added in `net.h`/`net.c`; `netmsgSvcBotAuthorityRead` sets pending instead of active; `botTick` promotes to active when `g_PadsFile != NULL && g_NumSpawnPoints > 0`; reset on disconnect and match-end. Commit 6f471a7. |
+| **B-116: Bot body/head catalog ID resolution in SVC_STAGE_START + netmanifest** | **DONE (S153)** — SVC_STAGE_START writer used wrong slot index (`botidx + MAX_PLAYERS`) for catalog ID lookup; fix: pre-built `botSlotMap[]` from actual `SLOT_BOT` entries in `g_MatchConfig`; server manifest builder reads `body_id`/`head_id` from `g_MatchConfig.slots[]` directly. Committed (not pushed). |
+| **Git repo recovery + cleanup** | **DONE (S153)** — `.git` was missing `objects/`; full history fetched from GitHub; `.git.broken` (200MB) + 7 orphaned worktrees (~23GB) cleaned up; `dev` pushed to origin. |
 
 ---
 
-## Phase G — Playtest Verification Pending
+## Phase G — Playtest Verification (In Progress)
 
-All code is complete. These items need in-game confirmation.
+Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–S150). Many spawn issues have been resolved. The remaining stability concern is **B-112** (chr pointer corruption in 31-bot matches — root cause unknown, guard applied in S150).
 
 **Success criteria**: zero CATALOG-ASSERT in logs, zero type=16, all MP game modes run to completion with bots, menu transitions clean.
 
@@ -42,8 +79,19 @@ All code is complete. These items need in-game confirmation.
 |-------|----------|-------|
 | End match → lobby transition broken | ~~HIGH~~ | **Fixed S139** — Return to Lobby calls pdguiSetInRoom(1); Quit to Menu calls netDisconnect/mainChangeToStage |
 | Post-match menus janky (buttons non-interactive) | ~~HIGH~~ | **Fixed S139** — pdmainSetInputMode(INPUTMODE_MENU) on window appear |
+| Bot spawn void geometry / underground | ~~HIGH~~ | **Fixed S145–S149** — AIDROP root cause removed, room==-1 hardened, ground-clamp, stuck-detect init (B-110, B-111 fixed) |
+| Stack overflow → silent crash (31 bots) | ~~HIGH~~ | **Fixed S150** — 8MB stack + VEH (B-113 fixed) |
+| **B-112: Chr pointer corruption (31-bot crashes)** | **HIGH** | Guard + diagnostics added S150; root cause unknown. Awaiting next VEH crash log. |
+| ~~All bots get dark_combat body (invisible)~~ | ~~CRIT~~ | **Fixed S151** — g_MatchConfig.slots not populated in CLC_LOBBY_START. MATCH_MAX_SLOTS 32→40. |
+| ~~Prop resync spam (0 props every 6s)~~ | ~~HIGH~~ | **Fixed S151** — Desync counter reset on 0-prop receive. Full event-driven sync TBD. |
+| ~~Death-in-hub crash (stagenum=0x00)~~ | ~~HIGH~~ | **Fixed S151** — titleSetNextStage guards against 0x00, redirects to CI. |
+| ~~Bot HP too low in local (maxdamage=4)~~ | ~~MED~~ | **Fixed S151** — botmgrAllocateBot sets maxdamage=8.0f. |
+| ~~B-114: CI crash frame 1 after mission fail exit~~ | ~~HIGH~~ | **Fixed S152** — screenManifestTick deferred until lvframe60>=2 (catalogUnloadAsset during catalog reinit). SDL flush deferred to lvframe60>0. |
+| ~~B-116: Bot body/head wrong catalog IDs on dedicated server~~ | ~~HIGH~~ | **Fixed S153** — SVC_STAGE_START used wrong slot index; pre-built `botSlotMap[]` + direct `slots[]` read in netmanifest.c. |
+| **B-115: Post-game menu mouse unresponsive** | **MED** | Legacy menu steals input, ImGui hotswap doesn't recapture mouse. |
+| **Prop sync not event-driven** | **MED** | Current prop sync uses CRC polling. Should fire on pickup/door events per game director direction. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
-| Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps |
+| Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps — may still exist on some maps post-AIDROP fix |
 | Room/menu navigation janky | MED | Back/Esc behavior inconsistent |
 | Settings text overlaps tabs | MED | Relative positioning needed in settings screen |
 | Scroll indicators too small / scrollbox-in-scrollbox UX | LOW | Scrollable lists hard to navigate |
@@ -96,7 +144,15 @@ All code is complete. These items need in-game confirmation.
 
 ---
 
-## NEXT UP: Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
+## Lobby Unification (Solo + Online) — **COMPLETE (S153)**
+
+See full task list: [tasks-lobby-unification.md](tasks-lobby-unification.md)
+
+All 10 items (U-1 through U-10) complete. Feature gaps closed, `pdgui_menu_matchsetup.cpp` retired, network sync verified on-wire, bot spawn race root-caused and fixed with client-side deferred bot authority. B-116 (bot catalog ID fix in SVC_STAGE_START + netmanifest) also landed as companion work.
+
+---
+
+## Phase D5 — Full Menu System Replacement (D5 + D9 Merged)
 
 **Settings half** (D5a–D5d): DONE. Audio sliders, video settings, controls rebinding — see [d5-settings-plan.md](d5-settings-plan.md).
 
@@ -109,7 +165,7 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
 | **D5.0a** | Technical Spike — `pdguiGetUiTexture()` bridge, synthetic test pattern, `ImGui::Image()` in Catalog tab | **DONE (S135)** — compile clean, both targets. Playtest: open Settings > Catalog tab to see PASS label. |
-| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog (`ui/panels`, `ui/fx`, `ui/stars`, `ui/briefing`), scan-line pass; all menus use this as foundation | PLANNED — implement N64 decode in `buildTestPattern` replacement, then `pdguiThemeDrawPanel` etc. |
+| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
 | **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
 | **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
@@ -117,9 +173,24 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); **bot name dictionary DONE** (S144: 256-entry Adj+Noun word lists, mod-overridable). Multi-select bot list done (S144). Arena/weapon set verification still open | PARTIAL (S144) |
 | **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
 | **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
-| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PLANNED |
+| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PARTIAL — `pdgui_menu_matchsetup.cpp` retired (S153, renamed `.cpp.retired`); remaining legacy C menu paths still PLANNED |
 
 **Execution order**: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
+
+---
+
+## Lobby Unification — Solo/Online Room Convergence
+
+Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)** (10 items, U-1 through U-10)
+
+Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Close the remaining feature gaps, retire `pdgui_menu_matchsetup.cpp`, add network sync, and root-cause the online bot spawn race condition.
+
+| Phase | Items | Description | Status |
+|-------|-------|-------------|--------|
+| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
+| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
+| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | **DONE** |
+| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | **DONE (S153)** — client-side deferred activation |
 
 ---
 

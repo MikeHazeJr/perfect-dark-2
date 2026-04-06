@@ -27,12 +27,14 @@
 #include "lib/snd.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"
 
 #include "system.h"
 #include "net/net.h"
+#include <string.h>
 
-/* PC port: redirect post-match menu to our new Match Setup lobby */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
+extern void pdguiSoloRoomOpen(void);
 
 u8 g_FileState = 0;
 u8 var80062944 = 0;
@@ -250,7 +252,8 @@ void menuTick(void)
 							if (IS4MB()) {
 								menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
 							} else {
-								menuPushRootDialog(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
+								menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+								pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 							}
 						} else {
 							g_Vars.waitingtojoin[i] = true;
@@ -533,8 +536,8 @@ void menuTick(void)
 				g_MenuData.prevmenudialog = &g_MainMenu4MbMenuDialog;
 			} else {
 				g_MenuData.prevmenuroot = MENUROOT_MPSETUP;
-				/* PC port: return to Match Setup lobby */
-				g_MenuData.prevmenudialog = &g_MatchSetupMenuDialog;
+				/* PC port: return to room screen after match */
+				g_MenuData.prevmenudialog = &g_CombatSimulatorMenuDialog;
 			}
 		}
 
@@ -562,6 +565,8 @@ void menuTick(void)
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+								/* Phase 2: populate PRIMARY catalog ID string field */
+								{ const char *cid = catalogIdByRuntime(ASSET_MAP, g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);
 								titleSetNextMode(TITLEMODE_SKIP);

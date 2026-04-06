@@ -112,8 +112,11 @@ s32 pdguiEndscreenGetChallengeStatus(void);
 /* MP rankings — layout-compatible with pause menu */
 struct mpchrconfig_es {
     char name[15];
-    u8 mpheadnum;
-    u8 mpbodynum;
+    /* PRIMARY: catalog ID strings — must match types.h mpchrconfig layout */
+    char head_id[64];
+    char body_id[64];
+    u8 mpheadnum; /* DEPRECATED */
+    u8 mpbodynum; /* DEPRECATED */
     u8 team;
     u8 _pad0[2];
     u32 displayoptions;
@@ -152,6 +155,7 @@ extern s32 g_NetMode;
 void netDisconnect(void);
 void pdguiSetInRoom(s32 inRoom);
 void pdguiSoloRoomOpen(void);
+void pdguiSoloRoomReturn(void); /* U-12: return to room preserving config */
 
 /* Dialog definitions for registration */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
@@ -905,7 +909,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::SetCursorPos(ImVec2(padX, btnY));
         if (PdEndButton("Play Again", ImVec2(halfW, btnH))) {
             pdguiEndscreenExitToMainMenu();
-            pdguiSoloRoomOpen();
+            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
         }
 
         ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
@@ -932,7 +936,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         if (networked) {
             pdguiSetInRoom(1);
         } else {
-            pdguiSoloRoomOpen();
+            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
         }
     }
 

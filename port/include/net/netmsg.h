@@ -79,6 +79,9 @@
 /* Bot authority relay (protocol v28) */
 #define CLC_BOT_MOVE      0x0A // bot-authority client→server: bot positions for server relay via SVC_CHR_MOVE
 
+/* U-10: Stage-ready handshake */
+#define CLC_STAGE_READY   0x0B // client→server: stage fully loaded, ready for bot authority delegation
+
 /* R-3: Room networking (protocol v29) */
 #define CLC_ROOM_CREATE  0x10 // client→server: create a new room
 #define CLC_ROOM_JOIN    0x11 // client→server: join room by id
@@ -235,6 +238,10 @@ u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst);
 u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcBotMoveWrite(struct netbuf *dst);
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
+
+/* U-10: Stage-ready handshake */
+u32 netmsgClcStageReadyWrite(struct netbuf *dst);
+u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl);
 
 /* Phase F: client-side countdown display state — updated by SVC_MATCH_COUNTDOWN handler. */
 struct match_countdown_state {

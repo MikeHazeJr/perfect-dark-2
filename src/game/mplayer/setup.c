@@ -40,7 +40,7 @@ struct menudialogdef g_MpEditSimulantMenuDialog;
 struct menudialogdef g_MpSaveSetupNameMenuDialog;
 
 /* PC port: our lobby dialog that replaces g_CombatSimulatorMenuDialog */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* g_MatchSetupMenuDialog removed — ImGui room screen replaced it */
 
 extern struct menudialogdef g_ManageSettingsDialog;
 extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
@@ -866,10 +866,11 @@ MenuItemHandlerResult menuhandlerMpCharacterBody(s32 operation, struct menuitem 
 			if (!data->carousel.unk04)
 #endif
 			{
-				g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = mpGetMpheadnumByMpbodynum(data->carousel.value);
+				s32 dh = catalogGetBodyDefaultMpHeadIdx(data->carousel.value);
+					mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, dh >= 0 ? dh : 0);
 			}
 		}
-		g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum = data->carousel.value;
+		mpchrSetBodyByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, data->carousel.value);
 		func0f17b8f0();
 		break;
 	case MENUOP_CHECKPREFOCUSED:
@@ -2443,7 +2444,7 @@ MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem 
 
 	if (operation == MENUOP_SET) {
 		if (data->carousel.value >= 0 && data->carousel.value < mpGetNumHeads2()) {
-			g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = data->carousel.value;
+			mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, data->carousel.value);
 			s_PreviewHeadNum = data->carousel.value;
 		}
 	}
@@ -2853,14 +2854,14 @@ MenuItemHandlerResult mpCharacterBodyListHandler(s32 operation, struct menuitem 
 		// Preview on scroll — update 3D model without committing
 		s_PreviewBodyNum = data->list.value;
 		// Auto-pick a matching head for the preview body
-		s_PreviewHeadNum = mpGetMpheadnumByMpbodynum(data->list.value);
+		{ s32 dh = catalogGetBodyDefaultMpHeadIdx(data->list.value); s_PreviewHeadNum = dh >= 0 ? dh : 0; }
 		mpCharacterBodyMenuHandler(MENUOP_SET, item, data,
 				s_PreviewBodyNum, s_PreviewHeadNum, true);
 		break;
 	case MENUOP_SET:
 		// Commit on A press — lock in the selection
-		g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum = data->list.value;
-		g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = mpGetMpheadnumByMpbodynum(data->list.value);
+		mpchrSetBodyByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, data->list.value);
+		{ s32 dh = catalogGetBodyDefaultMpHeadIdx(data->list.value); mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, dh >= 0 ? dh : 0); }
 		s_PreviewBodyNum = data->list.value;
 		s_PreviewHeadNum = g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum;
 		func0f17b8f0();
@@ -3369,12 +3370,12 @@ MenuItemHandlerResult menuhandlerMpSimulantHead(s32 operation, struct menuitem *
 	 */
 	switch (operation) {
 	case MENUOP_SET:
-		g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum = start + data->carousel.value;
+		mpchrSetHeadByIndex(&g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base, start + data->carousel.value);
 	case MENUOP_FOCUS:
 		if (operation == MENUOP_FOCUS
 				&& item->param2 == 1
 				&& g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum < start) {
-			g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum = start;
+			mpchrSetHeadByIndex(&g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base, start);
 		}
 		break;
 	}
@@ -3385,7 +3386,7 @@ MenuItemHandlerResult menuhandlerMpSimulantHead(s32 operation, struct menuitem *
 MenuItemHandlerResult menuhandlerMpSimulantBody(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpbodynum = data->carousel.value;
+		mpchrSetBodyByIndex(&g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base, data->carousel.value);
 	}
 
 	return mpCharacterBodyMenuHandler(operation, item, data,
@@ -5733,7 +5734,7 @@ MenuDialogHandlerResult menudialogCombatSimulator(s32 operation, struct menudial
 	}
 
 	if (g_Menus[g_MpPlayerNum].curdialog
-			&& (g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog || g_Menus[g_MpPlayerNum].curdialog->definition == &g_MatchSetupMenuDialog)
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == &g_CombatSimulatorMenuDialog
 			&& operation == MENUOP_TICK) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_Vars.mpquickteam = MPQUICKTEAM_NONE;

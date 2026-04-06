@@ -32,6 +32,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
 #include "system.h"
+#include "assetcatalog.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -64,7 +65,7 @@ void gamefileLoadDefaults(struct gamefile *file);
  * We can't include types.h (bool conflict), so pdgui_bridge.c provides
  * safe accessor functions that handle struct layout correctly. */
 void mpPlayerConfigSetName(s32 playernum, const char *name);
-void mpPlayerConfigSetHeadBody(s32 playernum, u8 headnum, u8 bodynum);
+void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *body_id);
 
 extern s32 g_MpPlayerNum;
 
@@ -75,9 +76,8 @@ s32 mpGetHeadId(u8 headnum);
 u32 mpGetNumBodies(void);
 s32 mpGetBodyId(u8 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
-s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum);
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
-const char *catalogResolveHeadByMpIndex(s32 mpheadnum);
+/* Body/head data accessed via catalog accessors (catalogMpBodyId, catalogMpHeadId) */
 
 /* Feature checking — unlock system */
 s32 mpGetHeadRequiredFeature(u8 headnum);
@@ -176,7 +176,7 @@ static void rebuildHeadSortMap(void)
     s_SortedHeadCount = n;
     for (s32 i = 0; i < n; i++) {
         s_SortedHeadIndices[i] = i;
-        const char *catId = catalogResolveHeadByMpIndex(i);
+        const char *catId = catalogMpHeadId(i);
         if (catId)
             formatCatalogId(catId, "head_",
                             s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]));
@@ -254,7 +254,9 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
     /* Request a new preview render if head/body changed */
     if (s_SelectedHead != s_PrevPreviewHead ||
         s_SelectedBody != s_PrevPreviewBody) {
-        pdguiCharPreviewRequest((u8)s_SortedHeadIndices[s_SelectedHead], (u8)s_SelectedBody);
+        const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+        const char *bid = catalogMpBodyId(s_SelectedBody);
+        pdguiCharPreviewRequest(hid ? hid : "", bid ? bid : "");
         s_PrevPreviewHead = s_SelectedHead;
         s_PrevPreviewBody = s_SelectedBody;
     }
@@ -634,7 +636,11 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             s32 pnum = g_MpPlayerNum;
             if (pnum < 0) pnum = 0;
 
-            mpPlayerConfigSetHeadBody(pnum, (u8)s_SortedHeadIndices[s_SelectedHead], (u8)s_SelectedBody);
+            {
+                const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+                const char *bid = catalogMpBodyId(s_SelectedBody);
+                mpPlayerConfigSetHeadBody(pnum, hid ? hid : "", bid ? bid : "");
+            }
             mpPlayerConfigSetName(pnum, s_AgentName);
 
             /* Pop the Agent Create dialog to return to Agent Select */

@@ -265,14 +265,10 @@ s32 scenarioSave(const char *name)
     jsonEscapeStr(fp, name);
     fprintf(fp, "\",\n");
     fprintf(fp, "  \"arena\": %u,\n",        (unsigned)g_MatchConfig.stagenum);
-    /* SA-4: catalog string ID for arena.
-     * FIX-15: g_MatchConfig.stagenum is a logical stage ID, not a g_Stages[] index. */
-    {
-        const char *stage_id = catalogResolveStageByStagenum((s32)g_MatchConfig.stagenum);
-        fprintf(fp, "  \"arenaId\": \"");
-        jsonEscapeStr(fp, stage_id ? stage_id : "");
-        fprintf(fp, "\",\n");
-    }
+    /* SA-4: catalog string ID for arena — use PRIMARY stage_id directly */
+    fprintf(fp, "  \"arenaId\": \"");
+    jsonEscapeStr(fp, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
+    fprintf(fp, "\",\n");
     fprintf(fp, "  \"scenario\": %u,\n",     (unsigned)g_MatchConfig.scenario);
     fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
     fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
@@ -285,7 +281,13 @@ s32 scenarioSave(const char *name)
      * "weapon%d" is kept for backward-compatible reading of old saves. */
     for (s32 slot = 0; slot < 6; slot++) {
         s32 wval = mpGetWeaponSlot(slot);
-        const char *wid = catalogResolveWeaponByGameId(wval);
+        /* Resolve MPWEAPON_* integer to catalog ID by scanning ASSET_WEAPON entries */
+        const char *wid = NULL;
+        for (s32 wi = 0; ; wi++) {
+            const asset_entry_t *we = assetCatalogGetByIndex(wi);
+            if (!we) break;
+            if (we->type == ASSET_WEAPON && we->ext.weapon.weapon_id == wval) { wid = we->id; break; }
+        }
         fprintf(fp, "  \"weapon_id%d\": \"%s\",\n", slot, wid ? wid : "");
         fprintf(fp, "  \"weapon%d\": %d,\n", slot, wval);
     }
@@ -504,14 +506,14 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 /* Catalog-ID-native: prefer string IDs as the primary identity.
                  * Fall back to legacy integer → catalog lookup for old saves. */
                 if (!body_id[0] && body >= 0 && body < 152) {
-                    const char *bid = catalogResolveByRuntimeIndex(ASSET_BODY, body);
+                    const char *bid = catalogIdByRuntime(ASSET_BODY, body);
                     if (bid) {
                         strncpy(body_id, bid, sizeof(body_id) - 1);
                         body_id[sizeof(body_id) - 1] = '\0';
                     }
                 }
                 if (!head_id[0] && head >= 0 && head < 152) {
-                    const char *hid = catalogResolveByRuntimeIndex(ASSET_HEAD, head);
+                    const char *hid = catalogIdByRuntime(ASSET_HEAD, head);
                     if (hid) {
                         strncpy(head_id, hid, sizeof(head_id) - 1);
                         head_id[sizeof(head_id) - 1] = '\0';

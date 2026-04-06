@@ -80,6 +80,7 @@
 #include "modelcatalog.h"
 #include <SDL.h>
 #include "pdmain.h"
+#include "pdgui_theme.h"
 #include "input.h"
 
 extern u8 *g_MempHeap;
@@ -296,6 +297,13 @@ void pdmainSetInputMode(InputOwnerMode mode)
 	}
 }
 
+/* FIX-PLAYTEST-4: C accessor so C++ port code can check the stage frame counter
+ * without including types.h (which #defines bool as s32, breaking C++ bool). */
+s32 pdmainGetLvFrame60(void)
+{
+	return (s32)g_Vars.lvframe60;
+}
+
 void mainInit(void)
 {
 	s32 x;
@@ -349,6 +357,8 @@ void mainInit(void)
 	utilsInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: texInit...");
 	texInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: pdguiThemeLateInit...");
+	pdguiThemeLateInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: langInit...");
 	langInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: lvInit...");

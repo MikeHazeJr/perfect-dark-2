@@ -11,10 +11,11 @@
 #include "system.h"
 #include "net/net_interface.h"
 
-void netcb_OnPlayerJoin(u8 clientId, const char *name, u8 headnum, u8 bodynum)
+void netcb_OnPlayerJoin(u8 clientId, const char *name, const char *head_id, const char *body_id)
 {
-    sysLogPrintf(LOG_NOTE, "SERVER: Player '%s' joined (client %u, body=%u, head=%u)",
-                 name ? name : "???", clientId, bodynum, headnum);
+    sysLogPrintf(LOG_NOTE, "SERVER: Player '%s' joined (client %u, body=%s, head=%s)",
+                 name ? name : "???", clientId,
+                 body_id ? body_id : "?", head_id ? head_id : "?");
 }
 
 void netcb_OnPlayerLeave(u8 clientId, const char *name, u32 reason)
@@ -23,16 +24,17 @@ void netcb_OnPlayerLeave(u8 clientId, const char *name, u32 reason)
                  name ? name : "???", clientId, reason);
 }
 
-void netcb_OnPlayerSettingsChanged(u8 clientId, const char *name, u8 headnum, u8 bodynum, u8 team)
+void netcb_OnPlayerSettingsChanged(u8 clientId, const char *name, const char *head_id, const char *body_id, u8 team)
 {
-    sysLogPrintf(LOG_NOTE, "SERVER: Player '%s' changed settings (body=%u, head=%u, team=%u)",
-                 name ? name : "???", bodynum, headnum, team);
+    sysLogPrintf(LOG_NOTE, "SERVER: Player '%s' changed settings (body=%s, head=%s, team=%u)",
+                 name ? name : "???",
+                 body_id ? body_id : "?", head_id ? head_id : "?", team);
 }
 
-void netcb_OnMatchStart(u8 stagenum, u8 scenario, u32 rngSeed)
+void netcb_OnMatchStart(const char *stage_id, u8 scenario, u32 rngSeed)
 {
-    sysLogPrintf(LOG_NOTE, "SERVER: Match starting (stage=0x%02x, scenario=%u, seed=%u)",
-                 stagenum, scenario, rngSeed);
+    sysLogPrintf(LOG_NOTE, "SERVER: Match starting (stage=%s, scenario=%u, seed=%u)",
+                 stage_id ? stage_id : "?", scenario, rngSeed);
 }
 
 void netcb_OnMatchEnd(void)
@@ -56,9 +58,9 @@ void netcb_OnPlayerPosition(u8 clientId, f32 x, f32 y, f32 z, f32 angle)
     (void)clientId; (void)x; (void)y; (void)z; (void)angle;
 }
 
-void netcb_OnStageChange(u8 stagenum)
+void netcb_OnStageChange(const char *stage_id)
 {
-    sysLogPrintf(LOG_NOTE, "SERVER: Stage changed to 0x%02x", stagenum);
+    sysLogPrintf(LOG_NOTE, "SERVER: Stage changed to %s", stage_id ? stage_id : "?");
 }
 
 void netcb_OnStageEnd(void)

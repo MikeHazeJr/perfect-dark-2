@@ -36,9 +36,10 @@
 #include "types.h"
 #include "net/net.h"
 #include "input.h"
+#include "assetcatalog.h"
 
-/* PC port: our lobby dialog replaces g_CombatSimulatorMenuDialog */
-extern struct menudialogdef g_MatchSetupMenuDialog;
+/* PC port: ImGui room screen (replaces old Match Setup dialog) */
+extern void pdguiSoloRoomOpen(void);
 
 bool g_NotLoadMod = true;
 
@@ -1965,6 +1966,12 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		g_Vars.mplayerisrunning = false;
 		g_Vars.normmplayerisrunning = false;
 		g_MissionConfig.stagenum = g_SoloStages[sp188].stagenum;
+		/* Phase 2: populate PRIMARY catalog ID string field */
+		{
+			const char *cid = catalogIdByRuntime(ASSET_MAP, g_SoloStages[sp188].stagenum);
+			if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
+			else { g_MissionConfig.stage_id[0] = '\0'; }
+		}
 		g_MissionConfig.stageindex = sp188;
 
 		if (g_MissionConfig.iscoop) {
@@ -4842,7 +4849,8 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		g_NotLoadMod = false;
 		romdataFileFreeForSolo();
-		func0f0f820c(&g_MatchSetupMenuDialog, MENUROOT_MPSETUP); /* PC port: use new lobby */
+		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 		func0f0f8300();
 	}
 

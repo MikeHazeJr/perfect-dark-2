@@ -71,11 +71,10 @@ s32 navspawnGeneratePoints(s32 max_count, struct coord *out_pos, f32 *out_yaw)
 
             padUnpack(waypoints[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &p);
 
-            /* Skip pads with invalid rooms or AI-drop-only flags */
+            /* Skip pads with invalid rooms.  AIDROP is an AI pathfinding
+             * hint (drop-off-ledge), not a spawn validity marker — don't
+             * filter it, or multi-level maps lose most spawn candidates. */
             if (p.room < 0) {
-                continue;
-            }
-            if (p.flags & PADFLAG_AIDROP) {
                 continue;
             }
 

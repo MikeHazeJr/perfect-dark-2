@@ -104,8 +104,10 @@ extern s32 g_MpPlayerNum;
 s32 viGetWidth(void);
 s32 viGetHeight(void);
 
-u8  mpPlayerConfigGetHead(s32 playernum);
-u8  mpPlayerConfigGetBody(s32 playernum);
+u8  mpPlayerConfigGetHead(s32 playernum);  /* DEPRECATED */
+u8  mpPlayerConfigGetBody(s32 playernum);  /* DEPRECATED */
+const char *mpPlayerConfigGetHeadId(s32 playernum);
+const char *mpPlayerConfigGetBodyId(s32 playernum);
 
 } /* extern "C" */
 
@@ -495,7 +497,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
         s32 pnum = g_MpPlayerNum;
         if (pnum < 0) pnum = 0;
-        pdguiCharPreviewRequest(mpPlayerConfigGetHead(pnum), mpPlayerConfigGetBody(pnum));
+        pdguiCharPreviewRequest(mpPlayerConfigGetHeadId(pnum), mpPlayerConfigGetBodyId(pnum));
     }
 
     /* Focus sound */

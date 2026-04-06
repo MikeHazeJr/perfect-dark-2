@@ -165,6 +165,17 @@ extern "C" void pdguiSoloRoomOpen(void)
 }
 
 /**
+ * Return to the Room screen after a solo match for rematch.
+ * Like pdguiSoloRoomOpen() but skips pdguiRoomScreenReset() to preserve
+ * the previous match configuration for a quick rematch.
+ */
+extern "C" void pdguiSoloRoomReturn(void)
+{
+    s_SoloRoomActive = true;
+    pdguiRoomScreenSetSolo(1);    /* re-apply solo flag without resetting config */
+}
+
+/**
  * Close the solo Room screen and return to the main menu.
  * Called from pdgui_menu_room.cpp "Back to Menu" button.
  */

@@ -20,8 +20,11 @@ struct lobbyplayer {
     u8 clientId;            /* netclient index */
     u8 isLeader;            /* 1 if this player is the lobby leader */
     u8 isReady;             /* 1 if player has readied up */
-    u8 headnum;             /* character head */
-    u8 bodynum;             /* character body */
+    /* PRIMARY: catalog ID strings — sole asset identity */
+    char head_id[64];       /* e.g. "base:head_dark_combat" */
+    char body_id[64];       /* e.g. "base:dark_combat" */
+    u8 headnum;             /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. */
+    u8 bodynum;             /* DEPRECATED: integer g_MpBodies[] index. Use body_id instead. */
     u8 team;                /* team assignment */
     char name[LOBBY_NAME_LEN];
 };
@@ -29,7 +32,9 @@ struct lobbyplayer {
 /* Lobby game settings (controlled by leader) */
 struct lobbysettings {
     u8 scenario;            /* game mode: combat, ctc, htb, etc. */
-    u8 stagenum;            /* arena/map index */
+    /* PRIMARY: catalog ID string — sole stage identity */
+    char stage_id[64];      /* e.g. "base:mp_complex" */
+    u8 stagenum;            /* DEPRECATED: integer stage index. Use stage_id instead. */
     u8 numSimulants;        /* number of AI bots */
     u8 teamEnabled;         /* teams on/off */
     f32 jumpHeight;         /* custom jump height (0 = default) */

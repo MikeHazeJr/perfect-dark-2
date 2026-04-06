@@ -29,8 +29,10 @@
 #include "system.h"
 #include "data.h"
 #include "assetcatalog.h"
+#include "modelcatalog.h"
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
+#include "modmgr.h"
 
 /* -------------------------------------------------------------------------
  * Internal fill helpers -- populate result struct from a resolved entry.
@@ -316,100 +318,102 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash)
     return assetCatalogResolveByNetHash(net_hash);
 }
 
-/* -------------------------------------------------------------------------
- * SA-4: Reverse-index lookup (save migration only)
- * O(n) scan of the entry pool.  Used only during legacy save conversion.
- * ------------------------------------------------------------------------- */
-
-const char *catalogResolveByRuntimeIndex(asset_type_e type, s32 runtime_index)
-{
-    s32 i;
-    const asset_entry_t *e;
-
-    for (i = 0; ; i++) {
-        e = assetCatalogGetByIndex(i);
-        if (!e) break;
-        if (e->type == type && e->runtime_index == runtime_index) {
-            return e->id;
-        }
-    }
-
-    static const char *s_typeNames[] = {
-        "NONE","MAP","CHARACTER","SKIN","BOT_VARIANT","WEAPON","TEXTURES","SFX",
-        "MUSIC","PROP","VEHICLE","MISSION","UI","TOOL","ARENA","BODY","HEAD",
-        "ANIMATION","TEXTURE","GAMEMODE","AUDIO","HUD","EFFECT","MODEL","LANG"
-    };
-    const char *tname = ((int)type >= 0 && (int)type < (s32)(sizeof(s_typeNames)/sizeof(s_typeNames[0])))
-                        ? s_typeNames[(int)type] : "UNKNOWN";
-    sysLogPrintf(LOG_WARNING,
-        "[CATALOG-ASSERT] catalogResolveByRuntimeIndex: type=%s(%d) index=%d not found",
-        tname, (int)type, runtime_index);
-    return NULL;
-}
-
-/* -------------------------------------------------------------------------
- * B.2: MP index domain helpers
- * Convert mpbodynum (g_MpBodies[] position, 0..62) or mpheadnum (g_MpHeads[]
- * position, 0..75) to the g_HeadsAndBodies[] index stored as runtime_index,
- * then delegate to catalogResolveByRuntimeIndex.
+/* =========================================================================
+ * Phase 8: O(1) cached runtime lookups
  *
- * Always use these instead of catalogResolveByRuntimeIndex(ASSET_BODY/HEAD, mpN)
- * — mpbodynum and runtime_index (bodynum) are different index spaces.
- * ------------------------------------------------------------------------- */
+ * All integer↔catalog-ID resolution is pre-cached during init.  Zero O(n)
+ * scans at runtime.  The caches are populated once by catalogBuildRuntimeCaches()
+ * after base-game + mod registration completes.
+ * ========================================================================= */
 
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
 
-const char *catalogResolveBodyByMpIndex(s32 mpbodynum)
-{
-    if (mpbodynum < 0 || mpbodynum >= 63) {
-        sysLogPrintf(LOG_WARNING,
-            "[CATALOG] catalogResolveBodyByMpIndex: mpbodynum=%d out of range [0,63)",
-            mpbodynum);
-        return NULL;
-    }
-    return catalogResolveByRuntimeIndex(ASSET_BODY, (s32)g_MpBodies[mpbodynum].bodynum);
-}
+#define MP_BODY_COUNT 63
+#define MP_HEAD_COUNT 76
+#define RT_CACHE_SIZE 1024
 
-const char *catalogResolveHeadByMpIndex(s32 mpheadnum)
-{
-    if (mpheadnum < 0 || mpheadnum >= 76) {
-        sysLogPrintf(LOG_WARNING,
-            "[CATALOG] catalogResolveHeadByMpIndex: mpheadnum=%d out of range [0,76)",
-            mpheadnum);
-        return NULL;
-    }
-    return catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)g_MpHeads[mpheadnum].headnum);
-}
+/* Forward caches: mp table position → catalog ID string */
+static const char *s_MpBodyIdCache[MP_BODY_COUNT];
+static const char *s_MpHeadIdCache[MP_HEAD_COUNT];
 
-/* FIX-12: Reverse lookup — g_HeadsAndBodies[] index (runtime_index) → g_MpBodies[]
- * position.  Used at save-load sites where a catalog entry is resolved and its
- * runtime_index needs to be converted back to mpbodynum for game config structs.
- * Returns -1 if bodynum is not in g_MpBodies[]. */
-s32 catalogBodynumToMpBodyIdx(s32 bodynum)
+/* General cache: (type, runtime_index) → catalog ID string.
+ * Indexed as s_RuntimeCache[type][runtime_index]. */
+static const char *s_RuntimeCache[ASSET_TYPE_COUNT][RT_CACHE_SIZE];
+
+static int s_RuntimeCacheBuilt = 0;
+
+void catalogBuildRuntimeCaches(void)
 {
     s32 i;
-    for (i = 0; i < 63; i++) {
-        if ((s32)g_MpBodies[i].bodynum == bodynum) return i;
+    const asset_entry_t *e;
+
+    memset(s_MpBodyIdCache, 0, sizeof(s_MpBodyIdCache));
+    memset(s_MpHeadIdCache, 0, sizeof(s_MpHeadIdCache));
+    memset(s_RuntimeCache, 0, sizeof(s_RuntimeCache));
+
+    /* Pass 1: build general runtime cache from all catalog entries */
+    for (i = 0; ; i++) {
+        e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        s32 t = (s32)e->type;
+        s32 ri = e->runtime_index;
+        if (t >= 0 && t < ASSET_TYPE_COUNT && ri >= 0 && ri < RT_CACHE_SIZE) {
+            s_RuntimeCache[t][ri] = e->id;
+        }
     }
-    return -1;
+
+    /* Pass 2: build mp body cache + populate mp_index on body entries */
+    for (i = 0; i < MP_BODY_COUNT; i++) {
+        s32 bodynum = (s32)g_MpBodies[i].bodynum;
+        const char *cid = (bodynum >= 0 && bodynum < RT_CACHE_SIZE)
+                          ? s_RuntimeCache[ASSET_BODY][bodynum] : NULL;
+        s_MpBodyIdCache[i] = cid;
+        if (cid) {
+            asset_entry_t *ae = (asset_entry_t *)assetCatalogResolve(cid);
+            if (ae) ae->mp_index = (s16)i;
+        }
+    }
+
+    /* Pass 3: build mp head cache + populate mp_index on head entries */
+    for (i = 0; i < MP_HEAD_COUNT; i++) {
+        s32 headnum = (s32)g_MpHeads[i].headnum;
+        const char *cid = (headnum >= 0 && headnum < RT_CACHE_SIZE)
+                          ? s_RuntimeCache[ASSET_HEAD][headnum] : NULL;
+        s_MpHeadIdCache[i] = cid;
+        if (cid) {
+            asset_entry_t *ae = (asset_entry_t *)assetCatalogResolve(cid);
+            if (ae) ae->mp_index = (s16)i;
+        }
+    }
+
+    s_RuntimeCacheBuilt = 1;
+    sysLogPrintf(LOG_NOTE, "[CATALOG] Runtime caches built: %d body IDs, %d head IDs",
+                 MP_BODY_COUNT, MP_HEAD_COUNT);
 }
 
-/* FIX-12: Reverse lookup — g_HeadsAndBodies[] index → g_MpHeads[] position.
- * Returns -1 if headnum is not in g_MpHeads[]. */
-s32 catalogHeadnumToMpHeadIdx(s32 headnum)
+const char *catalogMpBodyId(s32 mp_idx)
 {
-    s32 i;
-    for (i = 0; i < 76; i++) {
-        if ((s32)g_MpHeads[i].headnum == headnum) return i;
-    }
-    return -1;
+    if (mp_idx < 0 || mp_idx >= MP_BODY_COUNT) return NULL;
+    return s_MpBodyIdCache[mp_idx];
+}
+
+const char *catalogMpHeadId(s32 mp_idx)
+{
+    if (mp_idx < 0 || mp_idx >= MP_HEAD_COUNT) return NULL;
+    return s_MpHeadIdCache[mp_idx];
+}
+
+const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
+{
+    if ((s32)type < 0 || (s32)type >= ASSET_TYPE_COUNT) return NULL;
+    if (runtime_index < 0 || runtime_index >= RT_CACHE_SIZE) return NULL;
+    return s_RuntimeCache[(s32)type][runtime_index];
 }
 
 /* Body → default head catalog ID.  Reads ext.body.headnum from the body catalog
- * entry and resolves it to a HEAD catalog ID string.  Used by UI character pickers
- * (matchsetup bot editor, agentcreate carousel) so they never guess the head from
- * the body index.  Returns NULL if body_id is unknown, wrong type, or headnum < 0. */
+ * entry and resolves it to a HEAD catalog ID string via the runtime cache.
+ * Returns NULL if body_id is unknown, wrong type, or headnum < 0. */
 const char *catalogGetBodyDefaultHead(const char *body_id)
 {
     const asset_entry_t *e;
@@ -417,25 +421,29 @@ const char *catalogGetBodyDefaultHead(const char *body_id)
     e = assetCatalogResolve(body_id);
     if (!e || e->type != ASSET_BODY) return NULL;
     if (e->ext.body.headnum < 0 || e->ext.body.headnum == HEAD_RANDOM_GENDER) return NULL;
-    return catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)e->ext.body.headnum);
+    return catalogIdByRuntime(ASSET_HEAD, (s32)e->ext.body.headnum);
 }
 
-/* Body → default head mpheadnum.  Convenience wrapper for UI carousels that track
- * position in g_MpHeads[] rather than catalog ID strings.
- * Returns -1 if any step fails (unknown body, no head registered, headnum not in
- * g_MpHeads[] — this includes the sentinel value 1000 used for random-gender heads
- * since those have no single deterministic catalog entry). */
+/* Body → default head mpheadnum.  Uses cached mp_index on the head entry.
+ * Returns -1 if the body is not found, has no default head, or the sentinel
+ * value 1000 (random-gender head) is stored. */
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)
 {
     const char *bid;
     const asset_entry_t *e;
-    if (mpbodynum < 0) return -1;
-    bid = catalogResolveBodyByMpIndex(mpbodynum);
+    const asset_entry_t *he;
+    if (mpbodynum < 0 || mpbodynum >= MP_BODY_COUNT) return -1;
+    bid = s_MpBodyIdCache[mpbodynum];
     if (!bid) return -1;
     e = assetCatalogResolve(bid);
     if (!e || e->type != ASSET_BODY) return -1;
     if (e->ext.body.headnum < 0) return -1;
-    return catalogHeadnumToMpHeadIdx((s32)e->ext.body.headnum);
+    /* Look up the head entry via the runtime cache and read its mp_index */
+    const char *hid = catalogIdByRuntime(ASSET_HEAD, (s32)e->ext.body.headnum);
+    if (!hid) return -1;
+    he = assetCatalogResolve(hid);
+    if (!he || he->type != ASSET_HEAD) return -1;
+    return (s32)he->mp_index;
 }
 
 /* -------------------------------------------------------------------------
@@ -507,14 +515,13 @@ s32 catalogGetBodyFilenumByIndex(s32 bodynum)
     const char *id;
     catalog_body_result_t result;
 
-    id = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+    id = catalogIdByRuntime(ASSET_BODY, bodynum);
     if (id && catalogResolveBody(id, &result)) {
         sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
         return result.filenum;
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetBodyFilenumByIndex: bodynum=%d not in catalog "
-        "(searched ASSET_BODY by runtime_index)", bodynum);
+        "[CATALOG-FATAL] catalogGetBodyFilenumByIndex: bodynum=%d not in catalog", bodynum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: body bodynum=%d not found in catalog", bodynum);
@@ -530,14 +537,13 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
         return 0;
     }
 
-    id = catalogResolveByRuntimeIndex(ASSET_HEAD, headnum);
+    id = catalogIdByRuntime(ASSET_HEAD, headnum);
     if (id && catalogResolveHead(id, &result)) {
         sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
         return result.filenum;
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetHeadFilenumByIndex: headnum=%d not in catalog "
-        "(searched ASSET_HEAD by runtime_index)", headnum);
+        "[CATALOG-FATAL] catalogGetHeadFilenumByIndex: headnum=%d not in catalog", headnum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: head headnum=%d not found in catalog", headnum);
@@ -549,13 +555,12 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum)
     const char *id;
     catalog_body_result_t result;
 
-    id = catalogResolveByRuntimeIndex(ASSET_BODY, bodynum);
+    id = catalogIdByRuntime(ASSET_BODY, bodynum);
     if (id && catalogResolveBody(id, &result)) {
         return result.model_scale;
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetBodyScaleByIndex: bodynum=%d not in catalog "
-        "(searched ASSET_BODY by runtime_index)", bodynum);
+        "[CATALOG-FATAL] catalogGetBodyScaleByIndex: bodynum=%d not in catalog", bodynum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: body scale bodynum=%d not found in catalog", bodynum);
@@ -576,13 +581,12 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
     const char *id;
 
     memset(out, 0, sizeof(*out));
-    id = catalogResolveByRuntimeIndex(ASSET_MAP, stageindex);
+    id = catalogIdByRuntime(ASSET_MAP, stageindex);
     if (id && catalogResolveStage(id, out)) {
         return 1;
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetStageResultByIndex: stageindex=%d not in catalog "
-        "(searched ASSET_MAP by runtime_index)", stageindex);
+        "[CATALOG-FATAL] catalogGetStageResultByIndex: stageindex=%d not in catalog", stageindex);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: stage stageindex=%d not found in catalog", stageindex);
@@ -603,7 +607,7 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
     const char *id;
     const asset_entry_t *e;
 
-    id = catalogResolveByRuntimeIndex(ASSET_MODEL, propnum);
+    id = catalogIdByRuntime(ASSET_MODEL, propnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -612,77 +616,15 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
         }
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetPropFilenumByIndex: propnum=%d not in catalog "
-        "(searched ASSET_MODEL by runtime_index)", propnum);
+        "[CATALOG-FATAL] catalogGetPropFilenumByIndex: propnum=%d not in catalog", propnum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
     return 0;
 }
 
-/* -------------------------------------------------------------------------
- * Phase 0: Canonical-ID lookups by game-internal numeric identifiers.
- * These replace the old "stage_0x%02x" / "weapon_%d" alias string pattern.
- * O(n) scans -- acceptable for manifest build paths (infrequent, not per-frame).
- * ------------------------------------------------------------------------- */
-
-/**
- * Return the canonical catalog ID for the ASSET_MAP entry whose
- * ext.stage.stagenum equals stagenum, or NULL if not found.
- * Replaces assetCatalogResolve("stage_0x%02x") in manifest code.
- */
-const char *catalogResolveStageByStagenum(s32 stagenum)
-{
-    s32 i;
-    const asset_entry_t *e;
-    for (i = 0; ; i++) {
-        e = assetCatalogGetByIndex(i);
-        if (!e) break;
-        if (e->type == ASSET_MAP && e->ext.map.stagenum == stagenum) {
-            return e->id;
-        }
-    }
-    return NULL;
-}
-
-/**
- * FIX-1/2 (Phase C): Return the canonical catalog ID for the ASSET_ARENA entry
- * whose ext.arena.stagenum equals stagenum, or NULL if not found.
- * Used in CLC_LOBBY_START write to map MP stagenum to a catalog entry
- * so we can send net_hash instead of a raw u8.
- * Unlike catalogResolveStageByStagenum() which targets ASSET_MAP (solo stages),
- * this searches ASSET_ARENA entries (MP arenas from g_MpArenas[]).
- * The server has g_MpArenas[] defined so this lookup succeeds on both sides.
- */
-const char *catalogResolveArenaByStagenum(s32 stagenum)
-{
-    s32 i;
-    const asset_entry_t *e;
-    for (i = 0; ; i++) {
-        e = assetCatalogGetByIndex(i);
-        if (!e) break;
-        if (e->type == ASSET_ARENA && e->ext.arena.stagenum == stagenum) {
-            return e->id;
-        }
-    }
-    return NULL;
-}
-
-/**
- * Return the canonical catalog ID for the ASSET_WEAPON entry whose
- * ext.weapon.weapon_id equals weapon_id (an MPWEAPON_* constant), or NULL.
- * Replaces assetCatalogResolve("weapon_%d") in manifest code.
- */
-const char *catalogResolveWeaponByGameId(s32 weapon_id)
-{
-    s32 i;
-    const asset_entry_t *e;
-    for (i = 0; ; i++) {
-        e = assetCatalogGetByIndex(i);
-        if (!e) break;
-        if (e->type == ASSET_WEAPON && e->ext.weapon.weapon_id == weapon_id) {
-            return e->id;
-        }
-    }
-    return NULL;
-}
+/* Stage/arena/weapon lookup by numeric ID — DELETED (Phase 7).
+ * All callers now use stage_id / weapon catalog IDs directly, or
+ * inline assetCatalogGetByIndex scans at the few remaining sites
+ * where numeric → catalog-ID conversion is unavoidable (match start,
+ * save migration). */

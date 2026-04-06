@@ -86,6 +86,9 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 /* Character accessor */
 char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
+/* Phase 5: catalog ID accessors for lobby players */
+const char *lobbyGetPlayerBodyId(s32 idx);
+const char *lobbyGetPlayerHeadId(s32 idx);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);

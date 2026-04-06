@@ -3,6 +3,476 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S157 — 2026-04-06 (Post-S156 Code Sessions)
+
+**Focus**: Phase 8 conversion function elimination, deep array-bypass audit, D5.0 visual layer implementation
+
+### What Was Done
+
+**Catalog Phase 8 — O(n) conversion function elimination** (`3a05532`):
+- Eliminated all O(n) conversion functions that scanned arrays linearly.
+- Context updated with current migration status.
+
+**Deep array-bypass audit** (`0b4aed2`, `2b409b4`):
+- Full audit of direct array access patterns (`g_Weapons[]`, `g_HeadsAndBodies[]`).
+- Found 2 hidden `catalogGetMpIndex` reimplementations.
+- Fixed all 15 deep audit bypass items — zero gaps remaining.
+
+**D5.0 Visual Layer — revised plan + full implementation** (`8189edb`, `a040275`):
+- Deep investigation revealed ~70% of D5.0 was already built (pdgui_theme.cpp, pdgui_style.cpp).
+- Phase 1: Split `pdguiThemeInit()` into early + `pdguiThemeLateInit()` (called after `texInit()`).
+- Phase 2: ROM texture extraction tool (`--extract-ui-textures` CLI flag).
+- Phase 3: Base UI mod (`mods/base-ui/`) with 13 UI texture catalog entries.
+- Phase 4: Haze overlay in `pdguiDrawPdDialog()` — green-tinted IA8 compositing.
+- Phase 5: CRT scanline pass — 2px-interval horizontal lines, configurable via `pd.ini`.
+- Phase 6: Multi-palette support — all 7 palettes (Grey, Blue, Red, Green, White, Silver, BlackGold) now drive theme draw functions.
+- Also: Procedural modern-UI mod (`mods/pd-modern-ui/`), TGA loader for mod textures, procedural fallback textures.
+
+**QUICKSTART.md created** (this session — S157 context-only):
+- Comprehensive cold-start onboarding document for AI sessions.
+- README.md updated to link to it.
+
+### Decisions
+- D5.0 visual layer is now substantially complete (implementation, not just plan).
+- Phase 8 (O(n) elimination) complete — conversion functions no longer do linear scans.
+- Deep audit closed with zero gaps — all 15 bypass items addressed.
+
+### Next Steps
+- **Build verification** of all post-S156 commits (Phase 8 + deep audit + D5.0)
+- Phase 7 caller elimination: ~85 calls to conversion wrappers
+- Weapons (~660 refs), stages (~80), models (~83) migration
+- D5.3 Pause Menu
+- B-112 root cause (awaiting VEH crash log)
+
+---
+
+## Session S156 — 2026-04-06 (Handoff / End of Night)
+
+**Focus**: Phase 7 audit, triple audit verification, session handoff
+
+### What Was Done
+
+**Catalog ID Migration — Phase 7 audit** (commit `f8b4d00`):
+- All conversion function wrappers reviewed: `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveHeadByMpIndex`, `catalogResolveStageByStagenum`, `catalogResolveArenaByStagenum`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody`, `catalogGetSafeBodyPaired`, `catalogGetSafeHead`.
+- Phase 7 commit landed but callers remain (~85 calls across codebase) — cannot fully delete wrappers yet.
+- Status: AUDITED. Elimination requires caller-by-caller migration (deep audit task).
+
+**Triple audit — PASSED (11/11)**:
+- All 11 original catalog audit findings verified present in codebase.
+- 1 gap fixed (validation functions passed wrong index space to `catalogGetSafeBody`/`Head` — corrected).
+- Full audit log recorded in session S155 notes.
+
+**Infrastructure**:
+- `.gitignore` additions (worktree artifacts, build outputs).
+- Worktree cleanup script added (`devtools/cleanup-worktrees.sh`).
+- Release pipeline tag-push fix.
+
+### Decisions
+- Phase 7 (conversion function elimination) is the next concrete migration task: ~85 call sites must be migrated before wrappers can be deleted.
+- Deep audit of direct array accesses (`g_Weapons[]`, `g_HeadsAndBodies[]`) is NOT yet started.
+- Catalog-as-data-provider (absorb ROM arrays) and gameplay-state-category-based tracks are NOT yet started.
+- All game director decisions stand: D-1 FULL, D-2 FULL, D-3 FULL — zero half measures, catalog is sole source of truth for identity AND state.
+
+### Next Steps
+- Build verification of Phases 0–6 (no regressions)
+- Phase 7 caller elimination: ~85 calls to `catalogBodynumToMpBodyIdx` et al. — migrate each call site to use catalog ID directly
+- Then: deep audit of `g_Weapons[]` / `g_HeadsAndBodies[]` direct array accesses
+- B-112 root cause still unknown; next VEH crash log needed
+- Playtest for Phase 0–6 regression check
+
+---
+
+## Session S155 — 2026-04-06
+
+**Focus**: UX polish, B-112 hardening, Catalog ID Migration planning + Phases 0–6 execution
+
+### What Was Done
+
+**UX improvements** (commits `16355f8`, `61f6340`, `41b27f8`):
+- Bot context menu: checkmarks for selected items, alphabetical character sorting, display name fallbacks.
+- Handicap slider fix: showed wrong percentage in online mode.
+- Release script fix: ensure tag exists locally before `git push origin`.
+
+**B-112 additional crash guards** (`fb9b85c`):
+- Added guards in shot/damage path (chrBruise, chrDamage) for stale chr pointers — defense-in-depth alongside S150's VEH guard.
+- Handicap default init: `chr->handicap` initialized to 1.0 in `chrAllocate` to prevent divide-by-zero in damage calculations.
+
+**Catalog ID Migration — full plan** (`9c43d36`, `5e7254c`, `6f59ef6`):
+- Created `plan-catalog-id-migration.md` — zero-conversion mandate for ALL asset types (bodies, heads, weapons, stages, models, textures, sounds, animations, game modes, lang banks, props, HUD). ~2,578+ integer refs across ~80+ files.
+- Game director decisions: D-1 (full migration for every asset type), D-2 (model numbers — full migration), D-3 (`mainChangeToStage` — full engine refactor to catalog ID).
+
+**Catalog ID Migration — Phases 0–6 execution** (`44c09d2`, `777aef8`, `76eeb8a`, `8a20c9f`, `f4b5bdd`, `238edb0`, `d0808d4`):
+- Phase 0: Generation counter + hot-reload API for catalog.
+- Phase 2: Catalog ID string fields added to config/data structs.
+- Phase 3: Function APIs migrated to catalog ID strings.
+- Phase 4: Integer asset comparisons replaced with catalog ID checks.
+- Phase 5+6: UI shadow structs, save paths, lobby accessors fixed.
+- Fix: CLC_LOBBY_START bot resolution guarded with `#ifndef PD_SERVER`.
+- Fix: Validation functions passed wrong index space to `catalogGetSafeBody`/`Head`.
+
+**Infrastructure**: `.gitignore` additions + worktree cleanup script (`bb33037`). Version bump to v0.0.45 (`2e67d64`).
+
+### Decisions
+- Catalog ID migration is now the primary workstream — zero integer identity tolerance.
+- All asset types in scope (no carve-outs).
+- Phases 0–6 complete for bodies/heads; weapons, stages, models still need Phase 3+ migration.
+
+### Next Steps
+- Build verification of Phases 0–6
+- Continue catalog migration: weapons (~660 refs), stages (~80 refs), models (~83 refs)
+- Playtest to verify no regressions from struct changes
+- B-112 root cause still open
+
+---
+
+## Session S154 — 2026-04-06
+
+**Focus**: Eliminate integer asset identity from network wire (Phase 1+2)
+
+### What Was Done
+
+**Discovery**: All 6 weapon messages (SVC_PLAYER_STATS, SVC_PROP_SPAWN, SVC_PROP_DAMAGE, SVC_CHR_DISARM, SVC_CHR_STATE, SVC_NPC_STATE/CHR_RESYNC) were ALREADY migrated to catalog session refs via `netWriteWeaponRef`/`netReadWeaponRef` helpers (done in v30). SVC_NPC_STATE has no weapon field. Handicap UI slider was also already fixed.
+
+**Bot body/head conversion elimination** (netmsg.c):
+- SVC_STAGE_START write fallback (line 824): `catalogResolveBodyByMpIndex()` → `catalogResolveByRuntimeIndex(ASSET_BODY, ...)` since mpbodynum now stores runtime_index directly.
+- CLC_LOBBY_START server read (line 4216): Replaced `catalogBodynumToMpBodyIdx(runtime_index)` with direct `catalogGetSafeBodyPaired(runtime_index, &rawHead)` storage — matches the client decode path. Same for heads.
+- Zero `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx` calls remain in netmsg.c (only in comments).
+
+**SVC_PROP_SPAWN modelnum → catalog ref** (netmsg.c):
+- Added `netWriteModelRef()`/`netReadModelRef()` helpers using `catalogResolveByRuntimeIndex(ASSET_MODEL, ...)` and `sessionCatalogLocalResolve()`.
+- Write side: both PROPTYPE_WEAPON and PROPTYPE_OBJ modelnum now use `netWriteModelRef()` (catalog session u16).
+- Read side: both paths now use `netReadModelRef()`.
+- All g_ModelStates[] entries are registered as ASSET_MODEL (by assetcatalog_base_extended.c), so resolution is complete.
+
+**chrBruise guard enhancement** (chr.c):
+- Added `!model->definition` check to existing B-112 defense-in-depth guard. Catches stale model pointers with freed definition (non-NULL pointer, NULL definition after stage teardown).
+
+**NET_PROTOCOL_VER 30 → 31** (net.h): Breaking wire change for SVC_PROP_SPAWN modelnum format.
+
+### Decisions
+- CLC player move struct `in->weaponnum` (line 219) still uses raw s8 — out of scope for this session (CLC not SVC, 60Hz per-tick bandwidth concern). Noted for future.
+- Comments referencing old conversion functions updated to describe new code path.
+
+### Next Steps
+- Build verification
+- Playtest to verify prop spawn, bot body/head, and weapon resolution all work end-to-end
+- Consider migrating CLC player move weaponnum to catalog ref (bandwidth trade-off)
+- B-112 root cause still unknown
+
+---
+
+## Session S153 — 2026-04-05 (evening)
+
+**Focus**: Audit + recovery + lobby unification close-out; B-116 bot catalog ID fix
+
+### What Was Done
+
+**Codebase audit**: Full verification of all completed tasks S130–S152 against actual codebase — 22/22 confirmed present.
+
+**Git repo recovery**:
+- `.git` was missing `objects/` directory; fetched full history from GitHub to restore.
+- Cleaned up `.git.broken` (200MB) and 7 orphaned worktrees (~23GB freed).
+- Pushed `dev` to origin.
+
+**S131 completion** (commit `05d5f1d`, pushed):
+- 10 bare `strcpy` calls in `port/src/input.c` converted to `strncpy`.
+- Local `#define MATCH_MAX_SLOTS 32` removed from 3 UI files + `scenario_save.h`; all now use canonical 40 from `matchsetup.h`.
+- Stale field names `headnum`/`bodynum` → `body_id`/`head_id` fixed in `mpsettings.cpp` and `teamsetup.cpp`.
+
+**U-7 Steps C+D — matchsetup.cpp retired** (commit `9fe169e`):
+- Step C: 3D character preview ported to room.cpp bot modal — rotating preview, two-column layout, `pdguiCharPreview` pipeline.
+- Step D: Redirected 4 `g_MatchSetupMenuDialog` push points (menutick.c:253, menutick.c:537, mainmenu.c:4845, setup.c:5736) to `g_CombatSimulatorMenuDialog` + `pdguiSoloRoomOpen()`; removed `pdguiMenuMatchSetupRegister()` call; renamed file to `.cpp.retired`.
+
+**U-10: Deferred bot authority** (commit `6f471a7`):
+- Added `g_NetPendingBotAuthority` flag in `net.h`/`net.c`.
+- `netmsgSvcBotAuthorityRead` now sets pending instead of immediately active.
+- `botTick` promotes pending → active when `g_PadsFile != NULL && g_NumSpawnPoints > 0`.
+- Reset on disconnect and match-end.
+- Collapses the prior 60-frame timeout gate into a deterministic condition check.
+
+**B-116: Bot body/head catalog ID resolution** (committed, not pushed):
+- Root cause: `SVC_STAGE_START` writer used `botidx + MAX_PLAYERS` as slot index, which could miss actual `SLOT_BOT` entries if they weren't packed at that offset.
+- Fix 1 (`netmsg.c`): Pre-built `botSlotMap[]` by scanning `g_MatchConfig.slots[]` for `SLOT_BOT` entries before writing the message.
+- Fix 2 (`netmanifest.c`): Server manifest builder now reads `body_id`/`head_id` directly from `g_MatchConfig.slots[]` (mirrors `manifestBuildForHost` pattern).
+
+### Decisions
+- Lobby unification (U-1 through U-10) declared **COMPLETE**.
+- `pdgui_menu_matchsetup.cpp` is now `.cpp.retired` — not deleted yet pending any edge-case audit, but all code paths redirected.
+- B-116 fix committed but not pushed (intentional — will push with next playtest build).
+
+### Next Steps
+- Playtest build to verify U-10 + B-116 fixes with dedicated server
+- Remaining open playtest issues: B-112 (chr corruption, root cause unknown), B-115 (post-game mouse), event-driven prop sync
+- Next major track: D5.0 (Menu Visual Layer) or open playtest stability issues
+
+---
+
+## Session S152 — 2026-04-05
+
+**Focus**: Verify all 5 playtest fixes committed; implement Bug 4 (hotswap frame-1 CI crash)
+
+### What Was Done
+
+Bugs 1–3 and 5 from S151 were already committed in `da40788`. Bug 4 was coded but uncommitted.
+
+**5. Hotswap frame-1 crash fix** (FIX-PLAYTEST-4):
+- After mission fail → legacy menu exit → CI load, `pdguiHotswapRenderQueued` fires with `s_HotswapMenuWasActive=true` (from prior stage). On frame 0, `screenManifestTick` with count=0 triggered "leave" events calling `catalogUnloadAsset` while catalog was reinitialising → crash at `+0xc1df3`.
+- Fix A: `pdgui_hotswap.cpp` — guard `screenManifestTick` behind `pdmainGetLvFrame60() >= 2`.
+- Fix B: `pdgui_backend.cpp` — guard hotswap-close mouse capture flush behind `pdmainGetLvFrame60() > 0`.
+- Bridge: `pdmain.c`/`pdmain.h` expose `pdmainGetLvFrame60()` so C++ code can read `g_Vars.lvframe60` without including `types.h`.
+- Files: `port/fast3d/pdgui_hotswap.cpp`, `port/fast3d/pdgui_backend.cpp`, `port/src/pdmain.c`, `port/include/pdmain.h`, `port/fast3d/pdgui_bridge.c`.
+
+### Decisions
+- All 5 playtest fixes confirmed in codebase and committed.
+
+### Next Steps
+- Playtest build to confirm all 5 fixes hold
+- Event-driven prop sync redesign (prop resync fix is a stop-gap)
+- catalogResolveBodyByMpIndex out-of-range (mpbodynum=63/65/66/67) — lobby UI issue separate from these fixes
+
+---
+
+## Session S151 — 2026-04-05
+
+**Focus**: Playtest bug diagnosis and fixes — invisible bots, broken doors/ammo, death-in-hub crash, bot HP
+
+### What Was Done
+
+**Commit `da40788` on `dev`.**
+
+**1. Bot body/head resolution fix** (FIX-PLAYTEST-1):
+- CLC_LOBBY_START server handler read body_id/head_id strings from wire but never stored them in `g_MatchConfig.slots[]`. SVC_STAGE_START write fell back to mpbodynum=0 → all bots got dark_combat body.
+- Fix: strncpy body_id/head_id into g_MatchConfig.slots[MAX_PLAYERS+bi] during server read.
+- Also bumped MATCH_MAX_SLOTS from 32→40 (MAX_PLAYERS(8)+MAX_BOTS(32) can reach slot 39).
+- Files: `port/src/net/netmsg.c`, `port/include/net/matchsetup.h`.
+
+**2. Prop resync spam fix** (FIX-PLAYTEST-2):
+- Dedicated server stubs mainChangeToStage → g_Vars.activeprops empty → prop resync always sends 0 props. Client polled every 6 seconds forever.
+- Fix: reset desync counter when receiving 0 props, stopping the spam loop.
+- Full event-driven prop sync is future work.
+- File: `port/src/net/netmsg.c`.
+
+**3. Death-in-hub crash fix** (FIX-PLAYTEST-3):
+- Falling through CI geometry → death → titleSetNextStage(0x00) → invalid stage → crash (bgGetStageIndex returns -1, loader uses garbage).
+- Fix: guard titleSetNextStage against stagenum=0, redirect to STAGE_CITRAINING (0x26).
+- File: `src/game/pdmode.c`.
+
+**4. Bot HP fix** (FIX-PLAYTEST-5):
+- chrAllocate defaults maxdamage=4. Online gets 8 from server chr resync, but local Combat Sim bots kept 4 (one-shot by any weapon).
+- Fix: set chr->maxdamage=8.0f in botmgrAllocateBot.
+- File: `src/game/botmgr.c`.
+
+### Log Analysis Findings (from Mike + Chris playtest logs)
+- **Invisible bots**: All bots got body=86/head=4 (dark_combat). Joanna+Elvis head combo from safety clamp on mpbody=0.
+- **Broken doors/ammo (Chris)**: Prop resync returns 0 props every 6s. 16+ consecutive resyncs in 2min session.
+- **Death crash (Chris)**: Fell through CI ceiling, ground=-667→-707, titleSetNextStage(0x00), bg_lue loaded with chrslots=0xffffff01.
+- **CI crash (Mike)**: Failed mission → legacy menu exit → frame 1 crash at +0xc1df3. Needs symbolication (DEFERRED).
+- **Post-game mouse dead (Mike)**: Legacy menu steals input, ImGui hotswap doesn't recapture. Related to hotswap state machine (DEFERRED).
+- **catalogResolveBodyByMpIndex out-of-range**: mpbodynum=63/65/66/67 queried against [0,63) — separate lobby UI issue.
+
+### Decisions
+- Prop sync should become event-driven (Mike's direction) — current fix is a stop-gap.
+- Bug 4 (frame 1 CI crash) deferred pending crash symbolication.
+- MATCH_MAX_SLOTS increased to 40 to accommodate full player+bot range.
+
+### Next Steps
+- Playtest the build to verify fixes
+- Event-driven prop sync redesign
+- Investigate Bug 4 (CI crash after mission fail)
+- Push commits to GitHub (16+ ahead of origin/dev)
+
+---
+
+## Session S150 — 2026-04-04/05
+
+**Focus**: Credits update, bot stuck-detection init, chr pointer-corruption guard, 8MB stack + VEH → v0.0.38
+
+### What Was Done
+
+**Commits `ccf1bae`, `87b3388`, `375292c`, `85928d9` pushed to `dev`. Build auto-commits `ddc742e`, `ab31c6b`, `4d07510`, `d92f4e3`.**
+
+**1. Credits update** (`ccf1bae`):
+- Removed Variant line from title info block.
+- Moved "PD2 Port Director: MikeHazeJr" up to the vacated slot.
+- Added "Tester: smarch" in grass green (0x00CC00).
+- Developer / Rare Ltd. row shifted down.
+- File: `src/game/title.c`.
+
+**2. Bot stuck-detection initialization** (`87b3388`) — **B-111 fixed**:
+- `s_BotStuck` was zero-initialized, causing all 31 bots to fire their first stuck check simultaneously at frame 180 (`STUCK_CHECK_FRAMES`) with a bogus distance-from-origin comparison.
+- Fix: initialize snapshot position and frame in `botSpawn()`; safety fallback in `botTick()` for bots that enter play without going through `botSpawn()`.
+- File: `src/game/bot.c`.
+
+**3. Chr pointer-corruption guard** (`375292c`) — **B-112 partial**:
+- Access violation at `chr->hidden` when `chr` pointer (rbx) gets corrupted during AI execution or action tick dispatch in 31-bot matches.
+- Added volatile canary + pointer range validation at two checkpoints: after `chraiExecute` and after the action switch.
+- Diagnostic logging identifies whether corruption originates in AI scripts or action handlers.
+- Root cause still unknown — guard reduces crash frequency; investigation continues.
+- File: `src/game/chraction.c`.
+
+**4. Stack increase to 8MB + VEH** (`85928d9`) — **B-113 fixed**:
+- Silent crash in 31-bot matches caused by 2MB default stack being exhausted during deep AI/collision call chains.
+- Existing crash handler (UEF) allocated 8KB on stack, causing double fault → process terminated with no log output.
+- Fix: increase stack reserve from 2MB to 8MB via linker flag. Add first-chance vectored exception handler (VEH) using static buffers and minimal stack. `crashHandler`'s 8KB msg buffer moved from stack to static storage. `sysLogGetPath()` added so VEH can write directly to log. `_resetstkoflw()` called for stack-overflow recovery.
+- Files: `CMakeLists.txt`, `port/include/system.h`, `port/src/crash.c`, `port/src/system.c`.
+
+**Build**: v0.0.38 clean.
+
+### Decisions
+- B-112 (chr pointer corruption) gets a guard + diagnostics now; full root-cause fix deferred until the diagnostic log identifies the corruption source.
+- VEH is first-chance so it fires before the debugger, ensuring crash logs even on the dev machine.
+
+### Next Steps
+- Review VEH crash log from next 31-bot playtest to identify B-112 root cause.
+- D5.3 (Pause Menu) is the biggest remaining open gap.
+
+---
+
+## Session S149 — 2026-04-04
+
+**Focus**: Bot spawn root-cause deep-dive — 31 bots on 24 pads + underground ground-clamp + AIDROP filter removal
+
+### What Was Done
+
+**Commits `d2e558e`, `e03a990`, `a81926e` pushed to `dev`. Build commits `fc3a94e`, `2386bbb`.**
+
+**1. Bot spawn crash (31 bots / 24 pads)** (`d2e558e`) — **B-110 further hardened**:
+- Root cause: unspawned bots (rooms={-1}) were counted as real enemies in the pad-scoring loop, polluting distance calculations and marking all pads as bad. Bots 9-31 all fell through to the fallback which always picked idx=0, piling 23 bots at the same position → crash ~3 seconds in.
+- Three-part fix: (1) skip unspawned bots in scoring loop; (2) pass 4 with `force=true` when all strict passes fail; (3) improved fallback with cycling counter + 80-unit jitter.
+
+**2. Underground ground-clamp + SPAWN-DIAG** (`e03a990`):
+- Bots spawning at underground positions (e.g. Chicago y=-634) now clamped upward to real floor via probe from 2000 units above.
+- One-time `SPAWN-DIAG` logging at match start dumps all spawn pad positions and source waypoint data.
+
+**3. AIDROP filter root-cause fix** (`a81926e`) — **B-110 root cause**:
+- PADFLAG_AIDROP (0x2000) is set on nearly all waypoint pads in multi-level maps (Chicago, etc.). The spawn population code filtered these out, leaving only padnum=0 as valid → all 24 spawn slots got padnum=0 → all bots at same underground position → crash at frame ~180.
+- Fix: removed AIDROP filter from both `playerreset.c` and `navspawn.c`. AIDROP is a pathfinding behavior hint (drop off ledge), not a spawn validity marker.
+- Sequential fallback added if all spawn pads still collapse to same padnum.
+- Diagnostic logging trimmed to first 6 pads.
+
+### Decisions
+- AIDROP filter removal is correct — the flag documents pathfinding behavior, not spawn eligibility. No other spawn filter should use pathfinding hint flags.
+
+### Next Steps
+- Playtest Chicago map with 31 bots — verify all bots spawn at valid positions.
+- S150: credits + crash stability work.
+
+---
+
+## Session S148 — 2026-04-04
+
+**Focus**: CMakeLists.txt corruption repair, Chicago bot spawn root cause (void geometry + HEAD 1000 catalog spam), v0.0.36, design doc
+
+### What Was Done
+
+**Commits `b84c6ba`, `59818e3`, `6ed6a67`, `1235806` pushed to `dev`. Build commits `1ddb77c`.**
+
+**1. CMakeLists.txt corruption repair** (`b84c6ba`) — **B-114 fixed**:
+- CMakeLists.txt had two lines (181, 532) with ~30MB of garbage bytes each — encoding bug from devtools.
+- File restored to valid CMake.
+
+**2. Bot spawn crash on Chicago + HEAD 1000 catalog spam** (`59818e3`) — **B-110 partially fixed**:
+- `playerChooseSpawnLocation`: all fallback paths now use `bgFindRoomsByPos` to resolve rooms when pad data has `room==-1`; final validation ensures no spawn ever returns with `dstrooms[0]==-1`.
+- `botSpawn`: after `chrMoveToPos`, if `rooms[0]` still -1 and `floorroom` also -1, call `bgFindRoomsByPos` as last resort.
+- `botSpawnAll` failsafe: after initial spawn wave, re-spawn any bots still with `rooms[0]==-1`. Per-tick room recovery now re-spawns bots stuck in void geometry.
+- HEAD sentinel value 1000 (random-gender) guarded against catalog lookup — was producing 18× "type=HEAD index=1000 not found" warnings per match. Added `HEAD_RANDOM_GENDER` constant.
+
+**3. v0.0.36 version bump** (`6ed6a67`).
+
+**4. Design doc: implementation-plan-mods-and-d5.md** (`1235806`):
+- New file: `context/designs/implementation-plan-mods-and-d5.md` (549 lines).
+- Covers mod pipeline (P1-P6) and D5 UI screens (P7-P10) with dependency graph, per-phase specs, and sequencing.
+
+### Decisions
+- HEAD_RANDOM_GENDER constant prevents catalog lookup on sentinel — catalog should never be called with magic index 1000.
+
+### Next Steps
+- Playtest Chicago with 31 bots to verify void spawn fix.
+- Deeper root-cause investigation into AIDROP filter (S149).
+
+---
+
+## Session S147 — 2026-04-04
+
+**Focus**: Three online playtest crash fixes — void spawn fallback, Skedar catalog ID, bot.c log flood
+
+### What Was Done
+
+**Commit `6f8bbfe` pushed to `dev`. Build commits `dd062b2`, `b35cf4f`.**
+
+Three fixes from online playtest analysis:
+
+1. **`player.c`** (void spawn fallback): In `playerChooseSpawnLocation`'s shortlist-empty fallback, scan pads from a random offset for the first one with `room >= 0` rather than picking blindly. Prevents void spawns when bots outnumber spawn pads and some pads have `room == -1`. Adds WARNING log for future incidents.
+
+2. **`mplayer.c`** (Skedar catalog ID): Wrong catalog ID for Skedar arena default — was `"base:mp_skedar"`, must be `"base:arena_mp_skedar"` (arena_ prefix required by Phase B naming). Caused Skedar map to fail catalog resolution.
+
+3. **`bot.c`** (log flood): Removed per-tick MATCH-TRACE botTick entry log — 31 bots × 240fps = ~7,440 lines/sec. Room-recovery logs kept.
+
+**Build**: v0.0.34 clean.
+
+### Next Steps
+- Playtest to verify Skedar loads, bots spawn correctly, log no longer floods.
+
+---
+
+## Session S146 — 2026-04-04
+
+**Focus**: botSpawnAll structure fix — move failsafe from setup.c to botTick
+
+### What Was Done
+
+**Commits `d91489e`, `b43ecb7` pushed to `dev`. Build commit `c42e6ac`.**
+
+1. **`d91489e`** fix(build): add missing `bot.h` include in `setup.c` for `botSpawnAll` — compile error from S145 explicit `botSpawnAll()` call.
+
+2. **`b43ecb7`** fix(spawn): moved `botSpawnAll` failsafe from `setup.c` to `botTick`:
+   - The explicit `botSpawnAll()` call in `setup.c` ran too early (before bots had valid rooms from the AI script). Moving the failsafe to `botTick` ensures re-spawn happens after the AI script has had a chance to assign rooms.
+
+**Build**: v0.0.33 clean.
+
+### Next Steps
+- Online playtest to verify 31-bot spawn with adaptive spacing and failsafe.
+
+---
+
+## Session S145 — 2026-04-04
+
+**Focus**: Room leave fix (CLC_ROOM_LEAVE), botSpawnAll failsafe for non-MP maps, server catalog IDs for bot bodies; context updated S141–S144
+
+### What Was Done
+
+**Commits `7d08f78`, `80cee04` pushed to `dev`.**
+
+**1. Room leave fix** (`7d08f78`):
+- "Leave Room" button only called `pdguiSetInRoom(0)` without telling the server. Room stayed open showing 1 occupant.
+- Fix: now sends `CLC_ROOM_LEAVE` to server before transitioning to lobby view.
+- File: `port/fast3d/pdgui_menu_room.cpp`.
+
+**2. Adaptive spawn spacing** (`7d08f78`):
+- Solo maps used as MP arenas (Villa, etc.) have compact layouts where 500-unit minimum spacing rejected most waypoint candidates, leaving too few spawn points.
+- Now uses adaptive passes: 500 → 250 → 125 → 60 → 0 unit spacing, stopping when ≥ 8 spawn points found.
+- File: `src/game/playerreset.c`.
+
+**3. botSpawnAll failsafe for non-MP maps** (`80cee04`):
+- `botSpawnAll` never called on solo mission maps used as MP arenas (Villa, Complex, etc.) — their AI script lacks `aiMpInitSimulants`. Added explicit `botSpawnAll()` call in `setup.c` after bot allocation.
+
+**4. Server uses catalog IDs for bot bodies** (`80cee04`):
+- Server `SVC_STAGE_START` used `catalogResolveBodyByMpIndex()` which returns NULL on dedicated server. All bots rendered as the same character.
+- Fix: now uses `g_MatchConfig.slots[]` `body_id`/`head_id` strings directly.
+
+**5. Context update** (`80cee04`): Session log backfilled with S141–S144; README and bugs.md updated.
+
+**Build**: still v0.0.32.
+
+### Decisions
+- Explicit `botSpawnAll()` in `setup.c` is a pragmatic stop-gap; moved to `botTick` failsafe in S146.
+
+### Next Steps
+- Fix build error (missing bot.h include) from explicit botSpawnAll call → S146.
+- Online playtest with 31 bots.
+
+---
+
 ## Session S144 — 2026-04-04
 
 **Focus**: Endscreen UI overhaul, multi-select bot list, 256-entry name dictionaries, B-104 fix, stale slot cleanup

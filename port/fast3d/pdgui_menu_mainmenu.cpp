@@ -54,7 +54,6 @@ extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
 extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
-extern struct menudialogdef g_MatchSetupMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
 
 /* Match setup init (from matchsetup.c) */
@@ -287,8 +286,9 @@ struct netrecentserver {
 extern struct netrecentserver g_NetRecentServers[PD_NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 
-/* Network connect + async recent-server ping (net.c) */
+/* Network connect + async recent-server ping (net.c / netholepunch.c) */
 s32 netStartClient(const char *addr);
+s32 netStartClientWithHolePunch(const char *addr);
 void netQueryRecentServersAsync(void);
 void netPollRecentServers(void);
 extern bool g_NetQueryInFlight;
@@ -2456,7 +2456,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                         (ip >> 16) & 0xff, (ip >> 24) & 0xff, CONNECT_DEFAULT_PORT);
                     sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
 
-                    if (netStartClient(addrStr) == 0) {
+                    if (netStartClientWithHolePunch(addrStr) == 0) {
                         snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
                     } else {
@@ -2543,7 +2543,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 ImGui::PushID(i);
                 if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
                         ImVec2(buttonW - pdguiScale(24.0f), 0.0f))) {
-                    if (netStartClient(srv->addr) == 0) {
+                    if (netStartClientWithHolePunch(srv->addr) == 0) {
                         snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
                     } else {

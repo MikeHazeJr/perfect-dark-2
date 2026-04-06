@@ -35,6 +35,7 @@
 #include "system.h"
 #include "modelcatalog.h"
 #include "modmgr.h"
+#include "assetcatalog.h"
 #include "game/modeldef.h"
 #include "game/lang.h"
 #include "lib/memp.h"
@@ -622,6 +623,81 @@ s32 catalogGetSafeHead(s32 headnum)
 	return headnum;
 }
 
+/**
+ * Validate a body catalog ID string. Returns the input if valid, or
+ * "base:dark_combat" as fallback. Output is always a valid catalog ID.
+ */
+const char *catalogValidateBodyId(const char *body_id)
+{
+	if (body_id && body_id[0]) {
+		const asset_entry_t *e = assetCatalogResolve(body_id);
+		if (e && e->type == ASSET_BODY) {
+			/* runtime_index is a HeadsAndBodies index — pass directly
+			 * to catalogGetSafeBody which validates in the same space. */
+			s32 idx = (s32)e->runtime_index;
+			if (catalogGetSafeBody(idx) == idx) {
+				return body_id;
+			}
+		}
+	}
+	/* Fallback to base:dark_combat */
+	return "base:dark_combat";
+}
+
+/**
+ * Validate a body catalog ID string and pair with a matching head.
+ * If body_id is invalid, picks a random valid body and writes the paired
+ * head catalog ID into out_head_id. Returns a valid body catalog ID.
+ */
+const char *catalogValidateBodyIdPaired(const char *body_id, char *out_head_id, s32 out_len)
+{
+	if (body_id && body_id[0]) {
+		const asset_entry_t *e = assetCatalogResolve(body_id);
+		if (e && e->type == ASSET_BODY) {
+			/* runtime_index is a HeadsAndBodies index — pass directly. */
+			s32 idx = (s32)e->runtime_index;
+			if (catalogGetSafeBody(idx) == idx) {
+				/* Body is valid — don't change the head */
+				return body_id;
+			}
+		}
+	}
+	/* Body is invalid — pick fallback body and pair head */
+	s32 safeHead = CATALOG_FALLBACK_HEAD;
+	s32 safeBody = catalogGetSafeBodyPaired(CATALOG_FALLBACK_BODY, &safeHead);
+	const char *bid = catalogMpBodyId(safeBody);
+	if (out_head_id && out_len > 0) {
+		const char *hid = catalogMpHeadId(safeHead);
+		if (hid) {
+			strncpy(out_head_id, hid, out_len - 1);
+			out_head_id[out_len - 1] = '\0';
+		} else {
+			strncpy(out_head_id, "base:head_dark_combat", out_len - 1);
+			out_head_id[out_len - 1] = '\0';
+		}
+	}
+	return bid ? bid : "base:dark_combat";
+}
+
+/**
+ * Validate a head catalog ID string. Returns the input if valid, or
+ * "base:head_dark_combat" as fallback.
+ */
+const char *catalogValidateHeadId(const char *head_id)
+{
+	if (head_id && head_id[0]) {
+		const asset_entry_t *e = assetCatalogResolve(head_id);
+		if (e && e->type == ASSET_HEAD) {
+			/* runtime_index is a HeadsAndBodies index — pass directly. */
+			s32 idx = (s32)e->runtime_index;
+			if (catalogGetSafeHead(idx) == idx) {
+				return head_id;
+			}
+		}
+	}
+	return "base:head_dark_combat";
+}
+
 const char *catalogGetName(s32 index)
 {
 	if (index < 0 || index >= s_CatalogCount) {
@@ -699,14 +775,16 @@ void catalogPollThumbnails(void)
 		}
 		if (idx >= 0 && idx < s_CatalogCount) {
 			struct catalogentry *ce = &s_Catalog[idx];
-			u8 headnum = (u8)CATALOG_FALLBACK_HEAD;
-			u8 bodynum = (u8)CATALOG_FALLBACK_BODY;
+			const char *hid = "";
+			const char *bid = "";
 			if (ce->category == MODELCAT_HEAD) {
-				headnum = (u8)ce->mpIndex;
+				const char *resolved = catalogIdByRuntime(ASSET_HEAD, (s32)ce->index);
+				if (resolved) hid = resolved;
 			} else {
-				bodynum = (u8)ce->mpIndex;
+				const char *resolved = catalogIdByRuntime(ASSET_BODY, (s32)ce->index);
+				if (resolved) bid = resolved;
 			}
-			pdguiCharPreviewRequest(headnum, bodynum);
+			pdguiCharPreviewRequest(hid, bid);
 			s_ThumbActive = idx;
 		}
 	}

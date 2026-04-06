@@ -23,6 +23,7 @@
 #include <dbghelp.h>
 #include <inttypes.h>
 #include <excpt.h>
+#include <signal.h>
 
 // NOTE: game builds with gcc, which means we have no PDBs for the windows version
 // this means that you generally won't get any symbol names in the main executable
@@ -122,9 +123,84 @@ static void crashStackTrace(char *msg, PEXCEPTION_POINTERS exinfo)
 	SymCleanup(process);
 }
 
+/**
+ * Lightweight first-chance handler via AddVectoredExceptionHandler.
+ * Uses STATIC buffers only — no stack allocations beyond a few locals.
+ * This catches stack overflows that the UEF (crashHandler) would miss
+ * because the UEF's own 8 KB stack allocation overflows the guard page.
+ */
+static char s_VehMsg[512];
+static volatile long s_VehFired = 0;
+
+static long __stdcall crashVectoredHandler(PEXCEPTION_POINTERS exinfo)
+{
+	const DWORD code = exinfo->ExceptionRecord->ExceptionCode;
+
+	/* Only handle fatal exceptions (not breakpoints, single-step, etc.) */
+	if (code != EXCEPTION_ACCESS_VIOLATION
+			&& code != EXCEPTION_STACK_OVERFLOW
+			&& code != EXCEPTION_ILLEGAL_INSTRUCTION
+			&& code != EXCEPTION_INT_DIVIDE_BY_ZERO
+			&& code != EXCEPTION_PRIV_INSTRUCTION) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+
+	/* Prevent re-entry */
+	if (InterlockedCompareExchange(&s_VehFired, 1, 0) != 0) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+
+	/* For stack overflow: reset the guard page so we can use minimal stack */
+	if (code == EXCEPTION_STACK_OVERFLOW) {
+		_resetstkoflw();
+	}
+
+	/* Write a minimal crash line directly to the log file using static buffer.
+	 * This avoids the 2 KB stack allocation in sysLogPrintf. */
+	{
+		const void *pc = exinfo->ExceptionRecord->ExceptionAddress;
+		const void *modbase = crashGetModuleBase(pc);
+		const uintptr_t offset = (uintptr_t)pc - (uintptr_t)modbase;
+		const char *codename = "EXCEPTION";
+		if (code == EXCEPTION_STACK_OVERFLOW) codename = "STACK_OVERFLOW";
+		else if (code == EXCEPTION_ACCESS_VIOLATION) codename = "ACCESS_VIOLATION";
+
+		snprintf(s_VehMsg, sizeof(s_VehMsg),
+			"FATAL: %s PC=%p (+0x%llx) CODE=0x%08lx MODULE=%p RSP=%p\n",
+			codename, pc, (unsigned long long)offset, code, modbase,
+#ifdef PLATFORM_X86_64
+			(void *)(uintptr_t)exinfo->ContextRecord->Rsp
+#else
+			(void *)(uintptr_t)exinfo->ContextRecord->Esp
+#endif
+		);
+
+		/* Direct file write — sysLogPrintf uses too much stack */
+		const char *logpath = sysLogGetPath();
+		if (logpath && logpath[0]) {
+			FILE *f = fopen(logpath, "ab");
+			if (f) {
+				fprintf(f, "%s", s_VehMsg);
+				fclose(f);
+			}
+		}
+
+		/* Also write to stderr */
+		fputs(s_VehMsg, stderr);
+		fflush(stderr);
+	}
+
+	/* Let the normal UEF run next for full stack trace (if there's stack space) */
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 {
-	char msg[CRASH_MAX_MSG + 1] = { 0 };
+	/* Use STATIC buffer instead of stack-allocated 8 KB.
+	 * The old stack allocation caused the crash handler itself to
+	 * overflow when handling STATUS_STACK_OVERFLOW. */
+	static char msg[CRASH_MAX_MSG + 1];
+	memset(msg, 0, sizeof(msg));
 
 	if (IsDebuggerPresent()) {
 		if (prevExFilter) {
@@ -304,11 +380,49 @@ s32 g_CrashEnabled = 0;
 
 static char crashMsg[1024];
 
+#ifdef PLATFORM_WIN32
+/**
+ * SIGABRT handler for GCC's -fstack-protector-strong.
+ * When __stack_chk_fail detects a smashed canary it calls abort(),
+ * which raises SIGABRT through the CRT. The VEH/UEF never see it,
+ * so we catch it here with signal().
+ */
+static void crashSigabrtHandler(int sig)
+{
+	static volatile long s_AbrtFired = 0;
+	if (InterlockedCompareExchange(&s_AbrtFired, 1, 0) != 0) {
+		_exit(3);
+	}
+
+	const char *logpath = sysLogGetPath();
+	if (logpath && logpath[0]) {
+		FILE *f = fopen(logpath, "ab");
+		if (f) {
+			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected by -fstack-protector-strong)\n");
+			fclose(f);
+		}
+	}
+	fputs("FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected)\n", stderr);
+	fflush(stderr);
+
+	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or explicit abort()");
+
+	sysFatalError("SIGABRT: Stack buffer overflow detected by -fstack-protector-strong.\n"
+		"Check the log — the corrupted function's canary was smashed.\n"
+		"This confirms a buffer overrun inside a game tick function.");
+}
+#endif
+
 void crashInit(void)
 {
 #ifdef PLATFORM_WIN32
 	SetErrorMode(SEM_FAILCRITICALERRORS);
+	/* First-chance vectored handler: runs before the UEF, uses minimal stack.
+	 * Critical for catching stack overflow where the UEF can't run. */
+	AddVectoredExceptionHandler(1, crashVectoredHandler);
 	prevExFilter = SetUnhandledExceptionFilter(crashHandler);
+	/* Catch SIGABRT from GCC's __stack_chk_fail (stack protector) */
+	signal(SIGABRT, crashSigabrtHandler);
 	g_CrashEnabled = 1;
 #elif defined(PLATFORM_LINUX)
 	struct sigaction sigact = { 0 };
