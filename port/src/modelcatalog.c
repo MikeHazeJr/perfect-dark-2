@@ -632,8 +632,8 @@ const char *catalogValidateBodyId(const char *body_id)
 	if (body_id && body_id[0]) {
 		const asset_entry_t *e = assetCatalogResolve(body_id);
 		if (e && e->type == ASSET_BODY) {
-			/* runtime_index IS a g_HeadsAndBodies[] index — pass directly
-			 * to catalogGetSafeBody which indexes s_Catalog[] (same space). */
+			/* runtime_index is a HeadsAndBodies index — pass directly
+			 * to catalogGetSafeBody which validates in the same space. */
 			s32 idx = (s32)e->runtime_index;
 			if (catalogGetSafeBody(idx) == idx) {
 				return body_id;
@@ -654,7 +654,7 @@ const char *catalogValidateBodyIdPaired(const char *body_id, char *out_head_id, 
 	if (body_id && body_id[0]) {
 		const asset_entry_t *e = assetCatalogResolve(body_id);
 		if (e && e->type == ASSET_BODY) {
-			/* runtime_index IS a g_HeadsAndBodies[] index — pass directly. */
+			/* runtime_index is a HeadsAndBodies index — pass directly. */
 			s32 idx = (s32)e->runtime_index;
 			if (catalogGetSafeBody(idx) == idx) {
 				/* Body is valid — don't change the head */
@@ -688,7 +688,7 @@ const char *catalogValidateHeadId(const char *head_id)
 	if (head_id && head_id[0]) {
 		const asset_entry_t *e = assetCatalogResolve(head_id);
 		if (e && e->type == ASSET_HEAD) {
-			/* runtime_index IS a g_HeadsAndBodies[] index — pass directly. */
+			/* runtime_index is a HeadsAndBodies index — pass directly. */
 			s32 idx = (s32)e->runtime_index;
 			if (catalogGetSafeHead(idx) == idx) {
 				return head_id;

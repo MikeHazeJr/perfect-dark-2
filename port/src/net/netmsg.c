@@ -1070,8 +1070,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #if !defined(PD_SERVER)
 		/* Apply catalog-validated body/head to player config arrays.
 		 * matchStart() does this for offline/listen-server mode; we must mirror it
-		 * here because bodyreset() has already NULLed g_HeadsAndBodies[].modeldef
-		 * and nothing else reloads it on the client path — playerTickChrBody()
+		 * here because bodyreset() has already NULLed all modeldef pointers
+		 * and nothing else reloads them on the client path — playerTickChrBody()
 		 * would crash on frame 0 dereferencing a NULL modeldef. */
 		for (u32 pcl = 0; pcl < NET_MAX_CLIENTS; ++pcl) {
 			struct netclient *pncl = &g_NetClients[pcl];

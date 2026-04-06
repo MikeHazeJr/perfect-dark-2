@@ -496,9 +496,8 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     }
 
     /* ---- Bots from g_MatchConfig (mirrors manifestBuildForHost pattern) ---- */
-    /* body_id/head_id are the PRIMARY identity — use them directly; no
-     * integer-domain conversion which fails on dedicated servers where
-     * g_MpBodies[] is zeroed. */
+    /* body_id/head_id are the PRIMARY identity — use catalog IDs directly;
+     * no integer-domain conversion needed. */
     for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
         const struct matchslot *sl = &g_MatchConfig.slots[i];
         if (sl->type != SLOT_BOT) {

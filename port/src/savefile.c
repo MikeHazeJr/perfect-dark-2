@@ -675,8 +675,7 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			s_tok_str(&tok, pc->base.name, 15);
 		} else if (strcmp(key, "head_id") == 0) {
 			/* SA-4: catalog string ID for head.
-			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
-			 * g_MpHeads[] position before storing in mpheadnum. */
+			 * Resolve via catalog; mp_index gives the mpheadnum directly. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);
@@ -690,8 +689,7 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			}
 		} else if (strcmp(key, "body_id") == 0) {
 			/* SA-4: catalog string ID for body.
-			 * FIX-12: e->runtime_index is g_HeadsAndBodies[] index; convert to
-			 * g_MpBodies[] position before storing in mpbodynum. */
+			 * Resolve via catalog; mp_index gives the mpbodynum directly. */
 			char id_buf[CATALOG_ID_LEN];
 			const asset_entry_t *e;
 			tok = s_next(&p);

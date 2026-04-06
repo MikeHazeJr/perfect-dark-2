@@ -222,9 +222,9 @@ static int tryLoad(void)
             headnum = buf[16];
             bodynum = buf[17];
             s_Identity.profiles[i].flags = buf[18];
-            /* FIX-20: Resolve legacy integers to catalog string IDs.
-             * Old identity format stored mpheadnum/mpbodynum (g_MpHeads[]/g_MpBodies[]
-             * position indices, range 0..75/0..62).  Phase 8 O(1) cached lookup. */
+            /* FIX-20: Resolve legacy integer indices to catalog string IDs.
+             * Old identity format stored mpheadnum/mpbodynum as position
+             * indices (range 0..75/0..62). Catalog O(1) cached lookup. */
             resolved_head = catalogMpHeadId(headnum);
             resolved_body = catalogMpBodyId(bodynum);
             if (resolved_head) {

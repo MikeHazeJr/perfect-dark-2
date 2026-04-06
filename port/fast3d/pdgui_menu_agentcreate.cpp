@@ -77,11 +77,7 @@ u32 mpGetNumBodies(void);
 s32 mpGetBodyId(u8 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
-/* g_MpBodies/g_MpHeads — needed to convert mp index → runtime_index */
-struct mpbody { s16 bodynum; s16 name; s16 headnum; u8 requirefeature; };
-struct mphead { s16 headnum; u8 requirefeature; };
-extern struct mpbody g_MpBodies[63];
-extern struct mphead g_MpHeads[76];
+/* Body/head data accessed via catalog accessors (catalogMpBodyId, catalogMpHeadId) */
 
 /* Feature checking — unlock system */
 s32 mpGetHeadRequiredFeature(u8 headnum);

@@ -1277,11 +1277,11 @@ static void modmgrEnsureCaches(void)
 static void modmgrBodyCollectCb(const asset_entry_t *entry, void *userdata)
 {
 	/*
-	 * FIX: Index by mpbodynum (sequential position = 0, 1, 2, ...) NOT by
-	 * entry->runtime_index (g_HeadsAndBodies bodynum, e.g. 86 for BODY_DARK_COMBAT).
+	 * Index by mpbodynum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (HeadsAndBodies bodynum, e.g. 86 for BODY_DARK_COMBAT).
 	 * modmgrGetBody(mpbodynum) accesses s_CatalogBodies[mpbodynum], so the cache
-	 * must be in mpbodynum order.  Bodies are registered in g_MpBodies[] order
-	 * (s_BaseBodies indices 0..62), so the iteration order matches mpbodynum order.
+	 * must be in mpbodynum order.  Catalog iterates base bodies in registration
+	 * order (indices 0..62), so iteration order matches mpbodynum order.
 	 */
 	s32 *idx_ptr = (s32 *)userdata;
 	s32 idx = *idx_ptr;
@@ -1318,11 +1318,11 @@ static void modmgrRebuildBodyCache(void)
 static void modmgrHeadCollectCb(const asset_entry_t *entry, void *userdata)
 {
 	/*
-	 * FIX: Index by mpheadnum (sequential position = 0, 1, 2, ...) NOT by
-	 * entry->runtime_index (g_HeadsAndBodies headnum, e.g. HEAD_BEAU1=0x18).
+	 * Index by mpheadnum (sequential position = 0, 1, 2, ...) NOT by
+	 * entry->runtime_index (HeadsAndBodies headnum, e.g. HEAD_BEAU1=0x18).
 	 * modmgrGetHead(mpheadnum) accesses s_CatalogHeads[mpheadnum], so the cache
-	 * must be in mpheadnum order.  Heads are registered in g_MpHeads[] order
-	 * (loop mpidx 0..75), so the iteration order matches mpheadnum order.
+	 * must be in mpheadnum order.  Catalog iterates base heads in registration
+	 * order (loop mpidx 0..75), so iteration order matches mpheadnum order.
 	 */
 	s32 *idx_ptr = (s32 *)userdata;
 	s32 idx = *idx_ptr;

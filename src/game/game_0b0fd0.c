@@ -16,6 +16,11 @@
 #include "data.h"
 #include "types.h"
 
+/**
+ * Canonical weapon accessor — all weapon lookups go through this function.
+ * g_Weapons[] is the weapon data table; this is its single-point accessor
+ * (equivalent to catalog accessors for heads/bodies). INTERNAL.
+ */
 struct weapon *weaponFindById(s32 itemid)
 {
 	if (itemid < 0) {

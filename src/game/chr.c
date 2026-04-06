@@ -4896,23 +4896,7 @@ void chrsCheckForNoise(f32 noiseradius)
 
 				if (distance > 1.0f) {
 					chrRecordLastHearTargetTime(&g_ChrSlots[i]);
-#if PIRACYCHECKS
-					{
-						s32 *i = (s32 *)&__scHandleRetrace;
-						s32 *end = (s32 *)&__scHandleTasks;
-						u32 checksum = 0;
-
-						while (i < end) {
-							checksum *= 2;
-							checksum += *i;
-							i++;
-						}
-
-						if (checksum != CHECKSUM_PLACEHOLDER) {
-							g_HeadsAndBodies[BODY_SKEDARKING].filenum = 0;
-						}
-					}
-#endif
+					/* Anti-piracy check removed — PC port, PIRACYCHECKS=0 */
 				}
 			}
 		}
