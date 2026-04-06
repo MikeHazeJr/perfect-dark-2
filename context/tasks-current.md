@@ -6,10 +6,13 @@
 
 ---
 
-## Recently Completed (S130–S154 — 2026-04-02/06)
+## Recently Completed (S130–S155 — 2026-04-02/06)
 
 | Item | Status |
 |------|--------|
+| **Catalog ID Migration Phases 0–6 (bodies/heads)** | **DONE (S155)** — Generation counter + hot-reload API (Phase 0), catalog ID string fields in config/data structs (Phase 2), function APIs migrated to catalog ID strings (Phase 3), integer comparisons replaced with catalog ID checks (Phase 4), UI shadow structs + save paths + lobby accessors fixed (Phase 5+6). CLC_LOBBY_START server guard + validation index space fix. v0.0.45. |
+| **B-112 additional crash guards (shot/damage path)** | **DONE (S155)** — Defense-in-depth guards in chrBruise/chrDamage + handicap default init (chr->handicap=1.0). |
+| **UX: bot context menu + handicap slider + release script** | **DONE (S155)** — Checkmarks, alphabetical sort, display name fallbacks; handicap slider percentage fix; release tag push fix. |
 | **Eliminate integer asset identity from wire (Phase 1+2)** | **DONE (S154)** — All 6 weapon messages already migrated (v30). SVC_PROP_SPAWN modelnum migrated to catalog session refs (`netWriteModelRef`/`netReadModelRef`). Bot body/head: `catalogBodynumToMpBodyIdx` eliminated from netmsg.c (fallback uses `catalogResolveByRuntimeIndex`, server decode uses `catalogGetSafeBodyPaired` directly). chrBruise guard enhanced with `model->definition` check. NET_PROTOCOL_VER 30→31. |
 
 ## Previously Completed (S130–S153 — 2026-04-02/05)

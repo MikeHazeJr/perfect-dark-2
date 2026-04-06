@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 IN PROGRESS (D5.1+D5.4+D5.5 PARTIAL), R-3 DONE**
-Last updated: 2026-04-04 (S144)
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 IN PROGRESS (D5.1+D5.4+D5.5 PARTIAL, D5.8 PARTIAL — matchsetup.cpp retired), R-3 DONE, LOBBY UNIFICATION COMPLETE (S153), CATALOG ID MIGRATION PHASES 0–6 DONE (S155)**
+Last updated: 2026-04-06 (S155)
 
 ## Engine Modernization Vision
 
@@ -9,15 +9,16 @@ Last updated: 2026-04-04 (S144)
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v27, all net_hash removed, SAVE-COMPAT stripped. Five systemic sweeps done (S131). Playtest pending. |
-| **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | PLANNED |
+| **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v31, all net_hash removed, SAVE-COMPAT stripped. Five systemic sweeps done (S131). Playtest pending. |
+| **Option A → A+** (Active) | Catalog-backed data structures replace legacy arrays internally. Integer identity eliminated from config/data structs, function APIs, comparisons, UI shadow structs, save paths. | **PHASES 0–6 DONE (S155)** for bodies/heads. Weapons (~660 refs), stages (~80), models (~83), textures, sounds, animations, game modes, lang banks still ahead. See `plan-catalog-id-migration.md`. |
+| **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | **IN PROGRESS (S155)** — Phases 0–6 done for bodies/heads. Remaining asset types in plan. |
 | **Option B** (Long-term) | Catalog becomes provider-agnostic asset bus. ROM is one provider (legacy). Modern asset pipeline is another. Each catalog entry declares which provider. PBR materials, modern meshes, advanced physics — all new provider types. Mods ship modern assets that bypass the GBI path entirely. | VISION |
 
 The catalog-as-single-source-of-truth principle means migration is incremental — upgrade assets one at a time, game runs with mixed legacy/modern content. fast3d stays for anything not yet upgraded.
 
 ## ⚡ PRIMARY WORKSTREAM: Catalog Universality Migration
 
-> **Status**: PHASES A–G CODE COMPLETE (S130). Wire protocol v27. All net_hash removed. SAVE-COMPAT stripped. Playtest verification pending.
+> **Status**: PHASES A–G CODE COMPLETE (S130). Wire protocol v31 (S154: SVC_PROP_SPAWN modelnum format). All net_hash removed. SAVE-COMPAT stripped. Playtest verification pending. **Catalog ID Migration Phases 0–6 done (S155)** for bodies/heads — zero-conversion mandate active. See `plan-catalog-id-migration.md`.
 > **Governing spec**: `PD2_Catalog_Universality_Spec_v1.0.docx`
 > **S130 result**: Full wire protocol migration to catalog ID strings. 4 critical/high bug fixes from comprehensive audit. 15 remaining findings (MEDIUM/LOW) tracked in tasks-current.md.
 

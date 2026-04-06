@@ -3,6 +3,49 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S155 — 2026-04-06
+
+**Focus**: UX polish, B-112 hardening, Catalog ID Migration planning + Phases 0–6 execution
+
+### What Was Done
+
+**UX improvements** (commits `16355f8`, `61f6340`, `41b27f8`):
+- Bot context menu: checkmarks for selected items, alphabetical character sorting, display name fallbacks.
+- Handicap slider fix: showed wrong percentage in online mode.
+- Release script fix: ensure tag exists locally before `git push origin`.
+
+**B-112 additional crash guards** (`fb9b85c`):
+- Added guards in shot/damage path (chrBruise, chrDamage) for stale chr pointers — defense-in-depth alongside S150's VEH guard.
+- Handicap default init: `chr->handicap` initialized to 1.0 in `chrAllocate` to prevent divide-by-zero in damage calculations.
+
+**Catalog ID Migration — full plan** (`9c43d36`, `5e7254c`, `6f59ef6`):
+- Created `plan-catalog-id-migration.md` — zero-conversion mandate for ALL asset types (bodies, heads, weapons, stages, models, textures, sounds, animations, game modes, lang banks, props, HUD). ~2,578+ integer refs across ~80+ files.
+- Game director decisions: D-1 (full migration for every asset type), D-2 (model numbers — full migration), D-3 (`mainChangeToStage` — full engine refactor to catalog ID).
+
+**Catalog ID Migration — Phases 0–6 execution** (`44c09d2`, `777aef8`, `76eeb8a`, `8a20c9f`, `f4b5bdd`, `238edb0`, `d0808d4`):
+- Phase 0: Generation counter + hot-reload API for catalog.
+- Phase 2: Catalog ID string fields added to config/data structs.
+- Phase 3: Function APIs migrated to catalog ID strings.
+- Phase 4: Integer asset comparisons replaced with catalog ID checks.
+- Phase 5+6: UI shadow structs, save paths, lobby accessors fixed.
+- Fix: CLC_LOBBY_START bot resolution guarded with `#ifndef PD_SERVER`.
+- Fix: Validation functions passed wrong index space to `catalogGetSafeBody`/`Head`.
+
+**Infrastructure**: `.gitignore` additions + worktree cleanup script (`bb33037`). Version bump to v0.0.45 (`2e67d64`).
+
+### Decisions
+- Catalog ID migration is now the primary workstream — zero integer identity tolerance.
+- All asset types in scope (no carve-outs).
+- Phases 0–6 complete for bodies/heads; weapons, stages, models still need Phase 3+ migration.
+
+### Next Steps
+- Build verification of Phases 0–6
+- Continue catalog migration: weapons (~660 refs), stages (~80 refs), models (~83 refs)
+- Playtest to verify no regressions from struct changes
+- B-112 root cause still open
+
+---
+
 ## Session S154 — 2026-04-06
 
 **Focus**: Eliminate integer asset identity from network wire (Phase 1+2)

@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-05, Session S150 (Post-S144 playtest sprint S145–S150: room leave CLC_ROOM_LEAVE fix, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback hardening, underground ground-clamp, CMakeLists.txt corruption repair, credits update, bot stuck-detection init, chr pointer corruption guard, 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114 logged. B-112 open (chr corruption, root cause TBD). Next: D5.3 pause menu.)
+> **Last updated**: 2026-04-06, Session S155 (S151–S155: Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI crash). Lobby Unification complete (U-1 through U-10, matchsetup.cpp retired). Wire protocol v31 (SVC_PROP_SPAWN modelnum migration). Catalog ID Migration Phases 0–6 for bodies/heads (zero-conversion mandate). v0.0.38→v0.0.45. B-112 additional guards (shot/damage path). Next: continue catalog migration (weapons, stages, models), build verification, playtest.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -35,6 +35,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S155 | 2026-04-06 | UX polish (bot context menu, handicap slider). B-112 additional guards (shot/damage). Catalog ID Migration Phases 0–6 (bodies/heads): generation counter, struct fields, API migration, comparison replacement, UI/save/lobby fixes. v0.0.45. | [session-log.md](session-log.md) |
+| S151–S154 | 2026-04-05/06 | Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI frame-1 crash). Lobby Unification complete (U-1–U-10, matchsetup.cpp retired). B-116 bot catalog ID fix. Wire identity elimination (SVC_PROP_SPAWN modelnum → catalog ref). Protocol v31. v0.0.38→v0.0.44. | [session-log.md](session-log.md) |
 | S145–S150 | 2026-04-04/05 | Post-playtest spawn stability sprint: room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback, underground ground-clamp, CMakeLists.txt repair, credits update, bot stuck-detection init, chr pointer corruption guard + 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114. | [session-log.md](session-log.md) |
 | S140–S144 | 2026-04-04 | Bot count mismatch audit (S141). Network + bot stabilization sprint: CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync (S142). R-3 room networking: clients create/join rooms, room-scoped match start (S143). Endscreen overhaul + B-104 fix + 256-entry name dicts + multi-select bot list (S144). v0.0.28→v0.0.32. | [session-log.md](session-log.md) |
 | S119–S139 | 2026-04-02/04 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps. v0.0.25. D5.0a spike. D5.1 input boundary. MP scoreboard D5.4. | [session-log.md](session-log.md) |
@@ -111,7 +113,7 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol **v27**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). **net_hash is dead** — all wire fields use full catalog ID strings (v27, S130). **Next bump**: remove chrslots (B-12 Phase 3).
+- **Net**: Protocol **v31**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). **net_hash is dead** — all wire fields use full catalog ID strings (v27, S130); SVC_PROP_SPAWN modelnum migrated to catalog session refs (v31, S154). **Next bump**: remove chrslots (B-12 Phase 3).
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
 - **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
 - **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.
