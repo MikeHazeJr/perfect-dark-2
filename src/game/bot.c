@@ -1070,6 +1070,15 @@ s32 botTick(struct prop *prop)
 	updateable = g_Vars.lvupdate240 != 0;
 
 	if (aibot) {
+		/* U-10: Promote pending bot authority once stage load is confirmed.
+		 * SVC_BOT_AUTHORITY may arrive before pads/spawn points are loaded;
+		 * deferring activation prevents bots ticking into uninitialized geometry. */
+		if (g_NetPendingBotAuthority && g_PadsFile != NULL && g_NumSpawnPoints > 0) {
+			g_NetLocalBotAuthority = true;
+			g_NetPendingBotAuthority = false;
+			sysLogPrintf(LOG_NOTE, "NET: bot authority activated — stage ready (spawns=%d)", g_NumSpawnPoints);
+		}
+
 		/* Non-authority clients defer to server-authoritative positions received via
 		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
 		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
@@ -1087,16 +1096,17 @@ s32 botTick(struct prop *prop)
 		 * setupCreateProps. */
 		{
 			static bool s_BotSpawnFailsafeDone = false;
-			static s32 s_BotSpawnDeferFrames = 0;
 			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
-				/* U-13: stage-readiness gate — defer if pads not loaded yet,
-				 * up to 60 frames, to avoid spawning into uninitialized geometry
-				 * on the online path where stage load is asynchronous. */
-				if (g_NumSpawnPoints == 0 && g_PadsFile == NULL && s_BotSpawnDeferFrames < 60) {
-					s_BotSpawnDeferFrames++;
+				/* Stage-readiness check: pads must be loaded and spawn points
+				 * must be resolved before we can place bots. If not ready yet,
+				 * skip this frame — botTick will retry next frame. Failsafe:
+				 * if pads loaded but zero spawn points (broken map), proceed
+				 * anyway so botSpawnAll can use fallback pad logic. */
+				if (g_PadsFile == NULL) {
+					/* not ready yet — wait */
 				} else {
 					s_BotSpawnFailsafeDone = true;
-					sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, defer=%d)", s_BotSpawnDeferFrames);
+					sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, spawns=%d)", g_NumSpawnPoints);
 					botSpawnAll();
 
 					/* Verify all bots got valid rooms after the spawn wave.
@@ -1114,10 +1124,9 @@ s32 botTick(struct prop *prop)
 					}
 				}
 			}
-			/* Reset the flags on stage change (lvframe60 resets to 0) */
+			/* Reset the flag on stage change (lvframe60 resets to 0) */
 			if (g_Vars.lvframe60 == 0) {
 				s_BotSpawnFailsafeDone = false;
-				s_BotSpawnDeferFrames = 0;
 			}
 		}
 

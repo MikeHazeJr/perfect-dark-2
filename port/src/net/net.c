@@ -86,6 +86,7 @@ s32 g_NetNumRecentServers = 0;
 /* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
  * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
 bool g_NetLocalBotAuthority = false;
+bool g_NetPendingBotAuthority = false;
 
 /* U-10: Stage-ready handshake — server-side tracking (dedicated server only). */
 s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not waiting */
@@ -944,6 +945,7 @@ s32 netDisconnect(void)
 	g_NetMode = NETMODE_NONE;
 	g_NetGameMode = NETGAMEMODE_MP;
 	g_NetLocalBotAuthority = false;
+	g_NetPendingBotAuthority = false;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 

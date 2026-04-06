@@ -209,6 +209,10 @@ extern struct netclient *g_NetLocalClient;
  * SVC_BOT_AUTHORITY; cleared on disconnect and stage end. */
 extern bool g_NetLocalBotAuthority;
 
+/* U-10: Deferred bot authority — set true on SVC_BOT_AUTHORITY receipt, promoted to
+ * g_NetLocalBotAuthority once stage load is confirmed (pads loaded, spawn points ready). */
+extern bool g_NetPendingBotAuthority;
+
 /* U-10: Stage-ready handshake state (server-side, dedicated server only).
  * g_NetStageReadyDeadline: g_NetTick value at which the server stops waiting and sends
  *   BOT_AUTHORITY regardless; -1 means not currently waiting.

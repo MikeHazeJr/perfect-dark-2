@@ -1247,6 +1247,7 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 
 	/* Bot authority relinquished at match end — next match will re-assign */
 	g_NetLocalBotAuthority = false;
+	g_NetPendingBotAuthority = false;
 
 	return src->error;
 }
@@ -4982,8 +4983,8 @@ u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	g_NetLocalBotAuthority = true;
-	sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY received — this client runs bot AI and relays positions");
+	g_NetPendingBotAuthority = true;
+	sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY received — deferred until stage load complete");
 	return src->error;
 }
 
