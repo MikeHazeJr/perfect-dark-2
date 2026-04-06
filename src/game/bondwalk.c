@@ -1215,9 +1215,6 @@ void bwalkUpdateVertical(void)
 		fallspeed = newfallspeed;
 
 		if (newmanground < g_Vars.currentplayer->vv_ground) {
-			sysLogPrintf(LOG_NOTE,
-				"JUMP_LANDING: newmanground=%.1f < ground=%.1f, clamping to ground",
-				newmanground, g_Vars.currentplayer->vv_ground);
 			newfallspeed = g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->vv_ground;
 			newmanground = g_Vars.currentplayer->vv_ground;
 

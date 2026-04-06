@@ -6,18 +6,55 @@
 
 ---
 
-## Recently Completed (S130–S157 — 2026-04-02/06)
+## Recently Completed (S157–S161 — 2026-04-06)
 
 | Item | Status |
 |------|--------|
-| **D5 Phase 1 Session 3 — g_InputMode Elimination (S160, 2026-04-06)** | **DONE** — All 15 `pdmainSetInputMode()` callers migrated to `inputCtxPush`/`inputCtxPopDeferred`. `InputOwnerMode` enum, `g_InputMode` global, and `pdmainSetInputMode()` removed from pdmain.c/h. 7 files updated. Build clean. |
-| **D5 Phase 1 Session 2 — Event Filter Rewrite (S159, 2026-04-06)** | **DONE** — `pdguiProcessEvent()` rewritten to use context stack. `pdguiWantsInput()` + `pdguiIsActive()` simplified to `inputCtxGetTop() != &g_CtxGameplay`. F12/Toggle use push/pop. `pdguiUpdateMouseGrab` + saved mouse state removed. `menuIsInCooldown`/`menuIsOpen` externs removed. `g_InputMode` eliminated from backend. `inputCtxDispatch` respects `on_event` return. |
-| **D5 Phase 1 Session 1 — Input Context Stack (S158, 2026-04-06)** | **DONE** — `inputctx.h` + `inputctx.c` created. Stack API, 4 built-in contexts, deferred pop, double-push guard. Compiles clean. |
-| **D5.0 Visual Layer (S157, 2026-04-06)** | **DONE** — Init ordering fix (`pdguiThemeLateInit` after `texInit`), ROM texture extraction tool (`--extract-ui-textures`), base-ui mod (13 textures), haze overlay, CRT scanlines, multi-palette support (all 7 palettes). Procedural modern-UI mod. TGA loader. |
-| **Catalog Phase 8 — O(n) conversion elimination (S157)** | **DONE** — All O(n) linear-scan conversion functions eliminated. |
-| **Deep array-bypass audit (S157)** | **DONE** — All 15 bypass items fixed. 2 hidden `catalogGetMpIndex` reimplementations found and removed. Zero gaps remaining. |
-| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155)** | **DONE** — 41 files, 837 insertions. Triple audit PASSED (11/11). Bot body wire fix, B-112 crash guards, handicap UI, bot context menu UX, U-7+U-10, infrastructure. |
-| **Eliminate integer asset identity from wire (S154)** | **DONE** — SVC_PROP_SPAWN modelnum → catalog session refs. Bot body/head conversion eliminated from netmsg.c. Protocol v31. |
+| **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
+| **Networking: Client hole punch wired in (S157)** | **DONE** — All 3 client join sites use `netStartClientWithHolePunch()`. Waterfall confirmed working in playtest (direct→punch→retry). |
+| **Server stage log cleanup (S157)** | **DONE** — Stage registration gated behind `g_NumStages > 0`. Server no longer logs "0 stages". |
+| **extern "C" guards: fs.h + config.h (S157)** | **DONE** — Fixed linker errors from D5.0 commit. |
+| **QUICKSTART.md created (S157)** | **DONE** — Comprehensive cold-start onboarding doc. Updated throughout session with constraints discovered. |
+| **D5 Full Menu Overhaul design doc (S157)** | **DONE** — `context/designs/d5-full-menu-overhaul.md`. 5 phases, 25 sessions, 6500 LOC. |
+| **Dev window: git identity auto-config + release auto-commit fix (S157)** | **DONE** — Startup sets user.email/user.name repo-level if missing. Auto-commit fails pipeline properly instead of silent swallow. |
+
+---
+
+## ACTIVE: D5 Full Menu Overhaul
+
+**Master design doc**: `context/designs/d5-full-menu-overhaul.md`
+
+| Phase | Status | Detail |
+|-------|--------|--------|
+| **Phase 1 — Input Context Stack** | **DONE (S158–S161)** | Stack API, 4 contexts, lifecycle wired, old system stripped. Playtest confirmed working. |
+| **Phase 2 — Controller Navigation** | **NEXT** | D-pad wrap, A/B accept/cancel, stick scroll, device detection, cheat input buffer. ~3 sessions. |
+| **Phase 3 — Full Menu Roster Port** | PLANNED | 120 screens total, 61 remaining (17 stubs + 3 OG forced + 13 OG native + 28 OG unregistered). ~12 sessions. |
+| **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
+| **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
+
+### Playtest Findings (S161 — 2026-04-06 evening)
+
+| Finding | Severity | Detail |
+|---------|----------|--------|
+| **B-117: Crash on match exit** | **HIGH** | Hard crash — no shutdown sequence in log. Log ends at `CHAT: NET: disconnected` with pause context still pushed. Possibly B-112 related or match→lobby transition crash. |
+| **Menu opacity stacking** | **MED** | Main menu background gets more opaque after repeated open/close cycles. Haze overlay likely compositing additively without full reset. |
+| **JUMP_LANDING log spam** | **LOW** | Every frame during pause logs ground clamp. Gate behind verbose mode. |
+| **First hole punch attempt fails, second direct succeeds** | **INFO** | UPnP mapping wasn't complete during first attempt. Waterfall logic correct — direct→punch→fail→retry. Second attempt connected via direct in 50ms. |
+| **base-ui textures missing** | **KNOWN** | mods/base-ui/ not in build output. Phase 4 auto-extract fix planned. Procedural fallbacks working. |
+
+---
+
+## ACTIVE: Catalog ID Deep Migration
+
+**Goal**: Zero integer-to-catalog-ID conversion anywhere. Catalog ID is sole identity for all asset types.
+
+| Phase | Status | Detail |
+|-------|--------|--------|
+| **Phases 0–8** | **DONE** | Identity layer + O(n) elimination + deep audit. |
+| **Phase 7 — Wrapper caller elimination** | **IN PROGRESS** | ~85 calls remain. Cannot delete wrappers until callers migrated. |
+| **Phases 9–14** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD. |
+| **Catalog as data provider** | NOT STARTED | Absorb ROM arrays. |
+| **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
 
@@ -182,6 +219,16 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 
 ---
 
+## Movement / Physics Backlog (Post-Menu Stability)
+
+| Item | Priority | Detail |
+|------|----------|--------|
+| **Coyote time + jump buffering** | MED | Allow ~250ms jump buffer (queue jump before landing) + ~250ms coyote time (jump briefly after leaving edge). Event-driven, not polling. Reference: Celeste's implementation (input buffer records press timestamp, ground-leave records timestamp, jump checks both windows). Goes in `src/game/bondwalk.c` jump logic. Design before implementing. |
+| **Collision system overhaul** | HIGH | Capsule sweep improvements, legacy cdTestVolume cleanup. See `context/collision.md`. |
+| **JUMP_LANDING log removed** | DONE (S161) | Per-frame ground clamp log was noise. Removed from bondwalk.c:1218. |
+
+---
+
 ## Lobby Unification — Solo/Online Room Convergence
 
 Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)** (10 items, U-1 through U-10)
@@ -193,18 +240,4 @@ Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 
 | **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
 | **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
 | **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | **DONE** |
-| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | **DONE (S153)** — client-side deferred activation |
-
----
-
-## Backlog (priority order)
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| **D13** | Update System — GitHub Releases API, SHA-256, self-replace | Code written (S50), needs libcurl + build test |
-| **D14a** | Counter-Operative Mode — NPC possession mechanic | PLANNED |
-| **D15** | Map Editor, Character Creator, Skin System | PLANNED |
-| **D16** | Master Server / Server Pool | PLANNED (after content tools) |
-| **R-2 through R-5** | Room Architecture — demand-driven rooms, protocol | R-1 done, **R-3 done (S143: clients see/create/join rooms, room-scoped match start)**, R-2/R-4/R-5 planned |
-| **L-series** | Lobby/Room UX — social lobby, room create/join, interior | Depends on R-2/R-3 |
-| **B-12 Phase 3** | Remove chrslots — dynamic participant system | Phase 1 coded (S26), next protocol bump |
+| **Phase 4** | U-10 | Root-cause online bot 

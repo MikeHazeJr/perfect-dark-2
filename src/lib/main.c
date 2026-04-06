@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include <sched.h>
 #include "lib/sched.h"
+#include "inputctx.h"
 #include "lib/vars.h"
 #include "constants.h"
 #include "game/camdraw.h"
@@ -1104,6 +1105,15 @@ void mainLoop(void)
 
 		g_StageNum = g_MainChangeToStageNum;
 		g_MainChangeToStageNum = -1;
+
+		/* B-117 fix: Reset input context stack on stage transition.
+		 * Any active menu/pause contexts are popped cleanly before the new
+		 * stage initializes. Without this, stale context callbacks can fire
+		 * during teardown (e.g., pause context calling SDL functions after
+		 * game state is partially destroyed). */
+		inputCtxShutdown();
+		inputCtxInit();
+		inputCtxPush(&g_CtxGameplay);
 	}
 
 	// Unreachable

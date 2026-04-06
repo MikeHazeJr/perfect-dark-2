@@ -9,6 +9,7 @@
 
 | ID | Severity | Description | File | Status |
 |----|----------|-------------|------|--------|
+| **B-117** | HIGH | Hard crash/freeze on match exit — pause context active mid-air, physics kept running while paused (JUMP_LANDING spam), stale context during stage transition caused crash. Root cause: input context stack not reset on stage transition + game physics not actually pausing. | src/lib/main.c, inputctx.c | PARTIAL FIX (S161) — context stack reset on stage transition added. Physics-pause still needed (Phase 3). |
 | **B-112** | HIGH | Chr pointer (rbx) corruption in `chraTick` during 31-bot matches — access violation at `chr->hidden`; guard + diagnostics added (S150), additional shot/damage path guards + handicap default init (S155), root cause still unknown | src/game/chraction.c, chr.c | PARTIAL — VEH guard + chrBruise/chrDamage guards + `model->definition` check in place; awaiting next crash log to identify corruption source |
 | **B-18** | MED | Pink sky on Skedar Ruins — sky renders pink instead of correct color | sky rendering path | OPEN — needs investigation |
 | **B-19** | MED | Bot spawn stacking on Skedar Ruins — all bots spawn at same pad | player.c | PARTIAL FIX (S125 F.1 anti-repeat) — needs Skedar-specific playtest |

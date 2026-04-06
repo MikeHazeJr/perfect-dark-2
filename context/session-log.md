@@ -3,6 +3,54 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S161 — 2026-04-06 (D5 Phase 1 Session 4 + Playtest + Infrastructure)
+
+**Focus**: Input context lifecycle wiring, playtest verification, bug triage, infrastructure fixes
+
+### What Was Done
+
+**D5 Phase 1 Session 4 — Lifecycle Wiring**:
+- `inputCtxInit()` + `inputCtxPush(&g_CtxGameplay)` wired into `main.c:mainInit()` after `inputInit()`
+- `inputCtxEndFrame()` wired into `gfx_sdl2.cpp:gfx_sdl_handle_events()` after SDL_PollEvent loop
+- `inputCtxShutdown()` wired into `main.c:cleanup()` before `pdguiShutdown()`
+- Server: no changes needed (inputctx.c not in SRC_SERVER, shared code already #ifdef guarded)
+- Init ordering verified: SDL → inputInit → inputCtxInit → pdguiInit → texInit → game logic
+
+**Networking fixes (earlier this session)**:
+- Client hole punch: all 3 join sites wired to `netStartClientWithHolePunch()`
+- Server stage log: gated behind `g_NumStages > 0`
+- extern "C" guards added to `fs.h` and `config.h`
+
+**Infrastructure**:
+- QUICKSTART.md created and updated throughout session
+- D5 Full Menu Overhaul design doc committed (`context/designs/d5-full-menu-overhaul.md`)
+- Dev window: git identity auto-config on startup, release auto-commit pipeline fix
+- Constraints updated: zero-config networking, self-generating mods, zero DLL, legacy menus dead, init ordering audit requirement
+
+**Playtest (v0.0.49)**:
+- Input context stack confirmed working (gameplay push at boot, pause push/pop during match)
+- Hole punch waterfall fired correctly (direct 3s timeout → PUNCH_REQ → ACK timeout → ENet retry)
+- Second connection attempt succeeded via direct (UPnP had finished by then)
+- Match started cleanly (CLC_LOBBY_START, manifest, countdown, SVC_STAGE_START)
+- **B-117**: Hard crash on match exit — no shutdown sequence, pause context still active
+- **Menu opacity stacking**: Background darkens on repeated open/close (additive haze)
+- **JUMP_LANDING spam**: Per-frame ground clamp logging, needs verbose gate
+
+### Decisions
+- Phase 1 (Input Context Stack) declared COMPLETE
+- Phase 2 (Controller Navigation) is next
+- B-117 crash logged, will investigate alongside Phase 2
+- Init ordering audit is now a standing requirement for all future work
+
+### Next Steps
+- Phase 2: Controller navigation (D-pad wrap, A/B, device detection, cheat buffer)
+- Fix B-117 crash on match exit
+- Fix menu opacity stacking (theme state reset on close)
+- Gate JUMP_LANDING behind verbose logging
+- Phase 4 Session 1: Auto-extract base-ui textures (can pull forward anytime)
+
+---
+
 ## Session S160 — 2026-04-06 (D5 Full Menu Overhaul — Phase 1, Session 3)
 
 **Focus**: Migrate all `pdmainSetInputMode()` callers to input context stack; remove `g_InputMode` system entirely.
@@ -1417,108 +1465,4 @@ Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHe
 
 **D.3 — Host manifest embedded in CLC_LOBBY_START** (`netmsg.c`):
 - Server reads manifest via `manifestDeserialize`; supplements with other players' body/head from `g_NetClients[].settings`.
-- D.5: validates MANIFEST_TYPE_STAGE entry against arena-hash stagenum; logs warning on mismatch, uses arena hash for safety.
-- Falls back to server-side `manifestBuild()` if deserialization fails.
-
-**D.4 — SVC_MATCH_MANIFEST uses serialize helpers** (`netmsg.c`):
-- `netmsgSvcMatchManifestWrite/Read` replaced inline loops with `manifestSerialize`/`manifestDeserialize`.
-
-**D.6 — SHA-256 in `modinfo_t`** (`modmgr.h`, `modmgr.c`):
-- `u8 sha256[SHA256_DIGEST_SIZE]` added to `modinfo_t`.
-- Computed from mod.json file content at scan time; falls back to hash of "id:version" string.
-- `manifestCheck()` validates SHA-256 for MANIFEST_TYPE_COMPONENT entries via `modmgrFindMod()`.
-- `server_stubs.c`: added `modmgrFindMod` stub so dedicated server links clean.
-
-**D.7 — Protocol version bump**: `NET_PROTOCOL_VER` → 26 (breaking; old clients cannot connect).
-
-### Build
-- Client (`pd`) and server (`pd-server`): both clean.
-
-### Decisions Made
-- Server supplements host-sent manifest with other players' settings rather than building from scratch — server stays catalog-free.
-- SHA-256 only transmitted on wire for COMPONENT entries; all other types zero the field (saves ~32 bytes × N entries per message).
-- Fallback to server-side `manifestBuild()` preserved as safety net for malformed/legacy connections.
-
-### Next Steps
-- Playtest needed: real MP match to verify CLC_LOBBY_START host manifest embedding/deserialization flows end-to-end.
-- Phase E (Menu Stack Architecture) is next.
-
----
-
-## Session S122 -- 2026-04-02
-
-**Focus**: Phase C — Systematic Catalog Conversion (commit ee0810c)
-
-### What Was Done
-
-FIX-1 through FIX-23 across all subsystems: bot allocation, SVC_STAGE_START bot config, weapon spawn, arena selection, stage loading. All raw N64 index references in the server path replaced with catalog ID resolution via new Phase B API. Both targets build clean.
-
----
-
-## Session S121 -- 2026-04-02
-
-**Focus**: Phase B — Catalog API Hardening + Arena Human-Readable IDs (commit b13a6b5)
-
-### What Was Done
-
-**8 files changed, 192 insertions / 45 deletions** — pushed to `dev`.
-
-**B.1 (FIX-24) — Register ALL g_HeadsAndBodies[] entries** (`assetcatalog_base.c`):
-- Root cause: covered-mask loop iterated all 76 g_MpHeads[] entries, marking g_MpHeads[75].headnum as covered. But the MP registration loop only iterates s_BaseHeads[] (75 entries), so that headnum (103 in playtests) was marked covered but never registered → `CATALOG-ASSERT type=16 index=103`.
-- Fix: covered-mask now iterates s_BaseBodies[]/s_BaseHeads[] (the actually-registered tables), not the full g_MpBodies[]/g_MpHeads[] arrays. All unregistered entries are now picked up by the SP-only fallback sweep.
-
-**B.2 — New index-domain-safe API** (`assetcatalog_api.c`, `assetcatalog.h`):
-- Added `catalogResolveBodyByMpIndex(mpbodynum)` and `catalogResolveHeadByMpIndex(mpheadnum)` — convert mpXnum (g_MpBodies/Heads[] position) to bodynum/headnum before catalog lookup.
-- Added `catalogBodynumToMpBodyIdx(bodynum)` and `catalogHeadnumToMpHeadIdx(headnum)` — reverse lookup for load path.
-- 7 call sites fixed: FIX-7 (netmsg.c), FIX-13 (netmanifest.c), FIX-14 (net.c), FIX-11/12 (savefile.c), FIX-10 (savefile.c stage), FIX-15 (scenario_save.c stage).
-
-**B.3 — Improved error logging**: `catalogResolveByRuntimeIndex` warning now includes type name (from static `s_typeNames[]`) for easier diagnostics.
-
-**Part 2 — Arena human-readable IDs** (`assetcatalog_base.c`):
-- `s_ArenaNames[75]` static table mapping each arena slot index to a human-readable name.
-- Arena registration loop now emits `base:arena_<name>` instead of `base:arena_<N>`.
-- NULL entries in the table cause the slot to be skipped gracefully.
-
-### Build
-- Client (`pd`) and server (`pd-server`): both 100% clean.
-
-### Decisions Made
-- Three index domains (mpbodynum, bodynum/runtime_index, catalog array position) must never be conflated. New API encapsulates the conversion at the boundary.
-- Arena ID migration is non-breaking: old `base:arena_<N>` IDs only existed in the catalog (no persisted save data references them).
-
-### Next Steps
-- Playtest needed: verify no CATALOG-ASSERT type=16 in log during MP match with bots.
-- Remaining Phase B fixes not yet addressed: FIX-16 (scenario_save.c:302 bounds), FIX-17/18/19 (netmanifest.c defaults/SP manifest/anti-player), FIX-20 (identity.c mpbodynum migration), FIX-21/22/23 (weapon save/scenario/dropdown).
-- Phase C (Systematic Catalog Conversion) is next after playtest confirms Phase B clears the B-63/B-64 errors.
-
----
-
-## Session S119 -- 2026-04-02
-
-**Focus**: Comprehensive playtest analysis → catalog universality engineering spec + bug triage
-
-### What Was Done
-
-- **Playtest analysis**: Reviewed 3 client logs, 1 server error log, and screenshots from April 1, 2026 playtest session. Identified root causes for all observed failures.
-- **Catalog type=16 root cause** (B-63/B-64): `catalogResolveByRuntimeIndex` called on bot allocation with type=16, which is out of range for the catalog asset type enum (valid 0–7). Every bot allocation triggers CATALOG-ASSERT; all bots invisible; access violation downstream. Root cause: bot config path passes unvalidated type field into the resolver.
-- **Server catalog gap** (B-65): `SVC_STARTGAME` server side still emits raw hex stagenum (e.g. `0x1f`) rather than catalog ID. Client-side catalog cannot resolve raw hex. All networked play blocked.
-- **Menu input state machine gaps** (B-66/B-67/B-68/B-69/B-70): `inputSetMode()` not called on match-start code path from MP lobby → mouse capture misses. Post-mission input context not switched → debrief buttons non-interactive. Tint not cleared on menu pop → green bleeds to main menu. Esc re-registers menu in same frame → stacked instances.
-- **Bot spawn weapons** (B-70): `options=0x00000000` in bot spawn log → options bitmask not reaching bots during match start.
-- **Spec produced**: `PD2_Catalog_Universality_Spec_v1.0.docx` — governing engineering specification covering catalog universality migration (Phases A–C), server manifest model (Phase D), menu stack architecture (Phase E), spawn/input hardening (Phase F), and full verification pass (Phase G). All phases defined with success criteria.
-- **Context updated**: bugs.md (B-63–B-71), tasks-current.md (Phases A–G), roadmap.md (primary workstream declaration), session-log.md (this entry).
-
-### Decisions Made
-
-- Catalog universality migration (Phases A–C) is now the primary workstream and blocks all other feature work. The catalog is the load-bearing wall of the entire asset system — surface bug fixes on top of a broken catalog just shift the crash site.
-- Phase A is research-only (audit + mapping, no code changes) to ensure full scope is understood before any API changes.
-- Server manifest model (Phase D) supersedes server-side catalog concept: server receives manifest from host, never maintains its own catalog.
-- Menu stack architecture (Phase E) and spawn/input hardening (Phase F) can proceed in parallel with Phases C/D.
-
-### Next Steps
-
-- **Phase A**: Catalog universality audit — `grep` for all raw-index call sites, map type+index origins, identify which paths produce type=16.
-- After Phase A report: review findings with Mike before beginning Phase B (API hardening).
-
----
-
-
+- D.5: validates MANIFEST_TYPE_STAGE entry against arena-hash stagenum; logs warning on mismatch, uses arena hash for sa
