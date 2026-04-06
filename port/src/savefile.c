@@ -684,6 +684,9 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			/* Phase 2: populate PRIMARY catalog ID string field */
+			strncpy(pc->base.head_id, id_buf, sizeof(pc->base.head_id) - 1);
+			pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
 			if (e && e->type == ASSET_HEAD) {
 				s32 mpidx = catalogHeadnumToMpHeadIdx((s32)e->runtime_index);
@@ -697,6 +700,9 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			const asset_entry_t *e;
 			tok = s_next(&p);
 			s_tok_str(&tok, id_buf, sizeof(id_buf));
+			/* Phase 2: populate PRIMARY catalog ID string field */
+			strncpy(pc->base.body_id, id_buf, sizeof(pc->base.body_id) - 1);
+			pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
 			if (e && e->type == ASSET_BODY) {
 				s32 mpidx = catalogBodynumToMpBodyIdx((s32)e->runtime_index);
@@ -705,9 +711,19 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		} else if (strcmp(key, "mpheadnum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpheadnum = s_tok_int(&tok);
+			/* Phase 2: reverse-resolve to catalog ID string */
+			{
+				const char *cid = catalogResolveHeadByMpIndex(pc->base.mpheadnum);
+				if (cid) { strncpy(pc->base.head_id, cid, sizeof(pc->base.head_id) - 1); pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0'; }
+			}
 		} else if (strcmp(key, "mpbodynum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
 			tok = s_next(&p); pc->base.mpbodynum = s_tok_int(&tok);
+			/* Phase 2: reverse-resolve to catalog ID string */
+			{
+				const char *cid = catalogResolveBodyByMpIndex(pc->base.mpbodynum);
+				if (cid) { strncpy(pc->base.body_id, cid, sizeof(pc->base.body_id) - 1); pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0'; }
+			}
 		} else if (strcmp(key, "team") == 0) {
 			tok = s_next(&p); pc->base.team = s_tok_int(&tok);
 		} else if (strcmp(key, "displayoptions") == 0) {

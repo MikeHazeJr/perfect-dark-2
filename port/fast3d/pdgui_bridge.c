@@ -56,8 +56,24 @@ void mpPlayerConfigSetHeadBody(s32 playernum, u8 headnum, u8 bodynum)
         return;
     }
 
-    g_PlayerConfigsArray[playernum].base.mpheadnum = headnum;
-    g_PlayerConfigsArray[playernum].base.mpbodynum = bodynum;
+    struct mpchrconfig *cfg = &g_PlayerConfigsArray[playernum].base;
+    cfg->mpheadnum = headnum;
+    cfg->mpbodynum = bodynum;
+    /* PRIMARY: resolve and store catalog ID strings */
+    const char *hid = catalogResolveHeadByMpIndex((s32)headnum);
+    if (hid) {
+        strncpy(cfg->head_id, hid, sizeof(cfg->head_id) - 1);
+        cfg->head_id[sizeof(cfg->head_id) - 1] = '\0';
+    } else {
+        cfg->head_id[0] = '\0';
+    }
+    const char *bid = catalogResolveBodyByMpIndex((s32)bodynum);
+    if (bid) {
+        strncpy(cfg->body_id, bid, sizeof(cfg->body_id) - 1);
+        cfg->body_id[sizeof(cfg->body_id) - 1] = '\0';
+    } else {
+        cfg->body_id[0] = '\0';
+    }
 }
 
 /**

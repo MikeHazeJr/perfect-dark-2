@@ -33,6 +33,7 @@ void lobbyInit(void)
     memset(&g_Lobby, 0, sizeof(g_Lobby));
     g_Lobby.leaderSlot = 0xFF; /* No leader assigned yet */
     g_Lobby.settings.scenario = 0;
+    g_Lobby.settings.stage_id[0] = '\0';
     g_Lobby.settings.stagenum = 0;
     g_Lobby.settings.numSimulants = 0;
     sysLogPrintf(LOG_NOTE, "LOBBY: initialized (dedicated server model)");
@@ -72,6 +73,12 @@ void lobbyUpdate(void)
         lp->active = 1;
         lp->clientId = (u8)i;
         {
+            /* PRIMARY: copy catalog ID strings from client settings */
+            strncpy(lp->body_id, cl->settings.body_id, sizeof(lp->body_id) - 1);
+            lp->body_id[sizeof(lp->body_id) - 1] = '\0';
+            strncpy(lp->head_id, cl->settings.head_id, sizeof(lp->head_id) - 1);
+            lp->head_id[sizeof(lp->head_id) - 1] = '\0';
+            /* DERIVED: integer indices for legacy consumers */
             const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
             const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
             lp->bodynum = be ? (u8)be->runtime_index : 0;

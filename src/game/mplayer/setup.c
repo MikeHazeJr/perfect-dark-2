@@ -870,6 +870,14 @@ MenuItemHandlerResult menuhandlerMpCharacterBody(s32 operation, struct menuitem 
 			}
 		}
 		g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum = data->carousel.value;
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		{
+			const char *cid;
+			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum);
+			if (cid) { strncpy(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id, cid, sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id) - 1); g_PlayerConfigsArray[g_MpPlayerNum].base.body_id[sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id) - 1] = '\0'; }
+			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum);
+			if (cid) { strncpy(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id, cid, sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1); g_PlayerConfigsArray[g_MpPlayerNum].base.head_id[sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1] = '\0'; }
+		}
 		func0f17b8f0();
 		break;
 	case MENUOP_CHECKPREFOCUSED:
@@ -2445,6 +2453,9 @@ MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem 
 		if (data->carousel.value >= 0 && data->carousel.value < mpGetNumHeads2()) {
 			g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = data->carousel.value;
 			s_PreviewHeadNum = data->carousel.value;
+			/* PRIMARY: resolve and store catalog ID */
+			const char *cid = catalogResolveHeadByMpIndex(data->carousel.value);
+			if (cid) { strncpy(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id, cid, sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1); g_PlayerConfigsArray[g_MpPlayerNum].base.head_id[sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1] = '\0'; }
 		}
 	}
 
@@ -2861,6 +2872,14 @@ MenuItemHandlerResult mpCharacterBodyListHandler(s32 operation, struct menuitem 
 		// Commit on A press — lock in the selection
 		g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum = data->list.value;
 		g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = mpGetMpheadnumByMpbodynum(data->list.value);
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		{
+			const char *cid;
+			cid = catalogResolveBodyByMpIndex(data->list.value);
+			if (cid) { strncpy(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id, cid, sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id) - 1); g_PlayerConfigsArray[g_MpPlayerNum].base.body_id[sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.body_id) - 1] = '\0'; }
+			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum);
+			if (cid) { strncpy(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id, cid, sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1); g_PlayerConfigsArray[g_MpPlayerNum].base.head_id[sizeof(g_PlayerConfigsArray[g_MpPlayerNum].base.head_id) - 1] = '\0'; }
+		}
 		s_PreviewBodyNum = data->list.value;
 		s_PreviewHeadNum = g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum;
 		func0f17b8f0();
@@ -3370,11 +3389,20 @@ MenuItemHandlerResult menuhandlerMpSimulantHead(s32 operation, struct menuitem *
 	switch (operation) {
 	case MENUOP_SET:
 		g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum = start + data->carousel.value;
+		{
+			const char *cid = catalogResolveHeadByMpIndex(start + data->carousel.value);
+			if (cid) { strncpy(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id, cid, sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id) - 1); g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id[sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id) - 1] = '\0'; }
+		}
 	case MENUOP_FOCUS:
 		if (operation == MENUOP_FOCUS
 				&& item->param2 == 1
 				&& g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum < start) {
 			g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpheadnum = start;
+			/* Phase 2: update head_id after clamping */
+			{
+				const char *cid = catalogResolveHeadByMpIndex(start);
+				if (cid) { strncpy(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id, cid, sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id) - 1); g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id[sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.head_id) - 1] = '\0'; }
+			}
 		}
 		break;
 	}
@@ -3386,6 +3414,10 @@ MenuItemHandlerResult menuhandlerMpSimulantBody(s32 operation, struct menuitem *
 {
 	if (operation == MENUOP_SET) {
 		g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.mpbodynum = data->carousel.value;
+		{
+			const char *cid = catalogResolveBodyByMpIndex(data->carousel.value);
+			if (cid) { strncpy(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.body_id, cid, sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.body_id) - 1); g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.body_id[sizeof(g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.body_id) - 1] = '\0'; }
+		}
 	}
 
 	return mpCharacterBodyMenuHandler(operation, item, data,

@@ -6,7 +6,13 @@
 
 ---
 
-## Recently Completed (S130–S153 — 2026-04-02/05)
+## Recently Completed (S130–S154 — 2026-04-02/06)
+
+| Item | Status |
+|------|--------|
+| **Eliminate integer asset identity from wire (Phase 1+2)** | **DONE (S154)** — All 6 weapon messages already migrated (v30). SVC_PROP_SPAWN modelnum migrated to catalog session refs (`netWriteModelRef`/`netReadModelRef`). Bot body/head: `catalogBodynumToMpBodyIdx` eliminated from netmsg.c (fallback uses `catalogResolveByRuntimeIndex`, server decode uses `catalogGetSafeBodyPaired` directly). chrBruise guard enhanced with `model->definition` check. NET_PROTOCOL_VER 30→31. |
+
+## Previously Completed (S130–S153 — 2026-04-02/05)
 
 | Item | Status |
 |------|--------|

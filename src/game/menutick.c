@@ -30,6 +30,7 @@
 
 #include "system.h"
 #include "net/net.h"
+#include <string.h>
 
 /* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
@@ -563,6 +564,8 @@ void menuTick(void)
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+								/* Phase 2: populate PRIMARY catalog ID string field */
+								{ const char *cid = catalogResolveStageByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);
 								titleSetNextMode(TITLEMODE_SKIP);

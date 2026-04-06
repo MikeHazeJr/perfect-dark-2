@@ -819,12 +819,14 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 					head_canon = g_MatchConfig.slots[slotIdx].head_id;
 				}
 
-				/* Fallback: resolve from mpbodynum (works on listen server) */
+				/* Fallback: resolve from mpbodynum/mpheadnum (runtime_index).
+				 * These now hold g_HeadsAndBodies[] indices directly — use
+				 * catalogResolveByRuntimeIndex, not catalogResolveBodyByMpIndex. */
 				if (!body_canon) {
-					body_canon = catalogResolveBodyByMpIndex((s32)bc->base.mpbodynum);
+					body_canon = catalogResolveByRuntimeIndex(ASSET_BODY, (s32)bc->base.mpbodynum);
 				}
 				if (!head_canon) {
-					head_canon = catalogResolveHeadByMpIndex((s32)bc->base.mpheadnum);
+					head_canon = catalogResolveByRuntimeIndex(ASSET_HEAD, (s32)bc->base.mpheadnum);
 				}
 
 				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);
@@ -875,9 +877,21 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 mode = netbufReadU8(src);
 	g_NetGameMode = mode;
 
+	/* Phase 2: resolve stage catalog ID for all paths below */
+	const char *resolved_stage_id = "";
+	{
+		catalog_stage_result_t tmp_sr;
+		if (catalogResolveStageBySession(stage_session, &tmp_sr) && tmp_sr.entry) {
+			resolved_stage_id = tmp_sr.entry->id;
+		}
+	}
+
 	if (mode == NETGAMEMODE_COOP || mode == NETGAMEMODE_ANTI) {
 		// co-op / counter-op mission settings
 		g_MissionConfig.stagenum = stagenum;
+		/* Phase 2: populate PRIMARY catalog ID string field */
+		strncpy(g_MissionConfig.stage_id, resolved_stage_id, sizeof(g_MissionConfig.stage_id) - 1);
+		g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
 		g_MissionConfig.difficulty = netbufReadU8(src);
 		g_MissionConfig.iscoop = (mode == NETGAMEMODE_COOP);
 		g_MissionConfig.isanti = (mode == NETGAMEMODE_ANTI);
@@ -886,6 +900,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	} else {
 		// combat simulator settings
 		g_MpSetup.stagenum = stagenum;
+		/* Phase 2: populate PRIMARY catalog ID string field */
+		strncpy(g_MpSetup.stage_id, resolved_stage_id, sizeof(g_MpSetup.stage_id) - 1);
+		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 		g_MpSetup.scenario = netbufReadU8(src);
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
@@ -1077,6 +1094,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					s32 safeHead = he ? (s32)he->runtime_index : 0;
 					g_PlayerConfigsArray[pnum].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
 					g_PlayerConfigsArray[pnum].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
+					/* Phase 2: populate PRIMARY catalog ID string fields */
+					strncpy(g_PlayerConfigsArray[pnum].base.body_id, pncl->settings.body_id, sizeof(g_PlayerConfigsArray[pnum].base.body_id) - 1);
+					g_PlayerConfigsArray[pnum].base.body_id[sizeof(g_PlayerConfigsArray[pnum].base.body_id) - 1] = '\0';
+					strncpy(g_PlayerConfigsArray[pnum].base.head_id, pncl->settings.head_id, sizeof(g_PlayerConfigsArray[pnum].base.head_id) - 1);
+					g_PlayerConfigsArray[pnum].base.head_id[sizeof(g_PlayerConfigsArray[pnum].base.head_id) - 1] = '\0';
 					sysLogPrintf(LOG_NOTE, "NET: player %u body='%s'->%u head='%s'->%u",
 						pnum, pncl->settings.body_id,
 						g_PlayerConfigsArray[pnum].base.mpbodynum,
@@ -1098,6 +1120,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			/* Zero-init body/head each iteration so stale values never leak */
 			g_BotConfigsArray[botidx].base.mpbodynum = 0;
 			g_BotConfigsArray[botidx].base.mpheadnum = 0;
+			g_BotConfigsArray[botidx].base.body_id[0] = '\0';
+			g_BotConfigsArray[botidx].base.head_id[0] = '\0';
 
 			/* SA-3: bot body/head as session IDs */
 			const char *botname = netbufReadStr(src);
@@ -1128,6 +1152,15 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				s32 safeHead = (he && he->type == ASSET_HEAD) ? (s32)he->runtime_index : 0;
 				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
 				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
+				/* Phase 2: populate PRIMARY catalog ID string fields */
+				if (be && be->id[0]) {
+					strncpy(g_BotConfigsArray[botidx].base.body_id, be->id, sizeof(g_BotConfigsArray[botidx].base.body_id) - 1);
+					g_BotConfigsArray[botidx].base.body_id[sizeof(g_BotConfigsArray[botidx].base.body_id) - 1] = '\0';
+				}
+				if (he && he->id[0]) {
+					strncpy(g_BotConfigsArray[botidx].base.head_id, he->id, sizeof(g_BotConfigsArray[botidx].base.head_id) - 1);
+					g_BotConfigsArray[botidx].base.head_id[sizeof(g_BotConfigsArray[botidx].base.head_id) - 1] = '\0';
+				}
 			}
 			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body='%s'->%u head='%s'->%u (sessions %u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
@@ -1369,6 +1402,29 @@ static s32 netReadWeaponRef(struct netbuf *src)
 	}
 #endif
 	return WEAPON_UNARMED;
+}
+
+/* Write a model number (g_ModelStates[] index) as a session catalog u16 ref.
+ * All g_ModelStates entries are registered as ASSET_MODEL in the catalog. */
+static void netWriteModelRef(struct netbuf *dst, s32 modelnum)
+{
+	const char *id = catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum);
+	catalogWriteAssetRef(dst, id ? sessionCatalogGetId(id) : 0);
+}
+
+/* Read a session catalog u16 ref and resolve back to a model number.
+ * Returns 0 if unresolvable (caller should handle gracefully). */
+static s32 netReadModelRef(struct netbuf *src)
+{
+	const u16 session = catalogReadAssetRef(src);
+	if (session == 0) {
+		return 0;
+	}
+	const asset_entry_t *e = sessionCatalogLocalResolve(session);
+	if (e && e->type == ASSET_MODEL) {
+		return (s32)e->runtime_index;
+	}
+	return 0;
 }
 
 u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl)
@@ -1700,7 +1756,7 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 	switch (prop->type) {
 		case PROPTYPE_WEAPON:
 			// dropped gun or projectile
-			netbufWriteS16(dst, prop->weapon->base.modelnum);
+			netWriteModelRef(dst, prop->weapon->base.modelnum);
 			netWriteWeaponRef(dst, prop->weapon->weaponnum);
 			netWriteWeaponRef(dst, prop->weapon->dualweaponnum >= 0
 				? prop->weapon->dualweaponnum : WEAPON_UNARMED);
@@ -1711,7 +1767,7 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 			break;
 		case PROPTYPE_OBJ:
 			// we already send most of the important obj stuff below, so
-			netbufWriteS16(dst, prop->obj->modelnum);
+			netWriteModelRef(dst, prop->obj->modelnum);
 			if (objtype == OBJTYPE_AUTOGUN) {
 				// thrown laptop probably
 				struct autogunobj *autogun = (struct autogunobj *)prop->obj;
@@ -1786,7 +1842,7 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	struct prop *prop = (type == PROPTYPE_OBJ && objtype == OBJTYPE_AUTOGUN) ? NULL : propAllocate();
 
 	if (type == PROPTYPE_WEAPON) {
-		const s16 modelnum = netbufReadS16(src);
+		const s16 modelnum = (s16)netReadModelRef(src);
 		const s32 weaponnum_raw = netReadWeaponRef(src);
 		const s32 dualweaponnum_raw = netReadWeaponRef(src);
 		const u8 weaponnum = (u8)weaponnum_raw;
@@ -1841,7 +1897,7 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 		weapon->timer240 = timer240;
 		prop = func0f08adc8(weapon, modeldef, prop, model);
 	} else if (type == PROPTYPE_OBJ) {
-		const s16 modelnum = netbufReadS16(src);
+		const s16 modelnum = (s16)netReadModelRef(src);
 		if (objtype == OBJTYPE_AUTOGUN) {
 			// thrown laptop?
 			const u8 ammocount = netbufReadU8(src);
@@ -3794,8 +3850,8 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	 * write empty defaults so the server always reads exactly numSims entries.
 	 *
 	 * Catalog-ID-native: send body_id/head_id strings directly — the server
-	 * resolves them via assetCatalogResolve() + catalogBodynumToMpBodyIdx()
-	 * to obtain the correct mpbodynum/mpheadnum at the last moment.
+	 * resolves them via assetCatalogResolve() → runtime_index, then stores
+	 * directly as mpbodynum/mpheadnum via catalogGetSafeBodyPaired().
 	 * No integer-domain conversion on the client send path. */
 	s32 botIdx = 0;
 	for (s32 si = 0; si < g_MatchConfig.numSlots && botIdx < (s32)numSims; si++) {
@@ -4176,9 +4232,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 
 			/* FIX-PLAYTEST-1: Store body_id/head_id into g_MatchConfig.slots[]
 			 * so SVC_STAGE_START write can find them.  Without this, the write
-			 * path falls back to catalogResolveBodyByMpIndex(0) → dark_combat
-			 * for every bot, because the dedicated server can't resolve
-			 * mpbodynum (g_MpBodies[] is zeroed on server). */
+			 * path falls back to catalogResolveByRuntimeIndex(ASSET_BODY, 0) →
+			 * dark_combat for every bot. */
 			if (slot < MATCH_MAX_SLOTS) {
 				g_MatchConfig.slots[slot].type = SLOT_BOT;
 				g_MatchConfig.slots[slot].botType = botType;
@@ -4207,21 +4262,36 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 
-			/* Resolve catalog IDs → mpbodynum/mpheadnum (last-moment conversion). */
-			g_BotConfigsArray[bi].base.mpbodynum = 0; /* MPBODY_DARK_COMBAT default */
-			g_BotConfigsArray[bi].base.mpheadnum = 0; /* MPHEAD_DARK_COMBAT default */
-			if (body_id && body_id[0]) {
-				const asset_entry_t *be = assetCatalogResolve(body_id);
-				if (be && be->type == ASSET_BODY) {
-					const s32 mpb = catalogBodynumToMpBodyIdx(be->runtime_index);
-					if (mpb >= 0) g_BotConfigsArray[bi].base.mpbodynum = (u8)mpb;
+			/* Resolve catalog IDs → runtime_index (g_HeadsAndBodies[] index),
+			 * stored directly as mpbodynum/mpheadnum.  No intermediate
+			 * catalogBodynumToMpBodyIdx conversion — catalog resolves to
+			 * what the engine needs. */
+			{
+				s32 rawBody = 0, rawHead = 0;
+				if (body_id && body_id[0]) {
+					const asset_entry_t *be = assetCatalogResolve(body_id);
+					if (be && be->type == ASSET_BODY) rawBody = (s32)be->runtime_index;
 				}
-			}
-			if (head_id && head_id[0]) {
-				const asset_entry_t *he = assetCatalogResolve(head_id);
-				if (he && he->type == ASSET_HEAD) {
-					const s32 mph = catalogHeadnumToMpHeadIdx(he->runtime_index);
-					if (mph >= 0) g_BotConfigsArray[bi].base.mpheadnum = (u8)mph;
+				if (head_id && head_id[0]) {
+					const asset_entry_t *he = assetCatalogResolve(head_id);
+					if (he && he->type == ASSET_HEAD) rawHead = (s32)he->runtime_index;
+				}
+				g_BotConfigsArray[bi].base.mpbodynum =
+					(u8)catalogGetSafeBodyPaired(rawBody, &rawHead);
+				g_BotConfigsArray[bi].base.mpheadnum =
+					(u8)catalogGetSafeHead(rawHead);
+				/* Phase 2: populate PRIMARY catalog ID string fields */
+				if (body_id && body_id[0]) {
+					strncpy(g_BotConfigsArray[bi].base.body_id, body_id, sizeof(g_BotConfigsArray[bi].base.body_id) - 1);
+					g_BotConfigsArray[bi].base.body_id[sizeof(g_BotConfigsArray[bi].base.body_id) - 1] = '\0';
+				} else {
+					g_BotConfigsArray[bi].base.body_id[0] = '\0';
+				}
+				if (head_id && head_id[0]) {
+					strncpy(g_BotConfigsArray[bi].base.head_id, head_id, sizeof(g_BotConfigsArray[bi].base.head_id) - 1);
+					g_BotConfigsArray[bi].base.head_id[sizeof(g_BotConfigsArray[bi].base.head_id) - 1] = '\0';
+				} else {
+					g_BotConfigsArray[bi].base.head_id[0] = '\0';
 				}
 			}
 			if (botName && botName[0]) {
@@ -4386,6 +4456,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	} else {
 		/* Co-op or Counter-op — uses mission config */
 		g_MissionConfig.stagenum = g_MpSetup.stagenum;
+		/* Phase 2: populate PRIMARY catalog ID string field */
+		strncpy(g_MissionConfig.stage_id, g_MpSetup.stage_id, sizeof(g_MissionConfig.stage_id) - 1);
+		g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
 		g_MissionConfig.difficulty = difficulty;
 		mainChangeToStage(g_MpSetup.stagenum);
 		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
@@ -4482,6 +4555,13 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 	g_NetGameMode = gamemode;
 	g_Lobby.settings.scenario = gamemode;
 	g_Lobby.settings.stagenum = stagenum;
+	/* Phase 2: populate PRIMARY catalog ID string field */
+	if (arena_id && arena_id[0]) {
+		strncpy(g_Lobby.settings.stage_id, arena_id, sizeof(g_Lobby.settings.stage_id) - 1);
+		g_Lobby.settings.stage_id[sizeof(g_Lobby.settings.stage_id) - 1] = '\0';
+	} else {
+		g_Lobby.settings.stage_id[0] = '\0';
+	}
 	g_Lobby.inGame = (status >= 2) ? 1 : 0;
 
 	return src->error;

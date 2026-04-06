@@ -741,6 +741,12 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	// configure mission on the server side
 	g_MissionConfig.stagenum = stagenum;
+	/* Phase 2: populate PRIMARY catalog ID string field */
+	{
+		const char *cid = catalogResolveStageByStagenum(stagenum);
+		if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
+		else { g_MissionConfig.stage_id[0] = '\0'; }
+	}
 	g_MissionConfig.difficulty = difficulty;
 	g_MissionConfig.iscoop = (g_NetGameMode == NETGAMEMODE_COOP);
 	g_MissionConfig.isanti = (g_NetGameMode == NETGAMEMODE_ANTI);
@@ -1071,6 +1077,11 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
 		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
 		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
+		cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
+		strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
+		cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
 	}
 	cfg->controlmode = CONTROLMODE_NA;
 	snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
@@ -1746,6 +1757,11 @@ void netPlayersAllocate(void)
 				const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
 				cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
 				cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+				/* Phase 2: populate PRIMARY catalog ID string fields */
+				strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
+				cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
+				strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
+				cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
 			}
 			cfg->controlmode = CONTROLMODE_NA;
 			snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);

@@ -569,6 +569,11 @@ s32 matchStart(void)
 			} else {
 				cfg->mpheadnum = ms->headnum;
 			}
+			/* Phase 2: populate PRIMARY catalog ID string fields */
+			strncpy(cfg->body_id, ms->body_id, sizeof(cfg->body_id) - 1);
+			cfg->body_id[sizeof(cfg->body_id) - 1] = '\0';
+			strncpy(cfg->head_id, ms->head_id, sizeof(cfg->head_id) - 1);
+			cfg->head_id[sizeof(cfg->head_id) - 1] = '\0';
 			cfg->team = ms->team;
 
 			strncpy(cfg->name, ms->name, 14);
@@ -609,6 +614,11 @@ s32 matchStart(void)
 			} else {
 				bot->base.mpheadnum = ms->headnum;
 			}
+			/* Phase 2: populate PRIMARY catalog ID string fields */
+			strncpy(bot->base.body_id, ms->body_id, sizeof(bot->base.body_id) - 1);
+			bot->base.body_id[sizeof(bot->base.body_id) - 1] = '\0';
+			strncpy(bot->base.head_id, ms->head_id, sizeof(bot->base.head_id) - 1);
+			bot->base.head_id[sizeof(bot->base.head_id) - 1] = '\0';
 			bot->base.team = ms->team;
 			bot->type = ms->botType;
 			bot->difficulty = ms->botDifficulty;

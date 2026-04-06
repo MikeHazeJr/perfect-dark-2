@@ -797,6 +797,16 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 	}
 
 	g_PlayerConfigsArray[playernum].base.mpheadnum = mpGetMpheadnumByMpbodynum(g_PlayerConfigsArray[playernum].base.mpbodynum);
+	/* Phase 2: populate PRIMARY catalog ID string fields */
+	{
+		const char *cid;
+		cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[playernum].base.mpbodynum);
+		if (cid) { strncpy(g_PlayerConfigsArray[playernum].base.body_id, cid, sizeof(g_PlayerConfigsArray[playernum].base.body_id) - 1); g_PlayerConfigsArray[playernum].base.body_id[sizeof(g_PlayerConfigsArray[playernum].base.body_id) - 1] = '\0'; }
+		else { g_PlayerConfigsArray[playernum].base.body_id[0] = '\0'; }
+		cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[playernum].base.mpheadnum);
+		if (cid) { strncpy(g_PlayerConfigsArray[playernum].base.head_id, cid, sizeof(g_PlayerConfigsArray[playernum].base.head_id) - 1); g_PlayerConfigsArray[playernum].base.head_id[sizeof(g_PlayerConfigsArray[playernum].base.head_id) - 1] = '\0'; }
+		else { g_PlayerConfigsArray[playernum].base.head_id[0] = '\0'; }
+	}
 	g_PlayerConfigsArray[playernum].base.displayoptions = MPDISPLAYOPTION_RADAR | MPDISPLAYOPTION_HIGHLIGHTTEAMS;
 	g_PlayerConfigsArray[playernum].fileguid.fileid = 0;
 	g_PlayerConfigsArray[playernum].fileguid.deviceserial = 0;
@@ -844,7 +854,12 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 void func0f1881d4(s32 index)
 {
 	g_BotConfigsArray[index].base.name[0] = '\0';
-	/* Resolve default bot body and head from catalog ("base:dark_combat"). */
+	/* Phase 2: set PRIMARY catalog ID strings first */
+	strncpy(g_BotConfigsArray[index].base.body_id, "base:dark_combat", sizeof(g_BotConfigsArray[index].base.body_id) - 1);
+	g_BotConfigsArray[index].base.body_id[sizeof(g_BotConfigsArray[index].base.body_id) - 1] = '\0';
+	strncpy(g_BotConfigsArray[index].base.head_id, "base:head_dark_combat", sizeof(g_BotConfigsArray[index].base.head_id) - 1);
+	g_BotConfigsArray[index].base.head_id[sizeof(g_BotConfigsArray[index].base.head_id) - 1] = '\0';
+	/* Resolve DEPRECATED integer indices from catalog */
 	{
 		const asset_entry_t *be = assetCatalogResolve("base:dark_combat");
 		if (be && be->type == ASSET_BODY) {
@@ -3487,6 +3502,16 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	g_BotConfigsArray[botnum].base.mpheadnum = headnum;
 	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
+	/* Phase 2: populate PRIMARY catalog ID string fields */
+	{
+		const char *cid;
+		cid = catalogResolveHeadByMpIndex(headnum);
+		if (cid) { strncpy(g_BotConfigsArray[botnum].base.head_id, cid, sizeof(g_BotConfigsArray[botnum].base.head_id) - 1); g_BotConfigsArray[botnum].base.head_id[sizeof(g_BotConfigsArray[botnum].base.head_id) - 1] = '\0'; }
+		else { g_BotConfigsArray[botnum].base.head_id[0] = '\0'; }
+		cid = catalogResolveBodyByMpIndex(g_BotProfiles[profilenum].body);
+		if (cid) { strncpy(g_BotConfigsArray[botnum].base.body_id, cid, sizeof(g_BotConfigsArray[botnum].base.body_id) - 1); g_BotConfigsArray[botnum].base.body_id[sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0'; }
+		else { g_BotConfigsArray[botnum].base.body_id[0] = '\0'; }
+	}
 }
 
 void mpSetBotDifficulty(s32 botnum, s32 difficulty)
@@ -3534,6 +3559,9 @@ void mpCopySimulant(s32 index)
 	g_BotConfigsArray[dest].base.name[0] = g_BotConfigsArray[index].base.name[0];
 	g_BotConfigsArray[dest].base.mpheadnum = g_BotConfigsArray[index].base.mpheadnum;
 	g_BotConfigsArray[dest].base.mpbodynum = g_BotConfigsArray[index].base.mpbodynum;
+	/* Phase 2: copy PRIMARY catalog ID string fields */
+	strncpy(g_BotConfigsArray[dest].base.head_id, g_BotConfigsArray[index].base.head_id, sizeof(g_BotConfigsArray[dest].base.head_id));
+	strncpy(g_BotConfigsArray[dest].base.body_id, g_BotConfigsArray[index].base.body_id, sizeof(g_BotConfigsArray[dest].base.body_id));
 	g_BotConfigsArray[dest].type = g_BotConfigsArray[index].type;
 	g_BotConfigsArray[dest].difficulty = g_BotConfigsArray[index].difficulty;
 	mpGenerateBotNames();
@@ -3791,6 +3819,16 @@ void mpplayerfileLoadWad(s32 playernum, struct savebuffer *buffer, s32 arg2)
 			} else {
 				g_PlayerConfigsArray[playernum].base.mpheadnum = MPHEAD_DARK_COMBAT;
 			}
+		}
+		/* Phase 2: resolve catalog IDs AFTER validity clamping */
+		{
+			const char *cid;
+			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[playernum].base.mpheadnum);
+			if (cid) { strncpy(g_PlayerConfigsArray[playernum].base.head_id, cid, sizeof(g_PlayerConfigsArray[playernum].base.head_id) - 1); g_PlayerConfigsArray[playernum].base.head_id[sizeof(g_PlayerConfigsArray[playernum].base.head_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[playernum].base.head_id[0] = '\0'; }
+			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[playernum].base.mpbodynum);
+			if (cid) { strncpy(g_PlayerConfigsArray[playernum].base.body_id, cid, sizeof(g_PlayerConfigsArray[playernum].base.body_id) - 1); g_PlayerConfigsArray[playernum].base.body_id[sizeof(g_PlayerConfigsArray[playernum].base.body_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[playernum].base.body_id[0] = '\0'; }
 		}
 	} else {
 		savebufferReadBits(buffer, 7);
@@ -4163,6 +4201,23 @@ void mpApplyConfig(struct mpconfigfull *config)
 
 		g_BotConfigsArray[i].base.mpheadnum = config->config.simulants[i].mpheadnum;
 		g_BotConfigsArray[i].base.mpbodynum = config->config.simulants[i].mpbodynum;
+		/* PRIMARY: copy catalog ID strings from challenge config, fallback to integer resolve */
+		if (config->config.simulants[i].head_id[0]) {
+			strncpy(g_BotConfigsArray[i].base.head_id, config->config.simulants[i].head_id, sizeof(g_BotConfigsArray[i].base.head_id) - 1);
+			g_BotConfigsArray[i].base.head_id[sizeof(g_BotConfigsArray[i].base.head_id) - 1] = '\0';
+		} else {
+			const char *cid = catalogResolveHeadByMpIndex(config->config.simulants[i].mpheadnum);
+			if (cid) { strncpy(g_BotConfigsArray[i].base.head_id, cid, sizeof(g_BotConfigsArray[i].base.head_id) - 1); g_BotConfigsArray[i].base.head_id[sizeof(g_BotConfigsArray[i].base.head_id) - 1] = '\0'; }
+			else { g_BotConfigsArray[i].base.head_id[0] = '\0'; }
+		}
+		if (config->config.simulants[i].body_id[0]) {
+			strncpy(g_BotConfigsArray[i].base.body_id, config->config.simulants[i].body_id, sizeof(g_BotConfigsArray[i].base.body_id) - 1);
+			g_BotConfigsArray[i].base.body_id[sizeof(g_BotConfigsArray[i].base.body_id) - 1] = '\0';
+		} else {
+			const char *cid = catalogResolveBodyByMpIndex(config->config.simulants[i].mpbodynum);
+			if (cid) { strncpy(g_BotConfigsArray[i].base.body_id, cid, sizeof(g_BotConfigsArray[i].base.body_id) - 1); g_BotConfigsArray[i].base.body_id[sizeof(g_BotConfigsArray[i].base.body_id) - 1] = '\0'; }
+			else { g_BotConfigsArray[i].base.body_id[0] = '\0'; }
+		}
 		g_BotConfigsArray[i].base.team = config->config.simulants[i].team;
 	}
 
@@ -4286,6 +4341,15 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 
 		g_BotConfigsArray[i].base.mpheadnum = savebufferReadBits(buffer, 7);
 		g_BotConfigsArray[i].base.mpbodynum = savebufferReadBits(buffer, 7);
+		/* PRIMARY: resolve catalog IDs from loaded integer indices */
+		{
+			const char *cid = catalogResolveHeadByMpIndex(g_BotConfigsArray[i].base.mpheadnum);
+			if (cid) { strncpy(g_BotConfigsArray[i].base.head_id, cid, sizeof(g_BotConfigsArray[i].base.head_id) - 1); g_BotConfigsArray[i].base.head_id[sizeof(g_BotConfigsArray[i].base.head_id) - 1] = '\0'; }
+			else { g_BotConfigsArray[i].base.head_id[0] = '\0'; }
+			cid = catalogResolveBodyByMpIndex(g_BotConfigsArray[i].base.mpbodynum);
+			if (cid) { strncpy(g_BotConfigsArray[i].base.body_id, cid, sizeof(g_BotConfigsArray[i].base.body_id) - 1); g_BotConfigsArray[i].base.body_id[sizeof(g_BotConfigsArray[i].base.body_id) - 1] = '\0'; }
+			else { g_BotConfigsArray[i].base.body_id[0] = '\0'; }
+		}
 		g_BotConfigsArray[i].base.team = savebufferReadBits(buffer, 3);
 	}
 

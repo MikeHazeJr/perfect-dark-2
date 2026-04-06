@@ -3944,10 +3944,13 @@ void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct 
 {
 	/* B-112 defense-in-depth: shot path can reach here with stale pointers
 	 * if a chr is freed between matches.  Bail early to avoid crash in
-	 * modelNodeGetModelRelativePosition / modelApplyDistanceRelations. */
-	if (!model || !node || !arg3) {
-		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrBruise skipped — model=%p node=%p arg3=%p",
-			(void *)model, (void *)node, (void *)arg3);
+	 * modelNodeGetModelRelativePosition / modelApplyDistanceRelations.
+	 * Also check model->definition — a non-NULL stale model pointer may
+	 * have had its definition freed during stage teardown. */
+	if (!model || !model->definition || !node || !arg3) {
+		sysLogPrintf(LOG_WARNING, "CHRCRASH: chrBruise skipped — model=%p def=%p node=%p arg3=%p",
+			(void *)model, model ? (void *)model->definition : NULL,
+			(void *)node, (void *)arg3);
 		return;
 	}
 

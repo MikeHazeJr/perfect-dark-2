@@ -9,9 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 30  /* v30: Weapon identity on wire uses catalog session refs (u16) instead
-                               * of raw WEAPON_* s8/u8.  Affects SVC_PLAYER_STATS, SVC_PROP_SPAWN,
-                               * SVC_PROP_DAMAGE, SVC_CHR_DISARM, SVC_CHR_STATE, SVC_CHR_RESYNC.
+#define NET_PROTOCOL_VER 31  /* v31: SVC_PROP_SPAWN modelnum on wire uses catalog session refs (u16)
+                               * instead of raw s16 model index.  Bot body/head decode uses
+                               * runtime_index directly (no catalogBodynumToMpBodyIdx conversion).
+                               * v30: Weapon identity on wire uses catalog session refs (u16).
                                * v29: Room networking (R-3).
                                * v28: SVC_BOT_AUTHORITY + CLC_BOT_MOVE for dedicated-server bot relay.
                                * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
@@ -66,7 +67,8 @@ struct netrecentserver {
 	u8 flags;       // bit 0 = in-game
 	u8 numclients;
 	u8 maxclients;
-	u8 stagenum;
+	char stage_id[CATALOG_ID_LEN]; /* PRIMARY: catalog stage identity */
+	u8 stagenum;               /* DEPRECATED: integer stage index. Use stage_id instead. */
 	u8 scenario;
 	char hostname[NET_MAX_NAME];
 	u32 lastresponse; // system time of last response (0 = never)
@@ -137,7 +139,8 @@ struct netplayermove {
 	f32 movespeed[2]; // move inputs, [0] is forward, [1] is sideways; used mostly for animation
 	f32 angles[2]; // view angles, [0] is theta, [1] is verta
 	f32 crosspos[2]; // crosshair position in aiming mode; normalized to default aspect ratio
-	s8 weaponnum; // switch to this weapon if UCMD_SELECT is set
+	char weapon_id[CATALOG_ID_LEN]; /* PRIMARY: catalog weapon identity for weapon switch */
+	s8 weaponnum; /* DEPRECATED: integer weapon enum. Use weapon_id instead. Empty string = no change. */
 	struct coord pos; // player position at g_NetTick == tick
 };
 

@@ -47,8 +47,8 @@ struct matchslot {
 	 * matchStart() time via catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx. */
 	char body_id[64]; /* PRIMARY: catalog ID e.g. "base:dark_combat", "base:theking" */
 	char head_id[64]; /* PRIMARY: catalog ID e.g. "base:head_dark_combat" */
-	u8 headnum;       /* DERIVED: mpheadnum (g_MpHeads[] index) — set by matchStart */
-	u8 bodynum;       /* DERIVED: mpbodynum (g_MpBodies[] index) — set by matchStart */
+	u8 headnum;       /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. Kept temporarily for unmigrated consumers. */
+	u8 bodynum;       /* DEPRECATED: integer g_MpBodies[] index. Use body_id instead. Kept temporarily for unmigrated consumers. */
 	u8 botType;       /* BOTTYPE_* (only for SLOT_BOT) */
 	u8 botDifficulty; /* BOTDIFF_* (only for SLOT_BOT) */
 	char name[MAX_PLAYER_NAME];  /* display name */
@@ -60,7 +60,7 @@ struct matchconfig {
 	/* PRIMARY: catalog ID string (e.g. "base:mp_complex", "base:defection").
 	 * stagenum is DERIVED — resolved from stage_id at matchStart() only. */
 	char stage_id[64];              /* PRIMARY: catalog ID — e.g. "base:mp_complex" */
-	u8 stagenum;                    /* DERIVED: resolved from stage_id at matchStart */
+	u8 stagenum;                    /* DEPRECATED: integer stage index. Use stage_id instead. Kept temporarily for unmigrated consumers. */
 	u8 timelimit;                   /* minutes (0 = unlimited) */
 	u8 scorelimit;                  /* score to win (0 = unlimited) */
 	u16 teamscorelimit;             /* team score limit */

@@ -174,6 +174,16 @@ static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menu
 			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
 			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 		}
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		{
+			const char *cid;
+			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[0].base.mpbodynum);
+			if (cid) { strncpy(g_PlayerConfigsArray[0].base.body_id, cid, sizeof(g_PlayerConfigsArray[0].base.body_id) - 1); g_PlayerConfigsArray[0].base.body_id[sizeof(g_PlayerConfigsArray[0].base.body_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[0].base.body_id[0] = '\0'; }
+			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[0].base.mpheadnum);
+			if (cid) { strncpy(g_PlayerConfigsArray[0].base.head_id, cid, sizeof(g_PlayerConfigsArray[0].base.head_id) - 1); g_PlayerConfigsArray[0].base.head_id[sizeof(g_PlayerConfigsArray[0].base.head_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[0].base.head_id[0] = '\0'; }
+		}
 		sysLogPrintf(LOG_NOTE, "NET: co-op character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
 		/* Notify server of updated settings — triggers catalog ID conversion */
@@ -397,6 +407,16 @@ static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menu
 			s32 mpbodynum = data->dropdown.value - 1;
 			g_PlayerConfigsArray[0].base.mpbodynum = mpbodynum;
 			g_PlayerConfigsArray[0].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
+		}
+		/* Phase 2: populate PRIMARY catalog ID string fields */
+		{
+			const char *cid;
+			cid = catalogResolveBodyByMpIndex(g_PlayerConfigsArray[0].base.mpbodynum);
+			if (cid) { strncpy(g_PlayerConfigsArray[0].base.body_id, cid, sizeof(g_PlayerConfigsArray[0].base.body_id) - 1); g_PlayerConfigsArray[0].base.body_id[sizeof(g_PlayerConfigsArray[0].base.body_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[0].base.body_id[0] = '\0'; }
+			cid = catalogResolveHeadByMpIndex(g_PlayerConfigsArray[0].base.mpheadnum);
+			if (cid) { strncpy(g_PlayerConfigsArray[0].base.head_id, cid, sizeof(g_PlayerConfigsArray[0].base.head_id) - 1); g_PlayerConfigsArray[0].base.head_id[sizeof(g_PlayerConfigsArray[0].base.head_id) - 1] = '\0'; }
+			else { g_PlayerConfigsArray[0].base.head_id[0] = '\0'; }
 		}
 		sysLogPrintf(LOG_NOTE, "NET: client character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);

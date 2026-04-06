@@ -3,6 +3,42 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S154 — 2026-04-06
+
+**Focus**: Eliminate integer asset identity from network wire (Phase 1+2)
+
+### What Was Done
+
+**Discovery**: All 6 weapon messages (SVC_PLAYER_STATS, SVC_PROP_SPAWN, SVC_PROP_DAMAGE, SVC_CHR_DISARM, SVC_CHR_STATE, SVC_NPC_STATE/CHR_RESYNC) were ALREADY migrated to catalog session refs via `netWriteWeaponRef`/`netReadWeaponRef` helpers (done in v30). SVC_NPC_STATE has no weapon field. Handicap UI slider was also already fixed.
+
+**Bot body/head conversion elimination** (netmsg.c):
+- SVC_STAGE_START write fallback (line 824): `catalogResolveBodyByMpIndex()` → `catalogResolveByRuntimeIndex(ASSET_BODY, ...)` since mpbodynum now stores runtime_index directly.
+- CLC_LOBBY_START server read (line 4216): Replaced `catalogBodynumToMpBodyIdx(runtime_index)` with direct `catalogGetSafeBodyPaired(runtime_index, &rawHead)` storage — matches the client decode path. Same for heads.
+- Zero `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx` calls remain in netmsg.c (only in comments).
+
+**SVC_PROP_SPAWN modelnum → catalog ref** (netmsg.c):
+- Added `netWriteModelRef()`/`netReadModelRef()` helpers using `catalogResolveByRuntimeIndex(ASSET_MODEL, ...)` and `sessionCatalogLocalResolve()`.
+- Write side: both PROPTYPE_WEAPON and PROPTYPE_OBJ modelnum now use `netWriteModelRef()` (catalog session u16).
+- Read side: both paths now use `netReadModelRef()`.
+- All g_ModelStates[] entries are registered as ASSET_MODEL (by assetcatalog_base_extended.c), so resolution is complete.
+
+**chrBruise guard enhancement** (chr.c):
+- Added `!model->definition` check to existing B-112 defense-in-depth guard. Catches stale model pointers with freed definition (non-NULL pointer, NULL definition after stage teardown).
+
+**NET_PROTOCOL_VER 30 → 31** (net.h): Breaking wire change for SVC_PROP_SPAWN modelnum format.
+
+### Decisions
+- CLC player move struct `in->weaponnum` (line 219) still uses raw s8 — out of scope for this session (CLC not SVC, 60Hz per-tick bandwidth concern). Noted for future.
+- Comments referencing old conversion functions updated to describe new code path.
+
+### Next Steps
+- Build verification
+- Playtest to verify prop spawn, bot body/head, and weapon resolution all work end-to-end
+- Consider migrating CLC player move weaponnum to catalog ref (bandwidth trade-off)
+- B-112 root cause still unknown
+
+---
+
 ## Session S153 — 2026-04-05 (evening)
 
 **Focus**: Audit + recovery + lobby unification close-out; B-116 bot catalog ID fix
