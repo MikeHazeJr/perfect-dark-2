@@ -685,14 +685,8 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			strncpy(pc->base.head_id, id_buf, sizeof(pc->base.head_id) - 1);
 			pc->base.head_id[sizeof(pc->base.head_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_HEAD) {
-				/* Derive mpheadnum by scanning g_MpHeads[] for matching headnum */
-				for (s32 hi = 0; hi < ARRAYCOUNT(g_MpHeads); hi++) {
-					if ((s32)g_MpHeads[hi].headnum == (s32)e->runtime_index) {
-						pc->base.mpheadnum = (u8)hi;
-						break;
-					}
-				}
+			if (e && e->type == ASSET_HEAD && e->mp_index >= 0) {
+				pc->base.mpheadnum = (u8)e->mp_index;
 			}
 		} else if (strcmp(key, "body_id") == 0) {
 			/* SA-4: catalog string ID for body.
@@ -706,14 +700,8 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 			strncpy(pc->base.body_id, id_buf, sizeof(pc->base.body_id) - 1);
 			pc->base.body_id[sizeof(pc->base.body_id) - 1] = '\0';
 			e = assetCatalogResolve(id_buf);
-			if (e && e->type == ASSET_BODY) {
-				/* Derive mpbodynum by scanning g_MpBodies[] for matching bodynum */
-				for (s32 bi = 0; bi < ARRAYCOUNT(g_MpBodies); bi++) {
-					if ((s32)g_MpBodies[bi].bodynum == (s32)e->runtime_index) {
-						pc->base.mpbodynum = (u8)bi;
-						break;
-					}
-				}
+			if (e && e->type == ASSET_BODY && e->mp_index >= 0) {
+				pc->base.mpbodynum = (u8)e->mp_index;
 			}
 		} else if (strcmp(key, "mpheadnum") == 0) {
 			/* SA-4 v1 fallback: legacy integer field */
