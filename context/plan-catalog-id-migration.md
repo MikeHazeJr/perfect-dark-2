@@ -1,18 +1,28 @@
 # Catalog ID Migration Plan — Full Codebase
 
-> **Mandate**: Zero integer-to-catalog-ID conversion anywhere, ever. Catalog ID (`char[64]` string) is the sole identity for every asset. No intermediate integer index step.
+> **Mandate**: Zero integer-to-catalog-ID conversion anywhere, ever. Catalog ID (`char[64]` string) is the sole identity for every asset. No intermediate integer index step. Catalog ID goes all the way through — including engine internals.
 >
-> **Scope**: 3,366 references to integer asset identity across `port/`, `src/game/`, `src/include/`.
+> **Scope**: ~4,100 references to integer asset identity across `port/`, `src/game/`, `src/include/`.
 >
-> **Date**: 2026-04-06
+> **Date**: 2026-04-06 (updated with game director decisions)
 >
 > Back to [index](README.md) | See also [constraints.md](constraints.md)
 
 ---
 
+## Game Director Decisions (2026-04-06)
+
+| Decision | Ruling | Impact |
+|----------|--------|--------|
+| **D-1: Weapon Enums** | **FULL migration.** Every `WEAPON_xxx` / `weaponnum` becomes catalog ID. All ~660 references in `src/game/`. | +660 refs, +35 files |
+| **D-2: Model Numbers** | **FULL migration.** Add `ASSET_MODEL` to catalog (already exists!), register all models, audit completeness. | +83 refs, +15 files |
+| **D-3: `mainChangeToStage`** | **Full engine refactor.** `mainChangeToStage(const char *stage_id)` — catalog ID all the way through. No boundary conversion. | ~15 callers, engine refactor |
+
+---
+
 ## Current State
 
-The codebase has a **dual identity** problem. Phases A–G of catalog universality gave us catalog ID strings as the *primary* identity in network wire, save/load, and config structs — but integer indices remain everywhere as "derived" fields that the engine still needs at runtime. Conversion functions bridge the gap:
+The codebase has a **dual identity** problem. Phases A–G of catalog universality gave us catalog ID strings as the *primary* identity in network wire, save/load, and config structs — but integer indices remain everywhere as "derived" fields that the engine still needs at runtime. Conversion functions bridge the gap.
 
 **Active conversion functions** (all must be eliminated):
 - `catalogResolveBodyByMpIndex(s32 mpbodynum)` — mpbody index → catalog ID string
@@ -46,11 +56,96 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 - `weaponobj.weaponnum` (u8) — prop/object identity
 - `aibot.weaponnum` (s8) — bot current weapon
 - `gunctrl.weaponnum` (s32) — player gun controller
-- All `WEAPON_xxx` enum usage in game logic (~660 references)
-- `modelnum` (s16) — model identity in props/objects
+- All `WEAPON_xxx` enum usage in game logic (~660 references across 35 files)
+- `modelnum` (s16) — model identity in props/objects (~83 references across 15 files)
+- `mainChangeToStage(s32 stagenum)` — 15 call sites
 - All `g_MpBodies[]` / `g_MpHeads[]` array indexed lookups
 - UI bridge functions: `mpPlayerConfigGetHead/Body`, `pdguiCharPreviewRequest(u8, u8)`
 - Callback interface: `netcb_OnPlayerJoin(u8 headnum, u8 bodynum)` etc.
+
+---
+
+## Phase 0: Catalog Completeness — Live Source of Truth
+
+**Goal**: Every asset type is registered in the catalog at startup. The catalog stays current when mods are loaded/unloaded. No gaps, no stale entries.
+
+### 0.1 — Asset Type Registration Audit
+
+| Asset Type | Registered? | Where | Count | Gap? |
+|-----------|-------------|-------|-------|------|
+| **ASSET_BODY** | YES | `assetcatalog_base.c` — from `g_MpBodies[]` | ~63 | None |
+| **ASSET_HEAD** | YES | `assetcatalog_base.c` — from `g_MpHeads[]` | ~76 | None |
+| **ASSET_MAP** | YES | `assetcatalog_base.c` — from `g_Stages[]` | ~60 | None |
+| **ASSET_ARENA** | YES | `assetcatalog_base.c` — from `g_MpArenas[]` | ~30 | None |
+| **ASSET_WEAPON** | YES | `assetcatalog_base_extended.c` — from `s_BaseWeapons[]` | 47 | **Gap: only MP weapons registered (MPWEAPON_* 0x01–0x2f). Engine has WEAPON_xxx enums (0x00–0x38) which include WEAPON_NONE, WEAPON_UNARMED, etc. that are not MP weapons. Need to register ALL weapon enums, including non-MP ones (unarmed, disabled, special).** |
+| **ASSET_MODEL** | YES | `assetcatalog_base_extended.c` — from `g_ModelStates[]` | ~441 (NUM_MODELS) | **Gap: audit needed — are ALL models registered, or just "prop models"? Comment says "base prop models" which may not be all NUM_MODELS. Verify loop covers 0..NUM_MODELS-1 completely.** |
+| **ASSET_TEXTURE** | YES | `assetcatalog_base_extended.c` | ~3503 | Verify count |
+| **ASSET_ANIMATION** | YES | `assetcatalog_base_extended.c` | ~1207 | N/A for this plan |
+| **ASSET_SFX** | YES | `assetcatalog_base_extended.c` (registered as type) | — | N/A for this plan |
+| **ASSET_MUSIC** | YES | registered type exists | — | N/A for this plan |
+| **ASSET_AUDIO** | YES | `assetcatalog_base_extended.c` | ~1545 | N/A for this plan |
+| **ASSET_LANG** | YES | `assetcatalog_base_extended.c` | ~68 | N/A for this plan |
+| **ASSET_PROP** | YES | `assetcatalog_base_extended.c` | 8 categories | N/A for this plan |
+| **ASSET_GAMEMODE** | YES | `assetcatalog_base_extended.c` | 6 | N/A for this plan |
+| **ASSET_HUD** | YES | `assetcatalog_base_extended.c` | 6 | N/A for this plan |
+
+### 0.2 — Weapon Registration Gap Fix
+
+| Item | Detail |
+|------|--------|
+| **File** | `port/src/assetcatalog_base_extended.c` |
+| **What** | `s_BaseWeapons[]` only covers MPWEAPON_* range (0x01–0x2f, 47 entries). The engine uses WEAPON_xxx enums (0x00–0x38+), which include WEAPON_NONE (0x00), WEAPON_UNARMED (0x01), and higher values up to WEAPON_COMBATBOOST. These are different numbering from MPWEAPON_*. |
+| **Should become** | Register ALL WEAPON_xxx enum values as ASSET_WEAPON. Two ID spaces exist: MPWEAPON_* (MP slot indices) and WEAPON_* (engine weapon enum). Both need catalog coverage. The `weapon_id` field in ASSET_WEAPON ext data currently stores MPWEAPON_*; we need a parallel `engine_weapon_id` for WEAPON_* or unify the ID space. |
+| **Complexity** | **Moderate** — need to map between MPWEAPON_* and WEAPON_* cleanly. |
+
+### 0.3 — Model Registration Completeness Audit
+
+| Item | Detail |
+|------|--------|
+| **File** | `port/src/assetcatalog_base_extended.c:511–525` |
+| **What** | Loop registers `g_ModelStates[0..NUM_MODELS-1]` as ASSET_MODEL. NUM_MODELS = 0x1b9 (441) or 0x1bb (443 JPN). |
+| **Action** | Verify the loop actually runs 0..NUM_MODELS-1 with no skips. Check if any models are conditionally excluded. Check mod-added models get ASSET_MODEL entries too. |
+| **Complexity** | **Trivial** — audit only |
+
+### 0.4 — Catalog Liveness: Mod Load/Unload Freshness
+
+**Game director question**: "How are we ensuring the catalog is always up to date?"
+
+**Current lifecycle**:
+1. `assetCatalogInit()` — allocate pool
+2. `assetCatalogRegisterBaseGame()` → `assetCatalogRegisterBaseGameExtended()` — register ROM assets
+3. `assetCatalogScanComponents(modsdir)` — scan mod directories, parse INIs, register mod assets
+4. `modmgrLoadMod()` — called per enabled mod
+5. `catalogClear()` / `catalogClearMods()` — declared in header but **implementation needs audit**
+
+**Gaps identified**:
+- **Hot reload**: If a mod is enabled/disabled at runtime, does the catalog update? `modmgrLoadMod()` exists but there's no `modmgrUnloadMod()` / `modmgrReloadMod()` that re-scans the catalog.
+- **Mod asset removal**: `catalogClearMods()` is declared but needs verification that it correctly removes only mod entries and that subsequent re-scan rebuilds correctly.
+- **Runtime staleness**: After initial startup, the catalog is static. If mods are toggled in the mod manager UI, the catalog must reflect changes before any asset resolution.
+- **Server-side**: `server_main.c` calls `assetCatalogInit()` + `assetCatalogRegisterBaseGame()` but no mod scanning — intentional, but needs documentation.
+
+**Required work**:
+
+| Task | Description | Complexity |
+|------|-------------|------------|
+| **0.4a** | Audit `catalogClear()` / `catalogClearMods()` implementations — verify correctness | Trivial |
+| **0.4b** | Implement `catalogRefreshMods()` — clear mod entries, re-scan, re-register. Call from mod manager toggle. | Moderate |
+| **0.4c** | Add catalog generation counter (`g_CatalogGeneration`) — incremented on any catalog mutation. Consumers can cache-invalidate by checking generation. | Trivial |
+| **0.4d** | Hook mod enable/disable in modmgr UI to call `catalogRefreshMods()` | Trivial |
+| **0.4e** | Add startup validation: after all registration, log warning for any ASSET_WEAPON with no catalog entry, any MODEL_* with no entry, any stagenum with no entry | Trivial |
+
+### 0.5 — Catalog Resolver Performance
+
+**Concern**: With catalog ID as the sole identity, every asset lookup that currently does `g_MpBodies[idx]` (O(1) array index) becomes `assetCatalogResolve(id)` (O(n) string scan or hash lookup).
+
+**Current state**: `assetCatalogResolve()` does O(n) linear scan.
+
+**Required work**:
+
+| Task | Description | Complexity |
+|------|-------------|------------|
+| **0.5a** | Add hash table index to catalog: `catalogResolve()` becomes O(1) amortized. Critical for weapon lookups in hot paths (per-frame). | Moderate |
+| **0.5b** | Cached resolution: functions that resolve the same ID every frame (e.g., current weapon) should cache the resolved `asset_entry_t*` and invalidate on catalog generation change. | Moderate |
 
 ---
 
@@ -64,10 +159,8 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **File** | `port/src/net/netmsg.c:219` (write), `:239` (read) |
 | **What** | `netbufWriteS8(buf, in->weaponnum)` — sends weapon switch as `s8` enum |
-| **Should become** | `netbufWriteStr(buf, catalogResolveWeaponByGameId(in->weaponnum))` on write; read resolves back via `assetCatalogFindByCanonId()` |
-| **Struct change** | `netmove_t.weaponnum` stays `s8` internally (engine still uses WEAPON_xxx enums for frame logic), but wire sends string |
-| **Complexity** | **Moderate** — high-frequency message (every frame), bandwidth concern. May need short-form catalog ID or hash. |
-| **Note** | This is the highest-bandwidth message. Consider: send catalog ID only on weapon *change*, not every frame. Currently sends `-1` when no change — that optimization already exists. Only the `!= -1` path needs catalog ID. |
+| **Should become** | `netbufWriteStr(buf, weapon_id)` where `weapon_id` is the catalog ID from the struct. Per D-1, `netmove_t.weaponnum` itself becomes `char weapon_id[CATALOG_ID_LEN]`. |
+| **Complexity** | **Moderate** — high-frequency message (every frame), bandwidth concern. Currently sends `-1` when no change — that optimization stays. Only the `!= -1` path needs catalog ID string. |
 
 ### 1.2 — `SVC_PLAYERSTATE` weaponnum (netmsg.c:1333)
 
@@ -75,7 +168,7 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **File** | `port/src/net/netmsg.c:1333` |
 | **What** | `netbufWriteS8(dst, pl->gunctrl.weaponnum)` — server broadcasts player weapon state |
-| **Should become** | `netbufWriteStr(dst, catalogResolveWeaponByGameId(pl->gunctrl.weaponnum))` |
+| **Should become** | `netbufWriteStr(dst, pl->gunctrl.weapon_id)` — per D-1, gunctrl gets `weapon_id` field |
 | **Complexity** | **Moderate** — same bandwidth concern as 1.1 |
 
 ### 1.3 — `SVC_PROPSTATE` weaponnum + modelnum (netmsg.c:1651–1661)
@@ -84,8 +177,8 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **File** | `port/src/net/netmsg.c:1651–1661` |
 | **What** | Sends `prop->weapon->base.modelnum` (s16), `prop->weapon->weaponnum` (u8), `prop->weapon->dualweaponnum` (s8), `prop->obj->modelnum` (s16) |
-| **Should become** | Catalog IDs for weapon and model. Model catalog ID requires new resolver (`catalogResolveModelByModelnum`). |
-| **Complexity** | **Complex** — modelnum has no catalog resolver yet; needs new ASSET_MODEL type or model ID mapping |
+| **Should become** | Catalog ID strings for weapon and model. Per D-2, `catalogResolveByRuntimeIndex(ASSET_MODEL, modelnum)` already works — use it for wire. |
+| **Complexity** | **Complex** — multiple fields, prop creation on receive side needs catalog→runtime resolution |
 
 ### 1.4 — `SVC_PROPDAMAGE` weaponnum (netmsg.c:1902)
 
@@ -93,15 +186,15 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **File** | `port/src/net/netmsg.c:1902` |
 | **What** | `netbufWriteS8(dst, weaponnum)` — damage source weapon |
-| **Should become** | `netbufWriteStr(dst, catalogResolveWeaponByGameId(weaponnum))` |
-| **Complexity** | **Trivial** — low frequency, straightforward |
+| **Should become** | `netbufWriteStr(dst, weapon_id)` — catalog ID string |
+| **Complexity** | **Trivial** — low frequency |
 
 ### 1.5 — `SVC_CHRDISARM` weaponnum (netmsg.c:2235)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/src/net/netmsg.c:2235` |
-| **What** | `netbufWriteU8(dst, weaponnum)` — disarmed weapon |
+| **What** | `netbufWriteU8(dst, weaponnum)` |
 | **Should become** | Catalog ID string |
 | **Complexity** | **Trivial** |
 
@@ -110,9 +203,9 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | Item | Detail |
 |------|--------|
 | **File** | `port/src/net/netmsg.c:2465, 2832` |
-| **What** | `netbufWriteS8(dst, aibot->weaponnum)` — bot weapon state |
-| **Should become** | Catalog ID string |
-| **Complexity** | **Trivial** — same pattern as 1.4 |
+| **What** | `netbufWriteS8(dst, aibot->weaponnum)` |
+| **Should become** | `netbufWriteStr(dst, aibot->weapon_id)` — per D-1, `aibot.weaponnum` becomes `weapon_id` |
+| **Complexity** | **Trivial** |
 
 ### 1.7 — `SVC_CLIENT_SETTINGS` mpbodynum/mpheadnum (netmsg.c:824–827)
 
@@ -121,106 +214,104 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | **File** | `port/src/net/netmsg.c:824–827` |
 | **What** | Resolves `bc->base.mpbodynum`/`mpheadnum` → catalog ID via `catalogResolveBodyByMpIndex`. Already sends catalog IDs on wire but **reads from integer fields**. |
 | **Should become** | Read directly from `body_id`/`head_id` string fields (already exist on `net_client_t.settings`) |
-| **Complexity** | **Trivial** — the strings are already there, just stop reading from the integer |
+| **Complexity** | **Trivial** |
 
 ### 1.8 — `SVC_CLIENT_SETTINGS` read path: integer write-back (netmsg.c:1078–1143)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/src/net/netmsg.c:1078–1143` |
-| **What** | After receiving catalog IDs from wire, resolves back to mpbodynum/mpheadnum integers via `catalogGetSafeBodyPaired`/`catalogGetSafeHead` and writes to `g_PlayerConfigsArray[].base.mpbodynum`/`mpheadnum` and `g_BotConfigsArray[].base.mpbodynum`/`mpheadnum` |
-| **Should become** | Store catalog ID strings directly; integer resolution deferred to engine handoff only |
-| **Complexity** | **Complex** — this is the central fan-out point. Changing what gets stored here cascades to all consumers of `mpbodynum`/`mpheadnum`. |
+| **What** | After receiving catalog IDs from wire, resolves back to mpbodynum/mpheadnum integers and writes to `g_PlayerConfigsArray[].base.mpbodynum`. |
+| **Should become** | Store catalog ID strings directly in `mpchrconfig.body_id`/`head_id`. No integer write-back. |
+| **Complexity** | **Complex** — this is the central fan-out point. Cascades to all consumers. |
 
 ### 1.9 — `SVC_STAGE_START` bot body/head resolution (netmsg.c:4155–4182)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/src/net/netmsg.c:4155–4182` |
-| **What** | Resolves catalog ID → `catalogBodynumToMpBodyIdx` → writes to `g_BotConfigsArray[bi].base.mpbodynum`. Already receives catalog IDs from wire. |
-| **Should become** | Store catalog ID strings in bot config; resolve to integer only at spawn time |
-| **Complexity** | **Moderate** — same cascade as 1.8 |
+| **What** | Resolves catalog ID → integer → `g_BotConfigsArray[bi].base.mpbodynum` |
+| **Should become** | Store catalog ID strings in `g_BotConfigsArray[bi].base.body_id` directly |
+| **Complexity** | **Moderate** |
 
 ---
 
 ## Phase 2: Config/Data Structs — Integer Asset Fields
 
-**Goal**: Every struct field that stores asset identity as an integer gets a catalog ID string field as primary, with the integer becoming engine-only or eliminated.
+**Goal**: Every struct field that stores asset identity as an integer becomes catalog ID string. No "derived" integer fields kept.
 
 ### 2.1 — `mpchrconfig.mpheadnum` / `mpbodynum` (types.h:4007–4008)
 
 | Item | Detail |
 |------|--------|
 | **File** | `src/include/types.h:4007–4008` |
-| **What** | `u8 mpheadnum; u8 mpbodynum;` — the single most-used integer asset identity in the codebase |
-| **Should become** | `char body_id[CATALOG_ID_LEN]; char head_id[CATALOG_ID_LEN];` as primary; `mpheadnum`/`mpbodynum` become private derived cache, set only at engine handoff |
+| **What** | `u8 mpheadnum; u8 mpbodynum;` — the single most-used integer asset identity |
+| **Should become** | `char body_id[CATALOG_ID_LEN]; char head_id[CATALOG_ID_LEN];` — replaces the integers entirely |
 | **Consumers** | `g_PlayerConfigsArray[]`, `g_BotConfigsArray[]`, savefile.c, netmsg.c, matchsetup.c, netmenu.c, pdgui_bridge.c, botmgr.c, challenge.c, mplayer.c, menu.c |
-| **Complexity** | **Complex** — ~80 direct references. This is the keystone change. |
+| **Complexity** | **Complex** — ~80 direct references. Keystone change. |
 
 ### 2.2 — `match_slot_t.headnum` / `bodynum` (matchsetup.h:50–51)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/net/matchsetup.h:50–51` |
-| **What** | `u8 headnum; u8 bodynum;` — DERIVED fields, already marked as such |
-| **Should become** | Remove entirely once all consumers use `body_id`/`head_id` (already present at :48–49) |
-| **Complexity** | **Moderate** — ~15 references, all in port/ code |
+| **What** | `u8 headnum; u8 bodynum;` — DERIVED fields |
+| **Should become** | Remove entirely. Callers use `body_id`/`head_id` (already present at :48–49). |
+| **Complexity** | **Moderate** — ~15 references |
 
 ### 2.3 — `match_config_t.stagenum` (matchsetup.h:63)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/net/matchsetup.h:63` |
-| **What** | `u8 stagenum;` — DERIVED, already marked. `stage_id` is primary at :62 |
-| **Should become** | Remove once all consumers use `stage_id` |
-| **Complexity** | **Moderate** — ~20 references in matchsetup.c, netmsg.c, scenario_save.c, pdmain.c |
+| **What** | `u8 stagenum;` — DERIVED from `stage_id` |
+| **Should become** | Remove entirely. All consumers use `stage_id`. Per D-3, engine resolves stage_id internally. |
+| **Complexity** | **Moderate** — ~20 references |
 
-### 2.4 — `g_MpSetup.stagenum` (types.h:4088)
+### 2.4 — `g_MpSetup.stagenum` (types.h:4088) → FULL REMOVAL per D-3
 
 | Item | Detail |
 |------|--------|
 | **File** | `src/include/types.h:4088` |
-| **What** | `u8 stagenum;` — DERIVED from `stage_id`. Used by `mainChangeToStage()` and engine stage loading |
-| **Should become** | Keep as engine-internal derived field, but eliminate all *identity* uses (comparisons, saves, display). Only used for `mainChangeToStage()` call. |
-| **Complexity** | **Complex** — `mainChangeToStage(s32 stagenum)` is deeply embedded in engine. Full removal requires engine stage-load refactor. |
-| **Recommendation** | Phase this as engine-handoff-only: `g_MpSetup.stagenum` set from `stage_id` at one canonical point, never read for identity purposes. |
+| **What** | `u8 stagenum;` — used by `mainChangeToStage()` and engine stage loading |
+| **Should become** | **Remove entirely.** Per D-3, `mainChangeToStage()` takes `const char *stage_id`. All code that reads `g_MpSetup.stagenum` reads `g_MpSetup.stage_id` instead. Engine resolves internally. |
+| **Complexity** | **Complex** — requires engine refactor (see Phase 4.7) |
 
 ### 2.5 — `lobby_settings_t` (netlobby.h:23–32)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/net/netlobby.h:23–32` |
-| **What** | `u8 headnum; u8 bodynum; u8 stagenum;` — lobby display state |
+| **What** | `u8 headnum; u8 bodynum; u8 stagenum;` |
 | **Should become** | `char body_id[CATALOG_ID_LEN]; char head_id[CATALOG_ID_LEN]; char stage_id[CATALOG_ID_LEN];` |
-| **Complexity** | **Trivial** — small struct, few consumers |
+| **Complexity** | **Trivial** |
 
 ### 2.6 — `net_server_info_t.stagenum` (net.h:68)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/net/net.h:68` |
-| **What** | `u8 stagenum;` — server browser display |
+| **What** | `u8 stagenum;` |
 | **Should become** | `char stage_id[CATALOG_ID_LEN];` |
 | **Complexity** | **Trivial** |
 
-### 2.7 — `mission_config_t.stagenum` (net.h, types.h)
+### 2.7 — `mission_config_t.stagenum` (net.h)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/net.h` / referenced via `g_MissionConfig.stagenum` |
+| **File** | `port/include/net/net.h` |
 | **What** | `stagenum` for co-op/solo mission config |
-| **Should become** | `char stage_id[CATALOG_ID_LEN];` primary, stagenum derived for engine |
-| **Complexity** | **Moderate** — feeds into `mainChangeToStage()` |
+| **Should become** | `char stage_id[CATALOG_ID_LEN];` — per D-3, no integer fallback |
+| **Complexity** | **Moderate** |
 
-### 2.8 — `netmove_t.weaponnum` (net.h:139)
+### 2.8 — `netmove_t.weaponnum` (net.h:139) → FULL per D-1
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/net/net.h:139` |
 | **What** | `s8 weaponnum;` — weapon switch in user command |
-| **Should become** | Keep as engine-internal (WEAPON_xxx enum is the engine's native weapon identity). Wire serialization (Phase 1) converts to/from catalog ID. |
-| **Complexity** | **N/A** — this is engine-internal, not asset identity. Weapon enums are ROM constants, not mod-extensible yet. |
-| **Decision needed** | Game director: are WEAPON_xxx enums considered "integer asset identity" that must go? Or are they engine constants like GAMEMODE_COMBAT? If weapons become mod-extensible, enums must go. If not, they can stay. |
+| **Should become** | `char weapon_id[CATALOG_ID_LEN];` — empty string means no change (replaces `-1` sentinel) |
+| **Complexity** | **Moderate** — high frequency struct, size increase from 1 byte to 64 bytes per field |
 
 ### 2.9 — `mpchrconfig.mpheadnum`/`mpbodynum` in `g_ChallengeSimulants[]` (types.h:5003–5004)
 
@@ -228,27 +319,39 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **File** | `src/include/types.h:5003–5004` |
 | **What** | Challenge config simulant body/head as `u8` |
-| **Should become** | Catalog ID strings |
+| **Should become** | `char body_id[CATALOG_ID_LEN]; char head_id[CATALOG_ID_LEN];` |
 | **Complexity** | **Moderate** — challenge.c references ~10 sites |
 
-### 2.10 — `weaponobj.weaponnum` / `gunctrl.weaponnum` / `aibot.weaponnum` (types.h)
+### 2.10 — `weaponobj.weaponnum` / `gunctrl.weaponnum` / `aibot.weaponnum` (types.h) → FULL per D-1
 
 | Item | Detail |
 |------|--------|
 | **File** | `src/include/types.h:726, 965, 1572, 2071, 2323, 3780, 5015, 5651` |
-| **What** | Weapon identity as `s32`/`s8`/`u8` across multiple engine structs |
-| **Should become** | See 2.8 decision. These are all WEAPON_xxx enum consumers — deep engine code (~660 references in `src/game/`). |
-| **Complexity** | **Massive** if full migration. **N/A** if weapon enums stay as engine constants. |
+| **What** | Weapon identity as `s32`/`s8`/`u8` across 8 struct definitions |
+| **Should become** | `char weapon_id[CATALOG_ID_LEN]` in each. The WEAPON_xxx enum values are eliminated as identity — catalog ID becomes the sole weapon identity throughout the engine. |
+| **Impact** | ~660 references across 35 files in `src/game/`. Top files: bondgun.c (374), propobj.c (217), botinv.c (95), bot.c (64), chraction.c (88), inv.c (61), training.c (27), player.c (21). |
+| **Complexity** | **MASSIVE** — largest single item in this plan. Every `WEAPON_xxx` comparison becomes string comparison or catalog lookup. |
+| **Migration strategy** | See Phase 4.5 for the detailed weapon migration approach. |
 
-### 2.11 — `defaultobj.modelnum` / `weaponobj.base.modelnum` (types.h:1460, preprocess/setup.h:27)
+### 2.11 — `defaultobj.modelnum` / `weaponobj.base.modelnum` (types.h:1460) → FULL per D-2
 
 | Item | Detail |
 |------|--------|
 | **File** | `src/include/types.h:1460`, `port/include/preprocess/setup.h:27` |
 | **What** | `s16 modelnum` — model identity for all props/objects |
-| **Should become** | Catalog ID for modded models; ROM models stay as engine index |
-| **Complexity** | **Massive** — 75 references, deeply embedded in prop/object system |
-| **Decision needed** | Game director: is modelnum in scope for this migration? Models are not currently in the catalog system. |
+| **Should become** | `char model_id[CATALOG_ID_LEN]` — catalog ID for the 3D model |
+| **Impact** | ~83 references across 15 files. Top: propobj.c (40), setup.c (11), chraicommands.c (7), bondgun.c (5), lv.c (5). |
+| **Complexity** | **MASSIVE** — model system is deeply embedded. Prop creation, collision, rendering all use modelnum. |
+| **Migration strategy** | See Phase 4.6 for the detailed model migration approach. |
+
+### 2.12 — `s_ReadyGate.stagenum` (netmsg.c:88)
+
+| Item | Detail |
+|------|--------|
+| **File** | `port/src/net/netmsg.c:88` |
+| **What** | `u8 stagenum;` in ready-gate struct |
+| **Should become** | `char stage_id[CATALOG_ID_LEN];` — per D-3 |
+| **Complexity** | **Trivial** |
 
 ---
 
@@ -262,17 +365,17 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **What** | Takes integer index, returns catalog ID string |
 | **Should become** | Eliminated — callers already have catalog ID strings |
-| **Callers** | identity.c:228–229, matchsetup.c:118–119,346, net.c:337–339, netmsg.c:824–827, savefile.c:616–617, pdgui_menu_agentcreate.cpp:179, pdgui_menu_room.cpp:1432–2334 |
-| **Complexity** | **Moderate** — 15 call sites, each needs to switch to using the catalog ID they already have |
+| **Callers** | 15 call sites: identity.c, matchsetup.c, net.c, netmsg.c, savefile.c, pdgui_menu_agentcreate.cpp, pdgui_menu_room.cpp |
+| **Complexity** | **Moderate** |
 
 ### 3.2 — `catalogBodynumToMpBodyIdx` / `catalogHeadnumToMpHeadIdx` (assetcatalog_api.c:389–405)
 
 | Item | Detail |
 |------|--------|
 | **What** | Takes g_HeadsAndBodies[] index, returns g_MpBodies[] index |
-| **Should become** | Eliminated — callers use catalog ID → `assetCatalogResolve()` → `runtime_index` directly |
-| **Callers** | matchsetup.c:417,424,471,476,547–610, netmsg.c:1118–1127,4160–4167, savefile.c:689–702, mplayer.c:789,851,860 |
-| **Complexity** | **Moderate** — 18 call sites |
+| **Should become** | Eliminated |
+| **Callers** | 18 call sites: matchsetup.c, netmsg.c, savefile.c, mplayer.c |
+| **Complexity** | **Moderate** |
 
 ### 3.3 — `catalogResolveStageByStagenum` / `catalogResolveArenaByStagenum` (assetcatalog_api.c:634–674)
 
@@ -280,45 +383,43 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 |------|--------|
 | **What** | Takes stagenum hex ID, returns catalog ID string |
 | **Should become** | Eliminated — callers use `stage_id` directly |
-| **Callers** | savefile.c:784, scenario_save.c:271, mplayer.c:308, netmanifest.c:786, pdgui_menu_room.cpp:2195,2208 |
-| **Complexity** | **Trivial** — 6 call sites |
+| **Callers** | 6 call sites |
+| **Complexity** | **Trivial** |
 
 ### 3.4 — `catalogResolveWeaponByGameId` (assetcatalog_api.c:676)
 
 | Item | Detail |
 |------|--------|
 | **What** | Takes WEAPON_xxx enum, returns catalog ID string |
-| **Should become** | Eliminated once weapon identity is catalog-native |
-| **Callers** | netmanifest.c:451,616, netmsg.c:745,3724, savefile.c:798, scenario_save.c:288 |
-| **Complexity** | **Trivial to moderate** — 6 call sites, but depends on weapon enum decision (2.8/2.10) |
+| **Should become** | Eliminated — per D-1, all callers have catalog ID directly |
+| **Callers** | 6 call sites: netmanifest.c, netmsg.c, savefile.c, scenario_save.c |
+| **Complexity** | **Trivial** once weapon structs migrated |
 
 ### 3.5 — `catalogGetSafeBody` / `catalogGetSafeBodyPaired` / `catalogGetSafeHead` (modelcatalog.c)
 
 | Item | Detail |
 |------|--------|
 | **What** | Validates integer body/head index, clamps to safe default |
-| **Should become** | Catalog-ID-based validation: `catalogGetSafeBodyId(const char *body_id)` returns valid catalog ID or default |
-| **Callers** | netmsg.c:1078–1079,1136–1138, pdmain.c:345 |
-| **Complexity** | **Moderate** — needs new string-based validation API |
+| **Should become** | `catalogValidateBodyId(const char *body_id)` — returns valid catalog ID or `"base:dark_combat"` default |
+| **Callers** | netmsg.c:1078–1079, 1136–1138, pdmain.c:345 |
+| **Complexity** | **Moderate** |
 
 ### 3.6 — `mpGetBodyId` / `mpGetHeadId` / `mpGetBodyName` / `mpGetMpheadnumByMpbodynum` (mplayer.h)
 
 | Item | Detail |
 |------|--------|
 | **File** | `src/include/game/mplayer/mplayer.h:54–61` |
-| **What** | `mpGetBodyId(u8 bodynum)` → g_HeadsAndBodies index. `mpGetBodyName(u8 mpbodynum)` → display name string. `mpGetMpheadnumByMpbodynum(s32)` → default head for body. |
-| **Should become** | `catalogGetBodyDisplayName(const char *body_id)`, `catalogGetBodyDefaultHead(body_id)` (already exists!) |
-| **Callers** | botmgr.c:44–45, menu.c:1872–1875, netmenu.c:152,175,381,399, server_stubs.c:379,381, pdgui_menu_agentcreate.cpp:223, pdgui_menu_lobby.cpp:246, pdgui_menu_room.cpp:1265,1429,2312,2323,2517 |
-| **Complexity** | **Moderate** — ~20 call sites, `catalogGetBodyDefaultHead` already exists |
+| **Should become** | `catalogGetDisplayName(body_id)`, `catalogGetBodyDefaultHead(body_id)` (already exists) |
+| **Callers** | ~20 call sites across botmgr.c, menu.c, netmenu.c, server_stubs.c, and 5 pdgui_menu_*.cpp files |
+| **Complexity** | **Moderate** |
 
 ### 3.7 — `mpPlayerConfigGetHead` / `mpPlayerConfigGetBody` (pdgui_bridge.c:66–82)
 
 | Item | Detail |
 |------|--------|
 | **File** | `port/fast3d/pdgui_bridge.c:66–82` |
-| **What** | Returns `g_PlayerConfigsArray[].base.mpheadnum`/`mpbodynum` as `u8` |
-| **Should become** | Return `const char *` catalog ID from the string field |
-| **Callers** | pdgui_menu_agentselect.cpp:498 |
+| **What** | Returns `u8` mpheadnum/mpbodynum |
+| **Should become** | `const char *mpPlayerConfigGetBodyId(s32 playernum)` — returns catalog ID string |
 | **Complexity** | **Trivial** |
 
 ### 3.8 — `pdguiCharPreviewRequest(u8 headnum, u8 bodynum)` (pdgui_charpreview.h:23)
@@ -326,9 +427,8 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | Item | Detail |
 |------|--------|
 | **File** | `port/include/pdgui_charpreview.h:23`, `port/fast3d/pdgui_charpreview.c:93` |
-| **What** | Takes mphead/mpbody integers for 3D character preview |
 | **Should become** | `pdguiCharPreviewRequest(const char *head_id, const char *body_id)` |
-| **Callers** | pdgui_menu_agentcreate.cpp:257, pdgui_menu_agentselect.cpp:498, pdgui_menu_moddinghub.cpp:552, pdgui_menu_room.cpp:2498 |
+| **Callers** | 4 sites: agentcreate, agentselect, moddinghub, room |
 | **Complexity** | **Moderate** — needs internal resolution to model data for rendering |
 
 ### 3.9 — `netcb_OnPlayerJoin/OnPlayerSettingsChanged` (net_interface.h:15,17)
@@ -338,14 +438,12 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | **File** | `port/include/net/net_interface.h:15,17` |
 | **What** | `u8 headnum, u8 bodynum` parameters |
 | **Should become** | `const char *head_id, const char *body_id` |
-| **Complexity** | **Trivial** — callback interface, 2 call sites + 2 impl sites |
+| **Complexity** | **Trivial** |
 
 ### 3.10 — `netcb_OnMatchStart(u8 stagenum, ...)` / `netcb_OnStageChange(u8 stagenum)` (net_interface.h:20,29)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/net_interface.h:20,29` |
-| **What** | `u8 stagenum` parameter |
 | **Should become** | `const char *stage_id` |
 | **Complexity** | **Trivial** |
 
@@ -353,7 +451,6 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/netmsg.h:174` |
 | **What** | `u8 stagenum` parameter |
 | **Should become** | `const char *stage_id` |
 | **Complexity** | **Trivial** |
@@ -362,34 +459,56 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/netmsg.h:119,131` |
 | **What** | `s32 weaponnum` / `u8 weaponnum` parameters |
 | **Should become** | `const char *weapon_id` |
-| **Complexity** | **Trivial** — function signature + wire write |
+| **Complexity** | **Trivial** |
 
 ### 3.13 — `netServerCoopStageStart(u8 stagenum, u8 difficulty)` (net.h:251)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/net.h:251` |
-| **What** | `u8 stagenum` parameter |
-| **Should become** | `const char *stage_id` |
+| **Should become** | `netServerCoopStageStart(const char *stage_id, u8 difficulty)` |
 | **Complexity** | **Trivial** |
 
-### 3.14 — `manifestBuildMission(s32 stagenum, ...)` / `manifestSPTransition(s32 stagenum)` (netmanifest.h:312,379)
+### 3.14 — `manifestBuildMission(s32 stagenum, ...)` / `manifestSPTransition(s32 stagenum)` (netmanifest.h)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/include/net/netmanifest.h:312,379` |
-| **What** | `s32 stagenum` parameters |
 | **Should become** | `const char *stage_id` |
-| **Complexity** | **Moderate** — internal manifest building needs stage_id-based lookup |
+| **Complexity** | **Moderate** |
+
+### 3.15 — `mainChangeToStage(s32 stagenum)` → FULL REFACTOR per D-3
+
+| Item | Detail |
+|------|--------|
+| **File** | `port/src/pdmain.c:765`, `port/src/server_stubs.c:287`, `src/include/lib/main.h:15` |
+| **What** | `void mainChangeToStage(s32 stagenum)` — 15 call sites across netmsg.c, net.c, modmgr.c, chraicommands.c |
+| **Should become** | `void mainChangeToStage(const char *stage_id)` — resolves to stagenum internally via catalog lookup. All callers pass catalog ID strings. |
+| **Complexity** | **Complex** — engine stage loading deeply uses stagenum for table lookups, allocation tables, etc. Internal resolution needed. |
+
+### 3.16 — All `weaponnum`-parameter game functions (~60 functions in src/include/game/)
+
+| Item | Detail |
+|------|--------|
+| **Files** | bondgun.h (~20 functions), botact.h (~8), botinv.h (~12), inv.h (~10), propobj.h (~15), prop.h (~3), gunfx.h, training.h, game_0b0fd0.h |
+| **What** | All take `s32 weaponnum` as WEAPON_xxx enum |
+| **Should become** | All take `const char *weapon_id`. Internal lookup: `weapon_entry_t *w = catalogResolve(weapon_id);` then use `w->ext.weapon` for any data. |
+| **Complexity** | **MASSIVE** — ~60 function signatures × N call sites each |
+
+### 3.17 — All `modelnum`-parameter game functions
+
+| Item | Detail |
+|------|--------|
+| **Files** | propobj.h (~8 functions taking `s32 modelnum`), setup.h, setuputils.h |
+| **What** | `hatCreateForChr(chr, modelnum, flags)`, `weaponCreateForChr(chr, modelnum, weaponnum, flags, ...)`, `scenarioCreateObj(modelnum, ...)`, etc. |
+| **Should become** | All take `const char *model_id`. |
+| **Complexity** | **Complex** — prop creation is a core engine path |
 
 ---
 
 ## Phase 4: Game Logic — Integer Comparisons/Conditionals
 
-**Goal**: Eliminate integer asset identity from game logic comparisons.
+**Goal**: Eliminate integer asset identity from all game logic.
 
 ### 4.1 — Body/head feature checks in challenge.c (challenge.c:540–633)
 
@@ -398,51 +517,115 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | **File** | `src/game/challenge.c:540–633` |
 | **What** | `config->simulants[i].mpbodynum < modmgrGetTotalBodies()` bounds checks; `modmgrGetBody(mpbodynum)->requirefeature` lookups |
 | **Should become** | `catalogGetBodyRequireFeature(body_id)` — catalog-based feature query |
-| **Complexity** | **Moderate** — needs new catalog query API for feature flags |
+| **Complexity** | **Moderate** |
 
-### 4.2 — `mpSetCurrentPlayerBodyByMpbodynum` and body-cycling in mplayer.c (mplayer.c:789–860)
+### 4.2 — Body-cycling in mplayer.c (mplayer.c:789–860)
 
 | Item | Detail |
 |------|--------|
-| **File** | `src/game/mplayer/mplayer.c:789–860` |
-| **What** | Iterates bodies/heads by integer index, resolves to mpbody index via `catalogBodynumToMpBodyIdx` |
-| **Should become** | Catalog iteration: `assetCatalogIterateByType(ASSET_BODY, ...)` |
+| **What** | Iterates bodies/heads by integer index |
+| **Should become** | Catalog iteration: `catalogIterateBodies(callback)` |
 | **Complexity** | **Moderate** |
 
 ### 4.3 — Bot spawn in botmgr.c (botmgr.c:44–50)
 
 | Item | Detail |
 |------|--------|
-| **File** | `src/game/botmgr.c:44–50` |
-| **What** | `headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum)` — resolves mpheadnum → g_HeadsAndBodies index for model loading |
-| **Should become** | `catalogResolveToRuntimeIndex(body_id)` — catalog ID → model runtime index |
-| **Complexity** | **Moderate** — this is the engine handoff point for bot models |
+| **What** | `headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum)` |
+| **Should become** | `headnum = catalogBodyIdToRuntimeIndex(g_BotConfigsArray[aibotnum].base.body_id)` |
+| **Complexity** | **Moderate** |
 
 ### 4.4 — Menu character display in menu.c (menu.c:1872–1875)
 
 | Item | Detail |
 |------|--------|
-| **File** | `src/game/menu.c:1872–1875` |
-| **What** | `mpGetBodyId(mpbodynum)` / `mpGetHeadId(mpheadnum)` for legacy menu character display |
+| **What** | `mpGetBodyId(mpbodynum)` for legacy menu |
 | **Should become** | Catalog ID → runtime index at display time |
-| **Complexity** | **Trivial** — legacy menu, may be removed by D5.8 |
+| **Complexity** | **Trivial** — may be removed by D5.8 |
 
-### 4.5 — Weapon slot/identity in bot AI (bot.c:413–428, botinv.c:382–447)
+### 4.5 — FULL Weapon Engine Migration (D-1) — ~660 references across 35 files
 
-| Item | Detail |
-|------|--------|
-| **File** | `src/game/bot.c:413–428`, `src/game/botinv.c:382–447` |
-| **What** | `g_MpWeapons[wi].weaponnum == resolvedWeaponNum` — matches weapon enum to MP weapon slot |
-| **Should become** | Depends on weapon enum decision (2.8). If enums stay as engine constants, these remain. |
-| **Complexity** | **Massive** if weapon enums go; **N/A** if they stay |
+This is the single largest migration item. Strategy:
 
-### 4.6 — Active menu weapon display (activemenu.c:333–530)
+**Approach**: Introduce `weapon_entry_t *weaponResolve(const char *weapon_id)` that returns a pointer to weapon data. All code that currently does `switch(weaponnum)` or `weaponnum == WEAPON_FALCON2` becomes `strcmp(weapon_id, "base:falcon2") == 0` or, better, pointer comparison via cached resolved entries.
 
-| Item | Detail |
-|------|--------|
-| **File** | `src/game/activemenu.c:333–530` |
-| **What** | Weapon identity checks using `weaponnum` enum values |
-| **Should become** | Same decision as 4.5 |
+**Per-file breakdown**:
+
+| File | Refs | Nature | Approach |
+|------|------|--------|----------|
+| `bondgun.c` | 374 | Weapon behavior dispatch, fire modes, ammo, reloading | Resolve once per frame via `weapon_entry_t*`, access fields. Replace `WEAPON_xxx` switch cases with catalog property queries. |
+| `propobj.c` | 217 | Prop creation, pickup, damage, weapon-specific behavior | Same pattern — resolve at function entry, use properties. |
+| `botinv.c` | 95 | Bot weapon scoring, inventory management | Resolve at entry, query properties. |
+| `chraction.c` | 88 | Character actions, weapon-specific animations | Resolve at entry. |
+| `bot.c` | 64 | Bot weapon selection, ammo management | Resolve at entry. |
+| `inv.c` | 61 | Inventory system — has/give/remove weapon | Key lookup by catalog ID instead of enum. |
+| `training.c` | 27 | Firing range weapon tracking | Straightforward replacement. |
+| `player.c` | 21 | Player weapon state | Resolve at entry. |
+| `bondgun.c` supp. | 16 | Model number references | Follows 4.6 |
+| `gunfx.c` | 19 | Gun visual effects | Resolve at entry. |
+| `game_0b0fd0.c` | 17 | Weapon data queries (flags, ammo, file nums) | These become catalog property queries. |
+| `chr.c` | 15 | Character weapon assignment | Resolve at entry. |
+| `setup.c` | 15 | Setup/spawn weapon placement | Follows prop creation migration. |
+| Other 22 files | ~46 | Scattered references | Individual migration. |
+
+**Key migration patterns**:
+1. **`weaponnum == WEAPON_FALCON2`** → `catalogWeaponHasTag(weapon_id, "falcon2")` or string compare
+2. **`switch(weaponnum)`** → Property-based dispatch or string-keyed lookup table
+3. **`g_Weapons[weaponnum]`** → `catalogResolveWeapon(weapon_id)->ext.weapon.*`
+4. **`VALIDWEAPON()` macro** → `weapon_id[0] != '\0'` validity check
+5. **`weaponnum >= X && weaponnum <= Y`** range checks → catalog tag/property queries
+
+**Complexity**: **MASSIVE** — estimated 15–20 sessions of focused work.
+
+### 4.6 — FULL Model Engine Migration (D-2) — ~83 references across 15 files
+
+**Per-file breakdown**:
+
+| File | Refs | Nature |
+|------|------|--------|
+| `propobj.c` | 40 | Prop creation with specific model |
+| `setup.c` | 11 | Stage setup, object placement |
+| `chraicommands.c` | 7 | AI scripting — give model to chr |
+| `bondgun.c` | 5 | Weapon model loading |
+| `lv.c` | 5 | Level loading |
+| Other 10 files | 15 | Scattered |
+
+**Approach**: `model_id` string replaces `s16 modelnum`. `catalogResolveModel(model_id)->runtime_index` provides the integer for engine-internal array indexing when needed (e.g., `g_ModelStates[]` access). The key difference from weapons: models are less behavior-dispatched and more data-looked-up, so the migration is more mechanical.
+
+**Complexity**: **Complex** — 8–10 sessions.
+
+### 4.7 — FULL Engine Stage Refactor (D-3) — `mainChangeToStage`
+
+**Current callers** (15 sites):
+
+| File | Call | What passes |
+|------|------|-------------|
+| `netmsg.c:1046` | Co-op stage start | `stagenum` |
+| `netmsg.c:1165` | MP match start (solo) | `g_MpSetup.stagenum` |
+| `netmsg.c:3933` | Ready gate fire | `s_ReadyGate.stagenum` |
+| `netmsg.c:4359` | Server match start | `g_MpSetup.stagenum` |
+| `netmsg.c:4372` | Server co-op start | `g_MpSetup.stagenum` |
+| `net.c:805` | Stage transition | `stagenum` param |
+| `net.c:970` | Disconnect → CI | `STAGE_CITRAINING` |
+| `modmgr.c:947` | Mod hotswap → title | `MODMGR_STAGE_TITLE` |
+| `modmgr.c:1111` | Mod reset → title | `MODMGR_STAGE_TITLE` |
+| `chraicommands.c:4824` | AI: go to title | `STAGE_TITLE` |
+| `pdmain.c:765` | Implementation | — |
+| `server_stubs.c:287` | Server stub | — |
+
+**Approach**:
+1. `mainChangeToStage(const char *stage_id)` — new signature
+2. Internally resolves: `asset_entry_t *ae = assetCatalogResolve(stage_id);` → `g_StageNum = ae->ext.map.stagenum;` (or arena variant)
+3. All callers pass catalog ID: `mainChangeToStage(g_MpSetup.stage_id)` or `mainChangeToStage("base:ci_training")`
+4. Special constants like `STAGE_TITLE`, `STAGE_CITRAINING` become `STAGE_ID_TITLE = "base:title"`, `STAGE_ID_CITRAINING = "base:ci_training"` string constants
+5. Internal engine stage table lookups (`bgGetStageIndex`, etc.) continue to use integer stagenum but only as engine-internal — resolved from catalog entry, never passed across API boundaries
+
+**Dependent functions** that also take `s32 stagenum` and feed into stage loading:
+- `bgReset(stagenum)`, `bgBuildTables(stagenum)`, `lvReset(stagenum)`, `langReset(stagenum)`, `envSetStageNum(stagenum)`, `envChooseAndApply(stagenum, ...)`, `musicSetStageAndStartMusic(stagenum)`, `setupLoadFiles(stagenum)`, `setupCreateProps(stagenum)`, `zbufReset(stagenum)`, `viReset(stagenum)`, `bodiesReset(stagenum)`, `stageGetIndex(stagenum)`, `soloStageGetIndex(stagenum)`, `stageGetPrimaryTrack(stagenum)`, etc.
+
+**Decision**: These deep engine functions can continue taking integer stagenum internally — the refactor boundary is `mainChangeToStage()`. The integer stagenum becomes a local variable inside the stage-load pipeline, derived from the catalog entry at the single entry point.
+
+**Complexity**: **Complex** — but well-contained. The refactor is at one function signature + 15 callers + 2 implementations.
 
 ---
 
@@ -450,12 +633,10 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 **Goal**: All UI code uses catalog ID strings for asset identity.
 
-### 5.1 — `pdguiBridgeSetHead/Body` (pdgui_bridge.c:55–60)
+### 5.1 — `pdguiBridgeSetHead/Body` (pdgui_bridge.c:55–82)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/fast3d/pdgui_bridge.c:55–82` |
-| **What** | Sets/gets `g_PlayerConfigsArray[].base.mpheadnum`/`mpbodynum` as `u8` |
 | **Should become** | Set/get via `body_id`/`head_id` string fields |
 | **Complexity** | **Trivial** |
 
@@ -463,26 +644,22 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/fast3d/pdgui_menu_agentcreate.cpp:179–257` |
-| **What** | Iterates by integer index, calls `catalogResolveHeadByMpIndex(i)` for each head |
-| **Should become** | `assetCatalogIterateByType(ASSET_HEAD, callback)` — catalog-based iteration |
-| **Complexity** | **Moderate** — needs catalog iteration API |
+| **What** | Iterates by integer index, calls `catalogResolveHeadByMpIndex(i)` |
+| **Should become** | `catalogIterateByType(ASSET_HEAD, callback)` |
+| **Complexity** | **Moderate** |
 
 ### 5.3 — Room menu body display (pdgui_menu_room.cpp:1380–2517)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/fast3d/pdgui_menu_room.cpp:1380–2517` |
-| **What** | Multiple sites: `g_MatchConfig.slots[j].bodynum` for display, `catalogResolveBodyByMpIndex((s32)b)` for names, `mpGetBodyName` for labels |
-| **Should become** | Use `slots[j].body_id` directly, `catalogGetDisplayName(body_id)` for names |
-| **Complexity** | **Moderate** — ~10 sites in one file |
+| **What** | ~10 sites using integer body index for display |
+| **Should become** | Use `slots[j].body_id` directly, `catalogGetDisplayName(body_id)` |
+| **Complexity** | **Moderate** |
 
 ### 5.4 — Lobby player view (pdgui_menu_lobby.cpp:245–246)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/fast3d/pdgui_menu_lobby.cpp:245–246` |
-| **What** | `pv.bodynum < mpGetNumBodies()` bounds check, `mpGetBodyName(pv.bodynum)` |
 | **Should become** | `pv.body_id[0] != '\0'` validity check, `catalogGetDisplayName(pv.body_id)` |
 | **Complexity** | **Trivial** |
 
@@ -490,19 +667,15 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/fast3d/pdgui_menu_moddinghub.cpp:552` |
-| **What** | `pdguiCharPreviewRequest(0, bodynum)` — integer body index |
-| **Should become** | Use catalog ID after 3.8 migration |
-| **Complexity** | **Trivial** — follows from 3.8 |
+| **Should become** | Pass catalog ID after 3.8 migration |
+| **Complexity** | **Trivial** |
 
-### 5.6 — Lobby settings display in SVC_LOBBY_STATE (netmsg.c:4405–4428)
+### 5.6 — SVC_LOBBY_STATE read path (netmsg.c:4405–4428)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/src/net/netmsg.c:4405–4428` |
-| **What** | Already sends `stage_id` string on wire. Read path sets `g_Lobby.settings.stagenum`. |
-| **Should become** | Read path stores `stage_id` string in lobby settings (after 2.5) |
-| **Complexity** | **Trivial** — follows from 2.5 |
+| **Should become** | Store `stage_id` string in lobby settings (after 2.5) |
+| **Complexity** | **Trivial** |
 
 ---
 
@@ -514,37 +687,31 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/src/savefile.c:616–710` |
-| **What** | **Write**: resolves `mpheadnum`/`mpbodynum` → catalog ID via `catalogResolveHeadByMpIndex`. **Read**: resolves catalog ID → mpheadnum/mpbodynum via `catalogHeadnumToMpHeadIdx`. Fallback: raw integer. |
-| **Should become** | **Write**: read from `body_id`/`head_id` string fields directly. **Read**: store to string fields directly. Legacy integer fallback stays for old saves. |
-| **Complexity** | **Moderate** — bidirectional, fallback logic |
+| **What** | **Write**: resolves `mpheadnum`/`mpbodynum` → catalog ID. **Read**: resolves catalog ID → integer. |
+| **Should become** | **Write**: read from `body_id`/`head_id` string fields. **Read**: store to string fields. Legacy integer fallback stays for old saves. |
+| **Complexity** | **Moderate** |
 
 ### 6.2 — Stage save/load (savefile.c:781–846)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/src/savefile.c:781–846` |
-| **What** | **Write**: `catalogResolveStageByStagenum(g_MpSetup.stagenum)`. **Read**: resolves catalog ID → stagenum. |
-| **Should become** | **Write**: use `g_MpSetup.stage_id` directly (already exists). **Read**: store to `stage_id` directly. |
+| **Should become** | Write `g_MpSetup.stage_id` directly. Read stores to `stage_id`. |
 | **Complexity** | **Trivial** |
 
 ### 6.3 — Weapon save/load (savefile.c:798–878)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/src/savefile.c:798–878` |
-| **What** | **Write**: `catalogResolveWeaponByGameId(g_MpSetup.weapons[i])`. **Read**: resolves catalog ID → weapon_id integer. |
-| **Should become** | Depends on weapon enum decision (2.8). If `g_MpSetup.weapons[]` becomes string array, direct write. |
-| **Complexity** | **Moderate** if weapons migrate; **Trivial** if only wire changes |
+| **What** | `g_MpSetup.weapons[i]` is currently `u8` (MPWEAPON_* constant) |
+| **Should become** | `char weapon_ids[NUM_MPWEAPONSLOTS][CATALOG_ID_LEN]` — per D-1, full migration |
+| **Complexity** | **Moderate** — struct change + save format change |
 
 ### 6.4 — Scenario save/load (scenario_save.c:267–537)
 
 | Item | Detail |
 |------|--------|
-| **File** | `port/src/scenario_save.c:267–537` |
-| **What** | Saves `g_MatchConfig.stagenum` as integer + catalog ID. Loads with fallback. |
-| **Should become** | Save `g_MatchConfig.stage_id` directly. Keep integer fallback for legacy. |
-| **Complexity** | **Trivial** |
+| **Should become** | `g_MatchConfig.stage_id` direct, weapons as catalog ID strings |
+| **Complexity** | **Moderate** |
 
 ---
 
@@ -560,95 +727,19 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | `catalogHeadnumToMpHeadIdx` | assetcatalog_api.c:400 | 15 | Phase 2.1 + 3.2 |
 | `catalogResolveStageByStagenum` | assetcatalog_api.c:634 | 6 | Phase 2.3 + 2.4 + 3.3 |
 | `catalogResolveArenaByStagenum` | assetcatalog_api.c:654 | 2 | Phase 2.3 |
-| `catalogResolveWeaponByGameId` | assetcatalog_api.c:676 | 6 | Phase 6.3 + weapon decision |
+| `catalogResolveWeaponByGameId` | assetcatalog_api.c:676 | 6 | Phase 4.5 |
 | `catalogGetSafeBody` | modelcatalog.c:536 | 2 | Phase 3.5 |
 | `catalogGetSafeBodyPaired` | modelcatalog.c:576 | 2 | Phase 3.5 |
 | `catalogGetSafeHead` | modelcatalog.c:601 | 2 | Phase 3.5 |
-| `catalogGetBodyDefaultHead` | assetcatalog_api.c:413 | 1 | **Keep** — takes catalog ID, returns catalog ID. Already clean. |
+| `catalogGetBodyDefaultHead` | assetcatalog_api.c:413 | 1 | **Keep** — already takes catalog ID |
 
----
+Also remove:
+- `mpGetBodyId(u8 bodynum)` / `mpGetHeadId(u8 headnum)` — replaced by catalog queries
+- `mpGetBodyName(u8 mpbodynum)` — replaced by `catalogGetDisplayName()`
+- `mpGetMpheadnumByMpbodynum(s32)` — replaced by `catalogGetBodyDefaultHead(body_id)`
+- `mpPlayerConfigGetHead(s32)` / `mpPlayerConfigGetBody(s32)` — replaced by catalog ID getters
 
-## Decisions Required from Game Director
-
-### D-1: Weapon Enums (WEAPON_xxx)
-**Question**: Are `WEAPON_FALCON2`, `WEAPON_SHOTGUN`, etc. (enum values 0–56) considered "integer asset identity" that must become catalog IDs?
-
-**Impact**: ~660 references in `src/game/` (bondgun.c, botact.c, botinv.c, inv.c, propobj.c, etc.). This is the single largest block of integer identity in the codebase. The game's weapon system is deeply built around these enums for function dispatch, ammo types, fire modes, etc.
-
-**Options**:
-- **A) Full migration**: Every WEAPON_xxx becomes a catalog ID string. Massive effort, touches nearly every game file. Required if weapons become mod-extensible.
-- **B) Wire-only migration**: Catalog IDs on network wire and save files, but engine-internal code keeps WEAPON_xxx enums. Conversion happens at serialization boundary only. Reasonable if weapons are a fixed set.
-- **C) Defer**: Weapons are a fixed ROM set for now. Migrate when mod-extensible weapons are implemented.
-
-**Recommendation**: **B** for now, **A** when modding needs it.
-
-### D-2: Model Numbers (modelnum)
-**Question**: Is `s16 modelnum` (prop/object model identity) in scope?
-
-**Impact**: 75 references. Models are not currently in the catalog system. Would require new `ASSET_MODEL` type.
-
-**Options**:
-- **A) Full migration**: Add ASSET_MODEL to catalog, migrate all modelnum references
-- **B) Defer**: Models become catalog-native when model modding is implemented
-
-**Recommendation**: **B** — modelnum is engine-internal, no user-facing identity.
-
-### D-3: `g_MpSetup.stagenum` and `mainChangeToStage(s32 stagenum)`
-**Question**: The engine's stage loading is deeply built around integer stagenum (hex IDs like 0x5e). Full elimination requires refactoring `mainChangeToStage()` and all engine stage references.
-
-**Options**:
-- **A) Full refactor**: `mainChangeToStage(const char *stage_id)` — engine resolves internally
-- **B) Boundary conversion**: Keep `stagenum` as engine-internal, set from `stage_id` at exactly one canonical point
-- **C) Current state**: Already doing B, just needs cleanup
-
-**Recommendation**: **B** — `stagenum` is an engine dispatch value, not user-facing identity. Set it from `stage_id` at one point, never expose it.
-
----
-
-## Execution Order
-
-**Critical path**: Phase 2.1 (mpchrconfig struct) is the keystone — almost everything depends on it.
-
-### Batch 1: Foundation (no code change risk)
-1. **2.5** — `lobby_settings_t` → catalog IDs (small, isolated)
-2. **2.6** — `net_server_info_t` → catalog ID (small, isolated)
-3. **3.9** — `netcb_On*` callback signatures (interface-only)
-4. **3.10** — `netcb_OnMatchStart/OnStageChange` signatures
-5. **3.11** — `netmsgClcLobbyStartWrite` signature
-
-### Batch 2: Struct Keystone
-6. **2.1** — `mpchrconfig` gets `body_id[64]`/`head_id[64]` as primary fields
-7. **2.2** — `match_slot_t.headnum`/`bodynum` removed (use `body_id`/`head_id`)
-8. **2.3** — `match_config_t.stagenum` eliminated (use `stage_id`)
-9. **2.7** — `mission_config_t` gets `stage_id`
-
-### Batch 3: Network Wire
-10. **1.7** — `SVC_CLIENT_SETTINGS` reads from string fields
-11. **1.8** — `SVC_CLIENT_SETTINGS` stores to string fields
-12. **1.9** — `SVC_STAGE_START` stores to string fields
-13. **1.1–1.6** — remaining wire messages (weaponnum → catalog ID)
-
-### Batch 4: Save/Load
-14. **6.1** — Player config save/load → string fields
-15. **6.2** — Stage save/load → string fields
-16. **6.4** — Scenario save/load → string fields
-
-### Batch 5: UI Layer
-17. **3.7** — `mpPlayerConfigGetHead/Body` → return catalog ID
-18. **3.8** — `pdguiCharPreviewRequest` → catalog ID params
-19. **5.1–5.5** — All UI display code → catalog IDs
-20. **3.6** — Replace `mpGetBodyName` etc. with catalog queries
-
-### Batch 6: Game Logic
-21. **4.1** — Challenge feature checks → catalog-based
-22. **4.2** — Body cycling → catalog iteration
-23. **4.3** — Bot spawn → catalog ID resolution
-24. **4.4** — Menu character display → catalog ID
-
-### Batch 7: Cleanup
-25. **7** — Delete all conversion functions
-26. **3.5** — Replace `catalogGetSafe*` with string-based validation
-27. Protocol version bump (v28)
+Protocol version bump to **v28**.
 
 ---
 
@@ -661,10 +752,85 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 | `catalogGetHeadRequireFeature(const char *head_id)` | Feature flag for head | 4.1 |
 | `catalogIterateBodies(callback)` | Iterate all available bodies | 4.2, 5.2 |
 | `catalogIterateHeads(callback)` | Iterate all available heads | 5.2 |
+| `catalogIterateWeapons(callback)` | Iterate all weapons | 4.5 |
 | `catalogValidateBodyId(const char *body_id)` | Returns valid body_id or default | 3.5 |
 | `catalogValidateHeadId(const char *head_id)` | Returns valid head_id or default | 3.5 |
-| `catalogBodyIdToRuntimeIndex(const char *body_id)` | Catalog ID → g_HeadsAndBodies[] index (engine handoff) | 4.3 |
+| `catalogBodyIdToRuntimeIndex(const char *body_id)` | Catalog ID → g_HeadsAndBodies[] index (engine internal) | 4.3 |
 | `catalogHeadIdToRuntimeIndex(const char *head_id)` | Same for heads | 4.3 |
+| `catalogWeaponIdToRuntimeIndex(const char *weapon_id)` | Catalog ID → WEAPON_* internal index (engine internal) | 4.5 |
+| `catalogModelIdToRuntimeIndex(const char *model_id)` | Catalog ID → g_ModelStates[] index (engine internal) | 4.6 |
+| `catalogWeaponGetProperty(const char *weapon_id, ...)` | Query weapon properties by catalog ID | 4.5 |
+| `catalogWeaponHasFlag(const char *weapon_id, u32 flag)` | Check weapon flags by catalog ID | 4.5 |
+| `catalogRefreshMods(void)` | Clear mod entries + re-scan + re-register | 0.4b |
+| `catalogGetGeneration(void)` | Return catalog generation counter for cache invalidation | 0.4c |
+| `catalogResolveHash(const char *id)` | O(1) hash-based catalog lookup | 0.5a |
+
+---
+
+## Execution Order
+
+**Critical path**: Phase 0 (completeness) → Phase 2.1 (mpchrconfig keystone) → Phase 4.5 (weapons) → Phase 4.6 (models) → Phase 4.7 (engine stage).
+
+### Batch 0: Catalog Foundation
+1. **0.2** — Weapon registration gap fix (register ALL weapon enums)
+2. **0.3** — Model registration completeness audit
+3. **0.4a–e** — Catalog liveness: `catalogRefreshMods()`, generation counter, validation
+4. **0.5a–b** — Hash table index + cached resolution (performance foundation)
+
+### Batch 1: Small Struct Migrations (no code change risk)
+5. **2.5** — `lobby_settings_t` → catalog IDs
+6. **2.6** — `net_server_info_t` → catalog ID
+7. **2.12** — `s_ReadyGate.stagenum` → `stage_id`
+8. **3.9** — `netcb_On*` callback signatures
+9. **3.10** — `netcb_OnMatchStart/OnStageChange` signatures
+10. **3.11** — `netmsgClcLobbyStartWrite` signature
+
+### Batch 2: Struct Keystone — Body/Head
+11. **2.1** — `mpchrconfig` gets `body_id`/`head_id` as sole fields (remove `mpbodynum`/`mpheadnum`)
+12. **2.2** — `match_slot_t.headnum`/`bodynum` removed
+13. **2.9** — Challenge simulant structs
+
+### Batch 3: Network Wire — Body/Head
+14. **1.7** — `SVC_CLIENT_SETTINGS` reads from string fields
+15. **1.8** — `SVC_CLIENT_SETTINGS` stores to string fields (no integer write-back)
+16. **1.9** — `SVC_STAGE_START` stores to string fields
+
+### Batch 4: Stage Migration (D-3)
+17. **2.3** — `match_config_t.stagenum` removed
+18. **2.4** — `g_MpSetup.stagenum` removed
+19. **2.7** — `mission_config_t.stagenum` → `stage_id`
+20. **3.15** — `mainChangeToStage(const char *stage_id)` refactor
+21. **4.7** — All callers pass catalog ID
+
+### Batch 5: Weapon Migration (D-1) — LARGEST BATCH
+22. **2.8** — `netmove_t.weaponnum` → `weapon_id`
+23. **2.10** — All weapon struct fields → `weapon_id`
+24. **3.16** — All weapon function signatures → `const char *weapon_id`
+25. **4.5** — All 660 game logic references migrated
+26. **1.1–1.6** — Network wire weapon messages → catalog ID strings
+
+### Batch 6: Model Migration (D-2)
+27. **2.11** — `modelnum` struct fields → `model_id`
+28. **3.17** — Model function signatures
+29. **4.6** — All 83 game logic references
+30. **1.3** — `SVC_PROPSTATE` modelnum → catalog ID
+
+### Batch 7: Save/Load
+31. **6.1** — Player config → string fields
+32. **6.2** — Stage → string fields
+33. **6.3** — Weapons → catalog ID strings
+34. **6.4** — Scenarios → catalog ID strings
+
+### Batch 8: UI Layer
+35. **3.7** — `mpPlayerConfigGetHead/Body` → catalog ID
+36. **3.8** — `pdguiCharPreviewRequest` → catalog ID params
+37. **5.1–5.5** — All UI display code
+38. **3.6** — Replace `mpGetBodyName` etc.
+
+### Batch 9: Cleanup
+39. **7** — Delete ALL conversion functions
+40. **3.5** — Replace `catalogGetSafe*` with string-based validation
+41. Protocol version bump (v28)
 
 ---
 
@@ -672,12 +838,16 @@ The codebase has a **dual identity** problem. Phases A–G of catalog universali
 
 | Category | Integer ID refs | Files | Estimated effort |
 |----------|----------------|-------|-----------------|
-| Network wire (Phase 1) | ~30 | 1 (netmsg.c) | Moderate |
-| Config structs (Phase 2) | ~120 | 8 | Complex |
-| Function APIs (Phase 3) | ~90 | 12 | Moderate |
-| Game logic (Phase 4) | ~40 (excl. weaponnum) | 6 | Moderate |
-| UI layer (Phase 5) | ~25 | 5 | Moderate |
-| Save/load (Phase 6) | ~30 | 2 | Moderate |
-| Weapon enums (if D-1=A) | ~660 | ~30 | **Massive** |
-| Model nums (if D-2=A) | ~75 | ~10 | **Massive** |
-| **Total (excl. weapon/model)** | **~335** | **~25** | **Large** |
+| Catalog completeness (Phase 0) | — | 3 | 2–3 sessions |
+| Network wire (Phase 1) | ~30 | 1 | 2–3 sessions |
+| Config structs (Phase 2) | ~120 | 8 | 3–4 sessions |
+| Function APIs (Phase 3) | ~90+ | 12+ | 3–4 sessions |
+| Game logic — body/head/stage (Phase 4.1–4.4, 4.7) | ~50 | 8 | 3–4 sessions |
+| Game logic — **weapons** (Phase 4.5) | **~660** | **35** | **15–20 sessions** |
+| Game logic — **models** (Phase 4.6) | **~83** | **15** | **8–10 sessions** |
+| UI layer (Phase 5) | ~25 | 5 | 2 sessions |
+| Save/load (Phase 6) | ~30 | 2 | 2 sessions |
+| Cleanup (Phase 7) | — | ~5 | 1 session |
+| **TOTAL** | **~1,088+** | **~50+** | **~40–50 sessions** |
+
+**Note**: The weapon migration (4.5) dominates the timeline. Consider whether it can be parallelized by file (bondgun.c independent of propobj.c independent of bot.c, etc.) to allow multiple sessions to work different files concurrently.
