@@ -312,6 +312,11 @@ static void pdguiConsoleRender(void)
 
 void pdguiRender(void)
 {
+    /* One-shot ROM texture extraction (--extract-ui-textures CLI flag).
+     * pdguiThemeCheckExtract() checks if g_TexGeneralConfigs is populated
+     * and --extract-ui-textures is set, then extracts once. */
+    pdguiThemeCheckExtract();
+
     /* Console renders independently of the debug overlay */
     if (s_ConsoleVisible && g_PdguiInitialized) {
         pdguiConsoleRender();
@@ -429,6 +434,13 @@ void pdguiRender(void)
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */
     pdguiRenderAllWindowShimmers();
+
+    /* D5.0: CRT scanline overlay — subtle horizontal lines on all menu content.
+     * Renders on the foreground draw list so it's on top of everything.
+     * Enabled by default; toggle via Graphics settings or pdguiThemeSetScanlineEnabled(). */
+    if (pdguiThemeGetScanlineEnabled()) {
+        pdguiThemeDrawScanlineFg(0, 0, (float)winW, (float)winH);
+    }
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

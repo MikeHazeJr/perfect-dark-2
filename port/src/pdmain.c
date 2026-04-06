@@ -80,6 +80,7 @@
 #include "modelcatalog.h"
 #include <SDL.h>
 #include "pdmain.h"
+#include "pdgui_theme.h"
 #include "input.h"
 
 extern u8 *g_MempHeap;
@@ -356,6 +357,8 @@ void mainInit(void)
 	utilsInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: texInit...");
 	texInit();
+	sysLogPrintf(LOG_VERBOSE, "INIT: pdguiThemeLateInit...");
+	pdguiThemeLateInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: langInit...");
 	langInit();
 	sysLogPrintf(LOG_VERBOSE, "INIT: lvInit...");

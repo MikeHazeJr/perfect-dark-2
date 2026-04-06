@@ -47,6 +47,8 @@
 #include "pdgui_style.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "fs.h"
+#include "config.h"
 
 /* =========================================================================
  * textureconfig bridge
@@ -92,10 +94,17 @@ extern "C" {
     /**
      * g_TexGeneralConfigs -- runtime array of general-use texture configs.
      * Defined in src/game/texdecompress.c; declared extern in bss.h.
-     * Populated by texInit() at game startup.
+     * Populated by texReset() at stage load.
      * Cast to PdTexConfig* (layout-compatible with struct textureconfig).
      */
     extern struct PdTexConfig *g_TexGeneralConfigs;
+
+    /**
+     * texLoadFromConfig -- decompress a ROM texture by texnum.
+     * Defined in src/game/texselect.c. Replaces config->texturenum with
+     * a pointer to the decompressed pixel data.
+     */
+    void texLoadFromConfig(struct PdTexConfig *config);
 }
 
 /* On a 64-bit build, a texnum like 0x0003 stored in the union gives
@@ -431,11 +440,203 @@ static inline ImU32 PdCol(uint32_t rgba)
     return IM_COL32(r, g, b, a);
 }
 
-/* Return palette row for current active palette (currently always Blue).
- * Extended in a follow-up when pdguiGetPalette() drives multi-palette. */
+/* Return palette row for the currently active palette.
+ * Delegates to the style layer's palette API (pdgui_style.cpp).
+ * Falls back to k_PalBlue if style system not initialized yet. */
 static const uint32_t *s_activePal(void)
 {
-    return k_PalBlue;
+    const uint32_t *pal = (const uint32_t *)pdguiGetActivePaletteRaw();
+    return pal ? pal : k_PalBlue;
+}
+
+/* =========================================================================
+ * PNG file loading (minimal — loads RGBA from raw RGBA32 .tga files)
+ *
+ * The base-ui mod stores pre-extracted ROM textures as uncompressed TGA.
+ * We load the raw pixel data directly (skip the 18-byte TGA header).
+ * ========================================================================= */
+
+static bool s_ThemeLateInitDone = false;
+
+/* Background texture ID for haze overlay in dialogs */
+static const char *s_BgTexId = NULL;
+
+/* Scanline config */
+static bool  s_ScanlineEnabled = true;
+static float s_ScanlineAlpha   = 0.8f;
+
+/**
+ * Load a .tga file (uncompressed RGBA32) from the filesystem, upload to GL.
+ * Returns GL texture id, or 0 on failure.
+ *
+ * TGA format: 18-byte header, then width*height*4 bytes of BGRA pixel data.
+ * We convert BGRA→RGBA during upload.
+ */
+static GLuint s_loadTgaTexture(const char *path, uint32_t *out_w, uint32_t *out_h)
+{
+    u32 fileSize = 0;
+    uint8_t *data = (uint8_t *)fsFileLoad(path, &fileSize);
+    if (!data || fileSize < 18) {
+        sysLogPrintf(LOG_WARNING, "PDGUI theme: failed to load '%s'", path);
+        if (data) free(data);
+        return 0;
+    }
+
+    /* Parse TGA header */
+    uint32_t w = (uint32_t)data[12] | ((uint32_t)data[13] << 8);
+    uint32_t h = (uint32_t)data[14] | ((uint32_t)data[15] << 8);
+    uint8_t  bpp = data[16];
+    uint32_t pixelBytes = (uint32_t)(bpp / 8);
+    uint32_t expectedSize = 18 + w * h * pixelBytes;
+
+    if (bpp != 32 || fileSize < expectedSize || w > 256 || h > 256) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: '%s' unexpected format (bpp=%u %ux%u filesize=%u)",
+            path, bpp, w, h, fileSize);
+        free(data);
+        return 0;
+    }
+
+    /* Convert BGRA → RGBA in-place */
+    uint8_t *pixels = data + 18;
+    uint32_t npix = w * h;
+    for (uint32_t i = 0; i < npix; i++) {
+        uint8_t tmp = pixels[i * 4 + 0];
+        pixels[i * 4 + 0] = pixels[i * 4 + 2];
+        pixels[i * 4 + 2] = tmp;
+    }
+
+    /* TGA is bottom-up by default (unless bit 5 of descriptor is set) */
+    bool topDown = (data[17] & 0x20) != 0;
+    if (!topDown) {
+        /* Flip vertically */
+        uint32_t rowBytes = w * 4;
+        uint8_t *rowBuf = (uint8_t *)malloc(rowBytes);
+        for (uint32_t y = 0; y < h / 2; y++) {
+            uint8_t *top = pixels + y * rowBytes;
+            uint8_t *bot = pixels + (h - 1 - y) * rowBytes;
+            memcpy(rowBuf, top, rowBytes);
+            memcpy(top, bot, rowBytes);
+            memcpy(bot, rowBuf, rowBytes);
+        }
+        free(rowBuf);
+    }
+
+    if (out_w) *out_w = w;
+    if (out_h) *out_h = h;
+
+    GLuint tex = s_uploadGLTex(pixels, w, h);
+    free(data);
+    return tex;
+}
+
+/**
+ * Register a theme texture from a mod file path.
+ * Loads the TGA, uploads to GL, registers in catalog + cache.
+ */
+static void s_registerModTexture(const char *catalog_id, const char *path)
+{
+    uint32_t w = 0, h = 0;
+    GLuint gl_id = s_loadTgaTexture(path, &w, &h);
+    if (!gl_id) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: '%s' from '%s' — load failed, skipping", catalog_id, path);
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme: loaded '%s' from '%s' (%ux%u) → GL %u",
+        catalog_id, path, w, h, gl_id);
+
+    /* Register in asset catalog */
+    asset_entry_t *e = assetCatalogRegister(catalog_id, ASSET_UI);
+    if (e) {
+        snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
+        e->bundled       = 1;
+        e->enabled       = 1;
+        e->load_state    = ASSET_STATE_LOADED;
+        e->ref_count     = ASSET_REF_BUNDLED;
+        e->source_texnum = -1;
+        e->loaded_data     = (void *)(uintptr_t)gl_id;
+        e->data_size_bytes = (u32)(w * h * 4u);
+    }
+
+    s_ThemeTexCache[catalog_id] = gl_id;
+}
+
+/**
+ * Generate a procedural texture and upload to GL.
+ * Used when mod files are not available (fallback).
+ */
+static GLuint s_generateProceduralTexture(const char *name, uint32_t w, uint32_t h)
+{
+    uint32_t npix = w * h;
+    uint8_t *buf = (uint8_t *)calloc(npix * 4, 1);
+    if (!buf) return 0;
+
+    if (strcmp(name, "haze") == 0) {
+        /* Green-tinted noise pattern approximating the OG haze background */
+        uint32_t seed = 0x12345678u;
+        for (uint32_t i = 0; i < npix; i++) {
+            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+            uint8_t noise = (uint8_t)((seed >> 8) & 0x3Fu);
+            buf[i * 4 + 0] = noise;       /* R — low */
+            buf[i * 4 + 1] = noise;       /* G — same (IA texture) */
+            buf[i * 4 + 2] = noise;       /* B — same */
+            buf[i * 4 + 3] = (uint8_t)(noise + 60u > 255u ? 255u : noise + 60u);
+        }
+    } else if (strcmp(name, "noise_sm") == 0 || strcmp(name, "noise_lg") == 0) {
+        /* Fine noise grain */
+        uint32_t seed = 0xDEADBEEFu;
+        for (uint32_t i = 0; i < npix; i++) {
+            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+            uint8_t v = (uint8_t)((seed >> 12) & 0x7Fu);
+            buf[i * 4 + 0] = buf[i * 4 + 1] = buf[i * 4 + 2] = v;
+            buf[i * 4 + 3] = (uint8_t)(v / 2 + 30);
+        }
+    } else if (strcmp(name, "solid") == 0) {
+        /* 1x1 white pixel */
+        buf[0] = buf[1] = buf[2] = buf[3] = 255;
+    } else {
+        /* Generic mid-grey fallback */
+        for (uint32_t i = 0; i < npix; i++) {
+            buf[i * 4 + 0] = buf[i * 4 + 1] = buf[i * 4 + 2] = 128;
+            buf[i * 4 + 3] = 128;
+        }
+    }
+
+    GLuint tex = s_uploadGLTex(buf, w, h);
+    free(buf);
+    return tex;
+}
+
+/**
+ * Register a procedural fallback texture.
+ */
+static void s_registerProceduralTexture(const char *catalog_id,
+                                         const char *proc_name,
+                                         uint32_t w, uint32_t h)
+{
+    GLuint gl_id = s_generateProceduralTexture(proc_name, w, h);
+    if (!gl_id) return;
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme: procedural '%s' (%s %ux%u) → GL %u",
+        catalog_id, proc_name, w, h, gl_id);
+
+    asset_entry_t *e = assetCatalogRegister(catalog_id, ASSET_UI);
+    if (e) {
+        snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
+        e->bundled       = 1;
+        e->enabled       = 1;
+        e->load_state    = ASSET_STATE_LOADED;
+        e->ref_count     = ASSET_REF_BUNDLED;
+        e->source_texnum = -1;
+        e->loaded_data     = (void *)(uintptr_t)gl_id;
+        e->data_size_bytes = (u32)(w * h * 4u);
+    }
+
+    s_ThemeTexCache[catalog_id] = gl_id;
 }
 
 /* =========================================================================
@@ -444,6 +645,13 @@ static const uint32_t *s_activePal(void)
 
 extern "C" {
 
+/* Config-backed scanline setting (persisted to pd.ini) */
+static s32 s_CfgScanlineEnabled = 1;
+
+/**
+ * Early init: called from pdguiInit(), before texInit().
+ * Registers config vars and marks theme as initialized.
+ */
 void pdguiThemeInit(void)
 {
     if (s_ThemeInitDone) {
@@ -451,41 +659,90 @@ void pdguiThemeInit(void)
     }
     s_ThemeInitDone = true;
 
-    sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: D5.0 ROM texture decode layer initializing");
+    /* Register scanline toggle in config file (saved to pd.ini) */
+    configRegisterInt("Video.Scanlines", &s_CfgScanlineEnabled, 0, 1);
+    s_ScanlineEnabled = (s_CfgScanlineEnabled != 0);
 
-    if (!g_TexGeneralConfigs) {
-        sysLogPrintf(LOG_ERROR,
-            "PDGUI theme: g_TexGeneralConfigs is NULL -- "
-            "texInit() has not been called. Pipeline bug.");
-        assert(g_TexGeneralConfigs != nullptr &&
-               "g_TexGeneralConfigs NULL: texInit() must precede pdguiThemeInit()");
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme: D5.0 early init (scanlines=%s, textures deferred)",
+        s_ScanlineEnabled ? "ON" : "OFF");
+}
+
+/**
+ * Late init: called after texInit()/texReset() have run.
+ * Loads UI textures from the base-ui mod (TGA files) or generates
+ * procedural fallbacks. Registers all theme textures in the catalog.
+ */
+void pdguiThemeLateInit(void)
+{
+    if (s_ThemeLateInitDone) {
         return;
     }
-
-    /*
-     * Register known OG PD menu textures from g_TexGeneralConfigs.
-     *
-     * Index cross-reference (menugfx.c):
-     *   [1]  base:ui_particles  -- success-screen particle shimmer
-     *                             (menugfx.c line ~1763: g_TexGeneralConfigs[1])
-     *   [6]  base:ui_bg_haze    -- dual-layer rotating green haze background
-     *                             (menugfx.c line 239:  g_TexGeneralConfigs[6])
-     *
-     * If texptr is a small integer (texnum-based), GL upload is deferred.
-     * The GBI pipeline will decode on the first render frame that uses the
-     * texture.  Until then, pdguiThemeGetTexture() will assert.
-     *
-     * Palette: NULL (no CI textures expected here; haze and particles are IA).
-     */
-    s_registerTexConfig("base:ui_bg_haze",   &g_TexGeneralConfigs[6], NULL, false);
-    s_registerTexConfig("base:ui_particles", &g_TexGeneralConfigs[1], NULL, false);
+    s_ThemeLateInitDone = true;
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: registered %u UI texture(s) (%u decoded, %u deferred)",
-        (unsigned)(s_ThemeTexCache.size() + 2u),
-        (unsigned)s_ThemeTexCache.size(),
-        (unsigned)(2u - s_ThemeTexCache.size()));
+        "PDGUI theme: late init — loading UI textures from base-ui mod");
+
+    /* Texture table: catalog_id → mod file path → procedural fallback */
+    static const struct {
+        const char *catalog_id;
+        const char *mod_path;
+        const char *proc_name;
+        uint32_t    proc_w, proc_h;
+    } k_UiTextures[] = {
+        { "base:ui_bg_haze",    "mods/base-ui/textures/ui_bg_haze.tga",    "haze",     64, 64 },
+        { "base:ui_particles",  "mods/base-ui/textures/ui_particles.tga",  "solid",     1,  1 },
+        { "base:ui_noise_sm",   "mods/base-ui/textures/ui_noise_sm.tga",   "noise_sm", 16, 16 },
+        { "base:ui_noise_lg",   "mods/base-ui/textures/ui_noise_lg.tga",   "noise_lg", 16, 16 },
+        { "base:ui_grad_bar",   "mods/base-ui/textures/ui_grad_bar.tga",   "solid",     2,  8 },
+        { "base:ui_mirror_tile","mods/base-ui/textures/ui_mirror_tile.tga", "solid",     8,  8 },
+        { "base:ui_dot_tile",   "mods/base-ui/textures/ui_dot_tile.tga",   "solid",     8,  8 },
+        { "base:ui_nuke",       "mods/base-ui/textures/ui_nuke.tga",       "noise_lg", 64, 64 },
+        { "base:ui_bg_alt",     "mods/base-ui/textures/ui_bg_alt.tga",     "noise_lg", 64, 64 },
+        { "base:ui_deco",       "mods/base-ui/textures/ui_deco.tga",       "solid",    32, 32 },
+        { "base:ui_icon_a",     "mods/base-ui/textures/ui_icon_a.tga",     "solid",    14, 14 },
+        { "base:ui_icon_b",     "mods/base-ui/textures/ui_icon_b.tga",     "solid",    11, 11 },
+        { "base:ui_icon_c",     "mods/base-ui/textures/ui_icon_c.tga",     "solid",    14, 14 },
+    };
+
+    unsigned loaded = 0, procedural = 0;
+    for (unsigned i = 0; i < sizeof(k_UiTextures) / sizeof(k_UiTextures[0]); i++) {
+        /* Try loading from mod file first */
+        uint32_t w = 0, h = 0;
+        GLuint gl_id = s_loadTgaTexture(k_UiTextures[i].mod_path, &w, &h);
+        if (gl_id) {
+            sysLogPrintf(LOG_NOTE, "PDGUI theme: '%s' ← mod file (%ux%u)",
+                         k_UiTextures[i].catalog_id, w, h);
+
+            asset_entry_t *e = assetCatalogRegister(k_UiTextures[i].catalog_id, ASSET_UI);
+            if (e) {
+                snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
+                e->bundled = 1; e->enabled = 1;
+                e->load_state = ASSET_STATE_LOADED;
+                e->ref_count = ASSET_REF_BUNDLED;
+                e->source_texnum = -1;
+                e->loaded_data = (void *)(uintptr_t)gl_id;
+                e->data_size_bytes = (u32)(w * h * 4u);
+            }
+            s_ThemeTexCache[k_UiTextures[i].catalog_id] = gl_id;
+            loaded++;
+        } else {
+            /* Fallback: generate procedural texture */
+            s_registerProceduralTexture(
+                k_UiTextures[i].catalog_id,
+                k_UiTextures[i].proc_name,
+                k_UiTextures[i].proc_w,
+                k_UiTextures[i].proc_h);
+            procedural++;
+        }
+    }
+
+    /* Set default background texture for dialog haze overlay */
+    s_BgTexId = "base:ui_bg_haze";
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme: late init complete — %u from mod, %u procedural",
+        loaded, procedural);
 }
 
 void pdguiThemeShutdown(void)
@@ -511,8 +768,11 @@ void pdguiThemeShutdown(void)
 void *pdguiThemeGetTexture(const char *catalog_id)
 {
     if (!catalog_id || !catalog_id[0]) {
-        sysLogPrintf(LOG_ERROR, "PDGUI theme: pdguiThemeGetTexture(NULL)");
-        assert(false && "pdguiThemeGetTexture: NULL id");
+        return nullptr;
+    }
+
+    if (!s_ThemeLateInitDone) {
+        /* Late init hasn't run yet — textures not available */
         return nullptr;
     }
 
@@ -522,24 +782,51 @@ void *pdguiThemeGetTexture(const char *catalog_id)
         return (void *)(uintptr_t)it->second;
     }
 
-    /* Check if registered but deferred (texnum-based, not yet GBI-decoded) */
-    const asset_entry_t *e = assetCatalogResolve(catalog_id);
-    if (e && e->type == ASSET_UI && e->source_texnum >= 0) {
-        sysLogPrintf(LOG_ERROR,
-            "PDGUI theme: '%s' (texnum=%d) not yet decoded -- "
-            "GBI pipeline has not processed this texture. Pipeline bug.",
-            catalog_id, e->source_texnum);
-        assert(false && "PDGUI theme texture not decoded -- see LOG_ERROR");
-        return nullptr;
-    }
-
-    /* Unknown catalog ID -- programming error */
-    sysLogPrintf(LOG_ERROR,
-        "PDGUI theme: unknown catalog ID '%s' -- "
-        "add registration to pdguiThemeInit()",
-        catalog_id);
-    assert(false && "PDGUI theme: unknown catalog ID");
+    /* Unknown or failed texture — return NULL (no assert, graceful degrade) */
     return nullptr;
+}
+
+/* Return the current background texture catalog ID for dialog overlays */
+const char *pdguiThemeGetBgTexId(void)
+{
+    return s_BgTexId;
+}
+
+/* Set the background texture catalog ID for dialog overlays */
+void pdguiThemeSetBgTexId(const char *catalog_id)
+{
+    s_BgTexId = catalog_id;
+}
+
+/* Scanline config API */
+void pdguiThemeSetScanlineEnabled(s32 enabled)
+{
+    s_ScanlineEnabled = (enabled != 0);
+    s_CfgScanlineEnabled = enabled ? 1 : 0;
+}
+
+s32 pdguiThemeGetScanlineEnabled(void)
+{
+    return s_ScanlineEnabled ? 1 : 0;
+}
+
+void pdguiThemeSetScanlineAlpha(f32 alpha)
+{
+    if (alpha < 0.0f) alpha = 0.0f;
+    if (alpha > 1.0f) alpha = 1.0f;
+    s_ScanlineAlpha = alpha;
+}
+
+f32 pdguiThemeGetScanlineAlpha(void)
+{
+    return s_ScanlineAlpha;
+}
+
+/* Return palette colors as a flat array of 15 u32s for theme draw functions */
+const u32 *pdguiThemeGetActivePaletteColors(void)
+{
+    /* Delegate to style layer's active palette */
+    return (const u32 *)s_activePal();
 }
 
 /* =========================================================================
@@ -736,6 +1023,304 @@ void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha)
 
     for (float ry = y; ry < y + h; ry += 2.0f) {
         dl->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, 1.0f);
+    }
+}
+
+/**
+ * Draw scanlines on the foreground draw list (renders on top of all content).
+ * Called from pdguiRender() after all windows are submitted.
+ */
+void pdguiThemeDrawScanlineFg(float x, float y, float w, float h)
+{
+    if (!s_ScanlineEnabled || s_ScanlineAlpha <= 0.0f) {
+        return;
+    }
+
+    ImDrawList *fg = ImGui::GetForegroundDrawList();
+    uint8_t a = (uint8_t)(s_ScanlineAlpha * 40.0f);
+    ImU32 col = IM_COL32(0, 0, 0, a);
+
+    for (float ry = y; ry < y + h; ry += 2.0f) {
+        fg->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, 1.0f);
+    }
+}
+
+/* =========================================================================
+ * ROM Texture Extraction Tool
+ *
+ * Extracts UI textures from ROM via texLoadFromConfig(), decodes to RGBA32,
+ * and writes as uncompressed TGA files to mods/base-ui/textures/.
+ *
+ * Called with --extract-ui-textures CLI flag, after texReset() has populated
+ * g_TexGeneralConfigs and loaded the ROM texture data into memory.
+ * ========================================================================= */
+
+/* Write RGBA32 pixel data as an uncompressed 32-bit TGA file. */
+static bool s_writeTga(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h)
+{
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) {
+        sysLogPrintf(LOG_ERROR, "PDGUI extract: cannot write '%s'", path);
+        return false;
+    }
+
+    /* TGA header: 18 bytes, uncompressed RGBA, top-down */
+    uint8_t hdr[18];
+    memset(hdr, 0, sizeof(hdr));
+    hdr[2]  = 2;                          /* uncompressed true-color */
+    hdr[12] = (uint8_t)(w & 0xFF);
+    hdr[13] = (uint8_t)((w >> 8) & 0xFF);
+    hdr[14] = (uint8_t)(h & 0xFF);
+    hdr[15] = (uint8_t)((h >> 8) & 0xFF);
+    hdr[16] = 32;                         /* 32 bpp */
+    hdr[17] = 0x28;                       /* top-down + 8 alpha bits */
+    fwrite(hdr, 1, 18, f);
+
+    /* Write BGRA pixel data (TGA stores BGRA) */
+    uint32_t npix = w * h;
+    for (uint32_t i = 0; i < npix; i++) {
+        uint8_t bgra[4] = {
+            rgba[i * 4 + 2],  /* B */
+            rgba[i * 4 + 1],  /* G */
+            rgba[i * 4 + 0],  /* R */
+            rgba[i * 4 + 3],  /* A */
+        };
+        fwrite(bgra, 1, 4, f);
+    }
+
+    fclose(f);
+    return true;
+}
+
+void pdguiThemeExtractRomTextures(void)
+{
+    if (!g_TexGeneralConfigs) {
+        sysLogPrintf(LOG_ERROR,
+            "PDGUI extract: g_TexGeneralConfigs is NULL — texReset() not called");
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE, "PDGUI extract: extracting UI textures from ROM...");
+
+    /* First, ensure the textures we need are decompressed from ROM.
+     * texLoadFromConfig() converts texnum → textureptr via DMA + decompress. */
+
+    /* Load the textures we want to extract */
+    static const int k_IndicesToLoad[] = {
+        0, 1, 2, 3, 4, 6, 7, 10, 11, 34, 35, 36, 37, 38
+    };
+    for (unsigned i = 0; i < sizeof(k_IndicesToLoad) / sizeof(k_IndicesToLoad[0]); i++) {
+        int idx = k_IndicesToLoad[i];
+        struct PdTexConfig *cfg = &g_TexGeneralConfigs[idx];
+        if (!s_isRealPtr(cfg)) {
+            texLoadFromConfig(cfg);
+        }
+    }
+
+    /* Table of textures to extract */
+    static const struct {
+        int         index;
+        const char *filename;
+    } k_Extracts[] = {
+        {  0, "ui_noise_sm"   },
+        {  1, "ui_particles"  },
+        {  2, "ui_noise_lg"   },
+        {  3, "ui_grad_bar"   },
+        {  4, "ui_mirror_tile"},
+        {  6, "ui_bg_haze"    },
+        {  7, "ui_dot_tile"   },
+        { 10, "ui_nuke"       },
+        { 11, "ui_bg_alt"     },
+        { 34, "ui_icon_a"     },
+        { 35, "ui_icon_b"     },
+        { 36, "ui_icon_c"     },
+        { 37, "ui_deco"       },
+        { 38, "ui_stars"      },
+    };
+
+    static uint8_t s_ExtractBuf[256 * 256 * 4];
+    unsigned extracted = 0;
+
+    for (unsigned i = 0; i < sizeof(k_Extracts) / sizeof(k_Extracts[0]); i++) {
+        int idx = k_Extracts[i].index;
+        struct PdTexConfig *cfg = &g_TexGeneralConfigs[idx];
+
+        if (!s_isRealPtr(cfg)) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI extract: [%d] '%s' — texnum %u not loaded, skipping",
+                idx, k_Extracts[i].filename, cfg->texnum);
+            continue;
+        }
+
+        uint32_t w = (uint32_t)cfg->width;
+        uint32_t h = (uint32_t)cfg->height;
+
+        if (!w || !h || w > 256 || h > 256) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI extract: [%d] '%s' — bad dims %ux%u",
+                idx, k_Extracts[i].filename, w, h);
+            continue;
+        }
+
+        /* Decode to RGBA32 using our existing decoders */
+        GLuint gl_id = s_decodeAndUpload(cfg, NULL, false);
+        if (!gl_id) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI extract: [%d] '%s' — decode failed (fmt=%u siz=%u)",
+                idx, k_Extracts[i].filename, cfg->fmt, cfg->siz);
+            continue;
+        }
+
+        /* Read back the decoded RGBA32 data — it's still in s_Rgba32Buf
+         * (the static buffer used by s_decodeAndUpload's callees).
+         * Actually, s_Rgba32Buf is local to s_decodeAndUpload. Instead,
+         * re-decode into our own buffer. */
+        memset(s_ExtractBuf, 0, sizeof(s_ExtractBuf));
+
+        uint32_t fmt = (uint32_t)cfg->fmt;
+        uint32_t siz = (uint32_t)cfg->siz;
+        const uint8_t *src = cfg->texptr;
+        bool decoded = true;
+
+        switch (fmt) {
+        case PD_G_IM_FMT_RGBA:
+            if (siz == PD_G_IM_SIZ_16b) decodeRgba16(src, w, h, s_ExtractBuf);
+            else if (siz == PD_G_IM_SIZ_32b) {
+                memcpy(s_ExtractBuf, src, w * h * 4);
+            }
+            else decoded = false;
+            break;
+        case PD_G_IM_FMT_IA:
+            if      (siz == PD_G_IM_SIZ_16b) decodeIa16(src, w, h, s_ExtractBuf);
+            else if (siz == PD_G_IM_SIZ_8b)  decodeIa8 (src, w, h, s_ExtractBuf);
+            else if (siz == PD_G_IM_SIZ_4b)  decodeIa4 (src, w, h, s_ExtractBuf);
+            else decoded = false;
+            break;
+        default:
+            decoded = false;
+            break;
+        }
+
+        /* Clean up the GL texture we don't need (extraction only) */
+        glDeleteTextures(1, &gl_id);
+
+        if (!decoded) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI extract: [%d] '%s' — unsupported fmt=%u siz=%u for extraction",
+                idx, k_Extracts[i].filename, fmt, siz);
+            continue;
+        }
+
+        /* Write TGA */
+        char path[256];
+        snprintf(path, sizeof(path), "mods/base-ui/textures/%s.tga", k_Extracts[i].filename);
+
+        if (s_writeTga(path, s_ExtractBuf, w, h)) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI extract: [%d] '%s' %ux%u fmt=%u → %s",
+                idx, k_Extracts[i].filename, w, h, fmt, path);
+            extracted++;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI extract: done — %u textures extracted to mods/base-ui/textures/",
+        extracted);
+}
+
+/**
+ * Generate procedural TGA textures for the pd-modern-ui mod.
+ */
+static void s_generateModernUiTextures(void)
+{
+    sysLogPrintf(LOG_NOTE, "PDGUI: generating pd-modern-ui textures...");
+
+    static const struct {
+        const char *filename;
+        const char *proc_name;
+        uint32_t w, h;
+    } k_ModernTextures[] = {
+        { "mods/pd-modern-ui/textures/ui_bg_haze.tga",   "modern_haze", 64, 64 },
+        { "mods/pd-modern-ui/textures/ui_particles.tga",  "solid",        1,  1 },
+        { "mods/pd-modern-ui/textures/ui_noise_sm.tga",   "modern_fine", 16, 16 },
+        { "mods/pd-modern-ui/textures/ui_noise_lg.tga",   "modern_coarse",16, 16 },
+    };
+
+    for (unsigned i = 0; i < sizeof(k_ModernTextures) / sizeof(k_ModernTextures[0]); i++) {
+        uint32_t w = k_ModernTextures[i].w;
+        uint32_t h = k_ModernTextures[i].h;
+        uint32_t npix = w * h;
+        uint8_t *buf = (uint8_t *)calloc(npix * 4, 1);
+        if (!buf) continue;
+
+        const char *name = k_ModernTextures[i].proc_name;
+
+        if (strcmp(name, "modern_haze") == 0) {
+            /* Clean smooth gradient with very subtle noise */
+            for (uint32_t py = 0; py < h; py++) {
+                for (uint32_t px = 0; px < w; px++) {
+                    uint32_t idx = (py * w + px) * 4;
+                    /* Smooth radial-ish gradient from center */
+                    float cx = (float)px / (float)w - 0.5f;
+                    float cy = (float)py / (float)h - 0.5f;
+                    float d = sqrtf(cx * cx + cy * cy) * 2.0f;
+                    if (d > 1.0f) d = 1.0f;
+                    uint8_t v = (uint8_t)((1.0f - d * 0.5f) * 80.0f);
+                    buf[idx + 0] = buf[idx + 1] = buf[idx + 2] = v;
+                    buf[idx + 3] = (uint8_t)(v + 40);
+                }
+            }
+        } else if (strcmp(name, "modern_fine") == 0) {
+            /* Very subtle fine noise */
+            uint32_t seed = 0xCAFEBABEu;
+            for (uint32_t j = 0; j < npix; j++) {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                uint8_t v = (uint8_t)(60 + ((seed >> 8) & 0x1Fu));
+                buf[j * 4 + 0] = buf[j * 4 + 1] = buf[j * 4 + 2] = v;
+                buf[j * 4 + 3] = 40;
+            }
+        } else if (strcmp(name, "modern_coarse") == 0) {
+            /* Subtle coarse noise */
+            uint32_t seed = 0xBEEFCAFEu;
+            for (uint32_t j = 0; j < npix; j++) {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                uint8_t v = (uint8_t)(50 + ((seed >> 10) & 0x2Fu));
+                buf[j * 4 + 0] = buf[j * 4 + 1] = buf[j * 4 + 2] = v;
+                buf[j * 4 + 3] = 30;
+            }
+        } else if (strcmp(name, "solid") == 0) {
+            buf[0] = buf[1] = buf[2] = buf[3] = 255;
+        }
+
+        if (s_writeTga(k_ModernTextures[i].filename, buf, w, h)) {
+            sysLogPrintf(LOG_NOTE, "PDGUI: generated %s (%ux%u)",
+                         k_ModernTextures[i].filename, w, h);
+        }
+        free(buf);
+    }
+
+    sysLogPrintf(LOG_NOTE, "PDGUI: pd-modern-ui texture generation complete");
+}
+
+/**
+ * Frame check: if --extract-ui-textures is set and g_TexGeneralConfigs is
+ * populated, run extraction once. Called from pdguiRender() each frame.
+ */
+void pdguiThemeCheckExtract(void)
+{
+    static bool s_checked = false;
+    if (s_checked) return;
+
+    if (!g_TexGeneralConfigs) return;  /* texReset not yet called */
+
+    s_checked = true;
+
+    if (sysArgCheck("--extract-ui-textures")) {
+        pdguiThemeExtractRomTextures();
+    }
+
+    if (sysArgCheck("--generate-modern-ui")) {
+        s_generateModernUiTextures();
     }
 }
 
