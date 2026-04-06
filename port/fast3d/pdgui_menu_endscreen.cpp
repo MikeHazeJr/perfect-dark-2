@@ -112,8 +112,11 @@ s32 pdguiEndscreenGetChallengeStatus(void);
 /* MP rankings — layout-compatible with pause menu */
 struct mpchrconfig_es {
     char name[15];
-    u8 mpheadnum;
-    u8 mpbodynum;
+    /* PRIMARY: catalog ID strings — must match types.h mpchrconfig layout */
+    char head_id[64];
+    char body_id[64];
+    u8 mpheadnum; /* DEPRECATED */
+    u8 mpbodynum; /* DEPRECATED */
     u8 team;
     u8 _pad0[2];
     u32 displayoptions;

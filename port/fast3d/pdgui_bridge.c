@@ -364,6 +364,23 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
     return 1;
 }
 
+/* Phase 5: catalog ID accessors for lobby player identity */
+const char *lobbyGetPlayerBodyId(s32 idx)
+{
+    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
+    struct lobbyplayer *lp = &g_Lobby.players[idx];
+    if (!lp->active) return "";
+    return lp->body_id[0] ? lp->body_id : "";
+}
+
+const char *lobbyGetPlayerHeadId(s32 idx)
+{
+    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
+    struct lobbyplayer *lp = &g_Lobby.players[idx];
+    if (!lp->active) return "";
+    return lp->head_id[0] ? lp->head_id : "";
+}
+
 s32 netLocalClientInLobby(void)
 {
     if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) return 0;

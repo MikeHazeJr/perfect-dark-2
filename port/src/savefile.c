@@ -610,16 +610,12 @@ s32 saveSaveMpPlayer(const char *name, s32 playernum)
 	writeJsonString(fp, "name", name);
 	fprintf(fp, ",\n");
 
-	/* Appearance — SA-4: write catalog string IDs.
-	 * FIX-11: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions; convert. */
-	{
-		const char *head_id = catalogResolveHeadByMpIndex((s32)pc->base.mpheadnum);
-		const char *body_id = catalogResolveBodyByMpIndex((s32)pc->base.mpbodynum);
-		writeJsonString(fp, "head_id", head_id ? head_id : "");
-		fprintf(fp, ",\n");
-		writeJsonString(fp, "body_id", body_id ? body_id : "");
-		fprintf(fp, ",\n");
-	}
+	/* Appearance — write PRIMARY catalog ID strings directly.
+	 * Phase 5: head_id/body_id are the sole identity; no more resolving from deprecated mpheadnum. */
+	writeJsonString(fp, "head_id", pc->base.head_id[0] ? pc->base.head_id : "");
+	fprintf(fp, ",\n");
+	writeJsonString(fp, "body_id", pc->base.body_id[0] ? pc->base.body_id : "");
+	fprintf(fp, ",\n");
 	fprintf(fp, "  \"team\": %u,\n", pc->base.team);
 	fprintf(fp, "  \"displayoptions\": %u,\n", pc->base.displayoptions);
 
@@ -793,14 +789,9 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
-	/* SA-4: write stage as catalog string ID.
-	 * FIX-10: g_MpSetup.stagenum is a logical stage ID, not a g_Stages[] array index;
-	 * use catalogResolveStageByStagenum() which searches by ext.map.stagenum field. */
-	{
-		const char *stage_id = catalogResolveStageByStagenum((s32)g_MpSetup.stagenum);
-		writeJsonString(fp, "stage_id", stage_id ? stage_id : "");
-		fprintf(fp, ",\n");
-	}
+	/* Phase 5: write PRIMARY catalog ID string directly — no more resolving from deprecated stagenum. */
+	writeJsonString(fp, "stage_id", g_MpSetup.stage_id[0] ? g_MpSetup.stage_id : "");
+	fprintf(fp, ",\n");
 	fprintf(fp, "  \"timelimit\": %u,\n", g_MpSetup.timelimit);
 	fprintf(fp, "  \"scorelimit\": %u,\n", g_MpSetup.scorelimit);
 	fprintf(fp, "  \"teamscorelimit\": %u,\n", g_MpSetup.teamscorelimit);

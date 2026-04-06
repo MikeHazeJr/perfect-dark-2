@@ -107,6 +107,9 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
+/* Phase 5: catalog ID accessors for lobby players */
+const char *lobbyGetPlayerBodyId(s32 idx);
+const char *lobbyGetPlayerHeadId(s32 idx);
 
 /* Weapon sets (mplayer.c) */
 void mpSetWeaponSet(s32 weaponsetnum);
