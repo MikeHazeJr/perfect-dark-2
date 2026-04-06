@@ -545,11 +545,9 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         float dispSize = 160.0f * scale;
         if (dispSize > rightW * 0.5f) dispSize = rightW * 0.5f;
 
-        /* Request preview render */
-        u8 bodynum = (se.runtime_index >= 0 && se.runtime_index < 255)
-                     ? (u8)se.runtime_index : 0;
+        /* Request preview render using catalog ID */
         pdguiCharPreviewSetRotY(s_PreviewRotAngle);
-        pdguiCharPreviewRequest(0, bodynum);
+        pdguiCharPreviewRequest("", se.id);
 
         /* Show preview or placeholder */
         u32 texId = pdguiCharPreviewGetTextureId();

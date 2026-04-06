@@ -48,36 +48,55 @@ void mpPlayerConfigSetName(s32 playernum, const char *name)
 }
 
 /**
- * Set the MP player config head and body indices.
+ * Set the MP player config head and body by catalog ID strings.
+ * Resolves DEPRECATED integer indices internally for unmigrated consumers.
  */
-void mpPlayerConfigSetHeadBody(s32 playernum, u8 headnum, u8 bodynum)
+void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *body_id)
 {
     if (playernum < 0 || playernum >= ARRAYCOUNT(g_PlayerConfigsArray)) {
         return;
     }
 
     struct mpchrconfig *cfg = &g_PlayerConfigsArray[playernum].base;
-    cfg->mpheadnum = headnum;
-    cfg->mpbodynum = bodynum;
-    /* PRIMARY: resolve and store catalog ID strings */
-    const char *hid = catalogResolveHeadByMpIndex((s32)headnum);
-    if (hid) {
-        strncpy(cfg->head_id, hid, sizeof(cfg->head_id) - 1);
+
+    /* PRIMARY: store catalog ID strings directly */
+    if (head_id && head_id[0]) {
+        strncpy(cfg->head_id, head_id, sizeof(cfg->head_id) - 1);
         cfg->head_id[sizeof(cfg->head_id) - 1] = '\0';
     } else {
         cfg->head_id[0] = '\0';
     }
-    const char *bid = catalogResolveBodyByMpIndex((s32)bodynum);
-    if (bid) {
-        strncpy(cfg->body_id, bid, sizeof(cfg->body_id) - 1);
+
+    if (body_id && body_id[0]) {
+        strncpy(cfg->body_id, body_id, sizeof(cfg->body_id) - 1);
         cfg->body_id[sizeof(cfg->body_id) - 1] = '\0';
     } else {
         cfg->body_id[0] = '\0';
     }
+
+    /* DERIVED: resolve integer indices for DEPRECATED fields */
+    cfg->mpheadnum = 0;
+    cfg->mpbodynum = 0;
+
+    if (head_id && head_id[0]) {
+        const asset_entry_t *he = assetCatalogResolve(head_id);
+        if (he && he->type == ASSET_HEAD) {
+            s32 idx = catalogHeadnumToMpHeadIdx(he->runtime_index);
+            if (idx >= 0) cfg->mpheadnum = (u8)idx;
+        }
+    }
+
+    if (body_id && body_id[0]) {
+        const asset_entry_t *be = assetCatalogResolve(body_id);
+        if (be && be->type == ASSET_BODY) {
+            s32 idx = catalogBodynumToMpBodyIdx(be->runtime_index);
+            if (idx >= 0) cfg->mpbodynum = (u8)idx;
+        }
+    }
 }
 
 /**
- * Get the MP player config head index.
+ * DEPRECATED: Get the MP player config head index. Use mpPlayerConfigGetHeadId instead.
  */
 u8 mpPlayerConfigGetHead(s32 playernum)
 {
@@ -88,7 +107,7 @@ u8 mpPlayerConfigGetHead(s32 playernum)
 }
 
 /**
- * Get the MP player config body index.
+ * DEPRECATED: Get the MP player config body index. Use mpPlayerConfigGetBodyId instead.
  */
 u8 mpPlayerConfigGetBody(s32 playernum)
 {
@@ -96,6 +115,28 @@ u8 mpPlayerConfigGetBody(s32 playernum)
         return 0;
     }
     return g_PlayerConfigsArray[playernum].base.mpbodynum;
+}
+
+/**
+ * Get the MP player config head catalog ID string.
+ */
+const char *mpPlayerConfigGetHeadId(s32 playernum)
+{
+    if (playernum < 0 || playernum >= ARRAYCOUNT(g_PlayerConfigsArray)) {
+        return "";
+    }
+    return g_PlayerConfigsArray[playernum].base.head_id;
+}
+
+/**
+ * Get the MP player config body catalog ID string.
+ */
+const char *mpPlayerConfigGetBodyId(s32 playernum)
+{
+    if (playernum < 0 || playernum >= ARRAYCOUNT(g_PlayerConfigsArray)) {
+        return "";
+    }
+    return g_PlayerConfigsArray[playernum].base.body_id;
 }
 
 /**

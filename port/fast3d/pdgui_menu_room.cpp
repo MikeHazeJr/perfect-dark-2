@@ -2495,7 +2495,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             s_BotPreviewRotY += 0.022f; /* ~1.26 rad/s at 60fps */
             if (s_BotPreviewRotY > 6.2832f) s_BotPreviewRotY -= 6.2832f;
             pdguiCharPreviewSetRotY(s_BotPreviewRotY);
-            pdguiCharPreviewRequest(sl->headnum, sl->bodynum);
+            pdguiCharPreviewRequest(sl->head_id, sl->body_id);
 
             float previewSz = pdguiScale(160.0f);
 

@@ -31,6 +31,7 @@
 #include "gbiex.h"
 #include "game/menu.h"
 #include "system.h"
+#include "assetcatalog.h"
 
 /* ========================================================================
  * State
@@ -87,11 +88,31 @@ void pdguiCharPreviewInit(void)
  * ======================================================================== */
 
 /**
- * Request a character preview render for the given head/body.
- * The actual render happens during the next GBI frame in menuRenderDialog.
+ * Request a character preview render for the given head/body catalog IDs.
+ * Resolves catalog IDs to runtime indices internally for the render pipeline.
  */
-void pdguiCharPreviewRequest(u8 headnum, u8 bodynum)
+void pdguiCharPreviewRequest(const char *head_id, const char *body_id)
 {
+    /* Resolve catalog IDs → mpheadnum / mpbodynum for the render pipeline */
+    u8 headnum = 0;
+    u8 bodynum = 0;
+
+    if (body_id && body_id[0]) {
+        const asset_entry_t *be = assetCatalogResolve(body_id);
+        if (be && be->type == ASSET_BODY) {
+            s32 idx = catalogBodynumToMpBodyIdx(be->runtime_index);
+            if (idx >= 0) bodynum = (u8)idx;
+        }
+    }
+
+    if (head_id && head_id[0]) {
+        const asset_entry_t *he = assetCatalogResolve(head_id);
+        if (he && he->type == ASSET_HEAD) {
+            s32 idx = catalogHeadnumToMpHeadIdx(he->runtime_index);
+            if (idx >= 0) headnum = (u8)idx;
+        }
+    }
+
     s_PreviewHeadnum = headnum;
     s_PreviewBodynum = bodynum;
     s_PreviewRequested = 1;

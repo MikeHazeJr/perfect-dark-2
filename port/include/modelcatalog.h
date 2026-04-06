@@ -137,6 +137,25 @@ s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum);
 s32 catalogGetSafeHead(s32 headnum);
 
 /**
+ * Validate a body catalog ID string. Returns body_id if valid, or
+ * "base:dark_combat" as fallback. Always returns a valid catalog ID.
+ */
+const char *catalogValidateBodyId(const char *body_id);
+
+/**
+ * Validate a body catalog ID string with head pairing.
+ * If body_id is invalid, picks a random valid body and writes the paired
+ * head catalog ID into out_head_id. Returns a valid body catalog ID.
+ */
+const char *catalogValidateBodyIdPaired(const char *body_id, char *out_head_id, s32 out_len);
+
+/**
+ * Validate a head catalog ID string. Returns head_id if valid, or
+ * "base:head_dark_combat" as fallback. Always returns a valid catalog ID.
+ */
+const char *catalogValidateHeadId(const char *head_id);
+
+/**
  * Get the display name for a body/head by g_HeadsAndBodies index.
  */
 const char *catalogGetName(s32 index);
