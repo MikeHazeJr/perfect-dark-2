@@ -1117,39 +1117,23 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_BotConfigsArray[botidx].difficulty = difficulty;
 			g_BotConfigsArray[botidx].type = bottype;
 
-			/* Resolve session → catalog bodynum/headnum (g_HeadsAndBodies indices).
-			 * Safety-clamp operates on these catalog indices, NOT on mpbody/mphead
-			 * indices.  Previous code converted runtime_index → mpbodynum BEFORE
-			 * the clamp, passing the wrong index space to catalogGetSafeBodyPaired. */
-			s32 bodyIdx = -1;
-			s32 headIdx = -1;
+			/* Resolve session → runtime_index, then safety-clamp and store.
+			 * Mirrors the player path (lines 1073-1084): runtime_index goes
+			 * directly into catalogGetSafeBodyPaired — no mpbody/mphead
+			 * conversion beforehand.  The result IS the mpbodynum/mpheadnum. */
 			{
 				const asset_entry_t *be = sessionCatalogLocalResolve(body_session);
-				if (be && be->type == ASSET_BODY) {
-					bodyIdx = (s32)be->runtime_index;
-				}
-			}
-			{
 				const asset_entry_t *he = sessionCatalogLocalResolve(head_session);
-				if (he && he->type == ASSET_HEAD) {
-					headIdx = (s32)he->runtime_index;
-				}
+				s32 rawBody = (be && be->type == ASSET_BODY) ? (s32)be->runtime_index : 0;
+				s32 safeHead = (he && he->type == ASSET_HEAD) ? (s32)he->runtime_index : 0;
+				g_BotConfigsArray[botidx].base.mpbodynum = (u8)catalogGetSafeBodyPaired(rawBody, &safeHead);
+				g_BotConfigsArray[botidx].base.mpheadnum = (u8)catalogGetSafeHead(safeHead);
 			}
-			/* Safety-clamp on catalog indices, then convert to mpbody/mphead */
-			{
-				s32 safeHead = headIdx >= 0 ? headIdx : 0;
-				s32 safeBody = bodyIdx >= 0
-					? catalogGetSafeBodyPaired(bodyIdx, &safeHead)
-					: catalogGetSafeBodyPaired(0, &safeHead);
-				safeHead = catalogGetSafeHead(safeHead);
-				s32 mpb = catalogBodynumToMpBodyIdx(safeBody);
-				s32 mph = catalogHeadnumToMpHeadIdx(safeHead);
-				g_BotConfigsArray[botidx].base.mpbodynum = (u8)(mpb >= 0 ? mpb : 0);
-				g_BotConfigsArray[botidx].base.mpheadnum = (u8)(mph >= 0 ? mph : 0);
-			}
-			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body=%u head=%u (sessions %u/%u)",
+			sysLogPrintf(LOG_NOTE, "NET: bot %d name='%s' body='%s'->%u head='%s'->%u (sessions %u/%u)",
 				botidx, g_BotConfigsArray[botidx].base.name,
+				sessionCatalogLocalResolve(body_session) ? sessionCatalogLocalResolve(body_session)->id : "?",
 				g_BotConfigsArray[botidx].base.mpbodynum,
+				sessionCatalogLocalResolve(head_session) ? sessionCatalogLocalResolve(head_session)->id : "?",
 				g_BotConfigsArray[botidx].base.mpheadnum,
 				(unsigned)body_session, (unsigned)head_session);
 		}
@@ -1332,12 +1316,44 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 /* ── Weapon wire helpers ─────────────────────────────────────────────────
  * Write/read a WEAPON_* enum as a catalog session reference (2 bytes).
  * Used by SVC_PLAYER_STATS, SVC_PROP_SPAWN, SVC_PROP_DAMAGE,
- * SVC_CHR_DISARM, SVC_CHR_STATE, and SVC_CHR_RESYNC. */
+ * SVC_CHR_DISARM, SVC_CHR_STATE, and SVC_CHR_RESYNC.
+ *
+ * The catalog stores weapon_id as MPWEAPON_* constants (0x01-0x2f),
+ * but the game engine uses WEAPON_* enums (different numbering).
+ * g_MpWeapons[mpweapon_idx].weaponnum maps MPWEAPON_* → WEAPON_*.
+ * These helpers bridge the two domains. */
+
+#if !defined(PD_SERVER)
+/* Convert WEAPON_* enum → MPWEAPON_* index by scanning g_MpWeapons[]. */
+static s32 weaponToMpWeapon(s32 weaponnum)
+{
+	for (s32 i = 1; i < NUM_MPWEAPONS; i++) {
+		if ((s32)g_MpWeapons[i].weaponnum == weaponnum) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+/* Convert MPWEAPON_* index → WEAPON_* enum via g_MpWeapons[]. */
+static s32 mpWeaponToWeapon(s32 mpweaponnum)
+{
+	if (mpweaponnum >= 0 && mpweaponnum < NUM_MPWEAPONS) {
+		return (s32)g_MpWeapons[mpweaponnum].weaponnum;
+	}
+	return WEAPON_UNARMED;
+}
+#endif
 
 static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
 {
-	const char *wid = catalogResolveWeaponByGameId(weaponnum);
+#if !defined(PD_SERVER)
+	s32 mpw = weaponToMpWeapon(weaponnum);
+	const char *wid = (mpw >= 0) ? catalogResolveWeaponByGameId(mpw) : NULL;
 	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
+#else
+	catalogWriteAssetRef(dst, 0);
+#endif
 }
 
 static s32 netReadWeaponRef(struct netbuf *src)
@@ -1346,10 +1362,12 @@ static s32 netReadWeaponRef(struct netbuf *src)
 	if (wsession == 0) {
 		return WEAPON_UNARMED;
 	}
+#if !defined(PD_SERVER)
 	catalog_weapon_result_t wr;
 	if (catalogResolveWeaponBySession(wsession, &wr)) {
-		return wr.weapon_num;
+		return mpWeaponToWeapon(wr.weapon_num);
 	}
+#endif
 	return WEAPON_UNARMED;
 }
 
