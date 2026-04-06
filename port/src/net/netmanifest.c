@@ -495,35 +495,30 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         slot_index++;
     }
 
-    /* ---- Bots ---- */
-    {
-        const s32 num_bots = (s32)g_Lobby.settings.numSimulants;
-        for (i = 0; i < num_bots && i < MAX_BOTS; i++) {
-            /* FIX-13: mpbodynum/mpheadnum are g_MpBodies[]/g_MpHeads[] positions,
-             * not g_HeadsAndBodies[] indices.  Use the dedicated API that converts. */
-            const u8 bodynum = g_BotConfigsArray[i].base.mpbodynum;
-            const u8 headnum = g_BotConfigsArray[i].base.mpheadnum;
-            const char *body_canon = catalogResolveBodyByMpIndex((s32)bodynum);
-            const char *head_canon = catalogResolveHeadByMpIndex((s32)headnum);
-            const asset_entry_t *be = body_canon ? assetCatalogResolve(body_canon) : NULL;
-            const asset_entry_t *he = head_canon ? assetCatalogResolve(head_canon) : NULL;
-
+    /* ---- Bots from g_MatchConfig (mirrors manifestBuildForHost pattern) ---- */
+    /* body_id/head_id are the PRIMARY identity — use them directly; no
+     * integer-domain conversion which fails on dedicated servers where
+     * g_MpBodies[] is zeroed. */
+    for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
+        const struct matchslot *sl = &g_MatchConfig.slots[i];
+        if (sl->type != SLOT_BOT) {
+            continue;
+        }
+        {
+            const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
+            const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
             if (be) {
                 manifestAddEntry(out, be->id,
                                  MANIFEST_TYPE_BODY, slot_index);
                 s_manifestExpandDeps(out, be->id, slot_index);
             }
-            /* else: bodynum not registered in catalog — skip (Phase 0 removed aliases) */
-
             if (he) {
                 manifestAddEntry(out, he->id,
                                  MANIFEST_TYPE_HEAD, slot_index);
                 s_manifestExpandDeps(out, he->id, slot_index);
             }
-            /* else: headnum not registered in catalog — skip */
-
-            slot_index++;
         }
+        slot_index++;
     }
 
     /* ---- Mod components (returns 0 on dedicated server stub) ---- */

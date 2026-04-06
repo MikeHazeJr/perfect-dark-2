@@ -783,6 +783,17 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 	/* Serialize per-bot configs (combat sim only; bots don't apply to co-op). */
 	if (g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI) {
+		/* Pre-build bot array index → g_MatchConfig.slots[] index mapping.
+		 * matchConfigAddBot() appends sequentially, so with 1 player in slot 0
+		 * bots occupy slots 1, 2, 3... — NOT starting at MAX_PLAYERS. */
+		s32 botSlotMap[MATCH_MAX_SLOTS];
+		s32 botMapCount = 0;
+		for (s32 si = 0; si < g_MatchConfig.numSlots && botMapCount < MATCH_MAX_SLOTS; si++) {
+			if (g_MatchConfig.slots[si].type == SLOT_BOT) {
+				botSlotMap[botMapCount++] = si;
+			}
+		}
+
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
 			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
 				continue;
@@ -799,14 +810,12 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				const char *body_canon = NULL;
 				const char *head_canon = NULL;
 
-				/* Try matchslot catalog IDs first (reliable on dedicated server) */
-				s32 slotIdx = botidx + MAX_PLAYERS;
-				if (slotIdx < g_MatchConfig.numSlots &&
-				    g_MatchConfig.slots[slotIdx].body_id[0]) {
+				/* Map bot array index to actual slot position */
+				s32 slotIdx = (botidx < botMapCount) ? botSlotMap[botidx] : -1;
+				if (slotIdx >= 0 && g_MatchConfig.slots[slotIdx].body_id[0]) {
 					body_canon = g_MatchConfig.slots[slotIdx].body_id;
 				}
-				if (slotIdx < g_MatchConfig.numSlots &&
-				    g_MatchConfig.slots[slotIdx].head_id[0]) {
+				if (slotIdx >= 0 && g_MatchConfig.slots[slotIdx].head_id[0]) {
 					head_canon = g_MatchConfig.slots[slotIdx].head_id;
 				}
 
