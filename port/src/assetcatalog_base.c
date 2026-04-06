@@ -595,8 +595,8 @@ s32 assetCatalogRegisterBaseGame(void)
 				continue;
 			}
 
-			/* Paradox (STAGE_EXTRA25 = 0x5e): map data removed from game, skip */
-			if (g_MpArenas[idx].stagenum == 0x5e) {
+			/* Paradox (STAGE_EXTRA25): map data removed from game, skip */
+			if (g_MpArenas[idx].stagenum == STAGE_EXTRA25) {
 				continue;
 			}
 

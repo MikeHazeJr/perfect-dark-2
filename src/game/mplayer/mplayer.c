@@ -3017,15 +3017,19 @@ void mpFindUnusedHeadAndBody(u8 *mpheadnum, u8 *mpbodynum)
 		trympheadnum = rngRandom() % modmgrGetTotalHeads();
 		trympbodynum = rngRandom() % modmgrGetTotalBodies();
 
+		/* Resolve candidate indices to catalog IDs for comparison */
+		const char *try_hid = catalogResolveHeadByMpIndex(trympheadnum);
+		const char *try_bid = catalogResolveBodyByMpIndex(trympbodynum);
+
 		/* B-12 Phase 2 */
 		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) {
 			mpchr = MPCHR(i);
 
-			if (mpchr->mpheadnum == trympheadnum) {
+			if (try_hid && mpchr->head_id[0] && strcmp(mpchr->head_id, try_hid) == 0) {
 				available = false;
 			}
 
-			if (mpchr->mpbodynum == trympbodynum) {
+			if (try_bid && mpchr->body_id[0] && strcmp(mpchr->body_id, try_bid) == 0) {
 				available = false;
 			}
 		}
@@ -3490,19 +3494,19 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		headnum = g_BotHeads[rngRandom() % ARRAYCOUNT(g_BotHeads)];
 		available = true;
 
-		/* B-12 Phase 2 */
+		const char *try_hid = catalogResolveHeadByMpIndex(headnum);
+
+		/* Check uniqueness by catalog ID string comparison */
 		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) {
 			struct mpchrconfig *mpchr = MPCHR(i);
 
-			if (mpchr->mpheadnum == headnum) {
+			if (try_hid && mpchr->head_id[0] && strcmp(mpchr->head_id, try_hid) == 0) {
 				available = false;
 			}
 		}
 	}
 
-	g_BotConfigsArray[botnum].base.mpheadnum = headnum;
-	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
-	/* Phase 2: populate PRIMARY catalog ID string fields */
+	/* PRIMARY: set catalog ID strings first */
 	{
 		const char *cid;
 		cid = catalogResolveHeadByMpIndex(headnum);
@@ -3512,6 +3516,9 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		if (cid) { strncpy(g_BotConfigsArray[botnum].base.body_id, cid, sizeof(g_BotConfigsArray[botnum].base.body_id) - 1); g_BotConfigsArray[botnum].base.body_id[sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0'; }
 		else { g_BotConfigsArray[botnum].base.body_id[0] = '\0'; }
 	}
+	/* DERIVED: set deprecated integer indices */
+	g_BotConfigsArray[botnum].base.mpheadnum = headnum;
+	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
 }
 
 void mpSetBotDifficulty(s32 botnum, s32 difficulty)
@@ -4405,7 +4412,8 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 		savebufferOr(buffer, g_BotConfigsArray[i].base.mpheadnum, 7);
 
-		if (g_BotConfigsArray[i].base.mpbodynum == 0xff) {
+		if (g_BotConfigsArray[i].base.body_id[0] == '\0') {
+			/* No body assigned — fall back to bot profile default */
 			s32 profilenum = mpFindBotProfile(g_BotConfigsArray[i].type, g_BotConfigsArray[i].difficulty);
 
 			if (profilenum < 0 || profilenum >= ARRAYCOUNT(g_BotProfiles)) {
