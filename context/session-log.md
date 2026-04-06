@@ -3,6 +3,52 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S153 — 2026-04-05 (evening)
+
+**Focus**: Audit + recovery + lobby unification close-out; B-116 bot catalog ID fix
+
+### What Was Done
+
+**Codebase audit**: Full verification of all completed tasks S130–S152 against actual codebase — 22/22 confirmed present.
+
+**Git repo recovery**:
+- `.git` was missing `objects/` directory; fetched full history from GitHub to restore.
+- Cleaned up `.git.broken` (200MB) and 7 orphaned worktrees (~23GB freed).
+- Pushed `dev` to origin.
+
+**S131 completion** (commit `05d5f1d`, pushed):
+- 10 bare `strcpy` calls in `port/src/input.c` converted to `strncpy`.
+- Local `#define MATCH_MAX_SLOTS 32` removed from 3 UI files + `scenario_save.h`; all now use canonical 40 from `matchsetup.h`.
+- Stale field names `headnum`/`bodynum` → `body_id`/`head_id` fixed in `mpsettings.cpp` and `teamsetup.cpp`.
+
+**U-7 Steps C+D — matchsetup.cpp retired** (commit `9fe169e`):
+- Step C: 3D character preview ported to room.cpp bot modal — rotating preview, two-column layout, `pdguiCharPreview` pipeline.
+- Step D: Redirected 4 `g_MatchSetupMenuDialog` push points (menutick.c:253, menutick.c:537, mainmenu.c:4845, setup.c:5736) to `g_CombatSimulatorMenuDialog` + `pdguiSoloRoomOpen()`; removed `pdguiMenuMatchSetupRegister()` call; renamed file to `.cpp.retired`.
+
+**U-10: Deferred bot authority** (commit `6f471a7`):
+- Added `g_NetPendingBotAuthority` flag in `net.h`/`net.c`.
+- `netmsgSvcBotAuthorityRead` now sets pending instead of immediately active.
+- `botTick` promotes pending → active when `g_PadsFile != NULL && g_NumSpawnPoints > 0`.
+- Reset on disconnect and match-end.
+- Collapses the prior 60-frame timeout gate into a deterministic condition check.
+
+**B-116: Bot body/head catalog ID resolution** (committed, not pushed):
+- Root cause: `SVC_STAGE_START` writer used `botidx + MAX_PLAYERS` as slot index, which could miss actual `SLOT_BOT` entries if they weren't packed at that offset.
+- Fix 1 (`netmsg.c`): Pre-built `botSlotMap[]` by scanning `g_MatchConfig.slots[]` for `SLOT_BOT` entries before writing the message.
+- Fix 2 (`netmanifest.c`): Server manifest builder now reads `body_id`/`head_id` directly from `g_MatchConfig.slots[]` (mirrors `manifestBuildForHost` pattern).
+
+### Decisions
+- Lobby unification (U-1 through U-10) declared **COMPLETE**.
+- `pdgui_menu_matchsetup.cpp` is now `.cpp.retired` — not deleted yet pending any edge-case audit, but all code paths redirected.
+- B-116 fix committed but not pushed (intentional — will push with next playtest build).
+
+### Next Steps
+- Playtest build to verify U-10 + B-116 fixes with dedicated server
+- Remaining open playtest issues: B-112 (chr corruption, root cause unknown), B-115 (post-game mouse), event-driven prop sync
+- Next major track: D5.0 (Menu Visual Layer) or open playtest stability issues
+
+---
+
 ## Session S152 — 2026-04-05
 
 **Focus**: Verify all 5 playtest fixes committed; implement Bug 4 (hotswap frame-1 CI crash)

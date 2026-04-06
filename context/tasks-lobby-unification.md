@@ -3,6 +3,8 @@
 > **Goal**: Close remaining feature gaps between Solo Combat Simulator and Online Play lobbies, retire legacy matchsetup screen, harden online bot spawning.
 > The two lobbies already share `pdgui_menu_room.cpp` via `s_IsSoloMode`. Architecture is ~90% unified.
 > Back to [index](README.md) | Parent tracker: [tasks-current.md](tasks-current.md)
+>
+> **STATUS: ALL ITEMS COMPLETE (2026-04-05 / S153)**
 
 ---
 
@@ -40,7 +42,7 @@ These features exist in Solo (via legacy paths or separate screens) but aren't e
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-7 | **Audit pdgui_menu_matchsetup.cpp** | Confirm all 1,582 lines of functionality are covered by `pdgui_menu_room.cpp`. If so, remove the file and update all references (CMakeLists, includes, menu manager routing). | M | PARTIAL — see audit below |
+| U-7 | **Audit pdgui_menu_matchsetup.cpp** | Confirm all 1,582 lines of functionality are covered by `pdgui_menu_room.cpp`. If so, remove the file and update all references (CMakeLists, includes, menu manager routing). | M | **DONE (S153)** — Steps A–D complete: `arenaGetName()` relocated to room.cpp; advanced bot trait sliders added; 3D char preview ported (rotating, two-column modal); 4 `g_MatchSetupMenuDialog` push points redirected; file renamed `.cpp.retired`. Commit 9fe169e. |
 
 ### U-7 Audit Results (2026-04-05)
 
@@ -270,7 +272,7 @@ Traits (B) can be done without the 3D preview (C) — no dependency between them
 
 | # | Task | Description | Effort | Status |
 |---|------|-------------|--------|--------|
-| U-10 | **Stage-readiness gate for online bot spawn** | Added 60-frame deferral gate to `botTick` failsafe: if `g_NumSpawnPoints==0 && g_PadsFile==NULL`, defer `botSpawnAll()` up to 60 frames so pads can finish loading. `s_BotSpawnDeferFrames` resets with `s_BotSpawnFailsafeDone` on stage change. Root-cause investigation complete 2026-04-05 — see audit below. Recommended fix: client-side deferred bot-authority activation. | L | PARTIAL — gate added 2026-04-05; root cause documented; fix not yet implemented |
+| U-10 | **Stage-readiness gate for online bot spawn** | Client-side deferred bot-authority activation. `g_NetPendingBotAuthority` flag in `net.h`/`net.c`; `netmsgSvcBotAuthorityRead` sets pending instead of active; `botTick` promotes to active when `g_PadsFile != NULL && g_NumSpawnPoints > 0`; reset on disconnect and match-end. Collapses the 60-frame timeout into a deterministic condition check. | L | **DONE (S153)** — Commit 6f471a7. |
 
 ### U-10 Root Cause Audit (2026-04-05)
 
@@ -387,4 +389,4 @@ This defers bot authority to the same readiness conditions the deferral gate alr
 
 **Suggested order**: U-5 (trivial) → U-6 (verify) → U-1 → U-2 → U-3 → U-4 → U-8 (net sync) → U-7 (retire legacy) → U-9 (post-match verify) → U-10 (spawn race root cause)
 
-U-1 through U-6 completed 2026-04-05. Phase 1 complete. U-8 DONE 2026-04-05 (all net sync verified on-wire — no new code needed). U-9 DONE 2026-04-05. U-10 PARTIAL (stage-readiness gate added 2026-04-05; root cause fully documented 2026-04-05; recommended fix: client-side deferred bot-authority activation in `netmsgSvcBotAuthorityRead`). Remaining: U-7 (retire legacy), U-10 fix implementation.
+**ALL ITEMS COMPLETE (2026-04-05).** U-1..U-6: feature gaps closed. U-7: matchsetup.cpp retired (Steps A–D, S153, commit 9fe169e). U-8: net sync verified on-wire (no new code needed). U-9: post-match config preservation done. U-10: client-side deferred bot-authority activation implemented (S153, commit 6f471a7). **B-116** (bot body/head catalog ID fix in SVC_STAGE_START + netmanifest.c) also fixed as companion to U-7 work — pre-built `botSlotMap[]` from actual `SLOT_BOT` entries + direct `slots[]` read in manifest builder.

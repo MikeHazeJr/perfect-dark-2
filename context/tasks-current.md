@@ -6,7 +6,7 @@
 
 ---
 
-## Recently Completed (S130–S150 — 2026-04-02/05)
+## Recently Completed (S130–S153 — 2026-04-02/05)
 
 | Item | Status |
 |------|--------|
@@ -28,6 +28,11 @@
 | **R-3 Room Networking** | **DONE (S143)** — clients see/create/join rooms, room-scoped match start. |
 | **Endscreen UI + name dictionaries** | **DONE (S144)** — endscreen buttons, multi-select bot list, 256-entry name dicts, B-104 fix. v0.0.32. |
 | **Post-playtest spawn stability sprint** | **DONE (S145–S150)** — room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, AIDROP root-cause removal, 31-bots-on-24-pads fallback hardening, underground ground-clamp, CMakeLists.txt repair, credits update (smarch added), bot stuck-detect init (B-111), chr corruption guard (B-112 partial), 8MB stack + VEH (B-113). v0.0.32→v0.0.38. |
+| **S131 cleanup: strcpy→strncpy (input.c), MATCH_MAX_SLOTS canon, field renames** | **DONE (S153)** — 10 bare strcpy in `port/src/input.c` converted; local `#define MATCH_MAX_SLOTS 32` removed from 3 UI files + `scenario_save.h`; all now use canonical 40 from `matchsetup.h`; stale `headnum`/`bodynum` → `body_id`/`head_id` fixed in mpsettings + teamsetup. Commit 05d5f1d. |
+| **U-7: matchsetup.cpp retired (Lobby Unification Phase 2)** | **DONE (S153)** — Steps A–D complete: `arenaGetName()` + override table relocated to room.cpp; advanced bot trait sliders added to bot modal; 3D char preview ported (rotating, two-column layout, pdguiCharPreview pipeline); 4 `g_MatchSetupMenuDialog` push points redirected to `g_CombatSimulatorMenuDialog` + `pdguiSoloRoomOpen()`; file renamed `.cpp.retired`. Commit 9fe169e. |
+| **U-10: Deferred bot authority (Lobby Unification Phase 4)** | **DONE (S153)** — `g_NetPendingBotAuthority` flag added in `net.h`/`net.c`; `netmsgSvcBotAuthorityRead` sets pending instead of active; `botTick` promotes to active when `g_PadsFile != NULL && g_NumSpawnPoints > 0`; reset on disconnect and match-end. Commit 6f471a7. |
+| **B-116: Bot body/head catalog ID resolution in SVC_STAGE_START + netmanifest** | **DONE (S153)** — SVC_STAGE_START writer used wrong slot index (`botidx + MAX_PLAYERS`) for catalog ID lookup; fix: pre-built `botSlotMap[]` from actual `SLOT_BOT` entries in `g_MatchConfig`; server manifest builder reads `body_id`/`head_id` from `g_MatchConfig.slots[]` directly. Committed (not pushed). |
+| **Git repo recovery + cleanup** | **DONE (S153)** — `.git` was missing `objects/`; full history fetched from GitHub; `.git.broken` (200MB) + 7 orphaned worktrees (~23GB) cleaned up; `dev` pushed to origin. |
 
 ---
 
@@ -51,6 +56,7 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | ~~Death-in-hub crash (stagenum=0x00)~~ | ~~HIGH~~ | **Fixed S151** — titleSetNextStage guards against 0x00, redirects to CI. |
 | ~~Bot HP too low in local (maxdamage=4)~~ | ~~MED~~ | **Fixed S151** — botmgrAllocateBot sets maxdamage=8.0f. |
 | ~~B-114: CI crash frame 1 after mission fail exit~~ | ~~HIGH~~ | **Fixed S152** — screenManifestTick deferred until lvframe60>=2 (catalogUnloadAsset during catalog reinit). SDL flush deferred to lvframe60>0. |
+| ~~B-116: Bot body/head wrong catalog IDs on dedicated server~~ | ~~HIGH~~ | **Fixed S153** — SVC_STAGE_START used wrong slot index; pre-built `botSlotMap[]` + direct `slots[]` read in netmanifest.c. |
 | **B-115: Post-game menu mouse unresponsive** | **MED** | Legacy menu steals input, ImGui hotswap doesn't recapture mouse. |
 | **Prop sync not event-driven** | **MED** | Current prop sync uses CRC polling. Should fire on pickup/door events per game director direction. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
@@ -107,13 +113,11 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 
 ---
 
-## NEXT UP: Lobby Unification (Solo + Online)
+## Lobby Unification (Solo + Online) — **COMPLETE (S153)**
 
 See full task list: [tasks-lobby-unification.md](tasks-lobby-unification.md)
 
-**Key finding**: Solo Combat Simulator and Online Play already share `pdgui_menu_room.cpp` via `s_IsSoloMode` flag. 90% unified. Remaining: 5 missing features (custom weapon slots, handicaps, team presets, save/load, slow motion), legacy file removal, network sync, and online spawn race root cause.
-
-**Estimated**: ~8-10 sessions
+All 10 items (U-1 through U-10) complete. Feature gaps closed, `pdgui_menu_matchsetup.cpp` retired, network sync verified on-wire, bot spawn race root-caused and fixed with client-side deferred bot authority. B-116 (bot catalog ID fix in SVC_STAGE_START + netmanifest) also landed as companion work.
 
 ---
 
@@ -138,7 +142,7 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); **bot name dictionary DONE** (S144: 256-entry Adj+Noun word lists, mod-overridable). Multi-select bot list done (S144). Arena/weapon set verification still open | PARTIAL (S144) |
 | **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
 | **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
-| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PLANNED |
+| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PARTIAL — `pdgui_menu_matchsetup.cpp` retired (S153, renamed `.cpp.retired`); remaining legacy C menu paths still PLANNED |
 
 **Execution order**: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
 
@@ -152,10 +156,10 @@ Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 
 
 | Phase | Items | Description | Status |
 |-------|-------|-------------|--------|
-| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | OPEN |
-| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | OPEN |
-| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | OPEN |
-| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | OPEN |
+| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
+| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
+| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | **DONE** |
+| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | **DONE (S153)** — client-side deferred activation |
 
 ---
 
