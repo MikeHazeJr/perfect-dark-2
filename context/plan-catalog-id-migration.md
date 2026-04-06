@@ -1,8 +1,8 @@
 # Catalog ID Migration Plan — Full Codebase
 
-> **Mandate**: Zero integer-to-catalog-ID conversion anywhere, ever. Catalog ID (`char[64]` string) is the sole identity for every asset. No intermediate integer index step. Catalog ID goes all the way through — including engine internals.
+> **Mandate**: Zero integer-to-catalog-ID conversion anywhere, ever. Catalog ID (`char[64]` string) is the sole identity for **every** asset type — bodies, heads, weapons, stages, models, textures, sounds, animations, game modes, language banks, props, HUD elements. No carve-outs, no deferrals. Catalog ID goes all the way through — including engine internals.
 >
-> **Scope**: ~4,100 references to integer asset identity across `port/`, `src/game/`, `src/include/`.
+> **Scope**: ~3,000+ references to integer asset identity across `port/`, `src/game/`, `src/include/`. Full asset type breakdown below.
 >
 > **Date**: 2026-04-06 (updated with game director decisions)
 >
@@ -14,9 +14,27 @@
 
 | Decision | Ruling | Impact |
 |----------|--------|--------|
-| **D-1: Weapon Enums** | **FULL migration.** Every `WEAPON_xxx` / `weaponnum` becomes catalog ID. All ~660 references in `src/game/`. | +660 refs, +35 files |
-| **D-2: Model Numbers** | **FULL migration.** Add `ASSET_MODEL` to catalog (already exists!), register all models, audit completeness. | +83 refs, +15 files |
+| **D-1: ALL asset types** | **FULL migration for EVERY asset type.** Bodies, heads, weapons, stages, models, textures, sounds, animations, game modes, language banks, props, HUD elements. No carve-outs, no deferrals. | Entire engine |
+| **D-2: Model Numbers** | **FULL migration.** `ASSET_MODEL` already exists — register all, audit completeness. | +83 refs, +15 files |
 | **D-3: `mainChangeToStage`** | **Full engine refactor.** `mainChangeToStage(const char *stage_id)` — catalog ID all the way through. No boundary conversion. | ~15 callers, engine refactor |
+
+### Full Asset Type Scope
+
+| Asset Type | Enum/Constant Pattern | Est. Integer Refs | Files | Status |
+|-----------|----------------------|-------------------|-------|--------|
+| **ASSET_BODY** | `mpbodynum`, `bodynum`, `g_MpBodies[]` | ~80 | ~12 | In plan (Phases 2.1, 3.1, 4.3) |
+| **ASSET_HEAD** | `mpheadnum`, `headnum`, `g_MpHeads[]` | ~80 | ~12 | In plan (Phases 2.1, 3.1, 4.3) |
+| **ASSET_WEAPON** | `WEAPON_xxx`, `weaponnum`, `g_Weapons[]` | **~660** | **35** | In plan (Phase 4.5) |
+| **ASSET_MAP/ARENA** | `stagenum`, `STAGE_xxx`, `g_Stages[]` | ~80 | ~15 | In plan (Phase 4.7) |
+| **ASSET_MODEL** | `modelnum`, `MODEL_xxx`, `g_ModelStates[]` | ~83 | 15 | In plan (Phase 4.6) |
+| **ASSET_TEXTURE** | `texnum`, `TEX_xxx`, `TEXCONFIG_xxx` | ~43 | ~10 | **NEW — Phase 8** |
+| **ASSET_AUDIO/SFX** | `SFX_xxx`, `SOUND_xxx`, `sfxPlay(id)` | **~1,022** | ~30+ | **NEW — Phase 9** |
+| **ASSET_ANIMATION** | `animnum`, `ANIM_xxx` | ~71 | ~15 | **NEW — Phase 10** |
+| **ASSET_GAMEMODE** | `MPSCENARIO_xxx`, `.scenario` | ~56 | ~10 | **NEW — Phase 11** |
+| **ASSET_LANG** | `LANGBANK_xxx` | ~194 | ~8 | **NEW — Phase 12** |
+| **ASSET_PROP** | `PROPTYPE_xxx` | ~200+ | ~15 | **NEW — Phase 13** |
+| **ASSET_HUD** | `HUD_ELEM_xxx` | ~9 | ~3 | **NEW — Phase 14** |
+| **TOTAL** | | **~2,578+** | **~80+** | |
 
 ---
 
@@ -827,10 +845,130 @@ Protocol version bump to **v28**.
 37. **5.1–5.5** — All UI display code
 38. **3.6** — Replace `mpGetBodyName` etc.
 
-### Batch 9: Cleanup
-39. **7** — Delete ALL conversion functions
-40. **3.5** — Replace `catalogGetSafe*` with string-based validation
-41. Protocol version bump (v28)
+### Batch 9: Remaining Asset Types
+39. **Phase 8** — Textures (~43 refs)
+40. **Phase 9** — Audio/SFX (~1,022 refs) — **second largest migration after weapons**
+41. **Phase 10** — Animations (~71 refs)
+42. **Phase 11** — Game Modes (~56 refs)
+43. **Phase 12** — Language Banks (~194 refs)
+44. **Phase 13** — Prop Types (~200+ refs)
+45. **Phase 14** — HUD Elements (~9 refs)
+
+### Batch 10: Cleanup
+46. **7** — Delete ALL conversion functions
+47. **3.5** — Replace `catalogGetSafe*` with string-based validation
+48. Protocol version bump (v28)
+
+---
+
+## Phase 8: Texture Migration
+
+**Goal**: Every texture identity becomes a catalog ID string. No `texnum` / `TEX_xxx` / `TEXCONFIG_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_TEXTURE` registered in `assetcatalog_base_extended.c` (~3,503 base textures). Integer `texnum` used in `tex.c`, `texdecompress.c`, `texselect.c`, `bg.c`, `propobj.c`, etc. |
+| **Struct fields** | Texture indices embedded in model data, prop data, background tile data. |
+| **Integer refs** | ~43 in `src/game/` |
+| **Key files** | `tex.c` (19), `texdecompress.c` (20), `propobj.c` (17), `prop.c` (15), `bg.c` (12) |
+| **Approach** | Textures are primarily loaded by the preprocessing pipeline and referenced by model/tile data. The main migration is in the rendering path where `texnum` is used to look up texture data. Replace with catalog ID at API boundary; renderer can cache resolved index internally. |
+| **Complexity** | **Moderate** — rendering pipeline uses these heavily but access patterns are mechanical |
+
+---
+
+## Phase 9: Audio/SFX Migration
+
+**Goal**: Every sound identity becomes a catalog ID string. No `SFX_xxx` / `SOUND_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_AUDIO` registered in `assetcatalog_base_extended.c` (~1,545 SFX entries). `SFX_xxx` constants used throughout game logic. |
+| **Integer refs** | **~1,022** in `src/game/` — **second largest migration after weapons** |
+| **Key files** | `chraicommands.c` (210), `invitems.c` (185), `chraction.c` (161), `bondgun.c` (140), `footstep.c` (22), `bondeyespy.c` (8) |
+| **Approach** | `SFX_xxx` constants become `"base:sfx_xxx"` catalog IDs. `sfxPlay(s32 sfx_id, ...)` becomes `sfxPlay(const char *sfx_id, ...)`. Internally, audio system resolves to sample bank index. Like weapons, consider cached resolution for hot-path playback. |
+| **Complexity** | **MASSIVE** — comparable to weapon migration. ~1,022 references, many in tight game logic. |
+
+### Per-file breakdown (top files)
+
+| File | SFX Refs | Nature |
+|------|----------|--------|
+| `chraicommands.c` | 210 | AI scripts triggering sounds — mechanical replacement |
+| `invitems.c` | 185 | Weapon/item-specific sounds — tied to weapon migration |
+| `chraction.c` | 161 | Character action sounds |
+| `bondgun.c` | 140 | Gun fire/reload/empty sounds — tied to weapon migration |
+| `footstep.c` | 22 | Surface-specific footstep sounds |
+| Other ~25 files | ~304 | Scattered |
+
+**Note**: Many SFX references are in the same files as weapon references (bondgun.c, chraction.c). These can be migrated together in the same pass.
+
+---
+
+## Phase 10: Animation Migration
+
+**Goal**: Every animation identity becomes a catalog ID string. No `animnum` / `ANIM_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_ANIMATION` registered (~1,207 entries). `animnum` field in various structs. |
+| **Integer refs** | ~71 in `src/game/` |
+| **Key files** | `chraction.c` (65), `player.c` (23), `chr.c` (14), `menu.c` (17), `bondhead.c` (8) |
+| **Approach** | Animation references are primarily in character action dispatch and menu rendering. Replace `animnum` with catalog ID at function boundaries. Animation system resolves internally. |
+| **Complexity** | **Moderate** |
+
+---
+
+## Phase 11: Game Mode Migration
+
+**Goal**: Every game mode identity becomes a catalog ID string. No `MPSCENARIO_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_GAMEMODE` registered (6 modes). `MPSCENARIO_xxx` used in scenario dispatch. |
+| **Integer refs** | ~56 across port/src/ and src/game/ |
+| **Key files** | `netmsg.c` (18), `assetcatalog_base_extended.c` (9), `assetcatalog_scanner.c` (7), `matchsetup.c` (4), `netmenu.c` (3) |
+| **Approach** | `g_MpSetup.scenario` becomes `char scenario_id[CATALOG_ID_LEN]`. Scenario dispatch code uses catalog lookup. Wire protocol sends catalog ID string. |
+| **Complexity** | **Moderate** — well-contained, fewer refs than other types |
+
+---
+
+## Phase 12: Language Bank Migration
+
+**Goal**: Every language bank identity becomes a catalog ID string. No `LANGBANK_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_LANG` registered (~68 banks). `LANGBANK_xxx` used in `lang.c` (90 refs), `langreset.c` (28 refs). |
+| **Integer refs** | ~194 total |
+| **Key files** | `lang.c` (90), `langreset.c` (28), `assetcatalog_base_extended.c` (70) |
+| **Approach** | `langReset(stagenum)` already involves stage→langbank mapping. Replace `LANGBANK_xxx` constants with catalog IDs. The lang system's table-driven nature makes this relatively mechanical. |
+| **Complexity** | **Moderate** |
+
+---
+
+## Phase 13: Prop Type Migration
+
+**Goal**: Every prop type identity becomes a catalog ID string. No `PROPTYPE_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_PROP` registered (8 categories). `PROPTYPE_xxx` used for prop categorization in game logic. |
+| **Integer refs** | ~200+ across `src/game/` |
+| **Key files** | `chraction.c` (79), `chr.c` (39), `bot.c` (17), `bondwalk.c` (8), `bondgrab.c` (6), `bondeyespy.c` (5) |
+| **Approach** | `PROPTYPE_xxx` is used for type-dispatch (`switch(prop->type)`). Replace with catalog ID string or, for hot-path dispatch, a cached enum derived from catalog entry. Prop type checks are frequent in collision/interaction code. |
+| **Complexity** | **Complex** — prop type dispatch is performance-sensitive. May need cached enum pattern similar to weapons. |
+
+---
+
+## Phase 14: HUD Element Migration
+
+**Goal**: Every HUD element identity becomes a catalog ID string. No `HUD_ELEM_xxx` integer constants.
+
+| Item | Detail |
+|------|--------|
+| **Current state** | `ASSET_HUD` registered (6 categories). |
+| **Integer refs** | ~9 |
+| **Approach** | Small, straightforward replacement. |
+| **Complexity** | **Trivial** |
 
 ---
 
@@ -848,6 +986,28 @@ Protocol version bump to **v28**.
 | UI layer (Phase 5) | ~25 | 5 | 2 sessions |
 | Save/load (Phase 6) | ~30 | 2 | 2 sessions |
 | Cleanup (Phase 7) | — | ~5 | 1 session |
-| **TOTAL** | **~1,088+** | **~50+** | **~40–50 sessions** |
+| **Textures** (Phase 8) | **~43** | **~10** | **2–3 sessions** |
+| **Audio/SFX** (Phase 9) | **~1,022** | **~30** | **12–15 sessions** |
+| **Animations** (Phase 10) | **~71** | **~15** | **3–4 sessions** |
+| **Game Modes** (Phase 11) | **~56** | **~10** | **2–3 sessions** |
+| **Language Banks** (Phase 12) | **~194** | **~8** | **4–5 sessions** |
+| **Prop Types** (Phase 13) | **~200+** | **~15** | **5–7 sessions** |
+| **HUD Elements** (Phase 14) | **~9** | **~3** | **1 session** |
+| **TOTAL** | **~2,683+** | **~80+** | **~65–85 sessions** |
 
-**Note**: The weapon migration (4.5) dominates the timeline. Consider whether it can be parallelized by file (bondgun.c independent of propobj.c independent of bot.c, etc.) to allow multiple sessions to work different files concurrently.
+**The three largest migrations** dominate the timeline:
+1. **Audio/SFX** (Phase 9): ~1,022 refs — 12–15 sessions
+2. **Weapons** (Phase 4.5): ~660 refs — 15–20 sessions
+3. **Prop Types** (Phase 13): ~200+ refs — 5–7 sessions
+
+**Parallelization**: Weapon + SFX migrations overlap heavily (same files: bondgun.c, chraction.c, invitems.c). Doing them in the same pass per-file would be more efficient than two separate passes. Similarly, model + prop type migrations share propobj.c and setup.c.
+
+**Recommended file-by-file attack order** for the combined weapon+SFX pass:
+1. `propobj.c` (217 weapon + 17 texture + 40 model = ~274 total)
+2. `bondgun.c` (374 weapon + 140 SFX + 5 model = ~519 total)
+3. `chraction.c` (88 weapon + 161 SFX + 2 model + 79 proptype = ~330 total)
+4. `chraicommands.c` (5 weapon + 210 SFX + 7 model = ~222 total)
+5. `invitems.c` (0 weapon + 185 SFX = ~185 total)
+6. `botinv.c` (95 weapon + 2 model = ~97 total)
+7. `bot.c` (64 weapon + 3 SFX + 2 model + 17 proptype = ~86 total)
+8. Remaining ~60 files with scattered references
