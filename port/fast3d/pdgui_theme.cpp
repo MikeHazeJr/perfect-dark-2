@@ -1331,15 +1331,71 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
-    /* Auto-extract: if base-ui textures don't exist yet, create the mod
-     * directory structure and extract ROM textures. This makes the game
-     * self-sufficient — no external files needed in the release zip. */
+    /* Auto-extract: if base-ui textures don't exist yet, create the full
+     * mod structure (mod.json + TGA textures) from ROM data. This makes
+     * the game self-sufficient — no external files needed in the zip. */
     if (!s_baseUiTexturesExist()) {
         sysLogPrintf(LOG_NOTE,
-            "PDGUI theme: base-ui textures missing — auto-extracting from ROM");
+            "PDGUI theme: base-ui mod missing — auto-creating from ROM");
         fsCreateDir("mods");
         fsCreateDir("mods/base-ui");
         fsCreateDir("mods/base-ui/textures");
+
+        /* Write mod.json manifest so the mod manager recognizes this as
+         * a proper mod. The theme config in here drives palette, scanlines,
+         * and background texture selection. */
+        {
+            static const char k_ModJson[] =
+                "{\n"
+                "    \"name\": \"base-ui\",\n"
+                "    \"display_name\": \"Perfect Dark Base UI\",\n"
+                "    \"version\": \"1.0.0\",\n"
+                "    \"description\": \"Original N64 UI textures extracted from ROM.\",\n"
+                "    \"author\": \"Rare / PD2 Team\",\n"
+                "    \"category\": \"ui\",\n"
+                "    \"bundled\": true,\n"
+                "    \"enabled\": true,\n"
+                "    \"components\": [\n"
+                "        {\n"
+                "            \"type\": \"ui\",\n"
+                "            \"textures\": [\n"
+                "                { \"catalog_id\": \"base:ui_bg_haze\",     \"path\": \"textures/ui_bg_haze.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_particles\",   \"path\": \"textures/ui_particles.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_noise_sm\",    \"path\": \"textures/ui_noise_sm.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_noise_lg\",    \"path\": \"textures/ui_noise_lg.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_grad_bar\",    \"path\": \"textures/ui_grad_bar.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_mirror_tile\", \"path\": \"textures/ui_mirror_tile.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_dot_tile\",    \"path\": \"textures/ui_dot_tile.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_nuke\",        \"path\": \"textures/ui_nuke.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_bg_alt\",      \"path\": \"textures/ui_bg_alt.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_deco\",        \"path\": \"textures/ui_deco.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_a\",      \"path\": \"textures/ui_icon_a.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_b\",      \"path\": \"textures/ui_icon_b.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_c\",      \"path\": \"textures/ui_icon_c.tga\" }\n"
+                "            ]\n"
+                "        }\n"
+                "    ],\n"
+                "    \"theme\": {\n"
+                "        \"default_palette\": 1,\n"
+                "        \"background_texture\": \"base:ui_bg_haze\",\n"
+                "        \"scanline_enabled\": true,\n"
+                "        \"scanline_alpha\": 0.8,\n"
+                "        \"tint_strength\": 0.0,\n"
+                "        \"text_glow_intensity\": 0.6\n"
+                "    }\n"
+                "}\n";
+
+            FILE *jf = fsFileOpenWrite("mods/base-ui/mod.json");
+            if (jf) {
+                fwrite(k_ModJson, 1, sizeof(k_ModJson) - 1, jf);
+                fclose(jf);
+                sysLogPrintf(LOG_NOTE, "PDGUI theme: wrote mods/base-ui/mod.json");
+            } else {
+                sysLogPrintf(LOG_WARNING, "PDGUI theme: could not write mod.json");
+            }
+        }
+
+        /* Extract ROM textures to TGA files */
         pdguiThemeExtractRomTextures();
 
         /* Reload theme textures now that TGA files exist */

@@ -211,7 +211,11 @@ Shutdown: reverse order. Document any ordering dependencies discovered.
 
 ---
 
-## 10. Working Style
+## 10. Working Style & Collaboration
+
+> **Read this carefully.** This section preserves the collaborative spirit built over 160+ sessions. A cold start should feel like a continuation, not a stranger introducing themselves.
+
+**This is a partnership.** Mike is the game director and sole developer. AI is the engineering partner. We say "we" not "you" — the work is collaborative. Mike trusts the AI to make good decisions, take initiative, and push back when something is wrong. He expects creative contribution, not just execution.
 
 - **Mike thinks in systems, phases, and player experience.** He values depth over shortcuts, root cause over patches.
 - **No half measures** on systems/architecture. This is a platform foundation.
@@ -229,6 +233,9 @@ Shutdown: reverse order. Document any ordering dependencies discovered.
 - **C headers included from C++ need `extern "C"` guards**: If a port header (`port/include/*.h`) declares C functions and gets included from `.cpp` files, it MUST have `#ifdef __cplusplus extern "C" {` guards. Missing guards cause linker errors (name mangling). Check `fs.h`, `config.h` as examples of this fix.
 - **Dev window auto-configures git identity**: The dev window sets `user.email` and `user.name` repo-level on startup if missing. No manual git config needed.
 - **Release auto-commits**: The dev window's build/release flow auto-commits pending changes before building. If git identity is missing, the pipeline stops with a clear error instead of silently failing.
+- **When Mike says "out of curiosity..."** — he's probing the architecture. Answer thoroughly.
+- **When Mike says "I refuse to accept..."** — he's setting a binding constraint. Log it.
+- **Proactive context saves**: When the conversation gets long, suggest saving state and starting fresh. The context files must be good enough that a new session picks up the rhythm, not just the facts.
 
 ---
 
@@ -289,6 +296,28 @@ Mod stages have stage table indices 61–86 but NO solo stage index. Flowing a s
 3. **SP-8: prop->chr without NULL check** — PROPTYPE_PLAYER chr can be NULL during transitions. Always guard.
 
 Full list in `systemic-bugs.md`.
+
+---
+
+---
+
+## 15. Collaboration Principles
+
+These aren't rules — they're the foundation of how this project works. Built over 160+ sessions.
+
+1. **Single Source of Truth, everywhere.** Catalog for assets. Context stack for input. Context files for project state. One authority per system, zero parallel paths. Mike will not accept convolusion.
+
+2. **Design before construction.** Read the guideline docs. Understand the architecture. Check the constraints. THEN write code. Research is not wasted time — it prevents wrong assumptions and rework.
+
+3. **Every system should be extensible.** The input context stack makes adding new input contexts trivial. The catalog makes adding new asset types trivial. Build infrastructure that makes the NEXT thing easy.
+
+4. **The game director's decisions are binding.** D-1 FULL, D-2 FULL, D-3 FULL. Zero half measures. When Mike makes a decision, it becomes a constraint. Document it immediately.
+
+5. **Context is code.** Updating context files is equal priority to writing code. A code change without a context update is an incomplete change. If context is cleared right now, the next session must pick up in under a minute.
+
+6. **Fix the class, not the instance.** After fixing a bug, always do a propagation check. Does this same problem exist anywhere else? Systemic fixes over spot patches.
+
+7. **The vision is real.** PD2 → standalone engine → open UGC platform. Every architectural decision should serve this trajectory. Don't build walls that block the path forward.
 
 ---
 
