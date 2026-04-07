@@ -166,6 +166,9 @@ s32          objectiveCheck(s32 index);
 void         mainChangeToStage(s32 stagenum);
 extern s32   g_MpPlayerNum;
 
+/* Stage table index lookup — converts logical stagenum to g_Stages[] index */
+s32 bgGetStageIndex(s32 stagenum);
+
 /* Accept / abort mission — only MENUOP_SET branch used; item/data may be NULL */
 #define MENUOP_SET 6
 uintptr_t menuhandlerAcceptMission(s32 op, void *item, void *data);
@@ -643,8 +646,11 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
         s32 sn = (s32)g_SoloStages[pendingStage].stagenum;
         g_MissionConfig.stageindex = (u8)pendingStage;
-        /* Resolve and store catalog ID — authoritative stage identity (D-3 FULL) */
-        const char *cid = catalogIdByRuntime(ASSET_MAP, sn);
+        /* Resolve and store catalog ID — authoritative stage identity (D-3 FULL).
+         * catalogIdByRuntime(ASSET_MAP, X) is indexed by stage TABLE index (position
+         * in g_Stages[]), NOT by stagenum (logical ID). Must convert first. */
+        s32 stageTableIdx = bgGetStageIndex(sn);
+        const char *cid = (stageTableIdx >= 0) ? catalogIdByRuntime(ASSET_MAP, stageTableIdx) : NULL;
         if (cid) {
             strncpy(g_MissionConfig.stage_id,
                     cid, sizeof(g_MissionConfig.stage_id) - 1);

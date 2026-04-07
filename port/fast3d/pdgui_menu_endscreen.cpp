@@ -30,6 +30,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_hotswap.h"
 #include "system.h"
+#include "inputctx.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -383,8 +384,12 @@ static void renderSoloEndscreen(bool completed)
     }
 
     /* E.2: Release mouse grab on first appear so endscreen buttons are clickable.
-     * The game may still have SDL in relative mode from active gameplay. */
+     * The game may still have SDL in relative mode from active gameplay.
+     * Also push ImGuiMenu input context so the input stack routes events to ImGui. */
     if (ImGui::IsWindowAppearing()) {
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
         SDL_SetRelativeMouseMode(SDL_FALSE);
         SDL_ShowCursor(SDL_ENABLE);
         SDL_Window *win = SDL_GetMouseFocus();
@@ -709,8 +714,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* E.2: Release mouse grab on first appear so buttons are clickable. */
+    /* E.2: Release mouse grab on first appear so buttons are clickable.
+     * Also push ImGuiMenu input context so the input stack routes events to ImGui. */
     if (ImGui::IsWindowAppearing()) {
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
         SDL_SetRelativeMouseMode(SDL_FALSE);
         SDL_ShowCursor(SDL_ENABLE);
         SDL_Window *win = SDL_GetMouseFocus();

@@ -24,6 +24,7 @@
 #include "game/setup.h"
 #include "game/tex.h"
 #include "romdata.h"
+#include "game/bg.h"
 #include "game/title.h"
 #include "game/training.h"
 #include "bss.h"
@@ -1990,9 +1991,12 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		g_Vars.mplayerisrunning = false;
 		g_Vars.normmplayerisrunning = false;
 		g_MissionConfig.stagenum = g_SoloStages[sp188].stagenum;
-		/* Phase 2: populate PRIMARY catalog ID string field */
+		/* Phase 2: populate PRIMARY catalog ID string field.
+		 * catalogIdByRuntime(ASSET_MAP, X) is indexed by stage TABLE index
+		 * (position in g_Stages[]), NOT by stagenum. Convert first. */
 		{
-			const char *cid = catalogIdByRuntime(ASSET_MAP, g_SoloStages[sp188].stagenum);
+			s32 stIdx = bgGetStageIndex(g_SoloStages[sp188].stagenum);
+			const char *cid = (stIdx >= 0) ? catalogIdByRuntime(ASSET_MAP, stIdx) : NULL;
 			if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 			else { g_MissionConfig.stage_id[0] = '\0'; }
 		}
