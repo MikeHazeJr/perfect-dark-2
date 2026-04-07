@@ -3,6 +3,47 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S170 — 2026-04-07 (M1.2 — Solo Mission Flow)
+
+**Focus**: Fix remaining solo campaign flow issues: endscreen mouse, Esc race condition, Next Mission verification.
+
+### What Was Done
+
+**B-122 FIXED: Endscreen mouse unresponsive** (3 files):
+- **Root cause**: Deferred hotswap flush in `pdgui_backend.cpp:426` checked `!g_PdguiActive && !pdguiIsPauseMenuOpen()` — only caught debug overlay and pause menu. When endscreen pushed `g_CtxImGuiMenu`, the flush didn't recognize it and re-enabled `SDL_SetRelativeMouseMode(SDL_TRUE)`, overriding the context system.
+- **Fix 1**: Changed deferred flush guard to `!pdguiIsActive()` — checks full input context stack (any non-gameplay context blocks the flush).
+- **Fix 2**: Added `inputCtxSyncMouseMode()` to `inputctx.c` — per-frame enforcement that ensures SDL mouse mode matches the top context. Called from `inputCtxEndFrame()`. Catches any case where something outside the context system changed SDL state.
+- **Fix 3**: Removed manual `SDL_SetRelativeMouseMode(SDL_FALSE)` / `SDL_ShowCursor(SDL_ENABLE)` / `SDL_WarpMouseInWindow` from both solo and MP endscreen renderers in `pdgui_menu_endscreen.cpp`. The context's `on_push` callback handles this.
+
+**B-124 FIXED: Esc open/close race condition** (3 files):
+- **Root cause**: `ImGui_ImplSDL2_ProcessEvent(ev)` in `pdguiProcessEvent()` ran before `inputCtxDispatch(ev)`, so ImGui always saw key events regardless of context state. When a context was pushed (e.g., menu opened), ImGui's internal state already had the triggering key marked as pressed, causing `IsKeyPressed(Escape)` to fire on the newly-pushed menu.
+- **Fix**: Systemic key suppression in the input context framework:
+  - `InputContext` struct: added `push_tick` field (u32, set to `SDL_GetTicks()` on push)
+  - `inputCtxShouldSuppressKey(ev)`: returns 1 for KEY_DOWN events when top context was pushed within `INPUTCTX_PUSH_GRACE_MS` (100ms)
+  - `pdguiProcessEvent()`: checks suppression before ImGui forwarding — suppressed keys are consumed silently, never reaching ImGui or dispatch
+
+**Next Mission flow verified**:
+- `endscreenAdvance()` uses M0.1a pattern: increments `stageindex`, clamps bounds, calls `missionSetStageByCatalog(g_SoloStages[].catalog_id)` — catalog-first
+- `pdguiEndscreenHasNextMission()` correctly shows "Main Menu" at last solo stage
+- `pdguiEndscreenNextMission()` chains `endscreenAdvance()` → `menuhandlerAcceptMission()` → pops context
+- B-123 fix confirmed working end-to-end
+
+### Decisions
+- Mouse mode is now enforced by the input context system, not individual menus. `inputCtxSyncMouseMode()` at frame end is the canonical enforcement point.
+- Key suppression grace period (100ms) chosen to cover ~6 frames at 60fps — wide enough to catch the triggering press, narrow enough not to eat legitimate subsequent presses.
+- Deferred flush guard consolidated from `!g_PdguiActive && !pdguiIsPauseMenuOpen()` to `!pdguiIsActive()` — one function, one check, covers all contexts.
+
+### Bugs Fixed
+- **B-122**: Endscreen mouse unresponsive (systemic: context-driven mouse mode)
+- **B-124**: Esc open/close race condition (systemic: key suppression on push)
+
+### Next Steps
+- Build verification (Mike)
+- Playtest: complete solo mission, verify mouse works on endscreen, verify Esc opens/closes menu cleanly
+- M0.1c: Weapon signature migration or D5 Phase 3 continuation
+
+---
+
 ## Session S169 — 2026-04-07 (M0.1b — Body/Head Catalog Signature Migration)
 
 **Focus**: Eliminate all integer body/head identity at public function boundaries. Phase 7 wrapper caller elimination.

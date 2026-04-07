@@ -424,7 +424,7 @@ void pdguiRender(void)
     {
         bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
         if (hotswapWasActive && !hotswapNowActive &&
-                !g_PdguiActive && !pdguiIsPauseMenuOpen() &&
+                !pdguiIsActive() &&
                 pdmainGetLvFrame60() > 0) {
             if (inputMouseIsLocked()) {
                 SDL_ShowCursor(SDL_DISABLE);
@@ -635,6 +635,16 @@ s32 pdguiProcessEvent(void *sdlEvent)
             g_PdguiActive = false;
         }
         return 1;
+    }
+
+    /* ---- B-124 fix: Key suppression on context push ---- */
+    /* When a context was just pushed (within grace period), suppress KEY_DOWN
+     * events to prevent the triggering key from being seen by ImGui or the
+     * new context. This breaks the Esc open/close race condition where the
+     * same keypress opens the menu (via gameplay) and immediately closes it
+     * (via ImGui's IsKeyPressed check). */
+    if (inputCtxShouldSuppressKey(ev)) {
+        return 1; /* consumed: don't forward to ImGui or dispatch */
     }
 
     /* ---- Track input device and buffer accept/cancel (Phase 2) ---- */

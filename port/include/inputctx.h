@@ -44,6 +44,7 @@ struct InputContext {
     /* Internal state -- managed by the stack, do not set directly */
     s32 active;
     s32 marked_for_removal;
+    u32 push_tick;           /* SDL_GetTicks() at push time — for key suppression grace period */
 };
 
 /* Stack lifecycle */
@@ -74,6 +75,18 @@ InputContext *inputCtxGetTop(void);           /* Returns top active context, or 
 s32 inputCtxIsActive(InputContext *ctx);       /* Is this context on the stack? */
 s32 inputCtxGetDepth(void);                    /* Current stack depth */
 const char *inputCtxGetTopName(void);          /* Name of top context, or "none" */
+
+/* Key suppression: returns 1 if the top context was pushed within the last
+ * INPUTCTX_PUSH_GRACE_MS milliseconds and the event is a KEY_DOWN.
+ * Callers should skip forwarding such events to ImGui to prevent the
+ * triggering key from being seen as a new press by the pushed context. */
+#define INPUTCTX_PUSH_GRACE_MS 100
+s32 inputCtxShouldSuppressKey(const SDL_Event *ev);
+
+/* Mouse mode sync: ensures SDL relative mouse mode matches the top context.
+ * Called automatically from inputCtxEndFrame(). Can be called manually if
+ * something outside the context system may have changed SDL mouse state. */
+void inputCtxSyncMouseMode(void);
 
 /* ---- Built-in contexts ---- */
 

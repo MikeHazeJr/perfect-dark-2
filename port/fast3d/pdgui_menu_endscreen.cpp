@@ -383,20 +383,12 @@ static void renderSoloEndscreen(bool completed)
         return;
     }
 
-    /* E.2: Release mouse grab on first appear so endscreen buttons are clickable.
-     * The game may still have SDL in relative mode from active gameplay.
-     * Also push ImGuiMenu input context so the input stack routes events to ImGui. */
+    /* E.2: Push ImGuiMenu input context on first appear.
+     * The context's on_push callback handles SDL mouse mode (absolute + visible).
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
     if (ImGui::IsWindowAppearing()) {
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
-        }
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDL_ShowCursor(SDL_ENABLE);
-        SDL_Window *win = SDL_GetMouseFocus();
-        if (win) {
-            int w, h;
-            SDL_GetWindowSize(win, &w, &h);
-            SDL_WarpMouseInWindow(win, w / 2, h / 2);
         }
     }
 
@@ -714,19 +706,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* E.2: Release mouse grab on first appear so buttons are clickable.
-     * Also push ImGuiMenu input context so the input stack routes events to ImGui. */
+    /* E.2: Push ImGuiMenu input context on first appear.
+     * The context's on_push callback handles SDL mouse mode (absolute + visible).
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
     if (ImGui::IsWindowAppearing()) {
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
-        }
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDL_ShowCursor(SDL_ENABLE);
-        SDL_Window *win = SDL_GetMouseFocus();
-        if (win) {
-            int w, h;
-            SDL_GetWindowSize(win, &w, &h);
-            SDL_WarpMouseInWindow(win, w / 2, h / 2);
         }
     }
 

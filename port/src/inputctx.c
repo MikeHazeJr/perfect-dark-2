@@ -75,6 +75,7 @@ void inputCtxPush(InputContext *ctx)
 
     ctx->active = 1;
     ctx->marked_for_removal = 0;
+    ctx->push_tick = SDL_GetTicks();
 
     s_Stack[s_Depth] = ctx;
     s_Depth++;
@@ -195,6 +196,11 @@ void inputCtxEndFrame(void)
     }
 
     s_Depth = write;
+
+    /* Ensure SDL mouse mode matches the current top context.
+     * This catches any case where something outside the context system
+     * changed SDL state (e.g., deferred mouse lock, hotswap transitions). */
+    inputCtxSyncMouseMode();
 }
 
 /* ---- Query API ---- */
@@ -235,6 +241,60 @@ const char *inputCtxGetTopName(void)
         return top->name;
     }
     return "none";
+}
+
+/* ---- Key suppression ---- */
+
+s32 inputCtxShouldSuppressKey(const SDL_Event *ev)
+{
+    if (!ev) {
+        return 0;
+    }
+
+    /* Only suppress KEY_DOWN (not KEY_UP, mouse, etc.) */
+    if (ev->type != SDL_KEYDOWN) {
+        return 0;
+    }
+
+    InputContext *top = inputCtxGetTop();
+    if (!top || top == &g_CtxGameplay) {
+        return 0;
+    }
+
+    u32 now = SDL_GetTicks();
+    u32 elapsed = now - top->push_tick;
+    if (elapsed < INPUTCTX_PUSH_GRACE_MS) {
+        return 1;
+    }
+
+    return 0;
+}
+
+/* ---- Mouse mode sync ---- */
+
+void inputCtxSyncMouseMode(void)
+{
+    InputContext *top = inputCtxGetTop();
+    if (!top) {
+        return;
+    }
+
+    if (top == &g_CtxGameplay) {
+        /* Gameplay: relative mouse, cursor hidden */
+        if (!SDL_GetRelativeMouseMode()) {
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+            SDL_ShowCursor(SDL_DISABLE);
+            sysLogPrintf(LOG_NOTE, "INPUTCTX: syncMouseMode -- restored relative mode for gameplay");
+        }
+    } else {
+        /* Any menu/overlay context: absolute mouse, cursor visible */
+        if (SDL_GetRelativeMouseMode()) {
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+            SDL_ShowCursor(SDL_ENABLE);
+            sysLogPrintf(LOG_NOTE, "INPUTCTX: syncMouseMode -- restored absolute mode for '%s'",
+                         top->name ? top->name : "?");
+        }
+    }
 }
 
 /* ======================================================================

@@ -6,10 +6,11 @@
 
 ---
 
-## Recently Completed (S157–S168 — 2026-04-06)
+## Recently Completed (S157–S170 — 2026-04-07)
 
 | Item | Status |
 |------|--------|
+| **M1.2 — Solo Mission Flow (S170)** | **DONE** — B-122 fixed (endscreen mouse: deferred flush guard → `pdguiIsActive()`, per-frame `inputCtxSyncMouseMode()`, manual SDL calls removed from endscreen). B-124 fixed (Esc race: `push_tick` + `inputCtxShouldSuppressKey()` + 100ms grace period). Next Mission flow verified (catalog-first pattern confirmed working, B-123 fix solid). 5 files changed. |
 | **M1.1 — Campaign Mission Select Redesign (S168)** | **DONE** — Two-panel layout: left=mission list (unlock filter, blip dots, chapter headings), right=detail (inline difficulty picker, objectives from game data, briefing preview, Start button). Single-screen flow replaces 3-dialog chain. New `soloLoadBriefingForStageId()` helper. B-90, B-91, B-96 all fixed. Also fixed missing `<string.h>` in bg.c/bodyreset.c from M0.1a. Build clean. |
 | **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
 | **D5 Phase 3 S1 — Solo Pause Menu (B-93, B-98) (S162)** | **DONE** — `pdgui_menu_solomission.cpp`: 5-button pause menu (Resume/Restart Mission/Inventory/Options/Abort), objectives checklist with difficulty-filtered completion icons (✓/✗/●), B-button/Escape cancel, D-pad wrap. Fixed objective loop starting at index 1 (not 0). `mainChangeToStage()` for restart. Build clean. |
@@ -169,7 +170,7 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | ~~Bot HP too low in local (maxdamage=4)~~ | ~~MED~~ | **Fixed S151** — botmgrAllocateBot sets maxdamage=8.0f. |
 | ~~B-114: CI crash frame 1 after mission fail exit~~ | ~~HIGH~~ | **Fixed S152** — screenManifestTick deferred until lvframe60>=2 (catalogUnloadAsset during catalog reinit). SDL flush deferred to lvframe60>0. |
 | ~~B-116: Bot body/head wrong catalog IDs on dedicated server~~ | ~~HIGH~~ | **Fixed S153** — SVC_STAGE_START used wrong slot index; pre-built `botSlotMap[]` + direct `slots[]` read in netmanifest.c. |
-| **B-115: Post-game menu mouse unresponsive** | **MED** | Legacy menu steals input, ImGui hotswap doesn't recapture mouse. |
+| ~~B-115: Post-game menu mouse unresponsive~~ | ~~MED~~ | **Fixed S170** — Same root cause as B-122: deferred flush guard missed imgui_menu context. Systemic fix covers both. |
 | **Prop sync not event-driven** | **MED** | Current prop sync uses CRC polling. Should fire on pickup/door events per game director direction. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
 | Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps — may still exist on some maps post-AIDROP fix |
