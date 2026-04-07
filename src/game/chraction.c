@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "assetcatalog.h" /* SA-5d: catalogGetBodyIsMale / catalogGetHeadIsMale */
 #include "game/acosfasinf.h"
 #include "game/atan2f.h"
 #include "game/bg.h"
@@ -3830,7 +3831,7 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 		}
 	}
 
-	if (g_HeadsAndBodies[chr->headnum].ismale) {
+	if (catalogGetHeadIsMale(chr->headnum)) { /* SA-5d */
 		male = true;
 	}
 
@@ -5929,7 +5930,7 @@ void chrCalculatePosition(struct chrdata *chr, struct coord *pos)
 void chrGoPosChooseAnimation(struct chrdata *chr)
 {
 	s32 gospeed = chr->act_gopos.flags & GOPOSMASK_SPEED;
-	s32 male = g_HeadsAndBodies[chr->bodynum].ismale;
+	s32 male = catalogGetBodyIsMale(chr->bodynum); /* SA-5d */
 	struct prop *leftgun = chrGetHeldProp(chr, HAND_LEFT);
 	struct prop *rightgun = chrGetHeldProp(chr, HAND_RIGHT);
 	s32 flip = false;
@@ -6321,7 +6322,7 @@ void chrPatrolChooseAnimation(struct chrdata *chr)
 	s32 flip;
 	bool heavy;
 	s32 race = CHRRACE(chr);
-	s32 ismale = g_HeadsAndBodies[chr->bodynum].ismale;
+	s32 ismale = catalogGetBodyIsMale(chr->bodynum); /* SA-5d */
 	f32 speed;
 
 	if (race == RACE_EYESPY) {

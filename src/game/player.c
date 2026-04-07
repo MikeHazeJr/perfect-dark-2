@@ -1810,7 +1810,7 @@ void playerTickChrBody(void)
 				}
 			}
 
-			if (g_HeadsAndBodies[bodynum].unk00_01) {
+			if (catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);

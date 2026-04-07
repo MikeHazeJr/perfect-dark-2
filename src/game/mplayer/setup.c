@@ -1427,7 +1427,7 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 			if (data->list.value < numweapons) {
 				if (data->list.unk04 == 0) {
 					for (i = 0; i <= mpweaponnum; i++) {
-						if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+						if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 							mpweaponnum++;
 						}
 
@@ -1492,7 +1492,7 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 			if (data->list.value < numweapons) {
 
 				for (i = 0; i <= mpweaponnum; i++) {
-					if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+					if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 						mpweaponnum++;
 					}
 

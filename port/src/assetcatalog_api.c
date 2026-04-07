@@ -628,3 +628,84 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
  * inline assetCatalogGetByIndex scans at the few remaining sites
  * where numeric → catalog-ID conversion is unavoidable (match start,
  * save migration). */
+
+/* -------------------------------------------------------------------------
+ * SA-5d: Body / head property accessors (M0.1e)
+ * Thin wrappers over g_HeadsAndBodies[] that make the catalog the public
+ * API for body/head property reads.  The ROM array is the current internal
+ * implementation detail.  Future mod overrides will intercept here.
+ * O(1).  All bounds-checked, return 0 / 1.0f on out-of-range index.
+ * ------------------------------------------------------------------------- */
+
+s32 catalogGetBodyIsMale(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].ismale;
+}
+
+s32 catalogGetBodyType(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].type;
+}
+
+s32 catalogGetBodyHeight(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].height;
+}
+
+f32 catalogGetBodyAnimScale(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 1.0f; }
+    return g_HeadsAndBodies[bodynum].animscale;
+}
+
+s32 catalogGetBodyCanVaryHeight(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].canvaryheight;
+}
+
+s32 catalogGetBodyIsComplete(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].unk00_01;
+}
+
+s32 catalogGetBodyHandFilenum(s32 bodynum)
+{
+    if (bodynum < 0 || bodynum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[bodynum].handfilenum;
+}
+
+s32 catalogGetHeadIsMale(s32 headnum)
+{
+    if (headnum < 0 || headnum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[headnum].ismale;
+}
+
+s32 catalogGetHeadType(s32 headnum)
+{
+    if (headnum < 0 || headnum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[headnum].type;
+}
+
+/* -------------------------------------------------------------------------
+ * SA-5e: MP weapon table accessors (M0.1e)
+ * Thin wrappers over g_MpWeapons[] that make the catalog the public API
+ * for MP weapon property reads.  ROM array is the internal implementation.
+ * O(1).  Bounds-checked, return 0 on out-of-range index.
+ * ------------------------------------------------------------------------- */
+
+s32 catalogGetMpWeaponNum(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].weaponnum;
+}
+
+s32 catalogGetMpWeaponUnlockFeature(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].unlockfeature;
+}

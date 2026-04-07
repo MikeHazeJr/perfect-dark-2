@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "assetcatalog.h" /* SA-5e: catalogGetMpWeaponNum */
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -379,7 +380,7 @@ void botinvScoreAllWeapons(struct chrdata *chr, s32 *weaponnums, s32 *scores1, s
 	// Gather scores for each weapon in the setup,
 	// taking the higher score out of both gun functions
 	for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
-		s32 weaponnum = g_MpWeapons[g_MpSetup.weapons[i]].weaponnum;
+		s32 weaponnum = catalogGetMpWeaponNum(g_MpSetup.weapons[i]); /* SA-5e */
 		weaponnums[i] = weaponnum;
 
 		botinvScoreWeaponByItself(chr, weaponnum, FUNC_PRIMARY, -1, false, &pri1, &pri2);
@@ -425,7 +426,7 @@ bool mpHasShield(void)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
-		s32 weaponnum = g_MpWeapons[g_MpSetup.weapons[i]].weaponnum;
+		s32 weaponnum = catalogGetMpWeaponNum(g_MpSetup.weapons[i]); /* SA-5e */
 
 		if (weaponnum == WEAPON_MPSHIELD) {
 			return true;
@@ -444,7 +445,7 @@ s32 mpGetWeaponSlotByWeaponNum(s32 weaponnum)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
-		if (g_MpWeapons[g_MpSetup.weapons[i]].weaponnum == weaponnum && i < ARRAYCOUNT(g_MpSetup.weapons)) {
+		if (catalogGetMpWeaponNum(g_MpSetup.weapons[i]) == weaponnum && i < ARRAYCOUNT(g_MpSetup.weapons)) { /* SA-5e */
 			result = i;
 			break;
 		}

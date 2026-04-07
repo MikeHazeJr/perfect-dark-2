@@ -186,7 +186,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	}
 
 	f32 scale = catalogGetBodyScaleByIndex(bodynum) * 0.10000001f; /* SA-5-cleanup */
-	f32 animscale = g_HeadsAndBodies[bodynum].animscale;
+	f32 animscale = catalogGetBodyAnimScale(bodynum); /* SA-5d */
 	struct modelnode *node = NULL;
 	u32 stack[2];
 
@@ -241,7 +241,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	modelAllocateRwData(bodymodeldef);
 
-	if (!g_HeadsAndBodies[bodynum].unk00_01) {
+	if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 		if (bodymodeldef->skel == &g_SkelChr) {
 			node = modelGetPart(bodymodeldef, MODELPART_CHR_HEADSPOT);
 
@@ -263,7 +263,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 
-					if (g_HeadsAndBodies[bodynum].canvaryheight && varyheight) {
+					if (catalogGetBodyCanVaryHeight(bodynum) && varyheight) { /* SA-5d */
 						// Set height to between 95% and 115%
 						f32 frac = RANDOMFRAC() * 0.05f;
 						scale *= 2.0f * frac - 0.05f + 1.0f;
@@ -285,7 +285,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 				}
 			}
 		} else if (bodymodeldef->skel == &g_SkelSkedar) {
-			if (g_HeadsAndBodies[bodynum].canvaryheight && varyheight && bodynum == BODY_SKEDAR) {
+			if (catalogGetBodyCanVaryHeight(bodynum) && varyheight && bodynum == BODY_SKEDAR) { /* SA-5d */
 				// Set height to between 65% and 85%
 				f32 frac = RANDOMFRAC();
 				scale *= 2.0f * (0.1f * frac) - 0.1f + 0.75f;
@@ -305,7 +305,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		modelSetScale(model, scale);
 		modelSetAnimScale(model, animscale);
 
-		if (headmodeldef && !g_HeadsAndBodies[bodynum].unk00_01) {
+		if (headmodeldef && !catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 			bodymodeldef->rwdatalen -= headmodeldef->rwdatalen;
 
 			modelmgrAttachHead(model, node, headmodeldef);
@@ -380,7 +380,7 @@ s32 bodyChooseHead(s32 bodynum)
 {
 	s32 head;
 
-	if (g_HeadsAndBodies[bodynum].ismale) {
+	if (catalogGetBodyIsMale(bodynum)) { /* SA-5d */
 		head = g_ActiveMaleHeads[g_ActiveMaleHeadsIndex++];
 
 		if (g_ActiveMaleHeadsIndex == g_NumActiveHeadsPerGender) {
@@ -454,7 +454,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 		bodynum = packed->bodynum;
 	}
 
-	if (!g_HeadsAndBodies[bodynum].unk00_01) {
+	if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 		if (packed->headnum >= 0) {
 			headnum = packed->headnum;
 		} else if (headnum == -55555) {
@@ -574,7 +574,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 
 			chr->voicebox = rngRandom() % 3;
 
-			if (!g_HeadsAndBodies[chr->bodynum].ismale) {
+			if (!catalogGetBodyIsMale(chr->bodynum)) { /* SA-5d */
 				chr->voicebox = VOICEBOX_FEMALE;
 			}
 
@@ -749,17 +749,18 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 
 	if ((s16)(*(s32 *)&headmodeldef->skel) == SKEL_HEAD) {
 #if VERSION >= VERSION_JPN_FINAL
-		if (g_HeadsAndBodies[headnum].type == g_HeadsAndBodies[bodynum].type && offset == 0) {
+		/* SA-5d: body/head type resolution via catalog accessors */
+		if (catalogGetHeadType(headnum) == catalogGetBodyType(bodynum) && offset == 0) {
 			return;
 		}
 #else
-		if (g_HeadsAndBodies[headnum].type == g_HeadsAndBodies[bodynum].type) {
+		if (catalogGetHeadType(headnum) == catalogGetBodyType(bodynum)) {
 			return;
 		}
 #endif
 
 #if VERSION >= VERSION_JPN_FINAL
-		switch (g_HeadsAndBodies[headnum].type) {
+		switch (catalogGetHeadType(headnum)) { /* SA-5d */
 		default:
 		case HEADBODYTYPE_FEMALE:
 			offset += 0;
@@ -782,7 +783,7 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 		}
 #else
 		// Same as JPN, but sets the value rather than adjusts
-		switch (g_HeadsAndBodies[headnum].type) {
+		switch (catalogGetHeadType(headnum)) { /* SA-5d */
 		default:
 		case HEADBODYTYPE_FEMALE:
 			offset = 0;
@@ -805,7 +806,7 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 		}
 #endif
 
-		switch (g_HeadsAndBodies[bodynum].type) {
+		switch (catalogGetBodyType(bodynum)) { /* SA-5d */
 		case HEADBODYTYPE_FEMALE:
 			break;
 		case HEADBODYTYPE_MAIAN:
@@ -824,17 +825,17 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 			break;
 		}
 
-		if (g_HeadsAndBodies[bodynum].type == HEADBODYTYPE_FEMALE) {
-			if (g_HeadsAndBodies[headnum].type == HEADBODYTYPE_DEFAULT
-					|| g_HeadsAndBodies[headnum].type == HEADBODYTYPE_MRBLONDE) {
+		if (catalogGetBodyType(bodynum) == HEADBODYTYPE_FEMALE) { /* SA-5d */
+			if (catalogGetHeadType(headnum) == HEADBODYTYPE_DEFAULT
+					|| catalogGetHeadType(headnum) == HEADBODYTYPE_MRBLONDE) {
 				offset -= 10;
-			} else if (g_HeadsAndBodies[headnum].type == HEADBODYTYPE_CASS
-					|| g_HeadsAndBodies[headnum].type == HEADBODYTYPE_FEMALEGUARD) {
+			} else if (catalogGetHeadType(headnum) == HEADBODYTYPE_CASS
+					|| catalogGetHeadType(headnum) == HEADBODYTYPE_FEMALEGUARD) {
 				offset -= 5;
 			}
-		} else if (g_HeadsAndBodies[bodynum].type == HEADBODYTYPE_CASS
-				&& (g_HeadsAndBodies[headnum].type == HEADBODYTYPE_DEFAULT
-					|| g_HeadsAndBodies[headnum].type == HEADBODYTYPE_MRBLONDE)) {
+		} else if (catalogGetBodyType(bodynum) == HEADBODYTYPE_CASS
+				&& (catalogGetHeadType(headnum) == HEADBODYTYPE_DEFAULT
+					|| catalogGetHeadType(headnum) == HEADBODYTYPE_MRBLONDE)) {
 			offset -= 5;
 		}
 

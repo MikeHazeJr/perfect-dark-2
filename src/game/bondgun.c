@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "memsizes.h"
+#include "assetcatalog.h" /* SA-5d: catalogGetBodyHandFilenum */
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -4026,7 +4027,7 @@ void bgunTickMasterLoad(void)
 
 			playerChooseBodyAndHead(&bodynum, &headnum, NULL);
 
-			handfilenum = g_HeadsAndBodies[bodynum].handfilenum;
+			handfilenum = catalogGetBodyHandFilenum(bodynum); /* SA-5d */
 
 			if (IS4MB()) {
 				handfilenum = FILE_GCOMBATHANDSLOD;

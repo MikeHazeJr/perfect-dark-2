@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
+#include "assetcatalog.h" /* SA-5d/SA-5e: catalogGetBodyHeight, catalogGetMpWeaponNum */
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -410,7 +411,7 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				s32 wi;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
-					if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
+					if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
 						mpweapon = &g_MpWeapons[wi];
 						break;
 					}
@@ -420,7 +421,7 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
 				/* Random / unset: use first weapon in the match set */
 				mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-				resolvedWeaponNum = mpweapon->weaponnum;
+				resolvedWeaponNum = catalogGetMpWeaponNum(g_MpSetup.weapons[0]); /* SA-5e */
 			}
 			if (resolvedWeaponNum > 0) {
 				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
@@ -1429,7 +1430,7 @@ f32 botCalculateMaxSpeed(struct chrdata *chr)
 	if (chr->aibot->hascase || chr->aibot->hasbriefcase) {
 		speed = -63.600006103516f;
 	} else {
-		speed = g_HeadsAndBodies[chr->bodynum].height * (1.0f / 159.0f);
+		speed = catalogGetBodyHeight(chr->bodynum) * (1.0f / 159.0f); /* SA-5d */
 	}
 
 	speed = speed * 0.002830188954249f + 1.0f;

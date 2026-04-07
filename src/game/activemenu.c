@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "assetcatalog.h" /* SA-5e: catalogGetMpWeaponNum */
 #include "game/chraction.h"
 #include "game/game_006900.h"
 #include "game/bondgun.h"
@@ -527,7 +528,7 @@ void amReset(void)
 			index++;
 
 			for (j = 0; j < MIN(ARRAYCOUNT(g_AmMapping), ARRAYCOUNT(g_MpSetup.weapons)); j++) {
-				s32 weaponnum = g_MpWeapons[g_MpSetup.weapons[j]].weaponnum;
+				s32 weaponnum = catalogGetMpWeaponNum(g_MpSetup.weapons[j]); /* SA-5e */
 
 				switch (weaponnum) {
 				case WEAPON_NONE:

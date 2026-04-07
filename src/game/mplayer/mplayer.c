@@ -1294,7 +1294,7 @@ s32 mpGetNumWeaponOptions(void)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			count++;
 		}
 	}
@@ -1307,21 +1307,21 @@ char *mpGetWeaponLabel(s32 weaponnum)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			if (weaponnum == 0) {
-				if (g_MpWeapons[i].weaponnum == WEAPON_NONE) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_NONE) {
 					return langGet(L_MPWEAPONS_058); // "Nothing"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_MPSHIELD) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_MPSHIELD) {
 					return langGet(L_MPWEAPONS_059); // "Shield"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_DISABLED) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_DISABLED) {
 					return langGet(L_MPWEAPONS_060); // "Disabled"
 				}
 
-				return bgunGetName(g_MpWeapons[i].weaponnum);
+				return bgunGetName(catalogGetMpWeaponNum(i));
 			}
 
 			weaponnum--;
@@ -1342,7 +1342,7 @@ void mpSetWeaponSlot(s32 slot, s32 mpweaponnum)
 	s32 i;
 
 	for (i = 0; i <= mpweaponnum; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 			mpweaponnum++;
 		}
 
@@ -1358,7 +1358,7 @@ s32 mpGetWeaponSlot(s32 slot)
 	s32 i;
 
 	for (i = 0; i < g_MpSetup.weapons[slot]; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			count++;
 		}
 	}
@@ -1376,7 +1376,7 @@ struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex)
 	while (v0 > 0) {
 		mpweaponnum = g_MpSetup.weapons[slot];
 
-		if (g_MpWeapons[mpweaponnum].weaponnum != WEAPON_DISABLED) {
+		if (catalogGetMpWeaponNum(mpweaponnum) != WEAPON_DISABLED) { /* SA-5e */
 			v0--;
 		}
 
@@ -1503,7 +1503,7 @@ void func0f18913c(void)
 					}
 				}
 
-				if (weaponnum != g_MpWeapons[g_MpSetup.weapons[j]].weaponnum) {
+				if (weaponnum != catalogGetMpWeaponNum(g_MpSetup.weapons[j])) { /* SA-5e */
 					ok = false;
 				}
 			}
@@ -1527,7 +1527,7 @@ void mpSetRandomWeapons(u8 weapons[])
 	s32 i;
 
 	for (i = 0; i < NUM_MPWEAPONS; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			if (g_MpWeaponSetRandomFilters[i] == 1) {
 				weapons[index] = i - lockcount;
 				index++;
@@ -1577,7 +1577,7 @@ void mpApplyWeaponSet(void)
 				for (j = 0; !done; j++) {
 					if (j > MPWEAPON_DISABLED) {
 						done = true;
-					} else if (weaponnum == g_MpWeapons[j].weaponnum) {
+					} else if (weaponnum == catalogGetMpWeaponNum(j)) { /* SA-5e */
 						mpweaponnum = j;
 						done = true;
 					}
