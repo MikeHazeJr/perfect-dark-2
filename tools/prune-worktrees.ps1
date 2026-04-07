@@ -52,7 +52,7 @@ if (-not (Test-Path (Join-Path $repoRoot ".git"))) {
     $repoRoot = $PSScriptRoot
 }
 # Final fallback: use the script's grandparent (tools/ is inside repo root)
-$worktreeDir = Join-Path $repoRoot ".claude" "worktrees"
+$worktreeDir = Join-Path (Join-Path $repoRoot ".claude") "worktrees"
 
 Write-Host ""
 Write-Host "=== Claude Code Worktree Pruner ===" -ForegroundColor Cyan
