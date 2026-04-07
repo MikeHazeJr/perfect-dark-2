@@ -8,7 +8,7 @@
  *   g_PreAndPostMissionBriefingMenuDialog -- pre/post briefing (same renderer)
  *   g_AcceptMissionMenuDialog         -- objectives overview + Accept / Decline
  *   g_SoloMissionPauseMenuDialog      -- in-game pause: objectives + Abort
- *   g_SoloMissionOptionsMenuDialog    -- options hub: Audio/Video/Control/Display/Extended
+ *   g_SoloMissionOptionsMenuDialog    -- options: tabbed panel (Audio/Video/Controls)
  *   g_MissionAbortMenuDialog          -- danger confirmation: Cancel / Abort
  *
  * Registered with NULL renderFn (keep legacy rendering for model/controller previews):
@@ -78,6 +78,94 @@ void menuStop(void);
 
 /* ---- Language ---- */
 const char *langSafe(s32 textid);
+
+/* ---- Audio API (port/include/audio.h) ---- */
+f32  audioGetMasterVolume(void);
+void audioSetMasterVolume(f32 vol);
+f32  audioGetMusicVolume(void);
+void audioSetMusicVolume(f32 vol);
+f32  audioGetGameplayVolume(void);
+void audioSetGameplayVolume(f32 vol);
+f32  audioGetUiVolume(void);
+void audioSetUiVolume(f32 vol);
+
+/* ---- Video API (port/include/video.h) ---- */
+s32  videoGetFullscreen(void);
+void videoSetFullscreen(s32 fs);
+s32  videoGetFullscreenMode(void);
+void videoSetFullscreenMode(s32 mode);
+s32  videoGetVsync(void);
+void videoSetVsync(s32 vsync);
+s32  videoGetFramerateLimit(void);
+void videoSetFramerateLimit(s32 limit);
+s32  videoGetMSAA(void);
+void videoSetMSAA(s32 msaa);
+u32  videoGetTextureFilter(void);
+void videoSetTextureFilter(u32 filter);
+s32  videoGetTextureFilter2D(void);
+void videoSetTextureFilter2D(s32 filter);
+s32  videoGetDetailTextures(void);
+void videoSetDetailTextures(s32 detail);
+s32  videoGetDisplayFPS(void);
+void videoSetDisplayFPS(s32 displayfps);
+f32  videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
+
+/* Display mode */
+typedef struct { s32 width; s32 height; } displaymode;
+s32  videoGetNumDisplayModes(void);
+s32  videoGetDisplayMode(displaymode *out, s32 index);
+s32  videoGetDisplayModeIndex(void);
+void videoSetDisplayMode(s32 index);
+
+/* ---- Screen size / split (options.c) ---- */
+s32  optionsGetScreenSize(void);
+void optionsSetScreenSize(s32 size);
+u8   optionsGetScreenSplit(void);
+void optionsSetScreenSplit(u8 split);
+s32  optionsGetForwardPitch(s32 mpchrnum);
+void optionsSetForwardPitch(s32 mpchrnum, s32 enable);
+
+/* ---- Input API (port/include/input.h) ---- */
+s32  inputMouseIsEnabled(void);
+void inputMouseEnable(s32 enabled);
+void inputMouseGetSpeed(f32 *x, f32 *y);
+void inputMouseSetSpeed(f32 x, f32 y);
+s32  inputGetMouseLockMode(void);
+void inputSetMouseLockMode(s32 mode);
+s32  inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
+/* ---- Extended player config (must match types.h layout) ---- */
+struct sm_extplayerconfig {
+    f32 fovy;              /* 0x00 */
+    f32 fovzoommult;       /* 0x04 */
+    s32 fovzoom;           /* 0x08 */
+    s32 mouseaimmode;      /* 0x0c */
+    f32 mouseaimspeedx;    /* 0x10 */
+    f32 mouseaimspeedy;    /* 0x14 */
+    s32 crouchmode;        /* 0x18 */
+    f32 radialmenuspeed;   /* 0x1c */
+    f32 crosshairsway;     /* 0x20 */
+    s32 extcontrols;       /* 0x24 */
+    u32 crosshaircolour;   /* 0x28 */
+    u32 crosshairsize;     /* 0x2c */
+    s32 crosshairhealth;   /* 0x30 */
+    s32 usereloads;        /* 0x34 */
+    f32 jumpheight;        /* 0x38 */
+};
+extern struct sm_extplayerconfig g_PlayerExtCfg[];
+
+/* Extended vars */
+extern s32 g_TickRateDiv;
+extern s32 g_BgunGeMuzzleFlashes;
+extern s32 g_MusicDisableMpDeath;
+extern s32 g_HudCenter;
+extern f32 g_ViShakeIntensityMult;
+extern s32 g_MenuMouseControl;
+
+/* Config save */
+s32 configSave(const char *fname);
 
 /* ---- Solo stage table (21 entries, indices 0–20) ----
  * Mirrors struct solostage from types.h.  The compiler inserts 1 byte of
@@ -244,8 +332,53 @@ static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 =
 /* Abort confirmation */
 static s32 s_AbortSelectIdx = 0;   /* 0 = Cancel, 1 = Abort */
 
-/* Options hub */
+/* Options hub — now a tabbed panel */
 static s32 s_OptionsSelectIdx = 0;
+static s32 s_OptionsTabIdx    = 0;  /* 0=Audio, 1=Video, 2=Controls */
+
+/* =========================================================================
+ * PD-styled widget wrappers (match pdgui_menu_mainmenu.cpp style)
+ * ========================================================================= */
+
+extern "C" void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+
+static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
+{
+    bool clicked = ImGui::Button(label, size);
+    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
+                                rmax.x - rmin.x, rmax.y - rmin.y,
+                                ImGui::IsItemActive() ? 1 : 0);
+    }
+    return clicked;
+}
+
+static bool PdCheckbox(const char *label, bool *v)
+{
+    bool changed = ImGui::Checkbox(label, v);
+    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
+    return changed;
+}
+
+static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
+{
+    bool changed = ImGui::Combo(label, current_item, items, items_count);
+    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    return changed;
+}
+
+static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
+{
+    return ImGui::SliderFloat(label, v, v_min, v_max, format);
+}
+
+static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
+{
+    return ImGui::SliderInt(label, v, v_min, v_max, format);
+}
 
 /* =========================================================================
  * Helpers
@@ -1837,16 +1970,307 @@ static s32 renderAbortMission(struct menudialog *dialog,
 }
 
 /* =========================================================================
- * Options Hub
- * Audio / Video / Control / Display / Extended — each pushes sub-dialog.
+ * Options — Tabbed panel: Audio / Video / Controls
+ * Replaces the old 5-button hub that pushed legacy sub-dialogs.
  * ========================================================================= */
 
+#define PD_SCREENSIZE_FULL    0
+#define PD_SCREENSPLIT_HORIZ  0
+
+/* ---- Audio tab content ---- */
+static void renderOptionsAudio(void)
+{
+    ImGui::TextDisabled("Volume Controls");
+    ImGui::Separator();
+
+    {
+        float master = audioGetMasterVolume() * 100.0f;
+        if (PdSliderFloat("Master Volume", &master, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMasterVolume(master / 100.0f);
+        }
+    }
+    {
+        float music = audioGetMusicVolume() * 100.0f;
+        if (PdSliderFloat("Music", &music, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMusicVolume(music / 100.0f);
+        }
+    }
+    {
+        float gameplay = audioGetGameplayVolume() * 100.0f;
+        if (PdSliderFloat("Gameplay", &gameplay, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetGameplayVolume(gameplay / 100.0f);
+        }
+    }
+    {
+        float ui = audioGetUiVolume() * 100.0f;
+        if (PdSliderFloat("UI", &ui, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetUiVolume(ui / 100.0f);
+        }
+    }
+
+    ImGui::Separator();
+
+    bool disableMpDeath = g_MusicDisableMpDeath != 0;
+    if (PdCheckbox("Disable MP Death Music", &disableMpDeath)) {
+        g_MusicDisableMpDeath = disableMpDeath ? 1 : 0;
+    }
+}
+
+/* ---- Video tab content ---- */
+static void renderOptionsVideo(void)
+{
+    /* Display */
+    ImGui::TextDisabled("Display");
+    ImGui::Separator();
+
+    bool fullscreen = videoGetFullscreen() != 0;
+    if (PdCheckbox("Fullscreen", &fullscreen)) {
+        videoSetFullscreen(fullscreen ? 1 : 0);
+    }
+
+    if (fullscreen) {
+        int fsMode = videoGetFullscreenMode();
+        const char *fsModes[] = { "Borderless", "Exclusive" };
+        if (PdCombo("Fullscreen Mode", &fsMode, fsModes, 2)) {
+            videoSetFullscreenMode(fsMode);
+        }
+    }
+
+    /* Resolution */
+    {
+        int numModes = videoGetNumDisplayModes();
+        int curIdx = videoGetDisplayModeIndex();
+        displaymode curMode;
+        videoGetDisplayMode(&curMode, curIdx);
+        char curLabel[64];
+        if (curMode.width == 0 && curMode.height == 0) {
+            snprintf(curLabel, sizeof(curLabel), "Custom");
+        } else {
+            snprintf(curLabel, sizeof(curLabel), "%dx%d", curMode.width, curMode.height);
+        }
+        bool disabled = fullscreen && videoGetFullscreenMode() == 0;
+        if (disabled) ImGui::BeginDisabled();
+        if (ImGui::BeginCombo("Resolution", curLabel)) {
+            for (int i = 0; i < numModes; i++) {
+                displaymode m;
+                videoGetDisplayMode(&m, i);
+                char label[64];
+                if (m.width == 0 && m.height == 0) {
+                    snprintf(label, sizeof(label), "Custom");
+                } else {
+                    snprintf(label, sizeof(label), "%dx%d", m.width, m.height);
+                }
+                bool selected = (i == curIdx);
+                if (ImGui::Selectable(label, selected)) videoSetDisplayMode(i);
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (disabled) ImGui::EndDisabled();
+    }
+
+    /* UI Scale */
+    {
+        float uiScale = videoGetUiScaleMult() * 100.0f;
+        char uiScaleLabel[16];
+        snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
+        if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
+            videoSetUiScaleMult(uiScale / 100.0f);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Performance */
+    ImGui::TextDisabled("Performance");
+    ImGui::Separator();
+
+    {
+        int vsync = videoGetVsync() + 1;
+        const char *vsyncOpts[] = { "Adaptive", "Off", "On" };
+        int vsyncIdx = vsync;
+        if (vsyncIdx < 0) vsyncIdx = 0;
+        if (vsyncIdx > 2) vsyncIdx = 2;
+        if (PdCombo("VSync", &vsyncIdx, vsyncOpts, 3)) {
+            videoSetVsync(vsyncIdx - 1);
+        }
+    }
+
+    {
+        int fpsLimit = videoGetFramerateLimit();
+        char fpsLabel[32];
+        if (fpsLimit == 0) snprintf(fpsLabel, sizeof(fpsLabel), "Off");
+        else snprintf(fpsLabel, sizeof(fpsLabel), "%d FPS", fpsLimit);
+        if (PdSliderInt("Framerate Limit", &fpsLimit, 0, 480, fpsLabel)) {
+            videoSetFramerateLimit(fpsLimit);
+        }
+    }
+
+    bool showFps = videoGetDisplayFPS() != 0;
+    if (PdCheckbox("Display FPS", &showFps)) {
+        videoSetDisplayFPS(showFps ? 1 : 0);
+    }
+
+    ImGui::Spacing();
+
+    /* Rendering */
+    ImGui::TextDisabled("Rendering");
+    ImGui::Separator();
+
+    {
+        int texFilter = (int)videoGetTextureFilter();
+        const char *texOpts[] = { "Nearest", "Bilinear", "Three Point" };
+        if (PdCombo("Texture Filtering", &texFilter, texOpts, 3)) {
+            videoSetTextureFilter((u32)texFilter);
+        }
+    }
+
+    bool guiTexFilter = videoGetTextureFilter2D() != 0;
+    if (PdCheckbox("GUI Texture Filtering", &guiTexFilter)) {
+        videoSetTextureFilter2D(guiTexFilter ? 1 : 0);
+    }
+
+    bool detailTex = videoGetDetailTextures() != 0;
+    if (PdCheckbox("Detail Textures", &detailTex)) {
+        videoSetDetailTextures(detailTex ? 1 : 0);
+    }
+
+    ImGui::Spacing();
+
+    /* Gameplay Visuals */
+    ImGui::TextDisabled("Gameplay Visuals");
+    ImGui::Separator();
+
+    {
+        int hudCenter = g_HudCenter;
+        const char *hudOpts[] = { "None", "4:3", "Wide" };
+        if (PdCombo("HUD Centering", &hudCenter, hudOpts, 3)) {
+            g_HudCenter = hudCenter;
+        }
+    }
+
+    bool geMuzzle = g_BgunGeMuzzleFlashes != 0;
+    if (PdCheckbox("GE64-style Muzzle Flashes", &geMuzzle)) {
+        g_BgunGeMuzzleFlashes = geMuzzle ? 1 : 0;
+    }
+
+    {
+        float shake = g_ViShakeIntensityMult;
+        if (PdSliderFloat("Explosion Shake", &shake, 0.0f, 2.0f, "%.1f")) {
+            g_ViShakeIntensityMult = shake;
+        }
+    }
+
+    {
+        int sz = optionsGetScreenSize();
+        if (sz < 0 || sz > 2) sz = PD_SCREENSIZE_FULL;
+        const char *szOpts[] = { "Full", "Wide", "Cinema" };
+        if (PdCombo("Screen Size", &sz, szOpts, 3)) {
+            optionsSetScreenSize(sz);
+        }
+    }
+}
+
+/* ---- Controls tab content ---- */
+static void renderOptionsControls(void)
+{
+    /* Mouse */
+    ImGui::TextDisabled("Mouse");
+    ImGui::Separator();
+
+    bool mouseEnabled = inputMouseIsEnabled() != 0;
+    if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
+        inputMouseEnable(mouseEnabled ? 1 : 0);
+    }
+
+    bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
+    if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
+        g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
+    }
+
+    {
+        int lockMode = inputGetMouseLockMode();
+        const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
+        if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
+            inputSetMouseLockMode(lockMode);
+        }
+    }
+
+    ImGui::Separator();
+
+    {
+        f32 mx, my;
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Speed X", &mx, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+        }
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Speed Y", &my, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+        }
+    }
+
+    {
+        float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
+        if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedx = aimX;
+        }
+        float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
+        if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Look */
+    ImGui::TextDisabled("Look");
+    ImGui::Separator();
+
+    {
+        bool invertY = optionsGetForwardPitch(0) == 0;
+        if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
+            optionsSetForwardPitch(0, invertY ? 0 : 1);
+        }
+    }
+
+    {
+        bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+        if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
+            inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+            configSave("pd.ini");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Gameplay */
+    ImGui::TextDisabled("Gameplay");
+    ImGui::Separator();
+
+    {
+        float fov = g_PlayerExtCfg[0].fovy;
+        if (PdSliderFloat("Field of View", &fov, 60.0f, 120.0f, "%.0f")) {
+            g_PlayerExtCfg[0].fovy = fov;
+            g_PlayerExtCfg[0].fovzoommult = g_PlayerExtCfg[0].fovzoom ? fov / 60.0f : 1.0f;
+        }
+    }
+
+    {
+        float sway = g_PlayerExtCfg[0].crosshairsway;
+        if (PdSliderFloat("Crosshair Sway", &sway, 0.0f, 10.0f, "%.1f")) {
+            g_PlayerExtCfg[0].crosshairsway = sway;
+        }
+    }
+}
+
+/* ---- Options panel renderer ---- */
 static s32 renderOptions(struct menudialog *dialog,
                           struct menu *menu,
                           s32 winW, s32 winH)
 {
-    float mw  = pdguiMenuWidth() * 0.55f;
-    float mh  = pdguiMenuHeight() * 0.55f;
+    float mw  = pdguiMenuWidth() * 0.7f;
+    float mh  = pdguiMenuHeight() * 0.75f;
     ImVec2 pos = pdguiCenterPos(mw, mh);
 
     ImGui::SetNextWindowPos(pos);
@@ -1866,73 +2290,74 @@ static s32 renderOptions(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_OptionsSelectIdx = 0;
+        s_OptionsTabIdx = 0;
     }
 
     float titleH = pdguiScale(26.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Options", 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
-    ImGui::Separator();
 
-    struct OptionBtn { const char *label; struct menudialogdef *dlg; };
-    OptionBtn k_Opts[] = {
-        { langSafe(L_OPTIONS_181), &g_AudioOptionsMenuDialog         },
-        { langSafe(L_OPTIONS_182), &g_VideoOptionsMenuDialog         },
-        { langSafe(L_OPTIONS_183), &g_MissionControlOptionsMenuDialog},
-        { langSafe(L_OPTIONS_184), &g_MissionDisplayOptionsMenuDialog},
-        { "Extended",              &g_ExtendedMenuDialog             },
-    };
-    static const s32 k_NumOpts = 5;
+    /* ---- Tab bar ---- */
+    static const char *k_TabNames[] = { "Audio", "Video", "Controls" };
+    static const s32 k_NumTabs = 3;
 
-    if (s_OptionsSelectIdx < 0)          s_OptionsSelectIdx = 0;
-    if (s_OptionsSelectIdx >= k_NumOpts) s_OptionsSelectIdx = k_NumOpts - 1;
-
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
-        s_OptionsSelectIdx++;
-        if (s_OptionsSelectIdx >= k_NumOpts) s_OptionsSelectIdx = 0;
+    /* LB/RB or Left/Right to switch tabs */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Q, false)) {
+        s_OptionsTabIdx--;
+        if (s_OptionsTabIdx < 0) s_OptionsTabIdx = k_NumTabs - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
-        s_OptionsSelectIdx--;
-        if (s_OptionsSelectIdx < 0) s_OptionsSelectIdx = k_NumOpts - 1;
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_E, false)) {
+        s_OptionsTabIdx++;
+        if (s_OptionsTabIdx >= k_NumTabs) s_OptionsTabIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
+
+    /* B / Escape = back + save config */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        configSave("pd.ini");
         menuPopDialog();
         ImGui::End();
         return 1;
     }
 
-    float btnH = pdguiScale(36.0f);
+    /* Draw tab buttons */
+    float tabW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f
+                     - pdguiScale(4.0f) * (float)(k_NumTabs - 1)) / (float)k_NumTabs;
+    float tabH = pdguiScale(30.0f);
 
-    for (s32 i = 0; i < k_NumOpts; i++) {
-        bool isSel = (s_OptionsSelectIdx == i);
-        ImGui::PushID(i);
+    for (s32 t = 0; t < k_NumTabs; t++) {
+        if (t > 0) ImGui::SameLine(0.0f, pdguiScale(4.0f));
 
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), btnH);
-
-        bool clicked = ImGui::Button(k_Opts[i].label,
-                                     ImVec2(mw - pdguiScale(16.0f), btnH));
-        if (ImGui::IsItemHovered()) s_OptionsSelectIdx = i;
-
-        bool doThis = clicked ||
-                      (isSel && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                                 ImGui::IsKeyPressed(ImGuiKey_Enter, false)));
-        if (doThis) {
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(k_Opts[i].dlg);
-            ImGui::PopID();
-            ImGui::End();
-            return 1;
+        bool active = (s_OptionsTabIdx == t);
+        if (active) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
         }
-
+        ImGui::PushID(t);
+        if (ImGui::Button(k_TabNames[t], ImVec2(tabW, tabH))) {
+            if (!active) pdguiPlaySound(PDGUI_SND_FOCUS);
+            s_OptionsTabIdx = t;
+        }
         ImGui::PopID();
+        if (active) ImGui::PopStyleColor();
     }
+
+    ImGui::TextDisabled("LB / RB to switch tabs");
+    ImGui::Separator();
+
+    /* ---- Scrollable tab content ---- */
+    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0), false)) {
+        switch (s_OptionsTabIdx) {
+        case 0: renderOptionsAudio();    break;
+        case 1: renderOptionsVideo();    break;
+        case 2: renderOptionsControls(); break;
+        }
+    }
+    ImGui::EndChild();
 
     ImGui::End();
     return 1;
@@ -1974,6 +2399,17 @@ void pdguiMenuSoloMissionRegister(void)
     pdguiHotswapRegister(&g_SoloMissionOptionsMenuDialog,
                           renderOptions,               "Solo Options");
 
+    /* ---- Options sub-dialogs: no longer pushed (inline tabbed panel),
+     * but registered as NULL to block legacy renderers if reached. ---- */
+    pdguiHotswapRegister(&g_AudioOptionsMenuDialog,
+                          nullptr,  "Audio Opts (inline)");
+    pdguiHotswapRegister(&g_VideoOptionsMenuDialog,
+                          nullptr,  "Video Opts (inline)");
+    pdguiHotswapRegister(&g_MissionControlOptionsMenuDialog,
+                          nullptr,  "Control Opts (inline)");
+    pdguiHotswapRegister(&g_MissionDisplayOptionsMenuDialog,
+                          nullptr,  "Display Opts (inline)");
+
     /* ---- Keep legacy rendering — these have 3D model/controller previews ----
      * Registering with NULL renderFn forces PD-native rendering for these
      * dialogs while still blocking type-based fallback renderers. */
@@ -1987,7 +2423,7 @@ void pdguiMenuSoloMissionRegister(void)
                           nullptr,  "Control Style (legacy)");
 
     sysLogPrintf(LOG_NOTE,
-        "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 3 legacy");
+        "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 7 legacy/inline");
 }
 
 } /* extern "C" */
