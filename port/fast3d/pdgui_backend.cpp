@@ -43,6 +43,11 @@
 #include "pdgui_menus.h"
 #include "pdgui_charpreview.h"
 
+/* D5 Phase 2: Gamepad navigation helpers (wrap, accept/cancel, device detect) */
+#include "pdgui_nav.h"
+#include "config.h"
+#include "imgui/imgui_internal.h"
+
 /* Lobby sidebar — declared in pdgui_lobby.cpp */
 extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
 extern "C" void pdguiUpdateRender(void);
@@ -127,6 +132,56 @@ static SDL_Window *g_PdguiWindow = nullptr;
 
 extern "C" {
 
+/* D5 Phase 2: C++ trampoline for ImGui nav wrapping.
+ * Called from pdguiNavTickWrap() via function pointer to avoid
+ * requiring imgui_internal.h from C code. */
+static void navWrapTrampoline(void)
+{
+    ImGuiWindow *win = ImGui::GetCurrentWindow();
+    if (win) {
+        ImGui::NavMoveRequestTryWrapping(win, ImGuiNavMoveFlags_LoopY);
+    }
+}
+
+/* ---- Safe area implementation (D5 Phase 2) ---- */
+
+static float s_SafeMarginTop    = -1.0f;  /* -1 = auto-detect */
+static float s_SafeMarginBottom = -1.0f;
+static float s_SafeMarginLeft   = -1.0f;
+static float s_SafeMarginRight  = -1.0f;
+
+void pdguiSetSafeAreaMargins(float top, float bottom, float left, float right)
+{
+    s_SafeMarginTop    = top;
+    s_SafeMarginBottom = bottom;
+    s_SafeMarginLeft   = left;
+    s_SafeMarginRight  = right;
+}
+
+PdSafeArea pdguiGetSafeArea(void)
+{
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    float vw = (disp.x > 0.0f) ? disp.x : 1280.0f;
+    float vh = (disp.y > 0.0f) ? disp.y : 720.0f;
+    float aspect = vw / vh;
+
+    /* Default margins: ultrawide gets wider horizontal margins */
+    float defH = (aspect > 2.0f) ? 0.10f : 0.05f;  /* horizontal fraction */
+    float defV = 0.05f;                               /* vertical fraction */
+
+    float mt = (s_SafeMarginTop    >= 0.0f) ? s_SafeMarginTop    : defV;
+    float mb = (s_SafeMarginBottom >= 0.0f) ? s_SafeMarginBottom : defV;
+    float ml = (s_SafeMarginLeft   >= 0.0f) ? s_SafeMarginLeft   : defH;
+    float mr = (s_SafeMarginRight  >= 0.0f) ? s_SafeMarginRight  : defH;
+
+    PdSafeArea sa;
+    sa.x = vw * ml;
+    sa.y = vh * mt;
+    sa.w = vw - vw * ml - vw * mr;
+    sa.h = vh - vh * mt - vh * mb;
+    return sa;
+}
+
 void pdguiInit(void *sdlWindow)
 {
     if (g_PdguiInitialized) {
@@ -199,10 +254,26 @@ void pdguiInit(void *sdlWindow)
 
     /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
     pdguiThemeInit();
+
+    /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()
+     * can call ImGui::NavMoveRequestTryWrapping from C code. */
+    pdguiNavSetWrapCallback(navWrapTrampoline);
+
+    /* D5 Phase 2: Safe area margins — persist to pd.ini.
+     * -1.0 = auto-detect (default). 0.0–0.5 = manual override. */
+    configRegisterFloat("UI.SafeAreaTop",    &s_SafeMarginTop,    -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaBottom", &s_SafeMarginBottom, -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaLeft",   &s_SafeMarginLeft,   -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaRight",  &s_SafeMarginRight,  -1.0f, 0.5f);
 }
 
 void pdguiNewFrame(void)
 {
+    /* D5 Phase 2: Clear previous frame's accept/cancel state.
+     * Must run unconditionally (before early-return) so stale presses
+     * don't linger when menus are inactive. */
+    pdguiNavEndFrame();
+
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
@@ -565,6 +636,9 @@ s32 pdguiProcessEvent(void *sdlEvent)
         }
         return 1;
     }
+
+    /* ---- Track input device and buffer accept/cancel (Phase 2) ---- */
+    pdguiNavOnEvent(ev);
 
     /* ---- Forward to ImGui for internal state tracking ---- */
     /* ImGui always needs to see events (mouse position, key state, gamepad)

@@ -3,6 +3,99 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S163 — 2026-04-06 (D5 Phase 2 Session 2 + Infrastructure + Design)
+
+**Focus**: Wire nav into menus, safe area, LB/RB tabs, UX guidelines, UI scaling, dev window prune button, input SSOT design
+
+### What Was Done
+
+**Phase 2 Session 2 — Nav wired into menus**:
+- Main menu: LB/RB top-level view cycling, pdguiNavTickWrap() before End()
+- Room menu: LB/RB bumper tab switching (Combat Sim/Campaign/Counter-Op), pdguiNavTickWrap()
+- A/B gamepad buttons verified working via ImGui's built-in nav (no extra code needed)
+
+**Safe area system** (pdgui_backend.cpp + pdgui_nav.h):
+- PdSafeArea struct with per-edge independent margins (top/bottom/left/right, 0.0–0.25)
+- pdguiGetSafeArea() — auto-detects ultrawide (>2.0 aspect → 10% horizontal, 5% vertical)
+- pdguiSetSafeAreaMargins() — per-edge override
+- 4 configRegisterFloat entries for pd.ini persistence (UI.SafeAreaTop/Bottom/Left/Right)
+
+**Menu UX guidelines** committed to d5-full-menu-overhaul.md:
+- Controller nav rules (D-pad, wrapping, A/B/X/Y, LB/RB, 5-9 items per screen)
+- Layout patterns for PD2 (character grid, arena grid, split-panel settings, expandable bot list)
+- Visual feedback rules (multi-layered focus, audio cues, 150-300ms transitions)
+- Hybrid input rules (last device wins, 500ms debounce, dynamic button prompts)
+
+**UI scaling guidelines** committed:
+- Reference resolution 1080p, scale = viewport_height/1080
+- Concrete pixel sizes at every resolution (720p through 4K)
+- Font loading at scaled size (not FontGlobalScale)
+- Ultrawide clamping (max 2560px menu width, centered)
+
+**Input SSOT design spec** committed:
+- Tap/hold/double-tap recognition integrated into context stack dispatch
+- Per-context action maps (gameplay vs menu vs text input)
+- Fully rebindable (player sees "Hold X — Open Door")
+- Replaces CK_* mappings + inputmodes.c + ImGui hardcoded gamepad nav
+- Absorbs existing inputmodes.c timing infrastructure
+
+**Dev window improvements**:
+- PRUNE WORKTREES button (gold-bordered, link panel) — one-click cleanup
+- Git identity auto-config on startup (S161, carried forward)
+- Release auto-commit pipeline fix (S161, carried forward)
+
+**Worktree guidance updated**: Accept worktrees as tooling reality. Sessions must merge to dev + verify before done. Dispatch verifies main copy after each session.
+
+**Fixes carried forward from earlier in session**: JUMP_LANDING log removed, B-117 context stack reset on stage transition, base-ui auto-extract from ROM
+
+### Decisions
+- Phase 2 declared SUBSTANTIALLY COMPLETE (nav infrastructure, safe area, tab switching all done)
+- Input SSOT (tap/hold/double-tap unification) is a future phase, spec committed
+- Menu opacity stacking DEFERRED to post-OG-strip bugfix pass
+- System design guidelines needed for 8 major systems (menu/UI done, 7 remaining)
+- Dev window redesign added to backlog (visual layout + smart builds)
+
+### Next Steps
+- Phase 3: Full Menu Roster Port (61 screens remaining, ~12 sessions)
+- Build + test current changes
+- Prune worktrees from dev machine
+- Phase 3 Session 1: Solo Pause Menu (B-93, B-98) — highest priority menu
+
+---
+
+## Session S162 — 2026-04-06 (D5 Phase 2 Session 1 — Controller Navigation Infrastructure)
+
+**Focus**: Gamepad navigation helpers — D-pad wrapping, accept/cancel, device detection
+
+### What Was Done
+
+**New files created**:
+- `port/include/pdgui_nav.h` (85 lines) — C header with extern "C" guards. API: `pdguiNavOnEvent()`, `pdguiNavTickWrap()`, `pdguiNavAcceptPressed()`, `pdguiNavCancelPressed()`, `pdguiNavGetLastDevice()`, `pdguiNavIsGamepad()`, `pdguiNavEndFrame()`, `pdguiNavSetWrapCallback()`.
+- `port/src/pdgui_nav.c` (170 lines) — C implementation. Device detection with 500ms debounce, SDL event-based accept/cancel buffering, wrap callback pattern.
+
+**pdgui_backend.cpp modified** (27 lines added):
+- Included `pdgui_nav.h` + `imgui_internal.h`
+- `navWrapTrampoline()` — C++ function that calls `ImGui::NavMoveRequestTryWrapping(win, ImGuiNavMoveFlags_LoopY)` for current window
+- Registered wrap callback in `pdguiInit()`
+- `pdguiNavEndFrame()` called unconditionally at start of `pdguiNewFrame()` (clears previous frame's accept/cancel state even when menus are inactive — prevents stale presses)
+- `pdguiNavOnEvent()` called in `pdguiProcessEvent()` before ImGui event forwarding
+
+**Architecture decisions**:
+- Wrap uses ImGui's built-in `NavMoveRequestTryWrapping` with `LoopY` flag — no manual item index tracking needed
+- C/C++ boundary handled via function pointer callback (avoids including imgui_internal.h from C code)
+- Device detection uses raw vs. reported state with 500ms debounce to prevent flickering
+- Accept/cancel tracked at SDL event level (not ImGui key level) for frame-accurate detection
+- Per-frame state cleared at start of next frame (not end of current) to handle early-return paths in pdguiNewFrame/pdguiRender
+
+**Build verified**: Both pdgui_nav.c and pdgui_backend.cpp compile cleanly with -Wall -Wextra. Full build blocked by pre-existing environment temp file permission issue (unrelated).
+
+### Next Steps
+- Phase 2 Session 2: Device detection UI prompt switching, wire wrap calls into menu files
+- Phase 2 Session 3: Custom nav for character/arena drawers
+- Test in playtest: D-pad wrap, A=accept, B=cancel in main menu and room lobby
+
+---
+
 ## Session S161 — 2026-04-06 (D5 Phase 1 Session 4 + Playtest + Infrastructure)
 
 **Focus**: Input context lifecycle wiring, playtest verification, bug triage, infrastructure fixes
@@ -1426,43 +1519,4 @@ Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHe
 
 **E.2 — Lobby→gameplay mouse capture** (`menumgr.c`):
 - Added `restoreGameplayMouseCapture()` helper: checks `inputMouseIsLocked()` and applies `SDL_SetRelativeMouseMode(SDL_TRUE)`.
-- Called from `menuPop()` when stack empties and from `menuPopAll()`.
-- Root cause: `inputLockMouse(1)` defers the SDL call if `pdguiIsActive()` is true during the lobby→match transition. This restores it when the menu stack clears.
-
-**E.3 — Green tint bleed** (`pdgui_menu_mainmenu.cpp`, `pdgui_menu_endscreen.cpp`):
-- `renderMainMenu()`: `pdguiSetPalette(1)` at entry — defensive baseline for blue palette.
-- `renderSoloEndscreen` / `renderMpEndscreen`: save `prevPalette` before setting screen palette; restore at all exit paths (including early `Begin()` failure).
-
-### Build
-- Client (`pd`) and server (`pd-server`): both clean.
-
-### Decisions Made
-- Mouse restore in menumgr mirrors the existing `pdguiPauseMenuClose()` pattern.
-- Palette save/restore covers the transition frame where endscreen and main menu both render.
-- Main menu explicit set is defensive insurance; endscreen restore is the structural fix.
-
-### Next Steps
-- Playtest needed: post-mission buttons clickable, lobby→gameplay mouse capture, no green tint on main menu after mission complete.
-- Phase F (Spawn System Hardening + inputSetMode wiring) is next.
-
----
-
-## Session S123 -- 2026-04-02
-
-**Focus**: Phase D — Server Manifest Model (commit e517633)
-
-### What Was Done
-
-**8 files changed, 426 insertions / 55 deletions** — pushed to `dev`.
-
-**D.1 — `match_manifest_entry_t` gains `u8 sha256[32]`** (`netmanifest.h`):
-- New field carries SHA-256 for MANIFEST_TYPE_COMPONENT entries; zeroed for all other types.
-- Wire format only includes sha256 bytes when type == MANIFEST_TYPE_COMPONENT.
-
-**D.2 — `manifestBuildForHost()`** (`netmanifest.c`):
-- Client-callable; builds manifest from `g_MpSetup` (stage/weapons), `g_NetLocalClient->settings` (host body/head at slot 0), `g_MatchConfig.slots[]` (bots at slots 1..N), `modmgrGetMod()` (mods with SHA-256).
-- Called in `netmsgClcLobbyStartWrite()` at the end of CLC_LOBBY_START serialization.
-
-**D.3 — Host manifest embedded in CLC_LOBBY_START** (`netmsg.c`):
-- Server reads manifest via `manifestDeserialize`; supplements with other players' body/head from `g_NetClients[].settings`.
-- D.5: validates MANIFEST_TYPE_STAGE entry against arena-hash stagenum; logs warning on mismatch, uses arena hash for sa
+- Called from `menuPop()` when stack empties and from 

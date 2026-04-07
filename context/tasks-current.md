@@ -22,12 +22,46 @@
 
 ## ACTIVE: D5 Full Menu Overhaul
 
-**Master design doc**: `context/designs/d5-full-menu-overhaul.md`
+**Master design doc**: `context/designs/d5-full-menu-overhaul.md` (includes binding UX guidelines)
+
+---
+
+## HIGH PRIORITY: System Design Guidelines
+
+**Goal**: Each major infrastructure system gets a guideline document covering UX, architecture rules, and design constraints. These feed into a comprehensive game design document.
+
+| System | File | Status |
+|--------|------|--------|
+| **Menu/UI** | `designs/d5-full-menu-overhaul.md` (UX Guidelines section) | **DONE (S161)** — controller nav, layout patterns, visual feedback, accessibility |
+| **Input** | `designs/input-system-guidelines.md` | PLANNED — SSOT input system: tap/hold/double-tap recognition, per-context action maps, fully rebindable, replaces CK_* + ImGui hardcoded gamepad nav, absorbs inputmodes.c |
+| **Networking** | `designs/networking-ux-guidelines.md` | PLANNED — connection flow, error UX, lobby behavior, NAT transparency |
+| **Mod System** | `designs/mod-system-guidelines.md` | PLANNED — browser UX, creation workflow, theme customization, catalog integration |
+| **Audio** | `designs/audio-guidelines.md` | PLANNED — menu sounds, feedback cues, music transitions, spatial audio |
+| **Rendering/Visual** | `designs/visual-guidelines.md` | PLANNED — theme system, palette rules, PD-authentic styling, resolution scaling |
+| **Collision/Physics** | `designs/physics-guidelines.md` | PLANNED — capsule sweep, ground detection, coyote time, movement feel |
+| **Level Editor (Forge)** | `designs/forge-guidelines.md` | PLANNED — tool layout, creation workflow, testing loop, sharing |
+
+---
+
+## Backlog: Dev Window Redesign
+
+**Goal**: Modernize the dev window layout following the same UX guidelines as in-game menus. Keep release/version functionality unchanged.
+
+| Item | Priority | Detail |
+|------|----------|--------|
+| **Visual layout redesign** | MED | Follow menu UX guidelines: clear hierarchy, consistent sizing, labels left/controls right, adequate padding. Current layout is functional but organic/cluttered. |
+| **Smart builds** | MED | Incremental builds when clean isn't required. Detect when CMake cache is stale (source changes, CMakeLists.txt modified, compiler version changed) vs valid. Only clean when necessary. Skip configure if nothing changed since last configure. |
+| **Clean configure** | MED | Ensure CMake configure doesn't leave stale cache values. Currently the "clean build" toggle was removed (S50) — every build deletes build dirs. Smart builds would restore incremental as default, clean on demand. |
+| **PRUNE WORKTREES button** | **DONE (S161)** | Gold-bordered button in link panel. Prunes registry, removes orphaned dirs, deletes claude/* branches. |
+
+**Next action**: Create these as sessions allow, before implementation of each system. Menu/UI is the template.
+
+---
 
 | Phase | Status | Detail |
 |-------|--------|--------|
 | **Phase 1 — Input Context Stack** | **DONE (S158–S161)** | Stack API, 4 contexts, lifecycle wired, old system stripped. Playtest confirmed working. |
-| **Phase 2 — Controller Navigation** | **NEXT** | D-pad wrap, A/B accept/cancel, stick scroll, device detection, cheat input buffer. ~3 sessions. |
+| **Phase 2 — Controller Navigation** | **DONE (S162–S163)** | Nav module (pdgui_nav.h/c): device detection, wrap callback, A/B via ImGui nav. LB/RB tab switching wired into main menu + room menu. Safe area (pdguiGetSafeArea) with per-edge margins, ultrawide auto-detect, pd.ini persistence. Input SSOT design spec committed for future unification (tap/hold/double-tap, per-context action maps, replaces CK_* + ImGui gamepad nav). |
 | **Phase 3 — Full Menu Roster Port** | PLANNED | 120 screens total, 61 remaining (17 stubs + 3 OG forced + 13 OG native + 28 OG unregistered). ~12 sessions. |
 | **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
 | **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
@@ -239,5 +273,4 @@ Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 
 |-------|-------|-------------|--------|
 | **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
 | **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
-| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | **DONE** |
-| **Phase 4** | U-10 | Root-cause online bot 
+| **Phase 3** | U-8..U-9 | Network sync for new features + p

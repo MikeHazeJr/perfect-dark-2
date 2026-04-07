@@ -36,6 +36,10 @@
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
 
+extern "C" {
+#include "pdgui_nav.h"
+}
+
 /* ========================================================================
  * Forward declarations for game symbols
  * ======================================================================== */
@@ -2252,6 +2256,30 @@ static s32 renderMainMenu(struct menudialog *dialog,
         }
     }
 
+    /* LB/RB: cycle through top-level sub-views (1=Solo, 2=Settings, 3=Modding, 4=Online).
+     * From view 0 (hub), LB/RB enter the first/last sub-view.
+     * Wraps around: view 1 ← LB → view 4, view 4 → RB → view 1. */
+    if (!ImGui::IsWindowAppearing()) {
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+            if (s_MenuView <= 1) {
+                s_MenuView = 4;
+            } else {
+                s_MenuView--;
+            }
+            s_NeedsFocus = true;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+            if (s_MenuView >= 4 || s_MenuView == 0) {
+                s_MenuView = 1;
+            } else {
+                s_MenuView++;
+            }
+            s_NeedsFocus = true;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+    }
+
     if (s_MenuView == 0) {
         /* ================================================================
          * TOP LEVEL: Solo Play / Online Play / Change Agent / Settings
@@ -2582,6 +2610,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         s_NeedsFocus = true;  /* focus first widget when tab changes */
     }
     s_PrevSubTab = s_SettingsSubTab;
+
+    /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */
+    pdguiNavTickWrap();
 
     ImGui::End();
     return 1;  /* Handled */

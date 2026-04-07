@@ -43,6 +43,7 @@ extern "C" {
 #include "assetcatalog.h"
 #include "botvariant.h"
 #include "pdgui_charpreview.h"
+#include "pdgui_nav.h"
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
 
@@ -2082,6 +2083,24 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     static const char *s_TabNames[] = {
         "Combat Simulator", "Campaign", "Counter-Operative", "Level Editor"
     };
+    static const int s_NumTabs = 4;
+
+    /* LB/RB bumper tab switching: use a pending flag so SetSelected only fires
+     * for ONE frame after a bumper press, not continuously. */
+    static s32 s_BumperPendingTab = -1;
+
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        s_ActiveTab--;
+        if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
+        s_BumperPendingTab = s_ActiveTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        s_ActiveTab++;
+        if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
+        s_BumperPendingTab = s_ActiveTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
 
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.20f, 0.30f, 0.55f, 1.0f));
@@ -2089,8 +2108,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0.3f, 0.6f, 1.0f, 1.0f));
 
     if (ImGui::BeginTabBar("##room_tabs")) {
-        for (int t = 0; t < 4; t++) {
-            bool tabOpen = ImGui::BeginTabItem(s_TabNames[t]);
+        for (int t = 0; t < s_NumTabs; t++) {
+            ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+            if (s_BumperPendingTab == t) {
+                tabFlags |= ImGuiTabItemFlags_SetSelected;
+            }
+            bool tabOpen = ImGui::BeginTabItem(s_TabNames[t], nullptr, tabFlags);
             if (tabOpen) {
                 if (s_ActiveTab != t) {
                     s_ActiveTab = t;
@@ -2099,6 +2122,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 ImGui::EndTabItem();
             }
         }
+        s_BumperPendingTab = -1; /* Clear after tab bar processes it */
         ImGui::EndTabBar();
     }
 
@@ -2712,6 +2736,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
         ImGui::EndPopup();
     }
+
+    /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */
+    pdguiNavTickWrap();
 
     ImGui::End();
 

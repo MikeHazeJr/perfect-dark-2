@@ -546,6 +546,60 @@ $script:BtnOpenFolder.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:BtnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectRoot })
 $script:LinkPanel.Controls.Add($script:BtnOpenFolder)
 
+$script:BtnPruneWorktrees = New-Object System.Windows.Forms.Button
+$script:BtnPruneWorktrees.Text = "PRUNE WORKTREES"
+$script:BtnPruneWorktrees.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:BtnPruneWorktrees.FlatAppearance.BorderColor = $script:ColorGold
+$script:BtnPruneWorktrees.FlatAppearance.BorderSize = 1
+$script:BtnPruneWorktrees.ForeColor = $script:ColorGold
+$script:BtnPruneWorktrees.BackColor = [System.Drawing.Color]::FromArgb(58, 58, 58)
+$script:BtnPruneWorktrees.Font = New-UIFont 12 -Bold
+$script:BtnPruneWorktrees.Cursor = [System.Windows.Forms.Cursors]::Hand
+$script:BtnPruneWorktrees.Add_Click({
+    try {
+        $wtDir = Join-Path $script:ProjectRoot ".claude\worktrees"
+        $pruneOut = git -C $script:ProjectRoot worktree prune -v 2>&1
+        $removed = 0
+        if (Test-Path $wtDir) {
+            $dirs = Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue
+            foreach ($d in $dirs) {
+                try {
+                    Remove-Item $d.FullName -Recurse -Force -ErrorAction Stop
+                    $removed++
+                } catch {
+                    # Locked by active process — skip
+                }
+            }
+            # Remove empty worktrees dir
+            $remaining = (Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue).Count
+            if ($remaining -eq 0 -and (Test-Path $wtDir)) {
+                Remove-Item $wtDir -Force -ErrorAction SilentlyContinue
+            }
+        }
+        # Clean up orphaned claude/* branches
+        $branches = git -C $script:ProjectRoot branch --list 'claude/*' 2>$null
+        $branchCount = 0
+        if ($branches) {
+            foreach ($b in ($branches -split "`n")) {
+                $b = $b.Trim().TrimStart('* ')
+                if ($b -ne "" -and $b -match '^claude/') {
+                    git -C $script:ProjectRoot branch -D $b 2>$null | Out-Null
+                    $branchCount++
+                }
+            }
+        }
+        $msg = "Worktree prune complete.`n"
+        $msg += "  Git registry pruned`n"
+        $msg += "  $removed worktree directories removed`n"
+        $msg += "  $branchCount claude/* branches deleted"
+        if ($null -ne $script:TxtOutput) { Append-Output "[worktree] $msg" }
+        [System.Windows.Forms.MessageBox]::Show($msg, "Worktree Cleanup", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Worktree prune failed: $($_.Exception.Message)", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+    }
+})
+$script:LinkPanel.Controls.Add($script:BtnPruneWorktrees)
+
 $script:StatusPanel = New-Object System.Windows.Forms.Panel
 $script:StatusPanel.BackColor = $script:ColorBg
 $script:TabBuild.Controls.Add($script:StatusPanel)
@@ -1937,10 +1991,11 @@ function Invoke-FormResize {
             $lpY = $th - $linkH
             $script:LinkPanel.Location = New-Object System.Drawing.Point($pad, $lpY)
             $script:LinkPanel.Size     = New-Object System.Drawing.Size($heroW, $linkH)
-            $lbw = [math]::Floor($heroW * 0.48)
-            $lgap = $heroW - ($lbw * 2)
-            if ($null -ne $script:BtnOpenGitHub)  { $script:BtnOpenGitHub.Location  = New-Object System.Drawing.Point(0, 4); $script:BtnOpenGitHub.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
-            if ($null -ne $script:BtnOpenFolder) { $script:BtnOpenFolder.Location = New-Object System.Drawing.Point(($lbw + $lgap), 4); $script:BtnOpenFolder.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
+            $lbw = [math]::Floor($heroW * 0.31)
+            $lgap = [math]::Floor(($heroW - ($lbw * 3)) / 2)
+            if ($null -ne $script:BtnOpenGitHub)      { $script:BtnOpenGitHub.Location      = New-Object System.Drawing.Point(0, 4); $script:BtnOpenGitHub.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
+            if ($null -ne $script:BtnOpenFolder)      { $script:BtnOpenFolder.Location      = New-Object System.Drawing.Point(($lbw + $lgap), 4); $script:BtnOpenFolder.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
+            if ($null -ne $script:BtnPruneWorktrees)  { $script:BtnPruneWorktrees.Location  = New-Object System.Drawing.Point(($lbw * 2 + $lgap * 2), 4); $script:BtnPruneWorktrees.Size = New-Object System.Drawing.Size($lbw, ($linkH - 8)) }
         }
         # Playtest header buttons
         if ($null -ne $script:QcHeaderPanel) {
