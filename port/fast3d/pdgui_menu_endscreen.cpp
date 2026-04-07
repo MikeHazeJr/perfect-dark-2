@@ -158,6 +158,9 @@ void pdguiSetInRoom(s32 inRoom);
 void pdguiSoloRoomOpen(void);
 void pdguiSoloRoomReturn(void); /* U-12: return to room preserving config */
 
+/* Config persistence */
+s32 configSave(const char *fname);
+
 /* Dialog definitions for registration */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
@@ -867,6 +870,61 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     if (woc && woc[0]) {
         ImGui::Spacing();
         ImGui::TextDisabled("  Weapon of Choice: %s", woc);
+    }
+
+    /* ----- Your Stats (local player combat breakdown) ----------------- */
+    {
+        ImGui::Spacing();
+        SectionHeader("YOUR STATS");
+
+        s32 kills      = mpstatsGetPlayerKillCount();
+        s32 totalShots = mpstatsGetPlayerShotCountByRegion(ES_SHOT_TOTAL);
+        s32 headShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HEAD);
+        s32 bodyShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_BODY);
+        s32 limbShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_LIMB);
+        s32 gunShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_GUN);
+        s32 hatShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HAT);
+        s32 objShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_OBJECT);
+
+        char killBuf[16];
+        snprintf(killBuf, sizeof(killBuf), "%d", kills);
+        StatRow("  Kills:", killBuf);
+
+        float accuracy = 0.0f;
+        char accuracyBuf[32] = "0.0%";
+        if (totalShots > 0) {
+            s32 hits = headShots + bodyShots + limbShots + gunShots + hatShots + objShots;
+            accuracy = (float)hits / (float)totalShots;
+            if (accuracy > 1.0f) accuracy = 1.0f;
+            snprintf(accuracyBuf, sizeof(accuracyBuf), "%.1f%%", accuracy * 100.0f);
+        }
+        StatRow("  Accuracy:", accuracyBuf);
+
+        /* Accuracy bar */
+        {
+            float barW = contentW * 0.4f;
+            float barH = pdguiScale(8.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(12.0f));
+
+            ImVec4 barColor;
+            if (accuracy >= 0.60f)      barColor = ImVec4(0.2f, 0.85f, 0.35f, 0.9f);
+            else if (accuracy >= 0.30f) barColor = ImVec4(0.95f, 0.75f, 0.1f, 0.9f);
+            else                        barColor = ImVec4(0.85f, 0.25f, 0.25f, 0.9f);
+
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.2f, 0.8f));
+            ImGui::ProgressBar(accuracy, ImVec2(barW, barH), "");
+            ImGui::PopStyleColor(2);
+        }
+
+        ImGui::Spacing();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.75f, 1.0f));
+        ImGui::Text("  Head %d  Body %d  Limb %d",
+                    headShots, bodyShots, limbShots);
+        ImGui::Text("  Other %d  Total %d",
+                    gunShots + hatShots + objShots, totalShots);
+        ImGui::PopStyleColor();
     }
 
     ImGui::EndChild();

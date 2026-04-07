@@ -3,6 +3,46 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S175 — 2026-04-07 (M2.2 — MP Match Flow Improvements)
+
+**Focus**: MP endscreen flow improvements: B-117 root cause fix, player stats display, auto-save on match exit.
+
+### What Was Done
+
+**B-117 FIXED: Crash on match exit** (1 file — pdgui_bridge.c):
+- **Root cause identified**: `pdguiEndscreenExitToMainMenu()` called `func0f0f8120()` (legacy menu pop-all) but never popped the `g_CtxImGuiMenu` input context that was pushed on window appear. The stale context survived the stage transition, causing the crash.
+- **Fix**: Added `inputCtxPopDeferred(&g_CtxImGuiMenu)` guard to `pdguiEndscreenExitToMainMenu()`, matching the existing pattern in `pdguiEndscreenStartMission()` and `pdguiEndscreenNextMission()`.
+- Note: B-117 was previously PARTIAL FIX (S161) with context stack reset on stage transition. This fix addresses the actual leak source.
+
+**MP endscreen player stats section** (1 file — pdgui_menu_endscreen.cpp):
+- Added "YOUR STATS" section to the MP endscreen showing local player's combat breakdown: kills, accuracy (with color-coded progress bar), shot region breakdown (head/body/limb/other/total).
+- Same data sources as solo endscreen (`mpstatsGetPlayerKillCount`, `mpstatsGetPlayerShotCountByRegion`).
+- Section appears after awards/medals, before action buttons, inside the scrollable content area.
+
+**Auto-save on match exit** (1 file — pdgui_bridge.c):
+- `configSave("pd.ini")` called at top of `pdguiEndscreenExitToMainMenu()`.
+- PC has no pak/memory card — auto-save replaces the N64's "Save Player?" prompt.
+
+**Match start → gameplay verified**:
+- `matchStart()` is fully catalog-native: resolves `scenario_id`, `stage_id`, `weapon_ids[]`, `spawn_weapon_id`, body/head — all from catalog at last-moment handoff. Confirmed solid (already verified in M2.1/S172).
+
+**B-115 verified FIXED** (S170): `g_CtxImGuiMenu` push on window appear already present in MP endscreen at line 712-716.
+
+### Code Changes (2 files)
+- **port/fast3d/pdgui_bridge.c**: B-117 fix (context pop) + auto-save (`configSave`) + `config.h` include
+- **port/fast3d/pdgui_menu_endscreen.cpp**: Player stats section + `configSave` declaration
+
+### Decisions
+- Auto-save on match exit rather than prompt — PC has persistent config, no need for N64-style save dialog
+- Stats section uses same bridge functions as solo endscreen — consistent data source
+- Context pop goes in bridge function (shared exit path) rather than each button handler — single fix covers all exit paths (Return to Room, Disconnect, Play Again, Quit, Esc, Enter)
+
+### Next Steps
+- Build verification (Mike)
+- M2.3 or D5 Phase 3 continuation
+
+---
+
 ## Session S173 — 2026-04-07 (M0.1d — Remaining Asset Type Catalog Signature Migration)
 
 **Focus**: Audit and migrate remaining 7 asset types (texture, audio, animation, gamemode, lang, prop, HUD) at public function boundaries.
