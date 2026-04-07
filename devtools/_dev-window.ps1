@@ -1729,9 +1729,9 @@ $script:BuildTimer.Add_Tick({
 
 function Start-PushRelease {
     if ($script:IsPushing -or $script:IsBuilding) { return }
-    $releaseScript = Join-Path $script:ProjectRoot "release.ps1"
+    $releaseScript = Join-Path $script:ProjectRoot "devtools" "release.ps1"
     if (-not (Test-Path $releaseScript)) {
-        [System.Windows.Forms.MessageBox]::Show("release.ps1 not found in project root.", "Release Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("release.ps1 not found in devtools/.", "Release Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
         return
     }
     $ver = Get-UiVersion
