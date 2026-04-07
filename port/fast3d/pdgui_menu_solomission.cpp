@@ -39,6 +39,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 #include "system.h"
 #include "inputctx.h"
 
@@ -148,6 +149,10 @@ bool         isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
 void         lvSetDifficulty(s32 difficulty);
+s32          lvGetDifficulty(void);
+s32          objectiveGetCount(void);
+s32          objectiveCheck(s32 index);
+void         mainChangeToStage(s32 stagenum);
 extern s32   g_MpPlayerNum;
 
 /* Accept / abort mission — only MENUOP_SET branch used; item/data may be NULL */
@@ -1205,8 +1210,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* Number of nav items: Resume + Inventory + Options + Abort */
-    static const s32 k_NumPauseItems = 4;
+    /* Nav items: Resume + Restart + Inventory + Options + Abort */
+    static const s32 k_NumPauseItems = 5;
     if (s_PauseSelectIdx < 0)                s_PauseSelectIdx = 0;
     if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = k_NumPauseItems - 1;
 
@@ -1226,33 +1231,78 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
                      ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
-    /* ---- Objectives (read-only display) ---- */
-    float objH  = mh - titleH - pdguiScale(60.0f) - pdguiScale(38.0f * 4.0f);
+    /* ---- Objectives with completion status ---- */
+    /* Height = total - title - separators/padding - 5 action buttons */
+    float objH = mh - titleH - pdguiScale(60.0f) - pdguiScale(38.0f * 5.0f);
     if (objH < pdguiScale(60.0f)) objH = pdguiScale(60.0f);
+
+    s32 curDiff = lvGetDifficulty();
+    s32 objCount = objectiveGetCount();
 
     if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH), false,
                            ImGuiWindowFlags_None)) {
         bool anyObj = false;
-        for (s32 i = 0; i < 6; i++) {
+        /* objectivenames[0] is the briefing text; objectives are indices 1-5.
+         * Each maps to runtime objective index (i-1) for objectiveCheck(). */
+        for (s32 i = 1; i < 6; i++) {
             if (g_Briefing.objectivenames[i] == 0) continue;
+            /* Skip objectives not active at current difficulty */
+            if (g_Briefing.objectivedifficulties[i] != 0 &&
+                    !((g_Briefing.objectivedifficulties[i] >> curDiff) & 1)) {
+                continue;
+            }
             anyObj = true;
 
-            float dotSz = pdguiScale(8.0f);
-            ImVec2 cp = ImGui::GetCursorScreenPos();
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            dl->AddCircleFilled(
-                ImVec2(cp.x + dotSz * 0.5f + pdguiScale(4.0f),
-                       cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(2.0f)),
-                dotSz * 0.5f,
-                IM_COL32(80, 160, 255, 200));
+            /* Completion status for runtime objective index (0-based) */
+            s32 objIdx = i - 1;
+            s32 status = (objIdx < objCount) ? objectiveCheck(objIdx) : 0;
+            /* status: 0=INCOMPLETE, 1=COMPLETE, 2=FAILED */
 
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
-            ImGui::PushTextWrapPos(mw - pdguiScale(20.0f));
+            float iconSz = pdguiScale(10.0f);
+            ImVec2 cp    = ImGui::GetCursorScreenPos();
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            float iconCx = cp.x + iconSz * 0.5f + pdguiScale(4.0f);
+            float iconCy = cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(1.0f);
+
+            if (status == 1) {
+                /* COMPLETE — green circle with checkmark */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(50, 190, 70, 230));
+                float r = iconSz * 0.26f;
+                dl->AddLine(ImVec2(iconCx - r, iconCy),
+                            ImVec2(iconCx - r * 0.2f, iconCy + r),
+                            IM_COL32(255, 255, 255, 240), 1.5f);
+                dl->AddLine(ImVec2(iconCx - r * 0.2f, iconCy + r),
+                            ImVec2(iconCx + r, iconCy - r),
+                            IM_COL32(255, 255, 255, 240), 1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.55f, 1.0f));
+            } else if (status == 2) {
+                /* FAILED — red circle with X */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(200, 40, 40, 220));
+                float r = iconSz * 0.24f;
+                dl->AddLine(ImVec2(iconCx - r, iconCy - r),
+                            ImVec2(iconCx + r, iconCy + r),
+                            IM_COL32(255, 255, 255, 230), 1.5f);
+                dl->AddLine(ImVec2(iconCx + r, iconCy - r),
+                            ImVec2(iconCx - r, iconCy + r),
+                            IM_COL32(255, 255, 255, 230), 1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.5f, 1.0f));
+            } else {
+                /* INCOMPLETE — blue pending dot */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(80, 140, 220, 180));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.0f, 1.0f));
+            }
+
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + iconSz + pdguiScale(10.0f));
+            ImGui::PushTextWrapPos(mw - pdguiScale(16.0f));
             ImGui::TextUnformatted(langSafe(g_Briefing.objectivenames[i]));
             ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
         }
         if (!anyObj) {
-            ImGui::TextDisabled("(No mission data)");
+            ImGui::TextDisabled("(No objectives)");
         }
     }
     ImGui::EndChild();
@@ -1264,12 +1314,13 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     struct PauseBtn { const char *label; s32 idx; };
     const PauseBtn k_Btns[] = {
         { "Resume",                 0 },
-        { langSafe(L_OPTIONS_178),  1 },  /* "Inventory" */
-        { "Options",                2 },
-        { langSafe(L_OPTIONS_173),  3 },  /* "Abort!" */
+        { "Restart Mission",        1 },
+        { langSafe(L_OPTIONS_178),  2 },  /* "Inventory" */
+        { "Options",                3 },
+        { langSafe(L_OPTIONS_173),  4 },  /* "Abort!" */
     };
 
-    for (s32 b = 0; b < 4; b++) {
+    for (s32 b = 0; b < 5; b++) {
         bool isSel = (s_PauseSelectIdx == k_Btns[b].idx);
         ImGui::PushID(b);
 
@@ -1277,11 +1328,11 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), btnH);
 
         /* Abort gets a red tint */
-        if (b == 3) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+        if (b == 4) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
 
         bool clicked = ImGui::Button(k_Btns[b].label,
                                      ImVec2(mw - pdguiScale(16.0f), btnH));
-        if (b == 3) ImGui::PopStyleColor();
+        if (b == 4) ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_PauseSelectIdx = k_Btns[b].idx;
 
@@ -1292,15 +1343,19 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 menuPopDialog();
                 break;
-            case 1: /* Inventory (uses legacy 3D renderer via NULL registration) */
+            case 1: /* Restart Mission */
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                mainChangeToStage(g_MissionConfig.stagenum);
+                break;
+            case 2: /* Inventory (uses legacy 3D renderer via NULL registration) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 menuPushDialog(&g_SoloMissionInventoryMenuDialog);
                 break;
-            case 2: /* Options */
+            case 3: /* Options */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 menuPushDialog(&g_SoloMissionOptionsMenuDialog);
                 break;
-            case 3: /* Abort! */
+            case 4: /* Abort! */
                 pdguiPlaySound(PDGUI_SND_ERROR);
                 menuPushDialog(&g_MissionAbortMenuDialog);
                 break;
@@ -1312,6 +1367,15 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
         ImGui::PopID();
     }
+
+    /* B button / Escape = Resume */
+    if (pdguiNavCancelPressed() || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+        ImGui::End();
+        return 1;
+    }
+    pdguiNavTickWrap();
 
     ImGui::End();
     return 1;

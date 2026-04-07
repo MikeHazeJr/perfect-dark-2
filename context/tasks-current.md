@@ -6,11 +6,12 @@
 
 ---
 
-## Recently Completed (S157–S161 — 2026-04-06)
+## Recently Completed (S157–S162 — 2026-04-06)
 
 | Item | Status |
 |------|--------|
 | **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
+| **D5 Phase 3 S1 — Solo Pause Menu (B-93, B-98) (S162)** | **DONE** — `pdgui_menu_solomission.cpp`: 5-button pause menu (Resume/Restart Mission/Inventory/Options/Abort), objectives checklist with difficulty-filtered completion icons (✓/✗/●), B-button/Escape cancel, D-pad wrap. Fixed objective loop starting at index 1 (not 0). `mainChangeToStage()` for restart. Build clean. |
 | **Networking: Client hole punch wired in (S157)** | **DONE** — All 3 client join sites use `netStartClientWithHolePunch()`. Waterfall confirmed working in playtest (direct→punch→retry). |
 | **Server stage log cleanup (S157)** | **DONE** — Stage registration gated behind `g_NumStages > 0`. Server no longer logs "0 stages". |
 | **extern "C" guards: fs.h + config.h (S157)** | **DONE** — Fixed linker errors from D5.0 commit. |
@@ -62,7 +63,7 @@
 |-------|--------|--------|
 | **Phase 1 — Input Context Stack** | **DONE (S158–S161)** | Stack API, 4 contexts, lifecycle wired, old system stripped. Playtest confirmed working. |
 | **Phase 2 — Controller Navigation** | **DONE (S162–S163)** | Nav module (pdgui_nav.h/c): device detection, wrap callback, A/B via ImGui nav. LB/RB tab switching wired into main menu + room menu. Safe area (pdguiGetSafeArea) with per-edge margins, ultrawide auto-detect, pd.ini persistence. Input SSOT design spec committed for future unification (tap/hold/double-tap, per-context action maps, replaces CK_* + ImGui gamepad nav). |
-| **Phase 3 — Full Menu Roster Port** | PLANNED | 120 screens total, 61 remaining (17 stubs + 3 OG forced + 13 OG native + 28 OG unregistered). ~12 sessions. |
+| **Phase 3 — Full Menu Roster Port** | **IN PROGRESS** | 120 screens total, 61 remaining. **S162 (2026-04-06): Solo Pause Menu (B-93, B-98) DONE** — 5 buttons (Resume/Restart/Inventory/Options/Abort), objectives checklist with completion icons, difficulty filtering, B-button cancel, D-pad wrap. Build clean. |
 | **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
 | **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
 

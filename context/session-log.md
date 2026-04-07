@@ -3,6 +3,36 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S164 — 2026-04-06 (D5 Phase 3 Session 1 — Solo Pause Menu)
+
+**Focus**: Implement proper ImGui pause menu for solo missions (B-93, B-98)
+
+### What Was Done
+
+**`port/fast3d/pdgui_menu_solomission.cpp`** — `renderPauseMenu()` rewritten:
+- Added extern "C" declarations: `lvGetDifficulty()`, `objectiveGetCount()`, `objectiveCheck()`, `mainChangeToStage()`
+- Added `#include "pdgui_nav.h"`
+- **Objectives display**: Fixed loop to start at i=1 (index 0 = briefing text, not an objective). Added difficulty filtering via `g_Briefing.objectivedifficulties[i]` bit test. Added completion status icons (green circle+checkmark = complete, red circle+X = failed, blue dot = incomplete) with text color coding.
+- **Button array**: 5 buttons — Resume (0), Restart Mission (1), Inventory (2), Options (3), Abort! (4). Restart uses `mainChangeToStage(g_MissionConfig.stagenum)` (not the nonexistent `menuStop()`).
+- **Nav**: B-button/Escape cancel handler calls `menuPopDialog()`. `pdguiNavTickWrap()` for D-pad wrap.
+- `k_NumPauseItems` updated from 4 to 5 for correct D-pad item count.
+- Build: clean (only pre-existing line 29 comment warning).
+
+### Decisions
+- `menuStop()` has no definition anywhere — cannot use it. Restart Mission goes directly to `mainChangeToStage()`.
+- Objective loop must start at i=1 (index 0 is briefing text, not an objective).
+- `objectiveCheck(objIdx)` takes 0-based index, so objIdx = i - 1.
+
+### Bugs Fixed
+- **B-93**: Pause menu now has Abort, Restart, objective checklist ✓
+- **B-98**: OG rendering fallback suppressed — `pdguiHotswapRegister` registration ensures ImGui fires instead ✓
+
+### Next Steps
+- Playtest: verify pause menu renders, objectives show correctly, Restart/Abort work
+- Phase 3 Session 2: next priority screen from d5-full-menu-overhaul.md
+
+---
+
 ## Session S163 — 2026-04-06 (D5 Phase 2 Session 2 + Infrastructure + Design)
 
 **Focus**: Wire nav into menus, safe area, LB/RB tabs, UX guidelines, UI scaling, dev window prune button, input SSOT design
