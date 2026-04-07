@@ -6,11 +6,12 @@
 
 ---
 
-## Recently Completed (S157–S175 — 2026-04-07)
+## Recently Completed (S157–S176 — 2026-04-07)
 
 | Item | Status |
 |------|--------|
-| **M2.2 — MP Match Flow (S175)** | **DONE** — B-117 FIXED (stale `g_CtxImGuiMenu` context on match exit → crash; added `inputCtxPopDeferred` to `pdguiEndscreenExitToMainMenu`). MP endscreen stats section (kills, accuracy bar, shot breakdown). Auto-save on match exit (`configSave`). Match start → gameplay verified solid. B-115 confirmed fixed (S170). |
+| **S176 — B-115 Fix + M2.1 Polish** | **DONE** — B-115: legacy Save Player + Confirm Name dialogs suppressed (noop renderers), auto-save handles PC saving. M2.1 arena selection verified catalog-native (browsing works, preview images need base-ui textures Phase 4). Game mode selection verified: all 6 modes set `scenario_id` PRIMARY via catalog. M2.1 **COMPLETE**, M2.2 **COMPLETE**. |
+| **M2.2 — MP Match Flow (S175)** | **DONE** — B-117 FIXED (stale `g_CtxImGuiMenu` context on match exit → crash; added `inputCtxPopDeferred` to `pdguiEndscreenExitToMainMenu`). MP endscreen stats section (kills, accuracy bar, shot breakdown). Auto-save on match exit (`configSave`). Match start → gameplay verified solid. |
 | **M2.1 — Combat Sim UI Catalog Audit (S172)** | **DONE** — Full audit: arena selection, weapon set config, bot config, game mode selection, match start flow — all already catalog-native after M0.1a/b/c. Only change: stale header comment fix. Zero functional changes needed. |
 | **M1.2 — Solo Mission Flow (S170)** | **DONE** — B-122 fixed (endscreen mouse: deferred flush guard → `pdguiIsActive()`, per-frame `inputCtxSyncMouseMode()`, manual SDL calls removed from endscreen). B-124 fixed (Esc race: `push_tick` + `inputCtxShouldSuppressKey()` + 100ms grace period). Next Mission flow verified (catalog-first pattern confirmed working, B-123 fix solid). 5 files changed. |
 | **M1.1 — Campaign Mission Select Redesign (S168)** | **DONE** — Two-panel layout: left=mission list (unlock filter, blip dots, chapter headings), right=detail (inline difficulty picker, objectives from game data, briefing preview, Start button). Single-screen flow replaces 3-dialog chain. New `soloLoadBriefingForStageId()` helper. B-90, B-91, B-96 all fixed. Also fixed missing `<string.h>` in bg.c/bodyreset.c from M0.1a. Build clean. |

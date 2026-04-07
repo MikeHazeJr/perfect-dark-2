@@ -3,6 +3,43 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S176 — 2026-04-07 (B-115 Fix + M2.1 Combat Sim Polish)
+
+**Focus**: Fix B-115 (post-game mouse), verify M2.1 arena selection and game mode selection completeness.
+
+### What Was Done
+
+**B-115 Fixed — Legacy endscreen dialogs suppressed**:
+- Root cause: `g_MpEndscreenSavePlayerMenuDialog` (mpingame.cpp) and `g_MpEndscreenConfirmNameMenuDialog` (warning.cpp) were registered with `NULL` renderFn — forcing PD native rendering. Legacy menus rendered on top of ImGui endscreen and stole input.
+- Fix: Changed both to `renderNoop` (suppressed). Auto-save via `configSave("pd.ini")` in `pdguiEndscreenExitToMainMenu()` handles PC saving. N64 Controller Pak save dialogs are redundant.
+- Added `renderNoop` function to `pdgui_menu_warning.cpp` (already existed in mpingame.cpp and endscreen.cpp).
+
+**M2.1 Arena Selection — Verified COMPLETE**:
+- `buildArenaListFromCatalog()` iterates all `ASSET_ARENA` entries. Combo picker stores catalog ID in `g_MatchConfig.stage_id`. Both solo and network paths use catalog strings.
+- Preview images not functional — requires base-ui texture extraction (known Phase 4 item, not a blocker).
+
+**M2.1 Game Mode Selection — Verified COMPLETE**:
+- Scenario combo picks from 6 modes (Combat, Hold the Briefcase, Hacker Central, Pop a Cap, King of the Hill, Capture the Case).
+- Sets both `g_MatchConfig.scenario` (u8 for legacy) and `g_MatchConfig.scenario_id` (PRIMARY) via `catalogIdByRuntime(ASSET_GAMEMODE, si)`.
+- All 6 modes functional after M0.1d migration (S173).
+
+### Code Changes (3 files)
+- **port/fast3d/pdgui_menu_mpingame.cpp**: Save Player dialog: `NULL` → `renderNoop` (B-115)
+- **port/fast3d/pdgui_menu_warning.cpp**: Added `renderNoop`, Confirm Name: `NULL` → `renderNoop` (B-115)
+- **port/fast3d/pdgui_menu_endscreen.cpp**: Updated comment about suppressed dialogs
+
+### Decisions
+- Both N64 save dialogs redundant on PC — auto-save already wired in S175
+- M2.1 marked COMPLETE: all 4 sub-items verified (arena, weapons, bots, game modes)
+- Preview images deferred to Phase 4 (base-ui texture extraction) — not a functional blocker
+
+### Next Steps
+- Build verification (Mike)
+- M2.1 COMPLETE, M2.2 COMPLETE → M2 gate check
+- Next: M2.3 (stats/progression), M3 (online MP), or M1.2 completion (briefings/endscreens)
+
+---
+
 ## Session S175 — 2026-04-07 (M2.2 — MP Match Flow Improvements)
 
 **Focus**: MP endscreen flow improvements: B-117 root cause fix, player stats display, auto-save on match exit.

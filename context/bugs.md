@@ -46,6 +46,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-115 | Post-game mouse unresponsive — legacy Save Player + Confirm Name dialogs rendered native, stealing input from ImGui endscreen. Suppressed both as noop. | S176 — pdgui_menu_mpingame.cpp, pdgui_menu_warning.cpp |
 | B-114 | CMakeLists.txt corruption — ~30MB of garbage bytes injected at lines 181 and 532 by devtools encoding bug; broke all builds | S148 — CMakeLists.txt (b84c6ba) |
 | B-113 | Stack overflow → silent crash in 31-bot matches — 2MB default stack exhausted in deep AI/collision chains; UEF double-faulted (8KB on stack); process died with no log. Fixed: 8MB reserve + VEH with static buffers | S150 — CMakeLists.txt / crash.c / system.c (85928d9) |
 | B-111 | Bot stuck-detection all 31 bots fire simultaneously at frame 180 — `s_BotStuck` zero-initialized, bogus distance-from-origin comparison on first check → all bots marked stuck at frame 180 | S150 — bot.c (87b3388) |

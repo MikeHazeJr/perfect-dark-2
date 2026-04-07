@@ -1116,7 +1116,7 @@ extern "C" void pdguiMenuEndscreenRegister(void)
     pdguiHotswapRegister(&g_MpEndscreenPlayerStatsMenuDialog,
                          noopRender, "MP Player Stats");
 
-    /* NOTE: g_MpEndscreenSavePlayerMenuDialog and g_MpEndscreenConfirmNameMenuDialog
-     * are intentionally NOT registered here — they use legacy keyboard input and
-     * are left as PD native rendering. */
+    /* g_MpEndscreenSavePlayerMenuDialog suppressed in pdgui_menu_mpingame.cpp (B-115).
+     * g_MpEndscreenConfirmNameMenuDialog suppressed in pdgui_menu_warning.cpp (B-115).
+     * Both redundant on PC — auto-save via configSave("pd.ini") handles saving. */
 }

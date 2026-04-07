@@ -359,6 +359,13 @@ static s32 renderSuccessDialog(struct menudialog *dialog,
 }
 
 /* ========================================================================
+ * Noop render — suppresses a dialog without drawing anything
+ * ======================================================================== */
+
+static s32 renderNoop(struct menudialog * /*dialog*/, struct menu * /*menu*/,
+                      s32 /*winW*/, s32 /*winH*/) { return 1; }
+
+/* ========================================================================
  * Registration
  * ======================================================================== */
 
@@ -410,7 +417,8 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegister(&g_FilemgrFileSavedMenuDialog, NULL, "File Saved (native)");
     pdguiHotswapRegister(&g_MpPlayerNameMenuDialog, NULL, "Player Name (native)");
     pdguiHotswapRegister(&g_MpSaveSetupNameMenuDialog, NULL, "Save Setup Name (native)");
-    pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, NULL, "Confirm Name (native)");
+    /* B-115 fix: suppress Confirm Name — redundant on PC (auto-save handles it) */
+    pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, renderNoop, "Confirm Name (suppressed)");
     pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
     pdguiHotswapRegister(&g_MpReadyMenuDialog, NULL, "MP Ready (native)");
     /* mpsetups dialogs (port-added) */
