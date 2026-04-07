@@ -3818,11 +3818,14 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* Phase 8: per-slot weapon catalog ID via cached lookup */
+	/* M0.1c: per-slot weapon catalog ID — prefer weapon_ids[] (PRIMARY),
+	 * fall back to runtime resolution from g_MpSetup.weapons[]. */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			if (g_MpSetup.weapons[wi] == 0) {
+			if (g_MatchConfig.weapon_ids[wi][0]) {
+				netbufWriteStr(dst, g_MatchConfig.weapon_ids[wi]);
+			} else if (g_MpSetup.weapons[wi] == 0) {
 				netbufWriteStr(dst, "");
 			} else {
 				const char *wcanon = catalogIdByRuntime(

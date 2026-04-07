@@ -276,21 +276,22 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"options\": %u,\n",      (unsigned)g_MatchConfig.options);
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
 
-    /* FIX-22: Individual weapon slot picks as catalog string IDs + legacy integers.
-     * "weapon_id%d" is the catalog string ID (universality principle).
-     * "weapon%d" is kept for backward-compatible reading of old saves. */
+    /* M0.1c: weapon_ids[] are PRIMARY — write catalog ID strings directly.
+     * Legacy "weapon%d" integers kept for backward-compatible reading of old saves. */
     for (s32 slot = 0; slot < 6; slot++) {
+        /* Prefer weapon_ids[] (PRIMARY). Fall back to runtime resolution if empty. */
+        const char *wid = g_MatchConfig.weapon_ids[slot][0]
+            ? g_MatchConfig.weapon_ids[slot]
+            : matchGetWeaponSlotCatalogId(slot);
         s32 wval = mpGetWeaponSlot(slot);
-        /* Resolve MPWEAPON_* integer to catalog ID by scanning ASSET_WEAPON entries */
-        const char *wid = NULL;
-        for (s32 wi = 0; ; wi++) {
-            const asset_entry_t *we = assetCatalogGetByIndex(wi);
-            if (!we) break;
-            if (we->type == ASSET_WEAPON && we->ext.weapon.weapon_id == wval) { wid = we->id; break; }
-        }
         fprintf(fp, "  \"weapon_id%d\": \"%s\",\n", slot, wid ? wid : "");
         fprintf(fp, "  \"weapon%d\": %d,\n", slot, wval);
     }
+
+    /* M0.1c: spawn weapon as catalog ID string (PRIMARY) */
+    fprintf(fp, "  \"spawnWeaponId\": \"");
+    jsonEscapeStr(fp, g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "");
+    fprintf(fp, "\",\n");
 
     /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
     fprintf(fp, "  \"bots\": [\n");
@@ -420,12 +421,18 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     g_MatchConfig.weaponSetIndex   = (s8)weaponset;
     mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
 
-    /* FIX-22: Restore weapon slot picks — prefer catalog string ID over raw integer. */
+    /* M0.1c: Restore weapon slot picks — catalog ID string is PRIMARY.
+     * Populate weapon_ids[] and derive weapons[] / g_MpSetup.weapons[]. */
     for (s32 slot = 0; slot < 6; slot++) {
         char idkey[24], wkey[16], idbuf[128];
         snprintf(idkey, sizeof(idkey), "weapon_id%d", slot);
         snprintf(wkey,  sizeof(wkey),  "weapon%d",    slot);
         if (jsonFindString(buf, idkey, idbuf, sizeof(idbuf)) && idbuf[0]) {
+            /* Set PRIMARY catalog ID */
+            strncpy(g_MatchConfig.weapon_ids[slot], idbuf,
+                    sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
+            g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
+            /* Derive integer for legacy engine */
             const asset_entry_t *we = assetCatalogResolve(idbuf);
             if (we && we->type == ASSET_WEAPON) {
                 s32 wval = (s32)we->ext.weapon.weapon_id;
@@ -433,13 +440,31 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 g_MatchConfig.weapons[slot] = (u8)wval;
             }
         } else {
-            /* Legacy fallback: raw MPWEAPON_* integer from old saves. */
+            /* Legacy fallback: raw MPWEAPON_* integer from old saves.
+             * Reverse-resolve to catalog ID for weapon_ids[]. */
             s32 wval = -1;
             if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
                 mpSetWeaponSlot(slot, wval);
                 g_MatchConfig.weapons[slot] = (u8)wval;
+                const char *cid = matchGetWeaponSlotCatalogId(slot);
+                if (cid && cid[0]) {
+                    strncpy(g_MatchConfig.weapon_ids[slot], cid,
+                            sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
+                    g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
+                }
             }
         }
+    }
+
+    /* M0.1c: Restore spawn weapon — catalog ID string is PRIMARY. */
+    {
+        char spawnId[128];
+        if (jsonFindString(buf, "spawnWeaponId", spawnId, sizeof(spawnId)) && spawnId[0]) {
+            strncpy(g_MatchConfig.spawn_weapon_id, spawnId,
+                    sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+            g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+        }
+        /* spawn_weapon_id → spawnWeaponNum derivation happens at matchStart() */
     }
 
     /* --- Parse and add bots ---

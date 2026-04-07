@@ -400,9 +400,9 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		}
 
 		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
-			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
-			 * Any other value is a WEAPON_* enum configured by the match host. */
+			 * Any other value is a WEAPON_* enum resolved from catalog ID. */
 			struct mpweapon *mpweapon = NULL;
 			s32 resolvedWeaponNum = 0;
 			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {

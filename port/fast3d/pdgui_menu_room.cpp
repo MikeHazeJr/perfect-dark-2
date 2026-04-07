@@ -174,6 +174,8 @@ const char *mpPlayerConfigGetName(s32 playernum);
 
 /* Solo match start (matchsetup.c) — configure g_MpSetup from g_MatchConfig + call mpStartMatch() */
 s32 matchStart(void);
+/* M0.1c: weapon slot catalog ID accessor (matchsetup.c) */
+const char *matchGetWeaponSlotCatalogId(s32 slot);
 
 /* Solo room close — defined in pdgui_lobby.cpp */
 void pdguiSoloRoomClose(void);
@@ -378,50 +380,46 @@ static const char *s_SimDiffNames[] = {
 static const int s_NumSimDiffs = 6;
 
 /* ========================================================================
- * Spawn-with-weapon picker — weapon names for the dropdown
- * Only combat weapons that make sense as a spawn weapon in MP.
+ * Spawn-with-weapon picker — catalog-sourced weapon entries.
+ * M0.1c: built dynamically from ASSET_WEAPON catalog entries at init.
  * ======================================================================== */
 
-struct spawnweapon_entry { const char *name; u8 weaponnum; };
-
-static const spawnweapon_entry s_SpawnWeapons[] = {
-    { "Random",              0xFF },
-    { "Unarmed",             1  },
-    { "Falcon 2",            2  },
-    { "Falcon 2 (Silenced)", 3  },
-    { "Falcon 2 (Scope)",    4  },
-    { "MagSec 4",            5  },
-    { "Mauler",              6  },
-    { "Phoenix",             7  },
-    { "DY357 Magnum",        8  },
-    { "DY357-LX",            9  },
-    { "CMP 150",             10 },
-    { "Cyclone",             11 },
-    { "Callisto NTG",        12 },
-    { "RCP-120",             13 },
-    { "Laptop Gun",          14 },
-    { "Dragon",              15 },
-    { "K7 Avenger",          16 },
-    { "AR34",                17 },
-    { "SuperDragon",         18 },
-    { "Shotgun",             19 },
-    { "Reaper",              20 },
-    { "Sniper Rifle",        21 },
-    { "Farsight XR-20",      22 },
-    { "Devastator",          23 },
-    { "Rocket Launcher",     24 },
-    { "Slayer",              25 },
-    { "Combat Knife",        26 },
-    { "Crossbow",            27 },
-    { "Tranquilizer",        28 },
-    { "Laser",               29 },
-    { "Grenade",             30 },
-    { "N-Bomb",              31 },
-    { "Timed Mine",          32 },
-    { "Proximity Mine",      33 },
-    { "Remote Mine",         34 },
+struct spawnweapon_entry {
+    char catalog_id[64]; /* catalog ID e.g. "base:falcon2", or "" for Random */
+    char name[64];       /* display name */
 };
-static const int s_NumSpawnWeapons = (int)(sizeof(s_SpawnWeapons) / sizeof(s_SpawnWeapons[0]));
+
+#define MAX_SPAWN_WEAPONS 64
+static spawnweapon_entry s_SpawnWeapons[MAX_SPAWN_WEAPONS];
+static int s_NumSpawnWeapons = 0;
+
+static void buildSpawnWeaponList(void)
+{
+    s_NumSpawnWeapons = 0;
+
+    /* Entry 0: Random (special — empty catalog_id) */
+    s_SpawnWeapons[0].catalog_id[0] = '\0';
+    strncpy(s_SpawnWeapons[0].name, "Random", sizeof(s_SpawnWeapons[0].name));
+    s_NumSpawnWeapons = 1;
+
+    /* Scan catalog for all ASSET_WEAPON entries, skip NONE/DISABLED/SHIELD */
+    for (int i = 0; ; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type != ASSET_WEAPON) continue;
+        if (s_NumSpawnWeapons >= MAX_SPAWN_WEAPONS) break;
+        /* Skip non-combat entries */
+        s32 wid = e->ext.weapon.weapon_id;
+        if (wid == 0x00 || wid == 0x30 || wid == 0x2f) continue; /* NONE, DISABLED, SHIELD */
+        spawnweapon_entry *sw = &s_SpawnWeapons[s_NumSpawnWeapons];
+        strncpy(sw->catalog_id, e->id, sizeof(sw->catalog_id) - 1);
+        sw->catalog_id[sizeof(sw->catalog_id) - 1] = '\0';
+        strncpy(sw->name, e->ext.weapon.name ? e->ext.weapon.name : e->id,
+                sizeof(sw->name) - 1);
+        sw->name[sizeof(sw->name) - 1] = '\0';
+        s_NumSpawnWeapons++;
+    }
+}
 
 /* ========================================================================
  * Scenario names
@@ -1105,16 +1103,19 @@ static void renderLevelEditorOverlay(void)
 }
 
 /* ========================================================================
- * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawnWeaponNum
+ * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawn_weapon_id
  * Called after loading a scenario so the picker shows the right entry.
  * ======================================================================== */
 
 static void syncSpawnWeaponFromConfig(void)
 {
-    for (int i = 0; i < s_NumSpawnWeapons; i++) {
-        if (s_SpawnWeapons[i].weaponnum == g_MatchConfig.spawnWeaponNum) {
-            s_SpawnWeaponIdx = i;
-            return;
+    /* M0.1c: match by catalog ID (PRIMARY) */
+    if (g_MatchConfig.spawn_weapon_id[0]) {
+        for (int i = 0; i < s_NumSpawnWeapons; i++) {
+            if (strcmp(s_SpawnWeapons[i].catalog_id, g_MatchConfig.spawn_weapon_id) == 0) {
+                s_SpawnWeaponIdx = i;
+                return;
+            }
         }
     }
     s_SpawnWeaponIdx = 0;  /* default to Random */
@@ -1685,6 +1686,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                     snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d", wName, slot, w);
                     if (ImGui::Selectable(wLabel, isSel)) {
                         mpSetWeaponSlot(slot, w);
+                        /* M0.1c: sync catalog ID to weapon_ids[] (PRIMARY) */
+                        const char *wCatalogId = matchGetWeaponSlotCatalogId(slot);
+                        strncpy(g_MatchConfig.weapon_ids[slot], wCatalogId,
+                                sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
+                        g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
@@ -1718,7 +1724,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                 bool sel = (wi == s_SpawnWeaponIdx);
                 if (ImGui::Selectable(s_SpawnWeapons[wi].name, sel)) {
                     s_SpawnWeaponIdx = wi;
-                    g_MatchConfig.spawnWeaponNum = s_SpawnWeapons[wi].weaponnum;
+                    /* M0.1c: set catalog ID as PRIMARY identity */
+                    strncpy(g_MatchConfig.spawn_weapon_id,
+                            s_SpawnWeapons[wi].catalog_id,
+                            sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+                    g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
                 if (sel) ImGui::SetItemDefaultFocus();
@@ -1985,10 +1995,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (!s_ArenasBuilt) {
             buildArenaListFromCatalog();
         }
+        if (s_NumSpawnWeapons == 0) {
+            buildSpawnWeaponList();
+        }
         matchConfigInit();
         syncArenaFromConfig();
+        syncSpawnWeaponFromConfig();
         botSelectClear();
-        s_SpawnWeaponIdx  = 0;
         s_CodeGenerated   = false;
         s_MatchConfigInited = true;
     }

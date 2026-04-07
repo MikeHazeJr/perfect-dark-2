@@ -65,10 +65,17 @@ struct matchconfig {
 	u8 scorelimit;                  /* score to win (0 = unlimited) */
 	u16 teamscorelimit;             /* team score limit */
 	u32 options;                    /* MPOPTION_* bitmask */
-	u8 weapons[NUM_MPWEAPONSLOTS];  /* weapon set (6 slots) */
+	/* PRIMARY: catalog ID strings for per-slot weapons (custom weapon sets).
+	 * e.g. "base:falcon2", "base:dragon". Empty = no weapon (MPWEAPON_NONE).
+	 * weapons[] (u8) is DERIVED — resolved from weapon_ids at matchStart(). */
+	char weapon_ids[NUM_MPWEAPONSLOTS][64];
+	u8 weapons[NUM_MPWEAPONSLOTS];  /* DEPRECATED: MPWEAPON_* indices. Use weapon_ids instead. */
 	s8 weaponSetIndex;              /* -1 = custom, 0+ = preset index */
 	u8 numSlots;                    /* number of active slots */
-	u8 spawnWeaponNum;              /* 0xFF = Random; weapon enum value otherwise */
+	/* PRIMARY: catalog ID for spawn weapon. Empty = Random.
+	 * e.g. "base:falcon2". spawnWeaponNum is DERIVED at spawn time. */
+	char spawn_weapon_id[64];
+	u8 spawnWeaponNum;              /* DEPRECATED: WEAPON_* enum value. Use spawn_weapon_id instead. */
 };
 
 /* Defined in matchsetup.c */
@@ -87,6 +94,10 @@ s32 matchStart(void);
 u8   matchGetPlayerHandicap(s32 playernum);
 void matchSetPlayerHandicap(s32 playernum, u8 val);
 void matchResetHandicaps(void);
+
+/* M0.1c: Get the catalog ID string for a weapon currently in g_MpSetup.weapons[slot].
+ * Returns "" if the slot is empty or the weapon is not in the catalog. */
+const char *matchGetWeaponSlotCatalogId(s32 slot);
 
 /* Challenge-mode start: applies challenge config to g_MpSetup and calls
  * mpStartMatch() directly, bypassing the g_MatchConfig → g_MpSetup copy. */

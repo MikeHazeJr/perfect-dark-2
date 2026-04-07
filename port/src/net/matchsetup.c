@@ -95,7 +95,11 @@ void matchConfigInit(void)
 	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
 	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
-	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
+	/* M0.1c: catalog ID is PRIMARY for spawn weapon. Empty = Random. */
+	g_MatchConfig.spawn_weapon_id[0] = '\0';
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* DEPRECATED derived cache */
+	/* M0.1c: weapon_ids[] initialized to empty — preset sets fill g_MpSetup directly */
+	memset(g_MatchConfig.weapon_ids, 0, sizeof(g_MatchConfig.weapon_ids));
 	g_MatchConfig.numSlots = 0;
 
 	/* Ensure handicaps start at 100% (0x80).  g_PlayerConfigsArray is BSS
@@ -518,10 +522,51 @@ s32 matchStart(void)
 	 * through the engine's own mpApplyWeaponSet(). This handles presets,
 	 * random, random-five, and custom sets correctly. */
 	mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+
+	/* M0.1c: if custom weapon_ids[] are populated, override g_MpSetup.weapons[]
+	 * with catalog-resolved values. For presets/random this is a no-op. */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			if (g_MatchConfig.weapon_ids[wi][0]) {
+				const asset_entry_t *we = assetCatalogResolve(g_MatchConfig.weapon_ids[wi]);
+				if (we && we->type == ASSET_WEAPON) {
+					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+				}
+			}
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: weapon set %d applied — slots: %d %d %d %d %d %d",
 	             g_MatchConfig.weaponSetIndex,
 	             g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
 	             g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
+
+	/* M0.1c: resolve spawn_weapon_id → spawnWeaponNum for legacy engine consumption.
+	 * Empty spawn_weapon_id = Random (0xFF). */
+	if (g_MatchConfig.spawn_weapon_id[0]) {
+		const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
+		if (swe && swe->type == ASSET_WEAPON) {
+			/* ext.weapon.weapon_id is MPWEAPON_* index; need WEAPON_* enum.
+			 * g_MpWeapons[mpweapon_idx].weaponnum gives us the WEAPON_* value. */
+			s32 mpw = swe->ext.weapon.weapon_id;
+			if (mpw > 0 && mpw < NUM_MPWEAPONS) {
+				g_MatchConfig.spawnWeaponNum = g_MpWeapons[mpw].weaponnum;
+			} else {
+				g_MatchConfig.spawnWeaponNum = 0xFF;
+			}
+		} else {
+			sysLogPrintf(LOG_WARNING,
+			    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random",
+			    g_MatchConfig.spawn_weapon_id);
+			g_MatchConfig.spawnWeaponNum = 0xFF;
+		}
+	} else {
+		g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
+	}
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: spawn weapon '%s' → weaponnum=%d",
+	             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+	             (s32)g_MatchConfig.spawnWeaponNum);
 
 	/* --- Build chrslots bitmask and configure player/bot arrays --- */
 	g_MpSetup.chrslots = 0;
@@ -649,6 +694,19 @@ s32 matchStart(void)
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
+}
+
+/* ========================================================================
+ * M0.1c: Weapon slot catalog ID accessor
+ * ======================================================================== */
+
+const char *matchGetWeaponSlotCatalogId(s32 slot)
+{
+	if (slot < 0 || slot >= NUM_MPWEAPONSLOTS) return "";
+	u8 mpw = g_MpSetup.weapons[slot];
+	if (mpw == 0) return "";
+	const char *cid = catalogIdByRuntime(ASSET_WEAPON, (s32)mpw);
+	return cid ? cid : "";
 }
 
 /* ========================================================================

@@ -1334,7 +1334,7 @@ void playerSpawn(void)
 			}
 
 			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
-				/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 				 * 0xFF = Random → fall through to weapons[0] from the active set. */
 				struct mpweapon *mpweapon = NULL;
 				s32 resolvedWeaponNum = 0;
