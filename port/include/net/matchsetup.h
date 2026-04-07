@@ -56,7 +56,10 @@ struct matchslot {
 
 struct matchconfig {
 	struct matchslot slots[MATCH_MAX_SLOTS];
-	u8 scenario;                    /* MPSCENARIO_* */
+	/* PRIMARY: catalog ID string for game mode (e.g. "base:combat", "base:king_of_the_hill").
+	 * scenario (u8) is DERIVED — resolved from scenario_id at matchStart() only. */
+	char scenario_id[64];           /* PRIMARY: catalog ID — e.g. "base:combat" */
+	u8 scenario;                    /* DEPRECATED: MPSCENARIO_* integer. Use scenario_id instead. Kept temporarily for unmigrated consumers. */
 	/* PRIMARY: catalog ID string (e.g. "base:mp_complex", "base:defection").
 	 * stagenum is DERIVED — resolved from stage_id at matchStart() only. */
 	char stage_id[64];              /* PRIMARY: catalog ID — e.g. "base:mp_complex" */

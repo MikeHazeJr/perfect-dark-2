@@ -29,6 +29,7 @@
 #include "system.h"
 #include "savefile.h"
 #include "assetcatalog.h"
+#include "net/matchsetup.h"
 #include "fs.h"
 #include "game/mplayer/mplayer.h"
 
@@ -778,6 +779,14 @@ s32 saveSaveMpSetup(const char *name)
 	fprintf(fp, ",\n");
 
 	fprintf(fp, "  \"scenario\": %u,\n", g_MpSetup.scenario);
+	/* M0.1d: scenario_id is PRIMARY catalog identity for game mode. */
+	{
+		const char *sid = g_MatchConfig.scenario_id[0]
+			? g_MatchConfig.scenario_id
+			: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+		writeJsonString(fp, "scenario_id", sid ? sid : "");
+		fprintf(fp, ",\n");
+	}
 	/* Phase 5: write PRIMARY catalog ID string directly — no more resolving from deprecated stagenum. */
 	writeJsonString(fp, "stage_id", g_MpSetup.stage_id[0] ? g_MpSetup.stage_id : "");
 	fprintf(fp, ",\n");
@@ -833,8 +842,25 @@ s32 saveLoadMpSetup(const char *name)
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p);
 
-		if (strcmp(key, "scenario") == 0) {
-			tok = s_next(&p); g_MpSetup.scenario = s_tok_int(&tok);
+		if (strcmp(key, "scenario_id") == 0) {
+			/* M0.1d: PRIMARY catalog ID for scenario — resolve to integer. */
+			char scid_buf[64];
+			tok = s_next(&p);
+			s_tok_str(&tok, scid_buf, sizeof(scid_buf));
+			if (scid_buf[0]) {
+				const asset_entry_t *gm = assetCatalogResolve(scid_buf);
+				if (gm && gm->type == ASSET_GAMEMODE) {
+					g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
+				}
+				strncpy(g_MatchConfig.scenario_id, scid_buf, sizeof(g_MatchConfig.scenario_id) - 1);
+				g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+			}
+		} else if (strcmp(key, "scenario") == 0) {
+			/* Legacy integer fallback — only used if scenario_id absent. */
+			tok = s_next(&p);
+			if (!g_MatchConfig.scenario_id[0]) {
+				g_MpSetup.scenario = s_tok_int(&tok);
+			}
 		} else if (strcmp(key, "stage_id") == 0) {
 			/* SA-4: catalog string ID for stage */
 			char id_buf[CATALOG_ID_LEN];

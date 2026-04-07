@@ -729,7 +729,14 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_NetCoopRadar);
 	} else {
 		// combat simulator settings
-		netbufWriteU8(dst, g_MpSetup.scenario);
+		/* M0.1d: scenario as catalog ID string. Prefer g_MatchConfig.scenario_id
+		 * (PRIMARY), fall back to runtime resolution from integer. */
+		{
+			const char *sid = g_MatchConfig.scenario_id[0]
+				? g_MatchConfig.scenario_id
+				: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+			netbufWriteStr(dst, sid ? sid : "base:combat");
+		}
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
@@ -901,7 +908,24 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		/* Phase 2: populate PRIMARY catalog ID string field */
 		strncpy(g_MpSetup.stage_id, resolved_stage_id, sizeof(g_MpSetup.stage_id) - 1);
 		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
-		g_MpSetup.scenario = netbufReadU8(src);
+		/* M0.1d: scenario as catalog ID string (v32+). */
+		{
+			const char *scid_str = netbufReadStr(src);
+			const char *scid = scid_str ? scid_str : "";
+			if (scid[0]) {
+				const asset_entry_t *gm = assetCatalogResolve(scid);
+				if (gm && gm->type == ASSET_GAMEMODE) {
+					g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
+				} else {
+					sysLogPrintf(LOG_ERROR,
+						"NET: SVC_STAGE_START scenario '%s' not in catalog — defaulting to combat",
+						scid);
+					g_MpSetup.scenario = 0;
+				}
+			} else {
+				g_MpSetup.scenario = 0;
+			}
+		}
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
@@ -3783,9 +3807,9 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload (v27+): gamemode (u8), stage_id (str catalog ID),
+ * Payload (v32+): gamemode (u8), stage_id (str catalog ID),
  *          difficulty (u8), numSims (u8), simType (u8),
- *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
+ *          timelimit (u8), options (u32), scenario_id (str catalog ID), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
  *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
  *          Per-bot (repeated numSims times): name (str), body_id (str), head_id (str),
@@ -3814,7 +3838,15 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, simType);
 	netbufWriteU8(dst, timelimit);
 	netbufWriteU32(dst, options);
-	netbufWriteU8(dst, scenario);
+	/* M0.1d: scenario as catalog ID string (PRIMARY). Integer scenario parameter
+	 * is still accepted for backward compat but we send the catalog ID. */
+	if (g_MatchConfig.scenario_id[0]) {
+		netbufWriteStr(dst, g_MatchConfig.scenario_id);
+	} else {
+		/* Fallback: resolve from integer */
+		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)scenario);
+		netbufWriteStr(dst, sid ? sid : "base:combat");
+	}
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
@@ -4076,7 +4108,26 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 simType         = netbufReadU8(src);
 	const u8 timelimit       = netbufReadU8(src);
 	const u32 options        = netbufReadU32(src);
-	const u8 scenario        = netbufReadU8(src);
+	/* M0.1d: read scenario as catalog ID string (v32+), resolve to integer. */
+	u8 scenario = 0;
+	{
+		const char *scenario_str = netbufReadStr(src);
+		const char *scid = scenario_str ? scenario_str : "";
+		if (scid[0]) {
+			const asset_entry_t *gm = assetCatalogResolve(scid);
+			if (gm && gm->type == ASSET_GAMEMODE) {
+				scenario = (u8)gm->ext.gamemode.mode_id;
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"NET: CLC_LOBBY_START scenario '%s' not in catalog — defaulting to combat",
+					scid);
+			}
+			strncpy(g_MatchConfig.scenario_id, scid, sizeof(g_MatchConfig.scenario_id) - 1);
+			g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.scenario_id[0] = '\0';
+		}
+	}
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);

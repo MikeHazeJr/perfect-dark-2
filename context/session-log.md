@@ -3,6 +3,62 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S173 — 2026-04-07 (M0.1d — Remaining Asset Type Catalog Signature Migration)
+
+**Focus**: Audit and migrate remaining 7 asset types (texture, audio, animation, gamemode, lang, prop, HUD) at public function boundaries.
+
+### What Was Done
+
+**Full boundary audit of all 7 asset types:**
+
+| Type | Boundary Exposure | Action |
+|------|------------------|--------|
+| ASSET_TEXTURE | Internal only (renderer) | Documented — no migration |
+| ASSET_AUDIO | Internal only (sound system) | Documented — no migration |
+| ASSET_ANIMATION | Internal only (model/anim system) | Documented — no migration |
+| **ASSET_GAMEMODE** | **Wire, save, config** | **MIGRATED** |
+| ASSET_LANG | Internal only (string tables) | Documented — no migration |
+| ASSET_PROP | Wire (type discriminator only, not asset identity) | Documented — no migration |
+| ASSET_HUD | Internal only (HUD rendering) | Documented — no migration |
+
+**ASSET_GAMEMODE migration** (the only type with genuine asset identity crossing boundaries):
+
+1. **matchsetup.h**: Added `scenario_id[64]` as PRIMARY. `scenario` (u8) marked DEPRECATED.
+2. **matchsetup.c**: `matchStart()` resolves `scenario_id` → integer at handoff. `matchConfigInit()` sets default "base:combat". `matchStartFromChallenge()` syncs back via `catalogIdByRuntime()`.
+3. **netmsg.c (CLC_LOBBY_START)**: Write/read `scenario_id` string instead of u8.
+4. **netmsg.c (SVC_STAGE_START)**: Write/read `scenario_id` string instead of u8.
+5. **net.c (server query)**: Write `scenario_id` string. Read side resolves to integer.
+6. **net.h**: `netrecentserver` struct: added `scenario_id[CATALOG_ID_LEN]`, `scenario` marked DEPRECATED.
+7. **savefile.c**: Write `scenario_id` alongside integer. Read prefers `scenario_id`, falls back to integer.
+8. **scenario_save.c**: Write `scenarioId` alongside integer. Read prefers `scenarioId`, falls back to integer.
+9. **pdgui_menu_room.cpp**: Scenario combo sets `scenario_id` from catalog via `catalogIdByRuntime()`.
+10. **Protocol version**: Bumped to v32.
+
+**PROP type assessment**: `prop->type` (PROPTYPE_OBJ/DOOR/KEY/ALARM/CCTV/WEAPON/AMMO/SMOKE) is a protocol-level TYPE DISCRIMINATOR (8 fixed categories), not an asset identity. The actual prop MODEL identity already uses catalog session refs (v31). PROPTYPE is analogous to a message sub-type — converting to catalog strings would add overhead without benefit since these categories are fixed protocol constants.
+
+### Code Changes (9 files)
+- **port/include/net/matchsetup.h**: `scenario_id[64]` PRIMARY field
+- **port/include/net/net.h**: Protocol v32, `scenario_id` in netrecentserver
+- **port/src/net/matchsetup.c**: Init, resolve, sync-back
+- **port/src/net/netmsg.c**: CLC_LOBBY_START + SVC_STAGE_START wire format
+- **port/src/net/net.c**: Server query write + read
+- **port/src/savefile.c**: Write/read scenario_id
+- **port/src/scenario_save.c**: Write/read scenarioId
+- **port/fast3d/pdgui_menu_room.cpp**: Combo picker sets scenario_id
+- **context/constraints.md**: Protocol v32, scenario_id mandate
+
+### Decisions
+- 5/7 types are internal-only — no migration needed (textures, audio, animations, lang, HUD)
+- PROP type is a protocol discriminator, not asset identity — documented as such
+- `gamemode` (u8: 0=combat sim, 1=coop, 2=counter-op) is a protocol-level mode selector, NOT a catalog asset — stays as integer
+- `scenario` (MPSCENARIO_*) IS a catalog asset (ASSET_GAMEMODE) — migrated
+
+### Next Steps
+- Build verification (Mike)
+- M0.1e (catalog as data provider) or Gameplay state migration
+
+---
+
 ## Session S172 — 2026-04-07 (M2.1 — Combat Sim UI Catalog Audit)
 
 **Focus**: Verify Combat Simulator setup UI is fully catalog-native after M0.1a/b/c migrations.

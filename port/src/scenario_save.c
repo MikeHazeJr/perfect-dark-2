@@ -270,6 +270,15 @@ s32 scenarioSave(const char *name)
     jsonEscapeStr(fp, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
     fprintf(fp, "\",\n");
     fprintf(fp, "  \"scenario\": %u,\n",     (unsigned)g_MatchConfig.scenario);
+    /* M0.1d: scenario_id is PRIMARY catalog identity for game mode. */
+    fprintf(fp, "  \"scenarioId\": \"");
+    {
+        const char *sid = g_MatchConfig.scenario_id[0]
+            ? g_MatchConfig.scenario_id
+            : catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MatchConfig.scenario);
+        jsonEscapeStr(fp, sid ? sid : "");
+    }
+    fprintf(fp, "\",\n");
     fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
     fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
     fprintf(fp, "  \"teamscorelimit\": %u,\n",(unsigned)g_MatchConfig.teamscorelimit);
@@ -386,9 +395,12 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     u32 options        = 0;
     char arena_id[CATALOG_ID_LEN];
 
+    char scenario_id[CATALOG_ID_LEN];
     arena_id[0] = '\0';
+    scenario_id[0] = '\0';
     jsonFindInt (buf, "arena",          &arena);
     jsonFindInt (buf, "scenario",       &scenario);
+    jsonFindString(buf, "scenarioId",   scenario_id, sizeof(scenario_id));
     jsonFindInt (buf, "timelimit",      &timelimit);
     jsonFindInt (buf, "scorelimit",     &scorelimit);
     jsonFindInt (buf, "weaponset",      &weaponset);
@@ -410,8 +422,25 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     } else if (arena >= 0) {
         g_MatchConfig.stagenum     = (u8)arena;
     }
-    if (scenario >= 0 && scenario < 16)
-        g_MatchConfig.scenario     = (u8)scenario;
+    /* M0.1d: prefer catalog ID (scenarioId) over legacy integer. */
+    if (scenario_id[0]) {
+        const asset_entry_t *gm = assetCatalogResolve(scenario_id);
+        if (gm && gm->type == ASSET_GAMEMODE) {
+            g_MatchConfig.scenario = (u8)gm->ext.gamemode.mode_id;
+        } else if (scenario >= 0 && scenario < 16) {
+            g_MatchConfig.scenario = (u8)scenario;
+        }
+        strncpy(g_MatchConfig.scenario_id, scenario_id, sizeof(g_MatchConfig.scenario_id) - 1);
+        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+    } else if (scenario >= 0 && scenario < 16) {
+        g_MatchConfig.scenario = (u8)scenario;
+        /* Derive scenario_id from integer for newly-loaded legacy saves */
+        const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+        if (sid) {
+            strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
+            g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+        }
+    }
     if (timelimit >= 0)
         g_MatchConfig.timelimit    = (u8)timelimit;
     if (scorelimit >= 0)

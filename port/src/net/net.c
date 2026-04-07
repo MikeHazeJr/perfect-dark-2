@@ -431,7 +431,14 @@ static void netServerQueryResponse(ENetAddress *address)
 	netbufWriteU8(&buf, g_NetNumClients);
 	netbufWriteU8(&buf, g_NetMaxClients);
 	netbufWriteU8(&buf, g_StageNum);
-	netbufWriteU8(&buf, g_MpSetup.scenario);
+	/* M0.1d: scenario as catalog ID string for server browser.
+	 * Prefer g_MatchConfig.scenario_id, fall back to runtime resolution. */
+	{
+		const char *sid = g_MatchConfig.scenario_id[0]
+			? g_MatchConfig.scenario_id
+			: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+		netbufWriteStr(&buf, sid ? sid : "base:combat");
+	}
 	netbufWriteStr(&buf, g_NetLocalClient ? g_NetLocalClient->settings.name : "");
 	netbufWriteStr(&buf, g_RomName);
 	netbufWriteStr(&buf, modDir);
@@ -1946,7 +1953,19 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 			srv->numclients = netbufReadU8(&buf);
 			srv->maxclients = netbufReadU8(&buf);
 			srv->stagenum = netbufReadU8(&buf);
-			srv->scenario = netbufReadU8(&buf);
+			/* M0.1d: scenario as catalog ID string (v32+). */
+			{
+				const char *scid = netbufReadStr(&buf);
+				if (scid && scid[0]) {
+					strncpy(srv->scenario_id, scid, sizeof(srv->scenario_id) - 1);
+					srv->scenario_id[sizeof(srv->scenario_id) - 1] = '\0';
+					const asset_entry_t *gm = assetCatalogResolve(scid);
+					srv->scenario = (gm && gm->type == ASSET_GAMEMODE) ? (u8)gm->ext.gamemode.mode_id : 0;
+				} else {
+					srv->scenario_id[0] = '\0';
+					srv->scenario = 0;
+				}
+			}
 			char *hostname = netbufReadStr(&buf);
 			if (hostname) {
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);

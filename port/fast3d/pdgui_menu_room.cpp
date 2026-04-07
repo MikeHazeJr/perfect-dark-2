@@ -1560,6 +1560,13 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             bool sel = (si == (int)g_MatchConfig.scenario);
             if (ImGui::Selectable(s_ScenarioNames[si], sel)) {
                 g_MatchConfig.scenario = (u8)si;
+                /* M0.1d: set scenario_id (PRIMARY) from catalog */
+                const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, si);
+                if (sid) {
+                    strncpy(g_MatchConfig.scenario_id, sid,
+                            sizeof(g_MatchConfig.scenario_id) - 1);
+                    g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+                }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();

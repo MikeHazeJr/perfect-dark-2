@@ -80,6 +80,9 @@ void matchConfigInit(void)
 	 *   scorelimit: value + 1 kills.  0 = 1 kill, 9 = 10 kills, >=100 = no limit.
 	 *   teamscorelimit: similar, >=400 = no limit. */
 	g_MatchConfig.scenario = MPSCENARIO_COMBAT;
+	/* M0.1d: scenario_id is PRIMARY — resolve scenario integer at matchStart(). */
+	strncpy(g_MatchConfig.scenario_id, "base:combat", sizeof(g_MatchConfig.scenario_id) - 1);
+	g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 	/* stage_id is PRIMARY — resolve stagenum from it at matchStart().
 	 * Default arena: Complex ("base:mp_complex"). */
 	strncpy(g_MatchConfig.stage_id, "base:mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
@@ -494,7 +497,22 @@ s32 matchStart(void)
 	challengeDetermineUnlockedFeatures();
 
 	/* --- Configure g_MpSetup from our match config --- */
-	g_MpSetup.scenario = g_MatchConfig.scenario;
+	/* M0.1d: resolve scenario from catalog ID (PRIMARY). Fall back to
+	 * deprecated integer if scenario_id is empty (backward compat). */
+	if (g_MatchConfig.scenario_id[0]) {
+		const asset_entry_t *gm = assetCatalogResolve(g_MatchConfig.scenario_id);
+		if (gm && gm->type == ASSET_GAMEMODE) {
+			g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
+			g_MatchConfig.scenario = g_MpSetup.scenario; /* keep derived in sync */
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"MATCHSETUP: scenario_id '%s' not in catalog — falling back to integer %d",
+				g_MatchConfig.scenario_id, g_MatchConfig.scenario);
+			g_MpSetup.scenario = g_MatchConfig.scenario;
+		}
+	} else {
+		g_MpSetup.scenario = g_MatchConfig.scenario;
+	}
 
 	/* Resolve stagenum from stage_id (PRIMARY). stage_id may refer to an ASSET_ARENA
 	 * (MP arena) or ASSET_MAP (co-op/counter-op mission). */
@@ -757,6 +775,16 @@ s32 matchStartFromChallenge(s32 slot)
 	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */
 	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
 	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
+	/* M0.1d: sync scenario_id from integer (challenge configs set integers) */
+	{
+		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+		if (sid) {
+			strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
+			g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.scenario_id[0] = '\0';
+		}
+	}
 	{
 		/* Use catalog ID directly — stage_id is the primary key */
 		if (g_MpSetup.stage_id[0]) {

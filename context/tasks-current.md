@@ -94,29 +94,14 @@
 | **M0.1a — Stage signatures** | **DONE (S167)** | `g_SoloStages[]` catalog-native, endscreen, bg.c, mplayer.c, ingame.c, bodyreset.c all converted. Commit `270d57c`. | M1 (Campaign) |
 | **M0.1b — Body/Head signatures** | **DONE (S169)** | All 6 named conversion wrappers eliminated. 5 already deleted, 3 safe-body/head functions made static (zero external callers). String-based validators are the public API. ~30 `catalogMpBodyId/HeadId` enumeration calls remain (display helpers, not identity wrappers — tracked under Gameplay state). | M2 (Combat Sim chars) |
 | **M0.1c — Weapon signatures** | **DONE (S171)** | `spawn_weapon_id` and `weapon_ids[6][64]` added to matchconfig (PRIMARY). `spawnWeaponNum`/`weapons[]` DEPRECATED (derived at matchStart). Spawn weapon picker catalog-sourced. Scenario save/load, CLC_LOBBY_START updated. Wire protocol unchanged. Commit `76e0b00`. | M2 (Combat Sim weapons) |
-| **M0.1d — Remaining asset types** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD (Phases 9–14). | M4 (Mod Platform) |
+| **M0.1d — Remaining asset types** | **DONE (S173)** | Audit: 5/7 types internal-only (texture, audio, animation, lang, HUD). GAMEMODE migrated: `scenario_id[64]` PRIMARY in matchconfig, wire v32 (CLC_LOBBY_START, SVC_STAGE_START, server query), save files, UI. PROP type discriminator documented as protocol-level (not asset identity). Commit pending. | M4 (Mod Platform) |
 | **M0.1e — Catalog as data provider** | NOT STARTED | Absorb ROM arrays; catalog serves weapon/body/head data directly. | M5 (Forge) |
 | **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
 | **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
 
-## ACTIVE: Catalog ID Deep Migration
-
-**Goal**: Zero integer-to-catalog-ID conversion anywhere in the codebase. Catalog ID is sole identity for all asset types.
-
-| Phase | Status | Detail |
-|-------|--------|--------|
-| **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
-| **Phase 7 — Conversion function wrapper elimination** | **DONE (S169)** | All conversion wrappers eliminated. `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx`/`catalogResolveBodyByMpIndex`/`catalogResolveHeadByMpIndex`/`catalogResolveWeaponByGameId` deleted (prior sessions). `catalogGetSafeBody`/`catalogGetSafeHead`/`catalogGetSafeBodyPaired` made static in modelcatalog.c (zero external callers). String-based validators (`catalogValidateBodyId`/`catalogValidateHeadId`/`catalogValidateBodyIdPaired`) are the public API. |
-| **Phase 8 — O(n) conversion elimination** | **DONE (S157)** | All linear-scan conversion functions eliminated. |
-| **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
-| **Deep audit — direct array access** | **DONE (S157)** | All 15 bypass items fixed. 2 hidden reimplementations removed. Zero gaps. |
-| **Phases 9–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
-| **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
-| **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
-
-**Next action**: M0.1c (weapon signatures) or Gameplay state migration (PlayerConfig/BotConfig structs to store catalog ID strings natively, eliminating `catalogMpBodyId`/`catalogMpHeadId` enumeration calls).
+**Next action**: M0.1d (remaining asset types: texture, audio, animation, gamemode, lang, prop, HUD) or Gameplay state migration (PlayerConfig/BotConfig structs to store catalog ID strings natively, eliminating ~30 `catalogMpBodyId`/`catalogMpHeadId` enumeration calls).
 
 ---
 
@@ -249,6 +234,4 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 |-----------|-------------|--------|
 | **D5.0a** | Technical Spike — `pdguiGetUiTexture()` bridge, synthetic test pattern, `ImGui::Image()` in Catalog tab | **DONE (S135)** — compile clean, both targets. Playtest: open Settings > Catalog tab to see PASS label. |
 | **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
-| **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
-| **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
-| **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty 
+| **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse ca
