@@ -15,6 +15,7 @@
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/matchsetup.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
