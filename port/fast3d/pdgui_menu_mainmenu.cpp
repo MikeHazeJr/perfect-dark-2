@@ -33,6 +33,7 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "menumgr.h"
+#include "inputctx.h"
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
 
@@ -1413,6 +1414,11 @@ static void renderSettingsGame(float scale)
 /* Menu view state: 0 = top-level (Play/Settings/Quit), 1 = Play, 2 = Settings */
 static s32 s_MenuView = 0;
 
+/* B-124 pattern: true if renderMainMenu pushed g_CtxImGuiMenu itself.
+ * Only pop it on close if we pushed it — prevents unintended double-pop
+ * when another system already had the context active. */
+static bool s_MainMenuPushedCtx = false;
+
 /* Helper: draw PD dialog window frame + title, return content start Y */
 static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
                                 float dialogH, const char *title)
@@ -2203,6 +2209,19 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_MenuView = 0; /* Always open to main menu */
         s_NeedsFocus = true;
+        /* B-124 pattern: push g_CtxImGuiMenu so that:
+         *   (a) Mouse mode is set to absolute/visible (Bug 3)
+         *   (b) pdguiIsActive() returns 1, blocking gameplay input (Bug 4)
+         *   (c) push_tick is set, enabling inputCtxShouldSuppressKey 100ms
+         *       grace period to prevent the opening key from immediately
+         *       closing the menu (Bugs 1 & 2)
+         * Track ownership — only pop it on close if we pushed it here. */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+            s_MainMenuPushedCtx = true;
+        } else {
+            s_MainMenuPushedCtx = false;
+        }
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
@@ -2252,6 +2271,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
             /* At top-level: close the menu, return to Carrington Institute */
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            /* B-124 pattern: only pop context if we pushed it on open. */
+            if (s_MainMenuPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_MainMenuPushedCtx = false;
+            }
             menuPopDialog();
         }
     }
