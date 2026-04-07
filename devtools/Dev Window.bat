@@ -1,2 +1,2 @@
 @echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0dev-window.ps1"
+powershell -ExecutionPolicy Bypass -File "%~dp0_dev-window.ps1"
