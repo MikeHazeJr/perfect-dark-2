@@ -6,13 +6,16 @@
 
 ---
 
-## Recently Completed (S157–S162 — 2026-04-06)
+## Recently Completed (S157–S168 — 2026-04-06)
 
 | Item | Status |
 |------|--------|
+| **M1.1 — Campaign Mission Select Redesign (S168)** | **DONE** — Two-panel layout: left=mission list (unlock filter, blip dots, chapter headings), right=detail (inline difficulty picker, objectives from game data, briefing preview, Start button). Single-screen flow replaces 3-dialog chain. New `soloLoadBriefingForStageId()` helper. B-90, B-91, B-96 all fixed. Also fixed missing `<string.h>` in bg.c/bodyreset.c from M0.1a. Build clean. |
 | **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
 | **D5 Phase 3 S1 — Solo Pause Menu (B-93, B-98) (S162)** | **DONE** — `pdgui_menu_solomission.cpp`: 5-button pause menu (Resume/Restart Mission/Inventory/Options/Abort), objectives checklist with difficulty-filtered completion icons (✓/✗/●), B-button/Escape cancel, D-pad wrap. Fixed objective loop starting at index 1 (not 0). `mainChangeToStage()` for restart. Build clean. |
 | **B-119: stagenum=0x00 crash + catalog-first pattern (S165)** | **DONE** — `sm_missionconfig` shadow struct fixed (added `stage_id[64]`); mission select sets catalog ID only; `menuhandlerAcceptMission` + `menudialog00103608` resolve stagenum from stage_id at point of use. Universal catalog-first constraint added. Committed 5be1216. |
+| **B-120: Wrong stage loaded for solo missions (S166)** | **DONE** — `catalogIdByRuntime(ASSET_MAP, X)` was given stagenum instead of stage table index. Fixed in both `pdgui_menu_solomission.cpp` and `mainmenu.c` via `bgGetStageIndex()` conversion. |
+| **B-121: Endscreen menu not interactive (S166)** | **DONE** — Push `g_CtxImGuiMenu` on window appear in both solo and MP endscreen renderers. |
 | **Networking: Client hole punch wired in (S157)** | **DONE** — All 3 client join sites use `netStartClientWithHolePunch()`. Waterfall confirmed working in playtest (direct→punch→retry). |
 | **Server stage log cleanup (S157)** | **DONE** — Stage registration gated behind `g_NumStages > 0`. Server no longer logs "0 stages". |
 | **extern "C" guards: fs.h + config.h (S157)** | **DONE** — Fixed linker errors from D5.0 commit. |
@@ -80,16 +83,18 @@
 
 ---
 
-## ACTIVE: Catalog ID Deep Migration
+## ACTIVE: Catalog ID Deep Migration (M0.1)
 
 **Goal**: Zero integer-to-catalog-ID conversion anywhere. Catalog ID is sole identity for all asset types.
 
-| Phase | Status | Detail |
-|-------|--------|--------|
-| **Phases 0–8** | **DONE** | Identity layer + O(n) elimination + deep audit. |
+| Sub-phase | Status | Detail | Unblocks |
+|-----------|--------|--------|----------|
+| **M0.1a — Stage signatures** | **DONE (S167)** | `g_SoloStages[]` catalog-native, endscreen, bg.c, mplayer.c, ingame.c, bodyreset.c all converted. Commit `270d57c`. | M1 (Campaign) |
+| **M0.1b — Body/Head signatures** | **NEXT** | ~85 wrapper calls remain. All body/head selection, spawn, display functions need catalog ID at boundaries. | M2 (Combat Sim chars) |
+| **M0.1c — Weapon signatures** | NOT STARTED | Weapon select, equip, fire — catalog ID at boundaries. | M2 (Combat Sim weapons) |
+| **M0.1d — Remaining asset types** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD (Phases 9–14). | M4 (Mod Platform) |
+| **M0.1e — Catalog as data provider** | NOT STARTED | Absorb ROM arrays; catalog serves weapon/body/head data directly. | M5 (Forge) |
 | **Phase 7 — Wrapper caller elimination** | **IN PROGRESS** | ~85 calls remain. Cannot delete wrappers until callers migrated. |
-| **Phases 9–14** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD. |
-| **Catalog as data provider** | NOT STARTED | Absorb ROM arrays. |
 | **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
@@ -259,20 +264,4 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 
 | Item | Priority | Detail |
 |------|----------|--------|
-| **Coyote time + jump buffering** | MED | Allow ~250ms jump buffer (queue jump before landing) + ~250ms coyote time (jump briefly after leaving edge). Event-driven, not polling. Reference: Celeste's implementation (input buffer records press timestamp, ground-leave records timestamp, jump checks both windows). Goes in `src/game/bondwalk.c` jump logic. Design before implementing. |
-| **Collision system overhaul** | HIGH | Capsule sweep improvements, legacy cdTestVolume cleanup. See `context/collision.md`. |
-| **JUMP_LANDING log removed** | DONE (S161) | Per-frame ground clamp log was noise. Removed from bondwalk.c:1218. |
-
----
-
-## Lobby Unification — Solo/Online Room Convergence
-
-Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)** (10 items, U-1 through U-10)
-
-Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Close the remaining feature gaps, retire `pdgui_menu_matchsetup.cpp`, add network sync, and root-cause the online bot spawn race condition.
-
-| Phase | Items | Description | Status |
-|-------|-------|-------------|--------|
-| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
-| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
-| **Phase 3** | U-8..U-9 | Network sync for new features + p
+| **Coyote time + jump buffering** | MED | Allow ~250ms jump buffer (queue jump before landing) + ~250ms coyote time (jump briefly after leaving edge). Event-driven, not polling. Reference: Celeste's implementation (in

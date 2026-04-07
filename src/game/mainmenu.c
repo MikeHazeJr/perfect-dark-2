@@ -848,6 +848,33 @@ MenuDialogHandlerResult menudialog00103608(s32 operation, struct menudialogdef *
 	return 0;
 }
 
+/**
+ * soloLoadBriefingForStageId — Load briefing data for a given catalog ID.
+ * Called from ImGui mission select (C++) to populate g_Briefing without
+ * requiring the legacy AcceptMission dialog to be opened.
+ * Clears previous language bank before loading new one.
+ */
+void soloLoadBriefingForStageId(const char *stage_id)
+{
+	if (!stage_id || stage_id[0] == '\0') return;
+
+	/* Clear previous briefing language bank */
+	if (g_Briefing.langbank) {
+		langClearBank(g_Briefing.langbank);
+	}
+
+	/* Resolve stagenum from catalog ID */
+	catalog_stage_result_t sr;
+	s32 sn = 0;
+	if (catalogResolveStage(stage_id, &sr)) {
+		sn = sr.stagenum;
+	}
+
+	setupLoadBriefing(sn,
+			g_Menus[g_MpPlayerNum].menumodel.allocstart,
+			g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
+}
+
 struct menuitem g_AcceptMissionMenuItems[] = {
 	{
 		MENUITEMTYPE_OBJECTIVES,

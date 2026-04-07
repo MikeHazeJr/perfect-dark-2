@@ -3,6 +3,112 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S168 — 2026-04-06 (M1.1 — Campaign Mission Select Redesign)
+
+**Focus**: Replace flat mission list with two-panel mission select UI. Fixes B-90 (unlock filter), B-91 (objectives display), B-96 (difficulty flow).
+
+### What Was Done
+
+**Two-Panel Mission Select (renderMissionSelect rewrite)**:
+- Left panel: Mission list with chapter headings, blip completion dots. Locked missions shown grayed-out and non-selectable (B-90). D-pad navigation skips locked entries.
+- Right panel: Mission detail — stage name header, inline difficulty picker (Agent/SA/PA) with color badges and best times, objectives list filtered by selected difficulty (B-91), briefing text preview, Start Mission button.
+- Single-screen flow replaces 3-dialog chain (B-96): pick mission → pick difficulty → see objectives → Start. All in one screen.
+- D-pad left/right switches panel focus. A/Enter in left panel moves to right. B goes back.
+- Mouse click on mission row selects it and focuses right panel.
+
+**New C helper: `soloLoadBriefingForStageId()`** (mainmenu.c):
+- Wraps `setupLoadBriefing()` with catalog ID resolution
+- Called from ImGui when selected mission changes (avoids requiring legacy dialog open)
+- Clears previous language bank before loading new one
+
+**Build fix: missing `<string.h>` includes**:
+- `bg.c` and `bodyreset.c` were using `strcmp()` (added in M0.1a) without `#include <string.h>`
+- Added includes to fix `-Wimplicit-function-declaration` errors
+
+### Decisions
+- Two-panel single-screen design chosen over dialog chain — matches modern console UX (Halo/Destiny style)
+- Difficulty and objectives embedded in detail panel rather than separate dialogs — reduces cognitive load
+- `soloLoadBriefingForStageId()` added as C-linkage helper rather than exposing `g_Menus[]` to C++ — keeps interface clean
+- Briefing data cached by stage index (`s_PrevBriefingStage`) to avoid redundant loads
+
+### Bugs Fixed
+- **B-90**: Mission select unlock filter (locked missions grayed out)
+- **B-91**: Objectives display from game data (loaded via `soloLoadBriefingForStageId`)
+- **B-96**: Difficulty flow redesigned (inline in detail panel)
+
+### Next Steps
+- Playtest: verify two-panel layout, difficulty selection, objectives, Start button
+- B-97: Separate Special Assignments section visually (currently has gold heading but same panel)
+- B-122: Endscreen mouse still unresponsive (separate issue)
+- M0.1b: Body/head signature migration (interleaved cadence)
+
+---
+
+## Session S167 — 2026-04-07 (M0.1a — Stage Signature Migration)
+
+**Focus**: Replace ALL hardcoded stagenum integer references in mission-flow code with catalog ID lookups. Critical path work unblocking M1 (Playable Campaign).
+
+### What Was Done
+
+**Commit `270d57c` on `dev` — 9 files, +121/-113 lines**
+
+- **types.h**: Added `const char *catalog_id` field to `struct solostage` — stages now carry catalog identity natively
+- **mainmenu.c**: Populated all 21 `g_SoloStages[]` entries with catalog ID strings (`"base:defection"`, `"base:chicago"`, etc.). Legacy menu path uses `catalog_id` directly instead of `bgGetStageIndex` roundtrip.
+- **endscreen.c**: New `missionSetStageByCatalog()` function resolves stagenum from catalog. All 4 `missionSetStagenum(g_SoloStages[].stagenum)` calls converted. Fixes B-123 (next mission reloading same stage).
+- **bg.c**: 6 `STAGE_` enum comparisons converted to `strcmp(g_MissionConfig.stage_id, "base:...")`
+- **mplayer.c**: `stage_id` sync after random resolution uses `bgGetStageIndex` before `catalogIdByRuntime`. Surface type switch (22+ cases) converted from `switch(stagenum)` to `strcmp` chain.
+- **ingame.c**: `STAGE_ATTACKSHIP` check → `strcmp(g_MissionConfig.stage_id, "base:attackship")`
+- **bodyreset.c**: 3 stage-to-head-count mappings → catalog ID comparisons
+- **pdgui_menu_agentselect.cpp** + **pdgui_menu_solomission.cpp**: Shadow structs updated, mission select uses `catalog_id` directly
+
+### Decisions
+- Stage identity is now catalog-native end-to-end in the solo mission flow. `stagenum` only appears at final `mainChangeToStage()` handoff.
+- `g_SoloStages[]` carries the catalog ID as primary identity — the integer fields remain for legacy engine calls but are never used as identity.
+
+### Bugs Fixed
+- **B-123**: Next Mission reloads same stage ✓ (root cause: same B-120 pattern in endscreen)
+
+### Next Steps
+- M1.1 mission select UI work (now unblocked by catalog-native stage identity)
+- M0.1b body/head signature migration (interleaved cadence)
+- B-122 / B-124 input bugs (M0.2 tactical fixes)
+
+---
+
+## Session S166 — 2026-04-06 (Bug Fix — B-120 wrong stage loaded + B-121 endscreen input context)
+
+**Focus**: Fix two playtest bugs — wrong stage loaded for solo missions (B-120), unresponsive endscreen menu (B-121).
+
+### What Was Done
+
+**B-120: Wrong stage loaded for solo missions (HIGH)**:
+- Root cause: `catalogIdByRuntime(ASSET_MAP, X)` expects `X` = stage table array index (position in `g_Stages[]`, 0–86), but both `pdgui_menu_solomission.cpp` and `mainmenu.c` were passing the logical stagenum (e.g., 0x5e=94). These are different values.
+- The catalog registers stages with `e->runtime_index = idx` where `idx` is the stage table array index (see `assetcatalog_base.c:437`). Passing stagenum=0x40 (64 decimal) looked up `s_RuntimeCache[ASSET_MAP][64]` which resolved to an MP arena (`bg_mp8`) instead of the correct solo mission stage.
+- Fix: convert stagenum → stage table index via `bgGetStageIndex(sn)` before calling `catalogIdByRuntime()`. Applied to both:
+  - `pdgui_menu_solomission.cpp:647` — ImGui mission select path
+  - `mainmenu.c:1995` — legacy menu mission select path
+
+**B-121: Endscreen menu not interactive (MED)**:
+- Root cause: `renderSoloEndscreen()` in `pdgui_menu_endscreen.cpp` released SDL mouse grab directly (`SDL_SetRelativeMouseMode(SDL_FALSE)`) but never pushed `g_CtxImGuiMenu` input context. Without the context push, the input stack didn't route events to ImGui, making buttons unclickable.
+- Fix: push `g_CtxImGuiMenu` on window appear (guarded by `!inputCtxIsActive()`), matching the pattern from `pdgui_menu_pausemenu.cpp:1132-1134`.
+- Also fixed the same issue in `renderMpEndscreen()` which had identical missing input context.
+- Added `#include "inputctx.h"` to `pdgui_menu_endscreen.cpp`.
+
+### Decisions
+- Use `bgGetStageIndex()` for stagenum→index conversion rather than adding a new catalog API function — it's a simple O(n) scan that already exists and is only called once per mission select.
+- Push input context in endscreen renderer rather than in `menuPushRootDialog()` — keeps the fix localized to ImGui renderers that need it, without changing legacy menu infrastructure.
+
+### Bugs Fixed
+- **B-120**: Wrong stage loaded for solo missions ✓
+- **B-121**: Endscreen menu not interactive ✓
+
+### Next Steps
+- Playtest: verify solo mission select → correct stage loads → death → endscreen is interactive
+- Remaining `catalogIdByRuntime(ASSET_MAP, stagenum)` callers — audit for same index confusion pattern
+- B-119 endscreen.c restart paths (4 calls) still using `g_MissionConfig.stagenum` — migrate to catalog-first
+
+---
+
 ## Session S165 — 2026-04-06 (Bug Fix — B-119 stagenum=0x00 crash + catalog-first pattern)
 
 **Focus**: Fix stagenum=0x00 crash on solo mission start; establish universal catalog-first identity pattern for stages.
@@ -1490,101 +1596,4 @@ All 4 changed files pass `-fsyntax-only` check for both client and PD_SERVER bui
 
 Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHeads[]/g_MpWeapons[] with raw indices, raw stagenum bypassing catalog resolve functions, filenum_t passed as catalog ID, TODO/FIXME/HACK comments related to catalog migration, netbuf writes of raw body/head/weapon indices.
 
-**Confirmed clean (Phases B–F fixes verified in place):**
-- `CLC_LOBBY_START` write: stagenum → `catalogWritePreSessionRef(catalogResolveArenaByStagenum(...))` ✓
-- `CLC_LOBBY_START` write: weapons → per-slot `catalogWritePreSessionRef(catalogResolveWeaponByGameId(...))` ✓
-- `CLC_LOBBY_START` write: bot body/head → `catalogBodynumToMpBodyIdx/catalogHeadnumToMpHeadIdx` (correct domain conversion) ✓
-- `SVC_STAGE_START` write: stage → `catalogWriteAssetRef(sessionCatalogGetId(catalogResolveStageByStagenum(...)))` ✓
-- `SVC_STAGE_START` write: weapons → per-slot `catalogWriteAssetRef(sessionCatalogGetId(...))` ✓
-- `CLC_LOBBY_START` read: arena → `catalogReadPreSessionRef()` → `ext.arena.stagenum` ✓
-- `CLC_LOBBY_START` read: weapons → per-slot `catalogReadPreSessionRef()` → `ext.weapon.weapon_id` ✓
-- Host manifest embedded in CLC_LOBBY_START (Phase D.2/D.3) ✓
-- Save file write: `weapon_ids` (catalog string IDs), `head_id`/`body_id`, `stage_id` — all using catalog ✓
-- Scenario save write: `weapon_id%d`, `arena_id` — catalog ✓
-- Zero TODO/FIXME/HACK related to catalog migration anywhere in port code ✓
-- B-63/B-64/B-65/B-66/B-67/B-68/B-69/B-70/B-71: all fixed in Phases B–F ✓
-
-**Findings (new issues documented):**
-- **G-1 (LOW)**: `SVC_LOBBY_STATE` (`netmsg.c:4149`) still sends raw stagenum u8. Display-only lobby broadcast; doesn't affect match load. Documented as B-72.
-- **G-2 (DEBT)**: Save file legacy integer fallbacks (`savefile.c:693-698, 832-834, 860-869`) — `mpheadnum`, `mpbodynum`, `stagenum`, `weapons` raw integers for old saves. Write side is fully catalog-first. Read fallbacks intentional for backward-compat with pre-SA-4 saves. Removal requires save migration tool; planned post-v1.0.
-- **G-3 (ACCEPTED)**: Bot body/head in `CLC_LOBBY_START` wire as raw u8 mpbodynum/mpheadnum. Index domain conversion (bodynum→mpbodynum) applied at write site per Phase C spec. Both sides have identical tables. Could use net_hash for full universality in a future pass.
-
-**Build verification:**
-- `pd` (client): CLEAN via `msys2_shell.cmd -mingw64` make ✓
-- `pd-server`: CLEAN ✓
-- Note: direct bash invocation fails with TEMP=C:\WINDOWS permission error in MinGW GCC. Must use msys2_shell.cmd -mingw64 for bash builds. PowerShell build-headless.ps1 works correctly from dev machine.
-
-### Decisions Made
-- Phase G code audit is COMPLETE. Playtest verification still pending (Mike must run in-game).
-- SVC_LOBBY_STATE raw stagenum documented as B-72 (LOW) — won't block v0.1.0.
-- Save file fallbacks: keep until post-v1.0 save migration. Document as planned debt.
-- Bot body/head raw u8: accepted as Phase C decision; document in audit file.
-
-### Next Steps
-- **Playtest required for Phase G to be fully DONE**: zero CATALOG-ASSERT in logs, all MP game modes run to completion with bots, menu transitions clean (no tint bleed, no duplicate instances), spawn variety, bot unstick, spawn weapons.
-- After clean playtest: Phase G DONE, catalog universality migration COMPLETE.
-- Post-migration: R-series (room architecture), L-series (lobby UX), v0.1.0 QC pass.
-
----
-
-## Session S125 -- 2026-04-02
-
-**Focus**: Phase F — Spawn System Hardening (commit 27b1e08)
-
-### What Was Done
-
-**5 files changed, 257 insertions / 46 deletions** — pushed to `dev`.
-
-**F.1 — Anti-repeat spawn tracking** (`src/game/player.c`):
-- Added `static s16 s_LastSpawnPad = -1` before `playerChooseSpawnLocation`.
-- After shortlist is built: if `sllen > 1` and `s_LastSpawnPad` is set, the matching entry is swapped-to-end and removed, preventing the same pad winning back-to-back.
-- `s_LastSpawnPad` recorded on every shortlist pick; fallback path (no shortlist) skipped — anti-repeat only applies when alternatives exist.
-
-**F.5 — Bot stuck detection** (`src/game/bot.c`):
-- `struct botstuckstate` + `static s_BotStuck[MAX_BOTS]` — one snapshot per bot slot.
-- Constants: `STUCK_CHECK_FRAMES=180` (~3s), `STUCK_EPSILON_SQ=100`, `STUCK_RELO_MIN_SQ=90000`, `STUCK_RELO_FRACTION=0.25f`.
-- In `botTick()`, after `botTickUnpaused`: every 180 frames, if bot has pathfinding intent (`MA_AIBOTMAINLOOP/GOTOPOS/GETITEM/GOTOPROP/RUNAWAY/DOWNLOAD`) and has moved < 10 units, find a waypoint ≥300u away via random probe loop (up to 2×numwpts attempts), teleport with `CHRHFLAG_WARPONSCREEN`, apply 25% damage via `chrAddHealth(chr, -(chr->maxdamage * 0.25f))`, set `bs->relocating = 1`.
-
-**F.6 / B-70 — Bot spawn weapon fix** (`port/src/net/matchsetup.c`, `src/game/bot.c`, `src/game/player.c`):
-- `matchConfigInit()`: changed `g_MatchConfig.options = 0` → `g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON`. Root cause: bit never set, so spawn weapon block always skipped.
-- `botSpawn()` and `playerStartNewLife()`: resolve `g_MatchConfig.spawnWeaponNum` first (search g_MpWeapons for matching weaponnum), fall back to `g_MpSetup.weapons[0]` when 0xFF (Random). Bots use `botinvGiveSingleWeapon` / `botinvSwitchToWeapon`.
-
-**B-66 — Mouse capture on match start** (`port/src/net/matchsetup.c`):
-- Added `#include "input.h"` and `inputLockMouse(1)` after `menuStop()` in `matchStart()`.
-- Root cause: `pdguiIsActive()` was true during lobby setup, deferring SDL relative-mouse apply inside `inputLockMouse()`. Explicit call after menus stop forces it.
-
-**F.2 / F.3 / F.4** — Already implemented: `playerReset()` has navmesh-waypoint fallback + pad-scan fallback; `playerChooseSpawnLocation()` has numpads==0 floor fallback. No changes needed.
-
-### Build
-- Client (`pd`) and server (`pd-server`): both clean. Only pre-existing uninitialized-var warnings in player.c (unrelated to our changes).
-
-### Decisions Made
-- `s_LastSpawnPad` is static to the compilation unit (not per-player) — good enough for the common 1-local-player case; bot spawns go through different path.
-- Bot stuck check uses `aibot->aibotnum` (s16 slot field) for O(1) lookup — no linear search per tick.
-- `STUCK_RELO_FRACTION=0.25f` matches spec's "25% max-damage penalty".
-
-### Next Steps
-- Playtest Phase F: spawn variety (should not repeat same pad consecutively), bot unstick (observe STUCK: log line if a bot gets cornered), spawn weapons present (check log for MATCHSETUP: weapon set applied lines + in-game weapon in hand).
-- Phase G (Full Verification Pass) is next: zero CATALOG-ASSERT warnings, all game modes run to completion.
-
----
-
-## Session S124 -- 2026-04-02
-
-**Focus**: Phase E — Menu Stack Architecture + Input Context (commit 5eab8d3)
-
-### What Was Done
-
-**3 files changed, 69 insertions / 2 deletions** — pushed to `dev`.
-
-**E.1 — Full duplicate rejection in `menuPush`** (`menumgr.c`):
-- Was: only rejected same menu on top of stack.
-- Now: `menuIsInStack(menu)` — rejects if menu is anywhere in stack. Prevents Esc or rapid input stacking duplicate instances (B-21).
-
-**E.2 — Post-mission buttons non-interactive** (`pdgui_menu_endscreen.cpp`):
-- `renderSoloEndscreen` and `renderMpEndscreen`: on `ImGui::IsWindowAppearing()`, call `SDL_SetRelativeMouseMode(SDL_FALSE)` + `SDL_ShowCursor(SDL_ENABLE)` + warp cursor to center.
-- Root cause: game is still in SDL relative mouse mode when endscreen appears after gameplay.
-
-**E.2 — Lobby→gameplay mouse capture** (`menumgr.c`):
-- Added `restoreGameplayMouseCapture()` helper: checks `inputMouseIsLocked()` and applies `SDL_SetRelativeMouseMode(SDL_TRUE)`.
-- Called from `menuPop()` when stack empties and from 
+**Confirmed clean (Phases B–F fixes verified in place)

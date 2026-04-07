@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "game/body.h"
 #include "game/cheats.h"
