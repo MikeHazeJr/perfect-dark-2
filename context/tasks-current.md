@@ -98,12 +98,13 @@
 | **M0.1c — Weapon signatures** | **DONE (S171)** | `spawn_weapon_id` and `weapon_ids[6][64]` added to matchconfig (PRIMARY). `spawnWeaponNum`/`weapons[]` DEPRECATED (derived at matchStart). Spawn weapon picker catalog-sourced. Scenario save/load, CLC_LOBBY_START updated. Wire protocol unchanged. Commit `76e0b00`. | M2 (Combat Sim weapons) |
 | **M0.1d — Remaining asset types** | **DONE (S173)** | Audit: 5/7 types internal-only (texture, audio, animation, lang, HUD). GAMEMODE migrated: `scenario_id[64]` PRIMARY in matchconfig, wire v32 (CLC_LOBBY_START, SVC_STAGE_START, server query), save files, UI. PROP type discriminator documented as protocol-level (not asset identity). Commit `8a0a64b`. | M4 (Mod Platform) |
 | **M0.1e — Catalog as data provider** | **DONE (S178)** | 15 catalog data accessors for weapon stats + body/head properties. ROM arrays internalized behind catalog API. 8 game files migrated (body.c, bot.c, mplayer.c, setup.c, etc). Commit `b3555576`. | M5 (Forge) |
+| **M0.1f — Final g_HeadsAndBodies sweep** | **DONE (S179)** | SA-5f: catalogGetBodyModeldef/catalogGetHeadModeldef (lazy-load), catalogResetAll/Body/HeadModeldef, catalogGetHeadHeight. All remaining raw g_HeadsAndBodies[] access eliminated from gameplay code. 8 files migrated. Build clean. Commit `facb5750`. | — |
 | **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
 | **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
 
-**Next action**: M0.1 COMPLETE (a–e all done). Next per roadmap: M0.2 (Input System Unification) or interleaved feature milestone M1.2 (Solo Mission Flow — briefings/endscreens).
+**Next action**: M0.1 COMPLETE (a–f all done). `g_HeadsAndBodies[]` fully catalog-owned. Next per roadmap: M0.2 (Input System Unification) or interleaved feature milestone M1.2 (Solo Mission Flow — briefings/endscreens).
 
 ---
 
