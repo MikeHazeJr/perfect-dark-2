@@ -3,6 +3,31 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S179 — 2026-04-07 (Input Bug Fixes: Esc/Tab/Mouse/Arrow Keys)
+
+**Focus**: Fix 4 input bugs reported in playtest — all traced to missing `g_CtxImGuiMenu` push in main menu and room menus.
+
+### What Was Done
+
+**Root cause**: `g_CtxImGuiMenu` was never pushed when the main menu opened. Without it on the input context stack, mouse mode stayed captured, gameplay input (arrow keys, Tab) leaked through, and Esc had no grace period.
+
+**Fixes applied** (commit `49efd3b6`, merged to dev as `4a5d073f`):
+
+| Bug | Symptom | Fix |
+|-----|---------|-----|
+| Mouse not working in main menu | `inputCtxSyncMouseMode()` saw gameplay context → kept mouse captured | Push `g_CtxImGuiMenu` on `IsWindowAppearing()` → `on_push` sets absolute mouse |
+| Arrow keys moving camera while menu open | `pdguiIsActive()` returned 0 → game input not zeroed | Context push → `pdguiIsActive()` returns 1 → all game input blocked |
+| Tab reopening menu after Esc close | Tab (`CK_START`) processed by game code | `pdguiIsActive()` = 1 blocks Tab from reaching game |
+| Esc double-fire (open then close) | No `push_tick` set → no 100ms grace period | Context push sets `push_tick` → `inputCtxShouldSuppressKey()` blocks retrigger |
+
+**Files changed**: `pdgui_menu_mainmenu.cpp`, `pdgui_menu_room.cpp`
+
+### Next Steps
+- Playtest verification of all 4 fixes
+- Continue roadmap: M1.2 (Solo Mission Flow)
+
+---
+
 ## Session S178 — 2026-04-07 (M0.1e: Catalog as Data Provider + release.ps1 auto-commit)
 
 **Focus**: Complete M0.1e — catalog serves body/weapon properties via typed accessors. Harden release.ps1 with auto-commit before rebase.

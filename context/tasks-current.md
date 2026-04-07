@@ -75,11 +75,15 @@
 | **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
 | **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
 
-### Playtest Findings (S161 — 2026-04-06 evening)
+### Playtest Findings (S161–S179)
 
 | Finding | Severity | Detail |
 |---------|----------|--------|
 | ~~B-117: Crash on match exit~~ | ~~HIGH~~ | **Fixed S175** — Stale `g_CtxImGuiMenu` context not popped in `pdguiEndscreenExitToMainMenu()`. Added `inputCtxPopDeferred`. |
+| ~~Mouse not working in main menu~~ | ~~HIGH~~ | **Fixed S179** — `g_CtxImGuiMenu` was never pushed on main menu open. Push added to `IsWindowAppearing()`. |
+| ~~Esc double-fire (open/close)~~ | ~~MED~~ | **Fixed S179** — No `push_tick` → no grace period. Context push now sets `push_tick` for 100ms suppression. |
+| ~~Tab reopens menu after close~~ | ~~MED~~ | **Fixed S179** — Gameplay input leaked through without context. `pdguiIsActive()` now blocks Tab. |
+| ~~Arrow keys move camera in menu~~ | ~~MED~~ | **Fixed S179** — Same root cause. Context push → `pdguiIsActive()` returns 1 → game input zeroed. |
 | **Menu opacity stacking** | **MED** | Main menu background gets more opaque after repeated open/close cycles. Haze overlay likely compositing additively without full reset. |
 | **JUMP_LANDING log spam** | **LOW** | Every frame during pause logs ground clamp. Gate behind verbose mode. |
 | **First hole punch attempt fails, second direct succeeds** | **INFO** | UPnP mapping wasn't complete during first attempt. Waterfall logic correct — direct→punch→fail→retry. Second attempt connected via direct in 50ms. |
