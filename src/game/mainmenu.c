@@ -743,11 +743,8 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 			catalog_stage_result_t sresult;
 			if (catalogResolveStage(g_MissionConfig.stage_id, &sresult)) {
 				resolved_stagenum = sresult.stagenum;
-			} else {
-				sysLogPrintf(LOG_ERROR,
-					"menuhandlerAcceptMission: cannot resolve stage_id '%s' -- using stagenum=%d",
-					g_MissionConfig.stage_id, resolved_stagenum);
 			}
+			/* else: catalog miss — keep stagenum fallback; investigate via log if needed */
 		}
 		g_MissionConfig.stagenum = (u8)resolved_stagenum;  /* sync for legacy consumers */
 
