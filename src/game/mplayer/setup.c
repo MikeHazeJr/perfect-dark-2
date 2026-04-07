@@ -2420,7 +2420,7 @@ static bool mpBodyHasIntegratedHead(s32 mpbodynum)
 		return true; // Out of bounds — treat as integrated to be safe
 	}
 
-	return g_HeadsAndBodies[bodyid].unk00_01 ? true : false;
+	return catalogGetBodyIsComplete(bodyid) ? true : false; /* SA-5d */
 }
 
 MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)

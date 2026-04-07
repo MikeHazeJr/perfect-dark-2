@@ -2972,7 +2972,7 @@ s32 mpDefaultHeadForBody(s32 mpbodynum)
 	s32 headnum = body->headnum;
 
 	if (headnum == HEAD_RANDOM_GENDER) {
-		if (g_HeadsAndBodies[body->bodynum].ismale) {
+		if (catalogGetBodyIsMale(body->bodynum)) { /* SA-5d */
 			headnum = g_MpMaleHeads[rngRandom() % ARRAYCOUNT(g_MpMaleHeads)];
 		} else {
 			headnum = g_MpFemaleHeads[rngRandom() % ARRAYCOUNT(g_MpFemaleHeads)];

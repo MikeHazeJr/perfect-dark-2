@@ -1895,7 +1895,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					}
 					totalfilelen = ALIGN64(totalfilelen);
 
-					if (g_HeadsAndBodies[bodynum].unk00_01) {
+					if (catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 						headnum = -1;
 						headfilenum = 0xffff;
 					} else {

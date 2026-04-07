@@ -1778,11 +1778,7 @@ void playerTickChrBody(void)
 			texGetPoolLeftPos(&texpool);
 		} else {
 			// 2-4 players
-			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-			}
-
-			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 
 			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
 			 * missing file, etc.). If the player's configured body is broken,
@@ -1795,14 +1791,11 @@ void playerTickChrBody(void)
 				|| bodymodeldef->numparts <= 0
 				|| bodymodeldef->numparts > 500) {
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
-					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5-cleanup */
+					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 				bodynum = BODY_DARK_COMBAT;
 				headnum = HEAD_DARK_COMBAT;
 
-				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-				}
-				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+				bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 
 				if (bodymodeldef == NULL) {
 					sysLogPrintf(LOG_WARNING, "PLAYER: fallback bodymodeldef also NULL — giving up");
@@ -1815,11 +1808,7 @@ void playerTickChrBody(void)
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
 			} else {
-				if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
-				}
-
-				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+				headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
 			}
 		}
 
@@ -1832,15 +1821,8 @@ void playerTickChrBody(void)
 			bodynum = BODY_DARK_COMBAT;
 			headnum = HEAD_DARK_COMBAT;
 
-			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-			}
-			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
-
-			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
-			}
-			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
+			headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
 
 			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
 		}
@@ -1871,7 +1853,7 @@ void playerTickChrBody(void)
 		chr->race = bodyGetRace(chr->bodynum);
 		chr->radius = g_Vars.currentplayer->bond2.radius;
 
-		g_Vars.currentplayer->vv_eyeheight = (s32)g_HeadsAndBodies[bodynum].height;
+		g_Vars.currentplayer->vv_eyeheight = catalogGetBodyHeight(bodynum); /* SA-5d */
 
 #if VERSION >= VERSION_NTSC_1_0
 		if (g_Vars.antiplayernum >= 0
@@ -1884,13 +1866,13 @@ void playerTickChrBody(void)
 		g_Vars.currentplayer->vv_headheight = g_Vars.currentplayer->vv_eyeheight;
 
 		if (headnum >= 0) {
-			g_Vars.currentplayer->vv_headheight += (s32)g_HeadsAndBodies[headnum].height;
+			g_Vars.currentplayer->vv_headheight += catalogGetHeadHeight(headnum); /* SA-5f */
 		} else {
 			g_Vars.currentplayer->vv_headheight += 13;
 		}
 
-		if (g_Vars.currentplayer->vv_headheight > g_HeadsAndBodies[BODY_MRBLONDE].height + g_HeadsAndBodies[HEAD_MRBLONDE].height) {
-			g_Vars.currentplayer->vv_headheight = g_HeadsAndBodies[BODY_MRBLONDE].height + g_HeadsAndBodies[HEAD_MRBLONDE].height;
+		if (g_Vars.currentplayer->vv_headheight > catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE)) { /* SA-5d/5f */
+			g_Vars.currentplayer->vv_headheight = catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE); /* SA-5d/5f */
 		}
 
 		g_Vars.currentplayer->vv_height = g_Vars.currentplayer->vv_eyeheight;
