@@ -719,6 +719,30 @@ s32 catalogGetMpWeaponUnlockFeature(s32 mpweapon_idx)
     return (s32)g_MpWeapons[mpweapon_idx].unlockfeature;
 }
 
+s32 catalogGetMpWeaponPriAmmoType(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].priammotype;
+}
+
+s32 catalogGetMpWeaponPriAmmoQty(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].priammoqty;
+}
+
+s32 catalogGetMpWeaponSecAmmoType(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].secammotype;
+}
+
+s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx)
+{
+    if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
+    return (s32)g_MpWeapons[mpweapon_idx].secammoqty;
+}
+
 /* -------------------------------------------------------------------------
  * SA-5f: Body / head modeldef lazy-load and reset (M0.1f)
  *

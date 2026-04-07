@@ -404,15 +404,15 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
 			 * Any other value is a WEAPON_* enum resolved from catalog ID. */
-			struct mpweapon *mpweapon = NULL;
 			s32 resolvedWeaponNum = 0;
+			s32 spawnWeaponIdx = -1;
 			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
-				/* Specific weapon chosen: find the mpweapon entry for ammo data */
+				/* Specific weapon chosen: find the catalog index for ammo data */
 				s32 wi;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
 					if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
-						mpweapon = &g_MpWeapons[wi];
+						spawnWeaponIdx = wi;
 						break;
 					}
 				}
@@ -420,16 +420,16 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
 					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
 				/* Random / unset: use first weapon in the match set */
-				mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-				resolvedWeaponNum = catalogGetMpWeaponNum(g_MpSetup.weapons[0]); /* SA-5e */
+				spawnWeaponIdx = g_MpSetup.weapons[0];
+				resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
 			}
 			if (resolvedWeaponNum > 0) {
 				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
-				if (mpweapon) {
-					const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
-						? AMMOTYPE_BOOST : mpweapon->priammotype;
+				if (spawnWeaponIdx >= 0) {
+					const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)
+						? AMMOTYPE_BOOST : catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
 					if (ammotype) {
-						s32 startammo = mpweapon->priammoqty / 2;
+						s32 startammo = catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx) / 2;
 						if (startammo == 0) {
 							startammo = 1;
 						}

@@ -1371,26 +1371,26 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
  *
  * The catalog stores weapon_id as MPWEAPON_* constants (0x01-0x2f),
  * but the game engine uses WEAPON_* enums (different numbering).
- * g_MpWeapons[mpweapon_idx].weaponnum maps MPWEAPON_* → WEAPON_*.
+ * catalogGetMpWeaponNum(idx) maps MPWEAPON_* → WEAPON_*.
  * These helpers bridge the two domains. */
 
 #if !defined(PD_SERVER)
-/* Convert WEAPON_* enum → MPWEAPON_* index by scanning g_MpWeapons[]. */
+/* Convert WEAPON_* enum → MPWEAPON_* index by scanning catalog. */
 static s32 weaponToMpWeapon(s32 weaponnum)
 {
 	for (s32 i = 1; i < NUM_MPWEAPONS; i++) {
-		if ((s32)g_MpWeapons[i].weaponnum == weaponnum) {
+		if (catalogGetMpWeaponNum(i) == weaponnum) {
 			return i;
 		}
 	}
 	return -1;
 }
 
-/* Convert MPWEAPON_* index → WEAPON_* enum via g_MpWeapons[]. */
+/* Convert MPWEAPON_* index → WEAPON_* enum via catalog. */
 static s32 mpWeaponToWeapon(s32 mpweaponnum)
 {
 	if (mpweaponnum >= 0 && mpweaponnum < NUM_MPWEAPONS) {
-		return (s32)g_MpWeapons[mpweaponnum].weaponnum;
+		return catalogGetMpWeaponNum(mpweaponnum);
 	}
 	return WEAPON_UNARMED;
 }

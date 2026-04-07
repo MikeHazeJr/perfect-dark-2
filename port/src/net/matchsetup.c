@@ -565,11 +565,10 @@ s32 matchStart(void)
 	if (g_MatchConfig.spawn_weapon_id[0]) {
 		const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
 		if (swe && swe->type == ASSET_WEAPON) {
-			/* ext.weapon.weapon_id is MPWEAPON_* index; need WEAPON_* enum.
-			 * g_MpWeapons[mpweapon_idx].weaponnum gives us the WEAPON_* value. */
+			/* ext.weapon.weapon_id is MPWEAPON_* index; need WEAPON_* enum. */
 			s32 mpw = swe->ext.weapon.weapon_id;
 			if (mpw > 0 && mpw < NUM_MPWEAPONS) {
-				g_MatchConfig.spawnWeaponNum = g_MpWeapons[mpw].weaponnum;
+				g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
 			} else {
 				g_MatchConfig.spawnWeaponNum = 0xFF;
 			}

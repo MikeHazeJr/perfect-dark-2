@@ -987,6 +987,18 @@ s32 catalogGetMpWeaponNum(s32 mpweapon_idx);
 /** Integer: unlock feature ID required to use this weapon (0 = always available). */
 s32 catalogGetMpWeaponUnlockFeature(s32 mpweapon_idx);
 
+/** Integer: primary ammo type (AMMOTYPE_*) for this MP weapon slot. 0 = none. */
+s32 catalogGetMpWeaponPriAmmoType(s32 mpweapon_idx);
+
+/** Integer: primary ammo quantity granted on pickup for this MP weapon slot. */
+s32 catalogGetMpWeaponPriAmmoQty(s32 mpweapon_idx);
+
+/** Integer: secondary ammo type (AMMOTYPE_*) for this MP weapon slot. 0 = none. */
+s32 catalogGetMpWeaponSecAmmoType(s32 mpweapon_idx);
+
+/** Integer: secondary ammo quantity granted on pickup for this MP weapon slot. */
+s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**
