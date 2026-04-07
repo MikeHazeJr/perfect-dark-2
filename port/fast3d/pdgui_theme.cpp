@@ -1303,8 +1303,24 @@ static void s_generateModernUiTextures(void)
 }
 
 /**
- * Frame check: if --extract-ui-textures is set and g_TexGeneralConfigs is
- * populated, run extraction once. Called from pdguiRender() each frame.
+ * Check if the base-ui mod textures exist by probing the key haze texture.
+ * Returns true if the file loads successfully (non-zero size).
+ */
+static bool s_baseUiTexturesExist(void)
+{
+    u32 sz = 0;
+    void *probe = fsFileLoad("mods/base-ui/textures/ui_bg_haze.tga", &sz);
+    if (probe) {
+        free(probe);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Frame check: auto-extract base-ui textures from ROM if they don't exist,
+ * or run extraction/generation when CLI flags are set.
+ * Called from pdguiRender() each frame until done.
  */
 void pdguiThemeCheckExtract(void)
 {
@@ -1315,6 +1331,23 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
+    /* Auto-extract: if base-ui textures don't exist yet, create the mod
+     * directory structure and extract ROM textures. This makes the game
+     * self-sufficient — no external files needed in the release zip. */
+    if (!s_baseUiTexturesExist()) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme: base-ui textures missing — auto-extracting from ROM");
+        fsCreateDir("mods");
+        fsCreateDir("mods/base-ui");
+        fsCreateDir("mods/base-ui/textures");
+        pdguiThemeExtractRomTextures();
+
+        /* Reload theme textures now that TGA files exist */
+        s_ThemeLateInitDone = false;
+        pdguiThemeLateInit();
+    }
+
+    /* CLI flags for manual re-extract / modern UI generation */
     if (sysArgCheck("--extract-ui-textures")) {
         pdguiThemeExtractRomTextures();
     }
