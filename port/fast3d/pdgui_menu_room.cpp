@@ -33,6 +33,8 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "inputctx.h"
+#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -457,6 +459,10 @@ static bool s_IsSoloMode = false;
 
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
+
+/* B-124 pattern: true if this screen pushed g_CtxImGuiMenu itself.
+ * Used to correctly match push/pop ownership — only pop if we pushed it. */
+static bool s_RoomPushedCtx = false;
 
 /* Campaign / Counter-Op settings */
 static int s_CampaignMission   = 0;
@@ -2042,7 +2048,19 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)", s_IsSoloMode);
+        /* B-124 pattern: push g_CtxImGuiMenu if not already active.
+         * In solo mode the main menu already pushed it; in network mode
+         * (direct room entry without main menu) we push it ourselves.
+         * This ensures mouse is absolute, pdguiIsActive() blocks gameplay
+         * input, and the 100ms grace period suppresses open-key double-fire. */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+            s_RoomPushedCtx = true;
+        } else {
+            s_RoomPushedCtx = false;
+        }
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d, pushedCtx=%d)",
+                     s_IsSoloMode, s_RoomPushedCtx);
     }
 
     /* Opaque backdrop */
@@ -2285,6 +2303,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
+        /* B-124 pattern: only pop the context if we pushed it ourselves.
+         * In solo mode the main menu owns the context and handles the pop.
+         * In network mode (s_RoomPushedCtx) we must pop it here. */
+        if (s_RoomPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_RoomPushedCtx = false;
+        }
         if (s_IsSoloMode) {
             pdguiSoloRoomClose();  /* return to main menu */
         } else {
@@ -2780,6 +2805,7 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    s_RoomPushedCtx     = false;
     free(s_Arenas);
     s_Arenas            = NULL;
     s_NumArenas         = 0;
