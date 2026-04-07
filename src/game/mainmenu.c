@@ -733,11 +733,29 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();
 
-		if (g_Vars.stagenum == g_MissionConfig.stagenum) {
+		/* Resolve stagenum at point of consumption: catalog ID is the identity.
+		 * If stage_id is set (ImGui path), resolve via catalog.
+		 * Fall back to stagenum only if stage_id is empty (legacy menu path).
+		 * Write resolved_stagenum back to g_MissionConfig.stagenum so that
+		 * not-yet-migrated consumers (endscreen.c restart, menutick.c) work. */
+		s32 resolved_stagenum = (s32)(u8)g_MissionConfig.stagenum;
+		if (g_MissionConfig.stage_id[0] != '\0') {
+			catalog_stage_result_t sresult;
+			if (catalogResolveStage(g_MissionConfig.stage_id, &sresult)) {
+				resolved_stagenum = sresult.stagenum;
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"menuhandlerAcceptMission: cannot resolve stage_id '%s' -- using stagenum=%d",
+					g_MissionConfig.stage_id, resolved_stagenum);
+			}
+		}
+		g_MissionConfig.stagenum = (u8)resolved_stagenum;  /* sync for legacy consumers */
+
+		if (g_Vars.stagenum == resolved_stagenum) {
 			g_Vars.restartlevel = true;
 		}
 
-		titleSetNextStage(g_MissionConfig.stagenum);
+		titleSetNextStage(resolved_stagenum);
 
 		if (g_MissionConfig.iscoop) {
 			if (g_Vars.numaibuddies == 0) {
@@ -781,7 +799,7 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 
 		lvSetDifficulty(g_MissionConfig.difficulty);
 		titleSetNextMode(TITLEMODE_SKIP);
-		mainChangeToStage(g_MissionConfig.stagenum);
+		mainChangeToStage(resolved_stagenum);
 
 #if VERSION >= VERSION_NTSC_1_0
 		viBlack(true);
@@ -810,10 +828,19 @@ MenuDialogHandlerResult menudialog00103608(s32 operation, struct menudialogdef *
 	switch (operation) {
 	case MENUOP_OPEN:
 		g_Menus[g_MpPlayerNum].menumodel.curparams = 0;
-
-		setupLoadBriefing(g_MissionConfig.stagenum,
-				g_Menus[g_MpPlayerNum].menumodel.allocstart,
-				g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
+		{
+			/* Resolve stagenum from catalog ID at point of use */
+			s32 bsn = (s32)(u8)g_MissionConfig.stagenum;
+			if (g_MissionConfig.stage_id[0] != '\0') {
+				catalog_stage_result_t bsresult;
+				if (catalogResolveStage(g_MissionConfig.stage_id, &bsresult)) {
+					bsn = bsresult.stagenum;
+				}
+			}
+			setupLoadBriefing(bsn,
+					g_Menus[g_MpPlayerNum].menumodel.allocstart,
+					g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
+		}
 		break;
 	case MENUOP_CLOSE:
 		langClearBank(g_Briefing.langbank);

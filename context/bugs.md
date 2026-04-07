@@ -25,6 +25,7 @@
 | **B-83** | MED | Incomplete shutdown sequence — quit path doesn't flush saves, ENet, SDL audio; remote peers left dead-connected | main.c | OPEN |
 | **B-84** | LOW | Dead `tmp[1024]` in chat handler — unused stack variable, maintenance hazard | netmsg.c | OPEN |
 | **B-86** | LOW | enet_peer_send return value unchecked — failed sends go undetected | netdistrib.c | OPEN |
+| **B-119** | HIGH | stagenum=0x00 crash on solo mission start — `sm_missionconfig` shadow struct missing `stage_id[64]` field (added to real `missionconfig` for catalog migration), causing all field accesses to be at wrong offsets. `stagenum` write went to `stage_id[0]`; real `stagenum` stayed 0x00. Fix: (1) add `stage_id[64]` to shadow struct, (2) set `stage_id` from catalog in mission select, (3) resolve stagenum from stage_id in `menuhandlerAcceptMission`/`menudialog00103608`/pause restart. | pdgui_menu_solomission.cpp, mainmenu.c | **FIXED S165** |
 | **B-90** | MED | Mission select shows all missions regardless of unlock status — should only show unlocked | pdgui_menu_solomission.cpp | OPEN |
 | **B-91** | HIGH | Mission detail popup shows "(No objectives)" — objectives not loading from game data | pdgui_menu_solomission.cpp | OPEN |
 | **B-93** | HIGH | Pause menu missing Abort Mission, Restart Mission, objective checklist — only Resume/Options work | pdgui_menu_solomission.cpp | **FIXED S164** — 5-button menu + objectives checklist with difficulty filter + completion icons |

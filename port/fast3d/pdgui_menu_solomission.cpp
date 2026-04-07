@@ -42,6 +42,7 @@
 #include "pdgui_nav.h"
 #include "system.h"
 #include "inputctx.h"
+#include "assetcatalog.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -92,14 +93,24 @@ struct sm_solostage {
 extern struct sm_solostage g_SoloStages[];
 
 /* ---- Mission configuration ----
- * Layout mirrors struct missionconfig from types.h.
- * Bitfield byte 0: bits 0–6 = difficulty, bit 7 = pdmode.
- * Bitfield byte 3: bit 0 = iscoop, bit 1 = isanti. */
+ * Layout mirrors struct missionconfig from types.h exactly.
+ * IMPORTANT: stage_id[64] was added to missionconfig (PC port catalog field)
+ * between diff_pdmode and stagenum. The shadow struct MUST include it or all
+ * subsequent field accesses are at wrong offsets (stagenum=0x00 crash).
+ *
+ * Real layout:
+ *   offset  0: diff_pdmode (u8)         — difficulty:7, pdmode:1
+ *   offset  1: stage_id[64] (char[64])  — PRIMARY catalog ID e.g. "base:defection"
+ *   offset 65: stagenum (u8)            — DEPRECATED integer stagenum
+ *   offset 66: stageindex (u8)
+ *   offset 67: coop_anti (u8)           — iscoop:1, isanti:1
+ */
 struct sm_missionconfig {
-    u8 diff_pdmode;   /* difficulty:7, pdmode:1 */
-    u8 stagenum;
-    u8 stageindex;
-    u8 coop_anti;     /* iscoop:1, isanti:1 */
+    u8   diff_pdmode;   /* difficulty:7, pdmode:1 */
+    char stage_id[64];  /* PRIMARY: catalog ID string — e.g. "base:defection" */
+    u8   stagenum;      /* DEPRECATED: integer stage ID — used by menuhandlerAcceptMission */
+    u8   stageindex;
+    u8   coop_anti;     /* iscoop:1, isanti:1 */
     /* remaining fields not needed here */
 };
 extern struct sm_missionconfig g_MissionConfig;
@@ -624,10 +635,27 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     ImGui::TextDisabled("Click to select difficulty   Esc: Back");
     ImGui::End();
 
-    /* Push difficulty dialog after End() to avoid nesting state changes. */
+    /* Push difficulty dialog after End() to avoid nesting state changes.
+     * CATALOG-FIRST: stage_id is the sole identity stored here.
+     * stagenum (integer) is resolved from stage_id at point of consumption
+     * (menuhandlerAcceptMission in mainmenu.c), not stored here.
+     * stageindex is display metadata (0–20 into g_SoloStages[]), not identity. */
     if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
-        g_MissionConfig.stagenum   = (u8)g_SoloStages[pendingStage].stagenum;
+        s32 sn = (s32)g_SoloStages[pendingStage].stagenum;
         g_MissionConfig.stageindex = (u8)pendingStage;
+        /* Resolve and store catalog ID — authoritative stage identity (D-3 FULL) */
+        const char *cid = catalogIdByRuntime(ASSET_MAP, sn);
+        if (cid) {
+            strncpy(g_MissionConfig.stage_id,
+                    cid, sizeof(g_MissionConfig.stage_id) - 1);
+            g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+        } else {
+            /* Catalog miss — log and clear; menuhandlerAcceptMission will catch it */
+            sysLogPrintf(LOG_WARNING,
+                "pdgui_mission_select: no catalog ID for stagenum=0x%02x (soloIdx=%d)",
+                sn, pendingStage);
+            g_MissionConfig.stage_id[0] = '\0';
+        }
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
     }
@@ -1343,9 +1371,16 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 menuPopDialog();
                 break;
-            case 1: /* Restart Mission */
+            case 1: /* Restart Mission — resolve stagenum from catalog ID at point of use */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                mainChangeToStage(g_MissionConfig.stagenum);
+                {
+                    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
+                    if (g_MissionConfig.stage_id[0] != '\0') {
+                        catalog_stage_result_t sr;
+                        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
+                    }
+                    mainChangeToStage(rsn);
+                }
                 break;
             case 2: /* Inventory (uses legacy 3D renderer via NULL registration) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
