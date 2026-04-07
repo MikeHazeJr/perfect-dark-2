@@ -132,6 +132,9 @@ static SDL_Window *g_PdguiWindow = nullptr;
 
 extern "C" {
 
+/* Forward declaration — defined later in this extern "C" block */
+s32 pdguiIsActive(void);
+
 /* D5 Phase 2: C++ trampoline for ImGui nav wrapping.
  * Called from pdguiNavTickWrap() via function pointer to avoid
  * requiring imgui_internal.h from C code. */
