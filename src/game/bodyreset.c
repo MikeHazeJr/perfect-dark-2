@@ -13,6 +13,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetcatalog.h"
 
 void bodiesReset(s32 stagenum)
 {
@@ -27,11 +28,9 @@ void bodiesReset(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "BODIES: enter stagenum=0x%02x normmplay=%d NumBondBodies=%d MaleHeads=%d FemaleHeads=%d",
 		stagenum, g_Vars.normmplayerisrunning, g_NumBondBodies, g_NumMaleGuardHeads, g_NumFemaleGuardHeads);
 
-	for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
-		g_HeadsAndBodies[i].modeldef = NULL;
-	}
+	catalogResetAllModeldefs(); /* SA-5f */
 
-	sysLogPrintf(LOG_NOTE, "BODIES: modeldef clear done i=%d", i);
+	sysLogPrintf(LOG_NOTE, "BODIES: modeldef clear done");
 
 	/* In multiplayer (Combat Sim and all MP scenarios) there are no guards —
 	 * only players and bots. Guard head/body randomization is unused and the

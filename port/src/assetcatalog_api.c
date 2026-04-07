@@ -33,6 +33,9 @@
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
 #include "modmgr.h"
+#if !defined(PD_SERVER)
+#include "game/modeldef.h"
+#endif
 
 /* -------------------------------------------------------------------------
  * Internal fill helpers -- populate result struct from a resolved entry.
@@ -691,6 +694,12 @@ s32 catalogGetHeadType(s32 headnum)
     return (s32)g_HeadsAndBodies[headnum].type;
 }
 
+s32 catalogGetHeadHeight(s32 headnum)
+{
+    if (headnum < 0 || headnum >= 152) { return 0; }
+    return (s32)g_HeadsAndBodies[headnum].height;
+}
+
 /* -------------------------------------------------------------------------
  * SA-5e: MP weapon table accessors (M0.1e)
  * Thin wrappers over g_MpWeapons[] that make the catalog the public API
@@ -708,4 +717,60 @@ s32 catalogGetMpWeaponUnlockFeature(s32 mpweapon_idx)
 {
     if (mpweapon_idx < 0 || mpweapon_idx >= NUM_MPWEAPONS) { return 0; }
     return (s32)g_MpWeapons[mpweapon_idx].unlockfeature;
+}
+
+/* -------------------------------------------------------------------------
+ * SA-5f: Body / head modeldef lazy-load and reset (M0.1f)
+ *
+ * catalogGetBodyModeldef / catalogGetHeadModeldef: lazy-load on first call,
+ * cached in g_HeadsAndBodies[].modeldef.  NOT compiled for PD_SERVER builds.
+ * catalogResetBodyModeldef / catalogResetHeadModeldef / catalogResetAllModeldefs:
+ * clear cached pointer(s); compiled for all targets.
+ * ------------------------------------------------------------------------- */
+
+#if !defined(PD_SERVER)
+struct modeldef *catalogGetBodyModeldef(s32 bodynum)
+{
+    s32 filenum;
+    if (bodynum < 0 || bodynum >= 152) { return NULL; }
+    if (!g_HeadsAndBodies[bodynum].modeldef) {
+        filenum = catalogGetBodyFilenumByIndex(bodynum);
+        g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew((u16)filenum);
+    }
+    return g_HeadsAndBodies[bodynum].modeldef;
+}
+
+struct modeldef *catalogGetHeadModeldef(s32 headnum)
+{
+    s32 filenum;
+    if (headnum < 0 || headnum >= 152) { return NULL; }
+    if (headnum == HEAD_RANDOM_GENDER) { return NULL; }
+    if (!g_HeadsAndBodies[headnum].modeldef) {
+        filenum = catalogGetHeadFilenumByIndex(headnum);
+        g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew((u16)filenum);
+    }
+    return g_HeadsAndBodies[headnum].modeldef;
+}
+#endif /* !PD_SERVER */
+
+void catalogResetBodyModeldef(s32 bodynum)
+{
+    if (bodynum >= 0 && bodynum < 152) {
+        g_HeadsAndBodies[bodynum].modeldef = NULL;
+    }
+}
+
+void catalogResetHeadModeldef(s32 headnum)
+{
+    if (headnum >= 0 && headnum < 152) {
+        g_HeadsAndBodies[headnum].modeldef = NULL;
+    }
+}
+
+void catalogResetAllModeldefs(void)
+{
+    s32 i;
+    for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
+        g_HeadsAndBodies[i].modeldef = NULL;
+    }
 }

@@ -914,6 +914,60 @@ s32 catalogGetHeadIsMale(s32 headnum);
 /** Integer: character type constant (HEADBODYTYPE_*) for a head. */
 s32 catalogGetHeadType(s32 headnum);
 
+/** Integer: height field for a head (matches catalogGetBodyHeight contract). */
+s32 catalogGetHeadHeight(s32 headnum);
+
+/* ── SA-5f: Body / head modeldef lazy-load and reset (M0.1f) ────────────────
+ * Centralise all g_HeadsAndBodies[].modeldef read/write in catalog code.
+ * catalogGetBodyModeldef / catalogGetHeadModeldef: lazy-load on first call,
+ * cached thereafter.  Guarded by #if !defined(PD_SERVER) — server has no ROM
+ * model data and must never call these.
+ * catalogReset*Modeldef: set one entry's cached pointer to NULL (call before
+ * stage unload to allow fresh load next time).
+ * catalogResetAllModeldefs: reset every entry in the array (used by bodiesReset).
+ */
+
+/* Forward declaration needed for SA-5f signatures. */
+struct modeldef;
+
+#if !defined(PD_SERVER)
+/**
+ * SA-5f: Lazy-load the body modeldef by runtime body index.
+ * If g_HeadsAndBodies[bodynum].modeldef is NULL, loads it via modeldefLoadToNew
+ * and caches the result.  Returns the (possibly newly loaded) pointer, or NULL
+ * if the load failed.  O(1) after first call.
+ * NOT available on the dedicated server (no ROM model data).
+ */
+struct modeldef *catalogGetBodyModeldef(s32 bodynum);
+
+/**
+ * SA-5f: Lazy-load the head modeldef by runtime head index.
+ * Same contract as catalogGetBodyModeldef.  Returns NULL for HEAD_RANDOM_GENDER
+ * or if the load failed.
+ * NOT available on the dedicated server.
+ */
+struct modeldef *catalogGetHeadModeldef(s32 headnum);
+#endif /* !PD_SERVER */
+
+/**
+ * SA-5f: Clear the cached modeldef pointer for one body index.
+ * Sets g_HeadsAndBodies[bodynum].modeldef = NULL so the next call to
+ * catalogGetBodyModeldef() triggers a fresh load.
+ */
+void catalogResetBodyModeldef(s32 bodynum);
+
+/**
+ * SA-5f: Clear the cached modeldef pointer for one head index.
+ */
+void catalogResetHeadModeldef(s32 headnum);
+
+/**
+ * SA-5f: Clear ALL cached modeldef pointers in g_HeadsAndBodies[].
+ * Iterates until the sentinel (filenum == 0).  Called by bodiesReset()
+ * at stage start to force a fresh model load for the new stage.
+ */
+void catalogResetAllModeldefs(void);
+
 /* ── SA-5e: MP weapon table accessors (M0.1e) ──────────────────────────────
  * Thin wrappers over g_MpWeapons[] that make the catalog the public API for
  * MP weapon property reads.  ROM array is the internal implementation.

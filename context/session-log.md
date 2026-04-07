@@ -3,6 +3,40 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S180 — 2026-04-07 (M0.1f: Final g_HeadsAndBodies sweep — SA-5f)
+
+**Focus**: Eliminate all remaining raw `g_HeadsAndBodies[]` access from gameplay/UI code. Add modeldef lazy-load + reset accessor family. Build-verified clean.
+
+### What Was Done
+
+**New accessors** in `assetcatalog.h` / `assetcatalog_api.c` (commit `facb5750`):
+- `catalogGetHeadHeight(headnum)` — SA-5d companion for heads (was missing)
+- `catalogGetBodyModeldef(bodynum)` / `catalogGetHeadModeldef(headnum)` — lazy-load + cache, `#if !defined(PD_SERVER)` guarded
+- `catalogResetBodyModeldef(bodynum)` / `catalogResetHeadModeldef(headnum)` — clear one entry
+- `catalogResetAllModeldefs()` — bulk reset (for bodiesReset)
+
+**Migrated 8 game files**:
+- `body.c`: `bodyLoad` → `catalogGetBodyModeldef`; `body0f02ce8c` body fallback → catalog; head block preserves one pre-load bool (bodyCalculateHeadOffset is not idempotent); `.filenum` diagnostic logs → `catalogGetBodyFilenumByIndex`
+- `bodyreset.c`: raw loop → `catalogResetAllModeldefs()`; added `assetcatalog.h` include
+- `player.c`: all `.modeldef` lazy-loads → `catalogGet*Modeldef`; `.height` accesses → `catalogGetBodyHeight`/`catalogGetHeadHeight`
+- `mplayer.c:2975`: `.ismale` → `catalogGetBodyIsMale`
+- `menu.c:1898`: `.unk00_01` → `catalogGetBodyIsComplete`
+- `setup.c:2423`: `.unk00_01` → `catalogGetBodyIsComplete`
+
+**Remaining raw accesses**: Only in allowed sites (`assetcatalog_base.c`, `assetcatalog_api.c`, `modelcatalog.c`, `server_stubs.c`, `robot.c`, `data.h`). One controlled pre-load check in `body.c:256` (SA-5f comment explains why).
+
+**Build**: Clean, zero errors, zero new warnings. Pushed to `claude/zealous-haslett`.
+
+### Decisions
+- `bodyCalculateHeadOffset` is not idempotent (modifies modeldef node offsets in-place). Pre-load bool check retained in `body.c` with SA-5f annotation rather than adding a predicate function.
+- `bodyLoad` return value simplified (callers discard it) — now returns `md != NULL`.
+
+### Next Steps
+- Merge `claude/zealous-haslett` to `dev` / `main`
+- M0.1 is fully COMPLETE (a–f all done). Proceed to M0.2 (Input System Unification) or interleaved M1/M2/M3 feature work
+
+---
+
 ## Session S179 — 2026-04-07 (Input Bug Fixes: Esc/Tab/Mouse/Arrow Keys)
 
 **Focus**: Fix 4 input bugs reported in playtest — all traced to missing `g_CtxImGuiMenu` push in main menu and room menus.

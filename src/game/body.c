@@ -160,20 +160,14 @@ u32 bodyGetRace(s32 bodynum)
 
 bool bodyLoad(s32 bodynum)
 {
-	s32 filenum; /* SA-5a: catalog-resolved filenum */
-
-	if (!g_HeadsAndBodies[bodynum].modeldef) {
-		filenum = catalogGetBodyFilenumByIndex(bodynum);
-		g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(filenum);
-		if (!g_HeadsAndBodies[bodynum].modeldef) {
-			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: bodyLoad failed bodynum=%d filenum=%d -- "
-				"body model not in catalog or ROM data missing",
-				bodynum, filenum);
-		}
-		return true;
+	/* SA-5f: lazy-load via catalog; callers ignore return value */
+	struct modeldef *md = catalogGetBodyModeldef(bodynum);
+	if (!md) {
+		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: bodyLoad failed bodynum=%d filenum=%d -- "
+			"body model not in catalog or ROM data missing",
+			bodynum, catalogGetBodyFilenumByIndex(bodynum));
 	}
-
-	return false;
+	return md != NULL;
 }
 
 struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeldef, struct modeldef *headmodeldef, bool sunglasses, struct model *model, bool isplayer, u8 varyheight)
@@ -195,16 +189,11 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	}
 
 	if (bodymodeldef == NULL) {
-		if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-			s32 body_filenum = catalogGetBodyFilenumByIndex(bodynum); /* SA-5a */
-			g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(body_filenum);
-			if (!g_HeadsAndBodies[bodynum].modeldef) {
-				sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
-					"model not in catalog", bodynum, body_filenum);
-			}
+		bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
+		if (!bodymodeldef) {
+			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: body0f02ce8c bodynum=%d filenum=%d -- "
+				"model not in catalog", bodynum, catalogGetBodyFilenumByIndex(bodynum));
 		}
-
-		bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 	}
 
 	/* Safety: if model still couldn't load or contains garbage data, bail out.
@@ -218,7 +207,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		|| bodymodeldef->numparts > 500) {
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
 		             "ptr=%p skel=%p root=%p parts=%d -- skipping",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum, /* SA-5f: raw access for diagnostic log only */
+		             bodynum, catalogGetBodyFilenumByIndex(bodynum), /* SA-5f */
 		             (void *)bodymodeldef,
 		             bodymodeldef ? (void *)bodymodeldef->skel : NULL,
 		             bodymodeldef ? (void *)bodymodeldef->rootnode : NULL,
@@ -232,11 +221,11 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	 * Only reject truly degenerate values (zero/negative). */
 	if (bodymodeldef->scale <= 0.0f) {
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: degenerate scale %.2f for bodynum %d (file 0x%04x) -- setting to 1.0",
-		             bodymodeldef->scale, bodynum, g_HeadsAndBodies[bodynum].filenum); /* SA-5f: raw access for diagnostic log only */
+		             bodymodeldef->scale, bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5f */
 		bodymodeldef->scale = 1.0f;
 	} else {
 		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
-		             bodynum, g_HeadsAndBodies[bodynum].filenum, bodymodeldef->scale); /* SA-5f: raw access for diagnostic log only */
+		             bodynum, catalogGetBodyFilenumByIndex(bodynum), bodymodeldef->scale); /* SA-5f */
 	}
 
 	modelAllocateRwData(bodymodeldef);
@@ -250,13 +239,13 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				} else if (headnum > 0) {
-					if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-						s32 head_filenum = catalogGetHeadFilenumByIndex(headnum); /* SA-5a */
-						headmodeldef = modeldefLoadToNew(head_filenum);
-						g_HeadsAndBodies[headnum].modeldef = headmodeldef;
+					/* SA-5f: bodyCalculateHeadOffset modifies the modeldef in-place
+					 * (not idempotent) — must only run on first load.  Capture the
+					 * pre-load state before calling catalogGetHeadModeldef(). */
+					s32 head_needs_offset = (g_HeadsAndBodies[headnum].modeldef == NULL); /* SA-5f: pre-load check only */
+					headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
+					if (head_needs_offset && headmodeldef != NULL) {
 						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
-					} else {
-						headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 					}
 
 					modelAllocateRwData(headmodeldef);
