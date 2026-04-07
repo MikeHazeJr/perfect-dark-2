@@ -3,6 +3,40 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S178 — 2026-04-07 (M0.1e: Catalog as Data Provider + release.ps1 auto-commit)
+
+**Focus**: Complete M0.1e — catalog serves body/weapon properties via typed accessors. Harden release.ps1 with auto-commit before rebase.
+
+### What Was Done
+
+**Task A — release.ps1 auto-commit** (already committed in S177 continuation):
+- Added auto-commit block before `git pull --rebase` in Step 4: checks `git status --porcelain`, stages with `git add -A`, commits `"chore: auto-commit before release v$Version"` if dirty.
+
+**Task B — M0.1e: Catalog as Data Provider** (commit `b3555576`):
+
+**New accessors** in `assetcatalog.h` / `assetcatalog_api.c`:
+- SA-5d (body/head): `catalogGetBodyIsMale`, `catalogGetBodyType`, `catalogGetBodyHeight`, `catalogGetBodyAnimScale`, `catalogGetBodyCanVaryHeight`, `catalogGetBodyIsComplete` (wraps `unk00_01`), `catalogGetBodyHandFilenum`, `catalogGetHeadIsMale`, `catalogGetHeadType`
+- SA-5e (MP weapons): `catalogGetMpWeaponNum` (wraps `weaponnum`), `catalogGetMpWeaponUnlockFeature`
+- All O(1) direct array accesses with bounds checking (152 for bodies/heads, `NUM_MPWEAPONS` for weapons)
+
+**Migrated 11 game files**: body.c, chraction.c, botmgr.c, bot.c, bondgun.c, botinv.c, activemenu.c, challenge.c, mplayer.c, mplayer/setup.c, player.c
+
+**server_stubs.c**: Added `struct mpweapon g_MpWeapons[NUM_MPWEAPONS]` zero-init stub (server build was missing this symbol, caught at link time).
+
+**Intentionally deferred**:
+- `g_HeadsAndBodies[x].modeldef` — runtime-mutable cache pointer, not a stat/property
+- `priammotype`/`priammoqty` patterns in bot.c/player.c — pending `catalogGetMpWeaponAmmoInfo()` accessor
+
+### Decisions
+- SA-5d/5e are safe for per-frame callers — O(1), no catalog scan
+- `g_MpWeapons` server stub zero-initialized; server never uses weapon slot data
+
+### Next Steps
+- M0.1 gate: Confirm all integer asset IDs eliminated at public boundaries — M0.1e completes the final sub-task
+- Proceed to M0.2 (Input System Unification) or M1/M2/M3 work
+
+---
+
 ## Session S177 — 2026-04-07 (Infrastructure: Script Relocation + Git Recovery)
 
 **Focus**: Fix git infrastructure issues (packed-refs corruption, index.lock, working copy desync from worktree merges), fix build break from truncated matchsetup.h, consolidate scripts into devtools/, harden release pipeline.
