@@ -406,6 +406,14 @@ if ($SkipPush -or $DryRun) {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
 
+    # Auto-commit any uncommitted changes before rebase
+    $statusOut = git status --porcelain 2>&1
+    if ($statusOut) {
+        Write-Host "  Committing uncommitted changes before sync..." -ForegroundColor Gray
+        git add -A 2>&1 | Out-Null
+        git commit -m "chore: auto-commit before release v$Version" 2>&1 | Out-Null
+    }
+
     # Sync with remote before pushing — code sessions may have pushed commits
     # that the local working copy doesn't have yet. Rebase keeps our release
     # commit on top. If a conflict occurs, rebase aborts and the push below

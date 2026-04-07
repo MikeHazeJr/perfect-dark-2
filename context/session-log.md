@@ -3,6 +3,45 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S177 — 2026-04-07 (Infrastructure: Script Relocation + Git Recovery)
+
+**Focus**: Fix git infrastructure issues (packed-refs corruption, index.lock, working copy desync from worktree merges), fix build break from truncated matchsetup.h, consolidate scripts into devtools/, harden release pipeline.
+
+### What Was Done
+
+**Git infrastructure recovery**:
+- Fixed packed-refs corruption (duplicate v0.0.9 tag + null bytes)
+- Cleared stuck index.lock
+- Recovered working copy desync (38 modified files from stale worktree merges) via `git checkout dev -- .`
+
+**Build break fixed — matchsetup.h truncation**:
+- File truncated at line 84 during M0.1d worktree merge — `extern struct matchconfig g_MatchConfig` and all function prototypes missing
+- Restored declarations, added missing `#include "net/matchsetup.h"` to net.c
+- pdgui.h extern "C" guards added for C++/C interop (commit 62b71e42)
+
+**Release pipeline hardened**:
+- Added `git pull --rebase origin dev` before push step in release.ps1 — prevents non-fast-forward failures when code sessions have pushed commits
+
+**Scripts consolidated into devtools/** (commit 018e0c05):
+- Moved: release.ps1, build_check.ps1, release-v0.0.2.ps1 from project root → devtools/
+- release.ps1: Added `$ProjectRoot = Split-Path $PSScriptRoot -Parent` + `Set-Location $ProjectRoot` for location-independence
+- _dev-window.ps1: Updated reference to `devtools/release.ps1`
+- All relative paths verified working (dev window sets CWD to project root before invocation)
+
+**Worktree cleanup**:
+- Pruned 6 stale worktree refs (elegant-chandrasekhar, serene-robinson, bold-swartz, busy-wiles, eloquent-lehmann, kind-hertz)
+- Physical directories locked by running sessions — will auto-clean on close
+
+### Decisions
+- `Set-Location $ProjectRoot` added defensively to release.ps1 — dev window already handles CWD, but this covers direct invocation
+- release-v0.0.2.ps1 moved as-is (legacy, no references found anywhere)
+
+### Next Steps
+- Continue roadmap: M0.1e (catalog as data provider), M1.2 completion, M2.3 (stats wiring), or M3 (online MP)
+- commit-graph cache fix (non-fatal warning, low priority)
+
+---
+
 ## Session S176 — 2026-04-07 (B-115 Fix + M2.1 Combat Sim Polish)
 
 **Focus**: Fix B-115 (post-game mouse), verify M2.1 arena selection and game mode selection completeness.
@@ -1566,309 +1605,4 @@ Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
    - `manifestComputeHash` hashes ID string bytes instead of net_hash bytes
    - `manifestSerialize`/`manifestDeserialize` drop net_hash field
    - `sessioncatalog.c` broadcast/receive uses `assetCatalogResolve(catalog_id)` only
-   - `netdistrib.c` queue entries use `char catalog_id[64]` instead of `u32 net_hash`
-   - NET_PROTOCOL_VER bumped to 27
-
-2. **SAVE-COMPAT branches fully stripped**
-   - `scenario_save.c`: Write path only writes catalog ID strings (arenaId, bodyId, headId, weapon_id). Load path only accepts catalog ID strings. All integer fallback branches removed. `scenarioDelete()` function added.
-   - `savefile.c`: Raw "weapons" integer array write removed (only "weapon_ids" strings). "stagenum", "mpheadnum", "mpbodynum" integer fallback paths removed.
-
-3. **CLC_LOBBY_START fully catalog-native**
-   - Arena and weapons sent as catalog ID strings via `netbufWriteStr`/`netbufReadStr`
-   - SVC_LOBBY_STATE converted from `catalogWritePreSessionRef` to catalog ID strings
-
-4. **Per-frame log spammers removed** (`bondwalk.c`)
-   - 5 per-frame spammers removed: JUMP_AIRBORNE, JUMP_STUCK, CAPSULE_CEIL, B49_PROP_FLOOR, CAPSULE_FLOOR
-   - One-shot event logs preserved (JUMP press, JUMP_BLOCKED, JUMP_LANDING, etc.)
-
-5. **Legacy default replacements** (`mplayer.c`)
-   - Hardcoded MPBODY_*/MPHEAD_*/STAGE_* defaults replaced with `assetCatalogResolve("base:dark_combat")` etc.
-   - `g_MpSetup` has `stage_id` field
-
-6. **Comprehensive project-wide bug audit**
-   - Full audit of `src/game/`, `src/lib/`, `port/src/`, `port/fast3d/`, `port/include/`, `port/src/net/`
-   - 19 findings: 2 CRITICAL, 3 HIGH, 8 MEDIUM, 6 LOW
-   - 5 systemic patterns identified (sprintf, network bounds, fread, strcpy, malloc)
-   - Results in `context/audit-comprehensive-bugs.md`
-
-7. **Critical + high-severity bug fixes**
-   - **C-01 (CRITICAL)**: ChrResync null-prop buffer desync — removed early `continue` on NULL prop in netmsg.c ChrResync handler; all 20+ fields always read from buffer to maintain cursor alignment
-   - **C-02 (CRITICAL)**: Unbounded malloc in netdistrib.c — added `MAX_DISTRIB_ARCHIVE_BYTES (64MB)` upper bound before malloc
-   - **H-01 (HIGH)**: SVC_PLAYER_MOVE bounds check — added `if (id >= NET_MAX_CLIENTS)` guard
-   - **H-02 (HIGH)**: sprintf → snprintf in chat handler — buffer overflow prevention with size limits
-
-8. **Constraints + context updated**
-   - constraints.md: Protocol v27, net_hash fully deprecated, ImGui sole menu system, mouse capture state machine, catalog registers ALL assets
-   - Engine modernization vision documented as auto-memory
-
-9. **Multiple independent deep audits**
-   - `audit-catalog-id-compliance.md`: Initial compliance audit (8 CRITICAL + 6 HIGH + 7 MEDIUM + 4 LOW)
-   - `audit-legacy-hacks.md`: 35+ legacy pattern findings across 10 categories
-   - `audit-pipeline-compliance-1.md`: Post-batch verification audit #1
-   - `audit-infrastructure-integrity.md`: Post-batch verification audit #2
-   - `audit-comprehensive-bugs.md`: Full project bug audit (19 findings)
-
-### Key Files Changed
-- `port/src/net/netmsg.c` — CLC_LOBBY_START strings, SVC_LOBBY_STATE strings, ChrResync fix (C-01), SVC_PLAYER_MOVE bounds (H-01), chat snprintf (H-02)
-- `port/src/net/netdistrib.c` — catalog_id strings, MAX_DISTRIB_ARCHIVE_BYTES guard (C-02)
-- `port/src/net/netmanifest.c` — net_hash param removed, string-based hashing
-- `port/src/net/sessioncatalog.c` — net_hash removed from broadcast/receive
-- `port/src/scenario_save.c` — SAVE-COMPAT stripped, catalog ID strings only
-- `port/src/savefile.c` — SAVE-COMPAT stripped, integer fallbacks removed
-- `port/include/net/net.h` — NET_PROTOCOL_VER = 27
-- `src/game/bondwalk.c` — per-frame log spammers removed
-- `src/game/mplayer/mplayer.c` — catalog-based defaults
-
-### Decisions Made
-- net_hash is permanently dead. The wire format uses full catalog ID strings everywhere. No compact hash representation.
-- SAVE-COMPAT branches removed entirely — Mike and Chris can clear saves.
-- Engine modernization vision: ROM is a legacy asset provider. Catalog becomes provider-agnostic asset bus enabling modern PBR/physics pipeline. Current work (Option A) → catalog-backed internals (Option A+) → provider-agnostic bus (Option B).
-- ChrResync fix: always read all fields even when prop is NULL, only skip the apply step.
-
-### Remaining Work
-- 8 MEDIUM findings from comprehensive audit (dead code, rate limiting, chunk ordering, audio Hz, JSON depth, shutdown sequence)
-- 6 LOW findings (realloc error handling, enet_peer_send check, strcpy → strncpy)
-- Systemic sweeps: 350+ sprintf → snprintf (done separately), **network bounds checks DONE (S131)**, fread/fwrite return checks, malloc NULL checks
-- Phase G playtest verification still pending
-
----
-
-## Session S131 -- 2026-04-03
-
-**Focus**: Comprehensive bug audit fixes (14 Tier 2+3 findings), five systemic sweeps, v0.0.25 release, context cleanup, playtest → 10 new UI/UX bugs
-
-### What Was Done
-
-1. **Systemic sweep 1: sprintf → snprintf** — 344 sites across 36 files. All unbounded sprintf calls replaced with snprintf to eliminate buffer overflow risk.
-
-2. **Systemic sweep 2: network array bounds** — Full audit of all `netbufReadU8/U16/U32` → array-index paths in `port/src/net/`. One unguarded site fixed: `netmsgSvcAuthRead` — added `id >= NET_MAX_CLIENTS` and `maxclients > NET_MAX_CLIENTS` guards (B-75 / S131 sweep2).
-
-3. **Systemic sweep 3: fread/fwrite checks, strcpy→strncpy, realloc NULL guards** — Fixed B-77 (fread unchecked in savefile), B-85 (buildArchiveDir stale pointer on realloc failure), B-87 (strcpy VK names in input.c), B-88 (three strcpy in mpsetups.c), B-89 (strcpy homeDir in fs.c).
-
-4. **v0.0.25 released as pre-release** — version bump, update tab column fix (Title column stretched, Size column 80px), title intro alignment fix, update notification banner overlap fixed.
-
-5. **Context system major cleanup** — archived completed work, trimmed stale playtest backlog, updated for S131 state.
-
-6. **Playtest session** — Revealed 10 new UI/UX bugs (B-90 through B-99): mission select unlock filtering missing, objectives not loading, mouse not captured on solo start, pause menu incomplete, ImGui duplicate ID on pause menu, update banner visible during missions, difficulty flow wrong, special assignments not separated, pause menu OG fallback, updater extraction reliability.
-
-### Key Files Changed
-- `port/src/net/netmsg.c` — sweep2 (auth bounds), sweep1 (sprintf)
-- `port/src/savefile.c` — sweep3 (fread checks)
-- `port/src/net/netdistrib.c` — sweep3 (realloc NULL guard)
-- `port/src/input.c` — sweep3 (strcpy VK names)
-- `port/src/mpsetups.c` — sweep3 (three strcpy calls)
-- `port/src/fs.c` — sweep3 (strcpy homeDir)
-- 30+ additional files — sweep1 (sprintf→snprintf)
-- `port/include/versioninfo.h.in` — v0.0.25 bump
-- `port/fast3d/pdgui_menu_update.cpp` — column widths fix
-- `port/fast3d/pdgui_backend.cpp` — title intro alignment
-
-### Decisions Made
-- Network bounds sweep complete. All netbufRead → array-index paths are now guarded.
-- v0.0.25 is the current pre-release. Next release will address playtest findings.
-
-### Next Steps
-- Fix B-90 through B-99 (solo mission flow, pause menu, mouse capture, ImGui IDs)
-- Phase D5: Settings/QoL + UI Polish pass (relative layout for all menus)
-- Phase G playtest verification (MP bots, match completion)
-
----
-
-## Session S133 -- 2026-04-03
-
-**Focus**: Merge state audit + catalog tab crash root cause (B-102)
-
-### What Was Done
-
-1. **Merge state audit (all clear)**
-   - `git log --oneline -20`, `git worktree list`, `git diff --stat HEAD`, `git stash list` all clean.
-   - All 35 Claude worktrees are at or behind `dev` HEAD (`1e7ca59`). No unmerged commits. No uncommitted changes.
-   - Stash list has 3 old entries (pre-existing, not from today).
-   - All today's fixes (dynamic catalog buffer, B-92 mouse capture, B-94 ImGui IDs, B-100 modmgr, B-101 updater button, propagation sweep) confirmed fully merged into `dev`.
-
-2. **B-102: Catalog tab NULL crash — root cause found and fixed**
-   - **Root cause**: `ASSET_LANG` was added to `asset_type_e` (index 24) and 68 base language banks are registered with it, but `s_AssetTypeNames[ASSET_TYPE_COUNT]` in `pdgui_menu_mainmenu.cpp` only had 24 initializers (indices 0–23). `s_AssetTypeNames[24]` = NULL.
-   - Every call to open the type-filter combo called `ImGui::Selectable(NULL, sel)` for ASSET_LANG → immediate crash. The per-type stat row also crashed via `TextDisabled("%-12s", NULL)` since `assetCatalogGetCountByType(ASSET_LANG)` returns 68.
-   - **Fix**: Added `"Lang"` at index 24. One line. Propagation check confirmed `typeName()` in modmgr uses a `default: return "Unknown"` switch — safe. No other NULL name arrays.
-   - Build verified: `pdgui_menu_mainmenu.cpp` compiles clean (exit 0, only pre-existing `/*` within comment warning on line 17).
-
-### Key Files Changed
-- `port/fast3d/pdgui_menu_mainmenu.cpp` — add `"Lang"` to `s_AssetTypeNames[]` (7fb1831)
-
-### Next Steps
-- Playtest: verify Settings → Catalog tab opens without crash, shows Lang entries
-- B-90 through B-99 solo mission flow bugs remain
-- Phase D5.2: pause menu + mouse capture polish
-
----
-
-## Session S132 -- 2026-04-03
-
-**Focus**: Propagation scan — 5 bug pattern classes across all pdgui_menu_*.cpp and port/src/
-
-### What Was Done
-
-**Scan + fix of all 5 pattern classes:**
-
-1. **Pattern 1 — Fixed-size static arrays (overflow on catalog growth)**
-   - `pdgui_menu_room.cpp`: `s_Arenas[256]` converted to `malloc`/`realloc` dynamic buffer with `s_ArenasCapacity` tracking. Silently dropped arenas >255; now unbounded. Free+null on `buildArenaListFromCatalog` reset and `pdguiRoomScreenReset`.
-   - All other static arrays in pdgui_menu_*.cpp and port/src/ are fixed-size by design (status bufs, search inputs, etc.) — no action needed.
-
-2. **Pattern 2 — runtime_index as array subscript** — No unsafe siblings. All runtime_index usages go through typed conversion functions (`catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, etc.). No raw `[e->runtime_index]` subscripts found.
-
-3. **Pattern 3 — Missing inputLockMouse on gameplay transitions** — 4 siblings of B-66/B-92 fix found and fixed:
-   - `matchsetup.c matchStartFromChallenge()`: was missing `inputLockMouse(1)` after `menuStop()` (only the normal match path had it)
-   - `netmsg.c SVC_STAGE co-op/anti branch`: networked co-op/counter-op client missing lock
-   - `netmsg.c SVC_STAGE MP branch`: networked MP client missing lock
-   - `net.c netServerStageStart()`: listen-server co-op host missing lock
-   - `input.h` added to client-only `#if !defined(PD_SERVER)` include blocks in `netmsg.c` and `net.c`
-
-4. **Pattern 4 — Empty/duplicate ImGui IDs** — No siblings. All button/selectable labels already use `##pm`, `##go`, `PushID(i)` wrappers, `##diff_row` etc. Pause menu B-94 already resolved.
-
-5. **Pattern 5 — Action buttons without backing data guards** — No siblings. Apply Changes is guarded by `pending == 0` BeginDisabled. No null-data action buttons found.
-
-### Key Files Changed
-- `port/fast3d/pdgui_menu_room.cpp` — dynamic arena buffer
-- `port/src/net/matchsetup.c` — inputLockMouse on challenge start
-- `port/src/net/netmsg.c` — inputLockMouse on co-op + MP SVC_STAGE
-- `port/src/net/net.c` — inputLockMouse on listen-server co-op start
-
-### Build Verification
-All 4 changed files pass `-fsyntax-only` check for both client and PD_SERVER builds.
-
-### Next Steps
-- Phase D5.2: pause menu + mouse capture fixes remain in playtest backlog
-- B-90 through B-99 solo mission flow bugs remain
-
----
-
-## Session S129 -- 2026-04-02
-
-**Focus**: Catalog ID Compliance Audit — M-2, M-3, M-4, M-5 UI picker fixes
-
-### What Was Done
-
-**2 files changed** — both targets build clean (zero new errors).
-
-**Changes:**
-
-1. **`port/fast3d/pdgui_menu_matchsetup.cpp`** (M-2 + M-4 + struct fix)
-   - Fixed local `struct matchslot` layout: reordered `body_id[64]`/`head_id[64]` to be PRIMARY (before `headnum`/`bodynum`) matching the canonical `net/matchsetup.h` definition. Previous ordering was wrong and caused silent field offset mismatches.
-   - Fixed local `struct matchconfig`: added missing `char stage_id[64]` (PRIMARY) between `scenario` and `stagenum`, and `u8 spawnWeaponNum` at end. Without these, all code reading `g_MatchConfig.stage_id` in matchsetup.cpp was reading wrong bytes.
-   - M-2: Replaced `static s32 s_ArenaIndex` / `s_ArenaModalHover` (raw stagenum integers) with `static char s_ArenaId[CATALOG_ID_LEN]` / `s_ArenaHoverId[CATALOG_ID_LEN]`. All selection comparisons use `strcmp(ae->id, s_ArenaId)`. On selection: `g_MatchConfig.stage_id` written (not `stagenum`). Init: copies `g_MatchConfig.stage_id` to `s_ArenaId`. Hover name resolution loop now compares by ID. Removed dead `findArenaIndex(u8 stagenum)` function. Start Match log updated to show `stage_id`.
-   - M-4: Bot character selector loop now resolves `catalogResolveBodyByMpIndex(b)` / `catalogResolveHeadByMpIndex(b)` and sets `bot->body_id`/`bot->head_id`. `isSel` comparison uses catalog ID strcmp. `bodynum`/`headnum` NOT written at selection time — derived at `matchStart()`.
-
-2. **`port/fast3d/pdgui_menu_room.cpp`** (M-3 verified + M-5 fixed)
-   - M-3: Verified already clean from Session S128 — arena picker and match start paths all use `stage_id`. No changes needed.
-   - M-5: Lobby bot slot editor character picker updated. `curBody` display name now resolved from `sl->body_id` via scan of body entries. `isSel` uses `catalogResolveBodyByMpIndex(b)` strcmp. On selection: `sl->body_id`/`sl->head_id` set via catalog resolvers. `bodynum`/`headnum` NOT written at selection time.
-
-**Build verification**: Both `pd` (client) and `pd-server` build clean. Only pre-existing `/*` within comment warnings in file headers.
-
-### Decisions Made
-- Stagenum is still displayed in the arena hover preview badge (0x%02X) — this is debug info derived FROM the catalog entry at display time, not identity.
-- `lobbyplayer_view.bodynum` in room.cpp (the right panel player list) uses integer bodynum — this is data received from the network, not a selection. Not a violation; left as-is.
-
-### Next Steps
-- Remaining audit findings: C-1/C-2/C-3 (wire net_hash), C-4 (netdistrib), C-5 (sessioncatalog) — Batch 3 (netmsg/netdistrib/sessioncatalog).
-- H-5/H-6 (save fallbacks) — accepted debt post-v1.0.
-- M-6/M-7/L-1/M-1 — lower priority.
-- Playtest: confirm body/head variety in bot selection, arena selection, and match start all work end-to-end.
-- These changes (S127/S128/S129) not yet committed — commit together when Mike confirms clean in-game.
-
----
-
-## Session S128 -- 2026-04-02
-
-**Focus**: Catalog ID Compliance Audit — H-1, H-2, H-3, H-4 implementation
-
-### What Was Done
-
-**6 files changed** — no new commits yet; both targets build clean (zero errors).
-
-**Mandate**: All asset references must use catalog ID strings `"namespace:readable_name"` at every interface boundary. Raw integer indices (bodynum, headnum, stagenum) are ONLY permitted as DERIVED values resolved at the final legacy engine handoff.
-
-**Changes:**
-
-1. **`port/include/net/matchsetup.h`** (H-1) — Added `char stage_id[64]` as PRIMARY field to `struct matchconfig`. `stagenum` annotated DERIVED. Mirrors the `body_id`/`head_id` pattern from matchslot.
-
-2. **`port/src/net/matchsetup.c`** (H-1 follow-through) — `matchConfigInit()`: sets `stage_id = "base:mp_complex"`, resolves `stagenum` from catalog. `matchStart()`: resolves `g_MpSetup.stagenum` from `g_MatchConfig.stage_id` (handles ASSET_ARENA + ASSET_MAP); returns -1 on failure (no fallback). `matchStartFromChallenge()`: syncs `g_MatchConfig.stage_id` from challenge stagenum via `catalogResolveArenaByStagenum()` / `catalogResolveStageByStagenum()`.
-
-3. **`port/fast3d/pdgui_bridge.c`** (H-2) — `netLobbyRequestStart` and `netLobbyRequestStartWithSims` signatures changed from `u8 stagenum` to `const char *stage_id`. Static helper `s_resolveStageIdToStagenum()` resolves internally. Returns -3 if catalog resolution fails; no fallback.
-
-4. **`port/fast3d/pdgui_menu_room.cpp`** (H-2 callers) — `arena_entry` struct now carries `char id[64]`. `catalogArenaCollect()` populates `id` from `e->id`. `syncArenaFromConfig()` matches by `stage_id` string comparison (not stagenum integer). Arena picker click writes `stage_id` not `stagenum`. All three match-start paths (MP Combat Sim, COOP Campaign, Counter-Op) pass catalog ID strings to the bridge API.
-
-5. **`src/game/mplayer/mplayer.c`** (H-3, H-4) — Player defaults in `func0f187fec()` and bot defaults in `func0f1881d4()` replaced with `assetCatalogResolve("base:dark_combat")` etc.; error logged on failure; no integer fallback. `mpInit()` default stage uses `assetCatalogResolve("base:mp_skedar")` to set both `stage_id` and `stagenum`; last-resort integer fallback only if catalog unavailable at boot. `mpStartMatch()` random resolution: syncs `stage_id` via `catalogResolveArenaByStagenum` / `catalogResolveStageByStagenum` after integer resolution.
-
-6. **`src/include/types.h`** (H-4) — Added `char stage_id[64]` as PRIMARY field to `struct mpsetup`, above `stagenum`. PC-only field; no N64 offset. Comment explains DERIVED relationship.
-
-**Build verification**: Both `pd` (client) and `pd-server` build clean. Zero errors; only pre-existing warnings (dangling pointer in modelasm_c.c, uninitialized frac in model.c).
-
-### Decisions Made
-- `netLobbyRequestStart`/`WithSims` are permanently string-based. No integer overload.
-- Campaign/Counter-Op missions: `s_Missions[]` internal UI struct retains stagenum for display; conversion to catalog ID string happens AT the API boundary callsite via `catalogResolveStageByStagenum()`. Valid per mandate (internal UI state, not a catalog boundary).
-- `netmenu.c` legacy `menuPush`/`menuPop` path left untouched per task constraints (that system is being stripped entirely).
-- `stage_id` in `mpsetup` is a PC-only addition; zero N64 struct impact.
-
-### Next Steps
-- **Playtest required**: zero CATALOG-ASSERT in logs, all MP game modes with bots, bot body/head variety in-game, arena selection via UI writes stage_id correctly.
-- These changes (S128) and S127 changes are not yet committed — commit together when Mike confirms clean in-game.
-- Audit findings H-1/H-2/H-3/H-4 fully implemented. H-5/H-6 (save file legacy integer fallbacks) are ACCEPTED DEBT (SA-4 backward-compat; removal requires migration tool, planned post-v1.0).
-
----
-
-## Session S127 -- 2026-04-02
-
-**Focus**: Game Director Mandate — Catalog-ID-native data model (complete the ba30dcc revert properly)
-
-### What Was Done
-
-**8 files changed** — no new commits yet; all changes in main working copy. Both targets build clean.
-
-**Root cause**: ba30dcc revert added `body_id`/`head_id` fields to `matchslot` but did NOT populate them anywhere, and did NOT remove conversion calls in `netmsg.c:3618-3619` and `netmanifest.c:653-656`. Mandate: catalog ID strings are the ONLY valid way to reference assets on the match config path. Integer indices are resolved ONLY at the legacy engine handoff in `matchStart()`.
-
-**Changes:**
-
-1. **`port/include/net/matchsetup.h`** — `body_id`/`head_id` annotated PRIMARY, `bodynum`/`headnum` annotated DERIVED. `matchConfigAddBot` signature changed from integer `(headnum, bodynum)` to string `(body_id, head_id)`.
-
-2. **`port/src/net/matchsetup.c`** — `matchConfigInit()`: populates `body_id`/`head_id` from `catalogResolveBodyByMpIndex`/`catalogResolveHeadByMpIndex` immediately. `matchConfigAddBot()`: new string-based signature; sets body_id/head_id primary; derives bodynum/headnum via catalog. `matchStart()`: resolves bodynum/headnum from body_id/head_id via `assetCatalogResolve` + `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx` at handoff.
-
-3. **`port/src/net/netmsg.c`** — `CLC_LOBBY_START` write: removed raw u8 mpbodynum/mpheadnum; now `netbufWriteStr(sl->body_id)` + `netbufWriteStr(sl->head_id)`. Read (server): replaced two `netbufReadU8` with `netbufReadStr` + catalog resolve to mpbodynum/mpheadnum.
-
-4. **`port/src/net/netmanifest.c`** — `manifestBuildForHost()` bot section: removed double-conversion chain; now uses `sl->body_id`/`sl->head_id` directly with `assetCatalogResolve`.
-
-5. **`port/fast3d/pdgui_menu_matchsetup.cpp`** — forward decl updated; `matchConfigAddBot` call changed to use `"base:dark_combat"`, `"base:head_dark_combat"` literals. Local `#define BODY_DARK_COMBAT 0` now dead.
-
-6. **`port/fast3d/pdgui_menu_room.cpp`** — Add Bot call: copies `body_id`/`head_id` strings instead of integers.
-
-7. **`port/src/scenario_save.c`** — Write: uses `sl->body_id`/`sl->head_id` directly; removed legacy integer `"body"`/`"head"` fields. Read: passes `bodyId`/`headId` strings to `matchConfigAddBot`; fallback to `catalogResolveByRuntimeIndex` if no string present for old saves.
-
-8. **`port/src/assetcatalog_base.c`** — Head registration loop now covers all 76 `g_MpHeads[]` entries (was 75 via `s_BaseHeads[]`). Fallback name `"head_%d"` for missing entries.
-
-**Build verification**: Both `pd` (client) and `pd-server` build clean. Zero errors; only pre-existing warnings (dangling pointer in modelasm_c.c, uninitialized frac in model.c).
-
-### Decisions Made
-- Conversion calls (`catalogBodynumToMpBodyIdx`, etc.) are ONLY valid at legacy engine handoff in `matchStart()`. All earlier call sites on the match config path are wrong and were removed.
-- `matchConfigAddBot` signature is permanently string-based. No integer overload.
-- Scenario save: legacy integer fallback kept for backward-compat with pre-SA-4 saves; write side is fully string-first.
-- `manifestBuild()` (server-side, post-matchStart) still reads from `g_BotConfigsArray` with mpbodynum — this is correct; it runs after matchStart has resolved integers from catalog.
-
-### Next Steps
-- **Playtest required**: zero CATALOG-ASSERT in logs, all MP game modes with bots, bot body/head variety in-game.
-- These changes are not yet committed — commit when Mike confirms clean in-game.
-- Phase G playtest verification still outstanding.
-
----
-
-## Session S126 -- 2026-04-02
-
-**Focus**: Phase G — Full Verification Pass (code audit + build)
-
-### What Was Done
-
-**0 files changed** — audit + context update session only. No code changes.
-
-**Grep audit — catalog universality (codebase-wide)**
-
-Searched for all patterns flagged in Phase A audit spec: raw g_MpBodies[]/g_MpHeads[]/g_MpWeapons[] with raw indices, raw stagenum bypassing catalog resolve functions, filenum_t passed as catalog ID, TODO/FIXME/HACK comments related to catalog migration, netbuf writes of raw body/head/weapon indices.
-
-**Confirmed clean (Phases B–F fixes verified in place)
+   - `netdistrib.c` queue entries use `char catalog_id[64]` instead of 
