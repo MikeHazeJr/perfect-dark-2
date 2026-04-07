@@ -38,10 +38,12 @@ for encoding/decoding asset references in net messages.  Never write or read raw
 
 ### Catalog-first file resolution
 All asset file resolution must go through catalog accessor functions:
-- **Bodies**: `catalogGetSafeBody()`, `catalogGetSafeBodyPaired()`
-- **Heads**: `catalogGetSafeHead()`
+- **Body/Head validation**: `catalogValidateBodyId()`, `catalogValidateBodyIdPaired()`, `catalogValidateHeadId()` (string-based, public API)
 - **Filenames/filenums**: `catalogGetBodyFilenumByIndex()`, `catalogGetHeadFilenumByIndex()`
 - **String IDs → entries**: `assetCatalogResolve()`
+
+Note: `catalogGetSafeBody/Head/BodyPaired` are now static (internal to modelcatalog.c).
+Use the string-based validators at all public boundaries.
 
 Never access `g_HeadsAndBodies[]` directly from networking, UI, or gameplay code.
 Allowed read-sites are: `assetcatalog_base.c` (registration), `assetcatalog_api.c`

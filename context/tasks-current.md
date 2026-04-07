@@ -90,11 +90,11 @@
 | Sub-phase | Status | Detail | Unblocks |
 |-----------|--------|--------|----------|
 | **M0.1a — Stage signatures** | **DONE (S167)** | `g_SoloStages[]` catalog-native, endscreen, bg.c, mplayer.c, ingame.c, bodyreset.c all converted. Commit `270d57c`. | M1 (Campaign) |
-| **M0.1b — Body/Head signatures** | **NEXT** | ~85 wrapper calls remain. All body/head selection, spawn, display functions need catalog ID at boundaries. | M2 (Combat Sim chars) |
+| **M0.1b — Body/Head signatures** | **DONE (S169)** | All 6 named conversion wrappers eliminated. 5 already deleted, 3 safe-body/head functions made static (zero external callers). String-based validators are the public API. ~30 `catalogMpBodyId/HeadId` enumeration calls remain (display helpers, not identity wrappers — tracked under Gameplay state). | M2 (Combat Sim chars) |
 | **M0.1c — Weapon signatures** | NOT STARTED | Weapon select, equip, fire — catalog ID at boundaries. | M2 (Combat Sim weapons) |
 | **M0.1d — Remaining asset types** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD (Phases 9–14). | M4 (Mod Platform) |
 | **M0.1e — Catalog as data provider** | NOT STARTED | Absorb ROM arrays; catalog serves weapon/body/head data directly. | M5 (Forge) |
-| **Phase 7 — Wrapper caller elimination** | **IN PROGRESS** | ~85 calls remain. Cannot delete wrappers until callers migrated. |
+| **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
 | **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
@@ -106,7 +106,7 @@
 | Phase | Status | Detail |
 |-------|--------|--------|
 | **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
-| **Phase 7 — Conversion function wrapper elimination** | **AUDITED / IN PROGRESS** | ~85 calls to `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody/Head` etc. remain. Cannot delete wrappers until all callers migrated. |
+| **Phase 7 — Conversion function wrapper elimination** | **DONE (S169)** | All conversion wrappers eliminated. `catalogBodynumToMpBodyIdx`/`catalogHeadnumToMpHeadIdx`/`catalogResolveBodyByMpIndex`/`catalogResolveHeadByMpIndex`/`catalogResolveWeaponByGameId` deleted (prior sessions). `catalogGetSafeBody`/`catalogGetSafeHead`/`catalogGetSafeBodyPaired` made static in modelcatalog.c (zero external callers). String-based validators (`catalogValidateBodyId`/`catalogValidateHeadId`/`catalogValidateBodyIdPaired`) are the public API. |
 | **Phase 8 — O(n) conversion elimination** | **DONE (S157)** | All linear-scan conversion functions eliminated. |
 | **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
 | **Deep audit — direct array access** | **DONE (S157)** | All 15 bypass items fixed. 2 hidden reimplementations removed. Zero gaps. |
@@ -114,7 +114,7 @@
 | **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
 | **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
 
-**Next action**: Eliminate the ~85 remaining calls to conversion wrappers (Phase 7 caller migration), file by file.
+**Next action**: M0.1c (weapon signatures) or Gameplay state migration (PlayerConfig/BotConfig structs to store catalog ID strings natively, eliminating `catalogMpBodyId`/`catalogMpHeadId` enumeration calls).
 
 ---
 

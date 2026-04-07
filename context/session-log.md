@@ -3,6 +3,37 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S169 — 2026-04-07 (M0.1b — Body/Head Catalog Signature Migration)
+
+**Focus**: Eliminate all integer body/head identity at public function boundaries. Phase 7 wrapper caller elimination.
+
+### What Was Done
+
+**Audit Results**:
+- Grepped all 6 named conversion wrappers across entire codebase
+- `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveHeadByMpIndex`, `catalogResolveWeaponByGameId` — **already deleted** in prior sessions (zero definitions, zero callers)
+- `catalogGetSafeBody`, `catalogGetSafeHead`, `catalogGetSafeBodyPaired` — **zero external callers** found. Only used internally within `modelcatalog.c` by string-based validators
+
+**Code Changes (3 files)**:
+- **modelcatalog.c**: Made `catalogGetSafeBody()`, `catalogGetSafeHead()`, `catalogGetSafeBodyPaired()` all `static`. These are now internal implementation details of the string-based validators.
+- **modelcatalog.h**: Removed public declarations for the 3 integer-based safe functions. String-based validators (`catalogValidateBodyId`, `catalogValidateBodyIdPaired`, `catalogValidateHeadId`) remain as the public API.
+- **port/CLAUDE.md**: Updated catalog accessor documentation to reference string-based validators instead of deleted integer-based functions.
+
+**Remaining enumeration calls (~30)**:
+- `catalogMpBodyId()`/`catalogMpHeadId()` are used in ~30 sites (mplayer.c, room.cpp, agentcreate.cpp, identity.c, matchsetup.c) — these are integer→string enumeration helpers (for display/iteration), NOT identity-passing wrappers. They convert mp_index to catalog ID for UI rendering and save paths.
+- Deep struct migration (PlayerConfig/BotConfig to store catalog IDs natively) would eliminate these — tracked under "Gameplay state — category-based".
+
+### Decisions
+- `catalogMpBodyId`/`catalogMpHeadId` classified as enumeration utilities, not conversion wrappers — they serve the UI iteration pattern (`for b in 0..numBodies, get catalog ID for display`), which is a legitimate use of integer indices for enumeration
+- Phase 7 declared complete: zero integer-based conversion wrappers remain at public boundaries
+
+### Next Steps
+- M0.1c: Weapon signature migration
+- Or: Gameplay state migration (struct-level catalog ID fields in PlayerConfig/BotConfig)
+- D5 Phase 3: Continue menu roster port
+
+---
+
 ## Session S168 — 2026-04-06 (M1.1 — Campaign Mission Select Redesign)
 
 **Focus**: Replace flat mission list with two-panel mission select UI. Fixes B-90 (unlock filter), B-91 (objectives display), B-96 (difficulty flow).
