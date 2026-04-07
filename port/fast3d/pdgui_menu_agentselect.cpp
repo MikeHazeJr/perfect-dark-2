@@ -93,6 +93,7 @@ struct solostage {
     u16 name1;
     u16 name2;
     u16 name3;
+    const char *catalog_id;
 };
 extern struct solostage g_SoloStages[];
 

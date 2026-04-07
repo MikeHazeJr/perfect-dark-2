@@ -457,7 +457,8 @@ char *mpMenuTextWeaponDescription(struct menuitem *item)
 			}
 		}
 
-		if (g_Menus[g_MpPlayerNum].training.weaponnum == WEAPON_NECKLACE && g_Vars.stagenum == STAGE_ATTACKSHIP) {
+		/* M0.1a: catalog-first stage identity comparison */
+		if (g_Menus[g_MpPlayerNum].training.weaponnum == WEAPON_NECKLACE && strcmp(g_MissionConfig.stage_id, "base:attackship") == 0) {
 			if (lvGetDifficulty() >= DIFF_PA) {
 				u8 username[] = {
 					'C' + 9 * 1,

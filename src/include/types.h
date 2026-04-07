@@ -3155,6 +3155,7 @@ struct solostage {
 	/*0x06*/ u16 name1; // "dataDyne Central"
 	/*0x08*/ u16 name2; // " - Defection"
 	/*0x0a*/ u16 name3; // "dataDyne Defection"
+	const char *catalog_id; // PRIMARY: catalog ID string, e.g. "base:defection"
 };
 
 struct stagemusic {

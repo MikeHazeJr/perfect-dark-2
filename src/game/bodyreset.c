@@ -52,20 +52,15 @@ void bodiesReset(s32 stagenum)
 	if (PLAYERCOUNT() >= 2) {
 		g_NumActiveHeadsPerGender = 4;
 	} else {
-		s32 len = 3;
-
-		static u8 overrides[3][2] = {
-			{ STAGE_INFILTRATION, 5 },
-			{ STAGE_RESCUE,       4 },
-			{ STAGE_ESCAPE,       5 },
-		};
-
+		/* M0.1a: catalog-first stage identity for head count overrides */
 		g_NumActiveHeadsPerGender = 8;
 
-		for (i = 0; i < len; i++) {
-			if (overrides[i][0] == stagenum) {
-				g_NumActiveHeadsPerGender = overrides[i][1];
-			}
+		if (strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0) {
+			g_NumActiveHeadsPerGender = 5;
+		} else if (strcmp(g_MissionConfig.stage_id, "base:rescue") == 0) {
+			g_NumActiveHeadsPerGender = 4;
+		} else if (strcmp(g_MissionConfig.stage_id, "base:escape") == 0) {
+			g_NumActiveHeadsPerGender = 5;
 		}
 	}
 

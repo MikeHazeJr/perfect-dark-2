@@ -89,6 +89,7 @@ struct sm_solostage {
     u16 name1;  /* e.g. "dataDyne Central" */
     u16 name2;  /* e.g. " - Defection"     */
     u16 name3;  /* e.g. "dataDyne Defection" (short form) */
+    const char *catalog_id; /* PRIMARY: catalog ID string, e.g. "base:defection" */
 };
 extern struct sm_solostage g_SoloStages[];
 
@@ -644,22 +645,18 @@ static s32 renderMissionSelect(struct menudialog *dialog,
      * (menuhandlerAcceptMission in mainmenu.c), not stored here.
      * stageindex is display metadata (0–20 into g_SoloStages[]), not identity. */
     if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
-        s32 sn = (s32)g_SoloStages[pendingStage].stagenum;
         g_MissionConfig.stageindex = (u8)pendingStage;
-        /* Resolve and store catalog ID — authoritative stage identity (D-3 FULL).
-         * catalogIdByRuntime(ASSET_MAP, X) is indexed by stage TABLE index (position
-         * in g_Stages[]), NOT by stagenum (logical ID). Must convert first. */
-        s32 stageTableIdx = bgGetStageIndex(sn);
-        const char *cid = (stageTableIdx >= 0) ? catalogIdByRuntime(ASSET_MAP, stageTableIdx) : NULL;
-        if (cid) {
+        /* CATALOG-FIRST: use the catalog_id directly from g_SoloStages[].
+         * No stagenum→bgGetStageIndex→catalogIdByRuntime roundtrip needed. */
+        const char *cid = g_SoloStages[pendingStage].catalog_id;
+        if (cid && cid[0]) {
             strncpy(g_MissionConfig.stage_id,
                     cid, sizeof(g_MissionConfig.stage_id) - 1);
             g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
         } else {
-            /* Catalog miss — log and clear; menuhandlerAcceptMission will catch it */
             sysLogPrintf(LOG_WARNING,
-                "pdgui_mission_select: no catalog ID for stagenum=0x%02x (soloIdx=%d)",
-                sn, pendingStage);
+                "pdgui_mission_select: no catalog ID for soloIdx=%d",
+                pendingStage);
             g_MissionConfig.stage_id[0] = '\0';
         }
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
