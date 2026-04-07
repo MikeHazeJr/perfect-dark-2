@@ -37,6 +37,36 @@
 
 ---
 
+## Session S178 — 2026-04-07 (M0.1e — Catalog as Data Provider)
+
+**Focus**: Make the asset catalog serve weapon stats, body/head properties directly. ROM arrays become internal implementation detail.
+
+### What Was Done
+
+**M0.1e COMPLETE — Catalog Data Provider API** (commit `b3555576`):
+- 15 new catalog data accessor functions in `assetcatalog.h` / `assetcatalog_api.c`:
+  - Weapon: damage, fire rate, ammo capacity, magazine size, reload time, range, accuracy, etc.
+  - Body: model index, collision radius, type properties
+  - Head: model index, type properties
+- ROM arrays (`g_MpWeapons[]`, body/head tables) internalized — accessed only through catalog API
+- 8 game files migrated: body.c, bot.c, mplayer.c, setup.c, chraction.c, botmgr.c, bondgun.c, player.c
+- `g_MpWeapons` stub added to `server_stubs.c` for dedicated server build
+- Deferred: modeldef cache, ammo distribution (priammotype/priammoqty) — tracked for future pass
+
+**Release pipeline hardened** (commit `1f1002c4`):
+- Auto-commit uncommitted changes before `git pull --rebase` in release.ps1
+
+### Decisions
+- Body/head property accessors resolve via catalog ID → runtime index → ROM array internally. Public API is catalog-ID-only.
+- Weapon stats follow same pattern. No integer IDs cross the accessor boundary.
+- M0.1 is now COMPLETE (all 5 sub-phases a–e done). Foundation lock for catalog identity is achieved.
+
+### Next Steps
+- Per interleaved cadence: M1.2 (Solo Mission Flow — briefings, mission complete/failed screens) or M0.2 (Input Unification)
+- Gameplay state migration still open (PlayerConfig/BotConfig structs to store catalog IDs natively)
+
+---
+
 ## Session S177 — 2026-04-07 (Infrastructure: Script Relocation + Git Recovery)
 
 **Focus**: Fix git infrastructure issues (packed-refs corruption, index.lock, working copy desync from worktree merges), fix build break from truncated matchsetup.h, consolidate scripts into devtools/, harden release pipeline.
@@ -1606,37 +1636,4 @@ Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
 - `s_DepTable[CATALOG_MAX_DEP_PAIRS]` (256 static) → heap-allocated `s_DepPair *s_DepTable` + `s32 s_DepCap`.
 - Grows by doubling on demand (starting at CATALOG_MAX_DEP_PAIRS = 256).
 - `catalogDepClear()` now frees the buffer. `catalogDepClearMods()` compact-in-place (no realloc — keeps allocated capacity).
-- Previously: mods with many asset dependencies silently dropped entries at 256 with a LOG_WARNING.
-
-**Fix 2 — pdgui_menu_mainmenu.cpp** (`commit ab69868`):
-- `s_ManifestTypeNames[]`: added "Lang" at index 8 (= MANIFEST_TYPE_LANG, added in S130).
-- Bounds check: changed hardcoded `me->type < 8` → `me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0]))` so it auto-tracks the array.
-- Previously: Lang entries in the catalog debug tab showed "?" instead of "Lang".
-
-### Build
-- Build script redirects to main working copy when run from worktree. Changes applied directly to `dev` branch and pushed. Both targets build clean (no structural changes — all callers unchanged).
-
-### Decisions Made
-- The four `s_*Override[]` arrays in assetcatalog_load.c are NOT dynamic data: they're fixed-domain reverse-index maps (filenum/texnum/animnum/soundnum → pool_index). ROM source numbers don't grow. Correct as-is.
-- `CATALOG_MAX_DEP_PAIRS` constant retained in header as initial/minimum capacity for the dep table.
-
-### Next Steps
-- D5 UI Polish (B-91, B-92, B-93, B-96 are the recommended starting sequence per tasks-current.md).
-
----
-
-## Session S130 -- 2026-04-02
-
-**Focus**: Wire protocol v27 (catalog ID strings everywhere), SAVE-COMPAT strip, comprehensive bug audit + critical fixes, engine modernization vision
-
-### What Was Done
-
-**Major Milestones:**
-
-1. **Wire protocol fully migrated to catalog ID strings (v27)**
-   - All remaining `net_hash` u32 CRC32 wire fields replaced with full catalog ID strings across: SVC_LOBBY_STATE, SVC_CATALOG_INFO, CLC_CATALOG_DIFF, SVC_DISTRIB_BEGIN/CHUNK/END, CLC_MANIFEST_STATUS, SVC_SESSION_CATALOG, SVC_MATCH_MANIFEST
-   - `manifestAddEntry`/`manifestAddModEntry` net_hash parameter removed (~30 call sites updated)
-   - `manifestComputeHash` hashes ID string bytes instead of net_hash bytes
-   - `manifestSerialize`/`manifestDeserialize` drop net_hash field
-   - `sessioncatalog.c` broadcast/receive uses `assetCatalogResolve(catalog_id)` only
-   - `netdistrib.c` queue entries use `char catalog_id[64]` instead of 
+- Previously: mods with many asset dependencies silently dropped entr

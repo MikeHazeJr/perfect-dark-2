@@ -108,33 +108,30 @@ tools/                  Log parser, utilities
 
 ---
 
-## 6. Current State (v0.0.45, S156+)
+## 6. Current State (v0.0.50, S178)
 
 ### What's Done
-- **Catalog Universality Phases A–G**: Wire protocol fully migrated to catalog ID strings (v27→v31).
-- **Catalog ID Migration Phases 0–8**: Bodies/heads complete (zero conversion in struct/API/comparison/UI/save/lobby). Phase 8 eliminated all O(n) conversion functions. Deep audit fixed all 15 array-bypass items.
-- **D5.0 Visual Layer**: Init ordering fixed, ROM texture extraction, base-ui mod, haze overlay, CRT scanlines, multi-palette support. ~70% was already built, remaining 30% landed in latest commit.
+- **M0.1 Catalog Signature Migration — COMPLETE** (S167–S178): All 5 sub-phases done. Stages (a), bodies/heads (b), weapons (c), remaining types (d), and catalog as data provider (e). 15 data accessor functions, ROM arrays internalized. Wire protocol v32.
+- **Catalog Universality Phases A–G**: Wire protocol fully migrated to catalog ID strings (v27→v32).
+- **D5 Phases 1–2 COMPLETE**: Input context stack + controller navigation. Phase 3 in progress (61/120 screens remaining).
+- **M1.1–M1.3 COMPLETE**: Campaign mission select, solo mission flow, pause menu + options.
+- **M2.1–M2.2 COMPLETE**: Combat sim UI (arenas, weapons, bots, game modes) + match flow (endscreen, B-117 fix, auto-save).
 - **Lobby Unification (U-1–U-10)**: Complete. `matchsetup.cpp` retired.
-- **155+ sessions** of development. 5 systemic sweeps. Comprehensive bug audit.
+- **178 sessions** of development. 5 systemic sweeps. Comprehensive bug audit.
 
 ### What's Active
-- **D5 Full Menu Overhaul** — master design doc at `context/designs/d5-full-menu-overhaul.md`. Five phases:
-  - Phase 1: Input Context Stack (replacing binary INPUTMODE system) — **IN PROGRESS**
-  - Phase 2: Controller Navigation (D-pad wrap, A/B, device detection)
-  - Phase 3: Full Menu Roster Port (120 screens, 61 remaining)
-  - Phase 4: Theme System (auto-extract textures, mod themes in settings)
-  - Phase 5: Planned Features (player portraits, lobby scene rendering)
-- **Networking**: Client hole punch wired in (`netStartClientWithHolePunch`). Zero-config goal.
-- **Catalog Phase 7 caller elimination**: ~85 calls to conversion wrappers remain
+- **D5 Phase 3 — Full Menu Roster Port**: 61 of 120 screens remaining. Solo pause done (S164), options sub-menu done (S174).
+- **M0.2 — Input System Unification**: Spec done (S163). Action maps and rebinding not started.
 - **B-112**: Chr pointer corruption in 31-bot matches. Root cause unknown. VEH + guards in place.
 
-### What's Planned (Priority Order)
-1. D5 Full Menu Overhaul (~25 sessions, ~6,500 LOC) — current primary workstream
-2. Catalog deep migration (eliminate all integer identity)
-3. Mod infrastructure (mod menu gateway → bot name dictionary mod → visual theme layer)
-4. B-12 Phase 3 (remove chrslots → dynamic participant system)
-5. D13 Update System (code written, needs build integration)
-6. Counter-Op mode, Map Editor, Master Server (backlog)
+### What's Planned (Priority Order per Roadmap)
+1. M0.2 Input System Unification (action maps, rebinding)
+2. M1.2 Solo Mission Flow completion (briefings, mission complete/failed screens)
+3. M2.3 Stats & Progression (persistent stats wiring, achievements)
+4. M3 Online Multiplayer (lobby polish, room list, leader election)
+5. M4 Mod Platform (browser, creation tools, theme system)
+6. M5 Forge (level editor)
+7. M6 Polish & Release (collision feel, audio, accessibility, v1.0.0)
 
 ---
 
