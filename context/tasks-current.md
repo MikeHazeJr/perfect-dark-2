@@ -6,10 +6,11 @@
 
 ---
 
-## Recently Completed (S157–S170 — 2026-04-07)
+## Recently Completed (S157–S172 — 2026-04-07)
 
 | Item | Status |
 |------|--------|
+| **M2.1 — Combat Sim UI Catalog Audit (S172)** | **DONE** — Full audit: arena selection, weapon set config, bot config, game mode selection, match start flow — all already catalog-native after M0.1a/b/c. Only change: stale header comment fix. Zero functional changes needed. |
 | **M1.2 — Solo Mission Flow (S170)** | **DONE** — B-122 fixed (endscreen mouse: deferred flush guard → `pdguiIsActive()`, per-frame `inputCtxSyncMouseMode()`, manual SDL calls removed from endscreen). B-124 fixed (Esc race: `push_tick` + `inputCtxShouldSuppressKey()` + 100ms grace period). Next Mission flow verified (catalog-first pattern confirmed working, B-123 fix solid). 5 files changed. |
 | **M1.1 — Campaign Mission Select Redesign (S168)** | **DONE** — Two-panel layout: left=mission list (unlock filter, blip dots, chapter headings), right=detail (inline difficulty picker, objectives from game data, briefing preview, Start button). Single-screen flow replaces 3-dialog chain. New `soloLoadBriefingForStageId()` helper. B-90, B-91, B-96 all fixed. Also fixed missing `<string.h>` in bg.c/bodyreset.c from M0.1a. Build clean. |
 | **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
@@ -92,7 +93,7 @@
 |-----------|--------|--------|----------|
 | **M0.1a — Stage signatures** | **DONE (S167)** | `g_SoloStages[]` catalog-native, endscreen, bg.c, mplayer.c, ingame.c, bodyreset.c all converted. Commit `270d57c`. | M1 (Campaign) |
 | **M0.1b — Body/Head signatures** | **DONE (S169)** | All 6 named conversion wrappers eliminated. 5 already deleted, 3 safe-body/head functions made static (zero external callers). String-based validators are the public API. ~30 `catalogMpBodyId/HeadId` enumeration calls remain (display helpers, not identity wrappers — tracked under Gameplay state). | M2 (Combat Sim chars) |
-| **M0.1c — Weapon signatures** | NOT STARTED | Weapon select, equip, fire — catalog ID at boundaries. | M2 (Combat Sim weapons) |
+| **M0.1c — Weapon signatures** | **DONE (S171)** | `spawn_weapon_id` and `weapon_ids[6][64]` added to matchconfig (PRIMARY). `spawnWeaponNum`/`weapons[]` DEPRECATED (derived at matchStart). Spawn weapon picker catalog-sourced. Scenario save/load, CLC_LOBBY_START updated. Wire protocol unchanged. Commit `76e0b00`. | M2 (Combat Sim weapons) |
 | **M0.1d — Remaining asset types** | NOT STARTED | Texture, audio, animation, gamemode, lang, prop, HUD (Phases 9–14). | M4 (Mod Platform) |
 | **M0.1e — Catalog as data provider** | NOT STARTED | Absorb ROM arrays; catalog serves weapon/body/head data directly. | M5 (Forge) |
 | **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
@@ -180,15 +181,15 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | B-19: Bot spawn stacking on Skedar Ruins | MED | Partial fix (S125 F.1 anti-repeat) — needs Skedar-specific test |
 | B-21: Menu double-press / hierarchy | MED | Likely fixed Phase E (S124) — needs playtest |
 | B-60: Stray 'g'+'s' behind Video/Audio tabs | LOW | Visual glitch in Settings |
-| B-90: Mission select shows all missions (no unlock filter) | MED | S131 playtest |
-| B-91: Mission detail popup "(No objectives)" | HIGH | Objectives not loading from game data |
-| B-92: Mouse not captured on solo mission start | HIGH | Solo path fixed (S131 menuhandlerAcceptMission). Co-op/MP/challenge siblings fixed S132. |
-| B-93: Pause menu mostly empty | HIGH | Missing Abort, Restart, objective checklist |
-| B-94: ImGui duplicate ID on pause menu hover | MED | Resume/Options need ##id suffixes |
+| ~~B-90: Mission select shows all missions (no unlock filter)~~ | ~~MED~~ | **Fixed S168** — Two-panel redesign with unlock filter |
+| ~~B-91: Mission detail popup "(No objectives)"~~ | ~~HIGH~~ | **Fixed S168** — Objectives loaded via `soloLoadBriefingForStageId()` |
+| ~~B-92: Mouse not captured on solo mission start~~ | ~~HIGH~~ | **Fixed S131/S132** — Solo path + Co-op/MP/challenge siblings |
+| ~~B-93: Pause menu mostly empty~~ | ~~HIGH~~ | **Fixed S164** — 5-button menu + objectives checklist |
+| ~~B-94: ImGui duplicate ID on pause menu hover~~ | ~~MED~~ | **Fixed S132** — ##id suffixes added |
 | B-95: Update banner persists during gameplay | LOW | Should auto-dismiss during missions |
-| B-96: Difficulty flow wrong in mission select | HIGH | Should be: pick mission → difficulty → objectives → Start |
+| ~~B-96: Difficulty flow wrong in mission select~~ | ~~HIGH~~ | **Fixed S168** — Inline difficulty picker in two-panel layout |
 | B-97: Special Assignments / Challenges not separated | LOW | Mixed into main mission list |
-| B-98: Pause menu OG rendering fallback | HIGH | ImGui pause menu not fully implemented |
+| ~~B-98: Pause menu OG rendering fallback~~ | ~~HIGH~~ | **Fixed S164** — renderPauseMenu() fully via hotswap |
 | B-99: Updater extraction may fail | MED | Needs retest with v0.0.25 binaries |
 
 ---
@@ -250,19 +251,4 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
 | **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
 | **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
-| **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
-| **D5.4** | End Game Flow — MP match end scoreboard (S139: accuracy col, team sort, dual exit buttons, mouse fix). Endscreen lobby/quit buttons done (S144). Mission complete screen still PLANNED | PARTIAL (S144) |
-| **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); **bot name dictionary DONE** (S144: 256-entry Adj+Noun word lists, mod-overridable). Multi-select bot list done (S144). Arena/weapon set verification still open | PARTIAL (S144) |
-| **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
-| **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
-| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PARTIAL — `pdgui_menu_matchsetup.cpp` retired (S153, renamed `.cpp.retired`); remaining legacy C menu paths still PLANNED |
-
-**Execution order**: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
-
----
-
-## Movement / Physics Backlog (Post-Menu Stability)
-
-| Item | Priority | Detail |
-|------|----------|--------|
-| **Coyote time + jump buffering** | MED | Allow ~250ms jump buffer (queue jump before landing) + ~250ms coyote time (jump briefly after leaving edge). Event-driven, not polling. Reference: Celeste's implementation (in
+| **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty 

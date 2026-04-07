@@ -8,9 +8,9 @@
  * Bottom bar: "Start Match" (leader only) + "Leave Room".
  *
  * Settings are stored in g_MatchConfig (matchsetup.c). On "Start Match":
- *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stagenum, 0, numBots, simType, timelimit, options, scenario, scorelimit, teamscorelimit)
- *   - Campaign:   netLobbyRequestStart(GAMEMODE_COOP, stagenum, difficulty)
- *   - Counter-Op: netLobbyRequestStart(GAMEMODE_ANTI, stagenum, difficulty)
+ *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stage_id, 0, numBots, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex)
+ *   - Campaign:   netLobbyRequestStart(GAMEMODE_COOP, stage_id, difficulty)
+ *   - Counter-Op: netLobbyRequestStart(GAMEMODE_ANTI, stage_id, difficulty)
  *
  * Full settings sync (all options, per-bot config) is deferred to CLC_ROOM_SETTINGS (R-4).
  *

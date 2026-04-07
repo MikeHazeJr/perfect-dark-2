@@ -3,6 +3,76 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S172 — 2026-04-07 (M2.1 — Combat Sim UI Catalog Audit)
+
+**Focus**: Verify Combat Simulator setup UI is fully catalog-native after M0.1a/b/c migrations.
+
+### What Was Done
+
+**Full audit of pdgui_menu_room.cpp** (Combat Sim setup screen):
+
+1. **Arena Selection** — ALREADY CATALOG-NATIVE. `buildArenaListFromCatalog()` scans `ASSET_ARENA` entries. Selection writes catalog ID string to `g_MatchConfig.stage_id`. `syncArenaFromConfig()` matches by string comparison. Both solo (`matchStart()`) and network (`netLobbyRequestStartWithSims()`) paths pass catalog ID strings.
+
+2. **Weapon Set Configuration** — ALREADY CATALOG-NATIVE (M0.1c). `buildSpawnWeaponList()` dynamically scans `ASSET_WEAPON` entries. Spawn weapon picker stores `g_MatchConfig.spawn_weapon_id`. Custom slots sync `weapon_ids[]` via `matchGetWeaponSlotCatalogId()`. `matchStart()` resolves all to integers at last-moment handoff.
+
+3. **Bot Configuration** — ALREADY CATALOG-NATIVE. Body picker uses `catalogMpBodyId()` for enumeration, stores `sl->body_id`/`sl->head_id` in matchslot. Trait sliders (accuracy, reaction, aggression) work. 3D character preview calls `pdguiCharPreviewRequest(sl->head_id, sl->body_id)`.
+
+4. **Game Mode Selection** — WORKING. Scenario combo writes `g_MatchConfig.scenario` (integer 0-5 — engine constants, not assets).
+
+5. **Match Start Flow** — FULLY CATALOG-NATIVE. `matchStart()` resolves: `stage_id` → stagenum, `weapon_ids[]` → `g_MpSetup.weapons[]`, `spawn_weapon_id` → spawnWeaponNum, `body_id`/`head_id` → mpbodynum/mpheadnum — all via catalog at last-moment handoff.
+
+6. **Agent Create (pdgui_menu_agentcreate.cpp)** — ALREADY CATALOG-NATIVE. Uses `catalogMpBodyId()`/`catalogMpHeadId()` for enumeration, passes catalog ID strings to `mpPlayerConfigSetHeadBody()`.
+
+### Code Changes (1 file)
+- **pdgui_menu_room.cpp**: Fixed stale header comment — `stagenum` → `stage_id` in function signature documentation (lines 11-13).
+
+### Decisions
+- No functional code changes needed — all 5 audit targets passed.
+- `arena_entry.stagenum` field retained for debugging logs (not used for identity).
+- `arenaGetName()` override table retained (needed for AllInOneMods language file collision).
+
+### Next Steps
+- Build verification (Mike)
+- M0.1d: Remaining asset types (texture, audio, animation) or D5 Phase 3 continuation
+
+---
+
+## Session S171 — 2026-04-07 (M0.1c — Weapon Catalog Signature Migration)
+
+**Focus**: Replace integer weapon identity at public function boundaries with catalog ID strings.
+
+### What Was Done
+
+**Audit Results**:
+- Wire protocol: Already catalog-native (v30/v31). `netWriteWeaponRef()`/`netReadWeaponRef()` convert WEAPON_* ↔ catalog session refs. SVC_STAGE_START sends session refs. CLC_LOBBY_START sends catalog ID strings. No changes needed.
+- Save files: Already write catalog ID strings (`weapon_ids` array in mpsetup saves, `weapon_id%d` in scenario saves). Backward-compat integer fallback preserved.
+- Key boundary targets: `matchconfig.spawnWeaponNum` (u8 WEAPON_* enum) and `matchconfig.weapons[]` (u8 MPWEAPON_* indices) — both integer-native, needed catalog ID PRIMARY fields.
+- Spawn weapon picker: Hardcoded 35-entry `s_SpawnWeapons[]` table with integer weaponnums — needed catalog sourcing.
+- Legacy engine code (bondgun, propobj, inv, botinv — 66 internal functions): Stays integer-native. These are the final handoff to legacy engine API.
+
+**Code Changes (7 files)**:
+- **matchsetup.h**: Added `weapon_ids[6][64]` (PRIMARY catalog IDs for per-slot weapons) and `spawn_weapon_id[64]` (PRIMARY catalog ID for spawn weapon). Marked `weapons[]` and `spawnWeaponNum` as DEPRECATED derived values. Added `matchGetWeaponSlotCatalogId()` declaration.
+- **matchsetup.c**: `matchConfigInit()` initializes new fields. `matchStart()` resolves `weapon_ids[]` → `g_MpSetup.weapons[]` and `spawn_weapon_id` → `spawnWeaponNum` via catalog at last-moment handoff. New `matchGetWeaponSlotCatalogId()` accessor bridges `g_MpSetup.weapons[slot]` → catalog ID.
+- **pdgui_menu_room.cpp**: Replaced hardcoded `s_SpawnWeapons[35]` integer table with `buildSpawnWeaponList()` that scans ASSET_WEAPON catalog entries dynamically. Spawn weapon picker writes `spawn_weapon_id`. Custom weapon slot editing syncs `weapon_ids[]` via `matchGetWeaponSlotCatalogId()`. `syncSpawnWeaponFromConfig()` matches by catalog ID string.
+- **netmsg.c**: CLC_LOBBY_START weapon write prefers `weapon_ids[]` (PRIMARY) over runtime resolution from `g_MpSetup.weapons[]`.
+- **scenario_save.c**: Save writes `spawnWeaponId` field. Load populates `weapon_ids[]` (PRIMARY) and derives `weapons[]` (DEPRECATED). Legacy integer fallback preserved with reverse-resolution to catalog ID.
+- **player.c, bot.c**: Comment updates — `spawnWeaponNum` is now a derived value from `spawn_weapon_id`, resolved at `matchStart()`.
+
+### Decisions
+- `player.c`/`bot.c` spawn code reads `spawnWeaponNum` which is derived at `matchStart()` — same pattern as `stagenum` derived from `stage_id`. No code changes needed in spawn logic, only comment updates.
+- Weapon set presets (Pistols, Automatics, etc.) don't use per-weapon catalog IDs — they're selected by set index and the engine fills in the weapons internally. Only custom sets and spawn weapon use catalog ID fields.
+- 38 public boundary functions in legacy engine code (bondgun, propobj, mplayer) stay integer-native — they are the final handoff point where WEAPON_* enums get consumed.
+
+### Bugs Fixed
+- None (migration only).
+
+### Next Steps
+- **BUILD VERIFICATION** — Mike to run build-headless.ps1 (worktree can't access MinGW)
+- M0.1d: Remaining asset types (texture, audio, animation, etc.)
+- Or: D5 Phase 3 continuation (menu roster port)
+
+---
+
 ## Session S170 — 2026-04-07 (M1.2 — Solo Mission Flow)
 
 **Focus**: Fix remaining solo campaign flow issues: endscreen mouse, Esc race condition, Next Mission verification.
