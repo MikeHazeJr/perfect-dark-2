@@ -3,6 +3,44 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S165 — 2026-04-06 (Bug Fix — B-119 stagenum=0x00 crash + catalog-first pattern)
+
+**Focus**: Fix stagenum=0x00 crash on solo mission start; establish universal catalog-first identity pattern for stages.
+
+### What Was Done
+
+**Root Cause Diagnosed (B-119)**:
+- `sm_missionconfig` shadow struct in `pdgui_menu_solomission.cpp` was missing `stage_id[64]` field that was added to real `missionconfig` for catalog migration
+- Because `stage_id[64]` sits between `diff_pdmode` (offset 0) and `stagenum` (offset 65), the shadow struct had `stagenum` at offset 1 (wrong) instead of offset 65
+- Writes to `g_MissionConfig.stagenum` from C++ code went to `stage_id[0]`, real `stagenum` stayed 0x00
+- `menuhandlerAcceptMission` read `stagenum=0x00`, called `mainChangeToStage(0x00)` → crash
+
+**Fixes**:
+- **`pdgui_menu_solomission.cpp`**: Added `stage_id[64]` to `sm_missionconfig` shadow struct at correct offset. Mission select now sets `stage_id` via `catalogIdByRuntime(ASSET_MAP, sn)` only — no stagenum stored. Pause menu restart resolves stagenum via `catalogResolveStage()` at point of use.
+- **`mainmenu.c` `menuhandlerAcceptMission`**: Resolves stagenum from `stage_id` at point of consumption. Falls back to `stagenum` field if `stage_id` is empty (legacy menu path). Writes resolved value back to `g_MissionConfig.stagenum` for not-yet-migrated consumers (endscreen.c restart paths).
+- **`mainmenu.c` `menudialog00103608`**: Resolves stagenum from `stage_id` before `setupLoadBriefing()` — fixes briefing load for ImGui mission select path.
+- Added `#include "assetcatalog.h"` to solomission.cpp (has extern "C" guards, safe).
+
+**Universal Constraint Added** (game director binding directive):
+- Catalog ID (`stage_id`) is the sole identity for all stage flows. stagenum is only extracted at final point of consumption (just before `mainChangeToStage`). Pattern: `catalog_stage_result_t r; catalogResolveStage(stage_id, &r); mainChangeToStage(r.stagenum);`
+- Added to `constraints.md` as universal project-wide rule.
+
+### Decisions
+- Write `resolved_stagenum` back to `g_MissionConfig.stagenum` in `menuhandlerAcceptMission` — pragmatic bridge for endscreen.c/menutick.c restart paths that haven't been migrated yet.
+- Use `catalogIdByRuntime(ASSET_MAP, sn)` to resolve from N64 stagenum → catalog ID (matching pattern from mainmenu.c legacy code at line 1971).
+
+### Bugs Fixed
+- **B-119**: stagenum=0x00 crash on solo mission start ✓
+- **B-91** (partial): briefing loader now resolves correct stagenum from stage_id — briefing text should now load for ImGui path
+
+### Next Steps
+- Playtest: verify mission select → difficulty → objectives → accept works without crash
+- Remaining `g_MissionConfig.stagenum` consumers in endscreen.c (4 calls) — migrate to catalog-first pattern
+- menutick.c line 573 also uses stagenum — migrate
+- Consider catalog-first sweep for all solo stage identity sites
+
+---
+
 ## Session S164 — 2026-04-06 (D5 Phase 3 Session 1 — Solo Pause Menu)
 
 **Focus**: Implement proper ImGui pause menu for solo missions (B-93, B-98)
