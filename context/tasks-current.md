@@ -235,5 +235,4 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
 | **D5.0a** | Technical Spike — `pdguiGetUiTexture()` bridge, synthetic test pattern, `ImGui::Image()` in Catalog tab | **DONE (S135)** — compile clean, both targets. Playtest: open Settings > Catalog tab to see PASS label. |
-| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
-| **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse ca
+| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE
