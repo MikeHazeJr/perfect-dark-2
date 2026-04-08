@@ -2,25 +2,21 @@
 #define _IN_PDGUI_NINESLICE_H
 
 /**
- * pdgui_nineslice.h -- 9-slice (nine-patch) texture renderer for UI panels
+ * pdgui_nineslice.h -- 9-slice texture renderer for PD2 UI (P4)
  *
- * Given a texture + border insets, renders it stretched correctly at any size
- * without distorting corners. Corners stay fixed-size, edges stretch along
- * one axis, and the center fills the remaining space.
+ * Provides scalable UI panel rendering by dividing a texture into 9 regions:
+ *   4 fixed-size corners, 4 stretchable/tileable edges, 1 stretchable/tileable center.
  *
- * Layout:
- *   +-------+-------------------+-------+
- *   | TL    |    Top edge       |   TR  |  <- fixed height (top inset)
- *   +-------+-------------------+-------+
- *   | Left  |    Center         | Right |  <- stretches vertically
- *   | edge  |    (stretch both) | edge  |
- *   +-------+-------------------+-------+
- *   | BL    |    Bottom edge    |   BR  |  <- fixed height (bottom inset)
- *   +-------+-------------------+-------+
+ * Each texture has a nineslice definition stored as JSON alongside it.
+ * The definition specifies left/right/top/bottom insets that define the slice grid.
  *
- * Insets define the non-stretching border widths in texture pixels.
- * All rendering uses ImGui's draw list API.
+ * Edge and center fill modes:
+ *   NINESLICE_STRETCH — scale the region to fill (default)
+ *   NINESLICE_TILE    — repeat the region at original pixel density
  *
+ * Rendering uses ImGui draw lists for seamless integration with the theme system.
+ *
+ * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  * Part of Phase P4: UI Texture Mod.
  */
 
@@ -31,81 +27,81 @@ extern "C" {
 #endif
 
 /* -----------------------------------------------------------------------
- * Insets definition
+ * Fill mode for edges and center
  * --------------------------------------------------------------------- */
 
-typedef struct NineSliceInsets {
-    f32 left;     /* left border width (texture pixels) */
-    f32 right;    /* right border width */
-    f32 top;      /* top border height */
-    f32 bottom;   /* bottom border height */
-} NineSliceInsets;
+#define NINESLICE_STRETCH  0
+#define NINESLICE_TILE     1
 
 /* -----------------------------------------------------------------------
- * Core 9-slice draw
- * --------------------------------------------------------------------- */
-
-/**
- * Draw a texture using 9-slice rendering.
+ * 9-slice definition
  *
- * @param tex      ImTextureID (GL texture, cast from GLuint via uintptr_t)
- * @param pos_x    Screen-space X position
- * @param pos_y    Screen-space Y position
- * @param size_w   Desired width in screen pixels
- * @param size_h   Desired height in screen pixels
- * @param insets   Border insets (corner/edge sizes that don't stretch)
- * @param tex_w    Source texture width in pixels
- * @param tex_h    Source texture height in pixels
- * @param tint     Tint color as ImU32 (IM_COL32). Use 0xFFFFFFFF for no tint.
- */
-void pdguiNineSliceDraw(void *tex, f32 pos_x, f32 pos_y,
-                        f32 size_w, f32 size_h,
-                        const NineSliceInsets *insets,
-                        f32 tex_w, f32 tex_h, u32 tint);
-
-/**
- * Draw 9-slice with default white tint (no color modification).
- */
-void pdguiNineSliceDrawSimple(void *tex, f32 pos_x, f32 pos_y,
-                              f32 size_w, f32 size_h,
-                              const NineSliceInsets *insets,
-                              f32 tex_w, f32 tex_h);
-
-/**
- * Convenience: draw a PD-themed panel using 9-slice if a nineslice texture
- * is configured for the active theme, otherwise fall back to the solid
- * panel draw from pdgui_theme.cpp.
- *
- * @param x, y, w, h   Screen-space rectangle
- * @param catalog_id    Catalog ID of the 9-slice texture (NULL = use default)
- */
-void pdguiNineSlicePanel(f32 x, f32 y, f32 w, f32 h,
-                         const char *catalog_id);
-
-/* -----------------------------------------------------------------------
- * Insets I/O
+ * Insets are in texture pixels from each edge.
+ * The texture is divided into a 3x3 grid by the insets.
  * --------------------------------------------------------------------- */
 
-/** Default insets for PD-style panels (8px corners). */
-NineSliceInsets pdguiNineSliceDefaultInsets(void);
+typedef struct nineslice_def {
+    s32 left;          /* pixels from left edge to first vertical divider */
+    s32 right;         /* pixels from right edge to second vertical divider */
+    s32 top;           /* pixels from top edge to first horizontal divider */
+    s32 bottom;        /* pixels from bottom edge to second horizontal divider */
 
-/** Parse insets from a JSON object string: {"left":8,"right":8,"top":8,"bottom":8} */
-s32 pdguiNineSliceParseInsets(const char *json, NineSliceInsets *out);
+    s32 edge_mode;     /* NINESLICE_STRETCH or NINESLICE_TILE for edges */
+    s32 center_mode;   /* NINESLICE_STRETCH or NINESLICE_TILE for center */
+} nineslice_def_t;
 
 /* -----------------------------------------------------------------------
- * Registration
+ * Lifecycle
  * --------------------------------------------------------------------- */
 
-/** Register a 9-slice texture with its insets in the internal registry.
- *  Called by the theme loader when parsing nineslice config from theme.json. */
-void pdguiNineSliceRegister(const char *catalog_id, const NineSliceInsets *insets,
-                            f32 tex_w, f32 tex_h);
+/** Initialize 9-slice system. Call after pdguiThemeInit(). */
+void pdguiNinesliceInit(void);
 
-/** Look up registered insets for a catalog ID. Returns NULL if not registered. */
-const NineSliceInsets *pdguiNineSliceGetInsets(const char *catalog_id);
+/** Shutdown: free cached definitions. */
+void pdguiNinesliceShutdown(void);
 
-/** Get registered texture dimensions. Returns 0 if not found. */
-s32 pdguiNineSliceGetTexSize(const char *catalog_id, f32 *out_w, f32 *out_h);
+/* -----------------------------------------------------------------------
+ * Definition management
+ * --------------------------------------------------------------------- */
+
+/** Register a 9-slice definition for a catalog texture ID.
+ *  Overwrites any previous definition for the same ID.
+ *  Returns 1 on success, 0 on failure (registry full). */
+s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def);
+
+/** Get the 9-slice definition for a catalog texture ID.
+ *  Returns NULL if no definition registered. */
+const nineslice_def_t *pdguiNinesliceGet(const char *catalog_id);
+
+/** Load a 9-slice definition from a JSON file.
+ *  JSON format: { "left": N, "right": N, "top": N, "bottom": N,
+ *                 "edgeMode": "stretch"|"tile", "centerMode": "stretch"|"tile" }
+ *  Returns 1 on success, 0 on failure. */
+s32 pdguiNinesliceLoadDef(const char *json_path, const char *catalog_id);
+
+/* -----------------------------------------------------------------------
+ * Rendering
+ * --------------------------------------------------------------------- */
+
+/** Draw a texture using its registered 9-slice definition.
+ *  Falls back to simple stretched quad if no definition is registered.
+ *  tex_id: catalog ID of the source texture.
+ *  x,y,w,h: screen-space destination rectangle.
+ *  tint: ImU32 color tint (IM_COL32(255,255,255,255) for no tint).
+ */
+void pdguiNinesliceDraw(const char *tex_id,
+                        float x, float y, float w, float h,
+                        u32 tint);
+
+/** Draw using an explicit definition (no registry lookup).
+ *  tex: ImTextureID (GL texture handle cast).
+ *  tex_w, tex_h: source texture dimensions in pixels.
+ *  def: 9-slice definition to use.
+ */
+void pdguiNinesliceDrawEx(void *tex, s32 tex_w, s32 tex_h,
+                          const nineslice_def_t *def,
+                          float x, float y, float w, float h,
+                          u32 tint);
 
 #ifdef __cplusplus
 }

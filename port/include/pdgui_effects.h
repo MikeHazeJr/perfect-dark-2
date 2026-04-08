@@ -2,28 +2,19 @@
 #define _IN_PDGUI_EFFECTS_H
 
 /**
- * pdgui_effects.h -- Animated overlay effects for UI elements (P4)
+ * pdgui_effects.h -- Caustic mask + border overlay effects for PD2 UI (P4)
  *
- * Provides two compositable effect systems:
+ * Two compositable overlay effects for UI panels:
  *
- * 1. Caustic/Animated Mask Overlay:
- *    A grayscale mask texture that scrolls over time and composites onto
- *    UI elements. Used for water caustics, energy fields, scan distortion.
- *    - Time-based UV scrolling (configurable speed + direction)
- *    - Alpha-blended mask composite
- *    - Configurable speed, scale, tint color
+ * 1. Caustic/animated mask: A grayscale animation texture (spritesheet)
+ *    multiplied over the base texture. Speed, opacity, blend mode configurable.
  *
- * 2. Border Effect Mask:
- *    Decorative animated effects applied to UI element edges.
- *    - Glow pulse on focused elements
- *    - Gradient sweep on active/selected
- *    - Configurable per theme via theme.json
+ * 2. Border effect mask: A second image used as a mask — only the border
+ *    regions (defined by 9-slice edges) receive the effect. Interior untouched.
  *
- * Compositing order (back to front):
- *   base texture → 9-slice render → border effect → caustic overlay → text
+ * Compositing order: base → 9-slice → border effect → caustic overlay → text.
  *
- * All effects use delta time for frame-rate independence (60Hz compatible).
- *
+ * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  * Part of Phase P4: UI Texture Mod.
  */
 
@@ -34,98 +25,97 @@ extern "C" {
 #endif
 
 /* -----------------------------------------------------------------------
- * Caustic / Animated Mask Overlay
+ * Blend modes for overlay effects
  * --------------------------------------------------------------------- */
 
-/** Configuration for a caustic mask effect. */
-typedef struct PdguiCausticConfig {
-    f32 scroll_speed_x;   /* UV scroll speed, texels/sec (default: 0.02) */
-    f32 scroll_speed_y;   /* UV scroll speed Y (default: 0.015) */
-    f32 scale;            /* UV scale factor (default: 1.0, higher = more tiled) */
-    f32 opacity;          /* Base opacity 0..1 (default: 0.15) */
-    u32 tint_color;       /* Tint in 0xRRGGBBAA (default: 0xFFFFFFFF = no tint) */
-    s32 blend_additive;   /* 1 = additive blend, 0 = alpha blend (default: 0) */
-} PdguiCausticConfig;
-
-/** Default caustic config (subtle, slow water-like scroll). */
-PdguiCausticConfig pdguiCausticDefaultConfig(void);
-
-/**
- * Draw a caustic mask overlay on a region.
- *
- * @param mask_tex   ImTextureID of the grayscale mask texture
- * @param x,y,w,h   Screen-space region to overlay
- * @param config     Effect parameters
- * @param dt         Delta time in seconds (use ImGui::GetIO().DeltaTime)
- */
-void pdguiCausticDraw(void *mask_tex, f32 x, f32 y, f32 w, f32 h,
-                      const PdguiCausticConfig *config, f32 dt);
-
-/**
- * Draw caustic using the theme's configured mask texture + settings.
- * Returns 1 if drawn, 0 if no caustic configured in theme.
- */
-s32 pdguiCausticDrawThemed(f32 x, f32 y, f32 w, f32 h);
+#define FX_BLEND_MULTIPLY  0   /* darken: src * overlay */
+#define FX_BLEND_ADDITIVE  1   /* brighten: src + overlay */
+#define FX_BLEND_SCREEN    2   /* lighten: 1 - (1-src)(1-overlay) */
 
 /* -----------------------------------------------------------------------
- * Border Effect Mask
+ * Caustic effect definition
+ *
+ * A grayscale spritesheet scrolled/animated over the UI element.
+ * The spritesheet is a horizontal strip of equal-sized frames.
  * --------------------------------------------------------------------- */
 
-/** Border effect types. */
-typedef enum PdguiBorderFx {
-    PDGUI_BORDERFX_NONE       = 0,  /* No border effect */
-    PDGUI_BORDERFX_GLOW_PULSE = 1,  /* Pulsing glow on edges */
-    PDGUI_BORDERFX_GRAD_SWEEP = 2,  /* Gradient sweep around perimeter */
-    PDGUI_BORDERFX_ENERGY     = 3,  /* Energy field flicker */
-} PdguiBorderFx;
-
-/** Configuration for border effects. */
-typedef struct PdguiBorderFxConfig {
-    PdguiBorderFx type;         /* Effect type */
-    f32           intensity;    /* 0..1 effect strength (default: 0.5) */
-    f32           speed;        /* Animation speed multiplier (default: 1.0) */
-    u32           color;        /* Effect color in 0xRRGGBBAA (0 = use palette) */
-    f32           width;        /* Border effect width in pixels (default: 2.0) */
-} PdguiBorderFxConfig;
-
-/** Default border effect config. */
-PdguiBorderFxConfig pdguiBorderFxDefaultConfig(void);
-
-/**
- * Draw a border effect around a rectangular region.
- *
- * @param x,y,w,h   Screen-space rectangle
- * @param config     Border effect parameters
- * @param focused    1 if the element is focused/active (intensifies effect)
- */
-void pdguiBorderFxDraw(f32 x, f32 y, f32 w, f32 h,
-                       const PdguiBorderFxConfig *config, s32 focused);
-
-/**
- * Draw border effect using theme-configured settings.
- * Automatically uses palette accent color if config color is 0.
- */
-void pdguiBorderFxDrawThemed(f32 x, f32 y, f32 w, f32 h, s32 focused);
+typedef struct caustic_def {
+    char  texture_id[64];    /* catalog ID of the caustic spritesheet */
+    s32   frame_count;       /* number of frames in the spritesheet */
+    f32   speed;             /* frames per second */
+    f32   opacity;           /* 0.0 = invisible, 1.0 = full strength */
+    s32   blend_mode;        /* FX_BLEND_MULTIPLY, ADDITIVE, or SCREEN */
+    f32   scale;             /* UV scale multiplier (1.0 = 1:1 pixel) */
+} caustic_def_t;
 
 /* -----------------------------------------------------------------------
- * Theme Integration
+ * Border effect definition
+ *
+ * Applies a texture mask to only the border regions of a 9-slice panel.
+ * The mask texture is stretched over the border area (not the center).
  * --------------------------------------------------------------------- */
 
-/** Set the active caustic config from theme.json parsing. */
-void pdguiEffectsSetCausticConfig(const PdguiCausticConfig *config);
+typedef struct border_fx_def {
+    char  mask_texture_id[64];  /* catalog ID of the border mask texture */
+    f32   opacity;              /* 0.0 = invisible, 1.0 = full strength */
+    s32   blend_mode;           /* FX_BLEND_* */
+    u32   tint_color;           /* 0xRRGGBBAA tint applied to the mask */
+    f32   scroll_speed_x;       /* horizontal scroll speed (pixels/sec) */
+    f32   scroll_speed_y;       /* vertical scroll speed (pixels/sec) */
+} border_fx_def_t;
 
-/** Set the active border effect config from theme.json parsing. */
-void pdguiEffectsSetBorderFxConfig(const PdguiBorderFxConfig *config);
+/* -----------------------------------------------------------------------
+ * Lifecycle
+ * --------------------------------------------------------------------- */
 
-/** Set the caustic mask texture catalog ID. */
-void pdguiEffectsSetCausticTexture(const char *catalog_id);
+void pdguiEffectsInit(void);
+void pdguiEffectsShutdown(void);
 
-/** Get the current caustic mask texture catalog ID (NULL if none). */
-const char *pdguiEffectsGetCausticTexture(void);
+/* -----------------------------------------------------------------------
+ * Per-element effect binding
+ *
+ * Effects are bound to catalog texture IDs (same IDs used by nineslice).
+ * An element can have a caustic, a border effect, both, or neither.
+ * --------------------------------------------------------------------- */
 
-/** Get current configs (read-only). */
-const PdguiCausticConfig *pdguiEffectsGetCausticConfig(void);
-const PdguiBorderFxConfig *pdguiEffectsGetBorderFxConfig(void);
+/** Bind a caustic effect to a UI element's catalog ID. */
+s32 pdguiEffectsSetCaustic(const char *element_id, const caustic_def_t *def);
+
+/** Bind a border effect to a UI element's catalog ID. */
+s32 pdguiEffectsSetBorderFx(const char *element_id, const border_fx_def_t *def);
+
+/** Clear all effects for an element. */
+void pdguiEffectsClear(const char *element_id);
+
+/** Get the caustic definition for an element. Returns NULL if none. */
+const caustic_def_t *pdguiEffectsGetCaustic(const char *element_id);
+
+/** Get the border effect definition for an element. Returns NULL if none. */
+const border_fx_def_t *pdguiEffectsGetBorderFx(const char *element_id);
+
+/* -----------------------------------------------------------------------
+ * Rendering
+ *
+ * These are called by the theme renderer after 9-slice drawing.
+ * --------------------------------------------------------------------- */
+
+/** Draw the caustic overlay for an element over the given screen rect.
+ *  Uses the current frame time to animate. */
+void pdguiEffectsDrawCaustic(const char *element_id,
+                             float x, float y, float w, float h);
+
+/** Draw the border effect for an element.
+ *  Requires the 9-slice insets to know which regions are "border".
+ *  left/right/top/bottom: border insets in screen pixels. */
+void pdguiEffectsDrawBorder(const char *element_id,
+                            float x, float y, float w, float h,
+                            float left, float right, float top, float bottom);
+
+/** Convenience: draw both effects (caustic + border) in compositing order. */
+void pdguiEffectsDrawAll(const char *element_id,
+                         float x, float y, float w, float h,
+                         float border_l, float border_r,
+                         float border_t, float border_b);
 
 #ifdef __cplusplus
 }

@@ -1,71 +1,86 @@
 /**
- * pdgui_fontmgr.cpp -- TTF font loading with glow/shadow support (P4)
+ * pdgui_fontmgr.cpp -- TTF font manager with glow/shadow for PD2 UI (P4)
  *
- * Manages custom fonts from mod directories. Each font can have glow and
- * shadow effects configured. Fonts are registered as catalog assets so
- * mods can provide custom fonts that override the built-in Handel Gothic.
+ * Manages multiple fonts loaded from mod packages. Provides text rendering
+ * with shadow and glow effects using ImGui draw list primitives.
  *
- * Font loading uses ImGui's AddFontFromMemoryTTF(). After loading all
- * mod fonts, the atlas must be rebuilt via pdguiFontMgrRebuildAtlas().
+ * Font atlas management:
+ *   - Slot 0 is always the default Handel Gothic (loaded by pdgui_backend.cpp)
+ *   - Additional fonts are loaded from TTF files and added to the atlas
+ *   - Loading a new font requires atlas rebuild (invalidates textures)
+ *   - Fonts are registered as catalog assets (base:font_*, mod:font_*)
+ *
+ * Glow rendering technique:
+ *   Draw the text N times at increasing offsets in a circular pattern,
+ *   each at reduced alpha. This creates a soft halo without shaders.
+ *   The number of passes controls quality vs. performance.
  *
  * IMPORTANT: Do NOT include types.h -- it #defines bool as s32, breaking C++.
  *
  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
- * Part of Phase P4: UI Texture Mod.
  */
 
-#include <string.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
 #include <math.h>
 #include <PR/ultratypes.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_fontmgr.h"
-#include "pdgui_style.h"
 #include "assetcatalog.h"
 #include "system.h"
 #include "fs.h"
 
-/* =========================================================================
- * Constants
- * ========================================================================= */
-
-#define FONTMGR_MAX_FONTS     16
-#define FONTMGR_ID_LEN        64
-#define FONTMGR_NAME_LEN      64
-#define FONTMGR_PATH_LEN     256
-#define FONTMGR_DEFAULT_SIZE  24.0f
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 /* =========================================================================
- * Font registry
+ * Font slot storage
  * ========================================================================= */
 
-struct font_entry {
-    char            catalog_id[FONTMGR_ID_LEN];
-    char            name[FONTMGR_NAME_LEN];
-    char            filepath[FONTMGR_PATH_LEN];
-    PdguiFontConfig config;
-    ImFont         *imfont;       /* NULL if load failed */
-    s32             loaded;
+struct font_slot {
+    char     name[FONTMGR_NAME_LEN];
+    char     catalog_id[64];
+    char     path[FONTMGR_PATH_LEN];
+    f32      size_px;
+    ImFont  *imgui_font;    /* NULL for slot 0 (use io.FontDefault) */
+    s32      valid;
 };
 
-static struct font_entry s_Fonts[FONTMGR_MAX_FONTS];
-static s32  s_FontCount = 0;
-static s32  s_InitDone  = 0;
+static struct font_slot s_Fonts[FONTMGR_MAX_FONTS];
+static s32 s_FontCount = 0;
+static s32 s_ActiveSlot = 0;
+static s32 s_FontMgrInitDone = 0;
 
-/* Track which font's config is active for effect rendering */
-static const PdguiFontConfig *s_ActiveConfig = nullptr;
-static PdguiFontConfig s_DefaultConfig;
+/* Global effect settings */
+static font_shadow_def_t s_Shadow = { 1.0f, 1.0f, 0x000000A0u };
+static font_glow_def_t   s_Glow   = { 0.0f, 0.0f, 0x0080ffffu, 2 };
 
-static struct font_entry *s_findFont(const char *catalog_id)
+/* =========================================================================
+ * Helpers
+ * ========================================================================= */
+
+/* 0xRRGGBBAA → ImU32 (ImGui packed ABGR) */
+static inline ImU32 FmCol(u32 rgba)
 {
-    for (s32 i = 0; i < s_FontCount; i++) {
-        if (strcmp(s_Fonts[i].catalog_id, catalog_id) == 0) {
-            return &s_Fonts[i];
-        }
-    }
-    return nullptr;
+    uint8_t r = (uint8_t)((rgba >> 24) & 0xffu);
+    uint8_t g = (uint8_t)((rgba >> 16) & 0xffu);
+    uint8_t b = (uint8_t)((rgba >>  8) & 0xffu);
+    uint8_t a = (uint8_t)((rgba >>  0) & 0xffu);
+    return IM_COL32(r, g, b, a);
+}
+
+static inline ImU32 FmColAlpha(u32 rgba, f32 alpha_scale)
+{
+    uint8_t r = (uint8_t)((rgba >> 24) & 0xffu);
+    uint8_t g = (uint8_t)((rgba >> 16) & 0xffu);
+    uint8_t b = (uint8_t)((rgba >>  8) & 0xffu);
+    uint8_t a = (uint8_t)((rgba >>  0) & 0xffu);
+    a = (uint8_t)((f32)a * alpha_scale);
+    return IM_COL32(r, g, b, a);
 }
 
 /* =========================================================================
@@ -74,234 +89,261 @@ static struct font_entry *s_findFont(const char *catalog_id)
 
 extern "C" {
 
-PdguiFontConfig pdguiFontConfigDefault(void)
-{
-    PdguiFontConfig cfg;
-    cfg.glow_radius = 3.0f;
-    cfg.glow_color = 0x0080ff80u;  /* blue glow at 50% */
-    cfg.shadow_offset_x = 1.0f;
-    cfg.shadow_offset_y = 1.0f;
-    cfg.shadow_color = 0x000000a0u;  /* black shadow at ~63% */
-    cfg.size_pt = 0.0f;  /* 0 = use default */
-    return cfg;
-}
-
 void pdguiFontMgrInit(void)
 {
-    if (s_InitDone) return;
-    s_InitDone = 1;
-    s_FontCount = 0;
-    s_DefaultConfig = pdguiFontConfigDefault();
-    s_ActiveConfig = &s_DefaultConfig;
+    if (s_FontMgrInitDone) return;
+    s_FontMgrInitDone = 1;
 
-    sysLogPrintf(LOG_NOTE, "PDGUI fontmgr: initialized (max %d custom fonts)",
-                 FONTMGR_MAX_FONTS);
+    memset(s_Fonts, 0, sizeof(s_Fonts));
+
+    /* Slot 0: default font (Handel Gothic, already loaded by pdgui_backend) */
+    struct font_slot *s0 = &s_Fonts[0];
+    snprintf(s0->name, sizeof(s0->name), "Handel Gothic");
+    snprintf(s0->catalog_id, sizeof(s0->catalog_id), "base:font_handelgothic");
+    s0->size_px = 24.0f;
+    s0->imgui_font = nullptr; /* uses io.FontDefault */
+    s0->valid = 1;
+    s_FontCount = 1;
+
+    /* Register in catalog */
+    asset_entry_t *ae = assetCatalogRegister("base:font_handelgothic", ASSET_UI);
+    if (ae) {
+        snprintf(ae->category, CATALOG_CATEGORY_LEN, "base");
+        ae->bundled    = 1;
+        ae->enabled    = 1;
+        ae->load_state = ASSET_STATE_LOADED;
+        ae->ref_count  = ASSET_REF_BUNDLED;
+    }
+
+    sysLogPrintf(LOG_NOTE, "PDGUI fontmgr: init — default font registered");
 }
 
 void pdguiFontMgrShutdown(void)
 {
-    /* ImGui owns the font atlas memory — we just clear our registry */
+    /* Font memory is owned by ImGui atlas — don't free it.
+     * Just clear our metadata. */
     s_FontCount = 0;
-    s_InitDone = 0;
-    s_ActiveConfig = nullptr;
+    s_ActiveSlot = 0;
+    s_FontMgrInitDone = 0;
+    sysLogPrintf(LOG_NOTE, "PDGUI fontmgr: shutdown");
 }
 
-s32 pdguiFontMgrLoadFont(const char *catalog_id, const char *filepath,
-                         const PdguiFontConfig *config)
+s32 pdguiFontMgrLoadFont(const char *name, const char *ttf_path, f32 size_px)
 {
-    if (!catalog_id || !filepath) return 0;
+    if (!name || !ttf_path) return 0;
     if (s_FontCount >= FONTMGR_MAX_FONTS) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI fontmgr: registry full, cannot load '%s'", catalog_id);
+            "PDGUI fontmgr: max fonts reached (%d), cannot load '%s'",
+            FONTMGR_MAX_FONTS, name);
         return 0;
     }
 
     /* Load TTF file */
     u32 fileSize = 0;
-    void *data = fsFileLoad(filepath, &fileSize);
+    void *data = fsFileLoad(ttf_path, &fileSize);
     if (!data || fileSize == 0) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI fontmgr: failed to load '%s' from '%s'", catalog_id, filepath);
+            "PDGUI fontmgr: failed to load '%s'", ttf_path);
+        if (data) free(data);
         return 0;
     }
 
-    /* ImGui takes ownership of the font data buffer via AddFontFromMemoryTTF.
-     * We must provide a malloc'd copy because fsFileLoad uses its own allocator. */
+    /* ImGui's AddFontFromMemoryTTF takes ownership of the buffer.
+     * We must use ImGui::MemAlloc for the copy. */
     void *fontCopy = ImGui::MemAlloc(fileSize);
     memcpy(fontCopy, data, fileSize);
     free(data);
 
-    float sizePt = (config && config->size_pt > 0.0f)
-                   ? config->size_pt
-                   : FONTMGR_DEFAULT_SIZE;
-
-    ImFontConfig imcfg;
-    imcfg.FontDataOwnedByAtlas = true;
-    snprintf(imcfg.Name, sizeof(imcfg.Name), "Mod: %s", catalog_id);
-    imcfg.OversampleV = 2;
-
     ImGuiIO &io = ImGui::GetIO();
+    ImFontConfig cfg;
+    cfg.FontDataOwnedByAtlas = true;
+    snprintf(cfg.Name, sizeof(cfg.Name), "%s", name);
+    cfg.OversampleV = 2;
+
     ImFont *font = io.Fonts->AddFontFromMemoryTTF(
-        fontCopy, (int)fileSize, sizePt, &imcfg);
+        fontCopy, (int)fileSize, size_px, &cfg);
 
-    /* Register in our table regardless of success */
-    struct font_entry *e = &s_Fonts[s_FontCount++];
-    snprintf(e->catalog_id, FONTMGR_ID_LEN, "%s", catalog_id);
-    snprintf(e->filepath, FONTMGR_PATH_LEN, "%s", filepath);
-    e->config = config ? *config : pdguiFontConfigDefault();
-    e->imfont = font;
-    e->loaded = (font != nullptr) ? 1 : 0;
+    if (!font) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI fontmgr: ImGui failed to load font '%s' from '%s'",
+            name, ttf_path);
+        return 0;
+    }
 
-    /* Extract name from catalog_id (after the ':') */
-    const char *nameStart = strchr(catalog_id, ':');
-    snprintf(e->name, FONTMGR_NAME_LEN, "%s",
-             nameStart ? (nameStart + 1) : catalog_id);
+    /* NOTE: After adding a font, the atlas must be rebuilt.
+     * ImGui_ImplOpenGL3_DestroyFontsTexture() + io.Fonts->Build() +
+     * ImGui_ImplOpenGL3_CreateFontsTexture() must be called.
+     * This is deferred to the next frame start. */
 
-    /* Register as catalog asset */
-    asset_entry_t *ae = assetCatalogRegister(catalog_id, ASSET_UI);
+    s32 slot = s_FontCount;
+    struct font_slot *fs = &s_Fonts[slot];
+    snprintf(fs->name, sizeof(fs->name), "%s", name);
+    snprintf(fs->path, sizeof(fs->path), "%s", ttf_path);
+    snprintf(fs->catalog_id, sizeof(fs->catalog_id), "mod:font_%s", name);
+    fs->size_px = size_px;
+    fs->imgui_font = font;
+    fs->valid = 1;
+    s_FontCount++;
+
+    /* Register in catalog */
+    asset_entry_t *ae = assetCatalogRegister(fs->catalog_id, ASSET_UI);
     if (ae) {
-        snprintf(ae->category, CATALOG_CATEGORY_LEN, "font");
+        snprintf(ae->category, CATALOG_CATEGORY_LEN, "mod");
         ae->bundled    = 0;
         ae->enabled    = 1;
-        ae->load_state = font ? ASSET_STATE_LOADED : ASSET_STATE_REGISTERED;
+        ae->load_state = ASSET_STATE_LOADED;
         ae->ref_count  = 1;
     }
 
-    if (font) {
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI fontmgr: loaded '%s' from '%s' (%.0fpt)",
-            catalog_id, filepath, sizePt);
-    } else {
-        sysLogPrintf(LOG_WARNING,
-            "PDGUI fontmgr: '%s' — ImGui AddFont failed, will use fallback",
-            catalog_id);
-    }
-
-    return font ? 1 : 0;
-}
-
-void pdguiFontMgrRebuildAtlas(void)
-{
-    /* Tell the ImGui OpenGL3 backend to rebuild the font atlas texture */
-    ImGuiIO &io = ImGui::GetIO();
-    io.Fonts->Build();
-
     sysLogPrintf(LOG_NOTE,
-        "PDGUI fontmgr: atlas rebuilt with %d fonts (%d custom)",
-        io.Fonts->Fonts.Size, s_FontCount);
+        "PDGUI fontmgr: loaded '%s' from '%s' (%.0fpx) → slot %d",
+        name, ttf_path, size_px, slot);
+
+    return slot;
 }
-
-s32 pdguiFontMgrPushFont(const char *catalog_id)
-{
-    if (!catalog_id) return 0;
-
-    struct font_entry *e = s_findFont(catalog_id);
-    if (!e || !e->imfont) return 0;
-
-    ImGui::PushFont(e->imfont);
-    s_ActiveConfig = &e->config;
-    return 1;
-}
-
-void pdguiFontMgrPopFont(void)
-{
-    ImGui::PopFont();
-    s_ActiveConfig = &s_DefaultConfig;
-}
-
-/* =========================================================================
- * Text rendering with effects
- *
- * Draw order (back to front):
- *   1. Glow: blurred colored rect behind text (reuses pdguiDrawTextGlow pattern)
- *   2. Shadow: offset copy of text in shadow color
- *   3. Text: final text in requested color
- * ========================================================================= */
-
-/** PD 0xRRGGBBAA → ImU32 */
-static inline ImU32 s_pdColToImU32(u32 rgba)
-{
-    u8 r = (u8)((rgba >> 24) & 0xff);
-    u8 g = (u8)((rgba >> 16) & 0xff);
-    u8 b = (u8)((rgba >>  8) & 0xff);
-    u8 a = (u8)((rgba >>  0) & 0xff);
-    return IM_COL32(r, g, b, a);
-}
-
-void pdguiFontMgrDrawTextWithEffects(f32 x, f32 y, const char *text, u32 text_color)
-{
-    const PdguiFontConfig *cfg = s_ActiveConfig ? s_ActiveConfig : &s_DefaultConfig;
-    pdguiFontMgrDrawTextEx(x, y, text, text_color, cfg);
-}
-
-void pdguiFontMgrDrawTextEx(f32 x, f32 y, const char *text, u32 text_color,
-                            const PdguiFontConfig *config)
-{
-    if (!text || !text[0]) return;
-    if (!config) config = &s_DefaultConfig;
-
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    ImVec2 textSize = ImGui::CalcTextSize(text);
-
-    /* 1. Glow */
-    if (config->glow_radius > 0.0f) {
-        u32 gc = config->glow_color;
-        u8 gr = (u8)((gc >> 24) & 0xff);
-        u8 gg = (u8)((gc >> 16) & 0xff);
-        u8 gb = (u8)((gc >>  8) & 0xff);
-        u8 ga = (u8)((gc >>  0) & 0xff);
-
-        /* Multi-pass soft glow (3 layers at increasing radius) */
-        for (int pass = 0; pass < 3; pass++) {
-            float expand = config->glow_radius * (float)(pass + 1) / 3.0f;
-            u8 alpha = (u8)(ga / (pass + 1));
-
-            dl->AddRectFilled(
-                ImVec2(x - expand, y - expand),
-                ImVec2(x + textSize.x + expand, y + textSize.y + expand),
-                IM_COL32(gr, gg, gb, alpha),
-                expand * 0.5f);
-        }
-    }
-
-    /* 2. Shadow */
-    if (config->shadow_offset_x != 0.0f || config->shadow_offset_y != 0.0f) {
-        dl->AddText(
-            ImVec2(x + config->shadow_offset_x, y + config->shadow_offset_y),
-            s_pdColToImU32(config->shadow_color),
-            text);
-    }
-
-    /* 3. Text */
-    dl->AddText(ImVec2(x, y), s_pdColToImU32(text_color), text);
-}
-
-/* =========================================================================
- * Registry query
- * ========================================================================= */
 
 s32 pdguiFontMgrGetCount(void)
 {
     return s_FontCount;
 }
 
-const char *pdguiFontMgrGetId(s32 index)
+const char *pdguiFontMgrGetName(s32 slot)
 {
-    if (index < 0 || index >= s_FontCount) return nullptr;
-    return s_Fonts[index].catalog_id;
+    if (slot < 0 || slot >= s_FontCount) return nullptr;
+    return s_Fonts[slot].name;
 }
 
-const char *pdguiFontMgrGetName(s32 index)
+const char *pdguiFontMgrGetCatalogId(s32 slot)
 {
-    if (index < 0 || index >= s_FontCount) return nullptr;
-    return s_Fonts[index].name;
+    if (slot < 0 || slot >= s_FontCount) return nullptr;
+    return s_Fonts[slot].catalog_id;
 }
 
-const PdguiFontConfig *pdguiFontMgrGetConfig(const char *catalog_id)
+void pdguiFontMgrSetActive(s32 slot)
 {
-    if (!catalog_id) return nullptr;
-    struct font_entry *e = s_findFont(catalog_id);
-    return e ? &e->config : nullptr;
+    if (slot < 0 || slot >= s_FontCount) slot = 0;
+    s_ActiveSlot = slot;
+}
+
+s32 pdguiFontMgrGetActive(void)
+{
+    return s_ActiveSlot;
+}
+
+void pdguiFontMgrPushFont(s32 slot)
+{
+    if (slot < 0 || slot >= s_FontCount) slot = 0;
+
+    ImFont *font = s_Fonts[slot].imgui_font;
+    if (font) {
+        ImGui::PushFont(font);
+    } else {
+        /* Slot 0: use default font (pushing NULL would crash) */
+        ImGuiIO &io = ImGui::GetIO();
+        if (io.FontDefault) {
+            ImGui::PushFont(io.FontDefault);
+        }
+    }
+}
+
+void pdguiFontMgrPopFont(void)
+{
+    ImGui::PopFont();
+}
+
+/* -----------------------------------------------------------------------
+ * Text effect configuration
+ * --------------------------------------------------------------------- */
+
+void pdguiFontMgrSetShadow(const font_shadow_def_t *def)
+{
+    if (def) s_Shadow = *def;
+}
+
+const font_shadow_def_t *pdguiFontMgrGetShadow(void)
+{
+    return &s_Shadow;
+}
+
+void pdguiFontMgrSetGlow(const font_glow_def_t *def)
+{
+    if (def) s_Glow = *def;
+}
+
+const font_glow_def_t *pdguiFontMgrGetGlow(void)
+{
+    return &s_Glow;
+}
+
+/* -----------------------------------------------------------------------
+ * Text rendering with effects
+ * --------------------------------------------------------------------- */
+
+void pdguiFontMgrDrawText(float x, float y, u32 color, const char *text)
+{
+    if (!text || !text[0]) return;
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    /* 1. Glow (bottom layer) */
+    if (s_Glow.radius > 0.0f && s_Glow.intensity > 0.0f) {
+        s32 passes = s_Glow.passes;
+        if (passes < 1) passes = 1;
+        if (passes > 4) passes = 4;
+
+        /* Draw text in a circular pattern around the position */
+        s32 steps = passes * 4;  /* 4 directions per pass */
+        f32 alpha_per = s_Glow.intensity / (f32)steps;
+
+        for (s32 pass = 0; pass < passes; pass++) {
+            f32 r = s_Glow.radius * ((f32)(pass + 1) / (f32)passes);
+
+            for (s32 dir = 0; dir < 4; dir++) {
+                f32 angle = (f32)dir * (f32)(M_PI / 2.0);
+                f32 ox = r * cosf(angle);
+                f32 oy = r * sinf(angle);
+
+                dl->AddText(ImVec2(x + ox, y + oy),
+                            FmColAlpha(s_Glow.color, alpha_per),
+                            text);
+            }
+
+            /* Diagonal directions for smoother glow */
+            for (s32 dir = 0; dir < 4; dir++) {
+                f32 angle = (f32)dir * (f32)(M_PI / 2.0) + (f32)(M_PI / 4.0);
+                f32 ox = r * 0.707f * cosf(angle);
+                f32 oy = r * 0.707f * sinf(angle);
+
+                dl->AddText(ImVec2(x + ox, y + oy),
+                            FmColAlpha(s_Glow.color, alpha_per * 0.7f),
+                            text);
+            }
+        }
+    }
+
+    /* 2. Shadow (middle layer) */
+    if (s_Shadow.offset_x != 0.0f || s_Shadow.offset_y != 0.0f) {
+        u32 sc = s_Shadow.color;
+        if ((sc & 0xffu) > 0) {  /* has alpha */
+            dl->AddText(ImVec2(x + s_Shadow.offset_x, y + s_Shadow.offset_y),
+                        FmCol(sc), text);
+        }
+    }
+
+    /* 3. Text (top layer) */
+    dl->AddText(ImVec2(x, y), FmCol(color), text);
+}
+
+void pdguiFontMgrDrawTextCentered(float x, float y, float w, float h,
+                                  u32 color, const char *text)
+{
+    if (!text || !text[0]) return;
+
+    ImVec2 sz = ImGui::CalcTextSize(text);
+    float tx = x + (w - sz.x) * 0.5f;
+    float ty = y + (h - sz.y) * 0.5f;
+
+    pdguiFontMgrDrawText(tx, ty, color, text);
 }
 
 } /* extern "C" */

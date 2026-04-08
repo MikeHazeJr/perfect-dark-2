@@ -1,386 +1,329 @@
 /**
- * pdgui_effects.cpp -- Animated overlay effects for UI elements (P4)
+ * pdgui_effects.cpp -- Caustic mask + border overlay effects for PD2 UI (P4)
  *
- * Two effect systems:
- * 1. Caustic mask overlay: scrolling grayscale mask composited over UI elements
- * 2. Border effect mask: animated glow/sweep on element edges
+ * Compositing order (from bottom to top):
+ *   1. Base texture (drawn by nineslice or theme panel)
+ *   2. Border effect mask (only on 9-slice edge/corner regions)
+ *   3. Caustic animated overlay (over entire element)
+ *   4. Text (drawn last by ImGui text rendering)
  *
- * All effects use delta time for frame-rate independence.
- * Rendering is done via ImGui draw list API.
+ * Caustic animation: a horizontal spritesheet where each frame is the same
+ * size. The current frame is selected by wall-clock time * speed.
+ * The frame is drawn as a fullscreen overlay with the specified blend mode.
+ *
+ * Border effect: a texture mask scrolled/tinted and composited only onto
+ * the border regions (as defined by 9-slice insets).
  *
  * IMPORTANT: Do NOT include types.h -- it #defines bool as s32, breaking C++.
  *
  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
- * Part of Phase P4: UI Texture Mod.
  */
 
+#include <SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <math.h>
 #include <PR/ultratypes.h>
 
+#include "glad/glad.h"
 #include "imgui/imgui.h"
 #include "pdgui_effects.h"
 #include "pdgui_theme.h"
-#include "pdgui_style.h"
 #include "system.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 /* =========================================================================
- * Active effect state
+ * Constants
  * ========================================================================= */
 
-#define CAUSTIC_TEX_ID_LEN 64
+#define FX_MAX_ELEMENTS  64
+#define FX_ID_LEN        64
 
-static PdguiCausticConfig  s_CausticCfg;
-static PdguiBorderFxConfig s_BorderFxCfg;
-static char                s_CausticTexId[CAUSTIC_TEX_ID_LEN] = {0};
-static f32                 s_CausticTimeAccum = 0.0f;
-static s32                 s_EffectsInitDone = 0;
+/* =========================================================================
+ * Per-element effect storage
+ * ========================================================================= */
 
-static void s_ensureDefaults(void)
+struct fx_entry {
+    char            element_id[FX_ID_LEN];
+
+    /* Caustic effect */
+    caustic_def_t   caustic;
+    s32             has_caustic;
+
+    /* Border effect */
+    border_fx_def_t border_fx;
+    s32             has_border_fx;
+};
+
+static struct fx_entry s_FxEntries[FX_MAX_ELEMENTS];
+static s32 s_FxCount = 0;
+static s32 s_FxInitDone = 0;
+
+/* =========================================================================
+ * Helpers
+ * ========================================================================= */
+
+static struct fx_entry *s_findFx(const char *id)
 {
-    if (s_EffectsInitDone) return;
-    s_EffectsInitDone = 1;
-    s_CausticCfg = pdguiCausticDefaultConfig();
-    s_BorderFxCfg = pdguiBorderFxDefaultConfig();
+    for (s32 i = 0; i < s_FxCount; i++) {
+        if (strcmp(s_FxEntries[i].element_id, id) == 0)
+            return &s_FxEntries[i];
+    }
+    return nullptr;
+}
+
+static struct fx_entry *s_getOrCreate(const char *id)
+{
+    struct fx_entry *e = s_findFx(id);
+    if (e) return e;
+
+    if (s_FxCount >= FX_MAX_ELEMENTS) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI effects: registry full (%d), cannot add '%s'",
+            FX_MAX_ELEMENTS, id);
+        return nullptr;
+    }
+
+    e = &s_FxEntries[s_FxCount++];
+    memset(e, 0, sizeof(*e));
+    snprintf(e->element_id, sizeof(e->element_id), "%s", id);
+    return e;
+}
+
+/* 0xRRGGBBAA → ImU32 (ImGui packed ABGR) */
+static inline ImU32 FxCol(u32 rgba)
+{
+    uint8_t r = (uint8_t)((rgba >> 24) & 0xffu);
+    uint8_t g = (uint8_t)((rgba >> 16) & 0xffu);
+    uint8_t b = (uint8_t)((rgba >>  8) & 0xffu);
+    uint8_t a = (uint8_t)((rgba >>  0) & 0xffu);
+    return IM_COL32(r, g, b, a);
+}
+
+static float s_getTime(void)
+{
+    return (float)SDL_GetTicks() / 1000.0f;
 }
 
 /* =========================================================================
- * Caustic / Animated Mask Overlay
+ * Public API
  * ========================================================================= */
 
 extern "C" {
 
-PdguiCausticConfig pdguiCausticDefaultConfig(void)
+void pdguiEffectsInit(void)
 {
-    PdguiCausticConfig cfg;
-    cfg.scroll_speed_x = 0.02f;
-    cfg.scroll_speed_y = 0.015f;
-    cfg.scale = 1.0f;
-    cfg.opacity = 0.15f;
-    cfg.tint_color = 0xffffffffu;  /* no tint */
-    cfg.blend_additive = 0;
-    return cfg;
+    if (s_FxInitDone) return;
+    s_FxInitDone = 1;
+    s_FxCount = 0;
+    sysLogPrintf(LOG_NOTE, "PDGUI effects: init");
 }
 
-void pdguiCausticDraw(void *mask_tex, f32 x, f32 y, f32 w, f32 h,
-                      const PdguiCausticConfig *config, f32 dt)
+void pdguiEffectsShutdown(void)
 {
-    if (!mask_tex || !config || config->opacity <= 0.0f) return;
-    if (w <= 0.0f || h <= 0.0f) return;
-
-    s_CausticTimeAccum += dt;
-
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-
-    /* Compute scrolling UV offset */
-    float uOff = s_CausticTimeAccum * config->scroll_speed_x;
-    float vOff = s_CausticTimeAccum * config->scroll_speed_y;
-
-    /* Wrap to [0, 1) */
-    uOff = uOff - floorf(uOff);
-    vOff = vOff - floorf(vOff);
-
-    /* UV range: scale controls tiling density */
-    float uScale = config->scale;
-    float vScale = config->scale * (h / w);  /* maintain aspect */
-
-    float u0 = uOff;
-    float v0 = vOff;
-    float u1 = uOff + uScale;
-    float v1 = vOff + vScale;
-
-    /* Compute tint with opacity applied */
-    u32 tc = config->tint_color;
-    u8 tr = (u8)((tc >> 24) & 0xff);
-    u8 tg = (u8)((tc >> 16) & 0xff);
-    u8 tb = (u8)((tc >>  8) & 0xff);
-    u8 ta = (u8)(config->opacity * 255.0f);
-
-    ImU32 col = IM_COL32(tr, tg, tb, ta);
-
-    dl->AddImage((ImTextureID)mask_tex,
-                 ImVec2(x, y), ImVec2(x + w, y + h),
-                 ImVec2(u0, v0), ImVec2(u1, v1),
-                 col);
+    s_FxCount = 0;
+    s_FxInitDone = 0;
+    sysLogPrintf(LOG_NOTE, "PDGUI effects: shutdown");
 }
 
-s32 pdguiCausticDrawThemed(f32 x, f32 y, f32 w, f32 h)
+s32 pdguiEffectsSetCaustic(const char *element_id, const caustic_def_t *def)
 {
-    s_ensureDefaults();
+    if (!element_id || !def) return 0;
+    struct fx_entry *e = s_getOrCreate(element_id);
+    if (!e) return 0;
 
-    if (!s_CausticTexId[0]) return 0;
-    if (s_CausticCfg.opacity <= 0.0f) return 0;
+    e->caustic = *def;
+    e->has_caustic = 1;
 
-    void *tex = pdguiThemeGetTexture(s_CausticTexId);
-    if (!tex) return 0;
-
-    float dt = ImGui::GetIO().DeltaTime;
-    pdguiCausticDraw(tex, x, y, w, h, &s_CausticCfg, dt);
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI effects: caustic on '%s' (tex='%s' frames=%d speed=%.1f opacity=%.2f)",
+        element_id, def->texture_id, def->frame_count, def->speed, def->opacity);
     return 1;
 }
 
+s32 pdguiEffectsSetBorderFx(const char *element_id, const border_fx_def_t *def)
+{
+    if (!element_id || !def) return 0;
+    struct fx_entry *e = s_getOrCreate(element_id);
+    if (!e) return 0;
+
+    e->border_fx = *def;
+    e->has_border_fx = 1;
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI effects: border fx on '%s' (mask='%s' opacity=%.2f)",
+        element_id, def->mask_texture_id, def->opacity);
+    return 1;
+}
+
+void pdguiEffectsClear(const char *element_id)
+{
+    if (!element_id) return;
+    struct fx_entry *e = s_findFx(element_id);
+    if (!e) return;
+
+    e->has_caustic = 0;
+    e->has_border_fx = 0;
+}
+
+const caustic_def_t *pdguiEffectsGetCaustic(const char *element_id)
+{
+    if (!element_id) return nullptr;
+    struct fx_entry *e = s_findFx(element_id);
+    return (e && e->has_caustic) ? &e->caustic : nullptr;
+}
+
+const border_fx_def_t *pdguiEffectsGetBorderFx(const char *element_id)
+{
+    if (!element_id) return nullptr;
+    struct fx_entry *e = s_findFx(element_id);
+    return (e && e->has_border_fx) ? &e->border_fx : nullptr;
+}
+
 /* =========================================================================
- * Border Effect Mask
+ * Rendering
  * ========================================================================= */
 
-/**
- * Glow Pulse: soft glow that breathes on all 4 edges.
- * Uses sin(time) for smooth pulsing.
- */
-static void s_drawGlowPulse(ImDrawList *dl, f32 x, f32 y, f32 w, f32 h,
-                             const PdguiBorderFxConfig *cfg, s32 focused)
+void pdguiEffectsDrawCaustic(const char *element_id,
+                             float x, float y, float w, float h)
 {
-    float t = (float)ImGui::GetTime() * cfg->speed;
-    float pulse = 0.5f + 0.5f * sinf(t * 3.0f);
-    float intensity = cfg->intensity * (focused ? (0.6f + 0.4f * pulse) : (0.2f + 0.3f * pulse));
+    if (!element_id) return;
+    struct fx_entry *e = s_findFx(element_id);
+    if (!e || !e->has_caustic) return;
 
-    /* Resolve color: use palette accent if config color is 0 */
-    u32 cc = cfg->color;
-    if (cc == 0) {
-        cc = pdguiGetPaletteColor(PDPAL_BORDER2);
-    }
-    u8 cr = (u8)((cc >> 24) & 0xff);
-    u8 cg = (u8)((cc >> 16) & 0xff);
-    u8 cb = (u8)((cc >>  8) & 0xff);
+    const caustic_def_t *cd = &e->caustic;
+    if (cd->opacity <= 0.0f || cd->frame_count <= 0) return;
 
-    float bw = cfg->width;
-    u8 alpha = (u8)(intensity * 200.0f);
-
-    ImU32 glowCol = IM_COL32(cr, cg, cb, alpha);
-    ImU32 glowDim = IM_COL32(cr, cg, cb, 0);
-
-    /* Top edge glow */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x, y - bw), ImVec2(x + w, y),
-        glowDim, glowDim, glowCol, glowCol);
-
-    /* Bottom edge glow */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x, y + h), ImVec2(x + w, y + h + bw),
-        glowCol, glowCol, glowDim, glowDim);
-
-    /* Left edge glow */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x - bw, y), ImVec2(x, y + h),
-        glowDim, glowCol, glowCol, glowDim);
-
-    /* Right edge glow */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x + w, y), ImVec2(x + w + bw, y + h),
-        glowCol, glowDim, glowDim, glowCol);
-}
-
-/**
- * Gradient Sweep: a bright gradient travels around the perimeter.
- * Similar to the existing shimmer but with configurable color.
- */
-static void s_drawGradSweep(ImDrawList *dl, f32 x, f32 y, f32 w, f32 h,
-                            const PdguiBorderFxConfig *cfg, s32 focused)
-{
-    float t = (float)ImGui::GetTime() * cfg->speed;
-    float perim = 2.0f * (w + h);
-    if (perim < 10.0f) return;
-
-    float frac = t / 4.0f;  /* full sweep in 4 seconds */
-    frac = frac - floorf(frac);
-    float pos = frac * perim;
-
-    /* Resolve color */
-    u32 cc = cfg->color;
-    if (cc == 0) {
-        cc = pdguiGetPaletteColor(PDPAL_BORDER2);
-    }
-    u8 cr = (u8)((cc >> 24) & 0xff);
-    u8 cg = (u8)((cc >> 16) & 0xff);
-    u8 cb = (u8)((cc >>  8) & 0xff);
-
-    float sweepLen = 40.0f;
-    float intensity = cfg->intensity * (focused ? 1.0f : 0.5f);
-    u8 peakAlpha = (u8)(intensity * 255.0f);
-
-    ImU32 bright = IM_COL32(cr, cg, cb, peakAlpha);
-    ImU32 dim    = IM_COL32(cr, cg, cb, 0);
-
-    float bw = cfg->width;
-
-    /* Compute which edge segment the sweep center is on */
-    float seg0 = w;           /* top: left→right */
-    float seg1 = seg0 + h;   /* right: top→bottom */
-    float seg2 = seg1 + w;   /* bottom: right→left */
-    /* seg3: left: bottom→top, remainder */
-
-    if (pos < seg0) {
-        /* Top edge */
-        float cx = x + pos;
-        float sx0 = cx - sweepLen * 0.5f;
-        float sx1 = cx + sweepLen * 0.5f;
-        if (sx0 < x) sx0 = x;
-        if (sx1 > x + w) sx1 = x + w;
-        if (sx1 > sx0) {
-            dl->AddRectFilledMultiColor(
-                ImVec2(sx0, y - bw), ImVec2(sx1, y),
-                dim, bright, bright, dim);
-        }
-    } else if (pos < seg1) {
-        /* Right edge */
-        float cy = y + (pos - seg0);
-        float sy0 = cy - sweepLen * 0.5f;
-        float sy1 = cy + sweepLen * 0.5f;
-        if (sy0 < y) sy0 = y;
-        if (sy1 > y + h) sy1 = y + h;
-        if (sy1 > sy0) {
-            dl->AddRectFilledMultiColor(
-                ImVec2(x + w, sy0), ImVec2(x + w + bw, sy1),
-                dim, dim, bright, bright);
-        }
-    } else if (pos < seg2) {
-        /* Bottom edge (right→left) */
-        float cx = x + w - (pos - seg1);
-        float sx0 = cx - sweepLen * 0.5f;
-        float sx1 = cx + sweepLen * 0.5f;
-        if (sx0 < x) sx0 = x;
-        if (sx1 > x + w) sx1 = x + w;
-        if (sx1 > sx0) {
-            dl->AddRectFilledMultiColor(
-                ImVec2(sx0, y + h), ImVec2(sx1, y + h + bw),
-                bright, dim, dim, bright);
-        }
-    } else {
-        /* Left edge (bottom→top) */
-        float cy = y + h - (pos - seg2);
-        float sy0 = cy - sweepLen * 0.5f;
-        float sy1 = cy + sweepLen * 0.5f;
-        if (sy0 < y) sy0 = y;
-        if (sy1 > y + h) sy1 = y + h;
-        if (sy1 > sy0) {
-            dl->AddRectFilledMultiColor(
-                ImVec2(x - bw, sy0), ImVec2(x, sy1),
-                bright, bright, dim, dim);
-        }
-    }
-}
-
-/**
- * Energy Field: rapid flicker with random-ish alpha variation.
- */
-static void s_drawEnergyField(ImDrawList *dl, f32 x, f32 y, f32 w, f32 h,
-                              const PdguiBorderFxConfig *cfg, s32 focused)
-{
-    float t = (float)ImGui::GetTime() * cfg->speed;
-
-    /* Pseudo-random flicker from layered sin waves */
-    float flicker = 0.5f + 0.3f * sinf(t * 7.3f) + 0.2f * sinf(t * 13.1f);
-    if (flicker < 0.0f) flicker = 0.0f;
-    if (flicker > 1.0f) flicker = 1.0f;
-
-    float intensity = cfg->intensity * flicker * (focused ? 1.0f : 0.4f);
-
-    u32 cc = cfg->color;
-    if (cc == 0) {
-        cc = pdguiGetPaletteColor(PDPAL_BORDER2);
-    }
-    u8 cr = (u8)((cc >> 24) & 0xff);
-    u8 cg = (u8)((cc >> 16) & 0xff);
-    u8 cb = (u8)((cc >>  8) & 0xff);
-    u8 alpha = (u8)(intensity * 180.0f);
-
-    float bw = cfg->width;
-    ImU32 col = IM_COL32(cr, cg, cb, alpha);
-
-    /* Draw border rect (outline) */
-    dl->AddRect(ImVec2(x - bw, y - bw), ImVec2(x + w + bw, y + h + bw),
-                col, 0.0f, 0, bw);
-}
-
-PdguiBorderFxConfig pdguiBorderFxDefaultConfig(void)
-{
-    PdguiBorderFxConfig cfg;
-    cfg.type = PDGUI_BORDERFX_GLOW_PULSE;
-    cfg.intensity = 0.5f;
-    cfg.speed = 1.0f;
-    cfg.color = 0;  /* 0 = use palette accent */
-    cfg.width = 2.0f;
-    return cfg;
-}
-
-void pdguiBorderFxDraw(f32 x, f32 y, f32 w, f32 h,
-                       const PdguiBorderFxConfig *config, s32 focused)
-{
-    if (!config || config->type == PDGUI_BORDERFX_NONE) return;
-    if (config->intensity <= 0.0f) return;
+    void *tex = pdguiThemeGetTexture(cd->texture_id);
+    if (!tex) return;
 
     ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImTextureID tid = (ImTextureID)(uintptr_t)tex;
 
-    switch (config->type) {
-    case PDGUI_BORDERFX_GLOW_PULSE:
-        s_drawGlowPulse(dl, x, y, w, h, config, focused);
+    /* Calculate current frame from time */
+    float t = s_getTime();
+    s32 frame = (s32)(t * cd->speed) % cd->frame_count;
+    if (frame < 0) frame += cd->frame_count;
+
+    /* UV: horizontal strip, each frame = 1/frame_count width */
+    float frame_u = (float)frame / (float)cd->frame_count;
+    float frame_w = 1.0f / (float)cd->frame_count;
+
+    /* Scale UV by the scale factor */
+    float su = frame_w / (cd->scale > 0.01f ? cd->scale : 1.0f);
+
+    /* Apply blend mode via alpha and tint color */
+    uint8_t alpha = (uint8_t)(cd->opacity * 255.0f);
+    ImU32 col;
+
+    switch (cd->blend_mode) {
+    case FX_BLEND_ADDITIVE:
+        /* Additive: draw bright overlay, white tinted */
+        col = IM_COL32(255, 255, 255, alpha / 2);
         break;
-    case PDGUI_BORDERFX_GRAD_SWEEP:
-        s_drawGradSweep(dl, x, y, w, h, config, focused);
+    case FX_BLEND_SCREEN:
+        /* Screen: lighter overlay */
+        col = IM_COL32(255, 255, 255, alpha / 3);
         break;
-    case PDGUI_BORDERFX_ENERGY:
-        s_drawEnergyField(dl, x, y, w, h, config, focused);
-        break;
+    case FX_BLEND_MULTIPLY:
     default:
+        /* Multiply: darken overlay */
+        col = IM_COL32(180, 180, 180, alpha);
         break;
     }
+
+    dl->AddImage(tid,
+                 ImVec2(x, y), ImVec2(x + w, y + h),
+                 ImVec2(frame_u, 0.0f),
+                 ImVec2(frame_u + su, 1.0f),
+                 col);
 }
 
-void pdguiBorderFxDrawThemed(f32 x, f32 y, f32 w, f32 h, s32 focused)
+void pdguiEffectsDrawBorder(const char *element_id,
+                            float x, float y, float w, float h,
+                            float left, float right, float top, float bottom)
 {
-    s_ensureDefaults();
-    pdguiBorderFxDraw(x, y, w, h, &s_BorderFxCfg, focused);
-}
+    if (!element_id) return;
+    struct fx_entry *e = s_findFx(element_id);
+    if (!e || !e->has_border_fx) return;
 
-/* =========================================================================
- * Theme Integration
- * ========================================================================= */
+    const border_fx_def_t *bd = &e->border_fx;
+    if (bd->opacity <= 0.0f) return;
 
-void pdguiEffectsSetCausticConfig(const PdguiCausticConfig *config)
-{
-    s_ensureDefaults();
-    if (config) {
-        s_CausticCfg = *config;
+    void *tex = pdguiThemeGetTexture(bd->mask_texture_id);
+    if (!tex) return;
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImTextureID tid = (ImTextureID)(uintptr_t)tex;
+
+    /* Scrolling UV offset */
+    float t = s_getTime();
+    float u_off = t * bd->scroll_speed_x * 0.01f;
+    float v_off = t * bd->scroll_speed_y * 0.01f;
+
+    /* Tint with opacity */
+    u32 tint = bd->tint_color;
+    uint8_t base_a = (uint8_t)(tint & 0xffu);
+    uint8_t final_a = (uint8_t)((float)base_a * bd->opacity);
+    ImU32 col = FxCol((tint & 0xffffff00u) | final_a);
+
+    /* Draw border regions only (4 edge strips) */
+
+    /* Top edge */
+    if (top > 0.0f) {
+        dl->AddImage(tid,
+                     ImVec2(x, y), ImVec2(x + w, y + top),
+                     ImVec2(u_off, v_off),
+                     ImVec2(u_off + 1.0f, v_off + top / h),
+                     col);
+    }
+
+    /* Bottom edge */
+    if (bottom > 0.0f) {
+        dl->AddImage(tid,
+                     ImVec2(x, y + h - bottom), ImVec2(x + w, y + h),
+                     ImVec2(u_off, v_off + (h - bottom) / h),
+                     ImVec2(u_off + 1.0f, v_off + 1.0f),
+                     col);
+    }
+
+    /* Left edge (excluding corners already covered by top/bottom) */
+    if (left > 0.0f) {
+        float ey = y + top;
+        float eh = h - top - bottom;
+        if (eh > 0.0f) {
+            dl->AddImage(tid,
+                         ImVec2(x, ey), ImVec2(x + left, ey + eh),
+                         ImVec2(u_off, v_off + top / h),
+                         ImVec2(u_off + left / w, v_off + (h - bottom) / h),
+                         col);
+        }
+    }
+
+    /* Right edge */
+    if (right > 0.0f) {
+        float ey = y + top;
+        float eh = h - top - bottom;
+        if (eh > 0.0f) {
+            dl->AddImage(tid,
+                         ImVec2(x + w - right, ey), ImVec2(x + w, ey + eh),
+                         ImVec2(u_off + (w - right) / w, v_off + top / h),
+                         ImVec2(u_off + 1.0f, v_off + (h - bottom) / h),
+                         col);
+        }
     }
 }
 
-void pdguiEffectsSetBorderFxConfig(const PdguiBorderFxConfig *config)
+void pdguiEffectsDrawAll(const char *element_id,
+                         float x, float y, float w, float h,
+                         float border_l, float border_r,
+                         float border_t, float border_b)
 {
-    s_ensureDefaults();
-    if (config) {
-        s_BorderFxCfg = *config;
-    }
-}
-
-void pdguiEffectsSetCausticTexture(const char *catalog_id)
-{
-    s_ensureDefaults();
-    if (catalog_id) {
-        snprintf(s_CausticTexId, CAUSTIC_TEX_ID_LEN, "%s", catalog_id);
-    } else {
-        s_CausticTexId[0] = '\0';
-    }
-}
-
-const char *pdguiEffectsGetCausticTexture(void)
-{
-    return s_CausticTexId[0] ? s_CausticTexId : NULL;
-}
-
-const PdguiCausticConfig *pdguiEffectsGetCausticConfig(void)
-{
-    s_ensureDefaults();
-    return &s_CausticCfg;
-}
-
-const PdguiBorderFxConfig *pdguiEffectsGetBorderFxConfig(void)
-{
-    s_ensureDefaults();
-    return &s_BorderFxCfg;
+    /* Compositing order: border effect first, then caustic on top */
+    pdguiEffectsDrawBorder(element_id, x, y, w, h,
+                           border_l, border_r, border_t, border_b);
+    pdguiEffectsDrawCaustic(element_id, x, y, w, h);
 }
 
 } /* extern "C" */

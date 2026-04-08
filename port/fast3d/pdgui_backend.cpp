@@ -28,6 +28,9 @@
 
 /* D5.0 ROM texture decode layer + theme draw functions */
 #include "pdgui_theme.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 
 /* D5.1 input ownership boundary */
 #include "pdmain.h"
@@ -264,6 +267,11 @@ void pdguiInit(void *sdlWindow)
 
     /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
     pdguiThemeInit();
+
+    /* P4: Initialize 9-slice, effects, and font manager subsystems */
+    pdguiNinesliceInit();
+    pdguiEffectsInit();
+    pdguiFontMgrInit();
 
     /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()
      * can call ImGui::NavMoveRequestTryWrapping from C code. */
@@ -643,6 +651,9 @@ void pdguiShutdown(void)
         return;
     }
 
+    pdguiFontMgrShutdown();
+    pdguiEffectsShutdown();
+    pdguiNinesliceShutdown();
     pdguiThemeShutdown();
     pdguiHotswapShutdown();
 

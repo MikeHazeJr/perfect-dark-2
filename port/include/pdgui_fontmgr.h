@@ -2,19 +2,26 @@
 #define _IN_PDGUI_FONTMGR_H
 
 /**
- * pdgui_fontmgr.h -- TTF font loading with glow/shadow support (P4)
+ * pdgui_fontmgr.h -- TTF font manager with glow/shadow for PD2 UI (P4)
  *
- * Manages custom fonts loaded from mod directories via ImGui's font API.
- * Each font can have per-font glow radius/color and shadow offset/color.
- * Fonts are catalog assets — mods can provide custom fonts.
- * Falls back to the built-in Handel Gothic if a mod font fails to load.
+ * Manages font loading from mod packages and provides text rendering
+ * effects (glow, shadow) that composite correctly with the theme system.
  *
- * Usage:
- *   1. pdguiFontMgrInit() at startup (after ImGui context creation)
- *   2. pdguiFontMgrLoadFromMod() for each mod font
- *   3. pdguiFontMgrApply() to select a font for rendering
- *   4. pdguiFontMgrDrawTextWithEffects() for glow+shadow text
+ * Font lifecycle:
+ *   1. pdguiFontMgrInit() — registers default font, sets up config vars
+ *   2. pdguiFontMgrLoadFont() — loads a TTF from a mod, adds to ImGui atlas
+ *   3. pdguiFontMgrSetActive() — switches the active font for UI rendering
+ *   4. pdguiFontMgrDrawText*() — draw text with effects
  *
+ * The default font (Handel Gothic) is always available. Mod fonts are
+ * loaded additively — they don't replace the default, they extend the atlas.
+ *
+ * Text effects:
+ *   - Shadow: offset copy behind text, configurable color/offset/alpha
+ *   - Glow: blurred halo behind text, configurable color/radius/intensity
+ *   Both rendered as ImGui draw list primitives (no shaders needed).
+ *
+ * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  * Part of Phase P4: UI Texture Mod.
  */
 
@@ -25,111 +32,112 @@ extern "C" {
 #endif
 
 /* -----------------------------------------------------------------------
- * Font entry configuration
+ * Font slot: up to 16 fonts loaded simultaneously
  * --------------------------------------------------------------------- */
 
-/** Per-font effect configuration. */
-typedef struct PdguiFontConfig {
-    f32 glow_radius;      /* Glow blur radius in pixels (0 = no glow) */
-    u32 glow_color;       /* Glow color in 0xRRGGBBAA */
-    f32 shadow_offset_x;  /* Shadow offset X pixels (0 = no shadow) */
-    f32 shadow_offset_y;  /* Shadow offset Y pixels */
-    u32 shadow_color;     /* Shadow color in 0xRRGGBBAA */
-    f32 size_pt;          /* Font size in points (0 = use default 24pt) */
-} PdguiFontConfig;
+#define FONTMGR_MAX_FONTS    16
+#define FONTMGR_NAME_LEN     64
+#define FONTMGR_PATH_LEN    256
 
-/** Default font config: moderate glow, 1px drop shadow. */
-PdguiFontConfig pdguiFontConfigDefault(void);
+/* -----------------------------------------------------------------------
+ * Text shadow definition
+ * --------------------------------------------------------------------- */
+
+typedef struct font_shadow_def {
+    f32  offset_x;      /* horizontal offset in pixels (positive = right) */
+    f32  offset_y;      /* vertical offset in pixels (positive = down) */
+    u32  color;         /* 0xRRGGBBAA */
+} font_shadow_def_t;
+
+/* -----------------------------------------------------------------------
+ * Text glow definition
+ * --------------------------------------------------------------------- */
+
+typedef struct font_glow_def {
+    f32  radius;        /* glow spread in pixels (0 = off) */
+    f32  intensity;     /* 0.0 = off, 1.0 = full brightness */
+    u32  color;         /* 0xRRGGBBAA */
+    s32  passes;        /* number of glow passes (1-4, more = smoother) */
+} font_glow_def_t;
 
 /* -----------------------------------------------------------------------
  * Lifecycle
  * --------------------------------------------------------------------- */
 
-/** Initialize font manager. Call after ImGui context creation.
- *  The built-in Handel Gothic remains io.FontDefault. */
+/** Initialize font manager. Call after pdguiInit() has set up ImGui context.
+ *  Registers the default Handel Gothic as slot 0. */
 void pdguiFontMgrInit(void);
 
-/** Shutdown: clean up font registry (ImGui owns the font atlas memory). */
+/** Shutdown: font memory is owned by ImGui atlas, just clear our metadata. */
 void pdguiFontMgrShutdown(void);
 
 /* -----------------------------------------------------------------------
  * Font loading
  * --------------------------------------------------------------------- */
 
-/**
- * Load a TTF font from a file path and register it.
- *
- * @param catalog_id   Catalog ID for this font (e.g., "mod:font_cyberpunk")
- * @param filepath     Path to .ttf file (loaded via fsFileLoad)
- * @param config       Per-font effect settings (glow, shadow)
- * @return 1 on success, 0 on failure (built-in font used as fallback)
- *
- * Note: After loading fonts, ImGui's font atlas must be rebuilt.
- * Call pdguiFontMgrRebuildAtlas() after all fonts are loaded.
- */
-s32 pdguiFontMgrLoadFont(const char *catalog_id, const char *filepath,
-                         const PdguiFontConfig *config);
+/** Load a TTF font from a file path and register it with a display name.
+ *  size_px: rasterization size in pixels (24.0 recommended).
+ *  Returns font slot index (1+) on success, 0 on failure.
+ *  NOTE: Loading a new font requires rebuilding the ImGui font atlas,
+ *  which invalidates the current frame. Call between frames only. */
+s32 pdguiFontMgrLoadFont(const char *name, const char *ttf_path, f32 size_px);
 
-/**
- * Rebuild the ImGui font atlas after loading new fonts.
- * Must be called once after all pdguiFontMgrLoadFont() calls.
- * This invalidates the previous atlas texture.
- */
-void pdguiFontMgrRebuildAtlas(void);
+/** Get the number of loaded fonts (including default). */
+s32 pdguiFontMgrGetCount(void);
+
+/** Get the display name of font at slot index. NULL if out of range. */
+const char *pdguiFontMgrGetName(s32 slot);
+
+/** Get the catalog ID for a font slot. NULL if out of range. */
+const char *pdguiFontMgrGetCatalogId(s32 slot);
 
 /* -----------------------------------------------------------------------
- * Font selection
+ * Active font selection
  * --------------------------------------------------------------------- */
 
-/**
- * Push a registered font onto ImGui's font stack.
- * @param catalog_id  Font catalog ID (NULL = use default Handel Gothic)
- * @return 1 if font was pushed, 0 if not found (no push occurs)
- *
- * Must be paired with pdguiFontMgrPopFont().
- */
-s32 pdguiFontMgrPushFont(const char *catalog_id);
+/** Set the active font by slot index. 0 = default (Handel Gothic). */
+void pdguiFontMgrSetActive(s32 slot);
 
-/** Pop the font pushed by pdguiFontMgrPushFont(). */
+/** Get the current active font slot. */
+s32 pdguiFontMgrGetActive(void);
+
+/** Push the font at the given slot onto ImGui's font stack.
+ *  Must be matched with pdguiFontMgrPopFont(). */
+void pdguiFontMgrPushFont(s32 slot);
+
+/** Pop the font stack. */
 void pdguiFontMgrPopFont(void);
 
 /* -----------------------------------------------------------------------
- * Text rendering with effects
+ * Text effect configuration
  * --------------------------------------------------------------------- */
 
-/**
- * Draw text with glow and shadow effects using the active font's config.
- *
- * @param x, y       Screen-space position
- * @param text       Text string to render
- * @param text_color Text color as 0xRRGGBBAA
- *
- * Draws in order: glow → shadow → text (back to front).
- * Uses the effect settings of whatever font was last pushed.
- */
-void pdguiFontMgrDrawTextWithEffects(f32 x, f32 y, const char *text, u32 text_color);
+/** Set the global text shadow parameters. Applies to all DrawText* calls. */
+void pdguiFontMgrSetShadow(const font_shadow_def_t *def);
 
-/**
- * Draw text with explicit effect config override.
- */
-void pdguiFontMgrDrawTextEx(f32 x, f32 y, const char *text, u32 text_color,
-                            const PdguiFontConfig *config);
+/** Get the current shadow definition. */
+const font_shadow_def_t *pdguiFontMgrGetShadow(void);
+
+/** Set the global text glow parameters. Applies to all DrawText* calls. */
+void pdguiFontMgrSetGlow(const font_glow_def_t *def);
+
+/** Get the current glow definition. */
+const font_glow_def_t *pdguiFontMgrGetGlow(void);
 
 /* -----------------------------------------------------------------------
- * Registry query
+ * Text rendering with effects
+ *
+ * These draw text with shadow and/or glow effects applied.
+ * Text is always the topmost compositing layer.
  * --------------------------------------------------------------------- */
 
-/** Get number of registered custom fonts. */
-s32 pdguiFontMgrGetCount(void);
+/** Draw text with shadow + glow at the given position.
+ *  color: 0xRRGGBBAA text color. */
+void pdguiFontMgrDrawText(float x, float y, u32 color, const char *text);
 
-/** Get catalog ID of the Nth registered font. NULL if out of range. */
-const char *pdguiFontMgrGetId(s32 index);
-
-/** Get display name (from TTF metadata or filename) of the Nth font. */
-const char *pdguiFontMgrGetName(s32 index);
-
-/** Get the effect config for a registered font. NULL if not found. */
-const PdguiFontConfig *pdguiFontMgrGetConfig(const char *catalog_id);
+/** Draw text centered horizontally within a rectangle. */
+void pdguiFontMgrDrawTextCentered(float x, float y, float w, float h,
+                                  u32 color, const char *text);
 
 #ifdef __cplusplus
 }
