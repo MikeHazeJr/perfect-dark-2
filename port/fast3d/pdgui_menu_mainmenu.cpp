@@ -30,6 +30,7 @@
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_theme_loader.h"
+#include "pdgui_theme.h"
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -576,6 +577,20 @@ static void renderSettingsVideo(float scale)
     bool detailTex = videoGetDetailTextures() != 0;
     if (PdCheckbox("Detail Textures", &detailTex)) {
         videoSetDetailTextures(detailTex ? 1 : 0);
+    }
+
+    /* CRT Filter */
+    bool crtOn = pdguiThemeGetScanlineEnabled() != 0;
+    if (PdCheckbox("CRT Filter", &crtOn)) {
+        pdguiThemeSetScanlineEnabled(crtOn ? 1 : 0);
+    }
+
+    if (crtOn) {
+        float crtAlpha = pdguiThemeGetScanlineAlpha();
+        int crtPct = (int)(crtAlpha * 100.0f + 0.5f);
+        if (PdSliderInt("CRT Strength", &crtPct, 0, 100, "%d%%")) {
+            pdguiThemeSetScanlineAlpha((float)crtPct / 100.0f);
+        }
     }
 
     ImGui::Spacing();

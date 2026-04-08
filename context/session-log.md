@@ -3,6 +3,38 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S184 — 2026-04-08 (P10 D5.7: OG Menu Removal)
+
+**Focus**: P10 D5.7 — Systematic OG Menu Removal. Eliminate all legacy PD native menu rendering; ImGui is now the permanent and sole menu system.
+
+### What Was Done
+
+- Added DEFAULT type (0/1) fallback renderer to `pdgui_menu_warning.cpp` so ALL dialog types have ImGui rendering
+- Added `MENUITEMTYPE_KEYBOARD` support using `ImGui::InputText` (replaces legacy on-screen keyboard)
+- Removed all 13 NULL registrations that forced PD native rendering
+- Disabled F8 toggle (ImGui permanent), removed [OLD]/[NEW] badge
+- `pdguiHotswapIsDialogSwapped()` always returns 1
+- `pdguiHotswapCheck()` always queues for ImGui
+- Gutted `menu.c` `menuRenderDialog()` — removed native render path, only does hotswap queue + char preview FBO
+- Routed co-op/counter-op pause through `pdguiPauseMenuOpen()` (removed legacy `menuPushRootDialog` fallback)
+- Build verified clean (100% pd target + pd-server)
+- Committed and merged to dev, pushed to origin
+
+**Files modified**: `port/fast3d/pdgui_hotswap.cpp`, `port/fast3d/pdgui_menu_warning.cpp`, `src/game/menu.c`, `src/game/mplayer/ingame.c`
+
+### Decisions
+
+- `menugfx.c` retained — 3 non-menu callers (`hudmsg.c`, `credits.c`, `sched.c`) still use GBI utility functions. These are not OG menu code.
+- Legacy dialog stack management (`menuPushDialog`/`menuPopDialog`) retained as plumbing — ImGui menus still push dialog defs via it, hotswap intercepts renders
+- Hot-swap system retained as permanent infrastructure (no longer a dev bridge) — it IS the menu rendering pipeline now
+
+### Next Steps
+
+- Playtest to verify all menus render correctly, especially keyboard input dialogs and co-op pause
+- Resume roadmap: D5 Phase 3 (remaining menu screens), M3 (online MP flow), or Phase 4 (Theme System)
+
+---
+
 ## Session S183 — 2026-04-08 (M0.2 Phases C+D: ImGui Nav Takeover + Full CK_* Cleanup)
 
 **Focus**: Complete M0.2 input system unification — replace ImGui built-in gamepad nav with action map queries, eliminate all CK_* legacy input constants.

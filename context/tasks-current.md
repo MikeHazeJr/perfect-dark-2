@@ -10,6 +10,7 @@
 
 | Item | Status |
 |------|--------|
+| **P10 D5.7 — OG Menu Removal (S184)** | **DONE** — All legacy PD native menu rendering removed. DEFAULT type fallback + MENUITEMTYPE_KEYBOARD (ImGui::InputText) added. 13 NULL registrations removed. F8 toggle disabled, hotswap always returns 1, menuRenderDialog() gutted. Co-op/counter-op pause routed through pdguiPauseMenuOpen(). menugfx.c retained (non-menu callers). Hot-swap system is now permanent infrastructure. Build clean. |
 | **M0.2 — Input System Unification (S181–S183)** | **DONE** — Unreal Enhanced Input-inspired action map system. Phase A: core `InputAction` enum + `ActionMap` contexts. Phase B: joy.c shim + all game files migrated from CK_* to actionPressed/actionDown. Phase C: ImGui nav driven by actionmap (pdguiDriveImGuiNav). Phase D: CK_* enum deleted, inputmodes.c deleted, joy.c shims emptied. -823 lines net. Zero CK_* references remain. 34 files changed, ~2455 insertions, ~1338 deletions. |
 | **SA-5e Ammo Accessors (S181)** | **DONE** — `catalogGetMpWeaponPriAmmoType`/`PriAmmoQty`/`SecAmmoType`/`SecAmmoQty`. Callers migrated in player.c, bot.c, setup.c, matchsetup.c, netmsg.c. Rescued from `claude/sleepy-agnesi`. |
 | **S176 — B-115 Fix + M2.1 Polish** | **DONE** — B-115: legacy Save Player + Confirm Name dialogs suppressed (noop renderers), auto-save handles PC saving. M2.1 arena selection verified catalog-native (browsing works, preview images need base-ui textures Phase 4). Game mode selection verified: all 6 modes set `scenario_id` PRIMARY via catalog. M2.1 **COMPLETE**, M2.2 **COMPLETE**. |
@@ -110,7 +111,7 @@
 
 ---
 
-**Next action**: M0.1 COMPLETE (a–f all done). M0.2 (Input System Unification) **COMPLETE** (Phases A–D, S181–S183). Action map system replaces CK_* entirely. Zero CK_* references remain. Next per roadmap: D5 Phase 3 (remaining menu screens), M3 (online MP flow), or other feature milestones.
+**Next action**: M0.1 COMPLETE (a–f all done). M0.2 (Input System Unification) **COMPLETE** (Phases A–D, S181–S183). P10 D5.7 (OG Menu Removal) **COMPLETE** (S184) — ImGui is sole menu system, all legacy rendering removed. Next per roadmap: D5 Phase 3 (remaining menu screens), Phase 4 (Theme System), M3 (online MP flow), or other feature milestones.
 
 ---
 

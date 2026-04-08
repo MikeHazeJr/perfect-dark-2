@@ -666,6 +666,9 @@ static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
 
+	// Ensure mods directory exists on fresh install
+	fsCreateDir("./" MODMGR_MODS_DIR);
+
 	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
 	// mods live at ./mods/ relative to the working directory. Try CWD first,
 	// then exe dir, then the base dir fallback.
