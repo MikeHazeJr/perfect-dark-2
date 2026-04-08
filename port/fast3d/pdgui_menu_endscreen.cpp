@@ -367,9 +367,9 @@ static void renderSoloEndscreen(bool completed)
     float padX = pdguiScale(18.0f);
     float padY = pdguiScale(36.0f);  /* below title bar */
 
-    /* ----- Dim the background ----------------------------------------- */
+    /* ----- Dim the background (P9: palette-derived) --------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+        ImVec2(0, 0), disp, pdguiPalImU32(PDPAL_BODYBG, 160));
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
@@ -690,9 +690,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float padX = pdguiScale(18.0f);
     float padY = pdguiScale(36.0f);
 
-    /* ----- Dim background --------------------------------------------- */
+    /* ----- Dim background (P9: palette-derived) ------------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+        ImVec2(0, 0), disp, pdguiPalImU32(PDPAL_BODYBG, 160));
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
