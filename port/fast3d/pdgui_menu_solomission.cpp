@@ -12,9 +12,9 @@
  *   g_MissionAbortMenuDialog          -- danger confirmation: Cancel / Abort
  *
  * Registered with NULL renderFn (keep legacy rendering for model/controller previews):
- *   g_SoloMissionInventoryMenuDialog  -- weapon model preview (legacy 3D)
- *   g_FrWeaponsAvailableMenuDialog    -- training weapons model preview (legacy 3D)
- *   g_SoloMissionControlStyleMenuDialog -- controller button diagram (legacy 3D)
+ *   g_SoloMissionInventoryMenuDialog  -- ImGui weapon list (M1.2)
+ *   g_FrWeaponsAvailableMenuDialog    -- handled by DEFAULT type fallback
+ *   g_SoloMissionControlStyleMenuDialog -- handled by DEFAULT type fallback
  *
  * Design notes:
  *   - All sizing via pdguiScale() — zero hardcoded pixels.
@@ -79,6 +79,11 @@ void menuStop(void);
 
 /* ---- Language ---- */
 const char *langSafe(s32 textid);
+
+/* ---- Inventory query API ---- */
+s32 invGetCount(void);
+char *invGetNameByIndex(s32 index);
+s32 invGetWeaponNumByIndex(s32 index);
 
 /* ---- Audio API (port/include/audio.h) ---- */
 f32  audioGetMasterVolume(void);
@@ -1441,6 +1446,100 @@ static s32 renderPrePostBriefing(struct menudialog *dialog,
 }
 
 /* =========================================================================
+ * Inventory Screen (M1.2)
+ *
+ * Replaces the legacy 3D weapon-model inventory dialog with an ImGui
+ * scrollable list.  Shows all weapons/items in the player's inventory
+ * during a solo mission (pause → Inventory).
+ * ========================================================================= */
+
+static s32 renderInventory(struct menudialog *dialog,
+                            struct menu *menu,
+                            s32 winW, s32 winH)
+{
+    float mw  = pdguiMenuWidth();
+    float mh  = pdguiMenuHeight();
+    ImVec2 pos = pdguiMenuPos();
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
+                        | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoCollapse
+                        | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_NoTitleBar
+                        | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##solo_inventory", nullptr, wf)) {
+        ImGui::End();
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
+    float titleH = pdguiScale(26.0f);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_178), 1);
+
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    ImGui::Separator();
+
+    /* Scrollable weapon/item list */
+    float footerH = pdguiScale(32.0f);
+    float bodyH   = mh - titleH - pdguiScale(24.0f) - footerH;
+
+    if (ImGui::BeginChild("##inv_scroll", ImVec2(0, bodyH), false, 0)) {
+        s32 count = invGetCount();
+        if (count <= 0) {
+            ImGui::TextDisabled("(No items)");
+        } else {
+            float scale = pdguiScaleFactor();
+            float rowH  = 28.0f * scale;
+            float availW = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
+
+            for (s32 i = 0; i < count; i++) {
+                char *name = invGetNameByIndex(i);
+                if (!name || !name[0]) continue;
+
+                ImGui::PushID(i);
+
+                /* Row background — alternating subtle shade */
+                ImVec2 rowMin = ImGui::GetCursorScreenPos();
+                ImVec2 rowMax = ImVec2(rowMin.x + availW, rowMin.y + rowH);
+                if (i & 1) {
+                    ImGui::GetWindowDrawList()->AddRectFilled(
+                        rowMin, rowMax, IM_COL32(255, 255, 255, 8));
+                }
+
+                /* Weapon/item name */
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+                                     (rowH - ImGui::GetTextLineHeight()) * 0.5f);
+                ImGui::TextUnformatted(name);
+
+                ImGui::SetCursorPosY(rowMin.y - pos.y + rowH);
+                ImGui::PopID();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::TextDisabled("B/Esc: Close");
+
+    /* B / Escape = dismiss */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+    }
+
+    ImGui::End();
+    return 1;
+}
+
+/* =========================================================================
  * Accept Mission (Overview)
  * Shows mission objectives + Accept / Decline.
  * g_Briefing populated by menudialog00103608 before this renders.
@@ -1825,7 +1924,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 s_RestartConfirm = true;
                 s_RestartSelectIdx = 0; /* default to Cancel (safe) */
                 break;
-            case 2: /* Inventory (uses legacy 3D renderer via NULL registration) */
+            case 2: /* Inventory (ImGui weapon list — M1.2) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 menuPushDialog(&g_SoloMissionInventoryMenuDialog);
                 break;
@@ -2512,17 +2611,14 @@ void pdguiMenuSoloMissionRegister(void)
     pdguiHotswapRegister(&g_MissionDisplayOptionsMenuDialog,
                           nullptr,  "Display Opts (inline)");
 
-    /* ---- Keep legacy rendering — these have 3D model/controller previews ----
-     * Registering with NULL renderFn forces PD-native rendering for these
-     * dialogs while still blocking type-based fallback renderers. */
+    /* M1.2: Inventory now has a proper ImGui renderer.
+     * FrWeapons and ControlStyle use the DEFAULT type fallback (P10). */
     pdguiHotswapRegister(&g_SoloMissionInventoryMenuDialog,
-                          nullptr,  "Inventory (legacy)");
+                          renderInventory,  "Inventory");
 
-    pdguiHotswapRegister(&g_FrWeaponsAvailableMenuDialog,
-                          nullptr,  "Fr. Weapons (legacy)");
-
-    pdguiHotswapRegister(&g_SoloMissionControlStyleMenuDialog,
-                          nullptr,  "Control Style (legacy)");
+    /* These two previously used NULL (force-native) but P10 removed native
+     * rendering.  Unregister them so the DEFAULT type fallback handles them
+     * generically until dedicated ImGui renderers are built. */
 
     sysLogPrintf(LOG_NOTE,
         "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 7 legacy/inline");
