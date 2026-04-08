@@ -31,6 +31,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
+#include "pdgui_model_preview.h"
 #include "system.h"
 #include "assetcatalog.h"
 
@@ -339,6 +340,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     if (s_SortedHeadNumHeads != s_NumHeads) {
         rebuildHeadSortMap();
         s_PrevPreviewHead = -1; /* force preview re-render after rebuild */
+        pdguiModelPreviewInvalidate();
     }
 
     /* Clamp selections */
@@ -382,6 +384,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         /* Force preview re-render on screen open */
         s_PrevPreviewHead = -1;
         s_PrevPreviewBody = -1;
+        pdguiModelPreviewInvalidate();
     }
 
     /* Opaque backdrop — this dialog overlays Agent Select, so the body
@@ -421,12 +424,21 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     float portraitSize = 120.0f * scale;
     float formW = contentW - portraitSize - pad * 2.0f;
 
-    /* Portrait preview (right side) */
+    /* Portrait preview (right side) — P6: uses pdgui_model_preview panel */
     {
-        ImDrawList *dl = ImGui::GetWindowDrawList();
         float px = dialogX + pad + formW + pad;
         float py = dialogY + pdTitleH + pad * 2.0f;
-        drawPortraitPreview(dl, px, py, portraitSize, scale);
+
+        const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+        const char *bid = catalogMpBodyId(s_SelectedBody);
+
+        ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
+        opts.showBodyName = 1;
+        opts.showHeadName = 0;
+        opts.idleRotation = 1;
+        opts.cornerRadius = 4.0f * scale;
+
+        pdguiModelPreviewDraw(hid, bid, px, py, portraitSize, portraitSize, &opts);
     }
 
     /* ================================================================
