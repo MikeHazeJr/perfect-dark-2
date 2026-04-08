@@ -21,7 +21,7 @@
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
-#include "menumgr.h"
+/* menumgr.h removed — P10 D5.7 OG Menu Removal */
 #include "playerstats.h"
 #include "system.h"
 #include "console.h"
@@ -172,7 +172,7 @@ int main(int argc, const char **argv)
 	}
 	videoInit();
 	pdguiInit(videoGetWindowHandle());
-	menuMgrInit();
+	/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
 	statsInit();
 	inputInit();
 

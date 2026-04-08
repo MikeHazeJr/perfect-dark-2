@@ -34,7 +34,6 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
-#include "menumgr.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
@@ -1250,6 +1249,10 @@ static s32 s_MenuView = 0;
  * when another system already had the context active. */
 static bool s_MainMenuPushedCtx = false;
 
+/* Simple SDL-based cooldown to prevent double-press (replaces menumgr) */
+static Uint32 s_MainCooldownUntil = 0;
+#define MAIN_COOLDOWN_MS 100
+
 /* Helper: draw PD dialog window frame + title, return content start Y */
 static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
                                 float dialogH, const char *title)
@@ -2102,10 +2105,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             } else if (s_MenuView == 3) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
-                if (menuGetCurrent() == MENU_MODDING) menuPop();
             } else if (s_MenuView == 4) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
-                if (menuGetCurrent() == MENU_JOIN) menuPop();
             } else {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
@@ -2167,9 +2168,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         /* Online Play */
         if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            if (!menuIsInCooldown()) {
+            if (SDL_GetTicks() >= s_MainCooldownUntil) {
                 s_MenuView = 4;
-                menuPush(MENU_JOIN);
+                s_MainCooldownUntil = SDL_GetTicks() + MAIN_COOLDOWN_MS;
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
         }

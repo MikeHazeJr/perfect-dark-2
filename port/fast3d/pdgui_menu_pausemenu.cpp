@@ -20,7 +20,6 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
-#include "menumgr.h"
 #include "inputctx.h"
 
 /* ========================================================================
@@ -202,13 +201,25 @@ static s32 s_PauseTab = 0;  /* 0=Rankings, 1=Stats, 2=Settings */
 static bool s_EndGameConfirm = false;
 static s32 s_GameOverTab = 0;  /* 0=Rankings, 1=Personal */
 
+/* Simple SDL-based cooldown to prevent double-press (replaces menumgr) */
+static Uint32 s_PauseCooldownUntil = 0;
+#define PAUSE_COOLDOWN_MS 100
+
+static bool s_pauseInCooldown(void) {
+    return SDL_GetTicks() < s_PauseCooldownUntil;
+}
+
+static void s_pauseSetCooldown(void) {
+    s_PauseCooldownUntil = SDL_GetTicks() + PAUSE_COOLDOWN_MS;
+}
+
 /* ========================================================================
  * Pause Menu API (C-callable)
  * ======================================================================== */
 
 void pdguiPauseMenuOpen(void)
 {
-    if (menuIsInCooldown()) return; /* prevent double-press */
+    if (s_pauseInCooldown()) return; /* prevent double-press */
 
     /* Push pause context — handles mouse release and game pause via on_push. */
     inputCtxPush(&g_CtxPauseMenu);
@@ -226,7 +237,7 @@ void pdguiPauseMenuOpen(void)
     s_PauseTab = 0;
     s_EndGameConfirm = false;
 
-    menuPush(MENU_PAUSE); /* register with menu manager for cooldown */
+    s_pauseSetCooldown();
 
     /* Pause the game (single-player combat sim only -- network handles differently) */
     if (g_NetMode == NETMODE_NONE) {
@@ -244,7 +255,7 @@ void pdguiPauseMenuClose(void)
         inputCtxPopDeferred(&g_CtxPauseMenu);
     }
 
-    menuPop(); /* deregister from menu manager */
+    s_pauseSetCooldown();
 
     /* Unpause */
     if (g_NetMode == NETMODE_NONE) {

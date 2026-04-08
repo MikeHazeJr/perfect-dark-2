@@ -1,3 +1,23 @@
+/**
+ * menugfx.c -- Legacy N64 menu graphics routines.
+ *
+ * P10 D5.7 STATUS: LEGACY DEAD CODE (dialog rendering path).
+ *
+ * With ImGui permanently active (pdguiHotswapCheck always returns 1),
+ * the dialog-rendering menugfx functions (backdrop, shimmer, gradient,
+ * dialog borders) are never reached via menuRenderDialog().
+ *
+ * STILL ACTIVE utility functions (called from non-dialog game code):
+ *   - menugfxDrawFilledRect()       -- hudmsg.c, trainingmenus.c
+ *   - menugfxDrawPlane()            -- game_1531a0.c text rendering
+ *   - menugfxDrawDialogBorderLine() -- trainingmenus.c score table
+ *   - menugfxGetParticleArraySize() -- endscreen.c memory management
+ *   - menugfx0f0e2498()            -- credits.c
+ *
+ * These utility functions must be preserved until their callers are
+ * migrated to ImGui draw primitives. The rest of this file is legacy
+ * dead code that will be removed in a future cleanup pass.
+ */
 #include <ultra64.h>
 #include "constants.h"
 #include "game/game_006900.h"

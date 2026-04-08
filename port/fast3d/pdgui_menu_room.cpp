@@ -34,7 +34,6 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "inputctx.h"
-#include "menumgr.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
