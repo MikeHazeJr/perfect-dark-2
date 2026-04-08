@@ -25,6 +25,9 @@
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 #include "assetcatalog.h"
 #include "config.h"
 #include "system.h"
@@ -83,6 +86,56 @@ struct theme_def {
 
     /* Sound pack */
     char sound_pack[THEME_SOUNDPACK_LEN];
+
+    /* P4: 9-slice definitions for UI textures */
+    struct {
+        char catalog_id[THEME_TEX_SLOTNAME];
+        s32  left, right, top, bottom;
+        s32  edge_tile;    /* 0=stretch, 1=tile */
+        s32  center_tile;  /* 0=stretch, 1=tile */
+    } nineslices[THEME_TEX_SLOTS];
+    s32 num_nineslices;
+
+    /* P4: Caustic effect */
+    struct {
+        char element_id[THEME_TEX_SLOTNAME];
+        char texture_id[THEME_TEX_SLOTNAME];
+        s32  frame_count;
+        f32  speed;
+        f32  opacity;
+        s32  blend_mode;   /* 0=multiply, 1=additive, 2=screen */
+        f32  scale;
+    } caustics[8];
+    s32 num_caustics;
+
+    /* P4: Border effects */
+    struct {
+        char element_id[THEME_TEX_SLOTNAME];
+        char mask_texture_id[THEME_TEX_SLOTNAME];
+        f32  opacity;
+        s32  blend_mode;
+        u32  tint_color;
+        f32  scroll_x, scroll_y;
+    } border_effects[8];
+    s32 num_border_effects;
+
+    /* P4: Font override */
+    char font_name[THEME_NAME_LEN];
+    char font_path[THEME_FILEPATH_LEN];
+    f32  font_size;
+    s32  has_font;
+
+    /* P4: Font shadow */
+    f32 shadow_offset_x, shadow_offset_y;
+    u32 shadow_color;
+    s32 has_shadow;
+
+    /* P4: Font glow (distinct from text glow — applies to font rendering) */
+    f32 font_glow_radius;
+    f32 font_glow_intensity;
+    u32 font_glow_color;
+    s32 font_glow_passes;
+    s32 has_font_glow;
 };
 
 /* =========================================================================
@@ -410,6 +463,228 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
                     def->glow_color = parse_hex_color(tok.start, tok.len);
                 }
             }
+        } else if (strcmp(key, "nineslices") == 0) {
+            /* Parse nineslices array: [{ "id": "...", "left": N, ... }, ...] */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACKET) { jskip_value(&jp); continue; }
+
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACKET || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_LBRACE) break;
+
+                if (def->num_nineslices >= THEME_TEX_SLOTS) {
+                    /* Skip this object */
+                    int depth = 1;
+                    while (depth > 0) {
+                        tok = jnext(&jp);
+                        if (tok.type == JT_LBRACE) depth++;
+                        else if (tok.type == JT_RBRACE) depth--;
+                        else if (tok.type == JT_EOF) break;
+                    }
+                    continue;
+                }
+
+                auto *ns = &def->nineslices[def->num_nineslices];
+                memset(ns, 0, sizeof(*ns));
+
+                char nkey[64];
+                while (true) {
+                    tok = jnext(&jp);
+                    if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                    if (tok.type == JT_COMMA) continue;
+                    if (tok.type != JT_STRING) break;
+                    jstr(&tok, nkey, sizeof(nkey));
+                    tok = jnext(&jp); /* colon */
+                    if (tok.type != JT_COLON) break;
+                    tok = jnext(&jp);
+
+                    if (strcmp(nkey, "id") == 0)
+                        jstr(&tok, ns->catalog_id, sizeof(ns->catalog_id));
+                    else if (strcmp(nkey, "left") == 0)   ns->left   = (s32)jfloat(&tok);
+                    else if (strcmp(nkey, "right") == 0)  ns->right  = (s32)jfloat(&tok);
+                    else if (strcmp(nkey, "top") == 0)    ns->top    = (s32)jfloat(&tok);
+                    else if (strcmp(nkey, "bottom") == 0) ns->bottom = (s32)jfloat(&tok);
+                    else if (strcmp(nkey, "edgeMode") == 0) {
+                        char m[32]; jstr(&tok, m, sizeof(m));
+                        ns->edge_tile = (strcmp(m, "tile") == 0) ? 1 : 0;
+                    }
+                    else if (strcmp(nkey, "centerMode") == 0) {
+                        char m[32]; jstr(&tok, m, sizeof(m));
+                        ns->center_tile = (strcmp(m, "tile") == 0) ? 1 : 0;
+                    }
+                }
+                def->num_nineslices++;
+            }
+        } else if (strcmp(key, "caustics") == 0) {
+            /* Parse caustics array */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACKET) { jskip_value(&jp); continue; }
+
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACKET || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_LBRACE) break;
+
+                if (def->num_caustics >= 8) {
+                    int depth = 1;
+                    while (depth > 0) { tok = jnext(&jp); if (tok.type == JT_LBRACE) depth++; else if (tok.type == JT_RBRACE) depth--; else if (tok.type == JT_EOF) break; }
+                    continue;
+                }
+
+                auto *cd = &def->caustics[def->num_caustics];
+                memset(cd, 0, sizeof(*cd));
+                cd->opacity = 0.5f;
+                cd->speed = 4.0f;
+                cd->frame_count = 1;
+                cd->scale = 1.0f;
+
+                char ckey[64];
+                while (true) {
+                    tok = jnext(&jp);
+                    if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                    if (tok.type == JT_COMMA) continue;
+                    if (tok.type != JT_STRING) break;
+                    jstr(&tok, ckey, sizeof(ckey));
+                    tok = jnext(&jp); if (tok.type != JT_COLON) break;
+                    tok = jnext(&jp);
+
+                    if (strcmp(ckey, "elementId") == 0) jstr(&tok, cd->element_id, sizeof(cd->element_id));
+                    else if (strcmp(ckey, "textureId") == 0) jstr(&tok, cd->texture_id, sizeof(cd->texture_id));
+                    else if (strcmp(ckey, "frameCount") == 0) cd->frame_count = (s32)jfloat(&tok);
+                    else if (strcmp(ckey, "speed") == 0)   cd->speed = jfloat(&tok);
+                    else if (strcmp(ckey, "opacity") == 0) cd->opacity = jfloat(&tok);
+                    else if (strcmp(ckey, "scale") == 0)   cd->scale = jfloat(&tok);
+                    else if (strcmp(ckey, "blendMode") == 0) {
+                        char m[32]; jstr(&tok, m, sizeof(m));
+                        if (strcmp(m, "additive") == 0) cd->blend_mode = 1;
+                        else if (strcmp(m, "screen") == 0) cd->blend_mode = 2;
+                        else cd->blend_mode = 0;
+                    }
+                }
+                def->num_caustics++;
+            }
+        } else if (strcmp(key, "borderEffects") == 0) {
+            /* Parse borderEffects array */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACKET) { jskip_value(&jp); continue; }
+
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACKET || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_LBRACE) break;
+
+                if (def->num_border_effects >= 8) {
+                    int depth = 1;
+                    while (depth > 0) { tok = jnext(&jp); if (tok.type == JT_LBRACE) depth++; else if (tok.type == JT_RBRACE) depth--; else if (tok.type == JT_EOF) break; }
+                    continue;
+                }
+
+                auto *be = &def->border_effects[def->num_border_effects];
+                memset(be, 0, sizeof(*be));
+                be->opacity = 0.5f;
+                be->tint_color = 0xffffffff;
+
+                char bkey[64];
+                while (true) {
+                    tok = jnext(&jp);
+                    if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                    if (tok.type == JT_COMMA) continue;
+                    if (tok.type != JT_STRING) break;
+                    jstr(&tok, bkey, sizeof(bkey));
+                    tok = jnext(&jp); if (tok.type != JT_COLON) break;
+                    tok = jnext(&jp);
+
+                    if (strcmp(bkey, "elementId") == 0) jstr(&tok, be->element_id, sizeof(be->element_id));
+                    else if (strcmp(bkey, "maskTextureId") == 0) jstr(&tok, be->mask_texture_id, sizeof(be->mask_texture_id));
+                    else if (strcmp(bkey, "opacity") == 0) be->opacity = jfloat(&tok);
+                    else if (strcmp(bkey, "tintColor") == 0 && tok.type == JT_STRING) be->tint_color = parse_hex_color(tok.start, tok.len);
+                    else if (strcmp(bkey, "scrollX") == 0)  be->scroll_x = jfloat(&tok);
+                    else if (strcmp(bkey, "scrollY") == 0)  be->scroll_y = jfloat(&tok);
+                    else if (strcmp(bkey, "blendMode") == 0) {
+                        char m[32]; jstr(&tok, m, sizeof(m));
+                        if (strcmp(m, "additive") == 0) be->blend_mode = 1;
+                        else if (strcmp(m, "screen") == 0) be->blend_mode = 2;
+                        else be->blend_mode = 0;
+                    }
+                }
+                def->num_border_effects++;
+            }
+        } else if (strcmp(key, "font") == 0) {
+            /* Parse font object */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_font = 1;
+            def->font_size = 24.0f;
+
+            char fkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+                jstr(&tok, fkey, sizeof(fkey));
+                tok = jnext(&jp); if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(fkey, "name") == 0) jstr(&tok, def->font_name, sizeof(def->font_name));
+                else if (strcmp(fkey, "path") == 0) jstr(&tok, def->font_path, sizeof(def->font_path));
+                else if (strcmp(fkey, "size") == 0) def->font_size = jfloat(&tok);
+            }
+        } else if (strcmp(key, "fontShadow") == 0) {
+            /* Parse fontShadow object */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_shadow = 1;
+            def->shadow_offset_x = 1.0f;
+            def->shadow_offset_y = 1.0f;
+            def->shadow_color = 0x000000A0u;
+
+            char skey2[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+                jstr(&tok, skey2, sizeof(skey2));
+                tok = jnext(&jp); if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(skey2, "offsetX") == 0) def->shadow_offset_x = jfloat(&tok);
+                else if (strcmp(skey2, "offsetY") == 0) def->shadow_offset_y = jfloat(&tok);
+                else if (strcmp(skey2, "color") == 0 && tok.type == JT_STRING) def->shadow_color = parse_hex_color(tok.start, tok.len);
+            }
+        } else if (strcmp(key, "fontGlow") == 0) {
+            /* Parse fontGlow object */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_font_glow = 1;
+            def->font_glow_radius = 3.0f;
+            def->font_glow_intensity = 0.6f;
+            def->font_glow_color = 0x0080ffffu;
+            def->font_glow_passes = 2;
+
+            char gk[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+                jstr(&tok, gk, sizeof(gk));
+                tok = jnext(&jp); if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(gk, "radius") == 0) def->font_glow_radius = jfloat(&tok);
+                else if (strcmp(gk, "intensity") == 0) def->font_glow_intensity = jfloat(&tok);
+                else if (strcmp(gk, "color") == 0 && tok.type == JT_STRING) def->font_glow_color = parse_hex_color(tok.start, tok.len);
+                else if (strcmp(gk, "passes") == 0) def->font_glow_passes = (s32)jfloat(&tok);
+            }
         } else {
             jskip_value(&jp);
         }
@@ -459,6 +734,72 @@ static void apply_theme_def(const struct theme_def *def)
             pdguiThemeSetSoundPack(0);
         }
         /* Future: named sound pack lookup */
+    }
+
+    /* P4: Apply 9-slice definitions */
+    for (s32 i = 0; i < def->num_nineslices; i++) {
+        nineslice_def_t ns;
+        ns.left   = def->nineslices[i].left;
+        ns.right  = def->nineslices[i].right;
+        ns.top    = def->nineslices[i].top;
+        ns.bottom = def->nineslices[i].bottom;
+        ns.edge_mode   = def->nineslices[i].edge_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
+        ns.center_mode = def->nineslices[i].center_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
+        pdguiNinesliceRegister(def->nineslices[i].catalog_id, &ns);
+    }
+
+    /* P4: Apply caustic effects */
+    for (s32 i = 0; i < def->num_caustics; i++) {
+        caustic_def_t cd;
+        memset(&cd, 0, sizeof(cd));
+        snprintf(cd.texture_id, sizeof(cd.texture_id), "%s", def->caustics[i].texture_id);
+        cd.frame_count = def->caustics[i].frame_count;
+        cd.speed       = def->caustics[i].speed;
+        cd.opacity     = def->caustics[i].opacity;
+        cd.blend_mode  = def->caustics[i].blend_mode;
+        cd.scale       = def->caustics[i].scale;
+        pdguiEffectsSetCaustic(def->caustics[i].element_id, &cd);
+    }
+
+    /* P4: Apply border effects */
+    for (s32 i = 0; i < def->num_border_effects; i++) {
+        border_fx_def_t bd;
+        memset(&bd, 0, sizeof(bd));
+        snprintf(bd.mask_texture_id, sizeof(bd.mask_texture_id), "%s",
+                 def->border_effects[i].mask_texture_id);
+        bd.opacity       = def->border_effects[i].opacity;
+        bd.blend_mode    = def->border_effects[i].blend_mode;
+        bd.tint_color    = def->border_effects[i].tint_color;
+        bd.scroll_speed_x = def->border_effects[i].scroll_x;
+        bd.scroll_speed_y = def->border_effects[i].scroll_y;
+        pdguiEffectsSetBorderFx(def->border_effects[i].element_id, &bd);
+    }
+
+    /* P4: Apply font override */
+    if (def->has_font && def->font_path[0]) {
+        s32 slot = pdguiFontMgrLoadFont(def->font_name, def->font_path, def->font_size);
+        if (slot > 0) {
+            pdguiFontMgrSetActive(slot);
+        }
+    }
+
+    /* P4: Apply font shadow */
+    if (def->has_shadow) {
+        font_shadow_def_t sh;
+        sh.offset_x = def->shadow_offset_x;
+        sh.offset_y = def->shadow_offset_y;
+        sh.color    = def->shadow_color;
+        pdguiFontMgrSetShadow(&sh);
+    }
+
+    /* P4: Apply font glow */
+    if (def->has_font_glow) {
+        font_glow_def_t fg;
+        fg.radius    = def->font_glow_radius;
+        fg.intensity = def->font_glow_intensity;
+        fg.color     = def->font_glow_color;
+        fg.passes    = def->font_glow_passes;
+        pdguiFontMgrSetGlow(&fg);
     }
 }
 
