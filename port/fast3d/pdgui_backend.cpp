@@ -202,7 +202,8 @@ void pdguiInit(void *sdlWindow)
 
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
+     * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
     /* Load Handel Gothic — PD's original menu font, embedded in the binary.
      * ImGui takes ownership of the copy, so we must allocate + memcpy.
@@ -277,18 +278,46 @@ void pdguiInit(void *sdlWindow)
     actionmapInit();
 }
 
+/* M0.2 Phase C: Translate actionmap queries into ImGui nav key events.
+ * Called each frame from pdguiNewFrame() AFTER actionmapPollFrame() so
+ * action states are up-to-date.  Replaces ImGui's built-in gamepad nav
+ * with the unified action system. */
+static void pdguiDriveImGuiNav(void)
+{
+    ImGuiIO &io = ImGui::GetIO();
+
+    /* Pressed (edge) → ImGui addKeyEvent with value=true on press frame, false on release.
+     * For D-pad we use held state since ImGui expects sustained press for repeat navigation. */
+    auto drivePressed = [&](InputAction act, ImGuiKey key) {
+        if (actionPressed(0, act))  io.AddKeyEvent(key, true);
+        if (actionReleased(0, act)) io.AddKeyEvent(key, false);
+    };
+
+    auto driveHeld = [&](InputAction act, ImGuiKey key) {
+        io.AddKeyEvent(key, actionHeld(0, act) != 0);
+    };
+
+    drivePressed(ACTION_MENU_ACCEPT,   ImGuiKey_GamepadFaceDown);
+    drivePressed(ACTION_MENU_CANCEL,   ImGuiKey_GamepadFaceRight);
+    driveHeld(ACTION_MENU_UP,          ImGuiKey_GamepadDpadUp);
+    driveHeld(ACTION_MENU_DOWN,        ImGuiKey_GamepadDpadDown);
+    driveHeld(ACTION_MENU_LEFT,        ImGuiKey_GamepadDpadLeft);
+    driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_GamepadDpadRight);
+    driveHeld(ACTION_MENU_TAB_PREV,    ImGuiKey_GamepadL1);
+    driveHeld(ACTION_MENU_TAB_NEXT,    ImGuiKey_GamepadR1);
+}
+
 void pdguiNewFrame(void)
 {
-    /* D5 Phase 2: Clear previous frame's accept/cancel state.
-     * Must run unconditionally (before early-return) so stale presses
-     * don't linger when menus are inactive. */
-    pdguiNavEndFrame();
-
     /* M0.2 Phase A: Flip action map edge signals (pressed/released → 0) and
      * sample analog axes.  Both run unconditionally so stale state doesn't
      * accumulate when menus are inactive. */
     actionmapEndFrame();
     actionmapPollFrame();
+
+    /* M0.2 Phase C: Drive ImGui nav from actionmap each frame.
+     * Must run after actionmapPollFrame() so action states are current. */
+    pdguiDriveImGuiNav();
 
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
@@ -662,9 +691,6 @@ s32 pdguiProcessEvent(void *sdlEvent)
     if (inputCtxShouldSuppressKey(ev)) {
         return 1; /* consumed: don't forward to ImGui or dispatch */
     }
-
-    /* ---- Track input device and buffer accept/cancel (Phase 2) ---- */
-    pdguiNavOnEvent(ev);
 
     /* ---- M0.2 Phase A: Update action map state ---- */
     actionmapDispatch(ev);

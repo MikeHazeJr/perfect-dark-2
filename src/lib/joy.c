@@ -7,11 +7,10 @@
 #include "data.h"
 #include "types.h"
 
-/* M0.2 Phase B: actionmap shim — route joyGetButtons/joyGetButtonsPressedThisFrame
- * through the named-action system instead of the raw N64 pad buffer.
- * input.h brings in CONT_STICK_XNEG/XPOS/YNEG/YPOS used in the mapping table. */
+/* M0.2 Phase D: actionmap shim removed. joyGetButtons/joyGetButtonsPressedThisFrame
+ * are now stubs — all callers migrated to actionmap queries.
+ * input.h kept for CONT_STICK_* constants used in inputReadController path. */
 #include "input.h"
-#include "actionmap.h"
 
 /**
  * PD polls the controllers from the scheduler's thread. The scheduler polls the
@@ -958,117 +957,23 @@ s8 joyGetStickY(s8 contpadnum)
 	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].stick_y;
 }
 
-/* M0.2 Phase B2: CONT_* bit → InputAction mapping table (updated for new enum).
- *
- * Each entry maps one CONT_* bitmask bit to the primary InputAction it
- * represents in the unified action system.  joyGetButtons / joyGetButtonsPressedThisFrame
- * iterate this table to reconstruct a CONT_*-compatible bitmask so all
- * unmigrated callers continue to work.
- *
- * Changes from Phase B:
- *   - C-buttons  → ACTION_CBUTTON_* (were ACTION_AIM_*)
- *   - D-pad      → ACTION_DPAD_* (were ACTION_MENU_*)
- *   - L_TRIG     → ACTION_FIRE_MODE (was ACTION_ZOOM_IN)
- *   - X_BUTTON   → ACTION_RELOAD (was ACTION_SPRINT)
- *   - A_BUTTON   → ACTION_USE (was ACTION_INTERACT)
- *   - B_BUTTON   → ACTION_CANCEL_USE (was ACTION_MENU_CANCEL)
- */
-typedef struct {
-	u32         contbit;
-	InputAction action;
-} ContBitAction;
+/* M0.2 Phase D: joyGetButtons/joyGetButtonsPressedThisFrame shim removed.
+ * All callers migrated to direct actionHeld/actionPressed queries.
+ * inputReadController (port/src/input.c) now builds the OSContPad bitmask
+ * from actionmap directly. */
 
-static const ContBitAction g_ContBitToAction[] = {
-	/* C-buttons: digital look/strafe */
-	{ CONT_F,          ACTION_CBUTTON_RIGHT   },  /* R_CBUTTONS */
-	{ CONT_C,          ACTION_CBUTTON_LEFT    },  /* L_CBUTTONS */
-	{ CONT_D,          ACTION_CBUTTON_DOWN    },  /* D_CBUTTONS */
-	{ CONT_E,          ACTION_CBUTTON_UP      },  /* U_CBUTTONS */
-	/* Shoulder / trigger */
-	{ CONT_R,          ACTION_FIRE_SECONDARY  },  /* R_TRIG */
-	{ CONT_L,          ACTION_FIRE_MODE       },  /* L_TRIG — fire mode cycle */
-	/* Face buttons */
-	{ CONT_EXTRA0,     ACTION_RELOAD          },  /* X_BUTTON */
-	{ CONT_EXTRA1,     ACTION_WEAPON_NEXT     },  /* Y_BUTTON / BUTTON_WPNFORWARD */
-	/* D-pad: gameplay weapon/function select */
-	{ CONT_RIGHT,      ACTION_DPAD_RIGHT      },  /* R_JPAD */
-	{ CONT_LEFT,       ACTION_DPAD_LEFT       },  /* L_JPAD */
-	{ CONT_DOWN,       ACTION_DPAD_DOWN       },  /* D_JPAD */
-	{ CONT_UP,         ACTION_DPAD_UP         },  /* U_JPAD */
-	/* Start / fire / use */
-	{ CONT_START,      ACTION_PAUSE           },  /* START_BUTTON */
-	{ CONT_G,          ACTION_FIRE_PRIMARY    },  /* Z_TRIG */
-	{ CONT_B,          ACTION_CANCEL_USE      },  /* B_BUTTON gameplay */
-	{ CONT_A,          ACTION_USE             },  /* A_BUTTON */
-	/* PC-port extended UI buttons */
-	{ CONT_0010,       ACTION_MENU_ACCEPT     },  /* BUTTON_UI_ACCEPT */
-	{ CONT_0020,       ACTION_MENU_CANCEL     },  /* BUTTON_UI_CANCEL */
-	/* PC-port crouch state buttons — all route to ACTION_CROUCH */
-	{ CONT_2000,       ACTION_CROUCH          },  /* BUTTON_FULL_CROUCH */
-	{ CONT_4000,       ACTION_CROUCH          },  /* BUTTON_HALF_CROUCH */
-	{ CONT_8000,       ACTION_CROUCH          },  /* BUTTON_CROUCH_CYCLE */
-	/* Stick-as-digital (WASD / keyboard movement) */
-	{ CONT_STICK_XNEG, ACTION_MOVE_LEFT      },
-	{ CONT_STICK_XPOS, ACTION_MOVE_RIGHT     },
-	{ CONT_STICK_YNEG, ACTION_MOVE_FORWARD   },
-	{ CONT_STICK_YPOS, ACTION_MOVE_BACKWARD  },
-};
-
-#define CONT_BIT_ACTION_COUNT \
-	((s32)(sizeof(g_ContBitToAction) / sizeof(g_ContBitToAction[0])))
-
-/**
- * joyGetButtons — M0.2 Phase B shim.
- *
- * Returns a CONT_*-compatible bitmask of currently-held inputs as reported
- * by the actionmap system.  The result has the same bit layout callers expect
- * so all downstream `if (buttons & BUTTON_XYZ)` checks work unchanged.
- *
- * g_JoyDisableCooldown is still honoured so joyDisableTemporarily() keeps
- * its existing behaviour (e.g. suppressing input during loading screens).
- */
 u32 joyGetButtons(s8 contpadnum, u32 mask)
 {
-	u32 result = 0;
-	s32 i;
-
-	if (g_JoyDisableCooldown[contpadnum] > 0) {
-		return 0;
-	}
-
-	for (i = 0; i < CONT_BIT_ACTION_COUNT; i++) {
-		if ((mask & g_ContBitToAction[i].contbit)
-				&& actionHeld((s32)contpadnum, g_ContBitToAction[i].action)) {
-			result |= g_ContBitToAction[i].contbit;
-		}
-	}
-
-	return result;
+	(void)contpadnum;
+	(void)mask;
+	return 0;
 }
 
-/**
- * joyGetButtonsPressedThisFrame — M0.2 Phase B shim.
- *
- * Same as joyGetButtons but uses rising-edge (pressed) state, matching the
- * original semantics of joyGetButtonsPressedThisFrame.
- */
 u32 joyGetButtonsPressedThisFrame(s8 contpadnum, u32 mask)
 {
-	u32 result = 0;
-	s32 i;
-
-	if (g_JoyDisableCooldown[contpadnum] > 0) {
-		return 0;
-	}
-
-	for (i = 0; i < CONT_BIT_ACTION_COUNT; i++) {
-		if ((mask & g_ContBitToAction[i].contbit)
-				&& actionPressed((s32)contpadnum, g_ContBitToAction[i].action)) {
-			result |= g_ContBitToAction[i].contbit;
-		}
-	}
-
-	return result;
+	(void)contpadnum;
+	(void)mask;
+	return 0;
 }
 
 #if VERSION < VERSION_NTSC_1_0

@@ -123,7 +123,6 @@ static void cleanup(void)
 	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
-	inputSaveBinds();
 	actionmapSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();

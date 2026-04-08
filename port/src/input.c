@@ -12,6 +12,7 @@
 #include "system.h"
 #include "fs.h"
 #include "pdgui.h"
+#include "actionmap.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 14)
 // this was added in 2.0.14
@@ -68,8 +69,8 @@ static struct controllercfg {
 	CONTROLLERCFG_DEFAULT
 };
 
-static u32 binds[MAXCONTROLLERS][CK_TOTAL_COUNT][INPUT_MAX_BINDS];
-static char bindStrs[MAXCONTROLLERS][CK_TOTAL_COUNT][MAX_BIND_STR];
+/* M0.2 Phase D: CK_* bind arrays (binds[], bindStrs[]) removed.
+ * All binding is now managed by actionmap.h (g_ImcGameplay, actionmapBind, etc.). */
 
 static s32 fakeControllers = 0;
 static s32 firstController = 0;
@@ -100,40 +101,7 @@ static s32 textInput = 0;
 
 static char *clipboardText = NULL;
 
-static const char *ckNames[CK_TOTAL_COUNT] = {
-	"R_CBUTTONS",
-	"L_CBUTTONS",
-	"D_CBUTTONS",
-	"U_CBUTTONS",
-	"R_TRIG",
-	"L_TRIG",
-	"X_BUTTON",
-	"Y_BUTTON",
-	"R_JPAD",
-	"L_JPAD",
-	"D_JPAD",
-	"U_JPAD",
-	"START_BUTTON",
-	"Z_TRIG",
-	"B_BUTTON",
-	"A_BUTTON",
-	"STICK_XNEG",
-	"STICK_XPOS",
-	"STICK_YNEG",
-	"STICK_YPOS",
-	"ACCEPT_BUTTON",
-	"CANCEL_BUTTON",
-	"CK_0040",
-	"CK_0080",
-	"CK_0100",
-	"CK_0200",
-	"CK_0400",
-	"CK_0800",
-	"CK_1000",
-	"CK_2000",
-	"CK_4000",
-	"CK_8000"
-};
+/* M0.2 Phase D: ckNames[] removed — CK_* system replaced by actionmap. */
 
 static const char *vkPunctNames[] = {
 	"MINUS", "EQUALS", "LEFTBRACKET", "RIGHTBRACKET", "BACKSLASH",
@@ -189,119 +157,7 @@ static char vkNames[VK_TOTAL_COUNT][64];
 
 static s8 vkPrevState[VK_TOTAL_COUNT];
 
-void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
-{
-	// TODO: make VK constants for all these
-	static const u32 pckbbinds[][3] = {
-		{ CK_B,             SDL_SCANCODE_E,      0                   },
-		{ CK_X,             SDL_SCANCODE_R,      0                   },
-		{ CK_RTRIG,         VK_MOUSE_RIGHT,      SDL_SCANCODE_Z      },
-		{ CK_LTRIG,         SDL_SCANCODE_F,      SDL_SCANCODE_X      },
-		{ CK_ZTRIG,         VK_MOUSE_LEFT,       0                   },
-		{ CK_START,         SDL_SCANCODE_RETURN, SDL_SCANCODE_TAB    },
-		{ CK_DPAD_D,        SDL_SCANCODE_Q,      VK_MOUSE_MIDDLE     },
-		{ CK_DPAD_U,        0,                   0                   },
-		{ CK_Y,             VK_MOUSE_WHEEL_DN,   0                   },
-		{ CK_DPAD_L,        VK_MOUSE_WHEEL_UP,   0                   },
-		{ CK_C_D,           SDL_SCANCODE_S,      0                   },
-		{ CK_C_U,           SDL_SCANCODE_W,      0                   },
-		{ CK_C_R,           SDL_SCANCODE_D,      0                   },
-		{ CK_C_L,           SDL_SCANCODE_A,      0                   },
-		{ CK_STICK_XNEG,    SDL_SCANCODE_LEFT,   0                   },
-		{ CK_STICK_XPOS,    SDL_SCANCODE_RIGHT,  0                   },
-		{ CK_STICK_YNEG,    SDL_SCANCODE_DOWN,   0                   },
-		{ CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
-		{ CK_4000,          SDL_SCANCODE_SPACE,  0                   },
-		{ CK_2000,          SDL_SCANCODE_LCTRL,  0                   }
-	};
-
-	static const u32 pcjoybinds[][2] = {
-		// Xbox: A=Jump+UIAccept  B=UICancel  X=Reload+Use  Y=NextWeapon  LS=Sprint
-		{ CK_4000,   SDL_CONTROLLER_BUTTON_A             }, // Jump
-		{ CK_A,      SDL_CONTROLLER_BUTTON_X             }, // Use  (X button)
-		{ CK_X,      SDL_CONTROLLER_BUTTON_X             }, // Reload (X button, same as Use)
-		{ CK_Y,      SDL_CONTROLLER_BUTTON_Y             }, // Next Weapon
-		{ CK_DPAD_L, SDL_CONTROLLER_BUTTON_B             }, // Prev Weapon
-		{ CK_DPAD_D, SDL_CONTROLLER_BUTTON_LEFTSHOULDER  },
-		{ CK_LTRIG,  SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
-		{ CK_RTRIG,  VK_JOY1_LTRIG - VK_JOY1_BEGIN       },
-		{ CK_ZTRIG,  VK_JOY1_RTRIG - VK_JOY1_BEGIN       },
-		{ CK_START,  SDL_CONTROLLER_BUTTON_START         },
-		{ CK_C_D,    SDL_CONTROLLER_BUTTON_DPAD_DOWN     },
-		{ CK_C_U,    SDL_CONTROLLER_BUTTON_DPAD_UP       },
-		{ CK_C_R,    SDL_CONTROLLER_BUTTON_DPAD_RIGHT    },
-		{ CK_C_L,    SDL_CONTROLLER_BUTTON_DPAD_LEFT     },
-		{ CK_ACCEPT, SDL_CONTROLLER_BUTTON_A             }, // UI Accept (A)
-		{ CK_CANCEL, SDL_CONTROLLER_BUTTON_B             }, // UI Cancel (B)
-		{ CK_8000,   SDL_CONTROLLER_BUTTON_LEFTSTICK     }, // Sprint/CycleCrouch
-	};
-
-	static const u32 n64kbbinds[][3] = {
-		{ CK_A,          SDL_SCANCODE_Q,      0                  },
-		{ CK_B,          SDL_SCANCODE_E,      0                  },
-		{ CK_RTRIG,      VK_MOUSE_RIGHT,      SDL_SCANCODE_LALT  },
-		{ CK_LTRIG,      SDL_SCANCODE_F,      0                  },
-		{ CK_ZTRIG,      VK_MOUSE_LEFT,       SDL_SCANCODE_SPACE },
-		{ CK_START,      SDL_SCANCODE_RETURN, 0                  },
-		{ CK_C_D,        SDL_SCANCODE_S,      0                  },
-		{ CK_C_U,        SDL_SCANCODE_W,      0                  },
-		{ CK_C_R,        SDL_SCANCODE_D,      0                  },
-		{ CK_C_L,        SDL_SCANCODE_A,      0                  },
-		{ CK_DPAD_L,     SDL_SCANCODE_LEFT,   0                  },
-		{ CK_DPAD_R,     SDL_SCANCODE_RIGHT,  0                  },
-		{ CK_DPAD_D,     SDL_SCANCODE_DOWN,   0                  },
-		{ CK_DPAD_U,     SDL_SCANCODE_UP,     0                  },
-		{ CK_STICK_YNEG, SDL_SCANCODE_K,      0                  },
-		{ CK_STICK_YPOS, SDL_SCANCODE_I,      0                  },
-		{ CK_STICK_XNEG, SDL_SCANCODE_J,      0                  },
-		{ CK_STICK_XPOS, SDL_SCANCODE_L,      0                  },
-	};
-
-	static const u32 n64joybinds[][2] = {
-		{ CK_A,      SDL_CONTROLLER_BUTTON_A             },
-		{ CK_B,      SDL_CONTROLLER_BUTTON_B             },
-		{ CK_LTRIG,  SDL_CONTROLLER_BUTTON_LEFTSHOULDER  },
-		{ CK_RTRIG,  SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
-		{ CK_ZTRIG,  VK_JOY1_RTRIG - VK_JOY1_BEGIN       },
-		{ CK_START,  SDL_CONTROLLER_BUTTON_START         },
-		{ CK_DPAD_D, SDL_CONTROLLER_BUTTON_DPAD_DOWN     },
-		{ CK_DPAD_U, SDL_CONTROLLER_BUTTON_DPAD_UP       },
-		{ CK_DPAD_L, SDL_CONTROLLER_BUTTON_DPAD_LEFT     },
-		{ CK_DPAD_R, SDL_CONTROLLER_BUTTON_DPAD_RIGHT    },
-	};
-
-	memset(binds[cidx], 0, sizeof(binds[cidx]));
-
-	const u32 (*kbbinds)[3];
-	const u32 (*joybinds)[2];
-	u32 numkbbinds;
-	u32 numjoybinds;
-	if (n64mode) {
-		kbbinds = n64kbbinds;
-		joybinds = n64joybinds;
-		numkbbinds = sizeof(n64kbbinds) / sizeof(n64kbbinds[0]);
-		numjoybinds = sizeof(n64joybinds) / sizeof(n64joybinds[0]);
-	} else {
-		kbbinds = pckbbinds;
-		joybinds = pcjoybinds;
-		numkbbinds = sizeof(pckbbinds) / sizeof(pckbbinds[0]);
-		numjoybinds = sizeof(pcjoybinds) / sizeof(pcjoybinds[0]);
-	}
-
-	if (cidx == 0) {
-		for (u32 i = 0; i < numkbbinds; ++i) {
-			for (s32 j = 1; j < 3; ++j) {
-				if (kbbinds[i][j]) {
-					inputKeyBind(cidx, kbbinds[i][0], j - 1, kbbinds[i][j]);
-				}
-			}
-		}
-	}
-
-	for (u32 i = 0; i < numjoybinds; ++i) {
-		inputKeyBind(cidx, joybinds[i][0], -1, VK_JOY_BEGIN + cidx * INPUT_MAX_CONTROLLER_BUTTONS + joybinds[i][1]);
-	}
-}
+/* M0.2 Phase D: inputSetDefaultKeyBinds() removed — use actionmapSetDefaults() instead. */
 
 static inline s32 inputDeviceIndexFromId(const SDL_JoystickID id) {
 	for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
@@ -659,65 +515,8 @@ static inline void inputInitKeyNames(void)
 	}
 }
 
-void inputSaveBinds(void)
-{
-	char *bindstr;
-
-	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
-		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
-			bindstr = bindStrs[i][ck];
-			bindstr[0] = '\0';
-			for (s32 b = 0; b < INPUT_MAX_BINDS; ++b) {
-				if (binds[i][ck][b]) {
-					if (b) {
-						strncat(bindstr, ", ", MAX_BIND_STR - 1);
-					}
-					strncat(bindstr, inputGetKeyName(binds[i][ck][b]), MAX_BIND_STR - 1);
-				}
-			}
-			if (!bindstr[0]) {
-				strncpy(bindstr, "NONE", MAX_BIND_STR - 1);
-				bindstr[MAX_BIND_STR - 1] = '\0';
-			}
-		}
-	}
-}
-
-static inline void inputParseBindString(const s32 ctrl, const u32 ck, char *bindstr)
-{
-	if (!bindstr[0]) {
-		// empty string, keep defaults
-		return;
-	}
-
-	// unbind all first
-	memset(binds[ctrl][ck], 0, sizeof(binds[ctrl][ck]));
-
-	if (!strcasecmp(bindstr, "NONE")) {
-		// explicitly nothing bound
-		return;
-	}
-
-	const char *tok = strtok(bindstr, ", ");
-	while (tok) {
-		if (tok[0]) {
-			const s32 vk = inputGetKeyByName(tok);
-			if (vk > 0) {
-				inputKeyBind(ctrl, ck, -1, vk);
-			}
-		}
-		tok = strtok(NULL, ", ");
-	}
-}
-
-static inline void inputLoadBinds(void)
-{
-	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
-		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
-			inputParseBindString(i, ck, bindStrs[i][ck]);
-		}
-	}
-}
+/* M0.2 Phase D: inputSaveBinds/inputParseBindString/inputLoadBinds removed.
+ * Use actionmapSaveBinds()/actionmapLoadBinds() instead. */
 
 s32 inputInit(void)
 {
@@ -773,9 +572,7 @@ s32 inputInit(void)
 
 	inputInitKeyNames();
 
-	for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
-		inputSetDefaultKeyBinds(i, 0);
-	}
+	/* M0.2 Phase D: CK_* default binds removed — actionmapInit() sets defaults. */
 
 	if (mouseLockMode != MLOCK_AUTO) {
 		inputLockMouse(mouseLockMode);
@@ -787,22 +584,12 @@ s32 inputInit(void)
 		inputControllerSetSticksSwapped(i, padsCfg[i].swapSticks);
 	}
 
-	inputLoadBinds();
+	/* M0.2 Phase D: inputLoadBinds() removed — actionmapLoadBinds() called from configLoad path. */
 
 	return connectedMask;
 }
 
-static inline s32 inputBindPressed(const s32 idx, const u32 ck)
-{
-	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
-		if (binds[idx][ck][i]) {
-			if (inputKeyPressed(binds[idx][ck][i])) {
-				return 1;
-			}
-		}
-	}
-	return 0;
-}
+/* M0.2 Phase D: inputBindPressed() removed — CK_* system deleted. */
 
 static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 {
@@ -822,6 +609,33 @@ static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 	}
 }
 
+/* M0.2 Phase D: CONT_* → InputAction mapping for inputReadController.
+ * Builds npad->button bitmask from actionmap queries instead of CK_* binds. */
+static const struct { u32 contbit; InputAction action; } s_ContToAction[] = {
+	{ CONT_F,      ACTION_CBUTTON_RIGHT  },
+	{ CONT_C,      ACTION_CBUTTON_LEFT   },
+	{ CONT_D,      ACTION_CBUTTON_DOWN   },
+	{ CONT_E,      ACTION_CBUTTON_UP     },
+	{ CONT_R,      ACTION_FIRE_SECONDARY },
+	{ CONT_L,      ACTION_FIRE_MODE      },
+	{ CONT_EXTRA0, ACTION_RELOAD         },
+	{ CONT_EXTRA1, ACTION_WEAPON_NEXT    },
+	{ CONT_RIGHT,  ACTION_DPAD_RIGHT     },
+	{ CONT_LEFT,   ACTION_DPAD_LEFT      },
+	{ CONT_DOWN,   ACTION_DPAD_DOWN      },
+	{ CONT_UP,     ACTION_DPAD_UP        },
+	{ CONT_START,  ACTION_PAUSE          },
+	{ CONT_G,      ACTION_FIRE_PRIMARY   },
+	{ CONT_B,      ACTION_CANCEL_USE     },
+	{ CONT_A,      ACTION_USE            },
+	{ CONT_0010,   ACTION_MENU_ACCEPT    },
+	{ CONT_0020,   ACTION_MENU_CANCEL    },
+	{ CONT_2000,   ACTION_CROUCH         },
+	{ CONT_4000,   ACTION_CROUCH         },
+	{ CONT_8000,   ACTION_CROUCH         },
+};
+#define CONT_TO_ACTION_COUNT ((s32)(sizeof(s_ContToAction) / sizeof(s_ContToAction[0])))
+
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
 	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS  || !npad) {
@@ -830,9 +644,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
 	npad->button = 0;
 
-	/* When any ImGui overlay is active (F11 storyboard, F12 debug), suppress
-	 * ALL game input so the player doesn't move, shoot, or navigate game
-	 * menus while the overlay has focus.  Same pattern as textInput below. */
+	/* When any ImGui overlay is active, suppress ALL game input. */
 	if (pdguiIsActive()) {
 		npad->stick_x = 0;
 		npad->stick_y = 0;
@@ -849,14 +661,16 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
-		if (inputBindPressed(idx, i)) {
-			npad->button |= 1U << i;
+	/* M0.2 Phase D: Build button bitmask from actionmap instead of CK_* binds */
+	for (s32 i = 0; i < CONT_TO_ACTION_COUNT; i++) {
+		if (actionHeld(idx, s_ContToAction[i].action)) {
+			npad->button |= s_ContToAction[i].contbit;
 		}
 	}
 
-	const s32 xdiff = (inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG));
-	const s32 ydiff = (inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG));
+	/* Digital keyboard movement → stick values */
+	const s32 xdiff = (actionHeld(idx, ACTION_MOVE_RIGHT) - actionHeld(idx, ACTION_MOVE_LEFT));
+	const s32 ydiff = (actionHeld(idx, ACTION_MOVE_FORWARD) - actionHeld(idx, ACTION_MOVE_BACKWARD));
 	npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
 	npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
 
@@ -1205,34 +1019,7 @@ s32 inputAssignController(s32 cidx, s32 id)
 	return 1;
 }
 
-void inputKeyBind(s32 idx, u32 ck, s32 bind, u32 vk)
-{
-	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS || bind >= INPUT_MAX_BINDS || ck >= CK_TOTAL_COUNT) {
-		return;
-	}
-
-	if (bind < 0) {
-		for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
-			if (binds[idx][ck][i] == 0) {
-				bind = i;
-				break;
-			}
-		}
-		if (bind < 0) {
-			bind = INPUT_MAX_BINDS - 1; // just overwrite last
-		}
-	}
-
-	binds[idx][ck][bind] = vk;
-}
-
-const u32 *inputKeyGetBinds(s32 idx, u32 ck)
-{
-	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS || ck >= CK_TOTAL_COUNT) {
-		return NULL;
-	}
-	return binds[idx][ck];
-}
+/* M0.2 Phase D: inputKeyBind/inputKeyGetBinds removed — use actionmapBind(). */
 
 s32 inputKeyPressed(u32 vk)
 {
@@ -1299,23 +1086,8 @@ s32 inputKeyJustPressed(u32 vk)
 	return result;
 }
 
-static inline u32 inputContToContKey(const u32 cont)
-{
-	if (cont == 0) {
-		return 0;
-	}
-	// just a log2 to convert CONT_* to their indices
-	return 32 - __builtin_clz(cont - 1);
-}
-
-s32 inputButtonPressed(s32 idx, u32 contbtn)
-{
-	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
-		return 0;
-	}
-
-	return inputBindPressed(idx, inputContToContKey(contbtn));
-}
+/* M0.2 Phase D: inputContToContKey/inputButtonPressed removed.
+ * Use actionHeld/actionPressed with InputAction enum instead. */
 
 void inputLockMouse(s32 lock)
 {
@@ -1437,24 +1209,7 @@ void inputSetMouseLockMode(s32 lockmode)
 	}
 }
 
-const char *inputGetContKeyName(u32 ck)
-{
-	if (ck >= CK_TOTAL_COUNT) {
-		return "";
-	}
-	return ckNames[ck];
-}
-
-s32 inputGetContKeyByName(const char *name)
-{
-	for (u32 i = 0; i < CK_TOTAL_COUNT; ++i) {
-		if (!strcmp(name, ckNames[i])) {
-			return i;
-		}
-	}
-	sysLogPrintf(LOG_WARNING, "unknown bind name: `%s`", name);
-	return -1;
-}
+/* M0.2 Phase D: inputGetContKeyName/inputGetContKeyByName removed — CK_* system deleted. */
 
 const char *inputGetKeyName(s32 vk)
 {
@@ -1651,10 +1406,7 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 		configRegisterInt(strFmt("%s.SwapSticks", secname), &padsCfg[c].swapSticks, 0, 1);
 		configRegisterInt(strFmt("%s.InvertRStickY", secname), &padsCfg[c].invertRStickY, 0, 1);
 		configRegisterInt(strFmt("%s.ControllerIndex", secname), &padsCfg[c].deviceIndex, -1, 0x7FFFFFFF);
-		secname[13] = '.';
-		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
-			snprintf(keyname, sizeof(keyname), "%s.%s", secname, inputGetContKeyName(ck));
-			configRegisterString(keyname, bindStrs[c][ck], MAX_BIND_STR);
-		}
+		/* M0.2 Phase D: CK_* bind config registration removed.
+		 * Binds now managed by actionmap pd.ini keys (ActionMap.P%d.*). */
 	}
 }

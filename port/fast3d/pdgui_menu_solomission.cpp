@@ -40,6 +40,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "actionmap.h"
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
@@ -1838,7 +1839,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     }
 
     /* B button / Escape = Resume */
-    if (pdguiNavCancelPressed() || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();

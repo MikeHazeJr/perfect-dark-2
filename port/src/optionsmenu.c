@@ -13,13 +13,14 @@
 #include "lib/joy.h"
 #include "video.h"
 #include "input.h"
+#include "actionmap.h"
 #include "config.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
 
 static s32 g_BindIndex = 0;
-static u32 g_BindContKey = 0;
+static InputAction g_BindAction = ACTION_MOVE_FORWARD;
 
 static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -1657,34 +1658,35 @@ struct menudialogdef g_ExtendedBindKeyMenuDialog = {
 	NULL,
 };
 
+/* M0.2 Phase D: Rebind table uses InputAction instead of CK_*. */
 struct menubind {
-	u32 ck;
+	InputAction action;
 	const char *name;
 	const char *n64name;
 };
 
 static const struct menubind menuBinds[] = {
-	{ CK_ZTRIG,  "Fire [ZT]\n",         "N64 Z Trigger\n" },
-	{ CK_LTRIG,  "Fire Mode [LT]\n",    "N64 L Trigger\n"},
-	{ CK_RTRIG,  "Aim Mode [RT]\n",     "N64 R Trigger\n" },
-	{ CK_A,      "Use / Accept [A]\n",  "N64 A Button\n" },
-	{ CK_B,      "Use / Cancel [B]\n",  "N64 B Button\n" },
-	{ CK_START,  "Pause Menu [ST]\n",   "N64 Start\n" },
-	{ CK_DPAD_U, "D-Pad Up [DU]\n",     "N64 D-Pad Up\n" },
-	{ CK_DPAD_R, "D-Pad Right [DR]\n",  "N64 D-Pad Right\n" },
-	{ CK_DPAD_L, "Prev Weapon [DL]\n",  "N64 D-Pad Left\n" },
-	{ CK_DPAD_D, "Radial Menu [DD]\n",  "N64 D-Pad Down\n" },
-	{ CK_C_U,    "Forward [CU]\n",      "N64 C-Up\n" },
-	{ CK_C_D,    "Backward [CD]\n",     "N64 C-Down\n" },
-	{ CK_C_R,    "Strafe Right [CR]\n", "N64 C-Right\n" },
-	{ CK_C_L,    "Strafe Left [CL]\n",  "N64 C-Left\n" },
-	{ CK_X,      "Reload [X]\n",        "N64 Ext X\n" },
-	{ CK_Y,      "Next Weapon [Y]\n",   "N64 Ext Y\n" },
-	{ CK_8000,   "Cycle Crouch [+]\n",  "N64 Ext 8000\n" },
-	{ CK_4000,   "Jump [+]\n",         "N64 Ext 4000\n" },
-	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
-	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
-	{ CK_CANCEL, "UI Cancel [+]\n",     "EXT UI Cancel\n" },
+	{ ACTION_FIRE_PRIMARY,   "Fire\n",             "N64 Z Trigger\n"  },
+	{ ACTION_FIRE_MODE,      "Fire Mode\n",        "N64 L Trigger\n"  },
+	{ ACTION_FIRE_SECONDARY, "Aim Mode\n",         "N64 R Trigger\n"  },
+	{ ACTION_USE,            "Use / Accept\n",     "N64 A Button\n"   },
+	{ ACTION_CANCEL_USE,     "Use / Cancel\n",     "N64 B Button\n"   },
+	{ ACTION_PAUSE,          "Pause Menu\n",       "N64 Start\n"      },
+	{ ACTION_DPAD_UP,        "D-Pad Up\n",         "N64 D-Pad Up\n"   },
+	{ ACTION_DPAD_RIGHT,     "D-Pad Right\n",      "N64 D-Pad Right\n"},
+	{ ACTION_WEAPON_PREV,    "Prev Weapon\n",      "N64 D-Pad Left\n" },
+	{ ACTION_DPAD_DOWN,      "Radial Menu\n",      "N64 D-Pad Down\n" },
+	{ ACTION_MOVE_FORWARD,   "Forward\n",          "N64 C-Up\n"       },
+	{ ACTION_MOVE_BACKWARD,  "Backward\n",         "N64 C-Down\n"     },
+	{ ACTION_MOVE_RIGHT,     "Strafe Right\n",     "N64 C-Right\n"    },
+	{ ACTION_MOVE_LEFT,      "Strafe Left\n",      "N64 C-Left\n"     },
+	{ ACTION_RELOAD,         "Reload\n",           "N64 Ext X\n"      },
+	{ ACTION_WEAPON_NEXT,    "Next Weapon\n",      "N64 Ext Y\n"      },
+	{ ACTION_SPRINT,         "Sprint\n",           "N64 Ext 8000\n"   },
+	{ ACTION_JUMP,           "Jump\n",             "N64 Ext 4000\n"   },
+	{ ACTION_CROUCH,         "Crouch\n",           "N64 Ext 2000\n"   },
+	{ ACTION_MENU_ACCEPT,    "UI Accept\n",        "EXT UI Accept\n"  },
+	{ ACTION_MENU_CANCEL,    "UI Cancel\n",        "EXT UI Cancel\n"  },
 };
 
 static const char *menutextBind(struct menuitem *item);
@@ -1692,41 +1694,37 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 static MenuItemHandlerResult menuhandlerResetBindsPC(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menuitem *item, union handlerdata *data);
 
-/* Returns whether a VK value belongs to a controller (joystick) device. */
+/* M0.2 Phase D: Helpers use actionmap triggers instead of CK_* binds. */
 static s32 vkIsController(u32 vk)
 {
 	return vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT;
 }
 
-/* Count binds for this key that match the current device type for the player. */
-static s32 filteredBindCount(s32 player, u32 ck)
+static s32 filteredBindCount(s32 player, InputAction action)
 {
-	const u32 *b = inputKeyGetBinds(player, ck);
-	if (!b) return 1;
+	InputMapping *m = &g_ImcGameplay.mappings[action];
 	const s32 wantCtrl = inputGetAssignedControllerId(player) >= 0;
 	s32 count = 0;
-	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
-		if (b[i] && vkIsController(b[i]) == wantCtrl) {
+	for (s32 i = 0; i < m->num_triggers; ++i) {
+		if (m->triggers[i].vk && vkIsController(m->triggers[i].vk) == wantCtrl) {
 			count++;
 		}
 	}
 	return count ? count : 1;
 }
 
-/* Map a filtered display index back to the raw bind slot index. */
-static s32 filteredToRealSlot(s32 player, u32 ck, s32 filteredIdx)
+static s32 filteredToRealSlot(s32 player, InputAction action, s32 filteredIdx)
 {
-	const u32 *b = inputKeyGetBinds(player, ck);
-	if (!b) return filteredIdx;
+	InputMapping *m = &g_ImcGameplay.mappings[action];
 	const s32 wantCtrl = inputGetAssignedControllerId(player) >= 0;
 	s32 fi = 0;
-	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
-		if (b[i] && vkIsController(b[i]) == wantCtrl) {
+	for (s32 i = 0; i < m->num_triggers; ++i) {
+		if (m->triggers[i].vk && vkIsController(m->triggers[i].vk) == wantCtrl) {
 			if (fi == filteredIdx) return i;
 			fi++;
 		}
 	}
-	return filteredIdx; /* fallback: use slot directly */
+	return filteredIdx;
 }
 
 #define DEFINE_MENU_BIND() \
@@ -1817,7 +1815,9 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 
 	const s32 key = inputGetLastKey();
 	if (key && key != VK_ESCAPE) {
-		inputKeyBind(g_ExtMenuPlayer, g_BindContKey, g_BindIndex, (key == VK_DELETE ? 0 : key));
+		actionmapBind(&g_ImcGameplay, g_ExtMenuPlayer, g_BindAction,
+		              g_BindIndex, (key == VK_DELETE ? 0 : (u32)key));
+		actionmapSaveBinds();
 		menuPopDialog();
 	}
 
@@ -1834,19 +1834,19 @@ static const char *menutextBind(struct menuitem *item)
 static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	const s32 idx = item - g_ExtendedBindsMenuItems;
-	const u32 *binds;
+	InputAction action = menuBinds[idx].action;
 
 	static char keyname[128];
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = filteredBindCount(g_ExtMenuPlayer, menuBinds[idx].ck);
+		data->dropdown.value = filteredBindCount(g_ExtMenuPlayer, action);
 		break;
 	case MENUOP_GETOPTIONTEXT: {
-		binds = inputKeyGetBinds(g_ExtMenuPlayer, menuBinds[idx].ck);
-		const s32 realSlot = filteredToRealSlot(g_ExtMenuPlayer, menuBinds[idx].ck, data->dropdown.value);
-		if (binds && binds[realSlot]) {
-			strncpy(keyname, inputGetKeyName(binds[realSlot]), sizeof(keyname) - 1);
+		InputMapping *m = &g_ImcGameplay.mappings[action];
+		const s32 realSlot = filteredToRealSlot(g_ExtMenuPlayer, action, data->dropdown.value);
+		if (realSlot < m->num_triggers && m->triggers[realSlot].vk) {
+			strncpy(keyname, inputGetKeyName((s32)m->triggers[realSlot].vk), sizeof(keyname) - 1);
 			keyname[sizeof(keyname) - 1] = '\0';
 			for (char *p = keyname; *p; ++p) {
 				if (*p == '_') *p = ' ';
@@ -1857,8 +1857,8 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 	}
 	case MENUOP_SET: {
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menuBinds[idx].name;
-		g_BindContKey = menuBinds[idx].ck;
-		g_BindIndex = filteredToRealSlot(g_ExtMenuPlayer, menuBinds[idx].ck, data->dropdown.value);
+		g_BindAction = action;
+		g_BindIndex = filteredToRealSlot(g_ExtMenuPlayer, action, data->dropdown.value);
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -1873,7 +1873,8 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 static MenuItemHandlerResult menuhandlerResetBindsPC(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		inputSetDefaultKeyBinds(g_ExtMenuPlayer, false);
+		actionmapSetDefaults(&g_ImcGameplay, g_ExtMenuPlayer);
+		actionmapSaveBinds();
 	}
 
 	return 0;
@@ -1882,7 +1883,9 @@ static MenuItemHandlerResult menuhandlerResetBindsPC(s32 operation, struct menui
 static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		inputSetDefaultKeyBinds(g_ExtMenuPlayer, true);
+		/* N64 defaults: just reset to standard defaults (no separate N64 mode) */
+		actionmapSetDefaults(&g_ImcGameplay, g_ExtMenuPlayer);
+		actionmapSaveBinds();
 	}
 
 	return 0;

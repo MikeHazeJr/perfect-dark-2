@@ -1,13 +1,14 @@
 /**
- * pdgui_nav.h -- Gamepad navigation helpers for ImGui menus.
+ * pdgui_nav.h -- D-pad wrapping utility and safe area for ImGui menus.
  *
- * Provides D-pad wrapping, centralized accept/cancel queries, and
- * last-input-device tracking. All functions are safe to call from C or C++.
+ * M0.2 Phase C: Accept/cancel queries, device detection, and event processing
+ * have been removed. Those are now handled by actionmap.h:
+ *   - actionPressed(0, ACTION_MENU_ACCEPT)  replaces pdguiNavAcceptPressed()
+ *   - actionPressed(0, ACTION_MENU_CANCEL)  replaces pdguiNavCancelPressed()
+ *   - actionmapGetLastDevice()              replaces pdguiNavGetLastDevice()
+ *   - ACTIONMAP_DEVICE_GAMEPAD              replaces PDNAV_DEVICE_GAMEPAD
  *
- * Call pdguiNavOnEvent() from the SDL event dispatch path.
- * Call pdguiNavTickWrap() per-frame AFTER all ImGui widgets in a menu.
- * Query pdguiNavAcceptPressed() / pdguiNavCancelPressed() for A/B.
- * Query pdguiNavGetLastDevice() for device-type switching.
+ * Only D-pad wrapping and safe area remain in this header.
  *
  * Auto-discovered by GLOB_RECURSE in CMakeLists.txt.
  */
@@ -16,23 +17,10 @@
 #define _IN_PDGUI_NAV_H
 
 #include <PR/ultratypes.h>
-#include <SDL.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * Device type constants for pdguiNavGetLastDevice().
- */
-#define PDNAV_DEVICE_KBM     0   /* Keyboard + mouse */
-#define PDNAV_DEVICE_GAMEPAD 1   /* Gamepad / controller */
-
-/**
- * Call from the SDL event dispatch path (pdguiProcessEvent) for every
- * event to track the last-used input device and buffer accept/cancel.
- */
-void pdguiNavOnEvent(const SDL_Event *ev);
 
 /**
  * Call once per frame AFTER all ImGui widgets in a wrappable menu.
@@ -48,39 +36,6 @@ void pdguiNavTickWrap(void);
  * Called once from pdguiInit() in the backend.
  */
 void pdguiNavSetWrapCallback(void (*fn)(void));
-
-/**
- * Reset per-frame accept/cancel state. Call at end of frame.
- */
-void pdguiNavEndFrame(void);
-
-/**
- * Returns 1 if gamepad A (or Enter/Space on keyboard) was just pressed
- * this frame. For custom menu screens that need explicit accept detection
- * beyond ImGui's built-in nav activate.
- */
-s32 pdguiNavAcceptPressed(void);
-
-/**
- * Returns 1 if gamepad B (or Escape on keyboard) was just pressed this
- * frame. For custom cancel/back actions in menu screens.
- */
-s32 pdguiNavCancelPressed(void);
-
-/**
- * Returns the last-used input device type:
- *   PDNAV_DEVICE_KBM     (0) = keyboard/mouse
- *   PDNAV_DEVICE_GAMEPAD (1) = gamepad/controller
- *
- * Uses 500ms debounce to prevent flickering during transitions.
- */
-s32 pdguiNavGetLastDevice(void);
-
-/**
- * Returns 1 if currently in gamepad mode (shorthand for
- * pdguiNavGetLastDevice() == PDNAV_DEVICE_GAMEPAD).
- */
-s32 pdguiNavIsGamepad(void);
 
 /* ========================================================================
  * Safe area — resolution-independent menu positioning

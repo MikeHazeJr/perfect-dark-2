@@ -39,6 +39,7 @@
 
 extern "C" {
 #include "pdgui_nav.h"
+#include "actionmap.h"
 }
 
 /* ========================================================================
@@ -189,19 +190,12 @@ void inputSetMouseLockMode(s32 mode);
 s32 inputControllerGetInvertRStickY(s32 cidx);
 void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
 
-/* Input binding API — from port/include/input.h.
- * We can't include input.h (types.h conflict), so replicate constants.
- * Use PD_ prefix to avoid collision with Windows VK_ defines. */
-#define PD_INPUT_MAX_BINDS 4
+/* M0.2 Phase D: Input binding now uses actionmap.h API exclusively.
+ * CK_* enum and old bind functions removed. */
 #define PD_VK_ESCAPE 41
 #define PD_VK_JOY_BEGIN 519
 #define PD_VK_TOTAL_COUNT (PD_VK_JOY_BEGIN + 4 * 32)
-void inputKeyBind(s32 idx, u32 ck, s32 bind, u32 vk);
-const u32 *inputKeyGetBinds(s32 idx, u32 ck);
 const char *inputGetKeyName(s32 vk);
-const char *inputGetContKeyName(u32 ck);
-void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode);
-void inputSaveBinds(void);
 void inputClearLastKey(void);
 s32 inputGetLastKey(void);
 
@@ -241,11 +235,7 @@ extern s32 g_MpPlayerNum;
 /* Config save */
 s32 configSave(const char *fname);
 
-/* Input modes API — from port/include/inputmodes.h */
-s32 inputModeGet(u32 ck);
-void inputModeSet(u32 ck, s32 mode);
-f32 inputModeGetTiming(u32 ck);
-void inputModeSetTiming(u32 ck, f32 seconds);
+/* M0.2 Phase D: inputModes API removed — inputmodes.c deleted. */
 
 /* Button edge glow — from pdgui_style */
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
@@ -691,141 +681,109 @@ static void renderSettingsAudio(float scale)
     }
 }
 
-/* ---- Key rebinding state ---- */
+/* ---- Key rebinding state (M0.2 Phase D: uses actionmap instead of CK_*) ---- */
 
-/* Capture state: which CK action + which column (0=MKB, 1=Controller) we're listening for */
-static s32 s_CaptureActive = 0;      /* non-zero when waiting for a key press */
-static u32 s_CaptureCK = 0;          /* CK action being rebound */
+static s32 s_CaptureActive = 0;
+static InputAction s_CaptureAction = ACTION_MOVE_FORWARD;
 static s32 s_CaptureColumn = 0;      /* 0 = MKB, 1 = Controller */
-static s32 s_CaptureBind = 0;        /* bind slot index (0-3) */
-static s32 s_CaptureIsSecond = 0;    /* 0 = first bind button, 1 = second */
+static s32 s_CaptureBind = 0;        /* trigger slot index */
+static s32 s_CaptureIsSecond = 0;
 
-/* Bindable actions table — maps CK enum index to display name.
- * Uses Extended Options menu names, not N64-style names.
- * Includes CK_0040+ reserved slots as NULL (skipped in UI),
- * plus the extended actions at CK_2000(29), CK_4000(30), CK_8000(31). */
-
+/* Bindable actions table — maps InputAction to display name. */
 struct BindableAction {
-    u32 ck;             /* CK enum index */
-    const char *name;   /* Display name from Extended Options */
+    InputAction action;
+    const char *name;
 };
 
 static const BindableAction s_BindableActions[] = {
-    {  3, "Forward"       },  /* CK_C_U       */
-    {  2, "Backward"      },  /* CK_C_D       */
-    {  1, "Strafe Left"   },  /* CK_C_L       */
-    {  0, "Strafe Right"  },  /* CK_C_R       */
-    { 13, "Fire"          },  /* CK_ZTRIG     */
-    {  4, "Aim Mode"      },  /* CK_RTRIG     */
-    {  5, "Fire Mode"     },  /* CK_LTRIG     */
-    {  6, "Reload"        },  /* CK_X         */
-    {  7, "Next Weapon"   },  /* CK_Y         */
-    {  9, "Prev Weapon"   },  /* CK_DPAD_L    */
-    { 14, "Use / Cancel"  },  /* CK_B         */
-    { 15, "Use / Accept"  },  /* CK_A         */
-    { 10, "Radial Menu"   },  /* CK_DPAD_D    */
-    { 12, "Pause Menu"    },  /* CK_START     */
-    { 30, "Jump"          },  /* CK_4000      */
-    { 29, "Full Crouch"   },  /* CK_2000      */
-    { 31, "Cycle Crouch"  },  /* CK_8000      */
-    { 16, "Look Left"     },  /* CK_STICK_XNEG */
-    { 17, "Look Right"    },  /* CK_STICK_XPOS */
-    { 18, "Look Down"     },  /* CK_STICK_YNEG */
-    { 19, "Look Up"       },  /* CK_STICK_YPOS */
-    {  8, "D-Pad Right"   },  /* CK_DPAD_R    */
-    { 11, "D-Pad Up"      },  /* CK_DPAD_U    */
-    { 20, "UI Accept"     },  /* CK_ACCEPT    */
-    { 21, "UI Cancel"     },  /* CK_CANCEL    */
+    { ACTION_MOVE_FORWARD,     "Forward"       },
+    { ACTION_MOVE_BACKWARD,    "Backward"      },
+    { ACTION_MOVE_LEFT,        "Strafe Left"   },
+    { ACTION_MOVE_RIGHT,       "Strafe Right"  },
+    { ACTION_FIRE_PRIMARY,     "Fire"          },
+    { ACTION_FIRE_SECONDARY,   "Aim Mode"      },
+    { ACTION_FIRE_MODE,        "Fire Mode"     },
+    { ACTION_RELOAD,           "Reload"        },
+    { ACTION_WEAPON_NEXT,      "Next Weapon"   },
+    { ACTION_WEAPON_PREV,      "Prev Weapon"   },
+    { ACTION_CANCEL_USE,       "Use / Cancel"  },
+    { ACTION_USE,              "Use / Accept"  },
+    { ACTION_DPAD_DOWN,        "Radial Menu"   },
+    { ACTION_PAUSE,            "Pause Menu"    },
+    { ACTION_JUMP,             "Jump"          },
+    { ACTION_CROUCH,           "Crouch"        },
+    { ACTION_SPRINT,           "Sprint"        },
+    { ACTION_CBUTTON_LEFT,     "C-Left"        },
+    { ACTION_CBUTTON_RIGHT,    "C-Right"       },
+    { ACTION_CBUTTON_UP,       "C-Up"          },
+    { ACTION_CBUTTON_DOWN,     "C-Down"        },
+    { ACTION_DPAD_UP,          "D-Pad Up"      },
+    { ACTION_DPAD_RIGHT,       "D-Pad Right"   },
+    { ACTION_MENU_ACCEPT,      "UI Accept"     },
+    { ACTION_MENU_CANCEL,      "UI Cancel"     },
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 
-/* Helper: is this VK a mouse or keyboard key? */
-static bool isVkMKB(u32 vk)
-{
-    return (vk > 0 && vk < PD_VK_JOY_BEGIN);
-}
+static bool isVkMKB(u32 vk)     { return (vk > 0 && vk < PD_VK_JOY_BEGIN); }
+static bool isVkController(u32 vk) { return (vk >= PD_VK_JOY_BEGIN && vk < PD_VK_TOTAL_COUNT); }
+static const char *getBindName(u32 vk) { return vk ? inputGetKeyName((s32)vk) : "---"; }
 
-/* Helper: is this VK a controller/joystick key? */
-static bool isVkController(u32 vk)
-{
-    return (vk >= PD_VK_JOY_BEGIN && vk < PD_VK_TOTAL_COUNT);
-}
-
-/* Helper: get human-readable name, handling 0 (unbound) */
-static const char *getBindName(u32 vk)
-{
-    if (vk == 0) return "---";
-    return inputGetKeyName((s32)vk);
-}
-
-/* Helper: find the first MKB bind and first controller bind for a CK action.
- * Returns up to 2 of each type (slot indices written into mkbSlots/ctrlSlots).
- * Returns count found for each. */
-static void getBindsByType(s32 cidx, u32 ck, u32 mkbVKs[2], s32 mkbSlots[2], s32 *mkbCount,
+/* Get triggers for an action from the gameplay IMC, split by MKB vs controller */
+static void getBindsByType(InputAction action, u32 mkbVKs[2], s32 mkbSlots[2], s32 *mkbCount,
                            u32 ctrlVKs[2], s32 ctrlSlots[2], s32 *ctrlCount)
 {
-    const u32 *bindsArr = inputKeyGetBinds(cidx, ck);
-    *mkbCount = 0;
-    *ctrlCount = 0;
-    mkbVKs[0] = mkbVKs[1] = 0;
-    ctrlVKs[0] = ctrlVKs[1] = 0;
-    mkbSlots[0] = mkbSlots[1] = -1;
-    ctrlSlots[0] = ctrlSlots[1] = -1;
-
-    for (s32 i = 0; i < PD_INPUT_MAX_BINDS && bindsArr; i++) {
-        u32 vk = bindsArr[i];
+    InputMapping *m = &g_ImcGameplay.mappings[action];
+    *mkbCount = 0; *ctrlCount = 0;
+    mkbVKs[0] = mkbVKs[1] = 0; ctrlVKs[0] = ctrlVKs[1] = 0;
+    mkbSlots[0] = mkbSlots[1] = -1; ctrlSlots[0] = ctrlSlots[1] = -1;
+    for (s32 i = 0; i < m->num_triggers; i++) {
+        u32 vk = m->triggers[i].vk;
         if (vk == 0) continue;
         if (isVkMKB(vk) && *mkbCount < 2) {
-            mkbSlots[*mkbCount] = i;
-            mkbVKs[*mkbCount] = vk;
-            (*mkbCount)++;
+            mkbSlots[*mkbCount] = i; mkbVKs[(*mkbCount)++] = vk;
         } else if (isVkController(vk) && *ctrlCount < 2) {
-            ctrlSlots[*ctrlCount] = i;
-            ctrlVKs[*ctrlCount] = vk;
-            (*ctrlCount)++;
+            ctrlSlots[*ctrlCount] = i; ctrlVKs[(*ctrlCount)++] = vk;
         }
     }
 }
 
-/* Find an available bind slot for a given CK (first slot with vk==0, or slot 0) */
-static s32 findFreeBindSlot(s32 cidx, u32 ck)
+static s32 findFreeTriggerSlot(InputAction action)
 {
-    const u32 *bindsArr = inputKeyGetBinds(cidx, ck);
-    if (!bindsArr) return 0;
-    for (s32 i = 0; i < PD_INPUT_MAX_BINDS; i++) {
-        if (bindsArr[i] == 0) return i;
+    InputMapping *m = &g_ImcGameplay.mappings[action];
+    for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+        if (m->triggers[i].vk == 0) return i;
     }
-    return 0; /* all full — overwrite slot 0 */
+    return 0;
 }
 
-static void renderBindButton(u32 ck, const char *idSuffix, s32 captureCol,
+static void renderBindButton(InputAction action, const char *idSuffix, s32 captureCol,
                               s32 isSecond, u32 vk, s32 slot, s32 otherSlot,
                               bool *rowHov, bool *rowNav)
 {
     char btnLabel[64];
-    bool isCap = (s_CaptureActive && s_CaptureCK == ck
+    bool isCap = (s_CaptureActive && s_CaptureAction == action
                   && s_CaptureColumn == captureCol
                   && s_CaptureIsSecond == isSecond);
     if (isCap) {
-        snprintf(btnLabel, sizeof(btnLabel), "...##%s_%u", idSuffix, ck);
+        snprintf(btnLabel, sizeof(btnLabel), "...##%s_%d", idSuffix, (int)action);
     } else {
-        snprintf(btnLabel, sizeof(btnLabel), "%s##%s_%u", getBindName(vk), idSuffix, ck);
+        snprintf(btnLabel, sizeof(btnLabel), "%s##%s_%d", getBindName(vk), idSuffix, (int)action);
     }
     if (ImGui::SmallButton(btnLabel) && !s_CaptureActive) {
         s32 useSlot = slot;
         if (useSlot < 0) {
-            useSlot = findFreeBindSlot(0, ck);
+            useSlot = findFreeTriggerSlot(action);
             if (useSlot == otherSlot) {
-                const u32 *ba = inputKeyGetBinds(0, ck);
+                InputMapping *m = &g_ImcGameplay.mappings[action];
                 useSlot = -1;
-                for (s32 i = 0; i < PD_INPUT_MAX_BINDS && ba; i++) {
-                    if (i != otherSlot && ba[i] == 0) { useSlot = i; break; }
+                for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+                    if (i != otherSlot && m->triggers[i].vk == 0) { useSlot = i; break; }
                 }
                 if (useSlot < 0) useSlot = (otherSlot == 0) ? 1 : 0;
             }
         }
         s_CaptureActive = 1;
-        s_CaptureCK = ck;
+        s_CaptureAction = action;
         s_CaptureColumn = captureCol;
         s_CaptureIsSecond = isSecond;
         s_CaptureBind = useSlot;
@@ -835,18 +793,17 @@ static void renderBindButton(u32 ck, const char *idSuffix, s32 captureCol,
     if (ImGui::IsItemHovered()) *rowHov = true;
     if (ImGui::IsItemFocused()) *rowNav = true;
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && vk != 0 && slot >= 0) {
-        inputKeyBind(0, ck, slot, 0);
-        inputSaveBinds();
+        actionmapBind(&g_ImcGameplay, 0, action, slot, 0);
+        actionmapSaveBinds();
         configSave("pd.ini");
         pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
     }
 }
 
-/* Get the display name for a bindable action CK value */
-static const char *getActionName(u32 ck)
+static const char *getActionName(InputAction action)
 {
     for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
-        if (s_BindableActions[i].ck == ck) return s_BindableActions[i].name;
+        if (s_BindableActions[i].action == action) return s_BindableActions[i].name;
     }
     return "???";
 }
@@ -930,149 +887,94 @@ static void renderSettingsControls(float scale)
     ImGui::Spacing();
     ImGui::Spacing();
 
-    /* ---- Key Bindings ---- */
+    /* ---- Key Bindings (M0.2 Phase D: actionmap-based) ---- */
     ImGui::TextDisabled("Key Bindings");
     ImGui::Separator();
 
     /* Handle active capture mode */
     if (s_CaptureActive) {
         s32 newKey = inputGetLastKey();
-
-        /* Escape / B-button cancels capture */
         if (newKey == PD_VK_ESCAPE) {
             s_CaptureActive = 0;
             inputClearLastKey();
         } else if (newKey > 0) {
-            bool valid = false;
-
-            if (s_CaptureColumn == 0 && isVkMKB((u32)newKey)) {
-                valid = true;
-            } else if (s_CaptureColumn == 1 && isVkController((u32)newKey)) {
-                valid = true;
-            }
-
+            bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
+                      || (s_CaptureColumn == 1 && isVkController((u32)newKey));
             if (valid) {
-                inputKeyBind(0, s_CaptureCK, s_CaptureBind, (u32)newKey);
-                inputSaveBinds();
+                actionmapBind(&g_ImcGameplay, 0, s_CaptureAction, s_CaptureBind, (u32)newKey);
+                actionmapSaveBinds();
                 configSave("pd.ini");
                 pdguiPlaySound(PDGUI_SND_SELECT);
             } else {
-                /* Wrong input type — play error sound */
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
             }
-
             s_CaptureActive = 0;
             inputClearLastKey();
         }
     }
 
-    /* Capture mode banner */
     if (s_CaptureActive) {
         const char *typeStr = (s_CaptureColumn == 0) ? "keyboard/mouse" : "controller";
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
             "Press a %s key for \"%s\" (Esc to cancel)",
-            typeStr, getActionName(s_CaptureCK));
+            typeStr, getActionName(s_CaptureAction));
         ImGui::Spacing();
     }
 
-    /* 7-column table: Action | MKB1 | MKB2 | Ctrl1 | Ctrl2 | Mode | Window */
+    /* 5-column table: Action | MKB1 | MKB2 | Ctrl1 | Ctrl2 */
     ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV
                                 | ImGuiTableFlags_RowBg
                                 | ImGuiTableFlags_SizingStretchProp
                                 | ImGuiTableFlags_PadOuterX;
 
-    /* Compact cell padding for tight layout */
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 1.0f));
 
-    if (ImGui::BeginTable("##binds_table", 7, tableFlags)) {
+    if (ImGui::BeginTable("##binds_table", 5, tableFlags)) {
         ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
         ImGui::TableSetupColumn("MKB 1",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("MKB 2",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Ctrl 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Ctrl 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Mode",    ImGuiTableColumnFlags_WidthStretch, 0.8f);
-        ImGui::TableSetupColumn("Window",  ImGuiTableColumnFlags_WidthStretch, 0.8f);
         ImGui::TableHeadersRow();
 
         for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
-            u32 ck = s_BindableActions[row].ck;
+            InputAction action = s_BindableActions[row].action;
             const char *actionName = s_BindableActions[row].name;
 
             u32 mkbVKs[2], ctrlVKs[2];
             s32 mkbSlots[2], ctrlSlots[2];
             s32 mkbCount, ctrlCount;
-            getBindsByType(0, ck, mkbVKs, mkbSlots, &mkbCount,
+            getBindsByType(action, mkbVKs, mkbSlots, &mkbCount,
                            ctrlVKs, ctrlSlots, &ctrlCount);
 
             ImGui::TableNextRow();
             bool rowHovered = false;
             bool rowNavFocus = false;
 
-            /* Col 0: Action name */
             ImGui::TableSetColumnIndex(0);
             ImGui::TextUnformatted(actionName);
 
-            /* Col 1: MKB Bind 1 */
             ImGui::TableSetColumnIndex(1);
-            renderBindButton(ck, "mkb1", 0, 0, mkbVKs[0],
-                             (mkbSlots[0] >= 0) ? mkbSlots[0] : findFreeBindSlot(0, ck),
+            renderBindButton(action, "mkb1", 0, 0, mkbVKs[0],
+                             (mkbSlots[0] >= 0) ? mkbSlots[0] : findFreeTriggerSlot(action),
                              mkbSlots[1], &rowHovered, &rowNavFocus);
 
-            /* Col 2: MKB Bind 2 */
             ImGui::TableSetColumnIndex(2);
-            renderBindButton(ck, "mkb2", 0, 1, mkbVKs[1], mkbSlots[1], mkbSlots[0],
+            renderBindButton(action, "mkb2", 0, 1, mkbVKs[1], mkbSlots[1], mkbSlots[0],
                              &rowHovered, &rowNavFocus);
 
-            /* Col 3: Controller Bind 1 */
             ImGui::TableSetColumnIndex(3);
-            renderBindButton(ck, "ctrl1", 1, 0, ctrlVKs[0],
-                             (ctrlSlots[0] >= 0) ? ctrlSlots[0] : findFreeBindSlot(0, ck),
+            renderBindButton(action, "ctrl1", 1, 0, ctrlVKs[0],
+                             (ctrlSlots[0] >= 0) ? ctrlSlots[0] : findFreeTriggerSlot(action),
                              ctrlSlots[1], &rowHovered, &rowNavFocus);
 
-            /* Col 4: Controller Bind 2 */
             ImGui::TableSetColumnIndex(4);
-            renderBindButton(ck, "ctrl2", 1, 1, ctrlVKs[1], ctrlSlots[1], ctrlSlots[0],
+            renderBindButton(action, "ctrl2", 1, 1, ctrlVKs[1], ctrlSlots[1], ctrlSlots[0],
                              &rowHovered, &rowNavFocus);
 
-            /* Col 5: Input Mode (Single / 2xTap / Hold) */
-            ImGui::TableSetColumnIndex(5);
-            {
-                s32 mode = inputModeGet(ck);
-                ImGui::PushItemWidth(-1);
-                char comboId[32];
-                snprintf(comboId, sizeof(comboId), "##mode_%u", ck);
-                const char *modeOpts[] = { "Single", "2xTap", "Hold" };
-                if (ImGui::Combo(comboId, &mode, modeOpts, 3)) {
-                    inputModeSet(ck, mode);
-                    configSave("pd.ini");
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                }
-                ImGui::PopItemWidth();
-            }
-
-            /* Col 6: Timing Window slider (only active when mode != Single) */
-            ImGui::TableSetColumnIndex(6);
-            {
-                s32 mode = inputModeGet(ck);
-                if (mode != 0) {
-                    f32 timing = inputModeGetTiming(ck);
-                    ImGui::PushItemWidth(-1);
-                    char sliderId[32];
-                    snprintf(sliderId, sizeof(sliderId), "##tmg_%u", ck);
-                    if (ImGui::SliderFloat(sliderId, &timing, 0.25f, 1.5f, "%.2fs")) {
-                        inputModeSetTiming(ck, timing);
-                        configSave("pd.ini");
-                    }
-                    ImGui::PopItemWidth();
-                } else {
-                    ImGui::TextDisabled("--");
-                }
-            }
-
-            /* Row highlight */
-            if (s_CaptureActive && s_CaptureCK == ck) {
+            if (s_CaptureActive && s_CaptureAction == action) {
                 rowNavFocus = true;
             }
             if (rowHovered || rowNavFocus) {
@@ -1085,88 +987,15 @@ static void renderSettingsControls(float scale)
 
         ImGui::EndTable();
     }
-    ImGui::PopStyleVar(3); /* CellPadding, FramePadding, ItemSpacing */
+    ImGui::PopStyleVar(3);
 
     ImGui::Spacing();
     ImGui::TextDisabled("Click to rebind. Right-click to clear. Esc to cancel.");
-
     ImGui::Spacing();
 
-    /* Reset to Defaults buttons */
-    if (PdButton("Reset MKB to Defaults")) {
-        /* Save current controller binds */
-        u32 savedCtrl[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
-        s32 savedCtrlSlots[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
-        s32 savedCtrlCounts[NUM_BINDABLE_ACTIONS];
-        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
-            u32 ck = s_BindableActions[i].ck;
-            savedCtrlCounts[i] = 0;
-            const u32 *ba = inputKeyGetBinds(0, ck);
-            if (!ba) continue;
-            for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
-                if (ba[j] != 0 && isVkController(ba[j])) {
-                    s32 c = savedCtrlCounts[i];
-                    savedCtrl[i][c] = ba[j];
-                    savedCtrlSlots[i][c] = j;
-                    savedCtrlCounts[i]++;
-                }
-            }
-        }
-        inputSetDefaultKeyBinds(0, 0);
-        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
-            u32 ck = s_BindableActions[i].ck;
-            const u32 *ba = inputKeyGetBinds(0, ck);
-            if (ba) {
-                for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
-                    if (ba[j] != 0 && isVkController(ba[j])) {
-                        inputKeyBind(0, ck, j, 0);
-                    }
-                }
-            }
-            for (s32 c = 0; c < savedCtrlCounts[i]; c++) {
-                inputKeyBind(0, ck, savedCtrlSlots[i][c], savedCtrl[i][c]);
-            }
-        }
-        inputSaveBinds();
-        configSave("pd.ini");
-    }
-
-    ImGui::SameLine();
-
-    if (PdButton("Reset Controller to Defaults")) {
-        u32 savedMkb[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
-        s32 savedMkbSlots[NUM_BINDABLE_ACTIONS][PD_INPUT_MAX_BINDS];
-        s32 savedMkbCounts[NUM_BINDABLE_ACTIONS];
-        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
-            u32 ck = s_BindableActions[i].ck;
-            savedMkbCounts[i] = 0;
-            const u32 *ba = inputKeyGetBinds(0, ck);
-            if (!ba) continue;
-            for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
-                if (ba[j] != 0 && isVkMKB(ba[j])) {
-                    s32 c = savedMkbCounts[i];
-                    savedMkb[i][c] = ba[j];
-                    savedMkbSlots[i][c] = j;
-                    savedMkbCounts[i]++;
-                }
-            }
-        }
-        inputSetDefaultKeyBinds(0, 0);
-        for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
-            u32 ck = s_BindableActions[i].ck;
-            const u32 *ba = inputKeyGetBinds(0, ck);
-            if (ba) {
-                for (s32 j = 0; j < PD_INPUT_MAX_BINDS; j++) {
-                    if (ba[j] != 0 && isVkMKB(ba[j])) {
-                        inputKeyBind(0, ck, j, 0);
-                    }
-                }
-            }
-            for (s32 c = 0; c < savedMkbCounts[i]; c++) {
-                inputKeyBind(0, ck, savedMkbSlots[i][c], savedMkb[i][c]);
-            }
-        }
-        inputSaveBinds();
+    if (PdButton("Reset All to Defaults")) {
+        actionmapSetDefaults(&g_ImcGameplay, 0);
+        actionmapSaveBinds();
         configSave("pd.ini");
     }
 }
