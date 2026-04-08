@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include <PR/ultratypes.h>
 
 #include "imgui/imgui.h"
@@ -133,9 +134,18 @@ static bool saveThemeAsMod(const char *name, const char *author)
     dirName[len] = '\0';
     if (!len) return false;
 
-    /* Create mod directory */
+    /* Create mod directory (and parent mods/ if needed) */
     char modDir[256];
     snprintf(modDir, sizeof(modDir), "mods/%s", dirName);
+
+    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
+        return false;
+    }
+    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create '%s/' directory (errno %d)", modDir, errno);
+        return false;
+    }
 
     /* Write mod.json */
     char modJsonPath[280];
@@ -143,7 +153,7 @@ static bool saveThemeAsMod(const char *name, const char *author)
 
     FILE *f = fsFileOpenWrite(modJsonPath);
     if (!f) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot write '%s'", modJsonPath);
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot open '%s' for write (errno %d)", modJsonPath, errno);
         return false;
     }
 
@@ -155,6 +165,11 @@ static bool saveThemeAsMod(const char *name, const char *author)
     fprintf(f, "  \"description\": \"Custom theme created with Theme Editor\",\n");
     fprintf(f, "  \"base_fallback\": \"base:theme_blue\"\n");
     fprintf(f, "}\n");
+    if (ferror(f)) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: write error on '%s'", modJsonPath);
+        fclose(f);
+        return false;
+    }
     fclose(f);
 
     /* Write theme.json */
@@ -163,7 +178,7 @@ static bool saveThemeAsMod(const char *name, const char *author)
 
     f = fsFileOpenWrite(themeJsonPath);
     if (!f) {
-        sysLogPrintf(LOG_WARNING, "Theme editor: cannot write '%s'", themeJsonPath);
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot open '%s' for write (errno %d)", themeJsonPath, errno);
         return false;
     }
 
@@ -186,6 +201,11 @@ static bool saveThemeAsMod(const char *name, const char *author)
     fprintf(f, "  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"0080ffff\" },\n");
     fprintf(f, "  \"soundPack\": \"default\"\n");
     fprintf(f, "}\n");
+    if (ferror(f)) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: write error on '%s'", themeJsonPath);
+        fclose(f);
+        return false;
+    }
     fclose(f);
 
     sysLogPrintf(LOG_NOTE, "Theme editor: saved theme '%s' to %s/", name, modDir);

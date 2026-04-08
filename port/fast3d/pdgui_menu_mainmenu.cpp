@@ -2036,8 +2036,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
 {
     /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission
      * endscreen (which sets palette 3=green or 2=red and never restores it).
-     * P5: Uses catalog-backed theme instead of hardcoded blue. */
-    pdguiThemeLoadFromCatalog(pdguiThemeGetActiveId());
+     * P5: Uses catalog-backed theme instead of hardcoded blue.
+     * Guard: only reload when theme ID changes (avoids per-frame catalog lookup). */
+    {
+        static char s_LastThemeId[64] = "";
+        const char *activeId = pdguiThemeGetActiveId();
+        if (activeId && strcmp(s_LastThemeId, activeId) != 0) {
+            pdguiThemeLoadFromCatalog(activeId);
+            strncpy(s_LastThemeId, activeId, sizeof(s_LastThemeId) - 1);
+            s_LastThemeId[sizeof(s_LastThemeId) - 1] = '\0';
+        }
+    }
 
     float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
