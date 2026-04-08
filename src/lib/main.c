@@ -1131,9 +1131,7 @@ void mainTick(void)
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
 
-	/* PC: advance menu manager cooldown each frame */
-	extern void menuMgrTick(void);
-	menuMgrTick();
+	/* menuMgrTick() removed — P10 D5.7 OG Menu Removal */
 
 	if (g_MainChangeToStageNum < 0 && g_MainNumGfxTasks < NUM_GFXTASKS) {
 		frametimeCalculate();

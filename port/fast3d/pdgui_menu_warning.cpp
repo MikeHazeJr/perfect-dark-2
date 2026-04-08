@@ -375,24 +375,9 @@ extern "C" {
  * These use special handlers (keyboard input, custom rendering)
  * that our generic ImGui type renderers can't handle. Registered
  * with NULL renderFn so pdguiHotswapCheck forces PD native. */
-/* Network dialogs with special handlers */
-extern struct menudialogdef g_NetJoinAddressDialog;
-extern struct menudialogdef g_NetJoiningDialog;
-extern struct menudialogdef g_NetCoopHostMenuDialog;
-/* File manager keyboard input dialogs */
-extern struct menudialogdef g_FilemgrRenameMenuDialog;
-extern struct menudialogdef g_FilemgrDuplicateNameMenuDialog;
-extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
-/* MP keyboard/special dialogs */
-extern struct menudialogdef g_MpPlayerNameMenuDialog;
-extern struct menudialogdef g_MpSaveSetupNameMenuDialog;
+/* P10 D5.7: Only the Confirm Name dialog still needs explicit registration (B-115 noop).
+ * All other formerly forced-native dialogs now use type-based fallback rendering. */
 extern struct menudialogdef g_MpEndscreenConfirmNameMenuDialog;
-extern struct menudialogdef g_MpChangeTeamNameMenuDialog;
-extern struct menudialogdef g_MpReadyMenuDialog;
-/* mpsetups dialogs (port-added, were static, now exposed for registration) */
-extern struct menudialogdef g_StatusOkDialog;
-extern struct menudialogdef g_StatusErrorDialog;
-extern struct menudialogdef g_DeleteSetupDialog;
 
 void pdguiMenuWarningRegister(void)
 {
@@ -406,25 +391,16 @@ void pdguiMenuWarningRegister(void)
                               renderSuccessDialog,
                               "Success Dialog");
 
-    /* Force PD native for dialogs with special handlers (keyboard input,
-     * custom status rendering, network state monitoring, etc.).
-     * NULL renderFn = "always use PD native, skip type fallback". */
-    pdguiHotswapRegister(&g_NetJoinAddressDialog, NULL, "Join Address (native)");
-    pdguiHotswapRegister(&g_NetJoiningDialog, NULL, "Joining Game (native)");
-    pdguiHotswapRegister(&g_NetCoopHostMenuDialog, NULL, "Co-op Host (native)");
-    pdguiHotswapRegister(&g_FilemgrRenameMenuDialog, NULL, "Rename File (native)");
-    pdguiHotswapRegister(&g_FilemgrDuplicateNameMenuDialog, NULL, "Duplicate Name (native)");
-    pdguiHotswapRegister(&g_FilemgrFileSavedMenuDialog, NULL, "File Saved (native)");
-    pdguiHotswapRegister(&g_MpPlayerNameMenuDialog, NULL, "Player Name (native)");
-    pdguiHotswapRegister(&g_MpSaveSetupNameMenuDialog, NULL, "Save Setup Name (native)");
-    /* B-115 fix: suppress Confirm Name — redundant on PC (auto-save handles it) */
+    /* P10 D5.7: All formerly forced-native dialogs now use the type-based
+     * fallback renderers (DANGER/SUCCESS). Removed NULL-renderFn registrations
+     * that previously forced PD native rendering.
+     *
+     * These dialogs (name entry, joining, file saved, etc.) are now rendered
+     * by the generic typed dialog renderer which handles labels, selectables,
+     * separators, and dropdowns.
+     *
+     * B-115 fix preserved: Confirm Name is still suppressed (renderNoop). */
     pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, renderNoop, "Confirm Name (suppressed)");
-    pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
-    pdguiHotswapRegister(&g_MpReadyMenuDialog, NULL, "MP Ready (native)");
-    /* mpsetups dialogs (port-added) */
-    pdguiHotswapRegister(&g_StatusOkDialog, NULL, "Setup OK (native)");
-    pdguiHotswapRegister(&g_StatusErrorDialog, NULL, "Setup Error (native)");
-    pdguiHotswapRegister(&g_DeleteSetupDialog, NULL, "Delete Setup (native)");
 
     s_Registered = true;
     sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DANGER + SUCCESS type fallbacks");
