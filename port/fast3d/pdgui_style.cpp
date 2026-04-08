@@ -32,6 +32,9 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "pdgui_theme.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 
 /* -----------------------------------------------------------------------
  * PD Color Palette System
@@ -556,6 +559,16 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
             }
         }
     }
+
+    /* === P4: Caustic overlay (optional) ===
+     * If a caustic mask texture is configured in the active theme,
+     * composite it over the body region. */
+    pdguiCausticDrawThemed(x + 1, bodyTop, w - 2, (y + h) - bodyTop);
+
+    /* === P4: Border effect (optional) ===
+     * If a border effect is configured in the active theme, draw it
+     * around the dialog frame. Uses theme config (type, color, etc). */
+    pdguiBorderFxDrawThemed(x, y, w, h, focused);
 }
 
 /* -----------------------------------------------------------------------

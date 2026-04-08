@@ -25,6 +25,9 @@
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 #include "assetcatalog.h"
 #include "config.h"
 #include "system.h"
@@ -83,6 +86,42 @@ struct theme_def {
 
     /* Sound pack */
     char sound_pack[THEME_SOUNDPACK_LEN];
+
+    /* --- P4 extensions --- */
+
+    /* Nine-slice config */
+    s32  has_nineslice;
+    char nineslice_tex[THEME_TEX_PATH_LEN];   /* catalog_id of 9-slice texture */
+    f32  nineslice_left, nineslice_right;
+    f32  nineslice_top, nineslice_bottom;
+    f32  nineslice_tex_w, nineslice_tex_h;
+
+    /* Caustic overlay config */
+    s32  has_caustic;
+    char caustic_tex[THEME_TEX_PATH_LEN];     /* catalog_id of mask texture */
+    f32  caustic_speed_x, caustic_speed_y;
+    f32  caustic_scale;
+    f32  caustic_opacity;
+    u32  caustic_tint;
+    s32  caustic_additive;
+
+    /* Border effect config */
+    s32  has_border_fx;
+    s32  border_fx_type;      /* PdguiBorderFx enum value */
+    f32  border_fx_intensity;
+    f32  border_fx_speed;
+    u32  border_fx_color;
+    f32  border_fx_width;
+
+    /* Font config */
+    s32  has_font;
+    char font_path[THEME_TEX_PATH_LEN];       /* relative TTF path */
+    char font_catalog_id[THEME_CATALOG_ID_LEN];
+    f32  font_size;
+    f32  font_glow_radius;
+    u32  font_glow_color;
+    f32  font_shadow_x, font_shadow_y;
+    u32  font_shadow_color;
 };
 
 /* =========================================================================
@@ -410,6 +449,145 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
                     def->glow_color = parse_hex_color(tok.start, tok.len);
                 }
             }
+        } else if (strcmp(key, "nineSlice") == 0) {
+            /* P4: Parse nineSlice config object */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_nineslice = 1;
+            def->nineslice_left = def->nineslice_right = 8.0f;
+            def->nineslice_top = def->nineslice_bottom = 8.0f;
+
+            char nkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, nkey, sizeof(nkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(nkey, "texture") == 0 && tok.type == JT_STRING)
+                    jstr(&tok, def->nineslice_tex, sizeof(def->nineslice_tex));
+                else if (strcmp(nkey, "left") == 0)   def->nineslice_left = jfloat(&tok);
+                else if (strcmp(nkey, "right") == 0)  def->nineslice_right = jfloat(&tok);
+                else if (strcmp(nkey, "top") == 0)    def->nineslice_top = jfloat(&tok);
+                else if (strcmp(nkey, "bottom") == 0) def->nineslice_bottom = jfloat(&tok);
+                else if (strcmp(nkey, "texWidth") == 0)  def->nineslice_tex_w = jfloat(&tok);
+                else if (strcmp(nkey, "texHeight") == 0) def->nineslice_tex_h = jfloat(&tok);
+            }
+        } else if (strcmp(key, "caustic") == 0) {
+            /* P4: Parse caustic overlay config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_caustic = 1;
+            def->caustic_speed_x = 0.02f;
+            def->caustic_speed_y = 0.015f;
+            def->caustic_scale = 1.0f;
+            def->caustic_opacity = 0.15f;
+            def->caustic_tint = 0xffffffffu;
+
+            char ckey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, ckey, sizeof(ckey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(ckey, "texture") == 0 && tok.type == JT_STRING)
+                    jstr(&tok, def->caustic_tex, sizeof(def->caustic_tex));
+                else if (strcmp(ckey, "speedX") == 0)   def->caustic_speed_x = jfloat(&tok);
+                else if (strcmp(ckey, "speedY") == 0)   def->caustic_speed_y = jfloat(&tok);
+                else if (strcmp(ckey, "scale") == 0)    def->caustic_scale = jfloat(&tok);
+                else if (strcmp(ckey, "opacity") == 0)  def->caustic_opacity = jfloat(&tok);
+                else if (strcmp(ckey, "tint") == 0 && tok.type == JT_STRING)
+                    def->caustic_tint = parse_hex_color(tok.start, tok.len);
+                else if (strcmp(ckey, "additive") == 0)
+                    def->caustic_additive = (tok.type == JT_TRUE) ? 1 : 0;
+            }
+        } else if (strcmp(key, "borderFx") == 0) {
+            /* P4: Parse border effect config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_border_fx = 1;
+            def->border_fx_type = 1;  /* GLOW_PULSE */
+            def->border_fx_intensity = 0.5f;
+            def->border_fx_speed = 1.0f;
+            def->border_fx_color = 0;
+            def->border_fx_width = 2.0f;
+
+            char bkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, bkey, sizeof(bkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(bkey, "type") == 0 && tok.type == JT_STRING) {
+                    char tstr[32]; jstr(&tok, tstr, sizeof(tstr));
+                    if (strcmp(tstr, "none") == 0)       def->border_fx_type = 0;
+                    else if (strcmp(tstr, "glow_pulse") == 0)  def->border_fx_type = 1;
+                    else if (strcmp(tstr, "grad_sweep") == 0)  def->border_fx_type = 2;
+                    else if (strcmp(tstr, "energy") == 0)      def->border_fx_type = 3;
+                } else if (strcmp(bkey, "intensity") == 0) def->border_fx_intensity = jfloat(&tok);
+                else if (strcmp(bkey, "speed") == 0)     def->border_fx_speed = jfloat(&tok);
+                else if (strcmp(bkey, "color") == 0 && tok.type == JT_STRING)
+                    def->border_fx_color = parse_hex_color(tok.start, tok.len);
+                else if (strcmp(bkey, "width") == 0)     def->border_fx_width = jfloat(&tok);
+            }
+        } else if (strcmp(key, "font") == 0) {
+            /* P4: Parse font config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_font = 1;
+            def->font_size = 0.0f;
+            def->font_glow_radius = 3.0f;
+            def->font_glow_color = 0x0080ff80u;
+            def->font_shadow_x = 1.0f;
+            def->font_shadow_y = 1.0f;
+            def->font_shadow_color = 0x000000a0u;
+
+            char fkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, fkey, sizeof(fkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(fkey, "path") == 0 && tok.type == JT_STRING)
+                    jstr(&tok, def->font_path, sizeof(def->font_path));
+                else if (strcmp(fkey, "catalogId") == 0 && tok.type == JT_STRING)
+                    jstr(&tok, def->font_catalog_id, sizeof(def->font_catalog_id));
+                else if (strcmp(fkey, "size") == 0)          def->font_size = jfloat(&tok);
+                else if (strcmp(fkey, "glowRadius") == 0)    def->font_glow_radius = jfloat(&tok);
+                else if (strcmp(fkey, "glowColor") == 0 && tok.type == JT_STRING)
+                    def->font_glow_color = parse_hex_color(tok.start, tok.len);
+                else if (strcmp(fkey, "shadowX") == 0)       def->font_shadow_x = jfloat(&tok);
+                else if (strcmp(fkey, "shadowY") == 0)       def->font_shadow_y = jfloat(&tok);
+                else if (strcmp(fkey, "shadowColor") == 0 && tok.type == JT_STRING)
+                    def->font_shadow_color = parse_hex_color(tok.start, tok.len);
+            }
         } else {
             jskip_value(&jp);
         }
@@ -459,6 +637,81 @@ static void apply_theme_def(const struct theme_def *def)
             pdguiThemeSetSoundPack(0);
         }
         /* Future: named sound pack lookup */
+    }
+
+    /* --- P4 extensions --- */
+
+    /* Apply nine-slice config */
+    if (def->has_nineslice && def->nineslice_tex[0]) {
+        NineSliceInsets insets;
+        insets.left   = def->nineslice_left;
+        insets.right  = def->nineslice_right;
+        insets.top    = def->nineslice_top;
+        insets.bottom = def->nineslice_bottom;
+
+        f32 tw = def->nineslice_tex_w > 0.0f ? def->nineslice_tex_w : 64.0f;
+        f32 th = def->nineslice_tex_h > 0.0f ? def->nineslice_tex_h : 64.0f;
+
+        pdguiNineSliceRegister(def->nineslice_tex, &insets, tw, th);
+
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: 9-slice registered '%s' insets=%.0f,%.0f,%.0f,%.0f",
+            def->nineslice_tex, insets.left, insets.right, insets.top, insets.bottom);
+    }
+
+    /* Apply caustic overlay config */
+    if (def->has_caustic) {
+        PdguiCausticConfig cc = pdguiCausticDefaultConfig();
+        cc.scroll_speed_x = def->caustic_speed_x;
+        cc.scroll_speed_y = def->caustic_speed_y;
+        cc.scale          = def->caustic_scale;
+        cc.opacity        = def->caustic_opacity;
+        cc.tint_color     = def->caustic_tint;
+        cc.blend_additive = def->caustic_additive;
+        pdguiEffectsSetCausticConfig(&cc);
+
+        if (def->caustic_tex[0]) {
+            pdguiEffectsSetCausticTexture(def->caustic_tex);
+        }
+
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: caustic configured (speed=%.3f,%.3f opacity=%.2f)",
+            cc.scroll_speed_x, cc.scroll_speed_y, cc.opacity);
+    }
+
+    /* Apply border effect config */
+    if (def->has_border_fx) {
+        PdguiBorderFxConfig bc = pdguiBorderFxDefaultConfig();
+        bc.type      = (PdguiBorderFx)def->border_fx_type;
+        bc.intensity = def->border_fx_intensity;
+        bc.speed     = def->border_fx_speed;
+        bc.color     = def->border_fx_color;
+        bc.width     = def->border_fx_width;
+        pdguiEffectsSetBorderFxConfig(&bc);
+
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: border fx type=%d intensity=%.2f speed=%.2f",
+            bc.type, bc.intensity, bc.speed);
+    }
+
+    /* Apply font config */
+    if (def->has_font && def->font_path[0]) {
+        PdguiFontConfig fc = pdguiFontConfigDefault();
+        fc.size_pt         = def->font_size;
+        fc.glow_radius     = def->font_glow_radius;
+        fc.glow_color      = def->font_glow_color;
+        fc.shadow_offset_x = def->font_shadow_x;
+        fc.shadow_offset_y = def->font_shadow_y;
+        fc.shadow_color    = def->font_shadow_color;
+
+        const char *fontId = def->font_catalog_id[0]
+                           ? def->font_catalog_id
+                           : "mod:theme_font";
+        pdguiFontMgrLoadFont(fontId, def->font_path, &fc);
+
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: font '%s' from '%s' (%.0fpt glow=%.1f)",
+            fontId, def->font_path, fc.size_pt, fc.glow_radius);
     }
 }
 
