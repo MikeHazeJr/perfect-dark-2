@@ -1253,8 +1253,30 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 
 	{
 		s8 contpadnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-		u32 buttonsdown = joyGetButtons(contpadnum, 0xffffffff); \
-		u32 buttonsthisframe = joyGetButtonsPressedThisFrame(contpadnum, 0xffffffff);
+		/* M0.2: reconstruct button bitmasks from action map for HUD indicator checks */
+		s32 p = g_Vars.currentplayernum;
+		u32 buttonsdown = 0;
+		u32 buttonsthisframe = 0;
+		if (actionHeld(p, ACTION_FIRE_PRIMARY))    buttonsdown |= Z_TRIG;
+		if (actionHeld(p, ACTION_FIRE_SECONDARY))  buttonsdown |= R_TRIG;
+		if (actionHeld(p, ACTION_CBUTTON_UP))      buttonsdown |= U_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_DOWN))    buttonsdown |= D_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_LEFT))    buttonsdown |= L_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_RIGHT))   buttonsdown |= R_CBUTTONS;
+		if (actionHeld(p, ACTION_DPAD_UP))         buttonsdown |= U_JPAD;
+		if (actionHeld(p, ACTION_DPAD_DOWN))       buttonsdown |= D_JPAD;
+		if (actionHeld(p, ACTION_DPAD_LEFT))       buttonsdown |= L_JPAD;
+		if (actionHeld(p, ACTION_DPAD_RIGHT))      buttonsdown |= R_JPAD;
+		if (actionPressed(p, ACTION_FIRE_PRIMARY))    buttonsthisframe |= Z_TRIG;
+		if (actionPressed(p, ACTION_FIRE_SECONDARY))  buttonsthisframe |= R_TRIG;
+		if (actionPressed(p, ACTION_CBUTTON_UP))      buttonsthisframe |= U_CBUTTONS;
+		if (actionPressed(p, ACTION_CBUTTON_DOWN))    buttonsthisframe |= D_CBUTTONS;
+		if (actionPressed(p, ACTION_CBUTTON_LEFT))    buttonsthisframe |= L_CBUTTONS;
+		if (actionPressed(p, ACTION_CBUTTON_RIGHT))   buttonsthisframe |= R_CBUTTONS;
+		if (actionPressed(p, ACTION_DPAD_UP))         buttonsthisframe |= U_JPAD;
+		if (actionPressed(p, ACTION_DPAD_DOWN))       buttonsthisframe |= D_JPAD;
+		if (actionPressed(p, ACTION_DPAD_LEFT))       buttonsthisframe |= L_JPAD;
+		if (actionPressed(p, ACTION_DPAD_RIGHT))      buttonsthisframe |= R_JPAD;
 		s8 cstickx = (s8)(actionValue((s32)contpadnum, ACTION_AXIS_MOVE_X) * 80.0f); \
 		s8 csticky = (s8)(actionValue((s32)contpadnum, ACTION_AXIS_MOVE_Y) * 80.0f);
 		s32 xpos;

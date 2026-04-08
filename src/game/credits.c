@@ -1719,7 +1719,7 @@ void creditsTick(void)
 		}
 	}
 
-#if VERSION >= VERSION_NTSC_1_0
+	/* M0.2: removed dead #else branch and version guard (always >= NTSC_1_0 on PC) */
 	g_CreditsPrevFrame = g_CreditsCurFrame;
 	g_CreditsCurFrame += g_Vars.diffframe240;
 	g_CreditsCurFrame2 += g_Vars.diffframe240;
@@ -1736,31 +1736,6 @@ void creditsTick(void)
 	if (!g_CreditsData->slidesenabled && g_CreditsData->blacktimer60 < (PAL ? 1150 : 1360)) {
 		g_CreditsData->blacktimer60 += g_Vars.diffframe60;
 	}
-#else
-	if (joyGetButtons(0, R_TRIG) == 0) {
-		g_CreditsPrevFrame = g_CreditsCurFrame;
-		g_CreditsCurFrame += g_Vars.diffframe240;
-		g_CreditsCurFrame2 += g_Vars.diffframe240;
-	}
-
-	joyGetButtonsPressedThisFrame(0, Z_TRIG);
-
-	g_CreditsParticleRotationFrac = (g_CreditsCurFrame2 % TICKS(4800)) / TICKS(4800.0f);
-
-	if (joyGetButtons(0, R_TRIG) == 0) {
-		creditsTickParticles();
-
-		if (g_CreditsData->slidesenabled) {
-			creditsTickSlide();
-		} else if (RANDOMFRAC() < 0.01f) {
-			creditsCreatePendingBgLayers(0xffffffff);
-		}
-
-		if (!g_CreditsData->slidesenabled && g_CreditsData->blacktimer60 < TICKS(1360)) {
-			g_CreditsData->blacktimer60 += g_Vars.diffframe60;
-		}
-	}
-#endif
 }
 
 Gfx *creditsDraw(Gfx *gdl)
@@ -1877,17 +1852,12 @@ Gfx *creditsDraw(Gfx *gdl)
 		}
 	}
 
-#if VERSION >= VERSION_NTSC_1_0
-	/* M0.2: exit to CI on any gameplay button press (0xffcf excluded UI-only buttons) */
+	/* M0.2: exit to CI on any gameplay button press — version guard removed (always >= NTSC_1_0) */
 	if (actionPressed(0, ACTION_FIRE_PRIMARY)  || actionPressed(0, ACTION_FIRE_SECONDARY) ||
 		actionPressed(0, ACTION_USE)           || actionPressed(0, ACTION_CANCEL_USE) ||
 		actionPressed(0, ACTION_PAUSE)         || actionPressed(0, ACTION_RELOAD) ||
 		actionPressed(0, ACTION_WEAPON_NEXT)   || actionPressed(0, ACTION_WEAPON_PREV) ||
 		inputKeyJustPressed(VK_ESCAPE))
-#else
-	if (joyGetButtons(0, 0xffff) ||
-		inputKeyJustPressed(VK_ESCAPE))
-#endif
 	{
 		g_TitleNextStage = STAGE_CITRAINING;
 

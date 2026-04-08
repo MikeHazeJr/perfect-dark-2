@@ -471,11 +471,12 @@ void mainInit(void)
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
 	// If holding start on any controller, open boot pak menu
-	if (joyGetButtons(0, START_BUTTON) == 0
-			&& joyGetButtons(1, START_BUTTON) == 0
-			&& joyGetButtons(2, START_BUTTON) == 0
-			&& joyGetButtons(3, START_BUTTON) == 0) {
+	if (!actionHeld(0, ACTION_PAUSE)
+			&& !actionHeld(1, ACTION_PAUSE)
+			&& !actionHeld(2, ACTION_PAUSE)
+			&& !actionHeld(3, ACTION_PAUSE)) {
 		g_DoBootPakMenu = false;
 	} else {
 		g_DoBootPakMenu = true;
@@ -487,10 +488,11 @@ void mainInit(void)
 	// and the crash screen will be shown if the game crashes.
 #define BUTTON_MASK (U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS)
 
-	if (joyGetButtons(0, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(1, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(2, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(3, BUTTON_MASK) == BUTTON_MASK) {
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
+	if ((actionHeld(0, ACTION_CBUTTON_UP) && actionHeld(0, ACTION_CBUTTON_DOWN) && actionHeld(0, ACTION_CBUTTON_LEFT) && actionHeld(0, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(1, ACTION_CBUTTON_UP) && actionHeld(1, ACTION_CBUTTON_DOWN) && actionHeld(1, ACTION_CBUTTON_LEFT) && actionHeld(1, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(2, ACTION_CBUTTON_UP) && actionHeld(2, ACTION_CBUTTON_DOWN) && actionHeld(2, ACTION_CBUTTON_LEFT) && actionHeld(2, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(3, ACTION_CBUTTON_UP) && actionHeld(3, ACTION_CBUTTON_DOWN) && actionHeld(3, ACTION_CBUTTON_LEFT) && actionHeld(3, ACTION_CBUTTON_RIGHT))) {
 		g_CrashEnabled = true;
 	}
 #endif
@@ -631,10 +633,11 @@ void mainInit(void)
 		while (1);
 	}
 
-	if (joyGetButtons(0, START_BUTTON) == 0
-			&& joyGetButtons(1, START_BUTTON) == 0
-			&& joyGetButtons(2, START_BUTTON) == 0
-			&& joyGetButtons(3, START_BUTTON) == 0) {
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
+	if (!actionHeld(0, ACTION_PAUSE)
+			&& !actionHeld(1, ACTION_PAUSE)
+			&& !actionHeld(2, ACTION_PAUSE)
+			&& !actionHeld(3, ACTION_PAUSE)) {
 		s32 numpages;
 		OSMesg receivedmsg = NULL;
 		OSScMsg scdonemsg = { OS_SC_DONE_MSG };

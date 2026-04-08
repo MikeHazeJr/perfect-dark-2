@@ -69,10 +69,15 @@ static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c
 
 static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
 {
-	s32 buttons = joyGetButtonsOnSample(i, contpad, 0xffffffff);
-	if (buttons & (BUTTON_ALTMODE)) {
+	/* M0.2: collapsed sub-frame to per-frame — was joyGetButtonsOnSample(i, contpad, 0xffffffff) */
+	s32 playerIdx = (s32)contpad;
+	s32 altHeld = actionHeld(playerIdx, ACTION_FIRE_MODE);       /* BUTTON_ALTMODE = L_TRIG */
+	s32 cancelHeld = actionHeld(playerIdx, ACTION_CANCEL_USE);   /* BUTTON_CANCEL_USE = B_BUTTON */
+	s32 acceptHeld = actionHeld(playerIdx, ACTION_USE);          /* BUTTON_ACCEPT_USE = A_BUTTON */
+	s32 zHeld = actionHeld(playerIdx, ACTION_FIRE_PRIMARY);      /* Z_TRIG */
+	if (altHeld) {
 		if (g_Vars.currentplayer->altdowntime >= -1) {
-			if (buttons & (Z_TRIG)
+			if (zHeld
 					&& g_Vars.currentplayer->altdowntime >= 0
 					&& bgunConsiderToggleGunFunction(g_Vars.currentplayer->altdowntime, true, false, true) != USETIMER_CONTINUE) {
 				g_Vars.currentplayer->altdowntime = -3;
@@ -88,9 +93,9 @@ static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
 				g_Vars.currentplayer->altdowntime = -4;
 			}
 		}
-	} else if (buttons & (BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)) {
+	} else if (cancelHeld || acceptHeld) {
 		if (g_Vars.currentplayer->altdowntime >= -1) {
-			if (buttons & (Z_TRIG)
+			if (zHeld
 					&& g_Vars.currentplayer->altdowntime >= 0
 					&& bgunConsiderToggleGunFunction(g_Vars.currentplayer->altdowntime, true, false, true) != USETIMER_CONTINUE) {
 				g_Vars.currentplayer->altdowntime = -3;
@@ -494,7 +499,9 @@ void bmoveApplyMoveData(struct movedata *data)
 		g_Vars.currentplayer->ucmd = 0;
 		if (g_Vars.currentplayer->isdead) {
 			if (g_NetMode == NETMODE_CLIENT) {
-				if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000)) {
+				/* M0.2: 0xb000 = A_BUTTON | Z_TRIG | START_BUTTON */
+				s32 respawnPlayer = (s32)optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+				if (actionHeld(respawnPlayer, ACTION_USE) || actionHeld(respawnPlayer, ACTION_FIRE_PRIMARY) || actionHeld(respawnPlayer, ACTION_PAUSE)) {
 					g_Vars.currentplayer->ucmd |= UCMD_RESPAWN;
 				}
 			}
@@ -932,18 +939,61 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	c1stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 80.0f) : 0;
 	c1sticky = allowc1y ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f) : 0;
-	c2stickx = allowc1x ? (s8) joyGetRStickX(contpad1) : 0;
-	c2sticky = allowc1y ? (s8) joyGetRStickY(contpad1) : 0;
+	c2stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_X) * 80.0f) : 0;
+	c2sticky = allowc1y ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_Y) * 80.0f) : 0;
 
-	c1buttons = allowc1buttons ? joyGetButtons(contpad1, 0xffffffff) : 0;
-	c1buttonsthisframe = allowc1buttons ? joyGetButtonsPressedThisFrame(contpad1, 0xffffffff) : 0;
+	/* M0.2: synthesize button bitmask from action queries for downstream mask logic */
+	{
+		s32 pi = (s32)contpad1;
+		c1buttons = 0;
+		c1buttonsthisframe = 0;
+		if (allowc1buttons) {
+			if (actionHeld(pi, ACTION_FIRE_PRIMARY))   c1buttons |= Z_TRIG;
+			if (actionHeld(pi, ACTION_FIRE_SECONDARY)) c1buttons |= R_TRIG;
+			if (actionHeld(pi, ACTION_FIRE_MODE))      c1buttons |= L_TRIG;
+			if (actionHeld(pi, ACTION_USE))            c1buttons |= A_BUTTON;
+			if (actionHeld(pi, ACTION_CANCEL_USE))     c1buttons |= B_BUTTON;
+			if (actionHeld(pi, ACTION_RELOAD))         c1buttons |= X_BUTTON;
+			if (actionHeld(pi, ACTION_WEAPON_NEXT))    c1buttons |= Y_BUTTON;
+			if (actionHeld(pi, ACTION_PAUSE))          c1buttons |= START_BUTTON;
+			if (actionHeld(pi, ACTION_CBUTTON_UP))     c1buttons |= U_CBUTTONS;
+			if (actionHeld(pi, ACTION_CBUTTON_DOWN))   c1buttons |= D_CBUTTONS;
+			if (actionHeld(pi, ACTION_CBUTTON_LEFT))   c1buttons |= L_CBUTTONS;
+			if (actionHeld(pi, ACTION_CBUTTON_RIGHT))  c1buttons |= R_CBUTTONS;
+			if (actionHeld(pi, ACTION_DPAD_UP))        c1buttons |= U_JPAD;
+			if (actionHeld(pi, ACTION_DPAD_DOWN))      c1buttons |= D_JPAD;
+			if (actionHeld(pi, ACTION_DPAD_LEFT))      c1buttons |= L_JPAD;
+			if (actionHeld(pi, ACTION_DPAD_RIGHT))     c1buttons |= R_JPAD;
+			if (actionHeld(pi, ACTION_CROUCH))         c1buttons |= BUTTON_HALF_CROUCH;
+			if (actionHeld(pi, ACTION_JUMP))           c1buttons |= BUTTON_JUMP;
+
+			if (actionPressed(pi, ACTION_FIRE_PRIMARY))   c1buttonsthisframe |= Z_TRIG;
+			if (actionPressed(pi, ACTION_FIRE_SECONDARY)) c1buttonsthisframe |= R_TRIG;
+			if (actionPressed(pi, ACTION_FIRE_MODE))      c1buttonsthisframe |= L_TRIG;
+			if (actionPressed(pi, ACTION_USE))            c1buttonsthisframe |= A_BUTTON;
+			if (actionPressed(pi, ACTION_CANCEL_USE))     c1buttonsthisframe |= B_BUTTON;
+			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
+			if (actionPressed(pi, ACTION_WEAPON_NEXT))    c1buttonsthisframe |= Y_BUTTON;
+			if (actionPressed(pi, ACTION_PAUSE))          c1buttonsthisframe |= START_BUTTON;
+			if (actionPressed(pi, ACTION_CBUTTON_UP))     c1buttonsthisframe |= U_CBUTTONS;
+			if (actionPressed(pi, ACTION_CBUTTON_DOWN))   c1buttonsthisframe |= D_CBUTTONS;
+			if (actionPressed(pi, ACTION_CBUTTON_LEFT))   c1buttonsthisframe |= L_CBUTTONS;
+			if (actionPressed(pi, ACTION_CBUTTON_RIGHT))  c1buttonsthisframe |= R_CBUTTONS;
+			if (actionPressed(pi, ACTION_DPAD_UP))        c1buttonsthisframe |= U_JPAD;
+			if (actionPressed(pi, ACTION_DPAD_DOWN))      c1buttonsthisframe |= D_JPAD;
+			if (actionPressed(pi, ACTION_DPAD_LEFT))      c1buttonsthisframe |= L_JPAD;
+			if (actionPressed(pi, ACTION_DPAD_RIGHT))     c1buttonsthisframe |= R_JPAD;
+			if (actionPressed(pi, ACTION_CROUCH))         c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+			if (actionPressed(pi, ACTION_JUMP))           c1buttonsthisframe |= BUTTON_JUMP;
+		}
+	}
 
 	c1allowedbuttons = 0xffffffff;
 
 	if (g_Vars.currentplayer->joybutinhibit & 0xffffffff) {
 		inhibitedbuttons = g_Vars.currentplayer->joybutinhibit & 0xffffffff;
 		c1allowedbuttons = ~inhibitedbuttons;
-		inhibitedbuttons = joyGetButtons(contpad1, 0xffffffff) & inhibitedbuttons;
+		inhibitedbuttons = c1buttons & inhibitedbuttons; /* M0.2: was joyGetButtons re-read, now uses synthesized mask */
 		c1buttons &= ~inhibitedbuttons;
 		c1buttonsthisframe &= ~inhibitedbuttons;
 		g_Vars.currentplayer->joybutinhibit = (g_Vars.currentplayer->joybutinhibit & 0x0) | inhibitedbuttons;
@@ -1025,10 +1075,48 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				// 2.3: ctrl1 stick = walk/turn, z = aim,  ctrl2 stick = look/strafe, z = fire
 				// 2.4: ctrl1 stick = look,      z = aim,  ctrl2 stick = walk/strafe, z = fire
 				contpad2 = (s8) optionsGetContpadNum2(g_Vars.currentplayerstats->mpindex);
-				c2stickx = (s8) joyGetStickX(contpad2);
-				c2sticky = (joyGetStickY(contpad2) << 24) >> 24;
-				c2buttons = joyGetButtons(contpad2, 0xffffffff);
-				c2buttonsthisframe = joyGetButtonsPressedThisFrame(contpad2, 0xffffffff);
+				/* M0.2: dual-controller sticks via action map */
+				c2stickx = (s8)(actionValue((s32)contpad2, ACTION_AXIS_MOVE_X) * 80.0f);
+				c2sticky = (s8)(actionValue((s32)contpad2, ACTION_AXIS_MOVE_Y) * 80.0f);
+				/* M0.2: synthesize c2 button bitmask from action queries */
+				{
+					s32 pi2 = (s32)contpad2;
+					c2buttons = 0;
+					c2buttonsthisframe = 0;
+					if (actionHeld(pi2, ACTION_FIRE_PRIMARY))   c2buttons |= Z_TRIG;
+					if (actionHeld(pi2, ACTION_FIRE_SECONDARY)) c2buttons |= R_TRIG;
+					if (actionHeld(pi2, ACTION_FIRE_MODE))      c2buttons |= L_TRIG;
+					if (actionHeld(pi2, ACTION_USE))            c2buttons |= A_BUTTON;
+					if (actionHeld(pi2, ACTION_CANCEL_USE))     c2buttons |= B_BUTTON;
+					if (actionHeld(pi2, ACTION_RELOAD))         c2buttons |= X_BUTTON;
+					if (actionHeld(pi2, ACTION_WEAPON_NEXT))    c2buttons |= Y_BUTTON;
+					if (actionHeld(pi2, ACTION_PAUSE))          c2buttons |= START_BUTTON;
+					if (actionHeld(pi2, ACTION_CBUTTON_UP))     c2buttons |= U_CBUTTONS;
+					if (actionHeld(pi2, ACTION_CBUTTON_DOWN))   c2buttons |= D_CBUTTONS;
+					if (actionHeld(pi2, ACTION_CBUTTON_LEFT))   c2buttons |= L_CBUTTONS;
+					if (actionHeld(pi2, ACTION_CBUTTON_RIGHT))  c2buttons |= R_CBUTTONS;
+					if (actionHeld(pi2, ACTION_DPAD_UP))        c2buttons |= U_JPAD;
+					if (actionHeld(pi2, ACTION_DPAD_DOWN))      c2buttons |= D_JPAD;
+					if (actionHeld(pi2, ACTION_DPAD_LEFT))      c2buttons |= L_JPAD;
+					if (actionHeld(pi2, ACTION_DPAD_RIGHT))     c2buttons |= R_JPAD;
+
+					if (actionPressed(pi2, ACTION_FIRE_PRIMARY))   c2buttonsthisframe |= Z_TRIG;
+					if (actionPressed(pi2, ACTION_FIRE_SECONDARY)) c2buttonsthisframe |= R_TRIG;
+					if (actionPressed(pi2, ACTION_FIRE_MODE))      c2buttonsthisframe |= L_TRIG;
+					if (actionPressed(pi2, ACTION_USE))            c2buttonsthisframe |= A_BUTTON;
+					if (actionPressed(pi2, ACTION_CANCEL_USE))     c2buttonsthisframe |= B_BUTTON;
+					if (actionPressed(pi2, ACTION_RELOAD))         c2buttonsthisframe |= X_BUTTON;
+					if (actionPressed(pi2, ACTION_WEAPON_NEXT))    c2buttonsthisframe |= Y_BUTTON;
+					if (actionPressed(pi2, ACTION_PAUSE))          c2buttonsthisframe |= START_BUTTON;
+					if (actionPressed(pi2, ACTION_CBUTTON_UP))     c2buttonsthisframe |= U_CBUTTONS;
+					if (actionPressed(pi2, ACTION_CBUTTON_DOWN))   c2buttonsthisframe |= D_CBUTTONS;
+					if (actionPressed(pi2, ACTION_CBUTTON_LEFT))   c2buttonsthisframe |= L_CBUTTONS;
+					if (actionPressed(pi2, ACTION_CBUTTON_RIGHT))  c2buttonsthisframe |= R_CBUTTONS;
+					if (actionPressed(pi2, ACTION_DPAD_UP))        c2buttonsthisframe |= U_JPAD;
+					if (actionPressed(pi2, ACTION_DPAD_DOWN))      c2buttonsthisframe |= D_JPAD;
+					if (actionPressed(pi2, ACTION_DPAD_LEFT))      c2buttonsthisframe |= L_JPAD;
+					if (actionPressed(pi2, ACTION_DPAD_RIGHT))     c2buttonsthisframe |= R_JPAD;
+				}
 
 				tmpc2stickx = c2stickx;
 				tmpc2sticky = c2sticky;
@@ -1040,7 +1128,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				if (g_Vars.currentplayer->joybutinhibit) {
 					inhibitedbuttons = g_Vars.currentplayer->joybutinhibit;
 					c2allowedbuttons = ~inhibitedbuttons;
-					inhibitedbuttons = joyGetButtons(contpad2, 0xffffffff) & inhibitedbuttons;
+					inhibitedbuttons = c2buttons & inhibitedbuttons; /* M0.2: was joyGetButtons re-read, now uses synthesized mask */
 					c2buttons &= ~inhibitedbuttons;
 					c2buttonsthisframe &= ~inhibitedbuttons;
 					g_Vars.currentplayer->joybutinhibit |= inhibitedbuttons;
@@ -1105,7 +1193,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 				if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) == AIMCONTROL_HOLD) {
 					for (i = 0; i < numsamples; i++) {
-						aimonhist[i] = allowc1buttons && joyGetButtonsOnSample(i, aimpad, aimallowedbuttons & Z_TRIG);
+						aimonhist[i] = allowc1buttons && actionHeld((s32)aimpad, ACTION_FIRE_PRIMARY); /* M0.2: collapsed sub-frame to per-frame */
 						aimoffhist[i] = !aimonhist[i];
 					}
 
@@ -1118,7 +1206,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					// Handle aiming
 					if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) != AIMCONTROL_HOLD) {
 						for (i = 0; i < numsamples; i++) {
-							if (allowc1buttons && joyGetButtonsPressedOnSample(i, aimpad, aimallowedbuttons & Z_TRIG)) {
+							if (allowc1buttons && actionPressed((s32)aimpad, ACTION_FIRE_PRIMARY)) { /* M0.2: collapsed sub-frame to per-frame */
 								g_Vars.currentplayer->insightaimmode = !g_Vars.currentplayer->insightaimmode;
 							}
 
@@ -1195,25 +1283,27 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						} else {
 							for (i = 0; i < numsamples; i++) {
 								if (controlmode == CONTROLMODE_PC) {
-									if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_WPNFORWARD)) {
+									/* M0.2: collapsed sub-frame to per-frame */
+									if ((c1allowedbuttons & BUTTON_WPNFORWARD) && actionPressed((s32)contpad1, ACTION_WEAPON_NEXT)) {
 										movedata.weaponforwardoffset++;
 										g_Vars.currentplayer->invdowntime = -1;
-									} else if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_WPNBACK)) {
+									} else if ((c1allowedbuttons & BUTTON_WPNBACK) && actionPressed((s32)contpad1, ACTION_DPAD_LEFT)) {
 										movedata.weaponbackoffset++;
 										g_Vars.currentplayer->invdowntime = -1;
 									}
 									continue;
 								}
-								if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & A_BUTTON)
-										|| joyGetButtonsOnSample(i, contpad2, c2allowedbuttons & A_BUTTON)) {
+								/* M0.2: collapsed sub-frame to per-frame */
+								if (((c1allowedbuttons & A_BUTTON) && actionHeld((s32)contpad1, ACTION_USE))
+										|| ((c2allowedbuttons & A_BUTTON) && actionHeld((s32)contpad2, ACTION_USE))) {
 									if (g_Vars.currentplayer->invdowntime > -2) {
-										if (joyGetButtonsPressedOnSample(i, shootpad, shootallowedbuttons & Z_TRIG)) {
+										if ((shootallowedbuttons & Z_TRIG) && actionPressed((s32)shootpad, ACTION_FIRE_PRIMARY)) {
 											movedata.weaponbackoffset++;
 											g_Vars.currentplayer->invdowntime = -1;
 										}
 
 										if (g_Vars.currentplayer->invdowntime > -1
-												&& joyGetButtonsOnSample(i, shootpad, shootallowedbuttons & Z_TRIG) == 0) {
+												&& !((shootallowedbuttons & Z_TRIG) && actionHeld((s32)shootpad, ACTION_FIRE_PRIMARY))) {
 											if (g_Vars.currentplayer->invdowntime > TICKS(15)) {
 												amOpen();
 												g_Vars.currentplayer->invdowntime = -1;
@@ -1224,7 +1314,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 									}
 								} else {
 									if (g_Vars.currentplayer->invdowntime > 0 &&
-											(!allowc1buttons || joyGetButtonsOnSample(i, shootpad, shootallowedbuttons & Z_TRIG) == 0)) {
+											(!allowc1buttons || !((shootallowedbuttons & Z_TRIG) && actionHeld((s32)shootpad, ACTION_FIRE_PRIMARY)))) {
 										movedata.weaponforwardoffset++;
 									}
 
@@ -1237,10 +1327,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					// Handle B button activation
 					if (allowc1buttons && controlmode < CONTROLMODE_PC) {
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & B_BUTTON)
-									|| joyGetButtonsOnSample(i, contpad2, c2allowedbuttons & B_BUTTON)) {
+							/* M0.2: collapsed sub-frame to per-frame */
+							if (((c1allowedbuttons & B_BUTTON) && actionHeld((s32)contpad1, ACTION_CANCEL_USE))
+									|| ((c2allowedbuttons & B_BUTTON) && actionHeld((s32)contpad2, ACTION_CANCEL_USE))) {
 								if (g_Vars.currentplayer->usedowntime >= -1) {
-									if (joyGetButtonsPressedOnSample(i, shootpad, shootallowedbuttons & Z_TRIG)
+									if ((shootallowedbuttons & Z_TRIG) && actionPressed((s32)shootpad, ACTION_FIRE_PRIMARY)
 											&& g_Vars.currentplayer->usedowntime > -1
 											&& bgunConsiderToggleGunFunction(g_Vars.currentplayer->usedowntime, true, false, 0) != USETIMER_CONTINUE) {
 										g_Vars.currentplayer->usedowntime = -3;
@@ -1303,7 +1394,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {
 							if (!canmanualzoom && aimonhist[i]) {
-								if (joyGetStickYOnSample(i, contpad2) > 30 && joyGetStickYOnSampleIndex(i, contpad2) <= 30) {
+								/* M0.2: collapsed sub-frame stick edge detection to per-frame threshold.
+								 * Was: joyGetStickYOnSample > 30 && joyGetStickYOnSampleIndex <= 30
+								 * Now uses actionPressed for crouch actions on contpad2 */
+								if (actionPressed((s32)contpad2, ACTION_CBUTTON_UP)) {
 									if (movedata.crouchdown) {
 										movedata.crouchdown--;
 									} else {
@@ -1313,7 +1407,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 									g_Vars.currentplayer->aimtaptime = -1;
 								}
 
-								if (joyGetStickYOnSample(i, contpad2) < -30 && joyGetStickYOnSampleIndex(i, contpad2) >= -30) {
+								if (actionPressed((s32)contpad2, ACTION_CBUTTON_DOWN)) {
 									if (movedata.crouchup) {
 										movedata.crouchup--;
 									} else {
@@ -1350,9 +1444,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							&& g_Vars.currentplayer->crouchoffset == -90
 							&& g_Vars.mplayerisrunning
 							&& g_Vars.coopplayernum < 0) {
+						/* M0.2: was joyGetStickY(contpad2) — use c2sticky which was already read via actionValue */
 						movedata.eyesshut = g_Vars.currentplayer->insightaimmode
 							&& !canmanualzoom
-							&& joyGetStickY(contpad2) < -30;
+							&& c2sticky < -30;
 					}
 
 					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT) {
@@ -1387,20 +1482,20 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				movedata.zooming = g_Vars.currentplayer->insightaimmode;
 
 				if (g_Vars.currentplayer->waitforzrelease
-						&& joyGetButtons(shootpad, shootallowedbuttons & Z_TRIG) == 0) {
+						&& !((shootallowedbuttons & Z_TRIG) && actionHeld((s32)shootpad, ACTION_FIRE_PRIMARY))) {
 					g_Vars.currentplayer->waitforzrelease = false;
 				}
 
 				if (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_FIRETOACTIVATE)) {
 					if (allowc1buttons
-							&& joyGetButtonsPressedThisFrame(shootpad, shootallowedbuttons & Z_TRIG)
+							&& (shootallowedbuttons & Z_TRIG) && actionPressed((s32)shootpad, ACTION_FIRE_PRIMARY)
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
 						movedata.btapcount++;
 					}
 				} else {
 					movedata.triggeron = g_Vars.currentplayer->waitforzrelease == false
 						&& allowc1buttons
-						&& joyGetButtons(shootpad, shootallowedbuttons & Z_TRIG)
+						&& (shootallowedbuttons & Z_TRIG) && actionHeld((s32)shootpad, ACTION_FIRE_PRIMARY)
 						&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED
 						&& (c1buttons & A_BUTTON) == 0
 						&& (c2buttons & A_BUTTON) == 0;
@@ -1431,7 +1526,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 				if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) == AIMCONTROL_HOLD) {
 					for (i = 0; i < numsamples; i++) {
-						aimonhist[i] = allowc1buttons && joyGetButtonsOnSample(i, contpad1, aimbuttons & c1allowedbuttons);
+						/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons */
+						aimonhist[i] = allowc1buttons && (c1buttons & (aimbuttons & c1allowedbuttons));
 						aimoffhist[i] = !aimonhist[i];
 					}
 
@@ -1444,7 +1540,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					// Handle aiming
 					if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) != AIMCONTROL_HOLD) {
 						for (i = 0; i < numsamples; i++) {
-							if (allowc1buttons && joyGetButtonsPressedOnSample(i, contpad1, aimbuttons & c1allowedbuttons)) {
+							/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe */
+							if (allowc1buttons && (c1buttonsthisframe & (aimbuttons & c1allowedbuttons))) {
 								g_Vars.currentplayer->insightaimmode = !g_Vars.currentplayer->insightaimmode;
 							}
 
@@ -1660,23 +1757,25 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						} else {
 							for (i = 0; i < numsamples; i++) {
 								if (controlmode == CONTROLMODE_PC) {
-									if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_WPNFORWARD)) {
+									/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe */
+									if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_WPNFORWARD)) {
 										movedata.weaponforwardoffset++;
 										g_Vars.currentplayer->invdowntime = -1;
-									} else if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_WPNBACK)) {
+									} else if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_WPNBACK)) {
 										movedata.weaponbackoffset++;
 										g_Vars.currentplayer->invdowntime = -1;
 									}
 									continue;
 								}
-								if (joyGetButtonsOnSample(i, contpad1, invbuttons & c1allowedbuttons)) {
+								/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons/c1buttonsthisframe */
+								if (c1buttons & (invbuttons & c1allowedbuttons)) {
 									if (g_Vars.currentplayer->invdowntime > -2) {
-										if (joyGetButtonsPressedOnSample(i, contpad1, shootbuttons & c1allowedbuttons)) {
+										if (c1buttonsthisframe & (shootbuttons & c1allowedbuttons)) {
 											movedata.weaponbackoffset++;
 											g_Vars.currentplayer->invdowntime = -1;
 										}
 
-										if (g_Vars.currentplayer->invdowntime >= 0 && joyGetButtonsOnSample(i, contpad1, shootbuttons & c1allowedbuttons) == 0) {
+										if (g_Vars.currentplayer->invdowntime >= 0 && !(c1buttons & (shootbuttons & c1allowedbuttons))) {
 											// Holding A and haven't pressed Z
 											if (g_Vars.currentplayer->invdowntime > TICKS(15)) {
 												amOpen();
@@ -1689,7 +1788,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								} else {
 									// Wasn't holding A on this sample
 									if (g_Vars.currentplayer->invdowntime > 0 &&
-											(!allowc1buttons || joyGetButtonsOnSample(i, contpad1, shootbuttons & c1allowedbuttons) == 0)) {
+											(!allowc1buttons || !(c1buttons & (shootbuttons & c1allowedbuttons)))) {
 										// But was on previous sample, so cycle weapon
 										movedata.weaponforwardoffset++;
 									}
@@ -1706,10 +1805,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						B_BUTTON;
 					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & usemask)) {
+							/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons */
+							if (c1buttons & (c1allowedbuttons & usemask)) {
 								if (g_Vars.currentplayer->usedowntime >= -1) {
 									if (controlmode < CONTROLMODE_PC) {
-										if (joyGetButtonsPressedOnSample(i, contpad1, shootbuttons & c1allowedbuttons)
+										if ((c1buttonsthisframe & (shootbuttons & c1allowedbuttons))
 												&& g_Vars.currentplayer->usedowntime >= 0
 												&& bgunConsiderToggleGunFunction(g_Vars.currentplayer->usedowntime, true, false, 0) != USETIMER_CONTINUE) {
 											g_Vars.currentplayer->usedowntime = -3;
@@ -1757,14 +1857,16 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 						// Handle ALT1 / MI Reload Hack
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & BUTTON_RELOAD)) {
+							/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons */
+							if (c1buttons & (c1allowedbuttons & BUTTON_RELOAD)) {
 								movedata.alt1tapcount++;
 							}
 						}
 
 						// Handle radial menu (D-Down)
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & BUTTON_RADIAL)) {
+							/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons/c1buttonsthisframe */
+							if (c1buttons & (c1allowedbuttons & BUTTON_RADIAL)) {
 								if (g_Vars.currentplayer->amdowntime < -2) {
 									g_Vars.currentplayer->amdowntime += numsamples;
 
@@ -1773,7 +1875,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 									}
 								} else {
 									if (g_Vars.currentplayer->amdowntime >= 0) {
-										if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_RADIAL)) {
+										if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_RADIAL)) {
 											amOpen();
 											g_Vars.currentplayer->amdowntime = -1;
 										} else {
@@ -1793,7 +1895,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							s32 crouchsample;
 							if (PLAYER_EXTCFG().crouchmode & CROUCHMODE_TOGGLE) {
 								// press to toggle crouch position
-								crouchsample = joyGetButtonsPressedOnSample(i, contpad1, 0xffffffff) & BUTTON_CROUCH_CYCLE;
+								/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe */
+								crouchsample = c1buttonsthisframe & BUTTON_CROUCH_CYCLE;
 								if (crouchsample) {
 									if (g_Vars.currentplayer->crouchpos <= 0) {
 										g_Vars.currentplayer->crouchpos = CROUCHPOS_STAND;
@@ -1801,7 +1904,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 										g_Vars.currentplayer->crouchpos--;
 									}
 								}
-								crouchsample = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & ~BUTTON_JUMP) & BUTTON_HALF_CROUCH;
+								crouchsample = c1buttonsthisframe & ((c1allowedbuttons & ~BUTTON_JUMP) & BUTTON_HALF_CROUCH);
 								if (crouchsample) {
 									if (g_Vars.currentplayer->crouchpos == CROUCHPOS_DUCK) {
 										g_Vars.currentplayer->crouchpos = CROUCHPOS_STAND;
@@ -1809,7 +1912,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 										g_Vars.currentplayer->crouchpos = CROUCHPOS_DUCK;
 									}
 								}
-								crouchsample = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons) & BUTTON_FULL_CROUCH;
+								crouchsample = c1buttonsthisframe & (c1allowedbuttons & BUTTON_FULL_CROUCH);
 								if (crouchsample) {
 									if (g_Vars.currentplayer->crouchpos == CROUCHPOS_SQUAT) {
 										g_Vars.currentplayer->crouchpos = CROUCHPOS_STAND;
@@ -1819,7 +1922,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								}
 							} else if (PLAYER_EXTCFG().crouchmode == CROUCHMODE_HOLD) {
 								// hold to crouch
-								crouchsample = joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & ~BUTTON_JUMP) & (BUTTON_FULL_CROUCH | BUTTON_HALF_CROUCH);
+								/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttons */
+								crouchsample = c1buttons & ((c1allowedbuttons & ~BUTTON_JUMP) & (BUTTON_FULL_CROUCH | BUTTON_HALF_CROUCH));
 								if (!crouchsample) {
 									g_Vars.currentplayer->crouchpos = CROUCHPOS_STAND;
 								} else if (crouchsample & BUTTON_FULL_CROUCH) {
@@ -1840,7 +1944,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (controlmode == CONTROLMODE_PC && allowc1buttons) {
 						bool jumpButtonHeld = false;
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_JUMP)) {
+							/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe */
+							if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_JUMP)) {
 								jumpButtonHeld = true;
 								break;
 							}
@@ -1901,9 +2006,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (allowc1buttons && (controlmode < CONTROLMODE_PC || (PLAYER_EXTCFG().crouchmode & CROUCHMODE_ANALOG))) {
 						for (i = 0; i < numsamples; i++) {
 							if (!canmanualzoom && aimonhist[i]) {
-								bool goUp = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & sumask);
+								/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe + actionValue for rstick */
+								bool goUp = (c1buttonsthisframe & (c1allowedbuttons & sumask)) != 0;
 								if (controlmode == CONTROLMODE_PC) {
-									goUp = goUp || ((joyGetRStickYOnSample(i, contpad1) > 30 && joyGetRStickYOnSampleIndex(i, contpad1) <= 30));
+									goUp = goUp || (c2sticky > 30 && actionPressed((s32)contpad1, ACTION_CBUTTON_UP));
 								}
 								if (goUp) {
 									if (movedata.crouchdown) {
@@ -1915,9 +2021,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 									g_Vars.currentplayer->aimtaptime = -1;
 								}
 
-								bool goDn = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & sdmask);
+								bool goDn = (c1buttonsthisframe & (c1allowedbuttons & sdmask)) != 0;
 								if (controlmode == CONTROLMODE_PC) {
-									goDn = goDn || ((joyGetRStickYOnSample(i, contpad1) < -30 && joyGetRStickYOnSampleIndex(i, contpad1) >= -30));
+									goDn = goDn || (c2sticky < -30 && actionPressed((s32)contpad1, ACTION_CBUTTON_DOWN));
 								}
 								if (goDn) {
 									if (movedata.crouchup) {
@@ -1959,7 +2065,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							&& g_Vars.coopplayernum <= -1) {
 						movedata.eyesshut = g_Vars.currentplayer->insightaimmode
 							&& !canmanualzoom
-							&& joyGetButtons(contpad1, c1allowedbuttons & sdmask);
+							&& (c1buttons & (c1allowedbuttons & sdmask)); /* M0.2: was joyGetButtons, now uses synthesized c1buttons */
 					}
 
 					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT) {

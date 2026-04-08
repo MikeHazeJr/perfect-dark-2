@@ -700,7 +700,25 @@ void eyespyProcessInput(bool allowbuttons)
 	s8 c2stickx;
 	s8 c1sticky = (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f);
 	s8 c2sticky;
-	u32 c1buttons = allowbuttons ? joyGetButtons(contpad1, 0xffffffff) : 0;
+	/* M0.2: reconstruct button bitmask from action map for downstream checks */
+	u32 c1buttons = 0;
+	if (allowbuttons) {
+		s32 p = g_Vars.currentplayernum;
+		if (actionHeld(p, ACTION_FIRE_PRIMARY))    c1buttons |= Z_TRIG;
+		if (actionHeld(p, ACTION_FIRE_SECONDARY))  c1buttons |= R_TRIG;
+		if (actionHeld(p, ACTION_FIRE_MODE))       c1buttons |= L_TRIG;
+		if (actionHeld(p, ACTION_USE))             c1buttons |= A_BUTTON;
+		if (actionHeld(p, ACTION_CANCEL_USE))      c1buttons |= B_BUTTON;
+		if (actionHeld(p, ACTION_PAUSE))           c1buttons |= START_BUTTON;
+		if (actionHeld(p, ACTION_CBUTTON_UP))      c1buttons |= U_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_DOWN))    c1buttons |= D_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_LEFT))    c1buttons |= L_CBUTTONS;
+		if (actionHeld(p, ACTION_CBUTTON_RIGHT))   c1buttons |= R_CBUTTONS;
+		if (actionHeld(p, ACTION_DPAD_UP))         c1buttons |= U_JPAD;
+		if (actionHeld(p, ACTION_DPAD_DOWN))       c1buttons |= D_JPAD;
+		if (actionHeld(p, ACTION_DPAD_LEFT))       c1buttons |= L_JPAD;
+		if (actionHeld(p, ACTION_DPAD_RIGHT))      c1buttons |= R_JPAD;
+	}
 	u32 c2buttons;
 	bool domovecentre = true;
 	s32 controlmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
@@ -735,14 +753,16 @@ void eyespyProcessInput(bool allowbuttons)
 
 	if (controlmode >= CONTROLMODE_21 && controlmode < CONTROLMODE_PC) {
 		contpad2 = (s8) optionsGetContpadNum2(g_Vars.currentplayerstats->mpindex);
-		c2stickx = joyGetStickX(contpad2);
-		c2sticky = joyGetStickY(contpad2);
+		/* M0.2: second-controller sticks via action map look axis */
+		c2stickx = (s8)(actionValue(g_Vars.currentplayernum, ACTION_AXIS_AIM_X) * 80.0f);
+		c2sticky = (s8)(actionValue(g_Vars.currentplayernum, ACTION_AXIS_AIM_Y) * 80.0f);
 
-		c2buttons = allowbuttons ? joyGetButtons(contpad2, 0xffffffff) : 0;
+		c2buttons = allowbuttons ? c1buttons : 0; /* M0.2: collapsed to single player */
 	} else {
 		if (controlmode == CONTROLMODE_PC) {
-			c2stickx = joyGetRStickX(contpad1);
-			c2sticky = joyGetRStickY(contpad1);
+			/* M0.2: right stick via action map look axis */
+			c2stickx = (s8)(actionValue(g_Vars.currentplayernum, ACTION_AXIS_AIM_X) * 80.0f);
+			c2sticky = (s8)(actionValue(g_Vars.currentplayernum, ACTION_AXIS_AIM_Y) * 80.0f);
 		} else {
 			c2stickx = c1stickx;
 			c2sticky = c1sticky;

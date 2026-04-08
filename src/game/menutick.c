@@ -23,6 +23,7 @@
 #include "bss.h"
 #include "lib/vi.h"
 #include "lib/joy.h"
+#include "actionmap.h"
 #include "lib/main.h"
 #include "lib/snd.h"
 #include "data.h"
@@ -363,7 +364,13 @@ void menuTick(void)
 				if (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU) {
 					// Check if player is joining the game
 					bool canjoin;
-					u32 buttons = joyGetButtonsPressedThisFrame(i, 0xffffffff);
+					/* M0.2: query all-buttons pressed via action map for player i */
+					u32 buttons = 0;
+					if (actionPressed(i, ACTION_USE))            buttons |= A_BUTTON;
+					if (actionPressed(i, ACTION_CANCEL_USE))     buttons |= B_BUTTON;
+					if (actionPressed(i, ACTION_FIRE_PRIMARY))   buttons |= Z_TRIG;
+					if (actionPressed(i, ACTION_FIRE_SECONDARY)) buttons |= R_TRIG;
+					if (actionPressed(i, ACTION_PAUSE))          buttons |= START_BUTTON;
 
 					if (g_MenuData.root == MENUROOT_4MBMAINMENU) {
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_GENERAL) {
@@ -460,7 +467,8 @@ void menuTick(void)
 				// Note that MPENDSCREEN also refers to coop and anti modes.
 				// Handle re-opening the endscreen by pressing B.
 				if (g_MenuData.root == MENUROOT_MPENDSCREEN) {
-					u32 buttons2 = joyGetButtonsPressedThisFrame(g_PlayerConfigsArray[i].contpad1, 0xffffffff);
+					/* M0.2: action map replaces contpad-based button query */
+					u32 buttons2 = actionPressed(i, ACTION_CANCEL_USE) ? B_BUTTON : 0;
 
 					if (buttons2 & B_BUTTON) {
 						s32 playernum = -1;
