@@ -3716,14 +3716,18 @@ void mpGenerateBotNames(void)
 		profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
 
 		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
+			// P2: Check for mod-provided bot name override
+			const char *modName = modmgrGetBotProfileName(profilenum);
+			const char *baseName = modName ? modName : langGet(g_BotProfiles[profilenum].name);
+
 			if (counts[profilenum] >= 0) {
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
-				snprintf(name, sizeof(name), "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
+				snprintf(name, sizeof(name), "%s:%d\n", baseName, counts[profilenum]);
 				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			} else {
-				// One bots using this profile - just use the profile name
-				snprintf(name, sizeof(name), "%s\n", langGet(g_BotProfiles[profilenum].name));
+				// One bot using this profile - just use the profile name
+				snprintf(name, sizeof(name), "%s\n", baseName);
 				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			}
 		}

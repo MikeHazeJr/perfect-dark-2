@@ -2174,6 +2174,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
             sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
         }
 
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Mods -- opens the Modding Hub (view 3) */
+        if (PdButton("Mods", ImVec2(buttonW, buttonH * 1.2f))) {
+            s_MenuView = 3;
+            pdguiModdingHubShow();
+            sysLogPrintf(LOG_NOTE, "MENU_STACK: modding hub OPEN (s_MenuView=3)");
+        }
+
         /* Quit Game -- docked to bottom-right with confirmation */
         {
             /* Width sized to fit the widest label ("Confirm Quit") so both states match */

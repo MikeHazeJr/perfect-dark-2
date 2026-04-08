@@ -45,6 +45,30 @@ void modmgrApplyChanges(void);
 void modmgrSaveComponentState(void);
 const char *modmgrGetModsDir(void);
 
+/* Mod registry queries (modmgr.h) */
+s32  modmgrGetCount(void);
+void modmgrSetEnabled(s32 index, s32 enabled);
+s32  modmgrCheckDependencies(s32 index, char *missing, s32 misslen);
+void modmgrSwapOrder(s32 indexA, s32 indexB);
+s32  modmgrExceedsThreshold(s32 index);
+s32  modmgrGetSizeThresholdMB(void);
+void modmgrSetSizeThresholdMB(s32 mb);
+void modmgrSaveConfig(void);
+
+/* UI accessor helpers (no struct layout needed) */
+const char *modmgrGetModId(s32 index);
+const char *modmgrGetModName(s32 index);
+const char *modmgrGetModVersion(s32 index);
+const char *modmgrGetModAuthor(s32 index);
+const char *modmgrGetModDescription(s32 index);
+const char *modmgrGetModBaseFallback(s32 index);
+const char *modmgrGetModValidationError(s32 index);
+s32  modmgrGetModEnabled(s32 index);
+s32  modmgrGetModValid(s32 index);
+u32  modmgrGetModSizeBytes(s32 index);
+s32  modmgrGetModNumDeps(s32 index);
+const char *modmgrGetModDep(s32 index, s32 depIndex);
+
 /* Catalog write API (D3R-6) */
 void assetCatalogSetEnabled(const char *id, s32 enabled);
 s32  assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout);
@@ -817,6 +841,211 @@ static void renderValidationModal(float scale)
 }
 
 /* ========================================================================
+ * Installed Mods tab — shows discovered mods from modmgr registry
+ * Features: no-mods-found, invalid manifest errors, dependency warnings,
+ * size threshold prompts, load order reordering (up/down).
+ * ======================================================================== */
+
+static int  s_SelectedModIdx = -1;
+static bool s_SizeConfirmPending = false;
+static int  s_SizeConfirmIdx = -1;
+
+static void renderInstalledModsTab(float scale)
+{
+    int modCount = modmgrGetCount();
+
+    /* --- No mods found --- */
+    if (modCount == 0) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "No mods found");
+        ImGui::Spacing();
+        const char *modsDir = modmgrGetModsDir();
+        if (modsDir) {
+            ImGui::TextWrapped("Place mod folders in:\n%s", modsDir);
+        } else {
+            ImGui::TextWrapped("Place mod folders in a 'mods/' directory next to the game executable.");
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Each mod needs a mod.json manifest file.");
+        return;
+    }
+
+    for (int i = 0; i < modCount; i++) {
+        ImGui::PushID(i);
+
+        bool valid   = modmgrGetModValid(i) != 0;
+        bool enabled = modmgrGetModEnabled(i) != 0;
+        const char *name    = modmgrGetModName(i);
+        const char *version = modmgrGetModVersion(i);
+        const char *author  = modmgrGetModAuthor(i);
+        const char *valErr  = modmgrGetModValidationError(i);
+        bool isSelected = (s_SelectedModIdx == i);
+
+        /* --- Invalid manifest: show error inline --- */
+        if (!valid) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            ImGui::BulletText("%s", name[0] ? name : "(unknown mod)");
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 0.8f), "[INVALID]");
+            if (valErr[0]) {
+                ImGui::Indent(20.0f * scale);
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 0.9f), "%s", valErr);
+                ImGui::Unindent(20.0f * scale);
+            }
+            ImGui::PopID();
+            continue;
+        }
+
+        /* --- Valid mod: enable/disable toggle + info --- */
+        bool en = enabled;
+        char chkLabel[80];
+        snprintf(chkLabel, sizeof(chkLabel), "##mod_%d", i);
+        if (ImGui::Checkbox(chkLabel, &en)) {
+            if (en && !enabled) {
+                /* Check size threshold before enabling */
+                if (modmgrExceedsThreshold(i)) {
+                    s_SizeConfirmPending = true;
+                    s_SizeConfirmIdx = i;
+                } else {
+                    modmgrSetEnabled(i, 1);
+                }
+            } else if (!en && enabled) {
+                modmgrSetEnabled(i, 0);
+            }
+            pdguiPlaySound(en ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
+        }
+        ImGui::SameLine();
+
+        /* Selectable name */
+        char label[160];
+        snprintf(label, sizeof(label), "%s v%s", name, version);
+        if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+            s_SelectedModIdx = i;
+        }
+
+        /* Dependency warning */
+        if (enabled) {
+            char missing[256];
+            s32 nmiss = modmgrCheckDependencies(i, missing, sizeof(missing));
+            if (nmiss > 0) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[deps: %s]", missing);
+            }
+        }
+
+        /* Reorder buttons */
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 50.0f * scale);
+        {
+            bool isFirst = (i == 0);
+            bool isLast  = (i == modCount - 1);
+            if (isFirst) ImGui::BeginDisabled();
+            char upLabel[16];
+            snprintf(upLabel, sizeof(upLabel), "^##up%d", i);
+            if (ImGui::SmallButton(upLabel)) {
+                modmgrSwapOrder(i, i - 1);
+                if (s_SelectedModIdx == i) s_SelectedModIdx = i - 1;
+            }
+            if (isFirst) ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (isLast) ImGui::BeginDisabled();
+            char dnLabel[16];
+            snprintf(dnLabel, sizeof(dnLabel), "v##dn%d", i);
+            if (ImGui::SmallButton(dnLabel)) {
+                modmgrSwapOrder(i, i + 1);
+                if (s_SelectedModIdx == i) s_SelectedModIdx = i + 1;
+            }
+            if (isLast) ImGui::EndDisabled();
+        }
+
+        ImGui::PopID();
+    }
+
+    /* --- Size threshold confirmation modal --- */
+    if (s_SizeConfirmPending) {
+        ImGui::OpenPopup("Large Mod");
+        s_SizeConfirmPending = false;
+    }
+    if (ImGui::BeginPopupModal("Large Mod", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        u32 sizeBytes = modmgrGetModSizeBytes(s_SizeConfirmIdx);
+        float sizeMB = (float)sizeBytes / (1024.0f * 1024.0f);
+        ImGui::Text("This mod is %.1f MB (threshold: %d MB).", sizeMB, modmgrGetSizeThresholdMB());
+        ImGui::Text("Enable it anyway?");
+        ImGui::Separator();
+        if (ImGui::Button("Yes, Enable", ImVec2(120 * scale, 0))) {
+            modmgrSetEnabled(s_SizeConfirmIdx, 1);
+            ImGui::CloseCurrentPopup();
+            pdguiPlaySound(PDGUI_SND_TOGGLEON);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120 * scale, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+/* Mod detail panel for the Installed Mods tab */
+static void renderModDetails(float scale)
+{
+    if (s_SelectedModIdx < 0 || s_SelectedModIdx >= modmgrGetCount()) {
+        ImGui::TextDisabled("Select a mod to see details.");
+        return;
+    }
+
+    int i = s_SelectedModIdx;
+    const char *name    = modmgrGetModName(i);
+    const char *id      = modmgrGetModId(i);
+    const char *version = modmgrGetModVersion(i);
+    const char *author  = modmgrGetModAuthor(i);
+    const char *desc    = modmgrGetModDescription(i);
+    const char *fallback = modmgrGetModBaseFallback(i);
+    u32 sizeBytes = modmgrGetModSizeBytes(i);
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::TextWrapped("%s", name);
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+
+    ImGui::TextDisabled("ID:"); ImGui::SameLine(); ImGui::Text("%s", id);
+    ImGui::TextDisabled("Version:"); ImGui::SameLine(); ImGui::Text("%s", version);
+    if (author[0]) { ImGui::TextDisabled("Author:"); ImGui::SameLine(); ImGui::Text("%s", author); }
+    if (fallback[0]) { ImGui::TextDisabled("Fallback:"); ImGui::SameLine(); ImGui::Text("%s", fallback); }
+
+    if (sizeBytes > 0) {
+        ImGui::TextDisabled("Size:");
+        ImGui::SameLine();
+        if (sizeBytes >= 1024u * 1024u)
+            ImGui::Text("%.1f MB", (float)sizeBytes / (1024.0f * 1024.0f));
+        else
+            ImGui::Text("%.1f KB", (float)sizeBytes / 1024.0f);
+    }
+
+    s32 numDeps = modmgrGetModNumDeps(i);
+    if (numDeps > 0) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Dependencies:");
+        for (s32 d = 0; d < numDeps; d++) {
+            ImGui::BulletText("%s", modmgrGetModDep(i, d));
+        }
+    }
+
+    if (desc[0]) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", desc);
+    }
+
+    /* Enabled status */
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (modmgrGetModEnabled(i)) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "* Enabled");
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "* Disabled");
+    }
+}
+
+/* ========================================================================
  * Main render
  * ======================================================================== */
 
@@ -835,6 +1064,10 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
 
     /* --- Tab bar --- */
     if (ImGui::BeginTabBar("##modmgr_tabs")) {
+        if (ImGui::BeginTabItem("Installed Mods")) {
+            s_Tab = 2;
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("By Category")) {
             s_Tab = 0;
             ImGui::EndTabItem();
@@ -859,8 +1092,10 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::BeginChild("##modmgr_list", ImVec2(leftW, panelH), true);
     if (s_Tab == 0) {
         renderByCategoryTab(scale);
-    } else {
+    } else if (s_Tab == 1) {
         renderByModTab(scale);
+    } else if (s_Tab == 2) {
+        renderInstalledModsTab(scale);
     }
     ImGui::EndChild();
 
@@ -868,7 +1103,11 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
 
     /* Right panel: details */
     ImGui::BeginChild("##modmgr_details", ImVec2(rightW, panelH), true);
-    renderDetails(scale);
+    if (s_Tab == 2) {
+        renderModDetails(scale);
+    } else {
+        renderDetails(scale);
+    }
     ImGui::EndChild();
 
     /* --- Footer --- */
