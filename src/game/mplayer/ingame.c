@@ -873,29 +873,12 @@ void mpPushPauseDialog(void)
 			return;
 		}
 
-		/* Combat simulator (normmplayerisrunning): use ImGui pause menu.
-		 * If ImGui pause menu is already open, toggle it closed (resume).
-		 * Co-op / counter-op missions still use legacy pause menus. */
-		if (g_Vars.normmplayerisrunning) {
-			if (pdguiIsPauseMenuOpen()) {
-				pdguiPauseMenuClose();
-			} else {
-				pdguiPauseMenuOpen();
-			}
-			g_MpPlayerNum = prevplayernum;
-			return;
-		}
-
-		if (g_Menus[g_MpPlayerNum].openinhibit == 0) {
-			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
-
-			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-				|| LOCALPLAYERCOUNT() >= 3
-			) {
-				menuPushRootDialog(&g_2PMissionPauseVMenuDialog, MENUROOT_MPPAUSE);
-			} else {
-				menuPushRootDialog(&g_2PMissionPauseHMenuDialog, MENUROOT_MPPAUSE);
-			}
+		/* P10 D5.7: All modes use the ImGui pause menu.
+		 * Toggle open/close on each pause press. */
+		if (pdguiIsPauseMenuOpen()) {
+			pdguiPauseMenuClose();
+		} else {
+			pdguiPauseMenuOpen();
 		}
 
 		g_MpPlayerNum = prevplayernum;

@@ -3751,28 +3751,17 @@ u32 g_MenuCThresh = 120;
 
 Gfx *menuRenderDialog(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight)
 {
-	/* F8 hot-swap: if an ImGui replacement exists and is active, skip the
-	 * PD native render entirely.  The ImGui version draws during pdguiRender()
-	 * instead, using the same game state this dialog holds.
-	 *
-	 * However, if a character preview is requested, we still render the
-	 * menu model to the preview FBO before returning — this gives the
-	 * ImGui screen a 3D character texture to display. */
+	/* P10 D5.7: ImGui is the sole menu system.  All dialogs are rendered
+	 * by ImGui via the hotswap pipeline — pdguiHotswapCheck() queues the
+	 * dialog for ImGui rendering, and the native PD render path has been
+	 * removed.  Character preview FBOs are still rendered here so ImGui
+	 * screens can display 3D character textures. */
 	if (dialog && dialog->definition) {
-		if (pdguiHotswapCheck(dialog->definition, dialog, menu)) {
-			/* Render character preview model to FBO if requested */
-			gdl = pdguiCharPreviewRenderGBI(gdl, menu);
-			return gdl;  /* ImGui handled it — return unmodified display list */
-		}
+		pdguiHotswapCheck(dialog->definition, dialog, menu);
 	}
 
-	mainOverrideVariable("cthresh", &g_MenuCThresh);
-
-	textSetWaveBlend(dialog->unk54, dialog->unk58, g_MenuCThresh);
-
-	gdl = dialogRender(gdl, dialog, menu, lightweight);
-
-	textResetBlends();
+	/* Render character preview model to FBO if requested */
+	gdl = pdguiCharPreviewRenderGBI(gdl, menu);
 
 	return gdl;
 }
