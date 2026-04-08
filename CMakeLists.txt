@@ -208,6 +208,9 @@ add_compile_options(
 
 # C specific flags
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>)
+# Promote these to hard errors for C — catches missing forward decls and missing returns
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=return-type>)
 
 # C++ specific flags
 add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>)
