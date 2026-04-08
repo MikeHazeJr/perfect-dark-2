@@ -18,6 +18,9 @@ extern "C" {
     void inputCtxEndFrame(void);
 }
 
+/* M0.2 Phase B: actionmap lifecycle */
+#include "actionmap.h"
+
 static SDL_Window* wnd;
 static SDL_GLContext ctx;
 static SDL_Renderer* renderer;
@@ -304,6 +307,10 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        /* M0.2 Phase B: actionmap sees every raw event before ImGui consumption
+         * check, so input is tracked regardless of menu focus. */
+        actionmapDispatch(&event);
+
         /* D3d: Let ImGui see every event first */
         int consumed = pdguiProcessEvent(&event);
         if (consumed) {
@@ -343,6 +350,10 @@ static void gfx_sdl_handle_events(void) {
     /* End-of-frame cleanup: remove any contexts marked for deferred removal.
      * Must happen after all events are dispatched, before next frame. */
     inputCtxEndFrame();
+    /* M0.2 Phase B: flip pressed/released edge signals after all consumers have
+     * queried. Must come after inputCtxEndFrame so deferred context pops see
+     * the correct edge state for their final frame. */
+    actionmapEndFrame();
 }
 
 static bool gfx_sdl_start_frame(void) {

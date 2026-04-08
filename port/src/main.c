@@ -28,6 +28,7 @@
 #include "utils.h"
 #include "net/net.h"
 #include "updater.h"
+#include "actionmap.h"
 #include "savemigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -123,6 +124,7 @@ static void cleanup(void)
 	netDisconnect();
 	modmgrShutdown();
 	inputSaveBinds();
+	actionmapSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();
 	crashShutdown();
@@ -155,7 +157,11 @@ int main(int argc, const char **argv)
 	conInit();
 	sysInit();
 	fsInit();
+	/* M0.2 Phase B: register pd.ini keys BEFORE configLoad (called inside configInit) */
+	actionmapInit();
 	configInit();
+	/* M0.2 Phase B: parse bind strings that configLoad just populated */
+	actionmapLoadBinds();
 
 	/* D13: Initialize update system + save migration after filesystem is ready */
 	updaterInit();
