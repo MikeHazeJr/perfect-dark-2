@@ -36,7 +36,6 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
-#include "menumgr.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
@@ -2119,10 +2118,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             } else if (s_MenuView == 3) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
-                if (menuGetCurrent() == MENU_MODDING) menuPop();
             } else if (s_MenuView == 4) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
-                if (menuGetCurrent() == MENU_JOIN) menuPop();
             } else if (s_MenuView == 5) {
                 pdguiMenuStatsHide();
             } else {
@@ -2186,11 +2183,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         /* Online Play */
         if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            if (!menuIsInCooldown()) {
-                s_MenuView = 4;
-                menuPush(MENU_JOIN);
-                pdguiPlaySound(PDGUI_SND_SELECT);
-            }
+            s_MenuView = 4;
+            pdguiPlaySound(PDGUI_SND_SELECT);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
