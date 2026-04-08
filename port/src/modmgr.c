@@ -31,6 +31,10 @@
 extern void mainChangeToStage(s32 stagenum);
 #define MODMGR_STAGE_TITLE 0x5a  /* STAGE_TITLE */
 
+/* Static forward declarations */
+static void modmgrParseBotNames(modinfo_t *mod);
+static void modmgrClearBotNames(void);
+
 // ---------------------------------------------------------------------------
 // Globals
 // ---------------------------------------------------------------------------
