@@ -27,6 +27,7 @@
 #include "console.h"
 #include "mixer.h"
 #include "net/net.h"
+#include "actionmap.h"
 
 /*
  * private typedefs and defines
@@ -309,6 +310,8 @@ void schedEndFrame(OSSched *sc)
 	}
 	netDebugKey = newKey;
 
+	/* M0.2 Phase B: sample analog axes before game logic reads joyGetStick* */
+	actionmapPollFrame();
 	joyStartReadData(&g_PiMesgQueue);
 	joyReadData();
 	joy00014238();

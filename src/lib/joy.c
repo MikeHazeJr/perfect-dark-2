@@ -7,6 +7,12 @@
 #include "data.h"
 #include "types.h"
 
+/* M0.2 Phase B: actionmap shim — route joyGetButtons/joyGetButtonsPressedThisFrame
+ * through the named-action system instead of the raw N64 pad buffer.
+ * input.h brings in CONT_STICK_XNEG/XPOS/YNEG/YPOS used in the mapping table. */
+#include "input.h"
+#include "actionmap.h"
+
 /**
  * PD polls the controllers from the scheduler's thread. The scheduler polls the
  * controllers on each retrace and stores the results inside g_JoyData->samples.
@@ -952,32 +958,116 @@ s8 joyGetStickY(s8 contpadnum)
 	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].stick_y;
 }
 
+/* M0.2 Phase B: CONT_* bit → InputAction mapping table.
+ *
+ * Each entry maps one CONT_* bitmask bit to the primary InputAction it
+ * represents in the unified action system.  joyGetButtons / joyGetButtonsPressedThisFrame
+ * iterate this table to reconstruct a CONT_*-compatible bitmask so all
+ * downstream callers work without modification.
+ *
+ * Stick-as-button entries (CONT_STICK_*) cover WASD / keyboard movement
+ * bindings that get translated to digital direction bits by input.c.
+ *
+ * The three crouch variants (CONT_8000/4000/2000) all map to ACTION_CROUCH.
+ * Phase C will split these into ACTION_CROUCH_CYCLE/HALF/FULL when the IMC
+ * binding set is extended.
+ */
+typedef struct {
+	u32         contbit;
+	InputAction action;
+} ContBitAction;
+
+static const ContBitAction g_ContBitToAction[] = {
+	/* C-buttons / right stick */
+	{ CONT_F,          ACTION_AIM_RIGHT       },  /* R_CBUTTONS */
+	{ CONT_C,          ACTION_AIM_LEFT        },  /* L_CBUTTONS */
+	{ CONT_D,          ACTION_AIM_DOWN        },  /* D_CBUTTONS */
+	{ CONT_E,          ACTION_AIM_UP          },  /* U_CBUTTONS */
+	/* Shoulder / trigger */
+	{ CONT_R,          ACTION_FIRE_SECONDARY  },  /* R_TRIG */
+	{ CONT_L,          ACTION_ZOOM_IN         },  /* L_TRIG / BUTTON_ALTMODE */
+	/* Face buttons */
+	{ CONT_EXTRA0,     ACTION_SPRINT          },  /* X_BUTTON */
+	{ CONT_EXTRA1,     ACTION_WEAPON_NEXT     },  /* Y_BUTTON / BUTTON_WPNFORWARD */
+	/* D-pad */
+	{ CONT_RIGHT,      ACTION_MENU_RIGHT      },  /* R_JPAD */
+	{ CONT_LEFT,       ACTION_WEAPON_PREV     },  /* L_JPAD / BUTTON_WPNBACK */
+	{ CONT_DOWN,       ACTION_MENU_DOWN       },  /* D_JPAD */
+	{ CONT_UP,         ACTION_MENU_UP         },  /* U_JPAD */
+	/* Start / fire / use */
+	{ CONT_START,      ACTION_PAUSE           },  /* START_BUTTON */
+	{ CONT_G,          ACTION_FIRE_PRIMARY    },  /* Z_TRIG */
+	{ CONT_B,          ACTION_MENU_CANCEL     },  /* B_BUTTON */
+	{ CONT_A,          ACTION_INTERACT        },  /* A_BUTTON */
+	/* PC-port extended UI buttons */
+	{ CONT_0010,       ACTION_MENU_ACCEPT     },  /* BUTTON_UI_ACCEPT */
+	{ CONT_0020,       ACTION_MENU_CANCEL     },  /* BUTTON_UI_CANCEL */
+	/* PC-port crouch state buttons — all route to ACTION_CROUCH */
+	{ CONT_2000,       ACTION_CROUCH          },  /* BUTTON_FULL_CROUCH */
+	{ CONT_4000,       ACTION_CROUCH          },  /* BUTTON_HALF_CROUCH */
+	{ CONT_8000,       ACTION_CROUCH          },  /* BUTTON_CROUCH_CYCLE */
+	/* Stick-as-digital (WASD / keyboard movement) */
+	{ CONT_STICK_XNEG, ACTION_MOVE_LEFT      },
+	{ CONT_STICK_XPOS, ACTION_MOVE_RIGHT     },
+	{ CONT_STICK_YNEG, ACTION_MOVE_FORWARD   },
+	{ CONT_STICK_YPOS, ACTION_MOVE_BACKWARD  },
+};
+
+#define CONT_BIT_ACTION_COUNT \
+	((s32)(sizeof(g_ContBitToAction) / sizeof(g_ContBitToAction[0])))
+
+/**
+ * joyGetButtons — M0.2 Phase B shim.
+ *
+ * Returns a CONT_*-compatible bitmask of currently-held inputs as reported
+ * by the actionmap system.  The result has the same bit layout callers expect
+ * so all downstream `if (buttons & BUTTON_XYZ)` checks work unchanged.
+ *
+ * g_JoyDisableCooldown is still honoured so joyDisableTemporarily() keeps
+ * its existing behaviour (e.g. suppressing input during loading screens).
+ */
 u32 joyGetButtons(s8 contpadnum, u32 mask)
 {
-	if (g_JoyDataPtr->unk200 < 0 && (g_JoyConnectedControllers >> contpadnum & 1) == 0) {
-		g_JoyBadReadsButtons[contpadnum]++;
-		return 0;
-	}
+	u32 result = 0;
+	s32 i;
 
 	if (g_JoyDisableCooldown[contpadnum] > 0) {
 		return 0;
 	}
 
-	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].button & mask;
+	for (i = 0; i < CONT_BIT_ACTION_COUNT; i++) {
+		if ((mask & g_ContBitToAction[i].contbit)
+				&& actionHeld((s32)contpadnum, g_ContBitToAction[i].action)) {
+			result |= g_ContBitToAction[i].contbit;
+		}
+	}
+
+	return result;
 }
 
+/**
+ * joyGetButtonsPressedThisFrame — M0.2 Phase B shim.
+ *
+ * Same as joyGetButtons but uses rising-edge (pressed) state, matching the
+ * original semantics of joyGetButtonsPressedThisFrame.
+ */
 u32 joyGetButtonsPressedThisFrame(s8 contpadnum, u32 mask)
 {
-	if (g_JoyDataPtr->unk200 < 0 && (g_JoyConnectedControllers >> contpadnum & 1) == 0) {
-		g_JoyBadReadsButtonsPressed[contpadnum]++;
-		return 0;
-	}
+	u32 result = 0;
+	s32 i;
 
 	if (g_JoyDisableCooldown[contpadnum] > 0) {
 		return 0;
 	}
 
-	return g_JoyDataPtr->buttonspressed[contpadnum] & mask;
+	for (i = 0; i < CONT_BIT_ACTION_COUNT; i++) {
+		if ((mask & g_ContBitToAction[i].contbit)
+				&& actionPressed((s32)contpadnum, g_ContBitToAction[i].action)) {
+			result |= g_ContBitToAction[i].contbit;
+		}
+	}
+
+	return result;
 }
 
 #if VERSION < VERSION_NTSC_1_0

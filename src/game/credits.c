@@ -26,6 +26,7 @@
 #include "data.h"
 #include "types.h"
 #include "input.h"
+#include "actionmap.h"
 
 /**
  * Credits
@@ -686,7 +687,7 @@ void creditsTickParticles(void)
 		}
 	} else {
 #if VERSION >= VERSION_NTSC_1_0
-		if (RANDOMFRAC() < 0.007f && joyGetButtons(0, R_TRIG) == 0) {
+		if (RANDOMFRAC() < 0.007f && !actionHeld(0, ACTION_FIRE_SECONDARY)) {
 			g_CreditsData->particlecolourindex1 = rngRandom() % 4;
 			g_CreditsData->particlecolourweight = 0;
 		}
@@ -699,7 +700,7 @@ void creditsTickParticles(void)
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (RANDOMFRAC() < 0.002f && joyGetButtons(0, R_TRIG) == 0) {
+	if (RANDOMFRAC() < 0.002f && !actionHeld(0, ACTION_FIRE_SECONDARY)) {
 		g_CreditsData->particlemovetype = rngRandom() % 5;
 	}
 #else
@@ -709,7 +710,7 @@ void creditsTickParticles(void)
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (joyGetButtonsPressedThisFrame(0, R_TRIG)) {
+	if (actionPressed(0, ACTION_FIRE_SECONDARY)) {
 		g_CreditsData->particlemovetype = rngRandom() % 5;
 
 		if (g_CreditsData->particlecolourindex1 < 0) {
@@ -1688,7 +1689,7 @@ void creditsTick(void)
 	static u32 type = 0xffff;
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (joyGetButtonsPressedThisFrame(0, R_TRIG)) {
+	if (actionPressed(0, ACTION_FIRE_SECONDARY)) {
 		creditsCreatePendingBgLayers(0xffffffff);
 	}
 #endif
@@ -1728,7 +1729,7 @@ void creditsTick(void)
 
 	if (g_CreditsData->slidesenabled) {
 		creditsTickSlide();
-	} else if (RANDOMFRAC() < 0.01f && !joyGetButtons(0, R_TRIG)) {
+	} else if (RANDOMFRAC() < 0.01f && !actionHeld(0, ACTION_FIRE_SECONDARY)) {
 		creditsCreatePendingBgLayers(0xffffffff);
 	}
 
