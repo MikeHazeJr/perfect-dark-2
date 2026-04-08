@@ -1881,15 +1881,17 @@ void setupCreateProps(s32 stagenum)
 						s32 i;
 
 						if (g_Vars.normmplayerisrunning && g_SetupCurMpLocation >= 0) {
-							struct mpweapon *mpweapon = mpGetMpWeaponByLocation(g_SetupCurMpLocation);
-							ammoqty = mpweapon->priammoqty;
+							s32 wi = (s32)(mpGetMpWeaponByLocation(g_SetupCurMpLocation) - g_MpWeapons);
+							s32 pritype = catalogGetMpWeaponPriAmmoType(wi);
+							s32 sectype = catalogGetMpWeaponSecAmmoType(wi);
+							ammoqty = catalogGetMpWeaponPriAmmoQty(wi);
 
-							if (mpweapon->priammotype > 0 && mpweapon->priammotype < 20) {
-								crate->slots[mpweapon->priammotype - 1].quantity = ammoqty;
+							if (pritype > 0 && pritype < 20) {
+								crate->slots[pritype - 1].quantity = ammoqty;
 							}
 
-							if (mpweapon->secammotype > 0 && mpweapon->secammotype < 20) {
-								crate->slots[mpweapon->secammotype - 1].quantity = mpweapon->secammoqty;
+							if (sectype > 0 && sectype < 20) {
+								crate->slots[sectype - 1].quantity = catalogGetMpWeaponSecAmmoQty(wi);
 							}
 						}
 
