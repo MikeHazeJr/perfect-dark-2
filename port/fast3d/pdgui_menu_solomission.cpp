@@ -330,6 +330,10 @@ static s32 s_AcceptSelectIdx = 0;  /* 0 = Accept, 1 = Decline */
 /* Pause */
 static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 = Abort */
 
+/* P8: Restart confirmation state */
+static bool s_RestartConfirm = false;
+static s32  s_RestartSelectIdx = 0;   /* 0 = Cancel, 1 = Restart */
+
 /* Abort confirmation */
 static s32 s_AbortSelectIdx = 0;   /* 0 = Cancel, 1 = Abort */
 
@@ -1627,6 +1631,16 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                             struct menu *menu,
                             s32 winW, s32 winH)
 {
+    /* P8: Semi-transparent backdrop overlay — dims the frozen game frame
+     * so the pause menu is clearly readable over gameplay. */
+    {
+        ImDrawList *bgDl = ImGui::GetBackgroundDrawList();
+        bgDl->AddRectFilled(
+            ImVec2(0.0f, 0.0f),
+            ImVec2((float)winW, (float)winH),
+            pdguiPalImU32(PDPAL_BODYBG, 140));
+    }
+
     float mw  = pdguiMenuWidth();
     float mh  = pdguiMenuHeight();
     ImVec2 pos = pdguiMenuPos();
@@ -1806,16 +1820,10 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 menuPopDialog();
                 break;
-            case 1: /* Restart Mission — resolve stagenum from catalog ID at point of use */
+            case 1: /* Restart Mission — P8: show confirmation before restarting */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                {
-                    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
-                    if (g_MissionConfig.stage_id[0] != '\0') {
-                        catalog_stage_result_t sr;
-                        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
-                    }
-                    mainChangeToStage(rsn);
-                }
+                s_RestartConfirm = true;
+                s_RestartSelectIdx = 0; /* default to Cancel (safe) */
                 break;
             case 2: /* Inventory (uses legacy 3D renderer via NULL registration) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -1838,8 +1846,9 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::PopID();
     }
 
-    /* B button / Escape = Resume */
-    if (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* B button / Escape = Resume (unless restart confirm is showing) */
+    if (!s_RestartConfirm &&
+        (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1848,6 +1857,98 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     pdguiNavTickWrap();
 
     ImGui::End();
+
+    /* P8: Restart confirmation overlay — drawn after main pause window
+     * as a centered popup over the pause menu. */
+    if (s_RestartConfirm) {
+        float rcW = pdguiMenuWidth() * 0.50f;
+        float rcH = pdguiMenuHeight() * 0.30f;
+        ImVec2 rcPos = pdguiCenterPos(rcW, rcH);
+
+        ImGui::SetNextWindowPos(rcPos);
+        ImGui::SetNextWindowSize(ImVec2(rcW, rcH));
+
+        ImGuiWindowFlags rcf = ImGuiWindowFlags_NoResize
+                             | ImGuiWindowFlags_NoMove
+                             | ImGuiWindowFlags_NoCollapse
+                             | ImGuiWindowFlags_NoSavedSettings
+                             | ImGuiWindowFlags_NoTitleBar
+                             | ImGuiWindowFlags_NoBackground;
+
+        if (ImGui::Begin("##restart_confirm", nullptr, rcf)) {
+            float rtitleH = pdguiScale(26.0f);
+            pdguiDrawPdDialog(rcPos.x, rcPos.y, rcW, rcH, "Restart Mission?", 1);
+            ImGui::SetCursorPosY(rtitleH + ImGui::GetStyle().WindowPadding.y);
+
+            ImGui::Spacing();
+            ImGui::PushTextWrapPos(rcW - pdguiScale(16.0f));
+            ImGui::Text("Restart the current mission from the beginning?");
+            ImGui::Text("All progress will be lost.");
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            ImGui::Separator();
+
+            /* Nav: left/right toggle, B/Escape = cancel */
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true)  ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
+                ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
+                ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
+                s_RestartSelectIdx = 1 - s_RestartSelectIdx;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                s_RestartConfirm = false;
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                ImGui::End();
+                return 1;
+            }
+
+            bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                             ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+
+            float rbtnH = pdguiScale(36.0f);
+            float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(10.0f)) * 0.5f;
+
+            /* Cancel button */
+            {
+                bool isSel = (s_RestartSelectIdx == 0);
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
+                bool clicked = ImGui::Button("Cancel##restart", ImVec2(rbtnW, rbtnH));
+                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 0;
+                if (clicked || (isSel && rcConfirm)) {
+                    s_RestartConfirm = false;
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                }
+            }
+
+            ImGui::SameLine(0.0f, pdguiScale(10.0f));
+
+            /* Restart button */
+            {
+                bool isSel = (s_RestartSelectIdx == 1);
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+                bool clicked = ImGui::Button("Restart##confirm", ImVec2(rbtnW, rbtnH));
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 1;
+                if (clicked || (isSel && rcConfirm)) {
+                    s_RestartConfirm = false;
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
+                    if (g_MissionConfig.stage_id[0] != '\0') {
+                        catalog_stage_result_t sr;
+                        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
+                    }
+                    mainChangeToStage(rsn);
+                }
+            }
+        }
+        ImGui::End();
+    }
+
     return 1;
 }
 

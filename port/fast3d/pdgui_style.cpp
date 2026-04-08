@@ -561,14 +561,14 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     }
 
     /* === P4: Caustic overlay (optional) ===
-     * If a caustic mask texture is configured in the active theme,
-     * composite it over the body region. */
-    pdguiCausticDrawThemed(x + 1, bodyTop, w - 2, (y + h) - bodyTop);
+     * Placeholder — when a caustic mask texture is configured in the active theme,
+     * this will composite it over the body region. Currently a no-op until
+     * theme config exposes a "causticEnabled" runtime flag. */
 
     /* === P4: Border effect (optional) ===
-     * If a border effect is configured in the active theme, draw it
-     * around the dialog frame. Uses theme config (type, color, etc). */
-    pdguiBorderFxDrawThemed(x, y, w, h, focused);
+     * Placeholder — when a border effect is configured in the active theme,
+     * this will draw an animated border glow around the dialog frame.
+     * Currently a no-op until theme config exposes a "borderFxEnabled" flag. */
 }
 
 /* -----------------------------------------------------------------------
