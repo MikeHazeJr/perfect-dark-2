@@ -667,7 +667,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     dl->AddText(
                         ImVec2(rowPos.x + pdguiScale(4.0f),
                                rcy - ImGui::GetTextLineHeight() * 0.5f),
-                        IM_COL32(100, 100, 115, 120), lockedLabel);
+                        pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
                     ImGui::PopID();
                     continue;
                 }
@@ -690,7 +690,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     dl->AddRectFilled(rowPos,
                         ImVec2(rowPos.x + contentW, rowPos.y + rowH),
-                        IM_COL32(60, 80, 120, 80));
+                        pdguiPalImU32(PDPAL_FOCUS_BG, 80));
                 }
 
                 bool doSelect = ImGui::Selectable("##ms_row", isSelected,
@@ -716,7 +716,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                         dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
                     float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
-                    ImU32 nameCol = IM_COL32(230, 230, 240, 255);
+                    ImU32 nameCol = pdguiPalImU32(PDPAL_ITEM_UNFOCUSED, 255);
                     dl->AddText(
                         ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
                         nameCol, nodeLabel);
@@ -769,7 +769,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     dl->AddText(
                         ImVec2(rowPos.x + pdguiScale(4.0f),
                                rcy - ImGui::GetTextLineHeight() * 0.5f),
-                        IM_COL32(110, 100, 80, 120), lockedLabel);
+                        pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
                     ImGui::PopID();
                     continue;
                 }
@@ -789,7 +789,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     dl->AddRectFilled(rowPos,
                         ImVec2(rowPos.x + contentW, rowPos.y + rowH),
-                        IM_COL32(60, 80, 120, 80));
+                        pdguiPalImU32(PDPAL_FOCUS_BG, 80));
                 }
 
                 bool doSelect = ImGui::Selectable("##ms_sp_row", isSelected,
@@ -1018,21 +1018,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
         ImGui::Separator();
 
-        /* ---- Briefing excerpt (first line preview) ---- */
+        /* ---- Briefing text (P7: full scrollable, replaces truncated preview) ---- */
         if (g_Briefing.briefingtextnum != 0) {
             const char *btxt = langSafe(g_Briefing.briefingtextnum);
             if (btxt && btxt[0]) {
                 ImGui::TextDisabled("Briefing:");
-                ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
-                /* Show first ~120 chars as preview */
-                char preview[128];
-                strncpy(preview, btxt, sizeof(preview) - 4);
-                preview[sizeof(preview) - 4] = '\0';
-                if (strlen(btxt) > sizeof(preview) - 4)
-                    strcat(preview, "...");
-                ImGui::TextUnformatted(preview);
-                ImGui::PopTextWrapPos();
-                ImGui::Spacing();
+                /* Scrollable briefing area — uses remaining space before Start button */
+                float briefH = ImGui::GetContentRegionAvail().y - pdguiScale(60.0f);
+                if (briefH < pdguiScale(40.0f)) briefH = pdguiScale(40.0f);
+                if (ImGui::BeginChild("##ms_briefing", ImVec2(0, briefH), false,
+                                       ImGuiWindowFlags_None)) {
+                    ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
+                    ImGui::TextUnformatted(btxt);
+                    ImGui::PopTextWrapPos();
+                }
+                ImGui::EndChild();
             }
         }
 
