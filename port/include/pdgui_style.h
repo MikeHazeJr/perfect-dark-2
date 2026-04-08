@@ -79,6 +79,33 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
  * Used by pdgui_theme.cpp for theme draw functions. */
 const void *pdguiGetActivePaletteRaw(void);
 
+/* --- Palette field indices (matches struct pdgui_palette layout) --- */
+#define PDPAL_BORDER1        0   /* bright border (left, bottom) */
+#define PDPAL_TITLEBG        1   /* dark title bar background */
+#define PDPAL_BORDER2        2   /* accent border (right) */
+#define PDPAL_TITLEFG        3   /* title text */
+#define PDPAL_BODYBG         4   /* body background fill */
+#define PDPAL_ITEM_UNFOCUSED 6   /* normal menu item text */
+#define PDPAL_ITEM_DISABLED  7   /* greyed out item text */
+#define PDPAL_ITEM_FOCUSED   8   /* focused/hovered item text */
+#define PDPAL_CHECKBOX       9   /* checked checkbox */
+#define PDPAL_FOCUS_BG      10   /* focused item background */
+#define PDPAL_LISTHDR_BG    11   /* list group header bg */
+#define PDPAL_LISTHDR_FG    12   /* list group header fg */
+
+/* Set a custom palette from raw u32[15] (0xRRGGBBAA).
+ * Used by pdgui_theme_loader.cpp for JSON-loaded themes.
+ * Re-applies ImGui style automatically. */
+void pdguiSetPaletteCustom(const u32 *colors15);
+
+/* Return a palette color by index (0-14) from the active palette.
+ * Returns 0 if index is out of range. Format: 0xRRGGBBAA. */
+u32 pdguiGetPaletteColor(s32 index);
+
+/* Return a palette color as ImU32 (ImGui packed ABGR) with optional alpha override.
+ * If alpha < 0, uses the palette color's own alpha. */
+u32 pdguiPalImU32(s32 index, s32 alpha);
+
 #ifdef __cplusplus
 }
 #endif

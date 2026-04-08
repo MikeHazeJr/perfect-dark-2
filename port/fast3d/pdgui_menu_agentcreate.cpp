@@ -390,7 +390,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255), 0.0f);
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
     }
 
     /* Draw PD-authentic dialog frame */
@@ -406,7 +406,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImVec2 titleSize = ImGui::CalcTextSize("Create Agent");
         dl->AddText(ImVec2(dialogX + 10.0f,
                            dialogY + (pdTitleH - titleSize.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), "Create Agent");
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), "Create Agent");
     }
 
     /* Content starts below PD title bar */

@@ -197,7 +197,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255), 0.0f);
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
     }
 
     /* Draw PD-authentic dialog frame */

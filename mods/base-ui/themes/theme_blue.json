@@ -1,0 +1,33 @@
+{
+  "name": "PD Blue",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "0060bf7f",
+    "dialog_titlebg":     "0000507f",
+    "dialog_border2":     "00f0ff7f",
+    "dialog_titlefg":     "ffffffff",
+    "dialog_bodybg":      "00002f9f",
+    "unused14":           "00006f7f",
+    "item_unfocused":     "00ffffff",
+    "item_disabled":      "007f7fff",
+    "item_focused_inner": "ffffffff",
+    "checkbox_checked":   "8fffffff",
+    "item_focused_outer": "000044ff",
+    "listgroup_headerbg": "000030ff",
+    "listgroup_headerfg": "7f7fffff",
+    "unused34":           "ffffffff",
+    "unused38":           "6644ff7f"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.6,
+    "color": "00f0ff80"
+  },
+  "soundPack": "default"
+}

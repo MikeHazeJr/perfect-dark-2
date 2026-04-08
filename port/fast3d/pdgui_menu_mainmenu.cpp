@@ -1264,7 +1264,7 @@ static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
     ImVec2 titleSize = ImGui::CalcTextSize(title);
     dl->AddText(ImVec2(dialogX + 10.0f,
                        dialogY + (pdTitleH - titleSize.y) * 0.5f),
-                IM_COL32(255, 255, 255, 255), title);
+                pdguiPalImU32(PDPAL_TITLEFG, 255), title);
 
     return pdTitleH;
 }

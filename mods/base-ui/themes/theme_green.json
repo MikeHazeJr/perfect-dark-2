@@ -1,0 +1,33 @@
+{
+  "name": "PD Green",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "00bf007f",
+    "dialog_titlebg":     "0050007f",
+    "dialog_border2":     "00ff007f",
+    "dialog_titlefg":     "ffff00ff",
+    "dialog_bodybg":      "002f009f",
+    "unused14":           "00ff0028",
+    "item_unfocused":     "55ff55ff",
+    "item_disabled":      "006f00af",
+    "item_focused_inner": "ffffffff",
+    "checkbox_checked":   "00000000",
+    "item_focused_outer": "004400ff",
+    "listgroup_headerbg": "003000ff",
+    "listgroup_headerfg": "ffff00ff",
+    "unused34":           "ffffffff",
+    "unused38":           "44ff447f"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.6,
+    "color": "00ff0080"
+  },
+  "soundPack": "default"
+}

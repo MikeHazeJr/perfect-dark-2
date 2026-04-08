@@ -153,7 +153,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255));
+                          pdguiPalImU32(PDPAL_BODYBG, 255));
     }
 
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, "Social Lobby", 1);
@@ -167,7 +167,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         ImVec2 titleSize = ImGui::CalcTextSize(title);
         dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
                            dialogY + (pdTitleH - titleSize.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), title);
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), title);
     }
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);

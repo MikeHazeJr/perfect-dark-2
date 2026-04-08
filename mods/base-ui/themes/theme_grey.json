@@ -1,0 +1,33 @@
+{
+  "name": "PD Grey",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "20202000",
+    "dialog_titlebg":     "20202000",
+    "dialog_border2":     "20202000",
+    "dialog_titlefg":     "4f4f4f00",
+    "dialog_bodybg":      "00000000",
+    "unused14":           "00000000",
+    "item_unfocused":     "4f4f4f00",
+    "item_disabled":      "4f4f4f00",
+    "item_focused_inner": "4f4f4f00",
+    "checkbox_checked":   "4f4f4f00",
+    "item_focused_outer": "00000000",
+    "listgroup_headerbg": "00000000",
+    "listgroup_headerfg": "4f4f4f00",
+    "unused34":           "00000000",
+    "unused38":           "00000000"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.3,
+    "color": "20202080"
+  },
+  "soundPack": "default"
+}

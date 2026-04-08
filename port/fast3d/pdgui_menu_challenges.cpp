@@ -133,7 +133,7 @@ static s32 renderChallenges(struct menudialog *dialog,
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + diagW, pos.y + diagH),
-                          IM_COL32(8, 8, 16, 255));
+                          pdguiPalImU32(PDPAL_BODYBG, 255));
     }
 
     pdguiDrawPdDialog(pos.x, pos.y, diagW, diagH, "Combat Challenges", 1);
@@ -147,7 +147,7 @@ static s32 renderChallenges(struct menudialog *dialog,
         ImVec2 ts = ImGui::CalcTextSize(title);
         dl->AddText(ImVec2(pos.x + (diagW - ts.x) * 0.5f,
                            pos.y + (pdTitleH - ts.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), title);
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), title);
     }
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
