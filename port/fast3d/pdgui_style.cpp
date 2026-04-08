@@ -34,6 +34,7 @@
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 
 /* -----------------------------------------------------------------------
  * PD Color Palette System
@@ -144,13 +145,6 @@ static const struct pdgui_palette *s_ActivePalette = &s_PaletteBlue;
 /* Custom palette for JSON-loaded themes (writable copy) */
 static struct pdgui_palette s_PaletteCustom;
 static bool s_UsingCustomPalette = false;
-
-/* P4: Optional 9-slice panel texture for dialog backgrounds.
- * When set (non-NULL), pdguiDrawPdDialog body uses 9-slice rendering
- * instead of the flat palette fill. */
-static void *s_PanelNineSliceTex = nullptr;
-static NineSliceDef s_PanelNineSliceDef = {};
-static bool s_PanelNineSliceActive = false;
 
 /* -----------------------------------------------------------------------
  * Color conversion helpers
@@ -424,20 +418,12 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     pdguiDrawShimmerExact(dl, x, y + titleH - 1, x + w, y + titleH, titleShimmerAlpha, 40, true);
 
     /* === Body background ===
-     * menugfxRenderDialogBackground: gDPFillRectangleScaled with dialog_bodybg
-     * P4: If a 9-slice panel texture is configured, composite it over the fill. */
+     * menugfxRenderDialogBackground: gDPFillRectangleScaled with dialog_bodybg */
     float bodyTop = y + titleH;
     dl->AddRectFilled(
         ImVec2(x + 1, bodyTop),
         ImVec2(x + w - 1, y + h),
         PdColor(pal->dialog_bodybg));
-
-    /* P4: 9-slice panel texture overlay (composited on top of palette fill) */
-    if (s_PanelNineSliceActive && s_PanelNineSliceTex) {
-        pdguiNineSliceDraw(s_PanelNineSliceTex,
-                           x + 1, bodyTop, w - 2, y + h - bodyTop,
-                           &s_PanelNineSliceDef, 0xFFFFFFFFu);
-    }
 
     /* === Haze texture overlay ===
      * OG PD composites a green IA8 noise texture (g_TexGeneralConfigs[6]) over
@@ -573,6 +559,16 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
             }
         }
     }
+
+    /* === P4: Caustic overlay (optional) ===
+     * If a caustic mask texture is configured in the active theme,
+     * composite it over the body region. */
+    pdguiCausticDrawThemed(x + 1, bodyTop, w - 2, (y + h) - bodyTop);
+
+    /* === P4: Border effect (optional) ===
+     * If a border effect is configured in the active theme, draw it
+     * around the dialog frame. Uses theme config (type, color, etc). */
+    pdguiBorderFxDrawThemed(x, y, w, h, focused);
 }
 
 /* -----------------------------------------------------------------------
@@ -1049,26 +1045,4 @@ extern "C" void pdguiDrawButtonEdgeGlow(float x, float y, float w, float h, int 
     pdguiDrawShimmerExact(dl, x - 1, y, x, y + h, shimAlpha, 20, false);
     /* Right edge shimmer (vertical, reverse) */
     pdguiDrawShimmerExact(dl, x + w, y, x + w + 1, y + h, shimAlpha, 20, true);
-}
-
-/* -----------------------------------------------------------------------
- * P4: 9-slice panel texture API
- *
- * When a panel texture is set, pdguiDrawPdDialog composites a 9-slice
- * texture over the body fill, creating textured dialog backgrounds
- * that scale cleanly at any resolution.
- * ----------------------------------------------------------------------- */
-
-extern "C" void pdguiSetPanelNineSlice(void *tex, float texW, float texH,
-                                        float inL, float inT, float inR, float inB)
-{
-    s_PanelNineSliceTex = tex;
-    s_PanelNineSliceDef = pdguiNineSliceMakeDef(texW, texH, inL, inT, inR, inB);
-    s_PanelNineSliceActive = (tex != nullptr);
-}
-
-extern "C" void pdguiClearPanelNineSlice(void)
-{
-    s_PanelNineSliceTex = nullptr;
-    s_PanelNineSliceActive = false;
 }

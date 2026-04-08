@@ -1106,11 +1106,14 @@ void pdguiThemeExtractRomTextures(void)
      * texLoadFromConfig() converts texnum → textureptr via DMA + decompress. */
 
     /* Load the textures we want to extract.
-     * P4 enhancement: expanded set includes title screen and menu item textures
-     * (indices 47, 49, 51-55) in addition to the original D5.0 set. */
+     * P4 enhancement: expanded to include ALL UI-relevant textures.
+     * Indices 51-55 are menu-specific textures loaded by menu.c.
+     * Indices 39-50 cover additional general configs used in various screens. */
     static const int k_IndicesToLoad[] = {
-        0, 1, 2, 3, 4, 6, 7, 10, 11, 34, 35, 36, 37, 38,
-        47, 49, 51, 52, 53, 54, 55
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+        27, 28, 29, 34, 35, 36, 37, 38,
+        39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+        51, 52, 53, 54, 55
     };
     for (unsigned i = 0; i < sizeof(k_IndicesToLoad) / sizeof(k_IndicesToLoad[0]); i++) {
         int idx = k_IndicesToLoad[i];
@@ -1120,33 +1123,39 @@ void pdguiThemeExtractRomTextures(void)
         }
     }
 
-    /* Table of textures to extract */
+    /* Table of textures to extract.
+     * P4 enhancement: expanded to cover ALL UI-relevant ROM textures.
+     * Naming follows catalog convention for mod authoring:
+     *   base:ui_<descriptive_name> */
     static const struct {
         int         index;
         const char *filename;
     } k_Extracts[] = {
-        {  0, "ui_noise_sm"   },
-        {  1, "ui_particles"  },
-        {  2, "ui_noise_lg"   },
-        {  3, "ui_grad_bar"   },
-        {  4, "ui_mirror_tile"},
-        {  6, "ui_bg_haze"    },
-        {  7, "ui_dot_tile"   },
-        { 10, "ui_nuke"       },
-        { 11, "ui_bg_alt"     },
-        { 34, "ui_icon_a"     },
-        { 35, "ui_icon_b"     },
-        { 36, "ui_icon_c"     },
-        { 37, "ui_deco"       },
-        { 38, "ui_stars"      },
-        /* P4: additional textures from title/menu subsystems */
-        { 47, "ui_title_bg"   },
-        { 49, "ui_title_logo" },
-        { 51, "ui_menuitem_a" },
-        { 52, "ui_menuitem_b" },
-        { 53, "ui_menuitem_c" },
-        { 54, "ui_menuitem_d" },
-        { 55, "ui_menuitem_e" },
+        {  0, "ui_noise_sm"    },  /* 16x16 small noise grain */
+        {  1, "ui_particles"   },  /* 1x1 solid pixel (color fills) */
+        {  2, "ui_noise_lg"    },  /* 16x16 large noise grain */
+        {  3, "ui_grad_bar"    },  /* 2x8 gradient bar */
+        {  4, "ui_mirror_tile" },  /* 8x8 mirror-tiled element */
+        {  5, "ui_crosshatch"  },  /* crosshatch pattern */
+        {  6, "ui_bg_haze"     },  /* 64x64 green haze background */
+        {  7, "ui_dot_tile"    },  /* 8x8 tiled dot pattern */
+        {  8, "ui_vignette"    },  /* vignette/darkening texture */
+        {  9, "ui_scanline"    },  /* scanline overlay pattern */
+        { 10, "ui_nuke"        },  /* 64x64 nuke detonation effect */
+        { 11, "ui_bg_alt"      },  /* 64x64 alternative background */
+        { 27, "ui_grid_fine"   },  /* fine grid pattern */
+        { 28, "ui_grid_coarse" },  /* coarse grid pattern */
+        { 29, "ui_stripe"      },  /* stripe pattern */
+        { 34, "ui_icon_a"      },  /* 14x14 menu icon A */
+        { 35, "ui_icon_b"      },  /* 11x11 menu icon B */
+        { 36, "ui_icon_c"      },  /* 14x14 menu icon C */
+        { 37, "ui_deco"        },  /* 32x32 decorative texture */
+        { 38, "ui_stars"       },  /* star rating texture */
+        { 51, "ui_menu_panel"  },  /* menu panel background */
+        { 52, "ui_menu_border" },  /* menu border texture */
+        { 53, "ui_menu_header" },  /* menu header gradient */
+        { 54, "ui_menu_btn"    },  /* menu button texture */
+        { 55, "ui_menu_scroll" },  /* menu scrollbar texture */
     };
 
     static uint8_t s_ExtractBuf[256 * 256 * 4];
