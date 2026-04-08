@@ -29,6 +29,8 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_theme_loader.h"
+#include "pdgui_menu_theme_editor.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
@@ -1420,7 +1422,12 @@ static void renderSettingsDebug(float scale)
         ImGui::PushStyleColor(ImGuiCol_Text, s_ThemeTextColors[i]);
 
         if (ImGui::Button(s_ThemeNames[i], ImVec2(btnW, btnH))) {
-            pdguiSetPalette(i);
+            /* P5: Use catalog-backed theme system instead of raw palette index.
+             * This persists the selection via Theme.ActiveTheme in pd.ini. */
+            const char *themeId = pdguiThemePaletteIndexToId(i);
+            if (themeId) {
+                pdguiThemeLoadFromCatalog(themeId);
+            }
             configSave("pd.ini");
         }
 
@@ -1435,6 +1442,13 @@ static void renderSettingsDebug(float scale)
         if (i % 3 != 2 && i + 1 < PDGUI_NUM_THEMES) {
             ImGui::SameLine();
         }
+    }
+
+    ImGui::Spacing();
+
+    /* P5: Theme Editor button */
+    if (ImGui::Button("Theme Editor...", ImVec2(btnW * 2.0f, btnH))) {
+        pdguiThemeEditorShow();
     }
 
     ImGui::Spacing();
@@ -2005,9 +2019,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
                            struct menu *menu,
                            s32 winW, s32 winH)
 {
-    /* E.3: Always enforce blue palette — prevents tint bleed from post-mission
-     * endscreen (which sets palette 3=green or 2=red and never restores it). */
-    pdguiSetPalette(1);
+    /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission
+     * endscreen (which sets palette 3=green or 2=red and never restores it).
+     * P5: Uses catalog-backed theme instead of hardcoded blue. */
+    pdguiThemeLoadFromCatalog(pdguiThemeGetActiveId());
 
     float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
