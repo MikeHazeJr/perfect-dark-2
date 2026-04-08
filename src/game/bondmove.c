@@ -1519,8 +1519,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				}
 
 				if (controlmode == CONTROLMODE_PC) {
-					movedata.analogstrafe = c2stickx;
-					movedata.analogwalk = c2sticky;
+					/* Modern twin-stick: left stick = move, right stick = aim.
+					 * analogstrafe/analogwalk keep their c1 (left stick) values from init.
+					 * Override analogturn/analogpitch to c2 (right stick). */
+					movedata.analogturn = c2stickx;
+					movedata.analogpitch = c2sticky;
 					movedata.unk14 = (c2stickx || c2sticky);
 				}
 

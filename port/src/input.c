@@ -690,6 +690,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
+	/* NOTE: Game code reads controller sticks via actionValue() (actionmap), NOT
+	 * from OSContPad.stick_x/y/rstick_x/y.  The SDL stick reads below are a
+	 * legacy parallel path.  The only still-live purpose is stickCButtons
+	 * (right stick → C-button presses fed into npad->button).
+	 * invertRStickY / swapSticks / per-axis deadzone+sens here are DEAD for
+	 * actual stick input — actionmapPollFrame() owns that path.
+	 * Y-invert is handled by movedata.invertpitch in bondmove.c. */
+
 	s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
 	s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
 	s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
@@ -704,13 +712,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		npad->stick_x = leftX / 0x100;
 	}
 
-	s32 stickY = (cfg->swapSticks && cfg->invertRStickY ? leftY : -leftY) / 0x100;
+	s32 stickY = -leftY / 0x100;
 	if (!npad->stick_y && stickY) {
 		npad->stick_y = (stickY == 128) ? 127 : stickY;
 	}
 
 	if (cfg->stickCButtons) {
-		// rstick emulates C buttons
+		// rstick emulates C buttons — still live, feeds npad->button
 		if (rightX < -0x4000) npad->button |= L_CBUTTONS;
 		if (rightX > +0x4000) npad->button |= R_CBUTTONS;
 		if (rightY < -0x4000) npad->button |= U_CBUTTONS;
@@ -718,11 +726,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		npad->rstick_x = 0;
 		npad->rstick_y = 0;
 	} else {
-		// rstick is an analog input
+		// rstick analog — legacy path, game reads via actionValue()
 		if (rightX) {
 			npad->rstick_x = rightX / 0x100;
 		}
-		s32 rStickY = (!cfg->swapSticks && cfg->invertRStickY ? rightY : -rightY) / 0x100;
+		s32 rStickY = -rightY / 0x100;
 		if (rStickY) {
 			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
 		}

@@ -893,13 +893,10 @@ static void renderSettingsControls(float scale)
         }
     }
 
-    {
-        bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
-        if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
-            inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
-            configSave("pd.ini");
-        }
-    }
+    /* "Invert Y-Axis (Right Stick)" removed — was writing to dead inputReadController
+     * path (padsCfg.invertRStickY) which game code no longer reads for sticks.
+     * "Invert Look (Y-Axis)" above handles both mouse AND controller via
+     * movedata.invertpitch in bondmove.c. */
 
     ImGui::Spacing();
     ImGui::Spacing();
