@@ -659,13 +659,14 @@ void pdguiThemeInit(void)
     }
     s_ThemeInitDone = true;
 
-    /* Register scanline toggle in config file (saved to pd.ini) */
+    /* Register scanline config in pd.ini */
     configRegisterInt("Video.Scanlines", &s_CfgScanlineEnabled, 0, 1);
+    configRegisterFloat("Video.ScanlineAlpha", &s_ScanlineAlpha, 0.0f, 1.0f);
     s_ScanlineEnabled = (s_CfgScanlineEnabled != 0);
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: D5.0 early init (scanlines=%s, textures deferred)",
-        s_ScanlineEnabled ? "ON" : "OFF");
+        "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%%, textures deferred)",
+        s_ScanlineEnabled ? "ON" : "OFF", s_ScanlineAlpha * 100.0f);
 }
 
 /**

@@ -110,6 +110,132 @@
 #define MOUSE_AIM_SCALE 0.003f
 
 /* ============================================================
+ * Self-contained VK ↔ name table for pd.ini serialisation.
+ *
+ * P10 fix: actionmap must not depend on input.c vkNames[] (which
+ * may not be populated at config-load time).  This table uses the
+ * EXACT names that appear in pd.ini bind strings.
+ * ============================================================ */
+
+struct VkNameEntry { u32 vk; const char *name; };
+
+static const VkNameEntry s_VkNameTable[] = {
+    /* --- Keyboard: letters (SDL scancodes 4-29) --- */
+    { 4,"A"},{ 5,"B"},{ 6,"C"},{ 7,"D"},{ 8,"E"},{ 9,"F"},{10,"G"},{11,"H"},
+    {12,"I"},{13,"J"},{14,"K"},{15,"L"},{16,"M"},{17,"N"},{18,"O"},{19,"P"},
+    {20,"Q"},{21,"R"},{22,"S"},{23,"T"},{24,"U"},{25,"V"},{26,"W"},{27,"X"},
+    {28,"Y"},{29,"Z"},
+    /* --- Keyboard: number row (SDL scancodes 30-39) --- */
+    {30,"1"},{31,"2"},{32,"3"},{33,"4"},{34,"5"},{35,"6"},{36,"7"},{37,"8"},
+    {38,"9"},{39,"0"},
+    /* --- Keyboard: editing/whitespace --- */
+    {40,"RETURN"},{41,"ESCAPE"},{42,"BACKSPACE"},{43,"TAB"},{44,"SPACE"},
+    /* --- Keyboard: punctuation (scancodes 45-56) --- */
+    {45,"MINUS"},{46,"EQUALS"},{47,"LEFTBRACKET"},{48,"RIGHTBRACKET"},
+    {49,"BACKSLASH"},{50,"HASH"},{51,"SEMICOLON"},{52,"APOSTROPHE"},
+    {53,"GRAVE"},{54,"COMMA"},{55,"PERIOD"},{56,"SLASH"},
+    /* --- Keyboard: function/toggle (57-69) --- */
+    {57,"CAPSLOCK"},
+    {58,"F1"},{59,"F2"},{60,"F3"},{61,"F4"},{62,"F5"},{63,"F6"},
+    {64,"F7"},{65,"F8"},{66,"F9"},{67,"F10"},{68,"F11"},{69,"F12"},
+    /* --- Keyboard: navigation --- */
+    {70,"PRINTSCREEN"},{71,"SCROLLLOCK"},{72,"PAUSE"},
+    {73,"INSERT"},{74,"HOME"},{75,"PAGEUP"},{76,"DELETE"},
+    {77,"END"},{78,"PAGEDOWN"},
+    {79,"RIGHT"},{80,"LEFT"},{81,"DOWN"},{82,"UP"},
+    {83,"NUMLOCKCLEAR"},
+    /* --- Keyboard: keypad --- */
+    {84,"KP_DIVIDE"},{85,"KP_MULTIPLY"},{86,"KP_MINUS"},{87,"KP_PLUS"},
+    {88,"KP_ENTER"},{89,"KP_1"},{90,"KP_2"},{91,"KP_3"},{92,"KP_4"},
+    {93,"KP_5"},{94,"KP_6"},{95,"KP_7"},{96,"KP_8"},{97,"KP_9"},
+    {98,"KP_0"},{99,"KP_PERIOD"},{103,"KP_EQUALS"},
+    /* --- Keyboard: modifiers (224-231) --- */
+    {224,"LEFT_CTRL"},{225,"LEFT_SHIFT"},{226,"LEFT_ALT"},{227,"LEFT_GUI"},
+    {228,"RIGHT_CTRL"},{229,"RIGHT_SHIFT"},{230,"RIGHT_ALT"},{231,"RIGHT_GUI"},
+    /* --- Mouse (VK_MOUSE_BEGIN = 512) --- */
+    {VK_MOUSE_LEFT,     "MOUSE_LEFT"},
+    {VK_MOUSE_MIDDLE,   "MOUSE_MIDDLE"},
+    {VK_MOUSE_RIGHT,    "MOUSE_RIGHT"},
+    {VK_MOUSE_X1,       "MOUSE_X1"},
+    {VK_MOUSE_X2,       "MOUSE_X2"},
+    {VK_MOUSE_WHEEL_UP, "MOUSE_WHEEL_UP"},
+    {VK_MOUSE_WHEEL_DN, "MOUSE_WHEEL_DN"},
+};
+static const s32 s_VkNameTableSize = (s32)(sizeof(s_VkNameTable) / sizeof(s_VkNameTable[0]));
+
+/* Joystick button names (offset within a controller's 32-slot range).
+ * JOY<n>_<name> is assembled dynamically. */
+static const char * const s_JoyBtnNames[INPUT_MAX_CONTROLLER_BUTTONS] = {
+    "A","B","X","Y","BACK","GUIDE","START","LSTICK","RSTICK",
+    "LSHOULDER","RSHOULDER","DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT",
+    "BUTTON_15","BUTTON_16","BUTTON_17","BUTTON_18","BUTTON_19",
+    "TOUCHPAD","BUTTON_21",
+    "LSTICK_LEFT","LSTICK_RIGHT","LSTICK_UP","LSTICK_DOWN",
+    "RSTICK_LEFT","RSTICK_RIGHT","RSTICK_UP","RSTICK_DOWN",
+    "LTRIGGER","RTRIGGER",
+};
+
+/** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency). */
+static const char *actionmapGetVkName(u32 vk)
+{
+    /* Joystick buttons: JOY<n>_<btn> */
+    if (vk >= (u32)VK_JOY1_BEGIN && vk < (u32)VK_TOTAL_COUNT) {
+        u32 off = vk - (u32)VK_JOY1_BEGIN;
+        u32 jidx = off / INPUT_MAX_CONTROLLER_BUTTONS;
+        u32 jbtn = off % INPUT_MAX_CONTROLLER_BUTTONS;
+        static char joyBuf[32];
+        snprintf(joyBuf, sizeof(joyBuf), "JOY%u_%s", jidx + 1, s_JoyBtnNames[jbtn]);
+        return joyBuf;
+    }
+
+    /* Static table lookup */
+    for (s32 i = 0; i < s_VkNameTableSize; i++) {
+        if (s_VkNameTable[i].vk == vk) {
+            return s_VkNameTable[i].name;
+        }
+    }
+
+    /* Unknown: encode as UNKNOWNnnn */
+    static char unkBuf[16];
+    snprintf(unkBuf, sizeof(unkBuf), "UNKNOWN%u", vk);
+    return unkBuf;
+}
+
+/** Resolve a pd.ini key name to a VK code (self-contained). */
+static s32 actionmapGetVkByName(const char *name)
+{
+    if (!name || !name[0]) return -1;
+
+    /* Joystick: JOY<n>_<btn> */
+    if (!strncmp(name, "JOY", 3) && name[3] >= '1' && name[3] <= '4' && name[4] == '_') {
+        u32 jidx = (u32)(name[3] - '1');
+        const char *btn = name + 5;
+        for (u32 b = 0; b < INPUT_MAX_CONTROLLER_BUTTONS; b++) {
+            if (!strcmp(btn, s_JoyBtnNames[b])) {
+                return (s32)(VK_JOY1_BEGIN + jidx * INPUT_MAX_CONTROLLER_BUTTONS + b);
+            }
+        }
+        return -1;
+    }
+
+    /* UNKNOWN<n> raw code */
+    if (!strncmp(name, "UNKNOWN", 7) && name[7] >= '0' && name[7] <= '9') {
+        s32 v = atoi(name + 7);
+        return (v >= 0 && v < VK_TOTAL_COUNT) ? v : -1;
+    }
+
+    /* Static table */
+    for (s32 i = 0; i < s_VkNameTableSize; i++) {
+        if (!strcmp(s_VkNameTable[i].name, name)) {
+            return (s32)s_VkNameTable[i].vk;
+        }
+    }
+
+    sysLogPrintf(LOG_WARNING, "actionmap: unknown key name: `%s`", name);
+    return -1;
+}
+
+/* ============================================================
  * Action name table (must match InputAction enum order)
  * ============================================================ */
 
@@ -783,7 +909,7 @@ static void buildBindStr(s32 player, InputAction action,
             /* Only include triggers belonging to this player */
             if (playerForVk(vk) != player) continue;
 
-            const char *name = inputGetKeyName((s32)vk);
+            const char *name = actionmapGetVkName(vk);
             if (!name || name[0] == '\0') continue;
 
             s32 curlen = (s32)strlen(out);
@@ -833,7 +959,7 @@ static void parseBindStr(InputMappingContext *imc, s32 player,
         while (end > token && *end == ' ') *end-- = '\0';
 
         if (*token) {
-            s32 vk = inputGetKeyByName(token);
+            s32 vk = actionmapGetVkByName(token);
             if (vk > 0) {
                 actionmapBind(imc, player, action, -1, (u32)vk);
             }
