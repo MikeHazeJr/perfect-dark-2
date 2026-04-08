@@ -25,6 +25,9 @@
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 #include "assetcatalog.h"
 #include "config.h"
 #include "system.h"
@@ -83,6 +86,33 @@ struct theme_def {
 
     /* Sound pack */
     char sound_pack[THEME_SOUNDPACK_LEN];
+
+    /* P4: 9-slice panel insets (for dialog/panel backgrounds) */
+    f32  nineslice_left, nineslice_top, nineslice_right, nineslice_bottom;
+    s32  nineslice_tile_edges;  /* 0=stretch, 1=tile */
+    s32  nineslice_tile_fill;   /* 0=stretch, 1=tile */
+    s32  has_nineslice;
+
+    /* P4: Effects config */
+    s32  caustic_enabled;
+    f32  caustic_speed_x, caustic_speed_y;
+    f32  caustic_scale, caustic_opacity;
+    u32  caustic_tint;
+    s32  has_caustic;
+
+    s32  glow_pulse_enabled;
+    f32  glow_pulse_speed, glow_pulse_min, glow_pulse_max, glow_pulse_size;
+    u32  glow_pulse_color;
+    s32  has_glow_pulse;
+
+    /* P4: Font config */
+    char font_path[THEME_TEX_PATH_LEN];  /* TTF path relative to theme dir */
+    f32  font_size;
+    f32  font_glow_radius;
+    u32  font_glow_color;
+    f32  font_shadow_x, font_shadow_y;
+    u32  font_shadow_color;
+    s32  has_font;
 };
 
 /* =========================================================================
@@ -410,6 +440,126 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
                     def->glow_color = parse_hex_color(tok.start, tok.len);
                 }
             }
+        } else if (strcmp(key, "nineSlice") == 0) {
+            /* P4: Parse 9-slice insets */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_nineslice = 1;
+            char nkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, nkey, sizeof(nkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(nkey, "left") == 0) def->nineslice_left = jfloat(&tok);
+                else if (strcmp(nkey, "top") == 0) def->nineslice_top = jfloat(&tok);
+                else if (strcmp(nkey, "right") == 0) def->nineslice_right = jfloat(&tok);
+                else if (strcmp(nkey, "bottom") == 0) def->nineslice_bottom = jfloat(&tok);
+                else if (strcmp(nkey, "tileEdges") == 0) def->nineslice_tile_edges = (tok.type == JT_TRUE) ? 1 : 0;
+                else if (strcmp(nkey, "tileFill") == 0) def->nineslice_tile_fill = (tok.type == JT_TRUE) ? 1 : 0;
+            }
+        } else if (strcmp(key, "caustic") == 0) {
+            /* P4: Parse caustic effect config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_caustic = 1;
+            def->caustic_enabled = 1;
+            def->caustic_speed_x = 0.05f;
+            def->caustic_speed_y = 0.03f;
+            def->caustic_scale = 1.0f;
+            def->caustic_opacity = 0.15f;
+            def->caustic_tint = 0xFFFFFF80u;
+
+            char ckey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, ckey, sizeof(ckey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(ckey, "enabled") == 0) def->caustic_enabled = (tok.type == JT_TRUE) ? 1 : 0;
+                else if (strcmp(ckey, "speedX") == 0) def->caustic_speed_x = jfloat(&tok);
+                else if (strcmp(ckey, "speedY") == 0) def->caustic_speed_y = jfloat(&tok);
+                else if (strcmp(ckey, "scale") == 0) def->caustic_scale = jfloat(&tok);
+                else if (strcmp(ckey, "opacity") == 0) def->caustic_opacity = jfloat(&tok);
+                else if (strcmp(ckey, "tint") == 0 && tok.type == JT_STRING) def->caustic_tint = parse_hex_color(tok.start, tok.len);
+            }
+        } else if (strcmp(key, "glowPulse") == 0) {
+            /* P4: Parse glow pulse effect config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_glow_pulse = 1;
+            def->glow_pulse_enabled = 1;
+            def->glow_pulse_speed = 2.0f;
+            def->glow_pulse_min = 0.1f;
+            def->glow_pulse_max = 0.6f;
+            def->glow_pulse_size = 3.0f;
+            def->glow_pulse_color = 0x00C0FF80u;
+
+            char pkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, pkey, sizeof(pkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(pkey, "enabled") == 0) def->glow_pulse_enabled = (tok.type == JT_TRUE) ? 1 : 0;
+                else if (strcmp(pkey, "speed") == 0) def->glow_pulse_speed = jfloat(&tok);
+                else if (strcmp(pkey, "minAlpha") == 0) def->glow_pulse_min = jfloat(&tok);
+                else if (strcmp(pkey, "maxAlpha") == 0) def->glow_pulse_max = jfloat(&tok);
+                else if (strcmp(pkey, "size") == 0) def->glow_pulse_size = jfloat(&tok);
+                else if (strcmp(pkey, "color") == 0 && tok.type == JT_STRING) def->glow_pulse_color = parse_hex_color(tok.start, tok.len);
+            }
+        } else if (strcmp(key, "font") == 0) {
+            /* P4: Parse font config */
+            tok = jnext(&jp);
+            if (tok.type != JT_LBRACE) { jskip_value(&jp); continue; }
+
+            def->has_font = 1;
+            def->font_size = 24.0f;
+            def->font_shadow_x = 1.0f;
+            def->font_shadow_y = 1.0f;
+            def->font_shadow_color = 0x000000A0u;
+
+            char fkey[64];
+            while (true) {
+                tok = jnext(&jp);
+                if (tok.type == JT_RBRACE || tok.type == JT_EOF) break;
+                if (tok.type == JT_COMMA) continue;
+                if (tok.type != JT_STRING) break;
+
+                jstr(&tok, fkey, sizeof(fkey));
+                tok = jnext(&jp);
+                if (tok.type != JT_COLON) break;
+                tok = jnext(&jp);
+
+                if (strcmp(fkey, "path") == 0) jstr(&tok, def->font_path, sizeof(def->font_path));
+                else if (strcmp(fkey, "size") == 0) def->font_size = jfloat(&tok);
+                else if (strcmp(fkey, "glowRadius") == 0) def->font_glow_radius = jfloat(&tok);
+                else if (strcmp(fkey, "glowColor") == 0 && tok.type == JT_STRING) def->font_glow_color = parse_hex_color(tok.start, tok.len);
+                else if (strcmp(fkey, "shadowX") == 0) def->font_shadow_x = jfloat(&tok);
+                else if (strcmp(fkey, "shadowY") == 0) def->font_shadow_y = jfloat(&tok);
+                else if (strcmp(fkey, "shadowColor") == 0 && tok.type == JT_STRING) def->font_shadow_color = parse_hex_color(tok.start, tok.len);
+            }
         } else {
             jskip_value(&jp);
         }
@@ -458,7 +608,17 @@ static void apply_theme_def(const struct theme_def *def)
         if (strcmp(def->sound_pack, "default") == 0) {
             pdguiThemeSetSoundPack(0);
         }
-        /* Future: named sound pack lookup */
+    }
+
+    /* P4: Apply font config (if a mod font is specified, register + load it) */
+    if (def->has_font && def->font_path[0]) {
+        const char *fontId = "mod:font_theme";
+        s32 idx = pdguiFontMgrRegister(fontId, def->name, def->font_path, def->font_size);
+        if (idx >= 0) {
+            pdguiFontMgrSetGlow(fontId, def->font_glow_radius, def->font_glow_color);
+            pdguiFontMgrSetShadow(fontId, def->font_shadow_x, def->font_shadow_y,
+                                   def->font_shadow_color);
+        }
     }
 }
 

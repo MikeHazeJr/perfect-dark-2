@@ -106,6 +106,17 @@ u32 pdguiGetPaletteColor(s32 index);
  * If alpha < 0, uses the palette color's own alpha. */
 u32 pdguiPalImU32(s32 index, s32 alpha);
 
+/* --- P4: 9-slice panel texture API --- */
+
+/* Set a 9-slice texture for dialog body backgrounds.
+ * When set, pdguiDrawPdDialog composites this over the palette body fill.
+ * Pass tex=NULL to disable. */
+void pdguiSetPanelNineSlice(void *tex, f32 texW, f32 texH,
+                             f32 inL, f32 inT, f32 inR, f32 inB);
+
+/* Clear the 9-slice panel texture (return to palette-only rendering). */
+void pdguiClearPanelNineSlice(void);
+
 #ifdef __cplusplus
 }
 #endif

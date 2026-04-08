@@ -1105,9 +1105,12 @@ void pdguiThemeExtractRomTextures(void)
     /* First, ensure the textures we need are decompressed from ROM.
      * texLoadFromConfig() converts texnum → textureptr via DMA + decompress. */
 
-    /* Load the textures we want to extract */
+    /* Load the textures we want to extract.
+     * P4 enhancement: expanded set includes title screen and menu item textures
+     * (indices 47, 49, 51-55) in addition to the original D5.0 set. */
     static const int k_IndicesToLoad[] = {
-        0, 1, 2, 3, 4, 6, 7, 10, 11, 34, 35, 36, 37, 38
+        0, 1, 2, 3, 4, 6, 7, 10, 11, 34, 35, 36, 37, 38,
+        47, 49, 51, 52, 53, 54, 55
     };
     for (unsigned i = 0; i < sizeof(k_IndicesToLoad) / sizeof(k_IndicesToLoad[0]); i++) {
         int idx = k_IndicesToLoad[i];
@@ -1136,6 +1139,14 @@ void pdguiThemeExtractRomTextures(void)
         { 36, "ui_icon_c"     },
         { 37, "ui_deco"       },
         { 38, "ui_stars"      },
+        /* P4: additional textures from title/menu subsystems */
+        { 47, "ui_title_bg"   },
+        { 49, "ui_title_logo" },
+        { 51, "ui_menuitem_a" },
+        { 52, "ui_menuitem_b" },
+        { 53, "ui_menuitem_c" },
+        { 54, "ui_menuitem_d" },
+        { 55, "ui_menuitem_e" },
     };
 
     static uint8_t s_ExtractBuf[256 * 256 * 4];
