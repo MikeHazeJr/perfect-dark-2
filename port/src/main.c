@@ -23,6 +23,7 @@
 #include "pdgui.h"
 /* menumgr.h removed — P10 D5.7 OG Menu Removal */
 #include "playerstats.h"
+#include "achievements.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
@@ -174,6 +175,7 @@ int main(int argc, const char **argv)
 	pdguiInit(videoGetWindowHandle());
 	/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
 	statsInit();
+	achievementsInit();
 	inputInit();
 
 	/* Input context stack: must init after inputInit() (SDL event watch)

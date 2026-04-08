@@ -21,6 +21,72 @@
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
 
+/* ---- Weapon name lookup for stat keys ----
+ * Maps WEAPON_* number → short catalog name (e.g., 0x01 → "falcon2").
+ * Used to build keys like "kills.weapon.falcon2". */
+static const struct { s16 id; const char *name; } s_WeaponStatNames[] = {
+	{ 0x01, "falcon2" },        { 0x02, "falcon2_sil" },
+	{ 0x03, "falcon2_scope" },  { 0x04, "magsec4" },
+	{ 0x05, "mauler" },         { 0x06, "phoenix" },
+	{ 0x07, "dy357" },          { 0x08, "dy357lx" },
+	{ 0x09, "cmp150" },         { 0x0a, "cyclone" },
+	{ 0x0b, "callisto" },       { 0x0c, "rcp120" },
+	{ 0x0d, "laptopgun" },      { 0x0e, "dragon" },
+	{ 0x0f, "k7avenger" },      { 0x10, "ar34" },
+	{ 0x11, "superdragon" },    { 0x12, "shotgun" },
+	{ 0x13, "reaper" },         { 0x14, "sniperrifle" },
+	{ 0x15, "farsight" },       { 0x16, "devastator" },
+	{ 0x17, "rocketlauncher" }, { 0x18, "slayer" },
+	{ 0x19, "combatknife" },    { 0x1a, "crossbow" },
+	{ 0x1b, "tranquilizer" },   { 0x1c, "grenade" },
+	{ 0x1d, "nbomb" },          { 0x1e, "timedmine" },
+	{ 0x1f, "proximitymine" },  { 0x20, "remotemine" },
+	{ 0x21, "laser" },
+};
+#define NUM_WEAPON_STAT_NAMES (s32)(sizeof(s_WeaponStatNames) / sizeof(s_WeaponStatNames[0]))
+
+static const char *weaponStatName(s32 weaponnum)
+{
+	s32 i;
+	for (i = 0; i < NUM_WEAPON_STAT_NAMES; i++) {
+		if (s_WeaponStatNames[i].id == weaponnum) {
+			return s_WeaponStatNames[i].name;
+		}
+	}
+	return NULL;
+}
+
+/* ---- Scenario name lookup for mode stat keys ---- */
+static const char * const s_ScenarioStatNames[] = {
+	"combat",          /* MPSCENARIO_COMBAT */
+	"hold_briefcase",  /* MPSCENARIO_HOLDTHEBRIEFCASE */
+	"hacker_central",  /* MPSCENARIO_HACKERCENTRAL */
+	"pop_a_cap",       /* MPSCENARIO_POPACAP */
+	"king_of_hill",    /* MPSCENARIO_KINGOFTHEHILL */
+	"capture_case",    /* MPSCENARIO_CAPTURETHECASE */
+};
+#define NUM_SCENARIO_STAT_NAMES (s32)(sizeof(s_ScenarioStatNames) / sizeof(s_ScenarioStatNames[0]))
+
+static void statIncrementWeapon(const char *prefix, s32 weaponnum)
+{
+	const char *wname = weaponStatName(weaponnum);
+	if (wname) {
+		char key[128];
+		snprintf(key, sizeof(key), "%s.weapon.%s", prefix, wname);
+		statIncrement(key, 1);
+	}
+}
+
+static void statIncrementMode(const char *prefix)
+{
+	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario >= 0
+		&& g_MpSetup.scenario < NUM_SCENARIO_STAT_NAMES) {
+		char key[128];
+		snprintf(key, sizeof(key), "%s.mode.%s", prefix, s_ScenarioStatNames[g_MpSetup.scenario]);
+		statIncrement(key, 1);
+	}
+}
+
 u32 var80070590 = 0x00000000;
 
 void mpstatsIncrementPlayerShotCount(struct gset *gset, s32 region)
@@ -30,6 +96,7 @@ void mpstatsIncrementPlayerShotCount(struct gset *gset, s32 region)
 
 		/* PC: track shots in persistent stats */
 		statIncrement("shots.total", 1);
+		statIncrementWeapon("shots", gset->weaponnum);
 		if (region == SHOTREGION_HEAD) {
 			statIncrement("shots.headshot", 1);
 		}
@@ -276,6 +343,7 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		if (vplayernum < PLAYERCOUNT()) {
 			statIncrement("deaths.total", 1);
 			statIncrement("deaths.suicide", 1);
+			statIncrementMode("deaths");
 		}
 
 		if (vplayernum < PLAYERCOUNT()) {
@@ -304,6 +372,7 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 
 				/* PC: track death in persistent stats */
 				statIncrement("deaths.total", 1);
+				statIncrementMode("deaths");
 				if (aplayernum >= PLAYERCOUNT()) {
 					statIncrement("deaths.by_bot", 1);
 				} else {
@@ -322,6 +391,7 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {
 			// Attacker was a player -- record kill in persistent stats
 			statIncrement("kills.total", 1);
+			statIncrementMode("kills");
 			if (vplayernum >= PLAYERCOUNT()) {
 				statIncrement("kills.vs_bot", 1);
 			} else {
@@ -330,6 +400,9 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 
 			prevplayernum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(aplayernum);
+
+			/* Weapon-specific kill tracking (currentplayer set by setCurrentPlayerNum above) */
+			statIncrementWeapon("kills", g_Vars.currentplayer->gunctrl.weaponnum);
 
 			if (g_Vars.normmplayerisrunning && vplayernum >= 0) {
 				// "Killed %s"

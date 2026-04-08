@@ -31,6 +31,7 @@
 #include "pdgui_hotswap.h"
 #include "system.h"
 #include "inputctx.h"
+#include "achievements.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -393,6 +394,8 @@ static void renderSoloEndscreen(bool completed)
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
         }
+        /* M2.3: Refresh achievements so newly unlocked ones show */
+        achievementsRefresh();
     }
 
     /* ----- PD dialog frame -------------------------------------------- */
