@@ -1,6 +1,6 @@
 {
     "id": "bot-names",
-    "name": "Custom Bot Names",
+    "name": "Sim Type Renames",
     "version": "1.0.0",
     "author": "PD2 Team",
     "description": "Replaces the default bot simulant profile names with custom names. This is the first sample mod — it proves the full mod pipeline: manifest parsed, mod enabled, catalog assets registered, game code uses mod data, mod disabled, reverts to base.",
