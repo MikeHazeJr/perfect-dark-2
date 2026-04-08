@@ -31,6 +31,7 @@
 #include "pdgui_style.h"
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
+#include "pdgui_menu_stats.h"
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -2090,6 +2091,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
     else if (s_MenuView == 4) windowTitle = "Online Play";
+    else if (s_MenuView == 5) windowTitle = "Player Statistics";
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -2121,6 +2123,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             } else if (s_MenuView == 4) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
                 if (menuGetCurrent() == MENU_JOIN) menuPop();
+            } else if (s_MenuView == 5) {
+                pdguiMenuStatsHide();
             } else {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
@@ -2211,6 +2215,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
             s_MenuView = 3;
             pdguiModdingHubShow();
             sysLogPrintf(LOG_NOTE, "MENU_STACK: modding hub OPEN (s_MenuView=3)");
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Stats -- opens the Stats Viewer (view 5) */
+        if (PdButton("Stats", ImVec2(buttonW, buttonH * 1.2f))) {
+            s_MenuView = 5;
+            pdguiMenuStatsShow();
         }
 
         /* Quit Game -- docked to bottom-right with confirmation */
@@ -2486,6 +2498,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
                 ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));
             }
+        }
+
+    } else if (s_MenuView == 5) {
+        /* ================================================================
+         * PLAYER STATISTICS (M2.3)
+         * ================================================================ */
+        pdguiMenuStatsRender(winW, winH);
+        if (!pdguiMenuStatsIsVisible()) {
+            s_MenuView = 0;
         }
     }
 
