@@ -1,7 +1,7 @@
 # Modernization Roadmap
 
-## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 IN PROGRESS (D5.1+D5.4+D5.5 PARTIAL, D5.8 PARTIAL — matchsetup.cpp retired), R-3 DONE, LOBBY UNIFICATION COMPLETE (S153), CATALOG ID MIGRATION PHASES 0–6 DONE (S155)**
-Last updated: 2026-04-06 (S155)
+## Status: D1 DONE, D2 PARTIAL, D3 PARTIAL, D8 DONE, D9 MERGED INTO D5, D13 IN PROGRESS, **D5 IN PROGRESS (D5.1+D5.4+D5.5 PARTIAL, D5.8 PARTIAL — matchsetup.cpp retired), R-3 DONE, LOBBY UNIFICATION COMPLETE (S153), CATALOG ID MIGRATION M0.1 COMPLETE (S180), M0.2 INPUT SYSTEM UNIFICATION COMPLETE (S183)**
+Last updated: 2026-04-08 (S183)
 
 ## Engine Modernization Vision
 
@@ -11,7 +11,7 @@ Last updated: 2026-04-06 (S155)
 |-------|-------------|--------|
 | **Option A** (Current) | Catalog ID strings at all boundaries. ROM is sole asset provider. Legacy engine internals use integer indices. | **CODE COMPLETE (S130)** — protocol v31, all net_hash removed, SAVE-COMPAT stripped. Five systemic sweeps done (S131). Playtest pending. |
 | **Option A → A+** (Active) | Catalog-backed data structures replace legacy arrays internally. Integer identity eliminated from config/data structs, function APIs, comparisons, UI shadow structs, save paths. | **PHASES 0–6 DONE (S155)** for bodies/heads. Weapons (~660 refs), stages (~80), models (~83), textures, sounds, animations, game modes, lang banks still ahead. See `plan-catalog-id-migration.md`. |
-| **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | **IN PROGRESS (S155)** — Phases 0–6 done for bodies/heads. Remaining asset types in plan. |
+| **Option A+** (Next) | Catalog-backed data structures replace legacy arrays internally. `g_HeadsAndBodies[]` becomes catalog lookup. Integer index stops existing as a concept. | **M0.1 COMPLETE (S180)** — All 6 sub-phases (a–f) done. g_HeadsAndBodies fully catalog-owned. **M0.2 COMPLETE (S183)** — Action map system replaces CK_*, inputmodes.c deleted. Remaining asset types (weapons/stages/models) in plan. |
 | **Option B** (Long-term) | Catalog becomes provider-agnostic asset bus. ROM is one provider (legacy). Modern asset pipeline is another. Each catalog entry declares which provider. PBR materials, modern meshes, advanced physics — all new provider types. Mods ship modern assets that bypass the GBI path entirely. | VISION |
 
 The catalog-as-single-source-of-truth principle means migration is incremental — upgrade assets one at a time, game runs with mixed legacy/modern content. fast3d stays for anything not yet upgraded.

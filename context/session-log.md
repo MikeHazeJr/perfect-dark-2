@@ -3,6 +3,92 @@
 > Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
 > Back to [index](README.md)
 
+## Session S183 — 2026-04-08 (M0.2 Phases C+D: ImGui Nav Takeover + Full CK_* Cleanup)
+
+**Focus**: Complete M0.2 input system unification — replace ImGui built-in gamepad nav with action map queries, eliminate all CK_* legacy input constants.
+
+### What Was Done
+
+**Phase C — ImGui Nav Takeover**:
+- Disabled ImGui built-in `NavEnableGamepad`
+- Added `pdguiDriveImGuiNav()` — translates actionmap queries to ImGui nav key events each frame (accept, cancel, d-pad, bumpers)
+- Replaced `pdguiNavAcceptPressed`/`CancelPressed` with actionPressed queries
+- Removed `pdguiNavOnEvent`/`EndFrame`/`GetLastDevice`/`IsGamepad` from pdgui_nav
+- Kept `pdguiNavTickWrap` (d-pad wrapping) and safe area utilities
+
+**Phase D — Legacy Input Cleanup**:
+- Deleted `enum contkey` (CK_*) from input.h — 32 constants removed
+- Deleted CK_* binding infrastructure from input.c (ckNames, binds, bindStrs, all bind/save/load functions)
+- Rewrote `inputReadController` to build CONT_* bitmask from actionmap queries instead of CK_* binds
+- Deleted `inputmodes.c`/`.h` entirely (doubletap/hold system)
+- Deleted joy.c shim functions (all callers migrated in Phase B)
+- Rewrote ImGui rebind UI (mainmenu.cpp) to use InputAction + actionmap API
+- Rewrote legacy rebind UI (optionsmenu.c) to use InputAction + actionmap API
+
+**Net change**: -823 lines. Zero CK_* references remain in codebase.
+
+**Also landed**: M0.2 Phase B full direct migration — all game files migrated from CK_* to actionmap queries. Commit `e99be17c`.
+
+### Decisions
+- ImGui nav driven by actionmap queries rather than raw SDL events — single input path for all systems
+- `inputmodes.c` (doubletap/hold) fully replaced by actionmap trigger types
+- joy.c shim stubs kept (function signatures) but bodies emptied — no callers remain
+
+### Next Steps
+- M0.2 COMPLETE (Phases A–D all done). Build verification needed.
+- Resume roadmap: D5 Phase 3 (remaining menu screens), or M3 (online MP flow)
+
+---
+
+## Session S182 — 2026-04-07 (M0.2: Enum Fix + Partial Game File Migration)
+
+**Focus**: Fix actionmap enum issues and migrate additional game files from CK_* to InputAction.
+
+### What Was Done
+
+- Fixed enum ordering/values for ACTION_USE, ACTION_CANCEL_USE, ACTION_FIRE_MODE, ACTION_CBUTTON_* actions
+- Partial game file migration: converted CK_* references in multiple game files to use new InputAction enum + actionPressed/actionDown queries
+- Merged from worktree `claude/wizardly-poitras`
+
+### Commits
+- `237fa415` — feat(input): M0.2 enum fix + partial game file migration
+- `6062d176` — merge into dev
+
+---
+
+## Session S181 — 2026-04-07 (M0.2 Phase A+B: Core Action Map System + SA-5e Ammo Accessors)
+
+**Focus**: Implement M0.2 Input System Unification Phases A and B — Unreal Enhanced Input-inspired action map system. Also rescue and land SA-5e ammo accessor work.
+
+### What Was Done
+
+**M0.2 Phase A — Core Action Map System** (commit `b7c6f213`):
+- Unreal Enhanced Input-inspired design: `InputAction` enum, `ActionBinding` structs, `ActionMap` contexts
+- Per-context action maps with priority stacking
+- Trigger types: press, release, hold, doubletap
+- Keyboard + gamepad binding support
+- Config save/load integration
+
+**M0.2 Phase B — Lifecycle Wiring** (commit `5cb14b52`):
+- Action map lifecycle wiring into game init/shutdown/tick
+- joy.c shim layer: `joyGetButtons`/`joyGetButtonsPressedThisFrame` wired through actionmap
+- credits.c migration: first game file converted from CK_* to actionPressed
+
+**SA-5e Ammo Accessors** (commit `d8be624c`, rescued from `claude/sleepy-agnesi`):
+- New accessors: `catalogGetMpWeaponPriAmmoType`/`PriAmmoQty`/`SecAmmoType`/`SecAmmoQty`
+- Migrated callers in player.c, bot.c, setup.c, matchsetup.c, netmsg.c
+
+### Decisions
+- Action map system inspired by Unreal Enhanced Input — appropriate complexity for a game with multiple input contexts (gameplay, menu, spectator, etc.)
+- Phase B wired incrementally: joy.c shim provides backwards compat while callers migrate
+
+### Next Steps
+- M0.2 Phase B: Migrate remaining game files (bondmove.c, player.c, lv.c, etc.)
+- M0.2 Phase C: ImGui nav takeover
+- M0.2 Phase D: CK_* removal
+
+---
+
 ## Session S180 — 2026-04-07 (M0.1f: Final g_HeadsAndBodies sweep — SA-5f)
 
 **Focus**: Eliminate all remaining raw `g_HeadsAndBodies[]` access from gameplay/UI code. Add modeldef lazy-load + reset accessor family. Build-verified clean.

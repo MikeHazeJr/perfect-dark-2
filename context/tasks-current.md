@@ -6,10 +6,12 @@
 
 ---
 
-## Recently Completed (S157–S176 — 2026-04-07)
+## Recently Completed (S157–S183 — 2026-04-07/08)
 
 | Item | Status |
 |------|--------|
+| **M0.2 — Input System Unification (S181–S183)** | **DONE** — Unreal Enhanced Input-inspired action map system. Phase A: core `InputAction` enum + `ActionMap` contexts. Phase B: joy.c shim + all game files migrated from CK_* to actionPressed/actionDown. Phase C: ImGui nav driven by actionmap (pdguiDriveImGuiNav). Phase D: CK_* enum deleted, inputmodes.c deleted, joy.c shims emptied. -823 lines net. Zero CK_* references remain. 34 files changed, ~2455 insertions, ~1338 deletions. |
+| **SA-5e Ammo Accessors (S181)** | **DONE** — `catalogGetMpWeaponPriAmmoType`/`PriAmmoQty`/`SecAmmoType`/`SecAmmoQty`. Callers migrated in player.c, bot.c, setup.c, matchsetup.c, netmsg.c. Rescued from `claude/sleepy-agnesi`. |
 | **S176 — B-115 Fix + M2.1 Polish** | **DONE** — B-115: legacy Save Player + Confirm Name dialogs suppressed (noop renderers), auto-save handles PC saving. M2.1 arena selection verified catalog-native (browsing works, preview images need base-ui textures Phase 4). Game mode selection verified: all 6 modes set `scenario_id` PRIMARY via catalog. M2.1 **COMPLETE**, M2.2 **COMPLETE**. |
 | **M2.2 — MP Match Flow (S175)** | **DONE** — B-117 FIXED (stale `g_CtxImGuiMenu` context on match exit → crash; added `inputCtxPopDeferred` to `pdguiEndscreenExitToMainMenu`). MP endscreen stats section (kills, accuracy bar, shot breakdown). Auto-save on match exit (`configSave`). Match start → gameplay verified solid. |
 | **M2.1 — Combat Sim UI Catalog Audit (S172)** | **DONE** — Full audit: arena selection, weapon set config, bot config, game mode selection, match start flow — all already catalog-native after M0.1a/b/c. Only change: stale header comment fix. Zero functional changes needed. |
@@ -42,7 +44,7 @@
 | System | File | Status |
 |--------|------|--------|
 | **Menu/UI** | `designs/d5-full-menu-overhaul.md` (UX Guidelines section) | **DONE (S161)** — controller nav, layout patterns, visual feedback, accessibility |
-| **Input** | `designs/input-system-guidelines.md` | PLANNED — SSOT input system: tap/hold/double-tap recognition, per-context action maps, fully rebindable, replaces CK_* + ImGui hardcoded gamepad nav, absorbs inputmodes.c |
+| **Input** | `designs/input-system-guidelines.md` | **IMPLEMENTED (S181–S183)** — M0.2 action map system: per-context action maps, fully rebindable, replaced CK_* + ImGui hardcoded gamepad nav, inputmodes.c deleted. Guidelines doc still PLANNED. |
 | **Networking** | `designs/networking-ux-guidelines.md` | PLANNED — connection flow, error UX, lobby behavior, NAT transparency |
 | **Mod System** | `designs/mod-system-guidelines.md` | PLANNED — browser UX, creation workflow, theme customization, catalog integration |
 | **Audio** | `designs/audio-guidelines.md` | PLANNED — menu sounds, feedback cues, music transitions, spatial audio |
@@ -75,7 +77,7 @@
 | **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
 | **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
 
-### Playtest Findings (S161–S179)
+### Playtest Findings (S161–S183)
 
 | Finding | Severity | Detail |
 |---------|----------|--------|
@@ -102,13 +104,13 @@
 | **M0.1c — Weapon signatures** | **DONE (S171)** | `spawn_weapon_id` and `weapon_ids[6][64]` added to matchconfig (PRIMARY). `spawnWeaponNum`/`weapons[]` DEPRECATED (derived at matchStart). Spawn weapon picker catalog-sourced. Scenario save/load, CLC_LOBBY_START updated. Wire protocol unchanged. Commit `76e0b00`. | M2 (Combat Sim weapons) |
 | **M0.1d — Remaining asset types** | **DONE (S173)** | Audit: 5/7 types internal-only (texture, audio, animation, lang, HUD). GAMEMODE migrated: `scenario_id[64]` PRIMARY in matchconfig, wire v32 (CLC_LOBBY_START, SVC_STAGE_START, server query), save files, UI. PROP type discriminator documented as protocol-level (not asset identity). Commit `8a0a64b`. | M4 (Mod Platform) |
 | **M0.1e — Catalog as data provider** | **DONE (S178)** | 15 catalog data accessors for weapon stats + body/head properties. ROM arrays internalized behind catalog API. 8 game files migrated (body.c, bot.c, mplayer.c, setup.c, etc). Commit `b3555576`. | M5 (Forge) |
-| **M0.1f — Final g_HeadsAndBodies sweep** | **DONE (S179)** | SA-5f: catalogGetBodyModeldef/catalogGetHeadModeldef (lazy-load), catalogResetAll/Body/HeadModeldef, catalogGetHeadHeight. All remaining raw g_HeadsAndBodies[] access eliminated from gameplay code. 8 files migrated. Build clean. Commit `facb5750`. | — |
+| **M0.1f — Final g_HeadsAndBodies sweep** | **DONE (S180)** | SA-5f: catalogGetBodyModeldef/catalogGetHeadModeldef (lazy-load), catalogResetAll/Body/HeadModeldef, catalogGetHeadHeight. All remaining raw g_HeadsAndBodies[] access eliminated from gameplay code. 8 files migrated. Build clean. Commit `facb5750`. | — |
 | **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
 | **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
 
 ---
 
-**Next action**: M0.1 COMPLETE (a–f all done). `g_HeadsAndBodies[]` fully catalog-owned. Next per roadmap: M0.2 (Input System Unification) or interleaved feature milestone M1.2 (Solo Mission Flow — briefings/endscreens).
+**Next action**: M0.1 COMPLETE (a–f all done). M0.2 (Input System Unification) **COMPLETE** (Phases A–D, S181–S183). Action map system replaces CK_* entirely. Zero CK_* references remain. Next per roadmap: D5 Phase 3 (remaining menu screens), M3 (online MP flow), or other feature milestones.
 
 ---
 
