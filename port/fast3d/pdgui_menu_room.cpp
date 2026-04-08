@@ -8,9 +8,9 @@
  * Bottom bar: "Start Match" (leader only) + "Leave Room".
  *
  * Settings are stored in g_MatchConfig (matchsetup.c). On "Start Match":
- *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stagenum, 0, numBots, simType, timelimit, options, scenario, scorelimit, teamscorelimit)
- *   - Campaign:   netLobbyRequestStart(GAMEMODE_COOP, stagenum, difficulty)
- *   - Counter-Op: netLobbyRequestStart(GAMEMODE_ANTI, stagenum, difficulty)
+ *   - Combat Sim: netLobbyRequestStartWithSims(GAMEMODE_MP, stage_id, 0, numBots, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex)
+ *   - Campaign:   netLobbyRequestStart(GAMEMODE_COOP, stage_id, difficulty)
+ *   - Counter-Op: netLobbyRequestStart(GAMEMODE_ANTI, stage_id, difficulty)
  *
  * Full settings sync (all options, per-bot config) is deferred to CLC_ROOM_SETTINGS (R-4).
  *
@@ -33,6 +33,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "inputctx.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -43,6 +44,7 @@ extern "C" {
 #include "assetcatalog.h"
 #include "botvariant.h"
 #include "pdgui_charpreview.h"
+#include "pdgui_nav.h"
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
 
@@ -173,6 +175,8 @@ const char *mpPlayerConfigGetName(s32 playernum);
 
 /* Solo match start (matchsetup.c) — configure g_MpSetup from g_MatchConfig + call mpStartMatch() */
 s32 matchStart(void);
+/* M0.1c: weapon slot catalog ID accessor (matchsetup.c) */
+const char *matchGetWeaponSlotCatalogId(s32 slot);
 
 /* Solo room close — defined in pdgui_lobby.cpp */
 void pdguiSoloRoomClose(void);
@@ -377,50 +381,46 @@ static const char *s_SimDiffNames[] = {
 static const int s_NumSimDiffs = 6;
 
 /* ========================================================================
- * Spawn-with-weapon picker — weapon names for the dropdown
- * Only combat weapons that make sense as a spawn weapon in MP.
+ * Spawn-with-weapon picker — catalog-sourced weapon entries.
+ * M0.1c: built dynamically from ASSET_WEAPON catalog entries at init.
  * ======================================================================== */
 
-struct spawnweapon_entry { const char *name; u8 weaponnum; };
-
-static const spawnweapon_entry s_SpawnWeapons[] = {
-    { "Random",              0xFF },
-    { "Unarmed",             1  },
-    { "Falcon 2",            2  },
-    { "Falcon 2 (Silenced)", 3  },
-    { "Falcon 2 (Scope)",    4  },
-    { "MagSec 4",            5  },
-    { "Mauler",              6  },
-    { "Phoenix",             7  },
-    { "DY357 Magnum",        8  },
-    { "DY357-LX",            9  },
-    { "CMP 150",             10 },
-    { "Cyclone",             11 },
-    { "Callisto NTG",        12 },
-    { "RCP-120",             13 },
-    { "Laptop Gun",          14 },
-    { "Dragon",              15 },
-    { "K7 Avenger",          16 },
-    { "AR34",                17 },
-    { "SuperDragon",         18 },
-    { "Shotgun",             19 },
-    { "Reaper",              20 },
-    { "Sniper Rifle",        21 },
-    { "Farsight XR-20",      22 },
-    { "Devastator",          23 },
-    { "Rocket Launcher",     24 },
-    { "Slayer",              25 },
-    { "Combat Knife",        26 },
-    { "Crossbow",            27 },
-    { "Tranquilizer",        28 },
-    { "Laser",               29 },
-    { "Grenade",             30 },
-    { "N-Bomb",              31 },
-    { "Timed Mine",          32 },
-    { "Proximity Mine",      33 },
-    { "Remote Mine",         34 },
+struct spawnweapon_entry {
+    char catalog_id[64]; /* catalog ID e.g. "base:falcon2", or "" for Random */
+    char name[64];       /* display name */
 };
-static const int s_NumSpawnWeapons = (int)(sizeof(s_SpawnWeapons) / sizeof(s_SpawnWeapons[0]));
+
+#define MAX_SPAWN_WEAPONS 64
+static spawnweapon_entry s_SpawnWeapons[MAX_SPAWN_WEAPONS];
+static int s_NumSpawnWeapons = 0;
+
+static void buildSpawnWeaponList(void)
+{
+    s_NumSpawnWeapons = 0;
+
+    /* Entry 0: Random (special — empty catalog_id) */
+    s_SpawnWeapons[0].catalog_id[0] = '\0';
+    strncpy(s_SpawnWeapons[0].name, "Random", sizeof(s_SpawnWeapons[0].name));
+    s_NumSpawnWeapons = 1;
+
+    /* Scan catalog for all ASSET_WEAPON entries, skip NONE/DISABLED/SHIELD */
+    for (int i = 0; ; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) break;
+        if (e->type != ASSET_WEAPON) continue;
+        if (s_NumSpawnWeapons >= MAX_SPAWN_WEAPONS) break;
+        /* Skip non-combat entries */
+        s32 wid = e->ext.weapon.weapon_id;
+        if (wid == 0x00 || wid == 0x30 || wid == 0x2f) continue; /* NONE, DISABLED, SHIELD */
+        spawnweapon_entry *sw = &s_SpawnWeapons[s_NumSpawnWeapons];
+        strncpy(sw->catalog_id, e->id, sizeof(sw->catalog_id) - 1);
+        sw->catalog_id[sizeof(sw->catalog_id) - 1] = '\0';
+        strncpy(sw->name, e->ext.weapon.name ? e->ext.weapon.name : e->id,
+                sizeof(sw->name) - 1);
+        sw->name[sizeof(sw->name) - 1] = '\0';
+        s_NumSpawnWeapons++;
+    }
+}
 
 /* ========================================================================
  * Scenario names
@@ -458,6 +458,10 @@ static bool s_IsSoloMode = false;
 
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
+
+/* B-124 pattern: true if this screen pushed g_CtxImGuiMenu itself.
+ * Used to correctly match push/pop ownership — only pop if we pushed it. */
+static bool s_RoomPushedCtx = false;
 
 /* Campaign / Counter-Op settings */
 static int s_CampaignMission   = 0;
@@ -1104,16 +1108,19 @@ static void renderLevelEditorOverlay(void)
 }
 
 /* ========================================================================
- * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawnWeaponNum
+ * Helper: sync s_SpawnWeaponIdx from g_MatchConfig.spawn_weapon_id
  * Called after loading a scenario so the picker shows the right entry.
  * ======================================================================== */
 
 static void syncSpawnWeaponFromConfig(void)
 {
-    for (int i = 0; i < s_NumSpawnWeapons; i++) {
-        if (s_SpawnWeapons[i].weaponnum == g_MatchConfig.spawnWeaponNum) {
-            s_SpawnWeaponIdx = i;
-            return;
+    /* M0.1c: match by catalog ID (PRIMARY) */
+    if (g_MatchConfig.spawn_weapon_id[0]) {
+        for (int i = 0; i < s_NumSpawnWeapons; i++) {
+            if (strcmp(s_SpawnWeapons[i].catalog_id, g_MatchConfig.spawn_weapon_id) == 0) {
+                s_SpawnWeaponIdx = i;
+                return;
+            }
         }
     }
     s_SpawnWeaponIdx = 0;  /* default to Random */
@@ -1558,6 +1565,13 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             bool sel = (si == (int)g_MatchConfig.scenario);
             if (ImGui::Selectable(s_ScenarioNames[si], sel)) {
                 g_MatchConfig.scenario = (u8)si;
+                /* M0.1d: set scenario_id (PRIMARY) from catalog */
+                const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, si);
+                if (sid) {
+                    strncpy(g_MatchConfig.scenario_id, sid,
+                            sizeof(g_MatchConfig.scenario_id) - 1);
+                    g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+                }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();
@@ -1684,6 +1698,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                     snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d", wName, slot, w);
                     if (ImGui::Selectable(wLabel, isSel)) {
                         mpSetWeaponSlot(slot, w);
+                        /* M0.1c: sync catalog ID to weapon_ids[] (PRIMARY) */
+                        const char *wCatalogId = matchGetWeaponSlotCatalogId(slot);
+                        strncpy(g_MatchConfig.weapon_ids[slot], wCatalogId,
+                                sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
+                        g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
@@ -1717,7 +1736,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                 bool sel = (wi == s_SpawnWeaponIdx);
                 if (ImGui::Selectable(s_SpawnWeapons[wi].name, sel)) {
                     s_SpawnWeaponIdx = wi;
-                    g_MatchConfig.spawnWeaponNum = s_SpawnWeapons[wi].weaponnum;
+                    /* M0.1c: set catalog ID as PRIMARY identity */
+                    strncpy(g_MatchConfig.spawn_weapon_id,
+                            s_SpawnWeapons[wi].catalog_id,
+                            sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+                    g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
                 if (sel) ImGui::SetItemDefaultFocus();
@@ -1984,10 +2007,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (!s_ArenasBuilt) {
             buildArenaListFromCatalog();
         }
+        if (s_NumSpawnWeapons == 0) {
+            buildSpawnWeaponList();
+        }
         matchConfigInit();
         syncArenaFromConfig();
+        syncSpawnWeaponFromConfig();
         botSelectClear();
-        s_SpawnWeaponIdx  = 0;
         s_CodeGenerated   = false;
         s_MatchConfigInited = true;
     }
@@ -2021,7 +2047,19 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)", s_IsSoloMode);
+        /* B-124 pattern: push g_CtxImGuiMenu if not already active.
+         * In solo mode the main menu already pushed it; in network mode
+         * (direct room entry without main menu) we push it ourselves.
+         * This ensures mouse is absolute, pdguiIsActive() blocks gameplay
+         * input, and the 100ms grace period suppresses open-key double-fire. */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+            s_RoomPushedCtx = true;
+        } else {
+            s_RoomPushedCtx = false;
+        }
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d, pushedCtx=%d)",
+                     s_IsSoloMode, s_RoomPushedCtx);
     }
 
     /* Opaque backdrop */
@@ -2029,7 +2067,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255));
+                          pdguiPalImU32(PDPAL_BODYBG, 255));
     }
 
     const char *screenTitle = s_IsSoloMode ? "Combat Simulator" : "Room";
@@ -2044,7 +2082,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImVec2 ts = ImGui::CalcTextSize(screenTitle);
         dl->AddText(ImVec2(dialogX + (dialogW - ts.x) * 0.5f,
                            dialogY + (pdTitleH - ts.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), screenTitle);
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), screenTitle);
     }
 
     float curY = pdTitleH + ImGui::GetStyle().WindowPadding.y;
@@ -2082,6 +2120,24 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     static const char *s_TabNames[] = {
         "Combat Simulator", "Campaign", "Counter-Operative", "Level Editor"
     };
+    static const int s_NumTabs = 4;
+
+    /* LB/RB bumper tab switching: use a pending flag so SetSelected only fires
+     * for ONE frame after a bumper press, not continuously. */
+    static s32 s_BumperPendingTab = -1;
+
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        s_ActiveTab--;
+        if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
+        s_BumperPendingTab = s_ActiveTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        s_ActiveTab++;
+        if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
+        s_BumperPendingTab = s_ActiveTab;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
 
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.20f, 0.30f, 0.55f, 1.0f));
@@ -2089,8 +2145,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0.3f, 0.6f, 1.0f, 1.0f));
 
     if (ImGui::BeginTabBar("##room_tabs")) {
-        for (int t = 0; t < 4; t++) {
-            bool tabOpen = ImGui::BeginTabItem(s_TabNames[t]);
+        for (int t = 0; t < s_NumTabs; t++) {
+            ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+            if (s_BumperPendingTab == t) {
+                tabFlags |= ImGuiTabItemFlags_SetSelected;
+            }
+            bool tabOpen = ImGui::BeginTabItem(s_TabNames[t], nullptr, tabFlags);
             if (tabOpen) {
                 if (s_ActiveTab != t) {
                     s_ActiveTab = t;
@@ -2099,6 +2159,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 ImGui::EndTabItem();
             }
         }
+        s_BumperPendingTab = -1; /* Clear after tab bar processes it */
         ImGui::EndTabBar();
     }
 
@@ -2241,6 +2302,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
+        /* B-124 pattern: only pop the context if we pushed it ourselves.
+         * In solo mode the main menu owns the context and handles the pop.
+         * In network mode (s_RoomPushedCtx) we must pop it here. */
+        if (s_RoomPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_RoomPushedCtx = false;
+        }
         if (s_IsSoloMode) {
             pdguiSoloRoomClose();  /* return to main menu */
         } else {
@@ -2713,6 +2781,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::EndPopup();
     }
 
+    /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */
+    pdguiNavTickWrap();
+
     ImGui::End();
 
     /* Level editor floating overlay — rendered as a separate window */
@@ -2733,6 +2804,7 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    s_RoomPushedCtx     = false;
     free(s_Arenas);
     s_Arenas            = NULL;
     s_NumArenas         = 0;

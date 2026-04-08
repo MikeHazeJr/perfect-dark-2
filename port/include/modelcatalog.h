@@ -107,36 +107,6 @@ s32 catalogGetNumBodies(void);
 s32 catalogGetNumHeads(void);
 
 /**
- * Get a safe body index — returns the input if valid, or
- * CATALOG_FALLBACK_BODY if the model is invalid/missing.
- */
-s32 catalogGetSafeBody(s32 bodynum);
-
-/**
- * Get a safe body index with its default paired head.
- *
- * If bodynum is valid, returns it and leaves *out_mpheadnum unchanged (caller's
- * head choice is still respected).  If bodynum is invalid or missing, picks a
- * random base game body (mpbody index in [0, MODMGR_BASE_BODIES)) and uses
- * that body's mpbody.headnum field to derive the matched mphead index, writing
- * it into *out_mpheadnum.  Falls back to CATALOG_FALLBACK_BODY/HEAD if the
- * random pick also fails.
- *
- * Logs MOD: WARNING when fallback is triggered.
- *
- * @param bodynum       mpbody index (same domain as catalogGetSafeBody input)
- * @param out_mpheadnum updated with the paired mphead index ONLY on fallback
- * @return safe mpbody index
- */
-s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum);
-
-/**
- * Get a safe head index — returns the input if valid, or
- * CATALOG_FALLBACK_HEAD if the model is invalid/missing.
- */
-s32 catalogGetSafeHead(s32 headnum);
-
-/**
  * Validate a body catalog ID string. Returns body_id if valid, or
  * "base:dark_combat" as fallback. Always returns a valid catalog ID.
  */

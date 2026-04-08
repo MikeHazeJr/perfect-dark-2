@@ -405,6 +405,7 @@ void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text);
 
 /* --- Game data tables (assetcatalog_base needs these; server has no real data) --- */
 struct headorbody g_HeadsAndBodies[152];    /* zero-initialised; no model data on server */
+struct mpweapon   g_MpWeapons[NUM_MPWEAPONS]; /* zero-initialised; no weapon data on server */
 struct stagetableentry *g_Stages = NULL;    /* no stage table on server */
 s32 g_NumStages = 0;
 

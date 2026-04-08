@@ -7,6 +7,11 @@
 #include "data.h"
 #include "types.h"
 
+/* M0.2 Phase D: actionmap shim removed. joyGetButtons/joyGetButtonsPressedThisFrame
+ * are now stubs — all callers migrated to actionmap queries.
+ * input.h kept for CONT_STICK_* constants used in inputReadController path. */
+#include "input.h"
+
 /**
  * PD polls the controllers from the scheduler's thread. The scheduler polls the
  * controllers on each retrace and stores the results inside g_JoyData->samples.
@@ -952,32 +957,23 @@ s8 joyGetStickY(s8 contpadnum)
 	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].stick_y;
 }
 
+/* M0.2 Phase D: joyGetButtons/joyGetButtonsPressedThisFrame shim removed.
+ * All callers migrated to direct actionHeld/actionPressed queries.
+ * inputReadController (port/src/input.c) now builds the OSContPad bitmask
+ * from actionmap directly. */
+
 u32 joyGetButtons(s8 contpadnum, u32 mask)
 {
-	if (g_JoyDataPtr->unk200 < 0 && (g_JoyConnectedControllers >> contpadnum & 1) == 0) {
-		g_JoyBadReadsButtons[contpadnum]++;
-		return 0;
-	}
-
-	if (g_JoyDisableCooldown[contpadnum] > 0) {
-		return 0;
-	}
-
-	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].button & mask;
+	(void)contpadnum;
+	(void)mask;
+	return 0;
 }
 
 u32 joyGetButtonsPressedThisFrame(s8 contpadnum, u32 mask)
 {
-	if (g_JoyDataPtr->unk200 < 0 && (g_JoyConnectedControllers >> contpadnum & 1) == 0) {
-		g_JoyBadReadsButtonsPressed[contpadnum]++;
-		return 0;
-	}
-
-	if (g_JoyDisableCooldown[contpadnum] > 0) {
-		return 0;
-	}
-
-	return g_JoyDataPtr->buttonspressed[contpadnum] & mask;
+	(void)contpadnum;
+	(void)mask;
+	return 0;
 }
 
 #if VERSION < VERSION_NTSC_1_0

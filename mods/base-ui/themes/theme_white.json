@@ -1,0 +1,33 @@
+{
+  "name": "PD White",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "ffffffff",
+    "dialog_titlebg":     "ffffff7f",
+    "dialog_border2":     "ffffffff",
+    "dialog_titlefg":     "ffffffff",
+    "dialog_bodybg":      "ffffff9f",
+    "unused14":           "ffffffff",
+    "item_unfocused":     "ffffffff",
+    "item_disabled":      "ffffffff",
+    "item_focused_inner": "ffffffff",
+    "checkbox_checked":   "ffffffff",
+    "item_focused_outer": "00000000",
+    "listgroup_headerbg": "ffffff5f",
+    "listgroup_headerfg": "ffffffff",
+    "unused34":           "ffffff7f",
+    "unused38":           "ffffffff"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.4,
+    "color": "ffffff80"
+  },
+  "soundPack": "default"
+}

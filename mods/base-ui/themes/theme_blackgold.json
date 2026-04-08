@@ -1,0 +1,33 @@
+{
+  "name": "PD Black & Gold",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "bf8f207f",
+    "dialog_titlebg":     "1408007f",
+    "dialog_border2":     "ffc8407f",
+    "dialog_titlefg":     "ffd060ff",
+    "dialog_bodybg":      "0a06009f",
+    "unused14":           "3f2a107f",
+    "item_unfocused":     "dda830ff",
+    "item_disabled":      "6f5020ff",
+    "item_focused_inner": "ffffffff",
+    "checkbox_checked":   "ffd060ff",
+    "item_focused_outer": "2a1800ff",
+    "listgroup_headerbg": "1a0e00ff",
+    "listgroup_headerfg": "dda830ff",
+    "unused34":           "ffffffff",
+    "unused38":           "bf8f207f"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.6,
+    "color": "ffc84080"
+  },
+  "soundPack": "default"
+}

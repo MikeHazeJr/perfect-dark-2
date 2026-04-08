@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
+#include "assetcatalog.h" /* SA-5d: catalogGetBodyIsMale */
 #include "game/botmgr.h"
 #include "game/chr.h"
 #include "game/body.h"
@@ -108,7 +109,7 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 					chr->tude = 0;
 					chr->voicebox = rngRandom() % 3;
 
-					if (g_HeadsAndBodies[chr->bodynum].ismale == false) {
+					if (catalogGetBodyIsMale(chr->bodynum) == false) { /* SA-5d */
 						chr->voicebox = VOICEBOX_FEMALE;
 					}
 

@@ -14,19 +14,22 @@
 #include "video.h"
 #include "audio.h"
 #include "input.h"
+#include "inputctx.h"
 #include "fs.h"
 #include "romdata.h"
 #include "config.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
 #include "pdgui.h"
-#include "menumgr.h"
+/* menumgr.h removed — P10 D5.7 OG Menu Removal */
 #include "playerstats.h"
+#include "achievements.h"
 #include "system.h"
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
 #include "updater.h"
+#include "actionmap.h"
 #include "savemigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -116,11 +119,12 @@ static void cleanup(void)
 	mempPCValidate("shutdown");
 	mempPCFreeAll();
 
+	inputCtxShutdown();
 	updaterShutdown();
 	pdguiShutdown();
 	netDisconnect();
 	modmgrShutdown();
-	inputSaveBinds();
+	actionmapSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();
 	crashShutdown();
@@ -153,7 +157,11 @@ int main(int argc, const char **argv)
 	conInit();
 	sysInit();
 	fsInit();
+	/* M0.2 Phase B: register pd.ini keys BEFORE configLoad (called inside configInit) */
+	actionmapInit();
 	configInit();
+	/* M0.2 Phase B: parse bind strings that configLoad just populated */
+	actionmapLoadBinds();
 
 	/* D13: Initialize update system + save migration after filesystem is ready */
 	updaterInit();
@@ -165,9 +173,17 @@ int main(int argc, const char **argv)
 	}
 	videoInit();
 	pdguiInit(videoGetWindowHandle());
-	menuMgrInit();
+	/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
 	statsInit();
+	achievementsInit();
 	inputInit();
+
+	/* Input context stack: must init after inputInit() (SDL event watch)
+	 * and push g_CtxGameplay as the base context before any menu/GUI code
+	 * that might reference the context stack. */
+	inputCtxInit();
+	inputCtxPush(&g_CtxGameplay);
+
 	audioInit();
 
 	/* Dedicated server: mute ALL audio — music and sound effects.

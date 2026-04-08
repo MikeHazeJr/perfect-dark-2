@@ -1,0 +1,34 @@
+{
+    "id": "bot-names",
+    "name": "Sim Type Renames",
+    "version": "1.0.0",
+    "author": "PD2 Team",
+    "description": "Replaces the default bot simulant profile names with custom names. This is the first sample mod — it proves the full mod pipeline: manifest parsed, mod enabled, catalog assets registered, game code uses mod data, mod disabled, reverts to base.",
+    "base_fallback": "base:botnames_default",
+    "dependencies": [],
+    "content": {
+        "botnames": {
+            "mode": "replace",
+            "profiles": [
+                { "profile": 0,  "name": "PunchBot" },
+                { "profile": 1,  "name": "TraineeBot" },
+                { "profile": 2,  "name": "AverageBot" },
+                { "profile": 3,  "name": "VetBot" },
+                { "profile": 4,  "name": "AceBot" },
+                { "profile": 5,  "name": "NightBot" },
+                { "profile": 6,  "name": "ZenBot" },
+                { "profile": 7,  "name": "ArmorBot" },
+                { "profile": 8,  "name": "BlastBot" },
+                { "profile": 9,  "name": "KamiBot" },
+                { "profile": 10, "name": "BrawlBot" },
+                { "profile": 11, "name": "HunterBot" },
+                { "profile": 12, "name": "SneakBot" },
+                { "profile": 13, "name": "LawBot" },
+                { "profile": 14, "name": "GrudgeBot" },
+                { "profile": 15, "name": "DashBot" },
+                { "profile": 16, "name": "SlowBot" },
+                { "profile": 17, "name": "PaybackBot" }
+            ]
+        }
+    }
+}

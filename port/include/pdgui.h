@@ -13,6 +13,10 @@
 
 #include <PR/ultratypes.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Initialize ImGui with PD's SDL2 window and OpenGL context.
  * Called once after videoInit() in main.c.
  * sdlWindow is a void* to avoid pulling SDL headers into game code. */
@@ -60,5 +64,9 @@ void* pdguiGetUiTexture(const char *id);
 /* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
  * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */
 const char *langSafe(s32 textid);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _IN_PDGUI_H */

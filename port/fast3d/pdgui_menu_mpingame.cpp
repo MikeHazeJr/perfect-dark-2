@@ -11,8 +11,8 @@
  *      DEFAULT-type endscreen dialogs so the legacy N64 GBI rendering is silenced.
  *      pdguiGameOverRender() (in pdgui_menu_pausemenu.cpp) owns the full tabbed
  *      end-screen and fires independently of hotswap state.
- *      g_MpEndscreenSavePlayerMenuDialog is intentionally kept NATIVE — it contains
- *      a keyboard text-input field that we do not yet replace.
+ *      g_MpEndscreenSavePlayerMenuDialog suppressed (B-115 fix) — auto-save via
+ *      configSave("pd.ini") handles PC saving; legacy dialog stole input.
  *
  * IMPORTANT: C++ translation unit — must NOT include types.h (#define bool s32 breaks
  * C++ bool).  All game data access goes through pdgui_bridge.c functions.
@@ -315,7 +315,9 @@ extern "C" void pdguiMpIngameRegister(void)
     pdguiHotswapRegister(&g_MpEndscreenPlayerStatsMenuDialog,
         renderNoop, "MP Endscreen Player Stats (suppressed)");
 
-    /* Keep Save Player native — keyboard text input, do not replace yet */
+    /* B-115 fix: suppress Save Player — auto-save via configSave("pd.ini")
+     * in pdguiEndscreenExitToMainMenu() handles PC saving. Legacy N64 dialog
+     * was for Controller Pak writes; keeping it native stole input from ImGui. */
     pdguiHotswapRegister(&g_MpEndscreenSavePlayerMenuDialog,
-        NULL, "MP Endscreen Save Player (native)");
+        renderNoop, "MP Endscreen Save Player (suppressed)");
 }

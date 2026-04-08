@@ -29,7 +29,8 @@
 #include "modmgr.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
-#include "pdmain.h"
+#include "inputctx.h"
+#include "config.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -624,7 +625,9 @@ const char *pdguiEndscreenGetCheatComplName(void)
 void pdguiEndscreenStartMission(void)
 {
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
-    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
 }
 
 /**
@@ -635,14 +638,23 @@ void pdguiEndscreenNextMission(void)
 {
     endscreenAdvance();
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
-    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
 }
 
 /**
  * Exit the endscreen back to the main menu by popping all dialogs.
+ * B-117 fix: pop the ImGuiMenu input context that was pushed on window appear,
+ * otherwise a stale context survives the stage transition and causes a crash.
+ * M2.2: auto-save player config on match exit (PC has no pak — just write pd.ini).
  */
 void pdguiEndscreenExitToMainMenu(void)
 {
+    configSave("pd.ini");
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
     func0f0f8120();
 }
 

@@ -1,0 +1,33 @@
+{
+  "name": "PD Red",
+  "author": "Rare / PD2 Team",
+  "version": "1.0",
+  "palette": {
+    "dialog_border1":     "bf00007f",
+    "dialog_titlebg":     "5000007f",
+    "dialog_border2":     "ff00007f",
+    "dialog_titlefg":     "ffff00ff",
+    "dialog_bodybg":      "2f00009f",
+    "unused14":           "6f00007f",
+    "item_unfocused":     "ff9070ff",
+    "item_disabled":      "7f0000ff",
+    "item_focused_inner": "ffff00ff",
+    "checkbox_checked":   "ffa090ff",
+    "item_focused_outer": "440000ff",
+    "listgroup_headerbg": "003000ff",
+    "listgroup_headerfg": "ffff00ff",
+    "unused34":           "ffffffff",
+    "unused38":           "ff44447f"
+  },
+  "scanline": {
+    "enabled": true,
+    "alpha": 0.8,
+    "interval": 2
+  },
+  "textGlow": {
+    "enabled": true,
+    "intensity": 0.6,
+    "color": "ff000080"
+  },
+  "soundPack": "default"
+}

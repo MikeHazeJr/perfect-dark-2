@@ -9,7 +9,9 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 31  /* v31: SVC_PROP_SPAWN modelnum on wire uses catalog session refs (u16)
+#define NET_PROTOCOL_VER 32  /* v32: scenario identity uses catalog ID string on wire (CLC_LOBBY_START,
+                               * SVC_STAGE_START, server query). scenario u8 replaced by str.
+                               * v31: SVC_PROP_SPAWN modelnum on wire uses catalog session refs (u16)
                                * instead of raw s16 model index.  Bot body/head decode uses
                                * runtime_index directly (no intermediate mp-index conversion).
                                * v30: Weapon identity on wire uses catalog session refs (u16).
@@ -69,7 +71,8 @@ struct netrecentserver {
 	u8 maxclients;
 	char stage_id[CATALOG_ID_LEN]; /* PRIMARY: catalog stage identity */
 	u8 stagenum;               /* DEPRECATED: integer stage index. Use stage_id instead. */
-	u8 scenario;
+	char scenario_id[CATALOG_ID_LEN]; /* M0.1d: PRIMARY catalog scenario identity */
+	u8 scenario;               /* DEPRECATED: integer MPSCENARIO_*. Use scenario_id instead. */
 	char hostname[NET_MAX_NAME];
 	u32 lastresponse; // system time of last response (0 = never)
 	bool online;

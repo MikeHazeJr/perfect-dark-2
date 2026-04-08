@@ -31,6 +31,10 @@
 extern void mainChangeToStage(s32 stagenum);
 #define MODMGR_STAGE_TITLE 0x5a  /* STAGE_TITLE */
 
+/* Static forward declarations */
+static void modmgrParseBotNames(modinfo_t *mod);
+static void modmgrClearBotNames(void);
+
 // ---------------------------------------------------------------------------
 // Globals
 // ---------------------------------------------------------------------------
@@ -41,6 +45,9 @@ bool      g_ModManagerInitialized = false;
 
 // Config-persisted string: comma-separated enabled mod IDs
 static char g_ModEnabledList[2048] = "";
+
+// Size threshold in MB — mods exceeding this trigger a confirmation prompt
+static s32 g_ModSizeThresholdMB = 50;
 
 // Dirty flag: set when user toggles mods in menu, cleared on reload
 static bool g_ModDirty = false;
@@ -325,6 +332,23 @@ static bool modmgrParseModJson(modinfo_t *mod)
 		} else if (json_key_eq(&key, "description")) {
 			tok = json_next(&j);
 			json_tok_string(&tok, mod->description, MODMGR_DESC_LEN);
+		} else if (json_key_eq(&key, "base_fallback")) {
+			tok = json_next(&j);
+			json_tok_string(&tok, mod->base_fallback, MODMGR_FALLBACK_LEN);
+		} else if (json_key_eq(&key, "dependencies")) {
+			tok = json_next(&j);
+			if (tok.type == JTOK_LBRACKET) {
+				mod->num_dependencies = 0;
+				while (1) {
+					tok = json_next(&j);
+					if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+					if (tok.type == JTOK_COMMA) continue;
+					if (tok.type == JTOK_STRING && mod->num_dependencies < MODMGR_MAX_DEPS) {
+						json_tok_string(&tok, mod->dependencies[mod->num_dependencies], MODMGR_DEP_ID_LEN);
+						mod->num_dependencies++;
+					}
+				}
+			}
 		} else if (json_key_eq(&key, "content")) {
 			// Parse content object for asset counts
 			tok = json_next(&j);
@@ -368,9 +392,29 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	free(buf);
 	mod->has_modjson = true;
 
-	sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas",
-		mod->id, mod->name, mod->version, mod->author,
-		mod->num_bodies, mod->num_heads, mod->num_arenas);
+	// Validate required fields
+	mod->valid = true;
+	mod->validation_error[0] = '\0';
+
+	if (mod->id[0] == '\0') {
+		mod->valid = false;
+		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: id");
+	} else if (mod->base_fallback[0] == '\0') {
+		mod->valid = false;
+		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: base_fallback");
+	} else if (mod->name[0] == '\0') {
+		mod->valid = false;
+		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: name");
+	}
+
+	if (mod->valid) {
+		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s",
+			mod->id, mod->name, mod->version, mod->author,
+			mod->num_bodies, mod->num_heads, mod->num_arenas, mod->base_fallback);
+	} else {
+		sysLogPrintf(LOG_WARNING, "modmgr: mod.json validation failed for '%s': %s",
+			mod->id[0] ? mod->id : "(unknown)", mod->validation_error);
+	}
 
 	return true;
 }
@@ -622,6 +666,9 @@ static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
 
+	// Ensure mods directory exists on fresh install
+	fsCreateDir("./" MODMGR_MODS_DIR);
+
 	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
 	// mods live at ./mods/ relative to the working directory. Try CWD first,
 	// then exe dir, then the base dir fallback.
@@ -689,8 +736,15 @@ static void modmgrScanDirectory(void)
 		mod->dirpath[FS_MAXPATH - 1] = '\0';
 
 		if (!modmgrParseModJson(mod)) {
-			sysLogPrintf(LOG_WARNING, "modmgr: skipping '%s' (mod.json parse failed)", ent->d_name);
-			continue;
+			// Keep the mod in the registry for UI error display, but mark invalid
+			strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
+			mod->id[MODMGR_ID_LEN - 1] = '\0';
+			strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
+			mod->name[MODMGR_NAME_LEN - 1] = '\0';
+			mod->valid = false;
+			snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json — failed to parse");
+			mod->has_modjson = false;
+			sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid mod.json (kept for error display)", ent->d_name);
 		}
 
 		// mod->bundled is always 0 — no hardcoded bundled mods exist
@@ -793,8 +847,98 @@ static void modmgrBuildEnabledList(void)
 	g_ModEnabledList[pos] = '\0';
 }
 
+// ---------------------------------------------------------------------------
+// mods-enabled.json persistence (ordered JSON array)
+// ---------------------------------------------------------------------------
+// File format: ["mod_id_1", "mod_id_2", ...]
+// Load order = array order. Falls back to comma-separated config string.
+
+#define MODS_ENABLED_JSON_PATH "$S/mods-enabled.json"
+
+static void modmgrSaveModsEnabledJson(void)
+{
+	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH);
+	if (!path) return;
+
+	FILE *f = fopen(path, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not write %s", path);
+		return;
+	}
+
+	fprintf(f, "[\n");
+	bool first = true;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].enabled) {
+			if (!first) fprintf(f, ",\n");
+			fprintf(f, "  \"%s\"", g_ModRegistry[i].id);
+			first = false;
+		}
+	}
+	if (!first) fprintf(f, "\n");
+	fprintf(f, "]\n");
+	fclose(f);
+
+	sysLogPrintf(LOG_NOTE, "modmgr: saved mods-enabled.json");
+}
+
+static bool modmgrLoadModsEnabledJson(void)
+{
+	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH);
+	if (!path) return false;
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return false;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return false; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	// Disable all mods first
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		g_ModRegistry[i].enabled = false;
+	}
+
+	// Parse the JSON array
+	jparse_t j;
+	j.src = buf;
+	j.pos = buf;
+
+	jtok_t tok = json_next(&j);
+	if (tok.type != JTOK_LBRACKET) {
+		free(buf);
+		return false;
+	}
+
+	s32 order = 0;
+	while (1) {
+		tok = json_next(&j);
+		if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+		if (tok.type == JTOK_COMMA) continue;
+		if (tok.type == JTOK_STRING) {
+			char modid[MODMGR_ID_LEN];
+			json_tok_string(&tok, modid, MODMGR_ID_LEN);
+			modinfo_t *mod = modmgrFindMod(modid);
+			if (mod) {
+				mod->enabled = true;
+			} else {
+				sysLogPrintf(LOG_WARNING, "modmgr: mods-enabled.json references unknown mod '%s'", modid);
+			}
+		}
+	}
+
+	free(buf);
+	sysLogPrintf(LOG_NOTE, "modmgr: loaded mods-enabled.json");
+	return true;
+}
+
 void modmgrSaveConfig(void)
 {
+	// Save to both formats: JSON (primary) and config string (fallback)
+	modmgrSaveModsEnabledJson();
 	modmgrBuildEnabledList();
 	configSave(CONFIG_PATH);
 	sysLogPrintf(LOG_NOTE, "modmgr: saved config — enabled mods: %s",
@@ -803,7 +947,12 @@ void modmgrSaveConfig(void)
 
 void modmgrLoadConfig(void)
 {
-	// Config system already loaded g_ModEnabledList from pd.ini
+	// Try mods-enabled.json first (primary, ordered)
+	if (modmgrLoadModsEnabledJson()) {
+		return;
+	}
+
+	// Fallback: comma-separated config string from pd.ini
 	modmgrParseEnabledList();
 }
 
@@ -814,12 +963,16 @@ void modmgrLoadConfig(void)
 static void modmgrLoadMod(modinfo_t *mod)
 {
 	if (mod->loaded) return;
+	if (!mod->valid) return; // Don't load invalid mods
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
 	// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
 	// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
 	modmgrRegisterModJsonContent(mod);
+
+	// P2: Parse bot name overrides if this mod has them
+	modmgrParseBotNames(mod);
 
 	mod->loaded = true;
 }
@@ -830,6 +983,7 @@ static void modmgrUnloadAllMods(void)
 		g_ModRegistry[i].loaded = false;
 	}
 
+	modmgrClearBotNames();
 	stageTableReset();
 }
 
@@ -853,6 +1007,7 @@ static int modmgrCompare(const void *a, const void *b)
 PD_CONSTRUCTOR static void modmgrConfigInit(void)
 {
 	configRegisterString("Mods.EnabledMods", g_ModEnabledList, sizeof(g_ModEnabledList));
+	configRegisterInt("Mods.SizeThresholdMB", &g_ModSizeThresholdMB, 0, 10000);
 }
 
 void modmgrInit(void)
@@ -979,6 +1134,8 @@ modinfo_t *modmgrFindMod(const char *id)
 void modmgrSetEnabled(s32 index, s32 enabled)
 {
 	if (index < 0 || index >= g_ModRegistryCount) return;
+	// Cannot enable invalid mods
+	if (enabled && !g_ModRegistry[index].valid) return;
 	if (g_ModRegistry[index].enabled != enabled) {
 		g_ModRegistry[index].enabled = enabled;
 		g_ModDirty = true;
@@ -988,6 +1145,55 @@ void modmgrSetEnabled(s32 index, s32 enabled)
 s32 modmgrIsDirty(void)
 {
 	return g_ModDirty;
+}
+
+s32 modmgrCheckDependencies(s32 index, char *missing, s32 misslen)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	modinfo_t *mod = &g_ModRegistry[index];
+	if (mod->num_dependencies <= 0) return 0;
+
+	s32 missingCount = 0;
+	s32 misspos = 0;
+	if (missing && misslen > 0) missing[0] = '\0';
+
+	for (s32 d = 0; d < mod->num_dependencies; d++) {
+		const char *depid = mod->dependencies[d];
+		if (depid[0] == '\0') continue;
+
+		modinfo_t *dep = modmgrFindMod(depid);
+		if (!dep || !dep->enabled) {
+			missingCount++;
+			if (missing && misslen > 0) {
+				s32 idlen = (s32)strlen(depid);
+				s32 needed = idlen + (misspos > 0 ? 2 : 0); // ", " + id
+				if (misspos + needed < misslen - 1) {
+					if (misspos > 0) {
+						missing[misspos++] = ',';
+						missing[misspos++] = ' ';
+					}
+					memcpy(&missing[misspos], depid, idlen);
+					misspos += idlen;
+					missing[misspos] = '\0';
+				}
+			}
+		}
+	}
+
+	return missingCount;
+}
+
+void modmgrSwapOrder(s32 indexA, s32 indexB)
+{
+	if (indexA < 0 || indexA >= g_ModRegistryCount) return;
+	if (indexB < 0 || indexB >= g_ModRegistryCount) return;
+	if (indexA == indexB) return;
+
+	modinfo_t tmp;
+	memcpy(&tmp, &g_ModRegistry[indexA], sizeof(modinfo_t));
+	memcpy(&g_ModRegistry[indexA], &g_ModRegistry[indexB], sizeof(modinfo_t));
+	memcpy(&g_ModRegistry[indexB], &tmp, sizeof(modinfo_t));
+	g_ModDirty = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1259,6 +1465,163 @@ const char *modmgrGetModDir(s32 index)
 }
 
 // ---------------------------------------------------------------------------
+// Bot name mod override (P2)
+// ---------------------------------------------------------------------------
+// When a mod with "botnames" content is enabled, its profile name overrides
+// are stored here and queried by mpGenerateBotNames() in mplayer.c.
+
+static char s_BotNameOverrides[MODMGR_MAX_BOT_PROFILES][MODMGR_BOT_NAME_LEN];
+static s32  s_BotNameOverrideActive = 0;
+
+static void modmgrParseBotNames(modinfo_t *mod)
+{
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	jparse_t j;
+	j.src = buf;
+	j.pos = buf;
+
+	jtok_t tok = json_next(&j);
+	if (tok.type != JTOK_LBRACE) { free(buf); return; }
+
+	// Find "content" -> "botnames" -> "profiles" array
+	while (1) {
+		tok = json_next(&j);
+		if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+		if (tok.type == JTOK_COMMA) continue;
+		if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+		jtok_t key = tok;
+		tok = json_next(&j); // colon
+		if (tok.type != JTOK_COLON) break;
+
+		if (!json_key_eq(&key, "content")) {
+			json_skip_value(&j);
+			continue;
+		}
+
+		// Parse "content" object
+		tok = json_next(&j);
+		if (tok.type != JTOK_LBRACE) break;
+
+		while (1) {
+			tok = json_next(&j);
+			if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+			if (tok.type == JTOK_COMMA) continue;
+			if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+			jtok_t ckey = tok;
+			tok = json_next(&j); // colon
+			if (tok.type != JTOK_COLON) break;
+
+			if (!json_key_eq(&ckey, "botnames")) {
+				json_skip_value(&j);
+				continue;
+			}
+
+			// Parse "botnames" object
+			tok = json_next(&j);
+			if (tok.type != JTOK_LBRACE) break;
+
+			while (1) {
+				tok = json_next(&j);
+				if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+				if (tok.type == JTOK_COMMA) continue;
+				if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+				jtok_t pkey = tok;
+				tok = json_next(&j); // colon
+				if (tok.type != JTOK_COLON) break;
+
+				if (!json_key_eq(&pkey, "profiles")) {
+					json_skip_value(&j);
+					continue;
+				}
+
+				// Parse profiles array
+				tok = json_next(&j);
+				if (tok.type != JTOK_LBRACKET) break;
+
+				while (1) {
+					tok = json_next(&j);
+					if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+					if (tok.type == JTOK_COMMA) continue;
+					if (tok.type != JTOK_LBRACE) continue;
+
+					s32 profile = -1;
+					char pname[MODMGR_BOT_NAME_LEN] = "";
+
+					while (1) {
+						tok = json_next(&j);
+						if (tok.type == JTOK_RBRACE || tok.type == JTOK_EOF) break;
+						if (tok.type == JTOK_COMMA) continue;
+						if (tok.type != JTOK_STRING) { json_skip_value(&j); continue; }
+
+						jtok_t fkey = tok;
+						tok = json_next(&j); // colon
+						if (tok.type != JTOK_COLON) break;
+
+						if (json_key_eq(&fkey, "profile")) {
+							tok = json_next(&j);
+							profile = json_tok_int(&tok);
+						} else if (json_key_eq(&fkey, "name")) {
+							tok = json_next(&j);
+							json_tok_string(&tok, pname, MODMGR_BOT_NAME_LEN);
+						} else {
+							json_skip_value(&j);
+						}
+					}
+
+					if (profile >= 0 && profile < MODMGR_MAX_BOT_PROFILES && pname[0]) {
+						strncpy(s_BotNameOverrides[profile], pname, MODMGR_BOT_NAME_LEN - 1);
+						s_BotNameOverrides[profile][MODMGR_BOT_NAME_LEN - 1] = '\0';
+						s_BotNameOverrideActive = 1;
+					}
+				}
+				break; // profiles processed
+			}
+			break; // botnames processed
+		}
+		break; // content processed
+	}
+
+	free(buf);
+	if (s_BotNameOverrideActive) {
+		sysLogPrintf(LOG_NOTE, "modmgr: bot name overrides loaded from mod '%s'", mod->id);
+	}
+}
+
+static void modmgrClearBotNames(void)
+{
+	memset(s_BotNameOverrides, 0, sizeof(s_BotNameOverrides));
+	s_BotNameOverrideActive = 0;
+}
+
+const char *modmgrGetBotProfileName(s32 profileIndex)
+{
+	if (!s_BotNameOverrideActive) return NULL;
+	if (profileIndex < 0 || profileIndex >= MODMGR_MAX_BOT_PROFILES) return NULL;
+	if (s_BotNameOverrides[profileIndex][0] == '\0') return NULL;
+	return s_BotNameOverrides[profileIndex];
+}
+
+s32 modmgrHasBotNameOverride(void)
+{
+	return s_BotNameOverrideActive;
+}
+
+// ---------------------------------------------------------------------------
 // Public API: Dynamic asset table accessors (catalog-backed, D3R-5)
 // ---------------------------------------------------------------------------
 // The Asset Catalog is the single source of truth. These accessors read from
@@ -1455,4 +1818,100 @@ void modmgrCatalogChanged(void)
 const char *modmgrGetModsDir(void)
 {
 	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
+}
+
+s32 modmgrGetSizeThresholdMB(void)
+{
+	return g_ModSizeThresholdMB;
+}
+
+void modmgrSetSizeThresholdMB(s32 mb)
+{
+	if (mb < 0) mb = 0;
+	g_ModSizeThresholdMB = mb;
+}
+
+// ---------------------------------------------------------------------------
+// UI accessor helpers (C++ safe — no struct layout needed)
+// ---------------------------------------------------------------------------
+
+const char *modmgrGetModId(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].id;
+}
+
+const char *modmgrGetModName(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].name;
+}
+
+const char *modmgrGetModVersion(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].version;
+}
+
+const char *modmgrGetModAuthor(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].author;
+}
+
+const char *modmgrGetModDescription(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].description;
+}
+
+const char *modmgrGetModBaseFallback(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].base_fallback;
+}
+
+const char *modmgrGetModValidationError(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].validation_error;
+}
+
+s32 modmgrGetModEnabled(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].enabled;
+}
+
+s32 modmgrGetModValid(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].valid;
+}
+
+u32 modmgrGetModSizeBytes(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].size_bytes;
+}
+
+s32 modmgrGetModNumDeps(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].num_dependencies;
+}
+
+const char *modmgrGetModDep(s32 index, s32 depIndex)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	if (depIndex < 0 || depIndex >= g_ModRegistry[index].num_dependencies) return "";
+	return g_ModRegistry[index].dependencies[depIndex];
+}
+
+s32 modmgrExceedsThreshold(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	if (g_ModSizeThresholdMB <= 0) return 0;
+	u32 threshBytes = (u32)g_ModSizeThresholdMB * 1024u * 1024u;
+	return g_ModRegistry[index].size_bytes > threshBytes;
 }

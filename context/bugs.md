@@ -9,6 +9,8 @@
 
 | ID | Severity | Description | File | Status |
 |----|----------|-------------|------|--------|
+| **B-118** | MED | Crash during CI intro cutscene loop — 56 models/characters late-added to SP manifest (missed by pre-scan), then hard crash with no shutdown sequence. Pre-scan for SP manifests needs to be more comprehensive for cutscene stages. | netmanifest.c, intro stage load path | OPEN (S163) |
+| **B-117** | HIGH | Hard crash/freeze on match exit — `pdguiEndscreenExitToMainMenu()` popped legacy menus but never popped the `g_CtxImGuiMenu` input context pushed on window appear. Stale context survived stage transition → crash. | pdgui_bridge.c | **FIXED S175** — Added `inputCtxPopDeferred(&g_CtxImGuiMenu)` to `pdguiEndscreenExitToMainMenu()`. |
 | **B-112** | HIGH | Chr pointer (rbx) corruption in `chraTick` during 31-bot matches — access violation at `chr->hidden`; guard + diagnostics added (S150), additional shot/damage path guards + handicap default init (S155), root cause still unknown | src/game/chraction.c, chr.c | PARTIAL — VEH guard + chrBruise/chrDamage guards + `model->definition` check in place; awaiting next crash log to identify corruption source |
 | **B-18** | MED | Pink sky on Skedar Ruins — sky renders pink instead of correct color | sky rendering path | OPEN — needs investigation |
 | **B-19** | MED | Bot spawn stacking on Skedar Ruins — all bots spawn at same pad | player.c | PARTIAL FIX (S125 F.1 anti-repeat) — needs Skedar-specific playtest |
@@ -23,13 +25,19 @@
 | **B-83** | MED | Incomplete shutdown sequence — quit path doesn't flush saves, ENet, SDL audio; remote peers left dead-connected | main.c | OPEN |
 | **B-84** | LOW | Dead `tmp[1024]` in chat handler — unused stack variable, maintenance hazard | netmsg.c | OPEN |
 | **B-86** | LOW | enet_peer_send return value unchecked — failed sends go undetected | netdistrib.c | OPEN |
-| **B-90** | MED | Mission select shows all missions regardless of unlock status — should only show unlocked | pdgui_menu_solomission.cpp | OPEN |
-| **B-91** | HIGH | Mission detail popup shows "(No objectives)" — objectives not loading from game data | pdgui_menu_solomission.cpp | OPEN |
-| **B-93** | HIGH | Pause menu missing Abort Mission, Restart Mission, objective checklist — only Resume/Options work | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-119** | HIGH | stagenum=0x00 crash on solo mission start — `sm_missionconfig` shadow struct missing `stage_id[64]` field (added to real `missionconfig` for catalog migration), causing all field accesses to be at wrong offsets. `stagenum` write went to `stage_id[0]`; real `stagenum` stayed 0x00. Fix: (1) add `stage_id[64]` to shadow struct, (2) set `stage_id` from catalog in mission select, (3) resolve stagenum from stage_id in `menuhandlerAcceptMission`/`menudialog00103608`/pause restart. | pdgui_menu_solomission.cpp, mainmenu.c | **FIXED S165** |
+| **B-120** | HIGH | Wrong stage loaded for solo missions — `catalogIdByRuntime(ASSET_MAP, stagenum)` passed logical stagenum instead of stage table index (runtime cache is indexed by stage table index, not stagenum). Stagenum 0x40 (decimal 64) looked up stage table index 64 (an MP arena) instead of the correct solo stage. Fix: convert stagenum → stage table index via `bgGetStageIndex()` before calling `catalogIdByRuntime()`. Same bug existed in both `pdgui_menu_solomission.cpp` and `mainmenu.c`. | pdgui_menu_solomission.cpp, mainmenu.c | **FIXED S166** |
+| **B-121** | MED | Failed/complete mission endscreen menu not interactive — `renderSoloEndscreen()` released SDL mouse grab directly but never pushed `g_CtxImGuiMenu` input context, so ImGui didn't receive proper input routing. Fix: push `g_CtxImGuiMenu` on window appear (matches pause menu pattern). Also fixed in MP endscreen renderer. | pdgui_menu_endscreen.cpp | **FIXED S166** |
+| **B-122** | MED | Endscreen mouse unresponsive — root cause: deferred flush in pdgui_backend.cpp checked `!g_PdguiActive && !pdguiIsPauseMenuOpen()` (only debug overlay + pause menu) but missed endscreen's `g_CtxImGuiMenu` context. When hotswap transitioned active→inactive, flush re-enabled `SDL_SetRelativeMouseMode(SDL_TRUE)`, overriding the context system. Fix: (1) deferred flush guard changed to `!pdguiIsActive()` (checks full context stack), (2) `inputCtxSyncMouseMode()` added to `inputCtxEndFrame()` for per-frame enforcement, (3) manual SDL calls removed from both endscreen renderers (context on_push handles it). | pdgui_backend.cpp, inputctx.c, pdgui_menu_endscreen.cpp | **FIXED S170 (M1.2)** |
+| **B-123** | MED | "Next Mission" reloads same stage — endscreen advance used `missionSetStagenum()` which had the same B-120 bug pattern (passing stagenum as runtime_index). Fix: new `missionSetStageByCatalog()` resolves from catalog directly. | pdgui_menu_endscreen.cpp, mainmenu.c | **FIXED S167 (M0.1a)** |
+| **B-124** | MED | Esc open/close race condition — pressing Esc to open menu immediately closes it. Root cause: `ImGui_ImplSDL2_ProcessEvent()` ran before context dispatch, so ImGui saw the triggering keypress as a new press on the pushed context. Fix: systemic key suppression in input context system. `push_tick` field added to `InputContext`; `inputCtxShouldSuppressKey()` returns true for KEY_DOWN events within 100ms grace period after push. `pdguiProcessEvent()` skips ImGui forwarding and dispatch for suppressed keys. | inputctx.h, inputctx.c, pdgui_backend.cpp | **FIXED S170 (M1.2)** |
+| **B-90** | MED | Mission select shows all missions regardless of unlock status — should only show unlocked | pdgui_menu_solomission.cpp | **FIXED S168 (M1.1)** — Two-panel redesign shows locked missions grayed out and non-selectable; `isStageDifficultyUnlocked()` gates accessibility |
+| **B-91** | HIGH | Mission detail popup shows "(No objectives)" — objectives not loading from game data | pdgui_menu_solomission.cpp | **FIXED S168 (M1.1)** — Right panel loads objectives via `soloLoadBriefingForStageId()` on mission select; filters by selected difficulty |
+| **B-93** | HIGH | Pause menu missing Abort Mission, Restart Mission, objective checklist — only Resume/Options work | pdgui_menu_solomission.cpp | **FIXED S164** — 5-button menu + objectives checklist with difficulty filter + completion icons |
 | **B-95** | LOW | Update notification banner persists during active gameplay — should auto-dismiss or hide during missions | pdgui_menu_update.cpp | OPEN |
-| **B-96** | HIGH | Mission select difficulty flow wrong — should be pick mission → pick difficulty → see objectives → Start; currently shows minimal popup | pdgui_menu_solomission.cpp | OPEN |
+| **B-96** | HIGH | Mission select difficulty flow wrong — should be pick mission → pick difficulty → see objectives → Start; currently shows minimal popup | pdgui_menu_solomission.cpp | **FIXED S168 (M1.1)** — Two-panel layout: left=mission list, right=detail with inline difficulty picker, objectives, Start button. Single-screen flow. |
 | **B-97** | LOW | Special Assignments / Challenges not separated from main mission list | pdgui_menu_solomission.cpp | OPEN |
-| **B-98** | HIGH | Solo mission pause menu falls back to OG rendering for empty sections — ImGui menu not fully implemented | pdgui_menu_pausemenu.cpp | OPEN |
+| **B-98** | HIGH | Solo mission pause menu falls back to OG rendering for empty sections — ImGui menu not fully implemented | pdgui_menu_solomission.cpp | **FIXED S164** — renderPauseMenu() fully implemented via hotswap registration |
 | **B-99** | MED | Updater downloads zip but extraction may fail — needs retest with v0.0.25 fixed binaries | updater.c | OPEN — needs playtest |
 
 ---
@@ -38,6 +46,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-115 | Post-game mouse unresponsive — legacy Save Player + Confirm Name dialogs rendered native, stealing input from ImGui endscreen. Suppressed both as noop. | S176 — pdgui_menu_mpingame.cpp, pdgui_menu_warning.cpp |
 | B-114 | CMakeLists.txt corruption — ~30MB of garbage bytes injected at lines 181 and 532 by devtools encoding bug; broke all builds | S148 — CMakeLists.txt (b84c6ba) |
 | B-113 | Stack overflow → silent crash in 31-bot matches — 2MB default stack exhausted in deep AI/collision chains; UEF double-faulted (8KB on stack); process died with no log. Fixed: 8MB reserve + VEH with static buffers | S150 — CMakeLists.txt / crash.c / system.c (85928d9) |
 | B-111 | Bot stuck-detection all 31 bots fire simultaneously at frame 180 — `s_BotStuck` zero-initialized, bogus distance-from-origin comparison on first check → all bots marked stuck at frame 180 | S150 — bot.c (87b3388) |
@@ -96,31 +105,4 @@
 | B-37 | Client crash in bodiesReset() during Combat Sim stage load | S67 |
 | B-36 | Client crash after skyReset — ambient music NULL deref | S63 |
 | B-35 | server_main.c SDL window title shows raw IP | S56 |
-| B-34 | server_main.c shows "0/N connected" with 1 player | S56 |
-| B-33 | CLC_SETTINGS overwrites identity name on server | S56 |
-| B-32 | Client lobby empty + no leader | S56 |
-| B-31 | SVC_AUTH malformed on client after B-28 | S53 |
-| B-30 | Raw IPs in server log output | S52 |
-| B-29 | Raw IP visible in server GUI status bar | S52 |
-| B-28 | Server occupies player slot 0 on dedicated | S52 |
-| B-27 | Dedicated server crash on first client connect (9 bugs) | S50 |
-| B-26 | Player name shows "Player1" instead of profile name | S53 |
-| B-25 | Server max clients hardcoded to 8 | S49 |
-| B-24 | Connect code byte-order reversal | S49 |
-| B-23 | Quit Game button clipped on right edge | S49 |
-| B-22 | Version boxes not baking into exe | S49 |
-| B-17 | Mod stages load wrong maps | S32/S37 |
-| B-16 | Back on controller does nothing in pause menu | S26 |
-| B-14 | START on controller opens/closes pause immediately | S26 |
-| B-13 | GE prop scaling ~10x on mod stages (Part 1) | S26 |
-| B-12 | 24-bot cap — Phase 1 coded (dynamic participant system) | S26 |
-| B-10 | End Game crash | S21/S26 |
-| B-09 | CI overlay corruption with mods | S24 |
-| B-08 | Mod manager can't find mods directory | S23 |
-| B-07 | Divide-by-zero in spawn selection | S23 |
-| B-06 | Uninitialized rooms[] after intro NULL | S23 |
-| B-05 | Paradox match hang | S23 |
-| B-04 | Paradox crash (besttimes OOB) | S22 |
-| B-03 | Player instant death (handicap zero-init) | S21 |
-| B-02 | Shots pass through bots (model scale clamp) | S20 |
-| B-01 | Camera transition crash | S20 |
+| B-34 | server_main.c shows "0/N connected" with 1 player | S56 

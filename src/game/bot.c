@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
+#include "assetcatalog.h" /* SA-5d/SA-5e: catalogGetBodyHeight, catalogGetMpWeaponNum */
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -400,18 +401,18 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		}
 
 		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
-			/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
-			 * Any other value is a WEAPON_* enum configured by the match host. */
-			struct mpweapon *mpweapon = NULL;
+			 * Any other value is a WEAPON_* enum resolved from catalog ID. */
 			s32 resolvedWeaponNum = 0;
+			s32 spawnWeaponIdx = -1;
 			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
-				/* Specific weapon chosen: find the mpweapon entry for ammo data */
+				/* Specific weapon chosen: find the catalog index for ammo data */
 				s32 wi;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
-					if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
-						mpweapon = &g_MpWeapons[wi];
+					if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
+						spawnWeaponIdx = wi;
 						break;
 					}
 				}
@@ -419,16 +420,16 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
 					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
 				/* Random / unset: use first weapon in the match set */
-				mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-				resolvedWeaponNum = mpweapon->weaponnum;
+				spawnWeaponIdx = g_MpSetup.weapons[0];
+				resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
 			}
 			if (resolvedWeaponNum > 0) {
 				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
-				if (mpweapon) {
-					const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
-						? AMMOTYPE_BOOST : mpweapon->priammotype;
+				if (spawnWeaponIdx >= 0) {
+					const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)
+						? AMMOTYPE_BOOST : catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
 					if (ammotype) {
-						s32 startammo = mpweapon->priammoqty / 2;
+						s32 startammo = catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx) / 2;
 						if (startammo == 0) {
 							startammo = 1;
 						}
@@ -1429,7 +1430,7 @@ f32 botCalculateMaxSpeed(struct chrdata *chr)
 	if (chr->aibot->hascase || chr->aibot->hasbriefcase) {
 		speed = -63.600006103516f;
 	} else {
-		speed = g_HeadsAndBodies[chr->bodynum].height * (1.0f / 159.0f);
+		speed = catalogGetBodyHeight(chr->bodynum) * (1.0f / 159.0f); /* SA-5d */
 	}
 
 	speed = speed * 0.002830188954249f + 1.0f;

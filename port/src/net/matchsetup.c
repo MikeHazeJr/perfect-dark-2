@@ -29,7 +29,7 @@
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
 #include "input.h"
-#include "pdmain.h"
+#include "inputctx.h"
 #include "fs.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -80,6 +80,9 @@ void matchConfigInit(void)
 	 *   scorelimit: value + 1 kills.  0 = 1 kill, 9 = 10 kills, >=100 = no limit.
 	 *   teamscorelimit: similar, >=400 = no limit. */
 	g_MatchConfig.scenario = MPSCENARIO_COMBAT;
+	/* M0.1d: scenario_id is PRIMARY — resolve scenario integer at matchStart(). */
+	strncpy(g_MatchConfig.scenario_id, "base:combat", sizeof(g_MatchConfig.scenario_id) - 1);
+	g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 	/* stage_id is PRIMARY — resolve stagenum from it at matchStart().
 	 * Default arena: Complex ("base:mp_complex"). */
 	strncpy(g_MatchConfig.stage_id, "base:mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
@@ -95,7 +98,11 @@ void matchConfigInit(void)
 	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
 	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
-	g_MatchConfig.spawnWeaponNum = 0xFF; /* Random = use weapons[0] from active set */
+	/* M0.1c: catalog ID is PRIMARY for spawn weapon. Empty = Random. */
+	g_MatchConfig.spawn_weapon_id[0] = '\0';
+	g_MatchConfig.spawnWeaponNum = 0xFF; /* DEPRECATED derived cache */
+	/* M0.1c: weapon_ids[] initialized to empty — preset sets fill g_MpSetup directly */
+	memset(g_MatchConfig.weapon_ids, 0, sizeof(g_MatchConfig.weapon_ids));
 	g_MatchConfig.numSlots = 0;
 
 	/* Ensure handicaps start at 100% (0x80).  g_PlayerConfigsArray is BSS
@@ -490,7 +497,22 @@ s32 matchStart(void)
 	challengeDetermineUnlockedFeatures();
 
 	/* --- Configure g_MpSetup from our match config --- */
-	g_MpSetup.scenario = g_MatchConfig.scenario;
+	/* M0.1d: resolve scenario from catalog ID (PRIMARY). Fall back to
+	 * deprecated integer if scenario_id is empty (backward compat). */
+	if (g_MatchConfig.scenario_id[0]) {
+		const asset_entry_t *gm = assetCatalogResolve(g_MatchConfig.scenario_id);
+		if (gm && gm->type == ASSET_GAMEMODE) {
+			g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
+			g_MatchConfig.scenario = g_MpSetup.scenario; /* keep derived in sync */
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"MATCHSETUP: scenario_id '%s' not in catalog — falling back to integer %d",
+				g_MatchConfig.scenario_id, g_MatchConfig.scenario);
+			g_MpSetup.scenario = g_MatchConfig.scenario;
+		}
+	} else {
+		g_MpSetup.scenario = g_MatchConfig.scenario;
+	}
 
 	/* Resolve stagenum from stage_id (PRIMARY). stage_id may refer to an ASSET_ARENA
 	 * (MP arena) or ASSET_MAP (co-op/counter-op mission). */
@@ -518,10 +540,50 @@ s32 matchStart(void)
 	 * through the engine's own mpApplyWeaponSet(). This handles presets,
 	 * random, random-five, and custom sets correctly. */
 	mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+
+	/* M0.1c: if custom weapon_ids[] are populated, override g_MpSetup.weapons[]
+	 * with catalog-resolved values. For presets/random this is a no-op. */
+	{
+		s32 wi;
+		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
+			if (g_MatchConfig.weapon_ids[wi][0]) {
+				const asset_entry_t *we = assetCatalogResolve(g_MatchConfig.weapon_ids[wi]);
+				if (we && we->type == ASSET_WEAPON) {
+					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+				}
+			}
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: weapon set %d applied — slots: %d %d %d %d %d %d",
 	             g_MatchConfig.weaponSetIndex,
 	             g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
 	             g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
+
+	/* M0.1c: resolve spawn_weapon_id → spawnWeaponNum for legacy engine consumption.
+	 * Empty spawn_weapon_id = Random (0xFF). */
+	if (g_MatchConfig.spawn_weapon_id[0]) {
+		const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
+		if (swe && swe->type == ASSET_WEAPON) {
+			/* ext.weapon.weapon_id is MPWEAPON_* index; need WEAPON_* enum. */
+			s32 mpw = swe->ext.weapon.weapon_id;
+			if (mpw > 0 && mpw < NUM_MPWEAPONS) {
+				g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
+			} else {
+				g_MatchConfig.spawnWeaponNum = 0xFF;
+			}
+		} else {
+			sysLogPrintf(LOG_WARNING,
+			    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random",
+			    g_MatchConfig.spawn_weapon_id);
+			g_MatchConfig.spawnWeaponNum = 0xFF;
+		}
+	} else {
+		g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
+	}
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: spawn weapon '%s' → weaponnum=%d",
+	             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+	             (s32)g_MatchConfig.spawnWeaponNum);
 
 	/* --- Build chrslots bitmask and configure player/bot arrays --- */
 	g_MpSetup.chrslots = 0;
@@ -642,14 +704,26 @@ s32 matchStart(void)
 	/* Stop the menu system and let the game take over */
 	menuStop();
 
-	/* B-66: Capture mouse for gameplay. The lobby UI holds pdguiIsActive() true
-	 * during setup, which deferred the SDL relative-mouse apply inside
-	 * inputLockMouse(). Now that menus are stopped, force the capture. */
-	inputLockMouse(1);
-	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+	/* Pop menu context — gameplay context's on_push handles mouse capture. */
+	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+		inputCtxPopDeferred(&g_CtxImGuiMenu);
+	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
+}
+
+/* ========================================================================
+ * M0.1c: Weapon slot catalog ID accessor
+ * ======================================================================== */
+
+const char *matchGetWeaponSlotCatalogId(s32 slot)
+{
+	if (slot < 0 || slot >= NUM_MPWEAPONSLOTS) return "";
+	u8 mpw = g_MpSetup.weapons[slot];
+	if (mpw == 0) return "";
+	const char *cid = catalogIdByRuntime(ASSET_WEAPON, (s32)mpw);
+	return cid ? cid : "";
 }
 
 /* ========================================================================
@@ -700,6 +774,16 @@ s32 matchStartFromChallenge(s32 slot)
 	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */
 	g_MatchConfig.stagenum = (u8)g_MpSetup.stagenum;
 	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
+	/* M0.1d: sync scenario_id from integer (challenge configs set integers) */
+	{
+		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+		if (sid) {
+			strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
+			g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.scenario_id[0] = '\0';
+		}
+	}
 	{
 		/* Use catalog ID directly — stage_id is the primary key */
 		if (g_MpSetup.stage_id[0]) {
@@ -717,11 +801,10 @@ s32 matchStartFromChallenge(s32 slot)
 	mpStartMatch();
 	menuStop();
 
-	/* B-92 sibling: challenge start path was missing the mouse capture that
-	 * matchStartFromSetup applies.  pdguiIsActive() deferred the SDL
-	 * relative-mouse apply inside inputLockMouse(); force it now. */
-	inputLockMouse(1);
-	pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+	/* Pop menu context — gameplay context's on_push handles mouse capture. */
+	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+		inputCtxPopDeferred(&g_CtxImGuiMenu);
+	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

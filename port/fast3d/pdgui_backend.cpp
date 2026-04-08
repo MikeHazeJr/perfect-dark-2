@@ -28,6 +28,9 @@
 
 /* D5.0 ROM texture decode layer + theme draw functions */
 #include "pdgui_theme.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 
 /* D5.1 input ownership boundary */
 #include "pdmain.h"
@@ -37,8 +40,19 @@
 
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
+
+/* D5.1: Input context stack — routes events between game and ImGui */
+#include "inputctx.h"
 #include "pdgui_menus.h"
 #include "pdgui_charpreview.h"
+
+/* D5 Phase 2: Gamepad navigation helpers (wrap, accept/cancel, device detect) */
+#include "pdgui_nav.h"
+
+/* M0.2 Phase A: Core action map system */
+#include "actionmap.h"
+#include "config.h"
+#include "imgui/imgui_internal.h"
 
 /* Lobby sidebar — declared in pdgui_lobby.cpp */
 extern "C" void pdguiLobbyRender(s32 winW, s32 winH);
@@ -48,6 +62,9 @@ extern "C" s32  pdguiUpdateIsActive(void);
 /* D3R-7: Modding Hub standalone window — declared in pdgui_menu_moddinghub.cpp */
 extern "C" void pdguiModdingHubRender(s32 winW, s32 winH);
 extern "C" s32  pdguiModdingHubIsVisible(void);
+
+/* P5: Theme Editor — declared in pdgui_menu_theme_editor.cpp */
+extern "C" void pdguiThemeEditorRender(s32 winW, s32 winH);
 
 /* Log Viewer Dev Window tab — declared in pdgui_menu_logviewer.cpp */
 extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
@@ -66,10 +83,6 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH);
 
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
-
-/* Menu state manager (menumgr.c) */
-extern "C" s32 menuIsInCooldown(void);
-extern "C" s32 menuIsOpen(void);
 
 /* Input system -- for deferred SDL mouse-lock flush (B-92 solo mission path) */
 extern "C" s32 inputMouseIsLocked(void);
@@ -118,45 +131,68 @@ static bool g_PdguiInitialized = false;
 static bool g_PdguiActive = false;  /* overlay visible? */
 static SDL_Window *g_PdguiWindow = nullptr;
 
-/* Mouse grab state saved when overlay opens, restored when it closes */
-static SDL_bool g_PdguiSavedRelativeMode = SDL_FALSE;
-static int      g_PdguiSavedShowCursor   = 0;
-
-/**
- * When the overlay opens: release the mouse grab so ImGui gets absolute
- * coordinates and the cursor is visible. When it closes: restore whatever
- * grab state the game had before we touched it.
- */
-static void pdguiUpdateMouseGrab(bool overlayActive)
-{
-    if (overlayActive) {
-        /* Save current state */
-        g_PdguiSavedRelativeMode = SDL_GetRelativeMouseMode();
-        g_PdguiSavedShowCursor   = SDL_ShowCursor(SDL_QUERY);
-
-        /* Release grab: give ImGui absolute coordinates and a visible cursor */
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDL_ShowCursor(SDL_ENABLE);
-
-        /* Warp the cursor to the center of the window so it doesn't start
-         * at some off-screen position from relative mode */
-        if (g_PdguiWindow) {
-            int w, h;
-            SDL_GetWindowSize(g_PdguiWindow, &w, &h);
-            SDL_WarpMouseInWindow(g_PdguiWindow, w / 2, h / 2);
-        }
-    } else {
-        /* Restore previous state */
-        SDL_SetRelativeMouseMode(g_PdguiSavedRelativeMode);
-        SDL_ShowCursor(g_PdguiSavedShowCursor ? SDL_ENABLE : SDL_DISABLE);
-    }
-}
+/* Note: Mouse grab state is now owned by the input context lifecycle.
+ * Each context's on_push/on_pop sets SDL relative mode and cursor visibility.
+ * No manual save/restore needed — the context stack handles transitions. */
 
 /* ---------------------------------------------------------------------------
  * C-callable API (extern "C" for linkage with video.c, main.c, etc.)
  * --------------------------------------------------------------------------- */
 
 extern "C" {
+
+/* Include C headers inside extern "C" block to ensure proper linkage */
+#include "pdgui.h"
+
+/* D5 Phase 2: C++ trampoline for ImGui nav wrapping.
+ * Called from pdguiNavTickWrap() via function pointer to avoid
+ * requiring imgui_internal.h from C code. */
+static void navWrapTrampoline(void)
+{
+    ImGuiWindow *win = ImGui::GetCurrentWindow();
+    if (win) {
+        ImGui::NavMoveRequestTryWrapping(win, ImGuiNavMoveFlags_LoopY);
+    }
+}
+
+/* ---- Safe area implementation (D5 Phase 2) ---- */
+
+static float s_SafeMarginTop    = -1.0f;  /* -1 = auto-detect */
+static float s_SafeMarginBottom = -1.0f;
+static float s_SafeMarginLeft   = -1.0f;
+static float s_SafeMarginRight  = -1.0f;
+
+void pdguiSetSafeAreaMargins(float top, float bottom, float left, float right)
+{
+    s_SafeMarginTop    = top;
+    s_SafeMarginBottom = bottom;
+    s_SafeMarginLeft   = left;
+    s_SafeMarginRight  = right;
+}
+
+PdSafeArea pdguiGetSafeArea(void)
+{
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    float vw = (disp.x > 0.0f) ? disp.x : 1280.0f;
+    float vh = (disp.y > 0.0f) ? disp.y : 720.0f;
+    float aspect = vw / vh;
+
+    /* Default margins: ultrawide gets wider horizontal margins */
+    float defH = (aspect > 2.0f) ? 0.10f : 0.05f;  /* horizontal fraction */
+    float defV = 0.05f;                               /* vertical fraction */
+
+    float mt = (s_SafeMarginTop    >= 0.0f) ? s_SafeMarginTop    : defV;
+    float mb = (s_SafeMarginBottom >= 0.0f) ? s_SafeMarginBottom : defV;
+    float ml = (s_SafeMarginLeft   >= 0.0f) ? s_SafeMarginLeft   : defH;
+    float mr = (s_SafeMarginRight  >= 0.0f) ? s_SafeMarginRight  : defH;
+
+    PdSafeArea sa;
+    sa.x = vw * ml;
+    sa.y = vh * mt;
+    sa.w = vw - vw * ml - vw * mr;
+    sa.h = vh - vh * mt - vh * mb;
+    return sa;
+}
 
 void pdguiInit(void *sdlWindow)
 {
@@ -172,7 +208,8 @@ void pdguiInit(void *sdlWindow)
 
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
+     * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
     /* Load Handel Gothic — PD's original menu font, embedded in the binary.
      * ImGui takes ownership of the copy, so we must allocate + memcpy.
@@ -230,10 +267,69 @@ void pdguiInit(void *sdlWindow)
 
     /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
     pdguiThemeInit();
+
+    /* P4: Initialize 9-slice, effects, and font manager subsystems */
+    pdguiNinesliceInit();
+    pdguiEffectsInit();
+    pdguiFontMgrInit();
+
+    /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()
+     * can call ImGui::NavMoveRequestTryWrapping from C code. */
+    pdguiNavSetWrapCallback(navWrapTrampoline);
+
+    /* D5 Phase 2: Safe area margins — persist to pd.ini.
+     * -1.0 = auto-detect (default). 0.0–0.5 = manual override. */
+    configRegisterFloat("UI.SafeAreaTop",    &s_SafeMarginTop,    -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaBottom", &s_SafeMarginBottom, -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaLeft",   &s_SafeMarginLeft,   -1.0f, 0.5f);
+    configRegisterFloat("UI.SafeAreaRight",  &s_SafeMarginRight,  -1.0f, 0.5f);
+
+    /* M0.2 Phase A: Initialize action map system.
+     * Must be called before configLoad() so pd.ini keys are registered first. */
+    actionmapInit();
+}
+
+/* M0.2 Phase C: Translate actionmap queries into ImGui nav key events.
+ * Called each frame from pdguiNewFrame() AFTER actionmapPollFrame() so
+ * action states are up-to-date.  Replaces ImGui's built-in gamepad nav
+ * with the unified action system. */
+static void pdguiDriveImGuiNav(void)
+{
+    ImGuiIO &io = ImGui::GetIO();
+
+    /* Pressed (edge) → ImGui addKeyEvent with value=true on press frame, false on release.
+     * For D-pad we use held state since ImGui expects sustained press for repeat navigation. */
+    auto drivePressed = [&](InputAction act, ImGuiKey key) {
+        if (actionPressed(0, act))  io.AddKeyEvent(key, true);
+        if (actionReleased(0, act)) io.AddKeyEvent(key, false);
+    };
+
+    auto driveHeld = [&](InputAction act, ImGuiKey key) {
+        io.AddKeyEvent(key, actionHeld(0, act) != 0);
+    };
+
+    drivePressed(ACTION_MENU_ACCEPT,   ImGuiKey_GamepadFaceDown);
+    drivePressed(ACTION_MENU_CANCEL,   ImGuiKey_GamepadFaceRight);
+    driveHeld(ACTION_MENU_UP,          ImGuiKey_GamepadDpadUp);
+    driveHeld(ACTION_MENU_DOWN,        ImGuiKey_GamepadDpadDown);
+    driveHeld(ACTION_MENU_LEFT,        ImGuiKey_GamepadDpadLeft);
+    driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_GamepadDpadRight);
+    driveHeld(ACTION_MENU_TAB_PREV,    ImGuiKey_GamepadL1);
+    driveHeld(ACTION_MENU_TAB_NEXT,    ImGuiKey_GamepadR1);
 }
 
 void pdguiNewFrame(void)
 {
+    /* M0.2 Phase A: Flip action map edge signals (pressed/released → 0) and
+     * sample analog axes.  Both run unconditionally so stale state doesn't
+     * accumulate when menus are inactive. */
+    actionmapEndFrame();
+    actionmapPollFrame();
+
+    /* M0.2 Phase C: Drive ImGui nav from actionmap each frame.
+     * Must run after actionmapPollFrame() so action states are current. */
+    pdguiDriveImGuiNav();
+
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
@@ -384,7 +480,7 @@ void pdguiRender(void)
     {
         bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
         if (hotswapWasActive && !hotswapNowActive &&
-                !g_PdguiActive && !pdguiIsPauseMenuOpen() &&
+                !pdguiIsActive() &&
                 pdmainGetLvFrame60() > 0) {
             if (inputMouseIsLocked()) {
                 SDL_ShowCursor(SDL_DISABLE);
@@ -397,6 +493,9 @@ void pdguiRender(void)
 
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
+
+    /* P5: Theme Editor — renders when opened from debug settings or modding hub */
+    pdguiThemeEditorRender((s32)winW, (s32)winH);
 
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
@@ -552,6 +651,9 @@ void pdguiShutdown(void)
         return;
     }
 
+    pdguiFontMgrShutdown();
+    pdguiEffectsShutdown();
+    pdguiNinesliceShutdown();
     pdguiThemeShutdown();
     pdguiHotswapShutdown();
 
@@ -570,25 +672,14 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 0;
     }
 
-    /* Menu manager cooldown: consume ALL input during transition frames
-     * to prevent double-press when opening/closing menus. */
-    if (menuIsInCooldown()) {
-        const SDL_Event *cooldownEv = (const SDL_Event *)sdlEvent;
-        /* Still forward to ImGui for state tracking, but consume from game */
-        ImGui_ImplSDL2_ProcessEvent(cooldownEv);
-        if (cooldownEv->type == SDL_KEYDOWN || cooldownEv->type == SDL_KEYUP ||
-            cooldownEv->type == SDL_CONTROLLERBUTTONDOWN || cooldownEv->type == SDL_CONTROLLERBUTTONUP) {
-            return 1;
-        }
-    }
-
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
-    /* F8 / RS-click hot-swap toggle — does NOT consume input or open an overlay.
-     * Just flips the rendering mode for menus that have ImGui replacements. */
+    /* ---- Global hotkeys: always consumed regardless of context ---- */
+
+    /* F8 / RS-click: hot-swap toggle (flip rendering mode for ImGui menus) */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F8) {
         pdguiHotswapToggle();
-        return 1;  /* consumed — PD never sees F8 */
+        return 1;
     }
     if (ev->type == SDL_CONTROLLERBUTTONDOWN &&
         ev->cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK) {
@@ -596,82 +687,42 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
-    /* F12 debug overlay toggle */
+    /* F12: toggle debug overlay via context stack push/pop */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
-        g_PdguiActive = !g_PdguiActive;
-        pdguiUpdateMouseGrab(g_PdguiActive);
-        return 1;  /* consumed — PD never sees F12 */
-    }
-
-    /* D5.1: In GAMEPLAY mode with no active overlay, don't forward keyboard
-     * events to ImGui at all — game input owns everything. Mouse still forwarded
-     * so ImGui can track relative state for the HUD. */
-    if (g_InputMode == INPUTMODE_GAMEPLAY && !g_PdguiActive) {
-        if (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP || ev->type == SDL_TEXTINPUT) {
-            return 0;
+        if (!g_PdguiActive) {
+            inputCtxPush(&g_CtxDebugOverlay);
+            g_PdguiActive = true;
+        } else {
+            inputCtxPopDeferred(&g_CtxDebugOverlay);
+            g_PdguiActive = false;
         }
+        return 1;
     }
 
-    /* D5.1: In MENU mode, suppress Tab before ImGui sees it.
-     * Tab is bound to CK_START (pause trigger) in input.c — passing it to ImGui
-     * as a nav key and also to the game causes a double-trigger on menu open. */
-    if (g_InputMode == INPUTMODE_MENU &&
-        (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP) &&
-        ev->key.keysym.scancode == SDL_SCANCODE_TAB) {
-        return 1;  /* consumed — Tab is not a nav key in PD menus */
+    /* ---- B-124 fix: Key suppression on context push ---- */
+    /* When a context was just pushed (within grace period), suppress KEY_DOWN
+     * events to prevent the triggering key from being seen by ImGui or the
+     * new context. This breaks the Esc open/close race condition where the
+     * same keypress opens the menu (via gameplay) and immediately closes it
+     * (via ImGui's IsKeyPressed check). */
+    if (inputCtxShouldSuppressKey(ev)) {
+        return 1; /* consumed: don't forward to ImGui or dispatch */
     }
 
-    /* Always forward events to ImGui so it can track mouse/keyboard state.
-     * This includes gamepad events for ImGuiConfigFlags_NavEnableGamepad. */
+    /* ---- M0.2 Phase A: Update action map state ---- */
+    actionmapDispatch(ev);
+
+    /* ---- Forward to ImGui for internal state tracking ---- */
+    /* ImGui always needs to see events (mouse position, key state, gamepad)
+     * even when the game also processes them. The context stack decides
+     * whether the game sees the event too. */
     ImGui_ImplSDL2_ProcessEvent(ev);
 
-    /* Determine if any ImGui surface is actively wanting input:
-     * - Debug overlay (F12)
-     * - Hot-swapped menu (F8)
-     * - Pause menu (in-game)
-     *
-     * For hotswap, use pdguiHotswapWasActive() which persists from the
-     * previous frame's render. pdguiHotswapHasQueued() would be 0 here
-     * because events are processed BEFORE the GBI phase queues new dialogs. */
-    bool overlayActive = g_PdguiActive;
-    bool hotswapActive = pdguiHotswapWasActive() != 0 || pdguiHotswapHasQueued() != 0;
-    bool pauseActive = pdguiIsPauseMenuOpen() != 0;
-
-    if (!overlayActive && !hotswapActive && !pauseActive) {
-        return 0;
-    }
-
-    ImGuiIO &io = ImGui::GetIO();
-
-    switch (ev->type) {
-        case SDL_MOUSEMOTION:
-        case SDL_MOUSEBUTTONDOWN:
-        case SDL_MOUSEBUTTONUP:
-        case SDL_MOUSEWHEEL:
-            return io.WantCaptureMouse ? 1 : 0;
-
-        case SDL_KEYDOWN:
-        case SDL_KEYUP:
-        case SDL_TEXTINPUT:
-            /* When overlay, hot-swap, or pause menu is active, consume ALL
-             * keyboard input so the game doesn't act on keys meant for ImGui. */
-            if (overlayActive || hotswapActive || pauseActive) return 1;
-            return 0;
-
-        case SDL_CONTROLLERBUTTONDOWN:
-        case SDL_CONTROLLERBUTTONUP:
-        case SDL_CONTROLLERAXISMOTION:
-        case SDL_JOYAXISMOTION:
-        case SDL_JOYBUTTONDOWN:
-        case SDL_JOYBUTTONUP:
-        case SDL_JOYHATMOTION:
-            /* When ImGui is handling a hot-swapped menu or overlay,
-             * consume gamepad input so PD doesn't also process it. */
-            return 1;
-
-        default:
-            return 0;
-    }
+    /* ---- Dispatch through the input context stack ---- */
+    /* The stack walks top-to-bottom. If any context's can_consume() returns
+     * true, the event is consumed (game doesn't see it). If nothing consumes
+     * it (or only g_CtxGameplay matches), the game processes it normally. */
+    return inputCtxDispatch(ev);
 }
 
 s32 pdguiWantsInput(void)
@@ -680,37 +731,28 @@ s32 pdguiWantsInput(void)
         return 0;
     }
 
-    /* Hot-swapped menus (F8) consume all input while active.
-     * Uses pdguiHotswapWasActive() which persists from the previous
-     * frame's render — pdguiHotswapHasQueued() would be 0 here
-     * because the queue was cleared after last frame's render. */
-    if (pdguiHotswapWasActive()) {
-        return 1;
-    }
-
-    /* ImGui pause menu consumes all input when open */
-    if (pdguiIsPauseMenuOpen()) {
-        return 1;
-    }
-
-    if (!g_PdguiActive) {
-        return 0;
-    }
-
-    ImGuiIO &io = ImGui::GetIO();
-    return (io.WantCaptureKeyboard || io.WantCaptureMouse) ? 1 : 0;
+    /* If the top context is anything other than gameplay, ImGui wants input.
+     * The context stack knows what's active — no manual mode checks needed. */
+    InputContext *top = inputCtxGetTop();
+    return (top && top != &g_CtxGameplay) ? 1 : 0;
 }
 
 s32 pdguiIsActive(void)
 {
-    /* F12 debug overlay, F8 hot-swapped menus, or ImGui pause menu */
-    return (g_PdguiActive || pdguiHotswapWasActive() || pdguiIsPauseMenuOpen()) ? 1 : 0;
+    /* Any non-gameplay context on the stack means ImGui is active */
+    InputContext *top = inputCtxGetTop();
+    return (top && top != &g_CtxGameplay) ? 1 : 0;
 }
 
 void pdguiToggle(void)
 {
-    g_PdguiActive = !g_PdguiActive;
-    pdguiUpdateMouseGrab(g_PdguiActive);
+    if (!g_PdguiActive) {
+        inputCtxPush(&g_CtxDebugOverlay);
+        g_PdguiActive = true;
+    } else {
+        inputCtxPopDeferred(&g_CtxDebugOverlay);
+        g_PdguiActive = false;
+    }
 }
 
 } /* extern "C" */

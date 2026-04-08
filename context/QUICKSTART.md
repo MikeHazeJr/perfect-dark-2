@@ -2,7 +2,7 @@
 
 > **Read this file FIRST on every cold start.** It is the single onboarding document.
 > After reading this, you should be able to contribute productively without re-reading the entire context system.
-> For deep dives, follow the links to domain files. Updated: 2026-04-06.
+> For deep dives, follow the links to domain files. Updated: 2026-04-06 (S157+).
 
 ---
 
@@ -61,16 +61,21 @@ These are the most commonly relevant. Full list in `context/constraints.md`.
 | **Catalog ID everywhere** | `char[64]` strings at ALL boundaries. No integer identity on wire/save/API. |
 | **`bool` is `s32`** | Defined in `types.h`. **Never include `<stdbool.h>`** in game code. |
 | **C11 game / C++ port** | No C++ in `src/game/` or `src/lib/`. |
-| **ImGui is sole menu system** | Legacy `menuPush`/`menuPop` deprecated. ALL menu work in `pdgui_menu_*.cpp`. |
+| **Legacy N64 menus are DEAD** | `menuPush`/`menuPop`/`menuTick`/`menumgr.c` are deprecated trash. Do NOT fix, extend, integrate with, or reference them. ALL menu work targets `pdgui_menu_*.cpp` (ImGui). The legacy system will be stripped entirely. |
+| **ImGui is sole menu system** | All menus in `pdgui_menu_*.cpp`. Push/pop via input context stack. |
 | **No raw IP in UI** | 4-word sentence connect codes only. |
+| **Server is ROM-agnostic** | Server has no ROM. `g_NumStages == 0` is normal. Server gets everything from host manifest. Don't log warnings about missing ROM data on server. |
 | **Server is not a player** | `g_NetLocalClient = NULL` on dedicated server. Always NULL-guard. |
 | **Protocol v31** | All wire fields use catalog ID strings or session refs. net_hash is dead. |
+| **Zero-config networking** | Players must NEVER need to touch router settings, port forwarding, or UPnP. STUN + hole punch is the solution. All client joins use `netStartClientWithHolePunch()`, never raw `netStartClient()`. |
 | **MAX_MPCHRS=36** | MAX_PLAYERS=4 (local), MAX_BOTS=32. chrslots is u64. |
 | **30 agent save slots** | Hardcoded in filelist struct. Cannot change without save migration. |
+| **Zero DLL dependencies** | Executables must be fully static — no runtime DLLs. Release is: exes + data/ (README only) + mods/ (self-generating). libcurl static linking is currently broken (CMakeLists.txt copies ~15 DLLs as workaround). Needs fix. |
 | **Clean builds only** | Every build deletes build dirs first. No incremental. |
 | **No worktrees** | Work in main copy only. Never create worktrees. Prune stale ones. |
+| **Self-generating content** | Base UI mods (`mods/base-ui/`, `mods/pd-modern-ui/`) create themselves at runtime if missing. Don't rely on the release zip bundling them. Textures auto-extract from ROM on first launch. |
 
-**Removed constraints** (do NOT work around these — they're gone): N64 platform guards, 4MB memory mode, N64 dead code, micro-optimizations, host-based MP, N64 collision workarounds, 4-player bot limit, net_hash wire format, legacy N64 menu system, integer-native match config, g_ModNum, modconfig.txt, shadow arrays, fileSlots 2D array.
+**Removed constraints** (do NOT work around these — they're gone): N64 platform guards, 4MB memory mode, N64 dead code, micro-optimizations, host-based MP, N64 collision workarounds, 4-player bot limit, net_hash wire format, legacy N64 menu system, integer-native match config, g_ModNum, modconfig.txt, shadow arrays, fileSlots 2D array, UPnP-only networking.
 
 ---
 
@@ -103,29 +108,30 @@ tools/                  Log parser, utilities
 
 ---
 
-## 6. Current State (v0.0.45, S156+)
+## 6. Current State (v0.0.50, S178)
 
 ### What's Done
-- **Catalog Universality Phases A–G**: Wire protocol fully migrated to catalog ID strings (v27→v31).
-- **Catalog ID Migration Phases 0–8**: Bodies/heads complete (zero conversion in struct/API/comparison/UI/save/lobby). Phase 8 eliminated all O(n) conversion functions. Deep audit fixed all 15 array-bypass items.
-- **D5.0 Visual Layer**: Init ordering fixed, ROM texture extraction, base-ui mod, haze overlay, CRT scanlines, multi-palette support. ~70% was already built, remaining 30% landed in latest commit.
+- **M0.1 Catalog Signature Migration — COMPLETE** (S167–S178): All 5 sub-phases done. Stages (a), bodies/heads (b), weapons (c), remaining types (d), and catalog as data provider (e). 15 data accessor functions, ROM arrays internalized. Wire protocol v32.
+- **Catalog Universality Phases A–G**: Wire protocol fully migrated to catalog ID strings (v27→v32).
+- **D5 Phases 1–2 COMPLETE**: Input context stack + controller navigation. Phase 3 in progress (61/120 screens remaining).
+- **M1.1–M1.3 COMPLETE**: Campaign mission select, solo mission flow, pause menu + options.
+- **M2.1–M2.2 COMPLETE**: Combat sim UI (arenas, weapons, bots, game modes) + match flow (endscreen, B-117 fix, auto-save).
 - **Lobby Unification (U-1–U-10)**: Complete. `matchsetup.cpp` retired.
-- **155+ sessions** of development. 5 systemic sweeps. Comprehensive bug audit.
+- **178 sessions** of development. 5 systemic sweeps. Comprehensive bug audit.
 
 ### What's Active
-- **Catalog Phase 7 caller elimination**: ~85 calls to conversion wrappers remain
-- **Catalog Phases 8–14**: Weapons (~660 refs), stages (~80), models (~83), textures, audio, animations, game modes, lang banks, props, HUD
+- **D5 Phase 3 — Full Menu Roster Port**: 61 of 120 screens remaining. Solo pause done (S164), options sub-menu done (S174).
+- **M0.2 — Input System Unification**: Spec done (S163). Action maps and rebinding not started.
 - **B-112**: Chr pointer corruption in 31-bot matches. Root cause unknown. VEH + guards in place.
-- **D5.3 Pause Menu**: Highest-priority menu item (missing Abort, Restart, objectives)
-- **Mod + D5 implementation plan**: 10-phase, 33-session, ~3,800 LOC roadmap committed
 
-### What's Planned (Priority Order)
-1. Catalog deep migration (eliminate all integer identity)
-2. D5 menu system (pause menu → mission select → settings polish → OG removal)
-3. Mod infrastructure (mod menu gateway → bot name dictionary mod → visual theme layer)
-4. B-12 Phase 3 (remove chrslots → dynamic participant system)
-5. D13 Update System (code written, needs build integration)
-6. Counter-Op mode, Map Editor, Master Server (backlog)
+### What's Planned (Priority Order per Roadmap)
+1. M0.2 Input System Unification (action maps, rebinding)
+2. M1.2 Solo Mission Flow completion (briefings, mission complete/failed screens)
+3. M2.3 Stats & Progression (persistent stats wiring, achievements)
+4. M3 Online Multiplayer (lobby polish, room list, leader election)
+5. M4 Mod Platform (browser, creation tools, theme system)
+6. M5 Forge (level editor)
+7. M6 Polish & Release (collision feel, audio, accessibility, v1.0.0)
 
 ---
 
@@ -193,11 +199,20 @@ Before starting significant work, run through:
 4. **Cascade check**: Will this conflict with things already modernized?
 5. **Effort check**: Is this proportional to its importance?
 
+**Init ordering audit**: After any change that adds or moves init/shutdown calls, verify the full boot sequence resolves correctly. Systems must init in dependency order:
+1. SDL_Init → 2. inputInit (SDL event watch) → 3. inputCtxInit + push gameplay → 4. pdguiInit (ImGui) → 5. texInit/texReset → 6. pdguiThemeLateInit → 7. game logic.
+Frame loop: SDL_PollEvent → pdguiProcessEvent → inputCtxDispatch → game tick → render → inputCtxEndFrame.
+Shutdown: reverse order. Document any ordering dependencies discovered.
+
 **Rabbit Hole Protocol**: If you're going deeper than expected — **stop**. Explain, present options, recommend one, let Mike decide.
 
 ---
 
-## 10. Working Style
+## 10. Working Style & Collaboration
+
+> **Read this carefully.** This section preserves the collaborative spirit built over 160+ sessions. A cold start should feel like a continuation, not a stranger introducing themselves.
+
+**This is a partnership.** Mike is the game director and sole developer. AI is the engineering partner. We say "we" not "you" — the work is collaborative. Mike trusts the AI to make good decisions, take initiative, and push back when something is wrong. He expects creative contribution, not just execution.
 
 - **Mike thinks in systems, phases, and player experience.** He values depth over shortcuts, root cause over patches.
 - **No half measures** on systems/architecture. This is a platform foundation.
@@ -205,11 +220,19 @@ Before starting significant work, run through:
 - **When the fix is clear, just do it** — don't announce intent and wait.
 - **Update context as you go**, not as a follow-up.
 - **Run a build check** before reporting any code task as complete.
-- **Send progress updates** every 2-3 minutes during long work. Never go silent.
+- **Send progress updates** every 5 minutes during long work. Never go silent.
 - **Timestamps on every response.**
 - **No worktrees.** Work in the main copy. Prune stale ones proactively.
 - **Merge verification**: If a code session uses a worktree anyway, verify line counts post-merge (truncation risk).
 - **Protect .git internals** — never write to `.git/` directly.
+- **Audit everything twice**: Every code change gets verified for function, interoperability, UX, and bugs before reporting done. Use a second session/model for audit when appropriate.
+- **Don't touch legacy menus**: The N64 menu system (`menuPush`/`menuPop`/`menuTick`/`menumgr.c`) is deprecated. Don't fix it, extend it, or integrate with it. Build new, strip old.
+- **C headers included from C++ need `extern "C"` guards**: If a port header (`port/include/*.h`) declares C functions and gets included from `.cpp` files, it MUST have `#ifdef __cplusplus extern "C" {` guards. Missing guards cause linker errors (name mangling). Check `fs.h`, `config.h` as examples of this fix.
+- **Dev window auto-configures git identity**: The dev window sets `user.email` and `user.name` repo-level on startup if missing. No manual git config needed.
+- **Release auto-commits**: The dev window's build/release flow auto-commits pending changes before building. If git identity is missing, the pipeline stops with a clear error instead of silently failing.
+- **When Mike says "out of curiosity..."** — he's probing the architecture. Answer thoroughly.
+- **When Mike says "I refuse to accept..."** — he's setting a binding constraint. Log it.
+- **Proactive context saves**: When the conversation gets long, suggest saving state and starting fresh. The context files must be good enough that a new session picks up the rhythm, not just the facts.
 
 ---
 
@@ -227,6 +250,7 @@ Before starting significant work, run through:
 | `component-mod-architecture.md` | Mod system work |
 | `designs/match-startup-pipeline.md` | Match startup work |
 | `designs/d5-visual-layer-plan.md` | D5.0 visual layer work |
+| `designs/d5-full-menu-overhaul.md` | D5 master plan — input stack, controller nav, full menu port, themes, planned features |
 | `designs/implementation-plan-mods-and-d5.md` | Mod + D5 roadmap |
 | `designs/engine-vision-roadmap.md` | Long-term architecture |
 | `bugs.md` | Bug reference |
@@ -272,4 +296,27 @@ Full list in `systemic-bugs.md`.
 
 ---
 
+---
+
+## 15. Collaboration Principles
+
+These aren't rules — they're the foundation of how this project works. Built over 160+ sessions.
+
+1. **Single Source of Truth, everywhere.** Catalog for assets. Context stack for input. Context files for project state. One authority per system, zero parallel paths. Mike will not accept convolusion.
+
+2. **Design before construction.** Read the guideline docs. Understand the architecture. Check the constraints. THEN write code. Research is not wasted time — it prevents wrong assumptions and rework.
+
+3. **Every system should be extensible.** The input context stack makes adding new input contexts trivial. The catalog makes adding new asset types trivial. Build infrastructure that makes the NEXT thing easy.
+
+4. **The game director's decisions are binding.** D-1 FULL, D-2 FULL, D-3 FULL. Zero half measures. When Mike makes a decision, it becomes a constraint. Document it immediately.
+
+5. **Context is code.** Updating context files is equal priority to writing code. A code change without a context update is an incomplete change. If context is cleared right now, the next session must pick up in under a minute.
+
+6. **Fix the class, not the instance.** After fixing a bug, always do a propagation check. Does this same problem exist anywhere else? Systemic fixes over spot patches.
+
+7. **The vision is real.** PD2 → standalone engine → open UGC platform. Every architectural decision should serve this trajectory. Don't build walls that block the path forward.
+
+---
+
 **You are now onboarded. Read `constraints.md`, `session-log.md` (last 2-3), and `tasks-current.md`, then summarize to Mike and confirm direction.**
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  

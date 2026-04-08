@@ -54,7 +54,7 @@
 #include "utils.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
-#include "pdmain.h"
+#include "inputctx.h"
 #endif
 #include <SDL.h>
 
@@ -729,7 +729,14 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_NetCoopRadar);
 	} else {
 		// combat simulator settings
-		netbufWriteU8(dst, g_MpSetup.scenario);
+		/* M0.1d: scenario as catalog ID string. Prefer g_MatchConfig.scenario_id
+		 * (PRIMARY), fall back to runtime resolution from integer. */
+		{
+			const char *sid = g_MatchConfig.scenario_id[0]
+				? g_MatchConfig.scenario_id
+				: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+			netbufWriteStr(dst, sid ? sid : "base:combat");
+		}
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
@@ -901,7 +908,24 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		/* Phase 2: populate PRIMARY catalog ID string field */
 		strncpy(g_MpSetup.stage_id, resolved_stage_id, sizeof(g_MpSetup.stage_id) - 1);
 		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
-		g_MpSetup.scenario = netbufReadU8(src);
+		/* M0.1d: scenario as catalog ID string (v32+). */
+		{
+			const char *scid_str = netbufReadStr(src);
+			const char *scid = scid_str ? scid_str : "";
+			if (scid[0]) {
+				const asset_entry_t *gm = assetCatalogResolve(scid);
+				if (gm && gm->type == ASSET_GAMEMODE) {
+					g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
+				} else {
+					sysLogPrintf(LOG_ERROR,
+						"NET: SVC_STAGE_START scenario '%s' not in catalog — defaulting to combat",
+						scid);
+					g_MpSetup.scenario = 0;
+				}
+			} else {
+				g_MpSetup.scenario = 0;
+			}
+		}
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
@@ -1046,8 +1070,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		inputLockMouse(1);  /* B-92 sibling: co-op/anti SVC_STAGE — pdguiIsActive() deferred SDL lock */
-		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+			inputCtxPopDeferred(&g_CtxImGuiMenu);
+		}
 #endif
 
 		g_NotLoadMod = true;
@@ -1184,8 +1209,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		inputLockMouse(1);  /* B-92 sibling: MP SVC_STAGE — pdguiIsActive() deferred SDL lock */
-		pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+			inputCtxPopDeferred(&g_CtxImGuiMenu);
+		}
 		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
 		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
 		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in
@@ -1345,26 +1371,26 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
  *
  * The catalog stores weapon_id as MPWEAPON_* constants (0x01-0x2f),
  * but the game engine uses WEAPON_* enums (different numbering).
- * g_MpWeapons[mpweapon_idx].weaponnum maps MPWEAPON_* → WEAPON_*.
+ * catalogGetMpWeaponNum(idx) maps MPWEAPON_* → WEAPON_*.
  * These helpers bridge the two domains. */
 
 #if !defined(PD_SERVER)
-/* Convert WEAPON_* enum → MPWEAPON_* index by scanning g_MpWeapons[]. */
+/* Convert WEAPON_* enum → MPWEAPON_* index by scanning catalog. */
 static s32 weaponToMpWeapon(s32 weaponnum)
 {
 	for (s32 i = 1; i < NUM_MPWEAPONS; i++) {
-		if ((s32)g_MpWeapons[i].weaponnum == weaponnum) {
+		if (catalogGetMpWeaponNum(i) == weaponnum) {
 			return i;
 		}
 	}
 	return -1;
 }
 
-/* Convert MPWEAPON_* index → WEAPON_* enum via g_MpWeapons[]. */
+/* Convert MPWEAPON_* index → WEAPON_* enum via catalog. */
 static s32 mpWeaponToWeapon(s32 mpweaponnum)
 {
 	if (mpweaponnum >= 0 && mpweaponnum < NUM_MPWEAPONS) {
-		return (s32)g_MpWeapons[mpweaponnum].weaponnum;
+		return catalogGetMpWeaponNum(mpweaponnum);
 	}
 	return WEAPON_UNARMED;
 }
@@ -3781,9 +3807,9 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload (v27+): gamemode (u8), stage_id (str catalog ID),
+ * Payload (v32+): gamemode (u8), stage_id (str catalog ID),
  *          difficulty (u8), numSims (u8), simType (u8),
- *          timelimit (u8), options (u32), scenario (u8), scorelimit (u8), teamscorelimit (u16),
+ *          timelimit (u8), options (u32), scenario_id (str catalog ID), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
  *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
  *          Per-bot (repeated numSims times): name (str), body_id (str), head_id (str),
@@ -3812,15 +3838,26 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	netbufWriteU8(dst, simType);
 	netbufWriteU8(dst, timelimit);
 	netbufWriteU32(dst, options);
-	netbufWriteU8(dst, scenario);
+	/* M0.1d: scenario as catalog ID string (PRIMARY). Integer scenario parameter
+	 * is still accepted for backward compat but we send the catalog ID. */
+	if (g_MatchConfig.scenario_id[0]) {
+		netbufWriteStr(dst, g_MatchConfig.scenario_id);
+	} else {
+		/* Fallback: resolve from integer */
+		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)scenario);
+		netbufWriteStr(dst, sid ? sid : "base:combat");
+	}
 	netbufWriteU8(dst, scorelimit);
 	netbufWriteU16(dst, teamscorelimit);
 	netbufWriteU8(dst, weaponSetIndex);
-	/* Phase 8: per-slot weapon catalog ID via cached lookup */
+	/* M0.1c: per-slot weapon catalog ID — prefer weapon_ids[] (PRIMARY),
+	 * fall back to runtime resolution from g_MpSetup.weapons[]. */
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			if (g_MpSetup.weapons[wi] == 0) {
+			if (g_MatchConfig.weapon_ids[wi][0]) {
+				netbufWriteStr(dst, g_MatchConfig.weapon_ids[wi]);
+			} else if (g_MpSetup.weapons[wi] == 0) {
 				netbufWriteStr(dst, "");
 			} else {
 				const char *wcanon = catalogIdByRuntime(
@@ -4071,7 +4108,26 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	const u8 simType         = netbufReadU8(src);
 	const u8 timelimit       = netbufReadU8(src);
 	const u32 options        = netbufReadU32(src);
-	const u8 scenario        = netbufReadU8(src);
+	/* M0.1d: read scenario as catalog ID string (v32+), resolve to integer. */
+	u8 scenario = 0;
+	{
+		const char *scenario_str = netbufReadStr(src);
+		const char *scid = scenario_str ? scenario_str : "";
+		if (scid[0]) {
+			const asset_entry_t *gm = assetCatalogResolve(scid);
+			if (gm && gm->type == ASSET_GAMEMODE) {
+				scenario = (u8)gm->ext.gamemode.mode_id;
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"NET: CLC_LOBBY_START scenario '%s' not in catalog — defaulting to combat",
+					scid);
+			}
+			strncpy(g_MatchConfig.scenario_id, scid, sizeof(g_MatchConfig.scenario_id) - 1);
+			g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+		} else {
+			g_MatchConfig.scenario_id[0] = '\0';
+		}
+	}
 	const u8 scorelimit      = netbufReadU8(src);
 	const u16 teamscorelimit = netbufReadU16(src);
 	const u8 weaponSetIndex  = netbufReadU8(src);

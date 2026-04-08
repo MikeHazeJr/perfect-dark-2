@@ -229,19 +229,11 @@ s32 pdguiHotswapCheck(struct menudialogdef *dialogdef,
         return 0;  /* No ImGui replacement — use PD native */
     }
 
-    /* Determine whether to use NEW (ImGui) or OLD (PD native) */
-    bool useNew = false;
-    if (entry->override == 1) {
-        useNew = true;
-    } else if (entry->override == -1) {
-        useNew = false;
-    } else {
-        useNew = s_HotswapActive;
-    }
-
-    if (!useNew) {
-        return 0;
-    }
+    /* P10 D5.7: ImGui is permanent — always use NEW.
+     * The override mechanism is retained for future use but
+     * "force OLD" (-1) is no longer honoured since legacy
+     * rendering code has been removed. */
+    (void)s_HotswapActive;  /* Always true */
 
     /* Queue this dialog for ImGui rendering during the overlay phase.
      * Deduplicate: if this entry is already queued (same dialogdef rendered
@@ -272,23 +264,11 @@ s32 pdguiHotswapCheck(struct menudialogdef *dialogdef,
 
 s32 pdguiHotswapIsDialogSwapped(struct menudialogdef *dialogdef)
 {
-    if (!dialogdef) {
-        return 0;
-    }
-
-    HotswapEntry *entry = findEntry(dialogdef);
-    if (!entry) {
-        return 0;
-    }
-
-    /* Check override first */
-    if (entry->override == 1) {
-        return 1;  /* Forced NEW */
-    } else if (entry->override == -1) {
-        return 0;  /* Forced OLD */
-    }
-
-    return s_HotswapActive ? 1 : 0;
+    /* P10 D5.7: All dialogs with registered or type-based ImGui renderers
+     * are always swapped. Legacy rendering has been removed.
+     * Return 1 for any dialog — ImGui handles everything via type fallbacks. */
+    (void)dialogdef;
+    return 1;
 }
 
 /**
@@ -342,9 +322,9 @@ void pdguiHotswapRenderQueued(s32 winW, s32 winH)
 
 void pdguiHotswapToggle(void)
 {
-    s_HotswapActive = !s_HotswapActive;
-    sysLogPrintf(LOG_NOTE, "pdgui_hotswap: %s",
-                 s_HotswapActive ? "ON (ImGui menus)" : "OFF (PD native menus)");
+    /* P10 D5.7: ImGui is the sole menu system — F8 toggle disabled.
+     * Legacy PD native rendering has been removed. */
+    sysLogPrintf(LOG_NOTE, "pdgui_hotswap: ImGui menus are permanent (legacy rendering removed)");
 }
 
 s32 pdguiHotswapIsActive(void)
@@ -377,48 +357,8 @@ void pdguiHotswapSetOverride(struct menudialogdef *dialogdef, s32 override)
 
 void pdguiHotswapRenderBadge(s32 winW, s32 winH)
 {
-    if (s_EntryCount == 0) {
-        return;  /* Nothing registered — no badge needed */
-    }
-
-    /* Only show when a game menu is actually active (queued or was rendered) */
-    /* Position: top-right corner */
-    float padX = 12.0f;
-    float padY = 12.0f;
-
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
-                           | ImGuiWindowFlags_AlwaysAutoResize
-                           | ImGuiWindowFlags_NoSavedSettings
-                           | ImGuiWindowFlags_NoFocusOnAppearing
-                           | ImGuiWindowFlags_NoNav
-                           | ImGuiWindowFlags_NoMove
-                           | ImGuiWindowFlags_NoInputs;
-
-    ImGui::SetNextWindowPos(ImVec2((float)winW - padX, padY),
-                            ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.65f);
-
-    if (ImGui::Begin("##hotswap_badge", nullptr, flags)) {
-        if (s_HotswapActive) {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[NEW]");
-        } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "[OLD]");
-        }
-
-        if (s_ActiveMenuName && s_RenderingThisFrame) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", s_ActiveMenuName);
-        }
-
-        if (s_EntryCount > 0) {
-            ImGui::TextDisabled("%d menu%s ready",
-                               s_EntryCount,
-                               s_EntryCount == 1 ? "" : "s");
-        }
-    }
-    ImGui::End();
-
-    /* Reset per-frame state */
+    /* P10 D5.7: Badge removed — ImGui is the sole menu system.
+     * No OLD/NEW toggle to display. */
     s_RenderingThisFrame = false;
 }
 

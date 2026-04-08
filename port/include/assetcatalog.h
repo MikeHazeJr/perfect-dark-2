@@ -873,6 +873,132 @@ s32 catalogGetPropFilenumByIndex(s32 propnum);
  * Callers use stage_id/weapon catalog IDs directly or inline
  * assetCatalogGetByIndex scans for the few remaining conversion sites. */
 
+/* ── SA-5d: Body / head property accessors (M0.1e) ─────────────────────────
+ * Thin wrappers over g_HeadsAndBodies[] that make the catalog the public
+ * API for body/head property reads.  The ROM array is the current internal
+ * implementation; future mod overrides will intercept here.
+ * O(1).  All bounds-checked — return 0 / 1.0f on out-of-range index.
+ *
+ * bodynum / headnum are g_HeadsAndBodies[] indices (runtime_index on the
+ * catalog entry).  They are NOT mp_index (g_MpBodies[]/g_MpHeads[] position).
+ */
+
+/** Boolean: is this body (g_HeadsAndBodies[] index) male? */
+s32 catalogGetBodyIsMale(s32 bodynum);
+
+/** Integer: character type constant (HEADBODYTYPE_*) for a body. */
+s32 catalogGetBodyType(s32 bodynum);
+
+/** Integer: height field used for bot speed calculation. */
+s32 catalogGetBodyHeight(s32 bodynum);
+
+/** Float: per-body animation scale factor. */
+f32 catalogGetBodyAnimScale(s32 bodynum);
+
+/** Boolean: can this body's height vary (human / Skedar variability)? */
+s32 catalogGetBodyCanVaryHeight(s32 bodynum);
+
+/**
+ * Boolean: body model is self-contained (unk00_01 == 1 means no separate head
+ * attachment slot).  Returns 1 for complete bodies, 0 for bodies that attach
+ * a separate head model.
+ */
+s32 catalogGetBodyIsComplete(s32 bodynum);
+
+/** Integer: hand model file number for first-person hand rendering. */
+s32 catalogGetBodyHandFilenum(s32 bodynum);
+
+/** Boolean: is this head (g_HeadsAndBodies[] index) male? */
+s32 catalogGetHeadIsMale(s32 headnum);
+
+/** Integer: character type constant (HEADBODYTYPE_*) for a head. */
+s32 catalogGetHeadType(s32 headnum);
+
+/** Integer: height field for a head (matches catalogGetBodyHeight contract). */
+s32 catalogGetHeadHeight(s32 headnum);
+
+/* ── SA-5f: Body / head modeldef lazy-load and reset (M0.1f) ────────────────
+ * Centralise all g_HeadsAndBodies[].modeldef read/write in catalog code.
+ * catalogGetBodyModeldef / catalogGetHeadModeldef: lazy-load on first call,
+ * cached thereafter.  Guarded by #if !defined(PD_SERVER) — server has no ROM
+ * model data and must never call these.
+ * catalogReset*Modeldef: set one entry's cached pointer to NULL (call before
+ * stage unload to allow fresh load next time).
+ * catalogResetAllModeldefs: reset every entry in the array (used by bodiesReset).
+ */
+
+/* Forward declaration needed for SA-5f signatures. */
+struct modeldef;
+
+#if !defined(PD_SERVER)
+/**
+ * SA-5f: Lazy-load the body modeldef by runtime body index.
+ * If g_HeadsAndBodies[bodynum].modeldef is NULL, loads it via modeldefLoadToNew
+ * and caches the result.  Returns the (possibly newly loaded) pointer, or NULL
+ * if the load failed.  O(1) after first call.
+ * NOT available on the dedicated server (no ROM model data).
+ */
+struct modeldef *catalogGetBodyModeldef(s32 bodynum);
+
+/**
+ * SA-5f: Lazy-load the head modeldef by runtime head index.
+ * Same contract as catalogGetBodyModeldef.  Returns NULL for HEAD_RANDOM_GENDER
+ * or if the load failed.
+ * NOT available on the dedicated server.
+ */
+struct modeldef *catalogGetHeadModeldef(s32 headnum);
+#endif /* !PD_SERVER */
+
+/**
+ * SA-5f: Clear the cached modeldef pointer for one body index.
+ * Sets g_HeadsAndBodies[bodynum].modeldef = NULL so the next call to
+ * catalogGetBodyModeldef() triggers a fresh load.
+ */
+void catalogResetBodyModeldef(s32 bodynum);
+
+/**
+ * SA-5f: Clear the cached modeldef pointer for one head index.
+ */
+void catalogResetHeadModeldef(s32 headnum);
+
+/**
+ * SA-5f: Clear ALL cached modeldef pointers in g_HeadsAndBodies[].
+ * Iterates until the sentinel (filenum == 0).  Called by bodiesReset()
+ * at stage start to force a fresh model load for the new stage.
+ */
+void catalogResetAllModeldefs(void);
+
+/* ── SA-5e: MP weapon table accessors (M0.1e) ──────────────────────────────
+ * Thin wrappers over g_MpWeapons[] that make the catalog the public API for
+ * MP weapon property reads.  ROM array is the internal implementation.
+ * O(1).  Bounds-checked — return 0 on out-of-range index.
+ *
+ * mpweapon_idx is the g_MpWeapons[] array index (MPWEAPON_* constant range,
+ * 0..NUM_MPWEAPONS-1).
+ *
+ * Note: priammotype / priammoqty / secammotype / secammoqty from
+ * g_MpWeapons[] are accessed via mpGetMpWeaponByLocation() callers pending
+ * a future catalogGetMpWeaponAmmoInfo() accessor.
+ */
+
+/** Integer: runtime WEAPON_* enum value for this MP weapon slot. */
+s32 catalogGetMpWeaponNum(s32 mpweapon_idx);
+
+/** Integer: unlock feature ID required to use this weapon (0 = always available). */
+s32 catalogGetMpWeaponUnlockFeature(s32 mpweapon_idx);
+
+/** Integer: primary ammo type (AMMOTYPE_*) for this MP weapon slot. 0 = none. */
+s32 catalogGetMpWeaponPriAmmoType(s32 mpweapon_idx);
+
+/** Integer: primary ammo quantity granted on pickup for this MP weapon slot. */
+s32 catalogGetMpWeaponPriAmmoQty(s32 mpweapon_idx);
+
+/** Integer: secondary ammo type (AMMOTYPE_*) for this MP weapon slot. 0 = none. */
+s32 catalogGetMpWeaponSecAmmoType(s32 mpweapon_idx);
+
+/** Integer: secondary ammo quantity granted on pickup for this MP weapon slot. */
+s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**

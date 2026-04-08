@@ -8,13 +8,13 @@
  *   g_PreAndPostMissionBriefingMenuDialog -- pre/post briefing (same renderer)
  *   g_AcceptMissionMenuDialog         -- objectives overview + Accept / Decline
  *   g_SoloMissionPauseMenuDialog      -- in-game pause: objectives + Abort
- *   g_SoloMissionOptionsMenuDialog    -- options hub: Audio/Video/Control/Display/Extended
+ *   g_SoloMissionOptionsMenuDialog    -- options: tabbed panel (Audio/Video/Controls)
  *   g_MissionAbortMenuDialog          -- danger confirmation: Cancel / Abort
  *
  * Registered with NULL renderFn (keep legacy rendering for model/controller previews):
- *   g_SoloMissionInventoryMenuDialog  -- weapon model preview (legacy 3D)
- *   g_FrWeaponsAvailableMenuDialog    -- training weapons model preview (legacy 3D)
- *   g_SoloMissionControlStyleMenuDialog -- controller button diagram (legacy 3D)
+ *   g_SoloMissionInventoryMenuDialog  -- ImGui weapon list (M1.2)
+ *   g_FrWeaponsAvailableMenuDialog    -- handled by DEFAULT type fallback
+ *   g_SoloMissionControlStyleMenuDialog -- handled by DEFAULT type fallback
  *
  * Design notes:
  *   - All sizing via pdguiScale() — zero hardcoded pixels.
@@ -39,8 +39,11 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
+#include "actionmap.h"
 #include "system.h"
-#include "pdmain.h"
+#include "inputctx.h"
+#include "assetcatalog.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -77,6 +80,99 @@ void menuStop(void);
 /* ---- Language ---- */
 const char *langSafe(s32 textid);
 
+/* ---- Inventory query API ---- */
+s32 invGetCount(void);
+char *invGetNameByIndex(s32 index);
+s32 invGetWeaponNumByIndex(s32 index);
+
+/* ---- Audio API (port/include/audio.h) ---- */
+f32  audioGetMasterVolume(void);
+void audioSetMasterVolume(f32 vol);
+f32  audioGetMusicVolume(void);
+void audioSetMusicVolume(f32 vol);
+f32  audioGetGameplayVolume(void);
+void audioSetGameplayVolume(f32 vol);
+f32  audioGetUiVolume(void);
+void audioSetUiVolume(f32 vol);
+
+/* ---- Video API (port/include/video.h) ---- */
+s32  videoGetFullscreen(void);
+void videoSetFullscreen(s32 fs);
+s32  videoGetFullscreenMode(void);
+void videoSetFullscreenMode(s32 mode);
+s32  videoGetVsync(void);
+void videoSetVsync(s32 vsync);
+s32  videoGetFramerateLimit(void);
+void videoSetFramerateLimit(s32 limit);
+s32  videoGetMSAA(void);
+void videoSetMSAA(s32 msaa);
+u32  videoGetTextureFilter(void);
+void videoSetTextureFilter(u32 filter);
+s32  videoGetTextureFilter2D(void);
+void videoSetTextureFilter2D(s32 filter);
+s32  videoGetDetailTextures(void);
+void videoSetDetailTextures(s32 detail);
+s32  videoGetDisplayFPS(void);
+void videoSetDisplayFPS(s32 displayfps);
+f32  videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
+
+/* Display mode */
+typedef struct { s32 width; s32 height; } displaymode;
+s32  videoGetNumDisplayModes(void);
+s32  videoGetDisplayMode(displaymode *out, s32 index);
+s32  videoGetDisplayModeIndex(void);
+void videoSetDisplayMode(s32 index);
+
+/* ---- Screen size / split (options.c) ---- */
+s32  optionsGetScreenSize(void);
+void optionsSetScreenSize(s32 size);
+u8   optionsGetScreenSplit(void);
+void optionsSetScreenSplit(u8 split);
+s32  optionsGetForwardPitch(s32 mpchrnum);
+void optionsSetForwardPitch(s32 mpchrnum, s32 enable);
+
+/* ---- Input API (port/include/input.h) ---- */
+s32  inputMouseIsEnabled(void);
+void inputMouseEnable(s32 enabled);
+void inputMouseGetSpeed(f32 *x, f32 *y);
+void inputMouseSetSpeed(f32 x, f32 y);
+s32  inputGetMouseLockMode(void);
+void inputSetMouseLockMode(s32 mode);
+s32  inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
+/* ---- Extended player config (must match types.h layout) ---- */
+struct sm_extplayerconfig {
+    f32 fovy;              /* 0x00 */
+    f32 fovzoommult;       /* 0x04 */
+    s32 fovzoom;           /* 0x08 */
+    s32 mouseaimmode;      /* 0x0c */
+    f32 mouseaimspeedx;    /* 0x10 */
+    f32 mouseaimspeedy;    /* 0x14 */
+    s32 crouchmode;        /* 0x18 */
+    f32 radialmenuspeed;   /* 0x1c */
+    f32 crosshairsway;     /* 0x20 */
+    s32 extcontrols;       /* 0x24 */
+    u32 crosshaircolour;   /* 0x28 */
+    u32 crosshairsize;     /* 0x2c */
+    s32 crosshairhealth;   /* 0x30 */
+    s32 usereloads;        /* 0x34 */
+    f32 jumpheight;        /* 0x38 */
+};
+extern struct sm_extplayerconfig g_PlayerExtCfg[];
+
+/* Extended vars */
+extern s32 g_TickRateDiv;
+extern s32 g_BgunGeMuzzleFlashes;
+extern s32 g_MusicDisableMpDeath;
+extern s32 g_HudCenter;
+extern f32 g_ViShakeIntensityMult;
+extern s32 g_MenuMouseControl;
+
+/* Config save */
+s32 configSave(const char *fname);
+
 /* ---- Solo stage table (21 entries, indices 0–20) ----
  * Mirrors struct solostage from types.h.  The compiler inserts 1 byte of
  * natural alignment padding between unk04 (u8) and name1 (u16). */
@@ -87,18 +183,29 @@ struct sm_solostage {
     u16 name1;  /* e.g. "dataDyne Central" */
     u16 name2;  /* e.g. " - Defection"     */
     u16 name3;  /* e.g. "dataDyne Defection" (short form) */
+    const char *catalog_id; /* PRIMARY: catalog ID string, e.g. "base:defection" */
 };
 extern struct sm_solostage g_SoloStages[];
 
 /* ---- Mission configuration ----
- * Layout mirrors struct missionconfig from types.h.
- * Bitfield byte 0: bits 0–6 = difficulty, bit 7 = pdmode.
- * Bitfield byte 3: bit 0 = iscoop, bit 1 = isanti. */
+ * Layout mirrors struct missionconfig from types.h exactly.
+ * IMPORTANT: stage_id[64] was added to missionconfig (PC port catalog field)
+ * between diff_pdmode and stagenum. The shadow struct MUST include it or all
+ * subsequent field accesses are at wrong offsets (stagenum=0x00 crash).
+ *
+ * Real layout:
+ *   offset  0: diff_pdmode (u8)         — difficulty:7, pdmode:1
+ *   offset  1: stage_id[64] (char[64])  — PRIMARY catalog ID e.g. "base:defection"
+ *   offset 65: stagenum (u8)            — DEPRECATED integer stagenum
+ *   offset 66: stageindex (u8)
+ *   offset 67: coop_anti (u8)           — iscoop:1, isanti:1
+ */
 struct sm_missionconfig {
-    u8 diff_pdmode;   /* difficulty:7, pdmode:1 */
-    u8 stagenum;
-    u8 stageindex;
-    u8 coop_anti;     /* iscoop:1, isanti:1 */
+    u8   diff_pdmode;   /* difficulty:7, pdmode:1 */
+    char stage_id[64];  /* PRIMARY: catalog ID string — e.g. "base:defection" */
+    u8   stagenum;      /* DEPRECATED: integer stage ID — used by menuhandlerAcceptMission */
+    u8   stageindex;
+    u8   coop_anti;     /* iscoop:1, isanti:1 */
     /* remaining fields not needed here */
 };
 extern struct sm_missionconfig g_MissionConfig;
@@ -148,12 +255,22 @@ bool         isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
 void         lvSetDifficulty(s32 difficulty);
+s32          lvGetDifficulty(void);
+s32          objectiveGetCount(void);
+s32          objectiveCheck(s32 index);
+void         mainChangeToStage(s32 stagenum);
 extern s32   g_MpPlayerNum;
+
+/* Stage table index lookup — converts logical stagenum to g_Stages[] index */
+s32 bgGetStageIndex(s32 stagenum);
 
 /* Accept / abort mission — only MENUOP_SET branch used; item/data may be NULL */
 #define MENUOP_SET 6
 uintptr_t menuhandlerAcceptMission(s32 op, void *item, void *data);
 uintptr_t menuhandlerAbortMission(s32 op, void *item, void *data);
+
+/* Load briefing data for a stage by catalog ID (populates g_Briefing) */
+void soloLoadBriefingForStageId(const char *stage_id);
 
 /* Language text IDs for mission group headings */
 #define L_OPTIONS_122  0x007a  /* "Mission Select"     */
@@ -198,10 +315,15 @@ uintptr_t menuhandlerAbortMission(s32 op, void *item, void *data);
 
 static bool s_Registered = false;
 
-/* Mission Select */
-static s32 s_MissionSelectIdx = 0;
+/* Mission Select — two-panel state */
+static s32 s_MissionSelectIdx = 0;     /* Currently selected stage index (0–20) */
+static s32 s_DetailDiffIdx    = 0;     /* Difficulty selection in detail panel (0=A, 1=SA, 2=PA) */
+static s32 s_DetailFocusIdx   = 0;     /* Focus within detail panel: 0..2=diff, 3=Briefing, 4=Start */
+static bool s_DetailPanelFocus = false; /* true = right panel has focus, false = left */
+static s32 s_PrevBriefingStage = -1;   /* Last stage we loaded briefing for (avoid reload) */
+static bool s_ShowLockedMissions = false; /* Debug: show all missions regardless of unlock */
 
-/* Difficulty */
+/* Difficulty (legacy path, kept for fallback) */
 static s32 s_DiffSelectIdx = 0;
 
 /* Briefing scroll */
@@ -213,11 +335,60 @@ static s32 s_AcceptSelectIdx = 0;  /* 0 = Accept, 1 = Decline */
 /* Pause */
 static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 = Abort */
 
+/* P8: Restart confirmation state */
+static bool s_RestartConfirm = false;
+static s32  s_RestartSelectIdx = 0;   /* 0 = Cancel, 1 = Restart */
+
 /* Abort confirmation */
 static s32 s_AbortSelectIdx = 0;   /* 0 = Cancel, 1 = Abort */
 
-/* Options hub */
+/* Options hub — now a tabbed panel */
 static s32 s_OptionsSelectIdx = 0;
+static s32 s_OptionsTabIdx    = 0;  /* 0=Audio, 1=Video, 2=Controls */
+
+/* =========================================================================
+ * PD-styled widget wrappers (match pdgui_menu_mainmenu.cpp style)
+ * ========================================================================= */
+
+extern "C" void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+
+static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
+{
+    bool clicked = ImGui::Button(label, size);
+    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
+                                rmax.x - rmin.x, rmax.y - rmin.y,
+                                ImGui::IsItemActive() ? 1 : 0);
+    }
+    return clicked;
+}
+
+static bool PdCheckbox(const char *label, bool *v)
+{
+    bool changed = ImGui::Checkbox(label, v);
+    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
+    return changed;
+}
+
+static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
+{
+    bool changed = ImGui::Combo(label, current_item, items, items_count);
+    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    return changed;
+}
+
+static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
+{
+    return ImGui::SliderFloat(label, v, v_min, v_max, format);
+}
+
+static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
+{
+    return ImGui::SliderInt(label, v, v_min, v_max, format);
+}
 
 /* =========================================================================
  * Helpers
@@ -288,22 +459,52 @@ static s32 stageToGroupIdx(s32 stageIdx)
 }
 
 /*
- * renderMissionSelect — flat mission list with blip completion indicators.
+ * renderMissionSelect — Two-panel mission select (M1.1 redesign).
  *
- * Each row shows three blip dots (Agent / Special Agent / Perfect Agent) and
- * the mission name.  A lit blip = beaten on that difficulty; unlit = not yet.
+ * Left panel:  Mission list with chapter headings, blip completion dots,
+ *              unlock filter (B-90). Locked missions grayed out.
+ * Right panel: Mission detail — stage name, difficulty picker (B-96),
+ *              objectives for selected difficulty (B-91), briefing text,
+ *              best time, Start button.
  *
- * Hover behaviour:
- *   - Hovering directly over a blip shows the difficulty name + best time.
- *   - Hovering elsewhere on the row shows the consolidated unlockable count
- *     (e.g. "0/1").  If a stage has no unlockables the count is omitted.
- *   - Hovering over a chapter heading shows the summed count for the group
- *     (e.g. "0/3" when the group has three stages).
- *
- * Clicking an accessible row sets g_MissionConfig.stagenum/stageindex and
- * pushes g_SoloMissionDifficultyMenuDialog.  That dialog shows record times
- * per difficulty and per-difficulty objective hover tooltips.
+ * Flow: pick mission (left) → pick difficulty (right) → see objectives → Start.
+ * All in one screen — no dialog chain.
  */
+
+/** Helper: check if a stage index is accessible (unlocked on Agent, or debug override). */
+static bool missionIsAccessible(s32 stageIdx)
+{
+    if (s_ShowLockedMissions) return true;
+    return (bool)isStageDifficultyUnlocked(stageIdx, DIFF_A);
+}
+
+/** Helper: set the selected mission and load its briefing data. */
+static void missionSelectStage(s32 stageIdx)
+{
+    if (stageIdx < 0 || stageIdx >= NUM_SOLOSTAGES) return;
+    s_MissionSelectIdx = stageIdx;
+    s_DetailDiffIdx    = 0;  /* default to Agent */
+    s_DetailFocusIdx   = 0;
+
+    g_MissionConfig.stageindex = (u8)stageIdx;
+
+    /* CATALOG-FIRST: stage_id from g_SoloStages[] is the sole identity */
+    const char *cid = g_SoloStages[stageIdx].catalog_id;
+    if (cid && cid[0]) {
+        strncpy(g_MissionConfig.stage_id,
+                cid, sizeof(g_MissionConfig.stage_id) - 1);
+        g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+    } else {
+        g_MissionConfig.stage_id[0] = '\0';
+    }
+
+    /* Load briefing only if stage changed */
+    if (s_PrevBriefingStage != stageIdx) {
+        soloLoadBriefingForStageId(g_MissionConfig.stage_id);
+        s_PrevBriefingStage = stageIdx;
+    }
+}
+
 static s32 renderMissionSelect(struct menudialog *dialog,
                                 struct menu *menu,
                                 s32 winW, s32 winH)
@@ -312,12 +513,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     float mh      = pdguiMenuHeight();
     ImVec2 mpos   = pdguiMenuPos();
     float titleH  = pdguiScale(26.0f);
-    float footerH = pdguiScale(22.0f);
-    float listH   = mh - titleH - pdguiScale(8.0f) - footerH;
     float rowH    = pdguiScale(28.0f);
     float blipR   = pdguiScale(5.0f);
     float blipGap = pdguiScale(13.0f);
-    s32 pendingStage = -1;
+
+    /* Panel split: 38% left, 62% right */
+    float panelGap = pdguiScale(8.0f);
+    float leftW    = mw * 0.38f;
+    float rightW   = mw - leftW - panelGap;
 
     static const char *k_DiffFullNames[] = {
         "Agent", "Special Agent", "Perfect Agent"
@@ -340,167 +543,212 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        s_DetailPanelFocus = false;
+        s_PrevBriefingStage = -1;  /* force reload on reopen */
+        /* Select first accessible mission */
+        for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
+            if (missionIsAccessible(i)) {
+                missionSelectStage(i);
+                break;
+            }
+        }
     }
 
     pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().ItemSpacing.y);
 
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* Global escape */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        (!s_DetailPanelFocus &&
+         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
         return 1;
     }
 
-    if (ImGui::BeginChild("##mission_list", ImVec2(0, listH), false,
-                           ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+    /* Panel focus switching: Left/Right D-pad or Tab */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
+        if (!s_DetailPanelFocus) {
+            s_DetailPanelFocus = true;
+            s_DetailFocusIdx = 0;
+            pdguiPlaySound(PDGUI_SND_FOCUS);
+        }
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+        if (s_DetailPanelFocus) {
+            s_DetailPanelFocus = false;
+            pdguiPlaySound(PDGUI_SND_FOCUS);
+        }
+    }
+    /* B button in right panel = go back to left panel */
+    if (s_DetailPanelFocus &&
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        s_DetailPanelFocus = false;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
 
-        /* ------------------------------------------------------------------ */
-        /* Regular missions 0..SOLOSTAGEINDEX_SKEDARRUINS                     */
-        /* ------------------------------------------------------------------ */
-        s32 prevGroup = -1;
-        for (s32 i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS && pendingStage < 0; i++) {
-            s32 grp     = stageToGroupIdx(i);
-            s32 chap    = grp + 1;
-            s32 chapPos = i - k_MissionGroups[grp].firstIdx + 1;
+    float bodyH = mh - titleH - pdguiScale(12.0f);
 
-            /* Chapter heading when the group changes */
-            if (grp != prevGroup) {
-                if (prevGroup >= 0) ImGui::Spacing();
+    /* ===================================================================
+     * LEFT PANEL — Mission List
+     * =================================================================== */
+    if (ImGui::BeginChild("##ms_left", ImVec2(leftW, bodyH), false,
+                           ImGuiWindowFlags_None)) {
 
-                /* Group unlockable count (stub: 1 per stage) */
-                s32 groupEnd = (grp + 1 < k_NumRegularGroups)
-                                 ? k_MissionGroups[grp + 1].firstIdx
-                                 : SOLOSTAGEINDEX_SKEDARRUINS + 1;
-                int grpEarned = 0;
-                int grpTotal  = groupEnd - k_MissionGroups[grp].firstIdx;
+        /* D-pad up/down navigation in left panel */
+        if (!s_DetailPanelFocus) {
+            bool navDown = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
+                           ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
+            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
+                           ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
 
-                const char *chapLang = langSafe(k_MissionGroups[grp].langId);
-                char chapHdr[64];
-                if (chapLang[0]) {
-                    snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
-                } else {
-                    snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
+            if (navDown) {
+                s32 next = s_MissionSelectIdx + 1;
+                while (next < NUM_SOLOSTAGES && !missionIsAccessible(next)) next++;
+                if (next < NUM_SOLOSTAGES) {
+                    missionSelectStage(next);
+                    pdguiPlaySound(PDGUI_SND_FOCUS);
                 }
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
-                ImGui::TextUnformatted(chapHdr);
-                ImGui::PopStyleColor();
-
-                if (ImGui::IsItemHovered() && grpTotal > 0) {
-                    ImGui::BeginTooltip();
-                    ImGui::Text("%d/%d", grpEarned, grpTotal);
-                    ImGui::EndTooltip();
+            }
+            if (navUp) {
+                s32 prev = s_MissionSelectIdx - 1;
+                while (prev >= 0 && !missionIsAccessible(prev)) prev--;
+                if (prev >= 0) {
+                    missionSelectStage(prev);
+                    pdguiPlaySound(PDGUI_SND_FOCUS);
                 }
-
-                prevGroup = grp;
             }
 
-            bool       accessible = (bool)isStageDifficultyUnlocked(i, DIFF_A);
-            const char *ln1       = langSafe(g_SoloStages[i].name1);
-            const char *ln2       = langSafe(g_SoloStages[i].name2);
-            char nodeLabel[192];
-            snprintf(nodeLabel, sizeof(nodeLabel), "%d.%d  %s%s",
-                     chap, chapPos, ln1, ln2);
-
-            ImGui::PushID(i);
-
-            ImVec2 rowPos   = ImGui::GetCursorScreenPos();
-            float  contentW = ImGui::GetContentRegionAvail().x;
-            bool   doSelect = false;
-            bool   rowHover = false;
-
-            if (accessible) {
-                doSelect = ImGui::Selectable("##ms_row", false,
-                                             ImGuiSelectableFlags_None,
-                                             ImVec2(contentW, rowH));
-                rowHover = ImGui::IsItemHovered();
-            } else {
-                ImGui::Dummy(ImVec2(contentW, rowH));
+            /* A button / Enter in left panel = move focus to right panel */
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+                s_DetailPanelFocus = true;
+                s_DetailFocusIdx = 0;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
             }
+        }
 
-            /* Blip dots + mission name drawn over the selectable area */
-            {
-                ImDrawList *dl = ImGui::GetWindowDrawList();
-                float rcy = rowPos.y + rowH * 0.5f;
-                float bx  = rowPos.x + blipR + pdguiScale(4.0f);
-                for (s32 d = 0; d < 3; d++) {
-                    bool beaten = (g_GameFile.besttimes[i][d] != 0);
-                    float bcx   = bx + d * blipGap;
-                    ImU32 fill  = beaten ? k_DiffBadgeColor[d]
-                                         : IM_COL32(40, 40, 50, 160);
-                    ImU32 ring  = beaten ? IM_COL32(200, 200, 200, 100)
-                                         : IM_COL32(80, 80, 100, 120);
-                    dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
-                    dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
+        if (ImGui::BeginChild("##ms_list_scroll", ImVec2(0, 0), false,
+                               ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+
+            /* Regular missions 0..SOLOSTAGEINDEX_SKEDARRUINS */
+            s32 prevGroup = -1;
+            for (s32 i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS; i++) {
+                s32 grp     = stageToGroupIdx(i);
+                s32 chap    = grp + 1;
+                s32 chapPos = i - k_MissionGroups[grp].firstIdx + 1;
+
+                bool accessible = missionIsAccessible(i);
+                bool isSelected = (s_MissionSelectIdx == i);
+
+                /* Chapter heading when the group changes */
+                if (grp != prevGroup) {
+                    if (prevGroup >= 0) ImGui::Spacing();
+                    const char *chapLang = langSafe(k_MissionGroups[grp].langId);
+                    char chapHdr[64];
+                    if (chapLang[0]) {
+                        snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
+                    } else {
+                        snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
+                    }
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+                    ImGui::TextUnformatted(chapHdr);
+                    ImGui::PopStyleColor();
+                    prevGroup = grp;
                 }
-                float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
-                ImU32 nameCol = accessible
-                    ? IM_COL32(230, 230, 240, 255)
-                    : IM_COL32(100, 100, 115, 150);
-                dl->AddText(
-                    ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
-                    nameCol, nodeLabel);
-            }
 
-            /* Hover tooltips: blip-specific first, then unlockable count */
-            if (rowHover) {
-                float rcy = rowPos.y + rowH * 0.5f;
-                float bx  = rowPos.x + blipR + pdguiScale(4.0f);
-                ImVec2 mp = ImGui::GetMousePos();
-                bool   shownBlipTip = false;
-                float  hitR = blipR + pdguiScale(3.0f);
+                /* B-90: Skip inaccessible missions entirely (unless debug) */
+                if (!accessible && !s_ShowLockedMissions) {
+                    /* Show grayed-out name but not selectable */
+                    ImGui::PushID(i);
+                    ImVec2 rowPos = ImGui::GetCursorScreenPos();
+                    ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, rowH));
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    float rcy = rowPos.y + rowH * 0.5f;
+                    char lockedLabel[192];
+                    const char *ln1 = langSafe(g_SoloStages[i].name1);
+                    const char *ln2 = langSafe(g_SoloStages[i].name2);
+                    snprintf(lockedLabel, sizeof(lockedLabel), "%d.%d  %s%s",
+                             chap, chapPos, ln1, ln2);
+                    dl->AddText(
+                        ImVec2(rowPos.x + pdguiScale(4.0f),
+                               rcy - ImGui::GetTextLineHeight() * 0.5f),
+                        pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
+                    ImGui::PopID();
+                    continue;
+                }
 
-                for (s32 d = 0; d < 3 && !shownBlipTip; d++) {
-                    float bcx = bx + d * blipGap;
-                    float dx  = mp.x - bcx;
-                    float dy  = mp.y - rcy;
-                    if (dx*dx + dy*dy <= hitR*hitR) {
+                const char *ln1 = langSafe(g_SoloStages[i].name1);
+                const char *ln2 = langSafe(g_SoloStages[i].name2);
+                char nodeLabel[192];
+                snprintf(nodeLabel, sizeof(nodeLabel), "%d.%d  %s%s",
+                         chap, chapPos, ln1, ln2);
+
+                ImGui::PushID(i);
+
+                ImVec2 rowPos   = ImGui::GetCursorScreenPos();
+                float  contentW = ImGui::GetContentRegionAvail().x;
+
+                /* Highlight selected row */
+                if (isSelected && !s_DetailPanelFocus) {
+                    pdguiDrawItemHighlight(rowPos.x, rowPos.y, contentW, rowH);
+                } else if (isSelected) {
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(rowPos,
+                        ImVec2(rowPos.x + contentW, rowPos.y + rowH),
+                        pdguiPalImU32(PDPAL_FOCUS_BG, 80));
+                }
+
+                bool doSelect = ImGui::Selectable("##ms_row", isSelected,
+                                                   ImGuiSelectableFlags_None,
+                                                   ImVec2(contentW, rowH));
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                    doSelect = true;
+                }
+
+                /* Blip dots + mission name drawn over the selectable area */
+                {
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    float rcy = rowPos.y + rowH * 0.5f;
+                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                    for (s32 d = 0; d < 3; d++) {
                         bool beaten = (g_GameFile.besttimes[i][d] != 0);
-                        ImGui::BeginTooltip();
-                        ImGui::TextUnformatted(k_DiffFullNames[d]);
-                        ImGui::Separator();
-                        if (beaten) {
-                            char timeStr[32];
-                            formatBestTime(timeStr, sizeof(timeStr),
-                                           g_GameFile.besttimes[i][d]);
-                            ImGui::Text("Best: %s", timeStr);
-                        } else {
-                            ImGui::TextDisabled("Not completed");
-                        }
-                        ImGui::EndTooltip();
-                        shownBlipTip = true;
+                        float bcx   = bx + d * blipGap;
+                        ImU32 fill  = beaten ? k_DiffBadgeColor[d]
+                                             : IM_COL32(40, 40, 50, 160);
+                        ImU32 ring  = beaten ? IM_COL32(200, 200, 200, 100)
+                                             : IM_COL32(80, 80, 100, 120);
+                        dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
+                        dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
+                    float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
+                    ImU32 nameCol = pdguiPalImU32(PDPAL_ITEM_UNFOCUSED, 255);
+                    dl->AddText(
+                        ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
+                        nameCol, nodeLabel);
                 }
 
-                if (!shownBlipTip) {
-                    /* Stub: 1 unlockable per stage, 0 earned.
-                     * Replace soloGetStageUnlockCount() when system is wired. */
-                    int stgTotal = 1, stgEarned = 0;
-                    if (stgTotal > 0) {
-                        ImGui::BeginTooltip();
-                        ImGui::Text("%d/%d", stgEarned, stgTotal);
-                        ImGui::EndTooltip();
-                    }
+                if (doSelect && accessible) {
+                    missionSelectStage(i);
+                    s_DetailPanelFocus = true;
+                    s_DetailFocusIdx = 0;
+                    pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
-            }
 
-            if (doSelect) pendingStage = i;
+                /* Auto-scroll to keep selected item visible */
+                if (isSelected && ImGui::IsWindowAppearing()) {
+                    ImGui::SetScrollHereY(0.3f);
+                }
 
-            ImGui::PopID();
-        } /* stage loop */
+                ImGui::PopID();
+            } /* regular stage loop */
 
-        /* ------------------------------------------------------------------ */
-        /* Special Assignments (stages 17..20)                                */
-        /* ------------------------------------------------------------------ */
-        if (pendingStage < 0) {
+            /* Special Assignments (stages 17..20) */
             s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1;
-
             ImGui::Spacing();
-
-            /* Group unlockable count (stub) */
-            int saGrpTotal  = NUM_SOLOSTAGES - specialStart;
-            int saGrpEarned = 0;
 
             const char *saLang = langSafe(L_OPTIONS_132);
             char saBuf[64];
@@ -513,16 +761,28 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             ImGui::TextUnformatted(saBuf);
             ImGui::PopStyleColor();
 
-            if (ImGui::IsItemHovered() && saGrpTotal > 0) {
-                ImGui::BeginTooltip();
-                ImGui::Text("%d/%d", saGrpEarned, saGrpTotal);
-                ImGui::EndTooltip();
-            }
-
-            for (s32 j = specialStart;
-                 j < NUM_SOLOSTAGES && pendingStage < 0; j++) {
+            for (s32 j = specialStart; j < NUM_SOLOSTAGES; j++) {
                 s32 saNum       = j - specialStart + 1;
-                bool accessible = (bool)isStageDifficultyUnlocked(j, DIFF_A);
+                bool accessible = missionIsAccessible(j);
+                bool isSelected = (s_MissionSelectIdx == j);
+
+                if (!accessible && !s_ShowLockedMissions) {
+                    ImGui::PushID(0x200 + j);
+                    ImVec2 rowPos = ImGui::GetCursorScreenPos();
+                    ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, rowH));
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    float rcy = rowPos.y + rowH * 0.5f;
+                    char lockedLabel[192];
+                    snprintf(lockedLabel, sizeof(lockedLabel), "SA-%d  %s",
+                             saNum, langSafe(g_SoloStages[j].name1));
+                    dl->AddText(
+                        ImVec2(rowPos.x + pdguiScale(4.0f),
+                               rcy - ImGui::GetTextLineHeight() * 0.5f),
+                        pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
+                    ImGui::PopID();
+                    continue;
+                }
+
                 const char *ln1 = langSafe(g_SoloStages[j].name1);
                 char nodeLabel[192];
                 snprintf(nodeLabel, sizeof(nodeLabel), "SA-%d  %s", saNum, ln1);
@@ -531,17 +791,19 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 ImVec2 rowPos   = ImGui::GetCursorScreenPos();
                 float  contentW = ImGui::GetContentRegionAvail().x;
-                bool   doSelect = false;
-                bool   rowHover = false;
 
-                if (accessible) {
-                    doSelect = ImGui::Selectable("##ms_sp_row", false,
-                                                 ImGuiSelectableFlags_None,
-                                                 ImVec2(contentW, rowH));
-                    rowHover = ImGui::IsItemHovered();
-                } else {
-                    ImGui::Dummy(ImVec2(contentW, rowH));
+                if (isSelected && !s_DetailPanelFocus) {
+                    pdguiDrawItemHighlight(rowPos.x, rowPos.y, contentW, rowH);
+                } else if (isSelected) {
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(rowPos,
+                        ImVec2(rowPos.x + contentW, rowPos.y + rowH),
+                        pdguiPalImU32(PDPAL_FOCUS_BG, 80));
                 }
+
+                bool doSelect = ImGui::Selectable("##ms_sp_row", isSelected,
+                                                   ImGuiSelectableFlags_None,
+                                                   ImVec2(contentW, rowH));
 
                 /* Blip dots + name (gold tint for specials) */
                 {
@@ -559,74 +821,289 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                         dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
                     float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
-                    ImU32 nameCol = accessible
-                        ? IM_COL32(255, 230, 140, 255)
-                        : IM_COL32(110, 100, 80, 150);
                     dl->AddText(
                         ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
-                        nameCol, nodeLabel);
+                        IM_COL32(255, 230, 140, 255), nodeLabel);
                 }
 
-                /* Hover tooltips for special assignment rows */
-                if (rowHover) {
-                    float rcy = rowPos.y + rowH * 0.5f;
-                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
-                    ImVec2 mp = ImGui::GetMousePos();
-                    bool   shownBlipTip = false;
-                    float  hitR = blipR + pdguiScale(3.0f);
-
-                    for (s32 d = 0; d < 3 && !shownBlipTip; d++) {
-                        float bcx = bx + d * blipGap;
-                        float dx  = mp.x - bcx;
-                        float dy  = mp.y - rcy;
-                        if (dx*dx + dy*dy <= hitR*hitR) {
-                            bool beaten = (g_GameFile.besttimes[j][d] != 0);
-                            ImGui::BeginTooltip();
-                            ImGui::TextUnformatted(k_DiffFullNames[d]);
-                            ImGui::Separator();
-                            if (beaten) {
-                                char timeStr[32];
-                                formatBestTime(timeStr, sizeof(timeStr),
-                                               g_GameFile.besttimes[j][d]);
-                                ImGui::Text("Best: %s", timeStr);
-                            } else {
-                                ImGui::TextDisabled("Not completed");
-                            }
-                            ImGui::EndTooltip();
-                            shownBlipTip = true;
-                        }
-                    }
-
-                    if (!shownBlipTip) {
-                        int stgTotal = 1, stgEarned = 0;
-                        if (stgTotal > 0) {
-                            ImGui::BeginTooltip();
-                            ImGui::Text("%d/%d", stgEarned, stgTotal);
-                            ImGui::EndTooltip();
-                        }
-                    }
+                if (doSelect && accessible) {
+                    missionSelectStage(j);
+                    s_DetailPanelFocus = true;
+                    s_DetailFocusIdx = 0;
+                    pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
-
-                if (doSelect) pendingStage = j;
 
                 ImGui::PopID();
             } /* special stage loop */
+
+        }
+        ImGui::EndChild(); /* ms_list_scroll */
+    }
+    ImGui::EndChild(); /* ms_left */
+
+    ImGui::SameLine(0.0f, panelGap);
+
+    /* ===================================================================
+     * RIGHT PANEL — Mission Detail
+     * =================================================================== */
+    if (ImGui::BeginChild("##ms_right", ImVec2(rightW, bodyH), false,
+                           ImGuiWindowFlags_None)) {
+
+        s32 si = s_MissionSelectIdx;
+        if (si < 0 || si >= NUM_SOLOSTAGES) si = 0;
+
+        /* Ensure briefing is loaded for current selection */
+        if (s_PrevBriefingStage != si) {
+            missionSelectStage(si);
         }
 
-    }
-    ImGui::EndChild();
+        /* ---- Stage name header ---- */
+        {
+            char stageName[192];
+            const char *ln1 = langSafe(g_SoloStages[si].name1);
+            const char *ln2 = langSafe(g_SoloStages[si].name2);
+            snprintf(stageName, sizeof(stageName), "%s%s", ln1, ln2);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+            ImGui::TextUnformatted(stageName);
+            ImGui::PopStyleColor();
+        }
+        ImGui::Separator();
 
-    ImGui::TextDisabled("Click to select difficulty   Esc: Back");
+        /* ---- Difficulty Picker (B-96: inline in detail panel) ---- */
+        /* Detail panel navigation: 0–2 = difficulty, 3 = Start button */
+        static const s32 k_NumDetailItems = 4; /* 3 diffs + Start */
+
+        if (s_DetailPanelFocus) {
+            bool navDown = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
+                           ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
+            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
+                           ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+
+            if (navDown) {
+                s_DetailFocusIdx++;
+                if (s_DetailFocusIdx >= k_NumDetailItems)
+                    s_DetailFocusIdx = 0;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            if (navUp) {
+                s_DetailFocusIdx--;
+                if (s_DetailFocusIdx < 0)
+                    s_DetailFocusIdx = k_NumDetailItems - 1;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+        }
+
+        float diffRowH = pdguiScale(30.0f);
+        static const s32 k_DiffIds[] = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 };
+
+        ImGui::TextDisabled("Difficulty:");
+        ImGui::Spacing();
+
+        for (s32 d = 0; d < 3; d++) {
+            bool locked  = !isStageDifficultyUnlocked(si, d);
+            bool isSel   = (s_DetailDiffIdx == d);
+            bool isFocus = s_DetailPanelFocus && (s_DetailFocusIdx == d);
+
+            ImGui::PushID(0x300 + d);
+
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            float rowW = rightW - pdguiScale(8.0f);
+
+            /* Selection highlight */
+            if (isSel) {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(cp,
+                    ImVec2(cp.x + rowW, cp.y + diffRowH),
+                    IM_COL32(40, 60, 100, 120), pdguiScale(4.0f));
+                dl->AddRect(cp,
+                    ImVec2(cp.x + rowW, cp.y + diffRowH),
+                    k_DiffBadgeColor[d], pdguiScale(4.0f), 0, 1.5f);
+            }
+            /* Focus highlight */
+            if (isFocus) {
+                pdguiDrawItemHighlight(cp.x, cp.y, rowW, diffRowH);
+            }
+
+            bool clicked = ImGui::Selectable("##diff_pick", isSel,
+                                              ImGuiSelectableFlags_None,
+                                              ImVec2(rowW, diffRowH));
+            if (ImGui::IsItemHovered()) {
+                s_DetailFocusIdx = d;
+                s_DetailPanelFocus = true;
+            }
+
+            /* Confirm from keyboard/gamepad */
+            bool doConfirm = isFocus &&
+                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+
+            if ((clicked || doConfirm) && !locked) {
+                s_DetailDiffIdx = d;
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            } else if ((clicked || doConfirm) && locked) {
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+
+            /* Overlay: color badge + difficulty name + best time */
+            {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                float cy = cp.y + (diffRowH - ImGui::GetTextLineHeight()) * 0.5f;
+                float bx = cp.x + pdguiScale(6.0f);
+
+                /* Color badge dot */
+                float dotR = pdguiScale(4.0f);
+                dl->AddCircleFilled(
+                    ImVec2(bx + dotR, cp.y + diffRowH * 0.5f),
+                    dotR, locked ? IM_COL32(60, 60, 70, 160) : k_DiffBadgeColor[d]);
+
+                float tx = bx + dotR * 2.0f + pdguiScale(8.0f);
+                ImU32 nameCol = locked ? IM_COL32(100, 100, 120, 180)
+                                       : IM_COL32(255, 255, 255, 255);
+                dl->AddText(ImVec2(tx, cy), nameCol, langSafe(k_DiffIds[d]));
+
+                if (locked) {
+                    dl->AddText(ImVec2(tx + pdguiScale(110.0f), cy),
+                                IM_COL32(180, 60, 60, 200), "[Locked]");
+                } else {
+                    char timeStr[32];
+                    formatBestTime(timeStr, sizeof(timeStr),
+                                   g_GameFile.besttimes[si][d]);
+                    ImVec2 tSz = ImGui::CalcTextSize(timeStr);
+                    dl->AddText(ImVec2(cp.x + rowW - tSz.x - pdguiScale(8.0f), cy),
+                                IM_COL32(160, 200, 140, 210), timeStr);
+                }
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        /* ---- Objectives (B-91: load from game data, filter by difficulty) ---- */
+        s32 selDiff = s_DetailDiffIdx;
+
+        ImGui::TextDisabled("Objectives (%s):", k_DiffFullNames[selDiff]);
+        ImGui::Spacing();
+
+        float objH = bodyH - pdguiScale(260.0f); /* leave room for buttons */
+        if (objH < pdguiScale(60.0f)) objH = pdguiScale(60.0f);
+
+        if (ImGui::BeginChild("##ms_objectives", ImVec2(0, objH), false,
+                               ImGuiWindowFlags_None)) {
+            bool anyObj = false;
+            /* g_Briefing.objectivenames[0] = briefing text; [1]-[5] = objectives */
+            for (s32 oi = 1; oi < 6; oi++) {
+                if (g_Briefing.objectivenames[oi] == 0) continue;
+                /* Filter by selected difficulty */
+                u16 bits = g_Briefing.objectivedifficulties[oi];
+                if (bits != 0 && !((bits >> (unsigned)selDiff) & 1)) continue;
+                anyObj = true;
+
+                const char *objText = langSafe(g_Briefing.objectivenames[oi]);
+
+                /* Bullet dot */
+                float dotSz = pdguiScale(8.0f);
+                ImVec2 ocp  = ImGui::GetCursorScreenPos();
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                dl->AddCircleFilled(
+                    ImVec2(ocp.x + dotSz * 0.5f + pdguiScale(4.0f),
+                           ocp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(2.0f)),
+                    dotSz * 0.5f,
+                    k_DiffBadgeColor[selDiff]);
+
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
+                ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
+                ImGui::TextUnformatted(objText);
+                ImGui::PopTextWrapPos();
+                ImGui::Spacing();
+            }
+
+            if (!anyObj) {
+                ImGui::TextDisabled("(No objectives for this difficulty)");
+            }
+        }
+        ImGui::EndChild(); /* ms_objectives */
+
+        ImGui::Separator();
+
+        /* ---- Briefing text (P7: full scrollable, replaces truncated preview) ---- */
+        if (g_Briefing.briefingtextnum != 0) {
+            const char *btxt = langSafe(g_Briefing.briefingtextnum);
+            if (btxt && btxt[0]) {
+                ImGui::TextDisabled("Briefing:");
+                /* Scrollable briefing area — uses remaining space before Start button */
+                float briefH = ImGui::GetContentRegionAvail().y - pdguiScale(60.0f);
+                if (briefH < pdguiScale(40.0f)) briefH = pdguiScale(40.0f);
+                if (ImGui::BeginChild("##ms_briefing", ImVec2(0, briefH), false,
+                                       ImGuiWindowFlags_None)) {
+                    ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
+                    ImGui::TextUnformatted(btxt);
+                    ImGui::PopTextWrapPos();
+                }
+                ImGui::EndChild();
+            }
+        }
+
+        /* ---- Start Mission Button ---- */
+        ImGui::Separator();
+        float btnH = pdguiScale(42.0f);
+        float btnW = rightW - pdguiScale(16.0f);
+        bool startFocus = s_DetailPanelFocus && (s_DetailFocusIdx == 3);
+
+        {
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            if (startFocus) {
+                pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
+            }
+
+            bool diffLocked = !isStageDifficultyUnlocked(si, selDiff);
+
+            if (diffLocked) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.4f, 1.0f));
+            }
+
+            bool clicked = ImGui::Button("Start Mission##ms_start",
+                                          ImVec2(btnW, btnH));
+            ImGui::PopStyleColor();
+
+            if (ImGui::IsItemHovered()) {
+                s_DetailFocusIdx = 3;
+                s_DetailPanelFocus = true;
+            }
+
+            bool doStart = startFocus &&
+                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+
+            if ((clicked || doStart) && !diffLocked) {
+                /* Set difficulty and launch mission */
+                SM_CLEAR_PDMODE(&g_MissionConfig);
+                SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
+                lvSetDifficulty(selDiff);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+                menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
+                if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+                    inputCtxPopDeferred(&g_CtxImGuiMenu);
+                }
+            } else if ((clicked || doStart) && diffLocked) {
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+
+        /* Footer hint */
+        ImGui::Spacing();
+        if (s_DetailPanelFocus) {
+            ImGui::TextDisabled("A: Select   B: Back   D-Pad: Navigate");
+        } else {
+            ImGui::TextDisabled("Select a mission from the list");
+        }
+    }
+    ImGui::EndChild(); /* ms_right */
+
     ImGui::End();
-
-    /* Push difficulty dialog after End() to avoid nesting state changes. */
-    if (pendingStage >= 0 && pendingStage < NUM_SOLOSTAGES) {
-        g_MissionConfig.stagenum   = (u8)g_SoloStages[pendingStage].stagenum;
-        g_MissionConfig.stageindex = (u8)pendingStage;
-        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        menuPushDialog(&g_SoloMissionDifficultyMenuDialog);
-    }
-
     return 1;
 }
 
@@ -969,6 +1446,100 @@ static s32 renderPrePostBriefing(struct menudialog *dialog,
 }
 
 /* =========================================================================
+ * Inventory Screen (M1.2)
+ *
+ * Replaces the legacy 3D weapon-model inventory dialog with an ImGui
+ * scrollable list.  Shows all weapons/items in the player's inventory
+ * during a solo mission (pause → Inventory).
+ * ========================================================================= */
+
+static s32 renderInventory(struct menudialog *dialog,
+                            struct menu *menu,
+                            s32 winW, s32 winH)
+{
+    float mw  = pdguiMenuWidth();
+    float mh  = pdguiMenuHeight();
+    ImVec2 pos = pdguiMenuPos();
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
+                        | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoCollapse
+                        | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_NoTitleBar
+                        | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##solo_inventory", nullptr, wf)) {
+        ImGui::End();
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
+    float titleH = pdguiScale(26.0f);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_178), 1);
+
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    ImGui::Separator();
+
+    /* Scrollable weapon/item list */
+    float footerH = pdguiScale(32.0f);
+    float bodyH   = mh - titleH - pdguiScale(24.0f) - footerH;
+
+    if (ImGui::BeginChild("##inv_scroll", ImVec2(0, bodyH), false, 0)) {
+        s32 count = invGetCount();
+        if (count <= 0) {
+            ImGui::TextDisabled("(No items)");
+        } else {
+            float scale = pdguiScaleFactor();
+            float rowH  = 28.0f * scale;
+            float availW = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
+
+            for (s32 i = 0; i < count; i++) {
+                char *name = invGetNameByIndex(i);
+                if (!name || !name[0]) continue;
+
+                ImGui::PushID(i);
+
+                /* Row background — alternating subtle shade */
+                ImVec2 rowMin = ImGui::GetCursorScreenPos();
+                ImVec2 rowMax = ImVec2(rowMin.x + availW, rowMin.y + rowH);
+                if (i & 1) {
+                    ImGui::GetWindowDrawList()->AddRectFilled(
+                        rowMin, rowMax, IM_COL32(255, 255, 255, 8));
+                }
+
+                /* Weapon/item name */
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+                                     (rowH - ImGui::GetTextLineHeight()) * 0.5f);
+                ImGui::TextUnformatted(name);
+
+                ImGui::SetCursorPosY(rowMin.y - pos.y + rowH);
+                ImGui::PopID();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::TextDisabled("B/Esc: Close");
+
+    /* B / Escape = dismiss */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+    }
+
+    ImGui::End();
+    return 1;
+}
+
+/* =========================================================================
  * Accept Mission (Overview)
  * Shows mission objectives + Accept / Decline.
  * g_Briefing populated by menudialog00103608 before this renders.
@@ -1052,7 +1623,9 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     if (doAccept) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+        }
         ImGui::End();
         return 1;
     }
@@ -1128,7 +1701,9 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     if (drawBtn(0, langSafe(L_OPTIONS_274), IM_COL32(80, 160, 80, 255))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+        }
         ImGui::End();
         return 1;
     }
@@ -1155,6 +1730,16 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                             struct menu *menu,
                             s32 winW, s32 winH)
 {
+    /* P8: Semi-transparent backdrop overlay — dims the frozen game frame
+     * so the pause menu is clearly readable over gameplay. */
+    {
+        ImDrawList *bgDl = ImGui::GetBackgroundDrawList();
+        bgDl->AddRectFilled(
+            ImVec2(0.0f, 0.0f),
+            ImVec2((float)winW, (float)winH),
+            pdguiPalImU32(PDPAL_BODYBG, 140));
+    }
+
     float mw  = pdguiMenuWidth();
     float mh  = pdguiMenuHeight();
     ImVec2 pos = pdguiMenuPos();
@@ -1201,8 +1786,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* Number of nav items: Resume + Inventory + Options + Abort */
-    static const s32 k_NumPauseItems = 4;
+    /* Nav items: Resume + Restart + Inventory + Options + Abort */
+    static const s32 k_NumPauseItems = 5;
     if (s_PauseSelectIdx < 0)                s_PauseSelectIdx = 0;
     if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = k_NumPauseItems - 1;
 
@@ -1222,33 +1807,78 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
                      ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
-    /* ---- Objectives (read-only display) ---- */
-    float objH  = mh - titleH - pdguiScale(60.0f) - pdguiScale(38.0f * 4.0f);
+    /* ---- Objectives with completion status ---- */
+    /* Height = total - title - separators/padding - 5 action buttons */
+    float objH = mh - titleH - pdguiScale(60.0f) - pdguiScale(38.0f * 5.0f);
     if (objH < pdguiScale(60.0f)) objH = pdguiScale(60.0f);
+
+    s32 curDiff = lvGetDifficulty();
+    s32 objCount = objectiveGetCount();
 
     if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH), false,
                            ImGuiWindowFlags_None)) {
         bool anyObj = false;
-        for (s32 i = 0; i < 6; i++) {
+        /* objectivenames[0] is the briefing text; objectives are indices 1-5.
+         * Each maps to runtime objective index (i-1) for objectiveCheck(). */
+        for (s32 i = 1; i < 6; i++) {
             if (g_Briefing.objectivenames[i] == 0) continue;
+            /* Skip objectives not active at current difficulty */
+            if (g_Briefing.objectivedifficulties[i] != 0 &&
+                    !((g_Briefing.objectivedifficulties[i] >> curDiff) & 1)) {
+                continue;
+            }
             anyObj = true;
 
-            float dotSz = pdguiScale(8.0f);
-            ImVec2 cp = ImGui::GetCursorScreenPos();
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            dl->AddCircleFilled(
-                ImVec2(cp.x + dotSz * 0.5f + pdguiScale(4.0f),
-                       cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(2.0f)),
-                dotSz * 0.5f,
-                IM_COL32(80, 160, 255, 200));
+            /* Completion status for runtime objective index (0-based) */
+            s32 objIdx = i - 1;
+            s32 status = (objIdx < objCount) ? objectiveCheck(objIdx) : 0;
+            /* status: 0=INCOMPLETE, 1=COMPLETE, 2=FAILED */
 
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
-            ImGui::PushTextWrapPos(mw - pdguiScale(20.0f));
+            float iconSz = pdguiScale(10.0f);
+            ImVec2 cp    = ImGui::GetCursorScreenPos();
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            float iconCx = cp.x + iconSz * 0.5f + pdguiScale(4.0f);
+            float iconCy = cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(1.0f);
+
+            if (status == 1) {
+                /* COMPLETE — green circle with checkmark */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(50, 190, 70, 230));
+                float r = iconSz * 0.26f;
+                dl->AddLine(ImVec2(iconCx - r, iconCy),
+                            ImVec2(iconCx - r * 0.2f, iconCy + r),
+                            IM_COL32(255, 255, 255, 240), 1.5f);
+                dl->AddLine(ImVec2(iconCx - r * 0.2f, iconCy + r),
+                            ImVec2(iconCx + r, iconCy - r),
+                            IM_COL32(255, 255, 255, 240), 1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.55f, 1.0f));
+            } else if (status == 2) {
+                /* FAILED — red circle with X */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(200, 40, 40, 220));
+                float r = iconSz * 0.24f;
+                dl->AddLine(ImVec2(iconCx - r, iconCy - r),
+                            ImVec2(iconCx + r, iconCy + r),
+                            IM_COL32(255, 255, 255, 230), 1.5f);
+                dl->AddLine(ImVec2(iconCx + r, iconCy - r),
+                            ImVec2(iconCx - r, iconCy + r),
+                            IM_COL32(255, 255, 255, 230), 1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.5f, 1.0f));
+            } else {
+                /* INCOMPLETE — blue pending dot */
+                dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
+                                    IM_COL32(80, 140, 220, 180));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.0f, 1.0f));
+            }
+
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + iconSz + pdguiScale(10.0f));
+            ImGui::PushTextWrapPos(mw - pdguiScale(16.0f));
             ImGui::TextUnformatted(langSafe(g_Briefing.objectivenames[i]));
             ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
         }
         if (!anyObj) {
-            ImGui::TextDisabled("(No mission data)");
+            ImGui::TextDisabled("(No objectives)");
         }
     }
     ImGui::EndChild();
@@ -1260,12 +1890,13 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     struct PauseBtn { const char *label; s32 idx; };
     const PauseBtn k_Btns[] = {
         { "Resume",                 0 },
-        { langSafe(L_OPTIONS_178),  1 },  /* "Inventory" */
-        { "Options",                2 },
-        { langSafe(L_OPTIONS_173),  3 },  /* "Abort!" */
+        { "Restart Mission",        1 },
+        { langSafe(L_OPTIONS_178),  2 },  /* "Inventory" */
+        { "Options",                3 },
+        { langSafe(L_OPTIONS_173),  4 },  /* "Abort!" */
     };
 
-    for (s32 b = 0; b < 4; b++) {
+    for (s32 b = 0; b < 5; b++) {
         bool isSel = (s_PauseSelectIdx == k_Btns[b].idx);
         ImGui::PushID(b);
 
@@ -1273,11 +1904,11 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), btnH);
 
         /* Abort gets a red tint */
-        if (b == 3) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+        if (b == 4) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
 
         bool clicked = ImGui::Button(k_Btns[b].label,
                                      ImVec2(mw - pdguiScale(16.0f), btnH));
-        if (b == 3) ImGui::PopStyleColor();
+        if (b == 4) ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_PauseSelectIdx = k_Btns[b].idx;
 
@@ -1288,15 +1919,20 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 menuPopDialog();
                 break;
-            case 1: /* Inventory (uses legacy 3D renderer via NULL registration) */
+            case 1: /* Restart Mission — P8: show confirmation before restarting */
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                s_RestartConfirm = true;
+                s_RestartSelectIdx = 0; /* default to Cancel (safe) */
+                break;
+            case 2: /* Inventory (ImGui weapon list — M1.2) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 menuPushDialog(&g_SoloMissionInventoryMenuDialog);
                 break;
-            case 2: /* Options */
+            case 3: /* Options */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 menuPushDialog(&g_SoloMissionOptionsMenuDialog);
                 break;
-            case 3: /* Abort! */
+            case 4: /* Abort! */
                 pdguiPlaySound(PDGUI_SND_ERROR);
                 menuPushDialog(&g_MissionAbortMenuDialog);
                 break;
@@ -1309,7 +1945,109 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::PopID();
     }
 
+    /* B button / Escape = Resume (unless restart confirm is showing) */
+    if (!s_RestartConfirm &&
+        (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+        ImGui::End();
+        return 1;
+    }
+    pdguiNavTickWrap();
+
     ImGui::End();
+
+    /* P8: Restart confirmation overlay — drawn after main pause window
+     * as a centered popup over the pause menu. */
+    if (s_RestartConfirm) {
+        float rcW = pdguiMenuWidth() * 0.50f;
+        float rcH = pdguiMenuHeight() * 0.30f;
+        ImVec2 rcPos = pdguiCenterPos(rcW, rcH);
+
+        ImGui::SetNextWindowPos(rcPos);
+        ImGui::SetNextWindowSize(ImVec2(rcW, rcH));
+
+        ImGuiWindowFlags rcf = ImGuiWindowFlags_NoResize
+                             | ImGuiWindowFlags_NoMove
+                             | ImGuiWindowFlags_NoCollapse
+                             | ImGuiWindowFlags_NoSavedSettings
+                             | ImGuiWindowFlags_NoTitleBar
+                             | ImGuiWindowFlags_NoBackground;
+
+        if (ImGui::Begin("##restart_confirm", nullptr, rcf)) {
+            float rtitleH = pdguiScale(26.0f);
+            pdguiDrawPdDialog(rcPos.x, rcPos.y, rcW, rcH, "Restart Mission?", 1);
+            ImGui::SetCursorPosY(rtitleH + ImGui::GetStyle().WindowPadding.y);
+
+            ImGui::Spacing();
+            ImGui::PushTextWrapPos(rcW - pdguiScale(16.0f));
+            ImGui::Text("Restart the current mission from the beginning?");
+            ImGui::Text("All progress will be lost.");
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            ImGui::Separator();
+
+            /* Nav: left/right toggle, B/Escape = cancel */
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true)  ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
+                ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
+                ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
+                s_RestartSelectIdx = 1 - s_RestartSelectIdx;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                s_RestartConfirm = false;
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                ImGui::End();
+                return 1;
+            }
+
+            bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                             ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+
+            float rbtnH = pdguiScale(36.0f);
+            float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(10.0f)) * 0.5f;
+
+            /* Cancel button */
+            {
+                bool isSel = (s_RestartSelectIdx == 0);
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
+                bool clicked = ImGui::Button("Cancel##restart", ImVec2(rbtnW, rbtnH));
+                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 0;
+                if (clicked || (isSel && rcConfirm)) {
+                    s_RestartConfirm = false;
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                }
+            }
+
+            ImGui::SameLine(0.0f, pdguiScale(10.0f));
+
+            /* Restart button */
+            {
+                bool isSel = (s_RestartSelectIdx == 1);
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+                bool clicked = ImGui::Button("Restart##confirm", ImVec2(rbtnW, rbtnH));
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 1;
+                if (clicked || (isSel && rcConfirm)) {
+                    s_RestartConfirm = false;
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
+                    if (g_MissionConfig.stage_id[0] != '\0') {
+                        catalog_stage_result_t sr;
+                        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
+                    }
+                    mainChangeToStage(rsn);
+                }
+            }
+        }
+        ImGui::End();
+    }
+
     return 1;
 }
 
@@ -1433,16 +2171,307 @@ static s32 renderAbortMission(struct menudialog *dialog,
 }
 
 /* =========================================================================
- * Options Hub
- * Audio / Video / Control / Display / Extended — each pushes sub-dialog.
+ * Options — Tabbed panel: Audio / Video / Controls
+ * Replaces the old 5-button hub that pushed legacy sub-dialogs.
  * ========================================================================= */
 
+#define PD_SCREENSIZE_FULL    0
+#define PD_SCREENSPLIT_HORIZ  0
+
+/* ---- Audio tab content ---- */
+static void renderOptionsAudio(void)
+{
+    ImGui::TextDisabled("Volume Controls");
+    ImGui::Separator();
+
+    {
+        float master = audioGetMasterVolume() * 100.0f;
+        if (PdSliderFloat("Master Volume", &master, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMasterVolume(master / 100.0f);
+        }
+    }
+    {
+        float music = audioGetMusicVolume() * 100.0f;
+        if (PdSliderFloat("Music", &music, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMusicVolume(music / 100.0f);
+        }
+    }
+    {
+        float gameplay = audioGetGameplayVolume() * 100.0f;
+        if (PdSliderFloat("Gameplay", &gameplay, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetGameplayVolume(gameplay / 100.0f);
+        }
+    }
+    {
+        float ui = audioGetUiVolume() * 100.0f;
+        if (PdSliderFloat("UI", &ui, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetUiVolume(ui / 100.0f);
+        }
+    }
+
+    ImGui::Separator();
+
+    bool disableMpDeath = g_MusicDisableMpDeath != 0;
+    if (PdCheckbox("Disable MP Death Music", &disableMpDeath)) {
+        g_MusicDisableMpDeath = disableMpDeath ? 1 : 0;
+    }
+}
+
+/* ---- Video tab content ---- */
+static void renderOptionsVideo(void)
+{
+    /* Display */
+    ImGui::TextDisabled("Display");
+    ImGui::Separator();
+
+    bool fullscreen = videoGetFullscreen() != 0;
+    if (PdCheckbox("Fullscreen", &fullscreen)) {
+        videoSetFullscreen(fullscreen ? 1 : 0);
+    }
+
+    if (fullscreen) {
+        int fsMode = videoGetFullscreenMode();
+        const char *fsModes[] = { "Borderless", "Exclusive" };
+        if (PdCombo("Fullscreen Mode", &fsMode, fsModes, 2)) {
+            videoSetFullscreenMode(fsMode);
+        }
+    }
+
+    /* Resolution */
+    {
+        int numModes = videoGetNumDisplayModes();
+        int curIdx = videoGetDisplayModeIndex();
+        displaymode curMode;
+        videoGetDisplayMode(&curMode, curIdx);
+        char curLabel[64];
+        if (curMode.width == 0 && curMode.height == 0) {
+            snprintf(curLabel, sizeof(curLabel), "Custom");
+        } else {
+            snprintf(curLabel, sizeof(curLabel), "%dx%d", curMode.width, curMode.height);
+        }
+        bool disabled = fullscreen && videoGetFullscreenMode() == 0;
+        if (disabled) ImGui::BeginDisabled();
+        if (ImGui::BeginCombo("Resolution", curLabel)) {
+            for (int i = 0; i < numModes; i++) {
+                displaymode m;
+                videoGetDisplayMode(&m, i);
+                char label[64];
+                if (m.width == 0 && m.height == 0) {
+                    snprintf(label, sizeof(label), "Custom");
+                } else {
+                    snprintf(label, sizeof(label), "%dx%d", m.width, m.height);
+                }
+                bool selected = (i == curIdx);
+                if (ImGui::Selectable(label, selected)) videoSetDisplayMode(i);
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (disabled) ImGui::EndDisabled();
+    }
+
+    /* UI Scale */
+    {
+        float uiScale = videoGetUiScaleMult() * 100.0f;
+        char uiScaleLabel[16];
+        snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
+        if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
+            videoSetUiScaleMult(uiScale / 100.0f);
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Performance */
+    ImGui::TextDisabled("Performance");
+    ImGui::Separator();
+
+    {
+        int vsync = videoGetVsync() + 1;
+        const char *vsyncOpts[] = { "Adaptive", "Off", "On" };
+        int vsyncIdx = vsync;
+        if (vsyncIdx < 0) vsyncIdx = 0;
+        if (vsyncIdx > 2) vsyncIdx = 2;
+        if (PdCombo("VSync", &vsyncIdx, vsyncOpts, 3)) {
+            videoSetVsync(vsyncIdx - 1);
+        }
+    }
+
+    {
+        int fpsLimit = videoGetFramerateLimit();
+        char fpsLabel[32];
+        if (fpsLimit == 0) snprintf(fpsLabel, sizeof(fpsLabel), "Off");
+        else snprintf(fpsLabel, sizeof(fpsLabel), "%d FPS", fpsLimit);
+        if (PdSliderInt("Framerate Limit", &fpsLimit, 0, 480, fpsLabel)) {
+            videoSetFramerateLimit(fpsLimit);
+        }
+    }
+
+    bool showFps = videoGetDisplayFPS() != 0;
+    if (PdCheckbox("Display FPS", &showFps)) {
+        videoSetDisplayFPS(showFps ? 1 : 0);
+    }
+
+    ImGui::Spacing();
+
+    /* Rendering */
+    ImGui::TextDisabled("Rendering");
+    ImGui::Separator();
+
+    {
+        int texFilter = (int)videoGetTextureFilter();
+        const char *texOpts[] = { "Nearest", "Bilinear", "Three Point" };
+        if (PdCombo("Texture Filtering", &texFilter, texOpts, 3)) {
+            videoSetTextureFilter((u32)texFilter);
+        }
+    }
+
+    bool guiTexFilter = videoGetTextureFilter2D() != 0;
+    if (PdCheckbox("GUI Texture Filtering", &guiTexFilter)) {
+        videoSetTextureFilter2D(guiTexFilter ? 1 : 0);
+    }
+
+    bool detailTex = videoGetDetailTextures() != 0;
+    if (PdCheckbox("Detail Textures", &detailTex)) {
+        videoSetDetailTextures(detailTex ? 1 : 0);
+    }
+
+    ImGui::Spacing();
+
+    /* Gameplay Visuals */
+    ImGui::TextDisabled("Gameplay Visuals");
+    ImGui::Separator();
+
+    {
+        int hudCenter = g_HudCenter;
+        const char *hudOpts[] = { "None", "4:3", "Wide" };
+        if (PdCombo("HUD Centering", &hudCenter, hudOpts, 3)) {
+            g_HudCenter = hudCenter;
+        }
+    }
+
+    bool geMuzzle = g_BgunGeMuzzleFlashes != 0;
+    if (PdCheckbox("GE64-style Muzzle Flashes", &geMuzzle)) {
+        g_BgunGeMuzzleFlashes = geMuzzle ? 1 : 0;
+    }
+
+    {
+        float shake = g_ViShakeIntensityMult;
+        if (PdSliderFloat("Explosion Shake", &shake, 0.0f, 2.0f, "%.1f")) {
+            g_ViShakeIntensityMult = shake;
+        }
+    }
+
+    {
+        int sz = optionsGetScreenSize();
+        if (sz < 0 || sz > 2) sz = PD_SCREENSIZE_FULL;
+        const char *szOpts[] = { "Full", "Wide", "Cinema" };
+        if (PdCombo("Screen Size", &sz, szOpts, 3)) {
+            optionsSetScreenSize(sz);
+        }
+    }
+}
+
+/* ---- Controls tab content ---- */
+static void renderOptionsControls(void)
+{
+    /* Mouse */
+    ImGui::TextDisabled("Mouse");
+    ImGui::Separator();
+
+    bool mouseEnabled = inputMouseIsEnabled() != 0;
+    if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
+        inputMouseEnable(mouseEnabled ? 1 : 0);
+    }
+
+    bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
+    if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
+        g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
+    }
+
+    {
+        int lockMode = inputGetMouseLockMode();
+        const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
+        if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
+            inputSetMouseLockMode(lockMode);
+        }
+    }
+
+    ImGui::Separator();
+
+    {
+        f32 mx, my;
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Speed X", &mx, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+        }
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Speed Y", &my, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+        }
+    }
+
+    {
+        float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
+        if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedx = aimX;
+        }
+        float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
+        if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Look */
+    ImGui::TextDisabled("Look");
+    ImGui::Separator();
+
+    {
+        bool invertY = optionsGetForwardPitch(0) == 0;
+        if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
+            optionsSetForwardPitch(0, invertY ? 0 : 1);
+        }
+    }
+
+    {
+        bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
+        if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
+            inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
+            configSave("pd.ini");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Gameplay */
+    ImGui::TextDisabled("Gameplay");
+    ImGui::Separator();
+
+    {
+        float fov = g_PlayerExtCfg[0].fovy;
+        if (PdSliderFloat("Field of View", &fov, 60.0f, 120.0f, "%.0f")) {
+            g_PlayerExtCfg[0].fovy = fov;
+            g_PlayerExtCfg[0].fovzoommult = g_PlayerExtCfg[0].fovzoom ? fov / 60.0f : 1.0f;
+        }
+    }
+
+    {
+        float sway = g_PlayerExtCfg[0].crosshairsway;
+        if (PdSliderFloat("Crosshair Sway", &sway, 0.0f, 10.0f, "%.1f")) {
+            g_PlayerExtCfg[0].crosshairsway = sway;
+        }
+    }
+}
+
+/* ---- Options panel renderer ---- */
 static s32 renderOptions(struct menudialog *dialog,
                           struct menu *menu,
                           s32 winW, s32 winH)
 {
-    float mw  = pdguiMenuWidth() * 0.55f;
-    float mh  = pdguiMenuHeight() * 0.55f;
+    float mw  = pdguiMenuWidth() * 0.7f;
+    float mh  = pdguiMenuHeight() * 0.75f;
     ImVec2 pos = pdguiCenterPos(mw, mh);
 
     ImGui::SetNextWindowPos(pos);
@@ -1462,73 +2491,74 @@ static s32 renderOptions(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_OptionsSelectIdx = 0;
+        s_OptionsTabIdx = 0;
     }
 
     float titleH = pdguiScale(26.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Options", 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
-    ImGui::Separator();
 
-    struct OptionBtn { const char *label; struct menudialogdef *dlg; };
-    OptionBtn k_Opts[] = {
-        { langSafe(L_OPTIONS_181), &g_AudioOptionsMenuDialog         },
-        { langSafe(L_OPTIONS_182), &g_VideoOptionsMenuDialog         },
-        { langSafe(L_OPTIONS_183), &g_MissionControlOptionsMenuDialog},
-        { langSafe(L_OPTIONS_184), &g_MissionDisplayOptionsMenuDialog},
-        { "Extended",              &g_ExtendedMenuDialog             },
-    };
-    static const s32 k_NumOpts = 5;
+    /* ---- Tab bar ---- */
+    static const char *k_TabNames[] = { "Audio", "Video", "Controls" };
+    static const s32 k_NumTabs = 3;
 
-    if (s_OptionsSelectIdx < 0)          s_OptionsSelectIdx = 0;
-    if (s_OptionsSelectIdx >= k_NumOpts) s_OptionsSelectIdx = k_NumOpts - 1;
-
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
-        s_OptionsSelectIdx++;
-        if (s_OptionsSelectIdx >= k_NumOpts) s_OptionsSelectIdx = 0;
+    /* LB/RB or Left/Right to switch tabs */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Q, false)) {
+        s_OptionsTabIdx--;
+        if (s_OptionsTabIdx < 0) s_OptionsTabIdx = k_NumTabs - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
-        s_OptionsSelectIdx--;
-        if (s_OptionsSelectIdx < 0) s_OptionsSelectIdx = k_NumOpts - 1;
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_E, false)) {
+        s_OptionsTabIdx++;
+        if (s_OptionsTabIdx >= k_NumTabs) s_OptionsTabIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
+
+    /* B / Escape = back + save config */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        configSave("pd.ini");
         menuPopDialog();
         ImGui::End();
         return 1;
     }
 
-    float btnH = pdguiScale(36.0f);
+    /* Draw tab buttons */
+    float tabW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f
+                     - pdguiScale(4.0f) * (float)(k_NumTabs - 1)) / (float)k_NumTabs;
+    float tabH = pdguiScale(30.0f);
 
-    for (s32 i = 0; i < k_NumOpts; i++) {
-        bool isSel = (s_OptionsSelectIdx == i);
-        ImGui::PushID(i);
+    for (s32 t = 0; t < k_NumTabs; t++) {
+        if (t > 0) ImGui::SameLine(0.0f, pdguiScale(4.0f));
 
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), btnH);
-
-        bool clicked = ImGui::Button(k_Opts[i].label,
-                                     ImVec2(mw - pdguiScale(16.0f), btnH));
-        if (ImGui::IsItemHovered()) s_OptionsSelectIdx = i;
-
-        bool doThis = clicked ||
-                      (isSel && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                                 ImGui::IsKeyPressed(ImGuiKey_Enter, false)));
-        if (doThis) {
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(k_Opts[i].dlg);
-            ImGui::PopID();
-            ImGui::End();
-            return 1;
+        bool active = (s_OptionsTabIdx == t);
+        if (active) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
         }
-
+        ImGui::PushID(t);
+        if (ImGui::Button(k_TabNames[t], ImVec2(tabW, tabH))) {
+            if (!active) pdguiPlaySound(PDGUI_SND_FOCUS);
+            s_OptionsTabIdx = t;
+        }
         ImGui::PopID();
+        if (active) ImGui::PopStyleColor();
     }
+
+    ImGui::TextDisabled("LB / RB to switch tabs");
+    ImGui::Separator();
+
+    /* ---- Scrollable tab content ---- */
+    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0), false)) {
+        switch (s_OptionsTabIdx) {
+        case 0: renderOptionsAudio();    break;
+        case 1: renderOptionsVideo();    break;
+        case 2: renderOptionsControls(); break;
+        }
+    }
+    ImGui::EndChild();
 
     ImGui::End();
     return 1;
@@ -1570,20 +2600,28 @@ void pdguiMenuSoloMissionRegister(void)
     pdguiHotswapRegister(&g_SoloMissionOptionsMenuDialog,
                           renderOptions,               "Solo Options");
 
-    /* ---- Keep legacy rendering — these have 3D model/controller previews ----
-     * Registering with NULL renderFn forces PD-native rendering for these
-     * dialogs while still blocking type-based fallback renderers. */
+    /* ---- Options sub-dialogs: no longer pushed (inline tabbed panel),
+     * but registered as NULL to block legacy renderers if reached. ---- */
+    pdguiHotswapRegister(&g_AudioOptionsMenuDialog,
+                          nullptr,  "Audio Opts (inline)");
+    pdguiHotswapRegister(&g_VideoOptionsMenuDialog,
+                          nullptr,  "Video Opts (inline)");
+    pdguiHotswapRegister(&g_MissionControlOptionsMenuDialog,
+                          nullptr,  "Control Opts (inline)");
+    pdguiHotswapRegister(&g_MissionDisplayOptionsMenuDialog,
+                          nullptr,  "Display Opts (inline)");
+
+    /* M1.2: Inventory now has a proper ImGui renderer.
+     * FrWeapons and ControlStyle use the DEFAULT type fallback (P10). */
     pdguiHotswapRegister(&g_SoloMissionInventoryMenuDialog,
-                          nullptr,  "Inventory (legacy)");
+                          renderInventory,  "Inventory");
 
-    pdguiHotswapRegister(&g_FrWeaponsAvailableMenuDialog,
-                          nullptr,  "Fr. Weapons (legacy)");
-
-    pdguiHotswapRegister(&g_SoloMissionControlStyleMenuDialog,
-                          nullptr,  "Control Style (legacy)");
+    /* These two previously used NULL (force-native) but P10 removed native
+     * rendering.  Unregister them so the DEFAULT type fallback handles them
+     * generically until dedicated ImGui renderers are built. */
 
     sysLogPrintf(LOG_NOTE,
-        "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 3 legacy");
+        "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 7 legacy/inline");
 }
 
 } /* extern "C" */

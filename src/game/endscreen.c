@@ -32,13 +32,28 @@
 #include "types.h"
 #include "assetcatalog.h"
 
-/* Phase 2 helper: set stagenum + resolve PRIMARY stage_id string */
+/* M0.1a: catalog-first stage setter — catalog ID is primary identity.
+ * Resolves stagenum from catalog at point of consumption. */
+static void missionSetStageByCatalog(const char *catalog_id)
+{
+	if (catalog_id && catalog_id[0]) {
+		strncpy(g_MissionConfig.stage_id, catalog_id,
+			sizeof(g_MissionConfig.stage_id) - 1);
+		g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+		catalog_stage_result_t sr;
+		if (catalogResolveStage(catalog_id, &sr)) {
+			g_MissionConfig.stagenum = (u8)sr.stagenum;
+		}
+	} else {
+		g_MissionConfig.stage_id[0] = '\0';
+	}
+}
+
+/* Legacy helper for system stages (STAGE_CREDITS) that aren't in catalog */
 static void missionSetStagenum(u8 stagenum)
 {
 	g_MissionConfig.stagenum = stagenum;
-	const char *cid = catalogIdByRuntime(ASSET_MAP, stagenum);
-	if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
-	else { g_MissionConfig.stage_id[0] = '\0'; }
+	g_MissionConfig.stage_id[0] = '\0';
 }
 
 MenuItemHandlerResult endscreenHandleDeclineMission(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -151,7 +166,7 @@ MenuItemHandlerResult endscreenHandleReplayPreviousMission(s32 operation, struct
 		if (g_MissionConfig.stageindex < 0) {
 			g_MissionConfig.stageindex = 0;
 		}
-		missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
+		missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
 	}
 
 	return menuhandlerAcceptMission(operation, NULL, data);
@@ -478,7 +493,8 @@ struct menudialogdef *endscreenAdvance(void)
 	if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 		g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
 	}
-	g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+	/* M0.1a: catalog-first — set stage_id as primary, derive stagenum */
+	missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
 
 	return &g_NextMissionMenuDialog;
 }
@@ -504,7 +520,7 @@ MenuItemHandlerResult endscreenHandleReplayLastLevel(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		// PC: guard — stageindex may be out of solo range for mod stages
 		if (g_MissionConfig.stageindex >= 0 && g_MissionConfig.stageindex < NUM_SOLOSTAGES) {
-			missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
+			missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
 		}
 		return menuhandlerAcceptMission(operation, NULL, data);
 	}
@@ -679,7 +695,7 @@ void endscreenContinue(s32 context)
 						if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 							g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
 						}
-						missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
+						missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
 
 						titleSetNextStage(g_MissionConfig.stagenum);
 
@@ -792,7 +808,7 @@ MenuDialogHandlerResult endscreenHandle2PCompleted(s32 operation, struct menudia
 								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
 								}
-								missionSetStagenum(g_SoloStages[g_MissionConfig.stageindex].stagenum);
+								missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
 
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);

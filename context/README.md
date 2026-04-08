@@ -1,6 +1,6 @@
 # Perfect Dark Mike — Project Context Index
 
-> **Last updated**: 2026-04-06, Session S157+ (S151–S156: Playtest bug fixes, Lobby Unification complete, Wire protocol v31, Catalog ID Migration Phases 0–8 + deep audit (all 15 bypass items fixed). D5.0 visual layer landed (init ordering, ROM extraction, base-ui mod, haze overlay, scanlines, multi-palette). v0.0.45. Next: build verification, Phase 7 caller elimination (~85 calls), weapons/stages/models migration, D5.3 pause menu.)
+> **Last updated**: 2026-04-08, Session S183 (M0.1 COMPLETE a–f, M0.2 INPUT SYSTEM UNIFICATION COMPLETE Phases A–D. Action map system replaces CK_*, inputmodes.c deleted, -823 lines net. SA-5e ammo accessors landed. S179 input bug fixes (mouse/Esc/Tab/arrow keys). Next: D5 Phase 3 remaining menu screens, M3 online MP flow, build verification.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding (For AI Sessions)
@@ -37,6 +37,8 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | Sessions | Period | Focus | File |
 |----------|--------|-------|------|
+| S181–S183 | 2026-04-07/08 | M0.2 Input System Unification: action map system (Unreal Enhanced Input inspired), all game files migrated, ImGui nav takeover, CK_* deleted, inputmodes.c deleted. SA-5e ammo accessors. -823 lines net, 34 files changed. | [session-log.md](session-log.md) |
+| S178–S180 | 2026-04-07 | M0.1e (catalog data provider: body/weapon accessors), M0.1f (final g_HeadsAndBodies sweep), S179 input bug fixes (mouse/Esc/Tab/arrow keys in menus), S177 git recovery + script consolidation. | [session-log.md](session-log.md) |
 | S157 | 2026-04-06 | Phase 8 O(n) conversion elimination, deep array-bypass audit (15 items fixed, zero gaps), D5.0 visual layer (init ordering, ROM extraction, base-ui mod, haze overlay, scanlines, multi-palette). QUICKSTART.md created. | [session-log.md](session-log.md) |
 | S155–S156 | 2026-04-06 | UX polish, B-112 guards, Catalog ID Migration Phases 0–7 (bodies/heads), triple audit PASSED 11/11. v0.0.45. | [session-log.md](session-log.md) |
 | S151–S154 | 2026-04-05/06 | Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI frame-1 crash). Lobby Unification complete (U-1–U-10, matchsetup.cpp retired). B-116 bot catalog ID fix. Wire identity elimination (SVC_PROP_SPAWN modelnum → catalog ref). Protocol v31. v0.0.38→v0.0.44. | [session-log.md](session-log.md) |

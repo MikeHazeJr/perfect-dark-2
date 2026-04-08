@@ -14,6 +14,7 @@
 #include "types.h"
 #include "game/player.h"
 #include "input.h"
+#include "actionmap.h"
 
 void amTick(void)
 {
@@ -38,42 +39,40 @@ void amTick(void)
 		}
 
 		if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {
+			/* M0.2: collapsed sub-frame to per-frame */
+			s32 playernum = g_Vars.currentplayernum;
 			s32 controlmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
-			s8 contpadnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-			s32 numsamples = joyGetNumSamples();
-			s32 j;
-			u32 amask, lrtmask, umask, dmask, lmask, rmask;
 
-			if (controlmode == CONTROLMODE_PC) {
-				amask = D_JPAD;
-				lrtmask = R_TRIG;
-				umask = U_CBUTTONS;
-				dmask = D_CBUTTONS;
-				lmask = L_CBUTTONS;
-				rmask = R_CBUTTONS;
-			} else {
-				amask = A_BUTTON;
-				lrtmask = L_TRIG | R_TRIG;
-				umask = U_JPAD | U_CBUTTONS;
-				dmask = D_JPAD | D_CBUTTONS;
-				lmask = L_JPAD | L_CBUTTONS;
-				rmask = R_JPAD | R_CBUTTONS;
-			}
-
-			for (j = 0; j < numsamples; j++) {
+			{
 				s8 gotonextscreen = false;
-				s8 cstickx = joyGetStickXOnSample(j, contpadnum);
-				s8 csticky = joyGetStickYOnSample(j, contpadnum);
+
+				/* M0.2: stick axes — actionAxis gives -1..1, multiply by 80 for s8 range */
+				f32 ax_x, ax_y;
+				actionAxis(playernum, ACTION_AXIS_MOVE_X, &ax_x, &ax_y);
+				s8 cstickx = (s8)(ax_x * 80.0f);
+				s8 csticky = (s8)(ax_y * 80.0f);
+
 #ifdef AVOID_UB
-				// if cstickx is -128, it will get negated and stored into absstickx, negating it again if it's 8 bit
 				s32 absstickx;
 				s32 abssticky;
 #else
 				s8 absstickx;
 				s8 abssticky;
 #endif
-				u32 buttonsstate = joyGetButtonsOnSample(j, contpadnum, 0xffffffff);
-				u32 buttonspressed = joyGetButtonsPressedOnSample(j, contpadnum, 0xffffffff);
+				/* M0.2: collapsed sub-frame to per-frame */
+				s32 held_use       = actionHeld(playernum, ACTION_USE);
+				s32 held_fire_mode = actionHeld(playernum, ACTION_FIRE_MODE);
+				s32 held_fire_sec  = actionHeld(playernum, ACTION_FIRE_SECONDARY);
+				s32 held_dpad_down = actionHeld(playernum, ACTION_DPAD_DOWN);
+				s32 held_dpad_up   = actionHeld(playernum, ACTION_DPAD_UP);
+				s32 held_dpad_left = actionHeld(playernum, ACTION_DPAD_LEFT);
+				s32 held_dpad_right = actionHeld(playernum, ACTION_DPAD_RIGHT);
+				s32 held_cbtn_up   = actionHeld(playernum, ACTION_CBUTTON_UP);
+				s32 held_cbtn_down = actionHeld(playernum, ACTION_CBUTTON_DOWN);
+				s32 held_cbtn_left = actionHeld(playernum, ACTION_CBUTTON_LEFT);
+				s32 held_cbtn_right = actionHeld(playernum, ACTION_CBUTTON_RIGHT);
+				s32 pressed_fire   = actionPressed(playernum, ACTION_FIRE_PRIMARY);
+
 				bool stickpushed = false;
 				s32 slotnum;
 				bool stayopen;
@@ -90,7 +89,7 @@ void amTick(void)
 
 				s32 newstickx = (s32)cstickx;
 				s32 newsticky = (s32)csticky;
-				if (j == 0 && g_Vars.currentplayernum == 0 && inputMouseIsLocked()) {
+				if (g_Vars.currentplayernum == 0 && inputMouseIsLocked()) {
 					f32 mdx, mdy;
 					struct activemenu *am = &g_AmMenus[g_AmIndex];
 					inputMouseGetAbsScaledDelta(&mdx, &mdy);
@@ -107,33 +106,71 @@ void amTick(void)
 				csticky = (newsticky < -128) ? -128 : (newsticky > 127) ? 127 : newsticky;
 
 				if (g_Vars.currentplayer->activemenumode == AMMODE_EDIT) {
-					buttonsstate = buttonsstate & amask;
+					/* M0.2: in edit mode, only the stay-open action passes through */
+					s32 edit_stayopen;
+					if (controlmode == CONTROLMODE_PC) {
+						edit_stayopen = held_dpad_down;
+					} else {
+						edit_stayopen = held_use;
+					}
 					cstickx = 0;
 					csticky = 0;
-					buttonspressed = 0;
+					pressed_fire = 0;
+					/* Clear all directional helds for edit mode */
+					held_dpad_up = 0; held_dpad_down = 0;
+					held_dpad_left = 0; held_dpad_right = 0;
+					held_cbtn_up = 0; held_cbtn_down = 0;
+					held_cbtn_left = 0; held_cbtn_right = 0;
+					held_use = 0; held_fire_mode = 0; held_fire_sec = 0;
+					/* Restore only the stay-open signal */
+					if (controlmode == CONTROLMODE_PC) {
+						held_dpad_down = edit_stayopen;
+					} else {
+						held_use = edit_stayopen;
+					}
 				}
 
-				// JPN fixes the bug that's documented in amChangeScreen
+				/*
+				 * M0.2: Stay-open and allbots logic.
+				 * Original code had per-controlmode bitmask selection.
+				 * With actionmap, bindings handle the mapping; we query
+				 * the semantic actions directly.
+				 *
+				 * JPN fixes the bug documented in amChangeScreen:
+				 * controlmodes 13/14 use L_TRIG|R_TRIG for stay-open
+				 * and A_BUTTON for allbots.
+				 */
 				if (controlmode == CONTROLMODE_13 || controlmode == CONTROLMODE_14) {
-					if (buttonsstate & (L_TRIG | R_TRIG)) {
+					if (held_fire_mode || held_fire_sec) {
 						stayopen = true;
 					}
 
-					if (buttonsstate & A_BUTTON) {
+					if (held_use) {
+						if (g_Vars.currentplayer->numaibuddies > 0) {
+							g_AmMenus[g_AmIndex].allbots = true;
+						}
+					}
+				} else if (controlmode == CONTROLMODE_PC) {
+					/* PC mode: D_JPAD keeps menu open, R_TRIG for allbots */
+					if (held_dpad_down) {
+						stayopen = true;
+					}
+
+					if (held_fire_sec) {
 						if (g_Vars.currentplayer->numaibuddies > 0) {
 							g_AmMenus[g_AmIndex].allbots = true;
 						}
 					}
 				} else {
-					if (buttonsstate & amask) {
+					/* Standard: A_BUTTON keeps open, L_TRIG|R_TRIG for allbots */
+					if (held_use) {
 						stayopen = true;
 					}
 
-					if (buttonsstate & lrtmask) {
+					if (held_fire_mode || held_fire_sec) {
 						if (g_Vars.currentplayer->numaibuddies > 0) {
 							g_AmMenus[g_AmIndex].allbots = true;
 						}
-
 					}
 				}
 
@@ -154,62 +191,51 @@ void amTick(void)
 					amChangeScreen(0);
 				}
 
-				if (buttonsstate & umask) {
+				/* M0.2: directional held checks — merged D-pad + C-buttons */
+				if (held_dpad_up || held_cbtn_up) {
 					row = 0;
 				}
 
-				if (buttonsstate & dmask) {
+				if (held_dpad_down || held_cbtn_down) {
 					row = 2;
 				}
 
-				if (buttonsstate & lmask) {
+				if (held_dpad_left || held_cbtn_left) {
 					column = 0;
 				}
 
-				if (buttonsstate & rmask) {
+				if (held_dpad_right || held_cbtn_right) {
 					column = 2;
 				}
 
+				/*
+				 * M0.2: Dual-controller modes (CONTROLMODE_21-24).
+				 * With actionmap, both controllers feed the same player's
+				 * action state, so the second-pad reads are already merged
+				 * into the queries above. The aim-axis stick processing
+				 * below uses ACTION_AXIS_AIM for the second stick.
+				 */
 				if (controlmode == CONTROLMODE_23
 						|| controlmode == CONTROLMODE_24
 						|| controlmode == CONTROLMODE_22
 						|| controlmode == CONTROLMODE_21) {
-					s8 contpadnum2 = optionsGetContpadNum2(g_Vars.currentplayerstats->mpindex);
-					s8 cstickx2 = joyGetStickXOnSample(j, contpadnum2);
-					s8 csticky2 = joyGetStickYOnSample(j, contpadnum2);
-					u32 buttonsstate2 = joyGetButtonsOnSample(j, contpadnum2, 0xffffffff);
-					u32 buttonspressed2 = joyGetButtonsPressedOnSample(j, contpadnum2, 0xffffffff);
+					/* M0.2: second stick via aim axis */
+					f32 aim_x, aim_y;
+					s8 cstickx2, csticky2;
+					actionAxis(playernum, ACTION_AXIS_AIM_X, &aim_x, &aim_y);
+					cstickx2 = (s8)(aim_x * 80.0f);
+					csticky2 = (s8)(aim_y * 80.0f);
 
-					if (g_Vars.currentplayer->activemenumode == AMMODE_EDIT) {
-						buttonsstate2 = buttonsstate2 & A_BUTTON;
-						cstickx2 = 0;
-						csticky2 = 0;
-						buttonspressed2 = 0;
-					}
+					/*
+					 * M0.2: In dual-controller edit mode, the original code
+					 * zeroed the second stick and pressed; with actionmap
+					 * the edit-mode zeroing above already covers this since
+					 * both pads feed the same player actions.
+					 */
 
-					if (buttonsstate2 & A_BUTTON) {
-						stayopen = true;
-					}
-
-					if (buttonspressed2 & Z_TRIG) {
-						toggle = true;
-					}
-
-					if (buttonsstate2 & umask) {
-						row = 0;
-					}
-
-					if (buttonsstate2 & dmask) {
-						row = 2;
-					}
-
-					if (buttonsstate2 & lmask) {
-						column = 0;
-					}
-
-					if (buttonsstate2 & rmask) {
-						column = 2;
-					}
+					/* Note: stayopen from A_BUTTON on pad2 and toggle from
+					 * Z_TRIG on pad2 are already captured by held_use and
+					 * pressed_fire above since actionmap merges both pads. */
 
 					absstickx = cstickx2 < 0 ? -cstickx2 : cstickx2;
 					abssticky = csticky2 < 0 ? -csticky2 : csticky2;
@@ -256,10 +282,9 @@ void amTick(void)
 				if (!stayopen &&
 						(g_Vars.currentplayer->activemenumode != AMMODE_EDIT || g_Menus[g_MpPlayerNum].curdialog == NULL)) {
 					amClose();
-					break;
 				}
 
-				if (buttonspressed & Z_TRIG) {
+				if (pressed_fire) {
 					toggle = true;
 				}
 

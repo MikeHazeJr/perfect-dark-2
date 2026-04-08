@@ -100,6 +100,132 @@ extern InputContext g_CtxTextInput;
 
 ---
 
+## Menu UX Guidelines (Binding — All Phases Must Follow)
+
+> Researched from Halo Infinite, Destiny 2, Persona 5, Monster Hunter World, Celeste, Hollow Knight, Dead Cells. These are non-negotiable design rules for every menu screen.
+
+### Navigation
+- **D-pad for menus, always.** Both D-pad AND left stick bound to nav, treated as digital press (not analog range).
+- **Circular wrapping always enabled** — top↔bottom, left↔right. Never a dead-end navigation state.
+- **LB/RB for tab switching** between major sections (categories, screen tabs).
+- **A=confirm, B=back, X=secondary action, Y=tertiary/context.** Consistent across every screen.
+- **Maximum 2-3 menu levels deep.** If deeper is needed, redesign the hierarchy.
+- **5-9 items per screen** without scrolling. More = categorize into tabs or sub-sections.
+
+### Layout Patterns for PD2
+- **Main menu**: Vertical list, ≤5 items (Play, Customize, Settings, Modding, Profile)
+- **Character select**: Grid (3x4 or 4x4), D-pad 4-way, detail panel on right with live 3D preview
+- **Arena select**: Grid with thumbnails, categorized tabs (Dark, Classic, Solo, Bonus, Mods) via LB/RB
+- **Match settings**: Split-panel — settings list on left (sliders, toggles), live preview on right
+- **Bot config**: Expandable list, each row opens inline drawer or modal
+- **Dropdowns**: Labels left, control right. Items alphabetized within collapsible categories.
+
+### Visual Feedback
+- **Multi-layered focus indicator**: outline + color shift + slight scale. Not outline alone.
+- **Audio cue on EVERY selection change.** Non-negotiable for good controller feel.
+- **150-300ms smooth transitions** between selections.
+- **Focus indicator visible on any background color** — must contrast against both light and dark.
+- **Hover (mouse) vs Focus (controller)**: Same visual weight, different trigger. Last input device wins.
+
+### Hybrid Input
+- **Last input device wins.** Controller → hide cursor, show focus. Mouse → show cursor, suppress focus highlight.
+- **Button prompts change dynamically** based on last device (gamepad icons vs keyboard labels).
+- **Mouse click selects freely**; D-pad navigates focus grid.
+- **500ms debounce** on device switching to prevent flickering.
+
+### UI Scaling (Binding Rules)
+
+**Reference resolution**: 1080p. All sizes defined at 1080p, scaled proportionally at runtime.
+
+**Formula**: `scale = viewport_height / 1080.0f`
+
+| Element | 1080p (px) | 1440p | 4K | % of viewport height |
+|---------|-----------|-------|-----|---------------------|
+| Menu heading | 36 | 48 | 72 | 3.3% |
+| Body text / menu items | 24 | 32 | 48 | 2.2% |
+| Small UI labels | 16 | 21 | 32 | 1.5% |
+| Button height | 64 | 85 | 128 | 5.9% |
+| Min click/focus target | 48 | 64 | 96 | 4.4% (gamepad-friendly) |
+| Window padding | 16 | 21 | 32 | 1.5% |
+| Item spacing | 8 | 11 | 16 | 0.7% |
+| Scrollbar width | 14 | 19 | 28 | 1.3% |
+
+**Font loading**: Load fonts at scaled pixel size BEFORE building the ImGui font atlas. Do NOT use `FontGlobalScale` — it blurs. `AddFontFromFileTTF("font.ttf", 24.0f * scale)` is crisp.
+
+**ImGui style scaling**: Apply scale to all style vars:
+```c
+float scale = viewport_height / 1080.0f;
+style.WindowPadding = ImVec2(16 * scale, 12 * scale);
+style.FramePadding = ImVec2(8 * scale, 6 * scale);
+style.ItemSpacing = ImVec2(12 * scale, 8 * scale);
+style.ScaleAllSizes(scale);
+```
+
+**Ultrawide (21:9, 32:9)**: Clamp menu width to max 2560px, center on screen. 3D world expands; menus don't stretch. Menu never narrower than 60% or wider than 90% of viewport width.
+
+**Safe Areas** (binding — all UI elements must respect these):
+
+```
+Outer Safe Area (decorative only):  5% inset from each edge
+Inner Safe Area (interactive):     10% inset from each edge (ultrawide)
+                                    5% inset from each edge (16:9 / 16:10)
+```
+
+| Aspect Ratio | Viewport | Horizontal Margin | Vertical Margin | Safe Content Width |
+|-------------|----------|-------------------|-----------------|-------------------|
+| 16:9 (1920×1080) | 1920×1080 | 96px (5%) | 54px (5%) | 1728×972 |
+| 16:9 (3840×2160) | 3840×2160 | 192px (5%) | 108px (5%) | 3456×1944 |
+| 21:9 (3440×1440) | 3440×1440 | 344px (10%) | 72px (5%) | 2752×1296 |
+| 32:9 (5120×1440) | 5120×1440 | 512px (10%) | 72px (5%) | 4096×1296 (clamped to 2560 for menus) |
+
+**Rules**:
+- ALL interactive elements (buttons, sliders, text inputs, lists) must be inside the inner safe area
+- HUD elements (health, ammo, minimap, killfeed) anchor to safe area corners, not viewport corners
+- Decorative elements (background haze, scanlines, ambient particles) can extend to full viewport
+- Menu dialogs: max width = min(2560px, safe_area_width). Centered horizontally within safe area.
+- Each edge is independently configurable via pd.ini: `Video.SafeAreaTop`, `Video.SafeAreaBottom`, `Video.SafeAreaLeft`, `Video.SafeAreaRight` (float, 0.0–0.25, default auto-detected from aspect ratio).
+- **Defaults**: 16:9 → all edges 5%. Ultrawide (>2.0 ratio) → left/right 10%, top/bottom 5%. Player overrides persist.
+- **TV overscan**: Some TVs crop 3-5% of each edge unevenly. Per-edge control lets players compensate for their specific display.
+- **Settings UI**: Video settings shows a visual safe area preview — a rectangle overlay on the game view that the player resizes per-edge with sliders or D-pad. They see exactly what they're adjusting.
+
+**Implementation**: `pdguiGetSafeArea()` returns a rect `{ x, y, w, h }` representing the usable content area. ALL menu positioning, dialog sizing, and HUD anchoring references this rect — never the raw viewport. The safe area IS the coordinate space for UI layout.
+
+```c
+typedef struct {
+    float x, y, w, h;  /* Usable content area in viewport pixels */
+} PdSafeArea;
+
+PdSafeArea pdguiGetSafeArea(void);
+
+/* Per-edge margins (0.0–0.25 of viewport dimension) */
+void pdguiSetSafeAreaMargins(float top, float bottom, float left, float right);
+```
+
+The safe area defines WHERE menus live. Menu layout math uses `safeArea.x` as origin, `safeArea.w` as available width. A menu that says "center horizontally" means center within the safe area, not the viewport. HUD health bar anchored to "bottom-left" means bottom-left of the safe area.
+
+**Window size / resolution changes**: Re-load font atlas and re-apply style scaling when resolution changes at runtime. Current `pdguiScaleFactor()` must use this formula.
+
+**User-facing scale slider**: Video settings should offer a UI Scale slider (75-200%) that multiplies the base scale. Saved to `pd.ini` via `configRegisterFloat("Video.UIScale", ...)`.
+
+### Accessibility
+- **Minimum 16px text at 1080p** (small labels); 24px for menu items; 36px for headings
+- **Text contrast ratio**: 4.5:1 minimum (WCAG AA). PD blue palette white-on-navy already meets this.
+- **HUD scale slider** (75-200%) — separate from menu scale
+- **Never color-only distinction** — always pair with icon or text
+- **Remappable controls** for all menu actions
+- **Auto-focus first logical item** when any menu opens
+- **Viewing distance**: Designed for 2-3 feet (monitor). At 3 feet, 24px at 1080p is comfortable minimum.
+
+### Avoid
+- Grids larger than 5x5 (tedious with controller)
+- Analog-only menu navigation (D-pad is required)
+- Inconsistent button mapping between screens
+- No scroll indicators on scrollable content
+- Deeply nested trees (>3 levels)
+- Focus indicator that's invisible on colored backgrounds
+
+---
+
 ## Phase 2: Controller Navigation
 
 ### Requirements
@@ -113,6 +239,56 @@ extern InputContext g_CtxTextInput;
 - **Right stick**: Reserved for camera in gameplay; ignored in menus
 - **Triggers**: Page up/down in long lists (optional)
 - **Device detection**: Track last-used device (KB/M vs gamepad) with 500ms debounce. Switch UI prompts.
+- **Input buffer for cheat codes**: Rolling circular buffer of recent button presses (last 20 inputs with timestamps) in the gameplay context's `on_event` callback. When a sequence matches a known cheat code and cheats are enabled in solo/online options, fire the cheat action. Buffer only active when cheats are enabled. Event-driven (not polling). Supports both keyboard and controller sequences.
+
+### Input System as Single Source of Truth (Binding — Future Phase)
+
+The input context stack will become the **sole authority for ALL input**, replacing both the game input layer (`input.c` CK_* mappings) and ImGui's built-in gamepad nav (`imgui_impl_sdl2.cpp` hardcoded mappings). One system, one binding config, zero parallel paths.
+
+**Tap / Hold / Double-Tap Recognition:**
+
+Controller has ~14 buttons vs keyboard 100+. Modifier actions triple the effective action space:
+- **Tap** (default, <300ms): single quick press. E.g., tap X = reload.
+- **Hold** (>500ms threshold): press and hold. E.g., hold X = open door / interact.
+- **Double-tap** (<400ms window): two quick presses. E.g., double-tap Y = quick-switch weapon.
+
+The context stack resolves raw button presses into recognized actions BEFORE routing to context callbacks. Contexts receive resolved actions (`ACTION_RELOAD`, `ACTION_INTERACT`), not raw buttons.
+
+**Per-Context Action Maps:**
+
+Each context declares its own action map:
+```
+Gameplay context:
+  ACTION_SHOOT        = Right Trigger (tap)
+  ACTION_AIM          = Left Trigger (hold)
+  ACTION_RELOAD       = X (tap)
+  ACTION_INTERACT     = X (hold, 0.5s)
+  ACTION_JUMP         = A (tap)
+  ACTION_CROUCH       = B (hold)
+  ACTION_MELEE        = B (tap)
+  ACTION_QUICKSWITCH  = Y (double-tap)
+  ACTION_WEAPON_NEXT  = Y (tap)
+  ACTION_PAUSE        = Start (tap)
+
+Menu context:
+  ACTION_ACCEPT       = A (tap)
+  ACTION_CANCEL       = B (tap)
+  ACTION_SECONDARY    = X (tap)
+  ACTION_DELETE       = X (hold, 1.0s — safety delay)
+  ACTION_TAB_PREV     = LB (tap)
+  ACTION_TAB_NEXT     = RB (tap)
+  ACTION_NAV_UP       = D-pad Up / Left Stick Up
+  ACTION_NAV_DOWN     = D-pad Down / Left Stick Down
+```
+
+**Fully rebindable**: Player sees "Hold X — Open Door" in the rebind UI. They can rebind `ACTION_INTERACT` to any button + any modifier. The action map stores the binding; the recognition system applies it.
+
+**Replaces:**
+- `input.c` CK_* static mappings → action map bindings
+- `inputmodes.c` INPUTMODE_SINGLE/DOUBLETAP/HOLD → integrated into context stack dispatch
+- ImGui's `imgui_impl_sdl2.cpp` hardcoded gamepad→ImGuiKey mappings → our action map drives ImGui nav
+
+**Existing code**: `port/src/inputmodes.c` already has tap/hold/double-tap with timing windows and pd.ini persistence. This infrastructure gets absorbed into the context stack, not thrown away.
 
 ### ImGui Integration
 

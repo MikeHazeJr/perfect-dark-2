@@ -135,7 +135,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255));
+                          pdguiPalImU32(PDPAL_BODYBG, 255));
     }
 
     /* Show agent name in title */
@@ -157,7 +157,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
         ImVec2 ts = ImGui::CalcTextSize(titleBuf);
         dl->AddText(ImVec2(dialogX + (dialogW - ts.x) * 0.5f,
                            dialogY + (pdTitleH - ts.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), titleBuf);
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), titleBuf);
     }
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);

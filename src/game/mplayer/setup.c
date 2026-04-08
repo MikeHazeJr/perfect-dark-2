@@ -1427,7 +1427,7 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 			if (data->list.value < numweapons) {
 				if (data->list.unk04 == 0) {
 					for (i = 0; i <= mpweaponnum; i++) {
-						if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+						if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 							mpweaponnum++;
 						}
 
@@ -1492,7 +1492,7 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 			if (data->list.value < numweapons) {
 
 				for (i = 0; i <= mpweaponnum; i++) {
-					if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+					if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 						mpweaponnum++;
 					}
 
@@ -2420,7 +2420,7 @@ static bool mpBodyHasIntegratedHead(s32 mpbodynum)
 		return true; // Out of bounds — treat as integrated to be safe
 	}
 
-	return g_HeadsAndBodies[bodyid].unk00_01 ? true : false;
+	return catalogGetBodyIsComplete(bodyid) ? true : false; /* SA-5d */
 }
 
 MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)

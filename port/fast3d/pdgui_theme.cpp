@@ -659,13 +659,14 @@ void pdguiThemeInit(void)
     }
     s_ThemeInitDone = true;
 
-    /* Register scanline toggle in config file (saved to pd.ini) */
+    /* Register scanline config in pd.ini */
     configRegisterInt("Video.Scanlines", &s_CfgScanlineEnabled, 0, 1);
+    configRegisterFloat("Video.ScanlineAlpha", &s_ScanlineAlpha, 0.0f, 1.0f);
     s_ScanlineEnabled = (s_CfgScanlineEnabled != 0);
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: D5.0 early init (scanlines=%s, textures deferred)",
-        s_ScanlineEnabled ? "ON" : "OFF");
+        "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%%, textures deferred)",
+        s_ScanlineEnabled ? "ON" : "OFF", s_ScanlineAlpha * 100.0f);
 }
 
 /**
@@ -1050,10 +1051,219 @@ void pdguiThemeDrawScanlineFg(float x, float y, float w, float h)
  *
  * Extracts UI textures from ROM via texLoadFromConfig(), decodes to RGBA32,
  * and writes as uncompressed TGA files to mods/base-ui/textures/.
+ * Also writes PNG files (minimal uncompressed PNG, no zlib dependency)
+ * and default 9-slice JSON definitions for panel/button textures.
  *
  * Called with --extract-ui-textures CLI flag, after texReset() has populated
  * g_TexGeneralConfigs and loaded the ROM texture data into memory.
  * ========================================================================= */
+
+/* -------------------------------------------------------------------------
+ * Minimal PNG writer (unfiltered, uncompressed DEFLATE stored blocks)
+ *
+ * Produces valid PNG files without requiring zlib. Uses DEFLATE stored
+ * blocks (non-compressed) which are slightly larger but always correct.
+ * Suitable for small UI textures (max 256x256).
+ * ------------------------------------------------------------------------- */
+
+static uint32_t s_crc32Table[256];
+static bool s_crc32Init = false;
+
+static void s_initCrc32(void)
+{
+    if (s_crc32Init) return;
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        s_crc32Table[i] = c;
+    }
+    s_crc32Init = true;
+}
+
+static uint32_t s_crc32(const uint8_t *data, uint32_t len)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < len; i++)
+        crc = s_crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+static void s_writeBE32(uint8_t *dst, uint32_t v)
+{
+    dst[0] = (uint8_t)(v >> 24);
+    dst[1] = (uint8_t)(v >> 16);
+    dst[2] = (uint8_t)(v >> 8);
+    dst[3] = (uint8_t)(v);
+}
+
+static void s_writeLE16(uint8_t *dst, uint16_t v)
+{
+    dst[0] = (uint8_t)(v);
+    dst[1] = (uint8_t)(v >> 8);
+}
+
+static bool s_writePng(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h)
+{
+    s_initCrc32();
+
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) {
+        sysLogPrintf(LOG_ERROR, "PDGUI extract: cannot write PNG '%s'", path);
+        return false;
+    }
+
+    /* PNG signature */
+    static const uint8_t sig[8] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+    fwrite(sig, 1, 8, f);
+
+    /* IHDR chunk */
+    {
+        uint8_t ihdr[25]; /* 4 type + 13 data + 4 crc (length written separately) */
+        uint8_t len_buf[4];
+        s_writeBE32(len_buf, 13);
+        fwrite(len_buf, 1, 4, f);
+
+        memcpy(ihdr, "IHDR", 4);
+        s_writeBE32(ihdr + 4, w);
+        s_writeBE32(ihdr + 8, h);
+        ihdr[12] = 8;  /* bit depth */
+        ihdr[13] = 6;  /* color type: RGBA */
+        ihdr[14] = 0;  /* compression */
+        ihdr[15] = 0;  /* filter */
+        ihdr[16] = 0;  /* interlace */
+
+        fwrite(ihdr, 1, 17, f);
+        uint32_t crc = s_crc32(ihdr, 17);
+        uint8_t crc_buf[4];
+        s_writeBE32(crc_buf, crc);
+        fwrite(crc_buf, 1, 4, f);
+    }
+
+    /* IDAT chunk: uncompressed DEFLATE (stored blocks)
+     *
+     * Each scanline: filter byte (0 = None) + w*4 RGBA bytes
+     * Raw data size: h * (1 + w*4)
+     * DEFLATE stored blocks: max 65535 bytes each
+     * zlib wrapper: 2 bytes header + raw blocks + 4 bytes adler32
+     */
+    {
+        uint32_t row_bytes = 1 + w * 4;  /* filter byte + pixel data */
+        uint32_t raw_size = h * row_bytes;
+
+        /* Build the unfiltered image data */
+        uint8_t *raw = (uint8_t *)malloc(raw_size);
+        if (!raw) { fclose(f); return false; }
+
+        for (uint32_t y = 0; y < h; y++) {
+            raw[y * row_bytes] = 0;  /* filter: None */
+            memcpy(raw + y * row_bytes + 1, rgba + y * w * 4, w * 4);
+        }
+
+        /* Calculate Adler-32 of raw data */
+        uint32_t a1 = 1, a2 = 0;
+        for (uint32_t i = 0; i < raw_size; i++) {
+            a1 = (a1 + raw[i]) % 65521;
+            a2 = (a2 + a1) % 65521;
+        }
+        uint32_t adler = (a2 << 16) | a1;
+
+        /* Count DEFLATE stored blocks needed */
+        uint32_t num_blocks = (raw_size + 65534) / 65535;
+        /* zlib: 2 header + sum of (5 + min(65535, remaining)) per block + 4 adler */
+        uint32_t zlib_size = 2 + raw_size + num_blocks * 5 + 4;
+
+        uint8_t *zlib = (uint8_t *)malloc(zlib_size);
+        if (!zlib) { free(raw); fclose(f); return false; }
+
+        uint32_t zp = 0;
+        zlib[zp++] = 0x78; /* CMF: deflate, window 32K */
+        zlib[zp++] = 0x01; /* FLG: no dict, check bits */
+
+        uint32_t remaining = raw_size;
+        uint32_t src_off = 0;
+        while (remaining > 0) {
+            uint32_t block_len = remaining > 65535 ? 65535 : remaining;
+            uint8_t is_final = (remaining <= 65535) ? 1 : 0;
+
+            zlib[zp++] = is_final;  /* BFINAL + BTYPE=00 (stored) */
+            s_writeLE16(zlib + zp, (uint16_t)block_len); zp += 2;
+            s_writeLE16(zlib + zp, (uint16_t)(~block_len)); zp += 2;
+
+            memcpy(zlib + zp, raw + src_off, block_len);
+            zp += block_len;
+            src_off += block_len;
+            remaining -= block_len;
+        }
+
+        /* Adler-32 (big-endian) */
+        s_writeBE32(zlib + zp, adler);
+        zp += 4;
+
+        free(raw);
+
+        /* Write IDAT chunk */
+        uint8_t len_buf[4];
+        s_writeBE32(len_buf, zp);
+        fwrite(len_buf, 1, 4, f);
+
+        /* Type + data for CRC */
+        uint8_t *idat_for_crc = (uint8_t *)malloc(4 + zp);
+        memcpy(idat_for_crc, "IDAT", 4);
+        memcpy(idat_for_crc + 4, zlib, zp);
+        fwrite(idat_for_crc, 1, 4 + zp, f);
+
+        uint32_t crc = s_crc32(idat_for_crc, 4 + zp);
+        uint8_t crc_buf[4];
+        s_writeBE32(crc_buf, crc);
+        fwrite(crc_buf, 1, 4, f);
+
+        free(idat_for_crc);
+        free(zlib);
+    }
+
+    /* IEND chunk */
+    {
+        uint8_t iend[12];
+        s_writeBE32(iend, 0); /* length = 0 */
+        memcpy(iend + 4, "IEND", 4);
+        uint32_t crc = s_crc32(iend + 4, 4);
+        s_writeBE32(iend + 8, crc);
+        fwrite(iend, 1, 12, f);
+    }
+
+    fclose(f);
+    return true;
+}
+
+/**
+ * Write a default 9-slice JSON definition for a texture.
+ * Uses 25% insets as a reasonable starting point for panel textures.
+ */
+static bool s_writeNinesliceJson(const char *path, uint32_t w, uint32_t h)
+{
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) return false;
+
+    /* Default insets: ~25% from each edge, minimum 2px */
+    int l = (int)(w * 0.25f); if (l < 2) l = 2;
+    int r = l;
+    int t = (int)(h * 0.25f); if (t < 2) t = 2;
+    int b = t;
+
+    fprintf(f,
+        "{\n"
+        "    \"left\": %d,\n"
+        "    \"right\": %d,\n"
+        "    \"top\": %d,\n"
+        "    \"bottom\": %d,\n"
+        "    \"edgeMode\": \"stretch\",\n"
+        "    \"centerMode\": \"stretch\"\n"
+        "}\n",
+        l, r, t, b);
+
+    fclose(f);
+    return true;
+}
 
 /* Write RGBA32 pixel data as an uncompressed 32-bit TGA file. */
 static bool s_writeTga(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h)
@@ -1221,6 +1431,26 @@ void pdguiThemeExtractRomTextures(void)
                 idx, k_Extracts[i].filename, w, h, fmt, path);
             extracted++;
         }
+
+        /* Also write PNG for mod portability */
+        char png_path[256];
+        snprintf(png_path, sizeof(png_path), "mods/base-ui/textures/%s.png", k_Extracts[i].filename);
+        if (s_writePng(png_path, s_ExtractBuf, w, h)) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI extract: [%d] '%s' → %s (PNG)", idx, k_Extracts[i].filename, png_path);
+        }
+
+        /* Write default 9-slice definition for panel-sized textures */
+        if (w >= 16 && h >= 16) {
+            char ns_path[256];
+            snprintf(ns_path, sizeof(ns_path), "mods/base-ui/textures/%s.9slice.json",
+                     k_Extracts[i].filename);
+            if (s_writeNinesliceJson(ns_path, w, h)) {
+                sysLogPrintf(LOG_NOTE,
+                    "PDGUI extract: [%d] '%s' → %s (9-slice def)",
+                    idx, k_Extracts[i].filename, ns_path);
+            }
+        }
     }
 
     sysLogPrintf(LOG_NOTE,
@@ -1303,8 +1533,24 @@ static void s_generateModernUiTextures(void)
 }
 
 /**
- * Frame check: if --extract-ui-textures is set and g_TexGeneralConfigs is
- * populated, run extraction once. Called from pdguiRender() each frame.
+ * Check if the base-ui mod textures exist by probing the key haze texture.
+ * Returns true if the file loads successfully (non-zero size).
+ */
+static bool s_baseUiTexturesExist(void)
+{
+    u32 sz = 0;
+    void *probe = fsFileLoad("mods/base-ui/textures/ui_bg_haze.tga", &sz);
+    if (probe) {
+        free(probe);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Frame check: auto-extract base-ui textures from ROM if they don't exist,
+ * or run extraction/generation when CLI flags are set.
+ * Called from pdguiRender() each frame until done.
  */
 void pdguiThemeCheckExtract(void)
 {
@@ -1315,6 +1561,79 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
+    /* Auto-extract: if base-ui textures don't exist yet, create the full
+     * mod structure (mod.json + TGA textures) from ROM data. This makes
+     * the game self-sufficient — no external files needed in the zip. */
+    if (!s_baseUiTexturesExist()) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme: base-ui mod missing — auto-creating from ROM");
+        fsCreateDir("mods");
+        fsCreateDir("mods/base-ui");
+        fsCreateDir("mods/base-ui/textures");
+
+        /* Write mod.json manifest so the mod manager recognizes this as
+         * a proper mod. The theme config in here drives palette, scanlines,
+         * and background texture selection. */
+        {
+            static const char k_ModJson[] =
+                "{\n"
+                "    \"name\": \"base-ui\",\n"
+                "    \"display_name\": \"Perfect Dark Base UI\",\n"
+                "    \"version\": \"1.0.0\",\n"
+                "    \"description\": \"Original N64 UI textures extracted from ROM.\",\n"
+                "    \"author\": \"Rare / PD2 Team\",\n"
+                "    \"category\": \"ui\",\n"
+                "    \"bundled\": true,\n"
+                "    \"enabled\": true,\n"
+                "    \"components\": [\n"
+                "        {\n"
+                "            \"type\": \"ui\",\n"
+                "            \"textures\": [\n"
+                "                { \"catalog_id\": \"base:ui_bg_haze\",     \"path\": \"textures/ui_bg_haze.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_particles\",   \"path\": \"textures/ui_particles.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_noise_sm\",    \"path\": \"textures/ui_noise_sm.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_noise_lg\",    \"path\": \"textures/ui_noise_lg.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_grad_bar\",    \"path\": \"textures/ui_grad_bar.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_mirror_tile\", \"path\": \"textures/ui_mirror_tile.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_dot_tile\",    \"path\": \"textures/ui_dot_tile.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_nuke\",        \"path\": \"textures/ui_nuke.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_bg_alt\",      \"path\": \"textures/ui_bg_alt.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_deco\",        \"path\": \"textures/ui_deco.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_a\",      \"path\": \"textures/ui_icon_a.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_b\",      \"path\": \"textures/ui_icon_b.tga\" },\n"
+                "                { \"catalog_id\": \"base:ui_icon_c\",      \"path\": \"textures/ui_icon_c.tga\" }\n"
+                "            ]\n"
+                "        }\n"
+                "    ],\n"
+                "    \"theme\": {\n"
+                "        \"default_palette\": 1,\n"
+                "        \"background_texture\": \"base:ui_bg_haze\",\n"
+                "        \"scanline_enabled\": true,\n"
+                "        \"scanline_alpha\": 0.8,\n"
+                "        \"tint_strength\": 0.0,\n"
+                "        \"text_glow_intensity\": 0.6\n"
+                "    }\n"
+                "}\n";
+
+            FILE *jf = fsFileOpenWrite("mods/base-ui/mod.json");
+            if (jf) {
+                fwrite(k_ModJson, 1, sizeof(k_ModJson) - 1, jf);
+                fclose(jf);
+                sysLogPrintf(LOG_NOTE, "PDGUI theme: wrote mods/base-ui/mod.json");
+            } else {
+                sysLogPrintf(LOG_WARNING, "PDGUI theme: could not write mod.json");
+            }
+        }
+
+        /* Extract ROM textures to TGA files */
+        pdguiThemeExtractRomTextures();
+
+        /* Reload theme textures now that TGA files exist */
+        s_ThemeLateInitDone = false;
+        pdguiThemeLateInit();
+    }
+
+    /* CLI flags for manual re-extract / modern UI generation */
     if (sysArgCheck("--extract-ui-textures")) {
         pdguiThemeExtractRomTextures();
     }

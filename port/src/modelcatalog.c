@@ -534,7 +534,7 @@ s32 catalogGetNumHeads(void)
 	return s_NumValidHeads;
 }
 
-s32 catalogGetSafeBody(s32 bodynum)
+static s32 catalogGetSafeBody(s32 bodynum)
 {
 	if (bodynum < 0 || bodynum >= s_CatalogCount) {
 		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: body %d out of range [0,%d), using basegame body %d",
@@ -574,7 +574,7 @@ static s32 catalogFindMpHeadByHeadnum(s16 headnum)
 	return CATALOG_FALLBACK_HEAD;
 }
 
-s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
+static s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
 {
 	s32 safeBody = catalogGetSafeBody(bodynum);
 
@@ -599,7 +599,7 @@ s32 catalogGetSafeBodyPaired(s32 bodynum, s32 *out_mpheadnum)
 	return randMpBodyIdx;
 }
 
-s32 catalogGetSafeHead(s32 headnum)
+static s32 catalogGetSafeHead(s32 headnum)
 {
 	if (headnum < 0 || headnum >= s_CatalogCount) {
 		sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: head %d out of range [0,%d), using basegame head %d",

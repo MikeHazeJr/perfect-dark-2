@@ -6,34 +6,112 @@
 
 ---
 
-## Recently Completed (S130–S157 — 2026-04-02/06)
+## Recently Completed (S157–S183 — 2026-04-07/08)
 
 | Item | Status |
 |------|--------|
-| **D5.0 Visual Layer (S157, 2026-04-06)** | **DONE** — Init ordering fix (`pdguiThemeLateInit` after `texInit`), ROM texture extraction tool (`--extract-ui-textures`), base-ui mod (13 textures), haze overlay, CRT scanlines, multi-palette support (all 7 palettes). Procedural modern-UI mod. TGA loader. |
-| **Catalog Phase 8 — O(n) conversion elimination (S157)** | **DONE** — All O(n) linear-scan conversion functions eliminated. |
-| **Deep array-bypass audit (S157)** | **DONE** — All 15 bypass items fixed. 2 hidden `catalogGetMpIndex` reimplementations found and removed. Zero gaps remaining. |
-| **Catalog ID Migration Phases 0–6 + Phase 7 audited (S153–S155)** | **DONE** — 41 files, 837 insertions. Triple audit PASSED (11/11). Bot body wire fix, B-112 crash guards, handicap UI, bot context menu UX, U-7+U-10, infrastructure. |
-| **Eliminate integer asset identity from wire (S154)** | **DONE** — SVC_PROP_SPAWN modelnum → catalog session refs. Bot body/head conversion eliminated from netmsg.c. Protocol v31. |
+| **P10 D5.7 — OG Menu Removal (S184)** | **DONE** — All legacy PD native menu rendering removed. DEFAULT type fallback + MENUITEMTYPE_KEYBOARD (ImGui::InputText) added. 13 NULL registrations removed. F8 toggle disabled, hotswap always returns 1, menuRenderDialog() gutted. Co-op/counter-op pause routed through pdguiPauseMenuOpen(). menugfx.c retained (non-menu callers). Hot-swap system is now permanent infrastructure. Build clean. |
+| **M0.2 — Input System Unification (S181–S183)** | **DONE** — Unreal Enhanced Input-inspired action map system. Phase A: core `InputAction` enum + `ActionMap` contexts. Phase B: joy.c shim + all game files migrated from CK_* to actionPressed/actionDown. Phase C: ImGui nav driven by actionmap (pdguiDriveImGuiNav). Phase D: CK_* enum deleted, inputmodes.c deleted, joy.c shims emptied. -823 lines net. Zero CK_* references remain. 34 files changed, ~2455 insertions, ~1338 deletions. |
+| **SA-5e Ammo Accessors (S181)** | **DONE** — `catalogGetMpWeaponPriAmmoType`/`PriAmmoQty`/`SecAmmoType`/`SecAmmoQty`. Callers migrated in player.c, bot.c, setup.c, matchsetup.c, netmsg.c. Rescued from `claude/sleepy-agnesi`. |
+| **S176 — B-115 Fix + M2.1 Polish** | **DONE** — B-115: legacy Save Player + Confirm Name dialogs suppressed (noop renderers), auto-save handles PC saving. M2.1 arena selection verified catalog-native (browsing works, preview images need base-ui textures Phase 4). Game mode selection verified: all 6 modes set `scenario_id` PRIMARY via catalog. M2.1 **COMPLETE**, M2.2 **COMPLETE**. |
+| **M2.2 — MP Match Flow (S175)** | **DONE** — B-117 FIXED (stale `g_CtxImGuiMenu` context on match exit → crash; added `inputCtxPopDeferred` to `pdguiEndscreenExitToMainMenu`). MP endscreen stats section (kills, accuracy bar, shot breakdown). Auto-save on match exit (`configSave`). Match start → gameplay verified solid. |
+| **M2.1 — Combat Sim UI Catalog Audit (S172)** | **DONE** — Full audit: arena selection, weapon set config, bot config, game mode selection, match start flow — all already catalog-native after M0.1a/b/c. Only change: stale header comment fix. Zero functional changes needed. |
+| **M1.2 — Solo Mission Flow (S170)** | **DONE** — B-122 fixed (endscreen mouse: deferred flush guard → `pdguiIsActive()`, per-frame `inputCtxSyncMouseMode()`, manual SDL calls removed from endscreen). B-124 fixed (Esc race: `push_tick` + `inputCtxShouldSuppressKey()` + 100ms grace period). Next Mission flow verified (catalog-first pattern confirmed working, B-123 fix solid). 5 files changed. |
+| **M1.1 — Campaign Mission Select Redesign (S168)** | **DONE** — Two-panel layout: left=mission list (unlock filter, blip dots, chapter headings), right=detail (inline difficulty picker, objectives from game data, briefing preview, Start button). Single-screen flow replaces 3-dialog chain. New `soloLoadBriefingForStageId()` helper. B-90, B-91, B-96 all fixed. Also fixed missing `<string.h>` in bg.c/bodyreset.c from M0.1a. Build clean. |
+| **D5 Phase 1 — Input Context Stack COMPLETE (S158–S161)** | **DONE** — Full pushdown automaton replacing binary INPUTMODE system. `inputctx.h` (103 lines) + `inputctx.c` (451 lines). 4 built-in contexts (Gameplay, ImGuiMenu, PauseMenu, DebugOverlay). `pdguiProcessEvent()` rewritten (110→44 lines). All 15 `pdmainSetInputMode()` callers migrated. `InputOwnerMode`/`g_InputMode`/`pdmainSetInputMode()` stripped. Lifecycle wired: init after inputInit, endFrame in gfx_sdl2 event loop, shutdown before pdguiShutdown. Build clean. |
+| **D5 Phase 3 S1 — Solo Pause Menu (B-93, B-98) (S162)** | **DONE** — `pdgui_menu_solomission.cpp`: 5-button pause menu (Resume/Restart Mission/Inventory/Options/Abort), objectives checklist with difficulty-filtered completion icons (✓/✗/●), B-button/Escape cancel, D-pad wrap. Fixed objective loop starting at index 1 (not 0). `mainChangeToStage()` for restart. Build clean. |
+| **B-119: stagenum=0x00 crash + catalog-first pattern (S165)** | **DONE** — `sm_missionconfig` shadow struct fixed (added `stage_id[64]`); mission select sets catalog ID only; `menuhandlerAcceptMission` + `menudialog00103608` resolve stagenum from stage_id at point of use. Universal catalog-first constraint added. Committed 5be1216. |
+| **B-120: Wrong stage loaded for solo missions (S166)** | **DONE** — `catalogIdByRuntime(ASSET_MAP, X)` was given stagenum instead of stage table index. Fixed in both `pdgui_menu_solomission.cpp` and `mainmenu.c` via `bgGetStageIndex()` conversion. |
+| **B-121: Endscreen menu not interactive (S166)** | **DONE** — Push `g_CtxImGuiMenu` on window appear in both solo and MP endscreen renderers. |
+| **Networking: Client hole punch wired in (S157)** | **DONE** — All 3 client join sites use `netStartClientWithHolePunch()`. Waterfall confirmed working in playtest (direct→punch→retry). |
+| **Server stage log cleanup (S157)** | **DONE** — Stage registration gated behind `g_NumStages > 0`. Server no longer logs "0 stages". |
+| **extern "C" guards: fs.h + config.h (S157)** | **DONE** — Fixed linker errors from D5.0 commit. |
+| **QUICKSTART.md created (S157)** | **DONE** — Comprehensive cold-start onboarding doc. Updated throughout session with constraints discovered. |
+| **D5 Full Menu Overhaul design doc (S157)** | **DONE** — `context/designs/d5-full-menu-overhaul.md`. 5 phases, 25 sessions, 6500 LOC. |
+| **Dev window: git identity auto-config + release auto-commit fix (S157)** | **DONE** — Startup sets user.email/user.name repo-level if missing. Auto-commit fails pipeline properly instead of silent swallow. |
 
 ---
 
-## ACTIVE: Catalog ID Deep Migration
+## ACTIVE: D5 Full Menu Overhaul
 
-**Goal**: Zero integer-to-catalog-ID conversion anywhere in the codebase. Catalog ID is sole identity for all asset types.
+**Master design doc**: `context/designs/d5-full-menu-overhaul.md` (includes binding UX guidelines)
+
+---
+
+## HIGH PRIORITY: System Design Guidelines
+
+**Goal**: Each major infrastructure system gets a guideline document covering UX, architecture rules, and design constraints. These feed into a comprehensive game design document.
+
+| System | File | Status |
+|--------|------|--------|
+| **Menu/UI** | `designs/d5-full-menu-overhaul.md` (UX Guidelines section) | **DONE (S161)** — controller nav, layout patterns, visual feedback, accessibility |
+| **Input** | `designs/input-system-guidelines.md` | **IMPLEMENTED (S181–S183)** — M0.2 action map system: per-context action maps, fully rebindable, replaced CK_* + ImGui hardcoded gamepad nav, inputmodes.c deleted. Guidelines doc still PLANNED. |
+| **Networking** | `designs/networking-ux-guidelines.md` | PLANNED — connection flow, error UX, lobby behavior, NAT transparency |
+| **Mod System** | `designs/mod-system-guidelines.md` | PLANNED — browser UX, creation workflow, theme customization, catalog integration |
+| **Audio** | `designs/audio-guidelines.md` | PLANNED — menu sounds, feedback cues, music transitions, spatial audio |
+| **Rendering/Visual** | `designs/visual-guidelines.md` | PLANNED — theme system, palette rules, PD-authentic styling, resolution scaling |
+| **Collision/Physics** | `designs/physics-guidelines.md` | PLANNED — capsule sweep, ground detection, coyote time, movement feel |
+| **Level Editor (Forge)** | `designs/forge-guidelines.md` | PLANNED — tool layout, creation workflow, testing loop, sharing |
+
+---
+
+## Backlog: Dev Window Redesign
+
+**Goal**: Modernize the dev window layout following the same UX guidelines as in-game menus. Keep release/version functionality unchanged.
+
+| Item | Priority | Detail |
+|------|----------|--------|
+| **Visual layout redesign** | MED | Follow menu UX guidelines: clear hierarchy, consistent sizing, labels left/controls right, adequate padding. Current layout is functional but organic/cluttered. |
+| **Smart builds** | MED | Incremental builds when clean isn't required. Detect when CMake cache is stale (source changes, CMakeLists.txt modified, compiler version changed) vs valid. Only clean when necessary. Skip configure if nothing changed since last configure. |
+| **Clean configure** | MED | Ensure CMake configure doesn't leave stale cache values. Currently the "clean build" toggle was removed (S50) — every build deletes build dirs. Smart builds would restore incremental as default, clean on demand. |
+| **PRUNE WORKTREES button** | **DONE (S161)** | Gold-bordered button in link panel. Prunes registry, removes orphaned dirs, deletes claude/* branches. |
+
+**Next action**: Create these as sessions allow, before implementation of each system. Menu/UI is the template.
+
+---
 
 | Phase | Status | Detail |
 |-------|--------|--------|
-| **Phases 0–6** | **DONE** | Identity layer: generation counter, hot-reload API, catalog ID fields, function APIs, integer comparisons, UI shadow structs, save paths, lobby accessors. 41 files, 837 insertions. |
-| **Phase 7 — Conversion function wrapper elimination** | **AUDITED / IN PROGRESS** | ~85 calls to `catalogBodynumToMpBodyIdx`, `catalogHeadnumToMpHeadIdx`, `catalogResolveBodyByMpIndex`, `catalogResolveWeaponByGameId`, `catalogGetSafeBody/Head` etc. remain. Cannot delete wrappers until all callers migrated. |
-| **Phase 8 — O(n) conversion elimination** | **DONE (S157)** | All linear-scan conversion functions eliminated. |
-| **Triple audit** | **PASSED (11/11)** | All original audit findings verified. 1 gap fixed. |
-| **Deep audit — direct array access** | **DONE (S157)** | All 15 bypass items fixed. 2 hidden reimplementations removed. Zero gaps. |
-| **Phases 9–14** | **NOT STARTED** | Texture, audio, animation, gamemode, lang, prop, HUD migration. |
-| **Catalog as data provider** | **NOT STARTED** | Absorb ROM arrays; catalog serves weapon/body/head data directly. |
-| **Gameplay state — category-based** | **NOT STARTED** | Match state, bot config, weapon slots use integer identity at runtime. |
+| **Phase 1 — Input Context Stack** | **DONE (S158–S161)** | Stack API, 4 contexts, lifecycle wired, old system stripped. Playtest confirmed working. |
+| **Phase 2 — Controller Navigation** | **DONE (S162–S163)** | Nav module (pdgui_nav.h/c): device detection, wrap callback, A/B via ImGui nav. LB/RB tab switching wired into main menu + room menu. Safe area (pdguiGetSafeArea) with per-edge margins, ultrawide auto-detect, pd.ini persistence. Input SSOT design spec committed for future unification (tap/hold/double-tap, per-context action maps, replaces CK_* + ImGui gamepad nav). |
+| **Phase 3 — Full Menu Roster Port** | **IN PROGRESS** | 120 screens total, 61 remaining. **S162 (2026-04-06): Solo Pause Menu (B-93, B-98) DONE** — 5 buttons (Resume/Restart/Inventory/Options/Abort), objectives checklist with completion icons, difficulty filtering, B-button cancel, D-pad wrap. Build clean. |
+| **Phase 4 — Theme System** | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. Debug menu rebuild. ~3 sessions. |
+| **Phase 5 — Planned Features** | PLANNED | Player portraits, lobby scene with connected players, character preview in selection. ~4 sessions. |
 
-**Next action**: Eliminate the ~85 remaining calls to conversion wrappers (Phase 7 caller migration), file by file.
+### Playtest Findings (S161–S183)
+
+| Finding | Severity | Detail |
+|---------|----------|--------|
+| ~~B-117: Crash on match exit~~ | ~~HIGH~~ | **Fixed S175** — Stale `g_CtxImGuiMenu` context not popped in `pdguiEndscreenExitToMainMenu()`. Added `inputCtxPopDeferred`. |
+| ~~Mouse not working in main menu~~ | ~~HIGH~~ | **Fixed S179** — `g_CtxImGuiMenu` was never pushed on main menu open. Push added to `IsWindowAppearing()`. |
+| ~~Esc double-fire (open/close)~~ | ~~MED~~ | **Fixed S179** — No `push_tick` → no grace period. Context push now sets `push_tick` for 100ms suppression. |
+| ~~Tab reopens menu after close~~ | ~~MED~~ | **Fixed S179** — Gameplay input leaked through without context. `pdguiIsActive()` now blocks Tab. |
+| ~~Arrow keys move camera in menu~~ | ~~MED~~ | **Fixed S179** — Same root cause. Context push → `pdguiIsActive()` returns 1 → game input zeroed. |
+| **Menu opacity stacking** | **MED** | Main menu background gets more opaque after repeated open/close cycles. Haze overlay likely compositing additively without full reset. |
+| **JUMP_LANDING log spam** | **LOW** | Every frame during pause logs ground clamp. Gate behind verbose mode. |
+| **First hole punch attempt fails, second direct succeeds** | **INFO** | UPnP mapping wasn't complete during first attempt. Waterfall logic correct — direct→punch→fail→retry. Second attempt connected via direct in 50ms. |
+| **base-ui textures missing** | **KNOWN** | mods/base-ui/ not in build output. Phase 4 auto-extract fix planned. Procedural fallbacks working. |
+
+---
+
+## ACTIVE: Catalog ID Deep Migration (M0.1)
+
+**Goal**: Zero integer-to-catalog-ID conversion anywhere. Catalog ID is sole identity for all asset types.
+
+| Sub-phase | Status | Detail | Unblocks |
+|-----------|--------|--------|----------|
+| **M0.1a — Stage signatures** | **DONE (S167)** | `g_SoloStages[]` catalog-native, endscreen, bg.c, mplayer.c, ingame.c, bodyreset.c all converted. Commit `270d57c`. | M1 (Campaign) |
+| **M0.1b — Body/Head signatures** | **DONE (S169)** | All 6 named conversion wrappers eliminated. 5 already deleted, 3 safe-body/head functions made static (zero external callers). String-based validators are the public API. ~30 `catalogMpBodyId/HeadId` enumeration calls remain (display helpers, not identity wrappers — tracked under Gameplay state). | M2 (Combat Sim chars) |
+| **M0.1c — Weapon signatures** | **DONE (S171)** | `spawn_weapon_id` and `weapon_ids[6][64]` added to matchconfig (PRIMARY). `spawnWeaponNum`/`weapons[]` DEPRECATED (derived at matchStart). Spawn weapon picker catalog-sourced. Scenario save/load, CLC_LOBBY_START updated. Wire protocol unchanged. Commit `76e0b00`. | M2 (Combat Sim weapons) |
+| **M0.1d — Remaining asset types** | **DONE (S173)** | Audit: 5/7 types internal-only (texture, audio, animation, lang, HUD). GAMEMODE migrated: `scenario_id[64]` PRIMARY in matchconfig, wire v32 (CLC_LOBBY_START, SVC_STAGE_START, server query), save files, UI. PROP type discriminator documented as protocol-level (not asset identity). Commit `8a0a64b`. | M4 (Mod Platform) |
+| **M0.1e — Catalog as data provider** | **DONE (S178)** | 15 catalog data accessors for weapon stats + body/head properties. ROM arrays internalized behind catalog API. 8 game files migrated (body.c, bot.c, mplayer.c, setup.c, etc). Commit `b3555576`. | M5 (Forge) |
+| **M0.1f — Final g_HeadsAndBodies sweep** | **DONE (S180)** | SA-5f: catalogGetBodyModeldef/catalogGetHeadModeldef (lazy-load), catalogResetAll/Body/HeadModeldef, catalogGetHeadHeight. All remaining raw g_HeadsAndBodies[] access eliminated from gameplay code. 8 files migrated. Build clean. Commit `facb5750`. | — |
+| **Phase 7 — Wrapper caller elimination** | **DONE (S169)** | All conversion wrappers eliminated or internalized. Zero external callers of any integer-based body/head conversion function. |
+| **Gameplay state — category-based** | NOT STARTED | Runtime integer identity in match/bot/weapon state. |
+
+---
+
+**Next action**: M0.1 COMPLETE (a–f all done). M0.2 (Input System Unification) **COMPLETE** (Phases A–D, S181–S183). P10 D5.7 (OG Menu Removal) **COMPLETE** (S184) — ImGui is sole menu system, all legacy rendering removed. Next per roadmap: D5 Phase 3 (remaining menu screens), Phase 4 (Theme System), M3 (online MP flow), or other feature milestones.
 
 ---
 
@@ -88,7 +166,7 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | ~~Bot HP too low in local (maxdamage=4)~~ | ~~MED~~ | **Fixed S151** — botmgrAllocateBot sets maxdamage=8.0f. |
 | ~~B-114: CI crash frame 1 after mission fail exit~~ | ~~HIGH~~ | **Fixed S152** — screenManifestTick deferred until lvframe60>=2 (catalogUnloadAsset during catalog reinit). SDL flush deferred to lvframe60>0. |
 | ~~B-116: Bot body/head wrong catalog IDs on dedicated server~~ | ~~HIGH~~ | **Fixed S153** — SVC_STAGE_START used wrong slot index; pre-built `botSlotMap[]` + direct `slots[]` read in netmanifest.c. |
-| **B-115: Post-game menu mouse unresponsive** | **MED** | Legacy menu steals input, ImGui hotswap doesn't recapture mouse. |
+| ~~B-115: Post-game menu mouse unresponsive~~ | ~~MED~~ | **Fixed S170** — Same root cause as B-122: deferred flush guard missed imgui_menu context. Systemic fix covers both. |
 | **Prop sync not event-driven** | **MED** | Current prop sync uses CRC polling. Should fire on pickup/door events per game director direction. |
 | Killfeed only shows player kills | MED | Bot kills not appearing in killfeed |
 | Some maps don't spawn enemies | MED | Likely navmesh/pad coverage gaps — may still exist on some maps post-AIDROP fix |
@@ -98,15 +176,15 @@ Playtest was conducted post-S144 and triggered a crash-stability sprint (S145–
 | B-19: Bot spawn stacking on Skedar Ruins | MED | Partial fix (S125 F.1 anti-repeat) — needs Skedar-specific test |
 | B-21: Menu double-press / hierarchy | MED | Likely fixed Phase E (S124) — needs playtest |
 | B-60: Stray 'g'+'s' behind Video/Audio tabs | LOW | Visual glitch in Settings |
-| B-90: Mission select shows all missions (no unlock filter) | MED | S131 playtest |
-| B-91: Mission detail popup "(No objectives)" | HIGH | Objectives not loading from game data |
-| B-92: Mouse not captured on solo mission start | HIGH | Solo path fixed (S131 menuhandlerAcceptMission). Co-op/MP/challenge siblings fixed S132. |
-| B-93: Pause menu mostly empty | HIGH | Missing Abort, Restart, objective checklist |
-| B-94: ImGui duplicate ID on pause menu hover | MED | Resume/Options need ##id suffixes |
+| ~~B-90: Mission select shows all missions (no unlock filter)~~ | ~~MED~~ | **Fixed S168** — Two-panel redesign with unlock filter |
+| ~~B-91: Mission detail popup "(No objectives)"~~ | ~~HIGH~~ | **Fixed S168** — Objectives loaded via `soloLoadBriefingForStageId()` |
+| ~~B-92: Mouse not captured on solo mission start~~ | ~~HIGH~~ | **Fixed S131/S132** — Solo path + Co-op/MP/challenge siblings |
+| ~~B-93: Pause menu mostly empty~~ | ~~HIGH~~ | **Fixed S164** — 5-button menu + objectives checklist |
+| ~~B-94: ImGui duplicate ID on pause menu hover~~ | ~~MED~~ | **Fixed S132** — ##id suffixes added |
 | B-95: Update banner persists during gameplay | LOW | Should auto-dismiss during missions |
-| B-96: Difficulty flow wrong in mission select | HIGH | Should be: pick mission → difficulty → objectives → Start |
+| ~~B-96: Difficulty flow wrong in mission select~~ | ~~HIGH~~ | **Fixed S168** — Inline difficulty picker in two-panel layout |
 | B-97: Special Assignments / Challenges not separated | LOW | Mixed into main mission list |
-| B-98: Pause menu OG rendering fallback | HIGH | ImGui pause menu not fully implemented |
+| ~~B-98: Pause menu OG rendering fallback~~ | ~~HIGH~~ | **Fixed S164** — renderPauseMenu() fully via hotswap |
 | B-99: Updater extraction may fail | MED | Needs retest with v0.0.25 binaries |
 
 ---
@@ -165,43 +243,4 @@ Infrastructure-first: build visual layer + input boundary before any individual 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
 | **D5.0a** | Technical Spike — `pdguiGetUiTexture()` bridge, synthetic test pattern, `ImGui::Image()` in Catalog tab | **DONE (S135)** — compile clean, both targets. Playtest: open Settings > Catalog tab to see PASS label. |
-| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE (S157)** — Init ordering fix, ROM extraction tool, base-ui mod (13 textures), haze overlay, CRT scanlines, all 7 palettes drive theme. Procedural modern-UI mod. Commit `a040275`. Awaiting build verification. |
-| **D5.1** | Input Ownership Boundary — MENU/GAMEPLAY modes in `pdmain.c`, Esc edge-detect, single canonical transition function; eliminates double-push, Tab conflicts, mouse capture timing | **DONE (S136)** — builds clean, commit 001dba8. Playtest: Tab no longer double-pushes menus, mouse captured on mission start. |
-| **D5.3** | Pause Menu + Sub-screens — full ImGui pause (Objectives, Inventory, Restart, Abort), real renderer for `g_SoloMissionInventoryMenuDialog`, `##id` sweep; unblocks gameplay | PLANNED |
-| **D5.2** | Mission Select Redesign — two-panel (list + detail), unlock filter, OG briefing images, star indicators from catalog, inline difficulty rows | PLANNED |
-| **D5.4** | End Game Flow — MP match end scoreboard (S139: accuracy col, team sort, dual exit buttons, mouse fix). Endscreen lobby/quit buttons done (S144). Mission complete screen still PLANNED | PARTIAL (S144) |
-| **D5.5** | Combat Sim Polish — bot head/body picker fixed (S138: `catalogGetBodyDefaultHead`); **bot name dictionary DONE** (S144: 256-entry Adj+Noun word lists, mod-overridable). Multi-select bot list done (S144). Arena/weapon set verification still open | PARTIAL (S144) |
-| **D5.6** | Settings & QoL — layout sweep (zero hardcoded pixel offsets), update banner fix (B-95), scroll indicator UX | PLANNED |
-| **D5.7** | Online Lobby Polish — disable unsupported tabs (Co-Op/Counter-Op/Solo), room nav cleanup, Quick Play button | PLANNED |
-| **D5.8** | OG Menu Removal — systematic removal of all legacy screen render paths once ImGui replacements are verified | PARTIAL — `pdgui_menu_matchsetup.cpp` retired (S153, renamed `.cpp.retired`); remaining legacy C menu paths still PLANNED |
-
-**Execution order**: D5.0 → D5.1 → D5.3 → D5.2 → D5.4 → D5.5 → D5.6 → D5.7 → D5.8
-
----
-
-## Lobby Unification — Solo/Online Room Convergence
-
-Full task list: **[tasks-lobby-unification.md](tasks-lobby-unification.md)** (10 items, U-1 through U-10)
-
-Both lobbies share `pdgui_menu_room.cpp` via `s_IsSoloMode` — architecture is 90% unified. Close the remaining feature gaps, retire `pdgui_menu_matchsetup.cpp`, add network sync, and root-cause the online bot spawn race condition.
-
-| Phase | Items | Description | Status |
-|-------|-------|-------------|--------|
-| **Phase 1** | U-1..U-6 | Close feature gaps: custom weapon slots, handicap sliders, team presets, save/load scenario, slow motion toggle, SP character verification | **DONE** |
-| **Phase 2** | U-7 | Audit + remove `pdgui_menu_matchsetup.cpp` (1,582 lines) | **DONE (S153)** — Steps A–D complete, file retired |
-| **Phase 3** | U-8..U-9 | Network sync for new features + post-match flow verification | **DONE** |
-| **Phase 4** | U-10 | Root-cause online bot spawn sequencing (match solo's synchronous path) | **DONE (S153)** — client-side deferred activation |
-
----
-
-## Backlog (priority order)
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| **D13** | Update System — GitHub Releases API, SHA-256, self-replace | Code written (S50), needs libcurl + build test |
-| **D14a** | Counter-Operative Mode — NPC possession mechanic | PLANNED |
-| **D15** | Map Editor, Character Creator, Skin System | PLANNED |
-| **D16** | Master Server / Server Pool | PLANNED (after content tools) |
-| **R-2 through R-5** | Room Architecture — demand-driven rooms, protocol | R-1 done, **R-3 done (S143: clients see/create/join rooms, room-scoped match start)**, R-2/R-4/R-5 planned |
-| **L-series** | Lobby/Room UX — social lobby, room create/join, interior | Depends on R-2/R-3 |
-| **B-12 Phase 3** | Remove chrslots — dynamic participant system | Phase 1 coded (S26), next protocol bump |
+| **D5.0** | Menu Visual Layer — `pdgui_theme` module, OG ROM textures via catalog, scan-line pass, haze overlay, multi-palette | **DONE

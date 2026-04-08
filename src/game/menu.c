@@ -39,6 +39,7 @@
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/joy.h"
+#include "actionmap.h"
 #include "lib/vi.h"
 #include "lib/main.h"
 #include "lib/model.h"
@@ -1895,7 +1896,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					}
 					totalfilelen = ALIGN64(totalfilelen);
 
-					if (g_HeadsAndBodies[bodynum].unk00_01) {
+					if (catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 						headnum = -1;
 						headfilenum = 0xffff;
 					} else {
@@ -2280,7 +2281,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 			modelGetRootPosition(&menumodel->bodymodel, &oldpos);
 
-			if (joyGetButtons(0, R_TRIG)) {
+			if (actionHeld(0, ACTION_FIRE_SECONDARY)) {
 				modelSetRootPosition(&menumodel->bodymodel, &newpos);
 			}
 		}
@@ -3750,28 +3751,17 @@ u32 g_MenuCThresh = 120;
 
 Gfx *menuRenderDialog(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight)
 {
-	/* F8 hot-swap: if an ImGui replacement exists and is active, skip the
-	 * PD native render entirely.  The ImGui version draws during pdguiRender()
-	 * instead, using the same game state this dialog holds.
-	 *
-	 * However, if a character preview is requested, we still render the
-	 * menu model to the preview FBO before returning — this gives the
-	 * ImGui screen a 3D character texture to display. */
+	/* P10 D5.7: ImGui is the sole menu system.  All dialogs are rendered
+	 * by ImGui via the hotswap pipeline — pdguiHotswapCheck() queues the
+	 * dialog for ImGui rendering, and the native PD render path has been
+	 * removed.  Character preview FBOs are still rendered here so ImGui
+	 * screens can display 3D character textures. */
 	if (dialog && dialog->definition) {
-		if (pdguiHotswapCheck(dialog->definition, dialog, menu)) {
-			/* Render character preview model to FBO if requested */
-			gdl = pdguiCharPreviewRenderGBI(gdl, menu);
-			return gdl;  /* ImGui handled it — return unmodified display list */
-		}
+		pdguiHotswapCheck(dialog->definition, dialog, menu);
 	}
 
-	mainOverrideVariable("cthresh", &g_MenuCThresh);
-
-	textSetWaveBlend(dialog->unk54, dialog->unk58, g_MenuCThresh);
-
-	gdl = dialogRender(gdl, dialog, menu, lightweight);
-
-	textResetBlends();
+	/* Render character preview model to FBO if requested */
+	gdl = pdguiCharPreviewRenderGBI(gdl, menu);
 
 	return gdl;
 }
@@ -4855,42 +4845,40 @@ void menuProcessInput(void)
 			}
 		}
 
-		// Iterate controllers and figure out which buttons are being pressed.
-		// For the control stick input, take whichever stick is pressed the most.
-		for (i = 0; i < numcontpads; i++) {
-			s8 thisstickx = joyGetStickX(contpadnums[i]);
-			s8 thissticky = joyGetStickY(contpadnums[i]);
-			s8 thisrstickx = joyGetRStickX(contpadnums[i]);
-			s8 thisrsticky = joyGetRStickY(contpadnums[i]);
-			u32 buttons = joyGetButtons(contpadnums[i], 0xffffffff);
-			u32 buttonsnow = joyGetButtonsPressedThisFrame(contpadnums[i], 0xffffffff);
+		/* M0.2: collapsed multi-contpad loop to single action map query per player */
+		{
+			s32 player = g_MpPlayerNum;
+			s8 thisstickx = (s8)(actionValue(player, ACTION_AXIS_MOVE_X) * 80.0f);
+			s8 thissticky = (s8)(actionValue(player, ACTION_AXIS_MOVE_Y) * 80.0f);
+			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 80.0f);
+			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 80.0f);
 
-			if (buttonsnow & A_BUTTON) {
+			if (actionPressed(player, ACTION_USE)) {
 				inputs.select = 1;
 			}
 
 			// separate buttons for UI accept/cancel
-			if (buttonsnow & BUTTON_UI_ACCEPT) {
+			if (actionPressed(player, ACTION_USE)) {
 				inputs.select = 1;
 			}
 
-			if (buttonsnow & BUTTON_UI_CANCEL) {
+			if (actionPressed(player, ACTION_CANCEL_USE)) {
 				inputs.back = 1;
 			}
 
-			if (buttonsnow & B_BUTTON) {
+			if (actionPressed(player, ACTION_CANCEL_USE)) {
 				inputs.back = 1;
 			}
 
-			if (buttonsnow & Z_TRIG) {
+			if (actionPressed(player, ACTION_FIRE_PRIMARY)) {
 				inputs.select = 1;
 			}
 
-			if (buttonsnow & START_BUTTON) {
+			if (actionPressed(player, ACTION_PAUSE)) {
 				starttap = true;
 			}
 
-			if (buttons & R_TRIG) {
+			if (actionHeld(player, ACTION_FIRE_SECONDARY)) {
 				inputs.shoulder = 1;
 			}
 
@@ -4910,35 +4898,35 @@ void menuProcessInput(void)
 				sticky = thisrsticky;
 			}
 
-			if (buttons & U_CBUTTONS) {
+			if (actionHeld(player, ACTION_CBUTTON_UP)) {
 				yhelddir = -1;
 			}
 
-			if (buttonsnow & U_CBUTTONS) {
+			if (actionPressed(player, ACTION_CBUTTON_UP)) {
 				ytapdir = -1;
 			}
 
-			if (buttons & D_CBUTTONS) {
+			if (actionHeld(player, ACTION_CBUTTON_DOWN)) {
 				yhelddir = 1;
 			}
 
-			if (buttonsnow & D_CBUTTONS) {
+			if (actionPressed(player, ACTION_CBUTTON_DOWN)) {
 				ytapdir = 1;
 			}
 
-			if (buttons & L_CBUTTONS) {
+			if (actionHeld(player, ACTION_CBUTTON_LEFT)) {
 				xhelddir = -1;
 			}
 
-			if (buttonsnow & L_CBUTTONS) {
+			if (actionPressed(player, ACTION_CBUTTON_LEFT)) {
 				xtapdir = -1;
 			}
 
-			if (buttons & R_CBUTTONS) {
+			if (actionHeld(player, ACTION_CBUTTON_RIGHT)) {
 				xhelddir = 1;
 			}
 
-			if (buttonsnow & R_CBUTTONS) {
+			if (actionPressed(player, ACTION_CBUTTON_RIGHT)) {
 				xtapdir = 1;
 			}
 

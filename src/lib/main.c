@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include <sched.h>
 #include "lib/sched.h"
+#include "inputctx.h"
 #include "lib/vars.h"
 #include "constants.h"
 #include "game/camdraw.h"
@@ -54,6 +55,7 @@
 #include "lib/crash.h"
 #include "lib/dma.h"
 #include "lib/joy.h"
+#include "actionmap.h"
 #include "lib/main.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
@@ -469,11 +471,12 @@ void mainInit(void)
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
 	// If holding start on any controller, open boot pak menu
-	if (joyGetButtons(0, START_BUTTON) == 0
-			&& joyGetButtons(1, START_BUTTON) == 0
-			&& joyGetButtons(2, START_BUTTON) == 0
-			&& joyGetButtons(3, START_BUTTON) == 0) {
+	if (!actionHeld(0, ACTION_PAUSE)
+			&& !actionHeld(1, ACTION_PAUSE)
+			&& !actionHeld(2, ACTION_PAUSE)
+			&& !actionHeld(3, ACTION_PAUSE)) {
 		g_DoBootPakMenu = false;
 	} else {
 		g_DoBootPakMenu = true;
@@ -485,10 +488,11 @@ void mainInit(void)
 	// and the crash screen will be shown if the game crashes.
 #define BUTTON_MASK (U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS)
 
-	if (joyGetButtons(0, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(1, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(2, BUTTON_MASK) == BUTTON_MASK
-			|| joyGetButtons(3, BUTTON_MASK) == BUTTON_MASK) {
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
+	if ((actionHeld(0, ACTION_CBUTTON_UP) && actionHeld(0, ACTION_CBUTTON_DOWN) && actionHeld(0, ACTION_CBUTTON_LEFT) && actionHeld(0, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(1, ACTION_CBUTTON_UP) && actionHeld(1, ACTION_CBUTTON_DOWN) && actionHeld(1, ACTION_CBUTTON_LEFT) && actionHeld(1, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(2, ACTION_CBUTTON_UP) && actionHeld(2, ACTION_CBUTTON_DOWN) && actionHeld(2, ACTION_CBUTTON_LEFT) && actionHeld(2, ACTION_CBUTTON_RIGHT))
+			|| (actionHeld(3, ACTION_CBUTTON_UP) && actionHeld(3, ACTION_CBUTTON_DOWN) && actionHeld(3, ACTION_CBUTTON_LEFT) && actionHeld(3, ACTION_CBUTTON_RIGHT))) {
 		g_CrashEnabled = true;
 	}
 #endif
@@ -629,10 +633,11 @@ void mainInit(void)
 		while (1);
 	}
 
-	if (joyGetButtons(0, START_BUTTON) == 0
-			&& joyGetButtons(1, START_BUTTON) == 0
-			&& joyGetButtons(2, START_BUTTON) == 0
-			&& joyGetButtons(3, START_BUTTON) == 0) {
+	/* M0.2: migrated from joyGetButtons bitmask to action queries */
+	if (!actionHeld(0, ACTION_PAUSE)
+			&& !actionHeld(1, ACTION_PAUSE)
+			&& !actionHeld(2, ACTION_PAUSE)
+			&& !actionHeld(3, ACTION_PAUSE)) {
 		s32 numpages;
 		OSMesg receivedmsg = NULL;
 		OSScMsg scdonemsg = { OS_SC_DONE_MSG };
@@ -1104,6 +1109,15 @@ void mainLoop(void)
 
 		g_StageNum = g_MainChangeToStageNum;
 		g_MainChangeToStageNum = -1;
+
+		/* B-117 fix: Reset input context stack on stage transition.
+		 * Any active menu/pause contexts are popped cleanly before the new
+		 * stage initializes. Without this, stale context callbacks can fire
+		 * during teardown (e.g., pause context calling SDL functions after
+		 * game state is partially destroyed). */
+		inputCtxShutdown();
+		inputCtxInit();
+		inputCtxPush(&g_CtxGameplay);
 	}
 
 	// Unreachable
@@ -1117,9 +1131,7 @@ void mainTick(void)
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
 
-	/* PC: advance menu manager cooldown each frame */
-	extern void menuMgrTick(void);
-	menuMgrTick();
+	/* menuMgrTick() removed — P10 D5.7 OG Menu Removal */
 
 	if (g_MainChangeToStageNum < 0 && g_MainNumGfxTasks < NUM_GFXTASKS) {
 		frametimeCalculate();
@@ -1137,12 +1149,13 @@ void mainTick(void)
 			gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_4b, 0, 0x0100, 6, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
 
 #ifdef DEBUG
-			if (g_MainIsDebugMenuOpen || joyGetButtons(0, U_CBUTTONS | D_CBUTTONS) == (U_CBUTTONS | D_CBUTTONS)) {
-				g_MainIsDebugMenuOpen = debugProcessInput(joyGetStickX(0), joyGetStickY(0), joyGetButtons(0, 0xffffffff), joyGetButtonsPressedThisFrame(0, 0xffffffff));
-			} else if (joyGetButtons(0, START_BUTTON) == 0) {
+			/* M0.2: migrated from joyGetButtons bitmask to action queries */
+			if (g_MainIsDebugMenuOpen || (actionHeld(0, ACTION_CBUTTON_UP) && actionHeld(0, ACTION_CBUTTON_DOWN))) {
+				g_MainIsDebugMenuOpen = debugProcessInput(0);
+			} else if (!actionHeld(0, ACTION_PAUSE)) {
 				var80075d68 = var800786f4nb;
 			} else {
-				g_MainIsDebugMenuOpen = debugProcessInput(joyGetStickX(0), joyGetStickY(0), joyGetButtons(0, 0xffffffff), joyGetButtonsPressedThisFrame(0, 0xffffffff));
+				g_MainIsDebugMenuOpen = debugProcessInput(0);
 			}
 #endif
 

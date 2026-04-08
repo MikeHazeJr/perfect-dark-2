@@ -38,14 +38,20 @@ extern "C" {
 #define MENUITEMTYPE_SELECTABLE  0x04
 #define MENUITEMTYPE_SEPARATOR   0x0b
 #define MENUITEMTYPE_DROPDOWN    0x0c
+#define MENUITEMTYPE_KEYBOARD    0x0d
 #define MENUITEMTYPE_END         0x1a
 
 /* Menu operations */
-#define MENUOP_SET 6
+#define MENUOP_SET     6
+#define MENUOP_GETTEXT 17
 
 /* Dialog types */
+#define MENUDIALOGTYPE_DEFAULT 1
 #define MENUDIALOGTYPE_DANGER  2
 #define MENUDIALOGTYPE_SUCCESS 3
+
+/* Keyboard buffer size */
+#define MPSETUP_MAXNAME 17
 
 struct menuitem {
     u8 type;
@@ -60,8 +66,14 @@ struct menuitem {
 };
 
 /* handlerdata is a large union in types.h (~128+ bytes).
- * Over-allocate so item handlers don't corrupt the stack. */
+ * Over-allocate so item handlers don't corrupt the stack.
+ * We also define the keyboard sub-struct for text entry. */
+struct handlerdata_keyboard {
+    char *string;
+};
+
 union handlerdata {
+    struct handlerdata_keyboard keyboard;
     u8 _pad[256];
 };
 
@@ -95,6 +107,12 @@ s32 viGetHeight(void);
  * ======================================================================== */
 
 static bool s_Registered = false;
+
+/* Per-dialog keyboard text buffer for ImGui InputText.
+ * Indexed by dialog pointer (simple pool — at most one keyboard dialog active). */
+static char s_KbdBuffer[MPSETUP_MAXNAME + 1] = {};
+static void *s_KbdDialogDef = nullptr;   /* dialogdef that owns s_KbdBuffer */
+static bool  s_KbdInitialised = false;
 
 /* ========================================================================
  * Helpers
@@ -197,7 +215,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
                           ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(8, 8, 16, 255), 0.0f);
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
     }
 
     /* Draw PD-authentic dialog frame */
@@ -251,6 +269,47 @@ static s32 renderTypedDialog(struct menudialog *dialog,
                     ImGui::Separator();
                     ImGui::Spacing();
                     break;
+
+                case MENUITEMTYPE_KEYBOARD: {
+                    /* ImGui text input replacing the legacy on-screen keyboard.
+                     * Initialise buffer from the handler on first appearance. */
+                    if (s_KbdDialogDef != (void *)def || !s_KbdInitialised) {
+                        memset(s_KbdBuffer, 0, sizeof(s_KbdBuffer));
+                        if (item->handler) {
+                            union handlerdata hd;
+                            memset(&hd, 0, sizeof(hd));
+                            hd.keyboard.string = s_KbdBuffer;
+                            item->handler(MENUOP_GETTEXT, item, &hd);
+                        }
+                        s_KbdDialogDef = (void *)def;
+                        s_KbdInitialised = true;
+                    }
+
+                    float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+                    ImGui::SetNextItemWidth(availW);
+                    bool entered = ImGui::InputText("##kbd_input", s_KbdBuffer,
+                                                     sizeof(s_KbdBuffer),
+                                                     ImGuiInputTextFlags_EnterReturnsTrue
+                                                     | ImGuiInputTextFlags_AutoSelectAll);
+
+                    /* Auto-focus the text input on first frame */
+                    if (ImGui::IsWindowAppearing()) {
+                        ImGui::SetKeyboardFocusHere(-1);
+                    }
+
+                    if (entered) {
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                        if (item->handler) {
+                            union handlerdata hd;
+                            memset(&hd, 0, sizeof(hd));
+                            hd.keyboard.string = s_KbdBuffer;
+                            item->handler(MENUOP_SET, item, &hd);
+                        }
+                        s_KbdInitialised = false;
+                        s_KbdDialogDef = nullptr;
+                    }
+                    break;
+                }
 
                 case MENUITEMTYPE_SELECTABLE: {
                     const char *label = getItemLabel(item);
@@ -324,6 +383,8 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        s_KbdInitialised = false;
+        s_KbdDialogDef = nullptr;
         menuPopDialog();
     }
 
@@ -358,38 +419,45 @@ static s32 renderSuccessDialog(struct menudialog *dialog,
                               "Complete");
 }
 
+static s32 renderDefaultDialog(struct menudialog *dialog,
+                                struct menu *menu,
+                                s32 winW, s32 winH)
+{
+    return renderTypedDialog(dialog, menu, winW, winH,
+                              1,                          /* Blue palette (default) */
+                              -1,                         /* No special sound */
+                              IM_COL32(100, 200, 255, 255), /* Light-blue title */
+                              "");
+}
+
+/* ========================================================================
+ * Noop render — suppresses a dialog without drawing anything
+ * ======================================================================== */
+
+static s32 renderNoop(struct menudialog * /*dialog*/, struct menu * /*menu*/,
+                      s32 /*winW*/, s32 /*winH*/) { return 1; }
+
 /* ========================================================================
  * Registration
  * ======================================================================== */
 
 extern "C" {
 
-/* Dialogs that must use PD native rendering despite their type.
- * These use special handlers (keyboard input, custom rendering)
- * that our generic ImGui type renderers can't handle. Registered
- * with NULL renderFn so pdguiHotswapCheck forces PD native. */
-/* Network dialogs with special handlers */
-extern struct menudialogdef g_NetJoinAddressDialog;
-extern struct menudialogdef g_NetJoiningDialog;
-extern struct menudialogdef g_NetCoopHostMenuDialog;
-/* File manager keyboard input dialogs */
-extern struct menudialogdef g_FilemgrRenameMenuDialog;
-extern struct menudialogdef g_FilemgrDuplicateNameMenuDialog;
-extern struct menudialogdef g_FilemgrFileSavedMenuDialog;
-/* MP keyboard/special dialogs */
-extern struct menudialogdef g_MpPlayerNameMenuDialog;
-extern struct menudialogdef g_MpSaveSetupNameMenuDialog;
+/* Previously-native dialogs — now all handled by ImGui type fallbacks.
+ * P10 D5.7: Zero legacy menus remain. All dialogs (including keyboard
+ * input and status dialogs) are rendered by ImGui type-based renderers.
+ * The DEFAULT type fallback handles labels, selectables, separators, and
+ * keyboard items (via ImGui::InputText). */
 extern struct menudialogdef g_MpEndscreenConfirmNameMenuDialog;
-extern struct menudialogdef g_MpChangeTeamNameMenuDialog;
-extern struct menudialogdef g_MpReadyMenuDialog;
-/* mpsetups dialogs (port-added, were static, now exposed for registration) */
-extern struct menudialogdef g_StatusOkDialog;
-extern struct menudialogdef g_StatusErrorDialog;
-extern struct menudialogdef g_DeleteSetupDialog;
 
 void pdguiMenuWarningRegister(void)
 {
     if (s_Registered) return;
+
+    /* Type-based fallback renderers — cover ALL dialog types generically. */
+    pdguiHotswapRegisterType(MENUDIALOGTYPE_DEFAULT,
+                              renderDefaultDialog,
+                              "Default Dialog");
 
     pdguiHotswapRegisterType(MENUDIALOGTYPE_DANGER,
                               renderDangerDialog,
@@ -399,27 +467,16 @@ void pdguiMenuWarningRegister(void)
                               renderSuccessDialog,
                               "Success Dialog");
 
-    /* Force PD native for dialogs with special handlers (keyboard input,
-     * custom status rendering, network state monitoring, etc.).
-     * NULL renderFn = "always use PD native, skip type fallback". */
-    pdguiHotswapRegister(&g_NetJoinAddressDialog, NULL, "Join Address (native)");
-    pdguiHotswapRegister(&g_NetJoiningDialog, NULL, "Joining Game (native)");
-    pdguiHotswapRegister(&g_NetCoopHostMenuDialog, NULL, "Co-op Host (native)");
-    pdguiHotswapRegister(&g_FilemgrRenameMenuDialog, NULL, "Rename File (native)");
-    pdguiHotswapRegister(&g_FilemgrDuplicateNameMenuDialog, NULL, "Duplicate Name (native)");
-    pdguiHotswapRegister(&g_FilemgrFileSavedMenuDialog, NULL, "File Saved (native)");
-    pdguiHotswapRegister(&g_MpPlayerNameMenuDialog, NULL, "Player Name (native)");
-    pdguiHotswapRegister(&g_MpSaveSetupNameMenuDialog, NULL, "Save Setup Name (native)");
-    pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, NULL, "Confirm Name (native)");
-    pdguiHotswapRegister(&g_MpChangeTeamNameMenuDialog, NULL, "Team Name (native)");
-    pdguiHotswapRegister(&g_MpReadyMenuDialog, NULL, "MP Ready (native)");
-    /* mpsetups dialogs (port-added) */
-    pdguiHotswapRegister(&g_StatusOkDialog, NULL, "Setup OK (native)");
-    pdguiHotswapRegister(&g_StatusErrorDialog, NULL, "Setup Error (native)");
-    pdguiHotswapRegister(&g_DeleteSetupDialog, NULL, "Delete Setup (native)");
+    /* Also cover type 0 (some dialogs have type=0) */
+    pdguiHotswapRegisterType(0,
+                              renderDefaultDialog,
+                              "Default Dialog (type 0)");
+
+    /* B-115 fix: suppress Confirm Name — redundant on PC (auto-save handles it) */
+    pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, renderNoop, "Confirm Name (suppressed)");
 
     s_Registered = true;
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DANGER + SUCCESS type fallbacks");
+    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS type fallbacks (P10: zero legacy)");
 }
 
 } /* extern "C" */

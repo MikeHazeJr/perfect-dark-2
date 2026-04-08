@@ -30,6 +30,8 @@
 #include "pdgui_audio.h"
 #include "pdgui_hotswap.h"
 #include "system.h"
+#include "inputctx.h"
+#include "achievements.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -156,6 +158,9 @@ void netDisconnect(void);
 void pdguiSetInRoom(s32 inRoom);
 void pdguiSoloRoomOpen(void);
 void pdguiSoloRoomReturn(void); /* U-12: return to room preserving config */
+
+/* Config persistence */
+s32 configSave(const char *fname);
 
 /* Dialog definitions for registration */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
@@ -363,9 +368,9 @@ static void renderSoloEndscreen(bool completed)
     float padX = pdguiScale(18.0f);
     float padY = pdguiScale(36.0f);  /* below title bar */
 
-    /* ----- Dim the background ----------------------------------------- */
+    /* ----- Dim the background (P9: palette-derived) --------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+        ImVec2(0, 0), disp, pdguiPalImU32(PDPAL_BODYBG, 160));
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
@@ -382,17 +387,15 @@ static void renderSoloEndscreen(bool completed)
         return;
     }
 
-    /* E.2: Release mouse grab on first appear so endscreen buttons are clickable.
-     * The game may still have SDL in relative mode from active gameplay. */
+    /* E.2: Push ImGuiMenu input context on first appear.
+     * The context's on_push callback handles SDL mouse mode (absolute + visible).
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
     if (ImGui::IsWindowAppearing()) {
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDL_ShowCursor(SDL_ENABLE);
-        SDL_Window *win = SDL_GetMouseFocus();
-        if (win) {
-            int w, h;
-            SDL_GetWindowSize(win, &w, &h);
-            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
         }
+        /* M2.3: Refresh achievements so newly unlocked ones show */
+        achievementsRefresh();
     }
 
     /* ----- PD dialog frame -------------------------------------------- */
@@ -690,9 +693,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float padX = pdguiScale(18.0f);
     float padY = pdguiScale(36.0f);
 
-    /* ----- Dim background --------------------------------------------- */
+    /* ----- Dim background (P9: palette-derived) ------------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 160));
+        ImVec2(0, 0), disp, pdguiPalImU32(PDPAL_BODYBG, 160));
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
@@ -709,15 +712,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* E.2: Release mouse grab on first appear so buttons are clickable. */
+    /* E.2: Push ImGuiMenu input context on first appear.
+     * The context's on_push callback handles SDL mouse mode (absolute + visible).
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
     if (ImGui::IsWindowAppearing()) {
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDL_ShowCursor(SDL_ENABLE);
-        SDL_Window *win = SDL_GetMouseFocus();
-        if (win) {
-            int w, h;
-            SDL_GetWindowSize(win, &w, &h);
-            SDL_WarpMouseInWindow(win, w / 2, h / 2);
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
         }
     }
 
@@ -873,6 +873,61 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     if (woc && woc[0]) {
         ImGui::Spacing();
         ImGui::TextDisabled("  Weapon of Choice: %s", woc);
+    }
+
+    /* ----- Your Stats (local player combat breakdown) ----------------- */
+    {
+        ImGui::Spacing();
+        SectionHeader("YOUR STATS");
+
+        s32 kills      = mpstatsGetPlayerKillCount();
+        s32 totalShots = mpstatsGetPlayerShotCountByRegion(ES_SHOT_TOTAL);
+        s32 headShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HEAD);
+        s32 bodyShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_BODY);
+        s32 limbShots  = mpstatsGetPlayerShotCountByRegion(ES_SHOT_LIMB);
+        s32 gunShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_GUN);
+        s32 hatShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HAT);
+        s32 objShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_OBJECT);
+
+        char killBuf[16];
+        snprintf(killBuf, sizeof(killBuf), "%d", kills);
+        StatRow("  Kills:", killBuf);
+
+        float accuracy = 0.0f;
+        char accuracyBuf[32] = "0.0%";
+        if (totalShots > 0) {
+            s32 hits = headShots + bodyShots + limbShots + gunShots + hatShots + objShots;
+            accuracy = (float)hits / (float)totalShots;
+            if (accuracy > 1.0f) accuracy = 1.0f;
+            snprintf(accuracyBuf, sizeof(accuracyBuf), "%.1f%%", accuracy * 100.0f);
+        }
+        StatRow("  Accuracy:", accuracyBuf);
+
+        /* Accuracy bar */
+        {
+            float barW = contentW * 0.4f;
+            float barH = pdguiScale(8.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(12.0f));
+
+            ImVec4 barColor;
+            if (accuracy >= 0.60f)      barColor = ImVec4(0.2f, 0.85f, 0.35f, 0.9f);
+            else if (accuracy >= 0.30f) barColor = ImVec4(0.95f, 0.75f, 0.1f, 0.9f);
+            else                        barColor = ImVec4(0.85f, 0.25f, 0.25f, 0.9f);
+
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.2f, 0.8f));
+            ImGui::ProgressBar(accuracy, ImVec2(barW, barH), "");
+            ImGui::PopStyleColor(2);
+        }
+
+        ImGui::Spacing();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.75f, 1.0f));
+        ImGui::Text("  Head %d  Body %d  Limb %d",
+                    headShots, bodyShots, limbShots);
+        ImGui::Text("  Other %d  Total %d",
+                    gunShots + hatShots + objShots, totalShots);
+        ImGui::PopStyleColor();
     }
 
     ImGui::EndChild();
@@ -1064,7 +1119,7 @@ extern "C" void pdguiMenuEndscreenRegister(void)
     pdguiHotswapRegister(&g_MpEndscreenPlayerStatsMenuDialog,
                          noopRender, "MP Player Stats");
 
-    /* NOTE: g_MpEndscreenSavePlayerMenuDialog and g_MpEndscreenConfirmNameMenuDialog
-     * are intentionally NOT registered here — they use legacy keyboard input and
-     * are left as PD native rendering. */
+    /* g_MpEndscreenSavePlayerMenuDialog suppressed in pdgui_menu_mpingame.cpp (B-115).
+     * g_MpEndscreenConfirmNameMenuDialog suppressed in pdgui_menu_warning.cpp (B-115).
+     * Both redundant on PC — auto-save via configSave("pd.ini") handles saving. */
 }

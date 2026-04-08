@@ -4,6 +4,10 @@
 #include <PR/ultratypes.h>
 #include <PR/os_cont.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define INPUT_MAX_CONTROLLERS MAXCONTROLLERS
 #define INPUT_MAX_CONNECTED_CONTROLLERS 8
 #define INPUT_MAX_CONTROLLER_BUTTONS 32
@@ -114,41 +118,9 @@ enum keymod {
 	KM_SHIFT = KM_LSHIFT | KM_RSHIFT
 };
 
-enum contkey {
-	CK_C_R,
-	CK_C_L,
-	CK_C_D,
-	CK_C_U,
-	CK_RTRIG,
-	CK_LTRIG,
-	CK_X, // gap in CONT_
-	CK_Y, // gap in CONT_
-	CK_DPAD_R,
-	CK_DPAD_L,
-	CK_DPAD_D,
-	CK_DPAD_U,
-	CK_START,
-	CK_ZTRIG,
-	CK_B,
-	CK_A,
-	CK_STICK_XNEG,
-	CK_STICK_XPOS,
-	CK_STICK_YNEG,
-	CK_STICK_YPOS,
-	CK_ACCEPT,
-	CK_CANCEL,
-	CK_0040,
-	CK_0080,
-	CK_0100,
-	CK_0200,
-	CK_0400,
-	CK_0800,
-	CK_1000,
-	CK_2000,
-	CK_4000,
-	CK_8000,
-	CK_TOTAL_COUNT
-};
+/* M0.2 Phase D: enum contkey (CK_*) removed.
+ * All input binding is now managed by actionmap.h (InputAction enum).
+ * Use actionHeld/actionPressed/actionValue with InputAction constants. */
 
 enum mouselockmode {
 	MLOCK_OFF = 0,
@@ -217,26 +189,15 @@ s32 inputAssignController(s32 cidx, s32 id);
 s32 inputKeyPressed(u32 vk);
 s32 inputKeyJustPressed(u32 vk);
 
-// idx is controller index, contbtn is one of the CONT_ constants
-s32 inputButtonPressed(s32 idx, u32 contbtn);
-
-// bind virtkey vk to n64 pad #idx's button/axis ck as represented by its contkey value
-// if bind is -1, picks a bind slot automatically
-void inputKeyBind(s32 idx, u32 ck, s32 bind, u32 vk);
-
-const u32 *inputKeyGetBinds(s32 idx, u32 ck);
+/* M0.2 Phase D: inputButtonPressed, inputKeyBind, inputKeyGetBinds,
+ * inputGetContKeyByName, inputGetContKeyName removed — CK_* system deleted.
+ * Use actionmap.h for all binding and query operations. */
 
 // get VK_ value from human-readable name
 s32 inputGetKeyByName(const char *name);
 
 // get human-readable name from VK_ value
 const char *inputGetKeyName(s32 vk);
-
-// get CK_ value from human-readable name
-s32 inputGetContKeyByName(const char *name);
-
-// get human-readable name from CK_ value
-const char *inputGetContKeyName(u32 ck);
 
 // strength is 0 .. 1; 0 strength turns it off
 void inputRumble(s32 idx, f32 strength, f32 time);
@@ -274,11 +235,8 @@ void inputMouseEnable(s32 enabled);
 // call this every frame
 void inputUpdate(void);
 
-// call this before configSave()
-void inputSaveBinds(void);
-
-// reset given player's binds to either PC or N64 defaults
-void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode);
+/* M0.2 Phase D: inputSaveBinds/inputSetDefaultKeyBinds removed.
+ * Use actionmapSaveBinds()/actionmapSetDefaults() instead. */
 
 // clear or get the last pressed button
 void inputClearLastKey(void);
@@ -308,5 +266,9 @@ const char *inputGetClipboard(void);
 
 // returns keymod values
 u32 inputGetKeyModState(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

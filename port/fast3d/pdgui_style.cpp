@@ -32,6 +32,9 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "pdgui_theme.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_effects.h"
+#include "pdgui_fontmgr.h"
 
 /* -----------------------------------------------------------------------
  * PD Color Palette System
@@ -138,6 +141,10 @@ static const struct pdgui_palette s_PaletteBlackGold = {
 
 /* Active palette -- defaults to Blue. Game code can switch at runtime. */
 static const struct pdgui_palette *s_ActivePalette = &s_PaletteBlue;
+
+/* Custom palette for JSON-loaded themes (writable copy) */
+static struct pdgui_palette s_PaletteCustom;
+static bool s_UsingCustomPalette = false;
 
 /* -----------------------------------------------------------------------
  * Color conversion helpers
@@ -552,6 +559,16 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
             }
         }
     }
+
+    /* === P4: Caustic overlay (optional) ===
+     * Placeholder — when a caustic mask texture is configured in the active theme,
+     * this will composite it over the body region. Currently a no-op until
+     * theme config exposes a "causticEnabled" runtime flag. */
+
+    /* === P4: Border effect (optional) ===
+     * Placeholder — when a border effect is configured in the active theme,
+     * this will draw an animated border glow around the dialog frame.
+     * Currently a no-op until theme config exposes a "borderFxEnabled" flag. */
 }
 
 /* -----------------------------------------------------------------------
@@ -805,6 +822,7 @@ extern "C" void pdguiSetPalette(int index)
         case 6: s_ActivePalette = &s_PaletteBlackGold; break;
         default: s_ActivePalette = &s_PaletteBlue;     break;
     }
+    s_UsingCustomPalette = false;
 
     /* Re-apply style so ImGui colors update immediately */
     pdguiApplyPdStyle();
@@ -819,7 +837,36 @@ extern "C" int pdguiGetPalette(void)
     if (s_ActivePalette == &s_PaletteWhite)     return 4;
     if (s_ActivePalette == &s_PaletteSilver)    return 5;
     if (s_ActivePalette == &s_PaletteBlackGold) return 6;
+    if (s_UsingCustomPalette) return -1; /* custom JSON theme */
     return 1;
+}
+
+extern "C" void pdguiSetPaletteCustom(const unsigned int *colors15)
+{
+    if (!colors15) return;
+    memcpy(&s_PaletteCustom, colors15, sizeof(s_PaletteCustom));
+    s_ActivePalette = &s_PaletteCustom;
+    s_UsingCustomPalette = true;
+    pdguiApplyPdStyle();
+}
+
+extern "C" unsigned int pdguiGetPaletteColor(int index)
+{
+    if (index < 0 || index >= 15) return 0;
+    const unsigned int *pal = (const unsigned int *)s_ActivePalette;
+    return pal[index];
+}
+
+extern "C" unsigned int pdguiPalImU32(int index, int alpha)
+{
+    if (index < 0 || index >= 15) return IM_COL32(0, 0, 0, 255);
+    const unsigned int *pal = (const unsigned int *)s_ActivePalette;
+    unsigned int rgba = pal[index];
+    unsigned char r = (rgba >> 24) & 0xFF;
+    unsigned char g = (rgba >> 16) & 0xFF;
+    unsigned char b = (rgba >>  8) & 0xFF;
+    unsigned char a = (alpha >= 0) ? (unsigned char)alpha : (rgba & 0xFF);
+    return IM_COL32(r, g, b, a);
 }
 
 /* -----------------------------------------------------------------------

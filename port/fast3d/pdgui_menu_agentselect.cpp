@@ -93,6 +93,7 @@ struct solostage {
     u16 name1;
     u16 name2;
     u16 name3;
+    const char *catalog_id;
 };
 extern struct solostage g_SoloStages[];
 
@@ -222,7 +223,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImVec2 titleSize = ImGui::CalcTextSize("Perfect Dark");
         dl->AddText(ImVec2(dialogX + 10.0f,
                            dialogY + (pdTitleH - titleSize.y) * 0.5f),
-                    IM_COL32(255, 255, 255, 255), "Perfect Dark");
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), "Perfect Dark");
     }
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
@@ -463,7 +464,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 float textX = thumbX + thumbSize + 10.0f * scale;
                 float lineY = itemMin.y + 8.0f * scale;
 
-                dl->AddText(ImVec2(textX, lineY), IM_COL32(255, 255, 255, 255), name);
+                dl->AddText(ImVec2(textX, lineY), pdguiPalImU32(PDPAL_TITLEFG, 255), name);
 
                 /* Show [DEFAULT] tag if this agent is the default */
                 if (file->fileid == s_DefaultAgentFileId) {

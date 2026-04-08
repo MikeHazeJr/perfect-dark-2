@@ -20,8 +20,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
-#include "menumgr.h"
-#include "pdmain.h"
+#include "inputctx.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -202,17 +201,28 @@ static s32 s_PauseTab = 0;  /* 0=Rankings, 1=Stats, 2=Settings */
 static bool s_EndGameConfirm = false;
 static s32 s_GameOverTab = 0;  /* 0=Rankings, 1=Personal */
 
+/* Simple SDL-based cooldown to prevent double-press (replaces menumgr) */
+static Uint32 s_PauseCooldownUntil = 0;
+#define PAUSE_COOLDOWN_MS 100
+
+static bool s_pauseInCooldown(void) {
+    return SDL_GetTicks() < s_PauseCooldownUntil;
+}
+
+static void s_pauseSetCooldown(void) {
+    s_PauseCooldownUntil = SDL_GetTicks() + PAUSE_COOLDOWN_MS;
+}
+
 /* ========================================================================
  * Pause Menu API (C-callable)
  * ======================================================================== */
 
 void pdguiPauseMenuOpen(void)
 {
-    if (menuIsInCooldown()) return; /* prevent double-press */
+    if (s_pauseInCooldown()) return; /* prevent double-press */
 
-    /* Release mouse grab so the cursor is visible and clickable in the menu.
-     * Must happen before s_PauseMenuOpen = true (before pdguiIsActive blocks SDL). */
-    pdmainSetInputMode(INPUTMODE_MENU);
+    /* Push pause context — handles mouse release and game pause via on_push. */
+    inputCtxPush(&g_CtxPauseMenu);
     {
         SDL_Window *win = SDL_GetMouseFocus();
         if (win) {
@@ -227,7 +237,7 @@ void pdguiPauseMenuOpen(void)
     s_PauseTab = 0;
     s_EndGameConfirm = false;
 
-    menuPush(MENU_PAUSE); /* register with menu manager for cooldown */
+    s_pauseSetCooldown();
 
     /* Pause the game (single-player combat sim only -- network handles differently) */
     if (g_NetMode == NETMODE_NONE) {
@@ -240,10 +250,12 @@ void pdguiPauseMenuClose(void)
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
 
-    /* Restore mouse state to what the game expects. */
-    pdmainSetInputMode(INPUTMODE_GAMEPLAY);
+    /* Pop pause context — gameplay context's on_push restores mouse capture. */
+    if (inputCtxIsActive(&g_CtxPauseMenu)) {
+        inputCtxPopDeferred(&g_CtxPauseMenu);
+    }
 
-    menuPop(); /* deregister from menu manager */
+    s_pauseSetCooldown();
 
     /* Unpause */
     if (g_NetMode == NETMODE_NONE) {
@@ -1126,10 +1138,12 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     if (ImGui::Begin("##PdGameOver", NULL, flags)) {
-        /* Release mouse grab on first appear so buttons are clickable.
+        /* Push menu context on first appear so buttons are clickable.
          * The game holds SDL in relative mode during active gameplay. */
         if (ImGui::IsWindowAppearing()) {
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
         }
 
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "MATCH OVER", 1);
@@ -1254,7 +1268,9 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
             mainChangeToStage(0x26); /* STAGE_CITRAINING — lobby hub */
             if (g_NetMode != NETMODE_NONE) {
                 pdguiSetInRoom(1);   /* remain in room, show room screen */
@@ -1272,7 +1288,9 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            pdmainSetInputMode(INPUTMODE_MENU);
+            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPush(&g_CtxImGuiMenu);
+            }
             if (g_NetMode == NETMODE_CLIENT) {
                 netDisconnect(); /* handles mainEndStage + mainChangeToStage(CITRAINING) */
             } else {

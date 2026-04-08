@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "assetcatalog.h" /* SA-5e: catalogGetMpWeaponNum / catalogGetMpWeaponUnlockFeature */
 #include "game/atan2f.h"
 #include "game/bot.h"
 #include "game/challenge.h"
@@ -213,11 +214,11 @@ void challengeDetermineUnlockedFeatures(void)
 		g_MpFeaturesUnlocked[j] = flag;
 	}
 
-	for (j = 0; j < func0f188bcc(); j++) {
-		struct mpweapon *weapon = &g_MpWeapons[j];
+	for (j = 0; j < func0f188bcc(); j++) { /* SA-5e */
+		s32 unlockfeature = catalogGetMpWeaponUnlockFeature(j);
 
-		if (weapon->unlockfeature > 0 && func0f19cbcc(weapon->weaponnum)) {
-			g_MpFeaturesUnlocked[weapon->unlockfeature] |= 1;
+		if (unlockfeature > 0 && func0f19cbcc(catalogGetMpWeaponNum(j))) {
+			g_MpFeaturesUnlocked[unlockfeature] |= 1;
 		}
 	}
 
@@ -468,7 +469,7 @@ s32 challengeForceUnlockSetupFeatures(struct mpsetup *setup, u8 *array, s32 len)
 
 	// Force unlock the weapons (if never held before)
 	for (i = 0; i < ARRAYCOUNT(setup->weapons); i++) {
-		s32 featurenum = g_MpWeapons[setup->weapons[i]].unlockfeature;
+		s32 featurenum = catalogGetMpWeaponUnlockFeature(setup->weapons[i]); /* SA-5e */
 
 		if (featurenum) {
 			index = challengeForceUnlockFeature(featurenum, array, index, len);

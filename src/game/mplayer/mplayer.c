@@ -36,6 +36,7 @@
 #include "mpsetups.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
+#include "game/bg.h"
 
 #include "system.h"
 
@@ -303,49 +304,51 @@ void mpStartMatch(void)
 	 * RANDOM token.  The log line above captures both values for history. */
 	g_MpSetup.stagenum = (u8)stagenum;
 
-	/* Sync stage_id (PRIMARY) from the resolved stagenum. */
+	/* M0.1a: Sync stage_id (PRIMARY) from resolved stagenum.
+	 * catalogIdByRuntime takes stage TABLE index, not stagenum — convert first. */
 	{
-		const char *sid = catalogIdByRuntime(ASSET_ARENA, (s32)stagenum);
-		if (!sid) sid = catalogIdByRuntime(ASSET_MAP, (s32)stagenum);
+		s32 stIdx = bgGetStageIndex(stagenum);
+		const char *sid = (stIdx >= 0) ? catalogIdByRuntime(ASSET_MAP, stIdx) : NULL;
 		if (sid) {
 			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
 			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 		} else {
-			sysLogPrintf(LOG_ERROR, "MPLAYER: no catalog entry for stagenum=0x%02x", stagenum);
+			sysLogPrintf(LOG_ERROR, "MPLAYER: no catalog entry for stagenum=0x%02x (idx=%d)", stagenum, stIdx);
 			g_MpSetup.stage_id[0] = '\0';
 		}
 	}
 
-	// Set textures surfacetype based on stagenum (Resets when multiplayer ends)
-	switch (stagenum) {
-	case STAGE_TEST_SILO:
-	case STAGE_TEST_LAM:
-	case STAGE_TEST_MP8:
-	case STAGE_TEST_MP14:
-	case STAGE_TEST_MP16:
-	case STAGE_TEST_MP17:
-	case STAGE_TEST_MP18:
-	case STAGE_TEST_MP19:
-	case STAGE_TEST_MP20:
-	case STAGE_EXTRA1:
-	case STAGE_EXTRA2:
-	case STAGE_EXTRA3:
-	case STAGE_EXTRA4:
-	case STAGE_EXTRA5:
-	case STAGE_EXTRA6:
-	case STAGE_EXTRA7:
-	case STAGE_EXTRA8:
-	case STAGE_EXTRA9:
-	case STAGE_EXTRA10:
-	case STAGE_EXTRA11:
-	case STAGE_EXTRA12:
-	case STAGE_EXTRA13:
-	case STAGE_EXTRA14:
-	case STAGE_EXTRA15:
-	case STAGE_EXTRA16:
-	case STAGE_EXTRA17:
-	case STAGE_EXTRA24:
-	case STAGE_EXTRA25:
+	/* M0.1a: Set textures surfacetype based on catalog stage_id */
+	{
+		const char *sid = g_MpSetup.stage_id;
+		if (strcmp(sid, "base:test_silo") == 0
+			|| strcmp(sid, "base:test_lam") == 0
+			|| strcmp(sid, "base:test_mp8") == 0
+			|| strcmp(sid, "base:test_mp14") == 0
+			|| strcmp(sid, "base:test_mp16") == 0
+			|| strcmp(sid, "base:test_mp17") == 0
+			|| strcmp(sid, "base:test_mp18") == 0
+			|| strcmp(sid, "base:test_mp19") == 0
+			|| strcmp(sid, "base:test_mp20") == 0
+			|| strcmp(sid, "base:extra1") == 0
+			|| strcmp(sid, "base:extra2") == 0
+			|| strcmp(sid, "base:extra3") == 0
+			|| strcmp(sid, "base:extra4") == 0
+			|| strcmp(sid, "base:extra5") == 0
+			|| strcmp(sid, "base:extra6") == 0
+			|| strcmp(sid, "base:extra7") == 0
+			|| strcmp(sid, "base:extra8") == 0
+			|| strcmp(sid, "base:extra9") == 0
+			|| strcmp(sid, "base:extra10") == 0
+			|| strcmp(sid, "base:extra11") == 0
+			|| strcmp(sid, "base:extra12") == 0
+			|| strcmp(sid, "base:extra13") == 0
+			|| strcmp(sid, "base:extra14") == 0
+			|| strcmp(sid, "base:extra15") == 0
+			|| strcmp(sid, "base:extra16") == 0
+			|| strcmp(sid, "base:extra17") == 0
+			|| strcmp(sid, "base:extra24") == 0
+			|| strcmp(sid, "base:extra25") == 0) {
 		g_Textures[0x073c].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x073d].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x073e].soundsurfacetype = SURFACETYPE_METAL;
@@ -371,11 +374,10 @@ void mpStartMatch(void)
 		g_Textures[0x06fc].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x065a].surfacetype = SURFACETYPE_METAL;
 		g_Textures[0x065a].soundsurfacetype = SURFACETYPE_METAL;
-		break;
-	case STAGE_24:
-	case STAGE_EXTRA18:
-	case STAGE_EXTRA19:
-	case STAGE_EXTRA26:
+	} else if (strcmp(sid, "base:stage_24") == 0
+		|| strcmp(sid, "base:extra18") == 0
+		|| strcmp(sid, "base:extra19") == 0
+		|| strcmp(sid, "base:extra26") == 0) {
 		g_Textures[0x0c31].soundsurfacetype = SURFACETYPE_DIRT;
 		g_Textures[0x0c3b].soundsurfacetype = SURFACETYPE_MUD;
 		g_Textures[0x0c3c].soundsurfacetype = SURFACETYPE_MUD;
@@ -521,17 +523,14 @@ void mpStartMatch(void)
 		g_Textures[0x0065].surfacetype = SURFACETYPE_WOOD;
 		g_Textures[0x0067].surfacetype = SURFACETYPE_WOOD;
 		g_Textures[0x0068].surfacetype = SURFACETYPE_WOOD;
-		break;
-	case STAGE_EXTRA20:
-	case STAGE_EXTRA21:
-	case STAGE_EXTRA22:
-	case STAGE_EXTRA23:
+	} else if (strcmp(sid, "base:extra20") == 0
+		|| strcmp(sid, "base:extra21") == 0
+		|| strcmp(sid, "base:extra22") == 0
+		|| strcmp(sid, "base:extra23") == 0) {
 		g_Textures[0x0281].surfacetype = SURFACETYPE_DEFAULT;
 		g_Textures[0x0281].soundsurfacetype = SURFACETYPE_DEFAULT;
-		break;
-	default:
-		break;
 	}
+	} /* end stage_id scope */
 
 	sysLogPrintf(LOG_NOTE, "STAGE: mpStartMatch: menu_stage=0x%02x, resolved_stage=0x%02x, numplayers=%d",
 		g_MpSetup.stagenum, stagenum, numplayers);
@@ -1295,7 +1294,7 @@ s32 mpGetNumWeaponOptions(void)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			count++;
 		}
 	}
@@ -1308,21 +1307,21 @@ char *mpGetWeaponLabel(s32 weaponnum)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			if (weaponnum == 0) {
-				if (g_MpWeapons[i].weaponnum == WEAPON_NONE) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_NONE) {
 					return langGet(L_MPWEAPONS_058); // "Nothing"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_MPSHIELD) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_MPSHIELD) {
 					return langGet(L_MPWEAPONS_059); // "Shield"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_DISABLED) {
+				if (catalogGetMpWeaponNum(i) == WEAPON_DISABLED) {
 					return langGet(L_MPWEAPONS_060); // "Disabled"
 				}
 
-				return bgunGetName(g_MpWeapons[i].weaponnum);
+				return bgunGetName(catalogGetMpWeaponNum(i));
 			}
 
 			weaponnum--;
@@ -1343,7 +1342,7 @@ void mpSetWeaponSlot(s32 slot, s32 mpweaponnum)
 	s32 i;
 
 	for (i = 0; i <= mpweaponnum; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature) == 0) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
 			mpweaponnum++;
 		}
 
@@ -1359,7 +1358,7 @@ s32 mpGetWeaponSlot(s32 slot)
 	s32 i;
 
 	for (i = 0; i < g_MpSetup.weapons[slot]; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			count++;
 		}
 	}
@@ -1377,7 +1376,7 @@ struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex)
 	while (v0 > 0) {
 		mpweaponnum = g_MpSetup.weapons[slot];
 
-		if (g_MpWeapons[mpweaponnum].weaponnum != WEAPON_DISABLED) {
+		if (catalogGetMpWeaponNum(mpweaponnum) != WEAPON_DISABLED) { /* SA-5e */
 			v0--;
 		}
 
@@ -1504,7 +1503,7 @@ void func0f18913c(void)
 					}
 				}
 
-				if (weaponnum != g_MpWeapons[g_MpSetup.weapons[j]].weaponnum) {
+				if (weaponnum != catalogGetMpWeaponNum(g_MpSetup.weapons[j])) { /* SA-5e */
 					ok = false;
 				}
 			}
@@ -1528,7 +1527,7 @@ void mpSetRandomWeapons(u8 weapons[])
 	s32 i;
 
 	for (i = 0; i < NUM_MPWEAPONS; i++) {
-		if (challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
 			if (g_MpWeaponSetRandomFilters[i] == 1) {
 				weapons[index] = i - lockcount;
 				index++;
@@ -1578,7 +1577,7 @@ void mpApplyWeaponSet(void)
 				for (j = 0; !done; j++) {
 					if (j > MPWEAPON_DISABLED) {
 						done = true;
-					} else if (weaponnum == g_MpWeapons[j].weaponnum) {
+					} else if (weaponnum == catalogGetMpWeaponNum(j)) { /* SA-5e */
 						mpweaponnum = j;
 						done = true;
 					}
@@ -2973,7 +2972,7 @@ s32 mpDefaultHeadForBody(s32 mpbodynum)
 	s32 headnum = body->headnum;
 
 	if (headnum == HEAD_RANDOM_GENDER) {
-		if (g_HeadsAndBodies[body->bodynum].ismale) {
+		if (catalogGetBodyIsMale(body->bodynum)) { /* SA-5d */
 			headnum = g_MpMaleHeads[rngRandom() % ARRAYCOUNT(g_MpMaleHeads)];
 		} else {
 			headnum = g_MpFemaleHeads[rngRandom() % ARRAYCOUNT(g_MpFemaleHeads)];
@@ -3717,14 +3716,18 @@ void mpGenerateBotNames(void)
 		profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
 
 		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
+			// P2: Check for mod-provided bot name override
+			const char *modName = modmgrGetBotProfileName(profilenum);
+			const char *baseName = modName ? modName : langGet(g_BotProfiles[profilenum].name);
+
 			if (counts[profilenum] >= 0) {
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
-				snprintf(name, sizeof(name), "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
+				snprintf(name, sizeof(name), "%s:%d\n", baseName, counts[profilenum]);
 				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			} else {
-				// One bots using this profile - just use the profile name
-				snprintf(name, sizeof(name), "%s\n", langGet(g_BotProfiles[profilenum].name));
+				// One bot using this profile - just use the profile name
+				snprintf(name, sizeof(name), "%s\n", baseName);
 				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
 			}
 		}

@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "memsizes.h"
 #include "game/debug.h"
@@ -1058,13 +1059,14 @@ Gfx *bgRenderScene(Gfx *gdl)
 			roomnum = 0x71;
 		}
 
+		/* M0.1a: catalog-first stage identity comparison */
 		if (PLAYERCOUNT() == 1
-				&& (stagenum == STAGE_DEFECTION
-					|| stagenum == STAGE_EXTRACTION
-					|| stagenum == STAGE_TEST_OLD
-					|| stagenum == STAGE_INFILTRATION
-					|| stagenum == STAGE_ESCAPE
-					|| stagenum == STAGE_ATTACKSHIP)) {
+				&& (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
+					|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
+					|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
+					|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
+					|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
+					|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0)) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);

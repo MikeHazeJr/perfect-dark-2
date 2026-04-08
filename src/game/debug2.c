@@ -13,6 +13,7 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "actionmap.h"
 
 #define DEBUGMENU_MAIN     0
 #define DEBUGMENU_CUTSCENE 1
@@ -538,7 +539,7 @@ void debug0f11944cnb(void) // not called
 }
 #endif
 
-bool debugProcessInput(s8 stickx, s8 sticky, u32 buttons, u32 buttonsthisframe)
+bool debugProcessInput(s32 player) /* M0.2: migrated from bitmask to action queries */
 {
 #ifdef DEBUG
 	s32 i;
@@ -570,7 +571,8 @@ bool debugProcessInput(s8 stickx, s8 sticky, u32 buttons, u32 buttonsthisframe)
 	}
 
 	if (!g_DebugIsMenuOpen) {
-		tmp = (buttons & U_CBUTTONS) && (buttons & D_CBUTTONS);
+		/* M0.2: U+D C-buttons simultaneously held opens debug menu */
+		tmp = actionHeld(player, ACTION_CBUTTON_UP) && actionHeld(player, ACTION_CBUTTON_DOWN);
 		g_DebugIsMenuOpen = tmp;
 		return tmp;
 	}
@@ -580,7 +582,7 @@ bool debugProcessInput(s8 stickx, s8 sticky, u32 buttons, u32 buttonsthisframe)
 		var80075d68 = -2;
 	}
 
-	if (buttonsthisframe & (A_BUTTON | START_BUTTON)) {
+	if (actionPressed(player, ACTION_USE) || actionPressed(player, ACTION_PAUSE)) {
 		if (g_DebugCurMenu == DEBUGMENU_CUTSCENE) {
 			if (dmenuGetSelectedOption() == 0) {
 				// Selected "main" from cutscene menu
@@ -703,7 +705,7 @@ bool debugProcessInput(s8 stickx, s8 sticky, u32 buttons, u32 buttonsthisframe)
 		}
 	}
 
-	if (buttonsthisframe & START_BUTTON) {
+	if (actionPressed(player, ACTION_PAUSE)) {
 		if (g_DebugIsMenuOpen == true) {
 			dhudClear();
 		}

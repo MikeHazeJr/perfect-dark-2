@@ -86,6 +86,7 @@
 #include "lib/collision.h"
 #include "lib/crash.h"
 #include "lib/joy.h"
+#include "actionmap.h"
 #include "lib/lib_06440.h"
 #include "lib/lib_317f0.h"
 #include "lib/main.h"
@@ -104,6 +105,42 @@
 #include <string.h>
 #include "assetcatalog_resolve.h"
 #include "assetcatalog_load.h"
+
+/* M0.2: helper — returns true if player has any button or stick input.
+ * Replaces the old joyGetButtons(contpad, 0xffffffff) + stick deadzone checks.
+ * Threshold 0.125 matches the legacy 10/80 stick deadzone. */
+static s32 lvPlayerHasAnyInput(s32 playerIdx)
+{
+	/* Check any digital action pressed this frame */
+	for (s32 a = 0; a < ACTION_AXIS_MOVE_X; a++) {
+		if (actionHeld(playerIdx, (InputAction)a)) {
+			return 1;
+		}
+	}
+	/* Check stick axes beyond deadzone (10/80 = 0.125) */
+	f32 mx = actionValue(playerIdx, ACTION_AXIS_MOVE_X);
+	f32 my = actionValue(playerIdx, ACTION_AXIS_MOVE_Y);
+	if (mx > 0.125f || mx < -0.125f || my > 0.125f || my < -0.125f) {
+		return 1;
+	}
+	return 0;
+}
+
+/* M0.2: helper — returns true if player pressed any button this frame (rising edge). */
+static s32 lvPlayerAnyButtonPressedThisFrame(s32 playerIdx)
+{
+	for (s32 a = 0; a < ACTION_AXIS_MOVE_X; a++) {
+		if (actionPressed(playerIdx, (InputAction)a)) {
+			return 1;
+		}
+	}
+	f32 mx = actionValue(playerIdx, ACTION_AXIS_MOVE_X);
+	f32 my = actionValue(playerIdx, ACTION_AXIS_MOVE_Y);
+	if (mx > 0.125f || mx < -0.125f || my > 0.125f || my < -0.125f) {
+		return 1;
+	}
+	return 0;
+}
 
 struct sndstate *g_MiscSfxAudioHandles[3];
 u32 var800aa5bc;
@@ -2321,26 +2358,11 @@ void lvTick(void)
 	bgunTickBoost();
 	hudmsgsTick();
 
-	if ((joyGetButtonsPressedThisFrame(0, 0xffffffff) != 0
-				|| joyGetStickX(0) > 10
-				|| joyGetStickX(0) < -10
-				|| joyGetStickY(0) > 10
-				|| joyGetStickY(0) < -10
-				|| joyGetButtonsPressedThisFrame(1, 0xffffffff) != 0
-				|| joyGetStickX(1) > 10
-				|| joyGetStickX(1) < -10
-				|| joyGetStickY(1) > 10
-				|| joyGetStickY(1) < -10
-				|| joyGetButtonsPressedThisFrame(2, 0xffffffff) != 0
-				|| joyGetStickX(2) > 10
-				|| joyGetStickX(2) < -10
-				|| joyGetStickY(2) > 10
-				|| joyGetStickY(2) < -10
-				|| joyGetButtonsPressedThisFrame(3, 0xffffffff) != 0
-				|| joyGetStickX(3) > 10
-				|| joyGetStickX(3) < -10
-				|| joyGetStickY(3) > 10
-				|| joyGetStickY(3) < -10) && g_IsTitleDemo) {
+	/* M0.2: any-player input check for title demo skip */
+	if ((lvPlayerAnyButtonPressedThisFrame(0)
+				|| lvPlayerAnyButtonPressedThisFrame(1)
+				|| lvPlayerAnyButtonPressedThisFrame(2)
+				|| lvPlayerAnyButtonPressedThisFrame(3)) && g_IsTitleDemo) {
 		if (g_Vars.stagenum != STAGE_TITLE) {
 			titleSetNextMode(TITLEMODE_SKIP);
 			mainChangeToStage(STAGE_TITLE);
@@ -2350,26 +2372,11 @@ void lvTick(void)
 	}
 
 	if (STAGE_IS_GAMEPLAY(g_Vars.stagenum) && !g_IsTitleDemo && !g_Vars.in_cutscene) {
-		if (joyGetButtons(0, 0xffffffff) == 0
-				&& joyGetStickX(0) < 10
-				&& joyGetStickX(0) > -10
-				&& joyGetStickY(0) < 10
-				&& joyGetStickY(0) > -10
-				&& joyGetButtons(1, 0xffffffff) == 0
-				&& joyGetStickX(1) < 10
-				&& joyGetStickX(1) > -10
-				&& joyGetStickY(1) < 10
-				&& joyGetStickY(1) > -10
-				&& joyGetButtons(2, 0xffffffff) == 0
-				&& joyGetStickX(2) < 10
-				&& joyGetStickX(2) > -10
-				&& joyGetStickY(2) < 10
-				&& joyGetStickY(2) > -10
-				&& joyGetButtons(3, 0xffffffff) == 0
-				&& joyGetStickX(3) < 10
-				&& joyGetStickX(3) > -10
-				&& joyGetStickY(3) < 10
-				&& joyGetStickY(3) > -10) {
+		/* M0.2: idle detection — no input from any player */
+		if (!lvPlayerHasAnyInput(0)
+				&& !lvPlayerHasAnyInput(1)
+				&& !lvPlayerHasAnyInput(2)
+				&& !lvPlayerHasAnyInput(3)) {
 			g_TitleIdleTime60 += g_Vars.diffframe60;
 		} else {
 			g_TitleIdleTime60 = 0;

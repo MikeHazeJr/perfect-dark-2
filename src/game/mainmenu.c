@@ -24,6 +24,7 @@
 #include "game/setup.h"
 #include "game/tex.h"
 #include "romdata.h"
+#include "game/bg.h"
 #include "game/title.h"
 #include "game/training.h"
 #include "bss.h"
@@ -733,11 +734,26 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 		g_NotLoadMod = true;
 		romdataFileFreeForSolo();
 
-		if (g_Vars.stagenum == g_MissionConfig.stagenum) {
+		/* Resolve stagenum at point of consumption: catalog ID is the identity.
+		 * If stage_id is set (ImGui path), resolve via catalog.
+		 * Fall back to stagenum only if stage_id is empty (legacy menu path).
+		 * Write resolved_stagenum back to g_MissionConfig.stagenum so that
+		 * not-yet-migrated consumers (endscreen.c restart, menutick.c) work. */
+		s32 resolved_stagenum = (s32)(u8)g_MissionConfig.stagenum;
+		if (g_MissionConfig.stage_id[0] != '\0') {
+			catalog_stage_result_t sresult;
+			if (catalogResolveStage(g_MissionConfig.stage_id, &sresult)) {
+				resolved_stagenum = sresult.stagenum;
+			}
+			/* else: catalog miss — keep stagenum fallback; investigate via log if needed */
+		}
+		g_MissionConfig.stagenum = (u8)resolved_stagenum;  /* sync for legacy consumers */
+
+		if (g_Vars.stagenum == resolved_stagenum) {
 			g_Vars.restartlevel = true;
 		}
 
-		titleSetNextStage(g_MissionConfig.stagenum);
+		titleSetNextStage(resolved_stagenum);
 
 		if (g_MissionConfig.iscoop) {
 			if (g_Vars.numaibuddies == 0) {
@@ -781,7 +797,7 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 
 		lvSetDifficulty(g_MissionConfig.difficulty);
 		titleSetNextMode(TITLEMODE_SKIP);
-		mainChangeToStage(g_MissionConfig.stagenum);
+		mainChangeToStage(resolved_stagenum);
 
 #if VERSION >= VERSION_NTSC_1_0
 		viBlack(true);
@@ -810,10 +826,19 @@ MenuDialogHandlerResult menudialog00103608(s32 operation, struct menudialogdef *
 	switch (operation) {
 	case MENUOP_OPEN:
 		g_Menus[g_MpPlayerNum].menumodel.curparams = 0;
-
-		setupLoadBriefing(g_MissionConfig.stagenum,
-				g_Menus[g_MpPlayerNum].menumodel.allocstart,
-				g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
+		{
+			/* Resolve stagenum from catalog ID at point of use */
+			s32 bsn = (s32)(u8)g_MissionConfig.stagenum;
+			if (g_MissionConfig.stage_id[0] != '\0') {
+				catalog_stage_result_t bsresult;
+				if (catalogResolveStage(g_MissionConfig.stage_id, &bsresult)) {
+					bsn = bsresult.stagenum;
+				}
+			}
+			setupLoadBriefing(bsn,
+					g_Menus[g_MpPlayerNum].menumodel.allocstart,
+					g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
+		}
 		break;
 	case MENUOP_CLOSE:
 		langClearBank(g_Briefing.langbank);
@@ -821,6 +846,33 @@ MenuDialogHandlerResult menudialog00103608(s32 operation, struct menudialogdef *
 	}
 
 	return 0;
+}
+
+/**
+ * soloLoadBriefingForStageId — Load briefing data for a given catalog ID.
+ * Called from ImGui mission select (C++) to populate g_Briefing without
+ * requiring the legacy AcceptMission dialog to be opened.
+ * Clears previous language bank before loading new one.
+ */
+void soloLoadBriefingForStageId(const char *stage_id)
+{
+	if (!stage_id || stage_id[0] == '\0') return;
+
+	/* Clear previous briefing language bank */
+	if (g_Briefing.langbank) {
+		langClearBank(g_Briefing.langbank);
+	}
+
+	/* Resolve stagenum from catalog ID */
+	catalog_stage_result_t sr;
+	s32 sn = 0;
+	if (catalogResolveStage(stage_id, &sr)) {
+		sn = sr.stagenum;
+	}
+
+	setupLoadBriefing(sn,
+			g_Menus[g_MpPlayerNum].menumodel.allocstart,
+			g_Menus[g_MpPlayerNum].menumodel.alloclen, &g_Briefing);
 }
 
 struct menuitem g_AcceptMissionMenuItems[] = {
@@ -1809,28 +1861,28 @@ struct menudialogdef g_AntiMissionDifficultyMenuDialog = {
 };
 
 struct solostage g_SoloStages[NUM_SOLOSTAGES] = {
-	// stage,             unk04,
-	{ STAGE_DEFECTION,     0x0c, L_OPTIONS_133, L_OPTIONS_134, L_MPWEAPONS_124 },
-	{ STAGE_INVESTIGATION, 0x0d, L_OPTIONS_135, L_OPTIONS_136, L_MPWEAPONS_172 },
-	{ STAGE_EXTRACTION,    0x0e, L_OPTIONS_137, L_OPTIONS_138, L_MPWEAPONS_125 },
-	{ STAGE_VILLA,         0x0f, L_OPTIONS_139, L_OPTIONS_140, L_OPTIONS_139   },
-	{ STAGE_CHICAGO,       0x10, L_OPTIONS_141, L_OPTIONS_142, L_OPTIONS_141   },
-	{ STAGE_G5BUILDING,    0x11, L_OPTIONS_143, L_OPTIONS_144, L_OPTIONS_143   },
-	{ STAGE_INFILTRATION,  0x12, L_OPTIONS_145, L_OPTIONS_146, L_MPWEAPONS_126 },
-	{ STAGE_RESCUE,        0x13, L_OPTIONS_147, L_OPTIONS_148, L_MPWEAPONS_127 },
-	{ STAGE_ESCAPE,        0x14, L_OPTIONS_149, L_OPTIONS_150, L_MPWEAPONS_128 },
-	{ STAGE_AIRBASE,       0x15, L_OPTIONS_151, L_OPTIONS_152, L_OPTIONS_151   },
-	{ STAGE_AIRFORCEONE,   0x16, L_OPTIONS_153, L_OPTIONS_154, L_OPTIONS_153   },
-	{ STAGE_CRASHSITE,     0x17, L_OPTIONS_155, L_OPTIONS_156, L_OPTIONS_155   },
-	{ STAGE_PELAGIC,       0x18, L_OPTIONS_157, L_OPTIONS_158, L_OPTIONS_157   },
-	{ STAGE_DEEPSEA,       0x19, L_OPTIONS_159, L_OPTIONS_160, L_OPTIONS_159   },
-	{ STAGE_DEFENSE,       0x1a, L_OPTIONS_161, L_OPTIONS_162, L_OPTIONS_161   },
-	{ STAGE_ATTACKSHIP,    0x1b, L_OPTIONS_163, L_OPTIONS_164, L_OPTIONS_163   },
-	{ STAGE_SKEDARRUINS,   0x1c, L_OPTIONS_165, L_OPTIONS_166, L_OPTIONS_165   },
-	{ STAGE_MBR,           0x1c, L_OPTIONS_167, L_OPTIONS_003, L_OPTIONS_167   },
-	{ STAGE_MAIANSOS,      0x1c, L_OPTIONS_168, L_OPTIONS_003, L_OPTIONS_168   },
-	{ STAGE_WAR,           0x1c, L_OPTIONS_170, L_OPTIONS_003, L_OPTIONS_170   },
-	{ STAGE_DUEL,          0x1c, L_OPTIONS_171, L_OPTIONS_003, L_OPTIONS_171   },
+	// stage,             unk04,                                                  catalog_id
+	{ STAGE_DEFECTION,     0x0c, L_OPTIONS_133, L_OPTIONS_134, L_MPWEAPONS_124, "base:defection"     },
+	{ STAGE_INVESTIGATION, 0x0d, L_OPTIONS_135, L_OPTIONS_136, L_MPWEAPONS_172, "base:investigation" },
+	{ STAGE_EXTRACTION,    0x0e, L_OPTIONS_137, L_OPTIONS_138, L_MPWEAPONS_125, "base:extraction"    },
+	{ STAGE_VILLA,         0x0f, L_OPTIONS_139, L_OPTIONS_140, L_OPTIONS_139,   "base:villa"         },
+	{ STAGE_CHICAGO,       0x10, L_OPTIONS_141, L_OPTIONS_142, L_OPTIONS_141,   "base:chicago"       },
+	{ STAGE_G5BUILDING,    0x11, L_OPTIONS_143, L_OPTIONS_144, L_OPTIONS_143,   "base:g5building"    },
+	{ STAGE_INFILTRATION,  0x12, L_OPTIONS_145, L_OPTIONS_146, L_MPWEAPONS_126, "base:infiltration"  },
+	{ STAGE_RESCUE,        0x13, L_OPTIONS_147, L_OPTIONS_148, L_MPWEAPONS_127, "base:rescue"        },
+	{ STAGE_ESCAPE,        0x14, L_OPTIONS_149, L_OPTIONS_150, L_MPWEAPONS_128, "base:escape"        },
+	{ STAGE_AIRBASE,       0x15, L_OPTIONS_151, L_OPTIONS_152, L_OPTIONS_151,   "base:airbase"       },
+	{ STAGE_AIRFORCEONE,   0x16, L_OPTIONS_153, L_OPTIONS_154, L_OPTIONS_153,   "base:airforceone"   },
+	{ STAGE_CRASHSITE,     0x17, L_OPTIONS_155, L_OPTIONS_156, L_OPTIONS_155,   "base:crashsite"     },
+	{ STAGE_PELAGIC,       0x18, L_OPTIONS_157, L_OPTIONS_158, L_OPTIONS_157,   "base:pelagic"       },
+	{ STAGE_DEEPSEA,       0x19, L_OPTIONS_159, L_OPTIONS_160, L_OPTIONS_159,   "base:deepsea"       },
+	{ STAGE_DEFENSE,       0x1a, L_OPTIONS_161, L_OPTIONS_162, L_OPTIONS_161,   "base:defense"       },
+	{ STAGE_ATTACKSHIP,    0x1b, L_OPTIONS_163, L_OPTIONS_164, L_OPTIONS_163,   "base:attackship"    },
+	{ STAGE_SKEDARRUINS,   0x1c, L_OPTIONS_165, L_OPTIONS_166, L_OPTIONS_165,   "base:skedarruins"   },
+	{ STAGE_MBR,           0x1c, L_OPTIONS_167, L_OPTIONS_003, L_OPTIONS_167,   "base:mbr"           },
+	{ STAGE_MAIANSOS,      0x1c, L_OPTIONS_168, L_OPTIONS_003, L_OPTIONS_168,   "base:maiansos"      },
+	{ STAGE_WAR,           0x1c, L_OPTIONS_170, L_OPTIONS_003, L_OPTIONS_170,   "base:war"           },
+	{ STAGE_DUEL,          0x1c, L_OPTIONS_171, L_OPTIONS_003, L_OPTIONS_171,   "base:duel"          },
 };
 
 s32 getNumUnlockedSpecialStages(void)
@@ -1966,10 +2018,10 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 		g_Vars.mplayerisrunning = false;
 		g_Vars.normmplayerisrunning = false;
 		g_MissionConfig.stagenum = g_SoloStages[sp188].stagenum;
-		/* Phase 2: populate PRIMARY catalog ID string field */
+		/* M0.1a: use catalog_id directly from g_SoloStages[] — no roundtrip needed */
 		{
-			const char *cid = catalogIdByRuntime(ASSET_MAP, g_SoloStages[sp188].stagenum);
-			if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
+			const char *cid = g_SoloStages[sp188].catalog_id;
+			if (cid && cid[0]) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 			else { g_MissionConfig.stage_id[0] = '\0'; }
 		}
 		g_MissionConfig.stageindex = sp188;

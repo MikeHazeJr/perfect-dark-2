@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 49 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 55 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -208,6 +208,9 @@ add_compile_options(
 
 # C specific flags
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>)
+# Promote these to hard errors for C — catches missing forward decls and missing returns
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=return-type>)
 
 # C++ specific flags
 add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>)

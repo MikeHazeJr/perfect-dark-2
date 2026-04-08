@@ -79,6 +79,7 @@
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
 #include "assetcatalog.h"
+#include "actionmap.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -1334,32 +1335,32 @@ void playerSpawn(void)
 			}
 
 			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
-				/* F.6: resolve spawn weapon via g_MatchConfig.spawnWeaponNum.
+				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 				 * 0xFF = Random → fall through to weapons[0] from the active set. */
-				struct mpweapon *mpweapon = NULL;
 				s32 resolvedWeaponNum = 0;
+				s32 spawnWeaponIdx = -1;
 				if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
 					s32 wi;
 					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 					for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
-						if (g_MpWeapons[wi].weaponnum == resolvedWeaponNum) {
-							mpweapon = &g_MpWeapons[wi];
+						if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
+							spawnWeaponIdx = wi;
 							break;
 						}
 					}
 				} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
 						&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
 						&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-					mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-					resolvedWeaponNum = mpweapon->weaponnum;
+					spawnWeaponIdx = g_MpSetup.weapons[0];
+					resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
 				}
 				if (resolvedWeaponNum > 0) {
 					invGiveSingleWeapon(resolvedWeaponNum);
-					if (mpweapon) {
-						const s32 ammotype = (mpweapon == &g_MpWeapons[MPWEAPON_COMBATBOOST])
-							? AMMOTYPE_BOOST : mpweapon->priammotype;
+					if (spawnWeaponIdx >= 0) {
+						const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)
+							? AMMOTYPE_BOOST : catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
 						if (ammotype) {
-							s32 startammo = mpweapon->priammoqty / 2;
+							s32 startammo = catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx) / 2;
 							if (startammo == 0) {
 								startammo = 1;
 							}
@@ -1778,11 +1779,7 @@ void playerTickChrBody(void)
 			texGetPoolLeftPos(&texpool);
 		} else {
 			// 2-4 players
-			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-			}
-
-			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 
 			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
 			 * missing file, etc.). If the player's configured body is broken,
@@ -1795,14 +1792,11 @@ void playerTickChrBody(void)
 				|| bodymodeldef->numparts <= 0
 				|| bodymodeldef->numparts > 500) {
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
-					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5-cleanup */
+					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
 				bodynum = BODY_DARK_COMBAT;
 				headnum = HEAD_DARK_COMBAT;
 
-				if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-					g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-				}
-				bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
+				bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
 
 				if (bodymodeldef == NULL) {
 					sysLogPrintf(LOG_WARNING, "PLAYER: fallback bodymodeldef also NULL — giving up");
@@ -1810,16 +1804,12 @@ void playerTickChrBody(void)
 				}
 			}
 
-			if (g_HeadsAndBodies[bodynum].unk00_01) {
+			if (catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
 			} else {
-				if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-					g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
-				}
-
-				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+				headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
 			}
 		}
 
@@ -1832,15 +1822,8 @@ void playerTickChrBody(void)
 			bodynum = BODY_DARK_COMBAT;
 			headnum = HEAD_DARK_COMBAT;
 
-			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
-				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-			}
-			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
-
-			if (g_HeadsAndBodies[headnum].modeldef == NULL) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
-			}
-			headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
+			headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
 
 			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
 		}
@@ -1871,7 +1854,7 @@ void playerTickChrBody(void)
 		chr->race = bodyGetRace(chr->bodynum);
 		chr->radius = g_Vars.currentplayer->bond2.radius;
 
-		g_Vars.currentplayer->vv_eyeheight = (s32)g_HeadsAndBodies[bodynum].height;
+		g_Vars.currentplayer->vv_eyeheight = catalogGetBodyHeight(bodynum); /* SA-5d */
 
 #if VERSION >= VERSION_NTSC_1_0
 		if (g_Vars.antiplayernum >= 0
@@ -1884,13 +1867,13 @@ void playerTickChrBody(void)
 		g_Vars.currentplayer->vv_headheight = g_Vars.currentplayer->vv_eyeheight;
 
 		if (headnum >= 0) {
-			g_Vars.currentplayer->vv_headheight += (s32)g_HeadsAndBodies[headnum].height;
+			g_Vars.currentplayer->vv_headheight += catalogGetHeadHeight(headnum); /* SA-5f */
 		} else {
 			g_Vars.currentplayer->vv_headheight += 13;
 		}
 
-		if (g_Vars.currentplayer->vv_headheight > g_HeadsAndBodies[BODY_MRBLONDE].height + g_HeadsAndBodies[HEAD_MRBLONDE].height) {
-			g_Vars.currentplayer->vv_headheight = g_HeadsAndBodies[BODY_MRBLONDE].height + g_HeadsAndBodies[HEAD_MRBLONDE].height;
+		if (g_Vars.currentplayer->vv_headheight > catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE)) { /* SA-5d/5f */
+			g_Vars.currentplayer->vv_headheight = catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE); /* SA-5d/5f */
 		}
 
 		g_Vars.currentplayer->vv_height = g_Vars.currentplayer->vv_eyeheight;
@@ -2288,8 +2271,9 @@ void playerTickCutscene(bool arg0)
 	f32 translatescale = bgGetStageTranslationThing();
 	f32 fovy;
 	s32 endframe;
-	s8 contpadnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-	u32 buttons;
+	s32 playeridx = g_Vars.currentplayernum; /* M0.2: action map player */
+	s32 anybutton;  /* M0.2: replaces joyGetButtons bitmask */
+	s32 cancelorpause; /* M0.2: B_BUTTON | START_BUTTON test */
 #if PAL
 	u8 stack3[0x2c];
 #endif
@@ -2301,10 +2285,21 @@ void playerTickCutscene(bool arg0)
 	f32 sp64[4];
 	f32 sp54[4];
 
+	/* M0.2: replaced joyGetButtons(contpadnum, 0xffffffff) with action map queries */
 	if (arg0) {
-		buttons = joyGetButtons(contpadnum, 0xffffffff);
+		anybutton = actionHeld(playeridx, ACTION_USE)
+			|| actionHeld(playeridx, ACTION_CANCEL_USE)
+			|| actionHeld(playeridx, ACTION_FIRE_PRIMARY)
+			|| actionHeld(playeridx, ACTION_FIRE_SECONDARY)
+			|| actionHeld(playeridx, ACTION_PAUSE)
+			|| actionHeld(playeridx, ACTION_FIRE_MODE)
+			|| actionHeld(playeridx, ACTION_RELOAD)
+			|| actionHeld(playeridx, ACTION_WEAPON_NEXT);
+		cancelorpause = actionHeld(playeridx, ACTION_CANCEL_USE)
+			|| actionHeld(playeridx, ACTION_PAUSE);
 	} else {
-		buttons = 0;
+		anybutton = 0;
+		cancelorpause = 0;
 	}
 
 	animLoadHeader(g_CutsceneAnimNum);
@@ -2421,15 +2416,17 @@ void playerTickCutscene(bool arg0)
 	}
 
 	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
-		buttons |= START_BUTTON;
+		anybutton = 1;
+		cancelorpause = 1;
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (g_CutsceneCurTotalFrame60f > 30 && (buttons & 0xffffffff)) {
+	/* M0.2: replaced buttons bitmask tests with action map booleans */
+	if (g_CutsceneCurTotalFrame60f > 30 && anybutton) {
 		g_CutsceneSkipRequested = true;
 
 		if (g_Vars.autocutplaying) {
-			if (buttons & (B_BUTTON | START_BUTTON)) {
+			if (cancelorpause) {
 				g_Vars.autocutgroupskip = true;
 			} else {
 				g_Vars.autocutfinished = true;
@@ -2438,11 +2435,11 @@ void playerTickCutscene(bool arg0)
 	}
 #else
 	if (g_CutsceneCurTotalFrame60f > 30) {
-		if (buttons & 0xffffffff) {
+		if (anybutton) {
 			g_CutsceneSkipRequested = true;
 		}
 
-		if ((buttons & (B_BUTTON | START_BUTTON)) && g_Vars.autocutplaying) {
+		if (cancelorpause && g_Vars.autocutplaying) {
 			g_Vars.autocutgroupskip = true;
 		}
 	}
@@ -3713,16 +3710,16 @@ void playerTick(bool arg0)
 #if VERSION >= VERSION_NTSC_1_0
 				if (g_Vars.currentplayer->eyespy->active) {
 					// And is being controlled
-					s8 contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-					u32 buttons = arg0 ? joyGetButtons(contpad1, 0xffffffff) : 0;
+					/* M0.2: replaced joyGetButtons + START_BUTTON test with actionHeld */
+					s32 wantpause = arg0 ? actionHeld(g_Vars.currentplayernum, ACTION_PAUSE) : 0;
 
 					if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
-						buttons |= START_BUTTON;
+						wantpause = 1;
 					}
 
 					if (g_Vars.currentplayer->isdead == false
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED
-							&& (buttons & START_BUTTON)) {
+							&& wantpause) {
 						if (g_Vars.mplayerisrunning == false) {
 							playerPause(MENUROOT_MAINMENU);
 						} else {
@@ -3905,11 +3902,10 @@ void playerTick(bool arg0)
 				struct projectile *projectile = rocket->base.projectile;
 				u32 mode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
 				f32 targetspeed;
-				s8 contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-				s8 contpad2 = optionsGetContpadNum2(g_Vars.currentplayerstats->mpindex);
+				s32 slayerplayeridx = g_Vars.currentplayernum; /* M0.2: action map player */
 				s8 stickx = 0;
 				s8 sticky = 0;
-				s8 rsticky = joyGetRStickY(contpad1);
+				s8 rsticky = (s8)(actionValue(slayerplayeridx, ACTION_AXIS_AIM_Y) * 80); /* M0.2: joyGetRStickY → actionValue * 80 */
 				Mtxf sp1fc;
 				Mtxf sp1bc;
 				Mtxf sp17c;
@@ -3939,64 +3935,71 @@ void playerTick(bool arg0)
 						|| mode == CONTROLMODE_22
 						|| mode == CONTROLMODE_21) {
 					if (g_PlayersWithControl[g_Vars.currentplayernum]) {
+						/* M0.2: collapsed contpad1/contpad2 dual-controller to per-player action map */
 						if (mode == CONTROLMODE_21 || mode == CONTROLMODE_22) {
-							if (joyGetButtons(contpad1, A_BUTTON | B_BUTTON)
-									|| joyGetButtons(contpad2, A_BUTTON | B_BUTTON)
-									|| joyGetButtons(contpad2, Z_TRIG)) {
+							if (actionHeld(slayerplayeridx, ACTION_USE)
+									|| actionHeld(slayerplayeridx, ACTION_CANCEL_USE)
+									|| actionHeld(slayerplayeridx, ACTION_FIRE_PRIMARY)) {
 								slow = true;
 							}
 
-							if (joyGetButtonsPressedThisFrame(contpad1, Z_TRIG)) {
+							if (actionPressed(slayerplayeridx, ACTION_FIRE_PRIMARY)) {
 								explode = true;
 							}
 						} else {
-							if (joyGetButtons(contpad1, A_BUTTON | B_BUTTON)
-									|| joyGetButtons(contpad2, A_BUTTON | B_BUTTON)
-									|| joyGetButtons(contpad1, Z_TRIG)) {
+							if (actionHeld(slayerplayeridx, ACTION_USE)
+									|| actionHeld(slayerplayeridx, ACTION_CANCEL_USE)
+									|| actionHeld(slayerplayeridx, ACTION_FIRE_PRIMARY)) {
 								slow = true;
 							}
 
-							if (joyGetButtonsPressedThisFrame(contpad2, Z_TRIG)) {
+							if (actionPressed(slayerplayeridx, ACTION_FIRE_PRIMARY)) {
 								explode = true;
 							}
 						}
 
-						stickx = joyGetStickX(contpad1);
-						sticky = joyGetStickY(contpad1);
+						stickx = (s8)(actionValue(slayerplayeridx, ACTION_AXIS_MOVE_X) * 80); /* M0.2: joyGetStickX → actionValue * 80 */
+						sticky = (s8)(actionValue(slayerplayeridx, ACTION_AXIS_MOVE_Y) * 80); /* M0.2: joyGetStickY → actionValue * 80 */
 					} else {
 						slow = true;
 					}
 
-					if (joyGetButtons(contpad1, START_BUTTON) || joyGetButtons(contpad2, START_BUTTON)) {
+					/* M0.2: collapsed contpad1/contpad2 START_BUTTON to per-player action */
+					if (actionHeld(slayerplayeridx, ACTION_PAUSE)) {
 						pause = true;
 					}
 				} else {
 					if (g_PlayersWithControl[g_Vars.currentplayernum]) {
+						/* M0.2: replaced joyGetButtons/joyGetButtonsPressedThisFrame with action map */
 						if (mode == CONTROLMODE_13 || mode == CONTROLMODE_14) {
-							if (joyGetButtonsPressedThisFrame(contpad1, A_BUTTON)) {
+							if (actionPressed(slayerplayeridx, ACTION_USE)) {
 								explode = true;
 							}
 
-							if (joyGetButtons(contpad1, B_BUTTON | Z_TRIG | R_TRIG)) {
+							if (actionHeld(slayerplayeridx, ACTION_CANCEL_USE)
+									|| actionHeld(slayerplayeridx, ACTION_FIRE_PRIMARY)
+									|| actionHeld(slayerplayeridx, ACTION_FIRE_SECONDARY)) {
 								slow = true;
 							}
 						} else {
-							if (joyGetButtonsPressedThisFrame(contpad1, Z_TRIG)) {
+							if (actionPressed(slayerplayeridx, ACTION_FIRE_PRIMARY)) {
 								explode = true;
 							}
 
-							if (joyGetButtons(contpad1, A_BUTTON | B_BUTTON | R_TRIG)) {
+							if (actionHeld(slayerplayeridx, ACTION_USE)
+									|| actionHeld(slayerplayeridx, ACTION_CANCEL_USE)
+									|| actionHeld(slayerplayeridx, ACTION_FIRE_SECONDARY)) {
 								slow = true;
 							}
 						}
 
-						stickx = joyGetStickX(contpad1);
-						sticky = joyGetStickY(contpad1);
+						stickx = (s8)(actionValue(slayerplayeridx, ACTION_AXIS_MOVE_X) * 80); /* M0.2: joyGetStickX → actionValue * 80 */
+						sticky = (s8)(actionValue(slayerplayeridx, ACTION_AXIS_MOVE_Y) * 80); /* M0.2: joyGetStickY → actionValue * 80 */
 					} else {
 						slow = true;
 					}
 
-					if (joyGetButtons(contpad1, START_BUTTON)) {
+					if (actionHeld(slayerplayeridx, ACTION_PAUSE)) {
 						pause = true;
 					}
 				}
@@ -4578,11 +4581,16 @@ void playerTick(bool arg0)
 
 	// Also a leftover from GE? Maybe cancelling fade in mission intros?
 	if (var8007074c) {
-		s8 contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+		/* M0.2: replaced joyGetButtonsPressedThisFrame with action map */
+		s32 introplayer = g_Vars.currentplayernum;
 
 		if (!lvIsPaused()
 				&& arg0
-				&& joyGetButtonsPressedThisFrame(contpad1, A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON | R_TRIG)) {
+				&& (actionPressed(introplayer, ACTION_USE)
+					|| actionPressed(introplayer, ACTION_CANCEL_USE)
+					|| actionPressed(introplayer, ACTION_FIRE_PRIMARY)
+					|| actionPressed(introplayer, ACTION_PAUSE)
+					|| actionPressed(introplayer, ACTION_FIRE_SECONDARY))) {
 			var8007074c = 2;
 
 			if (playerIsFadeComplete()) {
@@ -5125,7 +5133,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 									g_Vars.currentplayer->dostartnewlife = true;
 								}
 							} else if (g_NetMode != NETMODE_CLIENT)
-							if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000) && !mpIsPaused()) {
+							/* M0.2: 0xb000 = A_BUTTON|Z_TRIG|START_BUTTON → action map */
+							if ((actionHeld(g_Vars.currentplayernum, ACTION_USE)
+									|| actionHeld(g_Vars.currentplayernum, ACTION_FIRE_PRIMARY)
+									|| actionHeld(g_Vars.currentplayernum, ACTION_PAUSE)) && !mpIsPaused()) {
 								g_Vars.currentplayer->dostartnewlife = true;
 							}
 						} else {
@@ -5143,7 +5154,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 										&& g_Vars.currentplayer->client) {
 									canrestart =  (g_Vars.currentplayer->client->inmove[0].ucmd & UCMD_RESPAWN) != 0;
 								} else if (g_NetMode != NETMODE_CLIENT)
-								canrestart = joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000) && !mpIsPaused();
+								/* M0.2: 0xb000 = A_BUTTON|Z_TRIG|START_BUTTON → action map */
+								canrestart = (actionHeld(g_Vars.currentplayernum, ACTION_USE)
+									|| actionHeld(g_Vars.currentplayernum, ACTION_FIRE_PRIMARY)
+									|| actionHeld(g_Vars.currentplayernum, ACTION_PAUSE)) && !mpIsPaused();
 
 								// Get ready to respawn.
 								// The other player's health will be halved.
@@ -5256,7 +5270,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 								canrestart = true;
 							}
 						} else if (g_NetMode != NETMODE_CLIENT)
-						if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000)
+						/* M0.2: 0xb000 = A_BUTTON|Z_TRIG|START_BUTTON → action map */
+						if ((actionHeld(g_Vars.currentplayernum, ACTION_USE)
+								|| actionHeld(g_Vars.currentplayernum, ACTION_FIRE_PRIMARY)
+								|| actionHeld(g_Vars.currentplayernum, ACTION_PAUSE))
 								&& !mpIsPaused()
 								&& g_NumReasonsToEndMpMatch == 0) {
 							canrestart = true;
