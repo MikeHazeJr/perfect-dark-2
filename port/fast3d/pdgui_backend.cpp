@@ -45,6 +45,9 @@
 
 /* D5 Phase 2: Gamepad navigation helpers (wrap, accept/cancel, device detect) */
 #include "pdgui_nav.h"
+
+/* M0.2 Phase A: Core action map system */
+#include "actionmap.h"
 #include "config.h"
 #include "imgui/imgui_internal.h"
 
@@ -268,6 +271,10 @@ void pdguiInit(void *sdlWindow)
     configRegisterFloat("UI.SafeAreaBottom", &s_SafeMarginBottom, -1.0f, 0.5f);
     configRegisterFloat("UI.SafeAreaLeft",   &s_SafeMarginLeft,   -1.0f, 0.5f);
     configRegisterFloat("UI.SafeAreaRight",  &s_SafeMarginRight,  -1.0f, 0.5f);
+
+    /* M0.2 Phase A: Initialize action map system.
+     * Must be called before configLoad() so pd.ini keys are registered first. */
+    actionmapInit();
 }
 
 void pdguiNewFrame(void)
@@ -276,6 +283,12 @@ void pdguiNewFrame(void)
      * Must run unconditionally (before early-return) so stale presses
      * don't linger when menus are inactive. */
     pdguiNavEndFrame();
+
+    /* M0.2 Phase A: Flip action map edge signals (pressed/released → 0) and
+     * sample analog axes.  Both run unconditionally so stale state doesn't
+     * accumulate when menus are inactive. */
+    actionmapEndFrame();
+    actionmapPollFrame();
 
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
@@ -652,6 +665,9 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     /* ---- Track input device and buffer accept/cancel (Phase 2) ---- */
     pdguiNavOnEvent(ev);
+
+    /* ---- M0.2 Phase A: Update action map state ---- */
+    actionmapDispatch(ev);
 
     /* ---- Forward to ImGui for internal state tracking ---- */
     /* ImGui always needs to see events (mouse position, key state, gamepad)
