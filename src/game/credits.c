@@ -1878,8 +1878,11 @@ Gfx *creditsDraw(Gfx *gdl)
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
-	// Exit to CI if a button is pressed (other than L or R), for the port
-	if (joyGetButtonsPressedThisFrame(0, 0xffcf) ||
+	/* M0.2: exit to CI on any gameplay button press (0xffcf excluded UI-only buttons) */
+	if (actionPressed(0, ACTION_FIRE_PRIMARY)  || actionPressed(0, ACTION_FIRE_SECONDARY) ||
+		actionPressed(0, ACTION_USE)           || actionPressed(0, ACTION_CANCEL_USE) ||
+		actionPressed(0, ACTION_PAUSE)         || actionPressed(0, ACTION_RELOAD) ||
+		actionPressed(0, ACTION_WEAPON_NEXT)   || actionPressed(0, ACTION_WEAPON_PREV) ||
 		inputKeyJustPressed(VK_ESCAPE))
 #else
 	if (joyGetButtons(0, 0xffff) ||

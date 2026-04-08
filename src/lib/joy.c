@@ -958,19 +958,20 @@ s8 joyGetStickY(s8 contpadnum)
 	return g_JoyDataPtr->samples[g_JoyDataPtr->curlast].pads[contpadnum].stick_y;
 }
 
-/* M0.2 Phase B: CONT_* bit → InputAction mapping table.
+/* M0.2 Phase B2: CONT_* bit → InputAction mapping table (updated for new enum).
  *
  * Each entry maps one CONT_* bitmask bit to the primary InputAction it
  * represents in the unified action system.  joyGetButtons / joyGetButtonsPressedThisFrame
  * iterate this table to reconstruct a CONT_*-compatible bitmask so all
- * downstream callers work without modification.
+ * unmigrated callers continue to work.
  *
- * Stick-as-button entries (CONT_STICK_*) cover WASD / keyboard movement
- * bindings that get translated to digital direction bits by input.c.
- *
- * The three crouch variants (CONT_8000/4000/2000) all map to ACTION_CROUCH.
- * Phase C will split these into ACTION_CROUCH_CYCLE/HALF/FULL when the IMC
- * binding set is extended.
+ * Changes from Phase B:
+ *   - C-buttons  → ACTION_CBUTTON_* (were ACTION_AIM_*)
+ *   - D-pad      → ACTION_DPAD_* (were ACTION_MENU_*)
+ *   - L_TRIG     → ACTION_FIRE_MODE (was ACTION_ZOOM_IN)
+ *   - X_BUTTON   → ACTION_RELOAD (was ACTION_SPRINT)
+ *   - A_BUTTON   → ACTION_USE (was ACTION_INTERACT)
+ *   - B_BUTTON   → ACTION_CANCEL_USE (was ACTION_MENU_CANCEL)
  */
 typedef struct {
 	u32         contbit;
@@ -978,27 +979,27 @@ typedef struct {
 } ContBitAction;
 
 static const ContBitAction g_ContBitToAction[] = {
-	/* C-buttons / right stick */
-	{ CONT_F,          ACTION_AIM_RIGHT       },  /* R_CBUTTONS */
-	{ CONT_C,          ACTION_AIM_LEFT        },  /* L_CBUTTONS */
-	{ CONT_D,          ACTION_AIM_DOWN        },  /* D_CBUTTONS */
-	{ CONT_E,          ACTION_AIM_UP          },  /* U_CBUTTONS */
+	/* C-buttons: digital look/strafe */
+	{ CONT_F,          ACTION_CBUTTON_RIGHT   },  /* R_CBUTTONS */
+	{ CONT_C,          ACTION_CBUTTON_LEFT    },  /* L_CBUTTONS */
+	{ CONT_D,          ACTION_CBUTTON_DOWN    },  /* D_CBUTTONS */
+	{ CONT_E,          ACTION_CBUTTON_UP      },  /* U_CBUTTONS */
 	/* Shoulder / trigger */
 	{ CONT_R,          ACTION_FIRE_SECONDARY  },  /* R_TRIG */
-	{ CONT_L,          ACTION_ZOOM_IN         },  /* L_TRIG / BUTTON_ALTMODE */
+	{ CONT_L,          ACTION_FIRE_MODE       },  /* L_TRIG — fire mode cycle */
 	/* Face buttons */
-	{ CONT_EXTRA0,     ACTION_SPRINT          },  /* X_BUTTON */
+	{ CONT_EXTRA0,     ACTION_RELOAD          },  /* X_BUTTON */
 	{ CONT_EXTRA1,     ACTION_WEAPON_NEXT     },  /* Y_BUTTON / BUTTON_WPNFORWARD */
-	/* D-pad */
-	{ CONT_RIGHT,      ACTION_MENU_RIGHT      },  /* R_JPAD */
-	{ CONT_LEFT,       ACTION_WEAPON_PREV     },  /* L_JPAD / BUTTON_WPNBACK */
-	{ CONT_DOWN,       ACTION_MENU_DOWN       },  /* D_JPAD */
-	{ CONT_UP,         ACTION_MENU_UP         },  /* U_JPAD */
+	/* D-pad: gameplay weapon/function select */
+	{ CONT_RIGHT,      ACTION_DPAD_RIGHT      },  /* R_JPAD */
+	{ CONT_LEFT,       ACTION_DPAD_LEFT       },  /* L_JPAD */
+	{ CONT_DOWN,       ACTION_DPAD_DOWN       },  /* D_JPAD */
+	{ CONT_UP,         ACTION_DPAD_UP         },  /* U_JPAD */
 	/* Start / fire / use */
 	{ CONT_START,      ACTION_PAUSE           },  /* START_BUTTON */
 	{ CONT_G,          ACTION_FIRE_PRIMARY    },  /* Z_TRIG */
-	{ CONT_B,          ACTION_MENU_CANCEL     },  /* B_BUTTON */
-	{ CONT_A,          ACTION_INTERACT        },  /* A_BUTTON */
+	{ CONT_B,          ACTION_CANCEL_USE      },  /* B_BUTTON gameplay */
+	{ CONT_A,          ACTION_USE             },  /* A_BUTTON */
 	/* PC-port extended UI buttons */
 	{ CONT_0010,       ACTION_MENU_ACCEPT     },  /* BUTTON_UI_ACCEPT */
 	{ CONT_0020,       ACTION_MENU_CANCEL     },  /* BUTTON_UI_CANCEL */

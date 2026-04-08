@@ -114,27 +114,44 @@
  * ============================================================ */
 
 static const char * const s_ActionNames[ACTION_COUNT] = {
+    /* 0-5: movement */
     "MoveForward",
     "MoveBackward",
     "MoveLeft",
     "MoveRight",
     "AxisMoveX",
     "AxisMoveY",
+    /* 6-11: analog aim (right stick / mouse) */
     "AimUp",
     "AimDown",
     "AimLeft",
     "AimRight",
     "AxisAimX",
     "AxisAimY",
+    /* 12-15: N64 C-buttons */
+    "CButtonUp",
+    "CButtonDown",
+    "CButtonLeft",
+    "CButtonRight",
+    /* 16-19: gameplay D-pad */
+    "DpadUp",
+    "DpadDown",
+    "DpadLeft",
+    "DpadRight",
+    /* 20-31: combat */
     "FirePrimary",
     "FireSecondary",
+    "FireMode",
     "Reload",
-    "Interact",
+    "Use",
+    "CancelUse",
+    "ThrowWeapon",
     "Crouch",
     "Jump",
     "Sprint",
     "ZoomIn",
     "ZoomOut",
+    /* 32-39: weapon selection */
     "WeaponPrev",
     "WeaponNext",
     "Weapon1",
@@ -143,11 +160,13 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "Weapon4",
     "Weapon5",
     "Weapon6",
+    /* 40-44: vehicle */
     "VehicleAccelerate",
     "VehicleBrake",
     "VehicleSteerLeft",
     "VehicleSteerRight",
     "VehicleExit",
+    /* 45-52: menu nav */
     "MenuUp",
     "MenuDown",
     "MenuLeft",
@@ -156,6 +175,7 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "MenuCancel",
     "MenuTabPrev",
     "MenuTabNext",
+    /* 53-57: system */
     "Pause",
     "Screenshot",
     "ConsoleToggle",
@@ -965,35 +985,48 @@ static void setupGameplayDefaults(s32 player)
 
     /* Keyboard/mouse defaults for player 0 */
     if (p == 0) {
-        addBind(imc, ACTION_MOVE_FORWARD,   VKL_W,           JOY_BTN(0, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S,           JOY_BTN(0, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_MOVE_LEFT,      VK_A,            JOY_BTN(0, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_MOVE_RIGHT,     VKL_D,           JOY_BTN(0, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT,   JOY_BTN(0, JOFS_RTRIG));
-        addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT,  JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_RELOAD,         VKL_R,           JOY_BTN(0, JBTN_X));
-        addBind(imc, ACTION_INTERACT,       VKL_F,           JOY_BTN(0, JBTN_A));
-        addBind(imc, ACTION_CROUCH,         VK_LCTRL,        JOY_BTN(0, JBTN_B));
-        addBind(imc, ACTION_JUMP,           VK_SPACE,        JOY_BTN(0, JBTN_Y));
-        addBind(imc, ACTION_SPRINT,         VK_LSHIFT,       0);
-        addBind(imc, ACTION_ZOOM_IN,        VK_MOUSE_MIDDLE, 0);
-        addBind(imc, ACTION_ZOOM_OUT,       VKL_C,           0);
+        addBind(imc, ACTION_MOVE_FORWARD,   VKL_W,             JOY_BTN(0, JOFS_LSTICK_UP));
+        addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S,             JOY_BTN(0, JOFS_LSTICK_DOWN));
+        addBind(imc, ACTION_MOVE_LEFT,      VK_A,              JOY_BTN(0, JOFS_LSTICK_LEFT));
+        addBind(imc, ACTION_MOVE_RIGHT,     VKL_D,             JOY_BTN(0, JOFS_LSTICK_RIGHT));
+        addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT,     JOY_BTN(0, JOFS_RTRIG));
+        addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT,    JOY_BTN(0, JOFS_LTRIG));
+        addBind(imc, ACTION_FIRE_MODE,      VKL_C,             0);            /* L_TRIG: fire mode cycle */
+        addBind(imc, ACTION_RELOAD,         VKL_R,             JOY_BTN(0, JBTN_X)); /* X_BUTTON */
+        addBind(imc, ACTION_USE,            VKL_F,             JOY_BTN(0, JBTN_A)); /* A_BUTTON */
+        addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE,   JOY_BTN(0, JBTN_B)); /* B_BUTTON gameplay */
+        addBind(imc, ACTION_CROUCH,         VK_LCTRL,          0);
+        addBind(imc, ACTION_JUMP,           VK_SPACE,          JOY_BTN(0, JBTN_Y));
+        addBind(imc, ACTION_SPRINT,         VK_LSHIFT,         0);
+        addBind(imc, ACTION_ZOOM_IN,        0,                 0);            /* scope zoom: no default kbd */
+        addBind(imc, ACTION_ZOOM_OUT,       0,                 0);
         addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP, JOY_BTN(0, JBTN_LB));
         addBind(imc, ACTION_WEAPON_NEXT,    VK_MOUSE_WHEEL_DN, JOY_BTN(0, JBTN_RB));
-        addBind(imc, ACTION_WEAPON_1,       (u32)VK_1,       0);
-        addBind(imc, ACTION_WEAPON_2,       VKL_2,           0);
-        addBind(imc, ACTION_WEAPON_3,       VKL_3,           0);
-        addBind(imc, ACTION_WEAPON_4,       VKL_4,           0);
-        addBind(imc, ACTION_WEAPON_5,       VKL_5,           0);
-        addBind(imc, ACTION_WEAPON_6,       VKL_6,           0);
-        addBind(imc, ACTION_PAUSE,          VK_ESCAPE,       JOY_BTN(0, JBTN_START));
-        addBind(imc, ACTION_SCREENSHOT,     VKL_F5,          0);
-        addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE,        0);
-        addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9,      0);
-        addBind(imc, ACTION_AIM_UP,         VKL_UP,          JOY_BTN(0, JOFS_RSTICK_UP));
-        addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN,        JOY_BTN(0, JOFS_RSTICK_DOWN));
-        addBind(imc, ACTION_AIM_LEFT,       VKL_LEFT,        JOY_BTN(0, JOFS_RSTICK_LEFT));
-        addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT,       JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_WEAPON_1,       (u32)VK_1,         0);
+        addBind(imc, ACTION_WEAPON_2,       VKL_2,             0);
+        addBind(imc, ACTION_WEAPON_3,       VKL_3,             0);
+        addBind(imc, ACTION_WEAPON_4,       VKL_4,             0);
+        addBind(imc, ACTION_WEAPON_5,       VKL_5,             0);
+        addBind(imc, ACTION_WEAPON_6,       VKL_6,             0);
+        /* Analog aim: right stick directions */
+        addBind(imc, ACTION_AIM_UP,         VKL_UP,            JOY_BTN(0, JOFS_RSTICK_UP));
+        addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN,          JOY_BTN(0, JOFS_RSTICK_DOWN));
+        addBind(imc, ACTION_AIM_LEFT,       VKL_LEFT,          JOY_BTN(0, JOFS_RSTICK_LEFT));
+        addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT,         JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        /* C-buttons: D-pad on gamepad (no kbd default; mouse handles aiming) */
+        addBind(imc, ACTION_CBUTTON_UP,     0,                 JOY_BTN(0, JBTN_DPAD_UP));
+        addBind(imc, ACTION_CBUTTON_DOWN,   0,                 JOY_BTN(0, JBTN_DPAD_DOWN));
+        addBind(imc, ACTION_CBUTTON_LEFT,   0,                 JOY_BTN(0, JBTN_DPAD_LEFT));
+        addBind(imc, ACTION_CBUTTON_RIGHT,  0,                 JOY_BTN(0, JBTN_DPAD_RIGHT));
+        /* D-pad gameplay: Back/Select on gamepad (no conflict with C-button above) */
+        addBind(imc, ACTION_DPAD_UP,        0,                 0);
+        addBind(imc, ACTION_DPAD_DOWN,      0,                 0);
+        addBind(imc, ACTION_DPAD_LEFT,      0,                 0);
+        addBind(imc, ACTION_DPAD_RIGHT,     0,                 0);
+        addBind(imc, ACTION_PAUSE,          VK_ESCAPE,         JOY_BTN(0, JBTN_START));
+        addBind(imc, ACTION_SCREENSHOT,     VKL_F5,            0);
+        addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE,          0);
+        addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9,        0);
     } else {
         /* Players 1-3: gamepad-only defaults */
         addBind(imc, ACTION_MOVE_FORWARD,   JOY_BTN(p, JOFS_LSTICK_UP),    0);
@@ -1002,17 +1035,23 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_MOVE_RIGHT,     JOY_BTN(p, JOFS_LSTICK_RIGHT), 0);
         addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(p, JOFS_RTRIG),        0);
         addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(p, JOFS_LTRIG),        0);
-        addBind(imc, ACTION_RELOAD,         JOY_BTN(p, JBTN_X),            0);
-        addBind(imc, ACTION_INTERACT,       JOY_BTN(p, JBTN_A),            0);
-        addBind(imc, ACTION_CROUCH,         JOY_BTN(p, JBTN_B),            0);
+        addBind(imc, ACTION_FIRE_MODE,      0,                              0);
+        addBind(imc, ACTION_RELOAD,         JOY_BTN(p, JBTN_X),            0); /* X_BUTTON */
+        addBind(imc, ACTION_USE,            JOY_BTN(p, JBTN_A),            0); /* A_BUTTON */
+        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(p, JBTN_B),            0); /* B_BUTTON gameplay */
+        addBind(imc, ACTION_CROUCH,         0,                              0);
         addBind(imc, ACTION_JUMP,           JOY_BTN(p, JBTN_Y),            0);
         addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(p, JBTN_LB),           0);
         addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(p, JBTN_RB),           0);
-        addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START),        0);
         addBind(imc, ACTION_AIM_UP,         JOY_BTN(p, JOFS_RSTICK_UP),    0);
         addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(p, JOFS_RSTICK_DOWN),  0);
         addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(p, JOFS_RSTICK_LEFT),  0);
         addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(p, JOFS_RSTICK_RIGHT), 0);
+        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(p, JBTN_DPAD_UP),      0);
+        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(p, JBTN_DPAD_DOWN),    0);
+        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(p, JBTN_DPAD_LEFT),    0);
+        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(p, JBTN_DPAD_RIGHT),   0);
+        addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START),        0);
     }
 }
 

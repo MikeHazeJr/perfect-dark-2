@@ -23,6 +23,7 @@
 #include "lib/crash.h"
 #include "lib/joy.h"
 #include "lib/vi.h"
+#include "actionmap.h"
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -760,7 +761,9 @@ void titleTickPdLogo(void)
 		titleSetNextMode(TITLEMODE_SKIP);
 	}
 
-	if (titleGuardCanSkip(3000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	if (titleGuardCanSkip(3000) && (actionPressed(0, ACTION_FIRE_PRIMARY) || actionPressed(0, ACTION_FIRE_SECONDARY) || \
+		actionPressed(0, ACTION_USE) || actionPressed(0, ACTION_CANCEL_USE) || \
+		actionPressed(0, ACTION_PAUSE) || actionPressed(0, ACTION_RELOAD))) {
 		g_TitleButtonPressed = g_TitleFastForward = true;
 
 		if (g_TitleTimer < TICKS(549)) {
@@ -1724,7 +1727,9 @@ void titleTickRarePresents(void)
 
 	if (titleGuardCanSkip(2000) && g_TitleTimer > TICKS(300)) {
 		titleSetNextMode(TITLEMODE_PDLOGO);
-	} else if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	} else if (titleGuardCanSkip(2000) && (actionPressed(0, ACTION_FIRE_PRIMARY) || actionPressed(0, ACTION_FIRE_SECONDARY) || \
+		actionPressed(0, ACTION_USE) || actionPressed(0, ACTION_CANCEL_USE) || \
+		actionPressed(0, ACTION_PAUSE) || actionPressed(0, ACTION_RELOAD))) {
 		titleSetNextMode(TITLEMODE_SKIP);
 	}
 }
@@ -1879,7 +1884,9 @@ void titleTickNintendoLogo(void)
 		g_TitleTimer += g_Vars.lvupdate60;
 	}
 
-	if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+	if (titleGuardCanSkip(2000) && (actionPressed(0, ACTION_FIRE_PRIMARY) || actionPressed(0, ACTION_FIRE_SECONDARY) || \
+		actionPressed(0, ACTION_USE) || actionPressed(0, ACTION_CANCEL_USE) || \
+		actionPressed(0, ACTION_PAUSE) || actionPressed(0, ACTION_RELOAD))) {
 		if (osResetType == RESETTYPE_WARM) {
 			g_TitleButtonPressed = true;
 			titleSetNextMode(TITLEMODE_PDLOGO);
@@ -2053,7 +2060,9 @@ void titleTickRareLogo(void)
 
 		g_TitleTimer += g_Vars.lvupdate60;
 
-		if (titleGuardCanSkip(2000) && joyGetButtonsPressedThisFrame(0, 0xffffffff)) {
+		if (titleGuardCanSkip(2000) && (actionPressed(0, ACTION_FIRE_PRIMARY) || actionPressed(0, ACTION_FIRE_SECONDARY) || \
+		actionPressed(0, ACTION_USE) || actionPressed(0, ACTION_CANCEL_USE) || \
+		actionPressed(0, ACTION_PAUSE) || actionPressed(0, ACTION_RELOAD))) {
 			if (osResetType == RESETTYPE_WARM) {
 				g_TitleButtonPressed = true;
 				titleSetNextMode(TITLEMODE_PDLOGO);

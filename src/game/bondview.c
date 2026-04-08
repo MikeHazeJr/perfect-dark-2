@@ -14,6 +14,7 @@
 #include "lib/vi.h"
 #include "lib/joy.h"
 #include "lib/main.h"
+#include "actionmap.h"
 #include "lib/rng.h"
 #include "lib/str.h"
 #include "lib/mtx.h"
@@ -1254,8 +1255,8 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 		s8 contpadnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 		u32 buttonsdown = joyGetButtons(contpadnum, 0xffffffff); \
 		u32 buttonsthisframe = joyGetButtonsPressedThisFrame(contpadnum, 0xffffffff);
-		s8 cstickx = joyGetStickX(contpadnum); \
-		s8 csticky = joyGetStickY(contpadnum);
+		s8 cstickx = (s8)(actionValue((s32)contpadnum, ACTION_AXIS_MOVE_X) * 80.0f); \
+		s8 csticky = (s8)(actionValue((s32)contpadnum, ACTION_AXIS_MOVE_Y) * 80.0f);
 		s32 xpos;
 		s32 tmpval;
 		u8 brightness;
