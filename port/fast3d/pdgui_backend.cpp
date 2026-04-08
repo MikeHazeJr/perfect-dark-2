@@ -60,6 +60,9 @@ extern "C" s32  pdguiUpdateIsActive(void);
 extern "C" void pdguiModdingHubRender(s32 winW, s32 winH);
 extern "C" s32  pdguiModdingHubIsVisible(void);
 
+/* P5: Theme Editor — declared in pdgui_menu_theme_editor.cpp */
+extern "C" void pdguiThemeEditorRender(s32 winW, s32 winH);
+
 /* Log Viewer Dev Window tab — declared in pdgui_menu_logviewer.cpp */
 extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 
@@ -482,6 +485,9 @@ void pdguiRender(void)
 
     /* D3R-7: Modding Hub standalone window — renders when opened from main menu */
     pdguiModdingHubRender((s32)winW, (s32)winH);
+
+    /* P5: Theme Editor — renders when opened from debug settings or modding hub */
+    pdguiThemeEditorRender((s32)winW, (s32)winH);
 
     /* Network lobby player list sidebar — shows connected players when
      * in a networked session. Renders independently of hotswap state. */
