@@ -46,7 +46,7 @@ void dmenuNavigateDown(void);
 Gfx *dmenuRender(Gfx *gdl);
 
 void debugUpdateMenu(void);
-bool debugProcessInput(s8 stickx, s8 sticky, u32 buttons, u32 buttonsthisframe);
+bool debugProcessInput(s32 player); /* M0.2: migrated from bitmask args to action queries */
 bool debugIsLineModeEnabled(void);
 
 extern s32 var800786f4nb;

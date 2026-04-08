@@ -1,9 +1,9 @@
 /**
- * actionmap.h — M0.2 Phase A: Core Action Map System
+ * actionmap.h — M0.2 Phase B2: Core Action Map System (updated enum)
  *
  * Abstracts raw SDL input (keys, mouse, gamepad) into named game actions.
  * Provides:
- *   - InputAction enum (47 actions covering gameplay, menu, system)
+ *   - InputAction enum (58 actions covering gameplay, menu, system)
  *   - InputMappingContext (named, prioritized binding sets)
  *   - Per-player ActionState (pressed/held/released/value)
  *   - 6 default IMC singletons (Gameplay/Vehicle/Menu/PauseMenu/Debug/TextInput)
@@ -42,68 +42,86 @@ extern "C" {
 
 typedef enum InputAction {
     /* ---- Gameplay: movement ---- */
-    ACTION_MOVE_FORWARD = 0,
-    ACTION_MOVE_BACKWARD,
-    ACTION_MOVE_LEFT,
-    ACTION_MOVE_RIGHT,
-    ACTION_AXIS_MOVE_X,         /* signed analog: left stick X  (-1..1) */
-    ACTION_AXIS_MOVE_Y,         /* signed analog: left stick Y  (-1..1) */
+    ACTION_MOVE_FORWARD = 0,    /* = 0  */
+    ACTION_MOVE_BACKWARD,       /* = 1  */
+    ACTION_MOVE_LEFT,           /* = 2  */
+    ACTION_MOVE_RIGHT,          /* = 3  */
+    ACTION_AXIS_MOVE_X,         /* = 4  signed analog: left stick X  (-1..1) */
+    ACTION_AXIS_MOVE_Y,         /* = 5  signed analog: left stick Y  (-1..1) */
 
-    /* ---- Gameplay: aiming ---- */
-    ACTION_AIM_UP,
-    ACTION_AIM_DOWN,
-    ACTION_AIM_LEFT,
-    ACTION_AIM_RIGHT,
-    ACTION_AXIS_AIM_X,          /* signed analog: right stick X / mouse X */
-    ACTION_AXIS_AIM_Y,          /* signed analog: right stick Y / mouse Y */
+    /* ---- Gameplay: aiming (analog right stick / mouse) ---- */
+    ACTION_AIM_UP,              /* = 6  */
+    ACTION_AIM_DOWN,            /* = 7  */
+    ACTION_AIM_LEFT,            /* = 8  */
+    ACTION_AIM_RIGHT,           /* = 9  */
+    ACTION_AXIS_AIM_X,          /* = 10 signed analog: right stick X / mouse X */
+    ACTION_AXIS_AIM_Y,          /* = 11 signed analog: right stick Y / mouse Y */
+
+    /* ---- N64 C-buttons (digital: strafe L/R and look up/down in gameplay) ---- */
+    ACTION_CBUTTON_UP,          /* = 12 U_CBUTTONS */
+    ACTION_CBUTTON_DOWN,        /* = 13 D_CBUTTONS */
+    ACTION_CBUTTON_LEFT,        /* = 14 L_CBUTTONS */
+    ACTION_CBUTTON_RIGHT,       /* = 15 R_CBUTTONS */
+
+    /* ---- Gameplay: D-pad (weapon/function select in gameplay context) ---- */
+    ACTION_DPAD_UP,             /* = 16 U_JPAD */
+    ACTION_DPAD_DOWN,           /* = 17 D_JPAD */
+    ACTION_DPAD_LEFT,           /* = 18 L_JPAD */
+    ACTION_DPAD_RIGHT,          /* = 19 R_JPAD */
 
     /* ---- Gameplay: combat ---- */
-    ACTION_FIRE_PRIMARY,
-    ACTION_FIRE_SECONDARY,
-    ACTION_RELOAD,
-    ACTION_INTERACT,
-    ACTION_CROUCH,
-    ACTION_JUMP,
-    ACTION_SPRINT,
-    ACTION_ZOOM_IN,
-    ACTION_ZOOM_OUT,
+    ACTION_FIRE_PRIMARY,        /* = 20 Z_TRIG */
+    ACTION_FIRE_SECONDARY,      /* = 21 R_TRIG */
+    ACTION_FIRE_MODE,           /* = 22 L_TRIG — fire mode cycle */
+    ACTION_RELOAD,              /* = 23 X_BUTTON */
+    ACTION_USE,                 /* = 24 A_BUTTON — interact, pick up, open doors */
+    ACTION_CANCEL_USE,          /* = 25 B_BUTTON gameplay — cancel action / drop weapon */
+    ACTION_THROW_WEAPON,        /* = 26 B_BUTTON gesture in gameplay */
+    ACTION_CROUCH,              /* = 27 */
+    ACTION_JUMP,                /* = 28 */
+    ACTION_SPRINT,              /* = 29 */
+    ACTION_ZOOM_IN,             /* = 30 scope zoom (distinct from fire mode) */
+    ACTION_ZOOM_OUT,            /* = 31 */
 
     /* ---- Gameplay: weapon selection ---- */
-    ACTION_WEAPON_PREV,
-    ACTION_WEAPON_NEXT,
-    ACTION_WEAPON_1,
-    ACTION_WEAPON_2,
-    ACTION_WEAPON_3,
-    ACTION_WEAPON_4,
-    ACTION_WEAPON_5,
-    ACTION_WEAPON_6,
+    ACTION_WEAPON_PREV,         /* = 32 */
+    ACTION_WEAPON_NEXT,         /* = 33 Y_BUTTON */
+    ACTION_WEAPON_1,            /* = 34 */
+    ACTION_WEAPON_2,            /* = 35 */
+    ACTION_WEAPON_3,            /* = 36 */
+    ACTION_WEAPON_4,            /* = 37 */
+    ACTION_WEAPON_5,            /* = 38 */
+    ACTION_WEAPON_6,            /* = 39 */
 
     /* ---- Vehicle ---- */
-    ACTION_VEHICLE_ACCELERATE,
-    ACTION_VEHICLE_BRAKE,
-    ACTION_VEHICLE_STEER_LEFT,
-    ACTION_VEHICLE_STEER_RIGHT,
-    ACTION_VEHICLE_EXIT,
+    ACTION_VEHICLE_ACCELERATE,  /* = 40 */
+    ACTION_VEHICLE_BRAKE,       /* = 41 */
+    ACTION_VEHICLE_STEER_LEFT,  /* = 42 */
+    ACTION_VEHICLE_STEER_RIGHT, /* = 43 */
+    ACTION_VEHICLE_EXIT,        /* = 44 */
 
     /* ---- Menu navigation ---- */
-    ACTION_MENU_UP,
-    ACTION_MENU_DOWN,
-    ACTION_MENU_LEFT,
-    ACTION_MENU_RIGHT,
-    ACTION_MENU_ACCEPT,
-    ACTION_MENU_CANCEL,
-    ACTION_MENU_TAB_PREV,
-    ACTION_MENU_TAB_NEXT,
+    ACTION_MENU_UP,             /* = 45 */
+    ACTION_MENU_DOWN,           /* = 46 */
+    ACTION_MENU_LEFT,           /* = 47 */
+    ACTION_MENU_RIGHT,          /* = 48 */
+    ACTION_MENU_ACCEPT,         /* = 49 */
+    ACTION_MENU_CANCEL,         /* = 50 */
+    ACTION_MENU_TAB_PREV,       /* = 51 */
+    ACTION_MENU_TAB_NEXT,       /* = 52 */
 
     /* ---- System ---- */
-    ACTION_PAUSE,
-    ACTION_SCREENSHOT,
-    ACTION_CONSOLE_TOGGLE,
-    ACTION_DEBUG_TOGGLE,
-    ACTION_CHEAT_ENTER,
+    ACTION_PAUSE,               /* = 53 START_BUTTON */
+    ACTION_SCREENSHOT,          /* = 54 */
+    ACTION_CONSOLE_TOGGLE,      /* = 55 */
+    ACTION_DEBUG_TOGGLE,        /* = 56 */
+    ACTION_CHEAT_ENTER,         /* = 57 */
 
-    ACTION_COUNT   /* sentinel — keep last */
+    ACTION_COUNT                /* = 58, sentinel — keep last */
 } InputAction;
+
+/* Backward-compat alias: A_BUTTON was ACTION_INTERACT, now ACTION_USE */
+#define ACTION_INTERACT ACTION_USE
 
 /* ============================================================
  * Core structs

@@ -55,6 +55,7 @@
 #include "lib/crash.h"
 #include "lib/dma.h"
 #include "lib/joy.h"
+#include "actionmap.h"
 #include "lib/main.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
@@ -1147,12 +1148,13 @@ void mainTick(void)
 			gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_4b, 0, 0x0100, 6, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
 
 #ifdef DEBUG
-			if (g_MainIsDebugMenuOpen || joyGetButtons(0, U_CBUTTONS | D_CBUTTONS) == (U_CBUTTONS | D_CBUTTONS)) {
-				g_MainIsDebugMenuOpen = debugProcessInput(joyGetStickX(0), joyGetStickY(0), joyGetButtons(0, 0xffffffff), joyGetButtonsPressedThisFrame(0, 0xffffffff));
-			} else if (joyGetButtons(0, START_BUTTON) == 0) {
+			/* M0.2: migrated from joyGetButtons bitmask to action queries */
+			if (g_MainIsDebugMenuOpen || (actionHeld(0, ACTION_CBUTTON_UP) && actionHeld(0, ACTION_CBUTTON_DOWN))) {
+				g_MainIsDebugMenuOpen = debugProcessInput(0);
+			} else if (!actionHeld(0, ACTION_PAUSE)) {
 				var80075d68 = var800786f4nb;
 			} else {
-				g_MainIsDebugMenuOpen = debugProcessInput(joyGetStickX(0), joyGetStickY(0), joyGetButtons(0, 0xffffffff), joyGetButtonsPressedThisFrame(0, 0xffffffff));
+				g_MainIsDebugMenuOpen = debugProcessInput(0);
 			}
 #endif
 

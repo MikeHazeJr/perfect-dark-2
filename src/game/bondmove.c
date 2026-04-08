@@ -41,6 +41,7 @@
 #include "types.h"
 #include <math.h>
 #include "input.h"
+#include "actionmap.h"
 #include "video.h"
 #include "system.h"
 #include "utils.h"
@@ -929,8 +930,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	canmanualzoom = weaponHasAimFlag(weaponnum, INVAIMFLAG_MANUALZOOM);
 	contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 
-	c1stickx = allowc1x ? joyGetStickX(contpad1) : 0;
-	c1sticky = allowc1y ? joyGetStickY(contpad1) : 0;
+	c1stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 80.0f) : 0;
+	c1sticky = allowc1y ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f) : 0;
 	c2stickx = allowc1x ? (s8) joyGetRStickX(contpad1) : 0;
 	c2sticky = allowc1y ? (s8) joyGetRStickY(contpad1) : 0;
 

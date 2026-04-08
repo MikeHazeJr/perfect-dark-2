@@ -18,6 +18,7 @@
 #include "bss.h"
 #include "lib/joy.h"
 #include "lib/main.h"
+#include "actionmap.h"
 #include "lib/snd.h"
 #include "lib/mtx.h"
 #include "lib/anim.h"
@@ -695,9 +696,9 @@ void eyespyProcessInput(bool allowbuttons)
 	f32 spc8;
 	f32 spc4;
 	s8 contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-	s8 c1stickx = joyGetStickX(contpad1);
+	s8 c1stickx = (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 80.0f);
 	s8 c2stickx;
-	s8 c1sticky = joyGetStickY(contpad1);
+	s8 c1sticky = (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f);
 	s8 c2sticky;
 	u32 c1buttons = allowbuttons ? joyGetButtons(contpad1, 0xffffffff) : 0;
 	u32 c2buttons;
