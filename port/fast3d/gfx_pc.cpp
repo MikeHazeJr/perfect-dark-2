@@ -2547,6 +2547,10 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_flush();
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
+            case G_SETPRIMDEPTH:
+                /* N64 RDP prim-depth register — not used by the PC renderer.
+                 * Silently ignore rather than crashing. */
+                break;
             case G_RDPPIPESYNC:
             case G_RDPFULLSYNC:
             case G_RDPLOADSYNC:
