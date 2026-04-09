@@ -867,17 +867,21 @@ void eyespyProcessInput(bool allowbuttons)
 	} else if (controlmode <= CONTROLMODE_14 || controlmode == CONTROLMODE_PC) {
 		if (aimpressed) {
 			domovecentre = false;
-			pitchspeed = c1sticky;
+			/* PC: right stick Y = pitch; 1.x: c1 stick Y = pitch */
+			pitchspeed = (controlmode == CONTROLMODE_PC) ? c2sticky : c1sticky;
 		} else {
-			ascendspeed = c1sticky * 0.25f;
+			/* PC: right stick Y = ascend; 1.x: c1 stick Y = ascend */
+			ascendspeed = ((controlmode == CONTROLMODE_PC) ? c2sticky : c1sticky) * 0.25f;
 			forwardspeed = (c1buttons & umask ? 24.0f : 0) - (c1buttons & dmask ? 24.0f : 0);
 			if (controlmode == CONTROLMODE_PC) {
-				forwardspeed += c2sticky;
+				/* Left stick Y = forward/back movement */
+				forwardspeed += c1sticky;
 			}
 		}
 
 		sidespeed = (c1buttons & rmask ? 1 : 0) - (c1buttons & lmask ? 1 : 0);
-		if (!sidespeed && controlmode == CONTROLMODE_PC) sidespeed = c2stickx * 0.0125f;
+		/* PC: left stick X = side movement */
+		if (!sidespeed && controlmode == CONTROLMODE_PC) sidespeed = c1stickx * 0.0125f;
 	} else if (controlmode == CONTROLMODE_21 || controlmode == CONTROLMODE_23) {
 		forwardspeed = c1sticky;
 
@@ -965,8 +969,11 @@ void eyespyProcessInput(bool allowbuttons)
 			}
 		}
 
-		// Update theta
-		g_Vars.currentplayer->eyespy->theta += c1stickx * 0.0625f * g_Vars.lvupdate60freal;
+		// Update theta — PC: right stick X for yaw; 1.x: c1 stick X
+		{
+			s8 yawstick = (controlmode == CONTROLMODE_PC) ? c2stickx : c1stickx;
+			g_Vars.currentplayer->eyespy->theta += yawstick * 0.0625f * g_Vars.lvupdate60freal;
+		}
 
 		while (g_Vars.currentplayer->eyespy->theta < 0.0f) {
 			g_Vars.currentplayer->eyespy->theta += 360.0f;

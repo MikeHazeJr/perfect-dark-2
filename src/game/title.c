@@ -2670,9 +2670,19 @@ void titleTick(void)
 		break;
 #endif
 	case TITLEMODE_SKIP:
-		sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick -> setting RARELOGO");
 		viSetUseZBuf(false);
-		titleSetNextMode(TITLEMODE_RARELOGO);
+		if (g_IsTitleDemo) {
+			/* Demo ended — titleInitSkip already called mainChangeToStage(DEFECTION).
+			 * Don't loop back to RARELOGO or we get an infinite logo sequence.
+			 * Instead go to agent select (CI Training). */
+			sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick (demo end) -> agent select");
+			g_IsTitleDemo = 0;
+			g_TitleNextStage = STAGE_CITRAINING;
+			mainChangeToStage(g_TitleNextStage);
+		} else {
+			sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick -> RARELOGO");
+			titleSetNextMode(TITLEMODE_RARELOGO);
+		}
 		break;
 	}
 }
