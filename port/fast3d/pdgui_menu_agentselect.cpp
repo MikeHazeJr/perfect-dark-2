@@ -40,6 +40,9 @@ extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
 s32 configSave(const char *fname);
 void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
 
+/* Menu stack */
+void menuPopDialog(void);
+
 struct filelistfile {
     s32 fileid;
     u16 deviceserial;
