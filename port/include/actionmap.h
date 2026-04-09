@@ -266,7 +266,7 @@ s32 actionmapCheckCheat(const InputAction *seq, s32 len);
 void actionmapClearCheat(void);
 
 /* ============================================================
- * Stick tuning (controller sensitivity, deadzone, invert)
+ * Stick tuning (controller sensitivity, deadzone, invert, swap)
  * ============================================================ */
 
 f32  actionmapGetStickSensitivity(void);
@@ -277,6 +277,9 @@ void actionmapSetStickDeadzone(f32 v);
 
 s32  actionmapGetStickInvertY(void);
 void actionmapSetStickInvertY(s32 v);
+
+void actionmapSetSwapSticks(s32 swapped);
+s32  actionmapGetSwapSticks(void);
 
 /* ============================================================
  * Default IMC singletons

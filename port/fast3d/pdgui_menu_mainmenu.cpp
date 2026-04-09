@@ -1088,6 +1088,17 @@ static void renderSettingsControls(float scale)
                 }
             }
 
+            {
+                s32 swapped = actionmapGetSwapSticks();
+                bool swap = (swapped != 0);
+                if (PdCheckbox("Swap Sticks", &swap)) {
+                    actionmapSetSwapSticks(swap ? 1 : 0);
+                    /* Keep legacy input.c in sync for stickCButtons */
+                    inputControllerSetSticksSwapped(0, swap ? 1 : 0);
+                    configSave("pd.ini");
+                }
+            }
+
             ImGui::Spacing();
             ImGui::Spacing();
 

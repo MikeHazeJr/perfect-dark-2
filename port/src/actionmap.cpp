@@ -109,6 +109,9 @@
  * Tuned for 1080p at 60Hz; the real sensitivity lives in the input system. */
 #define MOUSE_AIM_SCALE 0.003f
 
+/* Swap sticks: 0 = normal (L=move, R=aim), 1 = swapped */
+static s32 s_SwapSticks      = 0;
+
 /* ============================================================
  * Self-contained VK ↔ name table for pd.ini serialisation.
  *
@@ -376,6 +379,10 @@ static inline f32 clampf(f32 v, f32 lo, f32 hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+/* Swap sticks API */
+void actionmapSetSwapSticks(s32 swapped) { s_SwapSticks = swapped ? 1 : 0; }
+s32  actionmapGetSwapSticks(void)        { return s_SwapSticks; }
 
 /* ============================================================
  * Helpers: cheat buffer
@@ -711,16 +718,21 @@ void actionmapPollFrame(void)
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
         if (ctrl) {
-            s16 lx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTX);
-            s16 ly = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTY);
-            s16 rx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
-            s16 ry = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTY);
+            /* Read raw axes — honour swap sticks setting */
+            SDL_GameControllerAxis lxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX;
+            SDL_GameControllerAxis lyAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
+            SDL_GameControllerAxis rxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTX  : SDL_CONTROLLER_AXIS_RIGHTX;
+            SDL_GameControllerAxis ryAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTY  : SDL_CONTROLLER_AXIS_RIGHTY;
 
-            f32 dz = s_StickDeadzone;
-            f32 flx = applyDeadzone(lx / 32767.0f, dz) * s_StickSensitivity;
-            f32 fly = applyDeadzone(ly / 32767.0f, dz) * s_StickSensitivity;
-            f32 frx = applyDeadzone(rx / 32767.0f, dz) * s_StickSensitivity;
-            f32 fry = applyDeadzone(ry / 32767.0f, dz) * s_StickSensitivity;
+            s16 lx = SDL_GameControllerGetAxis(ctrl, lxAxis);
+            s16 ly = SDL_GameControllerGetAxis(ctrl, lyAxis);
+            s16 rx = SDL_GameControllerGetAxis(ctrl, rxAxis);
+            s16 ry = SDL_GameControllerGetAxis(ctrl, ryAxis);
+
+            f32 flx = applyDeadzone(lx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 fly = applyDeadzone(ly / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 frx = applyDeadzone(rx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 fry = applyDeadzone(ry / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
 
             /* Negate Y: SDL Y+ = down, game expects Y+ = forward/up (N64 convention) */
             fly = -fly;
@@ -1420,6 +1432,7 @@ void actionmapInit(void)
     configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
     configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
     configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
+    configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
 
     /* Activate the gameplay and menu contexts by default.
      * Callers activate Vehicle/Pause/Debug/TextInput as needed. */
