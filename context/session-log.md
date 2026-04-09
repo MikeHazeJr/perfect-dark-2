@@ -3,6 +3,45 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S187 — 2026-04-09 (Three-Bug Debug Session)
+
+**Focus**: Structured debug of three playtest bugs: WASD movement, weapon spawning, silent crash.
+
+### What Was Done
+
+**B-127 (WASD held not registering)** — FIXED
+- Root cause: `actionmapPollFrame()` in `actionmap.cpp:793-794` synthesized KBM WASD into ACTION_AXIS_MOVE_X/Y `.value` but never set `.held` flag. Gamepad stick path (lines 758-761) correctly set `.held`. Game reads axis values via `actionValue()` which works, but something in the movement pipeline also checks `.held` — without it, movement was edge-triggered (one frame).
+- Fix: Added `.held` update after `.value` update, mirroring gamepad pattern.
+
+**B-125 (Weapons not spawning in online MP)** — FIXED
+- Root cause: `spawn_weapon_id` catalog string was never added to CLC_LOBBY_START wire format (neither write nor read). The field was added to the match config struct (M0.1c, S171) and `matchStart()` resolves it correctly for solo/offline path, but the network path (CLC_LOBBY_START → server inline resolution → SVC_STAGE_START → client) was never updated.
+- Fix: Added `spawn_weapon_id` string to CLC_LOBBY_START write/read AND SVC_STAGE_START write/read. Server-side CLC_LOBBY_START handler resolves catalog ID → `spawnWeaponNum` (mirrors `matchStart()` logic). Client-side SVC_STAGE_START handler does the same.
+- Note: This is a wire protocol change — existing v32 clients/servers won't interop with v33 builds. Should bump protocol version.
+
+**B-126 (Silent crash ~8 minutes)** — INVESTIGATING
+- Verified all known guards are in build: 8MB stack (CMakeLists.txt:472), VEH handler (crash.c:422), B-112 bounds check (botmgr.c:125), H-7 shutdown ordering (main.c:128).
+- Crash is truly silent — no VEH output, no shutdown log. Process just dies.
+- Frame 480 at 60fps = 8 seconds, not 8 minutes. Discrepancy needs clarification with Mike.
+- Added periodic heartbeat logger to `lv.c` (every 3600 frames / 60s) that logs frame count, chr count, and stage. Log file opens/closes per write, so heartbeat will be visible even after crash. Next repro will show last-known-good timestamp.
+
+### Files Changed
+- `port/src/actionmap.cpp` — B-127 fix: `.held` flag for KBM move axis synthesis
+- `port/src/net/netmsg.c` — B-125 fix: spawn_weapon_id in CLC_LOBBY_START + SVC_STAGE_START (write + read, 4 locations)
+- `src/game/lv.c` — B-126 instrumentation: periodic heartbeat log
+- `context/bugs.md` — Added B-125, B-126, B-127
+- `context/session-log.md` — This entry
+
+### Decisions
+- Wire protocol needs version bump for B-125 (spawn_weapon_id added to two messages)
+- B-126 needs next repro with heartbeat to pinpoint timing
+
+### Next Steps
+- Protocol version bump (v32 → v33) for spawn_weapon_id addition
+- Playtest B-127 (WASD) and B-125 (weapons) fixes
+- Wait for B-126 repro with heartbeat instrumentation
+
+---
+
 ## Session S186 — 2026-04-09 (Context System Overhaul)
 
 **Focus**: Full context system cleanup. Inventory 83 files, archive stale content, rewrite core docs for v0.1.0 prep.

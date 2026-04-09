@@ -792,6 +792,8 @@ void actionmapPollFrame(void)
         if (len > 1.0f) { mx /= len; my /= len; }
         s_State[0][ACTION_AXIS_MOVE_X].value = mx;
         s_State[0][ACTION_AXIS_MOVE_Y].value = my;
+        s_State[0][ACTION_AXIS_MOVE_X].held  = (mx != 0.0f) ? 1 : 0;
+        s_State[0][ACTION_AXIS_MOVE_Y].held  = (my != 0.0f) ? 1 : 0;
     }
 
     /* Mouse wheel actions auto-release after one frame (no SDL_KEYUP equivalent) */

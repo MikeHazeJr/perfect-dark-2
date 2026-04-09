@@ -2240,6 +2240,13 @@ void lvTick(void)
 		s_LvTickFirstRun = 0;
 	}
 
+	/* B-126: Periodic heartbeat log (every 60s / 3600 frames) to help
+	 * diagnose silent crashes — last heartbeat before death pinpoints timing. */
+	if (g_Vars.lvframe60 > 0 && (g_Vars.lvframe60 % 3600) == 0) {
+		sysLogPrintf(LOG_NOTE, "HEARTBEAT: frame=%d (~%ds) chrs=%d stage=0x%02x",
+			g_Vars.lvframe60, g_Vars.lvframe60 / 60, g_MpNumChrs, g_Vars.stagenum);
+	}
+
 	lvCheckPauseStateChanged();
 
 #if VERSION >= VERSION_NTSC_1_0
