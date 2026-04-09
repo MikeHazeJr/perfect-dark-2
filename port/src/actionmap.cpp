@@ -110,6 +110,13 @@
 #define MOUSE_AIM_SCALE 0.003f
 
 /* ============================================================
+ * Controller stick settings (configurable from Controls menu)
+ * ============================================================ */
+static f32 s_CtrlDeadzone    = ACTIONMAP_DEFAULT_DEADZONE;
+static f32 s_CtrlSensitivity = 1.0f;
+static s32 s_SwapSticks      = 0;
+
+/* ============================================================
  * Self-contained VK ↔ name table for pd.ini serialisation.
  *
  * P10 fix: actionmap must not depend on input.c vkNames[] (which
@@ -371,6 +378,17 @@ static inline f32 clampf(f32 v, f32 lo, f32 hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+/* ============================================================
+ * Controller stick settings API
+ * ============================================================ */
+
+void actionmapSetCtrlDeadzone(f32 dz)    { s_CtrlDeadzone = clampf(dz, 0.0f, 0.9f); }
+f32  actionmapGetCtrlDeadzone(void)      { return s_CtrlDeadzone; }
+void actionmapSetCtrlSensitivity(f32 s)  { s_CtrlSensitivity = clampf(s, 0.1f, 5.0f); }
+f32  actionmapGetCtrlSensitivity(void)   { return s_CtrlSensitivity; }
+void actionmapSetSwapSticks(s32 swapped) { s_SwapSticks = swapped ? 1 : 0; }
+s32  actionmapGetSwapSticks(void)        { return s_SwapSticks; }
 
 /* ============================================================
  * Helpers: cheat buffer
@@ -706,15 +724,21 @@ void actionmapPollFrame(void)
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
         if (ctrl) {
-            s16 lx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTX);
-            s16 ly = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTY);
-            s16 rx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
-            s16 ry = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTY);
+            /* Read raw axes — honour swap sticks setting */
+            SDL_GameControllerAxis lxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX;
+            SDL_GameControllerAxis lyAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
+            SDL_GameControllerAxis rxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTX  : SDL_CONTROLLER_AXIS_RIGHTX;
+            SDL_GameControllerAxis ryAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTY  : SDL_CONTROLLER_AXIS_RIGHTY;
 
-            f32 flx = applyDeadzone(lx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fly = applyDeadzone(ly / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 frx = applyDeadzone(rx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fry = applyDeadzone(ry / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
+            s16 lx = SDL_GameControllerGetAxis(ctrl, lxAxis);
+            s16 ly = SDL_GameControllerGetAxis(ctrl, lyAxis);
+            s16 rx = SDL_GameControllerGetAxis(ctrl, rxAxis);
+            s16 ry = SDL_GameControllerGetAxis(ctrl, ryAxis);
+
+            f32 flx = applyDeadzone(lx / 32767.0f, s_CtrlDeadzone) * s_CtrlSensitivity;
+            f32 fly = applyDeadzone(ly / 32767.0f, s_CtrlDeadzone) * s_CtrlSensitivity;
+            f32 frx = applyDeadzone(rx / 32767.0f, s_CtrlDeadzone) * s_CtrlSensitivity;
+            f32 fry = applyDeadzone(ry / 32767.0f, s_CtrlDeadzone) * s_CtrlSensitivity;
 
             s_State[p][ACTION_AXIS_MOVE_X].value = clampf(flx, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(fly, -1.0f, 1.0f);
@@ -1387,6 +1411,11 @@ void actionmapInit(void)
             configRegisterString(key, s_BindStr[p][a], BIND_STR_MAX);
         }
     }
+
+    /* Register controller stick settings with config system */
+    configRegisterFloat("Controller.Deadzone",    &s_CtrlDeadzone,    0.0f, 0.9f);
+    configRegisterFloat("Controller.Sensitivity", &s_CtrlSensitivity, 0.1f, 5.0f);
+    configRegisterInt("Controller.SwapSticks",     &s_SwapSticks,     0,    1);
 
     /* Activate the gameplay and menu contexts by default.
      * Callers activate Vehicle/Pause/Debug/TextInput as needed. */

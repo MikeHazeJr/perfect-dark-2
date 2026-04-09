@@ -690,50 +690,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	/* NOTE: Game code reads controller sticks via actionValue() (actionmap), NOT
-	 * from OSContPad.stick_x/y/rstick_x/y.  The SDL stick reads below are a
-	 * legacy parallel path.  The only still-live purpose is stickCButtons
-	 * (right stick → C-button presses fed into npad->button).
-	 * invertRStickY / swapSticks / per-axis deadzone+sens here are DEAD for
-	 * actual stick input — actionmapPollFrame() owns that path.
-	 * Y-invert is handled by movedata.invertpitch in bondmove.c. */
+	/* Game code reads controller sticks via actionValue() (actionmap), NOT
+	 * from OSContPad.stick_x/y/rstick_x/y.  Stick values are zeroed here
+	 * so the legacy path doesn't interfere with actionmap's single truth.
+	 * Only stickCButtons (right stick → C-button presses) remains live. */
 
-	s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
-	s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
-	s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
-	s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
-
-	leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
-	leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
-	rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], cfg->sens[cfg->axisMap[1][0]]);
-	rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], cfg->sens[cfg->axisMap[1][1]]);
-
-	if (!npad->stick_x && leftX) {
-		npad->stick_x = leftX / 0x100;
-	}
-
-	s32 stickY = -leftY / 0x100;
-	if (!npad->stick_y && stickY) {
-		npad->stick_y = (stickY == 128) ? 127 : stickY;
-	}
+	/* Don't write stick_x/stick_y — actionmap owns analog stick input */
+	npad->rstick_x = 0;
+	npad->rstick_y = 0;
 
 	if (cfg->stickCButtons) {
-		// rstick emulates C buttons — still live, feeds npad->button
+		/* Right stick → C-button emulation: still live, feeds npad->button */
+		s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
+		s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
 		if (rightX < -0x4000) npad->button |= L_CBUTTONS;
 		if (rightX > +0x4000) npad->button |= R_CBUTTONS;
 		if (rightY < -0x4000) npad->button |= U_CBUTTONS;
 		if (rightY > +0x4000) npad->button |= D_CBUTTONS;
-		npad->rstick_x = 0;
-		npad->rstick_y = 0;
-	} else {
-		// rstick analog — legacy path, game reads via actionValue()
-		if (rightX) {
-			npad->rstick_x = rightX / 0x100;
-		}
-		s32 rStickY = -rightY / 0x100;
-		if (rStickY) {
-			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
-		}
 	}
 
 	return 0;

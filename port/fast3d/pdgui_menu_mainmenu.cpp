@@ -1065,6 +1065,20 @@ static void renderSettingsControls(float scale)
             ImGui::Separator();
 
             {
+                f32 dz = actionmapGetCtrlDeadzone();
+                if (PdSliderFloat("Stick Deadzone", &dz, 0.05f, 0.5f, "%.2f")) {
+                    actionmapSetCtrlDeadzone(dz);
+                }
+            }
+
+            {
+                f32 sens = actionmapGetCtrlSensitivity();
+                if (PdSliderFloat("Stick Sensitivity", &sens, 0.1f, 3.0f, "%.2f")) {
+                    actionmapSetCtrlSensitivity(sens);
+                }
+            }
+
+            {
                 bool invertY = optionsGetForwardPitch(0) == 0;
                 if (PdCheckbox("Invert Y", &invertY)) {
                     optionsSetForwardPitch(0, invertY ? 0 : 1);
@@ -1072,9 +1086,11 @@ static void renderSettingsControls(float scale)
             }
 
             {
-                s32 swapped = inputControllerGetSticksSwapped(0);
+                s32 swapped = actionmapGetSwapSticks();
                 bool swap = (swapped != 0);
                 if (PdCheckbox("Swap Sticks", &swap)) {
+                    actionmapSetSwapSticks(swap ? 1 : 0);
+                    /* Keep legacy input.c in sync for stickCButtons */
                     inputControllerSetSticksSwapped(0, swap ? 1 : 0);
                 }
             }

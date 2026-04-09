@@ -130,6 +130,7 @@ static bool s_AutoLoadTriggered = false;
 #define CONFIRM_COPY   2
 static s32 s_ConfirmMode = CONFIRM_NONE;
 static s32 s_ConfirmIdx = -1;
+static bool s_AgentSelectPushedCtx = false;
 
 /* ========================================================================
  * Helpers
@@ -200,9 +201,13 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 
-        /* Push menu context so mouse works (absolute mode + pdguiIsActive). */
+        /* Push menu context so mouse works (absolute mode + pdguiIsActive).
+         * Track ownership — only pop on transition if we pushed it here. */
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = true;
+        } else {
+            s_AgentSelectPushedCtx = false;
         }
 
         /* Auto-load default agent on first appearance */
@@ -325,6 +330,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             pdguiPlaySound(PDGUI_SND_SELECT);
+            /* Pop menu context before transition — main menu will push fresh. */
+            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_AgentSelectPushedCtx = false;
+            }
             g_GameFileGuid.fileid = file->fileid;
             g_GameFileGuid.deviceserial = file->deviceserial;
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);

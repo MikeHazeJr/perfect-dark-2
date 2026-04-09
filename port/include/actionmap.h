@@ -266,6 +266,17 @@ s32 actionmapCheckCheat(const InputAction *seq, s32 len);
 void actionmapClearCheat(void);
 
 /* ============================================================
+ * Controller stick settings (deadzone, sensitivity, swap)
+ * ============================================================ */
+
+void  actionmapSetCtrlDeadzone(f32 dz);
+f32   actionmapGetCtrlDeadzone(void);
+void  actionmapSetCtrlSensitivity(f32 sens);
+f32   actionmapGetCtrlSensitivity(void);
+void  actionmapSetSwapSticks(s32 swapped);
+s32   actionmapGetSwapSticks(void);
+
+/* ============================================================
  * Default IMC singletons
  * ============================================================ */
 
