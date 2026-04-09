@@ -1295,6 +1295,7 @@ s32 botTick(struct prop *prop)
 				targetangle = oldangle + targetangle;
 			} else if (chr->myaction == MA_AIBOTFOLLOW
 					&& aibot->followingplayernum >= 0
+					&& g_MpAllChrPtrs[aibot->followingplayernum]
 					&& aibot->chrdistances[aibot->followingplayernum] < 300
 					&& aibot->realignangleframe >= g_Vars.lvframe60 - TICKS(60)
 					&& aibot->config->difficulty != BOTDIFF_MEAT) {
@@ -2101,7 +2102,7 @@ bool botCanFollow(struct chrdata *botchr, struct chrdata *leader)
 
 		leader = g_MpAllChrPtrs[aibot->followingplayernum];
 
-		if (leader == botchr) {
+		if (!leader || leader == botchr) {
 			// Can't follow - it would create a follow loop
 			canfollow = false;
 			break;
@@ -2123,7 +2124,8 @@ s32 botFindTeammateToFollow(struct chrdata *chr, f32 range)
 		s32 i;
 
 		for (i = 0; i < g_MpNumChrs; i++) {
-			if (chr != g_MpAllChrPtrs[i]
+			if (g_MpAllChrPtrs[i]
+					&& chr != g_MpAllChrPtrs[i]
 					&& !chrIsDead(g_MpAllChrPtrs[i])
 					&& chr->team == g_MpAllChrPtrs[i]->team
 					&& botCanFollow(chr, g_MpAllChrPtrs[i])) {
@@ -3393,6 +3395,7 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->config->type == BOTTYPE_VENGE) {
 					// Attack the last player who killed the bot
 					if (aibot->lastkilledbyplayernum >= 0
+							&& g_MpAllChrPtrs[aibot->lastkilledbyplayernum]
 							&& !botIsTargetInvisible(chr, g_MpAllChrPtrs[aibot->lastkilledbyplayernum])) {
 						newaction = MA_AIBOTATTACK;
 						aibot->attackingplayernum = aibot->lastkilledbyplayernum;
@@ -3402,11 +3405,12 @@ void botTickUnpaused(struct chrdata *chr)
 					// Attack a single player the whole match
 					if (aibot->feudplayernum < 0
 							&& aibot->lastkilledbyplayernum >= 0
+							&& g_MpAllChrPtrs[aibot->lastkilledbyplayernum]
 							&& !chrCompareTeams(chr, g_MpAllChrPtrs[aibot->lastkilledbyplayernum], COMPARE_FRIENDS)) {
 						aibot->feudplayernum = aibot->lastkilledbyplayernum;
 					}
 
-					if (aibot->feudplayernum >= 0 && !botIsTargetInvisible(chr, g_MpAllChrPtrs[aibot->feudplayernum])) {
+					if (aibot->feudplayernum >= 0 && g_MpAllChrPtrs[aibot->feudplayernum] && !botIsTargetInvisible(chr, g_MpAllChrPtrs[aibot->feudplayernum])) {
 						newaction = MA_AIBOTATTACK;
 						aibot->abortattacktimer60 = -1;
 						aibot->attackingplayernum = aibot->feudplayernum;

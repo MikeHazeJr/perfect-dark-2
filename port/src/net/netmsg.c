@@ -1233,22 +1233,22 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	return 0;
 }
 
-u32 netmsgSvcStageEndWrite(struct netbuf *dst)
+u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id)
 {
 	netbufWriteU8(dst, SVC_STAGE_END);
 	netbufWriteU8(dst, (u8)g_NetGameMode);
 
-	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END write mode=%u", g_NetGameMode);
+	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END write mode=%u room=%u", g_NetGameMode, room_id);
 
 	if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
 		// Co-op/anti: keep player linkages intact for endscreen display.
 		// The endscreen needs g_Vars.bond, g_Vars.coop, and player stats.
 		// Client state transitions happen via mainEndStage -> endscreenPushCoop.
 	} else {
-		// MP: unlink players and return clients to lobby
+		// MP: unlink players in this room and return them to lobby
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
 			struct netclient *ncl = &g_NetClients[i];
-			if (ncl->state) {
+			if (ncl->state && ncl->room_id == room_id) {
 				ncl->state = CLSTATE_LOBBY;
 				ncl->playernum = 0;
 				if (ncl->player) {
@@ -1285,17 +1285,20 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 		objectivesDisableChecking();
 		mainEndStage();
 	} else {
-		// MP: unlink clients and end match
+		/* L-CE1: only disconnect peers in the same room as the local client */
+		u8 local_room = g_NetLocalClient ? g_NetLocalClient->room_id : 0xFF;
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
 			struct netclient *ncl = &g_NetClients[i];
-			if (ncl->state) {
+			if (ncl->state && ncl->room_id == local_room) {
 				ncl->state = CLSTATE_DISCONNECTED;
 				ncl->player = NULL;
 				ncl->config = NULL;
 			}
 		}
 
-		g_NetLocalClient->state = CLSTATE_LOBBY;
+		if (g_NetLocalClient) {
+			g_NetLocalClient->state = CLSTATE_LOBBY;
+		}
 
 		g_NumReasonsToEndMpMatch = 1;
 		mainEndStage();
@@ -4071,7 +4074,7 @@ static void readyGateAbort(const char *canceller_name)
 	}
 
 	/* Return room to lobby state */
-	room = roomGetById(0);
+	room = roomGetById(s_ReadyGate.room_id);
 	if (room) {
 		roomTransition(room, ROOM_STATE_LOBBY);
 	}
@@ -4257,6 +4260,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				pnum++;
 			}
 		}
+		/* M-S2: clear gap slots between players (0..pnum-1) and bots (MAX_PLAYERS+)
+		 * so stale data from previous matches doesn't leak through. */
+		g_MatchConfig.numSlots = (u8)pnum;
+		for (s32 gap = pnum; gap < MAX_PLAYERS; gap++) {
+			memset(&g_MatchConfig.slots[gap], 0, sizeof(g_MatchConfig.slots[gap]));
+		}
+
 		/* Add simulant (bot) slots: bits 8..8+numSims-1 in chrslots.
 		 * MAX_BOTS = 32, MAX_PLAYERS = 8 so bots live in bits 8..39.
 		 * numSims is clamped to MAX_BOTS to prevent overflow. */
@@ -4272,6 +4282,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			const char *head_id    = netbufReadStr(src); /* catalog ID e.g. "base:head_dark_combat" */
 			const u8 botDifficulty = netbufReadU8(src);
 			const u8 botType       = netbufReadU8(src);
+			/* L-S3: NULL guard on netbufReadStr results */
+			if (!botName) botName = "";
+			if (!body_id) body_id = "";
+			if (!head_id) head_id = "";
 			if (src->error) {
 				/* Malformed — fall back to global simType, normal difficulty */
 				g_BotConfigsArray[bi].type       = simType;
@@ -4509,11 +4523,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
 	}
 
-	/* Return 0 regardless of src->error: the buffer overflow on CLC_LOBBY_START
-	 * (31 bots × ~57 bytes exceeds the 1440-byte client out buffer) causes src->error
-	 * to be set after successful processing, producing a false "malformed 0x08" warning.
-	 * The message was handled correctly; don't abort the dispatch loop. */
-	return 0;
+	/* H-S1: NET_CLIENT_BUFSIZE is now 16KB (was 1440) — large enough for
+	 * 40 slots × ~57 bytes + header.  Buffer overflow no longer occurs. */
+	return src->error;
 }
 
 /* ========================================================================

@@ -40,7 +40,7 @@ void inputCtxInit(void)
 void inputCtxShutdown(void)
 {
     for (s32 i = s_Depth - 1; i >= 0; i--) {
-        /* L-1: Guard all dereferences — s_Stack[i] could be NULL. */
+        /* M-L1: Guard all dereferences — s_Stack[i] could be NULL. */
         if (s_Stack[i]) {
             if (s_Stack[i]->on_pop) {
                 s_Stack[i]->on_pop(s_Stack[i]);

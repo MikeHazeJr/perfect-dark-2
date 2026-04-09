@@ -2225,6 +2225,12 @@ void lvTick(void)
 	s32 j;
 	s32 i;
 	static s32 s_LvTickFirstRun = 1;
+	static s32 s_LvTickLastStage = -1;
+	/* L-static: reset first-run flag when stage changes */
+	if (s_LvTickLastStage != (s32)g_Vars.stagenum) {
+		s_LvTickFirstRun = 1;
+		s_LvTickLastStage = (s32)g_Vars.stagenum;
+	}
 	if (s_LvTickFirstRun) {
 		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		s_LvTickFirstRun = 0;

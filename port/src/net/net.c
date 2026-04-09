@@ -15,6 +15,7 @@
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "types.h"
 #include "constants.h"
@@ -837,8 +838,11 @@ void netServerStageEnd(void)
 	}
 
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcStageEndWrite(&g_NetMsgRel);
+	netmsgSvcStageEndWrite(&g_NetMsgRel, g_NetMatchRoomId);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+
+	/* L-E3: tear down session catalog on server-side stage end */
+	sessionCatalogTeardown();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END sent, returning to lobby");
 }
@@ -1080,8 +1084,8 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 	{
 		const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
 		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
-		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
-		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+		cfg->base.mpbodynum = be ? (u8)be->mp_index : 0;
+		cfg->base.mpheadnum = he ? (u8)he->mp_index : 0;
 		/* Phase 2: populate PRIMARY catalog ID string fields */
 		strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
 		cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';

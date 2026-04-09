@@ -106,7 +106,7 @@ u32 netmsgSvcChatWrite(struct netbuf *dst, const char *str);
 u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcStageStartWrite(struct netbuf *dst);
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcStageEndWrite(struct netbuf *dst);
+u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id);
 u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPlayerMoveWrite(struct netbuf *dst, struct netclient *movecl);
 u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl);

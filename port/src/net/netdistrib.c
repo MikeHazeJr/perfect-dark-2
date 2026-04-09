@@ -442,7 +442,9 @@ void netDistribInit(void)
     s_KillFeedNext = 0;
     s_PendingTemporary = 0;
     s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
-    configRegisterInt("Net.DistribTrustThresholdMB", &s_TrustThresholdMb, 16, 4096);
+    if (!s_Initialized) {
+        configRegisterInt("Net.DistribTrustThresholdMB", &s_TrustThresholdMb, 16, 4096);
+    }
     s_Initialized = 1;
 }
 
