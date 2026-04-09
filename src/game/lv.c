@@ -1385,6 +1385,9 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				gdl = viRenderViewportEdges(gdl);
+				/* H-1: Force sky to max depth so it always renders behind geometry */
+				gSPSetGeometryMode(gdl++, 0);
+				gDPSetPrimDepth(gdl++, 0xFFFF, 0);
 				gdl = skyRender(gdl);
 				bgTick();
 				lightsTick();

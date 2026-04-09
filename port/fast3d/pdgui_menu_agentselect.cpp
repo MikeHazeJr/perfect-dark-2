@@ -379,6 +379,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
     }
+    /* L-4: B / Escape = go back to previous menu */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = false;
+        }
+        menuPopDialog();
+        ImGui::End();
+        return 1;
+    }
     /* Arrow key navigation for MKB */
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_SelectedIdx++;

@@ -178,7 +178,9 @@ static const char * const s_JoyBtnNames[INPUT_MAX_CONTROLLER_BUTTONS] = {
     "LTRIGGER","RTRIGGER",
 };
 
-/** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency). */
+/** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency).
+ * M-9: WARNING — returns pointer to static buffer for joystick VKs.
+ * The returned string is only valid until the next call with a joystick VK. */
 static const char *actionmapGetVkName(u32 vk)
 {
     /* Joystick buttons: JOY<n>_<btn> */
@@ -322,6 +324,10 @@ static s32 s_NumActive = 0;
 
 /* Per-player, per-action state */
 static ActionState s_State[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT];
+
+/* M-2: Pre-computed list of actions bound to mouse wheel VKs, for fast end-of-frame release. */
+static InputAction s_WheelActions[ACTION_COUNT];
+static s32 s_NumWheelActions = 0;
 
 /* Stick digital state: tracks whether each synthetic stick-dir VK is held.
  * Indexed [player][stick_slot] where stick_slot:
@@ -763,13 +769,17 @@ void actionmapPollFrame(void)
         s32 mdx = 0, mdy = 0;
         inputMouseGetRawDelta(&mdx, &mdy);
 
-        f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
-        f32 ay = clampf(-(f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);  /* Negate: mouse Y+ = down, game Y+ = up */
+        /* M-1: Only overwrite aim with mouse if there's actual mouse movement,
+         * so gamepad aim isn't zeroed out by an idle mouse. */
+        if (mdx != 0 || mdy != 0) {
+            f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
+            f32 ay = clampf(-(f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);  /* Negate: mouse Y+ = down, game Y+ = up */
 
-        s_State[0][ACTION_AXIS_AIM_X].value = ax;
-        s_State[0][ACTION_AXIS_AIM_Y].value = ay;
-        s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
-        s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_AIM_X].value = ax;
+            s_State[0][ACTION_AXIS_AIM_Y].value = ay;
+            s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
+        }
 
         /* KBM move axes from WASD digital states */
         f32 mx = 0.0f, my = 0.0f;
@@ -797,6 +807,29 @@ void actionmapPollFrame(void)
 
 void actionmapEndFrame(void)
 {
+    /* M-2: Rebuild wheel-bound action cache (only when contexts change, but cheap enough per-frame). */
+    s_NumWheelActions = 0;
+    for (s32 ci = 0; ci < s_NumActive; ci++) {
+        InputMappingContext *ctx = s_Active[ci];
+        for (s32 a = 0; a < ACTION_COUNT; a++) {
+            if (!ctx->has_mapping[a]) continue;
+            InputMapping *m = &ctx->mappings[a];
+            for (s32 ti = 0; ti < m->num_triggers; ti++) {
+                u32 vk = m->triggers[ti].vk;
+                if (vk == VK_MOUSE_WHEEL_UP || vk == VK_MOUSE_WHEEL_DN) {
+                    /* Avoid duplicates */
+                    s32 dup = 0;
+                    for (s32 k = 0; k < s_NumWheelActions; k++) {
+                        if (s_WheelActions[k] == (InputAction)a) { dup = 1; break; }
+                    }
+                    if (!dup && s_NumWheelActions < ACTION_COUNT) {
+                        s_WheelActions[s_NumWheelActions++] = (InputAction)a;
+                    }
+                }
+            }
+        }
+    }
+
     /* Debounce: promote raw device to stable last device after timeout */
     if (s_RawDevice != s_LastDevice) {
         u32 now     = SDL_GetTicks();
@@ -813,37 +846,16 @@ void actionmapEndFrame(void)
             st->pressed  = 0;
             st->released = 0;
 
-            /* Wheel VKs have no corresponding SDL_KEYUP, so auto-release */
-            if (a == ACTION_WEAPON_PREV || a == ACTION_WEAPON_NEXT) {
-                /* Only auto-release if the binding is a wheel VK */
-                /* Check conservatively: if it was held but no digital stick tracks it */
-                /* This is handled by the VK: the next dispatch will not re-fire */
-                /* For safety, clear held for these momentary actions */
-                /* (they re-fire every MOUSEWHEEL event, which is per-scroll-notch) */
-            }
+            /* Wheel auto-release is now handled by the M-2 pre-computed array below. */
         }
 
-        /* Auto-release synthetic wheel VKs: fire a release for wheel up/dn */
-        /* They don't have SDL_KEYUP events, so we release them end-of-frame */
-        /* Check if the action bound to WHEEL_UP/DN was pressed this frame */
-        /* and clear it. We do this by searching for wheel VKs in mappings. */
-        for (s32 ci = 0; ci < s_NumActive; ci++) {
-            InputMappingContext *ctx = s_Active[ci];
-            for (s32 a = 0; a < ACTION_COUNT; a++) {
-                if (!ctx->has_mapping[a]) continue;
-                InputMapping *m = &ctx->mappings[a];
-                for (s32 ti = 0; ti < m->num_triggers; ti++) {
-                    u32 vk = m->triggers[ti].vk;
-                    if (vk == VK_MOUSE_WHEEL_UP || vk == VK_MOUSE_WHEEL_DN) {
-                        /* Auto-release wheel-bound actions */
-                        ActionState *st = &s_State[p][a];
-                        if (st->held) {
-                            st->held     = 0;
-                            st->released = 1;
-                            st->value    = 0.0f;
-                        }
-                    }
-                }
+        /* M-2: Auto-release wheel-bound actions using pre-computed list (avoids O(contexts*actions*triggers) scan). */
+        for (s32 wi = 0; wi < s_NumWheelActions; wi++) {
+            ActionState *st = &s_State[p][s_WheelActions[wi]];
+            if (st->held) {
+                st->held     = 0;
+                st->released = 1;
+                st->value    = 0.0f;
             }
         }
     }

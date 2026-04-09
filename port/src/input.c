@@ -21,8 +21,6 @@
 
 #define CONTROLLERDB_FNAME "gamecontrollerdb.txt"
 
-#define MAX_BIND_STR 256
-
 #define TRIG_THRESHOLD (30 * 256)
 #define DEFAULT_DEADZONE 4096
 #define DEFAULT_DEADZONE_RY 6144
@@ -811,11 +809,15 @@ void inputRumble(s32 idx, f32 strength, f32 time)
 
 f32 inputRumbleGetStrength(s32 cidx)
 {
+	/* L-3: Bounds check to prevent OOB access on padsCfg. */
+	if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS) return 0.0f;
 	return padsCfg[cidx].rumbleScale;
 }
 
 void inputRumbleSetStrength(s32 cidx, f32 val)
 {
+	/* L-3: Bounds check to prevent OOB access on padsCfg. */
+	if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS) return;
 	padsCfg[cidx].rumbleScale = val;
 }
 
@@ -1057,6 +1059,12 @@ s32 inputKeyPressed(u32 vk)
 	return 0;
 }
 
+/**
+ * L-2: WARNING — this function has a side-effect: it updates vkPrevState[vk]
+ * on every call. Calling it multiple times per frame for the same VK will
+ * consume the edge — only the first call returns true. Callers must be aware
+ * that this is not a pure query.
+ */
 s32 inputKeyJustPressed(u32 vk)
 {
 	const s8 pressed = inputKeyPressed(vk);

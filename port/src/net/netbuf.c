@@ -58,7 +58,9 @@ u8 netbufReadU8(struct netbuf *buf)
 u16 netbufReadU16(struct netbuf *buf)
 {
 	if (netbufCanRead(buf, 2)) {
-		const u16 ret = *(u16 *)&buf->data[buf->rp];
+		/* H-6: Use memcpy to avoid unaligned reads (UB on strict-alignment targets). */
+		u16 ret;
+		memcpy(&ret, &buf->data[buf->rp], sizeof(ret));
 		buf->rp += sizeof(ret);
 		return PD_LE16(ret);
 	}
@@ -68,7 +70,9 @@ u16 netbufReadU16(struct netbuf *buf)
 u32 netbufReadU32(struct netbuf *buf)
 {
 	if (netbufCanRead(buf, 4)) {
-		const u32 ret = *(u32 *)&buf->data[buf->rp];
+		/* H-6: Use memcpy to avoid unaligned reads. */
+		u32 ret;
+		memcpy(&ret, &buf->data[buf->rp], sizeof(ret));
 		buf->rp += sizeof(ret);
 		return PD_LE32(ret);
 	}
@@ -78,7 +82,9 @@ u32 netbufReadU32(struct netbuf *buf)
 u64 netbufReadU64(struct netbuf *buf)
 {
 	if (netbufCanRead(buf, 8)) {
-		const u64 ret = *(u64 *)&buf->data[buf->rp];
+		/* H-6: Use memcpy to avoid unaligned reads. */
+		u64 ret;
+		memcpy(&ret, &buf->data[buf->rp], sizeof(ret));
 		buf->rp += sizeof(ret);
 		return PD_LE64(ret);
 	}

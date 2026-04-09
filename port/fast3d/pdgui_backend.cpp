@@ -320,11 +320,8 @@ static void pdguiDriveImGuiNav(void)
 
 void pdguiNewFrame(void)
 {
-    /* Clear pressed/released edge signals from the previous frame.
-     * actionmapPollFrame() is called from pdsched (game loop) before game
-     * logic reads actions — do NOT call it here too or mouse delta gets
-     * consumed twice (second read returns zero). */
-    actionmapEndFrame();
+    /* H-3: actionmapEndFrame() removed from here — it is called once from gfx_sdl2.cpp.
+     * Calling it twice caused edge signals to be cleared before game logic could read them. */
 
     /* Drive ImGui nav from actionmap each frame.
      * actionmapPollFrame() already ran in pdsched so action states are current. */

@@ -1257,11 +1257,27 @@ static s32 extractZipToStaging(const char *zipPath, const char *stagingDir)
 {
 	CreateDirectoryA(stagingDir, NULL);
 
+	/* M-8: Escape single quotes in paths for PowerShell -LiteralPath and redirect stderr. */
+	char escZip[1024], escStaging[1024];
+	{
+		s32 j = 0;
+		for (s32 i = 0; zipPath[i] && j < (s32)sizeof(escZip) - 2; i++) {
+			if (zipPath[i] == '\'') { escZip[j++] = '\''; }
+			escZip[j++] = zipPath[i];
+		}
+		escZip[j] = '\0';
+		j = 0;
+		for (s32 i = 0; stagingDir[i] && j < (s32)sizeof(escStaging) - 2; i++) {
+			if (stagingDir[i] == '\'') { escStaging[j++] = '\''; }
+			escStaging[j++] = stagingDir[i];
+		}
+		escStaging[j] = '\0';
+	}
 	char cmd[2048];
 	snprintf(cmd, sizeof(cmd),
 		"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
-		"-Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\"",
-		zipPath, stagingDir);
+		"-Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\" 2>&1",
+		escZip, escStaging);
 
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;

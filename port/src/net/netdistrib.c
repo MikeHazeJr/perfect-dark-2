@@ -33,6 +33,7 @@
 
 #include "types.h"
 #include "constants.h"
+#include "platform.h"
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
@@ -45,6 +46,7 @@
 #include "system.h"
 #include "fs.h"
 #include "config.h"
+#include "sha256.h"
 
 /* ========================================================================
  * Constants
@@ -568,6 +570,7 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
         if (p + 2 > end) break;
         u16 path_len;
         memcpy(&path_len, p, 2);
+        path_len = PD_LE16(path_len); /* L-8: endian conversion for archive path_len */
         p += 2;
 
         if (p + path_len > end) break;
@@ -577,15 +580,54 @@ static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
         if (p + 4 > end) break;
         u32 dlen;
         memcpy(&dlen, p, 4);
+        dlen = PD_LE32(dlen); /* L-8: endian conversion for data_len */
         p += 4;
 
         if (p + dlen > end) break;
         const u8 *fdata = p;
         p += dlen;
 
+        /* C-1: Sanitize relpath — strip leading '/' and '..' components to prevent
+         * path traversal attacks from a malicious server. */
+        const char *safe = relpath;
+        while (*safe == '/' || *safe == '\\') safe++;
+        {
+            const char *check = safe;
+            s32 bad = 0;
+            while (*check) {
+                if (check[0] == '.' && check[1] == '.' &&
+                    (check[2] == '/' || check[2] == '\\' || check[2] == '\0')) {
+                    bad = 1;
+                    break;
+                }
+                /* Skip to next path component */
+                while (*check && *check != '/' && *check != '\\') check++;
+                while (*check == '/' || *check == '\\') check++;
+            }
+            if (bad || safe[0] == '\0') {
+                sysLogPrintf(LOG_WARNING, "DISTRIB: path traversal blocked: '%s'", relpath);
+                continue;
+            }
+        }
+
         /* Build full output path */
         char outpath[FS_MAXPATH];
-        snprintf(outpath, sizeof(outpath), "%s/%s", destdir, relpath);
+        snprintf(outpath, sizeof(outpath), "%s/%s", destdir, safe);
+
+        /* C-1: Verify resolved path stays within destdir */
+        {
+            char resolved[FS_MAXPATH];
+            char destresolved[FS_MAXPATH];
+            if (_fullpath(resolved, outpath, sizeof(resolved)) &&
+                _fullpath(destresolved, destdir, sizeof(destresolved))) {
+                size_t dlen_r = strlen(destresolved);
+                if (strncmp(resolved, destresolved, dlen_r) != 0) {
+                    sysLogPrintf(LOG_WARNING, "DISTRIB: path containment violation: '%s' escapes '%s'",
+                                 outpath, destdir);
+                    continue;
+                }
+            }
+        }
 
         /* Create parent directory */
         char dirpath[FS_MAXPATH];
@@ -769,6 +811,13 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
 
     /* Grow buffer if needed */
     while (slot->compressed_len + data_len > slot->compressed_cap) {
+        /* C-5: Prevent integer overflow when doubling compressed_cap. */
+        if (slot->compressed_cap > 256u * 1024u * 1024u / 2) {
+            sysLogPrintf(LOG_ERROR, "DISTRIB: compressed buffer exceeds 128MB cap for '%s'", slot->id);
+            free(slot->compressed_buf);
+            memset(slot, 0, sizeof(*slot));
+            return;
+        }
         slot->compressed_cap *= 2;
         u8 *newbuf = (u8 *)realloc(slot->compressed_buf, slot->compressed_cap);
         if (!newbuf) {
@@ -807,6 +856,12 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         return;
     }
 
+    /* C-3: Block processing if transfer requires approval that hasn't been granted. */
+    if (slot->needs_approval) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: END for '%s' blocked — awaiting user approval", catalog_id);
+        return;
+    }
+
     if (!success) {
         sysLogPrintf(LOG_WARNING, "DISTRIB: server signalled failure for '%s'", slot->id);
         goto done;
@@ -820,6 +875,12 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     /* Decompress */
     if (slot->archive_bytes == 0) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes is zero — rejecting '%s'", slot->id);
+        goto done;
+    }
+    /* C-4: Reject absurdly large decompression to prevent integer overflow in alloc. */
+    if (slot->archive_bytes > 256u * 1024u * 1024u) {
+        sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes %u exceeds 256MB safety cap — rejecting '%s'",
+                     slot->archive_bytes, slot->id);
         goto done;
     }
     uLongf raw_len = (uLongf)(slot->archive_bytes + 1024); /* a bit of headroom */
@@ -836,6 +897,31 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         sysLogPrintf(LOG_ERROR, "DISTRIB: decompress failed (%d) for '%s'", zret, slot->id);
         free(raw);
         goto done;
+    }
+
+    /* C-2: SHA-256 verification — compare compressed data hash against manifest entry.
+     * This prevents a malicious or corrupted transfer from being installed. */
+    {
+        static const u8 s_zero32[32] = {0};
+        for (u16 mi = 0; mi < g_ClientManifest.num_entries; mi++) {
+            const match_manifest_entry_t *me = &g_ClientManifest.entries[mi];
+            if (me->id[0] && strncmp(me->id, slot->id, sizeof(me->id)) == 0 &&
+                memcmp(me->sha256, s_zero32, sizeof(me->sha256)) != 0) {
+                u8 actual[SHA256_DIGEST_SIZE];
+                sha256Hash(slot->compressed_buf, slot->compressed_len, actual);
+                if (memcmp(actual, me->sha256, SHA256_DIGEST_SIZE) != 0) {
+                    char expect_hex[SHA256_HEX_SIZE], actual_hex[SHA256_HEX_SIZE];
+                    sha256ToHex(me->sha256, expect_hex);
+                    sha256ToHex(actual, actual_hex);
+                    sysLogPrintf(LOG_ERROR, "DISTRIB: SHA-256 mismatch for '%s': expected %s, got %s",
+                                 slot->id, expect_hex, actual_hex);
+                    free(raw);
+                    goto done;
+                }
+                sysLogPrintf(LOG_NOTE, "DISTRIB: SHA-256 verified for '%s'", slot->id);
+                break;
+            }
+        }
     }
 
     /* Build destination directory */

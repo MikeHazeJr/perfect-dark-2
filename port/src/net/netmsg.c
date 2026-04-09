@@ -237,6 +237,10 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
 	in->crosspos[0] = netbufReadF32(buf);
 	in->crosspos[1] = netbufReadF32(buf);
 	in->weaponnum = netbufReadS8(buf);
+	/* M-6: Clamp weaponnum to valid range to prevent OOB from malicious packets. */
+	if (in->weaponnum < WEAPON_NONE || in->weaponnum > WEAPON_SUICIDEPILL) {
+		in->weaponnum = WEAPON_UNARMED;
+	}
 	netbufReadCoord(buf, &in->pos);
 	if (in->ucmd & UCMD_AIMMODE) {
 		in->zoomfov = netbufReadF32(buf);
@@ -382,6 +386,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	srccl->state = CLSTATE_LOBBY;
+	++g_NetNumClients; /* M-7: Increment only after successful auth (moved from netServerEvConnect). */
 
 	/* Send SVC_AUTH first so the client transitions to CLSTATE_LOBBY before receiving
 	 * any further messages. Catalog info must come after auth — the client must be
