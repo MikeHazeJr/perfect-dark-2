@@ -1,7 +1,86 @@
 # Session Log (Active)
 
-> Recent sessions only. Archives: [1-6](sessions-01-06.md) . [7-13](sessions-07-13.md) . [14-21](sessions-14-21.md) . [22-46](sessions-22-46.md) . [47-78](sessions-47-78.md) . [79-86](sessions-79-86.md) . [87-119](sessions-87-119.md)
+> Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
+
+## Session S186 — 2026-04-09 (Context System Overhaul)
+
+**Focus**: Full context system cleanup. Inventory 83 files, archive stale content, rewrite core docs for v0.1.0 prep.
+
+### What Was Done
+
+- Inventoried all 83 context files, categorized each as KEEP/UPDATE/ARCHIVE
+- Moved 28 files to `_archive/` (completed audits, superseded plans, old session logs, stale briefings)
+- Created organized archive subdirectories: `_archive/audits/`, `_archive/designs/`, `_archive/sessions/`
+- Rewrote `roadmap.md` — reflects actual state: M0-M2 DONE, P1-P10 DONE, deep audit DONE, clear v0.1.0 target
+- Rewrote `QUICKSTART.md` — clean entry point: project overview, architecture, current state (v0.0.56/S185), constraints, build commands
+- Rewrote `tasks-current.md` — removed all completed items, organized around v0.1.0 release prep
+- Updated `README.md` — refreshed session history table, domain file links
+- Reset `.claude/temp-build/` to tracked state
+
+### Files Archived (28 total)
+Audits (9): array-bypasses, catalog-universality, game-director-s35, comprehensive-bugs, null-guard-{players,props,bots,stageload}, systemic-null-guard, hardcoded-color-p3
+Plans/Designs (6): d5-settings-plan, menu-replacement-plan, menu-storyboard, d5-visual-layer-plan, logging-system-upgrade, plan-bot-crash-fixes
+Sessions (7): sessions-01-06 through sessions-87-119
+Misc (6): briefing-2026-03-31, roadmap-synthesis, rendering-trace, session-briefing, menu-asset-audit, init-order-audit, player-count-constants-audit, network-audit, netsend-audit, tasks-archive, tasks-lobby-unification, daily-logs/2026-04-05
+
+### Next Steps
+- D5 Phase 3 (remaining 61 menu screens) or M3 (online MP flow) per Mike's direction
+- B-112 investigation when next crash log available
+
+---
+
+## Session S185 — 2026-04-09 (Deep Audit Bug Fix Session)
+
+**Focus**: Apply ALL findings from deep code audit — 5 critical security + 7 high + 10 medium + 9 low bug fixes + dead code removal. 20 files changed, 244 insertions, 74 deletions.
+
+### What Was Done
+
+**Critical (5)** — netdistrib.c security hardening:
+- C-1: Path traversal prevention in extractArchive (sanitize relpath + `_fullpath` containment check)
+- C-2: SHA-256 verification of compressed transfer data against client manifest
+- C-3: Block HandleEnd when transfer awaits user approval (needs_approval gate)
+- C-4: 256MB cap on decompression buffer prevents integer overflow
+- C-5: 128MB cap on compressed buffer doubling prevents overflow
+
+**High (7)**:
+- H-1: Sky depth forcing before skyRender (lv.c)
+- H-2: Bounds check g_MpNumChrs before array write in botmgr.c
+- H-3: Remove double actionmapEndFrame call from pdgui_backend.cpp
+- H-4: Ping-pong static buffers in netFormatAddr (net.c)
+- H-5: Check enet_peer_send return value, destroy packet on failure (net.c)
+- H-6: Replace unaligned pointer casts with memcpy in netbuf reads
+- H-7: Move mempPCFreeAll after all subsystem shutdowns (main.c)
+
+**Medium (9 applied, M-10 already existed)**:
+- M-1: Mouse idle no longer clobbers gamepad aim
+- M-2: Wheel scan replaced with O(1) pre-computed array
+- M-3: Aim always reads regardless of movement suppression gates
+- M-4: Audio sample rate 22020->22050
+- M-5: Explicit s32 for g_IsTitleDemo
+- M-6: Clamp weaponnum to valid range in netmsg receive
+- M-7: Defer g_NetNumClients increment until CLC_AUTH succeeds
+- M-8: PowerShell path escaping in updater
+- M-9: Document actionmapGetVkName static buffer lifetime
+
+**Low (7 applied, L-6/L-7 already existed)**:
+- L-1: NULL guard in inputctx shutdown
+- L-2: Document inputKeyJustPressed side-effect
+- L-3: Bounds check cidx in inputRumbleGet/SetStrength
+- L-4: B/Escape handler in agent select main list
+- L-5: Document O(n) scan in sessioncatalog
+- L-8: PD_LE16/PD_LE32 endian conversion in archive extraction
+- L-9: static_assert on MANIFEST_MAX_ENTRIES u16 capacity
+
+**Dead code**: Removed jparse_t.strbuf, MAX_BIND_STR, empty wheel conditional
+
+### Bugs closed by this session
+B-79 (chunk ordering), B-80 (archive_bytes validation), B-82 (sample rate), B-83 (shutdown ordering), B-86 (enet_peer_send unchecked)
+
+### Commits
+- `68b77433` — fix: deep audit (47 bugs)
+
+---
 
 ## Session S184 — 2026-04-08 (P10 D5.7: OG Menu Removal)
 
