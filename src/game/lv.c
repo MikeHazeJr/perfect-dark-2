@@ -1385,7 +1385,14 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				gdl = viRenderViewportEdges(gdl);
+				/* Sky renders first (before world geometry). Disable depth test
+				 * and depth write so sky never interacts with the depth buffer.
+				 * World geometry drawn after will correctly occlude sky via its
+				 * own depth writes.  Clearing G_ZBUFFER ensures the PC renderer's
+				 * depth_test flag is false (gfx_pc.cpp checks geometry_mode). */
+				gSPClearGeometryMode(gdl++, G_ZBUFFER);
 				gdl = skyRender(gdl);
+				gSPSetGeometryMode(gdl++, G_ZBUFFER);
 				bgTick();
 				lightsTick();
 				propsTickPlayer(islastplayer);
