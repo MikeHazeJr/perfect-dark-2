@@ -1037,12 +1037,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			movedata.freelookdy = -movedata.freelookdy;
 		}
 	}
-	// always pause with ESC
-	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
-		if (inputKeyJustPressed(VK_ESCAPE)) {
-			c1buttonsthisframe |= START_BUTTON;
-		}
-	}
+	/* B-124 fix: Escape→START synthesis removed. ACTION_PAUSE is bound to
+	 * VK_ESCAPE in the action map — the parallel inputKeyJustPressed(VK_ESCAPE)
+	 * path was a second input reader that caused double-fire race conditions.
+	 * actionPressed(pi, ACTION_PAUSE) at line 979 already sets START_BUTTON. */
 
 	// Pausing
 	if (g_Vars.currentplayer->isdead == false) {

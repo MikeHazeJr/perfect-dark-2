@@ -247,6 +247,8 @@ void pdguiPauseMenuOpen(void)
 
 void pdguiPauseMenuClose(void)
 {
+    if (s_pauseInCooldown()) return; /* B-124 fix: prevent double-fire close within cooldown */
+
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
 

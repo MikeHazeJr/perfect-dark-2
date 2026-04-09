@@ -1856,8 +1856,7 @@ Gfx *creditsDraw(Gfx *gdl)
 	if (actionPressed(0, ACTION_FIRE_PRIMARY)  || actionPressed(0, ACTION_FIRE_SECONDARY) ||
 		actionPressed(0, ACTION_USE)           || actionPressed(0, ACTION_CANCEL_USE) ||
 		actionPressed(0, ACTION_PAUSE)         || actionPressed(0, ACTION_RELOAD) ||
-		actionPressed(0, ACTION_WEAPON_NEXT)   || actionPressed(0, ACTION_WEAPON_PREV) ||
-		inputKeyJustPressed(VK_ESCAPE))
+		actionPressed(0, ACTION_WEAPON_NEXT)   || actionPressed(0, ACTION_WEAPON_PREV))
 	{
 		g_TitleNextStage = STAGE_CITRAINING;
 

@@ -32,6 +32,7 @@
 #include "actionmap.h"
 #include "config.h"     /* configRegisterString */
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
+#include "inputctx.h"   /* inputCtxGetTop, g_CtxGameplay — for menu axis suppression */
 
 /* os_thread.h must precede input.h / os_cont.h.
  * os_message.h (included by os_cont.h) uses OSThread without including
@@ -720,10 +721,17 @@ void actionmapDispatch(const SDL_Event *ev)
 
 void actionmapPollFrame(void)
 {
+    /* B-124 fix (Bug D): When a menu context is active, zero all gameplay
+     * axes and skip SDL stick polling entirely. The input context stack
+     * blocks SDL EVENTS, but analog stick polling bypasses the event system
+     * — without this check the right stick moves the camera behind the menu. */
+    InputContext *topCtx = inputCtxGetTop();
+    s32 menuActive = (topCtx && topCtx != &g_CtxGameplay) ? 1 : 0;
+
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
-        if (ctrl) {
+        if (ctrl && !menuActive) {
             /* Read raw axes — honour swap sticks setting */
             SDL_GameControllerAxis lxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX;
             SDL_GameControllerAxis lyAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
@@ -759,12 +767,33 @@ void actionmapPollFrame(void)
             s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_Y].held  = (fry != 0.0f) ? 1 : 0;
+        } else if (ctrl && menuActive) {
+            /* Menu is open: zero gameplay axes to prevent camera/movement behind menu */
+            s_State[p][ACTION_AXIS_MOVE_X].value = 0.0f;
+            s_State[p][ACTION_AXIS_MOVE_Y].value = 0.0f;
+            s_State[p][ACTION_AXIS_AIM_X].value  = 0.0f;
+            s_State[p][ACTION_AXIS_AIM_Y].value  = 0.0f;
+            s_State[p][ACTION_AXIS_MOVE_X].held = 0;
+            s_State[p][ACTION_AXIS_MOVE_Y].held = 0;
+            s_State[p][ACTION_AXIS_AIM_X].held  = 0;
+            s_State[p][ACTION_AXIS_AIM_Y].held  = 0;
         }
     }
 
-    /* Player 0: KBM aim axis from mouse delta (when no gamepad or KBM active) */
-    if (s_LastDevice == ACTIONMAP_DEVICE_KBM ||
-        SDL_GameControllerFromPlayerIndex(0) == NULL)
+    if (menuActive) {
+        /* Menu active: zero player 0 KBM axes too and skip all synthesis */
+        s_State[0][ACTION_AXIS_MOVE_X].value = 0.0f;
+        s_State[0][ACTION_AXIS_MOVE_Y].value = 0.0f;
+        s_State[0][ACTION_AXIS_AIM_X].value  = 0.0f;
+        s_State[0][ACTION_AXIS_AIM_Y].value  = 0.0f;
+        s_State[0][ACTION_AXIS_MOVE_X].held = 0;
+        s_State[0][ACTION_AXIS_MOVE_Y].held = 0;
+        s_State[0][ACTION_AXIS_AIM_X].held  = 0;
+        s_State[0][ACTION_AXIS_AIM_Y].held  = 0;
+        return;
+    }
+
+    /* Player 0: KBM aim axis from mouse delta */
     {
         s32 mdx = 0, mdy = 0;
         inputMouseGetRawDelta(&mdx, &mdy);
@@ -780,20 +809,30 @@ void actionmapPollFrame(void)
             s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
             s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
         }
+    }
 
-        /* KBM move axes from WASD digital states */
+    /* B-124 fix (Bug C): WASD→AXIS_MOVE synthesis always runs for player 0,
+     * regardless of s_LastDevice. Previous code gated this on KBM device,
+     * so any gamepad event (stick noise) would switch s_LastDevice to GAMEPAD
+     * and WASD synthesis would stop — causing "moves for 1 frame" behavior.
+     * Now: gamepad sticks write first (above), then WASD overrides IF any
+     * WASD key is held. Both inputs can coexist. */
+    {
         f32 mx = 0.0f, my = 0.0f;
         if (s_State[0][ACTION_MOVE_RIGHT].held)    mx += 1.0f;
         if (s_State[0][ACTION_MOVE_LEFT].held)     mx -= 1.0f;
         if (s_State[0][ACTION_MOVE_FORWARD].held)  my += 1.0f;  /* Y+ = forward (N64 convention) */
         if (s_State[0][ACTION_MOVE_BACKWARD].held) my -= 1.0f;
-        /* Normalize diagonal */
-        f32 len = sqrtf(mx * mx + my * my);
-        if (len > 1.0f) { mx /= len; my /= len; }
-        s_State[0][ACTION_AXIS_MOVE_X].value = mx;
-        s_State[0][ACTION_AXIS_MOVE_Y].value = my;
-        s_State[0][ACTION_AXIS_MOVE_X].held  = (mx != 0.0f) ? 1 : 0;
-        s_State[0][ACTION_AXIS_MOVE_Y].held  = (my != 0.0f) ? 1 : 0;
+
+        if (mx != 0.0f || my != 0.0f) {
+            /* Normalize diagonal */
+            f32 len = sqrtf(mx * mx + my * my);
+            if (len > 1.0f) { mx /= len; my /= len; }
+            s_State[0][ACTION_AXIS_MOVE_X].value = mx;
+            s_State[0][ACTION_AXIS_MOVE_Y].value = my;
+            s_State[0][ACTION_AXIS_MOVE_X].held  = 1;
+            s_State[0][ACTION_AXIS_MOVE_Y].held  = 1;
+        }
     }
 
     /* Mouse wheel actions auto-release after one frame (no SDL_KEYUP equivalent) */
