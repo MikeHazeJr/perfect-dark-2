@@ -1065,17 +1065,26 @@ static void renderSettingsControls(float scale)
             ImGui::Separator();
 
             {
-                bool invertY = optionsGetForwardPitch(0) == 0;
-                if (PdCheckbox("Invert Y", &invertY)) {
-                    optionsSetForwardPitch(0, invertY ? 0 : 1);
+                f32 sens = actionmapGetStickSensitivity();
+                if (PdSliderFloat("Stick Sensitivity", &sens, 0.1f, 3.0f, "%.2f")) {
+                    actionmapSetStickSensitivity(sens);
+                    configSave("pd.ini");
                 }
             }
 
             {
-                s32 swapped = inputControllerGetSticksSwapped(0);
-                bool swap = (swapped != 0);
-                if (PdCheckbox("Swap Sticks", &swap)) {
-                    inputControllerSetSticksSwapped(0, swap ? 1 : 0);
+                f32 dz = actionmapGetStickDeadzone();
+                if (PdSliderFloat("Stick Deadzone", &dz, 0.0f, 0.5f, "%.2f")) {
+                    actionmapSetStickDeadzone(dz);
+                    configSave("pd.ini");
+                }
+            }
+
+            {
+                bool invertY = actionmapGetStickInvertY() != 0;
+                if (PdCheckbox("Invert Y (Stick)", &invertY)) {
+                    actionmapSetStickInvertY(invertY ? 1 : 0);
+                    configSave("pd.ini");
                 }
             }
 

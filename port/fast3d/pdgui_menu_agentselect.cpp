@@ -131,6 +131,9 @@ static bool s_AutoLoadTriggered = false;
 static s32 s_ConfirmMode = CONFIRM_NONE;
 static s32 s_ConfirmIdx = -1;
 
+/* B-124 pattern: track whether this screen pushed g_CtxImGuiMenu */
+static bool s_AgentSelectPushedCtx = false;
+
 /* ========================================================================
  * Helpers
  * ======================================================================== */
@@ -200,9 +203,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 
-        /* Push menu context so mouse works (absolute mode + pdguiIsActive). */
+        /* B-124 pattern: push g_CtxImGuiMenu so mouse works and gameplay input is blocked. */
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = true;
+        } else {
+            s_AgentSelectPushedCtx = false;
         }
 
         /* Auto-load default agent on first appearance */
@@ -320,11 +326,21 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
+            /* B-124: pop context before transitioning away */
+            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_AgentSelectPushedCtx = false;
+            }
             gamefileLoadDefaults(&g_GameFile);
             menuPushDialog(&g_FilemgrEnterNameMenuDialog);
         } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             pdguiPlaySound(PDGUI_SND_SELECT);
+            /* B-124: pop context before transitioning away */
+            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_AgentSelectPushedCtx = false;
+            }
             g_GameFileGuid.fileid = file->fileid;
             g_GameFileGuid.deviceserial = file->deviceserial;
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);

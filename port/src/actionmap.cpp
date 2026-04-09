@@ -339,6 +339,11 @@ static s32 s_CheatCount = 0;  /* how many entries are valid */
 #define BIND_STR_MAX 128
 static char s_BindStr[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT][BIND_STR_MAX];
 
+/* Controller stick tuning — exposed to Controls menu via getter/setter API */
+static f32 s_StickSensitivity = 1.0f;   /* multiplier on stick axes (0.1 .. 3.0) */
+static f32 s_StickDeadzone    = 0.15f;  /* radial deadzone (0.0 .. 0.5) */
+static s32 s_StickInvertY     = 0;      /* 1 = negate AIM_Y for controller sticks */
+
 /* ============================================================
  * Helpers: player-from-VK, deadzone
  * ============================================================ */
@@ -711,17 +716,27 @@ void actionmapPollFrame(void)
             s16 rx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
             s16 ry = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTY);
 
-            f32 flx = applyDeadzone(lx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fly = applyDeadzone(ly / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 frx = applyDeadzone(rx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fry = applyDeadzone(ry / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
+            f32 dz = s_StickDeadzone;
+            f32 flx = applyDeadzone(lx / 32767.0f, dz) * s_StickSensitivity;
+            f32 fly = applyDeadzone(ly / 32767.0f, dz) * s_StickSensitivity;
+            f32 frx = applyDeadzone(rx / 32767.0f, dz) * s_StickSensitivity;
+            f32 fry = applyDeadzone(ry / 32767.0f, dz) * s_StickSensitivity;
+
+            /* Negate Y: SDL Y+ = down, game expects Y+ = forward/up (N64 convention) */
+            fly = -fly;
+            fry = -fry;
+
+            /* Optional controller Y-invert for aim axis */
+            if (s_StickInvertY) {
+                fry = -fry;
+            }
 
             s_State[p][ACTION_AXIS_MOVE_X].value = clampf(flx, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(fly, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_AIM_X].value  = clampf(frx, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_AIM_Y].value  = clampf(fry, -1.0f, 1.0f);
 
-            /* Mark as held if axis is significantly deflected */
+            /* Mark as held if axis is significantly deflected (sign-agnostic) */
             s_State[p][ACTION_AXIS_MOVE_X].held = (flx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
@@ -737,7 +752,7 @@ void actionmapPollFrame(void)
         inputMouseGetRawDelta(&mdx, &mdy);
 
         f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
-        f32 ay = clampf((f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);
+        f32 ay = clampf(-(f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);  /* Negate: mouse Y+ = down, game Y+ = up */
 
         s_State[0][ACTION_AXIS_AIM_X].value = ax;
         s_State[0][ACTION_AXIS_AIM_Y].value = ay;
@@ -748,8 +763,8 @@ void actionmapPollFrame(void)
         f32 mx = 0.0f, my = 0.0f;
         if (s_State[0][ACTION_MOVE_RIGHT].held)    mx += 1.0f;
         if (s_State[0][ACTION_MOVE_LEFT].held)     mx -= 1.0f;
-        if (s_State[0][ACTION_MOVE_FORWARD].held)  my -= 1.0f;  /* Y- = forward */
-        if (s_State[0][ACTION_MOVE_BACKWARD].held) my += 1.0f;
+        if (s_State[0][ACTION_MOVE_FORWARD].held)  my += 1.0f;  /* Y+ = forward (N64 convention) */
+        if (s_State[0][ACTION_MOVE_BACKWARD].held) my -= 1.0f;
         /* Normalize diagonal */
         f32 len = sqrtf(mx * mx + my * my);
         if (len > 1.0f) { mx /= len; my /= len; }
@@ -1051,6 +1066,19 @@ void actionmapClearCheat(void)
     s_CheatHead  = 0;
     s_CheatCount = 0;
 }
+
+/* ============================================================
+ * Stick tuning getter/setter API
+ * ============================================================ */
+
+f32  actionmapGetStickSensitivity(void) { return s_StickSensitivity; }
+void actionmapSetStickSensitivity(f32 v) { s_StickSensitivity = clampf(v, 0.1f, 3.0f); }
+
+f32  actionmapGetStickDeadzone(void) { return s_StickDeadzone; }
+void actionmapSetStickDeadzone(f32 v) { s_StickDeadzone = clampf(v, 0.0f, 0.5f); }
+
+s32  actionmapGetStickInvertY(void) { return s_StickInvertY; }
+void actionmapSetStickInvertY(s32 v) { s_StickInvertY = v ? 1 : 0; }
 
 /* ============================================================
  * Default IMC definitions
@@ -1387,6 +1415,11 @@ void actionmapInit(void)
             configRegisterString(key, s_BindStr[p][a], BIND_STR_MAX);
         }
     }
+
+    /* Register stick tuning variables with config system */
+    configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
+    configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
+    configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
 
     /* Activate the gameplay and menu contexts by default.
      * Callers activate Vehicle/Pause/Debug/TextInput as needed. */
