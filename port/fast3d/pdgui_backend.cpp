@@ -320,14 +320,14 @@ static void pdguiDriveImGuiNav(void)
 
 void pdguiNewFrame(void)
 {
-    /* M0.2 Phase A: Flip action map edge signals (pressed/released → 0) and
-     * sample analog axes.  Both run unconditionally so stale state doesn't
-     * accumulate when menus are inactive. */
+    /* Clear pressed/released edge signals from the previous frame.
+     * actionmapPollFrame() is called from pdsched (game loop) before game
+     * logic reads actions — do NOT call it here too or mouse delta gets
+     * consumed twice (second read returns zero). */
     actionmapEndFrame();
-    actionmapPollFrame();
 
-    /* M0.2 Phase C: Drive ImGui nav from actionmap each frame.
-     * Must run after actionmapPollFrame() so action states are current. */
+    /* Drive ImGui nav from actionmap each frame.
+     * actionmapPollFrame() already ran in pdsched so action states are current. */
     pdguiDriveImGuiNav();
 
     bool networkActive = (netGetMode() != 0);

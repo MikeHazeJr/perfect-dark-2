@@ -307,11 +307,9 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        /* M0.2 Phase B: actionmap sees every raw event before ImGui consumption
-         * check, so input is tracked regardless of menu focus. */
-        actionmapDispatch(&event);
-
-        /* D3d: Let ImGui see every event first */
+        /* D3d: Let ImGui see every event first.
+         * actionmapDispatch is called inside pdguiProcessEvent — do NOT
+         * call it here too or every event fires twice. */
         int consumed = pdguiProcessEvent(&event);
         if (consumed) {
             continue;  /* ImGui consumed this event — skip PD handling */

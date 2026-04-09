@@ -29,6 +29,7 @@
 #include "screenmfst.h"
 #include "net/netmanifest.h"
 #include "system.h"
+#include "inputctx.h"
 
 extern "C" {
 
@@ -198,6 +199,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
+
+        /* Push menu context so mouse works (absolute mode + pdguiIsActive). */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
 
         /* Auto-load default agent on first appearance */
         if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {
