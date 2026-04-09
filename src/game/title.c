@@ -51,7 +51,7 @@ f32 var8009d358jf[4];
 #endif
 
 s16 g_TitleViewHeight = 480;
-bool g_IsTitleDemo = false;
+s32 g_IsTitleDemo = false; /* M-5: explicit s32 to avoid C++ _Bool mismatch */
 bool g_TitleButtonPressed = false;
 bool g_TitleFastForward = false;
 u32 g_TitleIdleTime60 = 0;

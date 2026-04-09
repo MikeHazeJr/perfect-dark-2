@@ -193,6 +193,10 @@ void inputSetMouseLockMode(s32 mode);
 s32 inputControllerGetInvertRStickY(s32 cidx);
 void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
 
+/* Stick swap — from port/include/input.h */
+s32 inputControllerGetSticksSwapped(s32 cidx);
+void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
+
 /* M0.2 Phase D: Input binding now uses actionmap.h API exclusively.
  * CK_* enum and old bind functions removed. */
 #define PD_VK_ESCAPE 41
@@ -825,117 +829,47 @@ static const char *getActionName(InputAction action)
     return "???";
 }
 
-static void renderSettingsControls(float scale)
+/* Sub-tab index within Controls: 0 = Keyboard & Mouse, 1 = Controller */
+static s32 s_ControlsSubTab = 0;
+
+/* Shared capture-mode handler — called at the top of each sub-tab that uses it. */
+static void handleCaptureInput(void)
 {
-    /* ---- Mouse Settings ---- */
-    ImGui::TextDisabled("Mouse");
-    ImGui::Separator();
+    if (!s_CaptureActive) return;
 
-    bool mouseEnabled = inputMouseIsEnabled() != 0;
-    if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
-        inputMouseEnable(mouseEnabled ? 1 : 0);
-    }
-
-    bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
-    if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
-        g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
-    }
-
-    {
-        int lockMode = inputGetMouseLockMode();
-        const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
-        if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
-            inputSetMouseLockMode(lockMode);
+    s32 newKey = inputGetLastKey();
+    if (newKey == PD_VK_ESCAPE) {
+        s_CaptureActive = 0;
+        inputClearLastKey();
+    } else if (newKey > 0) {
+        bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
+                  || (s_CaptureColumn == 1 && isVkController((u32)newKey));
+        if (valid) {
+            actionmapBind(&g_ImcGameplay, 0, s_CaptureAction, s_CaptureBind, (u32)newKey);
+            actionmapSaveBinds();
+            configSave("pd.ini");
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        } else {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
         }
+        s_CaptureActive = 0;
+        inputClearLastKey();
     }
+}
 
-    bool menuMouse = g_MenuMouseControl != 0;
-    if (PdCheckbox("Mouse Menu Navigation", &menuMouse)) {
-        g_MenuMouseControl = menuMouse ? 1 : 0;
-    }
-
-    ImGui::Separator();
-
-    {
-        f32 mx, my;
-        inputMouseGetSpeed(&mx, &my);
-        if (PdSliderFloat("Mouse Speed X", &mx, 0.0f, 10.0f, "%.2f")) {
-            inputMouseSetSpeed(mx, my);
-        }
-        inputMouseGetSpeed(&mx, &my);
-        if (PdSliderFloat("Mouse Speed Y", &my, 0.0f, 10.0f, "%.2f")) {
-            inputMouseSetSpeed(mx, my);
-        }
-    }
-
-    {
-        float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
-        if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
-            g_PlayerExtCfg[0].mouseaimspeedx = aimX;
-        }
-        float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
-        if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
-            g_PlayerExtCfg[0].mouseaimspeedy = aimY;
-        }
-    }
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    /* ---- Look Settings ---- */
-    ImGui::TextDisabled("Look");
-    ImGui::Separator();
-
-    {
-        bool invertY = optionsGetForwardPitch(0) == 0;
-        if (PdCheckbox("Invert Look (Y-Axis)", &invertY)) {
-            optionsSetForwardPitch(0, invertY ? 0 : 1);
-        }
-    }
-
-    /* "Invert Y-Axis (Right Stick)" removed — was writing to dead inputReadController
-     * path (padsCfg.invertRStickY) which game code no longer reads for sticks.
-     * "Invert Look (Y-Axis)" above handles both mouse AND controller via
-     * movedata.invertpitch in bondmove.c. */
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    /* ---- Key Bindings (M0.2 Phase D: actionmap-based) ---- */
-    ImGui::TextDisabled("Key Bindings");
-    ImGui::Separator();
-
-    /* Handle active capture mode */
-    if (s_CaptureActive) {
-        s32 newKey = inputGetLastKey();
-        if (newKey == PD_VK_ESCAPE) {
-            s_CaptureActive = 0;
-            inputClearLastKey();
-        } else if (newKey > 0) {
-            bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
-                      || (s_CaptureColumn == 1 && isVkController((u32)newKey));
-            if (valid) {
-                actionmapBind(&g_ImcGameplay, 0, s_CaptureAction, s_CaptureBind, (u32)newKey);
-                actionmapSaveBinds();
-                configSave("pd.ini");
-                pdguiPlaySound(PDGUI_SND_SELECT);
-            } else {
-                pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            }
-            s_CaptureActive = 0;
-            inputClearLastKey();
-        }
-    }
-
-    if (s_CaptureActive) {
-        const char *typeStr = (s_CaptureColumn == 0) ? "keyboard/mouse" : "controller";
+/* Render a 3-column bind table for one device type (MKB or Controller).
+ * filterCol: 0 = MKB, 1 = Controller. */
+static void renderBindTable(s32 filterCol, const char *tableId)
+{
+    /* Capture banner */
+    if (s_CaptureActive && s_CaptureColumn == filterCol) {
+        const char *typeStr = (filterCol == 0) ? "keyboard/mouse" : "controller";
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
             "Press a %s key for \"%s\" (Esc to cancel)",
             typeStr, getActionName(s_CaptureAction));
         ImGui::Spacing();
     }
 
-    /* 5-column table: Action | MKB1 | MKB2 | Ctrl1 | Ctrl2 */
     ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV
                                 | ImGuiTableFlags_RowBg
                                 | ImGuiTableFlags_SizingStretchProp
@@ -945,12 +879,10 @@ static void renderSettingsControls(float scale)
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 1.0f));
 
-    if (ImGui::BeginTable("##binds_table", 5, tableFlags)) {
+    if (ImGui::BeginTable(tableId, 3, tableFlags)) {
         ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
-        ImGui::TableSetupColumn("MKB 1",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("MKB 2",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Ctrl 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Ctrl 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Bind 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Bind 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableHeadersRow();
 
         for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
@@ -963,6 +895,10 @@ static void renderSettingsControls(float scale)
             getBindsByType(action, mkbVKs, mkbSlots, &mkbCount,
                            ctrlVKs, ctrlSlots, &ctrlCount);
 
+            u32 *vks    = (filterCol == 0) ? mkbVKs    : ctrlVKs;
+            s32 *slots  = (filterCol == 0) ? mkbSlots  : ctrlSlots;
+            const char *prefix = (filterCol == 0) ? "mkb" : "ctrl";
+
             ImGui::TableNextRow();
             bool rowHovered = false;
             bool rowNavFocus = false;
@@ -970,25 +906,20 @@ static void renderSettingsControls(float scale)
             ImGui::TableSetColumnIndex(0);
             ImGui::TextUnformatted(actionName);
 
+            char id1[16], id2[16];
+            snprintf(id1, sizeof(id1), "%s1", prefix);
+            snprintf(id2, sizeof(id2), "%s2", prefix);
+
             ImGui::TableSetColumnIndex(1);
-            renderBindButton(action, "mkb1", 0, 0, mkbVKs[0],
-                             (mkbSlots[0] >= 0) ? mkbSlots[0] : findFreeTriggerSlot(action),
-                             mkbSlots[1], &rowHovered, &rowNavFocus);
+            renderBindButton(action, id1, filterCol, 0, vks[0],
+                             (slots[0] >= 0) ? slots[0] : findFreeTriggerSlot(action),
+                             slots[1], &rowHovered, &rowNavFocus);
 
             ImGui::TableSetColumnIndex(2);
-            renderBindButton(action, "mkb2", 0, 1, mkbVKs[1], mkbSlots[1], mkbSlots[0],
+            renderBindButton(action, id2, filterCol, 1, vks[1], slots[1], slots[0],
                              &rowHovered, &rowNavFocus);
 
-            ImGui::TableSetColumnIndex(3);
-            renderBindButton(action, "ctrl1", 1, 0, ctrlVKs[0],
-                             (ctrlSlots[0] >= 0) ? ctrlSlots[0] : findFreeTriggerSlot(action),
-                             ctrlSlots[1], &rowHovered, &rowNavFocus);
-
-            ImGui::TableSetColumnIndex(4);
-            renderBindButton(action, "ctrl2", 1, 1, ctrlVKs[1], ctrlSlots[1], ctrlSlots[0],
-                             &rowHovered, &rowNavFocus);
-
-            if (s_CaptureActive && s_CaptureAction == action) {
+            if (s_CaptureActive && s_CaptureAction == action && s_CaptureColumn == filterCol) {
                 rowNavFocus = true;
             }
             if (rowHovered || rowNavFocus) {
@@ -1005,12 +936,204 @@ static void renderSettingsControls(float scale)
 
     ImGui::Spacing();
     ImGui::TextDisabled("Click to rebind. Right-click to clear. Esc to cancel.");
-    ImGui::Spacing();
+}
 
-    if (PdButton("Reset All to Defaults")) {
-        actionmapSetDefaults(&g_ImcGameplay, 0);
-        actionmapSaveBinds();
-        configSave("pd.ini");
+static void renderSettingsControls(float scale)
+{
+    /* Process any active key capture regardless of which sub-tab is showing */
+    handleCaptureInput();
+
+    if (ImGui::BeginTabBar("##controls_tabs")) {
+
+        /* ======== Tab 1: Keyboard & Mouse ======== */
+        if (ImGui::BeginTabItem("Keyboard & Mouse")) {
+            s_ControlsSubTab = 0;
+            /* Cancel controller capture if we switched tabs */
+            if (s_CaptureActive && s_CaptureColumn == 1) {
+                s_CaptureActive = 0;
+                inputClearLastKey();
+            }
+
+            ImGui::Spacing();
+
+            /* ---- Mouse Settings ---- */
+            ImGui::TextDisabled("Mouse");
+            ImGui::Separator();
+
+            {
+                f32 mx, my;
+                inputMouseGetSpeed(&mx, &my);
+                if (PdSliderFloat("Mouse Sensitivity X", &mx, 0.0f, 10.0f, "%.2f")) {
+                    inputMouseSetSpeed(mx, my);
+                }
+                inputMouseGetSpeed(&mx, &my);
+                if (PdSliderFloat("Mouse Sensitivity Y", &my, 0.0f, 10.0f, "%.2f")) {
+                    inputMouseSetSpeed(mx, my);
+                }
+            }
+
+            {
+                float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
+                if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
+                    g_PlayerExtCfg[0].mouseaimspeedx = aimX;
+                }
+                float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
+                if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
+                    g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+                }
+            }
+
+            {
+                bool invertY = optionsGetForwardPitch(0) == 0;
+                if (PdCheckbox("Invert Y", &invertY)) {
+                    optionsSetForwardPitch(0, invertY ? 0 : 1);
+                }
+            }
+
+            ImGui::Separator();
+
+            bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
+            if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
+                g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
+            }
+
+            {
+                int lockMode = inputGetMouseLockMode();
+                const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
+                if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
+                    inputSetMouseLockMode(lockMode);
+                }
+            }
+
+            bool mouseEnabled = inputMouseIsEnabled() != 0;
+            if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
+                inputMouseEnable(mouseEnabled ? 1 : 0);
+            }
+
+            bool menuMouse = g_MenuMouseControl != 0;
+            if (PdCheckbox("Mouse Menu Navigation", &menuMouse)) {
+                g_MenuMouseControl = menuMouse ? 1 : 0;
+            }
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+
+            /* ---- MKB Bindings ---- */
+            ImGui::TextDisabled("Key Bindings");
+            ImGui::Separator();
+
+            renderBindTable(0, "##mkb_binds");
+
+            ImGui::Spacing();
+            if (PdButton("Reset Keyboard & Mouse to Defaults")) {
+                /* Clear only MKB triggers from gameplay IMC, re-apply defaults */
+                for (s32 a = 0; a < ACTION_COUNT; a++) {
+                    if (!g_ImcGameplay.has_mapping[a]) continue;
+                    InputMapping *m = &g_ImcGameplay.mappings[a];
+                    s32 write = 0;
+                    for (s32 ti = 0; ti < m->num_triggers; ti++) {
+                        u32 vk = m->triggers[ti].vk;
+                        if (vk > 0 && isVkController(vk)) {
+                            m->triggers[write++] = m->triggers[ti];
+                        } else {
+                            m->triggers[ti].vk = 0;
+                        }
+                    }
+                    m->num_triggers = write;
+                }
+                actionmapSetDefaults(&g_ImcGameplay, 0);
+                actionmapSaveBinds();
+                configSave("pd.ini");
+            }
+
+            ImGui::EndTabItem();
+        }
+
+        /* ======== Tab 2: Controller ======== */
+        if (ImGui::BeginTabItem("Controller")) {
+            s_ControlsSubTab = 1;
+            /* Cancel MKB capture if we switched tabs */
+            if (s_CaptureActive && s_CaptureColumn == 0) {
+                s_CaptureActive = 0;
+                inputClearLastKey();
+            }
+
+            ImGui::Spacing();
+
+            /* ---- Controller Settings ---- */
+            ImGui::TextDisabled("Controller");
+            ImGui::Separator();
+
+            {
+                f32 sens = actionmapGetStickSensitivity();
+                if (PdSliderFloat("Stick Sensitivity", &sens, 0.1f, 3.0f, "%.2f")) {
+                    actionmapSetStickSensitivity(sens);
+                    configSave("pd.ini");
+                }
+            }
+
+            {
+                f32 dz = actionmapGetStickDeadzone();
+                if (PdSliderFloat("Stick Deadzone", &dz, 0.0f, 0.5f, "%.2f")) {
+                    actionmapSetStickDeadzone(dz);
+                    configSave("pd.ini");
+                }
+            }
+
+            {
+                bool invertY = actionmapGetStickInvertY() != 0;
+                if (PdCheckbox("Invert Y (Stick)", &invertY)) {
+                    actionmapSetStickInvertY(invertY ? 1 : 0);
+                    configSave("pd.ini");
+                }
+            }
+
+            {
+                s32 swapped = actionmapGetSwapSticks();
+                bool swap = (swapped != 0);
+                if (PdCheckbox("Swap Sticks", &swap)) {
+                    actionmapSetSwapSticks(swap ? 1 : 0);
+                    /* Keep legacy input.c in sync for stickCButtons */
+                    inputControllerSetSticksSwapped(0, swap ? 1 : 0);
+                    configSave("pd.ini");
+                }
+            }
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+
+            /* ---- Controller Bindings ---- */
+            ImGui::TextDisabled("Button Bindings");
+            ImGui::Separator();
+
+            renderBindTable(1, "##ctrl_binds");
+
+            ImGui::Spacing();
+            if (PdButton("Reset Controller to Defaults")) {
+                /* Clear only controller triggers from gameplay IMC, re-apply defaults */
+                for (s32 a = 0; a < ACTION_COUNT; a++) {
+                    if (!g_ImcGameplay.has_mapping[a]) continue;
+                    InputMapping *m = &g_ImcGameplay.mappings[a];
+                    s32 write = 0;
+                    for (s32 ti = 0; ti < m->num_triggers; ti++) {
+                        u32 vk = m->triggers[ti].vk;
+                        if (vk > 0 && isVkMKB(vk)) {
+                            m->triggers[write++] = m->triggers[ti];
+                        } else {
+                            m->triggers[ti].vk = 0;
+                        }
+                    }
+                    m->num_triggers = write;
+                }
+                actionmapSetDefaults(&g_ImcGameplay, 0);
+                actionmapSaveBinds();
+                configSave("pd.ini");
+            }
+
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
 }
 

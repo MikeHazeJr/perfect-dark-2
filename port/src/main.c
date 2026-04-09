@@ -113,12 +113,6 @@ static void cleanup(void)
 	// stage transitions) are skipped and the process exits quickly.
 	g_AppQuitting = 1;
 
-	/* Validate persistent allocations one final time before freeing.
-	 * If any corruption occurred during the session, this is our last
-	 * chance to log it for post-mortem analysis. */
-	mempPCValidate("shutdown");
-	mempPCFreeAll();
-
 	inputCtxShutdown();
 	updaterShutdown();
 	pdguiShutdown();
@@ -128,6 +122,12 @@ static void cleanup(void)
 	configSave(CONFIG_PATH);
 	videoShutdown();
 	crashShutdown();
+
+	/* H-7: Free persistent allocations AFTER all subsystems are shut down,
+	 * so no subsystem dereferences freed memory during its teardown. */
+	mempPCValidate("shutdown");
+	mempPCFreeAll();
+
 	/* SDL_Quit tears down all SDL subsystems (video, audio, timer, etc.)
 	 * that were opened via SDL_Init / SDL_InitSubSystem during boot. */
 	SDL_Quit();

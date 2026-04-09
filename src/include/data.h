@@ -109,7 +109,7 @@ extern f32 g_Lv80SecIntervalFrac;
 extern bool g_NbombsActive;
 extern s32 g_WeatherActive;
 extern u32 var80062410;
-extern bool g_IsTitleDemo;
+extern s32 g_IsTitleDemo; /* M-5: explicit s32 — bool is s32 in game code */
 extern u32 g_TitleIdleTime60;
 extern s32 g_TitleMode;
 extern s32 g_TitleNextMode;

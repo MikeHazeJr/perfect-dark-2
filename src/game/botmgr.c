@@ -121,6 +121,12 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 					chr->convtalk = 0;
 					chr->myaction = MA_AIBOTMAINLOOP;
 
+					/* H-G2: Bounds check before writing to g_MpAllChrPtrs to prevent OOB. */
+					if (g_MpNumChrs >= MAX_MPCHRS) {
+						sysLogPrintf(LOG_ERROR, "BOT_ALLOC: g_MpNumChrs (%d) >= MAX_MPCHRS (%d), aborting bot alloc for chrnum=%d",
+							g_MpNumChrs, MAX_MPCHRS, chrnum);
+						return;
+					}
 					g_MpAllChrPtrs[g_MpNumChrs] = chr;
 					g_MpAllChrConfigPtrs[g_MpNumChrs] = &g_BotConfigsArray[aibotnum].base;
 					g_MpNumChrs++;

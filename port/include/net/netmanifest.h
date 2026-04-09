@@ -61,6 +61,13 @@ extern "C" {
  * The array is heap-allocated and grows by doubling from MANIFEST_INITIAL_CAPACITY. */
 #define MANIFEST_MAX_ENTRIES 4096
 
+/* L-9: Manifest capacity and num_entries are u16 — ensure max fits. */
+#ifdef __cplusplus
+static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 capacity");
+#else
+_Static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 capacity");
+#endif
+
 /** Entry type codes (match_manifest_entry_t::type) */
 #define MANIFEST_TYPE_BODY       0  /**< Character body model */
 #define MANIFEST_TYPE_HEAD       1  /**< Character head model */

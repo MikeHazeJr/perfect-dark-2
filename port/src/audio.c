@@ -63,7 +63,7 @@ s32 audioInit(void)
 
 	SDL_AudioSpec want, have;
 	SDL_zero(want);
-	want.freq = 22050; /* standard half-rate (44100/2) — 22020 was a typo */
+	want.freq = 22050; /* standard half-rate (44100/2) — 22050 was a typo */
 	want.format = AUDIO_S16SYS;
 	want.channels = 2;
 	want.samples = bufferSize;
@@ -204,7 +204,7 @@ u16 audioGetUiVolumeScaled(void)
 /* ========================================================================
  * File-based sound playback (C-7 mod SFX override)
  *
- * Loads a WAV file from disk, converts it to the device format (22020 Hz,
+ * Loads a WAV file from disk, converts it to the device format (22050 Hz,
  * AUDIO_S16SYS, stereo), applies the engine's volume and pan values, and
  * queues the PCM directly via SDL_QueueAudio.
  *
@@ -225,11 +225,11 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
         return 0;
     }
 
-    /* Convert to device format: 22020 Hz, AUDIO_S16SYS, 2-channel */
+    /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2-channel */
     SDL_AudioCVT cvt;
     const int cvtResult = SDL_BuildAudioCVT(&cvt,
         wavSpec.format, wavSpec.channels, wavSpec.freq,
-        AUDIO_S16SYS, 2, 22020);
+        AUDIO_S16SYS, 2, 22050);
 
     if (cvtResult < 0) {
         SDL_FreeWAV(wavBuf);

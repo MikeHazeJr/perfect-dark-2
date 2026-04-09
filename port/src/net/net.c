@@ -15,6 +15,7 @@
 #include "identity.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "types.h"
 #include "constants.h"
@@ -175,18 +176,21 @@ s32 netParseAddr(ENetAddress *out, const char *str)
 
 static const char *netFormatAddr(const ENetAddress *addr)
 {
-	static char str[256];
+	/* H-4: Ping-pong buffers so two consecutive calls don't alias. */
+	static char str[2][256];
+	static int idx = 0;
+	idx = !idx;
 	char tmp[256];
 	if (addr && enet_address_get_ip(addr, tmp, sizeof(tmp) - 1) == 0) {
 		if (tmp[0]) {
 			if (strchr(tmp, ':')) {
 				// ipv6
-				snprintf(str, sizeof(str) - 1, "[%s]:%u", tmp, addr->port);
+				snprintf(str[idx], sizeof(str[idx]) - 1, "[%s]:%u", tmp, addr->port);
 			} else {
 				// ipv4
-				snprintf(str, sizeof(str) - 1, "%s:%u", tmp, addr->port);
+				snprintf(str[idx], sizeof(str[idx]) - 1, "%s:%u", tmp, addr->port);
 			}
-			return str;
+			return str[idx];
 		}
 	}
 	return NULL;
@@ -834,8 +838,11 @@ void netServerStageEnd(void)
 	}
 
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcStageEndWrite(&g_NetMsgRel);
+	netmsgSvcStageEndWrite(&g_NetMsgRel, g_NetMatchRoomId);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+
+	/* L-E3: tear down session catalog on server-side stage end */
+	sessionCatalogTeardown();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END sent, returning to lobby");
 }
@@ -1077,8 +1084,8 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 	{
 		const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
 		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
-		cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
-		cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
+		cfg->base.mpbodynum = be ? (u8)be->mp_index : 0;
+		cfg->base.mpheadnum = he ? (u8)he->mp_index : 0;
 		/* Phase 2: populate PRIMARY catalog ID string fields */
 		strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
 		cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
@@ -1137,7 +1144,8 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 		return;
 	}
 
-	++g_NetNumClients;
+	/* M-7: Don't increment g_NetNumClients here — wait until CLC_AUTH succeeds.
+	 * This prevents unauthenticated connections from counting toward the client limit. */
 
 	netClientReset(cl);
 	cl->state = CLSTATE_AUTH; // skip CLSTATE_CONNECTING, since we already know it connected
@@ -1687,7 +1695,11 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 		if (dstcl == NULL) {
 			enet_host_broadcast(g_NetHost, chan, p);
 		} else {
-			enet_peer_send(dstcl->peer, chan, p);
+			/* H-5: Check return value — on failure, ENet does not free the packet. */
+			if (enet_peer_send(dstcl->peer, chan, p) < 0) {
+				sysLogPrintf(LOG_WARNING, "NET: enet_peer_send failed (%u bytes, chan %d)", buf->wp, chan);
+				enet_packet_destroy(p);
+			}
 		}
 	}
 

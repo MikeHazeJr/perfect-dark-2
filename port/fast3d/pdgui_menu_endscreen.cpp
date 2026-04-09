@@ -146,6 +146,9 @@ s32 mpGetPlayerRankings(struct ranking_es *rankings);
 s32 mpGetTeamRankings(struct ranking_es *rankings);
 u32 pdguiPauseGetOptions(void);
 
+/* Player management */
+void setCurrentPlayerNum(s32 playernum);
+
 /* Game state */
 extern s32 g_MpPlayerNum;
 extern s32 g_NetMode;
@@ -671,6 +674,9 @@ static void renderSoloEndscreen(bool completed)
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
 static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 {
+    /* M-E1: ensure stats functions read the correct player in splitscreen */
+    setCurrentPlayerNum(g_MpPlayerNum);
+
     /* ----- Palette ---------------------------------------------------- */
     /* E.3: Save and restore so this screen's palette doesn't bleed out. */
     s32 prevPalette = pdguiGetPalette();

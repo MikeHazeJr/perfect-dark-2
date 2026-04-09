@@ -720,7 +720,15 @@ void endscreenContinue(s32 context)
 
 						lvSetDifficulty(g_MissionConfig.difficulty);
 						titleSetNextMode(TITLEMODE_SKIP);
-						mainChangeToStage(g_MissionConfig.stagenum);
+						/* L-CO4: resolve stagenum from catalog at point of consumption */
+						{
+							catalog_stage_result_t r;
+							if (catalogResolveStage(g_MissionConfig.stage_id, &r)) {
+								mainChangeToStage(r.stagenum);
+							} else {
+								mainChangeToStage(g_MissionConfig.stagenum);
+							}
+						}
 						viBlack(true);
 					}
 				} else if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
@@ -1866,6 +1874,9 @@ void endscreenPushAnti(void)
 
 	lvSetPaused(true);
 
+	if (!g_Vars.currentplayerstats) {
+		return;
+	}
 	g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
 
 #if VERSION >= VERSION_NTSC_1_0

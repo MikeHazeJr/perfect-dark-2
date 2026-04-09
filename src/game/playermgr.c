@@ -43,10 +43,9 @@ void playermgrReset(void)
 	g_Vars.currentplayerstats = NULL;
 	g_Vars.currentplayernum = 0;
 
-	g_Vars.playerorder[0] = 0;
-	g_Vars.playerorder[1] = 1;
-	g_Vars.playerorder[2] = 2;
-	g_Vars.playerorder[3] = 3;
+	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		g_Vars.playerorder[i] = i;
+	}
 
 	g_Vars.bond = NULL;
 	g_Vars.coop = NULL;

@@ -40,11 +40,14 @@ void inputCtxInit(void)
 void inputCtxShutdown(void)
 {
     for (s32 i = s_Depth - 1; i >= 0; i--) {
-        if (s_Stack[i] && s_Stack[i]->on_pop) {
-            s_Stack[i]->on_pop(s_Stack[i]);
+        /* M-L1: Guard all dereferences — s_Stack[i] could be NULL. */
+        if (s_Stack[i]) {
+            if (s_Stack[i]->on_pop) {
+                s_Stack[i]->on_pop(s_Stack[i]);
+            }
+            s_Stack[i]->active = 0;
+            s_Stack[i]->marked_for_removal = 0;
         }
-        s_Stack[i]->active = 0;
-        s_Stack[i]->marked_for_removal = 0;
     }
     s_Depth = 0;
     s_GamePaused = 0;

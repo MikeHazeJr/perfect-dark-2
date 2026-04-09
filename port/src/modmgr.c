@@ -130,7 +130,6 @@ typedef struct {
 	const char *src;    // full source
 	const char *pos;    // current parse position
 	jtok_t cur;         // current token
-	char strbuf[512];   // buffer for extracted string values
 } jparse_t;
 
 static void json_skip_ws(jparse_t *j)

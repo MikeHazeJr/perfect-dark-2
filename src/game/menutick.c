@@ -37,6 +37,20 @@
 /* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
 
+/* M-CO5: restore co-op/anti player configs (swap slots 0↔4, 1↔5) */
+static void coopRestorePlayerConfigs(void)
+{
+	struct mpplayerconfig tmp;
+
+	tmp = g_PlayerConfigsArray[4];
+	g_PlayerConfigsArray[4] = g_PlayerConfigsArray[0];
+	g_PlayerConfigsArray[0] = tmp;
+
+	tmp = g_PlayerConfigsArray[5];
+	g_PlayerConfigsArray[5] = g_PlayerConfigsArray[1];
+	g_PlayerConfigsArray[1] = tmp;
+}
+
 u8 g_FileState = 0;
 u8 var80062944 = 0;
 u8 var80062948 = 0;
@@ -657,15 +671,7 @@ void menuTick(void)
 				if (g_Vars.normmplayerisrunning) {
 					var80087260 = 3;
 				} else if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-					struct mpplayerconfig tmp;
-
-					tmp = g_PlayerConfigsArray[4];
-					g_PlayerConfigsArray[4] = g_PlayerConfigsArray[0];
-					g_PlayerConfigsArray[0] = tmp;
-
-					tmp = g_PlayerConfigsArray[5];
-					g_PlayerConfigsArray[5] = g_PlayerConfigsArray[1];
-					g_PlayerConfigsArray[1] = tmp;
+					coopRestorePlayerConfigs();
 				}
 
 				if (g_Vars.coopplayernum >= 0
@@ -700,6 +706,7 @@ void menuTick(void)
 				break;
 			case MENUROOT_COOPCONTINUE:
 				if (g_Vars.coopplayernum >= 0) {
+					coopRestorePlayerConfigs();
 					mpSetPaused(MPPAUSEMODE_UNPAUSED);
 					g_Vars.mplayerisrunning = false;
 					g_Vars.normmplayerisrunning = false;

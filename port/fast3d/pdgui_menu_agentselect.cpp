@@ -29,6 +29,7 @@
 #include "screenmfst.h"
 #include "net/netmanifest.h"
 #include "system.h"
+#include "inputctx.h"
 
 extern "C" {
 
@@ -38,6 +39,9 @@ extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
 /* Config system — for storing default agent */
 s32 configSave(const char *fname);
 void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
+
+/* Menu stack */
+void menuPopDialog(void);
 
 struct filelistfile {
     s32 fileid;
@@ -130,6 +134,9 @@ static bool s_AutoLoadTriggered = false;
 static s32 s_ConfirmMode = CONFIRM_NONE;
 static s32 s_ConfirmIdx = -1;
 
+/* B-124 pattern: track whether this screen pushed g_CtxImGuiMenu */
+static bool s_AgentSelectPushedCtx = false;
+
 /* ========================================================================
  * Helpers
  * ======================================================================== */
@@ -198,6 +205,14 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
+
+        /* B-124 pattern: push g_CtxImGuiMenu so mouse works and gameplay input is blocked. */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = true;
+        } else {
+            s_AgentSelectPushedCtx = false;
+        }
 
         /* Auto-load default agent on first appearance */
         if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {
@@ -314,11 +329,21 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
+            /* B-124: pop context before transitioning away */
+            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_AgentSelectPushedCtx = false;
+            }
             gamefileLoadDefaults(&g_GameFile);
             menuPushDialog(&g_FilemgrEnterNameMenuDialog);
         } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             pdguiPlaySound(PDGUI_SND_SELECT);
+            /* B-124: pop context before transitioning away */
+            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_AgentSelectPushedCtx = false;
+            }
             g_GameFileGuid.fileid = file->fileid;
             g_GameFileGuid.deviceserial = file->deviceserial;
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
@@ -356,6 +381,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             configSave("pd.ini");
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
+    }
+    /* L-4: B / Escape = go back to previous menu */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = false;
+        }
+        menuPopDialog();
+        ImGui::End();
+        return 1;
     }
     /* Arrow key navigation for MKB */
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {

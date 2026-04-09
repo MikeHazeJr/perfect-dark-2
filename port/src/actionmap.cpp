@@ -109,6 +109,9 @@
  * Tuned for 1080p at 60Hz; the real sensitivity lives in the input system. */
 #define MOUSE_AIM_SCALE 0.003f
 
+/* Swap sticks: 0 = normal (L=move, R=aim), 1 = swapped */
+static s32 s_SwapSticks      = 0;
+
 /* ============================================================
  * Self-contained VK ↔ name table for pd.ini serialisation.
  *
@@ -175,7 +178,9 @@ static const char * const s_JoyBtnNames[INPUT_MAX_CONTROLLER_BUTTONS] = {
     "LTRIGGER","RTRIGGER",
 };
 
-/** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency). */
+/** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency).
+ * M-9: WARNING — returns pointer to static buffer for joystick VKs.
+ * The returned string is only valid until the next call with a joystick VK. */
 static const char *actionmapGetVkName(u32 vk)
 {
     /* Joystick buttons: JOY<n>_<btn> */
@@ -320,6 +325,10 @@ static s32 s_NumActive = 0;
 /* Per-player, per-action state */
 static ActionState s_State[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT];
 
+/* M-2: Pre-computed list of actions bound to mouse wheel VKs, for fast end-of-frame release. */
+static InputAction s_WheelActions[ACTION_COUNT];
+static s32 s_NumWheelActions = 0;
+
 /* Stick digital state: tracks whether each synthetic stick-dir VK is held.
  * Indexed [player][stick_slot] where stick_slot:
  *   0=LX-, 1=LX+, 2=LY-, 3=LY+, 4=RX-, 5=RX+, 6=RY-, 7=RY+, 8=LTrig, 9=RTrig */
@@ -338,6 +347,11 @@ static s32 s_CheatCount = 0;  /* how many entries are valid */
 /* pd.ini bind string storage: [player][action] */
 #define BIND_STR_MAX 128
 static char s_BindStr[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT][BIND_STR_MAX];
+
+/* Controller stick tuning — exposed to Controls menu via getter/setter API */
+static f32 s_StickSensitivity = 1.0f;   /* multiplier on stick axes (0.1 .. 3.0) */
+static f32 s_StickDeadzone    = 0.15f;  /* radial deadzone (0.0 .. 0.5) */
+static s32 s_StickInvertY     = 0;      /* 1 = negate AIM_Y for controller sticks */
 
 /* ============================================================
  * Helpers: player-from-VK, deadzone
@@ -371,6 +385,10 @@ static inline f32 clampf(f32 v, f32 lo, f32 hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+/* Swap sticks API */
+void actionmapSetSwapSticks(s32 swapped) { s_SwapSticks = swapped ? 1 : 0; }
+s32  actionmapGetSwapSticks(void)        { return s_SwapSticks; }
 
 /* ============================================================
  * Helpers: cheat buffer
@@ -706,22 +724,37 @@ void actionmapPollFrame(void)
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
         if (ctrl) {
-            s16 lx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTX);
-            s16 ly = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTY);
-            s16 rx = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
-            s16 ry = SDL_GameControllerGetAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTY);
+            /* Read raw axes — honour swap sticks setting */
+            SDL_GameControllerAxis lxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX;
+            SDL_GameControllerAxis lyAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
+            SDL_GameControllerAxis rxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTX  : SDL_CONTROLLER_AXIS_RIGHTX;
+            SDL_GameControllerAxis ryAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_LEFTY  : SDL_CONTROLLER_AXIS_RIGHTY;
 
-            f32 flx = applyDeadzone(lx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fly = applyDeadzone(ly / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 frx = applyDeadzone(rx / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
-            f32 fry = applyDeadzone(ry / 32767.0f, ACTIONMAP_DEFAULT_DEADZONE);
+            s16 lx = SDL_GameControllerGetAxis(ctrl, lxAxis);
+            s16 ly = SDL_GameControllerGetAxis(ctrl, lyAxis);
+            s16 rx = SDL_GameControllerGetAxis(ctrl, rxAxis);
+            s16 ry = SDL_GameControllerGetAxis(ctrl, ryAxis);
+
+            f32 flx = applyDeadzone(lx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 fly = applyDeadzone(ly / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 frx = applyDeadzone(rx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 fry = applyDeadzone(ry / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+
+            /* Negate Y: SDL Y+ = down, game expects Y+ = forward/up (N64 convention) */
+            fly = -fly;
+            fry = -fry;
+
+            /* Optional controller Y-invert for aim axis */
+            if (s_StickInvertY) {
+                fry = -fry;
+            }
 
             s_State[p][ACTION_AXIS_MOVE_X].value = clampf(flx, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(fly, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_AIM_X].value  = clampf(frx, -1.0f, 1.0f);
             s_State[p][ACTION_AXIS_AIM_Y].value  = clampf(fry, -1.0f, 1.0f);
 
-            /* Mark as held if axis is significantly deflected */
+            /* Mark as held if axis is significantly deflected (sign-agnostic) */
             s_State[p][ACTION_AXIS_MOVE_X].held = (flx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
@@ -736,20 +769,24 @@ void actionmapPollFrame(void)
         s32 mdx = 0, mdy = 0;
         inputMouseGetRawDelta(&mdx, &mdy);
 
-        f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
-        f32 ay = clampf((f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);
+        /* M-1: Only overwrite aim with mouse if there's actual mouse movement,
+         * so gamepad aim isn't zeroed out by an idle mouse. */
+        if (mdx != 0 || mdy != 0) {
+            f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
+            f32 ay = clampf(-(f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);  /* Negate: mouse Y+ = down, game Y+ = up */
 
-        s_State[0][ACTION_AXIS_AIM_X].value = ax;
-        s_State[0][ACTION_AXIS_AIM_Y].value = ay;
-        s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
-        s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_AIM_X].value = ax;
+            s_State[0][ACTION_AXIS_AIM_Y].value = ay;
+            s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
+        }
 
         /* KBM move axes from WASD digital states */
         f32 mx = 0.0f, my = 0.0f;
         if (s_State[0][ACTION_MOVE_RIGHT].held)    mx += 1.0f;
         if (s_State[0][ACTION_MOVE_LEFT].held)     mx -= 1.0f;
-        if (s_State[0][ACTION_MOVE_FORWARD].held)  my -= 1.0f;  /* Y- = forward */
-        if (s_State[0][ACTION_MOVE_BACKWARD].held) my += 1.0f;
+        if (s_State[0][ACTION_MOVE_FORWARD].held)  my += 1.0f;  /* Y+ = forward (N64 convention) */
+        if (s_State[0][ACTION_MOVE_BACKWARD].held) my -= 1.0f;
         /* Normalize diagonal */
         f32 len = sqrtf(mx * mx + my * my);
         if (len > 1.0f) { mx /= len; my /= len; }
@@ -770,6 +807,29 @@ void actionmapPollFrame(void)
 
 void actionmapEndFrame(void)
 {
+    /* M-2: Rebuild wheel-bound action cache (only when contexts change, but cheap enough per-frame). */
+    s_NumWheelActions = 0;
+    for (s32 ci = 0; ci < s_NumActive; ci++) {
+        InputMappingContext *ctx = s_Active[ci];
+        for (s32 a = 0; a < ACTION_COUNT; a++) {
+            if (!ctx->has_mapping[a]) continue;
+            InputMapping *m = &ctx->mappings[a];
+            for (s32 ti = 0; ti < m->num_triggers; ti++) {
+                u32 vk = m->triggers[ti].vk;
+                if (vk == VK_MOUSE_WHEEL_UP || vk == VK_MOUSE_WHEEL_DN) {
+                    /* Avoid duplicates */
+                    s32 dup = 0;
+                    for (s32 k = 0; k < s_NumWheelActions; k++) {
+                        if (s_WheelActions[k] == (InputAction)a) { dup = 1; break; }
+                    }
+                    if (!dup && s_NumWheelActions < ACTION_COUNT) {
+                        s_WheelActions[s_NumWheelActions++] = (InputAction)a;
+                    }
+                }
+            }
+        }
+    }
+
     /* Debounce: promote raw device to stable last device after timeout */
     if (s_RawDevice != s_LastDevice) {
         u32 now     = SDL_GetTicks();
@@ -786,37 +846,16 @@ void actionmapEndFrame(void)
             st->pressed  = 0;
             st->released = 0;
 
-            /* Wheel VKs have no corresponding SDL_KEYUP, so auto-release */
-            if (a == ACTION_WEAPON_PREV || a == ACTION_WEAPON_NEXT) {
-                /* Only auto-release if the binding is a wheel VK */
-                /* Check conservatively: if it was held but no digital stick tracks it */
-                /* This is handled by the VK: the next dispatch will not re-fire */
-                /* For safety, clear held for these momentary actions */
-                /* (they re-fire every MOUSEWHEEL event, which is per-scroll-notch) */
-            }
+            /* Wheel auto-release is now handled by the M-2 pre-computed array below. */
         }
 
-        /* Auto-release synthetic wheel VKs: fire a release for wheel up/dn */
-        /* They don't have SDL_KEYUP events, so we release them end-of-frame */
-        /* Check if the action bound to WHEEL_UP/DN was pressed this frame */
-        /* and clear it. We do this by searching for wheel VKs in mappings. */
-        for (s32 ci = 0; ci < s_NumActive; ci++) {
-            InputMappingContext *ctx = s_Active[ci];
-            for (s32 a = 0; a < ACTION_COUNT; a++) {
-                if (!ctx->has_mapping[a]) continue;
-                InputMapping *m = &ctx->mappings[a];
-                for (s32 ti = 0; ti < m->num_triggers; ti++) {
-                    u32 vk = m->triggers[ti].vk;
-                    if (vk == VK_MOUSE_WHEEL_UP || vk == VK_MOUSE_WHEEL_DN) {
-                        /* Auto-release wheel-bound actions */
-                        ActionState *st = &s_State[p][a];
-                        if (st->held) {
-                            st->held     = 0;
-                            st->released = 1;
-                            st->value    = 0.0f;
-                        }
-                    }
-                }
+        /* M-2: Auto-release wheel-bound actions using pre-computed list (avoids O(contexts*actions*triggers) scan). */
+        for (s32 wi = 0; wi < s_NumWheelActions; wi++) {
+            ActionState *st = &s_State[p][s_WheelActions[wi]];
+            if (st->held) {
+                st->held     = 0;
+                st->released = 1;
+                st->value    = 0.0f;
             }
         }
     }
@@ -1051,6 +1090,19 @@ void actionmapClearCheat(void)
     s_CheatHead  = 0;
     s_CheatCount = 0;
 }
+
+/* ============================================================
+ * Stick tuning getter/setter API
+ * ============================================================ */
+
+f32  actionmapGetStickSensitivity(void) { return s_StickSensitivity; }
+void actionmapSetStickSensitivity(f32 v) { s_StickSensitivity = clampf(v, 0.1f, 3.0f); }
+
+f32  actionmapGetStickDeadzone(void) { return s_StickDeadzone; }
+void actionmapSetStickDeadzone(f32 v) { s_StickDeadzone = clampf(v, 0.0f, 0.5f); }
+
+s32  actionmapGetStickInvertY(void) { return s_StickInvertY; }
+void actionmapSetStickInvertY(s32 v) { s_StickInvertY = v ? 1 : 0; }
 
 /* ============================================================
  * Default IMC definitions
@@ -1387,6 +1439,12 @@ void actionmapInit(void)
             configRegisterString(key, s_BindStr[p][a], BIND_STR_MAX);
         }
     }
+
+    /* Register stick tuning variables with config system */
+    configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
+    configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
+    configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
+    configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
 
     /* Activate the gameplay and menu contexts by default.
      * Callers activate Vehicle/Pause/Debug/TextInput as needed. */

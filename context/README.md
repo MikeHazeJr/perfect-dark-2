@@ -1,17 +1,15 @@
-# Perfect Dark Mike — Project Context Index
+# Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-08, Session S183 (M0.1 COMPLETE a–f, M0.2 INPUT SYSTEM UNIFICATION COMPLETE Phases A–D. Action map system replaces CK_*, inputmodes.c deleted, -823 lines net. SA-5e ammo accessors landed. S179 input bug fixes (mouse/Esc/Tab/arrow keys). Next: D5 Phase 3 remaining menu screens, M3 online MP flow, build verification.)
+> **Last updated**: 2026-04-09, Session S186 (Context system overhaul. Deep audit 47 bugs fixed. M0-M2 DONE, P1-P10 DONE. Preparing for v0.1.0.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
-## Onboarding (For AI Sessions)
+## Onboarding
 
-> **COLD START?** Read **[QUICKSTART.md](QUICKSTART.md)** first — it's a single comprehensive onboarding document that gets you productive in under a minute. Then come back here for deep dives.
+> **COLD START?** Read **[QUICKSTART.md](QUICKSTART.md)** first. Then come back here for deep dives.
 
 **Project**: PC port of Perfect Dark (N64 FPS, Rare 2000). C11 codebase, CMake + MinGW/GCC.
-**Developer**: Mike (sole dev, builds on Windows via MSYS2). AI writes code, Mike compiles and tests.
-**Role**: Collaborative engineering partner. Depth over shortcuts. Root cause over patches.
-
-**Session start protocol**: Read [QUICKSTART.md](QUICKSTART.md) → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last 3) → [tasks-current.md](tasks-current.md). Load domain files only when relevant to the active task.
+**Developer**: Mike (sole dev, builds on Windows). AI writes code, Mike compiles and tests.
+**Session start**: Read [QUICKSTART.md](QUICKSTART.md) -> [constraints.md](constraints.md) -> [session-log.md](session-log.md) (last 3) -> [tasks-current.md](tasks-current.md).
 
 ---
 
@@ -19,12 +17,12 @@
 
 | Area | Status | File |
 |------|--------|------|
-| **What to do next** | Active tasks + backlog | [tasks-current.md](tasks-current.md) |
-| **What's done** | Completed work archive | [tasks-archive.md](tasks-archive.md) |
+| **What to do next** | v0.1.0 release prep | [tasks-current.md](tasks-current.md) |
+| **What's done** | M0-M2, P1-P10, deep audit (47 bugs) | [roadmap.md](roadmap.md) |
 | **What we must respect** | Active/removed constraints | [constraints.md](constraints.md) |
-| **Infrastructure phases** | D1–D16 execution status | [infrastructure.md](infrastructure.md) |
-| **Long-term vision** | Priority ordering + dependency graph | [roadmap.md](roadmap.md) |
-| **Release milestones** | Planned stable release builds | [milestones.md](milestones.md) |
+| **Infrastructure phases** | D1-D16 execution status | [infrastructure.md](infrastructure.md) |
+| **Long-term vision** | Milestone targets + dependency graph | [roadmap.md](roadmap.md) |
+| **Release milestones** | v0.1.0 through v1.0.0 | [milestones.md](milestones.md) |
 | **Open bugs** | One-off issues (open/fixed) | [bugs.md](bugs.md) |
 | **Systemic patterns** | Architectural bug classes | [systemic-bugs.md](systemic-bugs.md) |
 | **QC test checklist** | In-game verification items per build | [qc-tests.md](qc-tests.md) |
@@ -33,25 +31,17 @@
 
 ## Session History
 
-Recent sessions are in [session-log.md](session-log.md). Archives below.
+Recent sessions in [session-log.md](session-log.md). Older session archives in `_archive/sessions/`.
 
-| Sessions | Period | Focus | File |
-|----------|--------|-------|------|
-| S181–S183 | 2026-04-07/08 | M0.2 Input System Unification: action map system (Unreal Enhanced Input inspired), all game files migrated, ImGui nav takeover, CK_* deleted, inputmodes.c deleted. SA-5e ammo accessors. -823 lines net, 34 files changed. | [session-log.md](session-log.md) |
-| S178–S180 | 2026-04-07 | M0.1e (catalog data provider: body/weapon accessors), M0.1f (final g_HeadsAndBodies sweep), S179 input bug fixes (mouse/Esc/Tab/arrow keys in menus), S177 git recovery + script consolidation. | [session-log.md](session-log.md) |
-| S157 | 2026-04-06 | Phase 8 O(n) conversion elimination, deep array-bypass audit (15 items fixed, zero gaps), D5.0 visual layer (init ordering, ROM extraction, base-ui mod, haze overlay, scanlines, multi-palette). QUICKSTART.md created. | [session-log.md](session-log.md) |
-| S155–S156 | 2026-04-06 | UX polish, B-112 guards, Catalog ID Migration Phases 0–7 (bodies/heads), triple audit PASSED 11/11. v0.0.45. | [session-log.md](session-log.md) |
-| S151–S154 | 2026-04-05/06 | Playtest bug fixes (invisible bots, prop resync, death-in-hub, bot HP, CI frame-1 crash). Lobby Unification complete (U-1–U-10, matchsetup.cpp retired). B-116 bot catalog ID fix. Wire identity elimination (SVC_PROP_SPAWN modelnum → catalog ref). Protocol v31. v0.0.38→v0.0.44. | [session-log.md](session-log.md) |
-| S145–S150 | 2026-04-04/05 | Post-playtest spawn stability sprint: room leave CLC_ROOM_LEAVE, botSpawnAll failsafe, server catalog IDs for bot bodies, Chicago AIDROP root-cause fix, 31-bots-on-24-pads fallback, underground ground-clamp, CMakeLists.txt repair, credits update, bot stuck-detection init, chr pointer corruption guard + 8MB stack + VEH. v0.0.32→v0.0.38. B-110–B-114. | [session-log.md](session-log.md) |
-| S140–S144 | 2026-04-04 | Bot count mismatch audit (S141). Network + bot stabilization sprint: CLC_LOBBY_START overflow, bot freeze, server broadcast, auth client desync (S142). R-3 room networking: clients create/join rooms, room-scoped match start (S143). Endscreen overhaul + B-104 fix + 256-entry name dicts + multi-select bot list (S144). v0.0.28→v0.0.32. | [session-log.md](session-log.md) |
-| S119–S139 | 2026-04-02/04 | Catalog Universality Phases A–G (wire protocol v27, catalog-ID-native data model, SAVE-COMPAT stripped). Comprehensive bug audit 19 findings. Five systemic sweeps. v0.0.25. D5.0a spike. D5.1 input boundary. MP scoreboard D5.4. | [session-log.md](session-log.md) |
-| S93–S118 | 2026-04-01 | SA-series (session catalog + modular API), Manifest Lifecycle Sprint Phases 0–6, Match Startup Pipeline Phases A–F, menu system S99–S109, catalog investigation | [sessions-87-119.md](sessions-87-119.md) |
-| S79–S86 | 2026-03-29–30 | C-7 SFX, full TODO sweep, NAT traversal D8 (v23), Solo Room screen, bundled mod removal, B-55 fix, Match Startup Pipeline Phases A–C | [sessions-79-86.md](sessions-79-86.md) |
-| 47–78 | 2026-03-24–29 | SPF/join/room/catalog (C-series), mod system (T-series), bug fixes (B-27–B-53), network audits, null-guard audits, dedicated server | [sessions-47-78.md](sessions-47-78.md) |
-| 22-46 | 2026-03-22-24 | D3R component mod architecture, asset catalog, participant system, bot customizer, network distribution | [sessions-22-46.md](sessions-22-46.md) |
-| 14-21 | 2026-03-21-22 | Combat stabilization, memory modernization, menu Phase 2 | [sessions-14-21.md](sessions-14-21.md) |
-| 7-13 | 2026-03-18-21 | Networking phases, model loading, dedicated server | [sessions-07-13.md](sessions-07-13.md) |
-| 1-6 | 2026-03-01-18 | N64 strip, mod manager, ImGui foundation, char select | [sessions-01-06.md](sessions-01-06.md) |
+| Sessions | Period | Focus |
+|----------|--------|-------|
+| S185-S186 | 2026-04-09 | Deep audit (47 bug fixes: 5C+7H+10M+9L), context system overhaul |
+| S184 | 2026-04-08 | P10 D5.7: OG Menu Removal -- ImGui sole menu system |
+| S181-S183 | 2026-04-07/08 | M0.2 Input System Unification (action maps, CK_* deleted, -823 lines) |
+| S167-S180 | 2026-04-06/07 | M0.1a-f Catalog ID Migration, M1.1-M1.3, M2.1-M2.2, input bug fixes |
+| S155-S166 | 2026-04-06 | Catalog ID Migration Phases 0-7, D5.0 visual layer, B-119/B-120 fixes |
+| S140-S154 | 2026-04-04/06 | Lobby Unification U-1 to U-10, spawn stability, R-3 room networking |
+| S119-S139 | 2026-04-02/04 | Catalog Universality A-G, bug audit, systemic sweeps, D5.0-D5.5 |
 
 ---
 
@@ -59,67 +49,68 @@ Recent sessions are in [session-log.md](session-log.md). Archives below.
 
 | File | System | When to load |
 |------|--------|-------------|
-| [init-order-audit.md](init-order-audit.md) | **S65 Audit 3**: Full networked stage load sequence — Phase 0/1/2 with dependency graph, N64 vs PC differences, crash analysis, recommendations | Stage load crash debugging, init ordering questions |
-| [null-guard-audit-players.md](null-guard-audit-players.md) | **S64 Audit 1/4**: PLAYERCOUNT() sparse-slot null-guard audit — 2 CRITICAL + 5 HIGH fixed | Any crash related to player/chr access during stage load |
-| [null-guard-audit-props.md](null-guard-audit-props.md) | **S65 Audit 2/4**: prop->chr, g_Rooms[] OOB — 7 CRITICAL/HIGH fixed (propobj.c, explosions.c, smoke.c) | CCTV/laser fence/explosion crashes |
-| [null-guard-audit-bots.md](null-guard-audit-bots.md) | **S66 Audit 4/4**: 28 CRITICAL/HIGH bot/AI crashes on dedicated server — currentplayer NULL, players[-1], chrGetTargetProp()->chr, g_MpAllChrPtrs bounds | Any bot/simulant crash on dedicated server |
-| [player-count-constants-audit.md](player-count-constants-audit.md) | **S69 Audit**: Full catalog of MAX_PLAYERS/MAX_BOTS/NET_MAX_CLIENTS/MATCH_MAX_SLOTS hierarchy — 5 wrong values fixed, deferred items, guidelines for future code | Any work touching player counts, match slots, or bot limits |
-| [collision.md](collision.md) | Capsule sweep, floor/ceiling, legacy cdTestVolume, geometry types | Collision/physics work |
-| [movement.md](movement.md) | Jump physics, vertical movement, ground detection, airborne logic | Movement/jump work |
-| [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (phases 1–10, C1–C12) | Netcode work |
-| [network-system-audit.md](network-system-audit.md) | **Definitive** networking audit (S62): full protocol catalog (39 SVC + 10 CLC), connection lifecycle, tick model, lobby/bot/room sync, multi-room impossibility finding, mod distribution, performance, security, prioritized recommendations. Supersedes network-audit.md + netsend-audit.md. | Netcode debugging, planning protocol work, architecture decisions |
-| [network-audit.md](network-audit.md) | ~~Superseded by network-system-audit.md~~ (S57 deep audit — kept for historical reference) | — |
-| [netsend-audit.md](netsend-audit.md) | ~~Superseded by network-system-audit.md~~ (S61 send-site audit — kept for historical reference) | — |
-| [menu-asset-audit.md](menu-asset-audit.md) | **S62 deep audit**: menu architecture, hotswap registry (22 entries), controller support per screen, asset loading gateway status (C-4 through C-7 PENDING), 8 bugs identified | Menu/UI work or asset loading work |
-| [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette system, debug menu | Menu/UI work |
-| [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking, mod loading | Build system work |
-| [memory-modernization.md](memory-modernization.md) | Phase D-MEM: 6-phase plan, pool audit, magic numbers, stack→heap | Memory system work |
-| [server-architecture.md](server-architecture.md) | Dedicated server: protocol interface, CLI, GUI, headless mode | Server work |
-| [update-system.md](update-system.md) | D13: versioning, GitHub API, SHA-256, self-replace, save migration | Update system work |
+| [collision.md](collision.md) | Capsule sweep, floor/ceiling, geometry types | Collision/physics work |
+| [movement.md](movement.md) | Jump physics, ground detection, airborne logic | Movement/jump work |
+| [networking.md](networking.md) | ENet protocol, message types, resync, damage authority | Netcode work |
+| [network-system-audit.md](network-system-audit.md) | **Definitive** networking audit: 39 SVC + 10 CLC, lifecycle, tick model | Netcode debugging |
+| [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette | Menu/UI work |
+| [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking | Build system work |
+| [server-architecture.md](server-architecture.md) | Dedicated server: protocol, CLI, GUI, headless | Server work |
+| [update-system.md](update-system.md) | D13: versioning, GitHub API, SHA-256, save migration | Update system work |
+| [memory-modernization.md](memory-modernization.md) | Phase D-MEM: pool audit, stack->heap | Memory system work |
 
-## Architecture Documents (load when working on that system)
+## Architecture Documents
 
 | File | System | When to load |
 |------|--------|-------------|
-| [component-mod-architecture.md](component-mod-architecture.md) | D3R: Component mod system, asset catalog, INI format, network distribution | Any mod system / asset loading work |
+| [component-mod-architecture.md](component-mod-architecture.md) | D3R: Component mod system, asset catalog, INI format | Mod system work |
 | [b12-participant-system.md](b12-participant-system.md) | Dynamic participant pool (replaces chrslots) | Bot/player slot work |
+| [CRITICAL-PROCEDURES.md](CRITICAL-PROCEDURES.md) | Context management rules, build verification | Reference |
 
-## Plan Files (load when starting that phase)
+## Plan Files
 
 | File | Phase | When to load |
 |------|-------|-------------|
-| [multiplayer-plan.md](multiplayer-plan.md) | SPF-2+: Server-as-hub, rooms, federation, profiles, phonetic, menus | Starting any multiplayer infrastructure work |
-| [lobby-flow-plan.md](lobby-flow-plan.md) | Room interior UX: tab layout, Combat Sim/Campaign/Counter-Op settings, network protocol integration | Room interior / match setup UI work |
-| [join-flow-plan.md](join-flow-plan.md) | Server/client join flow: connect codes → ENet → lobby → match. Audit + gap plan | Any join/connect/lobby work |
-| [room-architecture-plan.md](room-architecture-plan.md) | R-1–R-5: Demand-driven rooms, leader/room_id, protocol messages, GUI redesign | Any room system / hub work |
-| [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog design overview (S48, preserved) | Background reading on catalog design |
-| [plans/catalog-activation-plan.md](plans/catalog-activation-plan.md) | **C-0 through C-9**: Full implementation blueprint — dependency graph, per-phase specs, risk register, mod integration points | Any asset loading / catalog activation work |
-| [menu-replacement-plan.md](menu-replacement-plan.md) | Full ImGui replacement of all 240 legacy menus | Any menu migration work |
-| [d5-settings-plan.md](d5-settings-plan.md) | D5: Audio volumes, graphics, controls, QoL | Starting D5 |
-| [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, server browser | Starting D16 |
-| [menu-storyboard.md](menu-storyboard.md) | D4: 113-menu inventory, component library, design tokens | Menu migration reference |
-| [rendering-trace.md](rendering-trace.md) | Endscreen rendering pipeline trace, GBI translation | Endscreen/rendering bugs |
-| [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | **S84 design**: Unified 8-phase match startup (Gather→Manifest→Check→Catalog→Transfer→Ready Gate→Load→Sync). Merges B-12 P3, R-2/R-3, J-3, C-series, mod distribution. Phases A–F implemented. | Match startup pipeline (Phase A–F) |
-| [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | NAT traversal architecture: STUN, hole-punch, relay fallback design | NAT/networking reference |
-| [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | **S90 design**: Session catalog + modular API — per-system typed query functions, network session catalog translation layer (catalog IDs ↔ wire hashes), load manifest system for MP and SP. Audit of ~180 raw-index call sites across 20 patterns. **Highest infrastructure priority.** | Any asset loading, wire protocol, save file work |
-| [designs/menu-inventory.md](designs/menu-inventory.md) | **S135**: Complete inventory of all ~120 reachable screens/dialogs/popups — implementation status (ImGui/OG/Stub), file path, D5 phase, notes. Definitive checklist for D5.7 OG removal and regression testing. | D5 work, menu migration, QC regression |
+| [multiplayer-plan.md](multiplayer-plan.md) | Server-as-hub, rooms, federation, profiles | MP infrastructure |
+| [lobby-flow-plan.md](lobby-flow-plan.md) | Room interior UX, tab layout, protocol integration | Room/match setup |
+| [join-flow-plan.md](join-flow-plan.md) | Connect codes -> ENet -> lobby -> match | Join/connect work |
+| [room-architecture-plan.md](room-architecture-plan.md) | R-1 to R-5: demand-driven rooms, leader/room_id | Room system |
+| [master-server-plan.md](master-server-plan.md) | D16: Server registry, heartbeat, browser | Master server |
+| [catalog-loading-plan.md](catalog-loading-plan.md) | Catalog architecture overview | Background reading |
+| [plan-catalog-id-migration.md](plan-catalog-id-migration.md) | Game Director binding decision (D-1 FULL) | Catalog migration |
+| [designs/d5-full-menu-overhaul.md](designs/d5-full-menu-overhaul.md) | 5 phases, binding UX guidelines | Menu work |
+| [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md) | D5.0-D5.8 sub-phase plan | D5 work |
+| [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | 8-phase match startup (Gather->Sync) | Match startup |
+| [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | Session catalog + typed query functions | Asset loading |
+| [designs/menu-inventory.md](designs/menu-inventory.md) | 120 screens: status, file path, D5 phase | Menu QC |
+| [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | STUN, hole-punch, relay design | NAT reference |
+| [designs/implementation-plan-mods-and-d5.md](designs/implementation-plan-mods-and-d5.md) | P1-P6 dependency graph | Mod/UI roadmap |
+| [plans/catalog-activation-plan.md](plans/catalog-activation-plan.md) | C-0 to C-9 blueprint | Asset loading |
 
 ## Architecture Decision Records
 
 | File | Decision |
 |------|----------|
-| [ADR-001-lobby-multiplayer-architecture-audit.md](ADR-001-lobby-multiplayer-architecture-audit.md) | Network protocol audit: strncpy fixes, protocol verification |
-| [ADR-002-component-filesystem-decomposition.md](ADR-002-component-filesystem-decomposition.md) | D3R-1: Convert 5 bundled mods to component filesystem + shim loader |
-| [ADR-003-asset-catalog-core.md](ADR-003-asset-catalog-core.md) | D3R-2: String-keyed hash table, catalogResolve() API, dynamic growth |
+| [ADR-001](ADR-001-lobby-multiplayer-architecture-audit.md) | Network protocol audit: strncpy fixes |
+| [ADR-002](ADR-002-component-filesystem-decomposition.md) | D3R-1: Component filesystem layout |
+| [ADR-003](ADR-003-asset-catalog-core.md) | D3R-2: String-keyed hash table, catalogResolve() |
+| [ADR-004](ADR-004-dev-window.md) | Build tool unification (PowerShell) |
+
+## Archived Content
+
+Completed audits, superseded plans, and old session logs are in `_archive/`. Subdirectories:
+- `_archive/audits/` -- Completed security/null-guard/compliance audits
+- `_archive/designs/` -- Superseded design documents
+- `_archive/sessions/` -- Session logs S1-S119
 
 ---
 
 ## Key Facts
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
-- **Build**: CMake + MSYS2/MinGW on Windows. AI builds via `build-headless.ps1` on dev. Game director tests in-game via playtest dashboard.
-- **Net**: Protocol **v31**, 60Hz tick, NETMODE_NONE/SERVER/CLIENT, unreliable position + reliable state. Joining: 4-word sentence codes only (no raw IP). NAT: STUN + UDP hole-punch + relay fallback (D8 done, S83). **net_hash is dead** — all wire fields use full catalog ID strings (v27, S130); SVC_PROP_SPAWN modelnum migrated to catalog session refs (v31, S154). **Next bump**: remove chrslots (B-12 Phase 3).
-- **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32 (matchsetup.cpp)
-- **Bots**: PROPTYPE_CHR with `chr->aibot != NULL`. Player capsule ~30 units radius.
-- **Asset resolution**: Name-based only (S27 constraint). All lookups through Asset Catalog. No numeric ROM addresses or table indices for identity.
-- **Mod architecture**: Component-based (S27). Each asset = own folder + `.ini`. See [component-mod-architecture.md](component-mod-architecture.md).
+- **Build**: CMake + MSYS2/MinGW. `devtools/build-headless.ps1` for AI.
+- **Net**: Protocol **v32**, 60Hz tick. All wire fields use catalog ID strings. net_hash is dead.
+- **Input**: Action map system (M0.2). `actionPressed()`/`actionHeld()`/`actionValue()`. No CK_*.
+- **Menus**: ImGui sole system (P10 D5.7). `pdgui_menu_*.cpp`. Legacy rendering removed.
+- **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32.
+- **Asset resolution**: Name-based only. All lookups through Asset Catalog. No integer identity at boundaries.

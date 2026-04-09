@@ -11,6 +11,10 @@
  * v27: net_hash removed from wire.  Client-side resolution uses catalog ID
  * string only via assetCatalogResolve().  Results stored in s_LocalTranslation[]
  * for O(1) gameplay lookup.
+ *
+ * L-5: Known limitation — sessionCatalogLookupByWireId() is an O(n) linear scan
+ * over entries. Acceptable for current MAX_ENTRIES sizes but would need a hash
+ * map if entry counts grow significantly.
  */
 
 #include <string.h>
