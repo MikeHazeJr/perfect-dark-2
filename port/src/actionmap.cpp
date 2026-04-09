@@ -313,6 +313,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ConsoleToggle",
     "DebugToggle",
     "CheatEnter",
+    /* 58: HUD */
+    "Scorecard",
 };
 
 /* ============================================================
@@ -1246,6 +1248,7 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_SCREENSHOT,     VKL_F5,            0);
         addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE,          0);
         addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9,        0);
+        addBind(imc, ACTION_SCORECARD,      43,                JOY_BTN(0, JBTN_BACK)); /* 43 = SDL_SCANCODE_TAB */
     } else {
         /* Players 1-3: gamepad-only defaults */
         addBind(imc, ACTION_MOVE_FORWARD,   JOY_BTN(p, JOFS_LSTICK_UP),    0);
@@ -1271,6 +1274,7 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(p, JBTN_DPAD_LEFT),    0);
         addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(p, JBTN_DPAD_RIGHT),   0);
         addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START),        0);
+        addBind(imc, ACTION_SCORECARD,      JOY_BTN(p, JBTN_BACK),        0);
     }
 }
 

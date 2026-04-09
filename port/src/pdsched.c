@@ -281,7 +281,7 @@ void schedAudioFrame(OSSched *sc)
  */
 void schedEndFrame(OSSched *sc)
 {
-	static bool netDebugKey = false;
+	/* netDebugKey removed — actionPressed(ACTION_DEBUG_TOGGLE) provides edge detection */
 
 	sc->frameCount++;
 
@@ -304,11 +304,10 @@ void schedEndFrame(OSSched *sc)
 	inputUpdate();
 	conTick();
 
-	const bool newKey = inputKeyPressed(VK_F9);
-	if (!netDebugKey && newKey) {
+	/* Action map: F9 → ACTION_DEBUG_TOGGLE (edge-triggered) */
+	if (actionPressed(0, ACTION_DEBUG_TOGGLE)) {
 		g_NetDebugDraw = !g_NetDebugDraw;
 	}
-	netDebugKey = newKey;
 
 	/* M0.2 Phase B: sample analog axes before game logic reads joyGetStick* */
 	actionmapPollFrame();

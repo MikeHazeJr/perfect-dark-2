@@ -11,6 +11,7 @@
 #include "config.h"
 #include "video.h"
 #include "input.h"
+#include "actionmap.h"
 #include "console.h"
 #include "system.h"
 #include "utils.h"
@@ -189,8 +190,8 @@ Gfx *conRender(Gfx *gdl)
 
 void conTick(void)
 {
-	const s32 button = inputKeyPressed(VK_GRAVE);
-	if (button && !conButton) {
+	/* Action map: backtick → ACTION_CONSOLE_TOGGLE (edge-triggered) */
+	if (actionPressed(0, ACTION_CONSOLE_TOGGLE)) {
 		conOpen = !conOpen;
 		g_MenuKeyboardPlayer = -1;
 		if (conOpen) {
@@ -200,8 +201,6 @@ void conTick(void)
 			inputStopTextInput();
 		}
 	}
-
-	conButton = button;
 
 	if (conOpen) {
 		if (inputTextHandler(conInput, CON_COLS, &conInputCol, false)) {

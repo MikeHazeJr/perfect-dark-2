@@ -21,6 +21,7 @@
 #include "pdgui_audio.h"
 #include "system.h"
 #include "inputctx.h"
+#include "actionmap.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -702,18 +703,9 @@ static void scorecardTickButtonState(void)
         return;
     }
 
-    /* Check SDL keyboard state directly — works even without an ImGui frame.
-     * Tab key is the PC-standard "show scoreboard" binding. */
-    const Uint8 *keys = SDL_GetKeyboardState(NULL);
-    bool tabHeld = (keys != NULL) && (keys[SDL_SCANCODE_TAB] != 0);
-
-    /* Check controller Back/Select via ImGui (if frame is active) */
-    bool backHeld = false;
-    if (ImGui::GetCurrentContext()) {
-        backHeld = ImGui::IsKeyDown(ImGuiKey_GamepadBack);
-    }
-
-    s_ScorecardVisible = tabHeld || backHeld;
+    /* Action map: Tab / Back → ACTION_SCORECARD (hold-to-show).
+     * Replaces parallel SDL_GetKeyboardState + ImGui::IsKeyDown paths. */
+    s_ScorecardVisible = actionHeld(0, ACTION_SCORECARD) != 0;
 }
 
 /* ========================================================================

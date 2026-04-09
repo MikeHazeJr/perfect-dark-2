@@ -688,20 +688,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	/* Game code reads controller sticks via actionValue() (actionmap).
-	 * Do NOT populate OSContPad stick fields from raw SDL here — that creates
-	 * a parallel path with different deadzone/sensitivity/invert settings.
-	 * The only remaining SDL read is for stickCButtons (right stick → C-button
-	 * bitmask into npad->button), which the actionmap doesn't handle. */
-
-	if (cfg->stickCButtons) {
-		s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
-		s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
-		if (rightX < -0x4000) npad->button |= L_CBUTTONS;
-		if (rightX > +0x4000) npad->button |= R_CBUTTONS;
-		if (rightY < -0x4000) npad->button |= U_CBUTTONS;
-		if (rightY > +0x4000) npad->button |= D_CBUTTONS;
-	}
+	/* stickCButtons parallel path REMOVED. The action map handles right stick →
+	 * ACTION_CBUTTON_* via threshold crossing in actionmapDispatch(), and the
+	 * CONT_TO_ACTION loop above already maps those to C-button bits.
+	 * No raw SDL_GameControllerGetAxis calls remain in inputReadController. */
 
 	/* Stick values left at 0 — actionmapPollFrame() is the single source of truth. */
 
@@ -1002,6 +992,15 @@ s32 inputAssignController(s32 cidx, s32 id)
 
 /* M0.2 Phase D: inputKeyBind/inputKeyGetBinds removed — use actionmapBind(). */
 
+/**
+ * DEPRECATED: Use actionHeld() instead for gameplay/menu input.
+ *
+ * Only legitimate remaining callers:
+ *   - optionsmenu.c: rebind key capture (needs raw VK, not action)
+ *   - menu.c: legacy menu mouse input (VK_MOUSE_LEFT/WHEEL)
+ *   - inputKeyJustPressed() below (edge wrapper)
+ * All other callers should use the action map.
+ */
 s32 inputKeyPressed(u32 vk)
 {
 	/* When any ImGui overlay is active, suppress all key/button polling
@@ -1060,10 +1059,14 @@ s32 inputKeyPressed(u32 vk)
 }
 
 /**
- * L-2: WARNING — this function has a side-effect: it updates vkPrevState[vk]
- * on every call. Calling it multiple times per frame for the same VK will
- * consume the edge — only the first call returns true. Callers must be aware
- * that this is not a pure query.
+ * DEPRECATED: Use actionPressed() instead for gameplay/menu input.
+ *
+ * Only legitimate remaining callers:
+ *   - menu.c: legacy menu mouse click (VK_MOUSE_LEFT)
+ * All other callers should use the action map.
+ *
+ * L-2: WARNING — has side-effect: updates vkPrevState[vk] on every call.
+ * Calling multiple times per frame for the same VK consumes the edge.
  */
 s32 inputKeyJustPressed(u32 vk)
 {

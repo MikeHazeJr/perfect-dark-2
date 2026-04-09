@@ -1808,6 +1808,9 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 		return 0;
 	}
 
+	/* PARALLEL PATH OK: Rebind capture dialog intentionally reads raw input
+	 * because we need the actual VK, not an action. The action map would map
+	 * the key to an action, but we need to know WHICH key was pressed. */
 	if (inputKeyPressed(VK_ESCAPE)) {
 		menuPopDialog();
 		return 0;

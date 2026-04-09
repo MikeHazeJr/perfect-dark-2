@@ -150,24 +150,14 @@ s32 g_MouseEndDeferredSlider = false;
 
 s32 menuAlt1Pressed(s32 playerNum)
 {
-	const s32 rshoulderKey = VK_JOY1_RSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
-
-	if (playerNum == 0) {
-		return inputKeyJustPressed(VK_LCTRL) || inputKeyJustPressed(rshoulderKey);
-	}
-
-	return inputKeyJustPressed(rshoulderKey);
+	/* Action map: RB / Ctrl → ACTION_MENU_TAB_NEXT */
+	return actionPressed(playerNum, ACTION_MENU_TAB_NEXT);
 }
 
 s32 menuAlt2Pressed(s32 playerNum)
 {
-	const s32 lshoulderKey = VK_JOY1_LSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
-
-	if (playerNum == 0) {
-		return inputKeyJustPressed(VK_LALT) || inputKeyJustPressed(lshoulderKey);
-	}
-
-	return inputKeyJustPressed(lshoulderKey);
+	/* Action map: LB / Alt → ACTION_MENU_TAB_PREV */
+	return actionPressed(playerNum, ACTION_MENU_TAB_PREV);
 }
 
 s32 menuAltAnyPressed(s32 playerNum)
@@ -4764,9 +4754,10 @@ void menuProcessInput(void)
 	inputs.mousey = 0;
 	// only allow mouse controls for player 1 menus
 	if (menu->playernum == 0) {
-		// ESC always acts as back
-		inputs.back = inputKeyJustPressed(VK_ESCAPE);
+		// ESC always acts as back (action map: ACTION_MENU_CANCEL)
+		inputs.back = actionPressed(0, ACTION_MENU_CANCEL);
 		if (inputMouseIsEnabled() && !inputMouseIsLocked() && g_MenuMouseControl) {
+			/* PARALLEL PATH OK: Mouse has no action map equivalent in legacy menus */
 			inputs.mouseheld = inputKeyPressed(VK_MOUSE_LEFT);
 			if (!inputs.mouseheld) {
 				g_AllowMouseHeld = true;
@@ -4787,6 +4778,8 @@ void menuProcessInput(void)
 			 * but never converted clicks to select, making SELECTABLE
 			 * items unclickable with the mouse.
 			 */
+			/* PARALLEL PATH OK: Mouse buttons have no action map equivalent.
+			 * ImGui handles mouse for modern menus; this is legacy menu only. */
 			if (inputKeyJustPressed(VK_MOUSE_LEFT)) {
 				inputs.select = 1;
 			}

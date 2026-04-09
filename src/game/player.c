@@ -2415,7 +2415,8 @@ void playerTickCutscene(bool arg0)
 		g_CutsceneCurTotalFrame60f += g_Vars.lvupdate60freal;
 	}
 
-	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+	/* Action map: Escape → ACTION_PAUSE (no parallel raw path) */
+	if (arg0 && actionPressed(0, ACTION_PAUSE)) {
 		anybutton = 1;
 		cancelorpause = 1;
 	}

@@ -116,8 +116,9 @@ typedef enum InputAction {
     ACTION_CONSOLE_TOGGLE,      /* = 55 */
     ACTION_DEBUG_TOGGLE,        /* = 56 */
     ACTION_CHEAT_ENTER,         /* = 57 */
+    ACTION_SCORECARD,           /* = 58 hold-to-show scoreboard (Tab / Back button) */
 
-    ACTION_COUNT                /* = 58, sentinel — keep last */
+    ACTION_COUNT                /* = 59, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat alias: A_BUTTON was ACTION_INTERACT, now ACTION_USE */
