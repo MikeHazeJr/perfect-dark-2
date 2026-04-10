@@ -4841,25 +4841,20 @@ void menuProcessInput(void)
 		/* M0.2: collapsed multi-contpad loop to single action map query per player */
 		{
 			s32 player = g_MpPlayerNum;
-			s8 thisstickx = (s8)(actionValue(player, ACTION_AXIS_MOVE_X) * 80.0f);
-			s8 thissticky = (s8)(actionValue(player, ACTION_AXIS_MOVE_Y) * 80.0f);
-			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 80.0f);
-			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 80.0f);
+			/* M-3 fix: multiplier 127 matches original ±0x7F/0x80 stick range */
+			s8 thisstickx = (s8)(actionValue(player, ACTION_AXIS_MOVE_X) * 127.0f);
+			s8 thissticky = (s8)(actionValue(player, ACTION_AXIS_MOVE_Y) * 127.0f);
+			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 127.0f);
+			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 127.0f);
 
-			if (actionPressed(player, ACTION_USE)) {
+			/* M-2 fix: Check both ACTION_USE (gameplay) and ACTION_MENU_ACCEPT (menu IMC).
+			 * When g_ImcMenu is active at higher priority, JOY_A maps to MENU_ACCEPT
+			 * instead of USE — need to check both so controller A always works. */
+			if (actionPressed(player, ACTION_USE) || actionPressed(player, ACTION_MENU_ACCEPT)) {
 				inputs.select = 1;
 			}
 
-			// separate buttons for UI accept/cancel
-			if (actionPressed(player, ACTION_USE)) {
-				inputs.select = 1;
-			}
-
-			if (actionPressed(player, ACTION_CANCEL_USE)) {
-				inputs.back = 1;
-			}
-
-			if (actionPressed(player, ACTION_CANCEL_USE)) {
+			if (actionPressed(player, ACTION_CANCEL_USE) || actionPressed(player, ACTION_MENU_CANCEL)) {
 				inputs.back = 1;
 			}
 

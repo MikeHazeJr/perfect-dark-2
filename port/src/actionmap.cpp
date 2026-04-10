@@ -795,23 +795,10 @@ void actionmapPollFrame(void)
         return;
     }
 
-    /* Player 0: KBM aim axis from mouse delta */
-    {
-        s32 mdx = 0, mdy = 0;
-        inputMouseGetRawDelta(&mdx, &mdy);
-
-        /* M-1: Only overwrite aim with mouse if there's actual mouse movement,
-         * so gamepad aim isn't zeroed out by an idle mouse. */
-        if (mdx != 0 || mdy != 0) {
-            f32 ax = clampf((f32)mdx * MOUSE_AIM_SCALE, -1.0f, 1.0f);
-            f32 ay = clampf(-(f32)mdy * MOUSE_AIM_SCALE, -1.0f, 1.0f);  /* Negate: mouse Y+ = down, game Y+ = up */
-
-            s_State[0][ACTION_AXIS_AIM_X].value = ax;
-            s_State[0][ACTION_AXIS_AIM_Y].value = ay;
-            s_State[0][ACTION_AXIS_AIM_X].held  = (ax != 0.0f) ? 1 : 0;
-            s_State[0][ACTION_AXIS_AIM_Y].held  = (ay != 0.0f) ? 1 : 0;
-        }
-    }
+    /* C-1 fix: Mouse aim is NOT routed through ACTION_AXIS_AIM.
+     * Mouse aiming goes exclusively through inputMouseGetScaledDelta() →
+     * movedata.freelookdx/dy in bondmove.c, exactly as the original port worked.
+     * ACTION_AXIS_AIM_X/Y are for controller right stick only. */
 
     /* B-124 fix (Bug C): WASD→AXIS_MOVE synthesis always runs for player 0,
      * regardless of s_LastDevice. Previous code gated this on KBM device,
@@ -971,16 +958,26 @@ s32 actionmapGetLastDevice(void)
  * Bind management helpers
  * ============================================================ */
 
-/** Build a comma-separated bind string from the triggers of action a for player p. */
+/* All known IMCs — used for save/load to iterate regardless of active state. */
+static InputMappingContext * const s_AllImcs[] = {
+    &g_ImcGameplay,
+    &g_ImcVehicle,
+    &g_ImcMenu,
+    &g_ImcPauseMenu,
+    &g_ImcDebugOverlay,
+    &g_ImcTextInput,
+};
+static const s32 s_NumAllImcs = (s32)(sizeof(s_AllImcs) / sizeof(s_AllImcs[0]));
+
+/** Build a comma-separated bind string from the triggers of action a for player p.
+ *  Iterates ALL known IMCs (not just active ones) so inactive IMC binds are persisted. */
 static void buildBindStr(s32 player, InputAction action,
                          char *out, s32 outlen)
 {
     out[0] = '\0';
 
-    /* Collect triggers from all IMCs (defaults from g_ImcGameplay typically) */
-    /* We use the first active IMC that has this action, then combine all triggers */
-    for (s32 ci = 0; ci < s_NumActive; ci++) {
-        InputMappingContext *ctx = s_Active[ci];
+    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
+        InputMappingContext *ctx = s_AllImcs[ci];
         if (!ctx->has_mapping[action]) continue;
 
         InputMapping *m = &ctx->mappings[action];
@@ -1097,16 +1094,20 @@ void actionmapSaveBinds(void)
 
 void actionmapLoadBinds(void)
 {
-    /* Parse the (possibly file-overridden) bind strings into g_ImcGameplay
-     * and g_ImcVehicle triggers.  Other IMCs have fixed bindings. */
+    /* Parse the (possibly file-overridden) bind strings into ALL user-customizable
+     * IMCs. Each IMC only has has_mapping[] set for its relevant actions, so
+     * parseBindStr will only update actions the IMC actually owns. */
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (s_BindStr[p][a][0] != '\0') {
-                parseBindStr(&g_ImcGameplay, p, (InputAction)a, s_BindStr[p][a]);
+            if (s_BindStr[p][a][0] == '\0') continue;
+            for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
+                if (s_AllImcs[ci]->has_mapping[a]) {
+                    parseBindStr(s_AllImcs[ci], p, (InputAction)a, s_BindStr[p][a]);
+                }
             }
         }
     }
-    sysLogPrintf(LOG_NOTE, "ACTIONMAP: binds loaded from pd.ini");
+    sysLogPrintf(LOG_NOTE, "ACTIONMAP: binds loaded from pd.ini into %d IMCs", s_NumAllImcs);
 }
 
 /* ============================================================
@@ -1341,7 +1342,10 @@ static void setupPauseMenuDefaults(void)
     addBind(imc, ACTION_MENU_RIGHT,  VKL_RIGHT, 0);
     addBind(imc, ACTION_MENU_ACCEPT, VK_RETURN, 0);
     addBind(imc, ACTION_MENU_CANCEL, VK_ESCAPE, 0);
-    addBind(imc, ACTION_PAUSE,       VK_ESCAPE, 0);
+    /* ACTION_PAUSE intentionally NOT bound to VK_ESCAPE here — it would
+     * double-fire with ACTION_MENU_CANCEL on the same keypress. Escape in the
+     * pause menu means "go back / close", which is ACTION_MENU_CANCEL.
+     * Gamepad Start still toggles pause via the per-player binds below. */
 
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         addBind(imc, ACTION_MENU_UP,     JOY_BTN(p, JBTN_DPAD_UP),   JOY_BTN(p, JOFS_LSTICK_UP));

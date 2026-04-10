@@ -937,16 +937,22 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	canmanualzoom = weaponHasAimFlag(weaponnum, INVAIMFLAG_MANUALZOOM);
 	contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 
-	c1stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 80.0f) : 0;
-	c1sticky = allowc1y ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f) : 0;
-	/* M-3: Aim input is always read regardless of allowc1x/allowc1y — those gates
+	/* C-5 fix: actionValue/actionHeld/actionPressed take PLAYER index, not hardware
+	 * contpad index. optionsGetContpadNum1() returns hardware pad number.
+	 * Use mpindex (player index) for all action map queries. */
+	s32 actionPlayer = g_Vars.currentplayerstats->mpindex;
+
+	/* C-2 fix: multiplier 127 matches original ±0x7F/0x80 range from inputReadController */
+	c1stickx = allowc1x ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_X) * 127.0f) : 0;
+	c1sticky = allowc1y ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_Y) * 127.0f) : 0;
+	/* Aim input always read regardless of allowc1x/allowc1y — those gates
 	 * are for movement suppression (e.g., during menu overlays), not aiming. */
-	c2stickx = (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_X) * 80.0f);
-	c2sticky = (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_Y) * 80.0f);
+	c2stickx = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_X) * 127.0f);
+	c2sticky = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_Y) * 127.0f);
 
 	/* M0.2: synthesize button bitmask from action queries for downstream mask logic */
 	{
-		s32 pi = (s32)contpad1;
+		s32 pi = actionPlayer;
 		c1buttons = 0;
 		c1buttonsthisframe = 0;
 		if (allowc1buttons) {

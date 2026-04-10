@@ -688,12 +688,38 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	/* stickCButtons parallel path REMOVED. The action map handles right stick →
-	 * ACTION_CBUTTON_* via threshold crossing in actionmapDispatch(), and the
-	 * CONT_TO_ACTION loop above already maps those to C-button bits.
-	 * No raw SDL_GameControllerGetAxis calls remain in inputReadController. */
+	/* C-3 fix: Restore controller analog stick population so OSContPad reflects
+	 * complete input state. actionmapPollFrame() is the primary source for game
+	 * code via actionValue(), but joyGetStickX/Y and joyGetRStickX/Y still read
+	 * from OSContPad samples — keeping them populated ensures correctness. */
+	{
+		s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
+		s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
+		s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
+		s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
 
-	/* Stick values left at 0 — actionmapPollFrame() is the single source of truth. */
+		leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
+		leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
+		rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], cfg->sens[cfg->axisMap[1][0]]);
+		rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], cfg->sens[cfg->axisMap[1][1]]);
+
+		/* Merge: keyboard digital takes priority (already set above), controller fills gaps */
+		if (!npad->stick_x && leftX) {
+			npad->stick_x = leftX / 0x100;
+		}
+		s32 stickY = -leftY / 0x100;
+		if (!npad->stick_y && stickY) {
+			npad->stick_y = (stickY == 128) ? 127 : stickY;
+		}
+
+		if (rightX) {
+			npad->rstick_x = rightX / 0x100;
+		}
+		s32 rStickY = -rightY / 0x100;
+		if (rStickY) {
+			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
+		}
+	}
 
 	return 0;
 }
