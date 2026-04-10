@@ -862,6 +862,7 @@ void actionmapPollFrame(void)
             /* Normalize diagonal */
             f32 len = sqrtf(mx * mx + my * my);
             if (len > 1.0f) { mx /= len; my /= len; }
+            /* Digital overrides analog: if WASD/D-pad is held, it takes priority */
             s_State[0][ACTION_AXIS_MOVE_X].value = mx;
             s_State[0][ACTION_AXIS_MOVE_Y].value = my;
             s_State[0][ACTION_AXIS_MOVE_X].held  = 1;
@@ -869,10 +870,20 @@ void actionmapPollFrame(void)
         }
     }
 
-    /* Mouse wheel actions auto-release after one frame (no SDL_KEYUP equivalent) */
-    if (s_State[0][ACTION_WEAPON_NEXT].pressed &&
-        s_State[0][ACTION_WEAPON_NEXT].held) {
-        /* Will be naturally cleared by endFrame if bound to wheel */
+    /* DIAG: Log final axis values every ~120 frames for player 0 */
+    if ((s_DiagFrameCount % 120) == 1) {
+        f32 mvx = s_State[0][ACTION_AXIS_MOVE_X].value;
+        f32 mvy = s_State[0][ACTION_AXIS_MOVE_Y].value;
+        f32 amx = s_State[0][ACTION_AXIS_AIM_X].value;
+        f32 amy = s_State[0][ACTION_AXIS_AIM_Y].value;
+        if (mvx != 0.0f || mvy != 0.0f || amx != 0.0f || amy != 0.0f) {
+            sysLogPrintf(LOG_NOTE, "DIAG axis: move=%.3f,%.3f aim=%.3f,%.3f fwd=%d back=%d left=%d right=%d",
+                         mvx, mvy, amx, amy,
+                         s_State[0][ACTION_MOVE_FORWARD].held,
+                         s_State[0][ACTION_MOVE_BACKWARD].held,
+                         s_State[0][ACTION_MOVE_LEFT].held,
+                         s_State[0][ACTION_MOVE_RIGHT].held);
+        }
     }
 }
 

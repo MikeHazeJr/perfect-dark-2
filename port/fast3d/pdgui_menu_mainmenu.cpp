@@ -97,6 +97,11 @@ void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 
+/* Pause/control restoration — needed when ImGui menu close bypasses
+ * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
+void playerUnpause(void);
+extern bool g_PlayersWithControl[];
+
 /* Handlers we invoke to match original behavior */
 struct menuitem;
 union handlerdata;
@@ -2292,6 +2297,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
             }
             s_MainMenuPushedCtx = false;
             menuPopDialog();
+            /* Restore game control immediately. The legacy menutick
+             * bg-transition that normally calls func0f0fa6ac() →
+             * playerUnpause() + g_PlayersWithControl[0]=true may never
+             * complete when ImGui hotswap bypasses the legacy renderer.
+             * Without this, pausemode stays PAUSED (can't reopen menu)
+             * and g_PlayersWithControl[0] stays false (no movement). */
+            playerUnpause();
+            g_PlayersWithControl[0] = true;
         }
     }
 

@@ -243,6 +243,14 @@ void schedSubmitTask(OSSched *sc, OSScTask *t)
 void schedStartFrame(OSSched *sc)
 {
 	videoStartFrame();
+
+	/* Sample analog axes and synthesize WASD→AXIS values AFTER events are
+	 * dispatched (videoStartFrame → gfx_start_frame → handle_events →
+	 * actionmapDispatch) but BEFORE game logic reads actionValue() in
+	 * mainTick/bondmove. Previously this ran in schedEndFrame (after
+	 * bondmove), so bondmove always read last-frame's stick/axis values. */
+	actionmapPollFrame();
+
 	if (g_Vars.diffframe60) {
 		if (g_NetMode) {
 			videoCapFramerate(120);
@@ -309,8 +317,7 @@ void schedEndFrame(OSSched *sc)
 		g_NetDebugDraw = !g_NetDebugDraw;
 	}
 
-	/* M0.2 Phase B: sample analog axes before game logic reads joyGetStick* */
-	actionmapPollFrame();
+	/* actionmapPollFrame moved to schedStartFrame — see comment there. */
 	joyStartReadData(&g_PiMesgQueue);
 	joyReadData();
 	joy00014238();
