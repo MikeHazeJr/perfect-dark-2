@@ -3,126 +3,206 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
-## Session S195 — 2026-04-10 (Marathon: Menu Batches 3, 4, 8, 11, 12)
+## Session S196 — 2026-04-10 (Chrome pipeline lift + base-game template mod system)
 
-**Focus**: Marathon session under "keep going as far as you can" directive.
-Five batches delivered across two files, under full merge + build + audit
-discipline.  Directly follows S194 (Batch 2 merged to main).
+**Focus**: Three-phase session bundling the infrastructure lift the chrome
+pipeline needed, a first-class base-game template mod concept, and the
+Settings UI toggle to make chrome visible end-to-end.  Success criterion
+(from Mike): "launch the build, flip Settings → Video → UI Chrome Style to
+Classic, and see chrome rendering on menus."
 
-### Batches delivered
+### Phase 2 — Chrome pipeline infrastructure lift
 
-| Batch | Scope | Screens | Coverage |
-|---|---|---|---|
-| **3** | CI Options → unified Settings redirect + P2 dead dialogs | 9 | FULL |
-| **4** | Cheats (typed-dialog primitive extended with CHECKBOX / DROPDOWN / MARQUEE + function-pointer label callback) | 9 | FULL (Cinema deferred) |
-| **8** | MP Pause & In-Game | 6 | 2 FULL, 4 PARTIAL |
-| **11** | MP Player Config & Stats | 5 | PARTIAL |
-| **12** | Music & Misc | 4 | 1 FULL, 3 PARTIAL |
+- **TGA loader lift** (`port/fast3d/pdgui_theme.cpp`): `s_loadTgaTexture`
+  rewritten to accept arbitrary dimensions and both 24-bit and 32-bit
+  uncompressed TGA.  24-bit sources get alpha=0xFF synthesized.  RLE and
+  colour-mapped TGA rejected explicitly.  Replaces the static 256×256×4
+  decode buffer in `s_decodeAndUpload` with per-call malloc/free sized
+  to actual dimensions.
+- **Per-edge nineslice modes + src_inset/dst_corner_px split**
+  (`port/fast3d/pdgui_nineslice.cpp`, `port/include/pdgui_nineslice.h`):
+  `nineslice_def_t` extended with `src_left/right/top/bottom`,
+  `dst_left/right/top/bottom`, and per-edge `top_mode/bottom_mode/
+  left_mode/right_mode` fields.  Legacy flat `left/right/top/bottom` +
+  `edge_mode` remain as a fallback via new `has_split` /
+  `has_per_edge_mode` flags and an `s_backfillDef` helper that runs on
+  every register call.  `pdguiNinesliceDrawEx` rewritten to consume
+  per-edge state — destination corners now clamp to half-rect when
+  the draw rect is tiny.  JSON parser teaches new keys `src_inset`,
+  `dst_corner_px`, and `top_mode`/`bottom_mode`/`left_mode`/`right_mode`.
+- **Haze tile rate fix** (`port/fast3d/pdgui_style.cpp:582`): the
+  hardcoded `bw / 64.0f` tile constant replaced with
+  `bw / (float)pdguiThemeGetTextureSize(bgTex, ...)`.  HD haze
+  replacements now tile at their natural size.
+- **`pdguiSetPanelNineSlice` catalog-id API**
+  (`port/include/pdgui_style.h`, `port/fast3d/pdgui_style.cpp`): the old
+  stub-only signature (raw tex + insets) replaced with a catalog-id
+  based API.  New functions: `pdguiChromeSetEnabled(s32)`,
+  `pdguiChromeIsEnabled()`, `pdguiSetPanelNineSlice(catalog_id)`,
+  `pdguiGetPanelNineSlice()`, `pdguiClearPanelNineSlice()`.  Backing
+  state: `s_ChromeEnabled` bool + `s_ChromeNineSliceId[64]` + internal
+  `s_resolveActiveChrome` helper that looks up both the nineslice
+  registry and the theme texture cache.
+- **Render-branch toggle in `pdguiDrawPdDialog`**: title bar gradient +
+  shimmer still runs always (unchanged).  Body background, haze
+  overlay, and border lines wrapped in an if/else branch — chrome path
+  calls `pdguiNinesliceDrawEx` with the palette's `dialog_border1`
+  color as tint (alpha forced to 0xFF so the chrome asset's own alpha
+  drives visibility).  Perimeter shimmer deliberately kept OUTSIDE
+  the else — the animated sweep passes over chrome as part of PD's
+  visual identity.
+- **`pdguiThemeGetTextureSize` API** (`port/fast3d/pdgui_theme.cpp`,
+  `port/include/pdgui_theme.h`): new parallel `s_ThemeTexDims` map
+  alongside `s_ThemeTexCache` so the chrome render path can resolve
+  source texture dimensions by catalog id.  All four texture
+  registration sites updated to insert into both maps.
 
-Total: **27 dialogs** registered across the five batches.  Partial
-coverage dialogs render the PD frame + scrim + all supported items with
-a visible `[label]` placeholder for the complex LIST / PLAYERSTATS /
-RANKING items — a tracked DEFERRED marker, not a silent failure.
+### Phase 3 — Visible chrome
 
-### Foundation-level change: typed-dialog primitive extension
+- **Base-game chrome template mod** (`port/fast3d/pdgui_theme.cpp`):
+  new `pdguiChromeInitializeBaseMod()` function called from
+  `pdguiThemeCheckExtract`.  Creates `mods/base-game/ui-chrome/`,
+  generates a 64×64 composite BGRA nineslice source texture
+  programmatically via `s_generateChromeFrameBgra` (quarter-circle
+  arc rings in all 4 corners, solid intensity edge strips, faint
+  diagonal crosshatch center), writes it as an uncompressed top-down
+  32-bit TGA via `s_writeTgaFile`, writes the template-flagged
+  `mod.json` (with `tags: ["base-game","template","chrome"]` and
+  `template: true`), writes a `README.md` warning users not to edit
+  the template, loads the texture into the theme cache as
+  `"base:ui_chrome_frame"`, and registers a nineslice def under the
+  same catalog id with src_inset/dst_corner_px = 16/16/16/16 and
+  center_mode = tile.
+- **Settings → Video → UI Chrome Style dropdown**
+  (`port/fast3d/pdgui_menu_mainmenu.cpp:611+`): new row in
+  `renderSettingsVideo` after the CRT Filter block.  Options:
+  "Procedural" (default) / "Classic (base-game test)".  Hot-applies
+  via `pdguiChromeSetEnabled` + `pdguiSetPanelNineSlice`.  Persists
+  to pd.ini via new `Video.UiChromeEnabled` integer config var
+  (registered in `pdguiThemeInit`).  `pdguiChromeInitializeBaseMod`
+  re-applies the persisted setting at startup once the nineslice is
+  registered.
 
-`port/fast3d/pdgui_menu_warning.cpp` renderTypedDialog() extended in
-Batch 4 to natively handle three new item types:
-- **MENUITEMTYPE_CHECKBOX** (0x09) — reads via MENUOP_GET, writes via
-  MENUOP_SET, honours MENUOP_CHECKDISABLED for locked cheats.  Fires
-  PDGUI_SND_TOGGLEON / TOGGLEOFF on state flip.
-- **MENUITEMTYPE_DROPDOWN** (0x0c) — enumerates via MENUOP_GETOPTIONCOUNT
-  + MENUOP_GETOPTIONTEXT, reads current via MENUOP_GETSELECTEDINDEX,
-  renders as ImGui::BeginCombo.  Fires PDGUI_SND_SUBFOCUS on step.
-- **MENUITEMTYPE_MARQUEE** (0x17) — rendered as centered dimmed text
-  (ImGui has no native marquee; the scrolling animation is a decorative
-  N64 artifact).
+### Phase 1 — Base-game template mod system
 
-`getItemLabel()` updated to match the legacy `menuResolveText()` contract
-in `src/game/menu.c:490` — param2 values >= 0x5a00 are treated as
-function pointers `char *(*)(struct menuitem *)` and called.  Without this
-fix the Cheats screens would render every cheat as garbage because
-`cheatGetNameIfUnlocked` is stored in param2 as a callback, not a langID.
+- **`modinfo_t` extensions** (`port/include/modmgr.h`): two new fields
+  `is_template` (s32) and `num_tags` / `tags[MODMGR_MAX_TAGS][MODMGR_TAG_LEN]`
+  with limits `MODMGR_MAX_TAGS=8`, `MODMGR_TAG_LEN=32`.  Public getter
+  API: `modmgrGetModIsTemplate`, `modmgrGetModNumTags`, `modmgrGetModTag`,
+  `modmgrModHasTag`.
+- **`modmgrParseModJson` extensions** (`port/src/modmgr.c`): top-level
+  keys `"template"` and `"tags"` now parsed.  `"template"` accepts
+  JSON true/false/null/numeric.  `"tags"` parses an array of strings
+  into the fixed-size tags pool.  Unknown keys still skipped.
+  Post-parse log line includes template state and tag count.
 
-Shadow structs `handlerdata_checkbox` and `handlerdata_dropdown` added to
-the warning.cpp `union handlerdata` so the MENUOP_GET/SET handler ABI
-works byte-for-byte with the game-side `cheatCheckboxMenuHandler`.
+### Phase 4 — Bugs found + fixed during build
 
-### Batch 3 specifics — CI Options redirect
+- **Comment termination hazard**: my new block comments contained
+  `src_*/dst_*` which terminates a `/* */` block early.  Fixed in
+  `pdgui_nineslice.cpp:387` and `pdgui_theme_loader.cpp:749`.  Scanned
+  every new comment for the pattern — no remaining occurrences.
+- **Pre-existing S195 Batch 3 PAL-only link bug**: references to
+  `g_CiControlOptionsMenuDialog2` in `pdgui_menu_mainmenu.cpp` (line 67
+  extern, 2786 dialog lookup, 3050 hotswap register) were
+  unconditional, but the symbol is only defined inside
+  `#if VERSION >= VERSION_PAL_FINAL` in `src/game/mainmenu.c:3316`.
+  NTSC builds fail to link with "undefined reference".  This wasn't
+  introduced by S196 — S196 is just the first build after the bug
+  was introduced.  Fix: drop the extern and both usages on the NTSC
+  side.  The "CI Control Options 2" sub-dialog redirect is now a
+  noop on NTSC, matching the surrounding "P2 variants are dead"
+  comment.
 
-`port/fast3d/pdgui_menu_mainmenu.cpp` extended with:
-- `renderCiSettingsRedirect` — opens a PD-framed window with
-  `pdguiPopupDarkenBehind(0.55f)`, pre-selects the sub-tab matching the
-  pushed CI dialog (Controls / Video / etc.) via a small pointer→tab
-  mapping, calls the existing `renderSettingsView()` body, and docks a
-  Back button using `pdguiBeginActionBar + pdguiActionBarButton`.
-- `renderCiDeadPlayer2` — small "Split-screen is not supported" notice
-  for the three P2 CI dialogs with OK action bar button and auto-pop.
-- 9 hotswap registrations in `pdguiMenuMainMenuRegister()`:
-  CI Options root x2, Control Options / Control Style / Display x3,
-  P2 dead x3.  `g_CiControlOptionsMenuDialog2` is PAL-only (`#if VERSION
-  >= VERSION_PAL_FINAL`) and is explicitly NOT declared — referencing it
-  produced an `undefined reference` link error on the first build
-  attempt; fix verified.
+### Deferred (intentional)
 
-`dialog->definition` pattern not usable (C++ can't include types.h);
-used `struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog)`
-shadow-struct approach from `pdgui_menu_warning.cpp`.
-
-### Build gate results
-
-| Batch gate           | Client (bytes)   | Server (bytes)  | Delta (client) |
-|----------------------|------------------|-----------------|----------------|
-| S194 end             | 48,716,058       | 22,786,384      | —              |
-| S195 Batch 3         | 48,727,498       | 22,786,384      | +11,440        |
-| S195 Batch 4         | 48,734,190       | 22,786,384      | +6,692         |
-| S195 B8 / B11 / B12  | 48,739,743       | 22,786,384      | +5,553         |
-
-**Total client delta**: +23,685 bytes.  **Server unchanged** (port/fast3d/
-is excluded from the server source list).  **S193b server linker guard
-(#if !defined(PD_SERVER) around g_ChrLastTickedIndex) verified intact**
-across every build gate.
+- **`modmgrSaveOrOverwrite` / `modmgrSaveAs`**: the save-path API
+  is not strictly required for the visible chrome success criterion.
+  Template protection enforcement is in place via the `is_template`
+  field; hooking it into the save path (when Modding Hub's "Save As"
+  button lands) is a small follow-up.
+- **Phase 1.5 rewrite of `pdguiThemeCheckExtract` for
+  `mods/base-game/ui-theme/`**: the old extractor still writes to
+  `mods/base-ui/` with the pre-S196 schema.  Leaving it alone keeps
+  backward compat with any user edits to base-ui TGAs.  The chrome
+  mod is the new template exemplar; migrating the UI theme mod is a
+  follow-up (no user impact — the extractor will just generate a
+  second template mod on next launch).
+- **Phase 3.4 Modding Hub template grouping + lock icons**: the
+  catalog API is in place (`modmgrGetModIsTemplate`,
+  `modmgrModHasTag`), so the Modding Hub can consume it in a
+  follow-up session.  Not blocking visible chrome.
 
 ### Files changed
 
-| File                                     | Before | After | Delta |
-|------------------------------------------|--------|-------|-------|
-| port/fast3d/pdgui_menu_mainmenu.cpp      | 2743   | 3063  | +320  |
-| port/fast3d/pdgui_menu_warning.cpp       | 749    | 1105  | +356  |
-| context/scratch/s195-report.txt (new)    | 0      | ~680  | +680  |
-| context/session-log.md (this entry)      | +      | +     | incr  |
-| context/tasks-current.md                 | +      | +     | incr  |
+| File | Before | After | Delta |
+|---|---|---|---|
+| `port/fast3d/pdgui_theme.cpp` | 1647 | 2091 | +444 |
+| `port/fast3d/pdgui_style.cpp` | 1051 | 1194 | +143 |
+| `port/fast3d/pdgui_nineslice.cpp` | 453 | 633 | +180 |
+| `port/fast3d/pdgui_theme_loader.cpp` | 1084 | 1086 | +2 |
+| `port/fast3d/pdgui_menu_mainmenu.cpp` | 3063 | 3087 | +24 |
+| `port/include/pdgui_theme.h` | 119 | 139 | +20 |
+| `port/include/pdgui_style.h` | 124 | 139 | +15 |
+| `port/include/pdgui_nineslice.h` | 110 | 152 | +42 |
+| `port/src/modmgr.c` | 1916 | 1975 | +59 |
+| `port/include/modmgr.h` | 195 | 229 | +34 |
+| (new) `mods/base-game/ui-chrome/ui_chrome_frame.tga` | 0 | ~16KB | generated at runtime |
+| (new) `mods/base-game/ui-chrome/mod.json` | 0 | ~1KB | generated at runtime |
+| (new) `mods/base-game/ui-chrome/README.md` | 0 | ~1KB | generated at runtime |
+| `context/session-log.md` | — | — | incremental |
+| `context/tasks-current.md` | — | — | incremental |
+| `context/scratch/s196-report.txt` (new) | 0 | ~500 | final report |
 
-### Stopping decision (explicit)
+Net code delta: **+963 lines** across 10 files.
 
-Stopped at a clean boundary after 5 batches.  Rationale:
-- Remaining batches (5, 6, 7, 10) all need primitive extensions
-  (MENUITEMTYPE_LIST, PLAYERSTATS, RANKING, CAROUSEL, or the model
-  preview pipeline for 3D training screens) that deserve their own
-  audit pass in the next session.
-- Rushing those extensions at the tail of this session would risk the
-  quality bar.  Mike's directive was "volume under the same quality
-  bar", which this session has maintained.
-- The LIST primitive is the single highest-leverage extension —
-  unlocking ~20 dialogs in one focused pass.  That's the right first
-  item for S196.
+### Build result
 
-### Deferred inventory (full list in `context/scratch/s195-report.txt`)
+- **Client**: `PerfectDark.exe` 48,914,193 bytes (+198,135 vs S194's
+  48,716,058).  Clean link, one pre-existing `strncpy` warning in
+  `snd.c:1502` inherited from before S196 (not related to this session).
+- **Server**: `PerfectDarkServer.exe` 22,786,384 bytes (unchanged — the
+  server source list does not include `port/fast3d/*.cpp`, and the new
+  `modmgr.c` code paths are dead for server builds).  S193b
+  `#if !defined(PD_SERVER)` guard in `port/src/crash.c:404` verified
+  intact before and after S196.
 
-High-leverage primitives to land in S196:
-- `MENUITEMTYPE_LIST` — unlocks Cinema, MpPauseInventory, MpCharacter,
-  MpLoadSettings, MpLoadPreset, MpLoadPlayer, MpSelectTunes,
-  MpChallenges root, bio/dt lists in training.
-- `MENUITEMTYPE_PLAYERSTATS` — unlocks player-stats pause/endscreen
-  screens.
-- `MENUITEMTYPE_RANKING` — unlocks player/team ranking pause screens.
-- `MENUITEMTYPE_CAROUSEL` — unlocks bot simulant character picker.
+### Verification checklist (for Mike)
+
+1. **Launch the default build** — menus should look identical to S194
+   (procedural path, `Video.UiChromeEnabled=0` by default in pd.ini).
+2. **Open Settings → Video** — scroll to the Rendering group, look for
+   the new "UI Chrome Style" dropdown below CRT Strength.
+3. **Flip to "Classic (base-game test)"** — menus should visibly change.
+   Expect: the body background darkens, thin white border strips appear
+   along the edges, quarter-circle arcs at the corners, a faint
+   crosshatch pattern across the center.  Theme tint (from the active
+   palette's `dialog_border1` color) should flow through to the chrome.
+4. **Change the theme color** (if theme editor is accessible) — the
+   chrome should retint to match.
+5. **Flip back to "Procedural"** — should return to the S194 look
+   pixel-for-pixel (no residual chrome state).
+6. **Check pd.ini** — `Video.UiChromeEnabled=1` after enabling, `=0`
+   after disabling.  Restart should preserve the setting.
+7. **Inspect `mods/base-game/ui-chrome/`** — should contain
+   `ui_chrome_frame.tga`, `mod.json` (with `template: true` and tags
+   `["base-game","template","chrome"]`), and `README.md` (do-not-edit
+   warning).  Editing `mod.json` manually and relaunching the game
+   will silently overwrite it (the extractor enforces the template).
+8. **Verify `mods/base-ui/` is untouched** — Phase 1.5 deferral means
+   the legacy base-ui extractor still writes there with the old schema.
 
 ### Next steps
 
-- Mike's in-game QC pass — checklist in `context/scratch/s195-report.txt`.
-- S196: begin with `MENUITEMTYPE_LIST` primitive extension, then sweep
-  Batches 5-7 in one pass.
+- Mike's in-game verification pass (checklist above).
+- Follow-up session for `modmgrSaveOrOverwrite` / `modmgrSaveAs` + the
+  Modding Hub "Base Game Templates" group with lock icons.  The API
+  surface is in place (`modmgrGetModIsTemplate`, `modmgrModHasTag`).
+- Follow-up session for rewriting the base-ui extractor to use the
+  new template mod layout at `mods/base-game/ui-theme/`.
+- S196-Batch4+ menu replacements can resume on top of the new chrome
+  infrastructure with no conflicts (the `g_PdguiChromeEnabled` toggle
+  leaves the procedural path bit-for-bit identical when disabled).
 
 ---
 

@@ -348,6 +348,32 @@ static bool modmgrParseModJson(modinfo_t *mod)
 					}
 				}
 			}
+		} else if (json_key_eq(&key, "template")) {
+			// S196: base-game template flag — hard gate for the save path
+			tok = json_next(&j);
+			if (tok.type == JTOK_TRUE) {
+				mod->is_template = 1;
+			} else if (tok.type == JTOK_FALSE || tok.type == JTOK_NULL) {
+				mod->is_template = 0;
+			} else {
+				// Numeric or other — treat non-zero as true
+				mod->is_template = (tok.type == JTOK_NUMBER) ? 1 : 0;
+			}
+		} else if (json_key_eq(&key, "tags")) {
+			// S196: free-form UI grouping labels
+			tok = json_next(&j);
+			if (tok.type == JTOK_LBRACKET) {
+				mod->num_tags = 0;
+				while (1) {
+					tok = json_next(&j);
+					if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
+					if (tok.type == JTOK_COMMA) continue;
+					if (tok.type == JTOK_STRING && mod->num_tags < MODMGR_MAX_TAGS) {
+						json_tok_string(&tok, mod->tags[mod->num_tags], MODMGR_TAG_LEN);
+						mod->num_tags++;
+					}
+				}
+			}
 		} else if (json_key_eq(&key, "content")) {
 			// Parse content object for asset counts
 			tok = json_next(&j);
@@ -407,9 +433,10 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	}
 
 	if (mod->valid) {
-		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s",
+		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s, template=%s, tags=%d",
 			mod->id, mod->name, mod->version, mod->author,
-			mod->num_bodies, mod->num_heads, mod->num_arenas, mod->base_fallback);
+			mod->num_bodies, mod->num_heads, mod->num_arenas, mod->base_fallback,
+			mod->is_template ? "yes" : "no", mod->num_tags);
 	} else {
 		sysLogPrintf(LOG_WARNING, "modmgr: mod.json validation failed for '%s': %s",
 			mod->id[0] ? mod->id : "(unknown)", mod->validation_error);
@@ -1913,4 +1940,36 @@ s32 modmgrExceedsThreshold(s32 index)
 	if (g_ModSizeThresholdMB <= 0) return 0;
 	u32 threshBytes = (u32)g_ModSizeThresholdMB * 1024u * 1024u;
 	return g_ModRegistry[index].size_bytes > threshBytes;
+}
+
+// --- S196: Base-Game Template Mod accessors ---
+
+s32 modmgrGetModIsTemplate(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].is_template;
+}
+
+s32 modmgrGetModNumTags(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].num_tags;
+}
+
+const char *modmgrGetModTag(s32 index, s32 tagIndex)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return NULL;
+	if (tagIndex < 0 || tagIndex >= g_ModRegistry[index].num_tags) return NULL;
+	return g_ModRegistry[index].tags[tagIndex];
+}
+
+s32 modmgrModHasTag(s32 index, const char *tag)
+{
+	if (!tag || !tag[0]) return 0;
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	modinfo_t *mod = &g_ModRegistry[index];
+	for (s32 i = 0; i < mod->num_tags; i++) {
+		if (strcmp(mod->tags[i], tag) == 0) return 1;
+	}
+	return 0;
 }

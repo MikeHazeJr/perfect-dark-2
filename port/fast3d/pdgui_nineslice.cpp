@@ -384,10 +384,10 @@ void pdguiNinesliceShutdown(void)
     sysLogPrintf(LOG_NOTE, "PDGUI nineslice: shutdown");
 }
 
-/* Populate derived src_*/dst_*/per-edge mode fields from legacy short-form
- * inputs.  Runs on every register call so programmatic callers that set
- * only the classic left/right/top/bottom + edge_mode + center_mode fields
- * still get a valid struct. */
+/* Populate derived src_* / dst_* / per-edge mode fields from legacy short-
+ * form inputs.  Runs on every register call so programmatic callers that
+ * set only the classic left/right/top/bottom + edge_mode + center_mode
+ * fields still get a valid struct. */
 static void s_backfillDef(nineslice_def_t *def)
 {
     if (def->src_left == 0 && def->src_right == 0 &&

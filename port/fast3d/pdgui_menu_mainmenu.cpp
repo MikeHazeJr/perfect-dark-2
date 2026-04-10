@@ -62,9 +62,11 @@ extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
 
 /* S195 Batch 3 — CI Options sub-dialogs.  Registered with redirect renderer
  * that pops the CI dialog and opens the unified Settings view on the
- * matching sub-tab.  P2 variants are dead (no split-screen). */
+ * matching sub-tab.  P2 variants are dead (no split-screen).  The
+ * "Dialog2" PAL-only variant (mainmenu.c:3316 inside #if VERSION >=
+ * VERSION_PAL_FINAL) is not present in NTSC builds; S196 drops the
+ * unconditional extern that was causing link failures on NTSC. */
 extern struct menudialogdef g_CiControlOptionsMenuDialog;
-extern struct menudialogdef g_CiControlOptionsMenuDialog2;
 extern struct menudialogdef g_CiControlStyleMenuDialog;
 extern struct menudialogdef g_CiDisplayMenuDialog;
 extern struct menudialogdef g_CiControlStylePlayer2MenuDialog;
@@ -2783,7 +2785,7 @@ static s32 ciRedirectTargetTabForDialog(struct menudialogdef *dlg)
      *   0 = Video, 1 = Audio, 2 = Controls, 3 = Game,
      *   4 = Updates, 5 = Debug, 6 = Catalog. */
     if (dlg == &g_CiControlOptionsMenuDialog)    return 2; /* Controls */
-    if (dlg == &g_CiControlOptionsMenuDialog2)   return 2; /* Controls */
+    /* g_CiControlOptionsMenuDialog2 is PAL-only — not linked in NTSC builds. */
     if (dlg == &g_CiControlStyleMenuDialog)      return 2; /* Controls */
     if (dlg == &g_CiDisplayMenuDialog)           return 0; /* Video */
     if (dlg == &g_CiOptionsViaPcMenuDialog)      return 0; /* start on Video */
@@ -3046,11 +3048,8 @@ void pdguiMenuMainMenuRegister(void)
             renderCiSettingsRedirect,
             "CI Control Options -> Settings.Controls"
         );
-        pdguiHotswapRegister(
-            &g_CiControlOptionsMenuDialog2,
-            renderCiSettingsRedirect,
-            "CI Control Options 2 -> Settings.Controls"
-        );
+        /* g_CiControlOptionsMenuDialog2 is PAL-only (mainmenu.c #if
+         * VERSION >= VERSION_PAL_FINAL).  Not present in NTSC builds. */
         pdguiHotswapRegister(
             &g_CiControlStyleMenuDialog,
             renderCiSettingsRedirect,

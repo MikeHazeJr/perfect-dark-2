@@ -746,7 +746,7 @@ static void apply_theme_def(const struct theme_def *def)
         ns.bottom = def->nineslices[i].bottom;
         ns.edge_mode   = def->nineslices[i].edge_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
         ns.center_mode = def->nineslices[i].center_tile ? NINESLICE_TILE : NINESLICE_STRETCH;
-        /* pdguiNinesliceRegister back-fills src_*/dst_*/per-edge from legacy short form. */
+        /* pdguiNinesliceRegister back-fills src/dst/per-edge from legacy short form. */
         pdguiNinesliceRegister(def->nineslices[i].catalog_id, &ns);
     }
 
