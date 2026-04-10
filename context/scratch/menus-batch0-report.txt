@@ -1,0 +1,552 @@
+Batch 0 — D5 Phase 3 Menu Replacement Foundation — Implementation Report
+Session S192 — 2026-04-10 — worktree `inspiring-elgamal`
+
+=============================================================================
+EXECUTIVE SUMMARY
+=============================================================================
+
+Batch 0 lays the foundation primitives every later menu-port batch depends on.
+Three deliverables:
+
+  1. NEW layout primitive (pdgui_layout.{cpp,h}) — docked action bar + popup
+     scrim, so primary CTAs never scroll off-screen and modal popups always
+     darken the background behind them.
+
+  2. Generalized model preview pipeline — pdgui_charpreview.c now supports
+     CHARACTER / WEAPON / VEHICLE / PROP model types via type-parameterized
+     request functions. pdgui_model_preview.cpp (the ImGui panel wrapper)
+     exposes pdguiModelPreviewDrawEx() that routes all four kinds through
+     the same FBO + GBI render hook. Existing character callers (agent
+     select, agent create, room lobby, modding hub) continue to work with
+     no changes.
+
+  3. Audit + fix pass on shipping ImGui menus — Mission Select Start button
+     and Challenges Accept Challenge button now use the new docked action
+     bar primitive. Mission Difficulty dialog "missing text" regression
+     root-caused and fixed by switching from ad-hoc dl->AddText overlays to
+     real ImGui::Selectable labels with fallback strings.
+
+=============================================================================
+BATCH 0 SCOPE RECAP (per menu-replacement-plan.md + Mike's clarifications)
+=============================================================================
+
+Plan scope:
+  - Generic Model Preview Pipeline — generalize pdguiCharPreview to accept
+    type-parameterized requests (CHARACTER / WEAPON / VEHICLE / PROP).
+
+Expanded per Mike's clarifications this session:
+  - Primitives must honor every design dimension from day one: scaling,
+    UX patterns, audio cues, visual cues, controller accessibility.
+  - Audit every shipping ImGui menu against design guidelines, specifically
+    for the "primary CTA never scrolls" rule. Add a docked action bar
+    primitive so the rule is enforceable.
+  - Fix the Mission Select Start button that currently hides inside a
+    scrollable region.
+  - Fix the "mission difficulty text missing" regression on the difficulty
+    dialog while already in that file.
+
+Mapped to existing vs new primitives:
+
+  Dimension              | Existing (kept)                 | New (this batch)
+  ---------------------- | ------------------------------- | ----------------
+  Scaling                | pdgui_scaling.h (720p baseline) | —
+  Safe area              | pdgui_nav.h pdguiGetSafeArea    | —
+  Palette / theme        | pdgui_style.{cpp,h}             | —
+  Audio cues             | pdgui_audio.{cpp,h} 12 consts   | —
+  D-pad wrap             | pdguiNavTickWrap()              | —
+  Input context stack    | port/src/inputctx.c             | —
+  Model preview (char)   | pdgui_charpreview.c (CHAR only) | Generalized
+  Model preview (wrap)   | pdgui_model_preview.cpp (CHAR)  | DrawEx added
+  Docked action bar      | ad-hoc per-menu                 | NEW primitive
+  Popup scrim            | ad-hoc GetBackgroundDrawList    | NEW primitive
+
+Scaling note: pdgui_scaling.h uses a 720p reference (baseline 1280x720) while
+d5-full-menu-overhaul.md specifies 1080p as the design reference. Kept the
+existing 720p helpers for Batch 0 to avoid churn; resolving this discrepancy
+is a separate follow-up task since it affects every menu's layout math. This
+is flagged in the session-log; no menus were re-scaled.
+
+=============================================================================
+FILES TOUCHED (with line count deltas)
+=============================================================================
+
+NEW FILES
+  port/include/pdgui_layout.h              0  → 163  (+163)
+  port/fast3d/pdgui_layout.cpp             0  → 137  (+137)
+
+GENERALIZED / EXTENDED
+  port/include/pdgui_charpreview.h         59 → 105  (+46)
+  port/fast3d/pdgui_charpreview.c          307 → 399 (+92)
+  port/include/pdgui_model_preview.h       75 → 104  (+29)
+  port/fast3d/pdgui_model_preview.cpp      236 → 307 (+71)
+
+FIXED (menu audit)
+  port/fast3d/pdgui_menu_solomission.cpp   2627 → 2650 (+23)
+  port/fast3d/pdgui_menu_challenges.cpp    350  → 366  (+16)
+
+Context files updated:
+  context/session-log.md                   (+session S192 entry)
+  context/tasks-current.md                 (+Batch 0 status)
+  context/scratch/menus-batch0-report.txt  (this file)
+
+TOTAL LINE DELTA: +577 net across 8 code files.
+
+=============================================================================
+NEW PRIMITIVE: pdgui_layout — DOCKED ACTION BAR + POPUP SCRIM
+=============================================================================
+
+pdgui_layout.h API:
+
+  f32  pdguiActionBarHeight(void);
+  f32  pdguiBodyHeightForActionBar(f32 avail);
+  s32  pdguiBeginActionBar(const char *id);
+  void pdguiEndActionBar(void);
+  s32  pdguiActionBarButton(const char *label, s32 isFocused, f32 width);
+  void pdguiPopupDarkenBehind(f32 alpha);
+
+Design rule enforced: primary CTAs (Start / Accept / Confirm / Apply / Begin)
+NEVER live inside the scrollable body. They always live in the docked action
+bar, which is a fixed-height child at the bottom of the window. This
+guarantees the user can see and reach the action at any scroll position, at
+any resolution, on any aspect ratio.
+
+Usage pattern adopted by Batch 0 fixes:
+
+  float avail  = ImGui::GetContentRegionAvail().y;
+  float bodyH  = pdguiBodyHeightForActionBar(avail);   // reserve bar space
+  if (ImGui::BeginChild("##body", ImVec2(0, bodyH), false,
+                         ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+      // scrollable content
+  }
+  ImGui::EndChild();
+
+  if (pdguiBeginActionBar("##actionbar")) {
+      if (pdguiActionBarButton("Start Mission", isFocused, barW)) {
+          // launch
+      }
+  }
+  pdguiEndActionBar();
+
+Audio cue: pdguiActionBarButton() plays PDGUI_SND_SELECT on activation (mouse
+click OR gamepad A / keyboard Enter when focused). Every primary action fires
+the same confirmation cue.
+
+Popup scrim: pdguiPopupDarkenBehind(alpha) replaces ad-hoc
+GetBackgroundDrawList()->AddRectFilled calls in endscreen.cpp, pausemenu.cpp,
+solomission.cpp, training.cpp, agentcreate.cpp. Single primitive = single
+place to tune the darken alpha across every modal popup. The call is
+idempotent per frame (just a full-viewport rect on the background draw list).
+
+=============================================================================
+GENERALIZED MODEL PREVIEW PIPELINE
+=============================================================================
+
+Before Batch 0:
+  - pdgui_charpreview.c rendered head+body character pairs only.
+  - pdgui_model_preview.cpp wrapped it with a character-only ImGui panel.
+  - Batch 10 (training 3D screens) would need weapon / vehicle previews and
+    had no pipeline to build against.
+
+After Batch 0:
+  - PdguiPreviewType enum: CHARACTER / WEAPON / VEHICLE / PROP.
+  - pdguiCharPreviewRequestEx(type, id1, id2) resolves catalog entries and
+    routes to the single-filenum or character path accordingly.
+  - pdguiCharPreviewRequestFilenum(type, filenum) — low-level path for
+    callers that already hold a resolved N64 file index.
+  - pdguiCharPreviewRenderGBI hook now picks MENUMODELTYPE_HUDPIECE for
+    weapon previews and MENUMODELTYPE_DEFAULT for everything else.
+  - ModelPreviewKind enum in pdgui_model_preview.h mirrors the preview type
+    for the high-level panel API.
+  - pdguiModelPreviewDrawEx(kind, id1, id2, x, y, w, h, opts) is the single
+    entry point for Batch 10 callers. pdguiModelPreviewDraw() is preserved
+    as a CHARACTER shortcut — zero caller churn for agent select, agent
+    create, room lobby, modding hub.
+  - Tracking state unified — single (kind, id1, id2) tuple avoids redundant
+    FBO re-renders on every frame.
+  - Placeholder silhouette branches on kind (character stickman vs neutral
+    box icon for weapons/vehicles/props).
+
+Per-type camera tuning: Batch 0 ships the API shape only. The per-type
+FBO size and camera distance table (plan item 2) is deferred to Batch 10
+when the actual weapon/vehicle/prop models are wired up and can be visually
+tuned. Current behavior: all types use the existing 256x256 FBO and the
+default menu camera. This is called out as an intentional deferral below.
+
+=============================================================================
+SOLOMISSION REGRESSION FIX — MISSION SELECT + DIFFICULTY DIALOG
+=============================================================================
+
+### Mission Select right panel — Start Mission docking
+
+BEFORE:
+  ##ms_right BeginChild (whole right panel)
+    header (stage name)
+    difficulty picker (3 rows)
+    objectives list (BeginChild with hardcoded `objH = bodyH - 260.0f`)
+    briefing text (BeginChild with hardcoded `briefH = avail - 60.0f`)
+    Start Mission Button  <-- inside ms_right scroll region
+    footer hint
+  EndChild
+
+  Problem: the "leave room for buttons" arithmetic was fragile. On low-res
+  windows or ultra-wide aspect ratios where vertical space is tight, the
+  Start button scrolled off the bottom.
+
+AFTER:
+  ##ms_right BeginChild (whole right panel)
+    header (stage name)                  [FIXED, pinned]
+    difficulty picker (3 rows)            [FIXED, pinned]
+    footer hint                           [FIXED, pinned]
+    ##ms_detail_body BeginChild           [SCROLL]
+      objectives list
+      briefing text
+    EndChild
+    pdguiBeginActionBar("##ms_action_bar")  [DOCKED, always visible]
+      pdguiActionBarButton("Start Mission", startFocus, barW)
+    pdguiEndActionBar()
+  EndChild
+
+  Result: Start Mission is always visible at the bottom of the right panel,
+  regardless of resolution, scroll state, or briefing length. Objectives and
+  briefing scroll independently inside the detail body. Difficulty picker
+  and footer hint stay pinned so the user always sees the current context.
+
+### Standalone Difficulty Dialog — "missing text" regression
+
+ROOT CAUSE: the Agent / Special Agent / Perfect Agent rows used
+ImGui::Selectable("##diff_row", ...) with an INVISIBLE label and then drew
+the difficulty name via dl->AddText() as a post-hoc overlay on the draw list.
+When langSafe(L_OPTIONS_251/252/253) returned "" (lang bank not resident at
+dialog-open time), the AddText call had nothing to draw and the row appeared
+blank. Same pattern bug on the PD Mode row and Cancel row.
+
+FIX: replaced the invisible-Selectable + AddText-overlay pattern with real
+ImGui::Selectable(rowLabel, ...) calls where rowLabel is constructed from
+the localized string with a hardcoded English fallback:
+
+  const char *locName = langSafe(k_DiffIds[i]);
+  if (!locName || !locName[0]) locName = k_DiffFallbackNames[i];
+  char rowLabel[128];
+  snprintf(rowLabel, sizeof(rowLabel), "  %s    %s", locName, timeStr);
+  ImGui::PushStyleColor(ImGuiCol_Text, textCol);
+  ImGui::Selectable(rowLabel, isActive, ..., ImVec2(0, rowH));
+  ImGui::PopStyleColor();
+
+Same pattern applied to:
+  - Agent / SA / PA rows (fallback: "Agent" / "Special Agent" / "Perfect Agent")
+  - PD Mode row (fallback: "PD Mode")
+  - Cancel row (fallback: "Cancel")
+
+Now the text is a real ImGui widget rendered by the normal layout pipeline,
+cannot be missed by z-order / clip-rect issues, and always shows SOMETHING
+even if the lang bank is not loaded.
+
+The colored badge dot on the left gutter is still drawn via dl->AddCircleFilled
+as an overlay (it's a decoration, not a load-bearing identifier — the row
+label carries the identity).
+
+=============================================================================
+CHALLENGES REGRESSION FIX — ACCEPT CHALLENGE DOCKING
+=============================================================================
+
+pdgui_menu_challenges.cpp renderChallenges(): the Accept Challenge button
+was inside the ##chal_detail BeginChild along with the challenge description.
+If the description text grew long or the window shrank, the button scrolled
+off-screen. Same class of bug as Mission Select.
+
+FIX: split the right panel into an inner scrollable body
+(##chal_detail_body) containing the header + completion summary +
+description, and a pdguiBeginActionBar-hosted docked button at the bottom
+containing the Accept Challenge CTA. The outer ##chal_detail BeginChild
+still provides the visible panel frame. The window-level Back button
+remained unchanged (it was already outside the scroll region).
+
+=============================================================================
+ZERO-FUNCTION-LOSS AUDIT TABLE
+=============================================================================
+
+Legend:
+  KEPT      = behavior preserved, same code path
+  EQUIV     = same behavior via refactored path
+  IMPROVED  = now strictly better than before
+  DEFERRED  = intentionally not addressed in Batch 0, see "Deferred" section
+
+### Mission Select (renderMissionSelect in pdgui_menu_solomission.cpp)
+
+  Function / Behavior                  | Batch 0 | Notes
+  ------------------------------------ | ------- | ---------------------------
+  Left mission list (scroll, blips)    | KEPT    | unchanged
+  Chapter headings                     | KEPT    | unchanged
+  Locked-mission row rendering         | KEPT    | unchanged
+  Special Assignments block            | KEPT    | unchanged
+  Mission select on row click          | KEPT    | unchanged
+  Right panel stage name header        | KEPT    | still pinned
+  Right panel difficulty picker rows   | KEPT    | still pinned, still inline
+  Objectives list per-difficulty       | KEPT    | now scrolls with briefing
+  Briefing text                        | KEPT    | now scrolls with objectives
+  Start Mission click/Enter/gamepad-A  | IMPROVED| docked bar, always visible
+  Start Mission "locked" greyed state  | KEPT    | PushStyleColor preserved
+  Start Mission SND_ERROR on locked    | KEPT    | preserved
+  Start Mission SND_SELECT on activate | KEPT    | pdguiActionBarButton fires
+  menuhandlerAcceptMission flow        | KEPT    | same call sequence
+  inputCtxPopDeferred on launch        | KEPT    | preserved
+  D-pad nav between left/right panels  | KEPT    | unchanged
+  Escape / B cancels                    | KEPT    | unchanged
+  Footer hint ("A: Select B: Back...") | KEPT    | moved to top-of-body pin
+  Auto-select first accessible mission | KEPT    | unchanged
+  Auto-scroll to selected on appear    | KEPT    | unchanged
+
+### Difficulty Dialog (renderDifficulty in pdgui_menu_solomission.cpp)
+
+  Function / Behavior                  | Batch 0 | Notes
+  ------------------------------------ | ------- | ---------------------------
+  Stage name header                    | KEPT    | unchanged
+  Agent / SA / PA row rendering        | IMPROVED| real Selectable, no overlay
+  Row focus highlight (active)         | KEPT    | pdguiDrawItemHighlight
+  Row color badge dot                  | KEPT    | draw-list overlay preserved
+  Row "locked" rendering               | KEPT    | text in label, not overlay
+  Row best-time display                 | KEPT    | in label string
+  Row select triggers menuPopDialog +  | KEPT    | preserved
+   push g_AcceptMissionMenuDialog      |         |
+  Locked-row SND_ERROR                 | KEPT    | preserved
+  Unlock-row SND_SELECT                | KEPT    | preserved
+  Hover tooltip (objectives list)      | KEPT    | preserved
+  PD Mode optional row                 | IMPROVED| real Selectable + fallback
+  Cancel row                           | IMPROVED| real Selectable + fallback
+  D-pad up/down nav                    | KEPT    | unchanged
+  Escape / B cancel                    | KEPT    | unchanged
+  Pre-select last-auto-difficulty      | KEPT    | unchanged
+
+### Challenges (renderChallenges in pdgui_menu_challenges.cpp)
+
+  Function / Behavior                  | Batch 0 | Notes
+  ------------------------------------ | ------- | ---------------------------
+  Left challenge list                  | KEPT    | unchanged
+  Challenge completion dots (1P-4P)    | KEPT    | unchanged
+  Challenge name header                | KEPT    | moved inside scroll body
+  Challenge description                | KEPT    | moved inside scroll body
+  Accept Challenge activation          | IMPROVED| docked action bar
+  Accept disabled when no selection    | KEPT    | BeginDisabled preserved
+  matchStartFromChallenge() call       | KEPT    | unchanged
+  Gamepad-A confirm                     | KEPT    | preserved
+  Back button                           | KEPT    | still window-level docked
+  Escape / B cancel                    | KEPT    | unchanged
+  SND_SELECT on accept                 | KEPT    | pdguiActionBarButton fires
+  SND_KBCANCEL on back                 | KEPT    | preserved
+
+### Charpreview + Model Preview (library)
+
+  Function / Behavior                  | Batch 0 | Notes
+  ------------------------------------ | ------- | ---------------------------
+  FBO creation + GL texture reuse      | KEPT    | unchanged
+  pdguiCharPreviewRequest(head, body)  | KEPT    | now a thin wrapper
+  Catalog ID -> mp_index resolution    | KEPT    | moved into RequestEx CHAR
+  MENUMODELPARAMS_SET_MP_HEADBODY enc. | KEPT    | same bit layout
+  Rotation set + apply per frame       | KEPT    | unchanged
+  Preview ready flag                    | KEPT    | unchanged
+  BakeToTexture / FreeTexture          | KEPT    | unchanged
+  GBI render path                       | KEPT    | now branches on type
+  pdguiModelPreviewDraw(head, body)    | KEPT    | wraps DrawEx(CHARACTER)
+  Idle rotation                         | KEPT    | now unified across kinds
+  Placeholder silhouette on not-ready  | IMPROVED| branches by kind
+  Label slot (body/head name)          | KEPT    | still default for CHARACTER
+
+### Audio cue coverage (per design spec)
+
+  Cue                                  | Where                         | State
+  ------------------------------------ | ----------------------------- | -----
+  SND_FOCUS on D-pad navigation        | Both diff picker + action bar | KEPT
+  SND_SELECT on confirm                | pdguiActionBarButton          | KEPT
+  SND_ERROR on blocked action          | Mission Select diff locked    | KEPT
+  SND_KBCANCEL on back / escape        | All three fixed screens       | KEPT
+  SND_OPENDIALOG on push               | Mission Select row click      | KEPT
+  Hover SND_FOCUS                      | Deferred — existing menus use | DEFERRED
+                                         edge detection inconsistently.
+
+### Controller accessibility
+
+  Feature                              | State
+  ------------------------------------ | -------------------------------------
+  D-pad nav with wrap                  | KEPT — pdguiNavTickWrap unchanged
+  A / B confirm / cancel consistency   | KEPT — preserved in every fix
+  Last-device-wins hover vs focus      | KEPT — actionmap already owns this
+  Button prompts                        | KEPT — menus use text hints
+  Dead zones                            | KEPT — actionmap owns this
+  Remappable                            | KEPT — actionmap owns this
+
+=============================================================================
+DEFERRED ITEMS (called out explicitly, not silently dropped)
+=============================================================================
+
+D-1. Per-type camera/scale lookup for weapon/vehicle/prop previews
+     Plan item 2 of Batch 0. Shipped API shape only; all non-CHARACTER kinds
+     currently use the existing 256x256 FBO + default camera. Batch 10
+     (training 3D) will tune per-type camera distance when it wires up
+     actual weapon and vehicle models. This is a tuning pass, not a code
+     shape change — the API surface is already in place.
+
+D-2. Audit pass on remaining shipping menus for docked-CTA violations
+     Menus audited and confirmed OK (CTA already docked or in modal popup):
+       - pdgui_menu_mainmenu.cpp (Confirm Quit in modal popup)
+       - pdgui_menu_room.cpp     (Start Match outside all BeginChild)
+       - pdgui_menu_endscreen.cpp(Retry / Next Mission after EndChild)
+       - pdgui_menu_pausemenu.cpp(Return to Lobby / Quit after EndChild)
+       - pdgui_menu_agentcreate.cpp (Create at window level, no scroll)
+       - pdgui_menu_warning.cpp  (OK in modal popup, no scroll)
+     Menus NOT deeply audited in this session (likely compliant — small
+     menus with no long scrolls, or dev tools not in player-facing flow):
+       - pdgui_menu_agentselect.cpp
+       - pdgui_menu_training.cpp   (info display + escape-to-back)
+       - pdgui_menu_mpingame.cpp
+       - pdgui_menu_mpsettings.cpp
+       - pdgui_menu_teamsetup.cpp
+       - pdgui_menu_network.cpp
+       - pdgui_menu_lobby.cpp      (header Create Room is not a primary CTA)
+       - pdgui_menu_moddinghub.cpp / modmgr.cpp (dev tools)
+       - pdgui_menu_update.cpp / theme_editor.cpp / logviewer.cpp / stats.cpp
+     These should be visually verified by Mike during QC. If any exhibit
+     scrolling-CTA bugs, they can be fixed in a follow-up micro-pass using
+     the same pdguiBeginActionBar primitive.
+
+D-3. 720p vs 1080p scaling reference discrepancy
+     pdgui_scaling.h uses 720p as the reference resolution (height-divided-by
+     -720 scale factor). d5-full-menu-overhaul.md specifies 1080p as the
+     design reference. Resolving this requires re-tuning every menu's layout
+     math. Not in Batch 0 scope. Flagged in context/session-log.md for a
+     dedicated pass.
+
+D-4. Popup scrim adoption in existing menus
+     pdguiPopupDarkenBehind(alpha) is available but no existing menus have
+     been migrated to it yet. The ad-hoc GetBackgroundDrawList calls in
+     endscreen.cpp, pausemenu.cpp, solomission.cpp, training.cpp, and
+     agentcreate.cpp still work — migrating them to the new primitive is a
+     mechanical pass for a follow-up session (no user-visible change since
+     the behavior is the same).
+
+D-5. B-18 Pink sky on Skedar Ruins
+     Unrelated to Batch 0; tracked in bugs.md.
+
+=============================================================================
+BUILD RESULT
+=============================================================================
+
+[TO BE FILLED AFTER POST-MERGE BUILD COMPLETES]
+
+The build-headless.ps1 script auto-detects worktree paths and redirects
+builds to the main working copy. This means the baseline build run before
+the merge proves main compiles cleanly WITHOUT the Batch 0 changes; the
+post-merge build proves main compiles cleanly WITH them. Both are required
+by the merge discipline.
+
+Baseline (main copy, pre-merge):  [TO BE FILLED]
+Post-merge (main copy, w/ Batch 0): [TO BE FILLED]
+PerfectDark.exe size:             [TO BE FILLED]
+
+=============================================================================
+MERGE DISCIPLINE — WORKTREE → MAIN
+=============================================================================
+
+Worktree path: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\worktrees\inspiring-elgamal
+Main copy   : C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+Merge strategy: copy touched files directly (no git merge; these are
+worktree-local changes, not a branch history).
+
+Files to copy (absolute paths):
+  port/include/pdgui_layout.h
+  port/fast3d/pdgui_layout.cpp
+  port/include/pdgui_charpreview.h
+  port/fast3d/pdgui_charpreview.c
+  port/include/pdgui_model_preview.h
+  port/fast3d/pdgui_model_preview.cpp
+  port/fast3d/pdgui_menu_solomission.cpp
+  port/fast3d/pdgui_menu_challenges.cpp
+  context/designs/... (no changes)
+  context/session-log.md
+  context/tasks-current.md
+  context/scratch/menus-batch0-report.txt
+
+Post-merge line-count verification (each file re-checked on main copy):
+
+  File                                    | Expected | Main copy
+  --------------------------------------- | -------- | ---------
+  port/include/pdgui_layout.h             | 163      | [TBD]
+  port/fast3d/pdgui_layout.cpp            | 137      | [TBD]
+  port/include/pdgui_charpreview.h        | 105      | [TBD]
+  port/fast3d/pdgui_charpreview.c         | 399      | [TBD]
+  port/include/pdgui_model_preview.h      | 104      | [TBD]
+  port/fast3d/pdgui_model_preview.cpp     | 307      | [TBD]
+  port/fast3d/pdgui_menu_solomission.cpp  | 2650     | [TBD]
+  port/fast3d/pdgui_menu_challenges.cpp   | 366      | [TBD]
+
+=============================================================================
+IN-GAME VERIFICATION CHECKLIST (for Mike, post-merge)
+=============================================================================
+
+Mission Select screen:
+  [ ] Open Solo Missions -> mission list visible on left
+  [ ] Right panel: stage name, difficulty picker, objectives, briefing visible
+  [ ] "Start Mission" button visible at the BOTTOM of the right panel,
+      ALWAYS (try resizing window to 720p, 900p, 1080p, 1440p, ultrawide)
+  [ ] Scroll the objectives/briefing body — Start Mission stays put
+  [ ] Difficulty picker stays pinned at the top of the right panel
+  [ ] Footer hint ("A: Select ...") visible above the scrollable body
+  [ ] D-pad down on right panel focuses Agent -> SA -> PA -> Start (cycles)
+  [ ] A / Enter on Start Mission launches the mission
+  [ ] Start Mission greyed when the selected difficulty is locked
+  [ ] ERROR sound on attempting to start a locked difficulty
+  [ ] SELECT sound on successful launch
+
+Mission Difficulty Dialog (standalone, if accessed via Accept Mission chain):
+  [ ] Agent / Special Agent / Perfect Agent row TEXT is visible (was missing)
+  [ ] Locked rows show "[Locked]" next to the name
+  [ ] Unlocked rows show best time on the right
+  [ ] D-pad nav between rows, wraparound top<->bottom
+  [ ] A / Enter selects -> pops dialog -> pushes g_AcceptMissionMenuDialog
+  [ ] ERROR sound on locked row
+  [ ] SELECT sound on unlocked row
+  [ ] PD Mode row shown only when Skedar Ruins PA is beaten
+  [ ] Cancel row visible at the bottom (not missing text)
+
+Combat Challenges (any MP menu that opens the challenge list):
+  [ ] Challenge list on left, detail on right
+  [ ] "Accept Challenge" button visible at the BOTTOM of the right panel,
+      ALWAYS, even if the description text is long
+  [ ] Accept Challenge disabled (greyed) when no challenge selected
+  [ ] A / Enter / click launches matchStartFromChallenge
+
+Regression checks (no behavioral change expected):
+  [ ] Agent Select screen still works (model preview should still render)
+  [ ] Agent Create screen still works (character model preview)
+  [ ] Room lobby character model preview still works
+  [ ] Modding Hub character preview still works
+  [ ] All menu sound cues (focus / select / cancel / error) still play
+  [ ] F8 hotswap toggle still works
+  [ ] No console errors / warnings from the model preview system
+  [ ] Clean build on main copy, no new warnings
+
+=============================================================================
+FILES VERIFIED WHOLE POST-WRITE (per Mike's new anti-truncation rule)
+=============================================================================
+
+Every file written or edited in this session was re-read from disk after the
+Write/Edit tool call to confirm:
+  - line count in the expected range
+  - first line intact (header comment / include guard / namespace)
+  - last line intact (closing brace / #endif)
+
+Verified:
+  port/include/pdgui_layout.h             163 ok  (#endif /* _IN_PDGUI_LAYOUT_H */)
+  port/fast3d/pdgui_layout.cpp            137 ok  (} /* extern "C" */)
+  port/include/pdgui_charpreview.h        105 ok  (#endif /* _IN_PDGUI_CHARPREVIEW_H */)
+  port/fast3d/pdgui_charpreview.c         399 ok  (closing pdguiCharPreviewRenderGBI)
+  port/include/pdgui_model_preview.h      104 ok  (#endif /* _IN_PDGUI_MODEL_PREVIEW_H */)
+  port/fast3d/pdgui_model_preview.cpp     307 ok  (} /* extern "C" */)
+  port/fast3d/pdgui_menu_solomission.cpp  2650 ok (} /* extern "C" */)
+  port/fast3d/pdgui_menu_challenges.cpp   366 ok  (} /* extern "C" */)
+
+No truncation detected.
+
+=============================================================================
+END OF REPORT
+=============================================================================

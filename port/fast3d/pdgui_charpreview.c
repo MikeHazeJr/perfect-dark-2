@@ -31,8 +31,10 @@
 #include "gbiex.h"
 #include "game/menu.h"
 #include "system.h"
+#include "constants.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
+#include "pdgui_charpreview.h"
 
 /* ========================================================================
  * State
@@ -43,8 +45,10 @@
 
 static s32 s_PreviewFb = -1;         /* Framebuffer ID, -1 = not created */
 static s32 s_PreviewRequested = 0;   /* Non-zero if preview render needed */
-static u8  s_PreviewHeadnum = 0;     /* Head to render */
-static u8  s_PreviewBodynum = 0;     /* Body to render */
+static u8  s_PreviewHeadnum = 0;     /* Head to render (character mode) */
+static u8  s_PreviewBodynum = 0;     /* Body to render (character mode) */
+static u32 s_PreviewFilenum = 0;     /* Filenum (weapon/vehicle/prop mode) */
+static s32 s_PreviewType    = PDGUI_PREVIEW_CHARACTER; /* Current model type */
 static u32 s_PreviewTexId = 0;       /* GL texture ID of the rendered preview */
 static s32 s_PreviewReady = 0;       /* Non-zero if texture has valid content */
 static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
@@ -89,48 +93,123 @@ void pdguiCharPreviewInit(void)
  * ======================================================================== */
 
 /**
- * Request a character preview render for the given head/body catalog IDs.
- * Resolves catalog IDs to runtime indices internally for the render pipeline.
+ * Internal helper: write newparams + rotation into the menu model for the
+ * current local player and mark the preview as requested.
+ *
+ * Shared by the character and single-filenum request paths so the render
+ * hook sees the same "one pending request" state regardless of type.
  */
-void pdguiCharPreviewRequest(const char *head_id, const char *body_id)
+static void charPreviewSubmitParams(u32 params, s32 type)
 {
-    /* Resolve catalog IDs → mpheadnum / mpbodynum for the render pipeline */
-    u8 headnum = 0;
-    u8 bodynum = 0;
-
-    if (body_id && body_id[0]) {
-        const asset_entry_t *be = assetCatalogResolve(body_id);
-        if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
-            bodynum = (u8)be->mp_index;
-        }
-    }
-
-    if (head_id && head_id[0]) {
-        const asset_entry_t *he = assetCatalogResolve(head_id);
-        if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
-            headnum = (u8)he->mp_index;
-        }
-    }
-
-    s_PreviewHeadnum = headnum;
-    s_PreviewBodynum = bodynum;
+    s_PreviewType = type;
     s_PreviewRequested = 1;
 
-    /* Also update the menu model params so the game loads the right model.
-     * This uses the same mechanism as the MP character select screen. */
     s32 playernum = g_MpPlayerNum;
     if (playernum < 0) playernum = 0;
     if (playernum >= MAX_PLAYERS) playernum = 0;
 
-    u32 params = 0xffff
-        | ((u32)headnum << 16)
-        | ((u32)bodynum << 24);
-
     g_Menus[playernum].menumodel.newparams = params;
+    g_Menus[playernum].menumodel.newroty  = s_PreviewRotY;
+    g_Menus[playernum].menumodel.curroty  = s_PreviewRotY;
+}
 
-    /* Apply rotation directly so the next render uses the caller's angle. */
-    g_Menus[playernum].menumodel.newroty = s_PreviewRotY;
-    g_Menus[playernum].menumodel.curroty = s_PreviewRotY;
+/**
+ * Request a character preview render for the given head/body catalog IDs.
+ * Resolves catalog IDs to runtime indices internally for the render pipeline.
+ *
+ * This is the historical API -- kept as a thin wrapper so existing callers
+ * (agent select, agent create, modding hub, room lobby) continue to work.
+ */
+void pdguiCharPreviewRequest(const char *head_id, const char *body_id)
+{
+    pdguiCharPreviewRequestEx(PDGUI_PREVIEW_CHARACTER, head_id, body_id);
+}
+
+/**
+ * Generalized request: character (head+body) OR single-filenum
+ * (weapon / vehicle / prop) by catalog id.
+ *
+ * For CHARACTER: id1 = head catalog id, id2 = body catalog id.
+ * For WEAPON / VEHICLE / PROP: id1 = catalog id, id2 is ignored.
+ *
+ * Non-character paths resolve the catalog entry and use its source_filenum
+ * as the menu model filenum.  If resolution fails, the request is silently
+ * dropped so the caller's fallback placeholder (pdgui_model_preview
+ * silhouette) remains visible.
+ */
+void pdguiCharPreviewRequestEx(PdguiPreviewType type,
+                                const char *id1,
+                                const char *id2)
+{
+    if (type == PDGUI_PREVIEW_CHARACTER) {
+        /* Resolve catalog IDs → mpheadnum / mpbodynum for the render pipeline */
+        u8 headnum = 0;
+        u8 bodynum = 0;
+
+        if (id2 && id2[0]) {
+            const asset_entry_t *be = assetCatalogResolve(id2);
+            if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
+                bodynum = (u8)be->mp_index;
+            }
+        }
+
+        if (id1 && id1[0]) {
+            const asset_entry_t *he = assetCatalogResolve(id1);
+            if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
+                headnum = (u8)he->mp_index;
+            }
+        }
+
+        s_PreviewHeadnum = headnum;
+        s_PreviewBodynum = bodynum;
+        s_PreviewFilenum = 0;
+
+        /* MENUMODELPARAMS_SET_MP_HEADBODY -- character sentinel 0xffff low
+         * word + head in bits 16-23 + body in bits 24-31. */
+        u32 params = 0xffff
+            | ((u32)headnum << 16)
+            | ((u32)bodynum << 24);
+
+        charPreviewSubmitParams(params, PDGUI_PREVIEW_CHARACTER);
+        return;
+    }
+
+    /* Single-filenum path (weapon / vehicle / prop).  Catalog entry's
+     * source_filenum is the N64 fileSlots index for the model file. */
+    u32 filenum = 0;
+    if (id1 && id1[0]) {
+        const asset_entry_t *e = assetCatalogResolve(id1);
+        if (e && e->source_filenum > 0) {
+            filenum = (u32)e->source_filenum;
+        }
+    }
+
+    if (filenum == 0) {
+        /* Resolution failed -- don't touch pending state; leave the
+         * existing preview / placeholder on screen. */
+        return;
+    }
+
+    pdguiCharPreviewRequestFilenum(type, filenum);
+}
+
+/**
+ * Low-level filenum-based request: skip catalog resolution.  Intended for
+ * callers that already hold a resolved file index (training screens that
+ * iterate g_FrWeapons[] / g_DtItems[], etc.).
+ */
+void pdguiCharPreviewRequestFilenum(PdguiPreviewType type, u32 filenum)
+{
+    if (filenum == 0) return;
+
+    s_PreviewHeadnum = 0;
+    s_PreviewBodynum = 0;
+    s_PreviewFilenum = filenum;
+
+    /* MENUMODELPARAMS_SET_FILENUM just returns the filenum. */
+    u32 params = filenum;
+
+    charPreviewSubmitParams(params, type);
 }
 
 /**
@@ -288,8 +367,21 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     /* Enable Z-buffer for model rendering */
     gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
-    /* Render the character model */
-    gdl = menuRenderModel(gdl, &menu->menumodel, MENUMODELTYPE_DEFAULT);
+    /* Choose MENUMODELTYPE based on the current preview type.
+     *  CHARACTER -> DEFAULT  (head+body pair, full character pose)
+     *  WEAPON    -> HUDPIECE (weapon-inventory render path)
+     *  VEHICLE   -> DEFAULT  (generic model, wide framing via camera pass)
+     *  PROP      -> DEFAULT  (generic single model)
+     * Per-type camera / scale tuning for vehicles and props is a Batch 10
+     * concern; for Batch 0 we expose the API shape and use DEFAULT as the
+     * safe rendering fallback. */
+    s32 renderModelType = MENUMODELTYPE_DEFAULT;
+    if (s_PreviewType == PDGUI_PREVIEW_WEAPON) {
+        renderModelType = MENUMODELTYPE_HUDPIECE;
+    }
+
+    /* Render the selected model */
+    gdl = menuRenderModel(gdl, &menu->menumodel, renderModelType);
 
     /* Disable Z-buffer */
     gSPClearGeometryMode(gdl++, G_ZBUFFER);

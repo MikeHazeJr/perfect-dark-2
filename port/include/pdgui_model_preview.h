@@ -2,32 +2,42 @@
 #define _IN_PDGUI_MODEL_PREVIEW_H
 
 /**
- * pdgui_model_preview.h -- High-level model preview panel for ImGui (P6)
+ * pdgui_model_preview.h -- High-level model preview panel for ImGui.
  *
  * Wraps pdgui_charpreview (FBO render) with a self-contained ImGui panel
  * that handles:
  *   - Background frame with palette-derived colors
- *   - Automatic re-render on body/head change (event-driven)
+ *   - Automatic re-render on selection change (event-driven)
  *   - Slow idle rotation when selection is static
  *   - Fallback placeholder when FBO not ready
- *   - Optional body/head name labels
+ *   - Optional name labels
  *
- * Usage:
- *   pdguiModelPreviewBegin("preview1");       // begin tracking
- *   pdguiModelPreviewSetModel(headId, bodyId); // set current selection
- *   pdguiModelPreviewDraw(x, y, w, h);        // render the panel
- *   pdguiModelPreviewEnd();                    // end tracking
- *
- * Multiple independent preview panels are supported via the id parameter.
+ * Batch 0 (D5 Phase 3 foundation): added type-parameterized draw API so
+ * the same panel can render characters, weapons, vehicles, and props.
+ * Character callers (agent select, agent create, room lobby, modding hub)
+ * continue to use pdguiModelPreviewDraw() unchanged; weapon/vehicle/prop
+ * callers (Batch 10 training screens, future character creator) use
+ * pdguiModelPreviewDrawEx() with an explicit ModelPreviewKind.
  *
  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  */
 
 #include <PR/ultratypes.h>
+#include "pdgui_charpreview.h"   /* PdguiPreviewType */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** Model kind passed to pdguiModelPreviewDrawEx().  Mirrors PdguiPreviewType
+ *  so callers see a single symbolic space; kept as a distinct typedef so the
+ *  high-level panel layer can evolve independently of the low-level FBO. */
+typedef enum {
+    PDGUI_MP_CHARACTER = 0,
+    PDGUI_MP_WEAPON    = 1,
+    PDGUI_MP_VEHICLE   = 2,
+    PDGUI_MP_PROP      = 3
+} ModelPreviewKind;
 
 /* -----------------------------------------------------------------------
  * Configuration
@@ -51,18 +61,38 @@ ModelPreviewOpts pdguiModelPreviewDefaultOpts(void);
  * Panel API
  * --------------------------------------------------------------------- */
 
-/** Draw a self-contained model preview panel.
+/** Draw a self-contained model preview panel (CHARACTER shortcut).
+ *
+ *  Equivalent to pdguiModelPreviewDrawEx(PDGUI_MP_CHARACTER, head_id,
+ *  body_id, x, y, w, h, opts).  Kept as a convenience wrapper so the
+ *  existing character callers do not need to churn.
+ *
  *  @param head_id  catalog ID for head (e.g., "base:head_dark_combat")
  *  @param body_id  catalog ID for body (e.g., "base:dark_combat")
  *  @param x,y      screen position (top-left)
  *  @param w,h      panel size in pixels
- *  @param opts     display options (NULL for defaults)
- *
- *  Internally tracks the last head/body and only re-requests a render
- *  from pdgui_charpreview when the selection changes. */
+ *  @param opts     display options (NULL for defaults) */
 void pdguiModelPreviewDraw(const char *head_id, const char *body_id,
                             f32 x, f32 y, f32 w, f32 h,
                             const ModelPreviewOpts *opts);
+
+/** Draw a self-contained model preview panel for any supported model kind.
+ *
+ *  CHARACTER: id1 = head catalog id,   id2 = body catalog id
+ *  WEAPON:    id1 = weapon catalog id, id2 = NULL
+ *  VEHICLE:   id1 = vehicle catalog id,id2 = NULL
+ *  PROP:      id1 = prop catalog id,   id2 = NULL
+ *
+ *  For CHARACTER the panel shows the body display name in the label slot
+ *  (when opts->showBodyName != 0).  For WEAPON / VEHICLE / PROP the single
+ *  catalog id1 name is shown.
+ *
+ *  Internally tracks the last (kind, id1, id2) tuple and only re-requests
+ *  a render from pdgui_charpreview when the selection changes. */
+void pdguiModelPreviewDrawEx(ModelPreviewKind kind,
+                              const char *id1, const char *id2,
+                              f32 x, f32 y, f32 w, f32 h,
+                              const ModelPreviewOpts *opts);
 
 /** Reset preview state (force re-render on next draw). */
 void pdguiModelPreviewInvalidate(void);

@@ -3,6 +3,146 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S192 — 2026-04-10 (Batch 0: Menu Replacement Foundation — layout primitives + model preview generalization + Mission Select / Challenges docking fixes)
+
+**Focus**: Execute Batch 0 of the menu replacement plan — foundation primitives
+every later batch depends on, plus an audit pass on shipping ImGui menus
+against the design-guideline docked-action-bar rule.
+
+### What was built
+
+**New primitive module** — `port/include/pdgui_layout.h` (163 lines) +
+`port/fast3d/pdgui_layout.cpp` (137 lines):
+- `pdguiActionBarHeight()` / `pdguiBodyHeightForActionBar(avail)` — compute
+  scaled action-bar + body sizes for a layout with a docked footer.
+- `pdguiBeginActionBar(id)` / `pdguiEndActionBar()` — fixed-height child at
+  the bottom of a window/child region; CTAs placed here never scroll.
+- `pdguiActionBarButton(label, isFocused, width)` — docked-bar button with
+  consistent sizing, focus ring, and audio cue (`PDGUI_SND_SELECT` on
+  activation via click / gamepad-A / Enter).
+- `pdguiPopupDarkenBehind(alpha)` — full-viewport dim rect on the
+  background draw list. Replaces ad-hoc
+  `GetBackgroundDrawList()->AddRectFilled` calls scattered across
+  endscreen, pausemenu, solomission, training, agentcreate.
+
+**Generalized model preview pipeline** — `pdgui_charpreview.{c,h}` +
+`pdgui_model_preview.{cpp,h}`:
+- New `PdguiPreviewType` enum: CHARACTER / WEAPON / VEHICLE / PROP.
+- `pdguiCharPreviewRequestEx(type, id1, id2)` routes CHARACTER to the
+  existing head+body path and WEAPON/VEHICLE/PROP to a single-filenum path
+  that resolves catalog entries and uses `source_filenum` for
+  `MENUMODELPARAMS_SET_FILENUM()`.
+- `pdguiCharPreviewRequestFilenum(type, filenum)` — low-level escape hatch.
+- `pdguiCharPreviewRenderGBI` now picks `MENUMODELTYPE_HUDPIECE` for
+  weapons and `MENUMODELTYPE_DEFAULT` for everything else.
+- `ModelPreviewKind` enum mirrors the preview type at the high-level panel
+  layer. `pdguiModelPreviewDrawEx(kind, id1, id2, ...)` is the single entry
+  point for any model kind. `pdguiModelPreviewDraw(head, body, ...)` is
+  preserved as a CHARACTER shortcut — existing callers (agent select, agent
+  create, room lobby, modding hub) do not need to change.
+- Unified tracking state: `(kind, id1, id2)` tuple prevents redundant FBO
+  re-renders across kinds.
+- Placeholder silhouette branches on kind (character stickman vs neutral
+  box icon for weapons/vehicles/props).
+
+**Mission Select regression fix** — `pdgui_menu_solomission.cpp`:
+- Right panel restructured to use the new docked action bar primitive.
+  Stage name header, difficulty picker, and footer hint stay pinned at the
+  top; objectives + briefing scroll inside `##ms_detail_body`; Start
+  Mission lives in `##ms_action_bar` at the bottom and is always visible.
+- Removed the fragile hardcoded `objH = bodyH - 260.0f` / `briefH = avail
+  - 60.0f` layout math that caused the Start button to fall off the
+  bottom on low-res windows.
+
+**Mission Difficulty dialog "missing text" fix** — same file:
+- Replaced the `Selectable("##diff_row", ...)` + `dl->AddText` overlay
+  pattern with real `ImGui::Selectable(labelStr, ...)` calls. The previous
+  pattern left rows blank when `langSafe(L_OPTIONS_251/252/253)` returned
+  an empty string (lang bank not resident at dialog-open time). Added
+  hardcoded English fallback strings ("Agent", "Special Agent", "Perfect
+  Agent", "PD Mode", "Cancel") so the row label is never empty.
+- Applied the same Selectable-with-label pattern to the PD Mode and
+  Cancel rows for consistency.
+
+**Challenges Accept Challenge docking fix** — `pdgui_menu_challenges.cpp`:
+- Split the `##chal_detail` right panel into an inner scrollable body
+  (`##chal_detail_body`) containing header + completion summary +
+  description, and a `##chal_action_bar` docked region containing the
+  Accept Challenge button. Previously the Accept button was inside the
+  scrollable region and could fall off the bottom on long descriptions.
+
+### Audit — shipping ImGui menus against docked-CTA rule
+
+Menus confirmed compliant (CTA already outside BeginChild scroll region):
+- `pdgui_menu_mainmenu.cpp` — Confirm Quit is in a modal popup.
+- `pdgui_menu_room.cpp` — Start Match at window level, after all EndChild.
+- `pdgui_menu_endscreen.cpp` — Retry / Next Mission after EndChild.
+- `pdgui_menu_pausemenu.cpp` — Return to Lobby / Quit after EndChild.
+- `pdgui_menu_agentcreate.cpp` — Create at window level, no scroll child.
+- `pdgui_menu_warning.cpp` — OK button in a typed-dialog modal, no scroll.
+
+Menus fixed in this session:
+- `pdgui_menu_solomission.cpp` — Mission Select Start Mission docked.
+- `pdgui_menu_challenges.cpp` — Accept Challenge docked.
+
+Menus not deeply audited this session (small menus or dev tools;
+flagged for visual verification during QC):
+- `pdgui_menu_agentselect.cpp`, `pdgui_menu_training.cpp`,
+  `pdgui_menu_mpingame.cpp`, `pdgui_menu_mpsettings.cpp`,
+  `pdgui_menu_teamsetup.cpp`, `pdgui_menu_network.cpp`,
+  `pdgui_menu_lobby.cpp`, `pdgui_menu_moddinghub.cpp`,
+  `pdgui_menu_modmgr.cpp`, `pdgui_menu_update.cpp`,
+  `pdgui_menu_theme_editor.cpp`, `pdgui_menu_logviewer.cpp`,
+  `pdgui_menu_stats.cpp`.
+
+### Files changed
+
+| File | Before | After | Delta |
+|---|---|---|---|
+| port/include/pdgui_layout.h (NEW) | 0 | 163 | +163 |
+| port/fast3d/pdgui_layout.cpp (NEW) | 0 | 137 | +137 |
+| port/include/pdgui_charpreview.h | 59 | 105 | +46 |
+| port/fast3d/pdgui_charpreview.c | 307 | 399 | +92 |
+| port/include/pdgui_model_preview.h | 75 | 104 | +29 |
+| port/fast3d/pdgui_model_preview.cpp | 236 | 307 | +71 |
+| port/fast3d/pdgui_menu_solomission.cpp | 2627 | 2650 | +23 |
+| port/fast3d/pdgui_menu_challenges.cpp | 350 | 366 | +16 |
+| **TOTAL** | **3254** | **4231** | **+577** |
+
+Plus `context/scratch/menus-batch0-report.txt` (552 lines, new).
+
+### Deferred (called out explicitly)
+
+- **Per-type camera/scale table** for weapon/vehicle/prop previews. API
+  shape shipped; tuning pass is Batch 10 (training 3D) responsibility.
+- **Popup scrim adoption** in existing menus. `pdguiPopupDarkenBehind` is
+  available; migrating the ~5 ad-hoc sites to it is a mechanical follow-up.
+- **720p vs 1080p scaling reference** discrepancy — `pdgui_scaling.h` uses
+  720p baseline; `d5-full-menu-overhaul.md` specifies 1080p. Not resolved
+  in Batch 0 to avoid re-tuning every menu's layout math.
+- **Remaining menu audit** — 13 shipping menus not deeply audited this
+  session. Should be visually verified during QC.
+
+### Verification
+
+Per Mike's anti-truncation rule, every file written or edited in this
+session was re-read after the Write/Edit tool call. First line, last
+line, and line count verified for each. No truncation detected.
+
+Full zero-function-loss audit table in
+`context/scratch/menus-batch0-report.txt`.
+
+### Next steps
+
+1. Merge worktree changes into main copy.
+2. Re-verify line counts on the main copy (worktree truncation is a known
+   hazard).
+3. Re-run `build-headless.ps1` against the merged main copy to confirm a
+   clean build.
+4. Mike's in-game verification pass (checklist in the report file).
+
+---
+
 ## Session S191 — 2026-04-10 (B-112 + B-126: Entry guard + slot tracker + heartbeat expansion)
 
 **Focus**: Instrumentation pass on the two open HIGH bugs — B-112 (chr pointer corruption in 31-bot matches) and B-126 (silent crash ~8min into MP). No live repro yet; this session closes the diagnostic gaps so the next crash log is actionable.
