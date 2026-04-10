@@ -3,6 +3,137 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S194 — 2026-04-10 (Batch 2: Co-op / Counter-Op Flow menu replacements)
+
+**Focus**: Execute Batch 2 of the menu replacement plan — Co-op and
+Counter-Op mission difficulty + options dialogs.  Directly follows S193
+(1080p baseline flip + Batch 1) and S193b (server linker fix).  No scope
+creep: four dialogs, one file touched (`pdgui_menu_solomission.cpp`),
+every new pixel value uses `pdguiScale()` against the 1080p baseline,
+every modal uses `pdguiPopupDarkenBehind(0.55f)`, every primary CTA docks
+in a `pdguiBeginActionBar` primitive.
+
+### Batch 2 scope (per `context/designs/menu-replacement-plan.md`)
+
+| Dialog | Source | Delivered as |
+|---|---|---|
+| `g_CoopMissionDifficultyMenuDialog` | mainmenu.c:1787 (DEFAULT) | `renderCoopMissionDifficulty` — cloned from `renderDifficulty`, preserves `isStageDifficultyUnlocked` gate, pushes `g_CoopOptionsMenuDialog` on confirm |
+| `g_CoopOptionsMenuDialog` | mainmenu.c:1601 (DEFAULT) | `renderCoopOptions` — Radar/FriendlyFire checkboxes + Perfect Buddy dropdown + docked Continue/Cancel action bar |
+| `g_AntiMissionDifficultyMenuDialog` | mainmenu.c:1854 (DEFAULT) | `renderAntiMissionDifficulty` — cloned from `renderDifficulty`, NO unlock gate (matches legacy), pushes `g_AntiOptionsMenuDialog` on confirm |
+| `g_AntiOptionsMenuDialog` | mainmenu.c:1715 (DEFAULT) | `renderAntiOptions` — Radar checkbox + Main Player dropdown + docked Continue/Cancel action bar |
+
+All four register a hotswap entry in `pdguiMenuSoloMissionRegister()`.
+
+### Delivery architecture
+
+The four renderers share two shape-level implementations to keep the
+code tight:
+
+- `renderCoopAntiDifficultyImpl(isCoop, windowId)` — shared difficulty
+  picker body.  Thin wrappers `renderCoopMissionDifficulty` and
+  `renderAntiMissionDifficulty` parameterise the flavour.  Differences
+  from the existing `renderDifficulty`:
+  - No PD Mode row (PD Mode is a solo-only modifier).
+  - On confirm, pushes Co-op/Anti Options instead of AcceptMission.
+  - Co-op flavour checks `isStageDifficultyUnlocked`; anti does not.
+
+- `renderCoopAntiOptionsImpl(isCoop, ...)` — shared options body.  Thin
+  wrappers `renderCoopOptions` and `renderAntiOptions`.  The body walks
+  a fixed row list (3 for coop, 2 for anti), then docks the
+  Continue/Cancel action bar with the S192 primitive.
+
+### State manipulation: delegate to legacy handlers
+
+Every checkbox/dropdown read and write delegates to the existing legacy
+menu handlers in `mainmenu.c` (`menuhandlerCoopRadar`,
+`menuhandlerCoopFriendlyFire`, `menuhandlerCoopBuddy`,
+`menuhandlerAntiRadar`, `menuhandlerAntiMainPlayer`,
+`menuhandlerBuddyOptionsContinue`).  This keeps backing-store logic
+(the `modifiedfiles` dirty flag, `getMaxAiBuddies()` clamps,
+connected-controller math) in exactly one place.  New C++ helpers
+`s194_GetCheckbox` / `s194_SetCheckbox` / `s194_GetDropdownCount` /
+`s194_GetDropdownSelected` / `s194_GetDropdownOptionText` /
+`s194_SetDropdownIndex` wrap the `MENUOP_*` calling convention for
+ergonomics.
+
+ABI note: `solomission.cpp` is a C++ file and cannot include `types.h`
+(whose `#define bool s32` breaks C++).  We shadow `struct s194_menuitem`
+and `union s194_handlerdata` with byte-identical layouts and forward-
+declare the legacy handlers with our shadow types.  At link time the
+C linker matches `menuhandlerCoopRadar` by symbol name only and the
+ABI (x64 Windows calling convention) makes the call compatible — the
+same pattern used by S193's `pdgui_menu_warning.cpp` slider handling.
+
+### Anti-pattern avoided
+
+The renderers use real `ImGui::Selectable(rowLabel, ...)` calls with
+hardcoded English fallback strings ("Radar On", "Friendly Fire",
+"Perfect Buddy", "Cooperative", "Continue", "Cancel", etc.) when
+`langSafe()` returns empty.  No `##hidden` selectables + `dl->AddText`
+overlays — that was the root cause of the S192 missing-text and S193
+LITERAL_TEXT regressions.
+
+### Design-doc compliance checklist
+
+- [x] **1080p baseline** — every pixel literal goes through
+  `pdguiScale()`; baseline matches `scaling-baseline-1080.md`.
+- [x] **Popups always darken** — every renderer opens with
+  `pdguiPopupDarkenBehind(0.55f)`.
+- [x] **Primary actions never scroll** — Continue/Cancel live in
+  `pdguiBeginActionBar("##coopanti_ab")` with `pdguiActionBarButton`
+  primary CTAs.  Scrollable body uses
+  `pdguiBodyHeightForActionBar(avail)` to reserve space.
+- [x] **Circular d-pad wrapping** — `s_CoopAntiDiffSelectIdx` and
+  `s_CoopAntiOptSelectIdx` wrap top↔bottom on d-pad / arrow input.
+- [x] **Audio cues for every state change** — `PDGUI_SND_OPENDIALOG`
+  on appear, `PDGUI_SND_FOCUS` on nav, `PDGUI_SND_TOGGLEON/OFF` on
+  checkbox toggle, `PDGUI_SND_SUBFOCUS` on dropdown step,
+  `PDGUI_SND_SELECT` on confirm (via action bar button),
+  `PDGUI_SND_KBCANCEL` on Escape/B/Cancel, `PDGUI_SND_ERROR` on
+  locked-difficulty select.
+- [x] **Controller accessibility** — A/Enter confirms, B/Escape backs,
+  Start fires Continue (matches legacy TICK handler), left/right
+  decrement/increment dropdowns.
+- [x] **Selectable-with-label pattern** — no `##hidden` Selectables +
+  AddText overlays.  Every row label is a real widget text.
+
+### Files changed
+
+| File | Before | After | Delta |
+|---|---|---|---|
+| `port/fast3d/pdgui_menu_solomission.cpp` | 2650 | 3351 | +701 |
+| `context/session-log.md` | (incremental) | (incremental) | (incremental) |
+| `context/tasks-current.md` | (incremental) | (incremental) | (incremental) |
+| `context/scratch/s194-report.txt` (new) | 0 | ~XXX | +XXX |
+
+### Server linker guard
+
+Verified intact before and after S194 work: `port/src/crash.c:404`
+still has `#if !defined(PD_SERVER)` around the `g_ChrLastTickedIndex`
+extern reference.  S193b server-linker fix is NOT regressed.
+
+### Build result
+
+- **Client**: `PerfectDark.exe` 48,716,058 bytes (+29,715 vs S193's 48,686,343).
+  Clean link, pre-existing `strncpy` truncation warning in `snd.c:1502`
+  inherited from before S194 (not related to this session).
+- **Server**: `PerfectDarkServer.exe` 22,786,384 bytes (no change — the
+  server source list does not include `port/fast3d/`, so no server rebuild
+  was needed).  S193b `#if !defined(PD_SERVER)` guard around
+  `g_ChrLastTickedIndex` verified intact before and after S194 by
+  force-rebuilding `port/src/crash.c` and linking server target clean.
+
+### Next steps
+
+- Mike's in-game verification: launch co-op / counter-op, step through
+  difficulty → options → accept flow, confirm every row renders, every
+  toggle fires the correct audio cue, Continue and Cancel both docked
+  and visible.
+- Batch 3 (Unified Settings / CI Options absorption) is next per the
+  menu replacement plan.
+
+---
+
 ## Session S193 — 2026-04-10 (Session-log repair + 1080p scaling baseline flip + Batch 1 menu replacements)
 
 **Focus**: Three-phase session on top of S192 Batch 0.

@@ -1,0 +1,714 @@
+S194 — Batch 2: Co-op / Counter-Op Flow menu replacements
+Session S194 — 2026-04-10 — worktree `keen-greider`
+
+=============================================================================
+EXECUTIVE SUMMARY
+=============================================================================
+
+Batch 2 per `context/designs/menu-replacement-plan.md` delivers four
+legacy dialogs into ImGui, using the S192 foundation primitives (docked
+action bar, popup scrim, pdguiScale 1080p baseline) and the S193
+selectable-with-label anti-pattern fix throughout.
+
+One code file touched: `port/fast3d/pdgui_menu_solomission.cpp`
+(2650 -> 3351 lines, +701).  All four dialogs explicitly registered
+with `pdguiHotswapRegister()`.  S193b server linker fix preserved.
+
+BUILD: Client GREEN (48,716,058 bytes), Server GREEN (22,786,384 bytes).
+
+=============================================================================
+BATCH 2 SCOPE RECAP
+=============================================================================
+
+Source: `context/designs/menu-replacement-plan.md` §"Batch 2: Co-op &
+Counter-Op Flow (4 screens)".  Four dialogs, all classified as OG in
+the inventory, all in `src/game/mainmenu.c`:
+
+| Dialog                                | mainmenu.c | Design doc                         |
+|---------------------------------------|-----------:|-------------------------------------|
+| g_CoopMissionDifficultyMenuDialog     | :1787      | menu-replacement-plan.md §"Batch 2" |
+| g_CoopOptionsMenuDialog               | :1601      | menu-replacement-plan.md §"Batch 2" |
+| g_AntiMissionDifficultyMenuDialog     | :1854      | menu-replacement-plan.md §"Batch 2" |
+| g_AntiOptionsMenuDialog               | :1715      | menu-replacement-plan.md §"Batch 2" |
+
+Cross-referenced design rules:
+- `context/designs/d5-full-menu-overhaul.md` §"Menu UX Guidelines"
+  (d-pad wrap, A=confirm B=back, 5-9 items, popups darken, audio on
+  every selection change, circular wrapping, etc.)
+- `context/designs/d5-full-menu-overhaul.md` §"UI Scaling (Binding
+  Rules)" — 1080p reference, pdguiScale() wrappers.
+- `context/designs/scaling-baseline-1080.md` — authoritative baseline.
+- `context/scratch/menus-batch0-report.txt` — S192 primitive reference
+  (pdguiBeginActionBar / pdguiActionBarButton / pdguiEndActionBar /
+  pdguiPopupDarkenBehind / pdguiBodyHeightForActionBar).
+
+Data source from the plan:
+- `g_MissionConfig.iscoop`, `g_MissionConfig.isanti`, difficulty handlers
+- `g_Vars.coopradaron`, `g_Vars.coopfriendlyfire`, `g_Vars.numaibuddies`,
+  `g_Vars.antiradaron`, `g_Vars.pendingantiplayernum`
+- Downstream dialog: `g_AcceptMissionMenuDialog` (already DONE)
+
+=============================================================================
+PRE-IMPLEMENTATION ZERO-FUNCTION-LOSS AUDIT
+=============================================================================
+
+Each legacy dialog's full item table, handler behaviour, audio cues,
+controller behaviours, visual states, and edge cases.  Every row is
+the contract the ImGui version must match or exceed.
+
+## g_CoopMissionDifficultyMenuDialog (src/game/mainmenu.c:1787)
+
+Dialog type: MENUDIALOGTYPE_DEFAULT
+Dialog flags: MENUDIALOGFLAG_STARTSELECTS (first selectable pre-focused)
+Dialog title: L_OPTIONS_248 "Select Difficulty"
+Dialog tick handler: NULL (none)
+
+Items array (`g_CoopMissionDifficultyMenuItems`, 5 entries):
+
+| # | Type       | Param | Flags          | Label             | Handler                     |
+|---|------------|-------|----------------|-------------------|-----------------------------|
+| 0 | SELECTABLE |   0   | -              | L_OPTIONS_251 "Agent"          | menuhandlerCoopDifficulty |
+| 1 | SELECTABLE |   1   | -              | L_OPTIONS_252 "Special Agent"  | menuhandlerCoopDifficulty |
+| 2 | SELECTABLE |   2   | -              | L_OPTIONS_253 "Perfect Agent"  | menuhandlerCoopDifficulty |
+| 3 | SEPARATOR  |   -   | -              | -                              | -                         |
+| 4 | SELECTABLE |   0   | CLOSESDIALOG   | L_OPTIONS_254 "Cancel"         | -                         |
+
+Handler behaviour (`menuhandlerCoopDifficulty`):
+
+| Operation            | Effect                                                     |
+|----------------------|------------------------------------------------------------|
+| MENUOP_SET           | pdmode=false; difficulty=param; lvSetDifficulty();         |
+|                      | menuPopDialog(); menuPushDialog(&g_CoopOptionsMenuDialog); |
+| MENUOP_CHECKDISABLED | returns true if !isStageDifficultyUnlocked(stageindex, param) |
+
+Audio cues implied by the legacy menu system and the d5 spec:
+
+| Cue              | Where                                    | State  |
+|------------------|------------------------------------------|--------|
+| SND_FOCUS        | hover / D-pad step                       | expect |
+| SND_SELECT       | activate unlocked difficulty             | expect |
+| SND_ERROR        | activate locked difficulty               | expect |
+| SND_KBCANCEL     | B / Escape / Cancel row                  | expect |
+| SND_OPENDIALOG   | dialog appears                           | expect |
+
+Controller accessibility:
+- D-pad Up/Down between items, wrapping
+- A / Enter confirms
+- B / Escape dismisses
+- Mouse hover updates focus
+
+Visual states:
+- Hover/focus highlight outline via `pdguiDrawItemHighlight`
+- Locked difficulty row: muted color + "[Locked]" suffix
+- Cancel row: slightly shorter, muted grey text
+- Difficulty badge dot (A=green, SA=yellow, PA=red) on left gutter
+
+Edge cases:
+- Difficulty locked: legacy returns CHECKDISABLED, row still visible
+- stageindex out of range: legacy may OOB access besttimes[] — our
+  shadow guards via `si >= 0 && si < NUM_SOLOSTAGES` check
+
+## g_AntiMissionDifficultyMenuDialog (src/game/mainmenu.c:1854)
+
+Dialog type: MENUDIALOGTYPE_DEFAULT
+Dialog flags: MENUDIALOGFLAG_STARTSELECTS
+Dialog title: L_OPTIONS_248 "Select Difficulty"
+Dialog tick handler: NULL
+
+Items array (`g_AntiMissionDifficultyMenuItems`, 5 entries): identical
+structure to Coop, but handler is `menuhandlerAntiDifficulty`.
+
+Handler behaviour (`menuhandlerAntiDifficulty`):
+
+| Operation   | Effect                                                     |
+|-------------|------------------------------------------------------------|
+| MENUOP_SET  | pdmode=false; difficulty=param; lvSetDifficulty();         |
+|             | menuPopDialog(); menuPushDialog(&g_AntiOptionsMenuDialog); |
+
+NOTE: no MENUOP_CHECKDISABLED case — counter-op does NOT gate
+difficulty on unlock status.  Our renderer matches this.
+
+Audio cues / controller / visual: same as Coop, minus the
+SND_ERROR locked-difficulty branch (never locked).
+
+## g_CoopOptionsMenuDialog (src/game/mainmenu.c:1601)
+
+Dialog type: MENUDIALOGTYPE_DEFAULT
+Dialog flags: MENUDIALOGFLAG_STARTSELECTS
+Dialog title: L_OPTIONS_255 "Co-Operative Options"
+Dialog handler: `menudialogCoopAntiOptions` — MENUOP_OPEN clamps
+                `g_Vars.numaibuddies` to `getMaxAiBuddies()`;
+                MENUOP_TICK checks `inputs->start` and fires
+                `menuhandlerBuddyOptionsContinue(MENUOP_SET)`.
+
+Items array (`g_CoopOptionsMenuItems`, 7 entries):
+
+| # | Type       | Label                              | Handler                          |
+|---|------------|------------------------------------|----------------------------------|
+| 0 | CHECKBOX   | L_OPTIONS_256 "Radar On"           | menuhandlerCoopRadar             |
+| 1 | CHECKBOX   | L_OPTIONS_257 "Friendly Fire"      | menuhandlerCoopFriendlyFire      |
+| 2 | DROPDOWN   | L_OPTIONS_258 "Perfect Buddy"      | menuhandlerCoopBuddy             |
+| 3 | SEPARATOR  | -                                  | -                                |
+| 4 | SELECTABLE | L_OPTIONS_259 "Continue"           | menuhandlerBuddyOptionsContinue  |
+| 5 | SELECTABLE | L_OPTIONS_260 "Cancel" (CLOSESDLG) | -                                |
+
+Handler behaviours:
+
+menuhandlerCoopRadar:
+- MENUOP_GET: returns g_Vars.coopradaron (as function return code)
+- MENUOP_SET: g_Vars.coopradaron = data->checkbox.value ? 1 : 0
+               g_Vars.modifiedfiles |= MODFILE_GAME
+
+menuhandlerCoopFriendlyFire:
+- MENUOP_GET: returns g_Vars.coopfriendlyfire
+- MENUOP_SET: g_Vars.coopfriendlyfire = data->checkbox.value ? 1 : 0
+               g_Vars.modifiedfiles |= MODFILE_GAME
+
+menuhandlerCoopBuddy (dropdown "Perfect Buddy"):
+- Labels: "Human", "1 Simulant", "2 Simulants", "3 Simulants", "4 Simulants"
+- MENUOP_GETOPTIONCOUNT: data->dropdown.value = human + getMaxAiBuddies()
+  where human = 1 if controller 2 connected else 0
+- MENUOP_GETOPTIONTEXT: returns labels[data->dropdown.value + extra]
+- MENUOP_SET: g_Vars.numaibuddies = data->dropdown.value + extra
+               g_Vars.modifiedfiles |= MODFILE_GAME
+- MENUOP_GETSELECTEDINDEX: data->dropdown.value = g_Vars.numaibuddies - extra
+
+menuhandlerBuddyOptionsContinue:
+- MENUOP_SET: menuPopDialog(); menuPushDialog(&g_AcceptMissionMenuDialog)
+
+Audio cues expected (d5 spec):
+
+| Cue              | Where                                           | State |
+|------------------|-------------------------------------------------|-------|
+| SND_OPENDIALOG   | dialog appears                                  | expect |
+| SND_FOCUS        | D-pad step between rows / Continue / Cancel     | expect |
+| SND_TOGGLEON     | checkbox flipped from off to on                 | expect |
+| SND_TOGGLEOFF    | checkbox flipped from on to off                 | expect |
+| SND_SUBFOCUS     | dropdown value stepped                          | expect |
+| SND_SELECT       | Continue button activated                       | expect |
+| SND_KBCANCEL     | Cancel / Escape / B                             | expect |
+
+Controller:
+- D-pad Up/Down nav with wrap between 5 focusable items
+  (Radar / FriendlyFire / Buddy / Continue / Cancel)
+- D-pad Left/Right for Buddy dropdown decrement / increment
+- A / Space / Enter toggles checkbox or activates selectable
+- B / Escape dismisses dialog
+- Start button fires Continue (matches legacy MENUOP_TICK branch)
+
+Visual states: hover/focus highlight on current row, label left / value
+right per d5 "Labels on left of controls" rule, scrim darken behind.
+
+Edge cases:
+- `getMaxAiBuddies()` clamps numaibuddies in range [1, 4]; legacy fires
+  on MENUOP_OPEN (dialog appear).  Our renderer triggers the same
+  clamp by calling the dropdown's GETOPTIONCOUNT before the first
+  render, plus the legacy dialog handler still fires (hotswap does
+  not bypass the legacy handler's MENUOP_OPEN/CLOSE/TICK — it only
+  replaces the render path).
+
+## g_AntiOptionsMenuDialog (src/game/mainmenu.c:1715)
+
+Dialog type: MENUDIALOGTYPE_DEFAULT
+Dialog flags: MENUDIALOGFLAG_STARTSELECTS
+Dialog title: L_OPTIONS_266 "Counter-Operative Options"
+Dialog handler: `menudialogCoopAntiOptions` (shared with Coop)
+
+Items array (`g_AntiOptionsMenuItems`, 6 entries):
+
+| # | Type       | Label                              | Handler                          |
+|---|------------|------------------------------------|----------------------------------|
+| 0 | CHECKBOX   | L_OPTIONS_267 "Radar On"           | menuhandlerAntiRadar             |
+| 1 | DROPDOWN   | LITERAL "Main Player"              | menuhandlerAntiMainPlayer        |
+| 2 | SEPARATOR  | -                                  | -                                |
+| 3 | SELECTABLE | L_OPTIONS_269 "Continue"           | menuhandlerBuddyOptionsContinue  |
+| 4 | SELECTABLE | L_OPTIONS_270 "Cancel" (CLOSESDLG) | -                                |
+
+Note: item 1 uses `MENUITEMFLAG_LITERAL_TEXT` with param2 being a
+direct C-string pointer `"Main Player"` rather than a lang ID.  Our
+renderer uses the literal "Main Player" directly.
+
+Handler behaviours:
+
+menuhandlerAntiRadar:
+- MENUOP_GET: returns g_Vars.antiradaron
+- MENUOP_SET: g_Vars.antiradaron = data->checkbox.value ? 1 : 0
+               g_Vars.modifiedfiles |= MODFILE_GAME
+
+menuhandlerAntiMainPlayer (dropdown):
+- Computes plrcount from joyGetConnectedControllers() bit count
+- Labels: "Player 1", "Player 2", "Player 3", "Player 4" (indexed by
+  labelidx derived from dropdown.value in a loop over connected bits)
+- MENUOP_GETOPTIONCOUNT: data->dropdown.value = plrcount
+- MENUOP_GETOPTIONTEXT: returns labels[labelidx]
+- MENUOP_SET: g_Vars.pendingantiplayernum = data->dropdown.value ^ 1
+               g_Vars.modifiedfiles |= MODFILE_GAME
+- MENUOP_GETSELECTEDINDEX: data->dropdown.value = g_Vars.pendingantiplayernum ^ 1
+
+menuhandlerBuddyOptionsContinue: same as Coop.
+
+Audio cues / controller / visual: same as Coop.  Counter-op has no
+FriendlyFire row.
+
+=============================================================================
+DESIGN LAYER STRATEGY
+=============================================================================
+
+The S192 primitives (`pdguiBeginActionBar`, `pdguiActionBarButton`,
+`pdguiEndActionBar`, `pdguiPopupDarkenBehind`, `pdguiBodyHeightForActionBar`)
+already covered every Batch 2 need.  No new primitive was required.
+
+The four renderers were implemented as:
+
+- `renderCoopAntiDifficultyImpl(isCoop, windowId)` — shared difficulty
+  body.  Differs from the existing `renderDifficulty` by:
+  - No PD Mode row (pdmode is solo-only).
+  - Difficulty row confirm pushes CoopOptions / AntiOptions (not
+    AcceptMission directly).
+  - Co-op flavour checks `isStageDifficultyUnlocked`; anti flavour
+    does not gate (matches legacy).
+- `renderCoopMissionDifficulty` / `renderAntiMissionDifficulty` —
+  thin wrappers that call the shared impl.
+
+- `renderCoopAntiOptionsImpl(isCoop, windowId, fallbackTitle)` — shared
+  options body.  Renders checkbox and dropdown rows in a scrollable
+  body, docks Continue / Cancel in a `pdguiBeginActionBar` child.
+  Fires `menuhandlerBuddyOptionsContinue(MENUOP_SET)` on Continue so
+  the legacy handler chains to `g_AcceptMissionMenuDialog`.
+- `renderCoopOptions` / `renderAntiOptions` — thin wrappers.
+
+All state read/write delegates to legacy menu handlers in mainmenu.c
+via forward declarations and shadow struct types (s194_menuitem,
+s194_handlerdata).  The shadow types are byte-identical to the real
+types in `src/include/types.h`; the C linker matches by symbol name
+only, and the x64 calling convention makes the calls ABI-compatible.
+Same pattern used by `pdgui_menu_warning.cpp` for slider handling.
+
+S194 does NOT extend the S192 primitives.  All dialog renderers build
+only on the existing primitive surface.  If a later batch needs a
+dropdown primitive, checkbox primitive, or settings-row primitive,
+they should be added cleanly at that point; we did not extract them
+preemptively because Batch 2 has only 3 checkbox sites and 2 dropdown
+sites (2 and 2 if you count the options dialogs), which is below the
+"three similar lines" threshold for extraction.
+
+=============================================================================
+FILES TOUCHED (with line count deltas)
+=============================================================================
+
+EDITED
+  port/fast3d/pdgui_menu_solomission.cpp   2650 -> 3351  (+701)
+
+CONTEXT
+  context/session-log.md                   2432 -> 2563  (+131)
+  context/tasks-current.md                  151 ->  151  (inline edit, no net delta)
+  context/scratch/s194-report.txt             0 -> (this file)
+
+NO NEW PRIMITIVES (intentional — Batch 2 fits entirely on the S192
+surface; no primitive extensions required).
+
+LINE-COUNT VERIFICATION (worktree vs main after merge):
+
+  File                                          | worktree | main | OK?
+  --------------------------------------------- | -------- | ---- | ---
+  port/fast3d/pdgui_menu_solomission.cpp        | 3351     | 3351 | yes
+  context/session-log.md                        | 2563     | (sync)
+  context/tasks-current.md                      |  151     | (sync)
+  context/scratch/s194-report.txt               |  (new)   | (sync)
+
+First line of solomission.cpp (both sides): "/**"
+Last line of solomission.cpp (both sides):  "} /* extern "C" */"
+
+Per Mike's anti-truncation rule, every file written or edited in this
+session was re-read after the Write/Edit call.  First line, last line,
+and line count verified for each.  No truncation detected.  Auto-commit
+SP-9 guard in build-headless.ps1 was not tripped (net delta is
+positive for the one code file edited).
+
+=============================================================================
+POST-IMPLEMENTATION ZERO-FUNCTION-LOSS AUDIT
+=============================================================================
+
+Legend:
+  EQUIVALENT = same behaviour, same code path
+  IMPROVED   = strictly better than before (scrim, wrap, audio, etc.)
+  DEFERRED   = intentionally not implemented this batch, see below
+
+## g_CoopMissionDifficultyMenuDialog (difficulty picker, co-op)
+
+| Function / Behavior                          | Batch 2    | Notes                                           |
+|----------------------------------------------|------------|-------------------------------------------------|
+| Dialog title "Select Difficulty"             | EQUIVALENT | langSafe(L_OPTIONS_248)                         |
+| Agent / SA / PA rows                         | EQUIVALENT | real Selectable + hardcoded fallback labels     |
+| Locked-difficulty CHECKDISABLED gate         | EQUIVALENT | isStageDifficultyUnlocked(si, diff)             |
+| "[Locked]" suffix on locked rows             | IMPROVED   | legacy just greys out; we also label            |
+| Push g_CoopOptionsMenuDialog on confirm      | EQUIVALENT | menuPushDialog call                             |
+| SM_CLEAR_PDMODE + SM_SET_DIFFICULTY          | EQUIVALENT | same MENUOP_SET effect                          |
+| lvSetDifficulty()                            | EQUIVALENT | called after pdmode/difficulty set              |
+| Cancel row (CLOSESDIALOG)                    | EQUIVALENT | menuPopDialog                                   |
+| SEPARATOR between difficulties and Cancel    | EQUIVALENT | ImGui::Separator                                |
+| SND_OPENDIALOG on appear                     | IMPROVED   | legacy had no explicit open cue                 |
+| SND_FOCUS on D-pad nav                       | EQUIVALENT | existing renderDifficulty pattern               |
+| SND_SELECT on unlocked confirm               | EQUIVALENT |                                                 |
+| SND_ERROR on locked confirm                  | EQUIVALENT |                                                 |
+| SND_KBCANCEL on Escape / B / Cancel row      | EQUIVALENT |                                                 |
+| D-pad Up/Down wrapping                       | EQUIVALENT | `% numOptions` on both edges                    |
+| A / Enter confirms                           | EQUIVALENT |                                                 |
+| B / Escape dismisses                         | EQUIVALENT |                                                 |
+| Scrim behind modal                           | IMPROVED   | pdguiPopupDarkenBehind(0.55f)                   |
+| Difficulty badge dot left gutter             | EQUIVALENT | same k_DiffBadgeColor palette                   |
+| PD Mode row                                  | DEFERRED   | n/a — PD Mode is solo-only, not in co-op flow   |
+| Stage-name header under title                | EQUIVALENT | g_SoloStages[si].name1/name2                    |
+| "Cooperative" mode subheader                 | IMPROVED   | new — disambiguates from solo Difficulty picker |
+
+## g_AntiMissionDifficultyMenuDialog (difficulty picker, counter-op)
+
+Same table as Coop, with these differences:
+- CHECKDISABLED gate:                        DEFERRED (n/a — anti has no unlock gating, matches legacy)
+- Push g_AntiOptionsMenuDialog on confirm:   EQUIVALENT (anti variant)
+- SND_ERROR on locked confirm:               DEFERRED (n/a — nothing locks)
+- "Counter-Operative" mode subheader:        IMPROVED (new — disambiguates)
+
+## g_CoopOptionsMenuDialog (co-op options)
+
+| Function / Behavior                             | Batch 2    | Notes                                                 |
+|-------------------------------------------------|------------|-------------------------------------------------------|
+| Dialog title "Co-Operative Options"             | EQUIVALENT | langSafe(L_OPTIONS_255), fallback "Co-Operative Options" |
+| Radar On checkbox (g_Vars.coopradaron)          | EQUIVALENT | delegated to menuhandlerCoopRadar                     |
+| Friendly Fire checkbox (g_Vars.coopfriendlyfire)| EQUIVALENT | delegated to menuhandlerCoopFriendlyFire              |
+| Perfect Buddy dropdown (g_Vars.numaibuddies)    | EQUIVALENT | delegated to menuhandlerCoopBuddy                     |
+| getMaxAiBuddies() clamp                         | EQUIVALENT | legacy dialog handler still fires on OPEN             |
+| MODFILE_GAME dirty flag                         | EQUIVALENT | set by delegated handlers                             |
+| Continue selectable (-> AcceptMission)          | EQUIVALENT | delegated to menuhandlerBuddyOptionsContinue          |
+| Cancel selectable (CLOSESDIALOG)                | EQUIVALENT | pdguiPlaySound(SND_KBCANCEL) + menuPopDialog          |
+| Start button fires Continue                     | EQUIVALENT | matches legacy menudialogCoopAntiOptions TICK         |
+| SEPARATOR between controls and action bar       | IMPROVED   | replaced by docked action bar + separator above bar   |
+| Continue / Cancel NEVER scroll off-screen       | IMPROVED   | docked pdguiActionBarButton primitive                 |
+| Scrim behind modal                              | IMPROVED   | pdguiPopupDarkenBehind(0.55f)                         |
+| Last-input-device focus model                   | EQUIVALENT | inherited from ImGui + hover-sets-focus               |
+| D-pad Up/Down between rows with wrap            | EQUIVALENT | explicit `% numFocusable` both edges                  |
+| D-pad Left/Right cycles dropdown                | EQUIVALENT | calls s194_SetDropdownIndex ±1 with wrap              |
+| A / Enter / Space toggles checkbox              | IMPROVED   | three input paths for accessibility                   |
+| A / Enter activates Continue / Cancel           | EQUIVALENT | via pdguiActionBarButton                              |
+| B / Escape dismisses                            | EQUIVALENT | pop dialog                                            |
+| SND_OPENDIALOG on appear                        | IMPROVED   | legacy had no explicit open cue                       |
+| SND_FOCUS on D-pad nav                          | IMPROVED   | legacy did not fire FOCUS in dialog context           |
+| SND_TOGGLEON / SND_TOGGLEOFF on checkbox        | IMPROVED   | explicit cue per state transition                     |
+| SND_SUBFOCUS on dropdown step                   | IMPROVED   | new — per-step cue                                    |
+| SND_SELECT on Continue (action bar)             | EQUIVALENT | pdguiActionBarButton fires on click; kb/Start also    |
+| SND_KBCANCEL on Escape / B / Cancel             | EQUIVALENT |                                                       |
+| Labels left, controls right (d5 rule)           | EQUIVALENT | "  Label    [VALUE]" row format                       |
+| Scrollable body if overflow                     | IMPROVED   | BeginChild with bodyH reservation (rarely needed)     |
+
+## g_AntiOptionsMenuDialog (counter-op options)
+
+Same table as Coop, with these differences:
+- Friendly Fire checkbox: DEFERRED (n/a — counter-op has no FF row)
+- Main Player dropdown (g_Vars.pendingantiplayernum):  EQUIVALENT (delegated to menuhandlerAntiMainPlayer)
+- "Counter-Operative Options" title:                    EQUIVALENT (langSafe(L_OPTIONS_266), fallback literal)
+- "Main Player" label:                                  EQUIVALENT (literal string, matches legacy LITERAL_TEXT flag)
+
+## Audio cue coverage summary (d5 spec)
+
+| Cue                | Where                                   | State  |
+|--------------------|-----------------------------------------|--------|
+| SND_OPENDIALOG     | every Batch 2 renderer on IsWindowAppearing | NEW (improved over legacy)   |
+| SND_FOCUS          | D-pad nav in every renderer             | KEPT   |
+| SND_TOGGLEON       | checkbox flip off->on                   | NEW   |
+| SND_TOGGLEOFF      | checkbox flip on->off                   | NEW   |
+| SND_SUBFOCUS       | dropdown step (both directions)         | NEW   |
+| SND_SELECT         | action bar Continue click / kb / Start  | KEPT   |
+| SND_ERROR          | locked-difficulty confirm (coop only)   | KEPT   |
+| SND_KBCANCEL       | Escape / B / Cancel row / cancel button | KEPT   |
+
+## Controller accessibility summary (d5 spec)
+
+| Feature                                      | State    | Notes                                   |
+|----------------------------------------------|----------|-----------------------------------------|
+| D-pad + arrows navigate items                | EQUIVALENT | with circular wrap                    |
+| A / Enter confirms / toggles                 | EQUIVALENT |                                       |
+| B / Escape dismisses                         | EQUIVALENT |                                       |
+| D-pad Left/Right cycles dropdown             | EQUIVALENT |                                       |
+| Start button fires Continue                  | EQUIVALENT | matches legacy TICK handler           |
+| Hover (mouse) sets focus                     | EQUIVALENT | IsItemHovered -> focusIdx             |
+| Last-input-device wins                       | EQUIVALENT | inherited from ImGui + actionmap      |
+| Focus ring drawn via pdguiDrawItemHighlight  | EQUIVALENT | same palette as solo difficulty       |
+| Fully rebindable actions                     | EQUIVALENT | M0.2 actionmap covers menu context    |
+
+=============================================================================
+PRIMITIVE EXTENSIONS (public API documentation)
+=============================================================================
+
+NONE.  Batch 2 required no extensions to `pdgui_layout.h` / `.cpp`.
+All four renderers build on the existing S192 surface:
+
+  pdguiActionBarHeight / pdguiBodyHeightForActionBar
+  pdguiBeginActionBar / pdguiEndActionBar
+  pdguiActionBarButton
+  pdguiPopupDarkenBehind
+  pdguiScale / pdguiScaleFactor / pdguiMenuWidth / pdguiMenuHeight /
+    pdguiCenterPos / pdguiDrawPdDialog / pdguiDrawItemHighlight
+
+Deliberate choice: inline helper functions (`s194_GetCheckbox`,
+`s194_SetCheckbox`, `s194_GetDropdownCount`, `s194_GetDropdownSelected`,
+`s194_GetDropdownOptionText`, `s194_SetDropdownIndex`) stay internal to
+`pdgui_menu_solomission.cpp` rather than being promoted to a new
+`pdgui_menuitem.h` primitive.  Rationale: only two call sites in this
+session (Coop and Anti options).  Promoting them now would be
+speculative abstraction.  A future batch that repeats the delegate-
+to-legacy-handler pattern (Batches 3-7 for settings/MP options) can
+extract a shared primitive at that point.
+
+=============================================================================
+BUILD RESULT
+=============================================================================
+
+Build pipeline: the PowerShell build-headless.ps1 wrapper stalled
+after CMake configure (same flakiness seen in S192 and S193), so the
+final build was invoked via direct `mingw32-make.exe -j8 pd` in the
+build/client directory with TMP/TEMP/PATH inline from the MSYS2
+shell.  Same pattern used in S193 Phase 3.
+
+STATUS: SUCCESS (client) + SUCCESS (server)
+
+Binary sizes over the S192 -> S193 -> S194 pipeline:
+
+  S190 baseline                              48,596,071 bytes
+  S192 Batch 0                               48,675,238 bytes  (+79,167)
+  S193 Phase 2 (scaling flip)                48,675,238 bytes  (+0 vs S192, no codegen delta)
+  S193 Phase 3 (Batch 1)                     48,686,343 bytes  (+11,105)
+  S194 Batch 2                               48,716,058 bytes  (+29,715 vs S193 Phase 3)
+
+  PerfectDark.exe         final: 48,716,058 bytes  (Apr 10 16:09)
+  PerfectDarkServer.exe   final: 22,786,384 bytes  (Apr 10 16:10)
+
+Client size delta rationale: +29,715 bytes ≈ four renderer functions +
+two shared impls + six inline helpers + static state + symbol tables
+for the four hotswap registrations.  Proportional to ~700 lines of new
+C++ compiled at -O2.
+
+Server size: unchanged.  The server source list (SRC_SERVER in
+CMakeLists.txt) does not include port/fast3d/, so S194 cannot modify
+the server binary.  Force-rebuild of `port/src/crash.c` + server link
+pass was clean — S193b guard verified intact.
+
+Warnings: only pre-existing `strncpy truncation` warning in
+`src/lib/snd.c:1502` (sound system, unrelated to S194).
+
+=============================================================================
+S193b SERVER LINKER GUARD -- VERIFICATION
+=============================================================================
+
+The S193b fix guards `g_ChrLastTickedIndex` behind `#if !defined(PD_SERVER)`
+in `port/src/crash.c` (line 404).  Server does not link the chr tick
+loop so the symbol is undefined in the server build without this guard.
+
+Pre-S194:
+  worktree: port/src/crash.c:404 has `#if !defined(PD_SERVER)` -- YES
+  main    : port/src/crash.c:404 has `#if !defined(PD_SERVER)` -- YES
+
+Post-S194 verification:
+  Force-rebuild: `touch port/src/crash.c && make pd-server`
+  Result: crash.c.obj rebuilt clean, pd-server linked to
+  22,786,384 bytes with zero `undefined reference to g_ChrLastTickedIndex`
+  errors.  Guard is intact.
+
+S194 did not touch port/src/crash.c.
+
+=============================================================================
+ANTI-PATTERN PROTECTION -- SELECTABLE-WITH-LABEL PATTERN
+=============================================================================
+
+The root cause of the S192 missing-text regression and the S193
+LITERAL_TEXT regression was the same pattern: use an empty-labeled
+`##hidden` Selectable and overlay the visible text via
+`dl->AddText(...)` on the window draw list.  When langSafe() returned
+an empty string (lang bank not resident at dialog-open time) or the
+pointer bits of a literal text pointer were misinterpreted as a lang
+index, the overlay text disappeared or crashed.
+
+Every row in every S194 renderer uses a real
+`ImGui::Selectable(rowLabel, isActive, ..., ImVec2(0, rowH))` call
+where `rowLabel` is a `char[]` prepared with `snprintf` and a
+hardcoded English fallback (e.g., "Radar On", "Friendly Fire",
+"Perfect Buddy", "Main Player", "Continue", "Cancel").  Text is a
+first-class ImGui widget, not an overlay.  The fix can never regress
+this batch.
+
+Audit grep:
+  grep -n "##" port/fast3d/pdgui_menu_solomission.cpp | grep -i "selectable"
+  -> no `##hidden` Selectable uses in any S194 code.
+
+=============================================================================
+DEFERRED ITEMS (recorded, not silently dropped)
+=============================================================================
+
+S194-D1. Difficulty-row tooltip with per-difficulty objectives.
+  renderDifficulty (solo) shows a hover tooltip listing objectives
+  for the hovered difficulty.  The Batch 2 difficulty picker does
+  NOT show the objectives tooltip because g_Briefing is not
+  populated for co-op/anti flows the way it is for solo (solo
+  populates via `soloLoadBriefingForStageId`).  Adding a co-op/anti
+  briefing load path is scope for a later batch; for now the
+  difficulty picker is functional without the tooltip.  Low-impact
+  nice-to-have.
+
+S194-D2. Explicit SND_ERROR on "try to select locked anti difficulty".
+  Counter-op never locks difficulty, so this SND_ERROR path is N/A.
+  If a future design change introduces anti-difficulty unlocks, a
+  locked-branch would need to be added.  Flagged as a theoretical
+  future concern.
+
+S194-D3. Shared "settings row" primitive (label-left, control-right
+  with focus/hover/pressed states and consistent audio cues).
+  Currently every checkbox and dropdown row has its own bespoke
+  rendering + state machine.  After Batches 3-7 add more settings
+  screens, the natural shape of the primitive should be clear and
+  can be extracted cleanly at that point.  Not extracted preemptively
+  to avoid speculative abstraction.
+
+S194-D4. Dropdown combo-box popup (vs D-pad Left/Right step).
+  The legacy dropdown in CoopBuddy and AntiMainPlayer cycled via
+  arrow keys in the original menu system too.  Adding an ImGui
+  Combo popup would be an enhancement but not a parity concern.
+  Deferred as a polish opportunity.
+
+S194-D5. The `pdgui_menu_warning.cpp` opt-in upgrade to use `struct
+  menuitem`/`union handlerdata` from the S194 shadow types is NOT
+  needed — warning.cpp already has its own local shadow.  Each
+  file's shadow is self-contained; no cross-file dependency was
+  introduced.  Not a deferred item, just a noted design fact.
+
+S194-D6. Briefing populate for co-op / counter-op flows.
+  Related to S194-D1.  A later batch should unify the briefing
+  population across solo/coop/anti so difficulty hover tooltips
+  work the same everywhere.
+
+=============================================================================
+CONTEXT FILES UPDATED
+=============================================================================
+
+  context/session-log.md
+    Prepended Session S194 entry above S193 entry.
+    Pre: 2432 lines.  Post-S194 (before build result): 2556 lines.
+    Post-S194 (after build result): 2563 lines.
+
+  context/tasks-current.md
+    Appended "Batch 2 DONE (S194)" paragraph to the D5 Phase 3 row.
+    151 lines pre, 151 lines post (inline edit, no net delta).
+
+  context/scratch/s194-report.txt
+    THIS FILE (NEW).
+
+=============================================================================
+MERGE DISCIPLINE -- WORKTREE -> MAIN
+=============================================================================
+
+Worktree path : C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\worktrees\keen-greider
+Main copy     : C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+Merge strategy: direct file copy (no git merge), same pattern as S192 /
+S193.  build-headless.ps1 refuses worktree-based builds, so the main
+copy is the canonical source of truth for the build pipeline.  No
+.git/ internals touched.
+
+Files copied worktree -> main this session:
+  port/fast3d/pdgui_menu_solomission.cpp
+  context/session-log.md                 (after all updates)
+  context/tasks-current.md               (after edit)
+  context/scratch/s194-report.txt        (this file)
+
+Post-merge line-count verification (worktree vs main):
+
+  File                                          | worktree | main | OK?
+  --------------------------------------------- | -------- | ---- | ---
+  port/fast3d/pdgui_menu_solomission.cpp        | 3351     | 3351 | yes
+  context/session-log.md                        | 2563     | 2563 | yes
+  context/tasks-current.md                      |  151     |  151 | yes
+  context/scratch/s194-report.txt               | (filled) | (filled) | yes
+
+First / last line of solomission.cpp (both sides):
+  first: "/**"
+  last : "} /* extern "C" */"
+
+Post-merge build verification:
+  mingw32-make.exe -j8 pd          [100%] Built target pd           SUCCESS
+  mingw32-make.exe -j8 pd-server   [100%] Built target pd-server    SUCCESS
+
+  PerfectDark.exe       48,716,058 bytes  (Apr 10 16:09)
+  PerfectDarkServer.exe 22,786,384 bytes  (Apr 10 16:10)
+
+=============================================================================
+IN-GAME VERIFICATION CHECKLIST FOR MIKE
+=============================================================================
+
+## Co-op flow
+
+- [ ] Main Menu -> Combat Simulator / Mission -> Co-Op -> mission
+      select -> difficulty -> Co-op Difficulty dialog appears with
+      scrim darken, title "Select Difficulty", mode subheader
+      "Cooperative".
+- [ ] Agent / Special Agent / Perfect Agent rows render with real
+      text (not blank), proper focus ring on D-pad step, wrap from
+      Cancel back to Agent.
+- [ ] Locked difficulty row shows "[Locked]" suffix in muted color.
+- [ ] Selecting a locked row plays SND_ERROR.
+- [ ] Selecting an unlocked row plays SND_SELECT, pops the
+      Difficulty dialog, and pushes the Co-op Options dialog.
+- [ ] Co-op Options dialog appears with scrim, title
+      "Co-Operative Options".
+- [ ] Three rows render: "Radar On  [ON/OFF]", "Friendly Fire
+      [ON/OFF]", "Perfect Buddy  < Human / 1 Simulant / ... >".
+- [ ] D-pad Up/Down steps between the 5 focusable items (3 rows +
+      Continue + Cancel) with wrap.
+- [ ] A / Space / Enter toggles the focused checkbox with a
+      SND_TOGGLEON / SND_TOGGLEOFF cue.
+- [ ] D-pad Left/Right cycles the Perfect Buddy dropdown with a
+      SND_SUBFOCUS cue.
+- [ ] Continue button docked at the bottom of the dialog, always
+      visible (does not scroll), fires the Accept Mission dialog.
+- [ ] Cancel button docked next to Continue, pops the dialog.
+- [ ] Start button fires Continue (matches legacy behaviour).
+- [ ] Escape / B button pops the dialog with SND_KBCANCEL.
+
+## Counter-op flow
+
+- [ ] Main Menu -> Combat Simulator / Mission -> Counter-Op -> mission
+      select -> difficulty -> Counter-Op Difficulty dialog appears
+      with scrim, title "Select Difficulty", mode subheader
+      "Counter-Operative".
+- [ ] Agent / Special Agent / Perfect Agent rows render, NOT gated
+      on unlock (all three rows always selectable).
+- [ ] Selecting a row plays SND_SELECT, pops the Difficulty
+      dialog, and pushes the Counter-Op Options dialog.
+- [ ] Counter-Op Options dialog appears with scrim, title
+      "Counter-Operative Options".
+- [ ] Two rows render: "Radar On  [ON/OFF]" and "Main Player  <
+      Player 1 / Player 2 / ... >".
+- [ ] D-pad Up/Down steps between the 4 focusable items (2 rows +
+      Continue + Cancel) with wrap.
+- [ ] A toggles Radar On with SND_TOGGLEON/OFF cue.
+- [ ] D-pad Left/Right cycles Main Player dropdown (only the
+      connected-controller options are visible).
+- [ ] Continue / Cancel docked action bar behaves identically to
+      the Co-op flow.
+
+## Behavioural audits (cross-cutting)
+
+- [ ] The g_Vars.modifiedfiles MODFILE_GAME dirty flag is set after
+      any toggle / dropdown change (verify by checking save prompt
+      at next save point).
+- [ ] Menu navigation does not leak focus into underlying game
+      screens (mouse/keyboard captured while modal open).
+- [ ] Menu opens at a non-standard resolution (e.g. 1440p or 4K if
+      available) scale proportionally with pdguiScale — no layout
+      regressions vs 1080p.
+- [ ] Pre-existing S193 dialogs (Exit Game, PD Mode Settings, MP
+      End Game, filemgr placeholders) still work — S194 did not
+      touch pdgui_menu_warning.cpp.
+- [ ] Solo difficulty picker (renderDifficulty, separate file path)
+      still works for the non-coop/anti mission flow.
+
+=============================================================================
+END OF S194 REPORT
+=============================================================================
