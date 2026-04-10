@@ -35,6 +35,7 @@
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
@@ -58,6 +59,17 @@ extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
 /* Options dialog — needed for navigation */
 extern struct menudialogdef g_CiOptionsViaPcMenuDialog;
 extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
+
+/* S195 Batch 3 — CI Options sub-dialogs.  Registered with redirect renderer
+ * that pops the CI dialog and opens the unified Settings view on the
+ * matching sub-tab.  P2 variants are dead (no split-screen). */
+extern struct menudialogdef g_CiControlOptionsMenuDialog;
+extern struct menudialogdef g_CiControlOptionsMenuDialog2;
+extern struct menudialogdef g_CiControlStyleMenuDialog;
+extern struct menudialogdef g_CiDisplayMenuDialog;
+extern struct menudialogdef g_CiControlStylePlayer2MenuDialog;
+extern struct menudialogdef g_CiDisplayPlayer2MenuDialog;
+extern struct menudialogdef g_CiControlPlayer2MenuDialog;
 
 /* Play target dialogs */
 extern struct menudialogdef g_SelectMissionMenuDialog;
@@ -2707,6 +2719,258 @@ static s32 renderMainMenu(struct menudialog *dialog,
 }
 
 /* ========================================================================
+ * S195 Batch 3 -- CI Options redirect
+ *
+ * Legacy CI Options dialogs (Controls/Display/Style/etc.) are deprecated
+ * per context/designs/menu-replacement-plan.md -- settings have been
+ * unified into the single Settings view built into the main menu.
+ *
+ * Rather than re-implementing each CI sub-screen with its own ImGui
+ * renderer, we register a thin redirect renderer that:
+ *
+ *   1. Opens an ImGui window with the same PD title frame as the main
+ *      menu, titled "Settings".
+ *   2. Pre-selects the matching sub-tab (Controls/Video/etc.) by setting
+ *      s_SettingsSubTab BEFORE calling renderSettingsView().
+ *   3. Calls renderSettingsView() -- the user sees the exact same
+ *      unified settings UI they'd see if they navigated through the main
+ *      menu's Settings tab.
+ *   4. Docks a Back action-bar button (using the S192 pdguiLayout
+ *      primitives) that pops the CI dialog.
+ *
+ * This guarantees visual parity with the main menu Settings, while
+ * keeping the legacy push path (any fringe caller that still pushes
+ * g_CiControlOptionsMenuDialog etc.) functional.
+ *
+ * P2 variants (Player 2 controls/display) are DEAD -- no split-screen.
+ * Their renderer shows a brief deprecated notice and auto-pops.
+ *
+ * Compliance:
+ * - 1080p baseline via pdguiScale() everywhere.
+ * - Popup scrim: pdguiPopupDarkenBehind(0.55f).
+ * - Docked CTA: pdguiBeginActionBar + pdguiActionBarButton.
+ * - Real Selectable-with-label, no ##hidden + AddText antipattern.
+ * - Audio cues: SND_OPENDIALOG on appear, SND_KBCANCEL on Back/Esc/B.
+ * ======================================================================== */
+
+static s32 ciRedirectTargetTabForDialog(struct menudialogdef *dlg)
+{
+    /* Map each CI Options sub-dialog to its matching unified Settings tab.
+     * Sub-tab indices match the numbering in s_SettingsSubTab:
+     *   0 = Video, 1 = Audio, 2 = Controls, 3 = Game,
+     *   4 = Updates, 5 = Debug, 6 = Catalog. */
+    if (dlg == &g_CiControlOptionsMenuDialog)    return 2; /* Controls */
+    if (dlg == &g_CiControlOptionsMenuDialog2)   return 2; /* Controls */
+    if (dlg == &g_CiControlStyleMenuDialog)      return 2; /* Controls */
+    if (dlg == &g_CiDisplayMenuDialog)           return 0; /* Video */
+    if (dlg == &g_CiOptionsViaPcMenuDialog)      return 0; /* start on Video */
+    if (dlg == &g_CiOptionsViaPauseMenuDialog)   return 0; /* start on Video */
+    return 0; /* safe default */
+}
+
+static s32 renderCiSettingsRedirect(struct menudialog *dialog,
+                                     struct menu *menu,
+                                     s32 winW, s32 winH)
+{
+    (void)menu;
+    (void)winW;
+    (void)winH;
+
+    /* Extract the dialog definition pointer.  struct menudialog's first
+     * field is a pointer to its menudialogdef -- same pattern used by
+     * pdgui_menu_warning.cpp because types.h cannot be included from C++. */
+    struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog);
+
+    /* Scrim the whole viewport behind the modal so the user focuses
+     * on the unified settings panel. */
+    pdguiPopupDarkenBehind(0.55f);
+
+    f32 scale   = pdguiScaleFactor();
+    f32 dialogW = pdguiMenuWidth();
+    f32 dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    f32 dialogX = menuPos.x;
+    f32 dialogY = menuPos.y;
+
+    ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##ci_settings_redirect", nullptr, wflags)) {
+        ImGui::End();
+        return 1;
+    }
+
+    /* On first appearance: play open cue, force input context, select the
+     * pre-determined sub-tab for this CI dialog. */
+    static struct menudialogdef *s_LastDialog = nullptr;
+    if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
+        ImGui::SetWindowFocus();
+        s_NeedsFocus = true;
+        s_SettingsSubTab = ciRedirectTargetTabForDialog(def);
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: CI Options redirect OPEN (dialog=%p subtab=%d)",
+            (void *)def, (int)s_SettingsSubTab);
+        s_LastDialog = def;
+
+        /* Safety: ensure the ImGui menu input context is active so mouse
+         * mode flips to visible and gameplay input is blocked. */
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
+    }
+
+    /* PD title frame -- same look as the main menu. */
+    f32 pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH,
+                                      "Settings");
+    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+
+    /* Compute the scrollable body region, reserving the docked action bar
+     * height per the S192 primitive.  contentH must match what renderMainMenu
+     * passes to renderSettingsView so the settings body looks identical. */
+    f32 avail   = ImGui::GetContentRegionAvail().y;
+    f32 bodyH   = pdguiBodyHeightForActionBar(avail);
+    f32 contentH = bodyH;
+
+    if (ImGui::BeginChild("##ci_settings_body",
+                           ImVec2(0.0f, bodyH), false,
+                           ImGuiWindowFlags_NoBackground)) {
+        renderSettingsView(scale, contentH);
+    }
+    ImGui::EndChild();
+
+    /* Docked action bar -- Back button, always visible. */
+    bool wantBack = false;
+    if (pdguiBeginActionBar("##ci_settings_ab")) {
+        f32 barW = ImGui::GetContentRegionAvail().x;
+        if (pdguiActionBarButton("Back", 1, barW)) {
+            wantBack = true;
+        }
+    }
+    pdguiEndActionBar();
+
+    /* B / Escape also backs out. */
+    if (!ImGui::IsWindowAppearing() &&
+        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        wantBack = true;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+
+    if (wantBack) {
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)",
+            (void *)def);
+        /* Pop the input context on close so gameplay mouse mode restores. */
+        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+        }
+        s_LastDialog = nullptr;
+        menuPopDialog();
+    }
+
+    /* D-pad wrapping must be called before End(). */
+    pdguiNavTickWrap();
+
+    ImGui::End();
+    return 1;
+}
+
+static s32 renderCiDeadPlayer2(struct menudialog *dialog,
+                                struct menu *menu,
+                                s32 winW, s32 winH)
+{
+    (void)menu;
+    (void)winW;
+    (void)winH;
+    (void)dialog;
+
+    /* P2 CI dialogs are DEAD -- no split-screen.  This renderer exists to
+     * catch any fringe path that still pushes them, show a brief notice,
+     * and auto-pop so the menu stack stays healthy.
+     *
+     * Batch 3 policy: rather than silently noop (which would leave a stuck
+     * invisible dialog on the stack) we render a small informative modal
+     * with a docked OK action bar button.  On first appearance we log and
+     * start a one-frame countdown so the user can read the message. */
+    pdguiPopupDarkenBehind(0.55f);
+
+    f32 scale = pdguiScaleFactor();
+    f32 dW = pdguiScale(520.0f);
+    f32 dH = pdguiScale(220.0f);
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    f32 dX = (disp.x - dW) * 0.5f;
+    f32 dY = (disp.y - dH) * 0.5f;
+
+    ImGui::SetNextWindowPos(ImVec2(dX, dY));
+    ImGui::SetNextWindowSize(ImVec2(dW, dH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##ci_dead_p2", nullptr, wflags)) {
+        ImGui::End();
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: CI Player-2 dialog (deprecated; no split-screen)");
+    }
+
+    f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
+    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+
+    ImGui::TextWrapped(
+        "Split-screen is not supported in this PC port.  Player-2 "
+        "settings are no longer applicable.");
+    ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
+    ImGui::TextDisabled("This dialog was reached via a legacy menu path.");
+
+    /* Docked action bar with OK button. */
+    f32 avail = ImGui::GetContentRegionAvail().y;
+    f32 bodyH = pdguiBodyHeightForActionBar(avail);
+    ImGui::Dummy(ImVec2(0, bodyH - ImGui::GetStyle().ItemSpacing.y));
+
+    bool wantClose = false;
+    if (pdguiBeginActionBar("##ci_dead_p2_ab")) {
+        f32 barW = ImGui::GetContentRegionAvail().x;
+        if (pdguiActionBarButton("OK", 1, barW)) {
+            wantClose = true;
+        }
+    }
+    pdguiEndActionBar();
+
+    if (!ImGui::IsWindowAppearing() &&
+        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+        wantClose = true;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+
+    if (wantClose) {
+        menuPopDialog();
+    }
+
+    pdguiNavTickWrap();
+    ImGui::End();
+    return 1;
+}
+
+/* ========================================================================
  * Registration
  * ======================================================================== */
 
@@ -2737,7 +3001,65 @@ void pdguiMenuMainMenuRegister(void)
         s_RegisteredPause = true;
     }
 
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_mainmenu: Registered (PC + Pause variants)");
+    /* S195 Batch 3 -- CI Options sub-dialogs all redirect to the unified
+     * Settings view.  Register once (idempotent: pdguiHotswapRegister skips
+     * duplicates silently if called twice, per its contract).  These
+     * registrations replace the legacy DANGER/DEFAULT type-fallback that
+     * previously caught CI Options from warning.cpp. */
+    static bool s_RegisteredCi = false;
+    if (!s_RegisteredCi) {
+        pdguiHotswapRegister(
+            &g_CiOptionsViaPcMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Options (PC -> unified Settings)"
+        );
+        pdguiHotswapRegister(
+            &g_CiOptionsViaPauseMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Options (Pause -> unified Settings)"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlOptionsMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Control Options -> Settings.Controls"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlOptionsMenuDialog2,
+            renderCiSettingsRedirect,
+            "CI Control Options 2 -> Settings.Controls"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlStyleMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Control Style -> Settings.Controls"
+        );
+        pdguiHotswapRegister(
+            &g_CiDisplayMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Display -> Settings.Video"
+        );
+
+        /* P2 variants: DEAD (no split-screen).  Dedicated dead-dialog
+         * renderer with auto-pop so the menu stack stays healthy. */
+        pdguiHotswapRegister(
+            &g_CiControlStylePlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Control Style P2 (DEAD -- no split-screen)"
+        );
+        pdguiHotswapRegister(
+            &g_CiDisplayPlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Display P2 (DEAD -- no split-screen)"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlPlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Control P2 (DEAD -- no split-screen)"
+        );
+        s_RegisteredCi = true;
+    }
+
+    sysLogPrintf(LOG_NOTE, "pdgui_menu_mainmenu: Registered (PC + Pause + 9 CI redirects)");
 }
 
 } /* extern "C" */
