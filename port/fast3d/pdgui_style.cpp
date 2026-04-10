@@ -611,6 +611,9 @@ extern "C" void pdguiApplyPdStyle(void)
     colors[ImGuiCol_ChildBg]            = C((pal->dialog_bodybg & 0xFFFFFF00) | 0x66);
     colors[ImGuiCol_PopupBg]            = C((pal->dialog_bodybg & 0xFFFFFF00) | 0xD9);
 
+    /* Modal dim overlay -- heavy so background text is not legible */
+    colors[ImGuiCol_ModalWindowDimBg]   = ImVec4(0.0f, 0.0f, 0.0f, 0.75f);
+
     /* Borders -- from dialog_border1 */
     colors[ImGuiCol_Border]             = C(pal->dialog_border1);
     colors[ImGuiCol_BorderShadow]       = ImVec4(0, 0, 0, 0);

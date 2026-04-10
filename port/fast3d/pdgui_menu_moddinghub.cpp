@@ -1178,6 +1178,12 @@ s32 pdguiModdingHubIsVisible(void)
 void pdguiModdingHubRender(s32 winW, s32 winH)
 {
     if (!s_Visible) return;
+
+    /* Dim overlay so background windows are not legible through the popup */
+    ImDrawList *bg = ImGui::GetBackgroundDrawList();
+    bg->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
+                      IM_COL32(0, 0, 0, 180));
+
     renderModdingHub(winW, winH);
 }
 

@@ -384,6 +384,14 @@ s32 pdguiThemeEditorIsVisible(void)
 void pdguiThemeEditorRender(s32 winW, s32 winH)
 {
     if (!s_Visible) return;
+
+    /* Draw a dim overlay behind the editor so background windows are not
+     * legible through the popup.  Uses the background draw list so it sits
+     * behind all ImGui windows submitted after this point. */
+    ImDrawList *bg = ImGui::GetBackgroundDrawList();
+    bg->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
+                      IM_COL32(0, 0, 0, 180));
+
     renderThemeEditor(winW, winH);
 }
 

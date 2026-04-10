@@ -463,7 +463,7 @@ static const char *s_BgTexId = NULL;
 
 /* Scanline config */
 static bool  s_ScanlineEnabled = true;
-static float s_ScanlineAlpha   = 0.8f;
+static float s_ScanlineAlpha   = 0.5f;
 
 /**
  * Load a .tga file (uncompressed RGBA32) from the filesystem, upload to GL.
@@ -1006,8 +1006,8 @@ void pdguiThemeDrawStars(float x, float y, s32 filled, s32 total)
 /* =========================================================================
  * pdguiThemeDrawScanline
  *
- * Subtle horizontal scanlines at 2px intervals for a retro-CRT overlay.
- * alpha=1.0 → max darkening ~16% (40/255 per line).
+ * Horizontal scanlines at 2px intervals for a retro-CRT overlay.
+ * alpha=1.0 → max darkening ~55% (140/255 per line).
  * ========================================================================= */
 
 void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha)
@@ -1018,8 +1018,9 @@ void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha)
 
     ImDrawList *dl = ImGui::GetWindowDrawList();
 
-    /* Cap at 40 alpha (≈16% darkening) to keep it subtle */
-    uint8_t a   = (uint8_t)(alpha * 40.0f);
+    /* Scale alpha into visible range: 0..1 → 0..140 (≈55% max darkening).
+     * Previous cap of 40 was nearly invisible even at full alpha. */
+    uint8_t a   = (uint8_t)(alpha * 140.0f);
     ImU32   col = IM_COL32(0, 0, 0, a);
 
     for (float ry = y; ry < y + h; ry += 2.0f) {
@@ -1038,7 +1039,7 @@ void pdguiThemeDrawScanlineFg(float x, float y, float w, float h)
     }
 
     ImDrawList *fg = ImGui::GetForegroundDrawList();
-    uint8_t a = (uint8_t)(s_ScanlineAlpha * 40.0f);
+    uint8_t a = (uint8_t)(s_ScanlineAlpha * 140.0f);
     ImU32 col = IM_COL32(0, 0, 0, a);
 
     for (float ry = y; ry < y + h; ry += 2.0f) {
@@ -1609,7 +1610,7 @@ void pdguiThemeCheckExtract(void)
                 "        \"default_palette\": 1,\n"
                 "        \"background_texture\": \"base:ui_bg_haze\",\n"
                 "        \"scanline_enabled\": true,\n"
-                "        \"scanline_alpha\": 0.8,\n"
+                "        \"scanline_alpha\": 0.5,\n"
                 "        \"tint_strength\": 0.0,\n"
                 "        \"text_glow_intensity\": 0.6\n"
                 "    }\n"
