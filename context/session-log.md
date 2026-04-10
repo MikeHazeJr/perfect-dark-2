@@ -3,7 +3,43 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
-## Session S190 — 2026-04-10 (Input System Bugfix Sweep + Mission-End Crash Triage)
+## Session S190 — 2026-04-10 (Input System Complete: P0-only IMC, Menu strip, Build clean)
+
+**Focus**: Completed remaining input system work: P0-only refactor of all IMCs, menu IMC reduced to 3 actions, Bind1/Bind2 analysis, SP-9 guard PS script fix. Clean build verified.
+
+### What Was Done
+
+**P0-only binding refactor — COMPLETE**
+- `setupVehicleDefaults`: removed p=1..3 else block; early-return on p≠0.
+- `setupMenuDefaults`: stripped from 35 lines (all-player loop + MENU_UP/DOWN/LEFT/RIGHT/TAB binds) to 5 lines — ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start). Player 0 only. Dead MENU_* binds removed (ImGui handles nav internally).
+- `setupPauseMenuDefaults`: same 3-action model, same explanation retained.
+- `setupDebugOverlayDefaults`: removed MENU_UP/DOWN/LEFT/RIGHT (dead weight); kept DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE_TOGGLE, SCREENSHOT.
+- `setupTextInputDefaults`: reformatted to explicit "kbd / gamepad" comment pairs; was already P0.
+- `actionmapInit`: `for (p=0..MAX)` loop for setupGameplayDefaults/setupVehicleDefaults → single `setupGameplayDefaults(0)` + `setupVehicleDefaults(0)` calls.
+
+**Bind1/Bind2 structure analysis — NOT structural**
+- `InputMapping.triggers[4]` flat array + `num_triggers` counter. No "Bind 1 / Bind 2" fields. Collapsing = calling `addBind()` once. Gameplay IMC: each action has ≤1 kbd + ≤1 gamepad default (verified no action has two kbd or two gamepad defaults). Menu/Pause/Debug IMC: only the functional binds remain.
+
+**SP-9 guard PS bug fix** — `build-headless.ps1:449` had `$net:` parsed as drive reference; fixed to `${net}:`.
+
+**Build result**: Clean. `PerfectDark.exe` 48.6MB rebuilt at 08:01.
+
+### Files Changed
+- `port/src/actionmap.cpp` — 1606 → 1557 lines (-49, all removals of MP loops + dead menu binds)
+- `devtools/build-headless.ps1` — SP-9 string interpolation fix (line 449)
+- `context/session-log.md`, `context/tasks-current.md`
+
+### Decisions
+- MENU_UP/DOWN/LEFT/RIGHT/TAB_* are confirmed dead weight in IMCs — ImGui reads raw SDL key events, not action map states, for menu navigation.
+- "1606 vs 1624 truncation question" resolved: 1624 was a stale snapshot from a mid-session state. 1630 was the pre-S189-session baseline. 1630→1606 (-24, MP else block removal) was correct. 1606→1557 (-49, this session) is correct. No truncation at any point.
+
+### Next Steps
+- In-game verification (see task list)
+- B-129 mission-end crash (exciting-fermat worktree, separate session)
+
+---
+
+## Session S190_OLD — 2026-04-10 (Input System Bugfix Sweep + Mission-End Crash Triage)
 
 **Focus**: Parallel tracks. Track A (worktree: unruffled-kalam): more input system fixes — twin-stick gate, canlookahead, FarSight strafe, binding rework in progress. Track B (worktree: exciting-fermat): mission-end crash diagnosis. This is a context-maintenance session; no source changes here.
 

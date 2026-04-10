@@ -30,15 +30,15 @@
 | **LSTICK=Sprint define + bind** | LANDED | actionmap.cpp — `JBTN_LSTICK`/`JBTN_RSTICK` defines added; LSTICK click → ACTION_SPRINT. |
 | **_dev-window.ps1 restored** | LANDED | Restored from 68c0b186 after truncation (2311→2232 lines). Em-dashes → hyphens to prevent re-truncation. |
 
-#### In Progress (unruffled-kalam worktree)
+#### Completed in S189
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **usemask cleanup** | IN PROGRESS | bondmove.c:~1832 — full removal of `BUTTON_CANCEL_USE` from PC usemask (S189 fixed door-open; this is a cleanup pass to ensure mask is minimal). |
-| **P0-only binding refactor** | IN PROGRESS | actionmap.cpp: kill MP players 1–3 loop entirely. Player 0 only in every IMC; no p=0..3 loops anywhere in default binding setup. |
-| **Bind 1 / Bind 2 collapse** | IN PROGRESS | Collapse to single default per action: one kbd default + one gamepad default. Single-column rebind UI. (ActionBinding struct refactor if structural.) |
-| **Menu IMC 3-action reduction** | IN PROGRESS | UI Select (A), Back/Cancel (B), Use (Y) only. Player 0 only. |
-| **crouch_mode in pd.ini** | IN PROGRESS | `Game.Player%d.CrouchMode` persisted in pd.ini. Per-player toggle bool resets on respawn/load/mode-change. Already implemented pre-S189; confirm wired to ImGui Options panel. |
+| **usemask cleanup** | DONE (S189) | bondmove.c:1836 — PC usemask = `BUTTON_ACCEPT_USE` only. Confirmed: BUTTON_CANCEL_USE == B_BUTTON, both excluded. |
+| **P0-only binding refactor** | DONE (S189) | All setup*Defaults: Player 0 only, no p=0..3 loops. Init loop replaced with single `setupGameplayDefaults(0)` / `setupVehicleDefaults(0)`. |
+| **Bind 1 / Bind 2 collapse** | DONE (S189) | Not structural — flat `triggers[4]` array. No struct change needed. Each action now has 1 kbd + 1 gamepad default max. Dead MENU_UP/DOWN/LEFT/RIGHT binds removed from menu IMCs. |
+| **Menu IMC 3-action reduction** | DONE (S189) | g_ImcMenu + g_ImcPauseMenu: ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). 5 triggers total, player 0 only. |
+| **crouch_mode in pd.ini** | ALREADY DONE (pre-S189) | `Game.Player%d.CrouchMode`: 0=hold (default). bondmove.c:1925 handles toggle/hold/analog. No changes needed. |
 
 #### TODO — Verification Pass (post-unruffled-kalam rebuild)
 
