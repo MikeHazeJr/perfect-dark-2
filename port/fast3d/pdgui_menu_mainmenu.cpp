@@ -832,6 +832,9 @@ static const char *getActionName(InputAction action)
 /* Sub-tab index within Controls: 0 = Keyboard & Mouse, 1 = Controller */
 static s32 s_ControlsSubTab = 0;
 
+/* Track whether we need to reload binds on Controls tab entry */
+static bool s_ControlsNeedsInit = true;
+
 /* Shared capture-mode handler — called at the top of each sub-tab that uses it. */
 static void handleCaptureInput(void)
 {
@@ -940,6 +943,13 @@ static void renderBindTable(s32 filterCol, const char *tableId)
 
 static void renderSettingsControls(float scale)
 {
+    /* Load binds from pd.ini when entering the Controls tab so the UI
+     * reflects the current saved state (not stale in-memory mappings). */
+    if (s_ControlsNeedsInit) {
+        actionmapLoadBinds();
+        s_ControlsNeedsInit = false;
+    }
+
     /* Process any active key capture regardless of which sub-tab is showing */
     handleCaptureInput();
 
@@ -1134,6 +1144,16 @@ static void renderSettingsControls(float scale)
         }
 
         ImGui::EndTabBar();
+    }
+
+    /* ---- Save Controls button ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (PdButton("Save Controls")) {
+        actionmapSaveBinds();
+        configSave("pd.ini");
+        pdguiPlaySound(PDGUI_SND_SELECT);
     }
 }
 
@@ -2638,12 +2658,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_ViewJustChanged) {
         pdguiPlaySound(PDGUI_SND_SWIPE);
         s_NeedsFocus = true;  /* focus first widget on next frame */
+        s_ControlsNeedsInit = true;  /* reload binds next time Controls tab is entered */
     }
     s_PrevView = s_MenuView;
 
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
         s_NeedsFocus = true;  /* focus first widget when tab changes */
+        /* Re-init controls binds next time the Controls tab is entered */
+        if (s_PrevSubTab == 2 || s_SettingsSubTab == 2) {
+            s_ControlsNeedsInit = true;
+        }
     }
     s_PrevSubTab = s_SettingsSubTab;
 
