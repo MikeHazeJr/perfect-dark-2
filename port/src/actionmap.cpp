@@ -1161,6 +1161,46 @@ void actionmapLoadBinds(void)
         }
     }
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: binds loaded from pd.ini into %d IMCs", s_NumAllImcs);
+
+    /* Migration: strip stale JOFS_LSTICK_* binds from movement actions.
+     * Old pd.ini files bound MOVE_FORWARD/BACKWARD/LEFT/RIGHT to left-stick
+     * VKs. These clobber analog movement (the digital path overwrites smooth
+     * stick_x/y with snapped ±1 values). Strip them on load and rewrite
+     * s_BindStr so the next configSave() persists the fix. */
+    static const InputAction s_MoveActions[] = {
+        ACTION_MOVE_FORWARD,
+        ACTION_MOVE_BACKWARD,
+        ACTION_MOVE_LEFT,
+        ACTION_MOVE_RIGHT,
+    };
+    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
+        for (s32 ai = 0; ai < 4; ai++) {
+            InputAction a = s_MoveActions[ai];
+            if (!g_ImcGameplay.has_mapping[a]) continue;
+            InputMapping *m = &g_ImcGameplay.mappings[a];
+            s32 stripped = 0;
+            s32 write    = 0;
+            for (s32 ti = 0; ti < m->num_triggers; ti++) {
+                u32 vk = m->triggers[ti].vk;
+                if (vk != 0 && vk >= (u32)VK_JOY1_BEGIN) {
+                    u32 btn = (vk - (u32)VK_JOY1_BEGIN) % (u32)INPUT_MAX_CONTROLLER_BUTTONS;
+                    if (btn >= JOFS_LSTICK_LEFT && btn <= JOFS_LSTICK_DOWN) {
+                        stripped++;
+                        continue; /* drop this trigger */
+                    }
+                }
+                m->triggers[write++] = m->triggers[ti];
+            }
+            if (stripped > 0) {
+                m->num_triggers = write;
+                buildBindStr(p, a, s_BindStr[p][a], BIND_STR_MAX);
+                sysLogPrintf(LOG_NOTE,
+                    "ACTIONMAP: stripped stale LSTICK movement bind from pd.ini"
+                    " (player %d, action %d, %d bind(s) removed)",
+                    p, (s32)a, stripped);
+            }
+        }
+    }
 }
 
 /* ============================================================
