@@ -82,6 +82,8 @@
 #define JBTN_Y       3
 #define JBTN_BACK    4
 #define JBTN_START   6
+#define JBTN_LSTICK  7   /* SDL_CONTROLLER_BUTTON_LEFTSTICK */
+#define JBTN_RSTICK  8   /* SDL_CONTROLLER_BUTTON_RIGHTSTICK */
 #define JBTN_LB      9
 #define JBTN_RB      10
 #define JBTN_DPAD_UP    11
@@ -1319,9 +1321,11 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
         addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel */
         addBind(imc, ACTION_CROUCH,         VK_LCTRL);
+        addBind(imc, ACTION_CROUCH,         JOY_BTN(0, JBTN_RSTICK)); /* Right stick click */
         addBind(imc, ACTION_JUMP,           VK_SPACE);
         addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_Y));
         addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
+        addBind(imc, ACTION_SPRINT,         JOY_BTN(0, JBTN_LSTICK)); /* Left stick click */
         /* ACTION_ZOOM_IN / ZOOM_OUT: no default kbd bind — user rebinds if needed */
         addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP);
         addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(0, JBTN_LB));
@@ -1366,6 +1370,8 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_USE,            JOY_BTN(p, JBTN_A));   /* A_BUTTON / menu accept */
         addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(p, JBTN_B));   /* B_BUTTON / menu cancel */
         addBind(imc, ACTION_JUMP,           JOY_BTN(p, JBTN_Y));
+        addBind(imc, ACTION_CROUCH,         JOY_BTN(p, JBTN_RSTICK)); /* Right stick click */
+        addBind(imc, ACTION_SPRINT,         JOY_BTN(p, JBTN_LSTICK)); /* Left stick click */
         addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(p, JBTN_LB));
         addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(p, JBTN_RB));
         addBind(imc, ACTION_AIM_UP,         JOY_BTN(p, JOFS_RSTICK_UP));
@@ -1582,43 +1588,4 @@ void actionmapInit(void)
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
     g_ImcTextInput.name    = "text_input";    g_ImcTextInput.priority    = 30;
 
-    /* Populate default bindings (into IMC structs, not yet active) */
-    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        setupGameplayDefaults(p);
-        setupVehicleDefaults(p);
-    }
-    setupMenuDefaults();
-    setupPauseMenuDefaults();
-    setupDebugOverlayDefaults();
-    setupTextInputDefaults();
-
-    /* Build default bind strings for pd.ini registration */
-    initDefaultBindStrings();
-
-    /* Register bind strings with config system.
-     * configLoad() will overwrite defaults if the key exists in pd.ini. */
-    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        for (s32 a = 0; a < ACTION_COUNT; a++) {
-            char key[80];
-            snprintf(key, sizeof(key), "ActionMap.P%d.%s", p, s_ActionNames[a]);
-            configRegisterString(key, s_BindStr[p][a], BIND_STR_MAX);
-        }
-    }
-
-    /* Register stick tuning variables with config system */
-    configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
-    configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
-    configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
-    configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
-
-    /* Activate only the gameplay context by default.
-     * Menu IMC is activated/deactivated by the input context push/pop system
-     * (g_CtxImGuiMenu, g_CtxPauseMenu, g_CtxDebugOverlay).  Activating it
-     * here caused it to shadow gameplay gamepad bindings (same VKs at higher
-     * priority) — A/B/LB/RB/D-pad/stick all fired MENU actions instead of
-     * gameplay actions during gameplay. */
-    imcActivate(&g_ImcGameplay);
-
-    sysLogPrintf(LOG_NOTE, "ACTIONMAP: initialized — %d actions, %d players, %d IMCs",
-                 (s32)ACTION_COUNT, ACTIONMAP_MAX_PLAYERS, s_NumActive);
-}
+    /* Populate default bindings (into IMC struct

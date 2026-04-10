@@ -1545,10 +1545,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				if (controlmode == CONTROLMODE_PC) {
 					/* Modern twin-stick: left stick = move, right stick = aim.
 					 * analogstrafe/analogwalk keep their c1 (left stick) values from init.
-					 * Override analogturn/analogpitch to c2 (right stick). */
+					 * Override analogturn/analogpitch to c2 (right stick).
+					 * unk14 gates analog strafing in bondwalk — must be true unconditionally
+					 * so the left stick can drive movement without requiring right stick input. */
 					movedata.analogturn = c2stickx;
 					movedata.analogpitch = c2sticky;
-					movedata.unk14 = (c2stickx || c2sticky);
+					movedata.unk14 = true;
 				}
 
 				if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) == AIMCONTROL_HOLD) {
@@ -1630,7 +1632,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
 							movedata.digitalstepforward = (c1buttons & sumask);
 							movedata.digitalstepback    = (c1buttons & sdmask);
-							movedata.canlookahead       = (c2stickx || c2sticky);
+							movedata.canlookahead       = true;
 							movedata.cannaturalpitch    = false;
 							movedata.speedvertadown     = 0;
 							movedata.speedvertaup       = 0;
@@ -1639,7 +1641,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						{
 							movedata.digitalstepforward = !g_Vars.currentplayer->insightaimmode && (c1buttons & sumask);
 							movedata.digitalstepback = !g_Vars.currentplayer->insightaimmode && (c1buttons & sdmask);
-							movedata.canlookahead = (controlmode == CONTROLMODE_PC) && !g_Vars.currentplayer->insightaimmode && (c2stickx || c2sticky);
+							movedata.canlookahead = (controlmode == CONTROLMODE_PC) && !g_Vars.currentplayer->insightaimmode;
 							movedata.cannaturalpitch = !g_Vars.currentplayer->insightaimmode;
 							movedata.speedvertadown = 0;
 							movedata.speedvertaup = 0;
@@ -2099,7 +2101,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.farsighttempautoseek = g_Vars.currentplayer->insightaimmode && (c1buttons & (srmask | slmask));
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
 								movedata.unk14 = 1;
-								movedata.analogstrafe = c2stickx;
+								movedata.analogstrafe = movedata.c1stickxsafe;
 						}
 					} else {
 						movedata.rleanleft = g_Vars.currentplayer->insightaimmode && (c1buttons & slmask);

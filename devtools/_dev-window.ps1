@@ -1,5 +1,5 @@
 # ============================================================================
-# _dev-window.ps1 — Perfect Dark 2 Dev Window (v2)
+# _dev-window.ps1 - Perfect Dark 2 Dev Window (v2)
 #
 # Replacement for dev-window.ps1. Every feature preserved. Key improvements:
 #   1. PATH fix at very top (before any tool resolution)
@@ -12,7 +12,7 @@
 # ============================================================================
 
 # ============================================================================
-# Section 0: PATH fix — BEFORE ANYTHING ELSE
+# Section 0: PATH fix - BEFORE ANYTHING ELSE
 # ============================================================================
 
 $env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
@@ -567,7 +567,7 @@ $script:BtnOpenFolder.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:BtnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectRoot })
 $script:LinkPanel.Controls.Add($script:BtnOpenFolder)
 
-# CLEAN BUILD button — force full clean build
+# CLEAN BUILD button - force full clean build
 $script:BtnCleanBuild = New-Object System.Windows.Forms.Button
 $script:BtnCleanBuild.Text = "CLEAN BUILD"
 $script:BtnCleanBuild.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -1659,7 +1659,7 @@ function Start-Build {
                 $cnt = (git -C $script:ProjectRoot rev-list --count "$lastHash..HEAD" 2>$null)
                 if ($cnt) { $cnt = $cnt.Trim() } else { $cnt = "?" }
                 if ($null -ne $script:LblBuildActivity) {
-                    $script:LblBuildActivity.Text = "Stale: $cnt new commit(s) since last build — rebuilding..."
+                    $script:LblBuildActivity.Text = "Stale: $cnt new commit(s) since last build - rebuilding..."
                 }
             }
         }
