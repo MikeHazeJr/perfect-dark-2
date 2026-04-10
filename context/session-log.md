@@ -30,6 +30,10 @@
 ### Decisions
 - B is dual-bound (ACTION_CROUCH + ACTION_CANCEL_USE) in gameplay IMC. CANCEL_USE covers FarSight/scope exit; CROUCH covers crouching. Task 1's usemask fix ensures B no longer opens doors regardless.
 
+### Build Result
+- **Clean build** — PerfectDark.exe + PerfectDarkServer.exe built, 0 errors. Version 0.0.68.
+- Note: build-headless.ps1 from bash requires PowerShell with TEMP override; direct `make` in bash fails due to GCC writing to C:\WINDOWS\ (sandbox env). Workaround: `powershell -NonInteractive -Command "$env:TEMP=...; make ..."`.
+
 ### Next Steps
 - Playtest: A=jump, B=crouch (no door open), Y=use (door open), R3 not crouching
 - Wire protocol bump v32→v33 still pending (B-125 spawn_weapon_id)
