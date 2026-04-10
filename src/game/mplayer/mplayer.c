@@ -558,11 +558,7 @@ void mpReset(void)
 	g_MpNumChrs = 0;
 	g_Vars.mplayerisrunning = true;
 
-	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-		g_Vars.normmplayerisrunning = false;
-	} else {
-		g_Vars.normmplayerisrunning = true;
-	}
+	g_Vars.normmplayerisrunning = true;
 
 	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d chrslots=0x%016llx hasSim=%d netmode=%d",
 		g_Vars.normmplayerisrunning, g_Vars.mplayerisrunning,
@@ -574,58 +570,23 @@ void mpReset(void)
 		g_Vars.lvmpbotlevel = true;
 	}
 
-	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-		struct mpplayerconfig tmp;
+	/* S188: no splitscreen, coop/anti mode is dead. The N64 coop branch swapped
+	 * g_PlayerConfigsArray[MAX_PLAYERS] (solo config slot) into slot 0 for Bond
+	 * and slot MAX_PLAYERS+1 into slot 1 for the coop partner. With solo now
+	 * using slot 0 directly (lv.c, Phase 1), and splitscreen removed, this
+	 * entire branch is unreachable. Only the normal MP path remains. */
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (mpIsParticipantActive(i)) { /* B-12 Phase 2 */
+			g_Vars.playerstats[mpindex].mpindex = i;
 
-		tmp = g_PlayerConfigsArray[MAX_PLAYERS];
-		g_PlayerConfigsArray[MAX_PLAYERS] = g_PlayerConfigsArray[0];
-		g_PlayerConfigsArray[0] = tmp;
+			g_PlayerConfigsArray[i].contpad1 = i;
+			g_PlayerConfigsArray[i].contpad2 = 0;
 
-		tmp = g_PlayerConfigsArray[MAX_PLAYERS + 1];
-		g_PlayerConfigsArray[MAX_PLAYERS + 1] = g_PlayerConfigsArray[1];
-		g_PlayerConfigsArray[1] = tmp;
+			mpCalculatePlayerTitle(&g_PlayerConfigsArray[i]);
 
-		// Player index 0
-		g_Vars.playerstats[0].mpindex = 0;
-
-		g_PlayerConfigsArray[0].contpad1 = 0;
-		g_PlayerConfigsArray[0].contpad2 = 2;
-
-		if ((g_Vars.coopplayernum >= 0 && g_Vars.coopradaron)
-				|| (g_Vars.antiplayernum >= 0 && g_Vars.antiradaron)) {
-			g_PlayerConfigsArray[0].base.displayoptions |= MPDISPLAYOPTION_RADAR;
-		} else {
-			g_PlayerConfigsArray[0].base.displayoptions &= ~MPDISPLAYOPTION_RADAR;
-		}
-
-		// Player index 1
-		g_Vars.playerstats[1].mpindexu32 = 1;
-
-		g_PlayerConfigsArray[1].contpad1 = 1;
-		g_PlayerConfigsArray[1].contpad2 = 3;
-
-		if ((g_Vars.coopplayernum >= 0 && g_Vars.coopradaron)
-				|| (g_Vars.antiplayernum >= 0 && g_Vars.antiradaron)) {
-			g_PlayerConfigsArray[1].base.displayoptions |= MPDISPLAYOPTION_RADAR;
-		} else {
-			g_PlayerConfigsArray[1].base.displayoptions &= ~MPDISPLAYOPTION_RADAR;
-		}
-
-		g_MpNumChrs = 2;
-	} else {
-		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (mpIsParticipantActive(i)) { /* B-12 Phase 2 */
-				g_Vars.playerstats[mpindex].mpindex = i;
-
-				g_PlayerConfigsArray[i].contpad1 = i;
-				g_PlayerConfigsArray[i].contpad2 = 0;
-
-				mpCalculatePlayerTitle(&g_PlayerConfigsArray[i]);
-
-				g_PlayerConfigsArray[i].newtitle = g_PlayerConfigsArray[i].title;
-				g_MpNumChrs++;
-				mpindex++;
-			}
+			g_PlayerConfigsArray[i].newtitle = g_PlayerConfigsArray[i].title;
+			g_MpNumChrs++;
+			mpindex++;
 		}
 	}
 
