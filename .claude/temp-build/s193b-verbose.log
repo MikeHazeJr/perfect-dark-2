@@ -1,0 +1,12 @@
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:  client
+  Version: 0.0.69
+  Clean:   False
+  Verbose: True
+  Cores:   24
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+------------------------------------------------------------
+  Auto-Commit + Push
+------------------------------------------------------------
