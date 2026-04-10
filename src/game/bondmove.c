@@ -1829,8 +1829,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					}
 
 					// Handle B and use-like button
+					/* PC mode: only BUTTON_ACCEPT_USE (= A_BUTTON = ACTION_USE) opens doors.
+					 * BUTTON_CANCEL_USE == B_BUTTON (constants.h) — including either in this
+					 * mask would trigger door-open on B-press (cancel/back). N64 mode keeps
+					 * B_BUTTON as the legacy "use" trigger synthesized from ACTION_CANCEL_USE. */
 					const u32 usemask = (controlmode == CONTROLMODE_PC) ?
-						(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE) :
+						BUTTON_ACCEPT_USE :
 						B_BUTTON;
 					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {

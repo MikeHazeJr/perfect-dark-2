@@ -1317,13 +1317,13 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_RELOAD,         VKL_R);
         addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON */
         addBind(imc, ACTION_USE,            VKL_F);
-        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_A)); /* A_BUTTON / menu accept */
+        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_Y)); /* Y_BUTTON / door open, interact */
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
-        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel */
+        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel, FarSight exit */
         addBind(imc, ACTION_CROUCH,         VK_LCTRL);
-        addBind(imc, ACTION_CROUCH,         JOY_BTN(0, JBTN_RSTICK)); /* Right stick click */
+        addBind(imc, ACTION_CROUCH,         JOY_BTN(0, JBTN_B)); /* B_BUTTON / crouch (dual-bind with CANCEL_USE) */
         addBind(imc, ACTION_JUMP,           VK_SPACE);
-        addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_Y));
+        addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_A)); /* A_BUTTON / jump */
         addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
         addBind(imc, ACTION_SPRINT,         JOY_BTN(0, JBTN_LSTICK)); /* Left stick click */
         /* ACTION_ZOOM_IN / ZOOM_OUT: no default kbd bind — user rebinds if needed */
@@ -1358,33 +1358,9 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
         addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
-    } else {
-        /* Players 1-3: gamepad-only defaults */
-        /* Movement: NO left-stick-as-button binds. Analog movement is handled
-         * entirely by actionmapPollFrame() reading SDL_GameControllerGetAxis →
-         * ACTION_AXIS_MOVE_X/Y. input.c merges analog into npad->stick_x/y when
-         * the digital path produces 0, so analog movement works correctly. */
-        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(p, JOFS_RTRIG));
-        addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(p, JOFS_LTRIG));
-        addBind(imc, ACTION_RELOAD,         JOY_BTN(p, JBTN_X));   /* X_BUTTON */
-        addBind(imc, ACTION_USE,            JOY_BTN(p, JBTN_A));   /* A_BUTTON / menu accept */
-        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(p, JBTN_B));   /* B_BUTTON / menu cancel */
-        addBind(imc, ACTION_JUMP,           JOY_BTN(p, JBTN_Y));
-        addBind(imc, ACTION_CROUCH,         JOY_BTN(p, JBTN_RSTICK)); /* Right stick click */
-        addBind(imc, ACTION_SPRINT,         JOY_BTN(p, JBTN_LSTICK)); /* Left stick click */
-        addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(p, JBTN_LB));
-        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(p, JBTN_RB));
-        addBind(imc, ACTION_AIM_UP,         JOY_BTN(p, JOFS_RSTICK_UP));
-        addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(p, JOFS_RSTICK_DOWN));
-        addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(p, JOFS_RSTICK_LEFT));
-        addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(p, JOFS_RSTICK_RIGHT));
-        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(p, JBTN_DPAD_UP));
-        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(p, JBTN_DPAD_DOWN));
-        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(p, JBTN_DPAD_LEFT));
-        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(p, JBTN_DPAD_RIGHT));
-        addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START));
-        addBind(imc, ACTION_SCORECARD,      JOY_BTN(p, JBTN_BACK));
     }
+    /* Players 1-3: no default gamepad binds. MP slots start unbound.
+     * The rebind UI is functional for all players — user configures manually. */
 }
 
 static void setupVehicleDefaults(s32 player)
