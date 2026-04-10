@@ -72,6 +72,11 @@ extern struct menudialogdef g_MissionDisplayOptionsMenuDialog;
 extern struct menudialogdef g_ExtendedMenuDialog;
 /* PD Mode settings — opened from Difficulty, keep legacy */
 extern struct menudialogdef g_PdModeSettingsMenuDialog;
+/* S194 Batch 2: Co-op / Counter-Op flow */
+extern struct menudialogdef g_CoopMissionDifficultyMenuDialog;
+extern struct menudialogdef g_CoopOptionsMenuDialog;
+extern struct menudialogdef g_AntiMissionDifficultyMenuDialog;
+extern struct menudialogdef g_AntiOptionsMenuDialog;
 
 /* ---- Menu navigation ---- */
 void menuPushDialog(struct menudialogdef *dialogdef);
@@ -307,6 +312,66 @@ void soloLoadBriefingForStageId(const char *stage_id);
 #define L_OPTIONS_274  0x0112  /* "Accept"             */
 #define L_OPTIONS_275  0x0113  /* "Decline"            */
 #define L_MPWEAPONS_221 0x80dd /* "Perfect Dark" (mode)*/
+
+/* S194 Batch 2: Co-op / Counter-Op language IDs.
+ * L_OPTIONS_248 = 0x00f8; values follow incrementally. */
+#define L_OPTIONS_255  0x00ff  /* "Co-Operative Options"      */
+#define L_OPTIONS_256  0x0100  /* "Radar On" (coop)            */
+#define L_OPTIONS_257  0x0101  /* "Friendly Fire"              */
+#define L_OPTIONS_258  0x0102  /* "Perfect Buddy"              */
+#define L_OPTIONS_259  0x0103  /* "Continue" (coop)            */
+#define L_OPTIONS_260  0x0104  /* "Cancel"  (coop)             */
+#define L_OPTIONS_261  0x0105  /* "Human"                      */
+#define L_OPTIONS_262  0x0106  /* "1 Simulant"                 */
+#define L_OPTIONS_263  0x0107  /* "2 Simulants"                */
+#define L_OPTIONS_264  0x0108  /* "3 Simulants"                */
+#define L_OPTIONS_265  0x0109  /* "4 Simulants"                */
+#define L_OPTIONS_266  0x010a  /* "Counter-Operative Options"  */
+#define L_OPTIONS_267  0x010b  /* "Radar On" (anti)            */
+#define L_OPTIONS_269  0x010d  /* "Continue" (anti)            */
+#define L_OPTIONS_270  0x010e  /* "Cancel"  (anti)             */
+
+/* ---- S194 Batch 2: menuitem + handlerdata ABI ----
+ * Mirrors types.h layout.  C++ file cannot include types.h because its
+ * "#define bool s32" breaks C++, so the subset we need is shadowed here.
+ * Layout verified to match struct menuitem / struct handlerdata_{checkbox,
+ * dropdown} in src/include/types.h. */
+#define MENUOP_GETOPTIONCOUNT    1
+#define MENUOP_GETOPTIONTEXT     3
+#define MENUOP_GETSELECTEDINDEX  7
+#define MENUOP_GET               8
+#define MENUOP_CHECKDISABLED     12
+
+struct s194_handlerdata_checkbox { u32 value; };
+struct s194_handlerdata_dropdown { uintptr_t value; uintptr_t unk04; };
+
+union s194_handlerdata {
+    struct s194_handlerdata_checkbox checkbox;
+    struct s194_handlerdata_dropdown dropdown;
+    u8 _pad[256];
+};
+
+struct s194_menuitem {
+    u8        type;
+    u8        param;
+    u32       flags;
+    intptr_t  param2;    /* lang ID or literal text pointer */
+    intptr_t  param3;
+    uintptr_t (*handler)(s32 op, struct s194_menuitem *, union s194_handlerdata *);
+};
+
+/* ---- Batch 2: game-side menu handler delegates ----
+ * These are normal legacy menu handlers in mainmenu.c.  The renderer
+ * delegates ALL state manipulation to these so backing-store logic
+ * (modifiedfiles dirty flag, getMaxAiBuddies clamps, connected-controller
+ * math) stays in ONE place.  We call them with our shadow types; the
+ * layout is ABI-compatible with the real struct menuitem / handlerdata. */
+uintptr_t menuhandlerCoopRadar           (s32, struct s194_menuitem *, union s194_handlerdata *);
+uintptr_t menuhandlerCoopFriendlyFire    (s32, struct s194_menuitem *, union s194_handlerdata *);
+uintptr_t menuhandlerCoopBuddy           (s32, struct s194_menuitem *, union s194_handlerdata *);
+uintptr_t menuhandlerAntiRadar           (s32, struct s194_menuitem *, union s194_handlerdata *);
+uintptr_t menuhandlerAntiMainPlayer      (s32, struct s194_menuitem *, union s194_handlerdata *);
+uintptr_t menuhandlerBuddyOptionsContinue(s32, struct s194_menuitem *, union s194_handlerdata *);
 
 } /* extern "C" */
 
@@ -1383,6 +1448,632 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
     ImGui::End();
     return 1;
+}
+
+/* =========================================================================
+ * S194 Batch 2: Co-op / Counter-Op Mission Difficulty
+ *
+ * These two dialogs share the look of renderDifficulty (Agent / SA / PA
+ * rows) but differ from the solo picker in three ways:
+ *   1. No PD Mode row -- PD Mode is a solo-only modifier.
+ *   2. Co-op checks isStageDifficultyUnlocked() per difficulty; Counter-Op
+ *      does NOT gate on unlock (legacy CoopDifficulty checks, Anti does not).
+ *   3. On confirm, the flow pushes g_CoopOptionsMenuDialog /
+ *      g_AntiOptionsMenuDialog instead of g_AcceptMissionMenuDialog --
+ *      the options pass comes first, THEN accept mission.
+ *
+ * Every pixel value uses pdguiScale() against the 1080p baseline.  The
+ * popup-scrim primitive darkens the viewport behind the modal per the d5
+ * "popups always darken" rule.
+ * ========================================================================= */
+
+static s32 s_CoopAntiDiffSelectIdx = 0;
+
+static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
+                                         struct menu *menu,
+                                         s32 winW, s32 winH,
+                                         bool isCoop,
+                                         const char *windowId)
+{
+    (void)dialog; (void)menu; (void)winW; (void)winH;
+
+    /* d5: popups always darken behind the modal. */
+    pdguiPopupDarkenBehind(0.55f);
+
+    float mw  = pdguiMenuWidth() * 0.60f;
+    float mh  = pdguiMenuHeight() * 0.48f;  /* shorter: no PD Mode row */
+    ImVec2 pos = pdguiCenterPos(mw, mh);
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
+                        | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoCollapse
+                        | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_NoTitleBar
+                        | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin(windowId, nullptr, wf)) {
+        ImGui::End();
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        s_CoopAntiDiffSelectIdx = 0;  /* default to Agent */
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
+
+    float titleH = pdguiScale(39.0f);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_248), 1);
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+
+    /* Stage name + mode subheader */
+    s32 si = g_MissionConfig.stageindex;
+    if (si >= 0 && si < NUM_SOLOSTAGES) {
+        char stageName[128];
+        snprintf(stageName, sizeof(stageName), "%s%s",
+                 langSafe(g_SoloStages[si].name1),
+                 langSafe(g_SoloStages[si].name2));
+        ImGui::TextDisabled("%s", stageName);
+    }
+    ImGui::TextDisabled("%s", isCoop ? "Cooperative" : "Counter-Operative");
+    ImGui::Separator();
+
+    /* Difficulty rows: Agent, SA, PA, Cancel */
+    static const s32 k_Diffs[]    = { DIFF_A, DIFF_SA, DIFF_PA };
+    static const s32 k_DiffIds[]  = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 };
+    static const char *k_DiffFallbackNames[3] = {
+        "Agent", "Special Agent", "Perfect Agent"
+    };
+
+    const s32 numOptions = 3 + 1;  /* diffs + Cancel */
+
+    if (s_CoopAntiDiffSelectIdx < 0)           s_CoopAntiDiffSelectIdx = 0;
+    if (s_CoopAntiDiffSelectIdx >= numOptions) s_CoopAntiDiffSelectIdx = numOptions - 1;
+
+    /* D-pad nav with wrap (d5 rule: circular wrapping always enabled) */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
+        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+        s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx + 1) % numOptions;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
+        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+        s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx - 1 + numOptions) % numOptions;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+        ImGui::End();
+        return 1;
+    }
+
+    float rowH = pdguiScale(54.0f);
+
+    for (s32 i = 0; i < 3; i++) {
+        s32 diff = k_Diffs[i];
+        /* Only Co-op checks unlock status (matches legacy CHECKDISABLED). */
+        bool locked = isCoop ? !isStageDifficultyUnlocked(si, diff) : false;
+        bool isActive = (s_CoopAntiDiffSelectIdx == i);
+
+        ImGui::PushID(i);
+
+        if (isActive) {
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
+        }
+
+        /* Selectable-with-label pattern (NOT dl->AddText overlay) so the
+         * text is clipped and laid out by ImGui's own path -- rules out
+         * the S192 "missing text" class of regressions. */
+        const char *locName = langSafe(k_DiffIds[i]);
+        if (!locName || !locName[0]) locName = k_DiffFallbackNames[i];
+
+        char rowLabel[128];
+        if (locked) {
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    [Locked]", locName);
+        } else {
+            snprintf(rowLabel, sizeof(rowLabel), "  %s", locName);
+        }
+
+        ImVec4 textCol = locked ? ImVec4(0.55f, 0.55f, 0.65f, 1.0f)
+                                : ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, textCol);
+        bool clicked = ImGui::Selectable(rowLabel, isActive,
+                                          ImGuiSelectableFlags_None,
+                                          ImVec2(0, rowH));
+        ImGui::PopStyleColor();
+
+        if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = i;
+
+        bool kbConfirm = isActive &&
+            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+             ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+
+        if ((clicked || kbConfirm) && !locked) {
+            s_CoopAntiDiffSelectIdx = i;
+            SM_CLEAR_PDMODE(&g_MissionConfig);
+            SM_SET_DIFFICULTY(&g_MissionConfig, diff);
+            lvSetDifficulty(diff);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            menuPopDialog();
+            menuPushDialog(isCoop ? &g_CoopOptionsMenuDialog
+                                  : &g_AntiOptionsMenuDialog);
+        } else if ((clicked || kbConfirm) && locked) {
+            pdguiPlaySound(PDGUI_SND_ERROR);
+        }
+
+        /* Diff badge dot on the left gutter */
+        {
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            ImVec2 rmin = ImGui::GetItemRectMin();
+            float dotR = pdguiScale(6.0f);
+            float dotX = rmin.x + pdguiScale(12.0f);
+            float dotY = rmin.y + rowH * 0.5f;
+            dl->AddCircleFilled(ImVec2(dotX, dotY), dotR,
+                locked ? IM_COL32(60, 60, 70, 160)
+                       : k_DiffBadgeColor[diff]);
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::Separator();
+
+    /* Cancel row */
+    {
+        s32 cancelIdx = 3;
+        bool isActive = (s_CoopAntiDiffSelectIdx == cancelIdx);
+        ImGui::PushID(0x20);
+
+        if (isActive) {
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH * 0.8f);
+        }
+
+        const char *cancelLoc = langSafe(L_OPTIONS_254);
+        if (!cancelLoc || !cancelLoc[0]) cancelLoc = "Cancel";
+        char cancelRowLabel[64];
+        snprintf(cancelRowLabel, sizeof(cancelRowLabel), "  %s", cancelLoc);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.70f, 0.70f, 1.0f));
+        bool doCancel = ImGui::Selectable(cancelRowLabel, isActive,
+                                           ImGuiSelectableFlags_None,
+                                           ImVec2(0, rowH * 0.8f));
+        ImGui::PopStyleColor();
+
+        if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = cancelIdx;
+        if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                         ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
+            doCancel = true;
+
+        if (doCancel) {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuPopDialog();
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::End();
+    return 1;
+}
+
+static s32 renderCoopMissionDifficulty(struct menudialog *dialog,
+                                        struct menu *menu,
+                                        s32 winW, s32 winH)
+{
+    return renderCoopAntiDifficultyImpl(dialog, menu, winW, winH,
+                                         /*isCoop=*/true, "##coop_difficulty");
+}
+
+static s32 renderAntiMissionDifficulty(struct menudialog *dialog,
+                                        struct menu *menu,
+                                        s32 winW, s32 winH)
+{
+    return renderCoopAntiDifficultyImpl(dialog, menu, winW, winH,
+                                         /*isCoop=*/false, "##anti_difficulty");
+}
+
+/* =========================================================================
+ * S194 Batch 2: Co-op / Counter-Op Options
+ *
+ * Two dialogs with similar structure.  Each has a small settings list
+ * (checkboxes + one dropdown) followed by a Continue / Cancel choice.
+ *
+ * Co-op list:
+ *   - Radar On        (checkbox, g_Vars.coopradaron)
+ *   - Friendly Fire   (checkbox, g_Vars.coopfriendlyfire)
+ *   - Perfect Buddy   (dropdown, g_Vars.numaibuddies / getMaxAiBuddies)
+ *
+ * Anti list:
+ *   - Radar On        (checkbox, g_Vars.antiradaron)
+ *   - Main Player     (dropdown, g_Vars.pendingantiplayernum^1)
+ *
+ * d5 compliance:
+ *   - popup scrim behind the modal (pdguiPopupDarkenBehind 0.55)
+ *   - Continue / Cancel docked in the action bar -- NEVER scroll.
+ *     Uses pdguiBeginActionBar / pdguiActionBarButton primitives.
+ *   - Every state read/write delegates to the legacy menu handler so the
+ *     backing-store logic (modifiedfiles dirty flag, getMaxAiBuddies
+ *     clamps, connected-controller math) stays in one place.
+ *   - Every sizing via pdguiScale() against the 1080p baseline.
+ * ========================================================================= */
+
+static s32  s_CoopAntiOptSelectIdx = 0;  /* 0..N = items, N+1 = Continue, N+2 = Cancel */
+
+/* Call a legacy menu handler.  The handler pointer is fetched directly
+ * from the named function -- no items-array walking, no dialog pointer
+ * indirection. */
+static inline u32 s194_GetCheckbox(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *))
+{
+    /* MENUOP_GET returns the boolean value as the return code. */
+    return (u32)h(MENUOP_GET, nullptr, nullptr);
+}
+
+static inline void s194_SetCheckbox(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *),
+                                    u32 newVal)
+{
+    union s194_handlerdata hd;
+    memset(&hd, 0, sizeof(hd));
+    hd.checkbox.value = newVal;
+    h(MENUOP_SET, nullptr, &hd);
+}
+
+static inline uintptr_t s194_GetDropdownCount(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *))
+{
+    union s194_handlerdata hd;
+    memset(&hd, 0, sizeof(hd));
+    h(MENUOP_GETOPTIONCOUNT, nullptr, &hd);
+    return hd.dropdown.value;
+}
+
+static inline uintptr_t s194_GetDropdownSelected(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *))
+{
+    union s194_handlerdata hd;
+    memset(&hd, 0, sizeof(hd));
+    h(MENUOP_GETSELECTEDINDEX, nullptr, &hd);
+    return hd.dropdown.value;
+}
+
+static inline const char *s194_GetDropdownOptionText(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *),
+                                                      uintptr_t idx)
+{
+    union s194_handlerdata hd;
+    memset(&hd, 0, sizeof(hd));
+    hd.dropdown.value = idx;
+    /* Return value is a uintptr_t encoding either a lang id OR a const char*.
+     * Legacy handlers typically return langGet(langId) which IS a const char*. */
+    uintptr_t rv = h(MENUOP_GETOPTIONTEXT, nullptr, &hd);
+    return reinterpret_cast<const char *>(rv);
+}
+
+static inline void s194_SetDropdownIndex(uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *),
+                                         uintptr_t idx)
+{
+    union s194_handlerdata hd;
+    memset(&hd, 0, sizeof(hd));
+    hd.dropdown.value = idx;
+    h(MENUOP_SET, nullptr, &hd);
+}
+
+/* Shared options renderer.  numItems = 0..3 row items above the
+ * Continue/Cancel docked action bar. */
+static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
+                                      struct menu *menu,
+                                      s32 winW, s32 winH,
+                                      bool isCoop,
+                                      const char *windowId,
+                                      const char *fallbackTitle)
+{
+    (void)dialog; (void)menu; (void)winW; (void)winH;
+
+    pdguiPopupDarkenBehind(0.55f);
+
+    float mw  = pdguiMenuWidth() * 0.60f;
+    float mh  = pdguiMenuHeight() * 0.55f;
+    ImVec2 pos = pdguiCenterPos(mw, mh);
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
+                        | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoCollapse
+                        | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_NoTitleBar
+                        | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin(windowId, nullptr, wf)) {
+        ImGui::End();
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        s_CoopAntiOptSelectIdx = 0;
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
+
+    /* Title: lang id (L_OPTIONS_255 coop / L_OPTIONS_266 anti). */
+    float titleH = pdguiScale(39.0f);
+    s32 titleLang = isCoop ? L_OPTIONS_255 : L_OPTIONS_266;
+    const char *title = langSafe(titleLang);
+    if (!title || !title[0]) title = fallbackTitle;
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+
+    /* Item count: coop has 3 rows (radar, ff, buddy), anti has 2. */
+    const s32 numRows      = isCoop ? 3 : 2;
+    const s32 numContinue  = numRows;       /* Continue index */
+    const s32 numCancel    = numRows + 1;   /* Cancel   index */
+    const s32 numFocusable = numRows + 2;   /* total */
+
+    if (s_CoopAntiOptSelectIdx < 0)            s_CoopAntiOptSelectIdx = 0;
+    if (s_CoopAntiOptSelectIdx >= numFocusable)
+        s_CoopAntiOptSelectIdx = numFocusable - 1;
+
+    /* D-pad nav with wrap (d5 circular wrapping rule). */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
+        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+        s_CoopAntiOptSelectIdx = (s_CoopAntiOptSelectIdx + 1) % numFocusable;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
+        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+        s_CoopAntiOptSelectIdx =
+            (s_CoopAntiOptSelectIdx - 1 + numFocusable) % numFocusable;
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+    }
+    /* B / Escape closes the dialog (d5 back rule). */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+        ImGui::End();
+        return 1;
+    }
+    /* Start button fires Continue (matches legacy menudialogCoopAntiOptions TICK). */
+    bool startPressed = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
+
+    /* ---- Body (scrollable if it ever grows beyond the window) ---- */
+    float avail = ImGui::GetContentRegionAvail().y;
+    float bodyH = pdguiBodyHeightForActionBar(avail);
+
+    if (ImGui::BeginChild("##coopanti_body", ImVec2(0, bodyH), false,
+                          ImGuiWindowFlags_NoBackground)) {
+        float rowH = pdguiScale(48.0f);  /* gamepad-friendly min target */
+
+        s32 rowIdx = 0;
+
+        /* ---- Radar On ---- */
+        {
+            bool isActive = (s_CoopAntiOptSelectIdx == rowIdx);
+            ImGui::PushID(rowIdx);
+
+            if (isActive) {
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
+            }
+
+            uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *) =
+                isCoop ? menuhandlerCoopRadar : menuhandlerAntiRadar;
+            u32 radarOn = s194_GetCheckbox(h);
+            s32 radarLang = isCoop ? L_OPTIONS_256 : L_OPTIONS_267;
+            const char *label = langSafe(radarLang);
+            if (!label || !label[0]) label = "Radar On";
+
+            char rowLabel[128];
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    [%s]",
+                     label, radarOn ? "ON" : "OFF");
+
+            bool clicked = ImGui::Selectable(rowLabel, isActive,
+                                              ImGuiSelectableFlags_None,
+                                              ImVec2(0, rowH));
+            if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
+
+            bool kbToggle = isActive &&
+                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
+
+            if (clicked || kbToggle) {
+                s194_SetCheckbox(h, radarOn ? 0u : 1u);
+                pdguiPlaySound(radarOn ? PDGUI_SND_TOGGLEOFF : PDGUI_SND_TOGGLEON);
+            }
+
+            ImGui::PopID();
+            rowIdx++;
+        }
+
+        /* ---- Coop-only: Friendly Fire ---- */
+        if (isCoop) {
+            bool isActive = (s_CoopAntiOptSelectIdx == rowIdx);
+            ImGui::PushID(rowIdx);
+
+            if (isActive) {
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
+            }
+
+            u32 ffOn = s194_GetCheckbox(menuhandlerCoopFriendlyFire);
+            const char *label = langSafe(L_OPTIONS_257);
+            if (!label || !label[0]) label = "Friendly Fire";
+
+            char rowLabel[128];
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    [%s]",
+                     label, ffOn ? "ON" : "OFF");
+
+            bool clicked = ImGui::Selectable(rowLabel, isActive,
+                                              ImGuiSelectableFlags_None,
+                                              ImVec2(0, rowH));
+            if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
+
+            bool kbToggle = isActive &&
+                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
+
+            if (clicked || kbToggle) {
+                s194_SetCheckbox(menuhandlerCoopFriendlyFire, ffOn ? 0u : 1u);
+                pdguiPlaySound(ffOn ? PDGUI_SND_TOGGLEOFF : PDGUI_SND_TOGGLEON);
+            }
+
+            ImGui::PopID();
+            rowIdx++;
+        }
+
+        /* ---- Dropdown row (Perfect Buddy coop / Main Player anti) ---- */
+        {
+            bool isActive = (s_CoopAntiOptSelectIdx == rowIdx);
+            ImGui::PushID(rowIdx);
+
+            if (isActive) {
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
+            }
+
+            uintptr_t (*h)(s32, struct s194_menuitem *, union s194_handlerdata *) =
+                isCoop ? menuhandlerCoopBuddy : menuhandlerAntiMainPlayer;
+
+            /* Fetch count & current index from the handler. */
+            uintptr_t ddCount = s194_GetDropdownCount(h);
+            uintptr_t ddCur   = s194_GetDropdownSelected(h);
+            if ((s32)ddCur < 0)          ddCur = 0;
+            if (ddCount > 0 && ddCur >= ddCount) ddCur = ddCount - 1;
+
+            const char *curText = s194_GetDropdownOptionText(h, ddCur);
+            if (!curText || !curText[0]) curText = "(unknown)";
+
+            const char *label = isCoop ? langSafe(L_OPTIONS_258)
+                                       : "Main Player"; /* anti uses literal */
+            if (isCoop && (!label || !label[0])) label = "Perfect Buddy";
+
+            char rowLabel[192];
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    < %s >",
+                     label, curText);
+
+            bool clicked = ImGui::Selectable(rowLabel, isActive,
+                                              ImGuiSelectableFlags_None,
+                                              ImVec2(0, rowH));
+            if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
+
+            /* Left/Right decrements/increments the dropdown value.
+             * A / Enter cycles forward (advance one step). */
+            bool decrement = isActive && ddCount > 1 &&
+                (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true) ||
+                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true));
+            bool increment = isActive && ddCount > 1 &&
+                ((ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
+                  ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) ||
+                 ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                 clicked);
+
+            if (decrement) {
+                uintptr_t next = (ddCur == 0) ? (ddCount - 1) : (ddCur - 1);
+                s194_SetDropdownIndex(h, next);
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            } else if (increment) {
+                uintptr_t next = (ddCur + 1 >= ddCount) ? 0 : (ddCur + 1);
+                s194_SetDropdownIndex(h, next);
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+
+            ImGui::PopID();
+            rowIdx++;
+        }
+    }
+    ImGui::EndChild();
+
+    /* ---- Docked action bar: Continue / Cancel ----
+     * d5 rule: primary action NEVER scrolls.  pdguiBeginActionBar pins
+     * this row to the bottom of the window at pdguiActionBarHeight(). */
+    if (pdguiBeginActionBar("##coopanti_ab")) {
+        float avail = ImGui::GetContentRegionAvail().x;
+        float half  = avail * 0.5f;
+
+        bool continueActive = (s_CoopAntiOptSelectIdx == numContinue);
+        bool cancelActive   = (s_CoopAntiOptSelectIdx == numCancel);
+
+        const char *contLang = isCoop ? langSafe(L_OPTIONS_259) : langSafe(L_OPTIONS_269);
+        if (!contLang || !contLang[0]) contLang = "Continue";
+        const char *cancLang = isCoop ? langSafe(L_OPTIONS_260) : langSafe(L_OPTIONS_270);
+        if (!cancLang || !cancLang[0]) cancLang = "Cancel";
+
+        bool doContinue = false;
+        bool doCancel   = false;
+
+        if (pdguiActionBarButton(contLang, continueActive, half)) {
+            doContinue = true;
+        }
+        ImGui::SameLine();
+        if (pdguiActionBarButton(cancLang, cancelActive, ImGui::GetContentRegionAvail().x)) {
+            doCancel = true;
+        }
+
+        /* Keyboard / gamepad confirm on the focused action button */
+        if (continueActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                               ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+            doContinue = true;
+        }
+        if (cancelActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                             ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+            doCancel = true;
+        }
+
+        /* Start button is equivalent to Continue per legacy TICK handler. */
+        if (startPressed) {
+            doContinue = true;
+        }
+
+        if (doContinue) {
+            /* Delegate to the legacy handler: pops dialog, pushes
+             * g_AcceptMissionMenuDialog.  PDGUI_SND_SELECT already fired
+             * inside pdguiActionBarButton on click, but fire again on the
+             * kb/Start paths so audio feedback is consistent. */
+            menuhandlerBuddyOptionsContinue(MENUOP_SET, nullptr, nullptr);
+        } else if (doCancel) {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuPopDialog();
+        }
+    }
+    pdguiEndActionBar();
+
+    ImGui::End();
+    return 1;
+}
+
+static s32 renderCoopOptions(struct menudialog *dialog,
+                              struct menu *menu,
+                              s32 winW, s32 winH)
+{
+    return renderCoopAntiOptionsImpl(dialog, menu, winW, winH,
+                                      /*isCoop=*/true,
+                                      "##coop_options",
+                                      "Co-Operative Options");
+}
+
+static s32 renderAntiOptions(struct menudialog *dialog,
+                              struct menu *menu,
+                              s32 winW, s32 winH)
+{
+    return renderCoopAntiOptionsImpl(dialog, menu, winW, winH,
+                                      /*isCoop=*/false,
+                                      "##anti_options",
+                                      "Counter-Operative Options");
 }
 
 /* =========================================================================
@@ -2643,8 +3334,18 @@ void pdguiMenuSoloMissionRegister(void)
      * rendering.  Unregister them so the DEFAULT type fallback handles them
      * generically until dedicated ImGui renderers are built. */
 
+    /* ---- S194 Batch 2: Co-op / Counter-Op Flow (4 dialogs) ---- */
+    pdguiHotswapRegister(&g_CoopMissionDifficultyMenuDialog,
+                          renderCoopMissionDifficulty, "Co-op Difficulty");
+    pdguiHotswapRegister(&g_CoopOptionsMenuDialog,
+                          renderCoopOptions,           "Co-op Options");
+    pdguiHotswapRegister(&g_AntiMissionDifficultyMenuDialog,
+                          renderAntiMissionDifficulty, "Counter-Op Difficulty");
+    pdguiHotswapRegister(&g_AntiOptionsMenuDialog,
+                          renderAntiOptions,           "Counter-Op Options");
+
     sysLogPrintf(LOG_NOTE,
-        "pdgui_menu_solomission: Registered Group 1 — 8 ImGui + 7 legacy/inline");
+        "pdgui_menu_solomission: Registered Group 1 + Batch 2 — 12 ImGui + 7 legacy/inline");
 }
 
 } /* extern "C" */
