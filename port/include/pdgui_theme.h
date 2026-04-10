@@ -46,6 +46,12 @@ void pdguiThemeShutdown(void);
  *  Returns NULL gracefully if late init hasn't run or texture not found. */
 void *pdguiThemeGetTexture(const char *catalog_id);
 
+/** Look up the source-texture dimensions (width/height in pixels) for a
+ *  cached theme texture.  Returns 1 on success with *out_w/*out_h set,
+ *  0 if the texture is not cached or the id is unknown.  Either pointer
+ *  may be NULL if the caller only cares about the other dimension. */
+s32 pdguiThemeGetTextureSize(const char *catalog_id, u32 *out_w, u32 *out_h);
+
 /* -----------------------------------------------------------------------
  * Background texture config
  * --------------------------------------------------------------------- */
@@ -110,6 +116,21 @@ void pdguiThemeExtractRomTextures(void);
 /** Frame check: run extraction once if --extract-ui-textures is set and
  *  g_TexGeneralConfigs is available. Called from pdguiRender(). */
 void pdguiThemeCheckExtract(void);
+
+/** Initialize the base-game UI chrome template mod (S196).
+ *  Idempotent; safe to call multiple times.  Generates programmatic test
+ *  chrome assets in mods/base-game/ui-chrome/, writes the template-flagged
+ *  mod.json + README.md, loads the texture into the theme cache, and
+ *  registers the nineslice under catalog id "base:ui_chrome_frame".
+ *  Called from pdguiThemeCheckExtract(). */
+void pdguiChromeInitializeBaseMod(void);
+
+/** Get/set the persisted UI chrome toggle.  Backed by "Video.UiChromeEnabled"
+ *  in pd.ini.  The Settings -> Video dropdown calls the setter; setting this
+ *  directly does NOT hot-apply — pair with pdguiChromeSetEnabled() from
+ *  pdgui_style.h to drive the render branch. */
+void pdguiThemeSetUiChromeEnabled(s32 enabled);
+s32  pdguiThemeGetUiChromeEnabled(void);
 
 #ifdef __cplusplus
 }

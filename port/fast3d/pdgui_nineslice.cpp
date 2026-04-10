@@ -179,10 +179,86 @@ static int ns_read_string(const char **p, char *dst, int maxlen) {
     return 1;
 }
 
+/* Parse a "stretch" or "tile" string into NINESLICE_STRETCH / NINESLICE_TILE. */
+static s32 s_parseFillMode(const char **p)
+{
+    char mode[32];
+    ns_read_string(p, mode, sizeof(mode));
+    return (strcmp(mode, "tile") == 0) ? NINESLICE_TILE : NINESLICE_STRETCH;
+}
+
+/* Skip whatever primitive/object/array value starts at *p. */
+static void s_skipValue(const char **p)
+{
+    ns_skip_ws(p);
+    if (**p == '"') {
+        (*p)++;
+        while (**p && **p != '"') (*p)++;
+        if (**p) (*p)++;
+    } else if (**p == '{') {
+        int d = 1; (*p)++;
+        while (d > 0 && **p) {
+            if (**p == '{') d++;
+            else if (**p == '}') d--;
+            (*p)++;
+        }
+    } else if (**p == '[') {
+        int d = 1; (*p)++;
+        while (d > 0 && **p) {
+            if (**p == '[') d++;
+            else if (**p == ']') d--;
+            (*p)++;
+        }
+    } else {
+        while (**p && **p != ',' && **p != '}') (*p)++;
+    }
+}
+
+/* Parse a { top, bottom, left, right } sub-object, writing into four s32
+ * outputs.  Returns 1 on success.  Missing fields keep their prior value. */
+static s32 s_parseInsetObject(const char **p,
+                              s32 *out_top, s32 *out_bottom,
+                              s32 *out_left, s32 *out_right)
+{
+    ns_skip_ws(p);
+    if (**p != '{') return 0;
+    (*p)++;
+
+    while (**p && **p != '}') {
+        ns_skip_ws(p);
+        if (**p == ',' || **p == ':') { (*p)++; continue; }
+        if (**p != '"') { (*p)++; continue; }
+
+        char key[32] = {0};
+        (*p)++;
+        int ki = 0;
+        while (**p && **p != '"' && ki < 31) key[ki++] = *(*p)++;
+        key[ki] = '\0';
+        if (**p == '"') (*p)++;
+
+        ns_skip_ws(p);
+        if (**p == ':') (*p)++;
+        ns_skip_ws(p);
+
+        if (strcmp(key, "top") == 0)         *out_top    = ns_read_int(p);
+        else if (strcmp(key, "bottom") == 0) *out_bottom = ns_read_int(p);
+        else if (strcmp(key, "left") == 0)   *out_left   = ns_read_int(p);
+        else if (strcmp(key, "right") == 0)  *out_right  = ns_read_int(p);
+        else s_skipValue(p);
+    }
+
+    if (**p == '}') (*p)++;
+    return 1;
+}
+
 static s32 s_parseNinesliceJson(const char *src, nineslice_def_t *def)
 {
     memset(def, 0, sizeof(*def));
-    def->edge_mode = NINESLICE_STRETCH;
+    def->edge_mode   = NINESLICE_STRETCH;
+    def->top_mode    = NINESLICE_STRETCH;
+    def->bottom_mode = NINESLICE_STRETCH;
+    def->left_mode   = NINESLICE_STRETCH;
+    def->right_mode  = NINESLICE_STRETCH;
     def->center_mode = NINESLICE_STRETCH;
 
     const char *p = src;
@@ -207,26 +283,81 @@ static s32 s_parseNinesliceJson(const char *src, nineslice_def_t *def)
         if (*p == ':') p++;
         ns_skip_ws(&p);
 
+        /* --- Legacy short-form flat insets (used when no src_inset block) --- */
         if (strcmp(key, "left") == 0)        def->left   = ns_read_int(&p);
         else if (strcmp(key, "right") == 0)   def->right  = ns_read_int(&p);
         else if (strcmp(key, "top") == 0)     def->top    = ns_read_int(&p);
         else if (strcmp(key, "bottom") == 0)  def->bottom = ns_read_int(&p);
-        else if (strcmp(key, "edgeMode") == 0) {
-            char mode[32];
-            ns_read_string(&p, mode, sizeof(mode));
-            def->edge_mode = (strcmp(mode, "tile") == 0) ? NINESLICE_TILE : NINESLICE_STRETCH;
+
+        /* --- New-form split insets --- */
+        else if (strcmp(key, "src_inset") == 0) {
+            s_parseInsetObject(&p,
+                &def->src_top, &def->src_bottom,
+                &def->src_left, &def->src_right);
         }
-        else if (strcmp(key, "centerMode") == 0) {
-            char mode[32];
-            ns_read_string(&p, mode, sizeof(mode));
-            def->center_mode = (strcmp(mode, "tile") == 0) ? NINESLICE_TILE : NINESLICE_STRETCH;
+        else if (strcmp(key, "dst_corner_px") == 0) {
+            s_parseInsetObject(&p,
+                &def->dst_top, &def->dst_bottom,
+                &def->dst_left, &def->dst_right);
+            def->has_split = 1;
         }
+
+        /* --- Legacy single edge_mode shortcut --- */
+        else if (strcmp(key, "edgeMode") == 0 || strcmp(key, "edge_mode") == 0) {
+            def->edge_mode = s_parseFillMode(&p);
+        }
+        else if (strcmp(key, "centerMode") == 0 || strcmp(key, "center_mode") == 0) {
+            def->center_mode = s_parseFillMode(&p);
+        }
+
+        /* --- New per-edge modes --- */
+        else if (strcmp(key, "top_mode") == 0) {
+            def->top_mode = s_parseFillMode(&p);
+            def->has_per_edge_mode = 1;
+        }
+        else if (strcmp(key, "bottom_mode") == 0) {
+            def->bottom_mode = s_parseFillMode(&p);
+            def->has_per_edge_mode = 1;
+        }
+        else if (strcmp(key, "left_mode") == 0) {
+            def->left_mode = s_parseFillMode(&p);
+            def->has_per_edge_mode = 1;
+        }
+        else if (strcmp(key, "right_mode") == 0) {
+            def->right_mode = s_parseFillMode(&p);
+            def->has_per_edge_mode = 1;
+        }
+
         else {
-            /* Skip unknown value */
-            if (*p == '"') { p++; while (*p && *p != '"') p++; if (*p) p++; }
-            else if (*p == '{') { int d = 1; p++; while (d > 0 && *p) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
-            else { while (*p && *p != ',' && *p != '}') p++; }
+            s_skipValue(&p);
         }
+    }
+
+    /* --- Back-fill derived fields ---
+     *
+     * If the manifest supplied only the legacy flat insets we reuse them for
+     * both source and destination (preserves previous behaviour for existing
+     * mods authored against the old schema).
+     *
+     * If per-edge modes were NOT set, all four edges inherit edge_mode. */
+    if (def->src_left == 0 && def->src_right == 0 &&
+        def->src_top == 0  && def->src_bottom == 0) {
+        def->src_left   = def->left;
+        def->src_right  = def->right;
+        def->src_top    = def->top;
+        def->src_bottom = def->bottom;
+    }
+    if (!def->has_split) {
+        def->dst_left   = def->src_left;
+        def->dst_right  = def->src_right;
+        def->dst_top    = def->src_top;
+        def->dst_bottom = def->src_bottom;
+    }
+    if (!def->has_per_edge_mode) {
+        def->top_mode    = def->edge_mode;
+        def->bottom_mode = def->edge_mode;
+        def->left_mode   = def->edge_mode;
+        def->right_mode  = def->edge_mode;
     }
 
     return 1;
@@ -253,6 +384,33 @@ void pdguiNinesliceShutdown(void)
     sysLogPrintf(LOG_NOTE, "PDGUI nineslice: shutdown");
 }
 
+/* Populate derived src_*/dst_*/per-edge mode fields from legacy short-form
+ * inputs.  Runs on every register call so programmatic callers that set
+ * only the classic left/right/top/bottom + edge_mode + center_mode fields
+ * still get a valid struct. */
+static void s_backfillDef(nineslice_def_t *def)
+{
+    if (def->src_left == 0 && def->src_right == 0 &&
+        def->src_top == 0  && def->src_bottom == 0) {
+        def->src_left   = def->left;
+        def->src_right  = def->right;
+        def->src_top    = def->top;
+        def->src_bottom = def->bottom;
+    }
+    if (!def->has_split) {
+        def->dst_left   = def->src_left;
+        def->dst_right  = def->src_right;
+        def->dst_top    = def->src_top;
+        def->dst_bottom = def->src_bottom;
+    }
+    if (!def->has_per_edge_mode) {
+        def->top_mode    = def->edge_mode;
+        def->bottom_mode = def->edge_mode;
+        def->left_mode   = def->edge_mode;
+        def->right_mode  = def->edge_mode;
+    }
+}
+
 s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def)
 {
     if (!catalog_id || !def) return 0;
@@ -261,6 +419,7 @@ s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def)
     struct ns_entry *existing = s_findEntry(catalog_id);
     if (existing) {
         existing->def = *def;
+        s_backfillDef(&existing->def);
         return 1;
     }
 
@@ -274,12 +433,14 @@ s32 pdguiNinesliceRegister(const char *catalog_id, const nineslice_def_t *def)
     struct ns_entry *e = &s_NsDefs[s_NsCount++];
     snprintf(e->catalog_id, sizeof(e->catalog_id), "%s", catalog_id);
     e->def = *def;
+    s_backfillDef(&e->def);
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI nineslice: registered '%s' (L=%d R=%d T=%d B=%d edge=%s center=%s)",
-        catalog_id, def->left, def->right, def->top, def->bottom,
-        def->edge_mode == NINESLICE_TILE ? "tile" : "stretch",
-        def->center_mode == NINESLICE_TILE ? "tile" : "stretch");
+        "PDGUI nineslice: registered '%s' (src L=%d R=%d T=%d B=%d  dst L=%d R=%d T=%d B=%d  center=%s)",
+        catalog_id,
+        e->def.src_left, e->def.src_right, e->def.src_top, e->def.src_bottom,
+        e->def.dst_left, e->def.dst_right, e->def.dst_top, e->def.dst_bottom,
+        e->def.center_mode == NINESLICE_TILE ? "tile" : "stretch");
 
     return 1;
 }
@@ -390,63 +551,82 @@ void pdguiNinesliceDrawEx(void *tex, s32 tex_w, s32 tex_h,
 
     float ftw = (float)tex_w;
     float fth = (float)tex_h;
-    float fl  = (float)def->left;
-    float fr  = (float)def->right;
-    float ft  = (float)def->top;
-    float fb  = (float)def->bottom;
 
-    /* Source regions (in texture pixels) */
-    float src_mid_x = fl;
-    float src_mid_y = ft;
-    float src_mid_w = ftw - fl - fr;
-    float src_mid_h = fth - ft - fb;
+    /* --- Source insets (drive UV) ---
+     * These are measured in source texture pixels. */
+    float sl = (float)def->src_left;
+    float sr = (float)def->src_right;
+    float st = (float)def->src_top;
+    float sb = (float)def->src_bottom;
+    float src_mid_w = ftw - sl - sr;
+    float src_mid_h = fth - st - sb;
+    if (src_mid_w < 0.0f) src_mid_w = 0.0f;
+    if (src_mid_h < 0.0f) src_mid_h = 0.0f;
 
-    /* Destination regions (in screen pixels) */
-    /* Corners must not exceed destination size */
-    float dst_l = fl < w * 0.5f ? fl : w * 0.5f;
-    float dst_r = fr < w * 0.5f ? fr : w * 0.5f;
-    float dst_t = ft < h * 0.5f ? ft : h * 0.5f;
-    float dst_b = fb < h * 0.5f ? fb : h * 0.5f;
-    float dst_mid_w = w - dst_l - dst_r;
-    float dst_mid_h = h - dst_t - dst_b;
+    /* --- Destination corners (drive vertex layout) ---
+     * These are measured in screen pixels.  Clamp so opposite corners
+     * don't overlap on tiny draw rects. */
+    float dl_px = (float)def->dst_left;
+    float dr_px = (float)def->dst_right;
+    float dt_px = (float)def->dst_top;
+    float db_px = (float)def->dst_bottom;
+    if (dl_px + dr_px > w) {
+        float scale = w / (dl_px + dr_px);
+        dl_px *= scale;
+        dr_px *= scale;
+    }
+    if (dt_px + db_px > h) {
+        float scale = h / (dt_px + db_px);
+        dt_px *= scale;
+        db_px *= scale;
+    }
+    float dst_mid_w = w - dl_px - dr_px;
+    float dst_mid_h = h - dt_px - db_px;
+    if (dst_mid_w < 0.0f) dst_mid_w = 0.0f;
+    if (dst_mid_h < 0.0f) dst_mid_h = 0.0f;
+
+    s32 top_mode    = def->top_mode;
+    s32 bottom_mode = def->bottom_mode;
+    s32 left_mode   = def->left_mode;
+    s32 right_mode  = def->right_mode;
 
     /* Row 0: TL, Top, TR */
-    s_drawRegion(dl, tid, 0,  0,  fl, ft, ftw, fth,
-                 x, y, dst_l, dst_t,
+    s_drawRegion(dl, tid, 0,  0,  sl, st, ftw, fth,
+                 x, y, dl_px, dt_px,
                  NINESLICE_STRETCH, col);
 
-    s_drawRegion(dl, tid, fl, 0,  src_mid_w, ft, ftw, fth,
-                 x + dst_l, y, dst_mid_w, dst_t,
-                 def->edge_mode, col);
+    s_drawRegion(dl, tid, sl, 0,  src_mid_w, st, ftw, fth,
+                 x + dl_px, y, dst_mid_w, dt_px,
+                 top_mode, col);
 
-    s_drawRegion(dl, tid, ftw - fr, 0, fr, ft, ftw, fth,
-                 x + w - dst_r, y, dst_r, dst_t,
+    s_drawRegion(dl, tid, ftw - sr, 0, sr, st, ftw, fth,
+                 x + w - dr_px, y, dr_px, dt_px,
                  NINESLICE_STRETCH, col);
 
     /* Row 1: Left, Center, Right */
-    s_drawRegion(dl, tid, 0, ft, fl, src_mid_h, ftw, fth,
-                 x, y + dst_t, dst_l, dst_mid_h,
-                 def->edge_mode, col);
+    s_drawRegion(dl, tid, 0, st, sl, src_mid_h, ftw, fth,
+                 x, y + dt_px, dl_px, dst_mid_h,
+                 left_mode, col);
 
-    s_drawRegion(dl, tid, fl, ft, src_mid_w, src_mid_h, ftw, fth,
-                 x + dst_l, y + dst_t, dst_mid_w, dst_mid_h,
+    s_drawRegion(dl, tid, sl, st, src_mid_w, src_mid_h, ftw, fth,
+                 x + dl_px, y + dt_px, dst_mid_w, dst_mid_h,
                  def->center_mode, col);
 
-    s_drawRegion(dl, tid, ftw - fr, ft, fr, src_mid_h, ftw, fth,
-                 x + w - dst_r, y + dst_t, dst_r, dst_mid_h,
-                 def->edge_mode, col);
+    s_drawRegion(dl, tid, ftw - sr, st, sr, src_mid_h, ftw, fth,
+                 x + w - dr_px, y + dt_px, dr_px, dst_mid_h,
+                 right_mode, col);
 
     /* Row 2: BL, Bottom, BR */
-    s_drawRegion(dl, tid, 0, fth - fb, fl, fb, ftw, fth,
-                 x, y + h - dst_b, dst_l, dst_b,
+    s_drawRegion(dl, tid, 0, fth - sb, sl, sb, ftw, fth,
+                 x, y + h - db_px, dl_px, db_px,
                  NINESLICE_STRETCH, col);
 
-    s_drawRegion(dl, tid, fl, fth - fb, src_mid_w, fb, ftw, fth,
-                 x + dst_l, y + h - dst_b, dst_mid_w, dst_b,
-                 def->edge_mode, col);
+    s_drawRegion(dl, tid, sl, fth - sb, src_mid_w, sb, ftw, fth,
+                 x + dl_px, y + h - db_px, dst_mid_w, db_px,
+                 bottom_mode, col);
 
-    s_drawRegion(dl, tid, ftw - fr, fth - fb, fr, fb, ftw, fth,
-                 x + w - dst_r, y + h - dst_b, dst_r, dst_b,
+    s_drawRegion(dl, tid, ftw - sr, fth - sb, sr, sb, ftw, fth,
+                 x + w - dr_px, y + h - db_px, dr_px, db_px,
                  NINESLICE_STRETCH, col);
 }
 
