@@ -8,7 +8,9 @@
 
 ## v0.1.0 "Foundation" Release Prep
 
-### Input System (S189 — DONE)
+### Input System
+
+#### Done (S189 + pre-S189)
 
 | Item | Status | Detail |
 |------|--------|--------|
@@ -16,6 +18,39 @@
 | **Gamepad layout: A=jump, Y=use, B=crouch** | FIXED (S189) | actionmap.cpp: Y→USE, A→JUMP, B→CROUCH (dual with CANCEL_USE). RSTICK unbound from crouch. |
 | **MP 1-3 default gamepad binds removed** | DONE (S189) | setupGameplayDefaults else block removed. MP slots start unbound, rebind UI still works. |
 | **CrouchMode** | ALREADY DONE (pre-S189) | Game.Player%d.CrouchMode: 0=hold (default), 1=analog, 2=toggle, 3=toggle+analog. bondmove.c:1925. |
+
+#### Landed, awaiting rebuild (unruffled-kalam worktree, S190)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **unk14 gate removed** | LANDED | bondmove.c:~1551 — `unk14 = true` now unconditional in CONTROLMODE_PC. Was gated on c2stick, breaking left-stick strafe when right stick idle. |
+| **canlookahead gate removed (ADS)** | LANDED | bondmove.c:~1633 — `canlookahead = true` unconditional in ADS block. Was c2stick-gated. |
+| **canlookahead gate removed (non-ADS)** | LANDED | bondmove.c:~1642 — `canlookahead = !insightaimmode` only; stick gate removed. |
+| **FarSight strafe — left stick** | LANDED | bondmove.c:~2104 — FarSight strafe reads `c1stickxsafe` (left stick), not `c2stickx` (aim stick). |
+| **LSTICK=Sprint define + bind** | LANDED | actionmap.cpp — `JBTN_LSTICK`/`JBTN_RSTICK` defines added; LSTICK click → ACTION_SPRINT. |
+| **_dev-window.ps1 restored** | LANDED | Restored from 68c0b186 after truncation (2311→2232 lines). Em-dashes → hyphens to prevent re-truncation. |
+
+#### In Progress (unruffled-kalam worktree)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **usemask cleanup** | IN PROGRESS | bondmove.c:~1832 — full removal of `BUTTON_CANCEL_USE` from PC usemask (S189 fixed door-open; this is a cleanup pass to ensure mask is minimal). |
+| **P0-only binding refactor** | IN PROGRESS | actionmap.cpp: kill MP players 1–3 loop entirely. Player 0 only in every IMC; no p=0..3 loops anywhere in default binding setup. |
+| **Bind 1 / Bind 2 collapse** | IN PROGRESS | Collapse to single default per action: one kbd default + one gamepad default. Single-column rebind UI. (ActionBinding struct refactor if structural.) |
+| **Menu IMC 3-action reduction** | IN PROGRESS | UI Select (A), Back/Cancel (B), Use (Y) only. Player 0 only. |
+| **crouch_mode in pd.ini** | IN PROGRESS | `Game.Player%d.CrouchMode` persisted in pd.ini. Per-player toggle bool resets on respawn/load/mode-change. Already implemented pre-S189; confirm wired to ImGui Options panel. |
+
+#### TODO — Verification Pass (post-unruffled-kalam rebuild)
+
+| Item | Priority | Detail |
+|------|----------|--------|
+| **In-game verification: A/B/Y input** | HIGH | A=jump, B=crouch (no door open), Y=use (door opens), LSTICK=sprint, R3 unbound. |
+| **Single-column rebind UI** | HIGH | Confirm Bind1/Bind2 collapse shows in rebind screen. No MP pre-binds visible. |
+| **crouch_mode=1 toggles correctly** | MED | Verify toggle mode in pd.ini works; hold mode (0) is default. |
+| **Surface crouch_mode in ImGui options** | MED | Add toggle to Options/Controls panel if not already present. |
+| **File truncation safeguard in build pipeline** | DONE (S190) | SP-9 guard implemented in `devtools/build-headless.ps1`: pre-commit `git diff HEAD --numstat` check aborts auto-commit on net < -20 lines with additions < 1/3 of deletions. Commit-time net, not prevention. Mode B (AI output truncation) remains ONGOING_RISK within a session before first commit. (See SP-9.) |
+| **Mission-end crash fix (B-129)** | HIGH | Pending diagnosis in exciting-fermat worktree. Fix after backtrace symbolization. |
+| **ActionBinding struct refactor** | LOW | If Bind1/Bind2 collapse requires structural change, track as separate item. |
 
 ### Must-Have
 
@@ -25,6 +60,7 @@
 | **D5 Phase 4 -- Theme System** | HIGH | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. ~3 sessions. |
 | **B-112 root cause** | HIGH | INVESTIGATING | Chr pointer corruption in 31-bot matches. VEH guard + chrBruise/chrDamage guards in place. Awaiting next crash log. |
 | **B-126 silent crash** | HIGH | INVESTIGATING | Silent crash ~8min into MP. Heartbeat logger added (S187). Awaiting next repro. |
+| **B-129 mission-end AV crash** | HIGH | INVESTIGATING | AV in `imgui_menu on_push` at end of M1/O1. Backtrace captured. Assigned to exciting-fermat for symbolization and fix. |
 | **D13 -- Update System build test** | MED | BLOCKED | Code written (S11). Needs: libcurl MSYS2 static link, compile test, first GitHub release for E2E. |
 | **Build verification + QC pass** | MED | PLANNED | Clean build on dev, all QC tests from qc-tests.md passing, no known crash bugs. |
 
@@ -46,6 +82,8 @@
 | Bug | Description | File |
 |-----|-------------|------|
 | **B-112** | Chr pointer corruption in 31-bot matches (guards in place, root cause unknown) | chraction.c, chr.c |
+| **B-126** | Silent crash ~8min into MP — process dies silently, no VEH log. Heartbeat instrumentation added (S187); awaiting next repro. | lv.c (heartbeat), crash.c |
+| **B-129** | AV at end of M1/O1 post-game transition — `imgui_menu on_push` crashes with CODE=0xc0000005. Hypothesis: legacy menu state deref on push. Assigned exciting-fermat. | pdgui_menu_endscreen.cpp (likely) |
 
 ### MEDIUM
 | Bug | Description | File |

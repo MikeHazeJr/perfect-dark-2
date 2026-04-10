@@ -3,6 +3,62 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S190 — 2026-04-10 (Input System Bugfix Sweep + Mission-End Crash Triage)
+
+**Focus**: Parallel tracks. Track A (worktree: unruffled-kalam): more input system fixes — twin-stick gate, canlookahead, FarSight strafe, binding rework in progress. Track B (worktree: exciting-fermat): mission-end crash diagnosis. This is a context-maintenance session; no source changes here.
+
+### Track A — Input System Overhaul (unruffled-kalam worktree)
+
+**Already landed, awaiting merge + rebuild:**
+- `bondmove.c:~1551` — `unk14 = true` unconditionally in CONTROLMODE_PC. Was gated on `(c2stickx || c2sticky)`, forcing right-stick deflection to enable sideways left-stick movement.
+- `bondmove.c:~1633` (ADS path) — `canlookahead = true`, was `(c2stickx || c2sticky)`.
+- `bondmove.c:~1642` (non-ADS path) — `canlookahead = !insightaimmode` only; stick gate removed.
+- `bondmove.c:~2104` (FarSight strafe) — now uses `c1stickxsafe` (left stick) instead of `c2stickx` (aim stick while ADS'd).
+- `actionmap.cpp` — `JBTN_LSTICK`/`RSTICK` defines added; LSTICK click → SPRINT; RSTICK click → CROUCH (RSTICK bind removed in in-flight task below).
+- `devtools/_dev-window.ps1` — em dashes replaced with hyphens (Windows-1252 encoding issue); restored from commit 68c0b186 after truncation by edit pipeline.
+
+**In-flight (being implemented in this worktree):**
+- `bondmove.c:~1832 usemask` — removing `BUTTON_CANCEL_USE` from PC-side mask so B no longer opens doors.
+- `actionmap.cpp setupGameplayDefaults` — removing MP player loop entirely. Player 0 only across every IMC; no p=0..3 loops.
+- Collapse "Bind 1 / Bind 2" to single default per action: one kbd default + one gamepad default. Single-column rebind UI.
+- Menu IMC reduced to three bindings: UI Select (A), Back/Cancel (B), Use (Y). Player 0 only.
+- Player 0 gamepad layout locked: A=Jump, B=Crouch, X=Reload, Y=Use, LSTICK click=Sprint, R3 unbound.
+- `crouch_mode` config flag (0=hold default, 1=toggle) persisted in `pd.ini` via existing config plumbing; consumed in `bondmove.c` with per-player toggled bool that resets on respawn, level load, and mode change.
+
+### Track B — Mission-End Crash (exciting-fermat worktree)
+
+**Symptom**: ACCESS_VIOLATION at end of Mission 1 Objective 1. Post-game/transition screen pushes an IMC → AV on next access.
+
+**Log**: `019d75be-pdclient.log`. Last events before crash:
+```
+vk=519 -> action=24(Use) DOWN
+ACTIONMAP: activated 'menu' (priority 10, depth 2)
+INPUTCTX: imgui_menu on_push
+pushed 'imgui_menu' (depth now 2)
+FATAL: ACCESS_VIOLATION PC=+0xc2dc1 CODE=0xc0000005
+```
+
+**Backtrace offsets (module base)**: `+0xc2dc1, +0x28e575, +0x2c2c9d, +0x2c2eee, +0x2c35a8, +0x29236a, +0x28eff6, +0x205a60, +0x1fa66d, +0x1e6e8d, +0x300a69, +0x1e6003, +0x1e65a7, +0x1e6877, +0x1bea08`
+
+**Hypothesis**: Mission-complete / solo-results screen not fully migrated to ImGui — still dereferences stripped legacy menu state. IMC push itself succeeds (visible in log); AV on next access. Logged as **B-129**. Track B session will symbolize the backtrace before any patch.
+
+### Files Changed
+- Context files only (documentation session).
+
+### Decisions
+- No local multiplayer in this port. All IMC default binding setup: Player 0 only. No p=0..3 loops.
+- RSTICK click will be unbound from CROUCH in the binding rework (in-flight task).
+- Track B must symbolize backtrace before any patch to the mission-end crash.
+
+### Next Steps
+- Merge Track A worktree to main working copy, rebuild, verify build.
+- In-game verification: Y=Use opens doors, B=Crouch without opening doors, single-column rebind UI, no MP pre-binds, crouch_mode=1 toggles correctly.
+- Surface `crouch_mode` in ImGui Options/Controls menu if not already done.
+- Track B: symbolize backtrace offsets → identify faulting function → patch (likely null-check or missing ImGui registration in solo-results screen).
+- Add post-edit line-count verification to build pipeline (file truncation mitigation; see SP-9).
+
+---
+
 ## Session S189 — 2026-04-10 (Input System: Door Bug, Gamepad Defaults, CrouchMode Audit)
 
 **Focus**: Fix B-button opens doors bug; simplify gamepad bindings to single-column player-0-only; audit CrouchMode (already implemented).

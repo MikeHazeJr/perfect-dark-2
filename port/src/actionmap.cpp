@@ -1368,101 +1368,54 @@ static void setupVehicleDefaults(s32 player)
     InputMappingContext *imc = &g_ImcVehicle;
     s32 p = player;
 
-    if (p == 0) {
-        addBind(imc, ACTION_VEHICLE_ACCELERATE,  VKL_W);
-        addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(0, JOFS_RTRIG));
-        addBind(imc, ACTION_VEHICLE_BRAKE,       VKL_S);
-        addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  VK_A);
-        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(0, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D);
-        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
-        addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_A));
-        addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
-        addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
-    } else {
-        addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(p, JOFS_RTRIG));
-        addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(p, JOFS_LTRIG));
-        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(p, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(p, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(p, JBTN_A));
-        addBind(imc, ACTION_PAUSE,               JOY_BTN(p, JBTN_START));
-    }
+    if (p != 0) return; /* Player 0 only — no local MP */
+    addBind(imc, ACTION_VEHICLE_ACCELERATE,  VKL_W);
+    addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(0, JOFS_RTRIG));
+    addBind(imc, ACTION_VEHICLE_BRAKE,       VKL_S);
+    addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(0, JOFS_LTRIG));
+    addBind(imc, ACTION_VEHICLE_STEER_LEFT,  VK_A);
+    addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(0, JOFS_LSTICK_LEFT));
+    addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D);
+    addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
+    addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
+    addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
+    addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
 }
 
 static void setupMenuDefaults(void)
 {
-    /* Menu IMC: keyboard + gamepad nav for all players */
+    /* Menu IMC: Player 0 only. 3 functional actions — ImGui handles all
+     * navigation internally via SDL key events; MENU_UP/DOWN/LEFT/RIGHT
+     * are dead weight here and omitted. */
     InputMappingContext *imc = &g_ImcMenu;
-
-    /* Player 0 - keyboard */
-    addBind(imc, ACTION_MENU_UP,       VKL_UP);
-    addBind(imc, ACTION_MENU_DOWN,     VKL_DOWN);
-    addBind(imc, ACTION_MENU_LEFT,     VKL_LEFT);
-    addBind(imc, ACTION_MENU_RIGHT,    VKL_RIGHT);
-    addBind(imc, ACTION_USE,           VK_RETURN);  /* menu accept = gameplay use */
-    addBind(imc, ACTION_CANCEL_USE,    VK_ESCAPE);  /* menu cancel = gameplay cancel */
-    addBind(imc, ACTION_MENU_TAB_PREV, VKL_Q);
-    addBind(imc, ACTION_MENU_TAB_NEXT, VKL_E);
-
-    /* All players - gamepad D-pad + left stick + face buttons */
-    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        addBind(imc, ACTION_MENU_UP,       JOY_BTN(p, JBTN_DPAD_UP));
-        addBind(imc, ACTION_MENU_UP,       JOY_BTN(p, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MENU_DOWN,     JOY_BTN(p, JBTN_DPAD_DOWN));
-        addBind(imc, ACTION_MENU_DOWN,     JOY_BTN(p, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_MENU_LEFT,     JOY_BTN(p, JBTN_DPAD_LEFT));
-        addBind(imc, ACTION_MENU_LEFT,     JOY_BTN(p, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_MENU_RIGHT,    JOY_BTN(p, JBTN_DPAD_RIGHT));
-        addBind(imc, ACTION_MENU_RIGHT,    JOY_BTN(p, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_USE,           JOY_BTN(p, JBTN_A)); /* menu accept */
-        addBind(imc, ACTION_CANCEL_USE,    JOY_BTN(p, JBTN_B)); /* menu cancel */
-        addBind(imc, ACTION_MENU_TAB_PREV, JOY_BTN(p, JBTN_LB));
-        addBind(imc, ACTION_MENU_TAB_NEXT, JOY_BTN(p, JBTN_RB));
-        addBind(imc, ACTION_PAUSE,         JOY_BTN(p, JBTN_START));
-    }
-    addBind(imc, ACTION_PAUSE, VK_ESCAPE);
+    addBind(imc, ACTION_USE,        VK_RETURN);        /* UI Select/Accept — kbd */
+    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A)); /* UI Select/Accept — gamepad */
+    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);        /* Back/Cancel — kbd */
+    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B)); /* Back/Cancel — gamepad */
+    addBind(imc, ACTION_PAUSE,      JOY_BTN(0, JBTN_START)); /* Pause toggle — gamepad only (kbd Escape covered by CANCEL_USE) */
 }
 
 static void setupPauseMenuDefaults(void)
 {
-    /* PauseMenu IMC: same as Menu but separate context so game knows it's a pause */
+    /* PauseMenu IMC: same 3-action model as Menu. Player 0 only.
+     * ACTION_PAUSE is NOT bound to VK_ESCAPE here — Escape means "go back"
+     * (ACTION_CANCEL_USE) in a pause menu, not a second pause-toggle. */
     InputMappingContext *imc = &g_ImcPauseMenu;
-
-    addBind(imc, ACTION_MENU_UP,    VKL_UP);
-    addBind(imc, ACTION_MENU_DOWN,  VKL_DOWN);
-    addBind(imc, ACTION_MENU_LEFT,  VKL_LEFT);
-    addBind(imc, ACTION_MENU_RIGHT, VKL_RIGHT);
-    addBind(imc, ACTION_USE,        VK_RETURN); /* menu accept = gameplay use */
-    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE); /* menu cancel = gameplay cancel */
-    /* ACTION_PAUSE intentionally NOT bound to VK_ESCAPE here — it would
-     * double-fire with ACTION_CANCEL_USE on the same keypress. Escape in the
-     * pause menu means "go back / close", which is ACTION_CANCEL_USE.
-     * Gamepad Start still toggles pause via the per-player binds below. */
-
-    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        addBind(imc, ACTION_MENU_UP,    JOY_BTN(p, JBTN_DPAD_UP));
-        addBind(imc, ACTION_MENU_UP,    JOY_BTN(p, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MENU_DOWN,  JOY_BTN(p, JBTN_DPAD_DOWN));
-        addBind(imc, ACTION_MENU_DOWN,  JOY_BTN(p, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_USE,        JOY_BTN(p, JBTN_A)); /* menu accept */
-        addBind(imc, ACTION_CANCEL_USE, JOY_BTN(p, JBTN_B)); /* menu cancel */
-        addBind(imc, ACTION_PAUSE,      JOY_BTN(p, JBTN_START));
-    }
+    addBind(imc, ACTION_USE,        VK_RETURN);           /* UI Select/Accept — kbd */
+    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A));  /* UI Select/Accept — gamepad */
+    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);           /* Back/Cancel — kbd */
+    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B));  /* Back/Cancel — gamepad */
+    addBind(imc, ACTION_PAUSE,      JOY_BTN(0, JBTN_START)); /* Pause toggle — gamepad only */
 }
 
 static void setupDebugOverlayDefaults(void)
 {
+    /* Player 0 only. MENU_UP/DOWN/LEFT/RIGHT removed — ImGui handles nav. */
     InputMappingContext *imc = &g_ImcDebugOverlay;
-
     addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
-    addBind(imc, ACTION_MENU_UP,        VKL_UP);
-    addBind(imc, ACTION_MENU_DOWN,      VKL_DOWN);
-    addBind(imc, ACTION_MENU_LEFT,      VKL_LEFT);
-    addBind(imc, ACTION_MENU_RIGHT,     VKL_RIGHT);
-    addBind(imc, ACTION_USE,            VK_RETURN); /* menu accept */
-    addBind(imc, ACTION_CANCEL_USE,     VK_ESCAPE); /* menu cancel */
+    addBind(imc, ACTION_USE,            VK_RETURN); /* accept in debug panels */
+    addBind(imc, ACTION_CANCEL_USE,     VK_ESCAPE); /* close/cancel */
     addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE);
     addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
 }
@@ -1471,12 +1424,12 @@ static void setupTextInputDefaults(void)
 {
     InputMappingContext *imc = &g_ImcTextInput;
 
-    /* Text input context binds very few actions — most key events
-     * go directly to SDL text input mode, not through actionmap. */
-    addBind(imc, ACTION_USE,        VK_RETURN);    /* confirm/accept */
-    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A));
-    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);    /* cancel */
-    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B));
+    /* Text input context: Player 0 only. Most key events go directly to SDL
+     * text input mode, not through actionmap. One default per action. */
+    addBind(imc, ACTION_USE,         VK_RETURN);           /* confirm/accept — kbd */
+    addBind(imc, ACTION_USE,         JOY_BTN(0, JBTN_A));  /* confirm/accept — gamepad */
+    addBind(imc, ACTION_CANCEL_USE,  VK_ESCAPE);           /* cancel — kbd */
+    addBind(imc, ACTION_CANCEL_USE,  JOY_BTN(0, JBTN_B));  /* cancel — gamepad */
     addBind(imc, ACTION_CHEAT_ENTER, VK_RETURN);
 }
 
@@ -1564,11 +1517,9 @@ void actionmapInit(void)
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
     g_ImcTextInput.name    = "text_input";    g_ImcTextInput.priority    = 30;
 
-    /* Populate default bindings (into IMC structs, not yet active) */
-    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        setupGameplayDefaults(p);
-        setupVehicleDefaults(p);
-    }
+    /* Populate default bindings — Player 0 only. No local MP in this port. */
+    setupGameplayDefaults(0);
+    setupVehicleDefaults(0);
     setupMenuDefaults();
     setupPauseMenuDefaults();
     setupDebugOverlayDefaults();

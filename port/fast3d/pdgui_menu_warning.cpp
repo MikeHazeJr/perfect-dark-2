@@ -475,6 +475,18 @@ void pdguiMenuWarningRegister(void)
     /* B-115 fix: suppress Confirm Name — redundant on PC (auto-save handles it) */
     pdguiHotswapRegister(&g_MpEndscreenConfirmNameMenuDialog, renderNoop, "Confirm Name (suppressed)");
 
+    /* B-128 fix: suppress N64 filemgr error dialogs.
+     * All three have MENUDIALOGTYPE_DANGER + fn-ptr titles (filemgrMenuTextErrorTitle).
+     * Without individual registrations they fall through to renderDangerDialog →
+     * getDialogTitle → langSafe((s32)fn_ptr) → langGet OOB → AV.
+     * On PC saves go through saveSaveAgent(); these dialogs should never appear. */
+    extern struct menudialogdef g_PakNotOriginalMenuDialog;
+    extern struct menudialogdef g_FilemgrSaveErrorMenuDialog;
+    extern struct menudialogdef g_FilemgrFileLostMenuDialog;
+    pdguiHotswapRegister(&g_PakNotOriginalMenuDialog,   renderNoop, "Pak Not Original (suppressed)");
+    pdguiHotswapRegister(&g_FilemgrSaveErrorMenuDialog, renderNoop, "Filemgr Save Error (suppressed)");
+    pdguiHotswapRegister(&g_FilemgrFileLostMenuDialog,  renderNoop, "Filemgr File Lost (suppressed)");
+
     s_Registered = true;
     sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS type fallbacks (P10: zero legacy)");
 }

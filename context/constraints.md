@@ -38,6 +38,7 @@ These are things we must still respect:
 - **Identity profile is authoritative name source**: On PC, `identityGetActiveProfile()->name` is the canonical player name. The legacy N64 config field (`g_PlayerConfigsArray[0].base.name`) is only consulted as a fallback when the identity name is empty. New code reading player names must prefer identity profile. Added Session 50 (B-26 fix).
 - **All builds are clean builds**: The "Clean Build" toggle was removed. Every build unconditionally deletes build directories before CMake configure. No incremental builds. This eliminates the class of CMake CACHE stale-value bugs (e.g., B-22 version baking failures). Added Session 50.
 - **Rooms are demand-driven**: Rooms are created when players need them, not pre-allocated. Zero players = zero rooms. The permanent room 0 created by `roomsInit()` is a transitional artifact — R-2 removes it. Added Session 51.
+- **No local multiplayer (single local player only)**: This port supports exactly one local human player (Player 0). There is no split-screen, no local co-op, and no local second player. All default binding setup (IMCs, `setupGameplayDefaults`) must target Player 0 only — no `for (p = 0; p < MAX_LOCAL_PLAYERS; p++)` loops in binding or IMC initialization. All 2P/splitscreen dialogs are dead code (confirmed S188). Any code path that initializes controls, bindings, or UI for players 1–3 locally is an error. Added 2026-04-10 (S188 decision; enforced S190 binding rework).
 
 ---
 

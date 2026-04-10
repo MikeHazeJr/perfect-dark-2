@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-09, Session S186 (Context system overhaul. Deep audit 47 bugs fixed. M0-M2 DONE, P1-P10 DONE. Preparing for v0.1.0.)
+> **Last updated**: 2026-04-10, Session S190 (Input system bugfix sweep: unk14/canlookahead/FarSight/LSTICK landed; binding rework in progress. Mission-end crash B-129 triaged. No local multiplayer constraint formalized.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,6 +35,8 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S189-S190 | 2026-04-10 | Input system sweep: door bug, gamepad defaults, unk14/canlookahead/FarSight/LSTICK fixes; B-129 mission-end crash triage |
+| S187-S188 | 2026-04-09 | Three-bug debug (B-127 WASD, B-125 weapons, B-126 silent crash); full menu replacement plan (254 dialogs, 11 batches) |
 | S185-S186 | 2026-04-09 | Deep audit (47 bug fixes: 5C+7H+10M+9L), context system overhaul |
 | S184 | 2026-04-08 | P10 D5.7: OG Menu Removal -- ImGui sole menu system |
 | S181-S183 | 2026-04-07/08 | M0.2 Input System Unification (action maps, CK_* deleted, -823 lines) |
