@@ -171,13 +171,13 @@ static s32 renderTypedDialog(struct menudialog *dialog,
 
     /* ---- Layout ---- */
     float scale = pdguiScaleFactor();
-    float dialogW = pdguiScale(380.0f);
-    float dialogH = pdguiScale(220.0f);
+    float dialogW = pdguiScale(570.0f);
+    float dialogH = pdguiScale(330.0f);
     ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
     float dialogX = dlgPos.x;
     float dialogY = dlgPos.y;
 
-    float pdTitleH = pdguiScale(24.0f);
+    float pdTitleH = pdguiScale(36.0f);
     if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));

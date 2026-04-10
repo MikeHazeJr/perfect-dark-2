@@ -206,7 +206,7 @@ static bool beginTrainingWindow(const char *id, const char *title,
 
     /* Title row */
     {
-        float titleH = pdguiScale(26.0f);
+        float titleH = pdguiScale(39.0f);
         ImDrawList *dl = ImGui::GetWindowDrawList();
         pdguiDrawTextGlow(pos.x + 8.0f, pos.y + 2.0f, diagW - 16.0f, titleH - 4.0f);
         ImVec2 ts = ImGui::CalcTextSize(title);
@@ -240,7 +240,7 @@ static void renderLabelRow(const char *label, const char *value)
         vbuf[i] = '\0';
 
     ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 0.9f), "%s", lbuf);
-    ImGui::SameLine(pdguiScale(150.0f));
+    ImGui::SameLine(pdguiScale(225.0f));
     ImGui::Text("%s", vbuf);
 }
 
@@ -254,13 +254,13 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float btnW     = pdguiScale(180.0f);
-    float btnH     = pdguiScale(32.0f);
-    float footerH  = pdguiScale(50.0f);
-    float pad      = pdguiScale(10.0f);
-    float contentH = diagH - pdguiScale(26.0f) - footerH
+    float btnW     = pdguiScale(270.0f);
+    float btnH     = pdguiScale(48.0f);
+    float footerH  = pdguiScale(75.0f);
+    float pad      = pdguiScale(15.0f);
+    float contentH = diagH - pdguiScale(39.0f) - footerH
                      - ImGui::GetStyle().WindowPadding.y;
-    float startY   = pdguiScale(26.0f) + ImGui::GetStyle().WindowPadding.y
+    float startY   = pdguiScale(39.0f) + ImGui::GetStyle().WindowPadding.y
                      + (contentH - 3.0f * (btnH + pad)) * 0.5f;
     float startX   = (diagW - btnW) * 0.5f;
     bool  locked;
@@ -326,13 +326,13 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     }
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float backW = pdguiScale(140.0f);
-        float backH = pdguiScale(28.0f);
+        float backW = pdguiScale(210.0f);
+        float backH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Cancel", ImVec2(backW, backH))
@@ -359,8 +359,8 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float titleH   = pdguiScale(26.0f);
-    float footerH  = pdguiScale(58.0f);
+    float titleH   = pdguiScale(39.0f);
+    float footerH  = pdguiScale(87.0f);
     float pad      = ImGui::GetStyle().WindowPadding.x;
     float contentH = diagH - titleH - footerH - ImGui::GetStyle().WindowPadding.y * 2.0f;
     float childW   = diagW - pad * 2.0f;
@@ -391,7 +391,7 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
 
     /* Weapon description (scrollable, bottom 45%) */
     ImGui::BeginChild("##fr_desc",
-                      ImVec2(childW, contentH * 0.45f - pdguiScale(6.0f)), true);
+                      ImVec2(childW, contentH * 0.45f - pdguiScale(9.0f)), true);
     {
         char *desc = frGetWeaponDescription();
         if (desc && desc[0]) {
@@ -401,12 +401,12 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Footer: two action buttons */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
-    btnW = (childW - pdguiScale(12.0f)) * 0.5f;
-    btnH = pdguiScale(30.0f);
+    btnW = (childW - pdguiScale(18.0f)) * 0.5f;
+    btnH = pdguiScale(45.0f);
 
     if (PdButton(inGame ? "Resume" : "Ok", ImVec2(btnW, btnH))
         || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false))
@@ -414,7 +414,7 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
         frDetailsOkMenuHandler(MENUOP_SET, nullptr, nullptr);
     }
 
-    ImGui::SameLine(0, pdguiScale(12.0f));
+    ImGui::SameLine(0, pdguiScale(18.0f));
 
     if (PdButton(inGame ? "Abort" : "Cancel", ImVec2(btnW, btnH))
         || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
@@ -454,7 +454,7 @@ static s32 renderFrStats(struct menudialog *dialog,
 {
     float diagW   = pdguiMenuWidth();
     float diagH   = pdguiMenuHeight();
-    float footerH = pdguiScale(50.0f);
+    float footerH = pdguiScale(75.0f);
     float startX;
     const char *headline;
 
@@ -497,13 +497,13 @@ static s32 renderFrStats(struct menudialog *dialog,
     renderLabelRow("Weapon:",     frMenuTextWeaponName(nullptr));
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float btnW = pdguiScale(160.0f);
-        float btnH = pdguiScale(28.0f);
+        float btnW = pdguiScale(240.0f);
+        float btnH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
@@ -543,8 +543,8 @@ static s32 renderBioText(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float footerH  = pdguiScale(50.0f);
-    float titleH   = pdguiScale(26.0f);
+    float footerH  = pdguiScale(75.0f);
+    float titleH   = pdguiScale(39.0f);
     float contentH = diagH - titleH - footerH
                      - ImGui::GetStyle().WindowPadding.y * 2.0f;
     float childW   = diagW - ImGui::GetStyle().WindowPadding.x * 2.0f;
@@ -577,13 +577,13 @@ static s32 renderBioText(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float backW = pdguiScale(140.0f);
-        float backH = pdguiScale(28.0f);
+        float backW = pdguiScale(210.0f);
+        float backH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Back", ImVec2(backW, backH))
@@ -610,8 +610,8 @@ static s32 renderDtResult(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float footerH  = pdguiScale(50.0f);
-    float titleH   = pdguiScale(26.0f);
+    float footerH  = pdguiScale(75.0f);
+    float titleH   = pdguiScale(39.0f);
     float contentH = diagH - titleH - footerH
                      - ImGui::GetStyle().WindowPadding.y * 2.0f;
     float childW   = diagW - ImGui::GetStyle().WindowPadding.x * 2.0f;
@@ -639,7 +639,7 @@ static s32 renderDtResult(struct menudialog *dialog,
     ImGui::Spacing();
 
     ImGui::BeginChild("##dt_tip",
-                      ImVec2(childW, contentH - pdguiScale(60.0f)), true);
+                      ImVec2(childW, contentH - pdguiScale(90.0f)), true);
     {
         char *tip = completed ? dtGetTip2() : dtGetTip1();
         if (tip && tip[0]) {
@@ -649,13 +649,13 @@ static s32 renderDtResult(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float btnW = pdguiScale(140.0f);
-        float btnH = pdguiScale(28.0f);
+        float btnW = pdguiScale(210.0f);
+        float btnH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
@@ -698,8 +698,8 @@ static s32 renderHtList(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float footerH  = pdguiScale(50.0f);
-    float titleH   = pdguiScale(26.0f);
+    float footerH  = pdguiScale(75.0f);
+    float titleH   = pdguiScale(39.0f);
     float contentH = diagH - titleH - footerH
                      - ImGui::GetStyle().WindowPadding.y * 2.0f;
     float childW   = diagW - ImGui::GetStyle().WindowPadding.x * 2.0f;
@@ -766,13 +766,13 @@ static s32 renderHtList(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float backW = pdguiScale(140.0f);
-        float backH = pdguiScale(28.0f);
+        float backW = pdguiScale(210.0f);
+        float backH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Back", ImVec2(backW, backH))
@@ -800,8 +800,8 @@ static s32 renderHtResult(struct menudialog *dialog,
 {
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
-    float footerH  = pdguiScale(50.0f);
-    float titleH   = pdguiScale(26.0f);
+    float footerH  = pdguiScale(75.0f);
+    float titleH   = pdguiScale(39.0f);
     float contentH = diagH - titleH - footerH
                      - ImGui::GetStyle().WindowPadding.y * 2.0f;
     float childW   = diagW - ImGui::GetStyle().WindowPadding.x * 2.0f;
@@ -829,7 +829,7 @@ static s32 renderHtResult(struct menudialog *dialog,
     ImGui::Spacing();
 
     ImGui::BeginChild("##ht_tip",
-                      ImVec2(childW, contentH - pdguiScale(60.0f)), true);
+                      ImVec2(childW, contentH - pdguiScale(90.0f)), true);
     {
         char *tip = completed ? htGetTip2() : htGetTip1();
         if (tip && tip[0]) {
@@ -839,13 +839,13 @@ static s32 renderHtResult(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
     {
-        float btnW = pdguiScale(140.0f);
-        float btnH = pdguiScale(28.0f);
+        float btnW = pdguiScale(210.0f);
+        float btnH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
@@ -884,7 +884,7 @@ static s32 renderNowSafe(struct menudialog *dialog,
 {
     float diagW  = pdguiMenuWidth();
     float diagH  = pdguiMenuHeight();
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     float midY   = titleH + (diagH - titleH) * 0.35f;
     float cx;
     static const char *msg = "It is now safe to turn off your computer.";
@@ -903,8 +903,8 @@ static s32 renderNowSafe(struct menudialog *dialog,
     ImGui::Spacing();
 
     {
-        float btnW = pdguiScale(140.0f);
-        float btnH = pdguiScale(28.0f);
+        float btnW = pdguiScale(210.0f);
+        float btnH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Cancel", ImVec2(btnW, btnH))

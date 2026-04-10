@@ -372,7 +372,7 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     }
 
     /* Title bar */
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Player Statistics", 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
@@ -396,8 +396,8 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     ImGui::Separator();
 
     /* Content area */
-    float footerH = pdguiScale(32.0f);
-    float bodyH = mh - titleH - pdguiScale(60.0f) - footerH;
+    float footerH = pdguiScale(48.0f);
+    float bodyH = mh - titleH - pdguiScale(90.0f) - footerH;
     float contentW = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
 
     if (ImGui::BeginChild("##stats_body", ImVec2(0, bodyH), false, 0)) {

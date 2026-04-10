@@ -19,12 +19,24 @@
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
 
-/* Action bar metrics (720p baseline, matching pdgui_scaling.h reference). */
-#define PDGUI_AB_BASE_HEIGHT_PX   56.0f
+/* Action bar metrics (1080p baseline, matching pdgui_scaling.h reference and
+ * the d5-full-menu-overhaul.md UI Scaling table).
+ *
+ * BASE_HEIGHT   = total bar height containing a centered 64px button +
+ *                 ~10px vertical breathing on each side.
+ * MIN_HEIGHT    = absolute floor in raw pixels (not scaled) so the bar
+ *                 remains a valid touch/click target on very small viewports.
+ * BUTTON_HEIGHT = 64px at 1080p, matching the "Button height" tier from
+ *                 d5-full-menu-overhaul.md.
+ * BODY_GAP      = gap between the scroll body and the action bar.
+ * BODY_MIN      = minimum scroll-body height before we refuse to shrink
+ *                 further on degenerate viewports.
+ */
+#define PDGUI_AB_BASE_HEIGHT_PX   84.0f
 #define PDGUI_AB_MIN_HEIGHT_PX    48.0f
-#define PDGUI_AB_BUTTON_HEIGHT_PX 42.0f
-#define PDGUI_AB_BODY_GAP_PX       8.0f
-#define PDGUI_AB_BODY_MIN_PX      60.0f
+#define PDGUI_AB_BUTTON_HEIGHT_PX 64.0f
+#define PDGUI_AB_BODY_GAP_PX      12.0f
+#define PDGUI_AB_BODY_MIN_PX      90.0f
 
 extern "C" {
 

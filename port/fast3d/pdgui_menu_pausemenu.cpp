@@ -576,16 +576,16 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "PAUSED", 1);
 
         /* Inset content area */
-        float padX = pdguiScale(16.0f);
-        float padY = pdguiScale(40.0f); /* below title */
+        float padX = pdguiScale(24.0f);
+        float padY = pdguiScale(60.0f); /* below title */
 
         ImGui::SetCursorPos(ImVec2(padX, padY));
 
         /* Tab buttons across the top */
-        float tabW = (menuW - padX * 2 - pdguiScale(8.0f) * 2) / 3.0f;
-        ImVec2 tabSize(tabW, pdguiScale(28.0f));
+        float tabW = (menuW - padX * 2 - pdguiScale(12.0f) * 2) / 3.0f;
+        ImVec2 tabSize(tabW, pdguiScale(42.0f));
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(8.0f), pdguiScale(8.0f)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(12.0f), pdguiScale(12.0f)));
 
         if (PdPauseButton("Rankings##pm", tabSize)) { s_PauseTab = 0; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
@@ -730,11 +730,11 @@ void pdguiScorecardRender(s32 winW, s32 winH)
     /* Size: centered, ~40% width, auto-height based on row count */
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     float boardW = disp.x * 0.40f;
-    float minW = pdguiScale(360.0f);
+    float minW = pdguiScale(540.0f);
     if (boardW < minW) boardW = minW;
-    float rowH    = pdguiScale(22.0f);
-    float headerH = pdguiScale(30.0f);
-    float padding = pdguiScale(8.0f);
+    float rowH    = pdguiScale(33.0f);
+    float headerH = pdguiScale(45.0f);
+    float padding = pdguiScale(12.0f);
     float boardH = headerH + (count * rowH) + padding * 2;
     float boardX = (disp.x - boardW) * 0.5f;
     float boardY = disp.y * 0.08f; /* near top of screen */
@@ -965,7 +965,7 @@ static void renderGameOverPersonal(float contentW)
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
         ImGui::Text("Title");
         ImGui::PopStyleColor();
-        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::SameLine(pdguiScale(135.0f));
         if (titleChanged) {
             /* Animate: oscillate between two gold tones to draw attention */
             float t = (float)(SDL_GetTicks() % 800) / 800.0f;
@@ -984,7 +984,7 @@ static void renderGameOverPersonal(float contentW)
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
         ImGui::Text("Weapon");
         ImGui::PopStyleColor();
-        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::SameLine(pdguiScale(135.0f));
         ImGui::Text("%s", weapon);
     }
 
@@ -993,14 +993,14 @@ static void renderGameOverPersonal(float contentW)
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
         ImGui::Text("Award");
         ImGui::PopStyleColor();
-        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::SameLine(pdguiScale(135.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
         ImGui::Text("%s", award1);
         ImGui::PopStyleColor();
     }
     if (award2 && award2[0]) {
         ImGui::Text("     ");
-        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::SameLine(pdguiScale(135.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
         ImGui::Text("%s", award2);
         ImGui::PopStyleColor();
@@ -1016,10 +1016,10 @@ static void renderGameOverPersonal(float contentW)
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
         ImGui::Text("Medals");
         ImGui::PopStyleColor();
-        ImGui::SameLine(pdguiScale(90.0f));
+        ImGui::SameLine(pdguiScale(135.0f));
 
-        float squareSize = pdguiScale(14.0f);
-        float spacing    = pdguiScale(6.0f);
+        float squareSize = pdguiScale(21.0f);
+        float spacing    = pdguiScale(9.0f);
         ImDrawList *draw = ImGui::GetWindowDrawList();
 
         for (s32 m = 0; m < 4; m++) {
@@ -1083,14 +1083,14 @@ void pdguiGameOverRender(s32 winW, s32 winH)
     }
 
     float scale     = pdguiScaleFactor();
-    float padX      = pdguiScale(16.0f);
-    float titleH    = pdguiScale(42.0f);
-    float challengeH = (challengeStatus > 0) ? pdguiScale(30.0f) : 0.0f;
-    float tabBarH   = pdguiScale(30.0f);
-    float tabGapH   = pdguiScale(6.0f);
-    float rowH      = pdguiScale(21.0f);
-    float btnH      = pdguiScale(36.0f);
-    float bottomPad = pdguiScale(14.0f);
+    float padX      = pdguiScale(24.0f);
+    float titleH    = pdguiScale(63.0f);
+    float challengeH = (challengeStatus > 0) ? pdguiScale(45.0f) : 0.0f;
+    float tabBarH   = pdguiScale(45.0f);
+    float tabGapH   = pdguiScale(9.0f);
+    float rowH      = pdguiScale(31.5f);
+    float btnH      = pdguiScale(54.0f);
+    float bottomPad = pdguiScale(21.0f);
 
     /* Content area height: large enough for max(rankings, personal).
      * When teams are enabled, add extra vertical space for team section headers. */
@@ -1101,15 +1101,15 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             if ((s32)rows[ri].team != prevT) { prevT = (s32)rows[ri].team; numTeamHeaders++; }
         }
     }
-    float rankingsH  = pdguiScale(22.0f) + (count > 0 ? count * rowH : rowH)
-                     + numTeamHeaders * rowH + pdguiScale(8.0f);
-    float personalH  = pdguiScale(160.0f); /* enough for all personal fields */
+    float rankingsH  = pdguiScale(33.0f) + (count > 0 ? count * rowH : rowH)
+                     + numTeamHeaders * rowH + pdguiScale(12.0f);
+    float personalH  = pdguiScale(240.0f); /* enough for all personal fields */
     float contentH   = (rankingsH > personalH) ? rankingsH : personalH;
 
     float menuH = titleH + challengeH + tabBarH + tabGapH + contentH + btnH + bottomPad;
     float menuW = disp.x * 0.52f;
-    float minW  = pdguiScale(440.0f);
-    float maxW  = pdguiScale(700.0f);
+    float minW  = pdguiScale(660.0f);
+    float maxW  = pdguiScale(1050.0f);
     if (menuW < minW) menuW = minW;
     if (menuW > maxW) menuW = maxW;
     float menuX = (disp.x - menuW) * 0.5f;
@@ -1126,8 +1126,8 @@ void pdguiGameOverRender(s32 winW, s32 winH)
                            | ImGuiWindowFlags_NoScrollbar
                            | ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padX, pdguiScale(8.0f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(pdguiScale(6.0f), pdguiScale(4.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padX, pdguiScale(12.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(pdguiScale(9.0f), pdguiScale(6.0f)));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
@@ -1187,10 +1187,10 @@ void pdguiGameOverRender(s32 winW, s32 winH)
         float tabY = titleH + challengeH + tabGapH;
         ImGui::SetCursorPos(ImVec2(padX, tabY));
 
-        float tabW = (menuW - padX * 2 - pdguiScale(6.0f)) * 0.5f;
+        float tabW = (menuW - padX * 2 - pdguiScale(9.0f)) * 0.5f;
         ImVec2 tabSz(tabW, tabBarH);
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(6.0f), 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(9.0f), 0.0f));
 
         /* Rankings tab */
         if (s_GameOverTab == 0) {
@@ -1229,7 +1229,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
         ImGui::PopStyleVar(); /* ItemSpacing */
 
         /* Tab content */
-        float contentTop = tabY + tabBarH + pdguiScale(6.0f);
+        float contentTop = tabY + tabBarH + pdguiScale(9.0f);
         ImGui::SetCursorPos(ImVec2(padX, contentTop));
 
         float childW = menuW - padX * 2;
@@ -1248,9 +1248,9 @@ void pdguiGameOverRender(s32 winW, s32 winH)
         ImGui::Spacing();
 
         float contentW2 = menuW - padX * 2.0f;
-        float twoGap    = pdguiScale(8.0f);
+        float twoGap    = pdguiScale(12.0f);
         float twoW      = (contentW2 - twoGap) * 0.5f;
-        float twoH      = pdguiScale(28.0f);
+        float twoH      = pdguiScale(42.0f);
 
         ImGui::SetCursorPosX(padX);
 

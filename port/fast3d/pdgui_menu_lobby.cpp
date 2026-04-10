@@ -125,7 +125,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     float dialogX = menuPos.x;
     float dialogY = menuPos.y;
 
-    float pdTitleH = pdguiScale(26.0f);
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
     ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
@@ -295,7 +295,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     ImGui::Separator();
 
     float innerW = colW - ImGui::GetStyle().WindowPadding.x * 2 - 4.0f;
-    float btnH   = pdguiScale(28.0f);
+    float btnH   = pdguiScale(42.0f);
 
     /* Create Room — only shown to game clients, not the server operator */
     if (!g_NetDedicated) {
@@ -345,7 +345,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                            entry->client_count == 1 ? "" : "s");
 
         if (!g_NetDedicated && entry->state == ROOM_STATE_LOBBY) {
-            float joinW = pdguiScale(56.0f);
+            float joinW = pdguiScale(84.0f);
             char joinId[32];
             snprintf(joinId, sizeof(joinId), "Join##r%d", ri);
             ImGui::SameLine(innerW - joinW);
