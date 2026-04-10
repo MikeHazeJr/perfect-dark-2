@@ -1243,6 +1243,8 @@ Gfx *skyRender(Gfx *gdl)
 
 	texSelect(&gdl, &g_TexSkyWaterConfigs[env->clouds_type], 1, 0, 2, 1, NULL);
 
+	gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+
 	gDPSetEnvColor(gdl++, env->sky_r, env->sky_g, env->sky_b, 0xff);
 	gDPSetCombineLERP(gdl++,
 			SHADE, ENVIRONMENT, TEXEL0, ENVIRONMENT, 0, 0, 0, SHADE,
