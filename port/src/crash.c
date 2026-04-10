@@ -394,24 +394,35 @@ static void crashSigabrtHandler(int sig)
 		_exit(3);
 	}
 
-	/* B-112/B-126 diagnostics: read last-ticked chr index without heap access.
-	 * Defined in src/game/chr.c; -1 means crash happened outside chraTick. */
+	/* B-112/B-126 diagnostics: identify which chr was mid-tick when the
+	 * stack-protector canary smashed. Only the client runs chraTick; the
+	 * dedicated server has no chr tick loop, so this probe is client-only.
+	 * g_ChrLastTickedIndex is defined in src/game/chr.c, which is not part
+	 * of the server's CMake source list (SRC_SERVER). The PD_SERVER guard
+	 * keeps the server link clean and degrades the log line gracefully. */
+	char chrIdxMsg[64];
+#if !defined(PD_SERVER)
 	extern s32 g_ChrLastTickedIndex;
-	s32 abrt_chr_idx = g_ChrLastTickedIndex;
+	snprintf(chrIdxMsg, sizeof(chrIdxMsg),
+		"%d (B-112 probe; -1=not in chraTick)", g_ChrLastTickedIndex);
+#else
+	snprintf(chrIdxMsg, sizeof(chrIdxMsg),
+		"n/a (server build — no chr tick loop)");
+#endif
 
 	const char *logpath = sysLogGetPath();
 	if (logpath && logpath[0]) {
 		FILE *f = fopen(logpath, "ab");
 		if (f) {
 			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow)\n");
-			fprintf(f, "FATAL: last chr tick index=%d (B-112 probe; -1=not in chraTick)\n", abrt_chr_idx);
+			fprintf(f, "FATAL: last chr tick index=%s\n", chrIdxMsg);
 			fclose(f);
 		}
 	}
 	fputs("FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected)\n", stderr);
 	fflush(stderr);
 
-	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or abort(); last chr idx=%d", abrt_chr_idx);
+	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or abort(); last chr idx=%s", chrIdxMsg);
 
 	sysFatalError("SIGABRT: Stack buffer overflow detected by -fstack-protector-strong.\n"
 		"Check the log — the corrupted function's canary was smashed.\n"
