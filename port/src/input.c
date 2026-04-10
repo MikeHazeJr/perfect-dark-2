@@ -792,6 +792,14 @@ s32 inputControllerConnected(s32 idx)
 	return pads[idx] || (connectedMask & (1 << idx));
 }
 
+void *inputGetPad(s32 idx)
+{
+	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
+		return NULL;
+	}
+	return pads[idx];
+}
+
 s32 inputRumbleSupported(s32 idx)
 {
 	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {

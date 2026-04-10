@@ -267,6 +267,9 @@ const char *inputGetClipboard(void);
 // returns keymod values
 u32 inputGetKeyModState(void);
 
+// returns the SDL_GameController* for the given player index, or NULL
+void *inputGetPad(s32 idx);
+
 #ifdef __cplusplus
 }
 #endif
