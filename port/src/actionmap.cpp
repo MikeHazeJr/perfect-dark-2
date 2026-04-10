@@ -389,6 +389,9 @@ static inline f32 clampf(f32 v, f32 lo, f32 hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/* Diagnostic: frame counter for throttled logging */
+static u32 s_DiagFrameCount = 0;
+
 /* Swap sticks API */
 void actionmapSetSwapSticks(s32 swapped) { s_SwapSticks = swapped ? 1 : 0; }
 s32  actionmapGetSwapSticks(void)        { return s_SwapSticks; }
@@ -435,6 +438,15 @@ static void fireVk(u32 vk, s32 is_down)
                 }
 
                 ActionState *st = &s_State[player][a];
+
+                /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs */
+                if (vk >= (u32)VK_JOY1_BEGIN && is_down) {
+                    sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
+                                 vk, player,
+                                 ctx->name ? ctx->name : "?",
+                                 a, (a < ACTION_COUNT) ? s_ActionNames[a] : "?");
+                }
+
                 if (is_down) {
                     if (!st->held) {
                         st->held    = 1;
@@ -458,6 +470,12 @@ static void fireVk(u32 vk, s32 is_down)
             }
         }
     }
+    /* DIAG: Log when a gamepad VK has no binding in any active IMC */
+    if (vk >= (u32)VK_JOY1_BEGIN && is_down) {
+        sysLogPrintf(LOG_WARNING, "DIAG fireVk: vk=%u player=%d NO BINDING FOUND in %d active IMCs",
+                     vk, player, s_NumActive);
+    }
+    return;
 next_player:;
 }
 
@@ -647,6 +665,10 @@ void actionmapDispatch(const SDL_Event *ev)
         if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) player = 0;
         updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
         u32 vk = JOY_BTN(player, (u32)ev->cbutton.button);
+        sysLogPrintf(LOG_NOTE, "DIAG btn: SDL btn=%d player=%d vk=%u %s ctrl=%p",
+                     (int)ev->cbutton.button, player, vk,
+                     (ev->type == SDL_CONTROLLERBUTTONDOWN) ? "DOWN" : "UP",
+                     (void*)ctrl);
         fireVk(vk, (ev->type == SDL_CONTROLLERBUTTONDOWN) ? 1 : 0);
         break;
     }
@@ -723,12 +745,28 @@ void actionmapDispatch(const SDL_Event *ev)
 
 void actionmapPollFrame(void)
 {
+    s_DiagFrameCount++;
+
     /* B-124 fix (Bug D): When a menu context is active, zero all gameplay
      * axes and skip SDL stick polling entirely. The input context stack
      * blocks SDL EVENTS, but analog stick polling bypasses the event system
      * — without this check the right stick moves the camera behind the menu. */
     InputContext *topCtx = inputCtxGetTop();
     s32 menuActive = (topCtx && topCtx != &g_CtxGameplay) ? 1 : 0;
+
+    /* DIAG: Log context and active IMCs every ~120 frames */
+    if ((s_DiagFrameCount % 120) == 1) {
+        sysLogPrintf(LOG_NOTE, "DIAG poll: frame=%u topCtx='%s' menuActive=%d numActiveIMCs=%d pad0=%p",
+                     s_DiagFrameCount,
+                     topCtx ? (topCtx->name ? topCtx->name : "unnamed") : "NULL",
+                     menuActive, s_NumActive,
+                     inputGetPad(0));
+        for (s32 ci = 0; ci < s_NumActive; ci++) {
+            sysLogPrintf(LOG_NOTE, "DIAG poll: IMC[%d]='%s' prio=%d",
+                         ci, s_Active[ci]->name ? s_Active[ci]->name : "?",
+                         s_Active[ci]->priority);
+        }
+    }
 
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
@@ -769,6 +807,13 @@ void actionmapPollFrame(void)
             s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_Y].held  = (fry != 0.0f) ? 1 : 0;
+
+            /* DIAG: Log raw and processed axis values every ~120 frames */
+            if ((s_DiagFrameCount % 120) == 1 && p == 0 &&
+                (lx != 0 || ly != 0 || rx != 0 || ry != 0)) {
+                sysLogPrintf(LOG_NOTE, "DIAG axes p%d: raw lx=%d ly=%d rx=%d ry=%d -> flx=%.3f fly=%.3f frx=%.3f fry=%.3f",
+                             p, (int)lx, (int)ly, (int)rx, (int)ry, flx, fly, frx, fry);
+            }
         } else if (ctrl && menuActive) {
             /* Menu is open: zero gameplay axes to prevent camera/movement behind menu */
             s_State[p][ACTION_AXIS_MOVE_X].value = 0.0f;
@@ -1495,10 +1540,13 @@ void actionmapInit(void)
     configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
     configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
 
-    /* Activate the gameplay and menu contexts by default.
-     * Callers activate Vehicle/Pause/Debug/TextInput as needed. */
+    /* Activate only the gameplay context by default.
+     * Menu IMC is activated/deactivated by the input context push/pop system
+     * (g_CtxImGuiMenu, g_CtxPauseMenu, g_CtxDebugOverlay).  Activating it
+     * here caused it to shadow gameplay gamepad bindings (same VKs at higher
+     * priority) — A/B/LB/RB/D-pad/stick all fired MENU actions instead of
+     * gameplay actions during gameplay. */
     imcActivate(&g_ImcGameplay);
-    imcActivate(&g_ImcMenu);
 
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: initialized — %d actions, %d players, %d IMCs",
                  (s32)ACTION_COUNT, ACTIONMAP_MAX_PLAYERS, s_NumActive);
