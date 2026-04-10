@@ -3,6 +3,47 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S188 — 2026-04-09 (Menu Replacement Plan — Full Inventory & Gameplan)
+
+**Focus**: Complete audit of every legacy menu dialog in the codebase. Build batched replacement plan.
+
+### What Was Done
+
+**Research phase** — three parallel agents audited:
+1. All legacy `menudialogdef` definitions across 8 source files → **254 total dialog definitions** found
+2. All ImGui hotswap registrations → **84 registered dialogs** (65 complete, 15 noop, 12 NULL-renderFn, 4 type-based)
+3. Menu data sources, parent-child relationships, state transition functions, hotswap pipeline architecture
+
+**Classification** — every dialog categorized as DONE / NOOP / NULL-FN / TYPE-FB / OG / DEAD / STANDALONE. ~140 unique reachable, ~114 dead (4MB, N64 pak, unreachable). **62 screens need work** (50 unregistered OG + 12 NULL-renderFn).
+
+**Plan written** — `context/designs/menu-replacement-plan.md`: full inventory table, data source mapping, menu tree, 12 implementation batches with exact files/data/transitions per batch.
+
+**Decisions resolved** (all four from Part 7):
+1. **Strip ALL legacy menus** — confirmed
+2. **Unified Settings** — absorb CI Options into existing Settings menus naturally. No separate CI Options or Extended Settings distinction.
+3. **No split-screen** — single local player only. Batch 9 (13 screens) cancelled. All 2P dialogs → dead code.
+4. **Generic Model Preview** — build it as Batch 0. Generalize `pdguiCharPreview` → `pdguiModelPreview` (character/weapon/vehicle/prop). Unblocks training 3D screens, character creator, modding tools.
+
+**Net result**: 11 active batches, ~79 screens, ~13-18 sessions estimated.
+
+### Files Changed
+- `context/designs/menu-replacement-plan.md` — NEW: complete replacement plan (7 parts, 12 batches)
+- `context/designs/menu-inventory.md` — Added cross-reference to new plan
+
+### Decisions
+- All legacy menus will be fully stripped (no OG rendering paths retained)
+- CI Options absorbed into unified Settings; N64-specific settings dropped
+- No split-screen support (single local player); all 2P dialogs are dead code
+- Generic model preview pipeline (Batch 0) is a prerequisite investment
+
+### Next Steps
+- **Batch 0**: Generalize `pdguiCharPreview` → `pdguiModelPreview` (1 session)
+- **Batch 1**: Simple confirmations & file management (1 session)
+- **Batch 3**: Absorb CI Options into existing Settings tabs (1 session)
+- B-128 (PlayerInput slot 8 vs 0): being fixed in parallel session
+
+---
+
 ## Session S187 — 2026-04-09 (Three-Bug Debug Session)
 
 **Focus**: Structured debug of three playtest bugs: WASD movement, weapon spawning, silent crash.

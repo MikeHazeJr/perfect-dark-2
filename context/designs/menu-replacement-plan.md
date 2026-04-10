@@ -477,6 +477,41 @@ PAUSE MENU (g_CiMenuViaPauseMenuDialog) [DONE]
 
 ---
 
+### Batch 0: Generic Model Preview Pipeline (Prerequisite)
+
+**Effort**: 1 session | **Complexity**: Medium-Complex
+**Why first**: Unblocks Batch 10 (training 3D), character creator, modding tools. One investment, used everywhere.
+
+**Current state**: `pdguiCharPreview.c` (308 lines) renders character head+body pairs to a 256x256 offscreen FBO via GBI, exposes as GL texture for `ImGui::Image()`. Already used in agent create/select, room lobby, modding hub, and thumbnail baking.
+
+**What to build**: Generalize into `pdguiModelPreview` with type-parameterized requests:
+
+```c
+typedef enum {
+    MODEL_PREVIEW_CHARACTER,  // head+body pair (existing path)
+    MODEL_PREVIEW_WEAPON,     // single filenum, close camera
+    MODEL_PREVIEW_VEHICLE,    // single filenum, wide camera
+    MODEL_PREVIEW_PROP,       // generic single model
+} ModelPreviewType;
+
+void pdguiModelPreviewRequest(ModelPreviewType type, const char *id1, const char *id2, f32 rotY);
+// CHARACTER: id1=head_id, id2=body_id
+// WEAPON/VEHICLE/PROP: id1=catalog_id, id2=NULL
+```
+
+**Implementation**:
+1. Rename `pdguiCharPreview` → `pdguiModelPreview` (keep `pdguiCharPreview*` as convenience wrappers)
+2. Add per-type camera/scale lookup table (weapons closer, vehicles further)
+3. Weapon path: catalog ID → `assetCatalogResolve()` → filenum → `MENUMODELPARAMS_SET_FILENUM()`
+4. Vehicle/prop path: same pattern with type-appropriate params
+5. Update existing callers (agent create/select, room, modding hub) — trivial rename
+
+**Key insight**: `menuRenderModel()` already supports single-filenum mode alongside head+body mode. The render path is generic — only the request parameterization is character-specific.
+
+**Files to modify**: `pdgui_charpreview.c` → rename/extend (~200 LOC delta), `pdgui_charpreview.h`, callers (~20 LOC each)
+
+---
+
 ### Batch 1: Simple Confirmations & Text Inputs (Low-Hanging Fruit)
 
 **Effort**: 1 session | **Screens**: ~8 | **Complexity**: Simple
@@ -515,26 +550,31 @@ PAUSE MENU (g_CiMenuViaPauseMenuDialog) [DONE]
 
 ---
 
-### Batch 3: CI Options Tree (9 screens)
+### Batch 3: Unified Settings (Absorb CI Options into Existing Settings)
 
-**Effort**: 2 sessions | **Screens**: 9 | **Complexity**: Medium
-**Why third**: Options screens are simple slider/toggle lists. Already have Extended Settings as a template.
+**Effort**: 1 session | **Screens**: ~4 new settings panels | **Complexity**: Medium
+**Decision (2026-04-09)**: CI Options and Extended Settings merged into ONE unified Settings experience. N64-specific settings (CRT screen size, N64 control styles 1.1-1.4) dropped. All P2 variants dropped (no split-screen).
 
-| Dialog | Current | Action | Data Source |
-|--------|---------|--------|------------|
-| `g_CiOptionsViaPcMenuDialog` | OG | New ImGui — options hub with tabs | Config tree |
-| `g_CiOptionsViaPauseMenuDialog` | OG | Same renderer, different entry context | Config tree |
-| `g_CiControlOptionsMenuDialog` | OG | New ImGui — control settings (look, aim) | pd.ini config |
-| `g_CiControlOptionsMenuDialog2` | OG | Merge into control settings as second tab | pd.ini config |
-| `g_CiControlStyleMenuDialog` | OG | New ImGui — controller layout diagram (simplified) | Input config |
-| `g_CiControlStylePlayer2MenuDialog` | OG | Clone P1, parameterized for P2 | Input config |
-| `g_CiDisplayMenuDialog` | OG | New ImGui — display settings | pd.ini config |
-| `g_CiDisplayPlayer2MenuDialog` | OG | Clone P1, parameterized for P2 | pd.ini config |
-| `g_CiControlPlayer2MenuDialog` | OG | Clone P1 control, parameterized for P2 | pd.ini config |
+**What remains relevant from CI Options** (to absorb into existing Extended Settings tabs):
+- Look sensitivity / aim control → absorb into Extended Mouse/Controls tab
+- Sound mode (stereo/mono/surround) → absorb into Extended Audio tab
+- HUD display preferences → absorb into Extended Video tab or new "HUD" section
+- Controller layout diagram → new panel within Controls (simplified ImGui version)
 
-**Files to create**: `pdgui_menu_options.cpp` (new — unified options renderer)
-**Data to wire**: `configRegisterInt/Float` values from pd.ini, screen size, sound mode, control mappings
-**Design note**: Modern PC port should merge CI Options + Extended Settings into ONE unified settings screen. Legacy N64 audio/video/display split is unnecessary — consolidate into Graphics, Audio, Controls, Accessibility tabs.
+| Legacy Dialog | Action | Destination |
+|--------------|--------|-------------|
+| `g_CiOptionsViaPcMenuDialog` | **DEAD** — replaced by unified Settings entry point | — |
+| `g_CiOptionsViaPauseMenuDialog` | **DEAD** — pause goes directly to unified Settings | — |
+| `g_CiControlOptionsMenuDialog` | Absorb relevant settings into Controls tab | `pdgui_menu_mainmenu.cpp` |
+| `g_CiControlOptionsMenuDialog2` | Absorb into Controls tab | `pdgui_menu_mainmenu.cpp` |
+| `g_CiControlStyleMenuDialog` | New controller layout panel in Controls | `pdgui_menu_mainmenu.cpp` |
+| `g_CiControlStylePlayer2MenuDialog` | **DEAD** — no split-screen | — |
+| `g_CiDisplayMenuDialog` | Absorb relevant settings into Video tab | `pdgui_menu_mainmenu.cpp` |
+| `g_CiDisplayPlayer2MenuDialog` | **DEAD** — no split-screen | — |
+| `g_CiControlPlayer2MenuDialog` | **DEAD** — no split-screen | — |
+
+**Files to modify**: `pdgui_menu_mainmenu.cpp` (extend existing Extended Settings tabs)
+**Data to wire**: Any `configRegisterInt/Float` values from legacy CI Options that don't already exist in Extended Settings
 
 ---
 
@@ -649,29 +689,11 @@ PAUSE MENU (g_CiMenuViaPauseMenuDialog) [DONE]
 
 ---
 
-### Batch 9: 2-Player Split-Screen (13 screens)
+### ~~Batch 9: 2-Player Split-Screen~~ — CANCELLED
 
-**Effort**: 2 sessions | **Screens**: 13 | **Complexity**: Medium
-**Why last**: Split-screen is low priority for PC port. Many screens are H/V layout variants that share 80% code.
+**Decision (2026-04-09)**: No split-screen. Single local player only. All 13 `g_2PMission*` dialog definitions (H/V variants) are now DEAD code, to be stripped alongside other legacy menus.
 
-| Dialog | Current | Action | Notes |
-|--------|---------|--------|-------|
-| `g_2PMissionOptionsHMenuDialog` | OG | Clone solo options, parameterized | H layout |
-| `g_2PMissionOptionsVMenuDialog` | OG | Clone solo options, parameterized | V layout |
-| `g_2PMissionBriefingHMenuDialog` | OG | Clone solo briefing, parameterized | H layout |
-| `g_2PMissionBriefingVMenuDialog` | OG | Clone solo briefing, parameterized | V layout |
-| `g_2PMissionControlStyleMenuDialog` | OG | Clone control style, parameterized | Shared |
-| `g_2PMissionPauseHMenuDialog` | OG | Clone solo pause, parameterized | H layout |
-| `g_2PMissionPauseVMenuDialog` | OG | Clone solo pause, parameterized | V layout |
-| `g_2PMissionAbortVMenuDialog` | OG | Clone abort, parameterized | V layout |
-| `g_2PMissionAudioOptionsVMenuDialog` | OG | Clone audio options, parameterized | V layout |
-| `g_2PMissionVideoOptionsMenuDialog` | OG | Clone video options, parameterized | Shared |
-| `g_2PMissionDisplayOptionsVMenuDialog` | OG | Clone display options, parameterized | V layout |
-| `g_2PMissionInventoryHMenuDialog` | OG | Clone inventory, parameterized | H layout |
-| `g_2PMissionInventoryVMenuDialog` | OG | Clone inventory, parameterized | V layout |
-
-**Files to create**: `pdgui_menu_2player.cpp` (new — all 2P variants)
-**Design note**: On PC with ImGui, H/V split distinction is less relevant. Could render all 2P menus full-screen with a "Player 1 / Player 2" tab switcher instead of actual split rendering.
+**Dead dialogs**: `g_2PMissionOptionsHMenuDialog`, `g_2PMissionOptionsVMenuDialog`, `g_2PMissionBriefingHMenuDialog`, `g_2PMissionBriefingVMenuDialog`, `g_2PMissionControlStyleMenuDialog`, `g_2PMissionPauseHMenuDialog`, `g_2PMissionPauseVMenuDialog`, `g_2PMissionAbortVMenuDialog`, `g_2PMissionAudioOptionsVMenuDialog`, `g_2PMissionVideoOptionsMenuDialog`, `g_2PMissionDisplayOptionsVMenuDialog`, `g_2PMissionInventoryHMenuDialog`, `g_2PMissionInventoryVMenuDialog`
 
 ---
 
@@ -746,49 +768,48 @@ Every screen ported in any batch MUST follow these rules from the master design 
 
 ---
 
-## Part 5: Schedule Summary
+## Part 5: Schedule Summary (Updated 2026-04-09)
 
 | Batch | Focus | Screens | Sessions | Dependencies |
 |-------|-------|---------|----------|-------------|
+| **0** | Generic Model Preview Pipeline | — | 1 | None |
 | **1** | Simple confirmations & file mgmt | 8 | 1 | None |
 | **2** | Co-op / Counter-Op flow | 4 | 1 | Batch 1 (exit game) |
-| **3** | CI Options tree | 9 | 2 | None |
+| **3** | Unified Settings (absorb CI Options) | ~4 | 1 | None |
 | **4** | Cheats & Cinema | 10 | 1-2 | None |
 | **5** | MP Setup Core (arena/weapon/scenario/limits) | 14 | 2-3 | None |
 | **6** | Bot (Simulant) Setup | 5 | 1-2 | Batch 5 (character data) |
 | **7** | MP Advanced/Quick paths | 11 | 1-2 | Batches 5-6 |
 | **8** | MP Pause & In-Game | 6 | 1 | None |
-| **9** | 2-Player Split-Screen | 13 | 2 | Batches 3, 8 (options, pause) |
-| **10** | Training NULL-FN (3D preview) | 12 | 2-3 | Model preview pipeline |
+| ~~9~~ | ~~2-Player Split-Screen~~ | ~~13~~ | ~~2~~ | **CANCELLED** |
+| **10** | Training NULL-FN (3D preview) | 12 | 2-3 | Batch 0 (model preview) |
 | **11** | MP Player Config & Stats | 5 | 1 | None |
 | **12** | Music & Misc | 4 | 1 | None |
-| | **TOTAL** | **~101** | **~16-22** | |
+| | **TOTAL** | **~79** | **~13-18** | |
 
-**Note**: ~101 includes some screens that are already functional via type-based fallback but would benefit from dedicated renderers. The strict "needs work" count is ~62.
+**Note**: ~79 active screens across 11 batches. Batch 9 cancelled (no split-screen). Batch 3 reduced (settings absorbed, not rebuilt).
 
 ### Parallelizable Batches
 
-These batches have no dependencies on each other and can be worked in any order:
-- Batches 1, 3, 4, 5, 8, 11, 12 are all independent
+- Batches 0, 1, 3, 4, 5, 8, 11, 12 are all independent
 - Batch 2 needs Batch 1 (trivially)
 - Batches 6-7 need Batch 5
-- Batch 9 needs Batches 3 and 8
-- Batch 10 is standalone but complex (3D preview prerequisite)
+- Batch 10 needs Batch 0
 
 ### Recommended Order for Maximum Impact
 
-1. **Batch 1** (simple wins, 1 session)
-2. **Batch 3** (options — high visibility, 2 sessions)
-3. **Batch 4** (cheats/cinema — self-contained, 1-2 sessions)
-4. **Batch 2** (co-op/anti — completes solo flow, 1 session)
-5. **Batch 5** (MP setup core — biggest batch, 2-3 sessions)
-6. **Batch 6** (bots — builds on batch 5, 1-2 sessions)
-7. **Batch 7** (advanced paths — navigation hubs, 1-2 sessions)
-8. **Batch 8** (MP pause — standalone, 1 session)
-9. **Batch 11** (player config, 1 session)
-10. **Batch 12** (music/misc, 1 session)
-11. **Batch 9** (2P split — low priority, 2 sessions)
-12. **Batch 10** (training 3D — complex, 2-3 sessions)
+1. **Batch 0** (model preview — unblocks Batch 10, character creator, modding tools, 1 session)
+2. **Batch 1** (simple wins, 1 session)
+3. **Batch 3** (unified settings — absorb CI Options, 1 session)
+4. **Batch 4** (cheats/cinema — self-contained, 1-2 sessions)
+5. **Batch 2** (co-op/anti — completes solo flow, 1 session)
+6. **Batch 5** (MP setup core — biggest batch, 2-3 sessions)
+7. **Batch 6** (bots — builds on batch 5, 1-2 sessions)
+8. **Batch 7** (advanced paths — navigation hubs, 1-2 sessions)
+9. **Batch 8** (MP pause — standalone, 1 session)
+10. **Batch 11** (player config, 1 session)
+11. **Batch 12** (music/misc, 1 session)
+12. **Batch 10** (training 3D — uses Batch 0 pipeline, 2-3 sessions)
 
 ---
 
@@ -799,6 +820,26 @@ After all batches complete, these files/systems can be stripped:
 ### Entire Files (candidates for deletion)
 - `src/game/fmb.c` — 4MB mode dialogs (12 dialogs, all DEAD)
 - N64 pak dialog code in `src/game/menu.c` (lines ~6000-6600) — 8 DEAD dialogs
+
+### 2P Split-Screen Dialogs (DEAD — no split-screen, decision 2026-04-09)
+All `g_2PMission*` definitions and their handlers in `mainmenu.c` and `ingame.c`:
+- `g_2PMissionOptionsHMenuDialog`, `g_2PMissionOptionsVMenuDialog`
+- `g_2PMissionBriefingHMenuDialog`, `g_2PMissionBriefingVMenuDialog`
+- `g_2PMissionControlStyleMenuDialog`
+- `g_2PMissionPauseHMenuDialog`, `g_2PMissionPauseVMenuDialog`
+- `g_2PMissionAbortVMenuDialog`
+- `g_2PMissionAudioOptionsVMenuDialog`, `g_2PMissionVideoOptionsMenuDialog`
+- `g_2PMissionDisplayOptionsVMenuDialog`
+- `g_2PMissionInventoryHMenuDialog`, `g_2PMissionInventoryVMenuDialog`
+- `g_2PMissionEndscreenCompletedHMenuDialog`, `g_2PMissionEndscreenFailedHMenuDialog` (already registered but now dead)
+- `g_2PMissionEndscreenCompletedVMenuDialog`, `g_2PMissionEndscreenFailedVMenuDialog`
+- `g_2PMissionEndscreenObjectivesCompletedVMenuDialog`, `g_2PMissionEndscreenObjectivesFailedVMenuDialog`
+
+### P2-Specific CI Options (DEAD — no split-screen)
+- `g_CiControlStylePlayer2MenuDialog`, `g_CiDisplayPlayer2MenuDialog`, `g_CiControlPlayer2MenuDialog`
+
+### CI Options Root (DEAD — absorbed into unified Settings)
+- `g_CiOptionsViaPcMenuDialog`, `g_CiOptionsViaPauseMenuDialog`
 
 ### Code Sections to Strip
 - `menuTick()` / `menutickMain()` — legacy per-frame menu processing
@@ -819,12 +860,24 @@ After all batches complete, these files/systems can be stripped:
 
 ---
 
-## Part 7: Key Decisions Needed
+## Part 7: Decisions (Resolved 2026-04-09)
 
-1. **Retire legacy combat sim entry?** — `g_CombatSimulatorMenuDialog` (setup.c:6454) is the N64 path to MP setup. Room.cpp is the modern path. If we retire the legacy path, Batches 5-7 shrink dramatically (room.cpp already has arena/scenario/weapon selection).
+1. **Strip ALL legacy menus** — DECIDED: Yes. Every legacy menu will be fully removed. No OG rendering paths retained.
 
-2. **Merge CI Options + Extended Settings?** — On PC, having both "Options" (N64-era audio/video/display/control) and "Settings" (PC-era graphics/audio/mouse) is confusing. Recommendation: merge into one unified Settings screen.
+2. **Unified Settings** — DECIDED: Absorb all still-relevant CI Options settings into the existing Settings menus where they make sense naturally. No separate "CI Options" or "Extended Settings" — one unified Settings experience. N64-specific settings (screen size for CRT, N64 control styles 1.1-1.4) are dropped entirely.
 
-3. **2P split-screen priority** — Is local split-screen a v0.1.0 requirement? If not, Batch 9 can defer.
+3. **No split-screen** — DECIDED: Single local player only. Batch 9 (2P split-screen, 13 screens) is **CANCELLED**. All 2P dialog definitions become DEAD code, to be stripped alongside other legacy menus. `g_2PMission*` dialogs (H/V variants) added to dead code removal list.
 
-4. **Training 3D preview scope** — NULL-FN screens require rendering 3D models (weapons, vehicles, characters) into ImGui textures. The `pdguiCharPreview` pipeline exists for characters. Extending it to weapons/vehicles is non-trivial. Alternative: text-only versions for v0.1.0, add 3D previews in v0.2.0.
+4. **Generic Model Preview Pipeline** — DECIDED: Build it (Batch 0). Generalize `pdguiCharPreview` → `pdguiModelPreview` supporting characters, weapons, vehicles, and props. Same underlying FBO/GBI infrastructure, parameterized by model type. This investment unblocks:
+   - Batch 10 (training 3D screens)
+   - Character creator (future)
+   - Modding tools model preview (already partially working)
+   - Any future screen that needs a 3D asset preview
+
+### Impact on Schedule
+
+- Batch 9 cancelled: **-13 screens, -2 sessions**
+- Batch 3 simplified: CI Options absorbed into existing Settings, not separate screens. **9 → ~4 screens** (only truly new settings that don't exist in Extended Settings yet). **-1 session**
+- Batch 0 added: Model preview generalization. **+1 session**
+- 2P dead code added to Part 6 strip list
+- **Net effect**: ~14 fewer screens, ~2 fewer sessions total

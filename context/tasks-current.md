@@ -12,7 +12,7 @@
 
 | Item | Priority | Status | Detail |
 |------|----------|--------|--------|
-| **D5 Phase 3 -- Remaining menu screens** | HIGH | IN PROGRESS | 61/120 screens need ImGui ports. Solo pause done, options done. Many remaining are simple stubs/dialogs. |
+| **D5 Phase 3 -- Remaining menu screens** | HIGH | IN PROGRESS | Full audit complete (S188): 254 dialogs found, 79 screens across 11 batches, ~13-18 sessions. Plan in `context/designs/menu-replacement-plan.md`. No split-screen (2P cancelled). CI Options absorbed into unified Settings. Batch 0 (model preview generalization) is first. |
 | **D5 Phase 4 -- Theme System** | HIGH | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. ~3 sessions. |
 | **B-112 root cause** | HIGH | INVESTIGATING | Chr pointer corruption in 31-bot matches. VEH guard + chrBruise/chrDamage guards in place. Awaiting next crash log. |
 | **B-126 silent crash** | HIGH | INVESTIGATING | Silent crash ~8min into MP. Heartbeat logger added (S187). Awaiting next repro. |
