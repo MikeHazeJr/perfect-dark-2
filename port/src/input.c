@@ -626,8 +626,8 @@ static const struct { u32 contbit; InputAction action; } s_ContToAction[] = {
 	{ CONT_G,      ACTION_FIRE_PRIMARY   },
 	{ CONT_B,      ACTION_CANCEL_USE     },
 	{ CONT_A,      ACTION_USE            },
-	{ CONT_0010,   ACTION_MENU_ACCEPT    },
-	{ CONT_0020,   ACTION_MENU_CANCEL    },
+	{ CONT_0010,   ACTION_USE            }, /* BUTTON_UI_ACCEPT → unified use/accept */
+	{ CONT_0020,   ACTION_CANCEL_USE     }, /* BUTTON_UI_CANCEL → unified cancel */
 	{ CONT_2000,   ACTION_CROUCH         },
 	{ CONT_4000,   ACTION_CROUCH         },
 	{ CONT_8000,   ACTION_CROUCH         },

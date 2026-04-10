@@ -747,8 +747,8 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_CBUTTON_DOWN,     "C-Down"        },
     { ACTION_DPAD_UP,          "D-Pad Up"      },
     { ACTION_DPAD_RIGHT,       "D-Pad Right"   },
-    { ACTION_MENU_ACCEPT,      "UI Accept"     },
-    { ACTION_MENU_CANCEL,      "UI Cancel"     },
+    /* ACTION_MENU_ACCEPT and ACTION_MENU_CANCEL removed — consolidated into
+     * ACTION_USE and ACTION_CANCEL_USE respectively. */
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 

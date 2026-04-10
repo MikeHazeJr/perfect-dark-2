@@ -314,8 +314,8 @@ static void pdguiDriveImGuiNav(void)
         io.AddKeyEvent(key, actionHeld(0, act) != 0);
     };
 
-    drivePressed(ACTION_MENU_ACCEPT,   ImGuiKey_Enter);
-    drivePressed(ACTION_MENU_CANCEL,   ImGuiKey_Escape);
+    drivePressed(ACTION_USE,           ImGuiKey_Enter);
+    drivePressed(ACTION_CANCEL_USE,    ImGuiKey_Escape);
     driveHeld(ACTION_MENU_UP,          ImGuiKey_UpArrow);
     driveHeld(ACTION_MENU_DOWN,        ImGuiKey_DownArrow);
     driveHeld(ACTION_MENU_LEFT,        ImGuiKey_LeftArrow);

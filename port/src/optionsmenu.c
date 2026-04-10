@@ -1685,8 +1685,7 @@ static const struct menubind menuBinds[] = {
 	{ ACTION_SPRINT,         "Sprint\n",           "N64 Ext 8000\n"   },
 	{ ACTION_JUMP,           "Jump\n",             "N64 Ext 4000\n"   },
 	{ ACTION_CROUCH,         "Crouch\n",           "N64 Ext 2000\n"   },
-	{ ACTION_MENU_ACCEPT,    "UI Accept\n",        "EXT UI Accept\n"  },
-	{ ACTION_MENU_CANCEL,    "UI Cancel\n",        "EXT UI Cancel\n"  },
+	/* ACTION_MENU_ACCEPT/CANCEL removed — consolidated into ACTION_USE and ACTION_CANCEL_USE */
 };
 
 static const char *menutextBind(struct menuitem *item);

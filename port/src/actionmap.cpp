@@ -298,22 +298,19 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "VehicleSteerLeft",
     "VehicleSteerRight",
     "VehicleExit",
-    /* 45-52: menu nav */
+    /* 45-50: menu nav (MenuAccept/Cancel removed — consolidated into Use/CancelUse) */
     "MenuUp",
     "MenuDown",
     "MenuLeft",
     "MenuRight",
-    "MenuAccept",
-    "MenuCancel",
     "MenuTabPrev",
     "MenuTabNext",
-    /* 53-57: system */
+    /* 51-56: system */
     "Pause",
     "Screenshot",
     "ConsoleToggle",
     "DebugToggle",
     "CheatEnter",
-    /* 58: HUD */
     "Scorecard",
 };
 
@@ -1248,12 +1245,10 @@ InputMappingContext g_ImcTextInput = {
  * Default bindings setup
  * ============================================================ */
 
-/** Add bindings to an IMC for a given player, supporting up to 2 VKs. */
-static void addBind(InputMappingContext *imc, InputAction action,
-                    u32 vk1, u32 vk2)
+/** Add a single binding to an IMC. One VK per call — call twice for dual binds. */
+static void addBind(InputMappingContext *imc, InputAction action, u32 vk)
 {
-    if (vk1) actionmapBind(imc, playerForVk(vk1), action, -1, vk1);
-    if (vk2) actionmapBind(imc, playerForVk(vk2), action, -1, vk2);
+    if (vk) actionmapBind(imc, playerForVk(vk), action, -1, vk);
 }
 
 static void setupGameplayDefaults(s32 player)
@@ -1263,75 +1258,86 @@ static void setupGameplayDefaults(s32 player)
 
     /* Keyboard/mouse defaults for player 0 */
     if (p == 0) {
-        addBind(imc, ACTION_MOVE_FORWARD,   VKL_W,             JOY_BTN(0, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S,             JOY_BTN(0, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_MOVE_LEFT,      VK_A,              JOY_BTN(0, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_MOVE_RIGHT,     VKL_D,             JOY_BTN(0, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT,     JOY_BTN(0, JOFS_RTRIG));
-        addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT,    JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_FIRE_MODE,      VKL_C,             0);            /* L_TRIG: fire mode cycle */
-        addBind(imc, ACTION_RELOAD,         VKL_R,             JOY_BTN(0, JBTN_X)); /* X_BUTTON */
-        addBind(imc, ACTION_USE,            VKL_F,             JOY_BTN(0, JBTN_A)); /* A_BUTTON */
-        addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE,   JOY_BTN(0, JBTN_B)); /* B_BUTTON gameplay */
-        addBind(imc, ACTION_CROUCH,         VK_LCTRL,          0);
-        addBind(imc, ACTION_JUMP,           VK_SPACE,          JOY_BTN(0, JBTN_Y));
-        addBind(imc, ACTION_SPRINT,         VK_LSHIFT,         0);
-        addBind(imc, ACTION_ZOOM_IN,        0,                 0);            /* scope zoom: no default kbd */
-        addBind(imc, ACTION_ZOOM_OUT,       0,                 0);
-        addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP, JOY_BTN(0, JBTN_LB));
-        addBind(imc, ACTION_WEAPON_NEXT,    VK_MOUSE_WHEEL_DN, JOY_BTN(0, JBTN_RB));
-        addBind(imc, ACTION_WEAPON_1,       (u32)VK_1,         0);
-        addBind(imc, ACTION_WEAPON_2,       VKL_2,             0);
-        addBind(imc, ACTION_WEAPON_3,       VKL_3,             0);
-        addBind(imc, ACTION_WEAPON_4,       VKL_4,             0);
-        addBind(imc, ACTION_WEAPON_5,       VKL_5,             0);
-        addBind(imc, ACTION_WEAPON_6,       VKL_6,             0);
+        /* Left stick movement intentionally has NO controller button bind here.
+         * Analog movement is handled by the SDL_GameControllerGetAxis path in
+         * actionmapPollFrame() → ACTION_AXIS_MOVE_X/Y. Binding JOFS_LSTICK_* as
+         * buttons would cause the WASD synthesis block to overwrite the analog values
+         * with snapped digital values, clobbering smooth analog movement. */
+        addBind(imc, ACTION_MOVE_FORWARD,   VKL_W);
+        addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S);
+        addBind(imc, ACTION_MOVE_LEFT,      VK_A);
+        addBind(imc, ACTION_MOVE_RIGHT,     VKL_D);
+        addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT);
+        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(0, JOFS_RTRIG));
+        addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT);
+        addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(0, JOFS_LTRIG));
+        addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* L_TRIG: fire mode cycle */
+        addBind(imc, ACTION_RELOAD,         VKL_R);
+        addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON */
+        addBind(imc, ACTION_USE,            VKL_F);
+        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_A)); /* A_BUTTON / menu accept */
+        addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
+        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel */
+        addBind(imc, ACTION_CROUCH,         VK_LCTRL);
+        addBind(imc, ACTION_JUMP,           VK_SPACE);
+        addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_Y));
+        addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
+        /* ACTION_ZOOM_IN / ZOOM_OUT: no default kbd bind — user rebinds if needed */
+        addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP);
+        addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(0, JBTN_LB));
+        addBind(imc, ACTION_WEAPON_NEXT,    VK_MOUSE_WHEEL_DN);
+        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_RB));
+        addBind(imc, ACTION_WEAPON_1,       (u32)VK_1);
+        addBind(imc, ACTION_WEAPON_2,       VKL_2);
+        addBind(imc, ACTION_WEAPON_3,       VKL_3);
+        addBind(imc, ACTION_WEAPON_4,       VKL_4);
+        addBind(imc, ACTION_WEAPON_5,       VKL_5);
+        addBind(imc, ACTION_WEAPON_6,       VKL_6);
         /* Analog aim: right stick directions */
-        addBind(imc, ACTION_AIM_UP,         VKL_UP,            JOY_BTN(0, JOFS_RSTICK_UP));
-        addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN,          JOY_BTN(0, JOFS_RSTICK_DOWN));
-        addBind(imc, ACTION_AIM_LEFT,       VKL_LEFT,          JOY_BTN(0, JOFS_RSTICK_LEFT));
-        addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT,         JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_AIM_UP,         VKL_UP);
+        addBind(imc, ACTION_AIM_UP,         JOY_BTN(0, JOFS_RSTICK_UP));
+        addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN);
+        addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(0, JOFS_RSTICK_DOWN));
+        addBind(imc, ACTION_AIM_LEFT,       VKL_LEFT);
+        addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(0, JOFS_RSTICK_LEFT));
+        addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT);
+        addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
         /* C-buttons: D-pad on gamepad (no kbd default; mouse handles aiming) */
-        addBind(imc, ACTION_CBUTTON_UP,     0,                 JOY_BTN(0, JBTN_DPAD_UP));
-        addBind(imc, ACTION_CBUTTON_DOWN,   0,                 JOY_BTN(0, JBTN_DPAD_DOWN));
-        addBind(imc, ACTION_CBUTTON_LEFT,   0,                 JOY_BTN(0, JBTN_DPAD_LEFT));
-        addBind(imc, ACTION_CBUTTON_RIGHT,  0,                 JOY_BTN(0, JBTN_DPAD_RIGHT));
-        /* D-pad gameplay: Back/Select on gamepad (no conflict with C-button above) */
-        addBind(imc, ACTION_DPAD_UP,        0,                 0);
-        addBind(imc, ACTION_DPAD_DOWN,      0,                 0);
-        addBind(imc, ACTION_DPAD_LEFT,      0,                 0);
-        addBind(imc, ACTION_DPAD_RIGHT,     0,                 0);
-        addBind(imc, ACTION_PAUSE,          VK_ESCAPE,         JOY_BTN(0, JBTN_START));
-        addBind(imc, ACTION_SCREENSHOT,     VKL_F5,            0);
-        addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE,          0);
-        addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9,        0);
-        addBind(imc, ACTION_SCORECARD,      43,                JOY_BTN(0, JBTN_BACK)); /* 43 = SDL_SCANCODE_TAB */
+        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(0, JBTN_DPAD_UP));
+        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(0, JBTN_DPAD_DOWN));
+        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(0, JBTN_DPAD_LEFT));
+        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(0, JBTN_DPAD_RIGHT));
+        addBind(imc, ACTION_PAUSE,          VK_ESCAPE);
+        addBind(imc, ACTION_PAUSE,          JOY_BTN(0, JBTN_START));
+        addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
+        addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE);
+        addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
+        addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
+        addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
     } else {
         /* Players 1-3: gamepad-only defaults */
-        addBind(imc, ACTION_MOVE_FORWARD,   JOY_BTN(p, JOFS_LSTICK_UP),    0);
-        addBind(imc, ACTION_MOVE_BACKWARD,  JOY_BTN(p, JOFS_LSTICK_DOWN),  0);
-        addBind(imc, ACTION_MOVE_LEFT,      JOY_BTN(p, JOFS_LSTICK_LEFT),  0);
-        addBind(imc, ACTION_MOVE_RIGHT,     JOY_BTN(p, JOFS_LSTICK_RIGHT), 0);
-        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(p, JOFS_RTRIG),        0);
-        addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(p, JOFS_LTRIG),        0);
-        addBind(imc, ACTION_FIRE_MODE,      0,                              0);
-        addBind(imc, ACTION_RELOAD,         JOY_BTN(p, JBTN_X),            0); /* X_BUTTON */
-        addBind(imc, ACTION_USE,            JOY_BTN(p, JBTN_A),            0); /* A_BUTTON */
-        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(p, JBTN_B),            0); /* B_BUTTON gameplay */
-        addBind(imc, ACTION_CROUCH,         0,                              0);
-        addBind(imc, ACTION_JUMP,           JOY_BTN(p, JBTN_Y),            0);
-        addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(p, JBTN_LB),           0);
-        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(p, JBTN_RB),           0);
-        addBind(imc, ACTION_AIM_UP,         JOY_BTN(p, JOFS_RSTICK_UP),    0);
-        addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(p, JOFS_RSTICK_DOWN),  0);
-        addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(p, JOFS_RSTICK_LEFT),  0);
-        addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(p, JOFS_RSTICK_RIGHT), 0);
-        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(p, JBTN_DPAD_UP),      0);
-        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(p, JBTN_DPAD_DOWN),    0);
-        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(p, JBTN_DPAD_LEFT),    0);
-        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(p, JBTN_DPAD_RIGHT),   0);
-        addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START),        0);
-        addBind(imc, ACTION_SCORECARD,      JOY_BTN(p, JBTN_BACK),        0);
+        /* Movement: NO left-stick-as-button binds. Analog movement is handled
+         * entirely by actionmapPollFrame() reading SDL_GameControllerGetAxis →
+         * ACTION_AXIS_MOVE_X/Y. input.c merges analog into npad->stick_x/y when
+         * the digital path produces 0, so analog movement works correctly. */
+        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(p, JOFS_RTRIG));
+        addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(p, JOFS_LTRIG));
+        addBind(imc, ACTION_RELOAD,         JOY_BTN(p, JBTN_X));   /* X_BUTTON */
+        addBind(imc, ACTION_USE,            JOY_BTN(p, JBTN_A));   /* A_BUTTON / menu accept */
+        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(p, JBTN_B));   /* B_BUTTON / menu cancel */
+        addBind(imc, ACTION_JUMP,           JOY_BTN(p, JBTN_Y));
+        addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(p, JBTN_LB));
+        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(p, JBTN_RB));
+        addBind(imc, ACTION_AIM_UP,         JOY_BTN(p, JOFS_RSTICK_UP));
+        addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(p, JOFS_RSTICK_DOWN));
+        addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(p, JOFS_RSTICK_LEFT));
+        addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(p, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(p, JBTN_DPAD_UP));
+        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(p, JBTN_DPAD_DOWN));
+        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(p, JBTN_DPAD_LEFT));
+        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(p, JBTN_DPAD_RIGHT));
+        addBind(imc, ACTION_PAUSE,          JOY_BTN(p, JBTN_START));
+        addBind(imc, ACTION_SCORECARD,      JOY_BTN(p, JBTN_BACK));
     }
 }
 
@@ -1341,19 +1347,25 @@ static void setupVehicleDefaults(s32 player)
     s32 p = player;
 
     if (p == 0) {
-        addBind(imc, ACTION_VEHICLE_ACCELERATE,  VKL_W,    JOY_BTN(0, JOFS_RTRIG));
-        addBind(imc, ACTION_VEHICLE_BRAKE,       VKL_S,    JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  VK_A,     JOY_BTN(0, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D,    JOY_BTN(0, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F,    JOY_BTN(0, JBTN_A));
-        addBind(imc, ACTION_PAUSE,               VK_ESCAPE, JOY_BTN(0, JBTN_START));
+        addBind(imc, ACTION_VEHICLE_ACCELERATE,  VKL_W);
+        addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(0, JOFS_RTRIG));
+        addBind(imc, ACTION_VEHICLE_BRAKE,       VKL_S);
+        addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(0, JOFS_LTRIG));
+        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  VK_A);
+        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(0, JOFS_LSTICK_LEFT));
+        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D);
+        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
+        addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
+        addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_A));
+        addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
+        addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
     } else {
-        addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(p, JOFS_RTRIG),       0);
-        addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(p, JOFS_LTRIG),       0);
-        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(p, JOFS_LSTICK_LEFT), 0);
-        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(p, JOFS_LSTICK_RIGHT),0);
-        addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(p, JBTN_A),           0);
-        addBind(imc, ACTION_PAUSE,               JOY_BTN(p, JBTN_START),       0);
+        addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(p, JOFS_RTRIG));
+        addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(p, JOFS_LTRIG));
+        addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(p, JOFS_LSTICK_LEFT));
+        addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(p, JOFS_LSTICK_RIGHT));
+        addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(p, JBTN_A));
+        addBind(imc, ACTION_PAUSE,               JOY_BTN(p, JBTN_START));
     }
 }
 
@@ -1363,28 +1375,32 @@ static void setupMenuDefaults(void)
     InputMappingContext *imc = &g_ImcMenu;
 
     /* Player 0 - keyboard */
-    addBind(imc, ACTION_MENU_UP,       VKL_UP,       0);
-    addBind(imc, ACTION_MENU_DOWN,     VKL_DOWN,     0);
-    addBind(imc, ACTION_MENU_LEFT,     VKL_LEFT,     0);
-    addBind(imc, ACTION_MENU_RIGHT,    VKL_RIGHT,    0);
-    addBind(imc, ACTION_MENU_ACCEPT,   VK_RETURN,    0);
-    addBind(imc, ACTION_MENU_CANCEL,   VK_ESCAPE,    0);
-    addBind(imc, ACTION_MENU_TAB_PREV, VKL_Q,        0);
-    addBind(imc, ACTION_MENU_TAB_NEXT, VKL_E,        0);
+    addBind(imc, ACTION_MENU_UP,       VKL_UP);
+    addBind(imc, ACTION_MENU_DOWN,     VKL_DOWN);
+    addBind(imc, ACTION_MENU_LEFT,     VKL_LEFT);
+    addBind(imc, ACTION_MENU_RIGHT,    VKL_RIGHT);
+    addBind(imc, ACTION_USE,           VK_RETURN);  /* menu accept = gameplay use */
+    addBind(imc, ACTION_CANCEL_USE,    VK_ESCAPE);  /* menu cancel = gameplay cancel */
+    addBind(imc, ACTION_MENU_TAB_PREV, VKL_Q);
+    addBind(imc, ACTION_MENU_TAB_NEXT, VKL_E);
 
-    /* All players - gamepad D-pad + face buttons */
+    /* All players - gamepad D-pad + left stick + face buttons */
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        addBind(imc, ACTION_MENU_UP,       JOY_BTN(p, JBTN_DPAD_UP),   JOY_BTN(p, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MENU_DOWN,     JOY_BTN(p, JBTN_DPAD_DOWN), JOY_BTN(p, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_MENU_LEFT,     JOY_BTN(p, JBTN_DPAD_LEFT), JOY_BTN(p, JOFS_LSTICK_LEFT));
-        addBind(imc, ACTION_MENU_RIGHT,    JOY_BTN(p, JBTN_DPAD_RIGHT),JOY_BTN(p, JOFS_LSTICK_RIGHT));
-        addBind(imc, ACTION_MENU_ACCEPT,   JOY_BTN(p, JBTN_A),         0);
-        addBind(imc, ACTION_MENU_CANCEL,   JOY_BTN(p, JBTN_B),         0);
-        addBind(imc, ACTION_MENU_TAB_PREV, JOY_BTN(p, JBTN_LB),        0);
-        addBind(imc, ACTION_MENU_TAB_NEXT, JOY_BTN(p, JBTN_RB),        0);
-        addBind(imc, ACTION_PAUSE,         JOY_BTN(p, JBTN_START),     0);
+        addBind(imc, ACTION_MENU_UP,       JOY_BTN(p, JBTN_DPAD_UP));
+        addBind(imc, ACTION_MENU_UP,       JOY_BTN(p, JOFS_LSTICK_UP));
+        addBind(imc, ACTION_MENU_DOWN,     JOY_BTN(p, JBTN_DPAD_DOWN));
+        addBind(imc, ACTION_MENU_DOWN,     JOY_BTN(p, JOFS_LSTICK_DOWN));
+        addBind(imc, ACTION_MENU_LEFT,     JOY_BTN(p, JBTN_DPAD_LEFT));
+        addBind(imc, ACTION_MENU_LEFT,     JOY_BTN(p, JOFS_LSTICK_LEFT));
+        addBind(imc, ACTION_MENU_RIGHT,    JOY_BTN(p, JBTN_DPAD_RIGHT));
+        addBind(imc, ACTION_MENU_RIGHT,    JOY_BTN(p, JOFS_LSTICK_RIGHT));
+        addBind(imc, ACTION_USE,           JOY_BTN(p, JBTN_A)); /* menu accept */
+        addBind(imc, ACTION_CANCEL_USE,    JOY_BTN(p, JBTN_B)); /* menu cancel */
+        addBind(imc, ACTION_MENU_TAB_PREV, JOY_BTN(p, JBTN_LB));
+        addBind(imc, ACTION_MENU_TAB_NEXT, JOY_BTN(p, JBTN_RB));
+        addBind(imc, ACTION_PAUSE,         JOY_BTN(p, JBTN_START));
     }
-    addBind(imc, ACTION_PAUSE, VK_ESCAPE, 0);
+    addBind(imc, ACTION_PAUSE, VK_ESCAPE);
 }
 
 static void setupPauseMenuDefaults(void)
@@ -1392,23 +1408,25 @@ static void setupPauseMenuDefaults(void)
     /* PauseMenu IMC: same as Menu but separate context so game knows it's a pause */
     InputMappingContext *imc = &g_ImcPauseMenu;
 
-    addBind(imc, ACTION_MENU_UP,     VKL_UP,    0);
-    addBind(imc, ACTION_MENU_DOWN,   VKL_DOWN,  0);
-    addBind(imc, ACTION_MENU_LEFT,   VKL_LEFT,  0);
-    addBind(imc, ACTION_MENU_RIGHT,  VKL_RIGHT, 0);
-    addBind(imc, ACTION_MENU_ACCEPT, VK_RETURN, 0);
-    addBind(imc, ACTION_MENU_CANCEL, VK_ESCAPE, 0);
+    addBind(imc, ACTION_MENU_UP,    VKL_UP);
+    addBind(imc, ACTION_MENU_DOWN,  VKL_DOWN);
+    addBind(imc, ACTION_MENU_LEFT,  VKL_LEFT);
+    addBind(imc, ACTION_MENU_RIGHT, VKL_RIGHT);
+    addBind(imc, ACTION_USE,        VK_RETURN); /* menu accept = gameplay use */
+    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE); /* menu cancel = gameplay cancel */
     /* ACTION_PAUSE intentionally NOT bound to VK_ESCAPE here — it would
-     * double-fire with ACTION_MENU_CANCEL on the same keypress. Escape in the
-     * pause menu means "go back / close", which is ACTION_MENU_CANCEL.
+     * double-fire with ACTION_CANCEL_USE on the same keypress. Escape in the
+     * pause menu means "go back / close", which is ACTION_CANCEL_USE.
      * Gamepad Start still toggles pause via the per-player binds below. */
 
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
-        addBind(imc, ACTION_MENU_UP,     JOY_BTN(p, JBTN_DPAD_UP),   JOY_BTN(p, JOFS_LSTICK_UP));
-        addBind(imc, ACTION_MENU_DOWN,   JOY_BTN(p, JBTN_DPAD_DOWN), JOY_BTN(p, JOFS_LSTICK_DOWN));
-        addBind(imc, ACTION_MENU_ACCEPT, JOY_BTN(p, JBTN_A),         0);
-        addBind(imc, ACTION_MENU_CANCEL, JOY_BTN(p, JBTN_B),         0);
-        addBind(imc, ACTION_PAUSE,       JOY_BTN(p, JBTN_START),     0);
+        addBind(imc, ACTION_MENU_UP,    JOY_BTN(p, JBTN_DPAD_UP));
+        addBind(imc, ACTION_MENU_UP,    JOY_BTN(p, JOFS_LSTICK_UP));
+        addBind(imc, ACTION_MENU_DOWN,  JOY_BTN(p, JBTN_DPAD_DOWN));
+        addBind(imc, ACTION_MENU_DOWN,  JOY_BTN(p, JOFS_LSTICK_DOWN));
+        addBind(imc, ACTION_USE,        JOY_BTN(p, JBTN_A)); /* menu accept */
+        addBind(imc, ACTION_CANCEL_USE, JOY_BTN(p, JBTN_B)); /* menu cancel */
+        addBind(imc, ACTION_PAUSE,      JOY_BTN(p, JBTN_START));
     }
 }
 
@@ -1416,15 +1434,15 @@ static void setupDebugOverlayDefaults(void)
 {
     InputMappingContext *imc = &g_ImcDebugOverlay;
 
-    addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9,  0);
-    addBind(imc, ACTION_MENU_UP,        VKL_UP,      0);
-    addBind(imc, ACTION_MENU_DOWN,      VKL_DOWN,    0);
-    addBind(imc, ACTION_MENU_LEFT,      VKL_LEFT,    0);
-    addBind(imc, ACTION_MENU_RIGHT,     VKL_RIGHT,   0);
-    addBind(imc, ACTION_MENU_ACCEPT,    VK_RETURN,   0);
-    addBind(imc, ACTION_MENU_CANCEL,    VK_ESCAPE,   0);
-    addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE,    0);
-    addBind(imc, ACTION_SCREENSHOT,     VKL_F5,      0);
+    addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
+    addBind(imc, ACTION_MENU_UP,        VKL_UP);
+    addBind(imc, ACTION_MENU_DOWN,      VKL_DOWN);
+    addBind(imc, ACTION_MENU_LEFT,      VKL_LEFT);
+    addBind(imc, ACTION_MENU_RIGHT,     VKL_RIGHT);
+    addBind(imc, ACTION_USE,            VK_RETURN); /* menu accept */
+    addBind(imc, ACTION_CANCEL_USE,     VK_ESCAPE); /* menu cancel */
+    addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE);
+    addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
 }
 
 static void setupTextInputDefaults(void)
@@ -1433,9 +1451,11 @@ static void setupTextInputDefaults(void)
 
     /* Text input context binds very few actions — most key events
      * go directly to SDL text input mode, not through actionmap. */
-    addBind(imc, ACTION_MENU_ACCEPT, VK_RETURN,    JOY_BTN(0, JBTN_A));
-    addBind(imc, ACTION_MENU_CANCEL, VK_ESCAPE,    JOY_BTN(0, JBTN_B));
-    addBind(imc, ACTION_CHEAT_ENTER, VK_RETURN,    0);
+    addBind(imc, ACTION_USE,        VK_RETURN);    /* confirm/accept */
+    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);    /* cancel */
+    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B));
+    addBind(imc, ACTION_CHEAT_ENTER, VK_RETURN);
 }
 
 /** Build default bind strings from the freshly populated IMC mappings. */

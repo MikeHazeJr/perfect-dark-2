@@ -4754,8 +4754,8 @@ void menuProcessInput(void)
 	inputs.mousey = 0;
 	// only allow mouse controls for player 1 menus
 	if (menu->playernum == 0) {
-		// ESC always acts as back (action map: ACTION_MENU_CANCEL)
-		inputs.back = actionPressed(0, ACTION_MENU_CANCEL);
+		/* ESC always acts as back (ACTION_CANCEL_USE = unified cancel/back) */
+		inputs.back = actionPressed(0, ACTION_CANCEL_USE);
 		if (inputMouseIsEnabled() && !inputMouseIsLocked() && g_MenuMouseControl) {
 			/* PARALLEL PATH OK: Mouse has no action map equivalent in legacy menus */
 			inputs.mouseheld = inputKeyPressed(VK_MOUSE_LEFT);
@@ -4847,14 +4847,12 @@ void menuProcessInput(void)
 			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 127.0f);
 			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 127.0f);
 
-			/* M-2 fix: Check both ACTION_USE (gameplay) and ACTION_MENU_ACCEPT (menu IMC).
-			 * When g_ImcMenu is active at higher priority, JOY_A maps to MENU_ACCEPT
-			 * instead of USE — need to check both so controller A always works. */
-			if (actionPressed(player, ACTION_USE) || actionPressed(player, ACTION_MENU_ACCEPT)) {
+			/* ACTION_USE is the unified accept for both gameplay and menus.
+			 * ACTION_CANCEL_USE is the unified cancel/back. */
+			if (actionPressed(player, ACTION_USE)) {
 				inputs.select = 1;
 			}
-
-			if (actionPressed(player, ACTION_CANCEL_USE) || actionPressed(player, ACTION_MENU_CANCEL)) {
+			if (actionPressed(player, ACTION_CANCEL_USE)) {
 				inputs.back = 1;
 			}
 

@@ -1947,7 +1947,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
     /* B button / Escape = Resume (unless restart confirm is showing) */
     if (!s_RestartConfirm &&
-        (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        (actionPressed(0, ACTION_CANCEL_USE) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();

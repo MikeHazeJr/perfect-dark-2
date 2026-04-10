@@ -341,8 +341,8 @@ static const char *menutextJoinAddress(struct menuitem *item)
 
 static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	/* Action map: Escape → ACTION_MENU_CANCEL (edge-triggered) */
-	if (actionPressed(0, ACTION_MENU_CANCEL)) {
+	/* Action map: Escape → ACTION_CANCEL_USE (unified cancel) */
+	if (actionPressed(0, ACTION_CANCEL_USE)) {
 		netDisconnect();
 		menuPopDialog();
 		return 0;

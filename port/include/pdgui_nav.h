@@ -3,8 +3,8 @@
  *
  * M0.2 Phase C: Accept/cancel queries, device detection, and event processing
  * have been removed. Those are now handled by actionmap.h:
- *   - actionPressed(0, ACTION_MENU_ACCEPT)  replaces pdguiNavAcceptPressed()
- *   - actionPressed(0, ACTION_MENU_CANCEL)  replaces pdguiNavCancelPressed()
+ *   - actionPressed(0, ACTION_USE)           replaces pdguiNavAcceptPressed()
+ *   - actionPressed(0, ACTION_CANCEL_USE)   replaces pdguiNavCancelPressed()
  *   - actionmapGetLastDevice()              replaces pdguiNavGetLastDevice()
  *   - ACTIONMAP_DEVICE_GAMEPAD              replaces PDNAV_DEVICE_GAMEPAD
  *
