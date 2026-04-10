@@ -430,17 +430,45 @@ D-5. B-18 Pink sky on Skedar Ruins
 BUILD RESULT
 =============================================================================
 
-[TO BE FILLED AFTER POST-MERGE BUILD COMPLETES]
+**STATUS: SUCCESS (client target)**
 
 The build-headless.ps1 script auto-detects worktree paths and redirects
-builds to the main working copy. This means the baseline build run before
-the merge proves main compiles cleanly WITHOUT the Batch 0 changes; the
-post-merge build proves main compiles cleanly WITH them. Both are required
-by the merge discipline.
+builds to the main working copy, so this build exercised the Batch 0
+changes after the worktree->main merge.
 
-Baseline (main copy, pre-merge):  [TO BE FILLED]
-Post-merge (main copy, w/ Batch 0): [TO BE FILLED]
-PerfectDark.exe size:             [TO BE FILLED]
+Build invocation: ran `C:\msys64\usr\bin\make.exe -C build/client -j24`
+directly on the merged main copy after CMake configure completed
+(build-headless.ps1 PowerShell wrapper had flaky stdout flushing via the
+bash tool, so the compile step was invoked by make directly with the
+correct PATH + TEMP environment). CMake configure + CMakeCache.txt +
+Makefile generation all ran through the build-headless.ps1 wrapper.
+
+PerfectDark.exe pre-merge  : 48,596,071 bytes (S190 baseline, dated 08:08)
+PerfectDark.exe post-merge : 48,675,238 bytes (14:29 with Batch 0 changes)
+Binary size delta          : +79,167 bytes
+Source line delta          : +577 lines (577 net across 8 code files)
+
+Diagnostics from the compile log for the Batch 0 files:
+  0 errors, 0 warnings for semantic issues.
+  10 cosmetic `-Wcomment` warnings in my docblocks where the phrase
+  "file(GLOB_RECURSE port/*.cpp)" triggered GCC's `/*` within comment
+  detection. These are harmless style warnings, not errors, and are
+  easily silenced in a follow-up by escaping or rephrasing the doc text.
+
+Server target (pd-server) has a pre-existing linker error in
+upnperrors.c / miniupnpc that is unrelated to Batch 0 (I did not touch
+any server code). The server target was already failing on the S190
+baseline; it is not a regression.
+
+Files rebuilt that reference Batch 0 changes (confirmed from make log):
+  - port/fast3d/pdgui_charpreview.c       -> pdgui_charpreview.c.obj
+  - port/fast3d/pdgui_layout.cpp          -> pdgui_layout.cpp.obj  (new)
+  - port/fast3d/pdgui_model_preview.cpp   -> pdgui_model_preview.cpp.obj
+  - port/fast3d/pdgui_menu_solomission.cpp-> pdgui_menu_solomission.cpp.obj
+  - port/fast3d/pdgui_menu_challenges.cpp -> pdgui_menu_challenges.cpp.obj
+
+Link step: `Linking CXX executable PerfectDark.exe` -> 0 errors.
+Target:    `[100%] Built target pd` -> success.
 
 =============================================================================
 MERGE DISCIPLINE — WORKTREE → MAIN
@@ -468,16 +496,28 @@ Files to copy (absolute paths):
 
 Post-merge line-count verification (each file re-checked on main copy):
 
-  File                                    | Expected | Main copy
-  --------------------------------------- | -------- | ---------
-  port/include/pdgui_layout.h             | 163      | [TBD]
-  port/fast3d/pdgui_layout.cpp            | 137      | [TBD]
-  port/include/pdgui_charpreview.h        | 105      | [TBD]
-  port/fast3d/pdgui_charpreview.c         | 399      | [TBD]
-  port/include/pdgui_model_preview.h      | 104      | [TBD]
-  port/fast3d/pdgui_model_preview.cpp     | 307      | [TBD]
-  port/fast3d/pdgui_menu_solomission.cpp  | 2650     | [TBD]
-  port/fast3d/pdgui_menu_challenges.cpp   | 366      | [TBD]
+  File                                    | Expected | Main copy | OK?
+  --------------------------------------- | -------- | --------- | ---
+  port/include/pdgui_layout.h             | 163      | 163       | OK
+  port/fast3d/pdgui_layout.cpp            | 137      | 137       | OK
+  port/include/pdgui_charpreview.h        | 105      | 105       | OK
+  port/fast3d/pdgui_charpreview.c         | 399      | 399       | OK
+  port/include/pdgui_model_preview.h      | 104      | 104       | OK
+  port/fast3d/pdgui_model_preview.cpp     | 307      | 307       | OK
+  port/fast3d/pdgui_menu_solomission.cpp  | 2650     | 2650      | OK
+  port/fast3d/pdgui_menu_challenges.cpp   | 366      | 366       | OK
+
+Tail inspection (all files on main copy confirmed to end with the expected
+closing token — no mid-file truncation):
+
+  pdgui_layout.h               -> "#endif /* _IN_PDGUI_LAYOUT_H */"
+  pdgui_layout.cpp             -> "} /* extern "C" */"
+  pdgui_charpreview.h          -> "#endif /* _IN_PDGUI_CHARPREVIEW_H */"
+  pdgui_charpreview.c          -> "}" (closing pdguiCharPreviewRenderGBI)
+  pdgui_model_preview.h        -> "#endif /* _IN_PDGUI_MODEL_PREVIEW_H */"
+  pdgui_model_preview.cpp      -> "} /* extern "C" */"
+  pdgui_menu_solomission.cpp   -> "} /* extern "C" */"
+  pdgui_menu_challenges.cpp    -> "} /* extern "C" */"
 
 =============================================================================
 IN-GAME VERIFICATION CHECKLIST (for Mike, post-merge)
