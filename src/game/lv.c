@@ -2240,11 +2240,16 @@ void lvTick(void)
 		s_LvTickFirstRun = 0;
 	}
 
-	/* B-126: Periodic heartbeat log (every 60s / 3600 frames) to help
-	 * diagnose silent crashes — last heartbeat before death pinpoints timing. */
-	if (g_Vars.lvframe60 > 0 && (g_Vars.lvframe60 % 3600) == 0) {
-		sysLogPrintf(LOG_NOTE, "HEARTBEAT: frame=%d (~%ds) chrs=%d stage=0x%02x",
-			g_Vars.lvframe60, g_Vars.lvframe60 / 60, g_MpNumChrs, g_Vars.stagenum);
+	/* B-126: Periodic heartbeat log (every 30s / 1800 frames) to help
+	 * diagnose silent crashes — last heartbeat before death pinpoints timing.
+	 * S191: interval halved (60s→30s); added last-chr-tick index (B-112 probe)
+	 * and full NET.WATCHDOG/NET.HEARTBEAT dump via netHeartbeatLog(). */
+	if (g_Vars.lvframe60 > 0 && (g_Vars.lvframe60 % 1800) == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.HEARTBEAT: frame=%d (~%ds) chrs=%d stage=0x%02x last_chr_idx=%d",
+			g_Vars.lvframe60, g_Vars.lvframe60 / 60,
+			g_MpNumChrs, g_Vars.stagenum, g_ChrLastTickedIndex);
+		netHeartbeatLog(); /* NET.WATCHDOG + per-peer RTT/silence; no-ops cleanly if no host */
 	}
 
 	lvCheckPauseStateChanged();

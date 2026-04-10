@@ -2146,3 +2146,56 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 	}
 	configRegisterInt("Net.RecentServerCount", &g_NetNumRecentServers, 0, NET_MAX_RECENT_SERVERS);
 }
+
+/**
+ * B-126 diagnostics — log a snapshot of all connected peer states.
+ * Called from lv.c every 30s (1800 frames).  Covers the gap between the
+ * silent-crash onset and the last heartbeat: if the process dies after this
+ * fires, the log shows exactly what the net layer looked like 0–30s before.
+ *
+ * NET.WATCHDOG  — per-peer: name, CLSTATE, RTT, ms-since-last-packet, ENet peer state
+ * NET.HEARTBEAT — aggregate: sent/recv bytes, packet counts, mode
+ */
+void netHeartbeatLog(void)
+{
+	ENetHost *host = g_NetHost; /* static in this TU — avoids the call overhead */
+	s32 connected = 0;
+	s32 i;
+
+	if (host) {
+		uint32_t now = host->serviceTime;
+
+		for (i = 0; i < g_NetMaxClients; i++) {
+			struct netclient *cl = &g_NetClients[i];
+
+			if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) {
+				continue;
+			}
+
+			++connected;
+
+			/* since_rx: ms since last ENet packet from this peer.
+			 * Monotonic within a session; large value = peer gone silent. */
+			uint32_t since_rx = (now >= cl->peer->lastReceiveTime)
+				? (now - cl->peer->lastReceiveTime) : 0;
+
+			sysLogPrintf(LOG_NOTE,
+				"NET.WATCHDOG: cl[%d] \"%s\" clstate=%u rtt=%ums since_rx=%ums enet_state=%d",
+				i, cl->settings.name, cl->state,
+				(unsigned)cl->peer->roundTripTime, (unsigned)since_rx,
+				(int)cl->peer->state);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.HEARTBEAT: mode=%d gamemode=%u clients=%d/%d connected=%d nettick=%u",
+		g_NetMode, (unsigned)g_NetGameMode,
+		g_NetNumClients, g_NetMaxClients, connected, g_NetTick);
+
+	if (host) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.HEARTBEAT: sent=%ukB/%upkts recv=%ukB/%upkts",
+			host->totalSentData / 1024, host->totalSentPackets,
+			host->totalReceivedData / 1024, host->totalReceivedPackets);
+	}
+}
