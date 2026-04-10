@@ -3,95 +3,92 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
-## Session S190 — 2026-04-10 (Input System Complete: P0-only IMC, Menu strip, Build clean)
+## Session S190 — 2026-04-10 (Four-Task Sweep: Binding complete, B-128 sky FIXED, B-129 mission-end crash FIXED, SP-9 IMPLEMENTED)
 
-**Focus**: Completed remaining input system work: P0-only refactor of all IMCs, menu IMC reduced to 3 actions, Bind1/Bind2 analysis, SP-9 guard PS script fix. Clean build verified.
+**Focus**: Four parallel S190 tasks all landed and clean-build verified. Binding rework complete (P0-only, menu stripped to 3 actions). Sky tearing fixed (one-liner). Mission-end crash (B-129) fixed and save pipeline restored. SP-9 truncation safeguard implemented in build pipeline.
 
-### What Was Done
+### Task 1 — Binding Rework + usemask fix (COMPLETE, clean build)
 
-**P0-only binding refactor — COMPLETE**
+**P0-only IMC refactor** — `port/src/actionmap.cpp` 1630 → 1557 lines (−73 from pre-S189 baseline: −24 in S189, −49 in S190):
 - `setupVehicleDefaults`: removed p=1..3 else block; early-return on p≠0.
-- `setupMenuDefaults`: stripped from 35 lines (all-player loop + MENU_UP/DOWN/LEFT/RIGHT/TAB binds) to 5 lines — ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start). Player 0 only. Dead MENU_* binds removed (ImGui handles nav internally).
-- `setupPauseMenuDefaults`: same 3-action model, same explanation retained.
-- `setupDebugOverlayDefaults`: removed MENU_UP/DOWN/LEFT/RIGHT (dead weight); kept DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE_TOGGLE, SCREENSHOT.
-- `setupTextInputDefaults`: reformatted to explicit "kbd / gamepad" comment pairs; was already P0.
-- `actionmapInit`: `for (p=0..MAX)` loop for setupGameplayDefaults/setupVehicleDefaults → single `setupGameplayDefaults(0)` + `setupVehicleDefaults(0)` calls.
+- `setupMenuDefaults`: stripped from 35 lines to 5 — ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). Dead MENU_UP/DOWN/LEFT/RIGHT/TAB_* binds removed (ImGui reads raw SDL key events for menu nav, NOT action map states).
+- `setupPauseMenuDefaults`: same 3-action model.
+- `setupDebugOverlayDefaults`: MENU_UP/DOWN/LEFT/RIGHT removed; DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE_TOGGLE, SCREENSHOT remain.
+- `setupTextInputDefaults`: reformatted, already P0.
+- `actionmapInit`: replaced `for (p=0..MAX)` loop with single `setupGameplayDefaults(0)` + `setupVehicleDefaults(0)`.
+- Bind1/Bind2 confirmed not structural — `InputMapping.triggers[4]` flat array. Each action has ≤1 kbd + ≤1 gamepad default. No struct change needed.
+- Final gamepad layout (P0): A=JUMP, B=CROUCH (dual with CANCEL_USE), Y=USE, X=RELOAD, LSTICK click=SPRINT, R3 unbound.
 
-**Bind1/Bind2 structure analysis — NOT structural**
-- `InputMapping.triggers[4]` flat array + `num_triggers` counter. No "Bind 1 / Bind 2" fields. Collapsing = calling `addBind()` once. Gameplay IMC: each action has ≤1 kbd + ≤1 gamepad default (verified no action has two kbd or two gamepad defaults). Menu/Pause/Debug IMC: only the functional binds remain.
+**usemask door fix** — `src/game/bondmove.c:1836` +4 lines:
+- Root cause: `BUTTON_CANCEL_USE == B_BUTTON` (same constant value). PC-mode usemask had `(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)` = `(B_BUTTON | B_BUTTON | A_BUTTON)` — CANCEL_USE and B_BUTTON are the same bit, so B always matched the door mask.
+- Fix: PC branch now `BUTTON_ACCEPT_USE` only. N64 branch unchanged. B still works for FarSight/scope cancel (that path uses c1buttons synthesis with a different mask, unaffected).
 
-**SP-9 guard PS bug fix** — `build-headless.ps1:449` had `$net:` parsed as drive reference; fixed to `${net}:`.
+**SP-9 PS fix** — `devtools/build-headless.ps1:449`: `$net:` parsed as a PowerShell drive reference; fixed to `${net}:`.
 
-**Build result**: Clean. `PerfectDark.exe` 48.6MB rebuilt at 08:01.
+**Also confirmed in subsequent clean build** (landed via unruffled-kalam worktree):
+- `bondmove.c:~1551` — `unk14 = true` unconditional in CONTROLMODE_PC (was gated on `c2stickx || c2sticky`)
+- `bondmove.c:~1633` (ADS path) — `canlookahead = true` unconditional
+- `bondmove.c:~1642` (non-ADS path) — `canlookahead = !insightaimmode`; stick gate removed
+- `bondmove.c:~2104` (FarSight strafe) — reads `c1stickxsafe` (left stick) instead of `c2stickx`
+- `actionmap.cpp` — JBTN_LSTICK/JBTN_RSTICK defines added; LSTICK click → ACTION_SPRINT
 
-### Files Changed
-- `port/src/actionmap.cpp` — 1606 → 1557 lines (-49, all removals of MP loops + dead menu binds)
-- `devtools/build-headless.ps1` — SP-9 string interpolation fix (line 449)
-- `context/session-log.md`, `context/tasks-current.md`
+**Build result**: `PerfectDark.exe` 48,596,071 bytes, clean link, no errors.
 
-### Decisions
-- MENU_UP/DOWN/LEFT/RIGHT/TAB_* are confirmed dead weight in IMCs — ImGui reads raw SDL key events, not action map states, for menu navigation.
-- "1606 vs 1624 truncation question" resolved: 1624 was a stale snapshot from a mid-session state. 1630 was the pre-S189-session baseline. 1630→1606 (-24, MP else block removal) was correct. 1606→1557 (-49, this session) is correct. No truncation at any point.
+### Task 2 — B-129 Mission-End Crash (FIXED)
 
-### Next Steps
-- In-game verification (see task list)
-- B-129 mission-end crash (exciting-fermat worktree, separate session)
+**Root cause chain**: `endscreenPrepare → filemgrSaveOrLoad(FILEOP_SAVE_GAME_000) → pakFindBySerial()==-1` (no Controller Pak on PC) `→ menuPushDialog(&g_PakNotOriginalMenuDialog)` (unregistered, DANGER type) `→ type-based fallback → renderDangerDialog → getDialogTitle → langSafe((s32)(uintptr_t)fn_ptr)` — 64-bit function pointer truncated to s32, used as lang bank index in the millions `→ lang.c:461 g_LangBanks[bankindex]` → AV.
 
----
+Three `filemgrSaveOrLoad(FILEOP_SAVE_GAME_000)` calls in endscreen.c (lines 1722, 1827, 1932) all hit this path.
 
-## Session S190_OLD — 2026-04-10 (Input System Bugfix Sweep + Mission-End Crash Triage)
+**Fix** — `endscreen.c` +14 lines: all three calls replaced with `saveSaveAgent(g_GameFile.name)` (PC-native JSON save system). Added `#include "savefile.h"`.
 
-**Focus**: Parallel tracks. Track A (worktree: unruffled-kalam): more input system fixes — twin-stick gate, canlookahead, FarSight strafe, binding rework in progress. Track B (worktree: exciting-fermat): mission-end crash diagnosis. This is a context-maintenance session; no source changes here.
+**Defense in depth** — `port/fast3d/pdgui_menu_warning.cpp` +12 lines: `pdguiHotswapRegister` for `g_PakNotOriginalMenuDialog`, `g_FilemgrSaveErrorMenuDialog`, `g_FilemgrFileLostMenuDialog` — all with `renderNoop` handler. Blocks the fatal fn-ptr-as-bank-index path even if filemgr is called elsewhere.
 
-### Track A — Input System Overhaul (unruffled-kalam worktree)
+**Side benefit**: PC save pipeline was silently failing every mission completion. `saves/agent_<name>.json` is now correctly written to disk on mission end.
 
-**Already landed, awaiting merge + rebuild:**
-- `bondmove.c:~1551` — `unk14 = true` unconditionally in CONTROLMODE_PC. Was gated on `(c2stickx || c2sticky)`, forcing right-stick deflection to enable sideways left-stick movement.
-- `bondmove.c:~1633` (ADS path) — `canlookahead = true`, was `(c2stickx || c2sticky)`.
-- `bondmove.c:~1642` (non-ADS path) — `canlookahead = !insightaimmode` only; stick gate removed.
-- `bondmove.c:~2104` (FarSight strafe) — now uses `c1stickxsafe` (left stick) instead of `c2stickx` (aim stick while ADS'd).
-- `actionmap.cpp` — `JBTN_LSTICK`/`RSTICK` defines added; LSTICK click → SPRINT; RSTICK click → CROUCH (RSTICK bind removed in in-flight task below).
-- `devtools/_dev-window.ps1` — em dashes replaced with hyphens (Windows-1252 encoding issue); restored from commit 68c0b186 after truncation by edit pipeline.
+### Task 3 — B-128 Sky Tearing (FIXED)
 
-**In-flight (being implemented in this worktree):**
-- `bondmove.c:~1832 usemask` — removing `BUTTON_CANCEL_USE` from PC-side mask so B no longer opens doors.
-- `actionmap.cpp setupGameplayDefaults` — removing MP player loop entirely. Player 0 only across every IMC; no p=0..3 loops.
-- Collapse "Bind 1 / Bind 2" to single default per action: one kbd default + one gamepad default. Single-column rebind UI.
-- Menu IMC reduced to three bindings: UI Select (A), Back/Cancel (B), Use (Y). Player 0 only.
-- Player 0 gamepad layout locked: A=Jump, B=Crouch, X=Reload, Y=Use, LSTICK click=Sprint, R3 unbound.
-- `crouch_mode` config flag (0=hold default, 1=toggle) persisted in `pd.ini` via existing config plumbing; consumed in `bondmove.c` with per-player toggled bool that resets on respawn, level load, and mode change.
+**Root cause**: `skyRender()` upper hemisphere (clouds) at `sky.c:1244` never called `gDPSetRenderMode`. It inherited stale `other_mode_l` from the previous frame's sun-flare/overexposure draws using `G_RM_AA_XLU_SURF`. This set `use_alpha=true` in `port/fast3d/gfx_pc.cpp:1307`, enabling `GL_BLEND`, causing sky tris to alpha-blend with the framebuffer instead of overwriting it. Sky is the FIRST geometry drawn each frame (`lv.c:1394`), so it always inherits the previous frame's blend state.
 
-### Track B — Mission-End Crash (exciting-fermat worktree)
+**Fix** — `src/game/sky.c:1244` +1 line: `gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2)` inserted after `gDPPipeSync`/`texSelect` and before `gDPSetEnvColor`. Mirrors the working water path at `sky.c:827`. Vertex alpha is always 0xff per `skyChooseCloudVtxColour` at `sky.c:189`. Zero risk to non-sky geometry.
 
-**Symptom**: ACCESS_VIOLATION at end of Mission 1 Objective 1. Post-game/transition screen pushes an IMC → AV on next access.
+**Note**: B-18 (pink sky on Skedar Ruins) may be fully or partially addressed by this fix. Unknown until Mike tests Skedar.
 
-**Log**: `019d75be-pdclient.log`. Last events before crash:
-```
-vk=519 -> action=24(Use) DOWN
-ACTIONMAP: activated 'menu' (priority 10, depth 2)
-INPUTCTX: imgui_menu on_push
-pushed 'imgui_menu' (depth now 2)
-FATAL: ACCESS_VIOLATION PC=+0xc2dc1 CODE=0xc0000005
-```
+### Task 4 — SP-9 Truncation Safeguard (IMPLEMENTED)
 
-**Backtrace offsets (module base)**: `+0xc2dc1, +0x28e575, +0x2c2c9d, +0x2c2eee, +0x2c35a8, +0x29236a, +0x28eff6, +0x205a60, +0x1fa66d, +0x1e6e8d, +0x300a69, +0x1e6003, +0x1e65a7, +0x1e6877, +0x1bea08`
+`devtools/build-headless.ps1` +35 lines: before `git add -A && git commit`, runs `git diff HEAD --numstat`. Flags files where net delta < −20 AND additions < floor(deletions/3). Aborts the auto-commit (NOT the build), prints suspect files and a restore command. Build continues from working copy.
 
-**Hypothesis**: Mission-complete / solo-results screen not fully migrated to ImGui — still dereferences stripped legacy menu state. IMC push itself succeeds (visible in log); AV on next access. Logged as **B-129**. Track B session will symbolize the backtrace before any patch.
+**Tested**: Trip test fired (100-line file → 5 lines, 0+/95−, net −95). False-positive test silent (actionmap.cpp −49 net / 41 added — intentional rewrite, correct no-fire). Clean run passed.
+
+`context/systemic-bugs.md` SP-9 entry expanded with Mode A (Windows-1252 encoding truncation on UTF-8 em-dashes at byte 0xE2) vs Mode B (AI output token limit hit mid-Write/Edit call, truncates silently with no error) breakdown, commit catalog, byte-level characterization, auto-commit masking vector. Marked IMPLEMENTED S190.
 
 ### Files Changed
-- Context files only (documentation session).
+- `port/src/actionmap.cpp` — 1606 → 1557 lines (−49 this session; −73 total from pre-S189 baseline of 1630)
+- `src/game/bondmove.c` — usemask fix at line 1836 (+4 lines)
+- `src/game/sky.c` — `gDPSetRenderMode` at line 1244 (+1 line)
+- `src/game/endscreen.c` — three `filemgrSaveOrLoad` calls replaced with `saveSaveAgent` (+14 lines net)
+- `port/fast3d/pdgui_menu_warning.cpp` — three filemgr dialogs registered as noop (+12 lines)
+- `devtools/build-headless.ps1` — SP-9 guard + `${net}:` fix (+35 lines net)
+- `context/systemic-bugs.md` — SP-9 Mode A/B expanded, IMPLEMENTED marked
+- `context/bugs.md` — B-128 (sky tearing) added FIXED; B-129 (mission-end crash) added FIXED
 
 ### Decisions
-- No local multiplayer in this port. All IMC default binding setup: Player 0 only. No p=0..3 loops.
-- RSTICK click will be unbound from CROUCH in the binding rework (in-flight task).
-- Track B must symbolize backtrace before any patch to the mission-end crash.
+- MENU_UP/DOWN/LEFT/RIGHT/TAB_* are confirmed dead weight in IMCs — ImGui reads raw SDL key events for menu navigation, not action map states. Removing them from all IMCs is correct.
+- "No local multiplayer" constraint formalized in constraints.md: all IMC setup targets Player 0 only; no `for (p = 0; p < MAX_LOCAL_PLAYERS; p++)` loops in binding or IMC init are acceptable.
+- B is dual-bound (ACTION_CROUCH + ACTION_CANCEL_USE) in gameplay IMC. usemask fix ensures B does NOT open doors. FarSight/scope cancel uses c1buttons synthesis (different code path, unaffected).
+- Dead-constant aliasing (`BUTTON_CANCEL_USE == B_BUTTON`) is a class of bug — any `BUTTON_*` constant that aliases another bit is a latent usemask hazard. Worth a sweep.
 
-### Next Steps
-- Merge Track A worktree to main working copy, rebuild, verify build.
-- In-game verification: Y=Use opens doors, B=Crouch without opening doors, single-column rebind UI, no MP pre-binds, crouch_mode=1 toggles correctly.
-- Surface `crouch_mode` in ImGui Options/Controls menu if not already done.
-- Track B: symbolize backtrace offsets → identify faulting function → patch (likely null-check or missing ImGui registration in solo-results screen).
-- Add post-edit line-count verification to build pipeline (file truncation mitigation; see SP-9).
+### Next Steps (Mike's in-game verification)
+- [ ] A jumps, does NOT open doors
+- [ ] Y opens doors / interacts
+- [ ] B crouches, does NOT open doors, still exits FarSight/scope
+- [ ] R3 does nothing (unbound)
+- [ ] LSTICK click sprints
+- [ ] Rebind UI single-column, MP slots 1–3 unbound
+- [ ] CrouchMode=2 toggle behavior works, resets on respawn
+- [ ] Mission 1 completion: no crash, `saves/agent_<name>.json` updated on disk
+- [ ] Sky tearing gone on outdoor stages (Dark Noon, Goldfinger 64 exteriors)
+- [ ] B-18 check: does Skedar Ruins still show pink sky, or does B-128 fix cover it?
 
 ---
 

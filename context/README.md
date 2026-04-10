@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-10, Session S190 (Input system bugfix sweep: unk14/canlookahead/FarSight/LSTICK landed; binding rework in progress. Mission-end crash B-129 triaged. No local multiplayer constraint formalized.)
+> **Last updated**: 2026-04-10, Session S190 (Four-task sweep complete: binding rework done, B-128 sky tearing FIXED, B-129 mission-end crash FIXED + save pipeline restored, SP-9 truncation safeguard IMPLEMENTED. Clean build 48.6MB. Pending: Mike's in-game verification pass.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,7 +35,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
-| S189-S190 | 2026-04-10 | Input system sweep: door bug, gamepad defaults, unk14/canlookahead/FarSight/LSTICK fixes; B-129 mission-end crash triage |
+| S189-S190 | 2026-04-10 | Input system complete: P0-only binding rework, usemask/B-door fix, unk14/canlookahead/FarSight/LSTICK fixes. B-128 sky tearing FIXED (sky.c:1244). B-129 mission-end crash FIXED (endscreen.c save path + filemgr noop dialogs). SP-9 safeguard IMPLEMENTED in build-headless.ps1. |
 | S187-S188 | 2026-04-09 | Three-bug debug (B-127 WASD, B-125 weapons, B-126 silent crash); full menu replacement plan (254 dialogs, 11 batches) |
 | S185-S186 | 2026-04-09 | Deep audit (47 bug fixes: 5C+7H+10M+9L), context system overhaul |
 | S184 | 2026-04-08 | P10 D5.7: OG Menu Removal -- ImGui sole menu system |

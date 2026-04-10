@@ -19,16 +19,16 @@
 | **MP 1-3 default gamepad binds removed** | DONE (S189) | setupGameplayDefaults else block removed. MP slots start unbound, rebind UI still works. |
 | **CrouchMode** | ALREADY DONE (pre-S189) | Game.Player%d.CrouchMode: 0=hold (default), 1=analog, 2=toggle, 3=toggle+analog. bondmove.c:1925. |
 
-#### Landed, awaiting rebuild (unruffled-kalam worktree, S190)
+#### Completed in S190 (confirmed in clean build)
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **unk14 gate removed** | LANDED | bondmove.c:~1551 — `unk14 = true` now unconditional in CONTROLMODE_PC. Was gated on c2stick, breaking left-stick strafe when right stick idle. |
-| **canlookahead gate removed (ADS)** | LANDED | bondmove.c:~1633 — `canlookahead = true` unconditional in ADS block. Was c2stick-gated. |
-| **canlookahead gate removed (non-ADS)** | LANDED | bondmove.c:~1642 — `canlookahead = !insightaimmode` only; stick gate removed. |
-| **FarSight strafe — left stick** | LANDED | bondmove.c:~2104 — FarSight strafe reads `c1stickxsafe` (left stick), not `c2stickx` (aim stick). |
-| **LSTICK=Sprint define + bind** | LANDED | actionmap.cpp — `JBTN_LSTICK`/`JBTN_RSTICK` defines added; LSTICK click → ACTION_SPRINT. |
-| **_dev-window.ps1 restored** | LANDED | Restored from 68c0b186 after truncation (2311→2232 lines). Em-dashes → hyphens to prevent re-truncation. |
+| **unk14 gate removed** | DONE (S190) | bondmove.c:~1551 — `unk14 = true` unconditional in CONTROLMODE_PC. Was gated on c2stick, breaking left-stick strafe when right stick idle. |
+| **canlookahead gate removed (ADS)** | DONE (S190) | bondmove.c:~1633 — `canlookahead = true` unconditional in ADS block. Was c2stick-gated. |
+| **canlookahead gate removed (non-ADS)** | DONE (S190) | bondmove.c:~1642 — `canlookahead = !insightaimmode` only; stick gate removed. |
+| **FarSight strafe — left stick** | DONE (S190) | bondmove.c:~2104 — FarSight strafe reads `c1stickxsafe` (left stick), not `c2stickx` (aim stick). |
+| **LSTICK=Sprint define + bind** | DONE (S190) | actionmap.cpp — `JBTN_LSTICK`/`JBTN_RSTICK` defines added; LSTICK click → ACTION_SPRINT. |
+| **_dev-window.ps1 restored** | DONE (pre-S190) | Restored from 68c0b186 after truncation (2311→2232 lines). Em-dashes → hyphens to prevent re-truncation. |
 
 #### Completed in S189
 
@@ -40,17 +40,20 @@
 | **Menu IMC 3-action reduction** | DONE (S189) | g_ImcMenu + g_ImcPauseMenu: ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). 5 triggers total, player 0 only. |
 | **crouch_mode in pd.ini** | ALREADY DONE (pre-S189) | `Game.Player%d.CrouchMode`: 0=hold (default). bondmove.c:1925 handles toggle/hold/analog. No changes needed. |
 
-#### TODO — Verification Pass (post-unruffled-kalam rebuild)
+#### TODO — Verification Pass (Mike, post-reset)
 
 | Item | Priority | Detail |
 |------|----------|--------|
-| **In-game verification: A/B/Y input** | HIGH | A=jump, B=crouch (no door open), Y=use (door opens), LSTICK=sprint, R3 unbound. |
-| **Single-column rebind UI** | HIGH | Confirm Bind1/Bind2 collapse shows in rebind screen. No MP pre-binds visible. |
-| **crouch_mode=1 toggles correctly** | MED | Verify toggle mode in pd.ini works; hold mode (0) is default. |
-| **Surface crouch_mode in ImGui options** | MED | Add toggle to Options/Controls panel if not already present. |
-| **File truncation safeguard in build pipeline** | DONE (S190) | SP-9 guard implemented in `devtools/build-headless.ps1`: pre-commit `git diff HEAD --numstat` check aborts auto-commit on net < -20 lines with additions < 1/3 of deletions. Commit-time net, not prevention. Mode B (AI output truncation) remains ONGOING_RISK within a session before first commit. (See SP-9.) |
-| **Mission-end crash fix (B-129)** | HIGH | Pending diagnosis in exciting-fermat worktree. Fix after backtrace symbolization. |
-| **ActionBinding struct refactor** | LOW | If Bind1/Bind2 collapse requires structural change, track as separate item. |
+| **A jumps, does NOT open doors** | HIGH | Verify A=JUMP binding and usemask fix. B should crouch, not open doors. |
+| **Y opens doors / interacts** | HIGH | Y=USE is the new interact button. |
+| **B crouches, does NOT open doors, exits FarSight/scope** | HIGH | Dual-bind CROUCH + CANCEL_USE. usemask fix ensures B excluded from door mask. |
+| **R3 does nothing** | HIGH | RSTICK click is unbound. |
+| **LSTICK click sprints** | HIGH | New LSTICK → ACTION_SPRINT binding. |
+| **Rebind UI: single-column, MP slots 1–3 unbound** | HIGH | No Bind1/Bind2 split; MP players 1–3 have no default gamepad binds. |
+| **CrouchMode=2 toggle works, resets on respawn** | MED | `Game.Player0.CrouchMode=2` in pd.ini. bondmove.c:1925 handles it. |
+| **Mission 1 completion: no crash, JSON save written** | HIGH | B-129 fix. `saves/agent_<name>.json` must be updated on mission end. |
+| **Sky tearing gone on outdoor stages** | HIGH | B-128 fix. Test on Dark Noon, Goldfinger 64 exteriors. |
+| **B-18 check on Skedar Ruins** | MED | Does sky still show pink? B-128 fix may or may not cover B-18. Report result. |
 
 ### Must-Have
 
@@ -60,7 +63,7 @@
 | **D5 Phase 4 -- Theme System** | HIGH | PLANNED | Auto-extract base-ui textures at runtime (no CLI flag). Mod themes selectable in settings. ~3 sessions. |
 | **B-112 root cause** | HIGH | INVESTIGATING | Chr pointer corruption in 31-bot matches. VEH guard + chrBruise/chrDamage guards in place. Awaiting next crash log. |
 | **B-126 silent crash** | HIGH | INVESTIGATING | Silent crash ~8min into MP. Heartbeat logger added (S187). Awaiting next repro. |
-| **B-129 mission-end AV crash** | HIGH | INVESTIGATING | AV in `imgui_menu on_push` at end of M1/O1. Backtrace captured. Assigned to exciting-fermat for symbolization and fix. |
+| **B-129 mission-end AV crash** | HIGH | FIXED (S190) | Root: `endscreen.c` called `filemgrSaveOrLoad` → no Pak on PC → fn-ptr cast to lang index → AV. Fixed: `saveSaveAgent()` replaces all three calls; three filemgr dialogs registered as noop. Side benefit: saves now actually written to disk. |
 | **D13 -- Update System build test** | MED | BLOCKED | Code written (S11). Needs: libcurl MSYS2 static link, compile test, first GitHub release for E2E. |
 | **Build verification + QC pass** | MED | PLANNED | Clean build on dev, all QC tests from qc-tests.md passing, no known crash bugs. |
 
@@ -83,12 +86,17 @@
 |-----|-------------|------|
 | **B-112** | Chr pointer corruption in 31-bot matches (guards in place, root cause unknown) | chraction.c, chr.c |
 | **B-126** | Silent crash ~8min into MP — process dies silently, no VEH log. Heartbeat instrumentation added (S187); awaiting next repro. | lv.c (heartbeat), crash.c |
-| **B-129** | AV at end of M1/O1 post-game transition — `imgui_menu on_push` crashes with CODE=0xc0000005. Hypothesis: legacy menu state deref on push. Assigned exciting-fermat. | pdgui_menu_endscreen.cpp (likely) |
+
+### FIXED S190 (awaiting visual confirmation from Mike)
+| Bug | Description | Fix |
+|-----|-------------|-----|
+| **B-128** | Sky tearing / transparent sky tris on outdoor stages | sky.c:1244 `gDPSetRenderMode(OPA_SURF)` — inheriting previous frame blend state was root cause |
+| **B-129** | AV on mission end — filemgrSaveOrLoad + no Pak + fn-ptr cast to lang index → crash | endscreen.c +14 lines; pdgui_menu_warning.cpp +12 lines; saves now write correctly |
 
 ### MEDIUM
 | Bug | Description | File |
 |-----|-------------|------|
-| **B-18** | Pink sky on Skedar Ruins | sky rendering |
+| **B-18** | Pink sky on Skedar Ruins — may be resolved by B-128 sky fix; needs Skedar playtest | sky rendering |
 | **B-19** | Bot spawn stacking on Skedar Ruins (partial fix S125) | player.c |
 | **B-78** | Chat rebroadcast without rate limiting -- DoS amplification | netmsg.c |
 | **B-81** | JSON tokenizer unbounded recursion -- crafted save crash | savefile.c |
