@@ -385,14 +385,36 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
 {
     if (!s_Visible) return;
 
-    /* Draw a dim overlay behind the editor so background windows are not
-     * legible through the popup.  Uses the background draw list so it sits
-     * behind all ImGui windows submitted after this point. */
-    ImDrawList *bg = ImGui::GetBackgroundDrawList();
-    bg->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
-                      IM_COL32(0, 0, 0, 180));
+    /* Fullscreen blocking overlay — dims the background AND captures all clicks
+     * so the user cannot interact with windows behind the editor.
+     * Clicking the overlay dismisses the editor (click-outside-to-close). */
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2((float)winW, (float)winH));
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGuiWindowFlags overlayFlags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (ImGui::Begin("##theme_editor_overlay", nullptr, overlayFlags)) {
+        /* Draw the dim rect via this window's draw list */
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
+                          IM_COL32(0, 0, 0, 180));
+        /* Invisible button covering the whole screen — catches clicks */
+        if (ImGui::InvisibleButton("##theme_editor_dismiss",
+                                   ImVec2((float)winW, (float)winH))) {
+            pdguiThemeEditorHide();
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
 
-    renderThemeEditor(winW, winH);
+    /* Only render the editor if still visible (overlay click may have closed it) */
+    if (s_Visible) {
+        renderThemeEditor(winW, winH);
+    }
 }
 
 } /* extern "C" */
