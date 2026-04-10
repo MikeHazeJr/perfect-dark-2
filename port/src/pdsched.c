@@ -328,6 +328,12 @@ void schedEndFrame(OSSched *sc)
 		schedConsiderScreenshot();
 	}
 
+	/* Flip action map edge signals AFTER all consumers (bondmove, player, menus)
+	 * have read actionPressed()/actionReleased() this frame. Previously this was
+	 * in gfx_sdl_handle_events() which runs during schedStartFrame — before game
+	 * logic could read edge signals, making actionPressed() always return 0. */
+	actionmapEndFrame();
+
 	// check for vid mode changes
 	__scUpdateViMode();
 }

@@ -284,9 +284,10 @@ void pdguiInit(void *sdlWindow)
     configRegisterFloat("UI.SafeAreaLeft",   &s_SafeMarginLeft,   -1.0f, 0.5f);
     configRegisterFloat("UI.SafeAreaRight",  &s_SafeMarginRight,  -1.0f, 0.5f);
 
-    /* M0.2 Phase A: Initialize action map system.
-     * Must be called before configLoad() so pd.ini keys are registered first. */
-    actionmapInit();
+    /* NOTE: actionmapInit() was previously called here, but this is WRONG.
+     * It's already called in main.c:161 (before configInit/actionmapLoadBinds).
+     * Calling it again here wipes all pd.ini bind customizations that were
+     * loaded by actionmapLoadBinds() at main.c:164. Removed. */
 }
 
 /* M0.2 Phase C: Translate actionmap queries into ImGui nav key events.
