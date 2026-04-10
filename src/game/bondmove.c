@@ -938,9 +938,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 
 	/* Action map is indexed by controller slot (contpad1), not by mpindex.
-	 * In solo mode, mpindex=MAX_PLAYERS(8) for solo config slot, but all input
-	 * is stored in action map slot 0 (contpad1=0). In multiplayer, contpad1
-	 * matches the SDL controller index assigned to this player. */
+	 * In solo mode, mpindex=0 (fixed: lv.c now uses slot 0, not MAX_PLAYERS).
+	 * In multiplayer, contpad1 matches the SDL controller index for this player. */
 	s32 actionPlayer = (s32)contpad1;
 
 	/* DIAG: log movement inputs every ~120 frames */

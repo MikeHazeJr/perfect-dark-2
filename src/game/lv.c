@@ -462,9 +462,9 @@ void lvReset(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "LOAD: mpApplyLimits done");
 
 		if (g_Vars.mplayerisrunning == false) {
-			g_Vars.playerstats[0].mpindex = MAX_PLAYERS;
-			g_PlayerConfigsArray[MAX_PLAYERS].contpad1 = 0;
-			g_PlayerConfigsArray[MAX_PLAYERS].contpad2 = 1;
+			g_Vars.playerstats[0].mpindex = 0;
+			g_PlayerConfigsArray[0].contpad1 = 0;
+			g_PlayerConfigsArray[0].contpad2 = 1;
 		}
 
 		for (i = 0; i != ARRAYCOUNT(g_Vars.playerstats); i++) {
