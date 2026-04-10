@@ -139,8 +139,8 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                           IM_COL32(0, 0, 0, 160));
 
         /* --- Popup box --- */
-        float boxW = pdguiScale(280.0f);
-        float boxH = pdguiScale(200.0f);
+        float boxW = pdguiScale(420.0f);
+        float boxH = pdguiScale(300.0f);
         float boxX = cx - boxW * 0.5f;
         float boxY = cy - boxH * 0.5f;
 
@@ -166,19 +166,19 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
             dl->AddRectFilled(ImVec2(boxX, boxY),
                               ImVec2(boxX + boxW, boxY + boxH),
                               IM_COL32(8, 8, 20, 235),
-                              pdguiScale(6.0f));
+                              pdguiScale(9.0f));
 
             /* PD-style accent border */
             dl->AddRect(ImVec2(boxX, boxY),
                         ImVec2(boxX + boxW, boxY + boxH),
                         IM_COL32(80, 160, 255, 200),
-                        pdguiScale(6.0f), 0,
-                        pdguiScale(2.0f));
+                        pdguiScale(9.0f), 0,
+                        pdguiScale(3.0f));
 
             /* Header label */
             {
-                float headerFontSize = pdguiScale(13.0f);
-                ImGui::SetCursorPos(ImVec2(0, pdguiScale(14.0f)));
+                float headerFontSize = pdguiScale(19.5f);
+                ImGui::SetCursorPos(ImVec2(0, pdguiScale(21.0f)));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 0.9f));
                 float tw = ImGui::CalcTextSize("MATCH STARTING").x *
                            (headerFontSize / ImGui::GetFontSize());
@@ -215,7 +215,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                 ImGui::SetWindowFontScale(1.0f);
 
                 float numX = (boxW - numW) * 0.5f;
-                float numY = (boxH - numH) * 0.5f + pdguiScale(6.0f);
+                float numY = (boxH - numH) * 0.5f + pdguiScale(9.0f);
 
                 dl->AddText(nullptr, ImGui::GetFontSize() * bigScale,
                             ImVec2(boxX + numX, boxY + numY),
@@ -230,7 +230,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                 const char *hint = "Press ESC / B to cancel";
                 float hw = ImGui::CalcTextSize(hint).x;
                 ImGui::SetCursorPos(ImVec2((boxW - hw) * 0.5f,
-                                           boxH - pdguiScale(26.0f)));
+                                           boxH - pdguiScale(39.0f)));
                 ImGui::TextUnformatted(hint);
                 ImGui::PopStyleColor();
             }
@@ -248,8 +248,8 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
             alpha = (float)s_CancelDisplayTimer / 60.0f;
         }
 
-        float bannerH = pdguiScale(40.0f);
-        float bannerW = pdguiScale(420.0f);
+        float bannerH = pdguiScale(60.0f);
+        float bannerW = pdguiScale(630.0f);
         float bannerX = cx - bannerW * 0.5f;
         float bannerY = (float)winH * 0.72f;
 
@@ -277,13 +277,13 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                 ImVec2(bannerX, bannerY),
                 ImVec2(bannerX + bannerW, bannerY + bannerH),
                 IM_COL32(25, 8, 8, (int)(200 * alpha)),
-                pdguiScale(4.0f));
+                pdguiScale(6.0f));
             dl->AddRect(
                 ImVec2(bannerX, bannerY),
                 ImVec2(bannerX + bannerW, bannerY + bannerH),
                 IM_COL32(200, 60, 60, (int)(180 * alpha)),
-                pdguiScale(4.0f), 0,
-                pdguiScale(1.5f));
+                pdguiScale(6.0f), 0,
+                pdguiScale(2.25f));
 
             /* Message text */
             ImGui::PushStyleColor(ImGuiCol_Text,

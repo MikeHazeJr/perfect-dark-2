@@ -2594,7 +2594,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
             float p = (float)(0.55 + 0.45 * sin(pulse));
             ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), " ●");
         } else {
-            ImGui::SameLine(buttonW - pdguiScale(64.0f));
+            ImGui::SameLine(buttonW - pdguiScale(96.0f));
             if (ImGui::SmallButton("Refresh")) {
                 netQueryRecentServersAsync();
                 s_LastQueryMs = SDL_GetTicks();
@@ -2644,7 +2644,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
                 ImGui::PushID(i);
                 if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
-                        ImVec2(buttonW - pdguiScale(24.0f), 0.0f))) {
+                        ImVec2(buttonW - pdguiScale(36.0f), 0.0f))) {
                     if (netStartClientWithHolePunch(srv->addr) == 0) {
                         snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
@@ -2666,7 +2666,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                     }
                 }
 
-                ImGui::Dummy(ImVec2(0, pdguiScale(2.0f)));
+                ImGui::Dummy(ImVec2(0, pdguiScale(3.0f)));
             }
         }
 

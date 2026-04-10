@@ -186,15 +186,15 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     float sf  = pdguiScaleFactor();
 
     /* Notification pill dimensions */
-    float pillH  = pdguiScale(22.0f);
-    float pillW  = pdguiScale(180.0f);
-    float padX   = pdguiScale(8.0f);
-    float padY   = pdguiScale(4.0f);
-    float gapY   = pdguiScale(4.0f);
+    float pillH  = pdguiScale(33.0f);
+    float pillW  = pdguiScale(270.0f);
+    float padX   = pdguiScale(12.0f);
+    float padY   = pdguiScale(6.0f);
+    float gapY   = pdguiScale(6.0f);
 
     /* Position: top-right, offset below HUD box (~76px of HUD at 720p) */
-    float baseX = (float)winW - pillW - pdguiScale(12.0f);
-    float baseY = pdguiScale(84.0f);  /* below top-right HUD scorebox */
+    float baseX = (float)winW - pillW - pdguiScale(18.0f);
+    float baseY = pdguiScale(126.0f);  /* below top-right HUD scorebox */
 
     int activeCount = 0;
     for (int i = 0; i < TICKER_MAX; i++) {
@@ -256,7 +256,7 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
             ImGui::TextUnformatted("\xe2\x96\xba");  /* ► U+25BA */
             ImGui::PopStyleColor();
 
-            ImGui::SameLine(0.0f, pdguiScale(4.0f));
+            ImGui::SameLine(0.0f, pdguiScale(6.0f));
 
             /* Player name — white */
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, alpha));

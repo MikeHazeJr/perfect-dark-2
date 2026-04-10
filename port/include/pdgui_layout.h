@@ -78,7 +78,8 @@ extern "C" {
  * ======================================================================== */
 
 /**
- * Scaled action-bar height in pixels.  Base 56 @ 720p, scaled by
+ * Scaled action-bar height in pixels.  Base 84 @ 1080p (holds a 64px
+ * button tier + ~10px vertical breathing above and below), scaled by
  * pdguiScaleFactor().  Floored at 48px so the button remains a valid
  * touch/click target on very small viewports.
  *

@@ -259,7 +259,7 @@ static bool PdEndButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
 /* Horizontal rule with a label. */
 static void SectionHeader(const char *label)
 {
-    float padX = pdguiScale(4.0f);
+    float padX = pdguiScale(6.0f);
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.8f, 1.0f, 1.0f));
     ImGui::TextUnformatted(label);
@@ -271,7 +271,7 @@ static void SectionHeader(const char *label)
 static void StatRow(const char *label, const char *value, const ImVec4 *valueColor = nullptr)
 {
     float scale   = pdguiScaleFactor();
-    float colW    = pdguiScale(130.0f);   /* label column width */
+    float colW    = pdguiScale(195.0f);   /* label column width */
 
     ImGui::Text("%s", label);
     ImGui::SameLine(colW);
@@ -364,12 +364,12 @@ static void renderSoloEndscreen(bool completed)
     /* Panel dimensions — slightly wider than pause menu for stat/obj columns */
     float menuW = disp.x * 0.62f;
     float menuH = disp.y * 0.82f;
-    if (menuW > pdguiScale(900.0f)) menuW = pdguiScale(900.0f);
+    if (menuW > pdguiScale(1350.0f)) menuW = pdguiScale(1350.0f);
     float menuX = (disp.x - menuW) * 0.5f;
     float menuY = (disp.y - menuH) * 0.5f;
 
-    float padX = pdguiScale(18.0f);
-    float padY = pdguiScale(36.0f);  /* below title bar */
+    float padX = pdguiScale(27.0f);
+    float padY = pdguiScale(54.0f);  /* below title bar */
 
     /* ----- Dim the background (P9: palette-derived) --------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
@@ -462,7 +462,7 @@ static void renderSoloEndscreen(bool completed)
     /* ----- Left column: stats  |  Right column: objectives ------------ */
     float colSplit = menuW * 0.47f;
     float contentW = menuW - padX * 2.0f;
-    float contentH = menuH - padY - pdguiScale(52.0f); /* leave room for buttons */
+    float contentH = menuH - padY - pdguiScale(78.0f); /* leave room for buttons */
 
     ImGui::BeginChild("##EsContent", ImVec2(contentW, contentH), false);
 
@@ -500,9 +500,9 @@ static void renderSoloEndscreen(bool completed)
         /* Accuracy with fill bar */
         StatRow("Accuracy:", accuracyBuf);
         {
-            float barW = colSplit - padX - pdguiScale(8.0f);
-            float barH = pdguiScale(8.0f);
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(4.0f));
+            float barW = colSplit - padX - pdguiScale(12.0f);
+            float barH = pdguiScale(12.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(6.0f));
 
             /* Color: green for good accuracy, yellow for ok, red for poor */
             ImVec4 barColor;
@@ -564,7 +564,7 @@ static void renderSoloEndscreen(bool completed)
                 ImGui::PushStyleColor(ImGuiCol_Text, iconColor);
                 ImGui::TextUnformatted(icon);
                 ImGui::PopStyleColor();
-                ImGui::SameLine(0.0f, pdguiScale(6.0f));
+                ImGui::SameLine(0.0f, pdguiScale(9.0f));
                 ImGui::TextWrapped("%s", text ? text : "");
                 ImGui::Spacing();
             }
@@ -596,9 +596,9 @@ static void renderSoloEndscreen(bool completed)
     ImGui::EndChild();
 
     /* ----- Action buttons at bottom ----------------------------------- */
-    float btnH   = pdguiScale(32.0f);
-    float btnGap = pdguiScale(12.0f);
-    float btnY   = menuH - btnH - pdguiScale(12.0f);
+    float btnH   = pdguiScale(48.0f);
+    float btnGap = pdguiScale(18.0f);
+    float btnY   = menuH - btnH - pdguiScale(18.0f);
 
     if (completed) {
         /* RETRY  |  NEXT MISSION */
@@ -608,7 +608,7 @@ static void renderSoloEndscreen(bool completed)
 
         ImGui::SetCursorPos(ImVec2(startX, btnY));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(btnGap, pdguiScale(4.0f)));
+                            ImVec2(btnGap, pdguiScale(6.0f)));
 
         if (PdEndButton("Retry Mission", ImVec2(halfW, btnH))) {
             pdguiEndscreenStartMission();
@@ -634,7 +634,7 @@ static void renderSoloEndscreen(bool completed)
 
         ImGui::SetCursorPos(ImVec2(startX, btnY));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(btnGap, pdguiScale(4.0f)));
+                            ImVec2(btnGap, pdguiScale(6.0f)));
 
         if (PdEndButton("Retry Mission", ImVec2(halfW, btnH))) {
             pdguiEndscreenStartMission();
@@ -692,12 +692,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float  sf    = pdguiScaleFactor();
     float  menuW = disp.x * 0.68f;
     float  menuH = disp.y * 0.80f;
-    if (menuW > pdguiScale(960.0f)) menuW = pdguiScale(960.0f);
+    if (menuW > pdguiScale(1440.0f)) menuW = pdguiScale(1440.0f);
     float menuX = (disp.x - menuW) * 0.5f;
     float menuY = (disp.y - menuH) * 0.5f;
 
-    float padX = pdguiScale(18.0f);
-    float padY = pdguiScale(36.0f);
+    float padX = pdguiScale(27.0f);
+    float padY = pdguiScale(54.0f);
 
     /* ----- Dim background (P9: palette-derived) ------------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
@@ -777,7 +777,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::Spacing();
 
     /* ----- Content area ----------------------------------------------- */
-    float contentH = menuH - padY - pdguiScale(100.0f);  /* room for awards + button */
+    float contentH = menuH - padY - pdguiScale(150.0f);  /* room for awards + button */
     float contentW = menuW - padX * 2.0f;
 
     ImGui::BeginChild("##MpContent", ImVec2(contentW, contentH), false,
@@ -912,8 +912,8 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         /* Accuracy bar */
         {
             float barW = contentW * 0.4f;
-            float barH = pdguiScale(8.0f);
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(12.0f));
+            float barH = pdguiScale(12.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pdguiScale(18.0f));
 
             ImVec4 barColor;
             if (accuracy >= 0.60f)      barColor = ImVec4(0.2f, 0.85f, 0.35f, 0.9f);
@@ -939,9 +939,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::EndChild();
 
     /* ----- Action buttons ---------------------------------------------- */
-    float btnH   = pdguiScale(32.0f);
-    float btnGap = pdguiScale(12.0f);
-    float btnY   = menuH - btnH - pdguiScale(12.0f);
+    float btnH   = pdguiScale(48.0f);
+    float btnGap = pdguiScale(18.0f);
+    float btnY   = menuH - btnH - pdguiScale(18.0f);
     bool networked = (g_NetMode != ES_NETMODE_NONE);
 
     if (networked) {

@@ -100,7 +100,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     ImVec2 menuPos = pdguiMenuPos();
     float dialogX = menuPos.x;
     float dialogY = menuPos.y;
-    float pdTitleH = pdguiScale(26.0f);
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove

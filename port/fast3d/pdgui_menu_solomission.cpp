@@ -513,13 +513,13 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     float mw      = pdguiMenuWidth();
     float mh      = pdguiMenuHeight();
     ImVec2 mpos   = pdguiMenuPos();
-    float titleH  = pdguiScale(26.0f);
-    float rowH    = pdguiScale(28.0f);
-    float blipR   = pdguiScale(5.0f);
-    float blipGap = pdguiScale(13.0f);
+    float titleH  = pdguiScale(39.0f);
+    float rowH    = pdguiScale(42.0f);
+    float blipR   = pdguiScale(7.5f);
+    float blipGap = pdguiScale(19.5f);
 
     /* Panel split: 38% left, 62% right */
-    float panelGap = pdguiScale(8.0f);
+    float panelGap = pdguiScale(12.0f);
     float leftW    = mw * 0.38f;
     float rightW   = mw - leftW - panelGap;
 
@@ -591,7 +591,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
 
-    float bodyH = mh - titleH - pdguiScale(12.0f);
+    float bodyH = mh - titleH - pdguiScale(18.0f);
 
     /* ===================================================================
      * LEFT PANEL — Mission List
@@ -675,7 +675,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     snprintf(lockedLabel, sizeof(lockedLabel), "%d.%d  %s%s",
                              chap, chapPos, ln1, ln2);
                     dl->AddText(
-                        ImVec2(rowPos.x + pdguiScale(4.0f),
+                        ImVec2(rowPos.x + pdguiScale(6.0f),
                                rcy - ImGui::GetTextLineHeight() * 0.5f),
                         pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
                     ImGui::PopID();
@@ -714,7 +714,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 {
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     float rcy = rowPos.y + rowH * 0.5f;
-                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                    float bx  = rowPos.x + blipR + pdguiScale(6.0f);
                     for (s32 d = 0; d < 3; d++) {
                         bool beaten = (g_GameFile.besttimes[i][d] != 0);
                         float bcx   = bx + d * blipGap;
@@ -725,7 +725,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                         dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
                         dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
-                    float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
+                    float nameX  = bx + 3.0f * blipGap + pdguiScale(6.0f);
                     ImU32 nameCol = pdguiPalImU32(PDPAL_ITEM_UNFOCUSED, 255);
                     dl->AddText(
                         ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
@@ -777,7 +777,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     snprintf(lockedLabel, sizeof(lockedLabel), "SA-%d  %s",
                              saNum, langSafe(g_SoloStages[j].name1));
                     dl->AddText(
-                        ImVec2(rowPos.x + pdguiScale(4.0f),
+                        ImVec2(rowPos.x + pdguiScale(6.0f),
                                rcy - ImGui::GetTextLineHeight() * 0.5f),
                         pdguiPalImU32(PDPAL_ITEM_DISABLED, 120), lockedLabel);
                     ImGui::PopID();
@@ -810,7 +810,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 {
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     float rcy = rowPos.y + rowH * 0.5f;
-                    float bx  = rowPos.x + blipR + pdguiScale(4.0f);
+                    float bx  = rowPos.x + blipR + pdguiScale(6.0f);
                     for (s32 d = 0; d < 3; d++) {
                         bool beaten = (g_GameFile.besttimes[j][d] != 0);
                         float bcx   = bx + d * blipGap;
@@ -821,7 +821,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                         dl->AddCircleFilled(ImVec2(bcx, rcy), blipR, fill);
                         dl->AddCircle(ImVec2(bcx, rcy), blipR, ring);
                     }
-                    float nameX  = bx + 3.0f * blipGap + pdguiScale(4.0f);
+                    float nameX  = bx + 3.0f * blipGap + pdguiScale(6.0f);
                     dl->AddText(
                         ImVec2(nameX, rcy - ImGui::GetTextLineHeight() * 0.5f),
                         IM_COL32(255, 230, 140, 255), nodeLabel);
@@ -894,7 +894,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             }
         }
 
-        float diffRowH = pdguiScale(30.0f);
+        float diffRowH = pdguiScale(45.0f);
         static const s32 k_DiffIds[] = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 };
 
         ImGui::TextDisabled("Difficulty:");
@@ -908,17 +908,17 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             ImGui::PushID(0x300 + d);
 
             ImVec2 cp = ImGui::GetCursorScreenPos();
-            float rowW = rightW - pdguiScale(8.0f);
+            float rowW = rightW - pdguiScale(12.0f);
 
             /* Selection highlight */
             if (isSel) {
                 ImDrawList *dl = ImGui::GetWindowDrawList();
                 dl->AddRectFilled(cp,
                     ImVec2(cp.x + rowW, cp.y + diffRowH),
-                    IM_COL32(40, 60, 100, 120), pdguiScale(4.0f));
+                    IM_COL32(40, 60, 100, 120), pdguiScale(6.0f));
                 dl->AddRect(cp,
                     ImVec2(cp.x + rowW, cp.y + diffRowH),
-                    k_DiffBadgeColor[d], pdguiScale(4.0f), 0, 1.5f);
+                    k_DiffBadgeColor[d], pdguiScale(6.0f), 0, 1.5f);
             }
             /* Focus highlight */
             if (isFocus) {
@@ -949,28 +949,28 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             {
                 ImDrawList *dl = ImGui::GetWindowDrawList();
                 float cy = cp.y + (diffRowH - ImGui::GetTextLineHeight()) * 0.5f;
-                float bx = cp.x + pdguiScale(6.0f);
+                float bx = cp.x + pdguiScale(9.0f);
 
                 /* Color badge dot */
-                float dotR = pdguiScale(4.0f);
+                float dotR = pdguiScale(6.0f);
                 dl->AddCircleFilled(
                     ImVec2(bx + dotR, cp.y + diffRowH * 0.5f),
                     dotR, locked ? IM_COL32(60, 60, 70, 160) : k_DiffBadgeColor[d]);
 
-                float tx = bx + dotR * 2.0f + pdguiScale(8.0f);
+                float tx = bx + dotR * 2.0f + pdguiScale(12.0f);
                 ImU32 nameCol = locked ? IM_COL32(100, 100, 120, 180)
                                        : IM_COL32(255, 255, 255, 255);
                 dl->AddText(ImVec2(tx, cy), nameCol, langSafe(k_DiffIds[d]));
 
                 if (locked) {
-                    dl->AddText(ImVec2(tx + pdguiScale(110.0f), cy),
+                    dl->AddText(ImVec2(tx + pdguiScale(165.0f), cy),
                                 IM_COL32(180, 60, 60, 200), "[Locked]");
                 } else {
                     char timeStr[32];
                     formatBestTime(timeStr, sizeof(timeStr),
                                    g_GameFile.besttimes[si][d]);
                     ImVec2 tSz = ImGui::CalcTextSize(timeStr);
-                    dl->AddText(ImVec2(cp.x + rowW - tSz.x - pdguiScale(8.0f), cy),
+                    dl->AddText(ImVec2(cp.x + rowW - tSz.x - pdguiScale(12.0f), cy),
                                 IM_COL32(160, 200, 140, 210), timeStr);
                 }
             }
@@ -1020,17 +1020,17 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 const char *objText = langSafe(g_Briefing.objectivenames[oi]);
 
                 /* Bullet dot */
-                float dotSz = pdguiScale(8.0f);
+                float dotSz = pdguiScale(12.0f);
                 ImVec2 ocp  = ImGui::GetCursorScreenPos();
                 ImDrawList *dl = ImGui::GetWindowDrawList();
                 dl->AddCircleFilled(
-                    ImVec2(ocp.x + dotSz * 0.5f + pdguiScale(4.0f),
-                           ocp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(2.0f)),
+                    ImVec2(ocp.x + dotSz * 0.5f + pdguiScale(6.0f),
+                           ocp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(3.0f)),
                     dotSz * 0.5f,
                     k_DiffBadgeColor[selDiff]);
 
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
-                ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(15.0f));
+                ImGui::PushTextWrapPos(rightW - pdguiScale(24.0f));
                 ImGui::TextUnformatted(objText);
                 ImGui::PopTextWrapPos();
                 ImGui::Spacing();
@@ -1048,7 +1048,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     ImGui::Separator();
                     ImGui::TextDisabled("Briefing:");
                     ImGui::Spacing();
-                    ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
+                    ImGui::PushTextWrapPos(rightW - pdguiScale(24.0f));
                     ImGui::TextUnformatted(btxt);
                     ImGui::PopTextWrapPos();
                 }
@@ -1137,7 +1137,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         s_DiffSelectIdx = (autoD <= DIFF_PA) ? autoD : 0;
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_248), 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
@@ -1185,7 +1185,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         return 1;
     }
 
-    float rowH  = pdguiScale(36.0f);
+    float rowH  = pdguiScale(54.0f);
 
     /* ---- Difficulty rows ----
      * Batch 0 fix: use the hardcoded difficulty name ("Agent" / "Special
@@ -1210,7 +1210,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         if (isActive) {
             ImVec2 cp = ImGui::GetCursorScreenPos();
-            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH);
+            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
         }
 
         /* Build the row label: "  <DiffName>                    <BestTime>".
@@ -1289,8 +1289,8 @@ static s32 renderDifficulty(struct menudialog *dialog,
         {
             ImDrawList *dl = ImGui::GetWindowDrawList();
             ImVec2 rmin = ImGui::GetItemRectMin();
-            float dotR = pdguiScale(4.0f);
-            float dotX = rmin.x + pdguiScale(8.0f);
+            float dotR = pdguiScale(6.0f);
+            float dotX = rmin.x + pdguiScale(12.0f);
             float dotY = rmin.y + rowH * 0.5f;
             dl->AddCircleFilled(ImVec2(dotX, dotY), dotR,
                 locked ? IM_COL32(60, 60, 70, 160)
@@ -1309,7 +1309,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         if (isActive) {
             ImVec2 cp = ImGui::GetCursorScreenPos();
-            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH);
+            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH);
         }
 
         /* Same Selectable-with-label pattern as Agent/SA/PA rows: the
@@ -1353,7 +1353,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         if (isActive) {
             ImVec2 cp = ImGui::GetCursorScreenPos();
-            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH * 0.8f);
+            pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), rowH * 0.8f);
         }
 
         const char *cancelLoc = langSafe(L_OPTIONS_254);
@@ -1420,7 +1420,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
         s_BriefingScroll = 0.0f;
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_247), 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
@@ -1434,8 +1434,8 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     }
 
     /* Scrollable briefing text */
-    float footerH = pdguiScale(32.0f);
-    float bodyH   = mh - titleH - pdguiScale(24.0f) - footerH;
+    float footerH = pdguiScale(48.0f);
+    float bodyH   = mh - titleH - pdguiScale(36.0f) - footerH;
 
     if (ImGui::BeginChild("##briefing_scroll", ImVec2(0, bodyH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
@@ -1443,7 +1443,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
                           ? langSafe(g_Briefing.briefingtextnum)
                           : "(No briefing text available)";
 
-        ImGui::PushTextWrapPos(mw - pdguiScale(40.0f));
+        ImGui::PushTextWrapPos(mw - pdguiScale(60.0f));
         ImGui::TextUnformatted(txt);
         ImGui::PopTextWrapPos();
     }
@@ -1503,15 +1503,15 @@ static s32 renderInventory(struct menudialog *dialog,
         ImGui::SetWindowFocus();
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_178), 1);
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
     ImGui::Separator();
 
     /* Scrollable weapon/item list */
-    float footerH = pdguiScale(32.0f);
-    float bodyH   = mh - titleH - pdguiScale(24.0f) - footerH;
+    float footerH = pdguiScale(48.0f);
+    float bodyH   = mh - titleH - pdguiScale(36.0f) - footerH;
 
     if (ImGui::BeginChild("##inv_scroll", ImVec2(0, bodyH), false, 0)) {
         s32 count = invGetCount();
@@ -1606,7 +1606,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
                      langSafe(L_OPTIONS_273));
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
@@ -1660,8 +1660,8 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     }
 
     /* ---- Objectives list ---- */
-    float btnH    = pdguiScale(38.0f);
-    float bodyH   = mh - titleH - pdguiScale(50.0f) - btnH * 2.0f - pdguiScale(16.0f);
+    float btnH    = pdguiScale(57.0f);
+    float bodyH   = mh - titleH - pdguiScale(75.0f) - btnH * 2.0f - pdguiScale(24.0f);
 
     if (ImGui::BeginChild("##objectives_scroll", ImVec2(0, bodyH), false,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
@@ -1679,17 +1679,17 @@ static s32 renderAcceptMission(struct menudialog *dialog,
             if (bits & 2) strcat(diffStr, "SA ");
             if (bits & 4) strcat(diffStr, "PA");
 
-            float dotSz = pdguiScale(8.0f);
+            float dotSz = pdguiScale(12.0f);
             ImVec2 cp = ImGui::GetCursorScreenPos();
             ImDrawList *dl = ImGui::GetWindowDrawList();
             dl->AddCircleFilled(
-                ImVec2(cp.x + dotSz * 0.5f + pdguiScale(4.0f),
-                       cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(2.0f)),
+                ImVec2(cp.x + dotSz * 0.5f + pdguiScale(6.0f),
+                       cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(3.0f)),
                 dotSz * 0.5f,
                 IM_COL32(80, 160, 255, 220));
 
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(10.0f));
-            ImGui::PushTextWrapPos(mw - pdguiScale(60.0f));
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(15.0f));
+            ImGui::PushTextWrapPos(mw - pdguiScale(90.0f));
             ImGui::TextUnformatted(objText);
             ImGui::PopTextWrapPos();
 
@@ -1709,7 +1709,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     ImGui::Separator();
 
     /* ---- Accept / Decline buttons ---- */
-    float btnW  = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(10.0f)) * 0.5f;
+    float btnW  = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
 
     auto drawBtn = [&](s32 idx, const char *lbl, ImU32 hlCol) {
         bool sel = (s_AcceptSelectIdx == idx);
@@ -1730,7 +1730,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         ImGui::End();
         return 1;
     }
-    ImGui::SameLine(0.0f, pdguiScale(10.0f));
+    ImGui::SameLine(0.0f, pdguiScale(15.0f));
     if (drawBtn(1, langSafe(L_OPTIONS_275), IM_COL32(160, 80, 80, 255))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
@@ -1797,7 +1797,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                      langSafe(L_OPTIONS_172));
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
@@ -1832,8 +1832,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
     /* ---- Objectives with completion status ---- */
     /* Height = total - title - separators/padding - 5 action buttons */
-    float objH = mh - titleH - pdguiScale(60.0f) - pdguiScale(38.0f * 5.0f);
-    if (objH < pdguiScale(60.0f)) objH = pdguiScale(60.0f);
+    float objH = mh - titleH - pdguiScale(90.0f) - pdguiScale(57.0f * 5.0f);
+    if (objH < pdguiScale(90.0f)) objH = pdguiScale(90.0f);
 
     s32 curDiff = lvGetDifficulty();
     s32 objCount = objectiveGetCount();
@@ -1857,11 +1857,11 @@ static s32 renderPauseMenu(struct menudialog *dialog,
             s32 status = (objIdx < objCount) ? objectiveCheck(objIdx) : 0;
             /* status: 0=INCOMPLETE, 1=COMPLETE, 2=FAILED */
 
-            float iconSz = pdguiScale(10.0f);
+            float iconSz = pdguiScale(15.0f);
             ImVec2 cp    = ImGui::GetCursorScreenPos();
             ImDrawList *dl = ImGui::GetWindowDrawList();
-            float iconCx = cp.x + iconSz * 0.5f + pdguiScale(4.0f);
-            float iconCy = cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(1.0f);
+            float iconCx = cp.x + iconSz * 0.5f + pdguiScale(6.0f);
+            float iconCy = cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(1.5f);
 
             if (status == 1) {
                 /* COMPLETE — green circle with checkmark */
@@ -1894,8 +1894,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.0f, 1.0f));
             }
 
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + iconSz + pdguiScale(10.0f));
-            ImGui::PushTextWrapPos(mw - pdguiScale(16.0f));
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + iconSz + pdguiScale(15.0f));
+            ImGui::PushTextWrapPos(mw - pdguiScale(24.0f));
             ImGui::TextUnformatted(langSafe(g_Briefing.objectivenames[i]));
             ImGui::PopTextWrapPos();
             ImGui::PopStyleColor();
@@ -1908,7 +1908,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     ImGui::Separator();
 
     /* ---- Action buttons ---- */
-    float btnH = pdguiScale(36.0f);
+    float btnH = pdguiScale(54.0f);
 
     struct PauseBtn { const char *label; s32 idx; };
     const PauseBtn k_Btns[] = {
@@ -1924,13 +1924,13 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::PushID(b);
 
         ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), btnH);
+        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), btnH);
 
         /* Abort gets a red tint */
         if (b == 4) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
 
         bool clicked = ImGui::Button(k_Btns[b].label,
-                                     ImVec2(mw - pdguiScale(16.0f), btnH));
+                                     ImVec2(mw - pdguiScale(24.0f), btnH));
         if (b == 4) ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_PauseSelectIdx = k_Btns[b].idx;
@@ -1998,12 +1998,12 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                              | ImGuiWindowFlags_NoBackground;
 
         if (ImGui::Begin("##restart_confirm", nullptr, rcf)) {
-            float rtitleH = pdguiScale(26.0f);
+            float rtitleH = pdguiScale(39.0f);
             pdguiDrawPdDialog(rcPos.x, rcPos.y, rcW, rcH, "Restart Mission?", 1);
             ImGui::SetCursorPosY(rtitleH + ImGui::GetStyle().WindowPadding.y);
 
             ImGui::Spacing();
-            ImGui::PushTextWrapPos(rcW - pdguiScale(16.0f));
+            ImGui::PushTextWrapPos(rcW - pdguiScale(24.0f));
             ImGui::Text("Restart the current mission from the beginning?");
             ImGui::Text("All progress will be lost.");
             ImGui::PopTextWrapPos();
@@ -2029,8 +2029,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
             bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
                              ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
-            float rbtnH = pdguiScale(36.0f);
-            float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(10.0f)) * 0.5f;
+            float rbtnH = pdguiScale(54.0f);
+            float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
 
             /* Cancel button */
             {
@@ -2045,7 +2045,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 }
             }
 
-            ImGui::SameLine(0.0f, pdguiScale(10.0f));
+            ImGui::SameLine(0.0f, pdguiScale(15.0f));
 
             /* Restart button */
             {
@@ -2111,14 +2111,14 @@ static s32 renderAbortMission(struct menudialog *dialog,
         s_AbortSelectIdx = 0;  /* default to Cancel (safer) */
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_174), 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
     /* Warning text */
     ImGui::Spacing();
-    ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + pdguiScale(8.0f));
-    ImGui::PushTextWrapPos(mw - pdguiScale(16.0f));
+    ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + pdguiScale(12.0f));
+    ImGui::PushTextWrapPos(mw - pdguiScale(24.0f));
     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.85f, 1.0f), "%s", langSafe(L_OPTIONS_175));
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
@@ -2146,8 +2146,8 @@ static s32 renderAbortMission(struct menudialog *dialog,
                      ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
     /* ---- Cancel / Abort buttons side by side ---- */
-    float btnH = pdguiScale(36.0f);
-    float btnW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(10.0f)) * 0.5f;
+    float btnH = pdguiScale(54.0f);
+    float btnW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
 
     /* Cancel */
     {
@@ -2166,7 +2166,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
         }
     }
 
-    ImGui::SameLine(0.0f, pdguiScale(10.0f));
+    ImGui::SameLine(0.0f, pdguiScale(15.0f));
 
     /* Abort */
     {
@@ -2517,7 +2517,7 @@ static s32 renderOptions(struct menudialog *dialog,
         s_OptionsTabIdx = 0;
     }
 
-    float titleH = pdguiScale(26.0f);
+    float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Options", 1);
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
@@ -2551,11 +2551,11 @@ static s32 renderOptions(struct menudialog *dialog,
 
     /* Draw tab buttons */
     float tabW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f
-                     - pdguiScale(4.0f) * (float)(k_NumTabs - 1)) / (float)k_NumTabs;
-    float tabH = pdguiScale(30.0f);
+                     - pdguiScale(6.0f) * (float)(k_NumTabs - 1)) / (float)k_NumTabs;
+    float tabH = pdguiScale(45.0f);
 
     for (s32 t = 0; t < k_NumTabs; t++) {
-        if (t > 0) ImGui::SameLine(0.0f, pdguiScale(4.0f));
+        if (t > 0) ImGui::SameLine(0.0f, pdguiScale(6.0f));
 
         bool active = (s_OptionsTabIdx == t);
         if (active) {

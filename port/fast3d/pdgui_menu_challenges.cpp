@@ -113,7 +113,7 @@ static s32 renderChallenges(struct menudialog *dialog,
     float diagW    = pdguiMenuWidth();
     float diagH    = pdguiMenuHeight();
     ImVec2 pos     = pdguiMenuPos();
-    float pdTitleH = pdguiScale(26.0f);
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove
@@ -153,9 +153,9 @@ static s32 renderChallenges(struct menudialog *dialog,
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    float footerH  = pdguiScale(50.0f);
+    float footerH  = pdguiScale(75.0f);
     float contentH = diagH - pdTitleH - footerH - ImGui::GetStyle().WindowPadding.y;
-    float pad      = pdguiScale(8.0f);
+    float pad      = pdguiScale(12.0f);
     float leftW    = diagW * 0.45f;
     float rightW   = diagW - leftW - pad * 3.0f;
 
@@ -203,7 +203,7 @@ static s32 renderChallenges(struct menudialog *dialog,
                 ? ImVec4(0.1f, 0.9f, 0.1f, 1.0f)   /* green = completed */
                 : ImVec4(0.2f, 0.2f, 0.25f, 1.0f);  /* dark = not done */
             ImGui::TextColored(dotCol, "\xe2\x97\x8f");
-            if (np < 4) ImGui::SameLine(0, pdguiScale(2.0f));
+            if (np < 4) ImGui::SameLine(0, pdguiScale(3.0f));
         }
 
         /* Keyboard / gamepad navigation: up/down arrows */
@@ -316,12 +316,12 @@ static s32 renderChallenges(struct menudialog *dialog,
     ImGui::EndGroup();
 
     /* ---- Footer ---- */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
-    float backW = pdguiScale(140.0f);
-    float backH = pdguiScale(28.0f);
+    float backW = pdguiScale(210.0f);
+    float backH = pdguiScale(42.0f);
     ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
     if (PdButton("Back", ImVec2(backW, backH))

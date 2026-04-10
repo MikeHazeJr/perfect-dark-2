@@ -187,7 +187,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     float diagW  = pdguiMenuWidth();
     float diagH  = pdguiMenuHeight();
     ImVec2 pos   = pdguiMenuPos();
-    float pdTitleH = pdguiScale(26.0f);
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove
@@ -227,14 +227,14 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    float footerH  = pdguiScale(50.0f);
+    float footerH  = pdguiScale(75.0f);
     float contentH = diagH - pdTitleH - footerH
                      - ImGui::GetStyle().WindowPadding.y * 2.0f;
 
     /* ---- Two-column layout: slots on left, presets on right ---- */
-    float leftW  = diagW * 0.60f - pdguiScale(4.0f);
-    float rightW = diagW * 0.40f - pdguiScale(4.0f);
-    float pad     = pdguiScale(8.0f);
+    float leftW  = diagW * 0.60f - pdguiScale(6.0f);
+    float rightW = diagW * 0.40f - pdguiScale(6.0f);
+    float pad     = pdguiScale(12.0f);
 
     /* ---- LEFT: Teams Enabled + per-slot assignment ---- */
     ImGui::BeginGroup();
@@ -330,7 +330,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::Spacing();
 
     float btnW = rightW - ImGui::GetStyle().WindowPadding.x * 2.0f;
-    float btnH = pdguiScale(30.0f);
+    float btnH = pdguiScale(45.0f);
 
     bool canAuto = teamsActive;
     if (!canAuto) ImGui::BeginDisabled();
@@ -372,12 +372,12 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::EndGroup();
 
     /* ---- Footer ---- */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
-    float doneW = pdguiScale(140.0f);
-    float doneH = pdguiScale(28.0f);
+    float doneW = pdguiScale(210.0f);
+    float doneH = pdguiScale(42.0f);
     ImGui::SetCursorPosX((diagW - doneW) * 0.5f);
 
     if (PdButton("Done", ImVec2(doneW, doneH))

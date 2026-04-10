@@ -75,7 +75,7 @@ static void renderNotificationBanner(void)
 	versionFormat(&latest->version, verstr, sizeof(verstr));
 
 	ImGuiIO &io = ImGui::GetIO();
-	float barHeight = pdguiScale(40.0f);
+	float barHeight = pdguiScale(60.0f);
 	ImVec2 barSize(io.DisplaySize.x, barHeight);
 
 	ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - barHeight));
@@ -83,7 +83,7 @@ static void renderNotificationBanner(void)
 	ImGui::SetNextWindowBgAlpha(0.92f);
 
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.35f, 0.12f, 1.0f));
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pdguiScale(16.0f), pdguiScale(8.0f)));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pdguiScale(24.0f), pdguiScale(12.0f)));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
@@ -103,11 +103,11 @@ static void renderNotificationBanner(void)
 		float bfpx   = bst.FramePadding.x;
 		float bfpy   = bst.FramePadding.y;
 		float btnH   = ImGui::GetFontSize() + bfpy * 2.0f;
-		float bMargin = pdguiScale(8.0f);
+		float bMargin = pdguiScale(12.0f);
 
-		float updateBtnW  = ImGui::CalcTextSize("Update Now").x + bfpx * 2.0f + pdguiScale(8.0f);
-		float viewBtnW    = ImGui::CalcTextSize("Details").x    + bfpx * 2.0f + pdguiScale(8.0f);
-		float dismissBtnW = ImGui::CalcTextSize("Dismiss").x    + bfpx * 2.0f + pdguiScale(8.0f);
+		float updateBtnW  = ImGui::CalcTextSize("Update Now").x + bfpx * 2.0f + pdguiScale(12.0f);
+		float viewBtnW    = ImGui::CalcTextSize("Details").x    + bfpx * 2.0f + pdguiScale(12.0f);
+		float dismissBtnW = ImGui::CalcTextSize("Dismiss").x    + bfpx * 2.0f + pdguiScale(12.0f);
 
 		float dismissX = io.DisplaySize.x - dismissBtnW - bMargin;
 		float viewX    = dismissX - viewBtnW - bMargin;
@@ -182,7 +182,7 @@ static void renderDownloadProgress(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(pdguiScale(400.0f), pdguiScale(160.0f)));
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(600.0f), pdguiScale(240.0f)));
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
 		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -226,7 +226,7 @@ static void renderRestartPrompt(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(pdguiScale(380.0f), pdguiScale(140.0f)));
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(570.0f), pdguiScale(210.0f)));
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
 		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -352,7 +352,7 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 	ImGui::SameLine();
 	if (status != UPDATER_CHECKING && status != UPDATER_DOWNLOADING) {
 		const ImGuiStyle &cst = ImGui::GetStyle();
-		float cBtnW = ImGui::CalcTextSize("Check Now").x + cst.FramePadding.x * 2.0f + pdguiScale(6.0f);
+		float cBtnW = ImGui::CalcTextSize("Check Now").x + cst.FramePadding.x * 2.0f + pdguiScale(9.0f);
 		float cBtnH = ImGui::GetFontSize() + cst.FramePadding.y * 2.0f;
 		if (ImGui::Button("Check Now", ImVec2(cBtnW, cBtnH))) {
 			updaterCheckAsync();
@@ -376,18 +376,18 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 		float tfpx    = tst.FramePadding.x;
 		float tfpy    = tst.FramePadding.y;
 		float rowBtnH = ImGui::GetFontSize() + tfpy * 2.0f;
-		float actionColW = ImGui::CalcTextSize("Download").x + tfpx * 2.0f + pdguiScale(12.0f);
+		float actionColW = ImGui::CalcTextSize("Download").x + tfpx * 2.0f + pdguiScale(18.0f);
 
 		if (count > 0 && ImGui::BeginTable("versions", 5,
 			ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
-			ImVec2(0, tableH > 0 ? tableH : pdguiScale(280.0f)))) {
+			ImVec2(0, tableH > 0 ? tableH : pdguiScale(420.0f)))) {
 
 			ImGui::TableSetupScrollFreeze(0, 1);
-			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(90.0f));
-			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(56.0f));
+			ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   pdguiScale(135.0f));
+			ImGui::TableSetupColumn("Type",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(84.0f));
 			ImGui::TableSetupColumn("Title",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
-			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(80.0f));
+			ImGui::TableSetupColumn("Size",    ImGuiTableColumnFlags_WidthFixed,   pdguiScale(120.0f));
 			ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthFixed,   actionColW);
 			ImGui::TableHeadersRow();
 
@@ -547,7 +547,7 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 				ImGui::Spacing();
 				ImGui::Text("Changelog:");
 				ImGui::BeginChild("changelog",
-					ImVec2(0, changelogH > 0 ? changelogH : pdguiScale(80.0f)), true);
+					ImVec2(0, changelogH > 0 ? changelogH : pdguiScale(120.0f)), true);
 				ImGui::TextWrapped("%s", sel->body);
 				ImGui::EndChild();
 			}
@@ -571,13 +571,13 @@ static void renderVersionPicker(void)
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(pdguiScale(600.0f), pdguiScale(500.0f)), ImGuiCond_Appearing);
+	ImGui::SetNextWindowSize(ImVec2(pdguiScale(900.0f), pdguiScale(750.0f)), ImGuiCond_Appearing);
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
-		renderVersionPickerContent(pdguiScale(280.0f), pdguiScale(80.0f));
+		renderVersionPickerContent(pdguiScale(420.0f), pdguiScale(120.0f));
 	}
 	ImGui::End();
 
@@ -614,7 +614,7 @@ static void renderVersionWatermark(void)
 	float y = io.DisplaySize.y - textSize.y - padding;
 	/* Lift watermark above the notification banner if it's visible */
 	if (s_ShowNotification) {
-		y -= pdguiScale(40.0f);
+		y -= pdguiScale(60.0f);
 	}
 
 	ImGui::SetNextWindowPos(ImVec2(x - padding, y - padding * 0.5f));

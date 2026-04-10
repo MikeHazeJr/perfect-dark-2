@@ -101,7 +101,7 @@ static s32 renderHandicap(struct menudialog *dialog,
     float diagW  = pdguiMenuWidth() * 0.65f;   /* narrower: handicap is a small screen */
     float diagH  = pdguiMenuHeight() * 0.70f;
     ImVec2 pos   = pdguiCenterPos(diagW, diagH);
-    float pdTitleH = pdguiScale(26.0f);
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove
@@ -141,7 +141,7 @@ static s32 renderHandicap(struct menudialog *dialog,
 
     ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
 
-    float footerH  = pdguiScale(50.0f);
+    float footerH  = pdguiScale(75.0f);
     float contentH = diagH - pdTitleH - footerH;
     float sliderW  = diagW * 0.55f;
 
@@ -197,13 +197,13 @@ static s32 renderHandicap(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* ---- Footer ---- */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(8.0f));
+    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
     ImGui::Separator();
     ImGui::Spacing();
 
-    float btnW = pdguiScale(130.0f);
-    float btnH = pdguiScale(28.0f);
-    float totalW = btnW * 2.0f + pdguiScale(8.0f);
+    float btnW = pdguiScale(195.0f);
+    float btnH = pdguiScale(42.0f);
+    float totalW = btnW * 2.0f + pdguiScale(12.0f);
     ImGui::SetCursorPosX((diagW - totalW) * 0.5f);
 
     if (PdButton("Restore Defaults", ImVec2(btnW, btnH))) {
@@ -211,7 +211,7 @@ static s32 renderHandicap(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_SELECT);
     }
 
-    ImGui::SameLine(0, pdguiScale(8.0f));
+    ImGui::SameLine(0, pdguiScale(12.0f));
 
     if (PdButton("Done", ImVec2(btnW, btnH))
         || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)

@@ -701,7 +701,7 @@ static void leBuildCatalog(void)
 static void renderLevelEditorTab(float panelW, float panelH)
 {
     float comboW     = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f;
-    float btnH       = pdguiScale(26.0f);
+    float btnH       = pdguiScale(39.0f);
     int   filterType;
     float listH;
     float usedY;
@@ -753,7 +753,7 @@ static void renderLevelEditorTab(float panelW, float panelH)
     listH = panelH - usedY - btnH
             - ImGui::GetStyle().ItemSpacing.y * 3.0f
             - ImGui::GetStyle().WindowPadding.y;
-    if (listH < pdguiScale(60.0f)) listH = pdguiScale(60.0f);
+    if (listH < pdguiScale(90.0f)) listH = pdguiScale(90.0f);
 
     ImGui::BeginChild("##le_catlist", ImVec2(comboW, listH), true,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
@@ -858,7 +858,7 @@ static void renderLevelEditorTab(float panelW, float panelH)
 static void renderLevelEditorObjectPanel(float panelW, float panelH)
 {
     float scale  = pdguiScaleFactor();
-    float btnH   = pdguiScale(24.0f);
+    float btnH   = pdguiScale(36.0f);
     float fieldW = 0.0f;
 
     ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH), true);
@@ -885,7 +885,7 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
             snprintf(rowlabel, sizeof(rowlabel), "%s##obj%d", obj->id, i);
             if (ImGui::Selectable(rowlabel, isSel,
                                   ImGuiSelectableFlags_None,
-                                  ImVec2(panelW - pdguiScale(32.0f), 0.0f))) {
+                                  ImVec2(panelW - pdguiScale(48.0f), 0.0f))) {
                 s_LESelectedSpawned = i;
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
@@ -920,7 +920,7 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
                  - 80.0f * scale
                  - ImGui::GetStyle().WindowPadding.x * 2.0f
                  - ImGui::GetStyle().ItemSpacing.x;
-        if (fieldW < pdguiScale(60.0f)) fieldW = pdguiScale(60.0f);
+        if (fieldW < pdguiScale(90.0f)) fieldW = pdguiScale(90.0f);
 
         /* Position (read-only) */
         ImGui::Text("Position:");
@@ -1036,14 +1036,14 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
 
 static void renderLevelEditorOverlay(void)
 {
-    float oW     = pdguiScale(280.0f);
-    float oH     = pdguiScale(340.0f);
+    float oW     = pdguiScale(420.0f);
+    float oH     = pdguiScale(510.0f);
     float exitW;
     ImVec2 disp  = ImGui::GetIO().DisplaySize;
 
     /* Pin to top-right corner */
     ImGui::SetNextWindowPos(
-        ImVec2(disp.x - oW - pdguiScale(8.0f), pdguiScale(8.0f)),
+        ImVec2(disp.x - oW - pdguiScale(12.0f), pdguiScale(12.0f)),
         ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(oW, oH));
     ImGui::SetNextWindowBgAlpha(0.85f);
@@ -1098,7 +1098,7 @@ static void renderLevelEditorOverlay(void)
 
     exitW = oW - ImGui::GetStyle().WindowPadding.x * 2.0f;
     if (ImGui::Button("Exit Level Editor##le_exit",
-                      ImVec2(exitW, pdguiScale(26.0f)))) {
+                      ImVec2(exitW, pdguiScale(39.0f)))) {
         s_LEActive = false;
         sysLogPrintf(LOG_NOTE, "LEVEL_EDITOR: overlay closed.");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -1220,7 +1220,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     int maxBots = MATCH_MAX_SLOTS - humanCount;
     if (maxBots < 0) maxBots = 0;
 
-    float btnH   = pdguiScale(26.0f);
+    float btnH   = pdguiScale(39.0f);
     float listH  = panelH - btnH
                    - ImGui::GetStyle().ItemSpacing.y * 3.0f
                    - ImGui::GetStyle().WindowPadding.y * 2.0f;
@@ -1371,7 +1371,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 if (si >= 0 && si < g_MatchConfig.numSlots) {
                     ImGui::Text("Name:");
                     ImGui::SameLine();
-                    ImGui::SetNextItemWidth(pdguiScale(140.0f));
+                    ImGui::SetNextItemWidth(pdguiScale(210.0f));
                     ImGui::InputText("##ctx_name", g_MatchConfig.slots[si].name, MAX_PLAYER_NAME);
                 }
             }
@@ -1759,7 +1759,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     /* Sub-screen buttons: Handicaps (U-2) and Team Setup (U-3) */
     {
         float subBtnW = comboW;
-        float subBtnH = pdguiScale(24.0f);
+        float subBtnH = pdguiScale(36.0f);
 
         if (!leader) ImGui::BeginDisabled();
         if (ImGui::Button("Player Handicaps...", ImVec2(subBtnW, subBtnH))) {
@@ -1808,7 +1808,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scenarios");
 
     float halfW = (comboW - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-    float sbtnH = pdguiScale(24.0f);
+    float sbtnH = pdguiScale(36.0f);
 
     if (!leader) ImGui::BeginDisabled();
     if (ImGui::Button("Save Scenario", ImVec2(halfW, sbtnH))) {
@@ -2025,9 +2025,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     float dialogX  = menuPos.x;
     float dialogY  = menuPos.y;
 
-    float pdTitleH = pdguiScale(26.0f);
-    float tabBarH  = pdguiScale(30.0f);
-    float footerH  = pdguiScale(60.0f);
+    float pdTitleH = pdguiScale(39.0f);
+    float tabBarH  = pdguiScale(45.0f);
+    float footerH  = pdguiScale(90.0f);
     float contentH = dialogH - pdTitleH - tabBarH - footerH;
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
@@ -2192,11 +2192,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::Separator();
     ImGui::Spacing();
 
-    float btnH = pdguiScale(28.0f);
+    float btnH = pdguiScale(42.0f);
 
     if (s_ActiveTab == 3) {
         /* Level Editor tab: everyone can launch their own editor session */
-        float launchW = pdguiScale(180.0f);
+        float launchW = pdguiScale(270.0f);
         if (ImGui::Button("Launch Level Editor##le_launch",
                           ImVec2(launchW, btnH))) {
             s_LEActive          = true;
@@ -2211,7 +2211,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "[Editor Active]");
         }
     } else if (isLeader) {
-        float startW = pdguiScale(140.0f);
+        float startW = pdguiScale(210.0f);
         if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
 
@@ -2328,14 +2328,14 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         s_BotModalOpen = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(540.0f), 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(810.0f), 0.0f));
     if (ImGui::BeginPopupModal("Bot Settings##botmodal", nullptr, 0)) {
         if (s_EditBotSlotIdx >= 1
             && s_EditBotSlotIdx < g_MatchConfig.numSlots
             && g_MatchConfig.slots[s_EditBotSlotIdx].type == SLOT_BOT) {
 
             struct matchslot *sl = &g_MatchConfig.slots[s_EditBotSlotIdx];
-            float mw = pdguiScale(320.0f);
+            float mw = pdguiScale(480.0f);
 
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Bot Settings");
             ImGui::Separator();
@@ -2418,7 +2418,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
             /* ---- Advanced / Simple toggle ---- */
             const char *advLabel = s_BotModalShowAdvanced ? "- Simple -" : "+ Advanced";
-            if (ImGui::Button(advLabel, ImVec2(pdguiScale(120.0f), 0.0f))) {
+            if (ImGui::Button(advLabel, ImVec2(pdguiScale(180.0f), 0.0f))) {
                 s_BotModalShowAdvanced = !s_BotModalShowAdvanced;
                 if (s_BotModalShowAdvanced && s_BotPresetCacheDirty) {
                     rebuildBotPresetCache();
@@ -2498,7 +2498,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
                 /* Save as Preset button */
                 if (ImGui::Button("Save as Preset...",
-                                  ImVec2(pdguiScale(160.0f), 0.0f))) {
+                                  ImVec2(pdguiScale(240.0f), 0.0f))) {
                     s_SavePresetName[0] = '\0';
                     ImGui::OpenPopup("##save_preset_room");
                     pdguiPlaySound(PDGUI_SND_SELECT);
@@ -2510,7 +2510,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                                        "Save Bot Preset");
                     ImGui::Separator();
                     ImGui::Spacing();
-                    ImGui::SetNextItemWidth(pdguiScale(200.0f));
+                    ImGui::SetNextItemWidth(pdguiScale(300.0f));
                     ImGui::InputText("Name##psname", s_SavePresetName,
                                      sizeof(s_SavePresetName));
                     ImGui::Spacing();
@@ -2518,7 +2518,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                     bool canSave = (s_SavePresetName[0] != '\0');
                     if (!canSave) ImGui::BeginDisabled();
                     if (ImGui::Button("Save##pssave",
-                                      ImVec2(pdguiScale(80.0f), 0.0f))) {
+                                      ImVec2(pdguiScale(120.0f), 0.0f))) {
                         if (botVariantSave(s_SavePresetName,
                                            traits->baseType,
                                            traits->accuracy,
@@ -2534,7 +2534,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel##pscancel",
-                                      ImVec2(pdguiScale(80.0f), 0.0f))) {
+                                      ImVec2(pdguiScale(120.0f), 0.0f))) {
                         ImGui::CloseCurrentPopup();
                         pdguiPlaySound(PDGUI_SND_SELECT);
                     }
@@ -2546,7 +2546,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::Separator();
             ImGui::Spacing();
 
-            if (ImGui::Button("Done", ImVec2(pdguiScale(80.0f), 0.0f))) {
+            if (ImGui::Button("Done", ImVec2(pdguiScale(120.0f), 0.0f))) {
                 s_BotModalShowAdvanced = false;
                 s_BotPreviewRotY = 0.0f;
                 s_EditBotSlotIdx = -1;
@@ -2557,7 +2557,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::EndGroup(); /* end left column */
 
             /* ---- Right column: 3D character preview ---- */
-            ImGui::SameLine(0, pdguiScale(12.0f));
+            ImGui::SameLine(0, pdguiScale(18.0f));
             ImGui::BeginGroup();
 
             /* Rotate and request preview for current body+head */
@@ -2566,7 +2566,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             pdguiCharPreviewSetRotY(s_BotPreviewRotY);
             pdguiCharPreviewRequest(sl->head_id, sl->body_id);
 
-            float previewSz = pdguiScale(160.0f);
+            float previewSz = pdguiScale(240.0f);
 
             if (pdguiCharPreviewIsReady()) {
                 ImTextureID texId = (ImTextureID)(uintptr_t)pdguiCharPreviewGetTextureId();
@@ -2609,7 +2609,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         s_ShowSaveScenario = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(320.0f), 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(480.0f), 0.0f));
     if (ImGui::BeginPopupModal("Save Scenario##savescenpop", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Save Scenario");
@@ -2617,12 +2617,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::Spacing();
 
         ImGui::Text("Name:");
-        ImGui::SetNextItemWidth(pdguiScale(280.0f));
+        ImGui::SetNextItemWidth(pdguiScale(420.0f));
         ImGui::InputText("##savename", s_SaveNameBuf, sizeof(s_SaveNameBuf));
 
         ImGui::Spacing();
 
-        float bw = pdguiScale(100.0f);
+        float bw = pdguiScale(150.0f);
         if (ImGui::Button("Save", ImVec2(bw, 0.0f))) {
             if (s_SaveNameBuf[0]) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE \"%s\"", s_SaveNameBuf);
@@ -2654,7 +2654,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         s_ShowLoadScenario = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(380.0f), pdguiScale(280.0f)));
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(570.0f), pdguiScale(420.0f)));
     if (ImGui::BeginPopupModal("Load Scenario##loadscenpop", nullptr,
                                ImGuiWindowFlags_NoResize)) {
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Load Scenario");
@@ -2665,7 +2665,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::TextDisabled("No saved scenarios found.");
             ImGui::TextDisabled("Save a scenario first using \"Save Scenario\".");
         } else {
-            float listH = pdguiScale(180.0f);
+            float listH = pdguiScale(270.0f);
             ImGui::BeginChild("##scen_list", ImVec2(-1.0f, listH), true);
 
             for (int i = 0; i < s_ScenarioCount; i++) {
@@ -2721,7 +2721,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::Separator();
         ImGui::Spacing();
 
-        float fbw = pdguiScale(100.0f);
+        float fbw = pdguiScale(150.0f);
         bool hasSelection = (s_ScenarioSelected >= 0 && s_ScenarioSelected < s_ScenarioCount);
 
         if (!hasSelection) ImGui::BeginDisabled();

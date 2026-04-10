@@ -173,8 +173,9 @@ void pdguiSetSafeAreaMargins(float top, float bottom, float left, float right)
 PdSafeArea pdguiGetSafeArea(void)
 {
     ImVec2 disp = ImGui::GetIO().DisplaySize;
-    float vw = (disp.x > 0.0f) ? disp.x : 1280.0f;
-    float vh = (disp.y > 0.0f) ? disp.y : 720.0f;
+    /* Fallback display size matches pdgui_scaling.h 1080p reference. */
+    float vw = (disp.x > 0.0f) ? disp.x : 1920.0f;
+    float vh = (disp.y > 0.0f) ? disp.y : 1080.0f;
     float aspect = vw / vh;
 
     /* Default margins: ultrawide gets wider horizontal margins */

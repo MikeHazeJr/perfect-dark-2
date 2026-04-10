@@ -805,7 +805,7 @@ static void renderValidationModal(float scale)
 {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(pdguiScale(500.0f), pdguiScale(400.0f)), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(750.0f), pdguiScale(600.0f)), ImGuiCond_Always);
 
     if (!ImGui::BeginPopupModal("Validation Results", NULL,
                                 ImGuiWindowFlags_NoResize |
