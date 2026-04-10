@@ -8,6 +8,15 @@
 
 ## v0.1.0 "Foundation" Release Prep
 
+### Input System (S189 — DONE)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **B-button opens doors** | FIXED (S189) | bondmove.c:1836 — PC usemask = BUTTON_ACCEPT_USE only. BUTTON_CANCEL_USE==B_BUTTON was included, causing B to trigger door open. |
+| **Gamepad layout: A=jump, Y=use, B=crouch** | FIXED (S189) | actionmap.cpp: Y→USE, A→JUMP, B→CROUCH (dual with CANCEL_USE). RSTICK unbound from crouch. |
+| **MP 1-3 default gamepad binds removed** | DONE (S189) | setupGameplayDefaults else block removed. MP slots start unbound, rebind UI still works. |
+| **CrouchMode** | ALREADY DONE (pre-S189) | Game.Player%d.CrouchMode: 0=hold (default), 1=analog, 2=toggle, 3=toggle+analog. bondmove.c:1925. |
+
 ### Must-Have
 
 | Item | Priority | Status | Detail |

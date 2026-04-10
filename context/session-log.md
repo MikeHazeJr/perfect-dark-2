@@ -3,6 +3,40 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S189 — 2026-04-10 (Input System: Door Bug, Gamepad Defaults, CrouchMode Audit)
+
+**Focus**: Fix B-button opens doors bug; simplify gamepad bindings to single-column player-0-only; audit CrouchMode (already implemented).
+
+### What Was Done
+
+**Task 1 — usemask door bug fixed** (bondmove.c:1836)
+- Root cause: `BUTTON_ACCEPT_USE = A_BUTTON` and `BUTTON_CANCEL_USE = B_BUTTON` (constants.h). The PC branch of `usemask` was `(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)` = `(B_BUTTON | B_BUTTON | A_BUTTON)` — CANCEL_USE and B_BUTTON are the same bit, so B always matched the door mask.
+- Fix: PC branch now `BUTTON_ACCEPT_USE` only. Only A opens doors in PC mode. N64 branch unchanged (`B_BUTTON`). B_BUTTON/ACTION_CANCEL_USE still synthesized in c1buttons for FarSight/scope cancel — that logic uses a different mask.
+
+**Task 2 — Gamepad binding overhaul** (actionmap.cpp:1319-1363)
+- A → ACTION_JUMP (was ACTION_USE)
+- Y → ACTION_USE (was ACTION_JUMP)
+- B → ACTION_CROUCH (new dual-bind; B already bound to ACTION_CANCEL_USE for FarSight)
+- RSTICK click → unbound from ACTION_CROUCH (removed per spec)
+- MP players 1-3 else block removed from setupGameplayDefaults. MP slots start with zero gamepad binds; rebind UI still works.
+
+**Task 3 — CrouchMode already implemented**
+- `Game.Player%d.CrouchMode` registered in main.c:350. Values: 0=hold, 1=analog, 2=toggle, 3=toggle+analog (constants.h:4815-4818). Toggle/hold/analog all branched in bondmove.c:1925-1963. No code changes needed.
+
+### Files Changed
+- `src/game/bondmove.c` — Task 1: usemask PC branch → BUTTON_ACCEPT_USE only (line 1836)
+- `port/src/actionmap.cpp` — Task 2: Y=USE, B=CROUCH/CANCEL, A=JUMP, remove MP 1-3 gamepad defaults
+
+### Decisions
+- B is dual-bound (ACTION_CROUCH + ACTION_CANCEL_USE) in gameplay IMC. CANCEL_USE covers FarSight/scope exit; CROUCH covers crouching. Task 1's usemask fix ensures B no longer opens doors regardless.
+
+### Next Steps
+- Playtest: A=jump, B=crouch (no door open), Y=use (door open), R3 not crouching
+- Wire protocol bump v32→v33 still pending (B-125 spawn_weapon_id)
+- B-126 silent crash awaiting next repro with heartbeat
+
+---
+
 ## Session S188 — 2026-04-09 (Menu Replacement Plan — Full Inventory & Gameplan)
 
 **Focus**: Complete audit of every legacy menu dialog in the codebase. Build batched replacement plan.
