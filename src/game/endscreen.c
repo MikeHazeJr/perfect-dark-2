@@ -31,6 +31,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "savefile.h"
 
 /* M0.1a: catalog-first stage setter — catalog ID is primary identity.
  * Resolves stagenum from catalog at point of consumption. */
@@ -1718,7 +1719,14 @@ void endscreenPrepare(void)
 			}
 		}
 
-		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+		/* PC: saveSaveAgent() writes agent progress to JSON via the PC-native
+		 * save system. filemgrSaveOrLoad() fails on PC (pakFindBySerial==-1,
+		 * no Controller Pak) → pushes unregistered g_PakNotOriginalMenuDialog
+		 * → type-based renderDangerDialog → getDialogTitle treats fn-ptr title
+		 * as lang ID → langGet OOB → AV (B-128). */
+		if (g_GameFile.name[0]) {
+			saveSaveAgent(g_GameFile.name);
+		}
 	}
 
 	if (g_MenuData.root == MENUROOT_ENDSCREEN) {
@@ -1816,7 +1824,10 @@ void endscreenPushCoop(void)
 	}
 
 	if (g_Vars.currentplayer == g_Vars.bond) {
-		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+		/* PC: use PC-native JSON save; filemgrSaveOrLoad triggers AV (B-128). */
+		if (g_GameFile.name[0]) {
+			saveSaveAgent(g_GameFile.name);
+		}
 	}
 
 	g_MpPlayerNum = prevplayernum;
@@ -1913,7 +1924,10 @@ void endscreenPushAnti(void)
 			}
 		}
 
-		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+		/* PC: use PC-native JSON save; filemgrSaveOrLoad triggers AV (B-128). */
+		if (g_GameFile.name[0]) {
+			saveSaveAgent(g_GameFile.name);
+		}
 	} else {
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
 		if (!ANTI_ABORTED() && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())

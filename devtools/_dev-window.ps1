@@ -1,5 +1,5 @@
 # ============================================================================
-# _dev-window.ps1 — Perfect Dark 2 Dev Window (v2)
+# _dev-window.ps1 - Perfect Dark 2 Dev Window (v2)
 #
 # Replacement for dev-window.ps1. Every feature preserved. Key improvements:
 #   1. PATH fix at very top (before any tool resolution)
@@ -12,7 +12,7 @@
 # ============================================================================
 
 # ============================================================================
-# Section 0: PATH fix — BEFORE ANYTHING ELSE
+# Section 0: PATH fix - BEFORE ANYTHING ELSE
 # ============================================================================
 
 $env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
@@ -567,7 +567,7 @@ $script:BtnOpenFolder.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:BtnOpenFolder.Add_Click({ Start-Process "explorer.exe" -ArgumentList $script:ProjectRoot })
 $script:LinkPanel.Controls.Add($script:BtnOpenFolder)
 
-# CLEAN BUILD button — force full clean build
+# CLEAN BUILD button - force full clean build
 $script:BtnCleanBuild = New-Object System.Windows.Forms.Button
 $script:BtnCleanBuild.Text = "CLEAN BUILD"
 $script:BtnCleanBuild.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -851,6 +851,18 @@ $script:LblLatestRelease.Text = "latest: --"; $script:LblLatestRelease.Font = Ne
 $script:LblLatestRelease.ForeColor = $script:ColorTextDim; $script:LblLatestRelease.AutoSize = $true
 $script:LblLatestRelease.Location = New-Object System.Drawing.Point(0, 104)
 $script:VersionPanel.Controls.Add($script:LblLatestRelease)
+
+$script:LblDevVersion = New-Object System.Windows.Forms.Label
+$script:LblDevVersion.Text = "Dev Latest: --"; $script:LblDevVersion.Font = New-UIFont 9
+$script:LblDevVersion.ForeColor = $script:ColorBlue; $script:LblDevVersion.AutoSize = $true
+$script:LblDevVersion.Location = New-Object System.Drawing.Point(0, 124)
+$script:VersionPanel.Controls.Add($script:LblDevVersion)
+
+$script:LblStableVersion = New-Object System.Windows.Forms.Label
+$script:LblStableVersion.Text = "Stable Latest: --"; $script:LblStableVersion.Font = New-UIFont 9
+$script:LblStableVersion.ForeColor = $script:ColorGreen; $script:LblStableVersion.AutoSize = $true
+$script:LblStableVersion.Location = New-Object System.Drawing.Point(0, 140)
+$script:VersionPanel.Controls.Add($script:LblStableVersion)
 
 $script:BuildTimer = New-Object System.Windows.Forms.Timer
 $script:BuildTimer.Interval = 100
@@ -1299,6 +1311,39 @@ function Refresh-VersionDisplay {
     Update-ReleaseButtonText
 }
 
+function Refresh-ChannelVersions {
+    # Dev Latest: version in CMakeLists.txt on current branch (what's on disk)
+    if ($null -ne $script:LblDevVersion) {
+        try {
+            $ver = Get-ProjectVersion
+            $script:LblDevVersion.Text = "Dev Latest: v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
+            $script:LblDevVersion.ForeColor = $script:ColorBlue
+        } catch {
+            $script:LblDevVersion.Text = "Dev Latest: --"
+        }
+    }
+
+    # Stable Latest: most recent git tag (e.g. from origin/main), or N/A if none
+    if ($null -ne $script:LblStableVersion) {
+        try {
+            $stableTag = (git -C $script:ProjectRoot describe --tags --abbrev=0 origin/main 2>$null)
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($stableTag)) {
+                $stableTag = (git -C $script:ProjectRoot tag --sort=-version:refname 2>$null | Select-Object -First 1)
+            }
+            if (-not [string]::IsNullOrWhiteSpace($stableTag)) {
+                $script:LblStableVersion.Text = "Stable Latest: " + $stableTag.Trim()
+                $script:LblStableVersion.ForeColor = $script:ColorGreen
+            } else {
+                $script:LblStableVersion.Text = "Stable Latest: N/A"
+                $script:LblStableVersion.ForeColor = $script:ColorTextDim
+            }
+        } catch {
+            $script:LblStableVersion.Text = "Stable Latest: N/A"
+            $script:LblStableVersion.ForeColor = $script:ColorTextDim
+        }
+    }
+}
+
 function Load-ReleaseCache {
     if (-not (Test-Path $script:ReleaseCachePath)) { return $null }
     try { return (Get-Content $script:ReleaseCachePath -Raw -ErrorAction Stop | ConvertFrom-Json) } catch { return $null }
@@ -1375,8 +1420,10 @@ function Auto-Commit-Sync {
     $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
     git -C $script:ProjectRoot add -A 2>$null | Out-Null
     git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
+    $commitOk = ($LASTEXITCODE -eq 0)
+    try { git -C $script:ProjectRoot push 2>$null | Out-Null } catch {}
     $script:LastGitCheck = [DateTime]::MinValue
-    return ($LASTEXITCODE -eq 0)
+    return $commitOk
 }
 
 function Auto-Commit {
@@ -1546,10 +1593,10 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
 
-    # Auto-commit
+    # Auto-commit + push (push is non-fatal: failure does not abort the build)
     $commitMsg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && (git diff --cached --quiet && exit 0 || git commit -m `"" + $commitMsg + "`")"
-    [void]$steps.Add(@{Name="Auto-commit"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
+    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && (git diff --cached --quiet || git commit -m `"" + $commitMsg + "`") && (git push >nul 2>&1 & exit 0)"
+    [void]$steps.Add(@{Name="Auto-commit + push"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
 
     # Smart build: only clean if forced or if build dirs don't exist
     if ($forceClean) {
@@ -1599,6 +1646,25 @@ function Start-Build {
     if ($null -ne $script:LblBuildActivity) { $script:LblBuildActivity.Text = "Starting " + $buildMode + " build..." }
 
     $script:BuildVersion = Get-UiVersion
+
+    # Stale build detection: warn if HEAD changed since last successful build
+    try {
+        $hashFile    = Join-Path $script:ProjectRoot "build\.last-built-hash"
+        $currentHash = (git -C $script:ProjectRoot rev-parse HEAD 2>$null)
+        if ($currentHash) { $currentHash = $currentHash.Trim() }
+        if ((Test-Path $hashFile) -and $currentHash) {
+            $lastHash = (Get-Content $hashFile -Raw -ErrorAction SilentlyContinue)
+            if ($lastHash) { $lastHash = $lastHash.Trim() }
+            if ($lastHash -and $lastHash -ne $currentHash) {
+                $cnt = (git -C $script:ProjectRoot rev-list --count "$lastHash..HEAD" 2>$null)
+                if ($cnt) { $cnt = $cnt.Trim() } else { $cnt = "?" }
+                if ($null -ne $script:LblBuildActivity) {
+                    $script:LblBuildActivity.Text = "Stale: $cnt new commit(s) since last build - rebuilding..."
+                }
+            }
+        }
+    } catch {}
+
     $script:BuildProcess = $null
     $script:BuildStepQueue.Clear()
     foreach ($s in (Get-BuildSteps $script:BuildVersion $clean)) { [void]$script:BuildStepQueue.Add($s) }
@@ -1703,6 +1769,14 @@ $script:BuildTimer.Add_Tick({
                     if ($null -ne $script:BuildVersion) {
                         Set-ProjectVersion $script:BuildVersion.Major $script:BuildVersion.Minor $script:BuildVersion.Patch
                     }
+                    # Record HEAD hash for stale build detection
+                    try {
+                        $headHash = (git -C $script:ProjectRoot rev-parse HEAD 2>$null)
+                        if ($headHash) {
+                            $hf = Join-Path $script:ProjectRoot "build\.last-built-hash"
+                            Set-Content -Path $hf -Value $headHash.Trim() -NoNewline -Encoding UTF8
+                        }
+                    } catch {}
                 } else { Play-FailureSound }
                 if ($null -ne $script:ProgressFill) {
                     $script:ProgressFill.BackColor = $(if ($anyErr) { $script:ColorRed } else { $script:ColorGreen })
@@ -1717,7 +1791,7 @@ $script:BuildTimer.Add_Tick({
                 if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $true }
                 if ($null -ne $script:BtnCleanBuild) { $script:BtnCleanBuild.Enabled = $true }
                 if ($null -ne $script:BtnStop)  { $script:BtnStop.Visible  = $false }
-                Refresh-VersionDisplay; Update-RunButtons
+                Refresh-VersionDisplay; Refresh-ChannelVersions; Update-RunButtons
             }
         }
     } catch {}
@@ -2076,6 +2150,7 @@ $script:Form.Add_Shown({
     try {
         Invoke-FormResize
         Refresh-VersionDisplay
+        Refresh-ChannelVersions
         Update-ReleaseCacheUI (Load-ReleaseCache)
         Update-RunButtons
         $mainTimer.Start()

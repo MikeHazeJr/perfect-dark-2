@@ -40,6 +40,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_layout.h"
 #include "actionmap.h"
 #include "system.h"
 #include "inputctx.h"
@@ -980,17 +981,33 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         ImGui::Spacing();
         ImGui::Separator();
 
-        /* ---- Objectives (B-91: load from game data, filter by difficulty) ---- */
+        /* Pinned footer hint -- lives above the scrollable body so it is
+         * always visible even as objectives/briefing scroll.  Preserves
+         * the UX hint from the pre-Batch-0 bottom-of-panel placement. */
+        if (s_DetailPanelFocus) {
+            ImGui::TextDisabled("A: Select   B: Back   D-Pad: Navigate");
+        } else {
+            ImGui::TextDisabled("Select a mission from the list");
+        }
+
+        /* ---- Objectives + Briefing (scrollable body) ----
+         * Batch 0 docked-action-bar rule: the Start Mission CTA must never
+         * scroll off-screen.  We compute the scrollable body height as
+         * (remaining space) - (action bar + gap) so the bar is always
+         * visible and clickable at every resolution.  Objectives and
+         * briefing share this scroll region; fixed content above (header,
+         * difficulty picker, footer hint) stays pinned. */
         s32 selDiff = s_DetailDiffIdx;
 
-        ImGui::TextDisabled("Objectives (%s):", k_DiffFullNames[selDiff]);
-        ImGui::Spacing();
+        float availH  = ImGui::GetContentRegionAvail().y;
+        float scrollH = pdguiBodyHeightForActionBar(availH);
 
-        float objH = bodyH - pdguiScale(260.0f); /* leave room for buttons */
-        if (objH < pdguiScale(60.0f)) objH = pdguiScale(60.0f);
+        if (ImGui::BeginChild("##ms_detail_body", ImVec2(0, scrollH), false,
+                               ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
-        if (ImGui::BeginChild("##ms_objectives", ImVec2(0, objH), false,
-                               ImGuiWindowFlags_None)) {
+            ImGui::TextDisabled("Objectives (%s):", k_DiffFullNames[selDiff]);
+            ImGui::Spacing();
+
             bool anyObj = false;
             /* g_Briefing.objectivenames[0] = briefing text; [1]-[5] = objectives */
             for (s32 oi = 1; oi < 6; oi++) {
@@ -1022,42 +1039,29 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             if (!anyObj) {
                 ImGui::TextDisabled("(No objectives for this difficulty)");
             }
-        }
-        ImGui::EndChild(); /* ms_objectives */
 
-        ImGui::Separator();
-
-        /* ---- Briefing text (P7: full scrollable, replaces truncated preview) ---- */
-        if (g_Briefing.briefingtextnum != 0) {
-            const char *btxt = langSafe(g_Briefing.briefingtextnum);
-            if (btxt && btxt[0]) {
-                ImGui::TextDisabled("Briefing:");
-                /* Scrollable briefing area — uses remaining space before Start button */
-                float briefH = ImGui::GetContentRegionAvail().y - pdguiScale(60.0f);
-                if (briefH < pdguiScale(40.0f)) briefH = pdguiScale(40.0f);
-                if (ImGui::BeginChild("##ms_briefing", ImVec2(0, briefH), false,
-                                       ImGuiWindowFlags_None)) {
+            /* ---- Briefing text ---- */
+            if (g_Briefing.briefingtextnum != 0) {
+                const char *btxt = langSafe(g_Briefing.briefingtextnum);
+                if (btxt && btxt[0]) {
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Briefing:");
+                    ImGui::Spacing();
                     ImGui::PushTextWrapPos(rightW - pdguiScale(16.0f));
                     ImGui::TextUnformatted(btxt);
                     ImGui::PopTextWrapPos();
                 }
-                ImGui::EndChild();
             }
         }
+        ImGui::EndChild(); /* ms_detail_body */
 
-        /* ---- Start Mission Button ---- */
-        ImGui::Separator();
-        float btnH = pdguiScale(42.0f);
-        float btnW = rightW - pdguiScale(16.0f);
+        /* ---- Docked Action Bar: Start Mission (never scrolls) ---- */
         bool startFocus = s_DetailPanelFocus && (s_DetailFocusIdx == 3);
+        bool diffLocked = !isStageDifficultyUnlocked(si, selDiff);
 
-        {
-            ImVec2 cp = ImGui::GetCursorScreenPos();
-            if (startFocus) {
-                pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
-            }
-
-            bool diffLocked = !isStageDifficultyUnlocked(si, selDiff);
+        if (pdguiBeginActionBar("##ms_action_bar")) {
+            float barW = ImGui::GetContentRegionAvail().x;
 
             if (diffLocked) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
@@ -1065,8 +1069,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.4f, 1.0f));
             }
 
-            bool clicked = ImGui::Button("Start Mission##ms_start",
-                                          ImVec2(btnW, btnH));
+            bool activated = pdguiActionBarButton("Start Mission##ms_start",
+                                                   startFocus ? 1 : 0,
+                                                   barW);
             ImGui::PopStyleColor();
 
             if (ImGui::IsItemHovered()) {
@@ -1074,32 +1079,22 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_DetailPanelFocus = true;
             }
 
-            bool doStart = startFocus &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
-
-            if ((clicked || doStart) && !diffLocked) {
+            if (activated && !diffLocked) {
                 /* Set difficulty and launch mission */
                 SM_CLEAR_PDMODE(&g_MissionConfig);
                 SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
                 lvSetDifficulty(selDiff);
-                pdguiPlaySound(PDGUI_SND_SELECT);
                 menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
                 if (inputCtxIsActive(&g_CtxImGuiMenu)) {
                     inputCtxPopDeferred(&g_CtxImGuiMenu);
                 }
-            } else if ((clicked || doStart) && diffLocked) {
+            } else if (activated && diffLocked) {
+                /* Action-bar button already played SND_SELECT; override
+                 * with an error cue so the user knows the diff is locked. */
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
         }
-
-        /* Footer hint */
-        ImGui::Spacing();
-        if (s_DetailPanelFocus) {
-            ImGui::TextDisabled("A: Select   B: Back   D-Pad: Navigate");
-        } else {
-            ImGui::TextDisabled("Select a mission from the list");
-        }
+        pdguiEndActionBar();
     }
     ImGui::EndChild(); /* ms_right */
 
@@ -1191,9 +1186,21 @@ static s32 renderDifficulty(struct menudialog *dialog,
     }
 
     float rowH  = pdguiScale(36.0f);
-    float timeW = pdguiScale(80.0f);
 
-    /* ---- Difficulty rows ---- */
+    /* ---- Difficulty rows ----
+     * Batch 0 fix: use the hardcoded difficulty name ("Agent" / "Special
+     * Agent" / "Perfect Agent") as a fallback when langSafe() returns an
+     * empty string.  The previous renderer drew the diff name via
+     * dl->AddText() as an overlay; when langSafe returned "" (lang bank
+     * not yet resident at dialog open), the row appeared blank.  Now we
+     * use an ImGui::Selectable with the label text directly so the text
+     * is a real widget that ImGui clips, lays out, and renders through
+     * its own path, and we use a non-empty hardcoded fallback when the
+     * localized string is missing. */
+    static const char *k_DiffFallbackNames[3] = {
+        "Agent", "Special Agent", "Perfect Agent"
+    };
+
     for (s32 i = 0; i < 3; i++) {
         s32 diff = k_Diffs[i];
         bool locked   = !isStageDifficultyUnlocked(si, diff);
@@ -1206,43 +1213,62 @@ static s32 renderDifficulty(struct menudialog *dialog,
             pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH);
         }
 
-        if (ImGui::Selectable("##diff_row", isActive,
-                              ImGuiSelectableFlags_None, ImVec2(0, rowH))) {
-            if (!locked) {
-                s_DiffSelectIdx = i;
-                SM_CLEAR_PDMODE(&g_MissionConfig);
-                SM_SET_DIFFICULTY(&g_MissionConfig, diff);
-                lvSetDifficulty(diff);
-                pdguiPlaySound(PDGUI_SND_SELECT);
-                menuPopDialog();
-                menuPushDialog(&g_AcceptMissionMenuDialog);
-            } else {
-                pdguiPlaySound(PDGUI_SND_ERROR);
-            }
+        /* Build the row label: "  <DiffName>                    <BestTime>".
+         * The leading spaces reserve visual space for a left gutter; the
+         * trailing time is padded out with spaces so the right-hand text
+         * aligns.  This is a single ImGui::Selectable so the text renders
+         * via the normal ImGui path (no AddText overlay race). */
+        const char *locName = langSafe(k_DiffIds[i]);
+        if (!locName || !locName[0]) {
+            locName = k_DiffFallbackNames[i];
         }
+
+        char rowLabel[128];
+        if (locked) {
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    [Locked]",
+                     locName);
+        } else {
+            char timeStr[32];
+            formatBestTime(timeStr, sizeof(timeStr),
+                           g_GameFile.besttimes[si < NUM_SOLOSTAGES ? si : 0][diff]);
+            snprintf(rowLabel, sizeof(rowLabel), "  %s    %s",
+                     locName, timeStr);
+        }
+
+        /* Text color per state */
+        ImVec4 textCol = locked ? ImVec4(0.55f, 0.55f, 0.65f, 1.0f)
+                                : ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, textCol);
+
+        bool clicked = ImGui::Selectable(rowLabel, isActive,
+                                          ImGuiSelectableFlags_None,
+                                          ImVec2(0, rowH));
+        ImGui::PopStyleColor();
+
         if (ImGui::IsItemHovered()) { s_DiffSelectIdx = i; }
 
         /* Confirm from keyboard/gamepad */
-        if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
-            if (!locked) {
-                SM_CLEAR_PDMODE(&g_MissionConfig);
-                SM_SET_DIFFICULTY(&g_MissionConfig, diff);
-                lvSetDifficulty(diff);
-                pdguiPlaySound(PDGUI_SND_SELECT);
-                menuPopDialog();
-                menuPushDialog(&g_AcceptMissionMenuDialog);
-            } else {
-                pdguiPlaySound(PDGUI_SND_ERROR);
-            }
+        bool kbConfirm = isActive &&
+            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+             ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+
+        if ((clicked || kbConfirm) && !locked) {
+            s_DiffSelectIdx = i;
+            SM_CLEAR_PDMODE(&g_MissionConfig);
+            SM_SET_DIFFICULTY(&g_MissionConfig, diff);
+            lvSetDifficulty(diff);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            menuPopDialog();
+            menuPushDialog(&g_AcceptMissionMenuDialog);
+        } else if ((clicked || kbConfirm) && locked) {
+            pdguiPlaySound(PDGUI_SND_ERROR);
         }
 
         /* Hover tooltip: objectives for this difficulty from g_Briefing.
-         * g_Briefing is populated by the dialog handler before this runs.
-         * objectivedifficulties bits: 0=Agent, 1=SA, 2=PA. */
+         * g_Briefing is populated by the dialog handler before this runs. */
         if (!locked && ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
-            ImGui::Text("%s", langSafe(k_DiffIds[i]));
+            ImGui::Text("%s", locName);
             ImGui::Separator();
             bool anyObj = false;
             for (s32 oi = 0; oi < 6; oi++) {
@@ -1259,27 +1285,16 @@ static s32 renderDifficulty(struct menudialog *dialog,
             ImGui::EndTooltip();
         }
 
-        /* Overlay: difficulty name + best time */
+        /* Diff-color badge dot on the left gutter (overlays the row). */
         {
             ImDrawList *dl = ImGui::GetWindowDrawList();
             ImVec2 rmin = ImGui::GetItemRectMin();
-            float cy = rmin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
-            float tx = rmin.x + pdguiScale(10.0f);
-
-            ImU32 nameCol = locked ? IM_COL32(100, 100, 120, 180) : IM_COL32(255, 255, 255, 255);
-            dl->AddText(ImVec2(tx, cy), nameCol, langSafe(k_DiffIds[i]));
-
-            if (locked) {
-                dl->AddText(ImVec2(tx + pdguiScale(120.0f), cy),
-                            IM_COL32(180, 60, 60, 200), "[Locked]");
-            } else {
-                char timeStr[32];
-                formatBestTime(timeStr, sizeof(timeStr),
-                               g_GameFile.besttimes[si < NUM_SOLOSTAGES ? si : 0][diff]);
-                ImVec2 tSz = ImGui::CalcTextSize(timeStr);
-                dl->AddText(ImVec2(rmin.x + mw - tSz.x - pdguiScale(20.0f), cy),
-                            IM_COL32(160, 200, 140, 210), timeStr);
-            }
+            float dotR = pdguiScale(4.0f);
+            float dotX = rmin.x + pdguiScale(8.0f);
+            float dotY = rmin.y + rowH * 0.5f;
+            dl->AddCircleFilled(ImVec2(dotX, dotY), dotR,
+                locked ? IM_COL32(60, 60, 70, 160)
+                       : k_DiffBadgeColor[diff]);
         }
 
         ImGui::PopID();
@@ -1297,8 +1312,21 @@ static s32 renderDifficulty(struct menudialog *dialog,
             pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH);
         }
 
-        bool doSelect = ImGui::Selectable("##diff_pd", isActive,
-                                          ImGuiSelectableFlags_None, ImVec2(0, rowH));
+        /* Same Selectable-with-label pattern as Agent/SA/PA rows: the
+         * visible text is a real ImGui widget (not AddText overlay), so
+         * a langSafe() returning "" can't produce a blank row. */
+        const char *pdLabel = langSafe(L_MPWEAPONS_221);
+        if (!pdLabel || !pdLabel[0]) pdLabel = "PD Mode";
+
+        char pdRowLabel[80];
+        snprintf(pdRowLabel, sizeof(pdRowLabel), "  %s", pdLabel);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.70f, 1.0f, 1.0f));
+        bool doSelect = ImGui::Selectable(pdRowLabel, isActive,
+                                          ImGuiSelectableFlags_None,
+                                          ImVec2(0, rowH));
+        ImGui::PopStyleColor();
+
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = pdIdx;
         if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
                          ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
@@ -1309,20 +1337,14 @@ static s32 renderDifficulty(struct menudialog *dialog,
             menuPushDialog(&g_PdModeSettingsMenuDialog);
         }
 
-        {
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            ImVec2 rmin = ImGui::GetItemRectMin();
-            float cy = rmin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
-            dl->AddText(ImVec2(rmin.x + pdguiScale(10.0f), cy),
-                        IM_COL32(200, 180, 255, 255), langSafe(L_MPWEAPONS_221));
-        }
-
         ImGui::PopID();
     }
 
     ImGui::Separator();
 
-    /* ---- Cancel row ---- */
+    /* ---- Cancel row ----
+     * Selectable-with-label pattern: label text is a real ImGui widget,
+     * fallback string used if langSafe() returns empty. */
     {
         s32 cancelIdx = 3 + (pdModeVisible ? 1 : 0);
         bool isActive  = (s_DiffSelectIdx == cancelIdx);
@@ -1334,9 +1356,18 @@ static s32 renderDifficulty(struct menudialog *dialog,
             pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(16.0f), rowH * 0.8f);
         }
 
-        bool doCancel = ImGui::Selectable("##diff_cancel", isActive,
-                                          ImGuiSelectableFlags_None,
-                                          ImVec2(0, rowH * 0.8f));
+        const char *cancelLoc = langSafe(L_OPTIONS_254);
+        if (!cancelLoc || !cancelLoc[0]) cancelLoc = "Cancel";
+
+        char cancelRowLabel[64];
+        snprintf(cancelRowLabel, sizeof(cancelRowLabel), "  %s", cancelLoc);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.70f, 0.70f, 1.0f));
+        bool doCancel = ImGui::Selectable(cancelRowLabel, isActive,
+                                           ImGuiSelectableFlags_None,
+                                           ImVec2(0, rowH * 0.8f));
+        ImGui::PopStyleColor();
+
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = cancelIdx;
         if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
                          ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
@@ -1345,14 +1376,6 @@ static s32 renderDifficulty(struct menudialog *dialog,
         if (doCancel) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
-        }
-
-        {
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            ImVec2 rmin = ImGui::GetItemRectMin();
-            float cy = rmin.y + (rowH * 0.8f - ImGui::GetTextLineHeight()) * 0.5f;
-            dl->AddText(ImVec2(rmin.x + pdguiScale(10.0f), cy),
-                        IM_COL32(180, 180, 180, 210), langSafe(L_OPTIONS_254));
         }
 
         ImGui::PopID();
@@ -1947,7 +1970,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
     /* B button / Escape = Resume (unless restart confirm is showing) */
     if (!s_RestartConfirm &&
-        (actionPressed(0, ACTION_MENU_CANCEL) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        (actionPressed(0, ACTION_CANCEL_USE) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();

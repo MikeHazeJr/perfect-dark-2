@@ -3,6 +3,388 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S192 — 2026-04-10 (Batch 0: Menu Replacement Foundation — layout primitives + model preview generalization + Mission Select / Challenges docking fixes)
+
+**Focus**: Execute Batch 0 of the menu replacement plan — foundation primitives
+every later batch depends on, plus an audit pass on shipping ImGui menus
+against the design-guideline docked-action-bar rule.
+
+### What was built
+
+**New primitive module** — `port/include/pdgui_layout.h` (163 lines) +
+`port/fast3d/pdgui_layout.cpp` (137 lines):
+- `pdguiActionBarHeight()` / `pdguiBodyHeightForActionBar(avail)` — compute
+  scaled action-bar + body sizes for a layout with a docked footer.
+- `pdguiBeginActionBar(id)` / `pdguiEndActionBar()` — fixed-height child at
+  the bottom of a window/child region; CTAs placed here never scroll.
+- `pdguiActionBarButton(label, isFocused, width)` — docked-bar button with
+  consistent sizing, focus ring, and audio cue (`PDGUI_SND_SELECT` on
+  activation via click / gamepad-A / Enter).
+- `pdguiPopupDarkenBehind(alpha)` — full-viewport dim rect on the
+  background draw list. Replaces ad-hoc
+  `GetBackgroundDrawList()->AddRectFilled` calls scattered across
+  endscreen, pausemenu, solomission, training, agentcreate.
+
+**Generalized model preview pipeline** — `pdgui_charpreview.{c,h}` +
+`pdgui_model_preview.{cpp,h}`:
+- New `PdguiPreviewType` enum: CHARACTER / WEAPON / VEHICLE / PROP.
+- `pdguiCharPreviewRequestEx(type, id1, id2)` routes CHARACTER to the
+  existing head+body path and WEAPON/VEHICLE/PROP to a single-filenum path
+  that resolves catalog entries and uses `source_filenum` for
+  `MENUMODELPARAMS_SET_FILENUM()`.
+- `pdguiCharPreviewRequestFilenum(type, filenum)` — low-level escape hatch.
+- `pdguiCharPreviewRenderGBI` now picks `MENUMODELTYPE_HUDPIECE` for
+  weapons and `MENUMODELTYPE_DEFAULT` for everything else.
+- `ModelPreviewKind` enum mirrors the preview type at the high-level panel
+  layer. `pdguiModelPreviewDrawEx(kind, id1, id2, ...)` is the single entry
+  point for any model kind. `pdguiModelPreviewDraw(head, body, ...)` is
+  preserved as a CHARACTER shortcut — existing callers (agent select, agent
+  create, room lobby, modding hub) do not need to change.
+- Unified tracking state: `(kind, id1, id2)` tuple prevents redundant FBO
+  re-renders across kinds.
+- Placeholder silhouette branches on kind (character stickman vs neutral
+  box icon for weapons/vehicles/props).
+
+**Mission Select regression fix** — `pdgui_menu_solomission.cpp`:
+- Right panel restructured to use the new docked action bar primitive.
+  Stage name header, difficulty picker, and footer hint stay pinned at the
+  top; objectives + briefing scroll inside `##ms_detail_body`; Start
+  Mission lives in `##ms_action_bar` at the bottom and is always visible.
+- Removed the fragile hardcoded `objH = bodyH - 260.0f` / `briefH = avail
+  - 60.0f` layout math that caused the Start button to fall off the
+  bottom on low-res windows.
+
+**Mission Difficulty dialog "missing text" fix** — same file:
+- Replaced the `Selectable("##diff_row", ...)` + `dl->AddText` overlay
+  pattern with real `ImGui::Selectable(labelStr, ...)` calls. The previous
+  pattern left rows blank when `langSafe(L_OPTIONS_251/252/253)` returned
+  an empty string (lang bank not resident at dialog-open time). Added
+  hardcoded English fallback strings ("Agent", "Special Agent", "Perfect
+  Agent", "PD Mode", "Cancel") so the row label is never empty.
+- Applied the same Selectable-with-label pattern to the PD Mode and
+  Cancel rows for consistency.
+
+**Challenges Accept Challenge docking fix** — `pdgui_menu_challenges.cpp`:
+- Split the `##chal_detail` right panel into an inner scrollable body
+  (`##chal_detail_body`) containing header + completion summary +
+  description, and a `##chal_action_bar` docked region containing the
+  Accept Challenge button. Previously the Accept button was inside the
+  scrollable region and could fall off the bottom on long descriptions.
+
+### Audit — shipping ImGui menus against docked-CTA rule
+
+Menus confirmed compliant (CTA already outside BeginChild scroll region):
+- `pdgui_menu_mainmenu.cpp` — Confirm Quit is in a modal popup.
+- `pdgui_menu_room.cpp` — Start Match at window level, after all EndChild.
+- `pdgui_menu_endscreen.cpp` — Retry / Next Mission after EndChild.
+- `pdgui_menu_pausemenu.cpp` — Return to Lobby / Quit after EndChild.
+- `pdgui_menu_agentcreate.cpp` — Create at window level, no scroll child.
+- `pdgui_menu_warning.cpp` — OK button in a typed-dialog modal, no scroll.
+
+Menus fixed in this session:
+- `pdgui_menu_solomission.cpp` — Mission Select Start Mission docked.
+- `pdgui_menu_challenges.cpp` — Accept Challenge docked.
+
+Menus not deeply audited this session (small menus or dev tools;
+flagged for visual verification during QC):
+- `pdgui_menu_agentselect.cpp`, `pdgui_menu_training.cpp`,
+  `pdgui_menu_mpingame.cpp`, `pdgui_menu_mpsettings.cpp`,
+  `pdgui_menu_teamsetup.cpp`, `pdgui_menu_network.cpp`,
+  `pdgui_menu_lobby.cpp`, `pdgui_menu_moddinghub.cpp`,
+  `pdgui_menu_modmgr.cpp`, `pdgui_menu_update.cpp`,
+  `pdgui_menu_theme_editor.cpp`, `pdgui_menu_logviewer.cpp`,
+  `pdgui_menu_stats.cpp`.
+
+### Files changed
+
+| File | Before | After | Delta |
+|---|---|---|---|
+| port/include/pdgui_layout.h (NEW) | 0 | 163 | +163 |
+| port/fast3d/pdgui_layout.cpp (NEW) | 0 | 137 | +137 |
+| port/include/pdgui_charpreview.h | 59 | 105 | +46 |
+| port/fast3d/pdgui_charpreview.c | 307 | 399 | +92 |
+| port/include/pdgui_model_preview.h | 75 | 104 | +29 |
+| port/fast3d/pdgui_model_preview.cpp | 236 | 307 | +71 |
+| port/fast3d/pdgui_menu_solomission.cpp | 2627 | 2650 | +23 |
+| port/fast3d/pdgui_menu_challenges.cpp | 350 | 366 | +16 |
+| **TOTAL** | **3254** | **4231** | **+577** |
+
+Plus `context/scratch/menus-batch0-report.txt` (552 lines, new).
+
+### Deferred (called out explicitly)
+
+- **Per-type camera/scale table** for weapon/vehicle/prop previews. API
+  shape shipped; tuning pass is Batch 10 (training 3D) responsibility.
+- **Popup scrim adoption** in existing menus. `pdguiPopupDarkenBehind` is
+  available; migrating the ~5 ad-hoc sites to it is a mechanical follow-up.
+- **720p vs 1080p scaling reference** discrepancy — `pdgui_scaling.h` uses
+  720p baseline; `d5-full-menu-overhaul.md` specifies 1080p. Not resolved
+  in Batch 0 to avoid re-tuning every menu's layout math.
+- **Remaining menu audit** — 13 shipping menus not deeply audited this
+  session. Should be visually verified during QC.
+
+### Verification
+
+Per Mike's anti-truncation rule, every file written or edited in this
+session was re-read after the Write/Edit tool call. First line, last
+line, and line count verified for each. No truncation detected.
+
+Full zero-function-loss audit table in
+`context/scratch/menus-batch0-report.txt`.
+
+### Next steps
+
+1. Merge worktree changes into main copy.
+2. Re-verify line counts on the main copy (worktree truncation is a known
+   hazard).
+3. Re-run `build-headless.ps1` against the merged main copy to confirm a
+   clean build.
+4. Mike's in-game verification pass (checklist in the report file).
+
+---
+
+## Session S191 — 2026-04-10 (B-112 + B-126: Entry guard + slot tracker + heartbeat expansion)
+
+**Focus**: Instrumentation pass on the two open HIGH bugs — B-112 (chr pointer corruption in 31-bot matches) and B-126 (silent crash ~8min into MP). No live repro yet; this session closes the diagnostic gaps so the next crash log is actionable.
+
+### B-112 — Chr pointer corruption (guards in place, root cause still unknown)
+
+**Root cause analysis**: Original crash pattern is "access violation at `chr->hidden`" with VEH showing `rbx` (the chr pointer) = garbage. Classic stack corruption: a callee smashes the caller's saved `rbx` on its stack frame. When execution returns to `chraTick`, `rbx` is restored from the corrupted value → next dereference of `chr` (at `chr->hidden`, line ~13444) crashes.
+
+**Critical gap closed**: The existing canary (`sysLogPrintf("CHR.GUARD: canary")`) was inside the sleep block, ~33 lines BELOW the first `chr->hidden` access. A corrupt pointer arriving at `chraTick()` crashes before reaching that canary.
+
+**Changes** (`src/game/chraction.c` 16541 lines, `src/game/chr.c` 6676 lines, `src/include/game/chr.h` 101 lines):
+- `chraTick()` entry guard — validates `chr` before ANY field access; logs `CHR.GUARD: chraTick entry invalid` and bails if pointer is bad.
+- `g_ChrLastTickedIndex` global (`s32`, default -1) — set to `(chr - g_ChrSlots)` just before each `chraTick()` call in `chrTick()`, cleared after. Lets crash handlers identify the failing bot slot without heap access.
+- Declaration added to `chr.h` so all TUs (including crash.c) can reference it.
+
+### B-126 — Silent crash (likely stack-protector canary, SIGABRT not landing in log)
+
+**Root cause hypothesis**: GCC `-fstack-protector-strong` detects smashed canary → calls `abort()` → SIGABRT. Windows VEH is NOT called by SIGABRT (it's a CRT signal, not a structured exception). The existing `crashSigabrtHandler` should catch it but apparently wasn't logging reliably.
+
+**Changes** (`port/src/crash.c` 481 lines, `port/include/net/net.h` 286 lines, `port/src/net/net.c` 2200 lines, `src/game/lv.c` 2750 lines):
+- `crashSigabrtHandler` updated — reads `g_ChrLastTickedIndex` (extern, no heap) and logs it: `"FATAL: last chr tick index=%d"`. When the next SIGABRT fires, we'll know which bot slot was mid-tick.
+- `netHeartbeatLog()` added to `net.c` — logs `NET.WATCHDOG` per-peer dump (RTT, silence timer, ENet peer state) and `NET.HEARTBEAT` global stats (mode, clients, bandwidth).
+- `lvTick()` heartbeat block updated — interval halved from 3600 → 1800 frames (60s → 30s); adds `last_chr_idx` field; calls `netHeartbeatLog()` for full watchdog snapshot.
+
+### Build verification
+
+All 5 changed source files syntax-checked via `gcc -fsyntax-only` in the main copy (`C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike`) — exit 0 on all. Full headless build in progress; `build-headless.ps1` environment confirmed correct.
+
+**Next steps for Mike**:
+- Play a 31-bot match until crash. Check `pd.log` for `CHR.GUARD` or `CRASH: SIGABRT` lines — if either appears, the slot index will be in the log.
+- Check `NET.HEARTBEAT` lines — last one before crash timestamps the failure window.
+- Also needed: manual QC pass on S190 input fixes (A=jump, Y=use, B=crouch, LSTICK=sprint, R3 unbound, mission 1 save, sky tearing on outdoor stages).
+
+---
+
+## Session S190 — 2026-04-10 (Four-Task Sweep: Binding complete, B-128 sky FIXED, B-129 mission-end crash FIXED, SP-9 IMPLEMENTED)
+
+**Focus**: Four parallel S190 tasks all landed and clean-build verified. Binding rework complete (P0-only, menu stripped to 3 actions). Sky tearing fixed (one-liner). Mission-end crash (B-129) fixed and save pipeline restored. SP-9 truncation safeguard implemented in build pipeline.
+
+### Task 1 — Binding Rework + usemask fix (COMPLETE, clean build)
+
+**P0-only IMC refactor** — `port/src/actionmap.cpp` 1630 → 1557 lines (−73 from pre-S189 baseline: −24 in S189, −49 in S190):
+- `setupVehicleDefaults`: removed p=1..3 else block; early-return on p≠0.
+- `setupMenuDefaults`: stripped from 35 lines to 5 — ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). Dead MENU_UP/DOWN/LEFT/RIGHT/TAB_* binds removed (ImGui reads raw SDL key events for menu nav, NOT action map states).
+- `setupPauseMenuDefaults`: same 3-action model.
+- `setupDebugOverlayDefaults`: MENU_UP/DOWN/LEFT/RIGHT removed; DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE_TOGGLE, SCREENSHOT remain.
+- `setupTextInputDefaults`: reformatted, already P0.
+- `actionmapInit`: replaced `for (p=0..MAX)` loop with single `setupGameplayDefaults(0)` + `setupVehicleDefaults(0)`.
+- Bind1/Bind2 confirmed not structural — `InputMapping.triggers[4]` flat array. Each action has ≤1 kbd + ≤1 gamepad default. No struct change needed.
+- Final gamepad layout (P0): A=JUMP, B=CROUCH (dual with CANCEL_USE), Y=USE, X=RELOAD, LSTICK click=SPRINT, R3 unbound.
+
+**usemask door fix** — `src/game/bondmove.c:1836` +4 lines:
+- Root cause: `BUTTON_CANCEL_USE == B_BUTTON` (same constant value). PC-mode usemask had `(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)` = `(B_BUTTON | B_BUTTON | A_BUTTON)` — CANCEL_USE and B_BUTTON are the same bit, so B always matched the door mask.
+- Fix: PC branch now `BUTTON_ACCEPT_USE` only. N64 branch unchanged. B still works for FarSight/scope cancel (that path uses c1buttons synthesis with a different mask, unaffected).
+
+**SP-9 PS fix** — `devtools/build-headless.ps1:449`: `$net:` parsed as a PowerShell drive reference; fixed to `${net}:`.
+
+**Also confirmed in subsequent clean build** (landed via unruffled-kalam worktree):
+- `bondmove.c:~1551` — `unk14 = true` unconditional in CONTROLMODE_PC (was gated on `c2stickx || c2sticky`)
+- `bondmove.c:~1633` (ADS path) — `canlookahead = true` unconditional
+- `bondmove.c:~1642` (non-ADS path) — `canlookahead = !insightaimmode`; stick gate removed
+- `bondmove.c:~2104` (FarSight strafe) — reads `c1stickxsafe` (left stick) instead of `c2stickx`
+- `actionmap.cpp` — JBTN_LSTICK/JBTN_RSTICK defines added; LSTICK click → ACTION_SPRINT
+
+**Build result**: `PerfectDark.exe` 48,596,071 bytes, clean link, no errors.
+
+### Task 2 — B-129 Mission-End Crash (FIXED)
+
+**Root cause chain**: `endscreenPrepare → filemgrSaveOrLoad(FILEOP_SAVE_GAME_000) → pakFindBySerial()==-1` (no Controller Pak on PC) `→ menuPushDialog(&g_PakNotOriginalMenuDialog)` (unregistered, DANGER type) `→ type-based fallback → renderDangerDialog → getDialogTitle → langSafe((s32)(uintptr_t)fn_ptr)` — 64-bit function pointer truncated to s32, used as lang bank index in the millions `→ lang.c:461 g_LangBanks[bankindex]` → AV.
+
+Three `filemgrSaveOrLoad(FILEOP_SAVE_GAME_000)` calls in endscreen.c (lines 1722, 1827, 1932) all hit this path.
+
+**Fix** — `endscreen.c` +14 lines: all three calls replaced with `saveSaveAgent(g_GameFile.name)` (PC-native JSON save system). Added `#include "savefile.h"`.
+
+**Defense in depth** — `port/fast3d/pdgui_menu_warning.cpp` +12 lines: `pdguiHotswapRegister` for `g_PakNotOriginalMenuDialog`, `g_FilemgrSaveErrorMenuDialog`, `g_FilemgrFileLostMenuDialog` — all with `renderNoop` handler. Blocks the fatal fn-ptr-as-bank-index path even if filemgr is called elsewhere.
+
+**Side benefit**: PC save pipeline was silently failing every mission completion. `saves/agent_<name>.json` is now correctly written to disk on mission end.
+
+### Task 3 — B-128 Sky Tearing (FIXED)
+
+**Root cause**: `skyRender()` upper hemisphere (clouds) at `sky.c:1244` never called `gDPSetRenderMode`. It inherited stale `other_mode_l` from the previous frame's sun-flare/overexposure draws using `G_RM_AA_XLU_SURF`. This set `use_alpha=true` in `port/fast3d/gfx_pc.cpp:1307`, enabling `GL_BLEND`, causing sky tris to alpha-blend with the framebuffer instead of overwriting it. Sky is the FIRST geometry drawn each frame (`lv.c:1394`), so it always inherits the previous frame's blend state.
+
+**Fix** — `src/game/sky.c:1244` +1 line: `gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2)` inserted after `gDPPipeSync`/`texSelect` and before `gDPSetEnvColor`. Mirrors the working water path at `sky.c:827`. Vertex alpha is always 0xff per `skyChooseCloudVtxColour` at `sky.c:189`. Zero risk to non-sky geometry.
+
+**Note**: B-18 (pink sky on Skedar Ruins) may be fully or partially addressed by this fix. Unknown until Mike tests Skedar.
+
+### Task 4 — SP-9 Truncation Safeguard (IMPLEMENTED)
+
+`devtools/build-headless.ps1` +35 lines: before `git add -A && git commit`, runs `git diff HEAD --numstat`. Flags files where net delta < −20 AND additions < floor(deletions/3). Aborts the auto-commit (NOT the build), prints suspect files and a restore command. Build continues from working copy.
+
+**Tested**: Trip test fired (100-line file → 5 lines, 0+/95−, net −95). False-positive test silent (actionmap.cpp −49 net / 41 added — intentional rewrite, correct no-fire). Clean run passed.
+
+`context/systemic-bugs.md` SP-9 entry expanded with Mode A (Windows-1252 encoding truncation on UTF-8 em-dashes at byte 0xE2) vs Mode B (AI output token limit hit mid-Write/Edit call, truncates silently with no error) breakdown, commit catalog, byte-level characterization, auto-commit masking vector. Marked IMPLEMENTED S190.
+
+### Files Changed
+- `port/src/actionmap.cpp` — 1606 → 1557 lines (−49 this session; −73 total from pre-S189 baseline of 1630)
+- `src/game/bondmove.c` — usemask fix at line 1836 (+4 lines)
+- `src/game/sky.c` — `gDPSetRenderMode` at line 1244 (+1 line)
+- `src/game/endscreen.c` — three `filemgrSaveOrLoad` calls replaced with `saveSaveAgent` (+14 lines net)
+- `port/fast3d/pdgui_menu_warning.cpp` — three filemgr dialogs registered as noop (+12 lines)
+- `devtools/build-headless.ps1` — SP-9 guard + `${net}:` fix (+35 lines net)
+- `context/systemic-bugs.md` — SP-9 Mode A/B expanded, IMPLEMENTED marked
+- `context/bugs.md` — B-128 (sky tearing) added FIXED; B-129 (mission-end crash) added FIXED
+
+### Decisions
+- MENU_UP/DOWN/LEFT/RIGHT/TAB_* are confirmed dead weight in IMCs — ImGui reads raw SDL key events for menu navigation, not action map states. Removing them from all IMCs is correct.
+- "No local multiplayer" constraint formalized in constraints.md: all IMC setup targets Player 0 only; no `for (p = 0; p < MAX_LOCAL_PLAYERS; p++)` loops in binding or IMC init are acceptable.
+- B is dual-bound (ACTION_CROUCH + ACTION_CANCEL_USE) in gameplay IMC. usemask fix ensures B does NOT open doors. FarSight/scope cancel uses c1buttons synthesis (different code path, unaffected).
+- Dead-constant aliasing (`BUTTON_CANCEL_USE == B_BUTTON`) is a class of bug — any `BUTTON_*` constant that aliases another bit is a latent usemask hazard. Worth a sweep.
+
+### Next Steps (Mike's in-game verification)
+- [ ] A jumps, does NOT open doors
+- [ ] Y opens doors / interacts
+- [ ] B crouches, does NOT open doors, still exits FarSight/scope
+- [ ] R3 does nothing (unbound)
+- [ ] LSTICK click sprints
+- [ ] Rebind UI single-column, MP slots 1–3 unbound
+- [ ] CrouchMode=2 toggle behavior works, resets on respawn
+- [ ] Mission 1 completion: no crash, `saves/agent_<name>.json` updated on disk
+- [ ] Sky tearing gone on outdoor stages (Dark Noon, Goldfinger 64 exteriors)
+- [ ] B-18 check: does Skedar Ruins still show pink sky, or does B-128 fix cover it?
+
+---
+
+## Session S189 — 2026-04-10 (Input System: Door Bug, Gamepad Defaults, CrouchMode Audit)
+
+**Focus**: Fix B-button opens doors bug; simplify gamepad bindings to single-column player-0-only; audit CrouchMode (already implemented).
+
+### What Was Done
+
+**Task 1 — usemask door bug fixed** (bondmove.c:1836)
+- Root cause: `BUTTON_ACCEPT_USE = A_BUTTON` and `BUTTON_CANCEL_USE = B_BUTTON` (constants.h). The PC branch of `usemask` was `(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)` = `(B_BUTTON | B_BUTTON | A_BUTTON)` — CANCEL_USE and B_BUTTON are the same bit, so B always matched the door mask.
+- Fix: PC branch now `BUTTON_ACCEPT_USE` only. Only A opens doors in PC mode. N64 branch unchanged (`B_BUTTON`). B_BUTTON/ACTION_CANCEL_USE still synthesized in c1buttons for FarSight/scope cancel — that logic uses a different mask.
+
+**Task 2 — Gamepad binding overhaul** (actionmap.cpp:1319-1363)
+- A → ACTION_JUMP (was ACTION_USE)
+- Y → ACTION_USE (was ACTION_JUMP)
+- B → ACTION_CROUCH (new dual-bind; B already bound to ACTION_CANCEL_USE for FarSight)
+- RSTICK click → unbound from ACTION_CROUCH (removed per spec)
+- MP players 1-3 else block removed from setupGameplayDefaults. MP slots start with zero gamepad binds; rebind UI still works.
+
+**Task 3 — CrouchMode already implemented**
+- `Game.Player%d.CrouchMode` registered in main.c:350. Values: 0=hold, 1=analog, 2=toggle, 3=toggle+analog (constants.h:4815-4818). Toggle/hold/analog all branched in bondmove.c:1925-1963. No code changes needed.
+
+### Files Changed
+- `src/game/bondmove.c` — Task 1: usemask PC branch → BUTTON_ACCEPT_USE only (line 1836)
+- `port/src/actionmap.cpp` — Task 2: Y=USE, B=CROUCH/CANCEL, A=JUMP, remove MP 1-3 gamepad defaults
+
+### Decisions
+- B is dual-bound (ACTION_CROUCH + ACTION_CANCEL_USE) in gameplay IMC. CANCEL_USE covers FarSight/scope exit; CROUCH covers crouching. Task 1's usemask fix ensures B no longer opens doors regardless.
+
+### Build Result
+- **Clean build** — PerfectDark.exe + PerfectDarkServer.exe built, 0 errors. Version 0.0.68.
+- Note: build-headless.ps1 from bash requires PowerShell with TEMP override; direct `make` in bash fails due to GCC writing to C:\WINDOWS\ (sandbox env). Workaround: `powershell -NonInteractive -Command "$env:TEMP=...; make ..."`.
+
+### Next Steps
+- Playtest: A=jump, B=crouch (no door open), Y=use (door open), R3 not crouching
+- Wire protocol bump v32→v33 still pending (B-125 spawn_weapon_id)
+- B-126 silent crash awaiting next repro with heartbeat
+
+---
+
+## Session S188 — 2026-04-09 (Menu Replacement Plan — Full Inventory & Gameplan)
+
+**Focus**: Complete audit of every legacy menu dialog in the codebase. Build batched replacement plan.
+
+### What Was Done
+
+**Research phase** — three parallel agents audited:
+1. All legacy `menudialogdef` definitions across 8 source files → **254 total dialog definitions** found
+2. All ImGui hotswap registrations → **84 registered dialogs** (65 complete, 15 noop, 12 NULL-renderFn, 4 type-based)
+3. Menu data sources, parent-child relationships, state transition functions, hotswap pipeline architecture
+
+**Classification** — every dialog categorized as DONE / NOOP / NULL-FN / TYPE-FB / OG / DEAD / STANDALONE. ~140 unique reachable, ~114 dead (4MB, N64 pak, unreachable). **62 screens need work** (50 unregistered OG + 12 NULL-renderFn).
+
+**Plan written** — `context/designs/menu-replacement-plan.md`: full inventory table, data source mapping, menu tree, 12 implementation batches with exact files/data/transitions per batch.
+
+**Decisions resolved** (all four from Part 7):
+1. **Strip ALL legacy menus** — confirmed
+2. **Unified Settings** — absorb CI Options into existing Settings menus naturally. No separate CI Options or Extended Settings distinction.
+3. **No split-screen** — single local player only. Batch 9 (13 screens) cancelled. All 2P dialogs → dead code.
+4. **Generic Model Preview** — build it as Batch 0. Generalize `pdguiCharPreview` → `pdguiModelPreview` (character/weapon/vehicle/prop). Unblocks training 3D screens, character creator, modding tools.
+
+**Net result**: 11 active batches, ~79 screens, ~13-18 sessions estimated.
+
+### Files Changed
+- `context/designs/menu-replacement-plan.md` — NEW: complete replacement plan (7 parts, 12 batches)
+- `context/designs/menu-inventory.md` — Added cross-reference to new plan
+
+### Decisions
+- All legacy menus will be fully stripped (no OG rendering paths retained)
+- CI Options absorbed into unified Settings; N64-specific settings dropped
+- No split-screen support (single local player); all 2P dialogs are dead code
+- Generic model preview pipeline (Batch 0) is a prerequisite investment
+
+### Next Steps
+- **Batch 0**: Generalize `pdguiCharPreview` → `pdguiModelPreview` (1 session)
+- **Batch 1**: Simple confirmations & file management (1 session)
+- **Batch 3**: Absorb CI Options into existing Settings tabs (1 session)
+- B-128 (PlayerInput slot 8 vs 0): being fixed in parallel session
+
+---
+
+## Session S187 — 2026-04-09 (Three-Bug Debug Session)
+
+**Focus**: Structured debug of three playtest bugs: WASD movement, weapon spawning, silent crash.
+
+### What Was Done
+
+**B-127 (WASD held not registering)** — FIXED
+- Root cause: `actionmapPollFrame()` in `actionmap.cpp:793-794` synthesized KBM WASD into ACTION_AXIS_MOVE_X/Y `.value` but never set `.held` flag. Gamepad stick path (lines 758-761) correctly set `.held`. Game reads axis values via `actionValue()` which works, but something in the movement pipeline also checks `.held` — without it, movement was edge-triggered (one frame).
+- Fix: Added `.held` update after `.value` update, mirroring gamepad pattern.
+
+**B-125 (Weapons not spawning in online MP)** — FIXED
+- Root cause: `spawn_weapon_id` catalog string was never added to CLC_LOBBY_START wire format (neither write nor read). The field was added to the match config struct (M0.1c, S171) and `matchStart()` resolves it correctly for solo/offline path, but the network path (CLC_LOBBY_START → server inline resolution → SVC_STAGE_START → client) was never updated.
+- Fix: Added `spawn_weapon_id` string to CLC_LOBBY_START write/read AND SVC_STAGE_START write/read. Server-side CLC_LOBBY_START handler resolves catalog ID → `spawnWeaponNum` (mirrors `matchStart()` logic). Client-side SVC_STAGE_START handler does the same.
+- Note: This is a wire protocol change — existing v32 clients/servers won't interop with v33 builds. Should bump protocol version.
+
+**B-126 (Silent crash ~8 minutes)** — INVESTIGATING
+- Verified all known guards are in build: 8MB stack (CMakeLists.txt:472), VEH handler (crash.c:422), B-112 bounds check (botmgr.c:125), H-7 shutdown ordering (main.c:128).
+- Crash is truly silent — no VEH output, no shutdown log. Process just dies.
+- Frame 480 at 60fps = 8 seconds, not 8 minutes. Discrepancy needs clarification with Mike.
+- Added periodic heartbeat logger to `lv.c` (every 3600 frames / 60s) that logs frame count, chr count, and stage. Log file opens/closes per write, so heartbeat will be visible even after crash. Next repro will show last-known-good timestamp.
+
+### Files Changed
+- `port/src/actionmap.cpp` — B-127 fix: `.held` flag for KBM move axis synthesis
+- `port/src/net/netmsg.c` — B-125 fix: spawn_weapon_id in CLC_LOBBY_START + SVC_STAGE_START (write + read, 4 locations)
+- `src/game/lv.c` — B-126 instrumentation: periodic heartbeat log
+- `context/bugs.md` — Added B-125, B-126, B-127
+- `context/session-log.md` — This entry
+
+### Decisions
+- Wire protocol needs version bump for B-125 (spawn_weapon_id added to two messages)
+- B-126 needs next repro with heartbeat to pinpoint timing
+
+### Next Steps
+- Protocol version bump (v32 → v33) for spawn_weapon_id addition
+- Playtest B-127 (WASD) and B-125 (weapons) fixes
+- Wait for B-126 repro with heartbeat instrumentation
+
+---
+
 ## Session S186 — 2026-04-09 (Context System Overhaul)
 
 **Focus**: Full context system cleanup. Inventory 83 files, archive stale content, rewrite core docs for v0.1.0 prep.

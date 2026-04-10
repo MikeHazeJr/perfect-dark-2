@@ -49,6 +49,7 @@ f32 chrGetHitRadius(struct chrdata *chr);
 void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, bool cheap);
 void chrHit(struct shotdata *shotdata, struct hit *hit);
 bool chrPtrIsValid(struct chrdata *chr);
+extern s32 g_ChrLastTickedIndex; /* B-112: g_ChrSlots index of chr currently in chraTick; -1=none */
 void chr0f028498(bool value);
 void chrsCheckForNoise(f32 noiseradius);
 bool chrCalculateAutoAim(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3);

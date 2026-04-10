@@ -420,6 +420,79 @@ foreach ($tool in @($MakeExe, "C:\msys64\mingw64\bin\cc.exe")) {
     }
 }
 
+# ============================================================================
+# Auto-commit + push
+# ============================================================================
+
+Write-Header "Auto-Commit + Push"
+$lockFile = Join-Path $ProjectDir ".git\index.lock"
+if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+$commitMsg = "Build v$VerMajor.$VerMinor.$VerPatch - auto-commit before build"
+$stChanges = & git -C $ProjectDir status --porcelain 2>$null
+if ($stChanges) {
+    # SP-9 truncation guard: flag any file where net line delta < -20 AND
+    # additions < 1/3 of deletions.  That pattern (mostly-deleted, few-added)
+    # matches every known AI-pipeline truncation incident; it does NOT match
+    # legitimate large rewrites (which have high additions too).
+    # Abort the commit but let the build continue from the working copy so the
+    # developer still gets a build result and can inspect the damage.
+    $numstatOut  = & git -C $ProjectDir diff HEAD --numstat 2>$null
+    $flaggedFiles = @()
+    foreach ($numLine in $numstatOut) {
+        if ($numLine -match '^(\d+)\s+(\d+)\s+(.+)$') {
+            $added    = [int]$Matches[1]
+            $deleted  = [int]$Matches[2]
+            $file     = $Matches[3].Trim()
+            $net      = $added - $deleted
+            $threshold = [Math]::Max(1, [Math]::Floor($deleted / 3))
+            if ($net -lt -20 -and $added -lt $threshold) {
+                $flaggedFiles += "    $file  (net ${net}: +$added / -$deleted)"
+            }
+        }
+    }
+    if ($flaggedFiles.Count -gt 0) {
+        Write-Warn ""
+        Write-Warn "  [SP-9 GUARD] Auto-commit SKIPPED -- unexpected file shrinkage:"
+        $flaggedFiles | ForEach-Object { Write-Warn $_ }
+        Write-Warn "  Verify file content against HEAD before committing."
+        Write-Warn "  Restore: git -C `"$ProjectDir`" checkout HEAD -- <file>"
+        Write-Info "  Build continues from working copy (commit was NOT made)."
+    } else {
+        & git -C $ProjectDir add -A 2>$null | Out-Null
+        & git -C $ProjectDir commit -m $commitMsg 2>$null | Out-Null
+        Write-Ok "  Committed: $commitMsg"
+    }
+} else {
+    Write-Info "  Nothing to commit."
+}
+# Push is non-fatal -- no internet or no remote won't abort the build
+try {
+    & git -C $ProjectDir push 2>$null | Out-Null
+    Write-Ok "  Pushed to remote."
+} catch {
+    Write-Warn "  Push failed (non-fatal): $($_.Exception.Message)"
+}
+
+# ============================================================================
+# Stale build detection
+# ============================================================================
+
+$hashFile    = Join-Path $ProjectDir "build\.last-built-hash"
+$currentHash = (& git -C $ProjectDir rev-parse HEAD 2>$null)
+if ($currentHash) { $currentHash = $currentHash.Trim() }
+if ((Test-Path $hashFile) -and $currentHash) {
+    $lastHash = (Get-Content $hashFile -Raw -ErrorAction SilentlyContinue)
+    if ($lastHash) { $lastHash = $lastHash.Trim() }
+    if ($lastHash -and $lastHash -ne $currentHash) {
+        $commitCount = (& git -C $ProjectDir rev-list --count "$lastHash..HEAD" 2>$null)
+        if ($commitCount) { $commitCount = $commitCount.Trim() } else { $commitCount = "?" }
+        Write-Warn ""
+        Write-Warn "  WARNING: $commitCount new commit(s) since last successful build (hash changed)"
+        Write-Warn "  Last built: $lastHash"
+        Write-Warn "  Current:    $currentHash"
+    }
+}
+
 $targets = switch ($Target) {
     "client" { @("client") }
     "server" { @("server") }
@@ -471,6 +544,12 @@ if ($anyFail) {
     Write-Host "============================================================" -ForegroundColor DarkCyan
     exit 1
 } else {
+    # Record HEAD hash so next run can detect stale builds
+    if ($currentHash) {
+        $hashDir = Join-Path $ProjectDir "build"
+        if (-not (Test-Path $hashDir)) { New-Item -ItemType Directory -Path $hashDir -Force | Out-Null }
+        try { Set-Content -Path $hashFile -Value $currentHash -NoNewline -Encoding UTF8 } catch {}
+    }
     Write-Host "  Result: SUCCESS" -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor DarkCyan
     exit 0

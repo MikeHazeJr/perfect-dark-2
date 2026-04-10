@@ -37,7 +37,7 @@ extern "C" {
 #define ACTIONMAP_DEVICE_DEBOUNCE_MS 500
 
 /* ============================================================
- * §2.1  InputAction enum — 47 actions
+ * §2.1  InputAction enum — 45 actions
  * ============================================================ */
 
 typedef enum InputAction {
@@ -105,23 +105,27 @@ typedef enum InputAction {
     ACTION_MENU_DOWN,           /* = 46 */
     ACTION_MENU_LEFT,           /* = 47 */
     ACTION_MENU_RIGHT,          /* = 48 */
-    ACTION_MENU_ACCEPT,         /* = 49 */
-    ACTION_MENU_CANCEL,         /* = 50 */
-    ACTION_MENU_TAB_PREV,       /* = 51 */
-    ACTION_MENU_TAB_NEXT,       /* = 52 */
+    /* ACTION_MENU_ACCEPT and ACTION_MENU_CANCEL removed:
+     * consolidated into ACTION_USE (= 24) and ACTION_CANCEL_USE (= 25) respectively.
+     * Use #define aliases below for any remaining references. */
+    ACTION_MENU_TAB_PREV,       /* = 49 */
+    ACTION_MENU_TAB_NEXT,       /* = 50 */
 
     /* ---- System ---- */
-    ACTION_PAUSE,               /* = 53 START_BUTTON */
-    ACTION_SCREENSHOT,          /* = 54 */
-    ACTION_CONSOLE_TOGGLE,      /* = 55 */
-    ACTION_DEBUG_TOGGLE,        /* = 56 */
-    ACTION_CHEAT_ENTER,         /* = 57 */
+    ACTION_PAUSE,               /* = 51 START_BUTTON */
+    ACTION_SCREENSHOT,          /* = 52 */
+    ACTION_CONSOLE_TOGGLE,      /* = 53 */
+    ACTION_DEBUG_TOGGLE,        /* = 54 */
+    ACTION_CHEAT_ENTER,         /* = 55 */
+    ACTION_SCORECARD,           /* = 56 hold-to-show scoreboard (Tab / Back button) */
 
-    ACTION_COUNT                /* = 58, sentinel — keep last */
+    ACTION_COUNT                /* = 57, sentinel — keep last */
 } InputAction;
 
-/* Backward-compat alias: A_BUTTON was ACTION_INTERACT, now ACTION_USE */
-#define ACTION_INTERACT ACTION_USE
+/* Backward-compat aliases */
+#define ACTION_INTERACT     ACTION_USE        /* A_BUTTON was ACTION_INTERACT, now ACTION_USE */
+#define ACTION_MENU_ACCEPT  ACTION_USE        /* Consolidated: menu accept = gameplay use */
+#define ACTION_MENU_CANCEL  ACTION_CANCEL_USE /* Consolidated: menu cancel = gameplay cancel */
 
 /* ============================================================
  * Core structs

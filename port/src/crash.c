@@ -394,18 +394,24 @@ static void crashSigabrtHandler(int sig)
 		_exit(3);
 	}
 
+	/* B-112/B-126 diagnostics: read last-ticked chr index without heap access.
+	 * Defined in src/game/chr.c; -1 means crash happened outside chraTick. */
+	extern s32 g_ChrLastTickedIndex;
+	s32 abrt_chr_idx = g_ChrLastTickedIndex;
+
 	const char *logpath = sysLogGetPath();
 	if (logpath && logpath[0]) {
 		FILE *f = fopen(logpath, "ab");
 		if (f) {
-			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected by -fstack-protector-strong)\n");
+			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow)\n");
+			fprintf(f, "FATAL: last chr tick index=%d (B-112 probe; -1=not in chraTick)\n", abrt_chr_idx);
 			fclose(f);
 		}
 	}
 	fputs("FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected)\n", stderr);
 	fflush(stderr);
 
-	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or explicit abort()");
+	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or abort(); last chr idx=%d", abrt_chr_idx);
 
 	sysFatalError("SIGABRT: Stack buffer overflow detected by -fstack-protector-strong.\n"
 		"Check the log — the corrupted function's canary was smashed.\n"

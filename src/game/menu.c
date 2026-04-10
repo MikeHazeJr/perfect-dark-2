@@ -150,24 +150,14 @@ s32 g_MouseEndDeferredSlider = false;
 
 s32 menuAlt1Pressed(s32 playerNum)
 {
-	const s32 rshoulderKey = VK_JOY1_RSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
-
-	if (playerNum == 0) {
-		return inputKeyJustPressed(VK_LCTRL) || inputKeyJustPressed(rshoulderKey);
-	}
-
-	return inputKeyJustPressed(rshoulderKey);
+	/* Action map: RB / Ctrl → ACTION_MENU_TAB_NEXT */
+	return actionPressed(playerNum, ACTION_MENU_TAB_NEXT);
 }
 
 s32 menuAlt2Pressed(s32 playerNum)
 {
-	const s32 lshoulderKey = VK_JOY1_LSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
-
-	if (playerNum == 0) {
-		return inputKeyJustPressed(VK_LALT) || inputKeyJustPressed(lshoulderKey);
-	}
-
-	return inputKeyJustPressed(lshoulderKey);
+	/* Action map: LB / Alt → ACTION_MENU_TAB_PREV */
+	return actionPressed(playerNum, ACTION_MENU_TAB_PREV);
 }
 
 s32 menuAltAnyPressed(s32 playerNum)
@@ -4764,9 +4754,10 @@ void menuProcessInput(void)
 	inputs.mousey = 0;
 	// only allow mouse controls for player 1 menus
 	if (menu->playernum == 0) {
-		// ESC always acts as back
-		inputs.back = inputKeyJustPressed(VK_ESCAPE);
+		/* ESC always acts as back (ACTION_CANCEL_USE = unified cancel/back) */
+		inputs.back = actionPressed(0, ACTION_CANCEL_USE);
 		if (inputMouseIsEnabled() && !inputMouseIsLocked() && g_MenuMouseControl) {
+			/* PARALLEL PATH OK: Mouse has no action map equivalent in legacy menus */
 			inputs.mouseheld = inputKeyPressed(VK_MOUSE_LEFT);
 			if (!inputs.mouseheld) {
 				g_AllowMouseHeld = true;
@@ -4787,6 +4778,8 @@ void menuProcessInput(void)
 			 * but never converted clicks to select, making SELECTABLE
 			 * items unclickable with the mouse.
 			 */
+			/* PARALLEL PATH OK: Mouse buttons have no action map equivalent.
+			 * ImGui handles mouse for modern menus; this is legacy menu only. */
 			if (inputKeyJustPressed(VK_MOUSE_LEFT)) {
 				inputs.select = 1;
 			}
@@ -4848,24 +4841,17 @@ void menuProcessInput(void)
 		/* M0.2: collapsed multi-contpad loop to single action map query per player */
 		{
 			s32 player = g_MpPlayerNum;
-			s8 thisstickx = (s8)(actionValue(player, ACTION_AXIS_MOVE_X) * 80.0f);
-			s8 thissticky = (s8)(actionValue(player, ACTION_AXIS_MOVE_Y) * 80.0f);
-			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 80.0f);
-			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 80.0f);
+			/* M-3 fix: multiplier 127 matches original ±0x7F/0x80 stick range */
+			s8 thisstickx = (s8)(actionValue(player, ACTION_AXIS_MOVE_X) * 127.0f);
+			s8 thissticky = (s8)(actionValue(player, ACTION_AXIS_MOVE_Y) * 127.0f);
+			s8 thisrstickx = (s8)(actionValue(player, ACTION_AXIS_AIM_X) * 127.0f);
+			s8 thisrsticky = (s8)(actionValue(player, ACTION_AXIS_AIM_Y) * 127.0f);
 
+			/* ACTION_USE is the unified accept for both gameplay and menus.
+			 * ACTION_CANCEL_USE is the unified cancel/back. */
 			if (actionPressed(player, ACTION_USE)) {
 				inputs.select = 1;
 			}
-
-			// separate buttons for UI accept/cancel
-			if (actionPressed(player, ACTION_USE)) {
-				inputs.select = 1;
-			}
-
-			if (actionPressed(player, ACTION_CANCEL_USE)) {
-				inputs.back = 1;
-			}
-
 			if (actionPressed(player, ACTION_CANCEL_USE)) {
 				inputs.back = 1;
 			}

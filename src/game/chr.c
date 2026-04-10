@@ -76,6 +76,11 @@ struct chrdata *g_ChrSlots = NULL;
 
 s32 g_NumChrSlots = 0;
 
+/* B-112: g_ChrSlots index of the chr currently inside chraTick.  Updated
+ * just before calling chraTick() so the SIGABRT/VEH crash handlers can
+ * report which slot was mid-tick without any heap access. -1 = not in chraTick. */
+s32 g_ChrLastTickedIndex = -1;
+
 s32 chrsGetNumSlots(void)
 {
 	return g_NumChrSlots;
@@ -2456,7 +2461,14 @@ s32 chrTick(struct prop *prop)
 					}
 				}
 			} else {
+				/* CHR.GUARD: record which slot is entering chraTick so the SIGABRT
+				 * and VEH handlers can report it without any heap dereference.
+				 * Using pointer arithmetic: valid for both g_ChrSlots and g_BgChrs,
+				 * but we only track g_ChrSlots (bots/NPCs at runtime). */
+				g_ChrLastTickedIndex = (g_ChrSlots && chr >= g_ChrSlots)
+					? (s32)(chr - g_ChrSlots) : -1;
 				chraTick(chr);
+				g_ChrLastTickedIndex = -1; /* clear: no longer in chraTick */
 
 				if (chr->model == NULL) {
 					return TICKOP_FREE;

@@ -348,10 +348,11 @@ static void gfx_sdl_handle_events(void) {
     /* End-of-frame cleanup: remove any contexts marked for deferred removal.
      * Must happen after all events are dispatched, before next frame. */
     inputCtxEndFrame();
-    /* M0.2 Phase B: flip pressed/released edge signals after all consumers have
-     * queried. Must come after inputCtxEndFrame so deferred context pops see
-     * the correct edge state for their final frame. */
-    actionmapEndFrame();
+    /* NOTE: actionmapEndFrame() is NOT called here. It was moved to schedEndFrame()
+     * in pdsched.c so that game logic (bondmove, player, etc.) can read
+     * actionPressed()/actionReleased() edge signals before they are cleared.
+     * Previously, calling it here cleared pressed/released before any consumer
+     * could read them, making actionPressed() always return 0. */
 }
 
 static bool gfx_sdl_start_frame(void) {

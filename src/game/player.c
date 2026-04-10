@@ -2415,7 +2415,8 @@ void playerTickCutscene(bool arg0)
 		g_CutsceneCurTotalFrame60f += g_Vars.lvupdate60freal;
 	}
 
-	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+	/* Action map: Escape → ACTION_PAUSE (no parallel raw path) */
+	if (arg0 && actionPressed(0, ACTION_PAUSE)) {
 		anybutton = 1;
 		cancelorpause = 1;
 	}
@@ -3710,12 +3711,10 @@ void playerTick(bool arg0)
 #if VERSION >= VERSION_NTSC_1_0
 				if (g_Vars.currentplayer->eyespy->active) {
 					// And is being controlled
-					/* M0.2: replaced joyGetButtons + START_BUTTON test with actionHeld */
+					/* M0.2: replaced joyGetButtons + START_BUTTON test with actionHeld.
+					 * B-124 fix: removed parallel inputKeyJustPressed(VK_ESCAPE) path —
+					 * VK_ESCAPE is already mapped to ACTION_PAUSE in the action map. */
 					s32 wantpause = arg0 ? actionHeld(g_Vars.currentplayernum, ACTION_PAUSE) : 0;
-
-					if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
-						wantpause = 1;
-					}
 
 					if (g_Vars.currentplayer->isdead == false
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED
@@ -4004,9 +4003,8 @@ void playerTick(bool arg0)
 					}
 				}
 
-				if (g_PlayersWithControl[g_Vars.currentplayernum] && inputKeyJustPressed(VK_ESCAPE)) {
-					pause = true;
-				}
+				/* B-124 fix: removed parallel inputKeyJustPressed(VK_ESCAPE) path.
+				 * ACTION_PAUSE (bound to VK_ESCAPE) is checked via actionHeld at line 4000. */
 
 				if (pause) {
 					if (g_Vars.mplayerisrunning == false) {

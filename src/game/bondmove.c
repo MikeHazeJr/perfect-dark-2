@@ -937,16 +937,33 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	canmanualzoom = weaponHasAimFlag(weaponnum, INVAIMFLAG_MANUALZOOM);
 	contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 
-	c1stickx = allowc1x ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_X) * 80.0f) : 0;
-	c1sticky = allowc1y ? (s8)(actionValue((s32)contpad1, ACTION_AXIS_MOVE_Y) * 80.0f) : 0;
-	/* M-3: Aim input is always read regardless of allowc1x/allowc1y — those gates
+	/* Action map is indexed by controller slot (contpad1), not by mpindex.
+	 * In solo mode, mpindex=0 (fixed: lv.c now uses slot 0, not MAX_PLAYERS).
+	 * In multiplayer, contpad1 matches the SDL controller index for this player. */
+	s32 actionPlayer = (s32)contpad1;
+
+	/* DIAG: log movement inputs every ~120 frames */
+	if ((g_Vars.lvframenum % 120) == 1) {
+		sysLogPrintf(LOG_NOTE, "BMOVE: allowc1x=%d allowc1y=%d allowc1buttons=%d actionPlayer=%d AXIS_MOVE=%.3f,%.3f pausemode=%d lvupdate240=%d lvIsPaused=%d",
+			(s32)allowc1x, (s32)allowc1y, (s32)allowc1buttons, actionPlayer,
+			actionValue(actionPlayer, ACTION_AXIS_MOVE_X),
+			actionValue(actionPlayer, ACTION_AXIS_MOVE_Y),
+			g_Vars.currentplayer->pausemode,
+			g_Vars.lvupdate240,
+			lvIsPaused());
+	}
+
+	/* C-2 fix: multiplier 127 matches original ±0x7F/0x80 range from inputReadController */
+	c1stickx = allowc1x ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_X) * 127.0f) : 0;
+	c1sticky = allowc1y ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_Y) * 127.0f) : 0;
+	/* Aim input always read regardless of allowc1x/allowc1y — those gates
 	 * are for movement suppression (e.g., during menu overlays), not aiming. */
-	c2stickx = (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_X) * 80.0f);
-	c2sticky = (s8)(actionValue((s32)contpad1, ACTION_AXIS_AIM_Y) * 80.0f);
+	c2stickx = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_X) * 127.0f);
+	c2sticky = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_Y) * 127.0f);
 
 	/* M0.2: synthesize button bitmask from action queries for downstream mask logic */
 	{
-		s32 pi = (s32)contpad1;
+		s32 pi = actionPlayer;
 		c1buttons = 0;
 		c1buttonsthisframe = 0;
 		if (allowc1buttons) {
@@ -1037,15 +1054,20 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			movedata.freelookdy = -movedata.freelookdy;
 		}
 	}
-	// always pause with ESC
-	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
-		if (inputKeyJustPressed(VK_ESCAPE)) {
-			c1buttonsthisframe |= START_BUTTON;
-		}
-	}
+	/* B-124 fix: Escape→START synthesis removed. ACTION_PAUSE is bound to
+	 * VK_ESCAPE in the action map — the parallel inputKeyJustPressed(VK_ESCAPE)
+	 * path was a second input reader that caused double-fire race conditions.
+	 * actionPressed(pi, ACTION_PAUSE) at line 979 already sets START_BUTTON. */
 
 	// Pausing
 	if (g_Vars.currentplayer->isdead == false) {
+		if (c1buttonsthisframe & START_BUTTON) {
+			sysLogPrintf(LOG_NOTE, "MENU: ACTION_PAUSE detected, pausemode=%d g_PlayersWithControl[0]=%d mplayerisrunning=%d lvframenum=%d",
+				g_Vars.currentplayer->pausemode,
+				(int)g_PlayersWithControl[g_Vars.currentplayernum],
+				(int)g_Vars.mplayerisrunning,
+				g_Vars.lvframenum);
+		}
 		if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED && (c1buttonsthisframe & START_BUTTON)) {
 			if (g_Vars.mplayerisrunning == false) {
 				if (g_Vars.lvframenum > 15) {
@@ -1523,10 +1545,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				if (controlmode == CONTROLMODE_PC) {
 					/* Modern twin-stick: left stick = move, right stick = aim.
 					 * analogstrafe/analogwalk keep their c1 (left stick) values from init.
-					 * Override analogturn/analogpitch to c2 (right stick). */
+					 * Override analogturn/analogpitch to c2 (right stick).
+					 * unk14 gates analog strafing in bondwalk — must be true unconditionally
+					 * so the left stick can drive movement without requiring right stick input. */
 					movedata.analogturn = c2stickx;
 					movedata.analogpitch = c2sticky;
-					movedata.unk14 = (c2stickx || c2sticky);
+					movedata.unk14 = true;
 				}
 
 				if (optionsGetAimControl(g_Vars.currentplayerstats->mpindex) == AIMCONTROL_HOLD) {
@@ -1608,7 +1632,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
 							movedata.digitalstepforward = (c1buttons & sumask);
 							movedata.digitalstepback    = (c1buttons & sdmask);
-							movedata.canlookahead       = (c2stickx || c2sticky);
+							movedata.canlookahead       = true;
 							movedata.cannaturalpitch    = false;
 							movedata.speedvertadown     = 0;
 							movedata.speedvertaup       = 0;
@@ -1617,7 +1641,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						{
 							movedata.digitalstepforward = !g_Vars.currentplayer->insightaimmode && (c1buttons & sumask);
 							movedata.digitalstepback = !g_Vars.currentplayer->insightaimmode && (c1buttons & sdmask);
-							movedata.canlookahead = (controlmode == CONTROLMODE_PC) && !g_Vars.currentplayer->insightaimmode && (c2stickx || c2sticky);
+							movedata.canlookahead = (controlmode == CONTROLMODE_PC) && !g_Vars.currentplayer->insightaimmode;
 							movedata.cannaturalpitch = !g_Vars.currentplayer->insightaimmode;
 							movedata.speedvertadown = 0;
 							movedata.speedvertaup = 0;
@@ -1805,8 +1829,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					}
 
 					// Handle B and use-like button
+					/* PC mode: only BUTTON_ACCEPT_USE (= A_BUTTON = ACTION_USE) opens doors.
+					 * BUTTON_CANCEL_USE == B_BUTTON (constants.h) — including either in this
+					 * mask would trigger door-open on B-press (cancel/back). N64 mode keeps
+					 * B_BUTTON as the legacy "use" trigger synthesized from ACTION_CANCEL_USE. */
 					const u32 usemask = (controlmode == CONTROLMODE_PC) ?
-						(B_BUTTON | BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE) :
+						BUTTON_ACCEPT_USE :
 						B_BUTTON;
 					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {
@@ -2077,7 +2105,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.farsighttempautoseek = g_Vars.currentplayer->insightaimmode && (c1buttons & (srmask | slmask));
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
 								movedata.unk14 = 1;
-								movedata.analogstrafe = c2stickx;
+								movedata.analogstrafe = movedata.c1stickxsafe;
 						}
 					} else {
 						movedata.rleanleft = g_Vars.currentplayer->insightaimmode && (c1buttons & slmask);

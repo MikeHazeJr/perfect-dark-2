@@ -26,6 +26,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 
 /* ========================================================================
@@ -233,68 +234,83 @@ static s32 renderChallenges(struct menudialog *dialog,
 
     ImGui::SameLine(0, pad);
 
-    /* ---- RIGHT: Description + Accept ---- */
+    /* ---- RIGHT: Description + Accept (docked action bar) ----
+     * Batch 0 fix: Accept Challenge is a primary CTA and must never scroll
+     * off-screen.  The outer chal_detail child hosts the header + completion
+     * summary + description in a scrollable inner child, then the Accept
+     * button lives in a docked action bar that is always visible at the
+     * bottom of the right panel. */
     ImGui::BeginGroup();
     ImGui::BeginChild("##chal_detail", ImVec2(rightW, contentH), true);
 
-    /* Challenge name header */
-    if (numChallenges > 0 && s_SelectedSlot < numChallenges) {
-        char *selName = challengeGetNameBySlot(s_SelectedSlot);
-        if (selName && selName[0]) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", selName);
+    /* Reserve action-bar space so the description body knows its max size */
+    float detailAvail = ImGui::GetContentRegionAvail().y;
+    float detailBodyH = pdguiBodyHeightForActionBar(detailAvail);
+
+    if (ImGui::BeginChild("##chal_detail_body", ImVec2(0, detailBodyH), false,
+                           ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+
+        /* Challenge name header */
+        if (numChallenges > 0 && s_SelectedSlot < numChallenges) {
+            char *selName = challengeGetNameBySlot(s_SelectedSlot);
+            if (selName && selName[0]) {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", selName);
+            }
         }
-    }
 
-    ImGui::Separator();
-    ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
 
-    /* Completion summary for selected challenge */
-    if (numChallenges > 0 && s_SelectedSlot < numChallenges) {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.85f), "Completion:");
-        for (int np = 1; np <= 4; np++) {
-            bool done = challengeIsCompletedByChrWithNumPlayersBySlot(
-                g_MpPlayerNum, s_SelectedSlot, np) != 0;
-            ImVec4 dotCol = done
-                ? ImVec4(0.1f, 0.9f, 0.1f, 1.0f)
-                : ImVec4(0.35f, 0.35f, 0.4f, 0.9f);
-            ImGui::SameLine();
-            char numLabel[8];
-            snprintf(numLabel, sizeof(numLabel), "%dP", np);
-            ImGui::TextColored(dotCol, "%s", numLabel);
+        /* Completion summary for selected challenge */
+        if (numChallenges > 0 && s_SelectedSlot < numChallenges) {
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.85f), "Completion:");
+            for (int np = 1; np <= 4; np++) {
+                bool done = challengeIsCompletedByChrWithNumPlayersBySlot(
+                    g_MpPlayerNum, s_SelectedSlot, np) != 0;
+                ImVec4 dotCol = done
+                    ? ImVec4(0.1f, 0.9f, 0.1f, 1.0f)
+                    : ImVec4(0.35f, 0.35f, 0.4f, 0.9f);
+                ImGui::SameLine();
+                char numLabel[8];
+                snprintf(numLabel, sizeof(numLabel), "%dP", np);
+                ImGui::TextColored(dotCol, "%s", numLabel);
+            }
         }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* Description — only available after a challenge has been loaded. */
+        ImGui::TextWrapped("Select a challenge and press Accept to view the "
+                           "configuration and start the match.\n\nChallenge "
+                           "settings (stage, weapons, simulants) are "
+                           "pre-configured. Winning unlocks rewards.");
     }
+    ImGui::EndChild(); /* chal_detail_body */
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    /* Description — note: only available after a challenge has been loaded
-     * (challengeGetCurrentDescription returns "" before challengeSetCurrentBySlot).
-     * We show a placeholder and the real description after accept is pressed. */
-    ImGui::TextWrapped("Select a challenge and press Accept to view the configuration "
-                       "and start the match.\n\nChallenge settings (stage, weapons, "
-                       "simulants) are pre-configured. Winning unlocks rewards.");
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    /* ---- Accept button ---- */
-    float acceptW = rightW - ImGui::GetStyle().WindowPadding.x * 2.0f;
-    float acceptH = pdguiScale(36.0f);
-
+    /* ---- Docked Action Bar: Accept Challenge (never scrolls) ---- */
     bool canAccept = (numChallenges > 0 && s_SelectedSlot >= 0
                       && s_SelectedSlot < numChallenges);
-    if (!canAccept) ImGui::BeginDisabled();
+    if (pdguiBeginActionBar("##chal_action_bar")) {
+        float barW = ImGui::GetContentRegionAvail().x;
 
-    if (PdButton("Accept Challenge", ImVec2(acceptW, acceptH))
-        || (canAccept && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)))
-    {
-        sysLogPrintf(LOG_NOTE, "CHALLENGES: accepting slot %d", s_SelectedSlot);
-        s_NeedsInit = true;  /* reset for next time */
-        matchStartFromChallenge(s_SelectedSlot);
+        if (!canAccept) ImGui::BeginDisabled();
+
+        bool activated = pdguiActionBarButton("Accept Challenge",
+                                               canAccept ? 1 : 0,
+                                               barW);
+        if (activated
+            || (canAccept && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)))
+        {
+            sysLogPrintf(LOG_NOTE, "CHALLENGES: accepting slot %d", s_SelectedSlot);
+            s_NeedsInit = true;  /* reset for next time */
+            matchStartFromChallenge(s_SelectedSlot);
+        }
+
+        if (!canAccept) ImGui::EndDisabled();
     }
-
-    if (!canAccept) ImGui::EndDisabled();
+    pdguiEndActionBar();
 
     ImGui::EndChild();
     ImGui::EndGroup();

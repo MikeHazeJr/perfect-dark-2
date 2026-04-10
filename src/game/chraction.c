@@ -13416,7 +13416,20 @@ bool chrPtrIsValid(struct chrdata *chr)
 
 void chraTick(struct chrdata *chr)
 {
-	u32 race = CHRRACE(chr);
+	u32 race;
+
+	/* CHR.GUARD: validate chr before ANY field access.  The original B-112 crash
+	 * hit chr->hidden at the CHRHFLAG_TIMER_RUNNING check below, which is BEFORE
+	 * the existing canary (set inside the sleep block further down).  This guard
+	 * closes that gap — if chr arrives already invalid, we log and bail. */
+	if (!chr || !chrPtrIsValid(chr)) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.GUARD: chraTick entry invalid chr=%p frame=%d last_idx=%d",
+			(void *)chr, g_Vars.lvframe60, g_ChrLastTickedIndex);
+		return;
+	}
+
+	race = CHRRACE(chr);
 
 	if (g_Vars.lvupdate240 < 1) {
 		return;

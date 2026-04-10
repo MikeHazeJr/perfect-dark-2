@@ -284,15 +284,21 @@ void pdguiInit(void *sdlWindow)
     configRegisterFloat("UI.SafeAreaLeft",   &s_SafeMarginLeft,   -1.0f, 0.5f);
     configRegisterFloat("UI.SafeAreaRight",  &s_SafeMarginRight,  -1.0f, 0.5f);
 
-    /* M0.2 Phase A: Initialize action map system.
-     * Must be called before configLoad() so pd.ini keys are registered first. */
-    actionmapInit();
+    /* NOTE: actionmapInit() was previously called here, but this is WRONG.
+     * It's already called in main.c:161 (before configInit/actionmapLoadBinds).
+     * Calling it again here wipes all pd.ini bind customizations that were
+     * loaded by actionmapLoadBinds() at main.c:164. Removed. */
 }
 
 /* M0.2 Phase C: Translate actionmap queries into ImGui nav key events.
  * Called each frame from pdguiNewFrame() AFTER actionmapPollFrame() so
  * action states are up-to-date.  Replaces ImGui's built-in gamepad nav
- * with the unified action system. */
+ * with the unified action system.
+ *
+ * B-124 fix: Uses KEYBOARD nav keys (not ImGuiKey_Gamepad*) because
+ * NavEnableGamepad is disabled. ImGui ignores all Gamepad* keys when
+ * that flag is off. NavEnableKeyboard IS enabled, so keyboard nav keys
+ * work for controller-driven navigation too. */
 static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
@@ -308,14 +314,14 @@ static void pdguiDriveImGuiNav(void)
         io.AddKeyEvent(key, actionHeld(0, act) != 0);
     };
 
-    drivePressed(ACTION_MENU_ACCEPT,   ImGuiKey_GamepadFaceDown);
-    drivePressed(ACTION_MENU_CANCEL,   ImGuiKey_GamepadFaceRight);
-    driveHeld(ACTION_MENU_UP,          ImGuiKey_GamepadDpadUp);
-    driveHeld(ACTION_MENU_DOWN,        ImGuiKey_GamepadDpadDown);
-    driveHeld(ACTION_MENU_LEFT,        ImGuiKey_GamepadDpadLeft);
-    driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_GamepadDpadRight);
-    driveHeld(ACTION_MENU_TAB_PREV,    ImGuiKey_GamepadL1);
-    driveHeld(ACTION_MENU_TAB_NEXT,    ImGuiKey_GamepadR1);
+    drivePressed(ACTION_USE,           ImGuiKey_Enter);
+    drivePressed(ACTION_CANCEL_USE,    ImGuiKey_Escape);
+    driveHeld(ACTION_MENU_UP,          ImGuiKey_UpArrow);
+    driveHeld(ACTION_MENU_DOWN,        ImGuiKey_DownArrow);
+    driveHeld(ACTION_MENU_LEFT,        ImGuiKey_LeftArrow);
+    driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_RightArrow);
+    driveHeld(ACTION_MENU_TAB_PREV,    ImGuiKey_PageUp);
+    driveHeld(ACTION_MENU_TAB_NEXT,    ImGuiKey_PageDown);
 }
 
 void pdguiNewFrame(void)

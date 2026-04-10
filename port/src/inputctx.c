@@ -16,6 +16,7 @@
 #include <SDL.h>
 #include "input.h"
 #include "inputctx.h"
+#include "actionmap.h"
 #include "system.h"
 
 /* ---- Stack storage ---- */
@@ -102,6 +103,15 @@ void inputCtxPopDeferred(InputContext *ctx)
             ctx->marked_for_removal = 1;
             sysLogPrintf(LOG_NOTE, "INPUTCTX: '%s' marked for deferred removal",
                          ctx->name ? ctx->name : "?");
+
+            /* Immediately sync mouse mode so the cursor/capture state reflects
+             * the new effective top context THIS frame, not next frame.
+             * inputCtxGetTop() already skips marked-for-removal contexts, so
+             * the sync sees the correct top (e.g. g_CtxGameplay underneath).
+             * Without this, there's a 1-frame gap where the mouse stays in
+             * absolute mode after a menu closes, causing visible cursor flash
+             * and one frame of lost mouse input. */
+            inputCtxSyncMouseMode();
             return;
         }
     }
@@ -131,6 +141,9 @@ void inputCtxPopImmediate(void)
         sysLogPrintf(LOG_NOTE, "INPUTCTX: immediately popped '%s' (depth now %d)",
                      ctx->name ? ctx->name : "?", s_Depth);
     }
+
+    /* Sync mouse mode to reflect the new top context immediately. */
+    inputCtxSyncMouseMode();
 }
 
 s32 inputCtxDispatch(const SDL_Event *ev)
@@ -359,14 +372,15 @@ static void imguiMenuOnPush(InputContext *self)
     (void)self;
     SDL_SetRelativeMouseMode(SDL_FALSE);
     SDL_ShowCursor(SDL_ENABLE);
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_push -- mouse absolute, cursor visible");
+    imcActivate(&g_ImcMenu);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_push -- mouse absolute, cursor visible, g_ImcMenu activated");
 }
 
 static void imguiMenuOnPop(InputContext *self)
 {
     (void)self;
-    /* The context below (gameplay or another menu) handles its own mouse state via on_push */
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_pop");
+    imcDeactivate(&g_ImcMenu);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_pop -- g_ImcMenu deactivated");
 }
 
 static s32 imguiMenuCanConsume(InputContext *self, const SDL_Event *ev)
@@ -423,14 +437,18 @@ static void pauseMenuOnPush(InputContext *self)
     SDL_SetRelativeMouseMode(SDL_FALSE);
     SDL_ShowCursor(SDL_ENABLE);
     s_GamePaused = 1;
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: pause_menu on_push -- game paused, cursor visible");
+    imcActivate(&g_ImcMenu);
+    imcActivate(&g_ImcPauseMenu);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: pause_menu on_push -- game paused, menu+pause IMCs activated");
 }
 
 static void pauseMenuOnPop(InputContext *self)
 {
     (void)self;
     s_GamePaused = 0;
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: pause_menu on_pop -- game unpaused");
+    imcDeactivate(&g_ImcPauseMenu);
+    imcDeactivate(&g_ImcMenu);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: pause_menu on_pop -- game unpaused, menu+pause IMCs deactivated");
 }
 
 static s32 pauseMenuCanConsume(InputContext *self, const SDL_Event *ev)
@@ -464,20 +482,25 @@ static void debugOverlayOnPush(InputContext *self)
 {
     (void)self;
     SDL_ShowCursor(SDL_ENABLE);
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: debug_overlay on_push -- cursor visible");
+    imcActivate(&g_ImcMenu);
+    imcActivate(&g_ImcDebugOverlay);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: debug_overlay on_push -- menu+debug IMCs activated");
 }
 
 static void debugOverlayOnPop(InputContext *self)
 {
     (void)self;
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: debug_overlay on_pop");
+    imcDeactivate(&g_ImcDebugOverlay);
+    imcDeactivate(&g_ImcMenu);
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: debug_overlay on_pop -- menu+debug IMCs deactivated");
 }
 
 static s32 debugOverlayCanConsume(InputContext *self, const SDL_Event *ev)
 {
     (void)self;
 
-    /* Debug overlay only consumes keyboard and mouse events */
+    /* Debug overlay consumes ALL input types (keyboard, mouse, AND controller)
+     * to prevent game actions from firing while the overlay is open. */
     switch (ev->type) {
     case SDL_KEYDOWN:
     case SDL_KEYUP:
@@ -487,6 +510,12 @@ static s32 debugOverlayCanConsume(InputContext *self, const SDL_Event *ev)
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
     case SDL_MOUSEWHEEL:
+    case SDL_CONTROLLERBUTTONDOWN:
+    case SDL_CONTROLLERBUTTONUP:
+    case SDL_CONTROLLERAXISMOTION:
+    case SDL_JOYBUTTONDOWN:
+    case SDL_JOYBUTTONUP:
+    case SDL_JOYAXISMOTION:
         return 1;
     default:
         return 0;

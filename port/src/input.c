@@ -626,8 +626,8 @@ static const struct { u32 contbit; InputAction action; } s_ContToAction[] = {
 	{ CONT_G,      ACTION_FIRE_PRIMARY   },
 	{ CONT_B,      ACTION_CANCEL_USE     },
 	{ CONT_A,      ACTION_USE            },
-	{ CONT_0010,   ACTION_MENU_ACCEPT    },
-	{ CONT_0020,   ACTION_MENU_CANCEL    },
+	{ CONT_0010,   ACTION_USE            }, /* BUTTON_UI_ACCEPT → unified use/accept */
+	{ CONT_0020,   ACTION_CANCEL_USE     }, /* BUTTON_UI_CANCEL → unified cancel */
 	{ CONT_2000,   ACTION_CROUCH         },
 	{ CONT_4000,   ACTION_CROUCH         },
 	{ CONT_8000,   ACTION_CROUCH         },
@@ -688,22 +688,38 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	/* Game code reads controller sticks via actionValue() (actionmap).
-	 * Do NOT populate OSContPad stick fields from raw SDL here — that creates
-	 * a parallel path with different deadzone/sensitivity/invert settings.
-	 * The only remaining SDL read is for stickCButtons (right stick → C-button
-	 * bitmask into npad->button), which the actionmap doesn't handle. */
-
-	if (cfg->stickCButtons) {
+	/* C-3 fix: Restore controller analog stick population so OSContPad reflects
+	 * complete input state. actionmapPollFrame() is the primary source for game
+	 * code via actionValue(), but joyGetStickX/Y and joyGetRStickX/Y still read
+	 * from OSContPad samples — keeping them populated ensures correctness. */
+	{
+		s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
+		s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
 		s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
 		s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
-		if (rightX < -0x4000) npad->button |= L_CBUTTONS;
-		if (rightX > +0x4000) npad->button |= R_CBUTTONS;
-		if (rightY < -0x4000) npad->button |= U_CBUTTONS;
-		if (rightY > +0x4000) npad->button |= D_CBUTTONS;
-	}
 
-	/* Stick values left at 0 — actionmapPollFrame() is the single source of truth. */
+		leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
+		leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
+		rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], cfg->sens[cfg->axisMap[1][0]]);
+		rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], cfg->sens[cfg->axisMap[1][1]]);
+
+		/* Merge: keyboard digital takes priority (already set above), controller fills gaps */
+		if (!npad->stick_x && leftX) {
+			npad->stick_x = leftX / 0x100;
+		}
+		s32 stickY = -leftY / 0x100;
+		if (!npad->stick_y && stickY) {
+			npad->stick_y = (stickY == 128) ? 127 : stickY;
+		}
+
+		if (rightX) {
+			npad->rstick_x = rightX / 0x100;
+		}
+		s32 rStickY = -rightY / 0x100;
+		if (rStickY) {
+			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
+		}
+	}
 
 	return 0;
 }
@@ -774,6 +790,14 @@ s32 inputControllerConnected(s32 idx)
 		return 0;
 	}
 	return pads[idx] || (connectedMask & (1 << idx));
+}
+
+void *inputGetPad(s32 idx)
+{
+	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
+		return NULL;
+	}
+	return pads[idx];
 }
 
 s32 inputRumbleSupported(s32 idx)
@@ -1002,6 +1026,15 @@ s32 inputAssignController(s32 cidx, s32 id)
 
 /* M0.2 Phase D: inputKeyBind/inputKeyGetBinds removed — use actionmapBind(). */
 
+/**
+ * DEPRECATED: Use actionHeld() instead for gameplay/menu input.
+ *
+ * Only legitimate remaining callers:
+ *   - optionsmenu.c: rebind key capture (needs raw VK, not action)
+ *   - menu.c: legacy menu mouse input (VK_MOUSE_LEFT/WHEEL)
+ *   - inputKeyJustPressed() below (edge wrapper)
+ * All other callers should use the action map.
+ */
 s32 inputKeyPressed(u32 vk)
 {
 	/* When any ImGui overlay is active, suppress all key/button polling
@@ -1060,10 +1093,14 @@ s32 inputKeyPressed(u32 vk)
 }
 
 /**
- * L-2: WARNING — this function has a side-effect: it updates vkPrevState[vk]
- * on every call. Calling it multiple times per frame for the same VK will
- * consume the edge — only the first call returns true. Callers must be aware
- * that this is not a pure query.
+ * DEPRECATED: Use actionPressed() instead for gameplay/menu input.
+ *
+ * Only legitimate remaining callers:
+ *   - menu.c: legacy menu mouse click (VK_MOUSE_LEFT)
+ * All other callers should use the action map.
+ *
+ * L-2: WARNING — has side-effect: updates vkPrevState[vk] on every call.
+ * Calling multiple times per frame for the same VK consumes the edge.
  */
 s32 inputKeyJustPressed(u32 vk)
 {

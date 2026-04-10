@@ -3,6 +3,7 @@
 > **Last updated**: 2026-04-03 (S135)
 > **Purpose**: Complete catalog of every screen, dialog, and popup the player can reach.
 > Use this as the definitive checklist for D5.7 OG removal and for regression testing.
+> **See also**: [menu-replacement-plan.md](menu-replacement-plan.md) — Full 254-dialog audit (S188), data source mapping, batched implementation schedule.
 >
 > **Implementation key**:
 > - `ImGui` — custom ImGui renderFn registered via `pdguiHotswapRegister()`

@@ -24,6 +24,7 @@
 #include "game/gamefile.h"
 #include "video.h"
 #include "input.h"
+#include "actionmap.h"
 #include "config.h"
 #include "mpsetups.h"
 #include "bss.h"
@@ -340,7 +341,8 @@ static const char *menutextJoinAddress(struct menuitem *item)
 
 static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	if (inputKeyPressed(VK_ESCAPE)) {
+	/* Action map: Escape → ACTION_CANCEL_USE (unified cancel) */
+	if (actionPressed(0, ACTION_CANCEL_USE)) {
 		netDisconnect();
 		menuPopDialog();
 		return 0;

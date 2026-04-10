@@ -97,6 +97,13 @@ void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 
+/* Pause/control restoration — needed when ImGui menu close bypasses
+ * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
+void playerUnpause(void);
+void lvSetPaused(bool paused);
+s32 lvIsPaused(void);
+extern bool g_PlayersWithControl[];
+
 /* Handlers we invoke to match original behavior */
 struct menuitem;
 union handlerdata;
@@ -740,8 +747,8 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_CBUTTON_DOWN,     "C-Down"        },
     { ACTION_DPAD_UP,          "D-Pad Up"      },
     { ACTION_DPAD_RIGHT,       "D-Pad Right"   },
-    { ACTION_MENU_ACCEPT,      "UI Accept"     },
-    { ACTION_MENU_CANCEL,      "UI Cancel"     },
+    /* ACTION_MENU_ACCEPT and ACTION_MENU_CANCEL removed — consolidated into
+     * ACTION_USE and ACTION_CANCEL_USE respectively. */
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 
@@ -831,6 +838,9 @@ static const char *getActionName(InputAction action)
 
 /* Sub-tab index within Controls: 0 = Keyboard & Mouse, 1 = Controller */
 static s32 s_ControlsSubTab = 0;
+
+/* Track whether we need to reload binds on Controls tab entry */
+static bool s_ControlsNeedsInit = true;
 
 /* Shared capture-mode handler — called at the top of each sub-tab that uses it. */
 static void handleCaptureInput(void)
@@ -940,6 +950,13 @@ static void renderBindTable(s32 filterCol, const char *tableId)
 
 static void renderSettingsControls(float scale)
 {
+    /* Load binds from pd.ini when entering the Controls tab so the UI
+     * reflects the current saved state (not stale in-memory mappings). */
+    if (s_ControlsNeedsInit) {
+        actionmapLoadBinds();
+        s_ControlsNeedsInit = false;
+    }
+
     /* Process any active key capture regardless of which sub-tab is showing */
     handleCaptureInput();
 
@@ -1134,6 +1151,16 @@ static void renderSettingsControls(float scale)
         }
 
         ImGui::EndTabBar();
+    }
+
+    /* ---- Save Controls button ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (PdButton("Save Controls")) {
+        actionmapSaveBinds();
+        configSave("pd.ini");
+        pdguiPlaySound(PDGUI_SND_SELECT);
     }
 }
 
@@ -2260,11 +2287,31 @@ static s32 renderMainMenu(struct menudialog *dialog,
             /* At top-level: close the menu, return to Carrington Institute */
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            /* B-124 pattern: only pop context if we pushed it on open. */
-            if (s_MainMenuPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            /* Pop the input context unconditionally if active. The previous
+             * s_MainMenuPushedCtx ownership guard caused a leak: if
+             * IsWindowAppearing fired twice (legacy dialog re-push, ImGui
+             * visibility cycle), the second appearing saw the context already
+             * active and set s_MainMenuPushedCtx=false, so the close handler
+             * skipped the pop. All other menus (solomission, endscreen,
+             * bridge) use the unconditional pattern. */
+            if (inputCtxIsActive(&g_CtxImGuiMenu)) {
                 inputCtxPopDeferred(&g_CtxImGuiMenu);
-                s_MainMenuPushedCtx = false;
             }
+            s_MainMenuPushedCtx = false;
+
+            /* Restore game control BEFORE menuPopDialog. The legacy
+             * menutick bg-transition (func0f0fa6ac) never completes
+             * under ImGui hotswap. Must restore ALL game state:
+             *  - lvSetPaused(false): unfreeze game world (lvupdate240=0 while paused)
+             *  - playerUnpause(): reset pausemode + music (only if pausemode==PAUSED)
+             *  - g_PlayersWithControl: allow movement/buttons in bmoveTick
+             * All three must run before menuPopDialog in case it has side effects. */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: restoring game state — lvIsPaused=%d g_PlayersWithControl[0]=%d",
+                         lvIsPaused(), (int)g_PlayersWithControl[0]);
+            lvSetPaused(false);
+            playerUnpause();
+            g_PlayersWithControl[0] = true;
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored — lvIsPaused=%d", lvIsPaused());
             menuPopDialog();
         }
     }
@@ -2638,12 +2685,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_ViewJustChanged) {
         pdguiPlaySound(PDGUI_SND_SWIPE);
         s_NeedsFocus = true;  /* focus first widget on next frame */
+        s_ControlsNeedsInit = true;  /* reload binds next time Controls tab is entered */
     }
     s_PrevView = s_MenuView;
 
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
         s_NeedsFocus = true;  /* focus first widget when tab changes */
+        /* Re-init controls binds next time the Controls tab is entered */
+        if (s_PrevSubTab == 2 || s_SettingsSubTab == 2) {
+            s_ControlsNeedsInit = true;
+        }
     }
     s_PrevSubTab = s_SettingsSubTab;
 

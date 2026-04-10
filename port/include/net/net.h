@@ -240,6 +240,10 @@ s32 netParseAddr(ENetAddress *out, const char *str);
 /* Return the current ENet host handle (NULL if not connected/hosting). */
 struct _ENetHost *netGetHost(void);
 
+/* B-126 diagnostics: log NET.WATCHDOG + NET.HEARTBEAT snapshot for all peers.
+ * Call every ~30s from lvTick() during active matches. */
+void netHeartbeatLog(void);
+
 void netInit(void);
 s32 netDisconnect(void);
 void netStartFrame(void);

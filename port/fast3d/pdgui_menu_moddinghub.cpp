@@ -1178,7 +1178,34 @@ s32 pdguiModdingHubIsVisible(void)
 void pdguiModdingHubRender(s32 winW, s32 winH)
 {
     if (!s_Visible) return;
-    renderModdingHub(winW, winH);
+
+    /* Fullscreen blocking overlay — dims the background AND captures all clicks
+     * so the user cannot interact with windows behind the modding hub.
+     * Clicking the overlay dismisses the hub (click-outside-to-close). */
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2((float)winW, (float)winH));
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGuiWindowFlags overlayFlags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (ImGui::Begin("##modhub_overlay", nullptr, overlayFlags)) {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
+                          IM_COL32(0, 0, 0, 180));
+        if (ImGui::InvisibleButton("##modhub_dismiss",
+                                   ImVec2((float)winW, (float)winH))) {
+            s_Visible = false;
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+
+    if (s_Visible) {
+        renderModdingHub(winW, winH);
+    }
 }
 
 } /* extern "C" */

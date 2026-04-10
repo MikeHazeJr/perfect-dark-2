@@ -764,6 +764,10 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				}
 			}
 		}
+		/* B-125: spawn_weapon_id as catalog ID string — clients need this
+		 * to resolve spawnWeaponNum on their side for player spawn. */
+		netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id[0]
+			? g_MatchConfig.spawn_weapon_id : "");
 	}
 
 	// who the fuck is in the game
@@ -952,6 +956,32 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					}
 				}
 			}
+		}
+		/* B-125: read spawn_weapon_id and resolve to spawnWeaponNum. */
+		{
+			const char *swid_str = netbufReadStr(src);
+			const char *swid = swid_str ? swid_str : "";
+			if (swid[0]) {
+				strncpy(g_MatchConfig.spawn_weapon_id, swid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+				g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+				const asset_entry_t *swe = assetCatalogResolve(swid);
+				if (swe && swe->type == ASSET_WEAPON) {
+					s32 mpw = swe->ext.weapon.weapon_id;
+					if (mpw > 0 && mpw < NUM_MPWEAPONS) {
+						g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
+					} else {
+						g_MatchConfig.spawnWeaponNum = 0xFF;
+					}
+				} else {
+					g_MatchConfig.spawnWeaponNum = 0xFF;
+				}
+			} else {
+				g_MatchConfig.spawn_weapon_id[0] = '\0';
+				g_MatchConfig.spawnWeaponNum = 0xFF;
+			}
+			sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START spawn weapon '%s' → weaponnum=%d",
+				g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+				(s32)g_MatchConfig.spawnWeaponNum);
 		}
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
@@ -3875,6 +3905,11 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		}
 	}
 
+	/* B-125: spawn_weapon_id as catalog ID string (PRIMARY).
+	 * Matches weapon_ids[] pattern above — sent as string, resolved on server. */
+	netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id[0]
+		? g_MatchConfig.spawn_weapon_id : "");
+
 	/* U-9: per-player handicap bytes — one per player slot */
 	for (s32 hi = 0; hi < MAX_PLAYERS; hi++) {
 		netbufWriteU8(dst, g_PlayerConfigsArray[hi].handicap);
@@ -4160,6 +4195,36 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				g_MpSetup.weapons[wi] = 0;
 			}
 		}
+	}
+
+	/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.
+	 * Mirrors matchStart() resolution logic for the network path. */
+	{
+		char *swid_str = netbufReadStr(src);
+		const char *swid = swid_str ? swid_str : "";
+		if (swid[0]) {
+			strncpy(g_MatchConfig.spawn_weapon_id, swid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+			g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+			const asset_entry_t *swe = assetCatalogResolve(swid);
+			if (swe && swe->type == ASSET_WEAPON) {
+				s32 mpw = swe->ext.weapon.weapon_id;
+				if (mpw > 0 && mpw < NUM_MPWEAPONS) {
+					g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
+				} else {
+					g_MatchConfig.spawnWeaponNum = 0xFF;
+				}
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"NET: CLC_LOBBY_START spawn_weapon_id '%s' not in catalog — defaulting to Random", swid);
+				g_MatchConfig.spawnWeaponNum = 0xFF;
+			}
+		} else {
+			g_MatchConfig.spawn_weapon_id[0] = '\0';
+			g_MatchConfig.spawnWeaponNum = 0xFF;
+		}
+		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START spawn weapon '%s' → weaponnum=%d",
+			g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+			(s32)g_MatchConfig.spawnWeaponNum);
 	}
 
 	/* U-9: per-player handicap bytes */

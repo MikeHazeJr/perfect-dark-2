@@ -243,6 +243,14 @@ void schedSubmitTask(OSSched *sc, OSScTask *t)
 void schedStartFrame(OSSched *sc)
 {
 	videoStartFrame();
+
+	/* Sample analog axes and synthesize WASD→AXIS values AFTER events are
+	 * dispatched (videoStartFrame → gfx_start_frame → handle_events →
+	 * actionmapDispatch) but BEFORE game logic reads actionValue() in
+	 * mainTick/bondmove. Previously this ran in schedEndFrame (after
+	 * bondmove), so bondmove always read last-frame's stick/axis values. */
+	actionmapPollFrame();
+
 	if (g_Vars.diffframe60) {
 		if (g_NetMode) {
 			videoCapFramerate(120);
@@ -281,7 +289,7 @@ void schedAudioFrame(OSSched *sc)
  */
 void schedEndFrame(OSSched *sc)
 {
-	static bool netDebugKey = false;
+	/* netDebugKey removed — actionPressed(ACTION_DEBUG_TOGGLE) provides edge detection */
 
 	sc->frameCount++;
 
@@ -304,14 +312,12 @@ void schedEndFrame(OSSched *sc)
 	inputUpdate();
 	conTick();
 
-	const bool newKey = inputKeyPressed(VK_F9);
-	if (!netDebugKey && newKey) {
+	/* Action map: F9 → ACTION_DEBUG_TOGGLE (edge-triggered) */
+	if (actionPressed(0, ACTION_DEBUG_TOGGLE)) {
 		g_NetDebugDraw = !g_NetDebugDraw;
 	}
-	netDebugKey = newKey;
 
-	/* M0.2 Phase B: sample analog axes before game logic reads joyGetStick* */
-	actionmapPollFrame();
+	/* actionmapPollFrame moved to schedStartFrame — see comment there. */
 	joyStartReadData(&g_PiMesgQueue);
 	joyReadData();
 	joy00014238();
@@ -328,6 +334,12 @@ void schedEndFrame(OSSched *sc)
 	if (g_MainIsBooting == 0) {
 		schedConsiderScreenshot();
 	}
+
+	/* Flip action map edge signals AFTER all consumers (bondmove, player, menus)
+	 * have read actionPressed()/actionReleased() this frame. Previously this was
+	 * in gfx_sdl_handle_events() which runs during schedStartFrame — before game
+	 * logic could read edge signals, making actionPressed() always return 0. */
+	actionmapEndFrame();
 
 	// check for vid mode changes
 	__scUpdateViMode();

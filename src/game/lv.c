@@ -462,9 +462,9 @@ void lvReset(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "LOAD: mpApplyLimits done");
 
 		if (g_Vars.mplayerisrunning == false) {
-			g_Vars.playerstats[0].mpindex = MAX_PLAYERS;
-			g_PlayerConfigsArray[MAX_PLAYERS].contpad1 = 0;
-			g_PlayerConfigsArray[MAX_PLAYERS].contpad2 = 1;
+			g_Vars.playerstats[0].mpindex = 0;
+			g_PlayerConfigsArray[0].contpad1 = 0;
+			g_PlayerConfigsArray[0].contpad2 = 1;
 		}
 
 		for (i = 0; i != ARRAYCOUNT(g_Vars.playerstats); i++) {
@@ -2238,6 +2238,18 @@ void lvTick(void)
 	if (s_LvTickFirstRun) {
 		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		s_LvTickFirstRun = 0;
+	}
+
+	/* B-126: Periodic heartbeat log (every 30s / 1800 frames) to help
+	 * diagnose silent crashes — last heartbeat before death pinpoints timing.
+	 * S191: interval halved (60s→30s); added last-chr-tick index (B-112 probe)
+	 * and full NET.WATCHDOG/NET.HEARTBEAT dump via netHeartbeatLog(). */
+	if (g_Vars.lvframe60 > 0 && (g_Vars.lvframe60 % 1800) == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.HEARTBEAT: frame=%d (~%ds) chrs=%d stage=0x%02x last_chr_idx=%d",
+			g_Vars.lvframe60, g_Vars.lvframe60 / 60,
+			g_MpNumChrs, g_Vars.stagenum, g_ChrLastTickedIndex);
+		netHeartbeatLog(); /* NET.WATCHDOG + per-peer RTT/silence; no-ops cleanly if no host */
 	}
 
 	lvCheckPauseStateChanged();
