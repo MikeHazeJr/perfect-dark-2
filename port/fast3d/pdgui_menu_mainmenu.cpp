@@ -2280,11 +2280,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
             /* At top-level: close the menu, return to Carrington Institute */
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            /* B-124 pattern: only pop context if we pushed it on open. */
-            if (s_MainMenuPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            /* Pop the input context unconditionally if active. The previous
+             * s_MainMenuPushedCtx ownership guard caused a leak: if
+             * IsWindowAppearing fired twice (legacy dialog re-push, ImGui
+             * visibility cycle), the second appearing saw the context already
+             * active and set s_MainMenuPushedCtx=false, so the close handler
+             * skipped the pop. All other menus (solomission, endscreen,
+             * bridge) use the unconditional pattern. */
+            if (inputCtxIsActive(&g_CtxImGuiMenu)) {
                 inputCtxPopDeferred(&g_CtxImGuiMenu);
-                s_MainMenuPushedCtx = false;
             }
+            s_MainMenuPushedCtx = false;
             menuPopDialog();
         }
     }
