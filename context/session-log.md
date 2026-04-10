@@ -3,6 +3,41 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S191 — 2026-04-10 (B-112 + B-126: Entry guard + slot tracker + heartbeat expansion)
+
+**Focus**: Instrumentation pass on the two open HIGH bugs — B-112 (chr pointer corruption in 31-bot matches) and B-126 (silent crash ~8min into MP). No live repro yet; this session closes the diagnostic gaps so the next crash log is actionable.
+
+### B-112 — Chr pointer corruption (guards in place, root cause still unknown)
+
+**Root cause analysis**: Original crash pattern is "access violation at `chr->hidden`" with VEH showing `rbx` (the chr pointer) = garbage. Classic stack corruption: a callee smashes the caller's saved `rbx` on its stack frame. When execution returns to `chraTick`, `rbx` is restored from the corrupted value → next dereference of `chr` (at `chr->hidden`, line ~13444) crashes.
+
+**Critical gap closed**: The existing canary (`sysLogPrintf("CHR.GUARD: canary")`) was inside the sleep block, ~33 lines BELOW the first `chr->hidden` access. A corrupt pointer arriving at `chraTick()` crashes before reaching that canary.
+
+**Changes** (`src/game/chraction.c` 16541 lines, `src/game/chr.c` 6676 lines, `src/include/game/chr.h` 101 lines):
+- `chraTick()` entry guard — validates `chr` before ANY field access; logs `CHR.GUARD: chraTick entry invalid` and bails if pointer is bad.
+- `g_ChrLastTickedIndex` global (`s32`, default -1) — set to `(chr - g_ChrSlots)` just before each `chraTick()` call in `chrTick()`, cleared after. Lets crash handlers identify the failing bot slot without heap access.
+- Declaration added to `chr.h` so all TUs (including crash.c) can reference it.
+
+### B-126 — Silent crash (likely stack-protector canary, SIGABRT not landing in log)
+
+**Root cause hypothesis**: GCC `-fstack-protector-strong` detects smashed canary → calls `abort()` → SIGABRT. Windows VEH is NOT called by SIGABRT (it's a CRT signal, not a structured exception). The existing `crashSigabrtHandler` should catch it but apparently wasn't logging reliably.
+
+**Changes** (`port/src/crash.c` 481 lines, `port/include/net/net.h` 286 lines, `port/src/net/net.c` 2200 lines, `src/game/lv.c` 2750 lines):
+- `crashSigabrtHandler` updated — reads `g_ChrLastTickedIndex` (extern, no heap) and logs it: `"FATAL: last chr tick index=%d"`. When the next SIGABRT fires, we'll know which bot slot was mid-tick.
+- `netHeartbeatLog()` added to `net.c` — logs `NET.WATCHDOG` per-peer dump (RTT, silence timer, ENet peer state) and `NET.HEARTBEAT` global stats (mode, clients, bandwidth).
+- `lvTick()` heartbeat block updated — interval halved from 3600 → 1800 frames (60s → 30s); adds `last_chr_idx` field; calls `netHeartbeatLog()` for full watchdog snapshot.
+
+### Build verification
+
+All 5 changed source files syntax-checked via `gcc -fsyntax-only` in the main copy (`C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike`) — exit 0 on all. Full headless build in progress; `build-headless.ps1` environment confirmed correct.
+
+**Next steps for Mike**:
+- Play a 31-bot match until crash. Check `pd.log` for `CHR.GUARD` or `CRASH: SIGABRT` lines — if either appears, the slot index will be in the log.
+- Check `NET.HEARTBEAT` lines — last one before crash timestamps the failure window.
+- Also needed: manual QC pass on S190 input fixes (A=jump, Y=use, B=crouch, LSTICK=sprint, R3 unbound, mission 1 save, sky tearing on outdoor stages).
+
+---
+
 ## Session S190 — 2026-04-10 (Four-Task Sweep: Binding complete, B-128 sky FIXED, B-129 mission-end crash FIXED, SP-9 IMPLEMENTED)
 
 **Focus**: Four parallel S190 tasks all landed and clean-build verified. Binding rework complete (P0-only, menu stripped to 3 actions). Sky tearing fixed (one-liner). Mission-end crash (B-129) fixed and save pipeline restored. SP-9 truncation safeguard implemented in build pipeline.
