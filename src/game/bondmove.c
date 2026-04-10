@@ -937,10 +937,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	canmanualzoom = weaponHasAimFlag(weaponnum, INVAIMFLAG_MANUALZOOM);
 	contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 
-	/* C-5 fix: actionValue/actionHeld/actionPressed take PLAYER index, not hardware
-	 * contpad index. optionsGetContpadNum1() returns hardware pad number.
-	 * Use mpindex (player index) for all action map queries. */
-	s32 actionPlayer = g_Vars.currentplayerstats->mpindex;
+	/* Action map is indexed by controller slot (contpad1), not by mpindex.
+	 * In solo mode, mpindex=MAX_PLAYERS(8) for solo config slot, but all input
+	 * is stored in action map slot 0 (contpad1=0). In multiplayer, contpad1
+	 * matches the SDL controller index assigned to this player. */
+	s32 actionPlayer = (s32)contpad1;
 
 	/* DIAG: log movement inputs every ~120 frames */
 	if ((g_Vars.lvframenum % 120) == 1) {
