@@ -942,6 +942,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	 * Use mpindex (player index) for all action map queries. */
 	s32 actionPlayer = g_Vars.currentplayerstats->mpindex;
 
+	/* DIAG: log movement inputs every ~120 frames */
+	if ((g_Vars.lvframenum % 120) == 1) {
+		sysLogPrintf(LOG_NOTE, "BMOVE: allowc1x=%d allowc1y=%d allowc1buttons=%d actionPlayer=%d AXIS_MOVE=%.3f,%.3f pausemode=%d lvupdate240=%d lvIsPaused=%d",
+			(s32)allowc1x, (s32)allowc1y, (s32)allowc1buttons, actionPlayer,
+			actionValue(actionPlayer, ACTION_AXIS_MOVE_X),
+			actionValue(actionPlayer, ACTION_AXIS_MOVE_Y),
+			g_Vars.currentplayer->pausemode,
+			g_Vars.lvupdate240,
+			lvIsPaused());
+	}
+
 	/* C-2 fix: multiplier 127 matches original ±0x7F/0x80 range from inputReadController */
 	c1stickx = allowc1x ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_X) * 127.0f) : 0;
 	c1sticky = allowc1y ? (s8)(actionValue(actionPlayer, ACTION_AXIS_MOVE_Y) * 127.0f) : 0;

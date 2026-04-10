@@ -100,6 +100,8 @@ s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
 void playerUnpause(void);
+void lvSetPaused(bool paused);
+s32 lvIsPaused(void);
 extern bool g_PlayersWithControl[];
 
 /* Handlers we invoke to match original behavior */
@@ -2299,17 +2301,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
             /* Restore game control BEFORE menuPopDialog. The legacy
              * menutick bg-transition (func0f0fa6ac) never completes
-             * under ImGui hotswap. playerUnpause + g_PlayersWithControl
-             * must run before menuPopDialog in case it blocks or
-             * has side effects that prevent subsequent code. */
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: calling playerUnpause, g_PlayersWithControl[0] was %d",
-                         (int)g_PlayersWithControl[0]);
+             * under ImGui hotswap. Must restore ALL game state:
+             *  - lvSetPaused(false): unfreeze game world (lvupdate240=0 while paused)
+             *  - playerUnpause(): reset pausemode + music (only if pausemode==PAUSED)
+             *  - g_PlayersWithControl: allow movement/buttons in bmoveTick
+             * All three must run before menuPopDialog in case it has side effects. */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: restoring game state — lvIsPaused=%d g_PlayersWithControl[0]=%d",
+                         lvIsPaused(), (int)g_PlayersWithControl[0]);
+            lvSetPaused(false);
             playerUnpause();
             g_PlayersWithControl[0] = true;
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: playerUnpause done, g_PlayersWithControl[0] = true");
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: calling menuPopDialog");
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored — lvIsPaused=%d", lvIsPaused());
             menuPopDialog();
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: menuPopDialog done");
         }
     }
 
