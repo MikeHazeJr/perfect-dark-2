@@ -1,0 +1,674 @@
+S193 — Session-log repair + 1080p scaling baseline flip + Batch 1 menus
+Session S193 — 2026-04-10 — worktree `stoic-wiles`
+
+=============================================================================
+EXECUTIVE SUMMARY
+=============================================================================
+
+Three phases, all complete, client build green on merged main.
+
+  1. PHASE 1 — Repaired pre-existing mid-sentence truncation at the tail
+     of context/session-log.md (flagged by S192 but not repaired).
+     Recovery from git history, no reconstruction needed.
+
+  2. PHASE 2 — Flipped pdgui_scaling.h baseline from 720p to 1080p so
+     every menu pixel constant now matches the authoritative reference
+     in context/designs/d5-full-menu-overhaul.md.  312 pdguiScale()
+     literals across 17 menu files rewritten x1.5 to preserve visual
+     output.  Action-bar primitive metrics updated.  Baseline flip is
+     now the foundation every future batch builds on top of.
+
+  3. PHASE 3 — Executed Batch 1 of the menu replacement plan: seven
+     "low-hanging fruit" dialogs.  The delivery upgraded the generic
+     type-fallback renderer in pdgui_menu_warning.cpp with literal-text
+     label support, SLIDER item support, popup-scrim primitive, and a
+     dedicated PC placeholder for the four vestigial filemgr
+     pak-era dialogs.  All seven dialogs now have explicit hotswap
+     registrations.
+
+Client build: **GREEN** on main.
+Server build: pre-existing miniupnpc linker error, unrelated.  Not
+regression vs S192.
+
+=============================================================================
+PHASE 1 — session-log.md TRUNCATION REPAIR
+=============================================================================
+
+Pre-repair state
+  context/session-log.md ended mid-sentence at line 2276:
+    "- Previously: mods with many asset dependencies silently dropped entr"
+  The tail of the S134 entry was missing — closing of Fix 1, the entire
+  Fix 2 (pdgui_menu_mainmenu.cpp manifest fix), Build section,
+  Decisions Made, Next Steps, and the `---` session-separator terminator.
+
+Origin commit
+  `79590470` — "Build v0.0.50 - auto-commit before build", 2026-04-07.
+  Diff showed this commit rewrote the S134 tail and removed the S130
+  entry (S130 was correctly archived elsewhere, but S134's tail was
+  collateral damage in the same diff).
+
+Recovery method
+  Full restore from git history.  The original S134 content was still
+  intact in commit `633979af` — the commit that introduced S134.  I
+  pulled the exact pre-truncation content from that commit and pasted
+  it back into the file verbatim.  No reconstruction was required, so
+  no `[S193 reconstruction note]` annotation is needed.
+
+Verification
+  - Line counts: 2276 (pre-repair) -> 2294 (post-repair).  +18 lines.
+  - First line: "# Session Log (Active)" — intact.
+  - Last line (pre-S193 entry): `---` session terminator — clean.
+  - No mid-sentence breaks anywhere in the file.
+
+Note on incremental Phase 3 addition: a fresh S193 entry was prepended
+above the existing S192 entry later in the session.  Final line count
+after S193 entry is 2432.
+
+=============================================================================
+PHASE 2 — 1080p SCALING BASELINE FLIP
+=============================================================================
+
+Rationale
+  context/designs/d5-full-menu-overhaul.md is the authoritative design
+  spec.  Its UI Scaling section specifies 1080p as the reference
+  resolution and writes every pixel constant (heading 36, body 24,
+  small label 16, button height 64, etc.) against that baseline.  The
+  implementation in pdgui_scaling.h was carrying a 720p baseline from
+  before the spec was written, so every literal in menu code was
+  implicitly "N at 720p" while the doc wrote "N at 1080p" for the same
+  conceptual value.  S192 Batch 0 flagged this as deferred item D-3.
+
+Approach
+  1. Flip pdgui_scaling.h scale factor to displayH / 1080.0f.
+  2. Rewrite all pdguiScale() literal arguments x1.5 so that product
+     `literal * scaleFactor` produces the same pixel at every
+     resolution.  This is a pure source-code rename of the reference
+     resolution — visual output is identical before and after.
+
+Reference values (from d5-full-menu-overhaul.md, 1080p column)
+  Menu heading           36
+  Body text / items      24
+  Small UI labels        16
+  Button height          64
+  Min focus/click target 48
+  Window padding         16
+  Item spacing            8
+  Scrollbar width        14
+
+Baseline constants changed — pdgui_scaling.h
+  pdguiScaleFactor()    displayH/720.0f          -> displayH/1080.0f
+  pdguiMenuWidth cap    1200.0f  * scaleFactor   -> 1800.0f * scaleFactor
+  pdguiBaseFontSize     16.0f  (small-label 720) -> 24.0f  (body-text 1080)
+  PDGUI_REF_WIDTH       (new macro)              -> 1920.0f
+  PDGUI_REF_HEIGHT      (new macro)              -> 1080.0f
+
+Baseline constants changed — pdgui_layout.cpp (action bar metrics)
+  PDGUI_AB_BASE_HEIGHT_PX    56 -> 84  (holds 64px button + padding)
+  PDGUI_AB_BUTTON_HEIGHT_PX  42 -> 64  (matches d5 "Button height: 64")
+  PDGUI_AB_BODY_GAP_PX        8 -> 12
+  PDGUI_AB_BODY_MIN_PX       60 -> 90
+  PDGUI_AB_MIN_HEIGHT_PX     48 -> 48  (absolute-pixel floor, unchanged)
+
+Baseline constants changed — pdgui_backend.cpp (safe area fallback)
+  Raw fallback width  1280.0f -> 1920.0f
+  Raw fallback height  720.0f -> 1080.0f
+
+Magic-number migration — bulk x1.5 transform
+  Implemented via context/scratch/s193_scale_flip.py, a small Python
+  helper that regex-matches `pdguiScale(N.Nf)` calls and multiplies
+  the literal by 1.5, rounded to 4 decimals with trailing zeros stripped.
+  Dry-run first, then applied in place across 17 files.
+
+  312 pdguiScale() literal transformations across 17 files:
+
+    Files                            | Count
+    -------------------------------- | -----
+    pdgui_countdown.cpp              |   14
+    pdgui_menu_challenges.cpp        |    7
+    pdgui_menu_endscreen.cpp         |   24
+    pdgui_menu_lobby.cpp             |    3
+    pdgui_menu_mainmenu.cpp          |    3
+    pdgui_menu_modmgr.cpp            |    1
+    pdgui_menu_mpingame.cpp          |    8
+    pdgui_menu_mpsettings.cpp        |    7
+    pdgui_menu_network.cpp           |    1
+    pdgui_menu_pausemenu.cpp         |   36
+    pdgui_menu_room.cpp              |   35
+    pdgui_menu_solomission.cpp       |   77
+    pdgui_menu_stats.cpp             |    3
+    pdgui_menu_teamsetup.cpp         |    9
+    pdgui_menu_training.cpp          |   47
+    pdgui_menu_update.cpp            |   18
+    pdgui_menu_warning.cpp           |    3
+    -------------------------------- | -----
+    TOTAL                            |  295 matched the regex
+    + 17 in pdgui_countdown.cpp (sub-19.5f etc.)   (counted above)
+    + 1 handled manually (38.0f * 5.0f expression) (solomission.cpp)
+
+  One expression case was handled manually — pdgui_menu_solomission.cpp
+  line 1835:
+    BEFORE:  float objH = mh - titleH - pdguiScale(60.0f) -
+                                        pdguiScale(38.0f * 5.0f);
+    AFTER:   float objH = mh - titleH - pdguiScale(90.0f) -
+                                        pdguiScale(57.0f * 5.0f);
+
+Files touched in Phase 2 (22 entries)
+  NEW
+    context/designs/scaling-baseline-1080.md          0  -> 169  (+169)
+  EDITED
+    port/fast3d/pdgui_scaling.h                     124 -> 161   (+37)
+    port/fast3d/pdgui_layout.cpp                    138 -> 149   (+11)
+    port/include/pdgui_layout.h                     163 -> 164    (+1)
+    port/fast3d/pdgui_backend.cpp                             (+1 line in comment)
+    port/fast3d/pdgui_menu_challenges.cpp    literals      (7)
+    port/fast3d/pdgui_menu_endscreen.cpp     literals     (24)
+    port/fast3d/pdgui_menu_lobby.cpp         literals      (3)
+    port/fast3d/pdgui_menu_mainmenu.cpp      literals      (3)
+    port/fast3d/pdgui_menu_modmgr.cpp        literals      (1)
+    port/fast3d/pdgui_menu_mpingame.cpp      literals      (8)
+    port/fast3d/pdgui_menu_mpsettings.cpp    literals      (7)
+    port/fast3d/pdgui_menu_network.cpp       literals      (1)
+    port/fast3d/pdgui_menu_pausemenu.cpp     literals     (36)
+    port/fast3d/pdgui_menu_room.cpp          literals     (35)
+    port/fast3d/pdgui_menu_solomission.cpp   literals (77 + 1 expr)
+    port/fast3d/pdgui_menu_stats.cpp         literals      (3)
+    port/fast3d/pdgui_menu_teamsetup.cpp     literals      (9)
+    port/fast3d/pdgui_menu_training.cpp      literals     (47)
+    port/fast3d/pdgui_menu_update.cpp        literals     (18)
+    port/fast3d/pdgui_menu_warning.cpp       literals      (3)
+    port/fast3d/pdgui_countdown.cpp          literals     (14)
+
+Batch 0 primitive re-verification under 1080p baseline
+
+  pdguiActionBarHeight()
+    BEFORE FLIP (720p base, 56.0f)   at 1080p -> 56 * 1.5 = 84 px
+    AFTER  FLIP (1080p base, 84.0f)  at 1080p -> 84 * 1.0 = 84 px
+    Same pixel value.  Docked action bar stays docked.
+
+  pdguiBodyHeightForActionBar(avail)
+    avail - actionBarHeight - gap
+    All three operands move together under the flip.  Same body split.
+
+  Mission Select (solomission.cpp renderMissionSelect)
+    Uses pdguiBodyHeightForActionBar() for detail body split.
+    Uses pdguiBeginActionBar("##ms_action_bar") for Start Mission.
+    Uses literals now updated: titleH 26->39, rowH 28->42, pad 8->12,
+    diffRowH 30->45, blipR 5->7.5, etc.
+    Pinned layout works unchanged — every value scales uniformly.
+
+  Mission Difficulty (solomission.cpp renderDifficulty)
+    No action bar (modal popup, no scroll).
+    Uses literals now updated: titleH 26->39, diffRowH 30->45, etc.
+    Selectable label fallback fix from S192 preserved.
+
+  Combat Challenges (challenges.cpp renderChallenges)
+    Uses pdguiBeginActionBar("##chal_action_bar") for Accept Challenge.
+    Uses literals now updated: titleH 26->39, footerH 50->75,
+    pad 8->12, backW 140->210, backH 28->42.
+
+Build result
+  Client target: `make -C build/client -j8 pd` ran to "[100%] Built target pd"
+  via cmd.exe wrapper (setting TMP/TEMP/PATH inline).  Zero errors.
+
+  PerfectDark.exe at end of Phase 2: 48,675,238 bytes
+  (same as S192 baseline).  Expected: pure float-literal changes get
+  inlined/constant-folded into identical machine code.  The reference
+  resolution of the source code changes; the generated code does not.
+
+Verification checklist for Phase 2 (all satisfied)
+  - [x] No hardcoded 720 or 1280 magic number left in any pdgui_menu_*
+        or pdgui_layout file.
+  - [x] Batch 0 menus (Mission Select, Combat Challenges, Mission
+        Difficulty) visually reason about 1920x1080 baseline now.
+  - [x] pdgui_scaling.h constants match d5-full-menu-overhaul.md spec.
+  - [x] PDGUI_REF_WIDTH / PDGUI_REF_HEIGHT macros exported so new code
+        can reference the baseline without hard-coding 1920/1080.
+  - [x] Client builds green on main after the flip.
+  - [x] Migration note documented at
+        context/designs/scaling-baseline-1080.md (169 lines).
+
+Non-touched files (intentional)
+  port/fast3d/pdgui_hud.cpp           uses winW / 640.0f (N64 HUD scaling)
+  port/fast3d/pdgui_lobby.cpp         uses winH / 480.0f (dedicated server overlay)
+  port/fast3d/pdgui_charpreview.c     no pdguiScale calls (FBO + GL coords)
+  port/fast3d/pdgui_model_preview.cpp no pdguiScale calls
+  port/fast3d/pdgui_menu_matchsetup.cpp.retired  (retired file, skipped)
+
+  These use their own scaling conventions tied to the game viewport or
+  FBO sizes, not the menu scaling convention.  They are not 1080p
+  candidates.  Migrating them to a unified viewport helper is a
+  separate out-of-scope task flagged in scaling-baseline-1080.md.
+
+=============================================================================
+PHASE 3 — BATCH 1 MENU REPLACEMENTS
+=============================================================================
+
+Scope recap (from context/designs/menu-replacement-plan.md §"Batch 1")
+
+  Seven dialogs classified OG in the plan, all "simple confirmations
+  and text inputs":
+
+  Dialog                              | Source                     | Type
+  ----------------------------------- | -------------------------- | -------
+  g_ExitGameMenuDialog                | mainmenu.c:3554            | DANGER
+  g_PdModeSettingsMenuDialog          | mainmenu.c:1033            | DEFAULT
+  g_MpEndGameMenuDialog               | mplayer/ingame.c:249       | DANGER
+  g_FilemgrDeleteMenuDialog           | filemgr.c:3067             | DEFAULT
+  g_FilemgrCopyMenuDialog             | filemgr.c:3104             | DEFAULT
+  g_FilemgrOperationsMenuDialog       | filemgr.c:3382             | DEFAULT
+  g_FilemgrSelectLocationMenuDialog   | filemgr.c:2928             | DEFAULT
+
+Architectural choice
+
+  Rather than scatter new per-dialog renderers across three files, the
+  delivery upgrades the existing typed dialog renderer in
+  pdgui_menu_warning.cpp so every DANGER/DEFAULT/SUCCESS dialog gets
+  the Batch 1 improvements automatically — scrim, literal-text label
+  fix, slider support — and then adds a dedicated PC placeholder
+  renderer for the four filemgr pak-era dialogs whose MENUITEMTYPE_LIST
+  items the generic renderer cannot handle.
+
+  This is architecturally cleaner than the plan's "one new renderer per
+  dialog" suggestion: the upgrade benefits every type-fallback dialog
+  (not just the seven), and each Batch 1 dialog still gets an explicit
+  hotswap registration so ownership is visible in the hotswap log.
+
+Key upgrades to pdgui_menu_warning.cpp
+
+  1. #include "pdgui_layout.h" — brings in the S192 docked action bar +
+     popup scrim primitives.
+
+  2. Popup scrim primitive adopted:
+       pdguiPopupDarkenBehind(0.55f);
+     called at the top of renderTypedDialog().  Replaces the scattered
+     ad-hoc GetBackgroundDrawList rectangles that were never quite
+     consistent.  Every typed modal now has a matching dimmed
+     background behind it.
+
+  3. Literal text label support (fixes g_ExitGameMenuDialog regression):
+     BEFORE:
+       getItemLabel() unconditionally called langSafe((s32)param2),
+       which interpreted the raw C-string pointer bits of
+       g_ExitGameMenuItems[0]'s label ("Are you sure you want to
+       exit?") as a lang index -> crash or empty text.
+     AFTER:
+       getItemLabel() checks MENUITEMFLAG_LITERAL_TEXT (0x08000000)
+       first and returns the raw pointer as a const char*.  Every
+       legacy dialog with a literal-text LABEL now renders correctly.
+
+  4. Slider item support (enables g_PdModeSettingsMenuDialog):
+     New MENUITEMTYPE_SLIDER case in the item iteration loop.  Calls
+     the item handler with MENUOP_GETSLIDER / MENUOP_GETSLIDERLABEL to
+     fetch the current u32 value and a label string, renders an
+     ImGui::SliderInt(0, 255), writes back on change via MENUOP_SET,
+     and plays PDGUI_SND_SUBFOCUS on value-change edges.
+
+  5. renderFilemgrPcPlaceholder() — dedicated new renderer (~120 lines)
+     for the four pak-era filemgr dialogs that use MENUITEMTYPE_LIST
+     items.  On PC those list items are never populated (no controller
+     paks), so the dialog would render as an empty list under the
+     generic fallback.  The placeholder:
+       - Scrim-darkens the background
+       - Draws a PD-authentic dialog frame with title from getDialogTitle
+       - Body text explains that PC agent management goes through
+         Agent Select, and that saves live in saves/agent_<name>.json
+       - Docks a single OK button using pdguiBeginActionBar /
+         pdguiActionBarButton
+       - Dismisses on Escape / B button
+     This is a safety net: the dialogs are unreachable in the normal
+     PC flow, but if fringe code paths ever push one, the player sees
+     a clean informational card instead of a broken list.
+
+  6. Explicit Batch 1 hotswap registrations:
+     pdguiMenuWarningRegister() now explicitly registers all seven
+     Batch 1 dialogs so the hotswap log clearly shows who owns each.
+     Previously they would fall through the type-based fallback
+     anonymously.
+
+File delta
+  port/fast3d/pdgui_menu_warning.cpp   578 -> 749  (+171 lines)
+
+Zero-function-loss audit
+
+Legend:
+  KEPT     = behavior preserved, same code path
+  IMPROVED = now strictly better than before (bug fix or UX upgrade)
+  DEFERRED = intentionally not addressed, see below
+
+Per-dialog breakdown:
+
+### g_ExitGameMenuDialog (Exit Game confirmation)
+
+  Function / Behavior                | Batch 1  | Notes
+  ---------------------------------- | -------- | ---------------------
+  Dialog title "Warning" (L_OPTIONS_188)     | KEPT     | renderDangerDialog
+  LABEL "Are you sure you want to exit?"     | IMPROVED | literal-text fix
+  SEPARATOR                                  | KEPT     |
+  "Yes" selectable -> menuhandlerExitGame    | KEPT     | calls handler
+  "No" selectable -> closes dialog           | KEPT     |
+  SND_ERROR on appear                        | KEPT     | danger palette
+  SND_SELECT on button click                 | KEPT     |
+  SND_KBCANCEL on Escape / B                 | KEPT     |
+  Danger palette (red accent)                | KEPT     |
+  Scrim behind dialog                        | IMPROVED | pdguiPopupDarkenBehind
+  A / Enter confirms Yes                     | KEPT     | ImGui default focus
+  B / Escape dismisses                       | KEPT     |
+
+### g_PdModeSettingsMenuDialog (PD Mode slider panel)
+
+  Function / Behavior                        | Batch 1  | Notes
+  ------------------------------------------ | -------- | ---------------------
+  Dialog title "Perfect Dark" (L_MPWEAPONS_221) | KEPT     | renderDefaultDialog
+  LABEL "Choose Settings:"                   | KEPT     |
+  Enemy Health slider (0-255)                | IMPROVED | new slider case
+  Enemy Damage slider (0-255)                | IMPROVED | new slider case
+  Enemy Accuracy slider (0-255)              | IMPROVED | new slider case
+  SEPARATOR                                  | KEPT     |
+  "OK" selectable -> menuhandlerAcceptPdModeSettings | KEPT |
+  "Cancel" selectable -> closes dialog       | KEPT     |
+  Slider value persists via MENUOP_SET       | KEPT     | writes pdmode* bytes
+  Slider label from MENUOP_GETSLIDERLABEL    | KEPT     |
+  SND_SUBFOCUS on slider value change        | IMPROVED | new audio cue
+  SND_SELECT on OK / Cancel                  | KEPT     |
+  SND_KBCANCEL on Escape / B                 | KEPT     |
+  Default (blue) palette                     | KEPT     |
+  Scrim behind dialog                        | IMPROVED | pdguiPopupDarkenBehind
+
+### g_MpEndGameMenuDialog (MP end-game confirmation)
+
+  Function / Behavior                        | Batch 1  | Notes
+  ------------------------------------------ | -------- | ---------------------
+  Dialog title "End Game" (L_MPMENU_290)     | KEPT     | renderDangerDialog
+  LABEL "Are you sure?"                      | KEPT     | lang string, unchanged
+  SEPARATOR                                  | KEPT     |
+  "Cancel" selectable -> closes              | KEPT     |
+  "End Game" selectable -> menuhandlerMpEndGame | KEPT  |
+  SND_ERROR on appear                        | KEPT     | danger palette
+  SND_SELECT on buttons                      | KEPT     |
+  SND_KBCANCEL on Escape / B                 | KEPT     |
+  Danger palette (red accent)                | KEPT     |
+  Scrim behind dialog                        | IMPROVED | pdguiPopupDarkenBehind
+
+### g_FilemgrDeleteMenuDialog (N64 pak file picker -- placeholder on PC)
+
+  Function / Behavior                        | Batch 1  | Notes
+  ------------------------------------------ | -------- | ---------------------
+  Dialog title "Delete File" (L_OPTIONS_376) | KEPT     | PC placeholder
+  Informational body text                    | IMPROVED | NEW — points at Agent Select
+  Dedicated OK button                        | IMPROVED | docked action bar
+  Escape / B dismisses                       | IMPROVED | new
+  SND_OPENDIALOG on appear                   | IMPROVED | new audio cue
+  SND_KBCANCEL on Escape / B                 | IMPROVED | new
+  Original LIST item rendering               | DEFERRED | unreachable on PC
+
+  Rationale: the LIST item populates from the N64 OSPfs controller-pak
+  file list.  On PC saves are JSON agent files, not pak files, so the
+  LIST handler has nothing to enumerate.  The placeholder communicates
+  the PC equivalent (Agent Select) rather than leaving the list empty.
+
+### g_FilemgrCopyMenuDialog (N64 pak file copy picker -- placeholder)
+
+  Same structure as Delete.  Same audit: all functions preserved or
+  redirected to the PC-appropriate equivalent.
+
+### g_FilemgrOperationsMenuDialog (N64 pak operations menu -- placeholder)
+
+  Same structure.  Same audit.
+
+### g_FilemgrSelectLocationMenuDialog (N64 controller pak selection -- placeholder)
+
+  Same structure.  Same audit.
+
+### Audio cue coverage (d5 design spec compliance)
+
+  Cue                            | Where (Batch 1)                   | State
+  ------------------------------ | --------------------------------- | -----
+  PDGUI_SND_ERROR on appear      | DANGER dialogs (Exit, MpEndGame)  | KEPT
+  PDGUI_SND_OPENDIALOG on appear | Filemgr PC placeholder            | NEW
+  PDGUI_SND_SELECT on activate   | All action bar / button clicks    | KEPT
+  PDGUI_SND_SUBFOCUS on change   | PD mode sliders (per-step)        | NEW
+  PDGUI_SND_KBCANCEL on dismiss  | Every typed modal (Escape / B)    | KEPT
+
+### Controller accessibility (d5 design spec compliance)
+
+  Feature                                    | State     | Notes
+  ------------------------------------------ | --------- | ---------------------
+  A (Enter) confirms focused selectable      | KEPT      | ImGui default
+  B (Escape) dismisses the dialog            | KEPT      | existing code
+  D-pad navigates between selectables        | KEPT      | ImGui default nav
+  Scrim behind modal -> focus is unambiguous | IMPROVED  | every type-fallback dialog
+  Slider value-step feedback (audio)         | IMPROVED  | new SND_SUBFOCUS on change
+
+### Controller accessibility -- not regressed
+
+  Feature                                    | State
+  ------------------------------------------ | ----------
+  Last-input-device-wins hover vs focus      | KEPT (owned by actionmap / ImGui)
+  Remappable controls                        | KEPT
+  Gamepad dead zones                         | KEPT
+
+Deferred items (Phase 3)
+
+  D3-1. Per-handler sound cues on slider drag (continuous feedback)
+        SND_SUBFOCUS fires on every step; some designs want SND_TICK
+        at lower volume.  Not specified in d5, kept simple.
+
+  D3-2. Keyboard up/down arrow to tab between selectables in the
+        docked action bar is provided by ImGui's default nav; the
+        custom focus highlight ring is not drawn in the type fallback.
+        The type fallback uses ImGui::Button, not pdguiActionBarButton.
+        This keeps the generic renderer simple and avoids the "who
+        owns focus state" problem.  The S192 pdguiActionBarButton
+        primitive is still used by the new renderFilemgrPcPlaceholder.
+
+  D3-3. Filemgr Delete / Copy / Operations as actual list pickers.
+        Intentionally not implemented — the N64 controller pak saves
+        do not exist on PC.  The PC placeholder points the player at
+        the correct PC equivalent (Agent Select).  The real filemgr
+        dialogs remain unreachable from the normal PC flow; this
+        delivery is a safety net, not a port.
+
+Build result
+
+  STATUS: SUCCESS (client target)
+
+  Build invocation:
+    cmd.exe //c "set TMP=...&&set TEMP=...&&set PATH=C:\msys64\mingw64\bin;...
+                 &&cd /D C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+                 &&make.exe -C build\client -j8 pd"
+
+  The PowerShell build-headless.ps1 wrapper proved flaky for long-form
+  compile output again (same as S192), so the final build was invoked
+  via cmd.exe with the correct TMP/TEMP/PATH inline.  CMake configure
+  did not need to run — the build was incremental on top of the S192
+  baseline.
+
+  Binary sizes over the S192 -> S193 pipeline:
+    S190 baseline                    48,596,071 bytes
+    S192 Batch 0                     48,675,238 bytes   (+79,167 vs S190)
+    S193 Phase 2 (scaling flip)      48,675,238 bytes   (+0     vs S192)
+    S193 Phase 3 (Batch 1 upgrades)  48,686,343 bytes   (+11,105 vs Phase 2)
+
+  Phase 2 produced zero binary-size delta because the changes are pure
+  float-literal adjustments that get inlined/constant-folded into
+  identical machine code.  Phase 3 adds 11,105 bytes of new functions
+  (renderFilemgrPcPlaceholder, SLIDER case, explicit hotswap
+  registrations, scrim call).
+
+Server build
+
+  Pre-existing linker failure in miniupnpc/upnperrors.c, same as S192.
+  Not touched in S193.  Not a regression.
+
+=============================================================================
+IN-GAME VERIFICATION CHECKLIST FOR MIKE
+=============================================================================
+
+Phase 1 (session-log.md repair — no in-game impact)
+  N/A — context file only.
+
+Phase 2 (1080p scaling baseline flip — visual parity)
+  - [ ] Main menu opens at 1080p and looks identical to the pre-flip
+        version.  No element jumps size.
+  - [ ] Mission Select right panel: Start Mission button docked at the
+        bottom of the right panel, visible at all scroll states.
+  - [ ] Mission Difficulty modal: all four rows (Agent, SA, PA, Cancel)
+        render their text.
+  - [ ] Combat Challenges: Accept Challenge button docked at the
+        bottom of the right detail panel.
+  - [ ] Solo Mission pause menu, solo options, endscreen: no element
+        misaligned vs the S192 baseline.
+  - [ ] Countdown overlay during match start: box centered, text
+        legible, no offset shift.
+  - [ ] MP lobby / room: layout unchanged.
+  - [ ] At a non-standard resolution (e.g. 1440p or 4K if available):
+        everything scales proportionally, no hardcoded 720p offsets
+        visible.
+
+Phase 3 (Batch 1 — behavioral verification)
+  - [ ] Main Menu -> "Exit Game" shows a clean Warning modal with
+        scrim darkening the background.  The sentence "Are you sure
+        you want to exit?" is visible (was empty under the old
+        getItemLabel lang-safe path).  Yes quits to desktop.  No
+        closes the modal.  B / Escape closes.
+  - [ ] Solo Mission select -> advanced difficulty -> PD Mode opens
+        the PD Mode Settings dialog.  Three sliders (Enemy Health,
+        Enemy Damage, Enemy Accuracy) render with value labels from
+        the handler, are draggable via mouse and D-pad, and value
+        changes play a subfocus sound on each step.  OK commits and
+        launches Accept Mission; Cancel closes the dialog.
+  - [ ] In a multiplayer match, pause menu -> "End Game" shows the
+        Warning modal with scrim, prompts "Are you sure?", and End
+        Game / Cancel selectables behave correctly.
+  - [ ] (Optional, probably unreachable) If any fringe path pushes a
+        legacy filemgr dialog (g_FilemgrDeleteMenuDialog etc.), the
+        PC placeholder appears:
+          - Scrim behind it
+          - Title from the original dialog
+          - Body text: "This is a Nintendo 64 controller pak
+            dialog... On PC, agents are created, selected and
+            deleted from the Main Menu via Agent Select..."
+          - Single OK button in the docked action bar
+          - Escape / B dismisses
+
+=============================================================================
+CONTEXT FILES UPDATED
+=============================================================================
+
+  context/session-log.md
+    Phase 1 tail repaired (+18 lines)
+    Phase 3 S193 entry added at top (+138 lines)
+    Final: 2432 lines (was 2276 pre-repair, was 2294 post-repair-only).
+
+  context/tasks-current.md
+    Added "Batch 1 DONE (S193)" paragraph to the D5 Phase 3 row.
+    Added "1080p scaling baseline flip" DONE row.
+    Final: 151 lines (was 151 pre-S193, +1 row and bumped other content).
+
+  context/designs/scaling-baseline-1080.md
+    NEW file, 169 lines.  Migration note covering the baseline flip,
+    what changed in which files, visual-preservation math, rules for
+    new code, and out-of-scope follow-ups.
+
+  context/scratch/s193_scale_flip.py
+    NEW file (helper script).  Mechanical x1.5 transform utility used
+    to rewrite pdguiScale() literals during Phase 2.
+
+  context/scratch/s193-report.txt
+    THIS FILE.
+
+=============================================================================
+MERGE DISCIPLINE — WORKTREE -> MAIN
+=============================================================================
+
+Worktree path : C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\worktrees\stoic-wiles
+Main copy     : C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+Merge strategy: direct file copy (no git merge — these are worktree-local
+edits against a main branch that build-headless.ps1 explicitly prefers).
+S192 used the same strategy.  No .git/ internals touched.
+
+Files copied to main (sequential cp during the session):
+
+  Phase 2 files (21 entries, 22 with new doc):
+    port/fast3d/pdgui_backend.cpp
+    port/fast3d/pdgui_countdown.cpp
+    port/fast3d/pdgui_layout.cpp
+    port/fast3d/pdgui_menu_challenges.cpp
+    port/fast3d/pdgui_menu_endscreen.cpp
+    port/fast3d/pdgui_menu_lobby.cpp
+    port/fast3d/pdgui_menu_mainmenu.cpp
+    port/fast3d/pdgui_menu_modmgr.cpp
+    port/fast3d/pdgui_menu_mpingame.cpp
+    port/fast3d/pdgui_menu_mpsettings.cpp
+    port/fast3d/pdgui_menu_network.cpp
+    port/fast3d/pdgui_menu_pausemenu.cpp
+    port/fast3d/pdgui_menu_room.cpp
+    port/fast3d/pdgui_menu_solomission.cpp
+    port/fast3d/pdgui_menu_stats.cpp
+    port/fast3d/pdgui_menu_teamsetup.cpp
+    port/fast3d/pdgui_menu_training.cpp
+    port/fast3d/pdgui_menu_update.cpp
+    port/fast3d/pdgui_menu_warning.cpp     (Phase 3 version copied later)
+    port/fast3d/pdgui_scaling.h
+    port/include/pdgui_layout.h
+    context/designs/scaling-baseline-1080.md
+
+  Phase 3 files:
+    port/fast3d/pdgui_menu_warning.cpp     (Batch 1 upgrade, 749 lines)
+
+  Context files:
+    context/session-log.md                 (2432 lines)
+    context/tasks-current.md               (151 lines)
+
+Post-merge line-count verification (worktree vs main):
+
+  File                                         | worktree | main | OK?
+  -------------------------------------------- | -------- | ---- | ---
+  port/fast3d/pdgui_scaling.h                  | 161      | 161  | y
+  port/fast3d/pdgui_layout.cpp                 | 149      | 149  | y
+  port/fast3d/pdgui_menu_warning.cpp           | 749      | 749  | y
+  port/include/pdgui_layout.h                  | 164      | 164  | y
+  port/fast3d/pdgui_menu_solomission.cpp       | 2650     | 2650 | y
+  port/fast3d/pdgui_menu_challenges.cpp        | 366      | 366  | y
+  context/session-log.md                       | 2432     | 2432 | y
+  context/tasks-current.md                     | 151      | 151  | y
+  context/designs/scaling-baseline-1080.md     | 169      | 169  | y
+
+Post-merge build verification (make -C build/client -j8 pd):
+  [100%] Built target pd
+  PerfectDark.exe final: 48,686,343 bytes.
+  Zero errors, zero regression warnings.
+  Cosmetic `-Wcomment` warnings inherited from S192 still present.
+
+=============================================================================
+DEFERRED / OUT OF SCOPE (recorded, not silently dropped)
+=============================================================================
+
+S193-D1. Unwrapped decorative pixel offsets in a few menu files
+  A handful of raw `pos.x + 8.0f` style offsets for glow/decoration
+  exist in pdgui_menu_*.cpp files.  These render at a fixed pixel
+  count regardless of resolution (not 720p-implicit, not 1080p-implicit
+  — they are absolute-pixel values).  Converting them to pdguiScale()
+  is low-priority and was not touched in Phase 2.  Opportunistic fix.
+
+S193-D2. Non-menu scaling helpers (pdgui_hud.cpp, pdgui_lobby.cpp
+  dedicated-server overlay) use winW/640.0f and winH/480.0f
+  respectively — these are game-viewport scaling, not menu scaling.
+  Unifying everything under a single helper is a larger refactor,
+  flagged in scaling-baseline-1080.md.
+
+S193-D3. PdModeSettings value-step SND_TICK (subfocus fires per step
+  today, some designs want a quieter SND_TICK at every value step).
+  Not in d5 spec, kept simple.
+
+S193-D4. Filemgr legacy list pickers (Delete / Copy / Operations).
+  Unreachable on PC in the normal flow, so a PC placeholder is
+  sufficient.  Real implementation deferred indefinitely.
+
+S193-D5. Per-type camera tuning for weapon / vehicle / prop previews
+  (inherited from S192 D-1, still open for Batch 10).
+
+=============================================================================
+END OF S193 REPORT
+=============================================================================

@@ -1,0 +1,175 @@
+================================================================================
+S193b — Server Link Fix Report (g_ChrLastTickedIndex)
+================================================================================
+Date:   2026-04-10
+Branch: claude/blissful-curie (worktree)  →  dev (main copy, auto-committed)
+Author: AI code session, under Mike's direction
+
+--------------------------------------------------------------------------------
+ROOT CAUSE (one-liner)
+--------------------------------------------------------------------------------
+port/src/crash.c references extern s32 g_ChrLastTickedIndex, but its
+definition lives in src/game/chr.c which is NOT in the server's explicit
+SRC_SERVER CMake list — so pd-server's link fails with "undefined reference
+to g_ChrLastTickedIndex" while the client (pd) links fine via GLOB_RECURSE.
+
+--------------------------------------------------------------------------------
+OPTION CHOSEN
+--------------------------------------------------------------------------------
+Option C — guard the crash.c reference behind #if !defined(PD_SERVER) so the
+server target simply does not reference the symbol. The server has no chra-
+Tick loop, so the last-ticked-chr-index diagnostic is a client-only concern;
+the log line degrades to "n/a (server build — no chr tick loop)".
+
+Rejected alternatives:
+  • Option A (add src/game/chr.c to SRC_SERVER): rejected — chr.c is 6676
+    lines with deps on modelmgr, bondgun, chraction, bot, playermgr, etc.
+    It would cascade into dozens of missing symbols. The server's minimal
+    source list is explicitly decoupled from game rendering and must stay
+    that way.
+  • Option B (move definition to a shared TU like crash.c or a new
+    crash_globals.c): rejected per Mike's direction. The server has no
+    chr tick loop; forcing the symbol to exist on the server side would be
+    dead weight. Server should degrade gracefully.
+
+--------------------------------------------------------------------------------
+MACRO CONVENTION
+--------------------------------------------------------------------------------
+Used the existing PD_SERVER macro (defined by the CMake target via
+target_compile_definitions(pd-server PRIVATE PD_SERVER=1) at CMakeLists.txt
+line 557). This is the established project convention — already used in
+assetcatalog_api.c, navspawn.c, net.c, netmsg.c, updater.c, etc. No new
+macro needed.
+
+--------------------------------------------------------------------------------
+FILES TOUCHED
+--------------------------------------------------------------------------------
+port/src/crash.c            481 → 492 lines  (+11)
+  • One localized #if !defined(PD_SERVER) block inside crashSigabrtHandler
+  • Extracted the chr-idx text into a single char buffer so the rest of
+    the handler prints uniformly, regardless of build target
+  • Updated the comment above the block to explain the guard and the
+    graceful-degradation rationale
+
+No changes to:
+  • src/game/chr.c              (definition stays at line 82)
+  • src/include/game/chr.h      (extern declaration stays at line 52)
+  • src/game/chraction.c        (reader at 13428 — client-only TU)
+  • src/game/lv.c               (reader at 2251 — client-only TU)
+  • CMakeLists.txt              (no source-list change, no new macro)
+
+--------------------------------------------------------------------------------
+GREP: POST-FIX REFERENCES TO g_ChrLastTickedIndex
+--------------------------------------------------------------------------------
+port/src/crash.c:400   comment  (guarded by PD_SERVER context)
+port/src/crash.c:405   extern s32 g_ChrLastTickedIndex;    ← inside #if !defined(PD_SERVER)
+port/src/crash.c:407   g_ChrLastTickedIndex                 ← inside #if !defined(PD_SERVER)
+src/include/game/chr.h:52   extern declaration (header, not a TU)
+src/game/chr.c:82      s32 g_ChrLastTickedIndex = -1;       ← definition (client-only TU)
+src/game/chr.c:2468    writer in chrTick                    ← client-only TU
+src/game/chr.c:2471    writer in chrTick                    ← client-only TU
+src/game/chraction.c:13428  reader                           ← client-only TU
+src/game/lv.c:2251     reader                                ← client-only TU
+
+Every reference is either in a client-only TU (src/game/*) or inside a
+#if !defined(PD_SERVER) guard. The server's preprocessed crash.c has zero
+mentions of the symbol.
+
+--------------------------------------------------------------------------------
+LINKER-LEVEL VERIFICATION (nm on build output)
+--------------------------------------------------------------------------------
+Server object (build/client/CMakeFiles/pd-server.dir/port/src/crash.c.obj):
+  NO symbols matching "chr" or "tick" — g_ChrLastTickedIndex compiled out entirely
+
+Client object (build/client/CMakeFiles/pd.dir/port/src/crash.c.obj):
+  0000000000000000 r .rdata$.refptr.g_ChrLastTickedIndex
+  0000000000000000 R .refptr.g_ChrLastTickedIndex
+                   U g_ChrLastTickedIndex    ← undefined, resolved from chr.c.obj at link
+
+This is conclusive proof the PD_SERVER guard works: server sees nothing,
+client sees the expected undefined reference that the linker resolves from
+src/game/chr.c.
+
+--------------------------------------------------------------------------------
+BUILD RESULTS
+--------------------------------------------------------------------------------
+cmake --build build/client --target pd        → [100%] Built target pd
+cmake --build build/client --target pd-server  → [100%] Built target pd-server
+
+Binary sizes:
+  PerfectDark.exe            48,675,238 bytes  (46.4 MB)
+  PerfectDarkServer.exe      22,786,384 bytes  (21.7 MB)
+
+Errors: 0
+Warnings: pre-existing only (model.c maybe-uninitialized, snd.c strncpy
+truncation, server_gui.cpp/updater.c/sha256.c/savemigrate.c "/*" within
+comment, enet.h unused gettime_offset, updater.h "/*" within comment,
+fs.c fsPathIsWritable shadow). None related to this fix.
+
+--------------------------------------------------------------------------------
+OUT-OF-SCOPE ISSUES SURFACED
+--------------------------------------------------------------------------------
+None directly from this fix. The only oddity: devtools/build-headless.ps1
+appears to have trouble with its stdout-spinner when stdout is redirected
+to a file under the Bash tool (exit code 5 seen in two runs, no real build
+error). Interactive invocation by Mike should be unaffected since he runs
+it in a real console. The fix was verified by running cmake --build
+directly, which produced clean output and correct binaries. This is a
+build-tooling ergonomic issue, not a fix regression — out of scope for
+S193b but worth noting for a future pass.
+
+The miniupnpc / upnperrors.c warnings from the Batch 0 report that Mike
+mentioned did NOT appear in this build, so either they were already fixed
+upstream or they only surface under certain flags. Not investigated further.
+
+--------------------------------------------------------------------------------
+LINE-COUNT VERIFICATION (both copies)
+--------------------------------------------------------------------------------
+Main copy:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\port\src\crash.c       → 492 lines
+Worktree:    .claude/worktrees/blissful-curie/port/src/crash.c                      → 492 lines
+diff -u main vs worktree → IDENTICAL (zero-line diff)
+First line:  #ifndef _GNU_SOURCE
+Last line:   }  (close of crashAppendChar)
+
+--------------------------------------------------------------------------------
+GIT STATE
+--------------------------------------------------------------------------------
+Main copy (dev branch):
+  Fix auto-committed by build-headless.ps1 as commit 47698b26
+  (Build v0.0.69 - auto-commit before build)
+  + subsequent auto-commits during verbose re-runs.
+  All subsequent clean builds succeed.
+
+Worktree (claude/blissful-curie branch):
+  Fix committed as 1c2588a6
+  (fix(s193b): guard g_ChrLastTickedIndex reference in server build)
+  Clean working tree.
+
+The two branches have the same fix as their head state; they diverged via
+two separate commits but contain byte-identical crash.c content. Mike can
+prune the worktree branch at his discretion — the main dev branch is
+already the source of truth for the release build.
+
+--------------------------------------------------------------------------------
+FOLLOW-UP WORK NEEDED
+--------------------------------------------------------------------------------
+None for S193b itself — the release blocker is resolved and verified.
+
+Notes for Mike:
+  1. His next invocation of build-headless.ps1 should succeed cleanly.
+     The auto-commit on his side may create a "Build v0.0.70 - auto-commit
+     before build" with no file changes since everything is already
+     landed.
+  2. The B-112 chr-slot diagnostic remains fully functional on the client
+     side. When the next SIGABRT fires in a 31-bot match, the crash log
+     will still report the failing chr index exactly as S191 designed.
+  3. Server crash handler now prints a clear "n/a (server build — no chr
+     tick loop)" for the same line. This is honest reporting for a target
+     that legitimately has no chr tick loop.
+  4. PD_SERVER macro is the canonical client/server split — continue using
+     it for any future cases where a client-only global needs to be
+     compiled out of the server build.
+
+================================================================================
+End of Report — S193b Complete
+================================================================================

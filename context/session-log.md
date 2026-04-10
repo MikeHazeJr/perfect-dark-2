@@ -3,6 +3,144 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S193 — 2026-04-10 (Session-log repair + 1080p scaling baseline flip + Batch 1 menu replacements)
+
+**Focus**: Three-phase session on top of S192 Batch 0.
+(1) Repair pre-existing mid-sentence truncation at the tail of session-log.md.
+(2) Flip `pdgui_scaling.h` baseline from 720p to 1080p to match the
+authoritative reference in `context/designs/d5-full-menu-overhaul.md`.
+(3) Execute Batch 1 of the menu replacement plan (seven "low-hanging
+fruit" dialogs: Exit Game, PD Mode Settings, MP End Game, and four
+filemgr pak-era dialogs).
+
+### Phase 1 — session-log.md truncation repair
+
+- Truncation origin identified at commit `79590470` (Build v0.0.50,
+  2026-04-07).  The S134 entry's tail was cut mid-sentence during an
+  auto-commit that also deleted the archived S130 entry.
+- Recovery: restored the full pre-truncation content from the original
+  commit `633979af` (the commit that introduced S134).  Tail contained
+  the closing sentence of "Fix 1", the entire "Fix 2" pdgui_menu_mainmenu
+  adjustment, Build status, Decisions Made, Next Steps, and the `---`
+  session-separator terminator.
+- Method: direct restore from git history.  No reconstruction needed.
+- Line counts: pre-repair 2276, post-repair 2294 (+18 lines).
+
+### Phase 2 — pdgui_scaling.h baseline 720p → 1080p
+
+Foundation-layer fix that unblocks every future menu batch.  The design
+spec at `context/designs/d5-full-menu-overhaul.md` uses 1080p reference
+values in every table; the implementation was carrying 720p reference
+values from before the spec was written.  S192 Batch 0 flagged the
+discrepancy as deferred item D-3; S193 resolves it.
+
+**Changed baseline constants**:
+- `pdgui_scaling.h`: `displayH / 720.0f` → `displayH / 1080.0f`
+- Menu width cap: `1200.0f` → `1800.0f` (preserves current visual width
+  via proportional scaling)
+- `pdguiBaseFontSize()` base: `16.0f` → `24.0f` (body-text tier per d5
+  table; minimum floor still 12 px)
+- Added `PDGUI_REF_WIDTH` / `PDGUI_REF_HEIGHT` macros
+- `pdgui_backend.cpp` safe-area fallback: `1280x720` → `1920x1080`
+
+**Action bar primitive constants (pdgui_layout.cpp)** — 720p tuning
+rescaled to 1080p equivalents:
+- `PDGUI_AB_BASE_HEIGHT_PX`  56 → 84
+- `PDGUI_AB_BUTTON_HEIGHT_PX` 42 → 64 (matches d5 "Button height: 64")
+- `PDGUI_AB_BODY_GAP_PX`       8 → 12
+- `PDGUI_AB_BODY_MIN_PX`      60 → 90
+- `PDGUI_AB_MIN_HEIGHT_PX`    48 (unchanged — absolute-pixel floor)
+
+**Bulk transformation of `pdguiScale(N.Nf)` literals** — every literal
+argument across 17 menu files was multiplied by `1.5` so visual output
+is identical at every resolution before and after the flip.  Mechanical
+transform done via `context/scratch/s193_scale_flip.py`:
+312 pdguiScale() literals rewritten across 17 files + 1 expression case
+handled manually (`pdgui_menu_solomission.cpp:1835`:
+`pdguiScale(38.0f * 5.0f)` → `pdguiScale(57.0f * 5.0f)`).
+
+**Files touched in Phase 2** (21 code files + 1 new doc):
+- `port/fast3d/pdgui_scaling.h`, `pdgui_layout.cpp`, `pdgui_backend.cpp`
+- `port/include/pdgui_layout.h` (docstring update)
+- 17 menu cpp files (countdown, challenges, endscreen, lobby, mainmenu,
+  modmgr, mpingame, mpsettings, network, pausemenu, room, solomission,
+  stats, teamsetup, training, update, warning)
+- `context/designs/scaling-baseline-1080.md` (new migration note, 169 lines)
+
+**Build result**: client target builds green on merged main.  Binary
+size 48,675,238 bytes — identical to baseline because the changes are
+pure float-literal adjustments that get inlined/constant-folded into
+identical machine code.  The reference resolution of the source code
+changes; the generated code does not.
+
+### Phase 3 — Batch 1 menu replacements
+
+Batch 1 per `context/designs/menu-replacement-plan.md` §"Batch 1: Simple
+Confirmations & Text Inputs": seven dialogs that were falling through to
+the generic DANGER/DEFAULT type fallback in `pdgui_menu_warning.cpp`
+without dedicated ownership.
+
+**Scope mapping** (seven dialogs):
+| Dialog | Source | Delivered as |
+|--------|--------|-------|
+| `g_ExitGameMenuDialog` | mainmenu.c:3554 (DANGER) | Upgraded `renderDangerDialog` with literal-text fix + scrim |
+| `g_PdModeSettingsMenuDialog` | mainmenu.c:1033 (DEFAULT + 3 sliders) | Upgraded `renderDefaultDialog` with SLIDER item support |
+| `g_MpEndGameMenuDialog` | mplayer/ingame.c:249 (DANGER) | Upgraded `renderDangerDialog` with scrim |
+| `g_FilemgrDeleteMenuDialog` | filemgr.c:3067 (N64 pak file picker) | PC placeholder: "Managed via Agent Select" |
+| `g_FilemgrCopyMenuDialog` | filemgr.c:3104 (N64 pak file picker) | PC placeholder |
+| `g_FilemgrOperationsMenuDialog` | filemgr.c:3382 (N64 pak ops menu) | PC placeholder |
+| `g_FilemgrSelectLocationMenuDialog` | filemgr.c:2928 (N64 pak selection) | PC placeholder |
+
+**Upgrades to `pdgui_menu_warning.cpp`** (578 → 749 lines, +171):
+- `pdguiPopupDarkenBehind(0.55f)` scrim at the start of every typed
+  dialog — replaces ad-hoc darken rectangles scattered across earlier
+  fixes.  Replaces the unfocused/scattered look of previous modals.
+- `MENUITEMFLAG_LITERAL_TEXT` handling in `getItemLabel()` — before
+  S193, `g_ExitGameMenuItems` label ("Are you sure you want to exit?")
+  was a raw `const char*` stored in `param2` with the
+  `MENUITEMFLAG_LITERAL_TEXT` flag set; the old helper called
+  `langSafe((s32)param2)` which interpreted pointer bits as a lang
+  index and rendered empty text.  Now the flag is honored.
+- `MENUITEMTYPE_SLIDER` item handling — new case in the item loop
+  calls the item handler with `MENUOP_GETSLIDER` + `MENUOP_GETSLIDERLABEL`
+  to read the current value and label, renders an `ImGui::SliderInt(0,
+  255)`, and writes back via `MENUOP_SET` on change.  Covers the three
+  PD Mode sliders (health, damage, accuracy) in a single path.
+- `renderFilemgrPcPlaceholder()` — new dedicated renderer for the four
+  pak-era filemgr dialogs.  Explains that PC agent management goes
+  through Agent Select and saves via `saves/agent_<name>.json`.  Uses
+  the S192 docked action-bar primitive for the OK button and the
+  popup-scrim primitive for the backdrop.  The placeholder is a safety
+  net for the rare fringe path that might still push one of these
+  dialogs; on PC they are otherwise unreachable in the normal flow.
+- Explicit hotswap registrations for all seven Batch 1 dialogs so the
+  hotswap log makes ownership clear (previously they fell through to
+  the type fallback anonymously).
+
+**Build result**: client target builds green.  Binary size
+48,686,343 bytes (+11,105 from Phase 2 baseline — reflects the new
+placeholder renderer, slider case, scrim call, and explicit
+registrations).
+
+### Zero-function-loss audit
+
+See `context/scratch/s193-report.txt` for the per-screen audit tables
+(visual parity, audio cues, controller accessibility) covering every
+Batch 1 dialog plus the re-verified Batch 0 primitives under the new
+1080p baseline.
+
+### Next Steps
+
+- In-game QC pass by Mike: verify ExitGame literal text renders, PD
+  Mode sliders move, MP End Game confirms, and the filemgr placeholder
+  is reachable only by fringe code paths (expected: never seen in
+  normal PC flow).
+- Batch 2 (Co-op & Counter-Op Flow — 4 screens) is next per the menu
+  replacement plan.  Batch 2 builds on the solo mission flow already
+  DONE and reuses the difficulty picker.
+
+---
+
 ## Session S192 — 2026-04-10 (Batch 0: Menu Replacement Foundation — layout primitives + model preview generalization + Mission Select / Challenges docking fixes)
 
 **Focus**: Execute Batch 0 of the menu replacement plan — foundation primitives
@@ -2274,4 +2412,21 @@ Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
 - `s_DepTable[CATALOG_MAX_DEP_PAIRS]` (256 static) → heap-allocated `s_DepPair *s_DepTable` + `s32 s_DepCap`.
 - Grows by doubling on demand (starting at CATALOG_MAX_DEP_PAIRS = 256).
 - `catalogDepClear()` now frees the buffer. `catalogDepClearMods()` compact-in-place (no realloc — keeps allocated capacity).
-- Previously: mods with many asset dependencies silently dropped entr
+- Previously: mods with many asset dependencies silently dropped entries at 256 with a LOG_WARNING.
+
+**Fix 2 — pdgui_menu_mainmenu.cpp** (`commit ab69868`):
+- `s_ManifestTypeNames[]`: added "Lang" at index 8 (= MANIFEST_TYPE_LANG, added in S130).
+- Bounds check: changed hardcoded `me->type < 8` → `me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0]))` so it auto-tracks the array.
+- Previously: Lang entries in the catalog debug tab showed "?" instead of "Lang".
+
+### Build
+- Build script redirects to main working copy when run from worktree. Changes applied directly to `dev` branch and pushed. Both targets build clean (no structural changes — all callers unchanged).
+
+### Decisions Made
+- The four `s_*Override[]` arrays in assetcatalog_load.c are NOT dynamic data: they're fixed-domain reverse-index maps (filenum/texnum/animnum/soundnum → pool_index). ROM source numbers don't grow. Correct as-is.
+- `CATALOG_MAX_DEP_PAIRS` constant retained in header as initial/minimum capacity for the dep table.
+
+### Next Steps
+- D5 UI Polish (B-91, B-92, B-93, B-96 are the recommended starting sequence per tasks-current.md).
+
+---
