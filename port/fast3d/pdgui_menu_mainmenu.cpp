@@ -2296,15 +2296,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 inputCtxPopDeferred(&g_CtxImGuiMenu);
             }
             s_MainMenuPushedCtx = false;
-            menuPopDialog();
-            /* Restore game control immediately. The legacy menutick
-             * bg-transition that normally calls func0f0fa6ac() →
-             * playerUnpause() + g_PlayersWithControl[0]=true may never
-             * complete when ImGui hotswap bypasses the legacy renderer.
-             * Without this, pausemode stays PAUSED (can't reopen menu)
-             * and g_PlayersWithControl[0] stays false (no movement). */
+
+            /* Restore game control BEFORE menuPopDialog. The legacy
+             * menutick bg-transition (func0f0fa6ac) never completes
+             * under ImGui hotswap. playerUnpause + g_PlayersWithControl
+             * must run before menuPopDialog in case it blocks or
+             * has side effects that prevent subsequent code. */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: calling playerUnpause, g_PlayersWithControl[0] was %d",
+                         (int)g_PlayersWithControl[0]);
             playerUnpause();
             g_PlayersWithControl[0] = true;
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: playerUnpause done, g_PlayersWithControl[0] = true");
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: calling menuPopDialog");
+            menuPopDialog();
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: menuPopDialog done");
         }
     }
 

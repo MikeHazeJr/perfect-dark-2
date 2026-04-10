@@ -1050,6 +1050,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	// Pausing
 	if (g_Vars.currentplayer->isdead == false) {
+		if (c1buttonsthisframe & START_BUTTON) {
+			sysLogPrintf(LOG_NOTE, "MENU: ACTION_PAUSE detected, pausemode=%d g_PlayersWithControl[0]=%d mplayerisrunning=%d lvframenum=%d",
+				g_Vars.currentplayer->pausemode,
+				(int)g_PlayersWithControl[g_Vars.currentplayernum],
+				(int)g_Vars.mplayerisrunning,
+				g_Vars.lvframenum);
+		}
 		if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED && (c1buttonsthisframe & START_BUTTON)) {
 			if (g_Vars.mplayerisrunning == false) {
 				if (g_Vars.lvframenum > 15) {
