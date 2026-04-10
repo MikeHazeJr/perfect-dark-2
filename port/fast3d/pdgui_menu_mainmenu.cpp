@@ -62,9 +62,11 @@ extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
 
 /* S195 Batch 3 — CI Options sub-dialogs.  Registered with redirect renderer
  * that pops the CI dialog and opens the unified Settings view on the
- * matching sub-tab.  P2 variants are dead (no split-screen). */
+ * matching sub-tab.  P2 variants are dead (no split-screen).
+ * Note: g_CiControlOptionsMenuDialog2 is PAL-only (#if VERSION >= PAL_FINAL)
+ * and is NOT declared here because the PC port is NTSC-derived and the
+ * symbol would produce an undefined-reference link error. */
 extern struct menudialogdef g_CiControlOptionsMenuDialog;
-extern struct menudialogdef g_CiControlOptionsMenuDialog2;
 extern struct menudialogdef g_CiControlStyleMenuDialog;
 extern struct menudialogdef g_CiDisplayMenuDialog;
 extern struct menudialogdef g_CiControlStylePlayer2MenuDialog;
@@ -2760,7 +2762,6 @@ static s32 ciRedirectTargetTabForDialog(struct menudialogdef *dlg)
      *   0 = Video, 1 = Audio, 2 = Controls, 3 = Game,
      *   4 = Updates, 5 = Debug, 6 = Catalog. */
     if (dlg == &g_CiControlOptionsMenuDialog)    return 2; /* Controls */
-    if (dlg == &g_CiControlOptionsMenuDialog2)   return 2; /* Controls */
     if (dlg == &g_CiControlStyleMenuDialog)      return 2; /* Controls */
     if (dlg == &g_CiDisplayMenuDialog)           return 0; /* Video */
     if (dlg == &g_CiOptionsViaPcMenuDialog)      return 0; /* start on Video */
@@ -3023,11 +3024,8 @@ void pdguiMenuMainMenuRegister(void)
             renderCiSettingsRedirect,
             "CI Control Options -> Settings.Controls"
         );
-        pdguiHotswapRegister(
-            &g_CiControlOptionsMenuDialog2,
-            renderCiSettingsRedirect,
-            "CI Control Options 2 -> Settings.Controls"
-        );
+        /* Note: g_CiControlOptionsMenuDialog2 is PAL-only; not registered in
+         * the NTSC-derived PC port build. */
         pdguiHotswapRegister(
             &g_CiControlStyleMenuDialog,
             renderCiSettingsRedirect,

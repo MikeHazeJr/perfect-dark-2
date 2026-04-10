@@ -38,19 +38,27 @@ extern "C" {
 #define MENUITEMTYPE_LIST        0x02
 #define MENUITEMTYPE_SELECTABLE  0x04
 #define MENUITEMTYPE_SLIDER      0x08
+#define MENUITEMTYPE_CHECKBOX    0x09
 #define MENUITEMTYPE_SEPARATOR   0x0b
 #define MENUITEMTYPE_DROPDOWN    0x0c
 #define MENUITEMTYPE_KEYBOARD    0x0d
+#define MENUITEMTYPE_MARQUEE     0x17
 #define MENUITEMTYPE_END         0x1a
 
 /* Menu item flags (from src/include/constants.h) */
 #define MENUITEMFLAG_LITERAL_TEXT 0x08000000
 
-/* Menu operations */
-#define MENUOP_SET            6
-#define MENUOP_GETSLIDER      9
-#define MENUOP_GETSLIDERLABEL 10
-#define MENUOP_GETTEXT        17
+/* Menu operations (subset actually used by the typed-dialog renderer;
+ * full list in src/include/constants.h). */
+#define MENUOP_GETOPTIONCOUNT     1
+#define MENUOP_GETOPTIONTEXT      3
+#define MENUOP_SET                6
+#define MENUOP_GETSELECTEDINDEX   7
+#define MENUOP_GET                8
+#define MENUOP_GETSLIDER          9
+#define MENUOP_GETSLIDERLABEL    10
+#define MENUOP_CHECKDISABLED     12
+#define MENUOP_GETTEXT           17
 
 /* Dialog types */
 #define MENUDIALOGTYPE_DEFAULT 1
@@ -74,8 +82,9 @@ struct menuitem {
 
 /* handlerdata is a large union in types.h (~128+ bytes).
  * Over-allocate so item handlers don't corrupt the stack.
- * We also define the keyboard and slider sub-structs for confirmation
- * dialogs and slider widgets (e.g., PD Mode Settings). */
+ * We also define the keyboard, slider, checkbox, and dropdown sub-structs
+ * for confirmation dialogs and widgets (S193 sliders, S195 B4 checkbox +
+ * dropdown for Cheats / Cinema / MP setup). */
 struct handlerdata_keyboard {
     char *string;
 };
@@ -85,9 +94,20 @@ struct handlerdata_slider {
     char *label;
 };
 
+struct handlerdata_checkbox {
+    u32 value;
+};
+
+struct handlerdata_dropdown {
+    uintptr_t value;
+    uintptr_t unk04;
+};
+
 union handlerdata {
-    struct handlerdata_keyboard keyboard;
-    struct handlerdata_slider   slider;
+    struct handlerdata_keyboard  keyboard;
+    struct handlerdata_slider    slider;
+    struct handlerdata_checkbox  checkbox;
+    struct handlerdata_dropdown  dropdown;
     u8 _pad[256];
 };
 
@@ -162,12 +182,31 @@ static const char *getItemLabel(struct menuitem *item)
         return lit ? lit : "";
     }
 
-    if (item->param2 != 0) {
+    if (item->param2 == 0) return "";
+
+    /* S195 Batch 4 fix: match the legacy menuResolveText() contract in
+     * src/game/menu.c:490.  Lang text IDs are low integers (< 0x5a00);
+     * anything at or above that threshold is a pointer — either a literal
+     * text pointer or a callback (char*(*)(struct menuitem *)).  The
+     * CHECKBOX items in cheats.c use param2 as a callback
+     * (cheatGetNameIfUnlocked) that returns the cheat name dynamically,
+     * so treating them as lang IDs would render garbage. */
+    if ((uintptr_t)item->param2 < 0x5a00u) {
         const char *s = langSafe((s32)item->param2);
-        if (s && s[0]) return s;
+        return (s && s[0]) ? s : "";
     }
 
-    return "";
+    /* Function pointer or literal pointer.  Try as callback first — if
+     * the pointer is a function, the game-side convention is
+     * char *(*fn)(struct menuitem *).  If it's a literal string pointer
+     * mis-classified here, the wrong branch would crash, but the game
+     * convention for checkbox/list labels is that high-valued param2 is
+     * always a function pointer (verified against cheats.c and
+     * trainingmenus.c). */
+    typedef char *(*ItemLabelFn)(struct menuitem *);
+    ItemLabelFn fn = (ItemLabelFn)item->param2;
+    char *s = fn(item);
+    return (s && s[0]) ? s : "";
 }
 
 /* ========================================================================
@@ -436,9 +475,151 @@ static s32 renderTypedDialog(struct menudialog *dialog,
                     break;
                 }
 
+                case MENUITEMTYPE_CHECKBOX: {
+                    /* S195 Batch 4: Checkboxes are used by Cheats, MP Options,
+                     * and a handful of other list-style dialogs.  Label may be
+                     * a langID OR a char*(*)(menuitem*) callback (getItemLabel
+                     * handles both). */
+                    const char *label = getItemLabel(item);
+                    if (!label[0]) label = "(unnamed)";
+
+                    /* Read current state via MENUOP_GET.  The handler returns
+                     * the value directly as the function's return code rather
+                     * than via data->checkbox.value — cheatCheckboxMenuHandler
+                     * follows this convention. */
+                    bool checked = false;
+                    bool disabled = false;
+                    if (item->handler) {
+                        union handlerdata hd;
+                        memset(&hd, 0, sizeof(hd));
+                        uintptr_t r = item->handler(MENUOP_GET, item, &hd);
+                        checked = (r != 0) || (hd.checkbox.value != 0);
+
+                        /* MENUOP_CHECKDISABLED — returns non-zero when the
+                         * item should render disabled (e.g., locked cheats). */
+                        memset(&hd, 0, sizeof(hd));
+                        uintptr_t d = item->handler(MENUOP_CHECKDISABLED, item, &hd);
+                        disabled = (d != 0);
+                    }
+
+                    ImGui::PushID((const void *)item);
+                    if (disabled) ImGui::BeginDisabled();
+
+                    bool changed = ImGui::Checkbox(label, &checked);
+
+                    if (disabled) ImGui::EndDisabled();
+                    ImGui::PopID();
+
+                    if (changed) {
+                        pdguiPlaySound(checked ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
+                        if (item->handler) {
+                            union handlerdata hd;
+                            memset(&hd, 0, sizeof(hd));
+                            hd.checkbox.value = checked ? 1u : 0u;
+                            item->handler(MENUOP_SET, item, &hd);
+                        }
+                    }
+                    break;
+                }
+
+                case MENUITEMTYPE_DROPDOWN: {
+                    /* S195 Batch 4: Dropdowns are used by cheats "Buddies"
+                     * picker, soundtrack selection, etc.  Enumerate options
+                     * via MENUOP_GETOPTIONCOUNT + MENUOP_GETOPTIONTEXT; read
+                     * current index via MENUOP_GETSELECTEDINDEX. */
+                    const char *label = getItemLabel(item);
+                    if (!label[0]) label = "(option)";
+
+                    s32 optCount    = 0;
+                    s32 curIdx      = 0;
+                    if (item->handler) {
+                        union handlerdata hd;
+                        memset(&hd, 0, sizeof(hd));
+                        item->handler(MENUOP_GETOPTIONCOUNT, item, &hd);
+                        optCount = (s32)hd.dropdown.value;
+
+                        memset(&hd, 0, sizeof(hd));
+                        item->handler(MENUOP_GETSELECTEDINDEX, item, &hd);
+                        curIdx = (s32)hd.dropdown.value;
+                    }
+                    if (optCount <= 0) optCount = 1;
+                    if (curIdx < 0) curIdx = 0;
+                    if (curIdx >= optCount) curIdx = optCount - 1;
+
+                    /* Get current option text for the combo preview. */
+                    char curText[64] = "";
+                    if (item->handler) {
+                        union handlerdata hd;
+                        memset(&hd, 0, sizeof(hd));
+                        hd.dropdown.value = (uintptr_t)curIdx;
+                        uintptr_t r = item->handler(MENUOP_GETOPTIONTEXT, item, &hd);
+                        const char *s = (const char *)r;
+                        if (!s || !s[0]) s = (const char *)hd.dropdown.unk04;
+                        if (s && s[0]) {
+                            snprintf(curText, sizeof(curText), "%s", s);
+                        }
+                    }
+
+                    ImGui::PushID((const void *)item);
+                    ImGui::TextUnformatted(label);
+                    float availW = ImGui::GetContentRegionAvail().x;
+                    ImGui::SetNextItemWidth(availW);
+                    if (ImGui::BeginCombo("##dropdown", curText)) {
+                        for (s32 i = 0; i < optCount; i++) {
+                            char itemText[64] = "";
+                            if (item->handler) {
+                                union handlerdata hd;
+                                memset(&hd, 0, sizeof(hd));
+                                hd.dropdown.value = (uintptr_t)i;
+                                uintptr_t r = item->handler(MENUOP_GETOPTIONTEXT, item, &hd);
+                                const char *s = (const char *)r;
+                                if (!s || !s[0]) s = (const char *)hd.dropdown.unk04;
+                                if (s && s[0]) {
+                                    snprintf(itemText, sizeof(itemText), "%s", s);
+                                } else {
+                                    snprintf(itemText, sizeof(itemText), "Option %d", i);
+                                }
+                            } else {
+                                snprintf(itemText, sizeof(itemText), "Option %d", i);
+                            }
+
+                            bool isSel = (i == curIdx);
+                            if (ImGui::Selectable(itemText, isSel)) {
+                                if (i != curIdx && item->handler) {
+                                    union handlerdata hd;
+                                    memset(&hd, 0, sizeof(hd));
+                                    hd.dropdown.value = (uintptr_t)i;
+                                    item->handler(MENUOP_SET, item, &hd);
+                                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                                }
+                            }
+                            if (isSel) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+
+                case MENUITEMTYPE_MARQUEE: {
+                    /* Scrolling text banner (e.g., "Cheat Available").  ImGui
+                     * has no native marquee; render the text as a dimmed
+                     * centered label so the user sees it without the scroll
+                     * animation.  Callback labels are the common case here. */
+                    const char *label = getItemLabel(item);
+                    if (label[0]) {
+                        float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+                        ImVec2 ts = ImGui::CalcTextSize(label);
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                              (availW - ts.x) * 0.5f);
+                        ImGui::TextDisabled("%s", label);
+                    }
+                    break;
+                }
+
                 default:
-                    /* Skip unhandled item types (lists, dropdowns, etc.)
-                     * These are complex widgets; for now, show a placeholder. */
+                    /* Skip unhandled item types (lists, carousels, models).
+                     * These are complex widgets; show a placeholder. */
                     {
                         const char *label = getItemLabel(item);
                         if (label[0]) {
@@ -742,8 +923,183 @@ void pdguiMenuWarningRegister(void)
                           renderFilemgrPcPlaceholder,
                           "Filemgr Select Location (PC placeholder, Batch 1)");
 
+    /* S195 Batch 4 — Cheats dialogs.
+     *
+     * Cheats are MENUDIALOGTYPE_DEFAULT and would fall through to the
+     * DEFAULT type-based renderer anyway, but explicit registration makes
+     * the hotswap log show named ownership instead of "(type fallback)".
+     * Every item is one of:
+     *   - MENUITEMTYPE_CHECKBOX with cheatCheckboxMenuHandler and a dynamic
+     *     label callback (cheatGetNameIfUnlocked) in param2.  Our
+     *     getItemLabel() calls the callback via the menuResolveText()
+     *     contract (< 0x5a00 = langID, >= 0x5a00 = callback).
+     *   - MENUITEMTYPE_SELECTABLE for "Turn off all Cheats",
+     *     "Unlock Everything", "Done".
+     *   - MENUITEMTYPE_MARQUEE for the scrolling "Cheat Available" banner;
+     *     rendered as dimmed centered text (no native ImGui marquee).
+     *   - MENUITEMTYPE_SEPARATOR between groups.
+     *
+     * The Batch 4 extension to renderTypedDialog handles every one of
+     * these without per-cheat code.  The Cheats root uses SELECTABLE-
+     * OPENSDIALOG to navigate into each category; legacy menu plumbing
+     * (menuhandlerOpenDialog via menuPushDialog) still drives the push on
+     * activation — our renderer only needs to activate the button. */
+    extern struct menudialogdef g_CheatsMenuDialog;
+    extern struct menudialogdef g_CheatsFunMenuDialog;
+    extern struct menudialogdef g_CheatsGameplayMenuDialog;
+    extern struct menudialogdef g_CheatsSoloWeaponsMenuDialog;
+    extern struct menudialogdef g_CheatsClassicWeaponsMenuDialog;
+    extern struct menudialogdef g_CheatsWeaponsMenuDialog;
+    extern struct menudialogdef g_CheatsBuddiesMenuDialog;
+    extern struct menudialogdef g_CheatsWarningMenuDialog;
+    extern struct menudialogdef g_CheatsConfirmUnlockMenuDialog;
+
+    pdguiHotswapRegister(&g_CheatsMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Root (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsFunMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Fun (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsGameplayMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Gameplay (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsSoloWeaponsMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Solo Weapons (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsClassicWeaponsMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Classic Weapons (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsWeaponsMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Weapons (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsBuddiesMenuDialog,
+                          renderDefaultDialog,
+                          "Cheats Buddies (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsWarningMenuDialog,
+                          renderDangerDialog,
+                          "Cheats Warning (Batch 4)");
+    pdguiHotswapRegister(&g_CheatsConfirmUnlockMenuDialog,
+                          renderDangerDialog,
+                          "Cheats Confirm Unlock (Batch 4)");
+
+    /* S195 Batch 8 — MP Pause & In-Game dialogs.
+     *
+     * These are pushed from the Multiplayer pause menu during a match.
+     * All six are MENUDIALOGTYPE_DEFAULT.  Item composition:
+     *
+     *   MpPauseControl         — LABEL (dyn) + SEPARATOR + LABEL (dyn) +
+     *                             SELECTABLE + DROPDOWN + SELECTABLE x2.
+     *                             All item types covered by B4 extensions.
+     *   MpPlayerOptions        — CHECKBOX + DROPDOWN + SELECTABLE.  Covered.
+     *   MpPauseInventory       — LIST (weapons) + MARQUEE (description).
+     *                             LIST shows as [placeholder] — DEFERRED for
+     *                             a future batch that adds LIST support.
+     *   MpPausePlayerStats     — PLAYERSTATS type — DEFERRED.
+     *   MpPausePlayerRanking   — RANKING type — DEFERRED.
+     *   MpPauseTeamRankings    — RANKING type — DEFERRED.
+     *
+     * All six are registered via renderDefaultDialog so the PD-authentic
+     * frame + scrim + controller nav work, and the items that our
+     * extended typed-dialog primitive supports (LABEL / SEPARATOR /
+     * SELECTABLE / DROPDOWN / CHECKBOX / MARQUEE) render natively.  The
+     * special types (LIST / PLAYERSTATS / RANKING) fall to the default
+     * case which shows `[label]` — a visible DEFERRED marker the player
+     * can see and the developer can track. */
+    extern struct menudialogdef g_MpPauseControlMenuDialog;
+    extern struct menudialogdef g_MpPauseInventoryMenuDialog;
+    extern struct menudialogdef g_MpPausePlayerStatsMenuDialog;
+    extern struct menudialogdef g_MpPausePlayerRankingMenuDialog;
+    extern struct menudialogdef g_MpPauseTeamRankingsMenuDialog;
+    extern struct menudialogdef g_MpPlayerOptionsMenuDialog;
+
+    pdguiHotswapRegister(&g_MpPauseControlMenuDialog,
+                          renderDefaultDialog,
+                          "MP Pause Control (Batch 8)");
+    pdguiHotswapRegister(&g_MpPlayerOptionsMenuDialog,
+                          renderDefaultDialog,
+                          "MP Player Options (Batch 8)");
+    pdguiHotswapRegister(&g_MpPauseInventoryMenuDialog,
+                          renderDefaultDialog,
+                          "MP Pause Inventory (Batch 8 partial - LIST deferred)");
+    pdguiHotswapRegister(&g_MpPausePlayerStatsMenuDialog,
+                          renderDefaultDialog,
+                          "MP Pause Player Stats (Batch 8 partial - PLAYERSTATS deferred)");
+    pdguiHotswapRegister(&g_MpPausePlayerRankingMenuDialog,
+                          renderDefaultDialog,
+                          "MP Pause Player Ranking (Batch 8 partial - RANKING deferred)");
+    pdguiHotswapRegister(&g_MpPauseTeamRankingsMenuDialog,
+                          renderDefaultDialog,
+                          "MP Pause Team Rankings (Batch 8 partial - RANKING deferred)");
+
+    /* S195 Batch 11 — MP Player Config & Stats.
+     *
+     * g_MpCharacterMenuDialog: LIST of characters (bodies/heads).  DEFERRED
+     *   behind LIST primitive.  Character selection already exists in the
+     *   modern room.cpp flow via pdgui_menu_agentcreate; the legacy screen
+     *   is only reached via the legacy MP setup tree.
+     * g_MpPlayerStatsMenuDialog: PLAYERSTATS type — same DEFERRED as pause.
+     * g_MpLoadSettings / LoadPreset / LoadPlayer: LIST of saved items —
+     *   DEFERRED behind LIST primitive.
+     *
+     * Registering with renderDefaultDialog gives the PD frame + scrim and
+     * a visible placeholder for the complex items, marking the work item
+     * without hiding the dialog. */
+    extern struct menudialogdef g_MpCharacterMenuDialog;
+    extern struct menudialogdef g_MpPlayerStatsMenuDialog;
+    extern struct menudialogdef g_MpLoadSettingsMenuDialog;
+    extern struct menudialogdef g_MpLoadPresetMenuDialog;
+    extern struct menudialogdef g_MpLoadPlayerMenuDialog;
+
+    pdguiHotswapRegister(&g_MpCharacterMenuDialog,
+                          renderDefaultDialog,
+                          "MP Character (Batch 11 partial - LIST deferred)");
+    pdguiHotswapRegister(&g_MpPlayerStatsMenuDialog,
+                          renderDefaultDialog,
+                          "MP Player Stats (Batch 11 partial - PLAYERSTATS deferred)");
+    pdguiHotswapRegister(&g_MpLoadSettingsMenuDialog,
+                          renderDefaultDialog,
+                          "MP Load Settings (Batch 11 partial - LIST deferred)");
+    pdguiHotswapRegister(&g_MpLoadPresetMenuDialog,
+                          renderDefaultDialog,
+                          "MP Load Preset (Batch 11 partial - LIST deferred)");
+    pdguiHotswapRegister(&g_MpLoadPlayerMenuDialog,
+                          renderDefaultDialog,
+                          "MP Load Player (Batch 11 partial - LIST deferred)");
+
+    /* S195 Batch 12 — Music & Misc.
+     *
+     * g_MpSelectTunesMenuDialog: LIST of music tracks.  DEFERRED.
+     * g_MpSoundtrackMenuDialog:  Config screen, likely CHECKBOX + DROPDOWN.
+     *                            Should work with B4 extensions.
+     * g_MpTeamNamesMenuDialog:   KEYBOARD text entry per team.  Currently
+     *                            the KEYBOARD handler uses a single buffer
+     *                            (s_KbdBuffer), so this dialog would render
+     *                            but multi-entry edits aren't wired.
+     *                            Registered with type fallback for now.
+     * g_MpChallengesMenuDialog:  LIST of challenges — DEFERRED (already has
+     *                            a dedicated renderer in pdgui_menu_challenges.cpp
+     *                            for the DETAIL dialog, this is the parent).
+     */
+    extern struct menudialogdef g_MpSelectTunesMenuDialog;
+    extern struct menudialogdef g_MpSoundtrackMenuDialog;
+    extern struct menudialogdef g_MpTeamNamesMenuDialog;
+    extern struct menudialogdef g_MpChallengesMenuDialog;
+
+    pdguiHotswapRegister(&g_MpSelectTunesMenuDialog,
+                          renderDefaultDialog,
+                          "MP Select Tunes (Batch 12 partial - LIST deferred)");
+    pdguiHotswapRegister(&g_MpSoundtrackMenuDialog,
+                          renderDefaultDialog,
+                          "MP Soundtrack (Batch 12)");
+    pdguiHotswapRegister(&g_MpTeamNamesMenuDialog,
+                          renderDefaultDialog,
+                          "MP Team Names (Batch 12 - single-entry KEYBOARD)");
+    pdguiHotswapRegister(&g_MpChallengesMenuDialog,
+                          renderDefaultDialog,
+                          "MP Challenges root (Batch 12 partial - LIST deferred)");
+
     s_Registered = true;
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS type fallbacks + S193 Batch 1 explicit dialogs");
+    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS fallbacks + S193 Batch 1 + S195 Batches 4/8/11/12 explicit dialogs");
 }
 
 } /* extern "C" */

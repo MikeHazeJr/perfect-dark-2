@@ -3,6 +3,129 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S195 — 2026-04-10 (Marathon: Menu Batches 3, 4, 8, 11, 12)
+
+**Focus**: Marathon session under "keep going as far as you can" directive.
+Five batches delivered across two files, under full merge + build + audit
+discipline.  Directly follows S194 (Batch 2 merged to main).
+
+### Batches delivered
+
+| Batch | Scope | Screens | Coverage |
+|---|---|---|---|
+| **3** | CI Options → unified Settings redirect + P2 dead dialogs | 9 | FULL |
+| **4** | Cheats (typed-dialog primitive extended with CHECKBOX / DROPDOWN / MARQUEE + function-pointer label callback) | 9 | FULL (Cinema deferred) |
+| **8** | MP Pause & In-Game | 6 | 2 FULL, 4 PARTIAL |
+| **11** | MP Player Config & Stats | 5 | PARTIAL |
+| **12** | Music & Misc | 4 | 1 FULL, 3 PARTIAL |
+
+Total: **27 dialogs** registered across the five batches.  Partial
+coverage dialogs render the PD frame + scrim + all supported items with
+a visible `[label]` placeholder for the complex LIST / PLAYERSTATS /
+RANKING items — a tracked DEFERRED marker, not a silent failure.
+
+### Foundation-level change: typed-dialog primitive extension
+
+`port/fast3d/pdgui_menu_warning.cpp` renderTypedDialog() extended in
+Batch 4 to natively handle three new item types:
+- **MENUITEMTYPE_CHECKBOX** (0x09) — reads via MENUOP_GET, writes via
+  MENUOP_SET, honours MENUOP_CHECKDISABLED for locked cheats.  Fires
+  PDGUI_SND_TOGGLEON / TOGGLEOFF on state flip.
+- **MENUITEMTYPE_DROPDOWN** (0x0c) — enumerates via MENUOP_GETOPTIONCOUNT
+  + MENUOP_GETOPTIONTEXT, reads current via MENUOP_GETSELECTEDINDEX,
+  renders as ImGui::BeginCombo.  Fires PDGUI_SND_SUBFOCUS on step.
+- **MENUITEMTYPE_MARQUEE** (0x17) — rendered as centered dimmed text
+  (ImGui has no native marquee; the scrolling animation is a decorative
+  N64 artifact).
+
+`getItemLabel()` updated to match the legacy `menuResolveText()` contract
+in `src/game/menu.c:490` — param2 values >= 0x5a00 are treated as
+function pointers `char *(*)(struct menuitem *)` and called.  Without this
+fix the Cheats screens would render every cheat as garbage because
+`cheatGetNameIfUnlocked` is stored in param2 as a callback, not a langID.
+
+Shadow structs `handlerdata_checkbox` and `handlerdata_dropdown` added to
+the warning.cpp `union handlerdata` so the MENUOP_GET/SET handler ABI
+works byte-for-byte with the game-side `cheatCheckboxMenuHandler`.
+
+### Batch 3 specifics — CI Options redirect
+
+`port/fast3d/pdgui_menu_mainmenu.cpp` extended with:
+- `renderCiSettingsRedirect` — opens a PD-framed window with
+  `pdguiPopupDarkenBehind(0.55f)`, pre-selects the sub-tab matching the
+  pushed CI dialog (Controls / Video / etc.) via a small pointer→tab
+  mapping, calls the existing `renderSettingsView()` body, and docks a
+  Back button using `pdguiBeginActionBar + pdguiActionBarButton`.
+- `renderCiDeadPlayer2` — small "Split-screen is not supported" notice
+  for the three P2 CI dialogs with OK action bar button and auto-pop.
+- 9 hotswap registrations in `pdguiMenuMainMenuRegister()`:
+  CI Options root x2, Control Options / Control Style / Display x3,
+  P2 dead x3.  `g_CiControlOptionsMenuDialog2` is PAL-only (`#if VERSION
+  >= VERSION_PAL_FINAL`) and is explicitly NOT declared — referencing it
+  produced an `undefined reference` link error on the first build
+  attempt; fix verified.
+
+`dialog->definition` pattern not usable (C++ can't include types.h);
+used `struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog)`
+shadow-struct approach from `pdgui_menu_warning.cpp`.
+
+### Build gate results
+
+| Batch gate           | Client (bytes)   | Server (bytes)  | Delta (client) |
+|----------------------|------------------|-----------------|----------------|
+| S194 end             | 48,716,058       | 22,786,384      | —              |
+| S195 Batch 3         | 48,727,498       | 22,786,384      | +11,440        |
+| S195 Batch 4         | 48,734,190       | 22,786,384      | +6,692         |
+| S195 B8 / B11 / B12  | 48,739,743       | 22,786,384      | +5,553         |
+
+**Total client delta**: +23,685 bytes.  **Server unchanged** (port/fast3d/
+is excluded from the server source list).  **S193b server linker guard
+(#if !defined(PD_SERVER) around g_ChrLastTickedIndex) verified intact**
+across every build gate.
+
+### Files changed
+
+| File                                     | Before | After | Delta |
+|------------------------------------------|--------|-------|-------|
+| port/fast3d/pdgui_menu_mainmenu.cpp      | 2743   | 3063  | +320  |
+| port/fast3d/pdgui_menu_warning.cpp       | 749    | 1105  | +356  |
+| context/scratch/s195-report.txt (new)    | 0      | ~680  | +680  |
+| context/session-log.md (this entry)      | +      | +     | incr  |
+| context/tasks-current.md                 | +      | +     | incr  |
+
+### Stopping decision (explicit)
+
+Stopped at a clean boundary after 5 batches.  Rationale:
+- Remaining batches (5, 6, 7, 10) all need primitive extensions
+  (MENUITEMTYPE_LIST, PLAYERSTATS, RANKING, CAROUSEL, or the model
+  preview pipeline for 3D training screens) that deserve their own
+  audit pass in the next session.
+- Rushing those extensions at the tail of this session would risk the
+  quality bar.  Mike's directive was "volume under the same quality
+  bar", which this session has maintained.
+- The LIST primitive is the single highest-leverage extension —
+  unlocking ~20 dialogs in one focused pass.  That's the right first
+  item for S196.
+
+### Deferred inventory (full list in `context/scratch/s195-report.txt`)
+
+High-leverage primitives to land in S196:
+- `MENUITEMTYPE_LIST` — unlocks Cinema, MpPauseInventory, MpCharacter,
+  MpLoadSettings, MpLoadPreset, MpLoadPlayer, MpSelectTunes,
+  MpChallenges root, bio/dt lists in training.
+- `MENUITEMTYPE_PLAYERSTATS` — unlocks player-stats pause/endscreen
+  screens.
+- `MENUITEMTYPE_RANKING` — unlocks player/team ranking pause screens.
+- `MENUITEMTYPE_CAROUSEL` — unlocks bot simulant character picker.
+
+### Next steps
+
+- Mike's in-game QC pass — checklist in `context/scratch/s195-report.txt`.
+- S196: begin with `MENUITEMTYPE_LIST` primitive extension, then sweep
+  Batches 5-7 in one pass.
+
+---
+
 ## Session S194 — 2026-04-10 (Batch 2: Co-op / Counter-Op Flow menu replacements)
 
 **Focus**: Execute Batch 2 of the menu replacement plan — Co-op and
