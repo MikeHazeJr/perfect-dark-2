@@ -1588,4 +1588,43 @@ void actionmapInit(void)
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
     g_ImcTextInput.name    = "text_input";    g_ImcTextInput.priority    = 30;
 
-    /* Populate default bindings (into IMC struct
+    /* Populate default bindings (into IMC structs, not yet active) */
+    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
+        setupGameplayDefaults(p);
+        setupVehicleDefaults(p);
+    }
+    setupMenuDefaults();
+    setupPauseMenuDefaults();
+    setupDebugOverlayDefaults();
+    setupTextInputDefaults();
+
+    /* Build default bind strings for pd.ini registration */
+    initDefaultBindStrings();
+
+    /* Register bind strings with config system.
+     * configLoad() will overwrite defaults if the key exists in pd.ini. */
+    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
+        for (s32 a = 0; a < ACTION_COUNT; a++) {
+            char key[80];
+            snprintf(key, sizeof(key), "ActionMap.P%d.%s", p, s_ActionNames[a]);
+            configRegisterString(key, s_BindStr[p][a], BIND_STR_MAX);
+        }
+    }
+
+    /* Register stick tuning variables with config system */
+    configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
+    configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
+    configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
+    configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
+
+    /* Activate only the gameplay context by default.
+     * Menu IMC is activated/deactivated by the input context push/pop system
+     * (g_CtxImGuiMenu, g_CtxPauseMenu, g_CtxDebugOverlay).  Activating it
+     * here caused it to shadow gameplay gamepad bindings (same VKs at higher
+     * priority) — A/B/LB/RB/D-pad/stick all fired MENU actions instead of
+     * gameplay actions during gameplay. */
+    imcActivate(&g_ImcGameplay);
+
+    sysLogPrintf(LOG_NOTE, "ACTIONMAP: initialized — %d actions, %d players, %d IMCs",
+                 (s32)ACTION_COUNT, ACTIONMAP_MAX_PLAYERS, s_NumActive);
+}
