@@ -164,21 +164,25 @@ See `context/null-guard-audit-players.md` for full findings.
 **Root cause**: The build and edit pipeline (PowerShell scripts, AI edit tools) silently truncates files under certain conditions. Content written beyond a threshold (encoding issue, buffer limit, or streaming flush failure) is discarded without error. The file is saved with fewer lines but the write is reported as successful.
 
 **Known incidents**:
-- `devtools/_dev-window.ps1`: 2311 → 2232 lines lost (encoding: em-dashes caused Windows-1252 truncation). Restored from commit `68c0b186`.
-- `port/src/actionmap.cpp`: 1624 → 1590 lines lost (cause TBD).
-- 19 files in an earlier session (cause TBD — likely same pipeline pass).
+- `devtools/_dev-window.ps1`: 2311 → 2232 lines lost (encoding: em-dashes caused Windows-1252 truncation). Restored from commit `68c0b186`. **Mode A.**
+- `port/src/actionmap.cpp`: 1624 → 1590 lines lost (AI output token limit mid-generation). Committed in `2ec0849e`, masked by auto-commit. Repaired by subsequent session. **Mode B.**
+- ~19 files in an earlier session (pre-S140, large context): unrecovered forensically, likely Mode B.
 
-**Contributing factor**: Em-dashes (—, U+2014) in PowerShell scripts cause issues when the pipeline writes through a non-UTF-8 code page (Windows-1252 default). The file is truncated at the first problematic character.
+**Two distinct failure modes** (see Deep Investigation section below):
+- **Mode A** (encoding): PS script written through Windows-1252 code page; first non-ASCII byte silently terminates write. Mitigated by no-em-dash rule in `.ps1` files.
+- **Mode B** (AI output limit): AI Edit/Write tool call truncated mid-character when session context is saturated; tool writes truncated content without error. **ONGOING RISK** -- safeguard catches this at commit time but not within-session.
+
+**Safeguard** (**IMPLEMENTED S190**): Pre-commit `git diff HEAD --numstat` check in `devtools/build-headless.ps1`. Fires when net delta < -20 lines AND additions < 1/3 of deletions. Aborts auto-commit, names suspect files, prints restore command. Build continues from working copy. Tested: fires on -95 net (0+/95-); silent on -49 net with 41 additions (intentional rewrite -- correct no-fire).
 
 **Audit checklist** (run after any AI-assisted edit session):
-1. `git diff --stat` — inspect line-count deltas before committing. Unexplained drops are truncation candidates.
-2. Post-save line-count verify: compare `wc -l` before and after edit. Flag any drop > 5 lines not explained by the diff.
-3. Reject pre-commit if line count drops unexpectedly (add to pre-commit hook or build script).
-4. In PowerShell scripts: use hyphens only (no em-dashes, no curly quotes). Save as UTF-8 with BOM if script contains non-ASCII.
+1. `git diff --stat` -- inspect line-count deltas before committing. Unexplained drops are truncation candidates.
+2. `tail -5 <file>` after every significant edit. Truncated files end mid-word with no trailing newline.
+3. In PowerShell scripts: use hyphens only (no em-dashes, no curly quotes). Save as UTF-8 with BOM if script contains non-ASCII.
+4. Start fresh sessions before context grows large (SP-9 Mode B risk rises with session length).
 
-**Fix strategy**: Restore from git (`git checkout <commit> -- <file>`), then re-apply the intended edit cleanly. Do NOT re-edit a truncated file — the lost content may not be reconstructable from diff alone.
+**Fix strategy**: Restore from git (`git checkout <commit> -- <file>`), then re-apply the intended edit cleanly. Do NOT re-edit a truncated file -- the lost content may not be reconstructable from diff alone.
 
-**Search command**: `git diff --stat HEAD | grep -E '^\s+\S+ \| [0-9]+ [-]'` — negative-only diffs warrant investigation.
+**Search command**: `git diff HEAD --numstat | awk '$2 > $1*3 && $2-$1 > 20 {print "SUSPECT:", $3, "(net", $1-$2, ")"}'`
 
 ### SP-9 Deep Investigation — 2026-04-10
 
