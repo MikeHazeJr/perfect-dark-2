@@ -294,29 +294,25 @@ Context push: inputCtxPush(&g_CtxPauseMenu)
        imcActivate(&g_ImcPauseMenu)
 
 Context pop: inputCtxPopDeferred(&g_CtxPauseMenu)
-  └─ Marked for removal. Actual pop in inputCtxEndFrame (next frame).
-     inputCtxEndFrame (inputctx.c:177):
+  └─ Marked for removal + inputCtxSyncMouseMode() called IMMEDIATELY.
+     inputCtxGetTop() skips marked contexts → returns g_CtxGameplay.
+     syncMouseMode → SDL_SetRelativeMouseMode(TRUE) + SDL_ShowCursor(DISABLE).
+     Actual on_pop callback runs next frame in inputCtxEndFrame (inputctx.c:177):
        └─ pauseMenuOnPop: deactivates IMCs
-       └─ inputCtxSyncMouseMode (inputctx.c:279):
-            top = inputCtxGetTop()
-            If top == g_CtxGameplay:
-              SDL_SetRelativeMouseMode(TRUE)   ← relative mode
-              SDL_ShowCursor(DISABLE)          ← cursor hidden
+       └─ inputCtxSyncMouseMode again (redundant but safe)
 ```
 
-**STATUS**: The sync mechanism looks correct, but depends on the context stack
-being properly balanced. If a push happens without a matching pop (or a pop
-fails), mouse capture stays in absolute mode during gameplay.
+**STATUS**: Fixed. inputCtxSyncMouseMode is now called immediately in both
+inputCtxPopDeferred and inputCtxPopImmediate, eliminating the 1-frame gap
+where mouse was in the wrong mode. The sync is idempotent (checks current
+SDL state before changing).
 
 Key variables:
 - `mouseLocked` (input.c:88) — tracks desired lock state
 - `inputLockMouse(1)` called in gameplayOnPush — sets mouseLocked AND SDL mode
 - `inputMouseGetScaledDelta` only returns values when mouseLocked==true
-
-Note: pauseMenuOnPush calls `SDL_SetRelativeMouseMode(FALSE)` directly without
-changing `mouseLocked`. When inputCtxSyncMouseMode restores relative mode, it
-also doesn't touch `mouseLocked`. So `mouseLocked` should stay at 1 (set at
-game start in gameplayOnPush). BUT if something else sets mouseLocked=0...
+- Legacy menu system also calls `inputAutoLockMouse(true/false)` in
+  menu open/close paths (menu.c:3541/3650), which sets both mouseLocked AND SDL mode
 
 ---
 
@@ -357,9 +353,37 @@ Debug overlay open:
 
 ---
 
-## Summary of Bugs
+## Summary of Bugs Found and Fixed
 
-| # | Bug | Impact | Fix |
-|---|-----|--------|-----|
-| 1 | `actionmapEndFrame` in `gfx_sdl_handle_events` (gfx_sdl2.cpp:354) clears pressed/released BEFORE game logic reads them | `actionPressed()` always returns 0 → no edge-triggered actions (pause, interact, weapon switch, reload) | Move to end of `schedEndFrame` in pdsched.c |
-| 2 | `actionmapInit()` called twice — main.c:161 then pdguiInit pdgui_backend.cpp:289 | Wipes pd.ini bind customizations loaded by actionmapLoadBinds at main.c:164 | Remove the call in pdguiInit |
+| # | Bug | Impact | Fix | Commit |
+|---|-----|--------|-----|--------|
+| 1 | `actionmapEndFrame` in `gfx_sdl_handle_events` (gfx_sdl2.cpp:354) clears pressed/released BEFORE game logic reads them | `actionPressed()` always returns 0 → no edge-triggered actions (pause, interact, weapon switch, reload) | Move to end of `schedEndFrame` in pdsched.c | dd9e7d70 |
+| 2 | `actionmapInit()` called twice — main.c:161 then pdguiInit pdgui_backend.cpp:289 | Wipes pd.ini bind customizations loaded by actionmapLoadBinds at main.c:164 | Remove the call in pdguiInit | dd9e7d70 |
+| 3 | `inputCtxPopDeferred` / `inputCtxPopImmediate` did not sync mouse mode immediately | 1-frame gap where mouse stays in absolute mode after menu close; cursor flash and lost mouse input | Call `inputCtxSyncMouseMode()` immediately in both pop functions | (this commit) |
+
+## Audit Results (2026-04-09)
+
+### Frame Lifecycle Order (Audit 1)
+```
+schedStartFrame → videoStartFrame → gfx_start_frame → gfx_sdl_handle_events:
+  SDL_PollEvent loop (actionmapDispatch → inputCtxEndFrame)
+mainTick → lvTick → lvTickPlayer (bondmove reads actionHeld/actionPressed/actionValue)
+schedEndFrame → inputUpdate → actionmapPollFrame → joyReadData → actionmapEndFrame
+```
+No other ordering bugs found beyond Bug #1 (already fixed).
+
+### Clear-Before-Read Patterns (Audit 2)
+- `inputUpdateMouse` clears mouseDX/DY in schedEndFrame:304 — safe, consumers already read it
+- Network buffers cleared in netStartFrame, written in netEndFrame — intentional, documented
+- No additional clear-before-read bugs found.
+
+### Double-Init Patterns (Audit 3)
+- Only `actionmapInit` was called twice (Bug #2, already fixed)
+- `inputCtxInit`, `inputInit`, `configInit` are each called exactly once
+
+### actionmapPollFrame vs joyReadData Order (Audit 5)
+Current order in schedEndFrame: actionmapPollFrame → joyReadData. This is correct:
+- No dependency between them (both read SDL directly)
+- Both run after bondmove, so bondmove reads last-frame values
+- This matches original N64 timing (input polled during retrace, used next frame)
+- Moving actionmapPollFrame to schedStartFrame would reduce latency but change the timing contract

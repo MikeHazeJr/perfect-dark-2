@@ -103,6 +103,15 @@ void inputCtxPopDeferred(InputContext *ctx)
             ctx->marked_for_removal = 1;
             sysLogPrintf(LOG_NOTE, "INPUTCTX: '%s' marked for deferred removal",
                          ctx->name ? ctx->name : "?");
+
+            /* Immediately sync mouse mode so the cursor/capture state reflects
+             * the new effective top context THIS frame, not next frame.
+             * inputCtxGetTop() already skips marked-for-removal contexts, so
+             * the sync sees the correct top (e.g. g_CtxGameplay underneath).
+             * Without this, there's a 1-frame gap where the mouse stays in
+             * absolute mode after a menu closes, causing visible cursor flash
+             * and one frame of lost mouse input. */
+            inputCtxSyncMouseMode();
             return;
         }
     }
@@ -132,6 +141,9 @@ void inputCtxPopImmediate(void)
         sysLogPrintf(LOG_NOTE, "INPUTCTX: immediately popped '%s' (depth now %d)",
                      ctx->name ? ctx->name : "?", s_Depth);
     }
+
+    /* Sync mouse mode to reflect the new top context immediately. */
+    inputCtxSyncMouseMode();
 }
 
 s32 inputCtxDispatch(const SDL_Event *ev)
