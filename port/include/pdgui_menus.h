@@ -34,6 +34,7 @@ void pdguiMenuTrainingRegister(void);     /* Group 6: Firing Range, DT, HT, Bio 
 void pdguiMenuCheatsRegister(void);       /* D5 P3 Batch 4: Cheats hub (9 dialogs) */
 void pdguiMenuMpSetupRegister(void);      /* D5 P3 Batch 5: MP Setup Core (14 dialogs) */
 void pdguiMenuBotSetupRegister(void);     /* D5 P3 Batch 6: Bot/Simulant Setup (5 dialogs) */
+void pdguiMenuMpAdvancedRegister(void);   /* D5 P3 Batch 7: MP Advanced/Quick paths (11 dialogs) */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -58,6 +59,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuCheatsRegister();
     pdguiMenuMpSetupRegister();
     pdguiMenuBotSetupRegister();
+    pdguiMenuMpAdvancedRegister();
 }
 
 #ifdef __cplusplus

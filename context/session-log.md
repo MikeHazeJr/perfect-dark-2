@@ -3,6 +3,44 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S205 — 2026-04-11 (D5 P3 Batch 7: MP Advanced / Quick paths)
+
+**Focus**: Complete D5 Phase 3 Batch 7 — replace 11 legacy navigation-hub dialogs in the Combat Simulator setup layer with ImGui renderers, with a mandatory network match start / end wiring audit (Mike's explicit direction: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_mpadvanced.cpp` owns 6 renderer implementations covering 11 dialog registrations, cloning the s203/s204 shadow-struct pattern from pdgui_menu_mpsetup.cpp / pdgui_menu_botsetup.cpp with a new `s205` suffix. Dropdown/list/plain-SET helper family plus two new hub-row helpers (`hubPushRow` / `hubHandlerRow`) that draw full-width ImGui Selectables with manual two-column text overlays, so each hub row can show label + dynamic right-side text (scenario short name, arena name, weapon set name, player name, "Save Player"/"Save Copy of Player") without inventing a new public layout primitive.
+- Renderer mapping (6 impls → 11 dialogs):
+  - `renderMpAdvancedSetupImpl(v=0|1)` backs `g_MpAdvancedSetupMenuDialog` + `g_MpAdvancedSetupViaAdvChallengeMenuDialog` (item arrays byte-identical; legacy differs only in `nextsibling` tab which ImGui flattens)
+  - `renderMpQuickGo` backs `g_MpQuickGoMenuDialog` (4 pure pushes)
+  - `renderMpQuickTeam` backs `g_MpQuickTeamMenuDialog` (5 big-font selectables → `menuhandlerMpQuickTeamOption` param 0..4)
+  - `renderMpQuickTeamGameSetup` backs `g_MpQuickTeamGameSetupMenuDialog` (15 items: Scenario/Options/Arena/Weapons/Limits pushes, Player 1..4 Team dropdowns via `menuhandlerPlayerTeam` with CHECKHIDDEN gating, NumSims/SimsPerTeam/SimDifficulty dropdowns with per-mode visibility, Finished Setup / Save Settings)
+  - `renderMpStuffImpl(v=0|1)` backs `g_MpStuffMenuDialog` + `g_MpStuffViaAdvChallengeMenuDialog` (Soundtrack/TeamNames pushes, Lock/Split dropdowns, Start/Drop/Abort pushes)
+  - `renderMpPlayerSetupHubImpl(variant)` backs all three `g_MpPlayerSetupVia*MenuDialog` (Name/Character/Control/PlayerOptions/Statistics/LoadPlayer pushes + Save Player selectable)
+- **Network match start / end wiring audit** (critical for this batch): traced 13 distinct fields writer → backing global → `mpStartMatch` reader → `SVC_STAGE` network serializer → client receive path → endscreen reader. Full audit table in `context/scratch/D5-P3-batch7-2026-04-11.md`. Every Batch 7 MENUOP_SET lands in the same `g_Vars.*` / `g_MpSetup.*` / `g_PlayerConfigsArray.*` global the legacy renderer would have written via its own dispatch, because every write delegates to a legacy C handler via the s205 shadow call-through. No shadow/cache/copy introduced.
+- Modern room lobby (pdgui_menu_room.cpp) is untouched — it writes to `g_MatchConfig` via a distinct code path, and `matchStart()` copies g_MatchConfig → g_MpSetup before `mpStartMatch`. `room.cpp` contains zero references to any Batch 7 dialog (grep confirmed), so the two paths never interleave.
+- Legacy dialog OPEN side effects (`menudialogMpGameSetup` setting `g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP` / `usingadvsetup = true`; `menudialogMpQuickGo` setting `MPSETUPMENU_QUICKGO`) still fire through the legacy menu runtime because the hot-swap system only hooks the RENDER phase — OPEN/CLOSE/TICK go through the original dispatch, preserving zero-function-loss.
+- Integration philosophy matches Batches 4-6: convert dialogs via s20x shadow-struct call-through, no room.cpp edits (none of the Batch 7 dialogs naturally belong inline — room IS the modern equivalent of the Combat Simulator layer, and absorbing Batch 7 screens would require retiring `g_CombatSimulatorMenuDialog` which is out of scope per menu-replacement-plan.md).
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mpadvanced.cpp` (+1059 lines): full Batch 7 implementation
+- `port/include/pdgui_menus.h` (67 → 69, +2): declared + called `pdguiMenuMpAdvancedRegister()` in `pdguiMenusRegisterAll()`
+- **NEW** `context/scratch/D5-P3-batch7-2026-04-11.md`: dialog mapping, network audit table, zero-function-loss audit, build outputs, integration pattern notes
+
+### Build
+
+- Fresh configure from worktree `nervous-dhawan` via `TEMP=/tmp cmake -G "Unix Makefiles"` in `.claude/b7-build`
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,566,481 bytes** (+225,697 vs Batch 6's 49,340,784)
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,771,518 bytes** (pdgui_menu_mpadvanced.cpp not in SRC_SERVER so size delta is pre-existing build-variance, not Batch 7 work)
+- Only warning from my file was a cosmetic `/*` in a comment block (fixed post-build with a pure comment edit — binary unaffected)
+
+### Result
+
+Batch 7 done. 11 legacy dialog pushes now render through ImGui via hot-swap. Network audit clean. Next up: Batch 8 (MP Pause & In-Game, 6 screens) per menu-replacement-plan.md schedule — independent of Batch 7.
+
+---
+
 ## Session S204 — 2026-04-11 (D5 P3 Batch 6: Bot/Simulant Setup)
 
 **Focus**: Complete D5 Phase 3 Batch 6 — replace the 5 legacy bot/simulant dialogs (`g_MpSimulantsMenuDialog`, `g_MpAddSimulantMenuDialog`, `g_MpChangeSimulantMenuDialog`, `g_MpEditSimulantMenuDialog`, `g_MpSimulantCharacterMenuDialog`) with ImGui renderers and surface the simulant roster as an inline expandable section inside the existing room screen rather than only as a pushed modal.
