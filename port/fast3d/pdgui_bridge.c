@@ -823,3 +823,63 @@ const char *pdguiMppGetTeamName(u32 team)
     return g_BossFile.teamnames[team];
 }
 
+/* ========================================================================
+ * Player Config bridge (pdgui_menu_playerconfig.cpp, Batch 11)
+ *
+ * Small accessors over g_Menus[].mpsetup and g_PlayerConfigsArray[].
+ *
+ * The C++ renderer cannot include types.h (bool redefinition breaks C++),
+ * so it cannot directly touch g_Menus.  Two of the Batch 11 dialogs
+ * (g_MpLoadSettingsMenuDialog, g_MpLoadPresetMenuDialog) need to ensure
+ * mpsetup.showpresets is set so the legacy mpLoadSettingsMenuHandler
+ * returns non-zero numpresets — otherwise unlocked preset slots are
+ * invisible regardless of dialog.  The ImGui Load Settings view always
+ * shows both groups (PC has scroll, N64 collapse is obsolete), and Load
+ * Preset needs showpresets=1 so the SET branch hits the preset-path.
+ * ======================================================================== */
+
+void pdguiPcMpSetShowPresets(s32 on)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return;
+    }
+    g_Menus[g_MpPlayerNum].mpsetup.showpresets = on ? 1 : 0;
+}
+
+s32 pdguiPcMpGetShowPresets(void)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return 0;
+    }
+    return g_Menus[g_MpPlayerNum].mpsetup.showpresets;
+}
+
+/* Accessor for the selected player config's MPPLAYERTITLE_* value —
+ * used by Player Stats dialog to decide whether to show the legacy
+ * USERNAME/PASSWORD Easter egg rows (Perfect Dark / Perfect Agent tier). */
+s32 pdguiPcPlayerConfigGetTitle(void)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return 0;
+    }
+    return g_PlayerConfigsArray[g_MpPlayerNum].title;
+}
+
+/* Accessor for individual medal counts — the legacy medal rows in the
+ * stats dialog render a colored icon via mpMedalMenuHandler MENUOP_RENDER
+ * (GBI path).  The ImGui version draws its own colored circle + the count
+ * from the dynamic-text helper, which matches the N64 visual intent. */
+s32 pdguiPcPlayerConfigGetMedalCount(s32 which)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return 0;
+    }
+    switch (which) {
+    case 0: return g_PlayerConfigsArray[g_MpPlayerNum].killmastermedals;
+    case 1: return g_PlayerConfigsArray[g_MpPlayerNum].headshotmedals;
+    case 2: return g_PlayerConfigsArray[g_MpPlayerNum].accuracymedals;
+    case 3: return g_PlayerConfigsArray[g_MpPlayerNum].survivormedals;
+    default: return 0;
+    }
+}
+
