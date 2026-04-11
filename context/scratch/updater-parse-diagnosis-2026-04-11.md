@@ -13,7 +13,7 @@
 | H2 | Tag/name format drift | **FALSE** | v0.0.75 tag = `v0.0.75` (confirmed via GitHub API). `UPDATER_TAG_CLIENT = "v"` matches. `versionParseTag("v0.0.75",...)` → `versionParse("v0.0.75",...)` → `sscanf("0.0.75",...)` → 0.0.75 ✓ |
 | H3 | Asset-pattern mismatch | **FALSE** | v0.0.75 asset = `PerfectDark-v0.0.75-win64.zip` → ends in `.zip` = `UPDATER_ASSET_ZIP_SUFFIX` ✓. Asset URL found and populated. |
 | H4 | Off-by-one / fixed-size buffer | **FALSE** | `UPDATER_MAX_RELEASES = 64`. `per_page=30` means ≤30 results. body = 1099 bytes < `UPDATER_MAX_BODY_LEN` (2048). |
-| H5 | Prerelease flag filtering | **PARTIAL** | v0.0.75 IS `prerelease=true`. On **stable** channel it would be filtered. But v0.0.74 is ALSO `prerelease=true`, and the pre-v0.0.75 log showed 30 valid releases counted → user is on **dev** channel → v0.0.75 should appear. On stable channel "doesn't appear" is EXPECTED and not a bug. |
+| H5 | Prerelease flag filtering | **ELIMINATED** | v0.0.75 IS `prerelease=true`. **Confirmed by Mike: user was on Dev channel.** Dev channel does not filter prereleases. All three symptoms are a real bug, not expected behavior. |
 | **H6** | **GitHub returning non-array response** | **MOST LIKELY ROOT CAUSE** | `parseReleasesJson` returns -1 ONLY when top-level token ≠ `JTOK_LBRACKET`. A GitHub rate-limit response (`{"message":"API rate limit exceeded",...}`) is a JSON object, not array → causes this path. The error "could not parse response" is displayed as "Couldn't parse update list" in the UI. |
 
 ---
