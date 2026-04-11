@@ -3,6 +3,49 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S204 — 2026-04-11 (D5 P3 Batch 6: Bot/Simulant Setup)
+
+**Focus**: Complete D5 Phase 3 Batch 6 — replace the 5 legacy bot/simulant dialogs (`g_MpSimulantsMenuDialog`, `g_MpAddSimulantMenuDialog`, `g_MpChangeSimulantMenuDialog`, `g_MpEditSimulantMenuDialog`, `g_MpSimulantCharacterMenuDialog`) with ImGui renderers and surface the simulant roster as an inline expandable section inside the existing room screen rather than only as a pushed modal.
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_botsetup.cpp` owns the 5 renderers, cloning the s203 shadow-struct call-through pattern from pdgui_menu_mpsetup.cpp and extending the ABI with a `carousel` handlerdata variant so the two `MENUITEMTYPE_CAROUSEL` handlers (`menuhandlerMpSimulantHead`, `menuhandlerMpSimulantBody`) can be invoked via the same pattern. Every state mutation delegates to legacy C handlers in `setup.c` (`mpAddChangeSimulantMenuHandler`, `menuhandlerMpSimulantHead/Body`, `mpBotDifficultyMenuHandler`, `menuhandlerMpChangeSimulantType`, `menuhandlerMpCopySimulant`, `menuhandlerMpDeleteSimulant`, `menuhandlerMpAddSimulant`, `menuhandlerMpSimulantSlot`, `menuhandlerMpClearAllSimulants`). Dynamic-text function pointers (`mpMenuTextSimulantName`, `mpMenuTextSimulantDescription`, `mpMenuTitleEditSimulant`) are invoked via shadow-cast. Legacy dialog-level handlers (`menudialogMpSimulants`, `menudialogMpSimulant`, `menudialog0017ccfc`) still fire OPEN/TICK side effects via the runtime (reset slotcount, auto-pop on external delete, refresh model preview).
+- **Mid-task pivot** (Mike's mid-task guidance): the bot/simulant setup should be integrated into the room design rather than living only as a standalone modal. Refactored `renderMpSimulants`' body-drawing logic into a new public inline helper `pdguiBotSetupDrawSimulantsBody(float bodyH)` exposed via a new header `port/include/pdgui_menu_botsetup.h`. `renderMpSimulants` became a thin modal wrapper that calls the helper inside the standard PD-styled frame, preserved for the legacy Combat Simulator push path (satisfies "don't break linking" and "zero function loss"). `pdgui_menu_room.cpp` then includes the new header and adds a `CollapsingHeader("Simulant Profiles")` section at the bottom of `renderPlayerPanel` (below the existing matchslot-based Add Bot button) that calls `pdguiBotSetupDrawSimulantsBody` inline.
+- Design decision: room.cpp's existing matchslot-based bot UI (`g_MatchConfig.slots[]`) and the legacy `g_BotConfigsArray[]` pool are DIFFERENT data models, so the integration is additive — the new inline section exposes the legacy profile pool without removing or modifying the existing matchslot flow. Unifying the two data models is out of scope for Batch 6.
+- Drill-down screens (Add/Change/Edit/Character) remain modal wrappers — they are naturally single-task edit screens, and `menuPushDialog` from inside an inline renderer is a standard pattern already used by room.cpp for `g_MpHandicapsMenuDialog` and `g_MpTeamsMenuDialog`.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_botsetup.cpp` (+1006 lines):
+  - Shadow types `s204_menuitem` / `s204_handlerdata` (checkbox/dropdown/list/slider/**carousel**/_pad[256]), legacy handler forward decls, full MENUOP_* block (1..24 + OPEN/CLOSE/TICK) seeded from the start per the Batch 4 gotcha
+  - Helper families: `list_*` (grouped bot profile list with GETOPTGROUPCOUNT/GETOPTGROUPTEXT/GETGROUPSTARTINDEX/LISTITEMFOCUS), `dd_*` (difficulty dropdown), `car_*` (head/body carousels — new for this batch), `plain_*` (action buttons with CHECKDISABLED/CHECKHIDDEN), window-frame helpers `bs_BeginStandardWindow` / `bs_CloseCurrentDialog` / `bs_BackPressed`
+  - Inline content helper: `pdguiBotSetupDrawSimulantsBody(bodyH)` — public `extern "C"` function that draws the simulants roster (Add / 8 slot rows / Clear All) without a surrounding modal frame
+  - Renderers: `renderMpSimulants` (thin modal wrapper for the inline helper), `renderMpAddChangeSimulantImpl` (shared Add/Change variant enum) with `renderMpAddSimulant` / `renderMpChangeSimulant` wrappers, `renderMpEditSimulant` (difficulty dropdown + Change Type / Character / Copy / Delete buttons with dynamic title via `mpMenuTitleEditSimulant`), `renderMpSimulantCharacter` (Head + Body dropdowns with display names from `catalogMpHeadId` formatter + `mpGetBodyName`)
+  - Head display names built from `catalogMpHeadId` via the same `formatCatalogId` pattern as `pdgui_menu_agentcreate.cpp` (no `mpGetHeadName` symbol exists in the API)
+  - `pdguiMenuBotSetupRegister()` — single hotswap registration function (5 dialogs)
+- **NEW** `port/include/pdgui_menu_botsetup.h` (47 lines): declares `pdguiBotSetupDrawSimulantsBody` with `extern "C"` linkage so room.cpp can include without types.h pollution
+- `port/fast3d/pdgui_menu_room.cpp` (2834 → 2848, +14): include new header, add `CollapsingHeader("Simulant Profiles")` section at the bottom of `renderPlayerPanel` calling the inline helper
+- `port/include/pdgui_menus.h` (65 → 67, +2): declared + called `pdguiMenuBotSetupRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch6-2026-04-11.md` (432 lines) — dialog→handler→state-write map, zero-function-loss audit plan, mid-batch integration pivot rationale, build plan
+
+### Build
+
+- Worktree: `quirky-gates`, branch `claude/quirky-gates`
+- Merged to dev as two non-ff merges: the initial modal-only implementation, then the inline-integration refactor
+- `build/client/PerfectDark.exe`: 49,202,510 → **49,340,784 bytes** (+138,274, ~135 KB) — freshly linked 2026-04-11 13:50 EDT
+- `build/server/PerfectDark.exe`: **49,339,248 bytes** — freshly linked 2026-04-11 13:51 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server target, same as Batches 0-5) — freshly linked 2026-04-11 13:50 EDT
+- `cmake . && cmake --build . -j 24` via MSYS2 MINGW64 with `TEMP=/tmp`. Same direct-cmake approach as Batches 4/5 because `build-headless.ps1` swallows output when stdout is redirected under bash (CR spinner vs non-TTY). `cmake .` re-run in both dirs to pick up new `pdgui_menu_botsetup.cpp` via GLOB_RECURSE (and then again after the header/refactor changes).
+- Exit: 0 on all link steps. No new errors introduced. MENUOP_* block seeded complete up-front — Batch 4 gotcha avoided.
+
+### Next
+
+**Batch 7** (MP Advanced / Quick paths — 11 dialogs) per the menu-replacement-plan. Depends on Batches 5-6 which are now complete.
+
+Possible follow-up: unify room.cpp's matchslot-based bot UI with the legacy `g_BotConfigsArray` pool so there is a single canonical data model. This would retire half of `setup.c`'s bot-state globals and simplify net sync — but it affects save-file compatibility and is a bigger refactor. Out of scope for Batch 6; flagged for a future phase.
+
+---
+
 ## Session S203 — 2026-04-11 (D5 P3 Batch 5: MP Setup Core)
 
 **Focus**: Complete D5 Phase 3 Batch 5 — replace the 14 legacy MP Combat Simulator setup dialogs (Arena / Scenario / Weapons / Limits / Scenario Options / Extended Game Options) with ImGui renderers that delegate all state mutation to the legacy C handlers via the s203 shadow-struct call-through pattern (cloned from s194 in solomission.cpp / s202 in cheats.cpp).
