@@ -1,0 +1,131 @@
+[ 28%] Built target pd_headers
+[ 28%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_mainmenu.cpp.obj
+[ 28%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vimodepallan1.c.obj
+[ 28%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vimodempallan1.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/ultra/io/vitbl.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/ailist.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/anim.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:17:44: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/args.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/audiodma.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/audiomgr.c.obj
+[ 29%] Building C object CMakeFiles/pd.dir/src/lib/base.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/capsule.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/collision.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/meshcollision.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/debughud.c.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:32:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme_loader.h:40:60: warning: '/*' within comment [-Wcomment]
+   40 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:33:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:50:60: warning: '/*' within comment [-Wcomment]
+   50 |  *  cached theme texture.  Returns 1 on success with *out_w/*out_h set,
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:35:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_menu_theme_editor.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:38:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_layout.h:67:60: warning: '/*' within comment [-Wcomment]
+   67 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/dma.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/fault.c.obj
+[ 30%] Building C object CMakeFiles/pd.dir/src/lib/joy.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_2f490_c.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_2fc60.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_04f60nb.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_3e3e0.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/meshcollision.c:110:13: warning: 'vec3Cross' defined but not used [-Wunused-function]
+  110 | static void vec3Cross(struct coord *a, struct coord *b, struct coord *out)
+      |             ^~~~~~~~~
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_17ce0.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_034d0.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_39c80.c.obj
+[ 31%] Building C object CMakeFiles/pd.dir/src/lib/lib_15850.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c: In function 'updateOscMain':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c:330:22: warning: 'sp20' may be used uninitialized [-Wmaybe-uninitialized]
+  330 |                 sp20 *= sp24;
+      |                 ~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/lib_2fc60.c:269:13: note: 'sp20' was declared here
+  269 |         f32 sp20;
+      |             ^~~~
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/mema.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/memp.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/mempc.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c: In function 'cdBlockExcludesBlockLaterally':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c:3739:36: warning: 'sum2' may be used uninitialized [-Wmaybe-uninitialized]
+ 3739 |                                 if (sum2 == sum1) {
+      |                                    ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/collision.c:3718:29: note: 'sum2' was declared here
+ 3718 |                         f64 sum2;
+      |                             ^~~~
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/model.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/modelasm_c.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/mp3.c.obj
+[ 32%] Building C object CMakeFiles/pd.dir/src/lib/mtx_c.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/mtx.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/music.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/path.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/profile.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/rdp.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c: In function 'modelasm00018680':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:114:24: warning: storing the address of local variable 'sp00' in 't0slot' [-Wdangling-pointer=]
+  114 |                 t0slot = &sp00[0];
+      |                 ~~~~~~~^~~~~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:87:23: note: 'sp00' declared here
+   87 |         struct t0slot sp00[240];
+      |                       ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:17:16: note: 't0slot' declared here
+   17 | struct t0slot *t0slot;
+      |                ^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:195:44: warning: 'f30' may be used uninitialized [-Wmaybe-uninitialized]
+  195 |                                         if (f30 != 0.0f) {
+      |                                            ^
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/modelasm_c.c:98:13: note: 'f30' was declared here
+   98 |         f32 f30;
+      |             ^~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c: In function 'modelSetMatricesWithAnim':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1619:28: warning: 'frac' may be used uninitialized [-Wmaybe-uninitialized]
+ 1619 |                 anim->frac = frac;
+      |                 ~~~~~~~~~~~^~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1578:13: note: 'frac' was declared here
+ 1578 |         f32 frac;
+      |             ^~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1620:29: warning: 'frac2' may be used uninitialized [-Wmaybe-uninitialized]
+ 1620 |                 anim->frac2 = frac2;
+      |                 ~~~~~~~~~~~~^~~~~~~
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/model.c:1579:13: note: 'frac2' was declared here
+ 1579 |         f32 frac2;
+      |             ^~~~~
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/rng_c.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/rzip_c.c.obj
+[ 34%] Building C object CMakeFiles/pd.dir/src/lib/rmon.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/lib/snd.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/lib/speaker.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/lib/varsinit.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/lib/vi.c.obj
+[ 35%] Building C object CMakeFiles/pd.dir/src/textureconfig.c.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/snd.c: In function 'sndInit':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/lib/snd.c:1502:17: warning: 'strncpy' output truncated before terminating nul copying 25 bytes from a string of the same length [-Wstringop-truncation]
+ 1502 |                 strncpy(g_SndGuardStringPtr, g_SndGuardString, sizeof(g_SndGuardString) - 1); g_SndGuardStringPtr[sizeof(g_SndGuardString) - 1] = '\0';
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 35%] Linking CXX executable PerfectDark.exe
+Copying libcurl-4.dll to client build output
+Copying libnghttp2-14.dll to client build output
+Copying libnghttp3-9.dll to client build output
+Copying libidn2-0.dll to client build output
+Copying libbrotlidec.dll to client build output
+Copying libbrotlicommon.dll to client build output
+Copying libpsl-5.dll to client build output
+Copying libssh2-1.dll to client build output
+Copying libngtcp2-16.dll to client build output
+Copying libngtcp2_crypto_ossl-0.dll to client build output
+Copying libzstd.dll to client build output
+Copying libssl-3-x64.dll to client build output
+Copying libcrypto-3-x64.dll to client build output
+Copying libunistring-5.dll to client build output
+Copying libintl-8.dll to client build output
+Copying libiconv-2.dll to client build output
+Copying zlib1.dll to client build output
+[100%] Built target pd
