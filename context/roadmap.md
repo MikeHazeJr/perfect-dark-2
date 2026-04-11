@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-09 (S185 — Context system overhaul)
+> Last updated: 2026-04-11 (S199 — Updater parse diagnosis; daily context audit)
 
 ## Current State
 
-**Build**: v0.0.56 | **Protocol**: v32 | **Sessions**: 185+
+**Build**: v0.0.75 | **Protocol**: v32 | **Sessions**: 199+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 
@@ -31,7 +31,7 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 | **D5 Phase 4 — Theme System** | M | Auto-extract base-ui textures at runtime. Mod themes. Debug menu rebuild. |
 | **B-112 root cause** | M | Chr pointer corruption in 31-bot matches. Guards in place but root cause unknown. |
 | **Build verification pass** | S | Clean build, all QC tests passing, no known crash bugs. |
-| **D13 — Update System build test** | S | Code written. Needs libcurl static link + first GitHub release for E2E verification. |
+| **D13 — Update System parse diagnosis** | S | IN PROGRESS (S199) — instrumentation deployed; awaiting next failed-check log to confirm GitHub HTTP code (likely 403 rate-limit). |
 
 ### Should-Have
 

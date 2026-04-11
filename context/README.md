@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-10, Session S190 (Four-task sweep complete: binding rework done, B-128 sky tearing FIXED, B-129 mission-end crash FIXED + save pipeline restored, SP-9 truncation safeguard IMPLEMENTED. Clean build 48.6MB. Pending: Mike's in-game verification pass.)
+> **Last updated**: 2026-04-11, Session S199 (Updater parse diagnosis: per_page 30→100 + HTTP/raw-response instrumentation in updater.c; root cause likely GitHub rate-limit 403 returning error object. Build v0.0.75 green. Daily context audit completed.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,7 +35,10 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
-| S189-S190 | 2026-04-10 | Input system complete: P0-only binding rework, usemask/B-door fix, unk14/canlookahead/FarSight/LSTICK fixes. B-128 sky tearing FIXED (sky.c:1244). B-129 mission-end crash FIXED (endscreen.c save path + filemgr noop dialogs). SP-9 safeguard IMPLEMENTED in build-headless.ps1. |
+| S199 | 2026-04-11 | Updater parse failure diagnosis (B-99/D13). per_page 30→100; HTTP code + raw response instrumentation in updater.c. Root cause likely GitHub rate-limit 403 error object. |
+| S196-S198 | 2026-04-10 | S196 Theme system: base-game template mod, nineslice pipeline, Settings → Video → UI Chrome Style toggle. S197a Input regressions post-S196 fixed. S198 B-129 agent save path FULLY FIXED (saveInit() wired in main.c + server_main.c); theme editor close lifecycle instrumentation (B-130). New bugs B-130/B-131 OPEN. |
+| S191-S195 | 2026-04-10 | S191 B-112/B-126 instrumentation (chr index tracker, SIGABRT handler, NET.WATCHDOG dump). S192 D5 P3 Batch 0 (pdgui_layout primitive). S193 1080p baseline flip + Batch 1. S194 Batch 2 (Co-op/Counter-Op flow). |
+| S189-S190 | 2026-04-10 | Input system complete: P0-only binding rework, usemask/B-door fix, unk14/canlookahead/FarSight/LSTICK fixes. B-128 sky tearing FIXED (sky.c:1244). B-129 mission-end crash partial fix (endscreen.c save path + filemgr noop dialogs); save path fully fixed in S198. SP-9 safeguard IMPLEMENTED in build-headless.ps1. |
 | S187-S188 | 2026-04-09 | Three-bug debug (B-127 WASD, B-125 weapons, B-126 silent crash); full menu replacement plan (254 dialogs, 11 batches) |
 | S185-S186 | 2026-04-09 | Deep audit (47 bug fixes: 5C+7H+10M+9L), context system overhaul |
 | S184 | 2026-04-08 | P10 D5.7: OG Menu Removal -- ImGui sole menu system |

@@ -67,7 +67,7 @@
 | **D5 Phase 4 -- Theme System** | HIGH | IN PROGRESS (S196) | Auto-extract base-ui textures at runtime (no CLI flag) — DONE pre-S196. S196 added: base-game template mod concept (`is_template` + `tags` in modinfo_t + modmgr parser), nineslice pipeline infrastructure lift (TGA loader uncapped, per-edge modes, src_inset/dst_corner_px split), hand-authored test chrome mod at `mods/base-game/ui-chrome/`, Settings → Video → UI Chrome Style dropdown (Procedural/Classic), render-branch toggle in `pdguiDrawPdDialog`. **Visible chrome rendered: YES** (pending Mike's in-game verification). Deferred follow-ups: `modmgrSaveAs` / Modding Hub template grouping / base-ui extractor migration to template layout. |
 | **B-112 root cause** | HIGH | INVESTIGATING (S191) | Chr pointer corruption in 31-bot matches. S191: entry guard added at top of chraTick (CHR.GUARD channel); g_ChrLastTickedIndex slot-tracker in chr.c; SIGABRT handler reads index. Guards in place; awaiting next 31-bot crash log with chr slot ID. |
 | **B-126 silent crash** | HIGH | INVESTIGATING (S191) | Silent crash ~8min into MP. S191: heartbeat 60s→30s; NET.WATCHDOG per-peer dump via netHeartbeatLog(); SIGABRT handler logs chr index. Awaiting next repro to confirm SIGABRT vs other kill path. |
-| **B-129 mission-end AV crash** | HIGH | FIXED (S190) | Root: `endscreen.c` called `filemgrSaveOrLoad` → no Pak on PC → fn-ptr cast to lang index → AV. Fixed: `saveSaveAgent()` replaces all three calls; three filemgr dialogs registered as noop. Side benefit: saves now actually written to disk. |
+| **B-129 mission-end AV crash** | HIGH | FIXED (S190 + S198) | S190: `endscreen.c` called `filemgrSaveOrLoad` → no Pak on PC → fn-ptr cast to lang index → AV. Replaced with `saveSaveAgent()`; three filemgr dialogs registered as noop. S198: `saveInit()` was never called from `main.c`/`server_main.c`, so saves landed at drive root and `besttimes[]` never persisted. Wired `saveInit()` into both startup sequences (commit `3fc345bf`). Saves now write to AppData. |
 | **D13 -- Update System parse diagnosis** | MED | IN PROGRESS (S199) | v0.0.75 not in update list; "couldn't parse" on Check for Updates. Instrumented: HTTP code + raw response preview logged on failure, per_page 30→100. Root cause likely GitHub rate-limit returning 403 object (not array). Next step: reproduce and check log for `UPDATER: GitHub API HTTP NNN`. See `context/scratch/updater-parse-diagnosis-2026-04-11.md`. |
 | **Build verification + QC pass** | MED | PLANNED | Clean build on dev, all QC tests from qc-tests.md passing, no known crash bugs. |
 
@@ -91,11 +91,17 @@
 | **B-112** | Chr pointer corruption in 31-bot matches (guards in place, root cause unknown) | chraction.c, chr.c |
 | **B-126** | Silent crash ~8min into MP — process dies silently, no VEH log. Heartbeat instrumentation added (S187); awaiting next repro. | lv.c (heartbeat), crash.c |
 
-### FIXED S190 (awaiting visual confirmation from Mike)
+### FIXED S190/S198 (awaiting visual confirmation from Mike)
 | Bug | Description | Fix |
 |-----|-------------|-----|
 | **B-128** | Sky tearing / transparent sky tris on outdoor stages | sky.c:1244 `gDPSetRenderMode(OPA_SURF)` — inheriting previous frame blend state was root cause |
-| **B-129** | AV on mission end — filemgrSaveOrLoad + no Pak + fn-ptr cast to lang index → crash | endscreen.c +14 lines; pdgui_menu_warning.cpp +12 lines; saves now write correctly |
+| **B-129** | AV on mission end — filemgrSaveOrLoad + no Pak + fn-ptr cast to lang index → crash, plus saves landing at drive root | S190: endscreen.c +14 lines, pdgui_menu_warning.cpp +12 lines. S198: saveInit() wired into main.c + server_main.c (commit 3fc345bf); saves now land in AppData. |
+
+### NEW OPEN BUGS (S198)
+| Bug | Description | File |
+|-----|-------------|------|
+| **B-130** | Theme editor X / Close / click-outside dismiss all ineffective; lifecycle instrumentation deployed S198, awaiting next playtest log | pdgui_menu_theme_editor.cpp |
+| **B-131** | Post-restart Start button double-fire after Mission 1 loops back to start; deferred to follow-up | inputctx.c, bondmove.c |
 
 ### MEDIUM
 | Bug | Description | File |
