@@ -77,7 +77,7 @@
 |------|----------|--------|--------|
 | **M3 -- Online MP flow** | MED | PLANNED | Lobby polish, room list UX, leader election, Quick Play button. R-3 done unblocks this. |
 | **Prop sync event-driven** | MED | PLANNED | Current CRC polling. Should fire on pickup/door events per game director. |
-| **B-78 chat rate limiting** | MED | OPEN | DoS amplification vector in netmsg.c rebroadcast. |
+| **B-78 chat rate limiting** | MED | FIXED (2026-04-11) | `CHAT_MSG_MAX_LEN 255` + length check added to `netmsgClcChatRead`. Dead `tmp[1024]` (B-84) also removed. Commit cb6f4763 on dev. |
 | **B-81 JSON recursion guard** | MED | FIXED (S200) | `S_MAX_DEPTH 64` depth guard in `s_skip_value` + `SAVE_MAX_FILE_BYTES 256KB` file size cap. Both attack vectors closed. |
 | **B-118 CI intro cutscene crash** | MED | OPEN | 56 models missed by SP manifest pre-scan. |
 
@@ -108,8 +108,8 @@
 |-----|-------------|------|
 | **B-18** | Pink sky on Skedar Ruins — may be resolved by B-128 sky fix; needs Skedar playtest | sky rendering |
 | **B-19** | Bot spawn stacking on Skedar Ruins (partial fix S125) | player.c |
-| **B-78** | Chat rebroadcast without rate limiting -- DoS amplification | netmsg.c |
-| ~~**B-81**~~ | ~~JSON tokenizer unbounded recursion -- crafted save crash~~ | ~~savefile.c~~ | **FIXED S200** |
+| ~~**B-78**~~ | ~~Chat rebroadcast without rate limiting -- DoS amplification~~ | FIXED 2026-04-11 |
+| ~~**B-81**~~ | ~~JSON tokenizer unbounded recursion -- crafted save crash~~ | FIXED S200 |
 | **B-99** | Updater extraction may fail -- needs retest | updater.c |
 | **B-118** | CI intro cutscene crash -- 56 models missed by manifest | netmanifest.c |
 | Menu opacity stacking | Main menu BG gets more opaque after repeated open/close | pdgui haze overlay |

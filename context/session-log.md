@@ -3,6 +3,39 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S200 — 2026-04-11 (B-78: chat DoS amplification fix + B-84: dead variable)
+
+**Focus**: Close B-78 (chat rebroadcast rate limiting) in `port/src/net/netmsg.c`.
+
+### Findings
+
+- Rate limiter (5 msg / 2s ring buffer) already existed from a prior session. B-78 remained OPEN because the size amplification gap was not addressed: `netbufReadStr` allows up to 65534-char strings, so 5 × 64KB = ~320KB/s per attacker was still possible even with rate limiting.
+- B-84 (dead `char tmp[1024]` in `netmsgSvcChatRead`) was co-located and resolved in the same diff.
+
+### Changes
+
+- `port/src/net/netmsg.c` (+10, -2):
+  1. Added `#define CHAT_MSG_MAX_LEN 255u` alongside existing rate-limit constants
+  2. `netmsgClcChatRead`: length check drops oversized messages before rate-limit ring (LOG_WARNING with client ID)
+  3. `netmsgSvcChatRead`: removed dead `char tmp[1024]`
+- `context/scratch/B-78-2026-04-11.md`: fix rationale + build results
+- `context/bugs.md`: B-78 and B-84 marked FIXED
+- `context/tasks-current.md`: B-78 status updated
+
+### Build
+
+- Worktree commit: `59a15a65` → cherry-picked to dev as `cb6f4763`
+- PerfectDark.exe: 48,911,633 bytes — freshly linked 2026-04-11
+- PerfectDarkServer.exe: 22,787,920 bytes — freshly linked 2026-04-11
+- Exit: 0, no new errors
+
+### Next steps
+
+- B-81 (JSON recursion guard in savefile.c) — running in parallel session
+- B-112 (chr pointer corruption in 31-bot matches) — still INVESTIGATING
+
+---
+
 ## Session S199 — 2026-04-11 (Updater parse failure diagnosis — v0.0.75 not in update list)
 
 **Focus**: Diagnose why v0.0.75 doesn't appear in the client/server update list and why "Check for Updates" fails with "Couldn't parse update list".
