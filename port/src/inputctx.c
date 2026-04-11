@@ -68,9 +68,31 @@ void inputCtxPush(InputContext *ctx)
         return;
     }
 
-    /* Prevent double-push */
+    /* Prevent double-push.
+     *
+     * S197a: a previously-popped (marked-for-removal) entry is still physically
+     * on the stack until the next inputCtxEndFrame() compacts it out.  The old
+     * check did not distinguish between that and a truly live duplicate, so
+     * an in-frame pop-then-push sequence was refused as "already on stack".
+     * Effect: one of the menu->menu transitions observed in the S197a log
+     * (<10 ms push/pop/push on imgui_menu) left the stack in a semi-stale
+     * state that surfaced as a main-menu instance flicker.
+     *
+     * Fix: treat a marked-for-removal entry as "resurrect" — un-mark it and
+     * re-sync mouse mode (which popDeferred already switched to the next
+     * context underneath).  The original on_push side effects are still in
+     * place, so we deliberately do NOT call on_push again. */
     for (s32 i = 0; i < s_Depth; i++) {
         if (s_Stack[i] == ctx) {
+            if (ctx->marked_for_removal) {
+                ctx->marked_for_removal = 0;
+                ctx->push_tick = SDL_GetTicks();
+                inputCtxSyncMouseMode();
+                sysLogPrintf(LOG_NOTE,
+                    "INPUTCTX: push on marked '%s' at depth %d — un-marked for removal (resurrect)",
+                    ctx->name ? ctx->name : "?", i);
+                return;
+            }
             sysLogPrintf(LOG_WARNING, "INPUTCTX: '%s' already on stack at depth %d, ignoring push",
                          ctx->name ? ctx->name : "?", i);
             return;

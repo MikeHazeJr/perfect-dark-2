@@ -438,8 +438,10 @@ static void fireVk(u32 vk, s32 is_down)
 
                 ActionState *st = &s_State[player][a];
 
-                /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs */
-                if (vk >= (u32)VK_JOY1_BEGIN && is_down) {
+                /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
+                 * S197a: gated behind sysLogGetVerbose() — was spamming the log
+                 * at ~60 Hz × N buttons per player. Enable with --verbose. */
+                if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
                     sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
                                  vk, player,
                                  ctx->name ? ctx->name : "?",
@@ -469,10 +471,20 @@ static void fireVk(u32 vk, s32 is_down)
             }
         }
     }
-    /* DIAG: Log when a gamepad VK has no binding in any active IMC */
-    if (vk >= (u32)VK_JOY1_BEGIN && is_down) {
-        sysLogPrintf(LOG_WARNING, "DIAG fireVk: vk=%u player=%d NO BINDING FOUND in %d active IMCs",
-                     vk, player, s_NumActive);
+    /* DIAG: Log when a gamepad VK has no binding in any active IMC.
+     * S197a: gated behind sysLogGetVerbose(). Also filter out synthetic
+     * stick-as-button VKs (LSTICK_*, RSTICK_*, LTRIG, RTRIG) which are
+     * INTENTIONALLY unbound in most IMCs (analog movement is handled by
+     * the SDL_GameControllerGetAxis path, not the button table). These
+     * were producing hundreds of false "NO BINDING FOUND" warnings per
+     * stick flick and made the log unreadable. */
+    if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
+        u32 joyOffset = (vk - (u32)VK_JOY1_BEGIN) % (u32)INPUT_MAX_CONTROLLER_BUTTONS;
+        s32 isSyntheticAxis = (joyOffset >= 22 && joyOffset <= 31);
+        if (!isSyntheticAxis) {
+            sysLogPrintf(LOG_WARNING, "DIAG fireVk: vk=%u player=%d NO BINDING FOUND in %d active IMCs",
+                         vk, player, s_NumActive);
+        }
     }
     return;
 next_player:;
@@ -664,10 +676,12 @@ void actionmapDispatch(const SDL_Event *ev)
         if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) player = 0;
         updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
         u32 vk = JOY_BTN(player, (u32)ev->cbutton.button);
-        sysLogPrintf(LOG_NOTE, "DIAG btn: SDL btn=%d player=%d vk=%u %s ctrl=%p",
-                     (int)ev->cbutton.button, player, vk,
-                     (ev->type == SDL_CONTROLLERBUTTONDOWN) ? "DOWN" : "UP",
-                     (void*)ctrl);
+        if (sysLogGetVerbose()) {
+            sysLogPrintf(LOG_NOTE, "DIAG btn: SDL btn=%d player=%d vk=%u %s ctrl=%p",
+                         (int)ev->cbutton.button, player, vk,
+                         (ev->type == SDL_CONTROLLERBUTTONDOWN) ? "DOWN" : "UP",
+                         (void*)ctrl);
+        }
         fireVk(vk, (ev->type == SDL_CONTROLLERBUTTONDOWN) ? 1 : 0);
         break;
     }
@@ -753,8 +767,8 @@ void actionmapPollFrame(void)
     InputContext *topCtx = inputCtxGetTop();
     s32 menuActive = (topCtx && topCtx != &g_CtxGameplay) ? 1 : 0;
 
-    /* DIAG: Log context and active IMCs every ~120 frames */
-    if ((s_DiagFrameCount % 120) == 1) {
+    /* DIAG: Log context and active IMCs every ~120 frames (verbose-only). */
+    if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1) {
         sysLogPrintf(LOG_NOTE, "DIAG poll: frame=%u topCtx='%s' menuActive=%d numActiveIMCs=%d pad0=%p",
                      s_DiagFrameCount,
                      topCtx ? (topCtx->name ? topCtx->name : "unnamed") : "NULL",
@@ -807,8 +821,8 @@ void actionmapPollFrame(void)
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_Y].held  = (fry != 0.0f) ? 1 : 0;
 
-            /* DIAG: Log raw and processed axis values every ~120 frames */
-            if ((s_DiagFrameCount % 120) == 1 && p == 0 &&
+            /* DIAG: Log raw and processed axis values every ~120 frames (verbose-only). */
+            if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1 && p == 0 &&
                 (lx != 0 || ly != 0 || rx != 0 || ry != 0)) {
                 sysLogPrintf(LOG_NOTE, "DIAG axes p%d: raw lx=%d ly=%d rx=%d ry=%d -> flx=%.3f fly=%.3f frx=%.3f fry=%.3f",
                              p, (int)lx, (int)ly, (int)rx, (int)ry, flx, fly, frx, fry);
@@ -869,8 +883,8 @@ void actionmapPollFrame(void)
         }
     }
 
-    /* DIAG: Log final axis values every ~120 frames for player 0 */
-    if ((s_DiagFrameCount % 120) == 1) {
+    /* DIAG: Log final axis values every ~120 frames for player 0 (verbose-only). */
+    if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1) {
         f32 mvx = s_State[0][ACTION_AXIS_MOVE_X].value;
         f32 mvy = s_State[0][ACTION_AXIS_MOVE_Y].value;
         f32 amx = s_State[0][ACTION_AXIS_AIM_X].value;
@@ -1385,28 +1399,55 @@ static void setupVehicleDefaults(s32 player)
 
 static void setupMenuDefaults(void)
 {
-    /* Menu IMC: Player 0 only. 3 functional actions — ImGui handles all
-     * navigation internally via SDL key events; MENU_UP/DOWN/LEFT/RIGHT
-     * are dead weight here and omitted. */
+    /* Menu IMC: Player 0 only.
+     *
+     * S197a NAV FIX: MENU_UP/DOWN/LEFT/RIGHT + TAB_PREV/NEXT MUST be bound here.
+     * pdguiDriveImGuiNav() in pdgui_backend.cpp reads actionHeld(ACTION_MENU_*)
+     * every frame and translates to io.AddKeyEvent(ImGuiKey_UpArrow/...) for
+     * ImGui's keyboard nav. ImGui NavEnableGamepad is OFF, so this is the only
+     * path for d-pad menu navigation. A prior session removed these as "dead
+     * weight" on the mistaken assumption that ImGui handled nav itself — it
+     * doesn't, and the result was that arrows/d-pad stopped working in menus.
+     */
     InputMappingContext *imc = &g_ImcMenu;
-    addBind(imc, ACTION_USE,        VK_RETURN);        /* UI Select/Accept — kbd */
-    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A)); /* UI Select/Accept — gamepad */
-    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);        /* Back/Cancel — kbd */
-    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B)); /* Back/Cancel — gamepad */
-    addBind(imc, ACTION_PAUSE,      JOY_BTN(0, JBTN_START)); /* Pause toggle — gamepad only (kbd Escape covered by CANCEL_USE) */
+    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept — kbd */
+    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept — gamepad */
+    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel — kbd */
+    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel — gamepad */
+    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle — gamepad only (kbd Escape covered by CANCEL_USE) */
+    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up — kbd arrow */
+    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up — d-pad */
+    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down — kbd arrow */
+    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down — d-pad */
+    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left — kbd arrow */
+    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left — d-pad */
+    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right — kbd arrow */
+    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
+    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
+    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
 }
 
 static void setupPauseMenuDefaults(void)
 {
-    /* PauseMenu IMC: same 3-action model as Menu. Player 0 only.
+    /* PauseMenu IMC: same actions as Menu plus the S197a nav fix. Player 0 only.
      * ACTION_PAUSE is NOT bound to VK_ESCAPE here — Escape means "go back"
      * (ACTION_CANCEL_USE) in a pause menu, not a second pause-toggle. */
     InputMappingContext *imc = &g_ImcPauseMenu;
-    addBind(imc, ACTION_USE,        VK_RETURN);           /* UI Select/Accept — kbd */
-    addBind(imc, ACTION_USE,        JOY_BTN(0, JBTN_A));  /* UI Select/Accept — gamepad */
-    addBind(imc, ACTION_CANCEL_USE, VK_ESCAPE);           /* Back/Cancel — kbd */
-    addBind(imc, ACTION_CANCEL_USE, JOY_BTN(0, JBTN_B));  /* Back/Cancel — gamepad */
-    addBind(imc, ACTION_PAUSE,      JOY_BTN(0, JBTN_START)); /* Pause toggle — gamepad only */
+    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept — kbd */
+    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept — gamepad */
+    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel — kbd */
+    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel — gamepad */
+    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle — gamepad only */
+    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up — kbd arrow */
+    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up — d-pad */
+    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down — kbd arrow */
+    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down — d-pad */
+    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left — kbd arrow */
+    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left — d-pad */
+    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right — kbd arrow */
+    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
+    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
+    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
 }
 
 static void setupDebugOverlayDefaults(void)

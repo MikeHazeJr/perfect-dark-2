@@ -2722,15 +2722,28 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_ViewJustChanged) {
         pdguiPlaySound(PDGUI_SND_SWIPE);
         s_NeedsFocus = true;  /* focus first widget on next frame */
-        s_ControlsNeedsInit = true;  /* reload binds next time Controls tab is entered */
+        /* S197a: only set s_ControlsNeedsInit when LEAVING the Settings view,
+         * not on every view switch.  Previously this fired on every change
+         * (including the 0 -> 2 transition that ENTERS Settings), causing a
+         * second actionmapLoadBinds() reload on the frame after Settings
+         * first rendered the Controls tab.  The initial load is already
+         * triggered by the default s_ControlsNeedsInit=true at static init
+         * or by the leave-side flag below. */
+        if (s_PrevView == 2 && s_MenuView != 2) {
+            s_ControlsNeedsInit = true;
+        }
     }
     s_PrevView = s_MenuView;
 
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
         s_NeedsFocus = true;  /* focus first widget when tab changes */
-        /* Re-init controls binds next time the Controls tab is entered */
-        if (s_PrevSubTab == 2 || s_SettingsSubTab == 2) {
+        /* S197a: re-init Controls binds only when LEAVING the Controls tab
+         * (prev==2, new!=2).  Previously fired on both leave and enter,
+         * causing a redundant reload on the frame after the user clicked
+         * the Controls tab (the enter-frame already reloaded via the
+         * default/view-change flag). */
+        if (s_PrevSubTab == 2 && s_SettingsSubTab != 2) {
             s_ControlsNeedsInit = true;
         }
     }
