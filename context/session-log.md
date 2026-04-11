@@ -3,6 +3,54 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S202 — 2026-04-11 (D5 P3 Batch 4: Cheats & Cinema)
+
+**Focus**: Complete D5 Phase 3 Batch 4 — consolidate 9 legacy cheats dialogs into a tabbed ImGui hub + replace the Cinema cutscene viewer.
+
+### Approach
+
+Per Mike's mid-task guidance: reuse Batch 0-3 primitives, integrate with existing dispatch patterns, do NOT do a 1:1 legacy port. Zero-function-loss = logical coverage, not call-site parity.
+
+Shared primitives reused: `pdguiPopupDarkenBehind`, `pdguiDrawPdDialog`, `pdguiBeginActionBar`, `pdguiBodyHeightForActionBar`, `pdguiScale`/`pdguiMenuWidth`/`pdguiMenuHeight`/`pdguiCenterPos`, `langSafe`, `pdguiPlaySound`, `inputCtxPush/Pop(&g_CtxImGuiMenu)`, `pdguiNavTickWrap`. Sub-dialog redirect pattern cloned from Batch 3 `renderCiSettingsRedirect`. s202 shadow-struct call-through pattern cloned from s194 in `pdgui_menu_solomission.cpp:345` — re-declares `menuitem`/`handlerdata` locally with ABI-compatible layout and invokes legacy C handlers through function pointers so all bank-mutation logic (Marquis/EnemyRockets mutex, Velvet/buddy mutex, Unlock-Everything, cutscene-group math, `g_Vars.autocutgroupcur`/`autocutgroupleft` writes) stays single-sourced.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_cheats.cpp` (+903 lines):
+  - `renderCheatsHub` -- tabbed hub with 6 tabs (Fun/Gameplay/Jo Solo Weapons/Classic Weapons/Weapons/Buddies) + docked action bar (Turn Off All / Unlock All... / Back)
+  - `renderCheatsSubRedirect` -- catches the 6 legacy sub-dialogs, pops itself, flips `s_PendingTab` so the already-open hub switches tabs next frame
+  - `renderCheatsWarning` -- first-use SUCCESS modal replacement
+  - `renderCheatsConfirmUnlock` -- DANGER Yes/No modal calling `gamefileUnlockEverything` directly
+  - `sc_buildUnlockTooltip` -- static hover tooltip replacing legacy marquee animation (localized stage names via langSafe, English difficulty labels)
+  - `pdguiMenuCheatsRegister()` -- single hotswap registration function (10 dialogs)
+- `port/fast3d/pdgui_menu_mainmenu.cpp` (3123 → 3371, +248):
+  - `cn_handlerdata_list` / `cn_menuitem` / `cn_handlerdata` shadow types for `menuhandlerCinema` call-through
+  - `renderCinemaList` -- grouped cutscene list with scroll body + docked Back action bar; delegates all MENUOP_* opcodes to `menuhandlerCinema` so cinema dispatch (`g_Vars.autocutgroupcur`/`autocutgroupleft` + `menuPopDialog` + `menuStop`) stays single-owner
+  - Full MENUOP_* #define block (1..8) next to existing MENUOP_SET — was missing for list-handler opcodes
+  - Registration: `g_CinemaMenuDialog → renderCinemaList` in `pdguiMenuMainMenuRegister()`
+- `port/include/pdgui_menus.h` (62 → 63, +1):
+  - Declared + called `pdguiMenuCheatsRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch4-2026-04-11.md` -- full legacy→new function map, zero-function-loss audit, build results
+
+### Mid-flight fix
+
+First client build failed with `'MENUOP_GETOPTIONCOUNT' was not declared in this scope`. The Cinema renderer references 5 list-handler opcodes but `pdgui_menu_mainmenu.cpp` only had a local `#define MENUOP_SET 6` from Batch 0. Added the full block (MENUOP_GETOPTIONCOUNT=1 ... MENUOP_GET=8). Committed separately as `9b32a877` on dev + `58e60923` on worktree branch.
+
+### Build
+
+- Worktree: `friendly-morse`, branch `claude/friendly-morse`
+- Merged to dev as non-ff merge
+- `build/client/PerfectDark.exe`: 48,920,337 → **49,051,951 bytes** (+131,614) — freshly linked 2026-04-11 11:41 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server) — freshly linked 2026-04-11 11:42 EDT
+- `build/server/PerfectDark.exe`: 49,050,415 bytes — freshly linked 2026-04-11 11:43 EDT (build/server also builds the client target)
+- `cmake --build . -j 24` via MSYS2 MINGW64 with TEMP=`C:\Users\mikeh\AppData\Local\Temp`. Direct cmake invocation used because build-headless.ps1 swallows output when stdout is redirected under bash (carriage-return spinner vs non-TTY). Re-ran `cmake .` in build/server to refresh GLOB_RECURSE cache and pick up new cheats.cpp.
+- Exit: 0 on all three link steps, no new errors
+
+### Next
+
+**Batch 5** (MP Setup Core — Arena/Weapons/Scenario/Limits, ~14 dialogs). Plan says this may be absorbed into `pdgui_menu_room.cpp` if the legacy combat sim path is retired.
+
+---
+
 ## Session S201 — 2026-04-11 (D5 P3 Batch 3: Unified Settings absorbs CI Options)
 
 **Focus**: Complete D5 Phase 3 Batch 3 — verify CI Options absorption into unified Settings; close remaining content gap.
