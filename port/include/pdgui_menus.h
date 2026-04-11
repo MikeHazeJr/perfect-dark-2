@@ -31,6 +31,7 @@ void pdguiMenuChallengesRegister(void);   /* Group 4: Combat challenge browser *
 void pdguiMpIngameRegister(void);         /* Group 5: MP In-Game overlays + endscreen suppression */
 void pdguiMenuEndscreenRegister(void);    /* Group 2: SP/MP end screens */
 void pdguiMenuTrainingRegister(void);     /* Group 6: Firing Range, DT, HT, Bio dialogs */
+void pdguiMenuCheatsRegister(void);       /* D5 P3 Batch 4: Cheats hub (9 dialogs) */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -52,6 +53,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMpIngameRegister();
     pdguiMenuEndscreenRegister();
     pdguiMenuTrainingRegister();
+    pdguiMenuCheatsRegister();
 }
 
 #ifdef __cplusplus
