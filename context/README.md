@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-11, Session S201 (D5 P3 Batch 3 complete: Sound Mode added to Settings → Audio; CI Options redirects verified; pdgui_menu_mainmenu.cpp 3100→3123. Both exes freshly linked.)
+> **Last updated**: 2026-04-11, Session S209 (D5 P3 Batch 11 complete: MP Player Config & Stats (5 dialogs) -- NEW pdgui_menu_playerconfig.cpp 1294 lines + pdgui_bridge.c +38 + pdgui_menus.h +2; network audit clean, zero function loss, +134KB client.)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,6 +35,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S202-S209 | 2026-04-11 | S202 Batch 4 Cheats/Cinema (+131KB). S203 Batch 5 MP Setup Core (+147KB). S204 Batch 6 Bot Setup (+135KB). S205 Batch 7 MP Advanced/Quick (+220KB). S206 Batch 8 MP Pause & In-Game (+156KB). S207 Batch 6 polish (live head/body preview). S208 Opus 1M playtest-fixes (6 bugs). S209 Batch 11 MP Player Config & Stats (+131KB). |
 | S200-S201 | 2026-04-11 | S200 B-78/B-84 FIXED (chat size cap + dead tmp[1024]). S201 D5 P3 Batch 3 DONE: Sound Mode dropdown added to Settings → Audio; CI Options redirects verified complete. pdgui_menu_mainmenu.cpp 3100→3123. |
 | S199 | 2026-04-11 | Updater parse failure diagnosis (B-99/D13). per_page 30→100; HTTP code + raw response instrumentation in updater.c. Root cause likely GitHub rate-limit 403 error object. |
 | S196-S198 | 2026-04-10 | S196 Theme system: base-game template mod, nineslice pipeline, Settings → Video → UI Chrome Style toggle. S197a Input regressions post-S196 fixed. S198 B-129 agent save path FULLY FIXED (saveInit() wired in main.c + server_main.c); theme editor close lifecycle instrumentation (B-130). New bugs B-130/B-131 OPEN. |

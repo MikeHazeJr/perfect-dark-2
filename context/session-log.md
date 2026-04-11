@@ -3,6 +3,64 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S209 — 2026-04-11 (D5 P3 Batch 11: MP Player Config & Stats)
+
+**Focus**: Complete D5 Phase 3 Batch 11 — replace the 5 legacy multiplayer player-config / game-setup-load dialogs (`g_MpCharacterMenuDialog`, `g_MpPlayerStatsMenuDialog`, `g_MpLoadSettingsMenuDialog`, `g_MpLoadPresetMenuDialog`, `g_MpLoadPlayerMenuDialog`) with ImGui renderers, delegating every state mutation to the existing setup.c handlers through the shadow-struct call-through pattern, while auditing every field end-to-end against the network match-start / match-end pipelines per Mike's standing rule carried forward from Batches 7/8. Worktree: `claude/pedantic-khorana`, dev baseline `8730cf19`.
+
+### Approach
+
+Investigated the batch before touching renderer code. Read `context/designs/menu-replacement-plan.md` for the Batch 11 scope, `pdgui_menu_mppause.cpp` (Batch 8 s206 pattern) as the template, `renderMpSimulantCharacter` in `pdgui_menu_botsetup.cpp` (Batch 6 polish from S207) for the reusable `pdguiModelPreviewDraw` integration pattern, the five legacy dialog defs + their item handlers in `src/game/mplayer/setup.c`, and the full network-write chain in `port/src/net/net.c` / `port/src/net/netmsg.c` / `port/src/net/netmenu.c`.
+
+Key finding from the net audit: the legacy `mpCharacterBodyListHandler` and `mpLoadPlayerMenuHandler` MENUOP_SET paths write `g_PlayerConfigsArray[0]` WITHOUT calling `netClientSettingsChanged()`. On listen server / host this is fine because `netServerStageStart` (net.c:658) and `netServerCoopStageStart` (net.c:772) both call `netClientReadConfig(g_NetLocalClient, 0)` before broadcasting SVC_STAGE_START, which pulls the fresh `base.body_id`/`head_id` into `cl->settings`. On a remote client, however, CLC_SETTINGS stays stale until the next settings-touching action — the legacy dialogs on a client don't propagate eagerly. The modern netmenu.c character dropdowns at lines 179 / 403 already call `netClientSettingsChanged()` explicitly after `mpchrSetBodyByIndex`; this batch brings the legacy setup.c path up to parity by notifying on dialog close (character select) or immediately after the SET (load player). Fully additive — listen-server / host unchanged, client flow gains eager propagation. Matches Mike's direction carried forward from Batch 7: "Ensure any network play properly passes menu info into the relevant match start / end procedures."
+
+Full audit table with 13 fields traced writer → backing global → match-start reader → match-end reader in `context/scratch/D5-P3-batch11-2026-04-11.md`.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_playerconfig.cpp` (1294 lines):
+  - s207 shadow menuitem / handlerdata (clone of s206 from mppause.cpp, with the `carousel` variant from s204 in botsetup.cpp for the character head carousel). ABI-compatible with real types.h structs.
+  - Helpers: `list_GetOptionCount/Text/SelectedIndex/Set/Focus/GetOptGroupCount/GetOptGroupText/GetGroupStartIndex` (grouped list ops), `car_GetCount/GetSelectedIndex/Set` (carousel ops), `plain_IsHiddenWithParam`, `pc_GetDynTextWithParam` (shadow-cast for dynamic-text function pointers that read `item->param`).
+  - Window-frame helpers: `pc_BeginStandardWindow` / `pc_CloseCurrentDialog` / `pc_BackPressed` — identical to the mppause versions, file-local for the same reason (shared helpers would need a new header).
+  - `pc_NetNotifyLocalPlayerChanged` — file-local guard that only calls `netClientSettingsChanged()` when `g_NetMode != 0`.
+  - `renderMpCharacter`: two-column — 300x340 live 3D preview on the left (via reusable `pdguiModelPreviewDraw`, selection resolved through `catalogMpBodyId` / `catalogMpHeadId`), scrollable body list on the right (delegates to `mpCharacterBodyListHandler` for OPTIONCOUNT/OPTIONTEXT/SET/LISTITEMFOCUS), head carousel with prev/next arrows below the list (delegates to `menuhandlerMpCharacterHead`). On hover we call `list_Focus` so the legacy `s_PreviewBodyNum` tracker stays in sync for any code that still reads it. `pc_NetNotifyLocalPlayerChanged()` fires on both Back button and ESC/B close.
+  - `renderMpPlayerStats`: read-only scroll view. Three stat sections (combat / resources / career) rendered from `StatRow[]` arrays that map labels to legacy `mpMenuText*` dynamic-text functions (called with `nullptr` — the legacy bodies never dereference the item arg, they read `g_PlayerConfigsArray[g_MpPlayerNum]` directly). Each value goes through `pc_Strip` to trim the trailing `\n` the legacy format strings emit. Medals section rendered with ImGui-native colored circles (`AddCircleFilled` + `AddCircle`) — legacy colors preserved (KM red, Head Shot yellow, Accuracy green, Survivor cyan). Count comes from new bridge accessor `pdguiPcPlayerConfigGetMedalCount(which)` because the legacy `mpMedalMenuHandler` MENUOP_RENDER is a GBI-only path we cannot reuse from ImGui. "Your Title" row uses `mpMenuTextPlayerTitle(0)` (different signature — takes `s32`). USERNAME/PASSWORD Easter egg rows gated on `plain_IsHiddenWithParam(menuhandlerMpUsernamePassword, 0)`, which delegates to the legacy CHECKHIDDEN that inspects `g_PlayerConfigsArray[...].title != MPPLAYERTITLE_PERFECT`.
+  - `pc_RenderGroupedList`: shared helper that renders a legacy grouped LIST handler (via GETOPTGROUPCOUNT / GETOPTGROUPTEXT / GETGROUPSTARTINDEX / OPTIONTEXT) with ImGui headers + selectables, calling `list_Focus` on hover so the legacy marquee state stays in sync.
+  - `renderMpLoadSettings` / `renderMpLoadPreset`: share `pc_RenderGroupedList` with `mpLoadSettingsMenuHandler`. Force `g_Menus[g_MpPlayerNum].mpsetup.showpresets = 1` at first frame via `pdguiPcMpSetShowPresets(1)` bridge call — legacy N64 toggled this for screen real-estate, PC scrolling makes the toggle obsolete. Load Preset uses `param=1` so the legacy SET branch routes through the QuickGo push via `func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP)` after the preset loads. Both dialogs render `mpMenuTextMpconfigMarquee(nullptr)` under the list for the currently focused overview.
+  - `renderMpLoadPlayer`: uses `pc_RenderGroupedList` with `mpLoadPlayerMenuHandler` for the device-grouped save file list. On click the legacy SET runs its existing branches (already-loaded error OR `filemgrSaveOrLoad(FILEOP_LOAD_MPPLAYER)` which replaces `g_PlayerConfigsArray[0]` wholesale and calls `menuPopDialog()` from inside the handler). We call `pc_NetNotifyLocalPlayerChanged()` right after the SET so clients propagate the fresh name/body/head to the server.
+  - Registration: `pdguiMenuPlayerConfigRegister()` calls `pdguiHotswapRegister` for each of the 5 dialogs with a descriptive name.
+
+- **M** `port/fast3d/pdgui_bridge.c` (+38 lines): new Batch 11 bridge section:
+  - `pdguiPcMpSetShowPresets(s32 on)` / `pdguiPcMpGetShowPresets(void)` — write/read `g_Menus[g_MpPlayerNum].mpsetup.showpresets` without the C++ file needing types.h.
+  - `pdguiPcPlayerConfigGetTitle(void)` — returns `g_PlayerConfigsArray[g_MpPlayerNum].title` (reserved for future Easter egg gating, not yet used by the renderer since `plain_IsHiddenWithParam` delegation is cleaner).
+  - `pdguiPcPlayerConfigGetMedalCount(s32 which)` — returns the legacy medal field (KM / HS / Acc / Surv) at index `which`, used by the ImGui medal rows.
+
+- **M** `port/include/pdgui_menus.h` (+2 lines): forward declaration `void pdguiMenuPlayerConfigRegister(void)` and call in `pdguiMenusRegisterAll()`.
+
+- **NEW** `context/scratch/D5-P3-batch11-2026-04-11.md`: the full network audit table + zero-function-loss audit + build results.
+
+### Zero function loss
+
+All 5 legacy `menudialogdef`s still present in `src/game/mplayer/setup.c`. All 10 legacy handlers still present (the 7 item handlers the ImGui renderers delegate to, plus `mpCharacterBodyMenuHandler` / `mpCharacterHeadMenuHandler` called transitively, plus `mpLoadSettingsDialogHandler` / `mpCharacterSelectDialogHandler` dialog handlers). All 19 dynamic-text functions (13 stats, 4 medals, 1 username, 1 marquee) still present in setup.c, plus `mpMenuTextPlayerTitle` in `ingame.c`. Zero `src/` files modified — legacy code is completely untouched.
+
+Legacy dialog-handler TICK paths still fire via the menu runtime (hot-swap only intercepts RENDER, not OPEN/CLOSE/TICK), so `mpCharacterSelectDialogHandler` MENUOP_OPEN/TICK still drives the `s_PreviewBodyNum` / `s_PreviewHeadNum` tracker, and `mpLoadSettingsDialogHandler` MENUOP_TICK still toggles `showpresets` on Menu-Alt press (now a no-op behaviorally because the ImGui renderer forces `showpresets = 1` at first frame, but the side effect is still executed for any legacy consumer).
+
+### Build
+
+Worktree-local build with `TEMP=/tmp` + explicit `cmake -G "Unix Makefiles" -DCMAKE_MAKE_PROGRAM=... -DCMAKE_C_COMPILER=...` invocation. Separate `build/client` and `build/server` configured under the worktree.
+
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,820,726 bytes** (fresh worktree build, includes worktree branch name in the embedded version string).
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,772,030 bytes**.
+- Zero warnings or errors from `pdgui_menu_playerconfig.cpp.obj` (179,683 bytes, virtually identical to mppause.cpp.obj at 178,763 bytes) or `pdgui_bridge.c.obj`.
+- Only pre-existing warnings: `modelasm_c.c` dangling-pointer, `model.c` frac/frac2 maybe-uninit, `snd.c` strncpy truncation, `updater.h` stale `/*` in comment.
+
+Post-merge incremental build on dev @ merge commit `83d306b6`:
+- Client = **49,730,120 bytes** (+134,082 vs baseline 8730cf19 at 49,596,038). Incremental rebuild only re-linked the client; the absolute size differs from the worktree fresh build because the main tree has different version-string embedding and possibly different build state in the shared build dir.
+- Server = **22,788,944 bytes** (-1,024 vs baseline 22,789,968 — linker variance, playerconfig.cpp + pdgui_bridge.c additions are outside the SRC_SERVER whitelist so this is not attributable to the batch).
+
+### Result
+
+Batch 11 complete: 5 dialogs replaced, zero function loss, network audit clean, both binaries link cleanly in both worktree-local and post-merge builds. Merged to dev via `--no-ff` as `83d306b6`. Remaining D5 P3 work: Batch 10 (Training NULL-FN 3D preview) and Batch 12 (Music & Misc). `pdgui_menu_mpsettings.cpp` stayed untouched per the standing rule — reserved for Batch 12.
+
 ## Session S208 — 2026-04-11 (Opus 1M playtest-fixes: six bugs, one commit)
 
 **Focus**: Mike's 2026-04-11 playtest of v0.0.77 on dev @ `bfbb19b9` (Batch 8 + Batch 6 head-preview polish merged) surfaced six distinct issues: a double-menu-close race after backing out in Carrington Institute; saved action bindings populating the UI but not reaching the live input dispatcher; the Theme Customizer X button / Close button / click-outside dismiss all ineffective; the color picker popup broken inside the Theme Customizer; the main menu gamepad bumpers moving focus within the current tab instead of cycling top-level tabs; and user-saved custom themes never appearing in any Theme selection UI. Mike's direction: "Fix these with the Opus 1m thinking model." Worktree: `claude/infallible-napier` (aka `infallible-napier`).
