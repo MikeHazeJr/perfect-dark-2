@@ -3,6 +3,44 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S203 — 2026-04-11 (D5 P3 Batch 5: MP Setup Core)
+
+**Focus**: Complete D5 Phase 3 Batch 5 — replace the 14 legacy MP Combat Simulator setup dialogs (Arena / Scenario / Weapons / Limits / Scenario Options / Extended Game Options) with ImGui renderers that delegate all state mutation to the legacy C handlers via the s203 shadow-struct call-through pattern (cloned from s194 in solomission.cpp / s202 in cheats.cpp).
+
+### Approach
+
+- Per Batch 4 handoff: verified whether Batch 5 should be absorbed into `pdgui_menu_room.cpp`. Room.cpp already handles the *modern* lobby flow; Batch 5's scope is the legacy Combat Simulator setup dialogs that still back `g_CombatSimulatorMenuDialog`. Absorption would require retiring that entry point — out of scope. New file `pdgui_menu_mpsetup.cpp` sits parallel to cheats.cpp / solomission.cpp. Room.cpp untouched; solomission.cpp untouched (per standing critical-collision rule).
+- s203 shadow-struct ABI covers `menuitem` + `handlerdata_{checkbox,dropdown,list_t,slider}` so legacy C handlers from `setup.c` / `scenarios.c` / `scenarios/*.inc` can be invoked through function pointers from C++ without including types.h (the `#define bool s32` in types.h breaks C++ compilation).
+- Every backing-store write (g_MpSetup.*, g_MpWeaponSetRandomFilters[], g_Vars.mphilltime, g_ArenaGroupCollapsed, arena/scenario selection via scenarioInit side-effects, slider ranges, feature gating, slow-motion mutual exclusion, menuhandlerMpOneHitKills MPFEATURE_ONEHITKILLS gate) goes through a legacy handler call via s203. Nothing duplicated in C++.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mpsetup.cpp` (+1265 lines):
+  - Shadow types (`s203_menuitem`, `s203_handlerdata` with checkbox/dropdown/list/slider members + `_pad[256]` safety), legacy handler forward decls, MENUOP_* block (1..24 declared locally per Batch 4 gotcha)
+  - Helper families: `list_*` (arena/scenario/select-random-weapons), `dd_*` (dropdowns), `cb_*` (checkboxes incl. CHECKDISABLED/CHECKHIDDEN), `sl_*` (sliders incl. GETSLIDERLABEL buffer capture), `plain_Set` (action buttons), `mp_BeginStandardWindow` / `mp_CloseCurrentDialog` / `mp_BackPressed` (window frame)
+  - Renderers: `renderMpArena`, `renderMpScenario` (+ QuickTeam variant), `renderMpWeapons`, `renderMpSelectRandomWeapons` (per-weapon checkboxes + 4 select-all action rows via `srw_GetRowChecked` / `srw_ToggleRow`), `renderMpQuickTeamWeapons` (set dropdown + read-only slot labels via `qtw_SlotName`), `renderMpLimits` (3 sliders + Restore Defaults), `renderMpScenarioOptionsImpl` (shared for 6 scenario variants keyed by `ScenarioOptionVariant` enum, with 6 thin render wrappers), `renderMpExtGameOptions`
+  - Scenario options body: `renderSharedScenarioTop` (OneHitKills/SlowMotion/FastMovement/DisplayTeam/NoRadar/NoAutoAim) + per-variant tail (Combat: NoPlayerHighlight/NoPickupHighlight; CTC/HTM/HTB/KOH/PAC: KillsScore + per-scenario extras; KOH adds MPOPTION_KOH_HILLONRADAR/MOBILEHILL + Hill Time slider)
+  - Dialog flattening: the legacy nextsibling-driven "More Options" tab page (present in all 6 scenario-option dialogs) becomes a docked action-bar button that pushes `g_ExtGameOptionsMenuDialog` as a modal. Content parity preserved; UX flattened per Batch 2 precedent.
+  - `pdguiMenuMpSetupRegister()` — single hotswap registration function (14 dialogs)
+- `port/include/pdgui_menus.h` (63 → 65, +2): declared + called `pdguiMenuMpSetupRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch5-2026-04-11.md` — full legacy→new function map, zero-function-loss audit, post-build results
+
+### Build
+
+- Worktree: `gallant-cohen`, branch `claude/gallant-cohen`
+- Merged to dev as non-ff merge (88149051)
+- `build/client/PerfectDark.exe`: 49,051,951 → **49,202,510 bytes** (+150,559, ~147 KB) — freshly linked 2026-04-11 13:15 EDT
+- `build/server/PerfectDark.exe`: 49,200,974 bytes — freshly linked 2026-04-11 13:16 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server) — freshly linked 2026-04-11 13:16 EDT
+- `cmake . && cmake --build . -j 24` via MSYS2 MINGW64 with TEMP=/tmp. Same direct-cmake approach as Batch 4 because `build-headless.ps1` swallows output when stdout is redirected under bash (CR spinner vs non-TTY). `cmake .` re-run in both dirs to pick up new `pdgui_menu_mpsetup.cpp` via GLOB_RECURSE.
+- Exit: 0 on all three link steps. No new errors. MENUOP_* block seeded complete up-front (Batch 4 gotcha avoided).
+
+### Next
+
+**Batch 6** (Bot/Simulant Setup — `g_MpSimulantsMenuDialog`, AddSimulant, ChangeSimulant, EditSimulant, SimulantCharacter; 5 screens). Depends on Batch 5 character-data wiring but since Batch 5 does not touch `g_HeadsAndBodies[]` directly (it delegates to legacy handlers), the dependency is already satisfied. Batch 6 will likely go into the same `pdgui_menu_mpsetup.cpp` file (or a new `pdgui_menu_botsetup.cpp`) depending on how much shared state it needs with the weapon slot / scenario option patterns from Batch 5.
+
+---
+
 ## Session S202 — 2026-04-11 (D5 P3 Batch 4: Cheats & Cinema)
 
 **Focus**: Complete D5 Phase 3 Batch 4 — consolidate 9 legacy cheats dialogs into a tabbed ImGui hub + replace the Cinema cutscene viewer.
