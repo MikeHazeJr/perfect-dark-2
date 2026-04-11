@@ -37,7 +37,6 @@
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
-#include "savefile.h"
 
 /* Functions stubbed in server_stubs.c */
 extern void conInit(void);
@@ -226,7 +225,6 @@ int main(int argc, char **argv)
     sysInit();
     fsInit();
     configInit();
-    saveInit(); /* B-129: wire save dir — must follow fsInit() */
 
     /* No videoInit, audioInit, romdataInit, modmgrInit — server doesn't
      * need rendering, audio, ROM data, or mod management. */
