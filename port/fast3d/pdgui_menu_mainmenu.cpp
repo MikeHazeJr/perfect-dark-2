@@ -1513,6 +1513,25 @@ static s32 s_MenuView = 0;
  * when another system already had the context active. */
 static bool s_MainMenuPushedCtx = false;
 
+/* B-131 (2026-04-11): wall-clock tick at which the main menu last appeared.
+ * Used to gate the ESC/B close handler: the first MAIN_MENU_CLOSE_GRACE_MS
+ * of a new appearance do NOT run the IsKeyPressed(Escape/GamepadFaceRight)
+ * close check.  This prevents the open-then-immediately-close race that
+ * happens when:
+ *   1. User is in a deferred-pop transition (e.g. CI free-roam after backing
+ *      out of the main menu once) and the g_CtxImGuiMenu push_tick grace in
+ *      inputctx.c fires for SDL_KEYDOWN only — SDL_CONTROLLERBUTTONDOWN is
+ *      not grace-guarded so the button-up edge from the OPEN press can
+ *      survive into the first !IsWindowAppearing frame of the new menu.
+ *   2. ImGui's gamepad / keyboard IsKeyPressed edge-detection fires true on
+ *      that frame because the ImGui event queue processed the press AFTER
+ *      the new window was marked appearing.
+ * The IsWindowAppearing guard alone catches case 2 only when the edge lands
+ * on the appearing frame.  The 150 ms timestamp guard catches the case
+ * where the edge slips to the frame-after-appearing. */
+static u32 s_MainMenuOpenedTick = 0;
+#define MAIN_MENU_CLOSE_GRACE_MS 150
+
 /* Helper: draw PD dialog window frame + title, return content start Y */
 static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
                                 float dialogH, const char *title)
@@ -1654,18 +1673,54 @@ static void renderSettingsDebug(float scale)
     ImGui::Spacing();
     ImGui::Spacing();
 
-    /* ------ Theme Selector ------ */
+    /* ------ Theme Selector ------
+     *
+     * 2026-04-11: enumerate the FULL theme registry instead of the seven
+     * hardcoded built-ins.  User-saved themes (theme editor Save-as-Mod
+     * path -> mods/<slug>/theme.json) are registered at init by
+     * pdguiThemeLoaderInit's scan_mods_for_themes(), AND on-save via
+     * pdguiThemeRegisterModDir() so they appear without a restart.
+     *
+     * Built-in themes keep their pre-tinted accent colours (s_ThemeAccentColors
+     * indexed by palette index 0..6); mod themes use a neutral purple/gold
+     * tint to visually distinguish them from the shipped set. */
     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "UI Theme");
     ImGui::Separator();
     ImGui::Spacing();
 
-    s32 currentPal = pdguiGetPalette();
+    const char *activeThemeId = pdguiThemeGetActiveId();
+    s32 themeCount = pdguiThemeGetCount();
 
-    for (int i = 0; i < PDGUI_NUM_THEMES; i++) {
-        bool selected = (i == currentPal);
+    /* Default mod-theme tint (used when palette_index < 0) — purple/gold so
+     * mods stand out from built-ins without being ugly. */
+    static const ImVec4 k_ModAccent = ImVec4(0.30f, 0.18f, 0.45f, 0.85f);
+    static const ImVec4 k_ModText   = ImVec4(0.95f, 0.85f, 0.55f, 1.00f);
 
-        /* Tint each button to preview the theme it represents */
-        ImVec4 btnCol = s_ThemeAccentColors[i];
+    s32 shownOnCurrentRow = 0;
+    bool modHeaderShown = false;
+    for (s32 ti = 0; ti < themeCount; ti++) {
+        const char *id   = pdguiThemeGetId(ti);
+        const char *name = pdguiThemeGetName(ti);
+        if (!id || !name) continue;
+
+        s32 builtinIdx = pdguiThemeIdToPaletteIndex(id);
+        bool isBuiltin = (builtinIdx >= 0 && builtinIdx < 7);
+        bool selected  = (activeThemeId && strcmp(id, activeThemeId) == 0);
+
+        /* Insert a header + row break when transitioning from built-ins to mods. */
+        if (!isBuiltin && !modHeaderShown) {
+            /* Close any partial built-in row */
+            if (shownOnCurrentRow > 0) {
+                shownOnCurrentRow = 0;
+            }
+            ImGui::Spacing();
+            ImGui::TextDisabled("Custom (from mods/)");
+            modHeaderShown = true;
+        }
+
+        /* Pick accent + text colour for this theme */
+        ImVec4 btnCol  = isBuiltin ? s_ThemeAccentColors[builtinIdx] : k_ModAccent;
+        ImVec4 txtCol  = isBuiltin ? s_ThemeTextColors[builtinIdx]   : k_ModText;
         ImVec4 btnHover = ImVec4(
             btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
         ImVec4 btnActive = ImVec4(
@@ -1675,22 +1730,21 @@ static void renderSettingsDebug(float scale)
             /* Brighten selected button and add a visible border */
             btnCol.x += 0.12f; btnCol.y += 0.12f; btnCol.z += 0.12f;
             btnCol.w = 1.0f;
-            ImGui::PushStyleColor(ImGuiCol_Border, s_ThemeTextColors[i]);
+            ImGui::PushStyleColor(ImGuiCol_Border, txtCol);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f * scale);
         }
 
         ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHover);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
-        ImGui::PushStyleColor(ImGuiCol_Text, s_ThemeTextColors[i]);
+        ImGui::PushStyleColor(ImGuiCol_Text, txtCol);
 
-        if (ImGui::Button(s_ThemeNames[i], ImVec2(btnW, btnH))) {
-            /* P5: Use catalog-backed theme system instead of raw palette index.
+        char btnLabel[96];
+        snprintf(btnLabel, sizeof(btnLabel), "%s##theme_%d", name, (int)ti);
+        if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
+            /* P5: catalog-backed load, handles both built-in and mod themes.
              * This persists the selection via Theme.ActiveTheme in pd.ini. */
-            const char *themeId = pdguiThemePaletteIndexToId(i);
-            if (themeId) {
-                pdguiThemeLoadFromCatalog(themeId);
-            }
+            pdguiThemeLoadFromCatalog(id);
             configSave("pd.ini");
         }
 
@@ -1702,8 +1756,21 @@ static void renderSettingsDebug(float scale)
         }
 
         /* 3 buttons per row */
-        if (i % 3 != 2 && i + 1 < PDGUI_NUM_THEMES) {
-            ImGui::SameLine();
+        shownOnCurrentRow++;
+        if (shownOnCurrentRow < 3 && ti + 1 < themeCount) {
+            /* Don't SameLine right before a mod-section header — let the
+             * next iteration handle the row break. */
+            s32 nextBuiltin = -1;
+            const char *nextId = pdguiThemeGetId(ti + 1);
+            if (nextId) nextBuiltin = pdguiThemeIdToPaletteIndex(nextId);
+            bool nextIsMod = (nextBuiltin < 0);
+            if (!(nextIsMod && !modHeaderShown)) {
+                ImGui::SameLine();
+            } else {
+                shownOnCurrentRow = 0;
+            }
+        } else {
+            shownOnCurrentRow = 0;
         }
     }
 
@@ -2160,17 +2227,25 @@ static void renderSettingsCatalog(float scale)
 static void renderSettingsView(float scale, float contentH)
 {
     /* LB/RB bumper handling: use a pending flag so SetSelected only fires
-     * for ONE frame after a bumper press, not continuously. */
+     * for ONE frame after a bumper press, not continuously.
+     *
+     * 2026-04-11 fix: check PageUp/PageDown instead of GamepadL1/R1.
+     * NavEnableGamepad is OFF (pdgui_backend.cpp:211) so ImGui ignores all
+     * ImGuiKey_Gamepad* inputs. pdguiDriveImGuiNav() translates LB/RB
+     * (ACTION_MENU_TAB_PREV/NEXT) to ImGuiKey_PageUp/PageDown — so that is
+     * what we must poll here. Before this fix, gamepad bumpers fell through
+     * to ImGui's default PgUp/PgDn nav which scrolled within the current
+     * tab's list instead of switching tabs. */
     static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
 
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
         s_SettingsSubTab--;
         if (s_SettingsSubTab < 0) s_SettingsSubTab = 6;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
         s_SettingsSubTab++;
         if (s_SettingsSubTab > 6) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
@@ -2325,6 +2400,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_MenuView = 0; /* Always open to main menu */
         s_NeedsFocus = true;
+        /* B-131: stamp the open time so the close handler can grace-guard
+         * the first MAIN_MENU_CLOSE_GRACE_MS of this appearance. */
+        s_MainMenuOpenedTick = SDL_GetTicks();
         /* B-124 pattern: push g_CtxImGuiMenu so that:
          *   (a) Mouse mode is set to absolute/visible (Bug 3)
          *   (b) pdguiIsActive() returns 1, blocking gameplay input (Bug 4)
@@ -2338,6 +2416,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
         } else {
             s_MainMenuPushedCtx = false;
         }
+        /* B-131: clear the stale Escape / GamepadFaceRight edges that the
+         * opening press queued into ImGui's input queue before this window
+         * existed.  Without this, a gamepad B-button or keyboard Escape
+         * press that opened the menu is still reported as "just pressed"
+         * on the frame after IsWindowAppearing — surviving past the
+         * IsWindowAppearing guard and slamming the close handler.
+         * AddKeyEvent(..., false) forces the down-state off this frame so
+         * the next frame sees prev=false cur=false (released, then re-press
+         * if the user actually wants to close). */
+        ImGuiIO &nio = ImGui::GetIO();
+        nio.AddKeyEvent(ImGuiKey_Escape, false);
+        nio.AddKeyEvent(ImGuiKey_GamepadFaceRight, false);
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
@@ -2365,8 +2455,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * Guard: skip on the frame the window first appears. When the user
      * presses B/Escape to close the menu and then reopens it, ImGui's
      * key state can still report IsKeyPressed=true on the first frame,
-     * which would immediately close the menu again. */
-    if (!ImGui::IsWindowAppearing() &&
+     * which would immediately close the menu again.
+     *
+     * B-131 extra guard (2026-04-11): also suppress the close check for
+     * MAIN_MENU_CLOSE_GRACE_MS after the appearance timestamp.  The
+     * IsWindowAppearing guard alone only covers frame N (appearing frame);
+     * if ImGui processes the opening keypress on frame N+1 instead of
+     * frame N (backend / hotswap timing, deferred input pump), the
+     * IsKeyPressed edge fires on N+1 where !IsWindowAppearing is true.
+     * The timestamp guard catches that second-frame case. */
+    u32 nowTick = SDL_GetTicks();
+    u32 sinceOpen = nowTick - s_MainMenuOpenedTick;
+    bool closeGracePending = (sinceOpen < MAIN_MENU_CLOSE_GRACE_MS);
+
+    if (!ImGui::IsWindowAppearing() && !closeGracePending &&
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
@@ -2419,9 +2521,13 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* LB/RB: cycle through top-level sub-views (1=Solo, 2=Settings, 3=Modding, 4=Online).
      * From view 0 (hub), LB/RB enter the first/last sub-view.
-     * Wraps around: view 1 ← LB → view 4, view 4 → RB → view 1. */
+     * Wraps around: view 1 ← LB → view 4, view 4 → RB → view 1.
+     *
+     * 2026-04-11 fix: poll PageUp/PageDown instead of GamepadL1/R1.  See
+     * renderSettingsView() comment for the full rationale.  pdguiDriveImGuiNav
+     * already injects these keys from ACTION_MENU_TAB_PREV/NEXT every frame. */
     if (!ImGui::IsWindowAppearing()) {
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
             if (s_MenuView <= 1) {
                 s_MenuView = 4;
             } else {
@@ -2430,7 +2536,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
             s_NeedsFocus = true;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
             if (s_MenuView >= 4 || s_MenuView == 0) {
                 s_MenuView = 1;
             } else {

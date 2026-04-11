@@ -74,6 +74,16 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id);
  *  Returns 1 on success, 0 on failure. */
 s32 pdguiThemeLoadFromFile(const char *filepath);
 
+/** Register a theme.json file at `filepath` under catalog ID `mod:<slug>`.
+ *  The display name is read from the JSON's "name" field, falling back to
+ *  the slug if the JSON is malformed.  Safe to call from the theme editor
+ *  immediately after `saveThemeAsMod()` succeeds so the newly written
+ *  theme appears in the Load Theme dropdown and Settings UI Theme
+ *  selector without requiring a restart.  Idempotent — calling again
+ *  with the same slug is a no-op.
+ *  Returns 1 on success, 0 on failure. */
+s32 pdguiThemeRegisterModDir(const char *slug, const char *filepath);
+
 /* -----------------------------------------------------------------------
  * Theme enumeration
  * --------------------------------------------------------------------- */

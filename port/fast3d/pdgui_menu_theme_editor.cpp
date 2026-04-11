@@ -209,11 +209,58 @@ static bool saveThemeAsMod(const char *name, const char *author)
     fclose(f);
 
     sysLogPrintf(LOG_NOTE, "Theme editor: saved theme '%s' to %s/", name, modDir);
+
+    /* 2026-04-11: register the newly written theme with the loader so it
+     * appears in this session's Load Theme dropdown AND the Settings UI
+     * Theme selector without requiring a restart.  pdguiThemeRegisterModDir
+     * is idempotent — if the slug is already registered the call is a
+     * no-op.  See pdgui_theme_loader.cpp. */
+    pdguiThemeRegisterModDir(dirName, themeJsonPath);
+
     return true;
 }
 
 /* =========================================================================
  * Render
+ *
+ * 2026-04-11 rewrite — BeginPopupModal instead of a hand-rolled overlay.
+ *
+ * Prior approach (S197a): drew an explicit "##theme_editor_overlay" window
+ * with SetNextWindowFocus + an InvisibleButton spanning the full screen as
+ * a click-outside dismiss surface, then a second SetNextWindowFocus on the
+ * editor window below so it stayed visually in front.  Three bugs surfaced:
+ *
+ *   B-130: X button, Close button, and click-outside all stopped working.
+ *          Root cause: the "force the overlay to top focus every frame"
+ *          hack fought with ImGui's normal focus/z-order management.
+ *          When the editor tried to bring itself above the overlay (also
+ *          via SetNextWindowFocus), ImGui ended up in a state where the
+ *          overlay's InvisibleButton hit-tested as obscured — NOT by the
+ *          editor (which was correctly on top), but by a stale focus
+ *          frame that never got updated, so clicks in the "outside" area
+ *          were consumed by no-op hit tests and never reached the button.
+ *          Similarly, &open on Begin was nominally wired, but the focus
+ *          thrash prevented the title-bar X's click from registering —
+ *          ImGui's title-bar hit-test requires the window be the actual
+ *          hovered window, and the overlay's SetNextWindowFocus was
+ *          periodically stealing that status.
+ *
+ *   Issue 4: ColorEdit4 sub-popups (color picker) stopped responding.
+ *          Same root cause: when ColorEdit4 opens its picker via
+ *          OpenPopup, ImGui expects stable focus ordering.  Our per-frame
+ *          SetNextWindowFocus on the overlay stole focus from the
+ *          newly-opened picker, which then closed on the next frame
+ *          because it lost focus to a window that claimed to be above it.
+ *          Net effect: the picker appeared to "not work" — either never
+ *          showing up, or instantly dismissing.
+ *
+ * New approach: native BeginPopupModal + &p_open for the X button,
+ * Escape-to-close (ImGui's built-in modal behaviour), explicit Close
+ * button, and a rect-based click-outside detector that skips sub-popups
+ * (color picker) via IsAnyItemHovered / IsAnyItemActive. No custom
+ * overlay window, no SetNextWindowFocus hack, no focus thrash. Sub-popups
+ * (ColorEdit4) work because BeginPopupModal stacks with sub-popups in the
+ * conventional way.
  * ========================================================================= */
 
 static void renderThemeEditor(s32 winW, s32 winH)
@@ -223,140 +270,180 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     float editorW = 420.0f * scale;
     float editorH = (float)winH * 0.85f;
-    float editorX = ((float)winW - editorW) * 0.5f;
-    float editorY = ((float)winH - editorH) * 0.5f;
 
-    ImGui::SetNextWindowPos(ImVec2(editorX, editorY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(editorW, editorH), ImGuiCond_Always);
+    /* Open the modal on the first frame s_Visible becomes true.  Guarded by
+     * IsPopupOpen so repeat calls in subsequent frames are no-ops. */
+    if (!ImGui::IsPopupOpen("Theme Editor##Modal")) {
+        ImGui::OpenPopup("Theme Editor##Modal");
+    }
+
+    /* Center the modal on the screen.  Appearing cond so the user can drag
+     * to reposition if they wish — but NoMove is set below to prevent it. */
+    ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, (float)winH * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(editorW, editorH), ImGuiCond_Appearing);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse
                            | ImGuiWindowFlags_NoResize
-                           | ImGuiWindowFlags_NoMove;
+                           | ImGuiWindowFlags_NoMove
+                           | ImGuiWindowFlags_NoSavedSettings;
 
-    /* S197a: pass a p_open pointer so ImGui renders the title-bar X button.
-     * If the user clicks X, `open` goes false; we call the hide API once we
-     * are past ImGui::End() so the logging path stays consistent. */
     bool open = true;
-    if (!ImGui::Begin("Theme Editor##P5", &open, flags)) {
-        ImGui::End();
-        if (!open) {
-            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Begin() collapsed+close (open=false)");
-            pdguiThemeEditorHide();
+    if (ImGui::BeginPopupModal("Theme Editor##Modal", &open, flags)) {
+        /* ---- Load Theme dropdown ---- */
+        s32 themeCount = pdguiThemeGetCount();
+        if (themeCount > 0 && ImGui::BeginCombo("Load Theme", pdguiThemeGetActiveId())) {
+            for (s32 i = 0; i < themeCount; i++) {
+                const char *id   = pdguiThemeGetId(i);
+                const char *name = pdguiThemeGetName(i);
+                bool selected = (strcmp(id, pdguiThemeGetActiveId()) == 0);
+
+                char label[128];
+                snprintf(label, sizeof(label), "%s (%s)", name, id);
+
+                if (ImGui::Selectable(label, selected)) {
+                    pdguiThemeLoadFromCatalog(id);
+                    /* Refresh working palette from the newly loaded palette */
+                    const u32 *pal = (const u32 *)pdguiGetActivePaletteRaw();
+                    if (pal) memcpy(s_WorkPalette, pal, sizeof(s_WorkPalette));
+                }
+            }
+            ImGui::EndCombo();
         }
-        return;
-    }
 
-    /* ---- Load Theme dropdown ---- */
-    s32 themeCount = pdguiThemeGetCount();
-    if (themeCount > 0 && ImGui::BeginCombo("Load Theme", pdguiThemeGetActiveId())) {
-        for (s32 i = 0; i < themeCount; i++) {
-            const char *id   = pdguiThemeGetId(i);
-            const char *name = pdguiThemeGetName(i);
-            bool selected = (strcmp(id, pdguiThemeGetActiveId()) == 0);
+        ImGui::Separator();
 
-            char label[128];
-            snprintf(label, sizeof(label), "%s (%s)", name, id);
+        /* ---- Color pickers ---- */
+        ImGui::BeginChild("PaletteScroll", ImVec2(0, -100.0f * scale), true);
 
-            if (ImGui::Selectable(label, selected)) {
-                pdguiThemeLoadFromCatalog(id);
-                /* Refresh working palette from the newly loaded palette */
-                const u32 *pal = (const u32 *)pdguiGetActivePaletteRaw();
-                if (pal) memcpy(s_WorkPalette, pal, sizeof(s_WorkPalette));
+        bool changed = false;
+        for (int i = 0; i < NUM_FIELDS; i++) {
+            int idx = k_Fields[i].index;
+
+            /* Skip reserved fields from the main view */
+            if (idx == 5 || idx == 13 || idx == 14) continue;
+
+            ImVec4 col = palToVec4(s_WorkPalette[idx]);
+            char pickerId[64];
+            snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
+
+            ImGui::Text("%s", k_Fields[i].label);
+            ImGui::SameLine(200.0f * scale);
+
+            ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
+                                       | ImGuiColorEditFlags_AlphaPreviewHalf
+                                       | ImGuiColorEditFlags_NoInputs;
+
+            if (ImGui::ColorEdit4(pickerId, &col.x, cflags)) {
+                s_WorkPalette[idx] = vec4ToPal(col);
+                changed = true;
             }
         }
-        ImGui::EndCombo();
-    }
 
-    ImGui::Separator();
+        ImGui::EndChild();
 
-    /* ---- Color pickers ---- */
-    ImGui::BeginChild("PaletteScroll", ImVec2(0, -100.0f * scale), true);
-
-    bool changed = false;
-    for (int i = 0; i < NUM_FIELDS; i++) {
-        int idx = k_Fields[i].index;
-
-        /* Skip reserved fields from the main view */
-        if (idx == 5 || idx == 13 || idx == 14) continue;
-
-        ImVec4 col = palToVec4(s_WorkPalette[idx]);
-        char pickerId[64];
-        snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
-
-        ImGui::Text("%s", k_Fields[i].label);
-        ImGui::SameLine(200.0f * scale);
-
-        ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
-                                   | ImGuiColorEditFlags_AlphaPreviewHalf
-                                   | ImGuiColorEditFlags_NoInputs;
-
-        if (ImGui::ColorEdit4(pickerId, &col.x, cflags)) {
-            s_WorkPalette[idx] = vec4ToPal(col);
-            changed = true;
+        /* Apply changes live */
+        if (changed) {
+            pdguiSetPaletteCustom(s_WorkPalette);
         }
-    }
 
-    ImGui::EndChild();
+        /* ---- Action buttons ---- */
+        ImGui::Separator();
 
-    /* Apply changes live */
-    if (changed) {
-        pdguiSetPaletteCustom(s_WorkPalette);
-    }
+        float btnW = 120.0f * scale;
+        float btnH = 28.0f * scale;
 
-    /* ---- Action buttons ---- */
-    ImGui::Separator();
+        bool wantClose = false;
 
-    float btnW = 120.0f * scale;
-    float btnH = 28.0f * scale;
-
-    /* Reset button */
-    if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
-        memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
-        pdguiSetPaletteCustom(s_WorkPalette);
-        s_SaveStatus[0] = '\0';
-    }
-
-    ImGui::SameLine();
-
-    /* Close button */
-    if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
-        sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
-        pdguiThemeEditorHide();
-    }
-
-    /* ---- Save section ---- */
-    ImGui::Spacing();
-    ImGui::Text("Save as Mod:");
-    ImGui::PushItemWidth(200.0f * scale);
-    ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
-    ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
-    ImGui::PopItemWidth();
-
-    ImGui::SameLine();
-    if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
-        s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
-        if (s_SaveSuccess) {
-            snprintf(s_SaveStatus, sizeof(s_SaveStatus),
-                     "Saved to mods/");
-        } else {
-            snprintf(s_SaveStatus, sizeof(s_SaveStatus),
-                     "Save failed — check logs");
+        /* Reset button */
+        if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
+            memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
+            pdguiSetPaletteCustom(s_WorkPalette);
+            s_SaveStatus[0] = '\0';
         }
+
+        ImGui::SameLine();
+
+        /* Close button */
+        if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
+            wantClose = true;
+        }
+
+        /* ---- Save section ---- */
+        ImGui::Spacing();
+        ImGui::Text("Save as Mod:");
+        ImGui::PushItemWidth(200.0f * scale);
+        ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
+        ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
+        ImGui::PopItemWidth();
+
+        ImGui::SameLine();
+        if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
+            s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
+            if (s_SaveSuccess) {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Saved to mods/");
+            } else {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Save failed — check logs");
+            }
+        }
+
+        if (s_SaveStatus[0]) {
+            ImVec4 statusCol = s_SaveSuccess
+                ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+            ImGui::TextColored(statusCol, "%s", s_SaveStatus);
+        }
+
+        /* ---- Click-outside-to-close detection ----
+         *
+         * Use an explicit rect test against the modal's window bounds.  This
+         * is the inverse of the old S197a overlay-InvisibleButton approach:
+         * rather than drawing a full-screen hit-target behind us (which
+         * fought with focus/z-order), we let the modal sit normally and
+         * ask "did the user just click outside my rect, and is it a click
+         * I should interpret as 'dismiss this window'?".
+         *
+         * We suppress the dismiss in two cases to keep sub-popups working:
+         *   1. IsAnyItemActive:  the user is in the middle of dragging a
+         *      slider, picking a color, or typing in an InputText.  Closing
+         *      mid-interaction would abort their edit.
+         *   2. IsAnyItemHovered: an ImGui item is under the cursor.  This
+         *      fires when the mouse is over the ColorEdit4 picker popup —
+         *      the picker's swatches are "items".  Without this check a
+         *      click inside the color picker (which extends outside the
+         *      modal rect) would wrongly dismiss the whole editor. */
+        if (ImGui::IsMouseClicked(0)) {
+            ImVec2 wpos   = ImGui::GetWindowPos();
+            ImVec2 wsize  = ImGui::GetWindowSize();
+            ImVec2 mpos   = ImGui::GetMousePos();
+            bool outsideRect =
+                (mpos.x < wpos.x || mpos.x > wpos.x + wsize.x ||
+                 mpos.y < wpos.y || mpos.y > wpos.y + wsize.y);
+
+            if (outsideRect &&
+                !ImGui::IsAnyItemActive() &&
+                !ImGui::IsAnyItemHovered()) {
+                sysLogPrintf(LOG_NOTE, "Theme editor: exit — click outside modal rect");
+                wantClose = true;
+            }
+        }
+
+        if (wantClose) {
+            ImGui::CloseCurrentPopup();
+            pdguiThemeEditorHide();
+        }
+
+        ImGui::EndPopup();
     }
 
-    if (s_SaveStatus[0]) {
-        ImVec4 statusCol = s_SaveSuccess
-            ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
-            : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-        ImGui::TextColored(statusCol, "%s", s_SaveStatus);
-    }
-
-    ImGui::End();
-
-    /* S197a: if the title-bar X button was pressed this frame, propagate to
-     * the hide API so the visibility flag and log line stay in sync. */
+    /* Title-bar X button path: ImGui sets `open` false when the user clicks
+     * the close cross.  After EndPopup we translate that into the public
+     * Hide API so the visibility flag and log line stay in sync. */
     if (!open) {
-        sysLogPrintf(LOG_NOTE, "Theme editor: exit — title-bar X button (!open after End)");
+        sysLogPrintf(LOG_NOTE, "Theme editor: exit — title-bar X button (!open after EndPopup)");
         pdguiThemeEditorHide();
     }
 }
@@ -401,55 +488,13 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
 {
     if (!s_Visible) return;
 
-    /* Fullscreen blocking overlay — dims the background AND captures all clicks
-     * so the user cannot interact with windows behind the editor.
-     * Clicking the overlay dismisses the editor (click-outside-to-close).
-     *
-     * S197a: the previous version used ImGuiWindowFlags_NoBringToFrontOnFocus,
-     * which kept the overlay anchored below the focus stack.  With focus-
-     * ordered hit-testing, clicks landing outside the editor's rect but over
-     * a window in the focus stack (e.g. the Settings menu that launched the
-     * editor) would route to that window rather than to the overlay's
-     * InvisibleButton.  Net effect: "clicking outside the editor just changes
-     * focus instead of closing" (Mike, S197a report).
-     *
-     * Fix: call SetNextWindowFocus on the overlay so it is force-lifted to
-     * the top of the focus stack each frame, and a second SetNextWindowFocus
-     * on the editor window below so the editor stays visually in front.  The
-     * overlay is then guaranteed to be the topmost hit-test target everywhere
-     * except within the editor's own rect. */
-    ImGui::SetNextWindowFocus();
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImVec2((float)winW, (float)winH));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGuiWindowFlags overlayFlags =
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings;
-    if (ImGui::Begin("##theme_editor_overlay", nullptr, overlayFlags)) {
-        /* Draw the dim rect via this window's draw list */
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(ImVec2(0, 0), ImVec2((float)winW, (float)winH),
-                          IM_COL32(0, 0, 0, 180));
-        /* Invisible button covering the whole screen — catches clicks */
-        if (ImGui::InvisibleButton("##theme_editor_dismiss",
-                                   ImVec2((float)winW, (float)winH))) {
-            sysLogPrintf(LOG_NOTE, "Theme editor: exit — InvisibleButton click-outside dismiss");
-            pdguiThemeEditorHide();
-        }
-    }
-    ImGui::End();
-    ImGui::PopStyleVar(2);
-
-    /* Only render the editor if still visible (overlay click may have closed it) */
-    if (s_Visible) {
-        /* S197a: force the editor above the overlay in focus order so it
-         * stays visually in front even though the overlay was just focused. */
-        ImGui::SetNextWindowFocus();
-        renderThemeEditor(winW, winH);
-    }
+    /* 2026-04-11 rewrite: no more hand-rolled overlay / focus thrash.
+     * renderThemeEditor() now opens a native BeginPopupModal that ImGui
+     * manages end-to-end (including dimming the background, blocking
+     * input to windows behind, the title-bar X button, and nested
+     * color-picker popups).  See the banner comment on renderThemeEditor
+     * for the full rationale and the list of bugs this rewrite fixes. */
+    renderThemeEditor(winW, winH);
 }
 
 } /* extern "C" */

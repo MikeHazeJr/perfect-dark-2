@@ -1163,15 +1163,36 @@ void actionmapSaveBinds(void)
 
 void actionmapLoadBinds(void)
 {
-    /* Parse the (possibly file-overridden) bind strings into ALL user-customizable
-     * IMCs. Each IMC only has has_mapping[] set for its relevant actions, so
-     * parseBindStr will only update actions the IMC actually owns. */
+    /* Parse the (possibly file-overridden) bind strings into the FIRST IMC
+     * whose has_mapping[] marks the action as its own.
+     *
+     * 2026-04-11 fix: apply the loaded bind to ONLY the first matching IMC,
+     * not every IMC that happens to have_mapping[a] set.  The previous
+     * behaviour cross-contaminated menu / pause_menu / text_input with
+     * gameplay-saved bindings for shared actions (USE, CANCEL_USE, PAUSE):
+     * - buildBindStr() is already first-match-wins (breaks after the first
+     *   IMC with has_mapping[a] is serialised), so s_BindStr holds the
+     *   gameplay trigger list for shared actions;
+     * - actionmapLoadBinds() used to write that same string into every IMC,
+     *   so the menu IMC would end up with gameplay bindings (F, JOY_Y for
+     *   USE) instead of its own defaults (Return, A).  Net effect: the
+     *   rebind UI correctly wrote gameplay bindings to pd.ini and showed
+     *   them on subsequent opens, but the LIVE menu IMC overwrote its own
+     *   action triggers with gameplay ones on every load, so pressing the
+     *   rebound key in gameplay worked, but held defaults in menus broke.
+     *
+     * The break; below matches buildBindStr's first-match-wins semantics so
+     * the load path is the exact inverse of the save path.  Menu-only
+     * actions (MENU_UP / MENU_TAB_PREV / etc.) still land in g_ImcMenu
+     * because menu is the first (and only) IMC with has_mapping[a] for
+     * those. */
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             if (s_BindStr[p][a][0] == '\0') continue;
             for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
                 if (s_AllImcs[ci]->has_mapping[a]) {
                     parseBindStr(s_AllImcs[ci], p, (InputAction)a, s_BindStr[p][a]);
+                    break; /* first IMC wins — matches buildBindStr */
                 }
             }
         }

@@ -40,6 +40,21 @@
 | **Menu IMC 3-action reduction** | DONE (S189) | g_ImcMenu + g_ImcPauseMenu: ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). 5 triggers total, player 0 only. |
 | **crouch_mode in pd.ini** | ALREADY DONE (pre-S189) | `Game.Player%d.CrouchMode`: 0=hold (default). bondmove.c:1925 handles toggle/hold/analog. No changes needed. |
 
+#### Playtest fixes 2026-04-11 (Opus 1M session, S208)
+
+Mike's 2026-04-11 playtest of v0.0.77 surfaced six distinct issues; all six fixed together in the `infallible-napier` worktree. Full diagnosis in `context/scratch/playtest-fixes-2026-04-11.md`. Affected files: `port/fast3d/pdgui_menu_mainmenu.cpp`, `port/src/actionmap.cpp`, `port/fast3d/pdgui_menu_theme_editor.cpp`, `port/fast3d/pdgui_theme_loader.cpp`, `port/include/pdgui_theme_loader.h`.
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **B-131 double-menu reopen in CI** | FIXED (S208) | pdgui_menu_mainmenu.cpp — 150 ms `MAIN_MENU_CLOSE_GRACE_MS` timestamp guard on ESC/B close handler + `io.AddKeyEvent(Escape/GamepadFaceRight, false)` on IsWindowAppearing to clear stale ImGui key edges. Complements the existing inputctx.c `push_tick` keyboard suppression (which only covers SDL_KEYDOWN, not SDL_CONTROLLERBUTTONDOWN). |
+| **B-132 saved bindings cross-contamination** | FIXED (S208) | actionmap.cpp — added `break;` in `actionmapLoadBinds()` inner loop so load honours the same first-match-wins semantics as `buildBindStr()`. Menu/pause_menu/text_input/debug_overlay IMCs no longer get overwritten with gameplay's shared-action triggers on every load. |
+| **B-130 Theme Customizer close paths + color picker broken** | FIXED (S208) | pdgui_menu_theme_editor.cpp — full rewrite of renderThemeEditor using native `BeginPopupModal` + `&p_open`. Three exit paths (X, Close button, click-outside rect-test) all working. Nested ColorEdit4 popups work because BeginPopupModal stacks with sub-popups correctly — no more focus thrash from the old overlay + per-frame SetNextWindowFocus hack. |
+| **Main menu controller bumpers skip within tab instead of cycling tabs** | FIXED (S208) | pdgui_menu_mainmenu.cpp — bumper checks in both `renderSettingsView()` and `renderMainMenu()` top-level sub-view cycle: swapped `ImGuiKey_GamepadL1`/`R1` → `ImGuiKey_PageUp`/`PageDown` to match the keys that `pdguiDriveImGuiNav()` actually injects from `ACTION_MENU_TAB_PREV/NEXT` (NavEnableGamepad is OFF, so ImGuiKey_Gamepad* is never set). |
+| **Custom user-saved themes missing from Theme selection UI** | FIXED (S208) | pdgui_theme_loader.cpp — new `scan_mods_for_themes()` walks `mods/` at init and registers each `mods/<slug>/theme.json` under catalog ID `mod:<slug>`. New public `pdguiThemeRegisterModDir(slug, filepath)` API so `saveThemeAsMod()` in the theme editor can register newly written themes without a restart. Settings → Debug "UI Theme" selector grid rewritten to iterate `pdguiThemeGetCount()` with a "Custom (from mods/)" header section for mod themes. |
+
+Pre-fix dev @ `bfbb19b9`: client 49,636,082 / server 22,789,968.
+Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,542**. Both targets link clean with zero new warnings. Ready to merge to dev via `--no-ff`.
+
 #### TODO — Verification Pass (Mike, post-reset)
 
 | Item | Priority | Detail |
