@@ -32,6 +32,7 @@ void pdguiMpIngameRegister(void);         /* Group 5: MP In-Game overlays + ends
 void pdguiMenuEndscreenRegister(void);    /* Group 2: SP/MP end screens */
 void pdguiMenuTrainingRegister(void);     /* Group 6: Firing Range, DT, HT, Bio dialogs */
 void pdguiMenuCheatsRegister(void);       /* D5 P3 Batch 4: Cheats hub (9 dialogs) */
+void pdguiMenuMpSetupRegister(void);      /* D5 P3 Batch 5: MP Setup Core (14 dialogs) */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -54,6 +55,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuEndscreenRegister();
     pdguiMenuTrainingRegister();
     pdguiMenuCheatsRegister();
+    pdguiMenuMpSetupRegister();
 }
 
 #ifdef __cplusplus
