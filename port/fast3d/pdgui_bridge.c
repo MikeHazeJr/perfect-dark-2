@@ -809,3 +809,17 @@ void pdguiCancelledClear(void)
     g_MatchCancelledState.name[0] = '\0';
 }
 
+/* ========================================================================
+ * MP Pause bridge (pdgui_menu_mppause.cpp, Batch 8)
+ *
+ * Single accessor so the C++ renderer file does not need to know the
+ * layout of struct bossfile.  teamnames is indexed 0..MAX_TEAMS-1; any
+ * out-of-range index is clamped to team 0.
+ * ======================================================================== */
+
+const char *pdguiMppGetTeamName(u32 team)
+{
+    if (team >= MAX_TEAMS) team = 0;
+    return g_BossFile.teamnames[team];
+}
+
