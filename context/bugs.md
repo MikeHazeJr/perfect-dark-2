@@ -31,7 +31,7 @@
 | **B-78** | MED | Chat rebroadcast without rate limiting — DoS amplification vector | netmsg.c | OPEN |
 | **B-79** | MED | Mod distribution chunk ordering ignored — `chunk_idx` discarded; out-of-order delivery silently corrupts archive | netdistrib.c | **FIXED S185** — expected_chunk field validates ordering; C-5 compressed_cap overflow guard |
 | **B-80** | MED | archive_bytes not validated at BEGIN time — stored without cap until END; companion to B-74 | netdistrib.c | **FIXED S185** — C-4 256MB cap on decompression buffer |
-| **B-81** | MED | JSON tokenizer unbounded recursion — pathological save nesting causes stack overflow crash | savefile.c | OPEN |
+| **B-81** | MED | JSON tokenizer unbounded recursion — pathological save nesting causes stack overflow crash | savefile.c | **FIXED 2026-04-11** — `S_MAX_DEPTH 64` depth guard in `s_skip_value` (drain-to-EOF on overflow); `SAVE_MAX_FILE_BYTES 256KB` cap in `readFileContents` rejects giant crafted files before malloc. Both vectors closed. |
 | **B-82** | MED | Audio sample rate 22020 Hz — unusual (not 22050 Hz), may cause pitch shift or driver issues | audio.c:66 | **FIXED S185** — M-4 corrected to 22050 |
 | **B-83** | MED | Incomplete shutdown sequence — quit path doesn't flush saves, ENet, SDL audio; remote peers left dead-connected | main.c | **FIXED S185** — H-7 reordered mempPCFreeAll after all subsystem shutdowns |
 | **B-84** | LOW | Dead `tmp[1024]` in chat handler — unused stack variable, maintenance hazard | netmsg.c | OPEN |
@@ -57,6 +57,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-81 | JSON tokenizer unbounded recursion — crafted save nesting → stack overflow | S200 — savefile.c: S_MAX_DEPTH 64 guard + 256KB file size cap |
 | B-115 | Post-game mouse unresponsive — legacy Save Player + Confirm Name dialogs rendered native, stealing input from ImGui endscreen. Suppressed both as noop. | S176 — pdgui_menu_mpingame.cpp, pdgui_menu_warning.cpp |
 | B-114 | CMakeLists.txt corruption — ~30MB of garbage bytes injected at lines 181 and 532 by devtools encoding bug; broke all builds | S148 — CMakeLists.txt (b84c6ba) |
 | B-113 | Stack overflow → silent crash in 31-bot matches — 2MB default stack exhausted in deep AI/collision chains; UEF double-faulted (8KB on stack); process died with no log. Fixed: 8MB reserve + VEH with static buffers | S150 — CMakeLists.txt / crash.c / system.c (85928d9) |
