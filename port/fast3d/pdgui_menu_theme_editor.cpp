@@ -240,6 +240,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
     if (!ImGui::Begin("Theme Editor##P5", &open, flags)) {
         ImGui::End();
         if (!open) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Begin() collapsed+close (open=false)");
             pdguiThemeEditorHide();
         }
         return;
@@ -319,6 +320,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     /* Close button */
     if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
+        sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
         pdguiThemeEditorHide();
     }
 
@@ -354,6 +356,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
     /* S197a: if the title-bar X button was pressed this frame, propagate to
      * the hide API so the visibility flag and log line stay in sync. */
     if (!open) {
+        sysLogPrintf(LOG_NOTE, "Theme editor: exit — title-bar X button (!open after End)");
         pdguiThemeEditorHide();
     }
 }
@@ -433,6 +436,7 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
         /* Invisible button covering the whole screen — catches clicks */
         if (ImGui::InvisibleButton("##theme_editor_dismiss",
                                    ImVec2((float)winW, (float)winH))) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — InvisibleButton click-outside dismiss");
             pdguiThemeEditorHide();
         }
     }
