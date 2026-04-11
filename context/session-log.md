@@ -3,6 +3,38 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S199 — 2026-04-11 (Updater parse failure diagnosis — v0.0.75 not in update list)
+
+**Focus**: Diagnose why v0.0.75 doesn't appear in the client/server update list and why "Check for Updates" fails with "Couldn't parse update list".
+
+### Findings
+
+- **Single parser** — `updaterCheckAsync()` → `checkThread()` → `parseReleasesJson()` is the only code path. Startup, UI "Check Now", and server all use the same function. No separate parsers.
+- **v0.0.75 structure is valid** — tag `v0.0.75`, `prerelease=true`, `PerfectDark-v0.0.75-win64.zip` asset (matches `.zip` suffix), body 1099 bytes (within 2048 limit). Structurally identical to v0.0.74.
+- **Parse failure root cause** — `parseReleasesJson` returns -1 ONLY when top-level JSON isn't a `[` (array). GitHub returns an error OBJECT `{"message":"API rate limit exceeded",...}` for rate-limit/403 responses — this would trigger the error. No code bug causing the failure for a valid response.
+- **per_page=30 was a time bomb** — 53 total releases and growing. Still catches v0.0.75 (newest first) but future old-releases can fall off. Increased to 100.
+- **"Doesn't appear in list" for stable channel users is EXPECTED** — v0.0.75 is prerelease=true. Stable channel filters it. Dev channel users will see it.
+
+### Changes
+
+- `port/src/updater.c` — 3 instrumentation changes:
+  1. `per_page=30` → `per_page=100`
+  2. HTTP status code logged when GitHub returns non-200 (curlGet)
+  3. Raw response preview (200 chars) logged when `parseReleasesJson` returns -1
+  4. Token type logged when top-level JSON isn't array
+- Scratch: `context/scratch/updater-parse-diagnosis-2026-04-11.md`
+- Commit: `654ac54b` (worktree) → merged to dev `4581074c`
+- Build: PerfectDark.exe (48,919,825 bytes) + PerfectDarkServer.exe (22,788,944 bytes) — both clean, exit 0
+
+### Next steps
+
+1. Deploy and reproduce the "couldn't parse" error — next log will show `UPDATER: GitHub API HTTP NNN` revealing whether it's rate-limiting or a different error
+2. If HTTP 403: add backoff/retry (1 retry after 5s) for rate-limited checks
+3. If HTTP 200 non-array: investigate what GitHub is returning (proxy? redirect?)
+4. If no error logged: was a transient network issue — no code change needed
+
+---
+
 ## Session S198 — 2026-04-10 (Playtest triage v0.0.74 — B-129 agent save path fix + theme editor instrumentation)
 
 **Focus**: Three-part triage on Chris's v0.0.74 playtest (commit 20775345).

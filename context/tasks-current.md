@@ -68,7 +68,7 @@
 | **B-112 root cause** | HIGH | INVESTIGATING (S191) | Chr pointer corruption in 31-bot matches. S191: entry guard added at top of chraTick (CHR.GUARD channel); g_ChrLastTickedIndex slot-tracker in chr.c; SIGABRT handler reads index. Guards in place; awaiting next 31-bot crash log with chr slot ID. |
 | **B-126 silent crash** | HIGH | INVESTIGATING (S191) | Silent crash ~8min into MP. S191: heartbeat 60s→30s; NET.WATCHDOG per-peer dump via netHeartbeatLog(); SIGABRT handler logs chr index. Awaiting next repro to confirm SIGABRT vs other kill path. |
 | **B-129 mission-end AV crash** | HIGH | FIXED (S190) | Root: `endscreen.c` called `filemgrSaveOrLoad` → no Pak on PC → fn-ptr cast to lang index → AV. Fixed: `saveSaveAgent()` replaces all three calls; three filemgr dialogs registered as noop. Side benefit: saves now actually written to disk. |
-| **D13 -- Update System build test** | MED | BLOCKED | Code written (S11). Needs: libcurl MSYS2 static link, compile test, first GitHub release for E2E. |
+| **D13 -- Update System parse diagnosis** | MED | IN PROGRESS (S199) | v0.0.75 not in update list; "couldn't parse" on Check for Updates. Instrumented: HTTP code + raw response preview logged on failure, per_page 30→100. Root cause likely GitHub rate-limit returning 403 object (not array). Next step: reproduce and check log for `UPDATER: GitHub API HTTP NNN`. See `context/scratch/updater-parse-diagnosis-2026-04-11.md`. |
 | **Build verification + QC pass** | MED | PLANNED | Clean build on dev, all QC tests from qc-tests.md passing, no known crash bugs. |
 
 ### Should-Have
