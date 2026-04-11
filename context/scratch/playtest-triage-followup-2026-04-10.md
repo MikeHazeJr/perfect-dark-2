@@ -59,9 +59,7 @@ as `3fc345bf`):
   `/* B-129: wire save dir into savefile.c — must follow fsInit() */`
 
 `port/src/server_main.c`:
-- Added `#include "savefile.h"` to includes
-- Added `saveInit();` after `configInit()` in main server startup, with comment:
-  `/* B-129: wire save dir — must follow fsInit() */`
+- **REVERTED in follow-up commit `c81f555f`** (see below — server link break).
 
 No behavior change on existing saves. Writes to drive root fail silently on Windows
 (UAC), so no orphaned saves exist at `/agent_smarch.json`.
@@ -179,8 +177,57 @@ that ended the mission.
 
 ---
 
+---
+
+## Follow-Up: Server Link Break (23:41 EDT)
+
+### What broke
+
+After `3fc345bf` landed, Mike's build produced:
+```
+[server] undefined reference to `saveInit'
+[server] collect2.exe: error: ld returned 1 exit status
+```
+
+### Root cause
+
+`savefile.c` is not compiled into the server target (`pd-server`). Server CMake does not
+include `port/src/savefile.c` in its source list. Adding `#include "savefile.h"` to
+`server_main.c` let the declaration through, but the linker had no definition to bind.
+
+### Fix (commit `c81f555f`)
+
+Reverted both changes to `server_main.c`:
+- Removed `#include "savefile.h"`
+- Removed `saveInit()` call
+
+B-129 is a client-side bug (agent save path). The server has no agent saves and never
+needed `saveInit()`. Fix is `main.c` (client) only — that was always correct.
+
+### Lesson recorded
+
+Build verification must be **full link**, not per-file object compilation. A `.obj` exit 0
+proves the file parses and compiles; it does NOT prove the symbol resolves at link time.
+Next time: run `cmake --build <dir> --target <target>` (or `make -C <dir> <target>`)
+to get the actual linker output before calling a build verified.
+
+### Post-fix link results (2026-04-10 23:53–23:56)
+
+- `PerfectDark.exe` (client): 48,917,265 bytes — linked clean, exit 0
+- `PerfectDarkServer.exe` (server): 22,786,384 bytes — linked clean, exit 0
+
+### Final commit state on dev
+
+```
+c81f555f fix(B-129): revert saveInit from server_main.c — savefile.c is client-only
+dfb3d043 S198: context updates — B-129 FIXED, B-130/B-131 OPEN, session log
+3fc345bf fix(B-129): wire saveInit() into startup — agent saves now land in AppData
+```
+
+---
+
 ## Delivery
 
 Primary: this file — `context/scratch/playtest-triage-followup-2026-04-10.md`
 
-Commit: `3fc345bf` on `dev` — "fix(B-129): wire saveInit() into startup"
+Final commit: `c81f555f` on `dev` — "fix(B-129): revert saveInit from server_main.c"
