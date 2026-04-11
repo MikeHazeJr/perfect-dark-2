@@ -58,6 +58,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_model_preview.h" /* reusable 3D model preview widget (FBO+ImGui) */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
@@ -91,6 +92,7 @@ char *langGet(s32 textid);
 bool mpIsParticipantActive(s32 index);
 char *mpGetBodyName(u8 mpbodynum);
 const char *catalogMpHeadId(s32 mpheadnum);
+const char *catalogMpBodyId(s32 mpbodynum);
 
 /* ---- MENUOP_* opcodes (declared locally per Batch 4 gotcha; values must
  * match src/include/constants.h exactly) ---- */
@@ -889,13 +891,24 @@ static s32 renderMpEditSimulant(struct menudialog *, struct menu *, s32, s32)
  * symbol exists -- matches pdgui_menu_agentcreate.cpp formatting).
  * Body display names come from mpGetBodyName (localized).
  *
- * Simplification flagged in scratch: no 3D model preview (legacy MENUOP_11
- * side effect still fires via runtime tick, just unused by our renderer).
+ * Live 3D preview (B6 polish, 2026-04-11):
+ *   - Restored via pdguiModelPreviewDraw (reusable Batch-0 widget that wraps
+ *     pdgui_charpreview's FBO render + idle rotation + placeholder fallback).
+ *   - Left column: 3D preview panel showing the currently-selected head+body.
+ *     Runtime mp_idx from the carousel handlers is resolved to a catalog ID
+ *     string via catalogMpHeadId/catalogMpBodyId, which is what the widget
+ *     expects (same pattern as pdgui_menu_agentcreate.cpp:432-441).
+ *   - Right column: Head + Body dropdowns (unchanged semantics; same legacy
+ *     handler calls).  Vertically centered against the preview.
+ *   - Legacy MENUOP_11 tick from menudialog0017ccfc still fires via runtime
+ *     and writes g_Menus[0].menumodel.newparams; the widget's per-frame
+ *     pdguiCharPreviewRequest overwrites that write with the same value, so
+ *     no behavioral conflict.
  */
 
 static s32 renderMpSimulantCharacter(struct menudialog *, struct menu *, s32, s32)
 {
-    WindowFrame wf = bs_BeginStandardWindow("##bs_simchar", "Simulant Character", 0.55f, 0.58f);
+    WindowFrame wf = bs_BeginStandardWindow("##bs_simchar", "Simulant Character", 0.62f, 0.62f);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (bs_BackPressed()) {
@@ -910,69 +923,124 @@ static s32 renderMpSimulantCharacter(struct menudialog *, struct menu *, s32, s3
     if (ImGui::BeginChild("##bs_simchar_body", ImVec2(0, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Head dropdown */
+        /* Pull the current carousel selection once -- both columns use the
+         * same values so we keep them consistent across the frame. */
+        s32 curHead = car_GetSelectedIndex(menuhandlerMpSimulantHead, 0);
+        s32 curBody = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
+        s32 nHead   = car_GetCount        (menuhandlerMpSimulantHead, 0);
+        s32 nBody   = car_GetCount        (menuhandlerMpSimulantBody, 0);
+
+        /* Layout sizes (1080p baseline -- pdguiScale rescales at other DPIs). */
+        float previewW = pdguiScale(300.0f);
+        float previewH = pdguiScale(340.0f);
+        float colGap   = pdguiScale(20.0f);
+
+        /* ------------------------------------------------------------
+         * Left column: live 3D preview of currently-selected head+body.
+         *
+         * pdguiModelPreviewDraw draws via ImDrawList into the current
+         * window (not the cursor), so we capture the cursor screen pos,
+         * hand those absolute coords to the widget, then reserve ImGui
+         * layout space with Dummy so SameLine can place the dropdowns
+         * to the right.  Same pattern as pdgui_menu_agentcreate.cpp.
+         * ------------------------------------------------------------ */
         {
-            s32 curHead = car_GetSelectedIndex(menuhandlerMpSimulantHead, 0);
-            s32 nHead   = car_GetCount        (menuhandlerMpSimulantHead, 0);
+            const char *headId = catalogMpHeadId(curHead);
+            const char *bodyId = catalogMpBodyId(curBody);
 
-            char curLabel[64];
-            bot_FormatHeadName(curHead, curLabel, sizeof(curLabel));
+            ImVec2 pos = ImGui::GetCursorScreenPos();
 
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted("Head:");
-            ImGui::SameLine();
-            ImGui::PushID("##bs_head");
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::BeginCombo("##bs_head_cb", curLabel)) {
-                for (s32 i = 0; i < nHead; i++) {
-                    char t[64];
-                    bot_FormatHeadName(i, t, sizeof(t));
-                    bool sel = (i == curHead);
-                    ImGui::PushID(i);
-                    if (ImGui::Selectable(t, sel)) {
-                        car_Set(menuhandlerMpSimulantHead, 0, i);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
-                    }
-                    if (sel) ImGui::SetItemDefaultFocus();
-                    ImGui::PopID();
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::PopID();
+            ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
+            opts.showBodyName = 0;  /* dropdowns already label the selection */
+            opts.showHeadName = 0;
+            opts.idleRotation = 1;
+            opts.idleRotSpeed = 0.4f;
+            opts.cornerRadius = pdguiScale(4.0f);
+
+            pdguiModelPreviewDraw(headId, bodyId,
+                                   pos.x, pos.y,
+                                   previewW, previewH,
+                                   &opts);
+
+            ImGui::Dummy(ImVec2(previewW, previewH));
         }
 
-        ImGui::Spacing();
+        ImGui::SameLine(0.0f, colGap);
 
-        /* Body dropdown */
+        /* ------------------------------------------------------------
+         * Right column: Head + Body dropdowns (vertically centered
+         * against the preview for visual balance).
+         * ------------------------------------------------------------ */
+        ImGui::BeginGroup();
         {
-            s32 curBody = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
-            s32 nBody   = car_GetCount        (menuhandlerMpSimulantBody, 0);
+            /* Rough "picker height" estimate for vertical centering:
+             * 2 combos + 1 Spacing row.  Using frame height * 2 + padding
+             * is close enough -- exact pixel-perfect centering is not
+             * worth a second-pass measure for a modal dialog. */
+            float approxPickerH = ImGui::GetFrameHeightWithSpacing() * 2.5f;
+            float yOffset = (previewH - approxPickerH) * 0.5f;
+            if (yOffset < 0.0f) yOffset = 0.0f;
+            ImGui::Dummy(ImVec2(0.0f, yOffset));
 
-            char *curLabelRaw = mpGetBodyName((u8)curBody);
-            const char *curLabel = curLabelRaw ? curLabelRaw : "???";
+            /* Head dropdown */
+            {
+                char curLabel[64];
+                bot_FormatHeadName(curHead, curLabel, sizeof(curLabel));
 
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted("Body:");
-            ImGui::SameLine();
-            ImGui::PushID("##bs_body");
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::BeginCombo("##bs_body_cb", curLabel)) {
-                for (s32 i = 0; i < nBody; i++) {
-                    char *tRaw = mpGetBodyName((u8)i);
-                    const char *t = tRaw ? tRaw : "???";
-                    bool sel = (i == curBody);
-                    ImGui::PushID(i);
-                    if (ImGui::Selectable(t, sel)) {
-                        car_Set(menuhandlerMpSimulantBody, 0, i);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Head:");
+                ImGui::SameLine();
+                ImGui::PushID("##bs_head");
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::BeginCombo("##bs_head_cb", curLabel)) {
+                    for (s32 i = 0; i < nHead; i++) {
+                        char t[64];
+                        bot_FormatHeadName(i, t, sizeof(t));
+                        bool sel = (i == curHead);
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(t, sel)) {
+                            car_Set(menuhandlerMpSimulantHead, 0, i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                        if (sel) ImGui::SetItemDefaultFocus();
+                        ImGui::PopID();
                     }
-                    if (sel) ImGui::SetItemDefaultFocus();
-                    ImGui::PopID();
+                    ImGui::EndCombo();
                 }
-                ImGui::EndCombo();
+                ImGui::PopID();
             }
-            ImGui::PopID();
+
+            ImGui::Spacing();
+
+            /* Body dropdown */
+            {
+                char *curLabelRaw = mpGetBodyName((u8)curBody);
+                const char *curLabel = curLabelRaw ? curLabelRaw : "???";
+
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Body:");
+                ImGui::SameLine();
+                ImGui::PushID("##bs_body");
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::BeginCombo("##bs_body_cb", curLabel)) {
+                    for (s32 i = 0; i < nBody; i++) {
+                        char *tRaw = mpGetBodyName((u8)i);
+                        const char *t = tRaw ? tRaw : "???";
+                        bool sel = (i == curBody);
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(t, sel)) {
+                            car_Set(menuhandlerMpSimulantBody, 0, i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                        if (sel) ImGui::SetItemDefaultFocus();
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
+            }
         }
+        ImGui::EndGroup();
     }
     ImGui::EndChild();
 

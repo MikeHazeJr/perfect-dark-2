@@ -3,6 +3,52 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S207 — 2026-04-11 (D5 P3 Batch 6 polish: Live 3D head/body preview)
+
+**Focus**: Restore the legacy 3D character preview in the ImGui Simulant Character dialog (`renderMpSimulantCharacter`). Batch 6 dropped it as an intentional simplification per the scratch audit; Mike's direction is to do the full restore now rather than waiting for Batch 11, so the plumbing pattern is established early and reusable for weapon / vehicle preview surfaces later. Ran in parallel with Batch 8 on worktree `busy-lalande`, rebased onto dev after Batch 8 merged as `5063d3a3`.
+
+### Approach
+
+Audit found the FBO viewport infrastructure already exists from D5 Phase 3 Batch 0 (S192) -- two layers:
+
+- **Low level** (`port/fast3d/pdgui_charpreview.c` / `.h`): 256x256 offscreen FBO created at startup via `videoCreateFramebuffer`, `pdguiCharPreviewRequest(head_id, body_id)` writes `g_Menus[0].menumodel.newparams`, `pdguiCharPreviewRenderGBI(gdl, menu)` is called unconditionally from `src/game/menu.c:3754` during the menu render phase. The hook injects GBI commands to switch the render target to the preview FBO, invokes the existing `menuRenderModel` legacy renderer, then restores the main render target. The resulting GL texture ID is cached at init and constant for the FBO lifetime.
+- **High level** (`port/fast3d/pdgui_model_preview.cpp` / `.h`): self-contained ImGui widget `pdguiModelPreviewDraw(head_id, body_id, x, y, w, h, opts)` handling selection-change detection, idle rotation, PD-palette frame, placeholder silhouette, and Y-flipped UV sampling. Already type-parameterized via `ModelPreviewKind` (CHARACTER / WEAPON / VEHICLE / PROP).
+
+Already used by `pdgui_menu_agentcreate.cpp:441`, `pdgui_menu_agentselect.cpp`, `pdgui_menu_room.cpp` (low-level), and `pdgui_menu_moddinghub.cpp`. The "build reusable FB plumbing" concern from the task brief was already solved by Batch 0 -- this polish reduces to a single call site.
+
+### Changes
+
+- `port/fast3d/pdgui_menu_botsetup.cpp` 1006 -> 1074 (+68 lines):
+  - `#include "pdgui_model_preview.h"` added to the include block
+  - `const char *catalogMpBodyId(s32 mpbodynum);` added to the extern "C" block alongside the existing `catalogMpHeadId` decl
+  - `renderMpSimulantCharacter` rewritten with two-column layout: 300x340 (pdguiScale, 1080p baseline) preview panel on the left via `pdguiModelPreviewDraw`, Head + Body dropdowns on the right in a BeginGroup with a Dummy Y-offset for vertical centering. Dialog size bumped from 0.55x0.58 to 0.62x0.62 to make room without squeezing. Carousel selections are read once per frame via the existing `car_GetSelectedIndex` / `car_GetCount` helpers and resolved to catalog ID strings via `catalogMpHeadId` / `catalogMpBodyId` for the widget. Idle turntable at 0.4 rad/s; instant reset on dropdown change via `pdguiModelPreviewDraw`'s internal (kind, id1, id2) tuple comparison.
+- `context/scratch/B6-head-preview-2026-04-11.md`: NEW scratch note with full render-path walkthrough, MENUOP_11 coexistence analysis, build-verification record, and gotchas (devkitpro cmake-in-PATH trap, build-headless.ps1 worktree redirect).
+- `context/tasks-current.md`: appended "Batch 6 polish DONE" annotation to the D5 Phase 3 row.
+
+No other files touched. `pdgui_menu_solomission.cpp`, `pdgui_menu_mpadvanced.cpp`, `pdgui_menu_mpsetup.cpp`, `pdgui_menu_cheats.cpp`, `pdgui_menu_mainmenu.cpp`, and Batch 8's `pdgui_menu_mppause.cpp` deliberately avoided (parallel-batch collision guard).
+
+### Zero function loss
+
+Every state mutation still goes through the s204 shadow-struct call-through to `menuhandlerMpSimulantHead` / `menuhandlerMpSimulantBody` -> `mpCharacterHeadMenuHandler` / `mpCharacterBodyMenuHandler` -> `mpchrSetHeadByIndex` / `mpchrSetBodyByIndex`. The legacy `menudialog0017ccfc::MENUOP_TICK` still fires through the runtime and writes `g_Menus[0].menumodel.newparams` -- our per-frame `pdguiCharPreviewRequest` call overwrites `newparams` with the same value it would have produced, so both the tick and our request land at the same final state. The 3D model is drawn by the legacy `menuRenderModel` (not replaced), just redirected to the FBO target by the Batch 0 GBI hook. No new rendering code.
+
+### Build
+
+Pre-rebase: fresh configure on the worktree branch (`.claude/b6h-build`, MSYS2 MinGW GCC, Unix Makefiles):
+
+- Client (`pd` target): `[100%] Built target pd`. `PerfectDark.exe` = **49,562,897 bytes**.
+- Server (`pd-server` target): `[100%] Built target pd-server`. `PerfectDarkServer.exe` = **22,771,006 bytes** (`pdgui_menu_botsetup.cpp` not in SRC_SERVER -- server binary unaffected by construction).
+- Symbol sanity check on `pdgui_menu_botsetup.cpp.obj`: `renderMpSimulantCharacter` defined (t), `pdguiModelPreviewDraw` / `catalogMpBodyId` / `catalogMpHeadId` undefined (U, resolved at link time -- link succeeded).
+
+Post-rebase build repeats on top of Batch 8 (dev at `5063d3a3`) -- client + server both clean; exact byte counts recorded in the commit follow-up.
+
+### Gotcha recorded for future sessions
+
+When running headless builds from a shell without the MSYS2 dev-window environment pre-loaded, `/c/devkitPro/msys2/usr/bin/cmake` can shadow MSYS2's cmake on the PATH and break `CMakeTestCCompiler` (tries to invoke a non-existent devkitpro cmake.exe via a Linux-style path). Workaround used here: explicit `PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"` and explicit `/c/msys64/mingw64/bin/cmake.exe` invocation. `build-headless.ps1` already avoids this by setting PATH explicitly -- only a concern for ad-hoc `cmake` shell invocations.
+
+### Result
+
+Batch 6 polish done. Live 3D head/body preview restored using the Batch 0 reusable infra; zero legacy function loss; both binaries built clean. Merged on top of Batch 8 via `--no-ff`.
+
 ## Session S206 — 2026-04-11 (D5 P3 Batch 8: MP Pause & In-Game)
 
 **Focus**: Complete D5 Phase 3 Batch 8 — replace the 6 legacy multiplayer pause / in-match dialogs (`g_MpPauseControlMenuDialog`, `g_MpPauseInventoryMenuDialog`, `g_MpPausePlayerStatsMenuDialog`, `g_MpPausePlayerRankingMenuDialog`, `g_MpPauseTeamRankingsMenuDialog`, `g_MpPlayerOptionsMenuDialog`) with ImGui renderers, preserving the same network-write paths the legacy dropdowns used (Mike's standing directive from Batch 7 carried forward: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
