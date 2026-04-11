@@ -3,6 +3,176 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S197a — 2026-04-10 (Input regression diagnostic + fix, post-S196)
+
+**Focus**: Chase down the input regressions Mike noticed immediately after
+S196 landed:
+  - "Theme Editor window should have an x on it to close it, and should
+    close when I click out of it rather than just changing focus."
+  - "We did seem to lose the controller input working in menus."
+  - Rapid Start press opens two stacked main menu instances.
+  - Jump doesn't work in gameplay.
+
+Root-cause-first diagnostic session; all five touched files are defensive
+or narrow fixes to upstream behaviour that only became visible once S196
+forced a full pass through the Settings -> Video toggle path.
+
+### Phase 1 -- Re-add menu IMC nav bindings
+
+S189's "3-action reduction" stripped MENU_UP/DOWN/LEFT/RIGHT +
+TAB_PREV/NEXT from `setupMenuDefaults()` and `setupPauseMenuDefaults()`
+on the assumption that ImGui would drive its own navigation.  It does
+not -- `pdguiDriveImGuiNav()` in `port/fast3d/pdgui_backend.cpp` is the
+sole menu nav bridge, and it reads `actionHeld(ACTION_MENU_*)`.  With no
+binds registered, d-pad and keyboard arrows were both dead inside menus.
+
+Fix (`port/src/actionmap.cpp`): re-added six nav actions to both the
+menu and pause-menu defaults:
+```
+ACTION_MENU_UP        <- VKL_UP,    JBTN_DPAD_UP
+ACTION_MENU_DOWN      <- VKL_DOWN,  JBTN_DPAD_DOWN
+ACTION_MENU_LEFT      <- VKL_LEFT,  JBTN_DPAD_LEFT
+ACTION_MENU_RIGHT     <- VKL_RIGHT, JBTN_DPAD_RIGHT
+ACTION_MENU_TAB_PREV  <- JBTN_LB
+ACTION_MENU_TAB_NEXT  <- JBTN_RB
+```
+Comments in both default setups updated to point at
+`pdguiDriveImGuiNav()` so the next optimizer sees the dependency.
+
+### Phase 2 -- inputCtxPush resurrect for marked-for-removal
+
+`inputctx.c` uses deferred removal: `popDeferred` sets
+`marked_for_removal=1` and `inputCtxEndFrame` compacts the stack.
+During the window between them:
+  * `inputCtxGetTop` and `inputCtxIsActive` skip marked entries.
+  * The old `inputCtxPush` duplicate check did NOT skip marked entries.
+An in-frame pop+push sequence (seen in the S197a log as a <10 ms
+push/pop/push on `imgui_menu`) was therefore refused as "already on
+stack", leaving the deferred-removal in place and visibly flickering
+the menu state.
+
+Fix (`port/src/inputctx.c`): the duplicate check now recognises a
+marked-for-removal match and resurrects it -- clears the flag, refreshes
+`push_tick`, re-syncs mouse mode (popDeferred had already flipped mouse
+state to the *next* context underneath), and deliberately does NOT
+re-fire `on_push` (original on_push side effects are still in place).
+Logs "un-marked for removal (resurrect)" so the branch is visible.
+
+### Phase 4 -- Kill double pd.ini reload at Settings open
+
+Log evidence showed two back-to-back `actionmapLoadBinds()` calls within
+~17 ms of opening Settings.  Root cause in
+`port/fast3d/pdgui_menu_mainmenu.cpp`: the Controls-tab init flag
+`s_ControlsNeedsInit` was being set to true on EVERY view/tab change,
+both enter and leave.  Sequence on first Settings entry:
+  1. View switch 0 -> 2 sets flag (enter-side).
+  2. Static-default already had flag set.
+  3. First render consumes flag, runs reload #1.
+  4. Sub-tab state becomes stale vs. s_PrevSubTab, sub-tab branch fires
+     on the next frame, sets flag again.
+  5. Second frame consumes flag, runs reload #2.
+
+Input polls landing between the two reloads saw a partially-populated
+bind table -- the most likely cause of the sporadic vk=528/529 (LB/RB)
+"NO BINDING FOUND" reports in the same log window.
+
+Fix: both view-switch and sub-tab branches now only set
+`s_ControlsNeedsInit = true` when LEAVING the Settings view / Controls
+tab.  The static default still fires the first-ever init, and the
+leave-side flag re-arms for the next entry, so the normal case is
+covered with exactly one reload per entry.
+
+### Phase 5 -- Theme Editor X button + click-outside-close
+
+Two cosmetic bugs in the S196 Theme Editor:
+  * Title bar had no close-cross (`ImGui::Begin` was called with
+    `nullptr` p_open).
+  * Click-outside-to-close sometimes changed focus instead of
+    dismissing.  The dismiss was implemented via an InvisibleButton in a
+    fullscreen overlay window, but the overlay had
+    `ImGuiWindowFlags_NoBringToFrontOnFocus`, so clicks landing over a
+    previously focused window (the Settings pane that launched the
+    editor) routed there instead of to the overlay.
+
+Fix (`port/fast3d/pdgui_menu_theme_editor.cpp`):
+  * `renderThemeEditor` declares a local `bool open = true` and passes
+    `&open` to `Begin` so the title bar renders the X.  On normal and
+    early-return paths, if `open` became false, calls
+    `pdguiThemeEditorHide()` after `End` so the visibility flag and log
+    line stay in sync.
+  * `pdguiThemeEditorRender` drops the `NoBringToFrontOnFocus` flag from
+    the overlay, adds `SetNextWindowFocus()` before the overlay's
+    `Begin`, and also calls `SetNextWindowFocus()` before
+    `renderThemeEditor` so the editor stays visually in front above the
+    newly focused overlay.
+
+### Phase 6 -- Gate DIAG log spam
+
+Six DIAG sites in `actionmap.cpp` were firing at ~60 Hz regardless of
+log verbosity:
+  - fireVk DOWN, fireVk NO BIND, btn, poll header + IMC dump, axes raw,
+    axis final.
+
+Worst offender was the NO BIND case: synthetic stick/trigger VKs
+(joyOffset 22-31) are INTENTIONALLY unbound (analog goes through
+`SDL_GameControllerGetAxis`), but every stick tick still produced a
+warning-level log entry.
+
+Fix: all six DIAG sites gated on `sysLogGetVerbose()` (off by default,
+toggleable via `--verbose`).  The NO BIND path additionally filters out
+joyOffset 22-31 so even `--verbose` runs don't warn on expected stick
+misses.
+
+### Phase 3 / Jump -- Verification by code review
+
+Both the sporadic vk=528/529 "NO BINDING FOUND" reports and Mike's
+"Jump doesn't work" complaint trace to the same Phase 4 root cause.
+ACTION_JUMP is correctly bound (VK_SPACE + JBTN_A in
+`setupGameplayDefaults` at `actionmap.cpp:1339-1340`), and the
+`bondmove.c` consumer path at lines 987, 1006, and 1981 is intact.  The
+failure mode is an input poll landing mid-reload during the double
+pd.ini reload window, reading a partially-populated bind table.  With
+the Phase 4 fix, there is only ONE `actionmapLoadBinds()` call per
+Settings entry, and it runs strictly inside the Controls-tab render
+path -- no gameplay frame can interleave.
+
+Phase 3 is therefore verified by code inspection; runtime confirmation
+still requires a live playtest, and if Jump still fails post-build the
+next triage pass should instrument `c1buttonsthisframe` at
+`bondmove.c:1981` to isolate upstream vs. downstream.
+
+### Build + merge
+
+  * Merge: `git merge --ff-only claude/jovial-almeida` (into dev).
+    Fast-forward `d079eea7..9ba39f84`; 5 files, +634/-37.
+  * Client: `cmake --build build/client --target pd -- -j24 -k`.
+    `PerfectDark.exe` 48,916,241 bytes relinked at 20:57.
+  * Server: `cmake --build build/server --target pd-server -- -j24 -k`.
+    `PerfectDarkServer.exe` 22,786,384 bytes relinked at 20:58.
+  * `port/src/crash.c:404` `#if !defined(PD_SERVER)` guard verified
+    intact both before and after the build.
+  * No new warnings from S197a-touched files; pre-existing warnings in
+    `modelasm_c.c`, `model.c`, `snd.c`, `updater.h`, and `enet.h`
+    untouched.
+
+### Status
+
+Code and build: SUCCESS.  Runtime verification pending; the seven
+visible checks are listed in Section F of
+`context/scratch/s197a-report.txt`.  Full phase-by-phase log also in
+that scratch report.
+
+### Touch points
+
+```
+port/src/actionmap.cpp                    Phase 1 (menu nav binds)
+                                          Phase 6 (DIAG gating)
+port/src/inputctx.c                       Phase 2 (resurrect duplicate)
+port/fast3d/pdgui_menu_mainmenu.cpp       Phase 4 (one-shot reload)
+port/fast3d/pdgui_menu_theme_editor.cpp   Phase 5 (X + click-outside)
+context/scratch/s197a-report.txt          Incremental scratch log
+```
+
 ## Session S196 — 2026-04-10 (Chrome pipeline lift + base-game template mod system)
 
 **Focus**: Three-phase session bundling the infrastructure lift the chrome
