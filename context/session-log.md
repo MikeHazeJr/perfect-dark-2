@@ -3,6 +3,37 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S201 — 2026-04-11 (D5 P3 Batch 3: Unified Settings absorbs CI Options)
+
+**Focus**: Complete D5 Phase 3 Batch 3 — verify CI Options absorption into unified Settings; close remaining content gap.
+
+### Findings
+
+- Batch 3 redirect infrastructure already written in S195: `renderCiSettingsRedirect` registered for 5 CI Options dialogs, `renderCiDeadPlayer2` for 3 dead P2 variants.
+- All CI Display settings (Sight/Target/Zoom/Ammo/GunFunction/Paintball/Subtitles/MissionTime) and CI Control settings (LookAhead/HeadRoll/AutoAim/AimControl/InvertY) confirmed present in unified settings.
+- **One gap**: Sound Mode (Mono/Stereo/Headphone/Surround) from CI Options audio section was missing from Settings → Audio.
+
+### Changes
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp` (3100 → 3123, +23):
+  - Added `extern s32 g_SoundMode` + `void sndSetSoundMode(s32 mode)` in extern "C" block
+  - Added "Output" section to `renderSettingsAudio` with Sound Mode dropdown (4 options: Mono/Stereo/Headphone/Surround); reads `g_SoundMode`, calls `sndSetSoundMode` on change
+- `context/tasks-current.md`: Batch 3 marked DONE
+- `context/scratch/D5-P3-batch3-2026-04-11.md`: zero-function-loss audit + change summary
+
+### Build
+
+- Worktree: `amazing-shockley` → merged to dev as merge commit
+- PerfectDark.exe: 48,920,337 bytes — freshly linked 2026-04-11 10:48 AM
+- PerfectDarkServer.exe: 22,788,944 bytes — freshly linked 2026-04-11 10:47 AM
+- Exit: 0, no new errors
+
+### Next
+
+**Batch 4** (Cheats & Cinema, ~10 screens) — new file `pdgui_menu_cheats.cpp` + cinema entry in `pdgui_menu_mainmenu.cpp`. NOT solomission.cpp.
+
+---
+
 ## Session S200 — 2026-04-11 (B-78: chat DoS amplification fix + B-84: dead variable)
 
 **Focus**: Close B-78 (chat rebroadcast rate limiting) in `port/src/net/netmsg.c`.
