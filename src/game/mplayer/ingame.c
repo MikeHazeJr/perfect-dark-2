@@ -257,7 +257,7 @@ struct menudialogdef g_MpEndGameMenuDialog = {
 
 extern struct menudialogdef g_NetPauseControlsMenuDialog;
 
-static MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menuitem *item, union handlerdata *data)
+MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (g_NetMode == NETMODE_NONE) {
 		if (operation == MENUOP_CHECKHIDDEN) {
@@ -305,7 +305,7 @@ static MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menu
 	return 0;
 }
 
-static MenuItemHandlerResult menuhandlerNetPauseControls(s32 operation, struct menuitem *item, union handlerdata *data)
+MenuItemHandlerResult menuhandlerNetPauseControls(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKHIDDEN) {
 		return (g_NetMode == NETMODE_NONE) ? true : false;
