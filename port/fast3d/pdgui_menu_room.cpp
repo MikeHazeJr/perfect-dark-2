@@ -32,6 +32,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_menu_botsetup.h" /* D5 P3 Batch 6: inline Simulant Profiles panel */
 #include "system.h"
 #include "inputctx.h"
 
@@ -1541,6 +1542,19 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
     if (!canAdd) ImGui::EndDisabled();
+
+    /* D5 P3 Batch 6: legacy Simulant Profile pool as inline expandable
+     * section.  Backed by g_BotConfigsArray (setup.c) via the same
+     * pdguiBotSetupDrawSimulantsBody helper that powers the
+     * g_MpSimulantsMenuDialog modal wrapper in pdgui_menu_botsetup.cpp.
+     * The room.cpp matchslot bot UI above is the primary in-room path;
+     * this inline section exposes the legacy profile pool without
+     * requiring the Combat Simulator legacy menu detour. */
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Simulant Profiles")) {
+        ImGui::TextDisabled("Legacy bot profile pool");
+        pdguiBotSetupDrawSimulantsBody(pdguiScale(260.0f));
+    }
 
     ImGui::EndChild(); /* ##room_panel_outer */
 }
