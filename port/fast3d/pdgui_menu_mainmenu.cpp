@@ -196,6 +196,13 @@ void videoSetDisplayMode(s32 index);
 extern s32 g_TickRateDiv;
 extern s32 g_BgunGeMuzzleFlashes;
 extern s32 g_MusicDisableMpDeath;
+
+/* Sound mode (Mono/Stereo/Headphone/Surround) — from src/game/propsnd.c / snd.c.
+ * Values match SOUNDMODE_* in src/include/constants.h:
+ *   0 = Mono, 1 = Stereo, 2 = Headphone, 3 = Surround */
+extern s32 g_SoundMode;
+void sndSetSoundMode(s32 mode);
+
 extern s32 g_HudCenter;
 extern f32 g_ViShakeIntensityMult;
 
@@ -739,6 +746,22 @@ static void renderSettingsAudio(float scale)
     }
 
     ImGui::Separator();
+
+    /* ---- Output ---- */
+    ImGui::TextDisabled("Output");
+    ImGui::Separator();
+
+    /* Sound Mode (absorbed from CI Options — g_SoundMode / sndSetSoundMode) */
+    {
+        s32 mode = g_SoundMode;
+        if (mode < 0 || mode > 3) mode = 1; /* clamp; default = Stereo */
+        const char *modeOpts[] = { "Mono", "Stereo", "Headphone", "Surround" };
+        if (PdCombo("Sound Mode", &mode, modeOpts, 4)) {
+            sndSetSoundMode(mode);
+        }
+    }
+
+    ImGui::Spacing();
 
     bool disableMpDeath = g_MusicDisableMpDeath != 0;
     if (PdCheckbox("Disable MP Death Music", &disableMpDeath)) {
