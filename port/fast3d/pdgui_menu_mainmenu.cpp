@@ -131,8 +131,16 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menuitem *item, union handlerdata *data);
 MenuItemHandlerResult menuhandlerMainMenuCounterOperative(s32 operation, struct menuitem *item, union handlerdata *data);
 
-/* MENUOP_SET = 6 (from types.h MENUOP enum) */
-#define MENUOP_SET 6
+/* MENUOP_* opcodes (from src/include/constants.h).
+ * Full set needed for the Batch 4 Cinema list delegation. */
+#define MENUOP_GETOPTIONCOUNT      1
+#define MENUOP_GETOPTGROUPCOUNT    2
+#define MENUOP_GETOPTIONTEXT       3
+#define MENUOP_GETOPTGROUPTEXT     4
+#define MENUOP_GETGROUPSTARTINDEX  5
+#define MENUOP_SET                 6
+#define MENUOP_GETSELECTEDINDEX    7
+#define MENUOP_GET                 8
 
 /* Player count check (for Counter-Op disabled state) */
 u32 joyGetConnectedControllers(void);
