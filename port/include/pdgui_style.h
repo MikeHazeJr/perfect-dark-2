@@ -106,15 +106,30 @@ u32 pdguiGetPaletteColor(s32 index);
  * If alpha < 0, uses the palette color's own alpha. */
 u32 pdguiPalImU32(s32 index, s32 alpha);
 
-/* --- P4: 9-slice panel texture API --- */
+/* --- P4: 9-slice panel texture API (chrome rendering) ---
+ *
+ * The chrome system lets pdguiDrawPdDialog swap its procedural body fill
+ * + border lines for a nineslice texture driven by a catalog ID.  Two
+ * pieces of state drive it:
+ *   1. An enabled flag (global on/off).
+ *   2. The active chrome catalog ID (which nineslice to draw).
+ *
+ * Both must be set for chrome to render.  With enabled=false the original
+ * procedural render path runs exactly as before (pixel-for-pixel parity). */
 
-/* Set a 9-slice texture for dialog body backgrounds.
- * When set, pdguiDrawPdDialog composites this over the palette body fill.
- * Pass tex=NULL to disable. */
-void pdguiSetPanelNineSlice(void *tex, f32 texW, f32 texH,
-                             f32 inL, f32 inT, f32 inR, f32 inB);
+/* Enable or disable chrome rendering globally.
+ * Persisted to pd.ini by the Settings -> Video dropdown. */
+void pdguiChromeSetEnabled(s32 enabled);
+s32  pdguiChromeIsEnabled(void);
 
-/* Clear the 9-slice panel texture (return to palette-only rendering). */
+/* Set the active chrome nineslice by catalog ID.  The ID must reference
+ * a nineslice previously registered via pdguiNinesliceRegister() and a
+ * texture registered via pdguiThemeRegisterTexture().  Pass NULL to
+ * clear the active selection.  The string is copied. */
+void pdguiSetPanelNineSlice(const char *nineslice_catalog_id);
+const char *pdguiGetPanelNineSlice(void);
+
+/* Convenience wrapper: clear the active chrome selection. */
 void pdguiClearPanelNineSlice(void);
 
 #ifdef __cplusplus

@@ -3,6 +3,785 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S207 — 2026-04-11 (D5 P3 Batch 6 polish: Live 3D head/body preview)
+
+**Focus**: Restore the legacy 3D character preview in the ImGui Simulant Character dialog (`renderMpSimulantCharacter`). Batch 6 dropped it as an intentional simplification per the scratch audit; Mike's direction is to do the full restore now rather than waiting for Batch 11, so the plumbing pattern is established early and reusable for weapon / vehicle preview surfaces later. Ran in parallel with Batch 8 on worktree `busy-lalande`, rebased onto dev after Batch 8 merged as `5063d3a3`.
+
+### Approach
+
+Audit found the FBO viewport infrastructure already exists from D5 Phase 3 Batch 0 (S192) -- two layers:
+
+- **Low level** (`port/fast3d/pdgui_charpreview.c` / `.h`): 256x256 offscreen FBO created at startup via `videoCreateFramebuffer`, `pdguiCharPreviewRequest(head_id, body_id)` writes `g_Menus[0].menumodel.newparams`, `pdguiCharPreviewRenderGBI(gdl, menu)` is called unconditionally from `src/game/menu.c:3754` during the menu render phase. The hook injects GBI commands to switch the render target to the preview FBO, invokes the existing `menuRenderModel` legacy renderer, then restores the main render target. The resulting GL texture ID is cached at init and constant for the FBO lifetime.
+- **High level** (`port/fast3d/pdgui_model_preview.cpp` / `.h`): self-contained ImGui widget `pdguiModelPreviewDraw(head_id, body_id, x, y, w, h, opts)` handling selection-change detection, idle rotation, PD-palette frame, placeholder silhouette, and Y-flipped UV sampling. Already type-parameterized via `ModelPreviewKind` (CHARACTER / WEAPON / VEHICLE / PROP).
+
+Already used by `pdgui_menu_agentcreate.cpp:441`, `pdgui_menu_agentselect.cpp`, `pdgui_menu_room.cpp` (low-level), and `pdgui_menu_moddinghub.cpp`. The "build reusable FB plumbing" concern from the task brief was already solved by Batch 0 -- this polish reduces to a single call site.
+
+### Changes
+
+- `port/fast3d/pdgui_menu_botsetup.cpp` 1006 -> 1074 (+68 lines):
+  - `#include "pdgui_model_preview.h"` added to the include block
+  - `const char *catalogMpBodyId(s32 mpbodynum);` added to the extern "C" block alongside the existing `catalogMpHeadId` decl
+  - `renderMpSimulantCharacter` rewritten with two-column layout: 300x340 (pdguiScale, 1080p baseline) preview panel on the left via `pdguiModelPreviewDraw`, Head + Body dropdowns on the right in a BeginGroup with a Dummy Y-offset for vertical centering. Dialog size bumped from 0.55x0.58 to 0.62x0.62 to make room without squeezing. Carousel selections are read once per frame via the existing `car_GetSelectedIndex` / `car_GetCount` helpers and resolved to catalog ID strings via `catalogMpHeadId` / `catalogMpBodyId` for the widget. Idle turntable at 0.4 rad/s; instant reset on dropdown change via `pdguiModelPreviewDraw`'s internal (kind, id1, id2) tuple comparison.
+- `context/scratch/B6-head-preview-2026-04-11.md`: NEW scratch note with full render-path walkthrough, MENUOP_11 coexistence analysis, build-verification record, and gotchas (devkitpro cmake-in-PATH trap, build-headless.ps1 worktree redirect).
+- `context/tasks-current.md`: appended "Batch 6 polish DONE" annotation to the D5 Phase 3 row.
+
+No other files touched. `pdgui_menu_solomission.cpp`, `pdgui_menu_mpadvanced.cpp`, `pdgui_menu_mpsetup.cpp`, `pdgui_menu_cheats.cpp`, `pdgui_menu_mainmenu.cpp`, and Batch 8's `pdgui_menu_mppause.cpp` deliberately avoided (parallel-batch collision guard).
+
+### Zero function loss
+
+Every state mutation still goes through the s204 shadow-struct call-through to `menuhandlerMpSimulantHead` / `menuhandlerMpSimulantBody` -> `mpCharacterHeadMenuHandler` / `mpCharacterBodyMenuHandler` -> `mpchrSetHeadByIndex` / `mpchrSetBodyByIndex`. The legacy `menudialog0017ccfc::MENUOP_TICK` still fires through the runtime and writes `g_Menus[0].menumodel.newparams` -- our per-frame `pdguiCharPreviewRequest` call overwrites `newparams` with the same value it would have produced, so both the tick and our request land at the same final state. The 3D model is drawn by the legacy `menuRenderModel` (not replaced), just redirected to the FBO target by the Batch 0 GBI hook. No new rendering code.
+
+### Build
+
+Pre-rebase: fresh configure on the worktree branch (`.claude/b6h-build`, MSYS2 MinGW GCC, Unix Makefiles):
+
+- Client (`pd` target): `[100%] Built target pd`. `PerfectDark.exe` = **49,562,897 bytes**.
+- Server (`pd-server` target): `[100%] Built target pd-server`. `PerfectDarkServer.exe` = **22,771,006 bytes** (`pdgui_menu_botsetup.cpp` not in SRC_SERVER -- server binary unaffected by construction).
+- Symbol sanity check on `pdgui_menu_botsetup.cpp.obj`: `renderMpSimulantCharacter` defined (t), `pdguiModelPreviewDraw` / `catalogMpBodyId` / `catalogMpHeadId` undefined (U, resolved at link time -- link succeeded).
+
+Post-rebase build repeats on top of Batch 8 (dev at `5063d3a3`) -- client + server both clean; exact byte counts recorded in the commit follow-up.
+
+### Gotcha recorded for future sessions
+
+When running headless builds from a shell without the MSYS2 dev-window environment pre-loaded, `/c/devkitPro/msys2/usr/bin/cmake` can shadow MSYS2's cmake on the PATH and break `CMakeTestCCompiler` (tries to invoke a non-existent devkitpro cmake.exe via a Linux-style path). Workaround used here: explicit `PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"` and explicit `/c/msys64/mingw64/bin/cmake.exe` invocation. `build-headless.ps1` already avoids this by setting PATH explicitly -- only a concern for ad-hoc `cmake` shell invocations.
+
+### Result
+
+Batch 6 polish done. Live 3D head/body preview restored using the Batch 0 reusable infra; zero legacy function loss; both binaries built clean. Merged on top of Batch 8 via `--no-ff`.
+
+## Session S206 — 2026-04-11 (D5 P3 Batch 8: MP Pause & In-Game)
+
+**Focus**: Complete D5 Phase 3 Batch 8 — replace the 6 legacy multiplayer pause / in-match dialogs (`g_MpPauseControlMenuDialog`, `g_MpPauseInventoryMenuDialog`, `g_MpPausePlayerStatsMenuDialog`, `g_MpPausePlayerRankingMenuDialog`, `g_MpPauseTeamRankingsMenuDialog`, `g_MpPlayerOptionsMenuDialog`) with ImGui renderers, preserving the same network-write paths the legacy dropdowns used (Mike's standing directive from Batch 7 carried forward: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_mppause.cpp` (1210 lines) owns all 6 renderers, cloning the `s205` shadow-struct pattern from `pdgui_menu_mpadvanced.cpp` with the suffix bumped to `s206`. Shadow types, MENUOP_* block, legacy-handler forward decls, dropdown/list/checkbox/plain-SET helpers + hub row helpers are all seeded up front from the Batch 4 lesson ("seed the MENUOP_* block before writing any renderer code to avoid the mid-flight gotcha"). The shadow struct is file-local — no new shared header.
+- **Standalone-file pattern** (Batch 7 precedent): the existing `pdgui_menu_mpingame.cpp` is reserved for the in-match kill ticker overlay and legacy endscreen dialog suppression and must not be polluted with pause-menu renderers. Batch 8 lives in a fresh `pdgui_menu_mppause.cpp`. `pdguiMpIngameRegister()` (ticker) and `pdguiMenuMpPauseRegister()` (Batch 8) are both wired into `pdguiMenusRegisterAll()` in `pdgui_menus.h` (+2 lines).
+- Renderer mapping (6 impls → 6 dialogs):
+  - `renderMpPauseControl` → `g_MpPauseControlMenuDialog` (11-item hub: challenge/scenario/limit labels with CHECKHIDDEN per row, live match-time readout via `menutextMatchTime(0)`, PC-dead pause toggle via `menuhandlerMpPause` (always hidden via legacy CHECKHIDDEN because `PLAYERCOUNT()==1` on PC), netplay-only team dropdown via `menuhandlerNetTeamSwitch`, netplay-only Controls push-row via `menuhandlerNetPauseControls`, End Game push to `g_MpEndGameMenuDialog`)
+  - `renderMpPauseInventory` → `g_MpPauseInventoryMenuDialog` (LIST via `menuhandlerInventoryList` MENUOP_GETOPTIONCOUNT/TEXT/SET/GETSELECTEDINDEX, SET uses `list.unk04=0` to match legacy equip semantics not device-toggle; marquee description via `mpMenuTextWeaponDescription(nullptr)`)
+  - `renderMpPausePlayerStats` → `g_MpPausePlayerStatsMenuDialog` (Stats-For dropdown via `mpStatsForPlayerDropdownHandler`; kills-vs-deaths ImGui table built from `mpGetPlayerRankings` + direct `mpchr->killcounts[]` reads; title text via `mpMenuTitleStatsFor(nullptr)`)
+  - `renderMpPausePlayerRanking` → `g_MpPausePlayerRankingMenuDialog` (pure read-only ImGui ranking table over `mpGetPlayerRankings`)
+  - `renderMpPauseTeamRankings` → `g_MpPauseTeamRankingsMenuDialog` (pure read-only ImGui team ranking table over `mpGetTeamRankings` + new `pdguiMppGetTeamName` bridge)
+  - `renderMpPlayerOptions` → `g_MpPlayerOptionsMenuDialog` (4 checkboxes via `menuhandlerMpDisplayOptionCheckbox` with MPDISPLAYOPTION_* param3 masks, writes `g_PlayerConfigsArray[g_MpPlayerNum].base.displayoptions`)
+- **Network match start / end wiring audit** (Mike's carry-forward requirement): 9 fields traced writer → backing global → start reader → end reader. Only ONE write propagates on the wire: in-match team switch via `menuhandlerNetTeamSwitch` → `g_NetLocalClient->settings.team` + `g_NetLocalClient->config->base.team` → `netClientSettingsChanged()` → `CLC_SETTINGS` serializer → server authoritative broadcast. Exact same code path the legacy N64 dropdown used; the s206 call-through is transparent. All other writes are local: `displayoptions` per-player read by `scenarios.c:735/771/773` and `radar.c:262` per-frame, `g_MpSelectedPlayersForStats[g_MpPlayerNum]` view-state only, inventory equip via same `bgunEquipWeapon2` path the player's normal "Next Weapon" input uses, PC-dead pause toggle. No new shadow/cache copies. Full audit table in `context/scratch/D5-P3-batch8-2026-04-11.md`.
+- **Two-word static removal in `src/game/mplayer/ingame.c`**: `menuhandlerNetTeamSwitch` and `menuhandlerNetPauseControls` were file-local `static` because they're only used in one menuitem array in ingame.c. The C++ renderer needs to call them through the s206 function-pointer delegate, so removed `static` on both (2 one-word edits). Grepped the codebase for any callers that rely on the static scope — none exist. Zero semantic change.
+- **Bridge accessor added**: new `pdguiMppGetTeamName(u32 team)` in `port/fast3d/pdgui_bridge.c` (+14 lines) so the C++ renderer does not have to clone `struct bossfile`. Single point of truth for the `g_BossFile.teamnames[team]` read used by Team Rankings.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mppause.cpp` (+1210 lines): full Batch 8 implementation
+- **NEW** `context/scratch/D5-P3-batch8-2026-04-11.md` (+384 lines): dialog mapping, 9-row network audit, 20-row zero-function-loss audit, build outputs, integration pattern notes
+- `port/fast3d/pdgui_bridge.c` (811 → 825, +14): new `pdguiMppGetTeamName` accessor under a new section header
+- `port/include/pdgui_menus.h` (69 → 71, +2): declared + called `pdguiMenuMpPauseRegister()` in `pdguiMenusRegisterAll()`
+- `src/game/mplayer/ingame.c`: 2 one-word edits — removed `static` from `menuhandlerNetTeamSwitch` + `menuhandlerNetPauseControls`
+- `context/tasks-current.md`: Batch 8 entry appended to the D5 Phase 3 cell alongside the Batch 7 entry
+
+### Build
+
+- Fresh configure from worktree `determined-robinson` in `.claude/b8-out` (first attempt failed because `devkitPro` cmake was on PATH ahead of the msys64 one; explicit binary path + PATH prefix fixed it — documented in the scratch doc for future batches)
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,726,176 bytes** (+159,695 vs Batch 7's 49,566,481)
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,773,054 bytes** (+1,536 vs Batch 7's 22,771,518; build-order variance — neither mppause.cpp, bridge, nor ingame.c is in SRC_SERVER whitelist)
+- Initial build raised 2 undefined references (`menuhandlerNetTeamSwitch`, `menuhandlerNetPauseControls`) because both handlers were `static` in ingame.c. Removing `static` fixed both. No new warnings from mppause.cpp itself.
+- Post-merge dev build verified clean (`.claude/b8-dev-verify`): both targets link with zero undefined references, zero new warnings.
+
+### Result
+
+Batch 8 done. 6 legacy pause/in-game dialogs now render through ImGui via hot-swap, with the one network-propagating write (in-match team switch) routed through the exact same `CLC_SETTINGS` serializer path the legacy N64 dropdown used. Zero function loss. Merged to dev via `--no-ff` as `950bf712`; post-merge line counts match pre-merge exactly (1210/1059/71/825/1167/384). Next up: Batch 11 (MP Player Config & Stats, 5 screens) or Batch 12 (Music & Misc, 4 screens) — both independent of Batch 8.
+
+---
+
+## Session S205 — 2026-04-11 (D5 P3 Batch 7: MP Advanced / Quick paths)
+
+**Focus**: Complete D5 Phase 3 Batch 7 — replace 11 legacy navigation-hub dialogs in the Combat Simulator setup layer with ImGui renderers, with a mandatory network match start / end wiring audit (Mike's explicit direction: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_mpadvanced.cpp` owns 6 renderer implementations covering 11 dialog registrations, cloning the s203/s204 shadow-struct pattern from pdgui_menu_mpsetup.cpp / pdgui_menu_botsetup.cpp with a new `s205` suffix. Dropdown/list/plain-SET helper family plus two new hub-row helpers (`hubPushRow` / `hubHandlerRow`) that draw full-width ImGui Selectables with manual two-column text overlays, so each hub row can show label + dynamic right-side text (scenario short name, arena name, weapon set name, player name, "Save Player"/"Save Copy of Player") without inventing a new public layout primitive.
+- Renderer mapping (6 impls → 11 dialogs):
+  - `renderMpAdvancedSetupImpl(v=0|1)` backs `g_MpAdvancedSetupMenuDialog` + `g_MpAdvancedSetupViaAdvChallengeMenuDialog` (item arrays byte-identical; legacy differs only in `nextsibling` tab which ImGui flattens)
+  - `renderMpQuickGo` backs `g_MpQuickGoMenuDialog` (4 pure pushes)
+  - `renderMpQuickTeam` backs `g_MpQuickTeamMenuDialog` (5 big-font selectables → `menuhandlerMpQuickTeamOption` param 0..4)
+  - `renderMpQuickTeamGameSetup` backs `g_MpQuickTeamGameSetupMenuDialog` (15 items: Scenario/Options/Arena/Weapons/Limits pushes, Player 1..4 Team dropdowns via `menuhandlerPlayerTeam` with CHECKHIDDEN gating, NumSims/SimsPerTeam/SimDifficulty dropdowns with per-mode visibility, Finished Setup / Save Settings)
+  - `renderMpStuffImpl(v=0|1)` backs `g_MpStuffMenuDialog` + `g_MpStuffViaAdvChallengeMenuDialog` (Soundtrack/TeamNames pushes, Lock/Split dropdowns, Start/Drop/Abort pushes)
+  - `renderMpPlayerSetupHubImpl(variant)` backs all three `g_MpPlayerSetupVia*MenuDialog` (Name/Character/Control/PlayerOptions/Statistics/LoadPlayer pushes + Save Player selectable)
+- **Network match start / end wiring audit** (critical for this batch): traced 13 distinct fields writer → backing global → `mpStartMatch` reader → `SVC_STAGE` network serializer → client receive path → endscreen reader. Full audit table in `context/scratch/D5-P3-batch7-2026-04-11.md`. Every Batch 7 MENUOP_SET lands in the same `g_Vars.*` / `g_MpSetup.*` / `g_PlayerConfigsArray.*` global the legacy renderer would have written via its own dispatch, because every write delegates to a legacy C handler via the s205 shadow call-through. No shadow/cache/copy introduced.
+- Modern room lobby (pdgui_menu_room.cpp) is untouched — it writes to `g_MatchConfig` via a distinct code path, and `matchStart()` copies g_MatchConfig → g_MpSetup before `mpStartMatch`. `room.cpp` contains zero references to any Batch 7 dialog (grep confirmed), so the two paths never interleave.
+- Legacy dialog OPEN side effects (`menudialogMpGameSetup` setting `g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP` / `usingadvsetup = true`; `menudialogMpQuickGo` setting `MPSETUPMENU_QUICKGO`) still fire through the legacy menu runtime because the hot-swap system only hooks the RENDER phase — OPEN/CLOSE/TICK go through the original dispatch, preserving zero-function-loss.
+- Integration philosophy matches Batches 4-6: convert dialogs via s20x shadow-struct call-through, no room.cpp edits (none of the Batch 7 dialogs naturally belong inline — room IS the modern equivalent of the Combat Simulator layer, and absorbing Batch 7 screens would require retiring `g_CombatSimulatorMenuDialog` which is out of scope per menu-replacement-plan.md).
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mpadvanced.cpp` (+1059 lines): full Batch 7 implementation
+- `port/include/pdgui_menus.h` (67 → 69, +2): declared + called `pdguiMenuMpAdvancedRegister()` in `pdguiMenusRegisterAll()`
+- **NEW** `context/scratch/D5-P3-batch7-2026-04-11.md`: dialog mapping, network audit table, zero-function-loss audit, build outputs, integration pattern notes
+
+### Build
+
+- Fresh configure from worktree `nervous-dhawan` via `TEMP=/tmp cmake -G "Unix Makefiles"` in `.claude/b7-build`
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,566,481 bytes** (+225,697 vs Batch 6's 49,340,784)
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,771,518 bytes** (pdgui_menu_mpadvanced.cpp not in SRC_SERVER so size delta is pre-existing build-variance, not Batch 7 work)
+- Only warning from my file was a cosmetic `/*` in a comment block (fixed post-build with a pure comment edit — binary unaffected)
+
+### Result
+
+Batch 7 done. 11 legacy dialog pushes now render through ImGui via hot-swap. Network audit clean. Next up: Batch 8 (MP Pause & In-Game, 6 screens) per menu-replacement-plan.md schedule — independent of Batch 7.
+
+---
+
+## Session S204 — 2026-04-11 (D5 P3 Batch 6: Bot/Simulant Setup)
+
+**Focus**: Complete D5 Phase 3 Batch 6 — replace the 5 legacy bot/simulant dialogs (`g_MpSimulantsMenuDialog`, `g_MpAddSimulantMenuDialog`, `g_MpChangeSimulantMenuDialog`, `g_MpEditSimulantMenuDialog`, `g_MpSimulantCharacterMenuDialog`) with ImGui renderers and surface the simulant roster as an inline expandable section inside the existing room screen rather than only as a pushed modal.
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_botsetup.cpp` owns the 5 renderers, cloning the s203 shadow-struct call-through pattern from pdgui_menu_mpsetup.cpp and extending the ABI with a `carousel` handlerdata variant so the two `MENUITEMTYPE_CAROUSEL` handlers (`menuhandlerMpSimulantHead`, `menuhandlerMpSimulantBody`) can be invoked via the same pattern. Every state mutation delegates to legacy C handlers in `setup.c` (`mpAddChangeSimulantMenuHandler`, `menuhandlerMpSimulantHead/Body`, `mpBotDifficultyMenuHandler`, `menuhandlerMpChangeSimulantType`, `menuhandlerMpCopySimulant`, `menuhandlerMpDeleteSimulant`, `menuhandlerMpAddSimulant`, `menuhandlerMpSimulantSlot`, `menuhandlerMpClearAllSimulants`). Dynamic-text function pointers (`mpMenuTextSimulantName`, `mpMenuTextSimulantDescription`, `mpMenuTitleEditSimulant`) are invoked via shadow-cast. Legacy dialog-level handlers (`menudialogMpSimulants`, `menudialogMpSimulant`, `menudialog0017ccfc`) still fire OPEN/TICK side effects via the runtime (reset slotcount, auto-pop on external delete, refresh model preview).
+- **Mid-task pivot** (Mike's mid-task guidance): the bot/simulant setup should be integrated into the room design rather than living only as a standalone modal. Refactored `renderMpSimulants`' body-drawing logic into a new public inline helper `pdguiBotSetupDrawSimulantsBody(float bodyH)` exposed via a new header `port/include/pdgui_menu_botsetup.h`. `renderMpSimulants` became a thin modal wrapper that calls the helper inside the standard PD-styled frame, preserved for the legacy Combat Simulator push path (satisfies "don't break linking" and "zero function loss"). `pdgui_menu_room.cpp` then includes the new header and adds a `CollapsingHeader("Simulant Profiles")` section at the bottom of `renderPlayerPanel` (below the existing matchslot-based Add Bot button) that calls `pdguiBotSetupDrawSimulantsBody` inline.
+- Design decision: room.cpp's existing matchslot-based bot UI (`g_MatchConfig.slots[]`) and the legacy `g_BotConfigsArray[]` pool are DIFFERENT data models, so the integration is additive — the new inline section exposes the legacy profile pool without removing or modifying the existing matchslot flow. Unifying the two data models is out of scope for Batch 6.
+- Drill-down screens (Add/Change/Edit/Character) remain modal wrappers — they are naturally single-task edit screens, and `menuPushDialog` from inside an inline renderer is a standard pattern already used by room.cpp for `g_MpHandicapsMenuDialog` and `g_MpTeamsMenuDialog`.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_botsetup.cpp` (+1006 lines):
+  - Shadow types `s204_menuitem` / `s204_handlerdata` (checkbox/dropdown/list/slider/**carousel**/_pad[256]), legacy handler forward decls, full MENUOP_* block (1..24 + OPEN/CLOSE/TICK) seeded from the start per the Batch 4 gotcha
+  - Helper families: `list_*` (grouped bot profile list with GETOPTGROUPCOUNT/GETOPTGROUPTEXT/GETGROUPSTARTINDEX/LISTITEMFOCUS), `dd_*` (difficulty dropdown), `car_*` (head/body carousels — new for this batch), `plain_*` (action buttons with CHECKDISABLED/CHECKHIDDEN), window-frame helpers `bs_BeginStandardWindow` / `bs_CloseCurrentDialog` / `bs_BackPressed`
+  - Inline content helper: `pdguiBotSetupDrawSimulantsBody(bodyH)` — public `extern "C"` function that draws the simulants roster (Add / 8 slot rows / Clear All) without a surrounding modal frame
+  - Renderers: `renderMpSimulants` (thin modal wrapper for the inline helper), `renderMpAddChangeSimulantImpl` (shared Add/Change variant enum) with `renderMpAddSimulant` / `renderMpChangeSimulant` wrappers, `renderMpEditSimulant` (difficulty dropdown + Change Type / Character / Copy / Delete buttons with dynamic title via `mpMenuTitleEditSimulant`), `renderMpSimulantCharacter` (Head + Body dropdowns with display names from `catalogMpHeadId` formatter + `mpGetBodyName`)
+  - Head display names built from `catalogMpHeadId` via the same `formatCatalogId` pattern as `pdgui_menu_agentcreate.cpp` (no `mpGetHeadName` symbol exists in the API)
+  - `pdguiMenuBotSetupRegister()` — single hotswap registration function (5 dialogs)
+- **NEW** `port/include/pdgui_menu_botsetup.h` (47 lines): declares `pdguiBotSetupDrawSimulantsBody` with `extern "C"` linkage so room.cpp can include without types.h pollution
+- `port/fast3d/pdgui_menu_room.cpp` (2834 → 2848, +14): include new header, add `CollapsingHeader("Simulant Profiles")` section at the bottom of `renderPlayerPanel` calling the inline helper
+- `port/include/pdgui_menus.h` (65 → 67, +2): declared + called `pdguiMenuBotSetupRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch6-2026-04-11.md` (432 lines) — dialog→handler→state-write map, zero-function-loss audit plan, mid-batch integration pivot rationale, build plan
+
+### Build
+
+- Worktree: `quirky-gates`, branch `claude/quirky-gates`
+- Merged to dev as two non-ff merges: the initial modal-only implementation, then the inline-integration refactor
+- `build/client/PerfectDark.exe`: 49,202,510 → **49,340,784 bytes** (+138,274, ~135 KB) — freshly linked 2026-04-11 13:50 EDT
+- `build/server/PerfectDark.exe`: **49,339,248 bytes** — freshly linked 2026-04-11 13:51 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server target, same as Batches 0-5) — freshly linked 2026-04-11 13:50 EDT
+- `cmake . && cmake --build . -j 24` via MSYS2 MINGW64 with `TEMP=/tmp`. Same direct-cmake approach as Batches 4/5 because `build-headless.ps1` swallows output when stdout is redirected under bash (CR spinner vs non-TTY). `cmake .` re-run in both dirs to pick up new `pdgui_menu_botsetup.cpp` via GLOB_RECURSE (and then again after the header/refactor changes).
+- Exit: 0 on all link steps. No new errors introduced. MENUOP_* block seeded complete up-front — Batch 4 gotcha avoided.
+
+### Next
+
+**Batch 7** (MP Advanced / Quick paths — 11 dialogs) per the menu-replacement-plan. Depends on Batches 5-6 which are now complete.
+
+Possible follow-up: unify room.cpp's matchslot-based bot UI with the legacy `g_BotConfigsArray` pool so there is a single canonical data model. This would retire half of `setup.c`'s bot-state globals and simplify net sync — but it affects save-file compatibility and is a bigger refactor. Out of scope for Batch 6; flagged for a future phase.
+
+---
+
+## Session S203 — 2026-04-11 (D5 P3 Batch 5: MP Setup Core)
+
+**Focus**: Complete D5 Phase 3 Batch 5 — replace the 14 legacy MP Combat Simulator setup dialogs (Arena / Scenario / Weapons / Limits / Scenario Options / Extended Game Options) with ImGui renderers that delegate all state mutation to the legacy C handlers via the s203 shadow-struct call-through pattern (cloned from s194 in solomission.cpp / s202 in cheats.cpp).
+
+### Approach
+
+- Per Batch 4 handoff: verified whether Batch 5 should be absorbed into `pdgui_menu_room.cpp`. Room.cpp already handles the *modern* lobby flow; Batch 5's scope is the legacy Combat Simulator setup dialogs that still back `g_CombatSimulatorMenuDialog`. Absorption would require retiring that entry point — out of scope. New file `pdgui_menu_mpsetup.cpp` sits parallel to cheats.cpp / solomission.cpp. Room.cpp untouched; solomission.cpp untouched (per standing critical-collision rule).
+- s203 shadow-struct ABI covers `menuitem` + `handlerdata_{checkbox,dropdown,list_t,slider}` so legacy C handlers from `setup.c` / `scenarios.c` / `scenarios/*.inc` can be invoked through function pointers from C++ without including types.h (the `#define bool s32` in types.h breaks C++ compilation).
+- Every backing-store write (g_MpSetup.*, g_MpWeaponSetRandomFilters[], g_Vars.mphilltime, g_ArenaGroupCollapsed, arena/scenario selection via scenarioInit side-effects, slider ranges, feature gating, slow-motion mutual exclusion, menuhandlerMpOneHitKills MPFEATURE_ONEHITKILLS gate) goes through a legacy handler call via s203. Nothing duplicated in C++.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mpsetup.cpp` (+1265 lines):
+  - Shadow types (`s203_menuitem`, `s203_handlerdata` with checkbox/dropdown/list/slider members + `_pad[256]` safety), legacy handler forward decls, MENUOP_* block (1..24 declared locally per Batch 4 gotcha)
+  - Helper families: `list_*` (arena/scenario/select-random-weapons), `dd_*` (dropdowns), `cb_*` (checkboxes incl. CHECKDISABLED/CHECKHIDDEN), `sl_*` (sliders incl. GETSLIDERLABEL buffer capture), `plain_Set` (action buttons), `mp_BeginStandardWindow` / `mp_CloseCurrentDialog` / `mp_BackPressed` (window frame)
+  - Renderers: `renderMpArena`, `renderMpScenario` (+ QuickTeam variant), `renderMpWeapons`, `renderMpSelectRandomWeapons` (per-weapon checkboxes + 4 select-all action rows via `srw_GetRowChecked` / `srw_ToggleRow`), `renderMpQuickTeamWeapons` (set dropdown + read-only slot labels via `qtw_SlotName`), `renderMpLimits` (3 sliders + Restore Defaults), `renderMpScenarioOptionsImpl` (shared for 6 scenario variants keyed by `ScenarioOptionVariant` enum, with 6 thin render wrappers), `renderMpExtGameOptions`
+  - Scenario options body: `renderSharedScenarioTop` (OneHitKills/SlowMotion/FastMovement/DisplayTeam/NoRadar/NoAutoAim) + per-variant tail (Combat: NoPlayerHighlight/NoPickupHighlight; CTC/HTM/HTB/KOH/PAC: KillsScore + per-scenario extras; KOH adds MPOPTION_KOH_HILLONRADAR/MOBILEHILL + Hill Time slider)
+  - Dialog flattening: the legacy nextsibling-driven "More Options" tab page (present in all 6 scenario-option dialogs) becomes a docked action-bar button that pushes `g_ExtGameOptionsMenuDialog` as a modal. Content parity preserved; UX flattened per Batch 2 precedent.
+  - `pdguiMenuMpSetupRegister()` — single hotswap registration function (14 dialogs)
+- `port/include/pdgui_menus.h` (63 → 65, +2): declared + called `pdguiMenuMpSetupRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch5-2026-04-11.md` — full legacy→new function map, zero-function-loss audit, post-build results
+
+### Build
+
+- Worktree: `gallant-cohen`, branch `claude/gallant-cohen`
+- Merged to dev as non-ff merge (88149051)
+- `build/client/PerfectDark.exe`: 49,051,951 → **49,202,510 bytes** (+150,559, ~147 KB) — freshly linked 2026-04-11 13:15 EDT
+- `build/server/PerfectDark.exe`: 49,200,974 bytes — freshly linked 2026-04-11 13:16 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server) — freshly linked 2026-04-11 13:16 EDT
+- `cmake . && cmake --build . -j 24` via MSYS2 MINGW64 with TEMP=/tmp. Same direct-cmake approach as Batch 4 because `build-headless.ps1` swallows output when stdout is redirected under bash (CR spinner vs non-TTY). `cmake .` re-run in both dirs to pick up new `pdgui_menu_mpsetup.cpp` via GLOB_RECURSE.
+- Exit: 0 on all three link steps. No new errors. MENUOP_* block seeded complete up-front (Batch 4 gotcha avoided).
+
+### Next
+
+**Batch 6** (Bot/Simulant Setup — `g_MpSimulantsMenuDialog`, AddSimulant, ChangeSimulant, EditSimulant, SimulantCharacter; 5 screens). Depends on Batch 5 character-data wiring but since Batch 5 does not touch `g_HeadsAndBodies[]` directly (it delegates to legacy handlers), the dependency is already satisfied. Batch 6 will likely go into the same `pdgui_menu_mpsetup.cpp` file (or a new `pdgui_menu_botsetup.cpp`) depending on how much shared state it needs with the weapon slot / scenario option patterns from Batch 5.
+
+---
+
+## Session S202 — 2026-04-11 (D5 P3 Batch 4: Cheats & Cinema)
+
+**Focus**: Complete D5 Phase 3 Batch 4 — consolidate 9 legacy cheats dialogs into a tabbed ImGui hub + replace the Cinema cutscene viewer.
+
+### Approach
+
+Per Mike's mid-task guidance: reuse Batch 0-3 primitives, integrate with existing dispatch patterns, do NOT do a 1:1 legacy port. Zero-function-loss = logical coverage, not call-site parity.
+
+Shared primitives reused: `pdguiPopupDarkenBehind`, `pdguiDrawPdDialog`, `pdguiBeginActionBar`, `pdguiBodyHeightForActionBar`, `pdguiScale`/`pdguiMenuWidth`/`pdguiMenuHeight`/`pdguiCenterPos`, `langSafe`, `pdguiPlaySound`, `inputCtxPush/Pop(&g_CtxImGuiMenu)`, `pdguiNavTickWrap`. Sub-dialog redirect pattern cloned from Batch 3 `renderCiSettingsRedirect`. s202 shadow-struct call-through pattern cloned from s194 in `pdgui_menu_solomission.cpp:345` — re-declares `menuitem`/`handlerdata` locally with ABI-compatible layout and invokes legacy C handlers through function pointers so all bank-mutation logic (Marquis/EnemyRockets mutex, Velvet/buddy mutex, Unlock-Everything, cutscene-group math, `g_Vars.autocutgroupcur`/`autocutgroupleft` writes) stays single-sourced.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_cheats.cpp` (+903 lines):
+  - `renderCheatsHub` -- tabbed hub with 6 tabs (Fun/Gameplay/Jo Solo Weapons/Classic Weapons/Weapons/Buddies) + docked action bar (Turn Off All / Unlock All... / Back)
+  - `renderCheatsSubRedirect` -- catches the 6 legacy sub-dialogs, pops itself, flips `s_PendingTab` so the already-open hub switches tabs next frame
+  - `renderCheatsWarning` -- first-use SUCCESS modal replacement
+  - `renderCheatsConfirmUnlock` -- DANGER Yes/No modal calling `gamefileUnlockEverything` directly
+  - `sc_buildUnlockTooltip` -- static hover tooltip replacing legacy marquee animation (localized stage names via langSafe, English difficulty labels)
+  - `pdguiMenuCheatsRegister()` -- single hotswap registration function (10 dialogs)
+- `port/fast3d/pdgui_menu_mainmenu.cpp` (3123 → 3371, +248):
+  - `cn_handlerdata_list` / `cn_menuitem` / `cn_handlerdata` shadow types for `menuhandlerCinema` call-through
+  - `renderCinemaList` -- grouped cutscene list with scroll body + docked Back action bar; delegates all MENUOP_* opcodes to `menuhandlerCinema` so cinema dispatch (`g_Vars.autocutgroupcur`/`autocutgroupleft` + `menuPopDialog` + `menuStop`) stays single-owner
+  - Full MENUOP_* #define block (1..8) next to existing MENUOP_SET — was missing for list-handler opcodes
+  - Registration: `g_CinemaMenuDialog → renderCinemaList` in `pdguiMenuMainMenuRegister()`
+- `port/include/pdgui_menus.h` (62 → 63, +1):
+  - Declared + called `pdguiMenuCheatsRegister()` in `pdguiMenusRegisterAll()`
+- `context/scratch/D5-P3-batch4-2026-04-11.md` -- full legacy→new function map, zero-function-loss audit, build results
+
+### Mid-flight fix
+
+First client build failed with `'MENUOP_GETOPTIONCOUNT' was not declared in this scope`. The Cinema renderer references 5 list-handler opcodes but `pdgui_menu_mainmenu.cpp` only had a local `#define MENUOP_SET 6` from Batch 0. Added the full block (MENUOP_GETOPTIONCOUNT=1 ... MENUOP_GET=8). Committed separately as `9b32a877` on dev + `58e60923` on worktree branch.
+
+### Build
+
+- Worktree: `friendly-morse`, branch `claude/friendly-morse`
+- Merged to dev as non-ff merge
+- `build/client/PerfectDark.exe`: 48,920,337 → **49,051,951 bytes** (+131,614) — freshly linked 2026-04-11 11:41 EDT
+- `build/server/PerfectDarkServer.exe`: 22,788,944 bytes (unchanged — pdgui code excluded from server) — freshly linked 2026-04-11 11:42 EDT
+- `build/server/PerfectDark.exe`: 49,050,415 bytes — freshly linked 2026-04-11 11:43 EDT (build/server also builds the client target)
+- `cmake --build . -j 24` via MSYS2 MINGW64 with TEMP=`C:\Users\mikeh\AppData\Local\Temp`. Direct cmake invocation used because build-headless.ps1 swallows output when stdout is redirected under bash (carriage-return spinner vs non-TTY). Re-ran `cmake .` in build/server to refresh GLOB_RECURSE cache and pick up new cheats.cpp.
+- Exit: 0 on all three link steps, no new errors
+
+### Next
+
+**Batch 5** (MP Setup Core — Arena/Weapons/Scenario/Limits, ~14 dialogs). Plan says this may be absorbed into `pdgui_menu_room.cpp` if the legacy combat sim path is retired.
+
+---
+
+## Session S201 — 2026-04-11 (D5 P3 Batch 3: Unified Settings absorbs CI Options)
+
+**Focus**: Complete D5 Phase 3 Batch 3 — verify CI Options absorption into unified Settings; close remaining content gap.
+
+### Findings
+
+- Batch 3 redirect infrastructure already written in S195: `renderCiSettingsRedirect` registered for 5 CI Options dialogs, `renderCiDeadPlayer2` for 3 dead P2 variants.
+- All CI Display settings (Sight/Target/Zoom/Ammo/GunFunction/Paintball/Subtitles/MissionTime) and CI Control settings (LookAhead/HeadRoll/AutoAim/AimControl/InvertY) confirmed present in unified settings.
+- **One gap**: Sound Mode (Mono/Stereo/Headphone/Surround) from CI Options audio section was missing from Settings → Audio.
+
+### Changes
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp` (3100 → 3123, +23):
+  - Added `extern s32 g_SoundMode` + `void sndSetSoundMode(s32 mode)` in extern "C" block
+  - Added "Output" section to `renderSettingsAudio` with Sound Mode dropdown (4 options: Mono/Stereo/Headphone/Surround); reads `g_SoundMode`, calls `sndSetSoundMode` on change
+- `context/tasks-current.md`: Batch 3 marked DONE
+- `context/scratch/D5-P3-batch3-2026-04-11.md`: zero-function-loss audit + change summary
+
+### Build
+
+- Worktree: `amazing-shockley` → merged to dev as merge commit
+- PerfectDark.exe: 48,920,337 bytes — freshly linked 2026-04-11 10:48 AM
+- PerfectDarkServer.exe: 22,788,944 bytes — freshly linked 2026-04-11 10:47 AM
+- Exit: 0, no new errors
+
+### Next
+
+**Batch 4** (Cheats & Cinema, ~10 screens) — new file `pdgui_menu_cheats.cpp` + cinema entry in `pdgui_menu_mainmenu.cpp`. NOT solomission.cpp.
+
+---
+
+## Session S200 — 2026-04-11 (B-78: chat DoS amplification fix + B-84: dead variable)
+
+**Focus**: Close B-78 (chat rebroadcast rate limiting) in `port/src/net/netmsg.c`.
+
+### Findings
+
+- Rate limiter (5 msg / 2s ring buffer) already existed from a prior session. B-78 remained OPEN because the size amplification gap was not addressed: `netbufReadStr` allows up to 65534-char strings, so 5 × 64KB = ~320KB/s per attacker was still possible even with rate limiting.
+- B-84 (dead `char tmp[1024]` in `netmsgSvcChatRead`) was co-located and resolved in the same diff.
+
+### Changes
+
+- `port/src/net/netmsg.c` (+10, -2):
+  1. Added `#define CHAT_MSG_MAX_LEN 255u` alongside existing rate-limit constants
+  2. `netmsgClcChatRead`: length check drops oversized messages before rate-limit ring (LOG_WARNING with client ID)
+  3. `netmsgSvcChatRead`: removed dead `char tmp[1024]`
+- `context/scratch/B-78-2026-04-11.md`: fix rationale + build results
+- `context/bugs.md`: B-78 and B-84 marked FIXED
+- `context/tasks-current.md`: B-78 status updated
+
+### Build
+
+- Worktree commit: `59a15a65` → cherry-picked to dev as `cb6f4763`
+- PerfectDark.exe: 48,911,633 bytes — freshly linked 2026-04-11
+- PerfectDarkServer.exe: 22,787,920 bytes — freshly linked 2026-04-11
+- Exit: 0, no new errors
+
+### Next steps
+
+- B-81 (JSON recursion guard in savefile.c) — running in parallel session
+- B-112 (chr pointer corruption in 31-bot matches) — still INVESTIGATING
+
+---
+
+## Session S199 — 2026-04-11 (Updater parse failure diagnosis — v0.0.75 not in update list)
+
+**Focus**: Diagnose why v0.0.75 doesn't appear in the client/server update list and why "Check for Updates" fails with "Couldn't parse update list".
+
+### Findings
+
+- **Single parser** — `updaterCheckAsync()` → `checkThread()` → `parseReleasesJson()` is the only code path. Startup, UI "Check Now", and server all use the same function. No separate parsers.
+- **v0.0.75 structure is valid** — tag `v0.0.75`, `prerelease=true`, `PerfectDark-v0.0.75-win64.zip` asset (matches `.zip` suffix), body 1099 bytes (within 2048 limit). Structurally identical to v0.0.74.
+- **Parse failure root cause** — `parseReleasesJson` returns -1 ONLY when top-level JSON isn't a `[` (array). GitHub returns an error OBJECT `{"message":"API rate limit exceeded",...}` for rate-limit/403 responses — this would trigger the error. No code bug causing the failure for a valid response.
+- **per_page=30 was a time bomb** — 53 total releases and growing. Still catches v0.0.75 (newest first) but future old-releases can fall off. Increased to 100.
+- **"Doesn't appear in list" for stable channel users is EXPECTED** — v0.0.75 is prerelease=true. Stable channel filters it. Dev channel users will see it.
+
+### Changes
+
+- `port/src/updater.c` — 3 instrumentation changes:
+  1. `per_page=30` → `per_page=100`
+  2. HTTP status code logged when GitHub returns non-200 (curlGet)
+  3. Raw response preview (200 chars) logged when `parseReleasesJson` returns -1
+  4. Token type logged when top-level JSON isn't array
+- Scratch: `context/scratch/updater-parse-diagnosis-2026-04-11.md`
+- Commit: `654ac54b` (worktree) → merged to dev `4581074c`
+- Build: PerfectDark.exe (48,919,825 bytes) + PerfectDarkServer.exe (22,788,944 bytes) — both clean, exit 0
+
+### Next steps
+
+1. Deploy and reproduce the "couldn't parse" error — next log will show `UPDATER: GitHub API HTTP NNN` revealing whether it's rate-limiting or a different error
+2. If HTTP 403: add backoff/retry (1 retry after 5s) for rate-limited checks
+3. If HTTP 200 non-array: investigate what GitHub is returning (proxy? redirect?)
+4. If no error logged: was a transient network issue — no code change needed
+
+---
+
+## Session S198 — 2026-04-10 (Playtest triage v0.0.74 — B-129 agent save path fix + theme editor instrumentation)
+
+**Focus**: Three-part triage on Chris's v0.0.74 playtest (commit 20775345).
+
+### Task A — S197a in build?
+
+YES. Both S197a commits (`9ba39f84`, `94db4f5c`) are ancestors of `20775345`.
+Issues 1 and 3 are confirmed real residual bugs, not stale build artifacts.
+
+### Task B — Agent save path fix (B-129, incomplete from S190)
+
+Root cause: `saveInit()` was never called from `main.c` or `server_main.c`.
+`s_SaveDir` stayed `""` → `buildSavePath()` produced `/agent_smarch.json` (drive root).
+Windows UAC silently blocks root writes → `besttimes[]` never persisted →
+`isStageDifficultyUnlocked(stageindex+1)` returned false → game retried current stage.
+
+Fix: added `#include "savefile.h"` + `saveInit()` to both startup sequences.
+Commit `24f93fab` (worktree) cherry-picked to `dev` as `3fc345bf` (3 files, 8 insertions).
+Individual compilation verified clean: main.c.obj, server_main.c.obj, pdgui_menu_theme_editor.cpp.obj all exit 0, no new warnings.
+
+### Task C — Theme editor lifecycle instrumentation
+
+Added `sysLogPrintf` before each of the four `pdguiThemeEditorHide()` call sites:
+- Begin() collapsed+close path
+- Close button
+- Title-bar X button (`!open` after End)
+- InvisibleButton click-outside dismiss
+
+Next playtest log will reveal which path fires (or doesn't) when the user tries to close.
+
+### Diagnostic note — theme editor close (B-130)
+
+Z-order hypothesis: the Settings menu (persisted ImGui window from prior frame) may sit
+above the overlay in the z-stack, intercepting outside-area clicks before InvisibleButton.
+For the X button, working hypothesis is re-show race or focus state issue.
+**Do not fix without log evidence.**
+
+### Issue 3 — Start double-fire (B-131)
+
+Confirmed real. Deferred. Hypothesis: residual Start consume flag or lingering
+deferred-pop inputctx entry across `mainChangeToStage(0x30)`.
+
+### Context updated
+
+- bugs.md: B-129 FIXED (full), B-130 and B-131 OPEN
+- scratch: `context/scratch/playtest-triage-followup-2026-04-10.md`
+
+### Next steps
+
+1. Ship build with B-129 fix; playtest with Chris to confirm stage advance works
+2. Read next playtest log for B-130 instrumentation output
+3. Investigate B-131 (Start double-fire) in dedicated session
+
+---
+
+## Session S197a — 2026-04-10 (Input regression diagnostic + fix, post-S196)
+
+**Focus**: Chase down the input regressions Mike noticed immediately after
+S196 landed:
+  - "Theme Editor window should have an x on it to close it, and should
+    close when I click out of it rather than just changing focus."
+  - "We did seem to lose the controller input working in menus."
+  - Rapid Start press opens two stacked main menu instances.
+  - Jump doesn't work in gameplay.
+
+Root-cause-first diagnostic session; all five touched files are defensive
+or narrow fixes to upstream behaviour that only became visible once S196
+forced a full pass through the Settings -> Video toggle path.
+
+### Phase 1 -- Re-add menu IMC nav bindings
+
+S189's "3-action reduction" stripped MENU_UP/DOWN/LEFT/RIGHT +
+TAB_PREV/NEXT from `setupMenuDefaults()` and `setupPauseMenuDefaults()`
+on the assumption that ImGui would drive its own navigation.  It does
+not -- `pdguiDriveImGuiNav()` in `port/fast3d/pdgui_backend.cpp` is the
+sole menu nav bridge, and it reads `actionHeld(ACTION_MENU_*)`.  With no
+binds registered, d-pad and keyboard arrows were both dead inside menus.
+
+Fix (`port/src/actionmap.cpp`): re-added six nav actions to both the
+menu and pause-menu defaults:
+```
+ACTION_MENU_UP        <- VKL_UP,    JBTN_DPAD_UP
+ACTION_MENU_DOWN      <- VKL_DOWN,  JBTN_DPAD_DOWN
+ACTION_MENU_LEFT      <- VKL_LEFT,  JBTN_DPAD_LEFT
+ACTION_MENU_RIGHT     <- VKL_RIGHT, JBTN_DPAD_RIGHT
+ACTION_MENU_TAB_PREV  <- JBTN_LB
+ACTION_MENU_TAB_NEXT  <- JBTN_RB
+```
+Comments in both default setups updated to point at
+`pdguiDriveImGuiNav()` so the next optimizer sees the dependency.
+
+### Phase 2 -- inputCtxPush resurrect for marked-for-removal
+
+`inputctx.c` uses deferred removal: `popDeferred` sets
+`marked_for_removal=1` and `inputCtxEndFrame` compacts the stack.
+During the window between them:
+  * `inputCtxGetTop` and `inputCtxIsActive` skip marked entries.
+  * The old `inputCtxPush` duplicate check did NOT skip marked entries.
+An in-frame pop+push sequence (seen in the S197a log as a <10 ms
+push/pop/push on `imgui_menu`) was therefore refused as "already on
+stack", leaving the deferred-removal in place and visibly flickering
+the menu state.
+
+Fix (`port/src/inputctx.c`): the duplicate check now recognises a
+marked-for-removal match and resurrects it -- clears the flag, refreshes
+`push_tick`, re-syncs mouse mode (popDeferred had already flipped mouse
+state to the *next* context underneath), and deliberately does NOT
+re-fire `on_push` (original on_push side effects are still in place).
+Logs "un-marked for removal (resurrect)" so the branch is visible.
+
+### Phase 4 -- Kill double pd.ini reload at Settings open
+
+Log evidence showed two back-to-back `actionmapLoadBinds()` calls within
+~17 ms of opening Settings.  Root cause in
+`port/fast3d/pdgui_menu_mainmenu.cpp`: the Controls-tab init flag
+`s_ControlsNeedsInit` was being set to true on EVERY view/tab change,
+both enter and leave.  Sequence on first Settings entry:
+  1. View switch 0 -> 2 sets flag (enter-side).
+  2. Static-default already had flag set.
+  3. First render consumes flag, runs reload #1.
+  4. Sub-tab state becomes stale vs. s_PrevSubTab, sub-tab branch fires
+     on the next frame, sets flag again.
+  5. Second frame consumes flag, runs reload #2.
+
+Input polls landing between the two reloads saw a partially-populated
+bind table -- the most likely cause of the sporadic vk=528/529 (LB/RB)
+"NO BINDING FOUND" reports in the same log window.
+
+Fix: both view-switch and sub-tab branches now only set
+`s_ControlsNeedsInit = true` when LEAVING the Settings view / Controls
+tab.  The static default still fires the first-ever init, and the
+leave-side flag re-arms for the next entry, so the normal case is
+covered with exactly one reload per entry.
+
+### Phase 5 -- Theme Editor X button + click-outside-close
+
+Two cosmetic bugs in the S196 Theme Editor:
+  * Title bar had no close-cross (`ImGui::Begin` was called with
+    `nullptr` p_open).
+  * Click-outside-to-close sometimes changed focus instead of
+    dismissing.  The dismiss was implemented via an InvisibleButton in a
+    fullscreen overlay window, but the overlay had
+    `ImGuiWindowFlags_NoBringToFrontOnFocus`, so clicks landing over a
+    previously focused window (the Settings pane that launched the
+    editor) routed there instead of to the overlay.
+
+Fix (`port/fast3d/pdgui_menu_theme_editor.cpp`):
+  * `renderThemeEditor` declares a local `bool open = true` and passes
+    `&open` to `Begin` so the title bar renders the X.  On normal and
+    early-return paths, if `open` became false, calls
+    `pdguiThemeEditorHide()` after `End` so the visibility flag and log
+    line stay in sync.
+  * `pdguiThemeEditorRender` drops the `NoBringToFrontOnFocus` flag from
+    the overlay, adds `SetNextWindowFocus()` before the overlay's
+    `Begin`, and also calls `SetNextWindowFocus()` before
+    `renderThemeEditor` so the editor stays visually in front above the
+    newly focused overlay.
+
+### Phase 6 -- Gate DIAG log spam
+
+Six DIAG sites in `actionmap.cpp` were firing at ~60 Hz regardless of
+log verbosity:
+  - fireVk DOWN, fireVk NO BIND, btn, poll header + IMC dump, axes raw,
+    axis final.
+
+Worst offender was the NO BIND case: synthetic stick/trigger VKs
+(joyOffset 22-31) are INTENTIONALLY unbound (analog goes through
+`SDL_GameControllerGetAxis`), but every stick tick still produced a
+warning-level log entry.
+
+Fix: all six DIAG sites gated on `sysLogGetVerbose()` (off by default,
+toggleable via `--verbose`).  The NO BIND path additionally filters out
+joyOffset 22-31 so even `--verbose` runs don't warn on expected stick
+misses.
+
+### Phase 3 / Jump -- Verification by code review
+
+Both the sporadic vk=528/529 "NO BINDING FOUND" reports and Mike's
+"Jump doesn't work" complaint trace to the same Phase 4 root cause.
+ACTION_JUMP is correctly bound (VK_SPACE + JBTN_A in
+`setupGameplayDefaults` at `actionmap.cpp:1339-1340`), and the
+`bondmove.c` consumer path at lines 987, 1006, and 1981 is intact.  The
+failure mode is an input poll landing mid-reload during the double
+pd.ini reload window, reading a partially-populated bind table.  With
+the Phase 4 fix, there is only ONE `actionmapLoadBinds()` call per
+Settings entry, and it runs strictly inside the Controls-tab render
+path -- no gameplay frame can interleave.
+
+Phase 3 is therefore verified by code inspection; runtime confirmation
+still requires a live playtest, and if Jump still fails post-build the
+next triage pass should instrument `c1buttonsthisframe` at
+`bondmove.c:1981` to isolate upstream vs. downstream.
+
+### Build + merge
+
+  * Merge: `git merge --ff-only claude/jovial-almeida` (into dev).
+    Fast-forward `d079eea7..9ba39f84`; 5 files, +634/-37.
+  * Client: `cmake --build build/client --target pd -- -j24 -k`.
+    `PerfectDark.exe` 48,916,241 bytes relinked at 20:57.
+  * Server: `cmake --build build/server --target pd-server -- -j24 -k`.
+    `PerfectDarkServer.exe` 22,786,384 bytes relinked at 20:58.
+  * `port/src/crash.c:404` `#if !defined(PD_SERVER)` guard verified
+    intact both before and after the build.
+  * No new warnings from S197a-touched files; pre-existing warnings in
+    `modelasm_c.c`, `model.c`, `snd.c`, `updater.h`, and `enet.h`
+    untouched.
+
+### Status
+
+Code and build: SUCCESS.  Runtime verification pending; the seven
+visible checks are listed in Section F of
+`context/scratch/s197a-report.txt`.  Full phase-by-phase log also in
+that scratch report.
+
+### Touch points
+
+```
+port/src/actionmap.cpp                    Phase 1 (menu nav binds)
+                                          Phase 6 (DIAG gating)
+port/src/inputctx.c                       Phase 2 (resurrect duplicate)
+port/fast3d/pdgui_menu_mainmenu.cpp       Phase 4 (one-shot reload)
+port/fast3d/pdgui_menu_theme_editor.cpp   Phase 5 (X + click-outside)
+context/scratch/s197a-report.txt          Incremental scratch log
+```
+
+## Session S196 — 2026-04-10 (Chrome pipeline lift + base-game template mod system)
+
+**Focus**: Three-phase session bundling the infrastructure lift the chrome
+pipeline needed, a first-class base-game template mod concept, and the
+Settings UI toggle to make chrome visible end-to-end.  Success criterion
+(from Mike): "launch the build, flip Settings → Video → UI Chrome Style to
+Classic, and see chrome rendering on menus."
+
+### Phase 2 — Chrome pipeline infrastructure lift
+
+- **TGA loader lift** (`port/fast3d/pdgui_theme.cpp`): `s_loadTgaTexture`
+  rewritten to accept arbitrary dimensions and both 24-bit and 32-bit
+  uncompressed TGA.  24-bit sources get alpha=0xFF synthesized.  RLE and
+  colour-mapped TGA rejected explicitly.  Replaces the static 256×256×4
+  decode buffer in `s_decodeAndUpload` with per-call malloc/free sized
+  to actual dimensions.
+- **Per-edge nineslice modes + src_inset/dst_corner_px split**
+  (`port/fast3d/pdgui_nineslice.cpp`, `port/include/pdgui_nineslice.h`):
+  `nineslice_def_t` extended with `src_left/right/top/bottom`,
+  `dst_left/right/top/bottom`, and per-edge `top_mode/bottom_mode/
+  left_mode/right_mode` fields.  Legacy flat `left/right/top/bottom` +
+  `edge_mode` remain as a fallback via new `has_split` /
+  `has_per_edge_mode` flags and an `s_backfillDef` helper that runs on
+  every register call.  `pdguiNinesliceDrawEx` rewritten to consume
+  per-edge state — destination corners now clamp to half-rect when
+  the draw rect is tiny.  JSON parser teaches new keys `src_inset`,
+  `dst_corner_px`, and `top_mode`/`bottom_mode`/`left_mode`/`right_mode`.
+- **Haze tile rate fix** (`port/fast3d/pdgui_style.cpp:582`): the
+  hardcoded `bw / 64.0f` tile constant replaced with
+  `bw / (float)pdguiThemeGetTextureSize(bgTex, ...)`.  HD haze
+  replacements now tile at their natural size.
+- **`pdguiSetPanelNineSlice` catalog-id API**
+  (`port/include/pdgui_style.h`, `port/fast3d/pdgui_style.cpp`): the old
+  stub-only signature (raw tex + insets) replaced with a catalog-id
+  based API.  New functions: `pdguiChromeSetEnabled(s32)`,
+  `pdguiChromeIsEnabled()`, `pdguiSetPanelNineSlice(catalog_id)`,
+  `pdguiGetPanelNineSlice()`, `pdguiClearPanelNineSlice()`.  Backing
+  state: `s_ChromeEnabled` bool + `s_ChromeNineSliceId[64]` + internal
+  `s_resolveActiveChrome` helper that looks up both the nineslice
+  registry and the theme texture cache.
+- **Render-branch toggle in `pdguiDrawPdDialog`**: title bar gradient +
+  shimmer still runs always (unchanged).  Body background, haze
+  overlay, and border lines wrapped in an if/else branch — chrome path
+  calls `pdguiNinesliceDrawEx` with the palette's `dialog_border1`
+  color as tint (alpha forced to 0xFF so the chrome asset's own alpha
+  drives visibility).  Perimeter shimmer deliberately kept OUTSIDE
+  the else — the animated sweep passes over chrome as part of PD's
+  visual identity.
+- **`pdguiThemeGetTextureSize` API** (`port/fast3d/pdgui_theme.cpp`,
+  `port/include/pdgui_theme.h`): new parallel `s_ThemeTexDims` map
+  alongside `s_ThemeTexCache` so the chrome render path can resolve
+  source texture dimensions by catalog id.  All four texture
+  registration sites updated to insert into both maps.
+
+### Phase 3 — Visible chrome
+
+- **Base-game chrome template mod** (`port/fast3d/pdgui_theme.cpp`):
+  new `pdguiChromeInitializeBaseMod()` function called from
+  `pdguiThemeCheckExtract`.  Creates `mods/base-game/ui-chrome/`,
+  generates a 64×64 composite BGRA nineslice source texture
+  programmatically via `s_generateChromeFrameBgra` (quarter-circle
+  arc rings in all 4 corners, solid intensity edge strips, faint
+  diagonal crosshatch center), writes it as an uncompressed top-down
+  32-bit TGA via `s_writeTgaFile`, writes the template-flagged
+  `mod.json` (with `tags: ["base-game","template","chrome"]` and
+  `template: true`), writes a `README.md` warning users not to edit
+  the template, loads the texture into the theme cache as
+  `"base:ui_chrome_frame"`, and registers a nineslice def under the
+  same catalog id with src_inset/dst_corner_px = 16/16/16/16 and
+  center_mode = tile.
+- **Settings → Video → UI Chrome Style dropdown**
+  (`port/fast3d/pdgui_menu_mainmenu.cpp:611+`): new row in
+  `renderSettingsVideo` after the CRT Filter block.  Options:
+  "Procedural" (default) / "Classic (base-game test)".  Hot-applies
+  via `pdguiChromeSetEnabled` + `pdguiSetPanelNineSlice`.  Persists
+  to pd.ini via new `Video.UiChromeEnabled` integer config var
+  (registered in `pdguiThemeInit`).  `pdguiChromeInitializeBaseMod`
+  re-applies the persisted setting at startup once the nineslice is
+  registered.
+
+### Phase 1 — Base-game template mod system
+
+- **`modinfo_t` extensions** (`port/include/modmgr.h`): two new fields
+  `is_template` (s32) and `num_tags` / `tags[MODMGR_MAX_TAGS][MODMGR_TAG_LEN]`
+  with limits `MODMGR_MAX_TAGS=8`, `MODMGR_TAG_LEN=32`.  Public getter
+  API: `modmgrGetModIsTemplate`, `modmgrGetModNumTags`, `modmgrGetModTag`,
+  `modmgrModHasTag`.
+- **`modmgrParseModJson` extensions** (`port/src/modmgr.c`): top-level
+  keys `"template"` and `"tags"` now parsed.  `"template"` accepts
+  JSON true/false/null/numeric.  `"tags"` parses an array of strings
+  into the fixed-size tags pool.  Unknown keys still skipped.
+  Post-parse log line includes template state and tag count.
+
+### Phase 4 — Bugs found + fixed during build
+
+- **Comment termination hazard**: my new block comments contained
+  `src_*/dst_*` which terminates a `/* */` block early.  Fixed in
+  `pdgui_nineslice.cpp:387` and `pdgui_theme_loader.cpp:749`.  Scanned
+  every new comment for the pattern — no remaining occurrences.
+- **Pre-existing S195 Batch 3 PAL-only link bug**: references to
+  `g_CiControlOptionsMenuDialog2` in `pdgui_menu_mainmenu.cpp` (line 67
+  extern, 2786 dialog lookup, 3050 hotswap register) were
+  unconditional, but the symbol is only defined inside
+  `#if VERSION >= VERSION_PAL_FINAL` in `src/game/mainmenu.c:3316`.
+  NTSC builds fail to link with "undefined reference".  This wasn't
+  introduced by S196 — S196 is just the first build after the bug
+  was introduced.  Fix: drop the extern and both usages on the NTSC
+  side.  The "CI Control Options 2" sub-dialog redirect is now a
+  noop on NTSC, matching the surrounding "P2 variants are dead"
+  comment.
+
+### Deferred (intentional)
+
+- **`modmgrSaveOrOverwrite` / `modmgrSaveAs`**: the save-path API
+  is not strictly required for the visible chrome success criterion.
+  Template protection enforcement is in place via the `is_template`
+  field; hooking it into the save path (when Modding Hub's "Save As"
+  button lands) is a small follow-up.
+- **Phase 1.5 rewrite of `pdguiThemeCheckExtract` for
+  `mods/base-game/ui-theme/`**: the old extractor still writes to
+  `mods/base-ui/` with the pre-S196 schema.  Leaving it alone keeps
+  backward compat with any user edits to base-ui TGAs.  The chrome
+  mod is the new template exemplar; migrating the UI theme mod is a
+  follow-up (no user impact — the extractor will just generate a
+  second template mod on next launch).
+- **Phase 3.4 Modding Hub template grouping + lock icons**: the
+  catalog API is in place (`modmgrGetModIsTemplate`,
+  `modmgrModHasTag`), so the Modding Hub can consume it in a
+  follow-up session.  Not blocking visible chrome.
+
+### Files changed
+
+| File | Before | After | Delta |
+|---|---|---|---|
+| `port/fast3d/pdgui_theme.cpp` | 1647 | 2091 | +444 |
+| `port/fast3d/pdgui_style.cpp` | 1051 | 1194 | +143 |
+| `port/fast3d/pdgui_nineslice.cpp` | 453 | 633 | +180 |
+| `port/fast3d/pdgui_theme_loader.cpp` | 1084 | 1086 | +2 |
+| `port/fast3d/pdgui_menu_mainmenu.cpp` | 3063 | 3087 | +24 |
+| `port/include/pdgui_theme.h` | 119 | 139 | +20 |
+| `port/include/pdgui_style.h` | 124 | 139 | +15 |
+| `port/include/pdgui_nineslice.h` | 110 | 152 | +42 |
+| `port/src/modmgr.c` | 1916 | 1975 | +59 |
+| `port/include/modmgr.h` | 195 | 229 | +34 |
+| (new) `mods/base-game/ui-chrome/ui_chrome_frame.tga` | 0 | ~16KB | generated at runtime |
+| (new) `mods/base-game/ui-chrome/mod.json` | 0 | ~1KB | generated at runtime |
+| (new) `mods/base-game/ui-chrome/README.md` | 0 | ~1KB | generated at runtime |
+| `context/session-log.md` | — | — | incremental |
+| `context/tasks-current.md` | — | — | incremental |
+| `context/scratch/s196-report.txt` (new) | 0 | ~500 | final report |
+
+Net code delta: **+963 lines** across 10 files.
+
+### Build result
+
+- **Client**: `PerfectDark.exe` 48,914,193 bytes (+198,135 vs S194's
+  48,716,058).  Clean link, one pre-existing `strncpy` warning in
+  `snd.c:1502` inherited from before S196 (not related to this session).
+- **Server**: `PerfectDarkServer.exe` 22,786,384 bytes (unchanged — the
+  server source list does not include `port/fast3d/*.cpp`, and the new
+  `modmgr.c` code paths are dead for server builds).  S193b
+  `#if !defined(PD_SERVER)` guard in `port/src/crash.c:404` verified
+  intact before and after S196.
+
+### Verification checklist (for Mike)
+
+1. **Launch the default build** — menus should look identical to S194
+   (procedural path, `Video.UiChromeEnabled=0` by default in pd.ini).
+2. **Open Settings → Video** — scroll to the Rendering group, look for
+   the new "UI Chrome Style" dropdown below CRT Strength.
+3. **Flip to "Classic (base-game test)"** — menus should visibly change.
+   Expect: the body background darkens, thin white border strips appear
+   along the edges, quarter-circle arcs at the corners, a faint
+   crosshatch pattern across the center.  Theme tint (from the active
+   palette's `dialog_border1` color) should flow through to the chrome.
+4. **Change the theme color** (if theme editor is accessible) — the
+   chrome should retint to match.
+5. **Flip back to "Procedural"** — should return to the S194 look
+   pixel-for-pixel (no residual chrome state).
+6. **Check pd.ini** — `Video.UiChromeEnabled=1` after enabling, `=0`
+   after disabling.  Restart should preserve the setting.
+7. **Inspect `mods/base-game/ui-chrome/`** — should contain
+   `ui_chrome_frame.tga`, `mod.json` (with `template: true` and tags
+   `["base-game","template","chrome"]`), and `README.md` (do-not-edit
+   warning).  Editing `mod.json` manually and relaunching the game
+   will silently overwrite it (the extractor enforces the template).
+8. **Verify `mods/base-ui/` is untouched** — Phase 1.5 deferral means
+   the legacy base-ui extractor still writes there with the old schema.
+
+### Next steps
+
+- Mike's in-game verification pass (checklist above).
+- Follow-up session for `modmgrSaveOrOverwrite` / `modmgrSaveAs` + the
+  Modding Hub "Base Game Templates" group with lock icons.  The API
+  surface is in place (`modmgrGetModIsTemplate`, `modmgrModHasTag`).
+- Follow-up session for rewriting the base-ui extractor to use the
+  new template mod layout at `mods/base-game/ui-theme/`.
+- S196-Batch4+ menu replacements can resume on top of the new chrome
+  infrastructure with no conflicts (the `g_PdguiChromeEnabled` toggle
+  leaves the procedural path bit-for-bit identical when disabled).
+
+---
+
 ## Session S194 — 2026-04-10 (Batch 2: Co-op / Counter-Op Flow menu replacements)
 
 **Focus**: Execute Batch 2 of the menu replacement plan — Co-op and

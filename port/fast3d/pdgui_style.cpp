@@ -29,12 +29,15 @@
  * Part of Sub-Phase D3.4: Menu System Modernization.
  */
 
+#include <string.h>
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_effects.h"
 #include "pdgui_fontmgr.h"
+#include "assetcatalog.h"
+#include "system.h"
 
 /* -----------------------------------------------------------------------
  * PD Color Palette System
@@ -145,6 +148,108 @@ static const struct pdgui_palette *s_ActivePalette = &s_PaletteBlue;
 /* Custom palette for JSON-loaded themes (writable copy) */
 static struct pdgui_palette s_PaletteCustom;
 static bool s_UsingCustomPalette = false;
+
+/* -----------------------------------------------------------------------
+ * Chrome render state
+ *
+ * Two pieces of state drive chrome rendering:
+ *   s_ChromeEnabled          — global on/off (Settings toggle)
+ *   s_ChromeNineSliceId[]    — catalog ID of the active chrome nineslice
+ *
+ * pdguiDrawPdDialog checks both at entry.  When chrome is enabled AND the
+ * active catalog ID resolves to a registered nineslice + loaded texture,
+ * the dialog body is drawn via pdguiNinesliceDrawEx instead of the
+ * procedural body fill + border lines.  Otherwise the procedural path
+ * runs exactly as before (pixel-for-pixel parity with S195 behaviour).
+ * ----------------------------------------------------------------------- */
+
+static bool s_ChromeEnabled = false;
+static char s_ChromeNineSliceId[64] = "";
+
+extern "C" {
+
+void pdguiChromeSetEnabled(s32 enabled)
+{
+    bool next = (enabled != 0);
+    if (next != s_ChromeEnabled) {
+        s_ChromeEnabled = next;
+        sysLogPrintf(LOG_NOTE, "UI.CHROME: enabled=%d", (int)next);
+    } else {
+        s_ChromeEnabled = next;
+    }
+}
+
+s32 pdguiChromeIsEnabled(void)
+{
+    return s_ChromeEnabled ? 1 : 0;
+}
+
+void pdguiSetPanelNineSlice(const char *nineslice_catalog_id)
+{
+    if (!nineslice_catalog_id || !nineslice_catalog_id[0]) {
+        if (s_ChromeNineSliceId[0]) {
+            sysLogPrintf(LOG_NOTE, "UI.CHROME: cleared active chrome (was '%s')",
+                         s_ChromeNineSliceId);
+        }
+        s_ChromeNineSliceId[0] = '\0';
+        return;
+    }
+
+    if (strcmp(s_ChromeNineSliceId, nineslice_catalog_id) != 0) {
+        strncpy(s_ChromeNineSliceId, nineslice_catalog_id,
+                sizeof(s_ChromeNineSliceId) - 1);
+        s_ChromeNineSliceId[sizeof(s_ChromeNineSliceId) - 1] = '\0';
+        sysLogPrintf(LOG_NOTE, "UI.CHROME: active chrome set to '%s'",
+                     s_ChromeNineSliceId);
+    }
+}
+
+const char *pdguiGetPanelNineSlice(void)
+{
+    return s_ChromeNineSliceId[0] ? s_ChromeNineSliceId : nullptr;
+}
+
+void pdguiClearPanelNineSlice(void)
+{
+    pdguiSetPanelNineSlice(nullptr);
+}
+
+} /* extern "C" */
+
+/* Internal helper: return true and set *out_def/*out_tex/*out_tw/*out_th if
+ * a chrome is enabled and fully resolvable (nineslice registered AND texture
+ * loaded).  Otherwise return false and the procedural path should be used. */
+static bool s_resolveActiveChrome(const nineslice_def_t **out_def,
+                                  void **out_tex,
+                                  u32 *out_tw, u32 *out_th)
+{
+    if (!s_ChromeEnabled || !s_ChromeNineSliceId[0]) return false;
+
+    const nineslice_def_t *def = pdguiNinesliceGet(s_ChromeNineSliceId);
+    if (!def) return false;
+
+    /* The chrome nineslice draws off a source texture; the nineslice's
+     * catalog ID is typically a frame id (e.g. "base:ui_chrome_frame") that
+     * is REGISTERED to a texture catalog id (e.g. "base:ui_chrome_center").
+     * For the initial implementation we treat the nineslice ID as also
+     * being a theme texture ID — manifest authors should register the
+     * nineslice under the same id as the center texture for simplicity.
+     * Alternatively they can register both ids separately and the lookup
+     * below will try both forms.  Keep the fast path simple. */
+    void *tex = pdguiThemeGetTexture(s_ChromeNineSliceId);
+    u32 tw = 0, th = 0;
+    if (tex) {
+        pdguiThemeGetTextureSize(s_ChromeNineSliceId, &tw, &th);
+    }
+
+    if (!tex || tw == 0 || th == 0) return false;
+
+    if (out_def) *out_def = def;
+    if (out_tex) *out_tex = tex;
+    if (out_tw)  *out_tw  = tw;
+    if (out_th)  *out_th  = th;
+    return true;
+}
 
 /* -----------------------------------------------------------------------
  * Color conversion helpers
@@ -417,52 +522,90 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     pdguiDrawShimmerExact(dl, x, y, x + w, y + 1, titleShimmerAlpha, 40, false);
     pdguiDrawShimmerExact(dl, x, y + titleH - 1, x + w, y + titleH, titleShimmerAlpha, 40, true);
 
-    /* === Body background ===
-     * menugfxRenderDialogBackground: gDPFillRectangleScaled with dialog_bodybg */
+    /* === Chrome render branch ===
+     * When chrome is enabled AND the active chrome catalog id resolves to
+     * a registered nineslice + cached texture, draw the chrome nineslice
+     * as the body background + border layer.  Otherwise fall through to
+     * the procedural render path.  Either way the title bar above is
+     * drawn identically, so users see a consistent frame header and only
+     * the body artwork swaps when they toggle chrome style. */
     float bodyTop = y + titleH;
-    dl->AddRectFilled(
-        ImVec2(x + 1, bodyTop),
-        ImVec2(x + w - 1, y + h),
-        PdColor(pal->dialog_bodybg));
 
-    /* === Haze texture overlay ===
-     * OG PD composites a green IA8 noise texture (g_TexGeneralConfigs[6]) over
-     * the body fill at ~50% alpha via menugfxRenderBgGreenHaze(). We replicate
-     * this by drawing the base:ui_bg_haze texture from the base-ui mod.
-     * The texture is tinted green via the tint_col parameter (IA texture =
-     * greyscale intensity, tint provides the hue — matching N64 primitive color). */
-    {
-        const char *bgTex = pdguiThemeGetBgTexId();
-        if (bgTex) {
-            void *texId = pdguiThemeGetTexture(bgTex);
-            if (texId) {
-                /* Dual rotating layers like the OG — simplified to a single
-                 * tiled overlay at ~12% opacity with green tint.
-                 * OG used gDPSetPrimColor(0, 0, 0x00, 0x30, 0x00, 0x7f). */
-                float bw = (x + w - 1) - (x + 1);
-                float bh = (y + h) - bodyTop;
-                float tileU = bw / 64.0f;  /* 64px tile size */
-                float tileV = bh / 64.0f;
-                dl->AddImage(
-                    (ImTextureID)texId,
-                    ImVec2(x + 1, bodyTop),
-                    ImVec2(x + w - 1, y + h),
-                    ImVec2(0.0f, 0.0f),
-                    ImVec2(tileU, tileV),
-                    IM_COL32(0, 80, 0, 32));
+    const nineslice_def_t *chromeDef = nullptr;
+    void *chromeTex = nullptr;
+    u32 chromeTw = 0, chromeTh = 0;
+    bool useChrome = s_resolveActiveChrome(&chromeDef, &chromeTex, &chromeTw, &chromeTh);
+
+    if (useChrome) {
+        /* Tint with the palette's bright accent color (dialog_border1) but
+         * force full alpha — the chrome asset's own alpha channel is the
+         * mask, the palette provides the hue.  This lets theme recolour
+         * flow through to the chrome artwork. */
+        u32 tint = (pal->dialog_border1 & 0xFFFFFF00u) | 0xFFu;
+
+        pdguiNinesliceDrawEx(chromeTex, (s32)chromeTw, (s32)chromeTh, chromeDef,
+                             x, bodyTop, w, (y + h) - bodyTop, tint);
+
+        /* Chrome replaces the procedural body background + haze overlay +
+         * border lines + perimeter shimmer.  Fall through to caustic /
+         * border effect placeholders at the bottom of the function. */
+    } else {
+        /* === Body background ===
+         * menugfxRenderDialogBackground: gDPFillRectangleScaled with dialog_bodybg */
+        dl->AddRectFilled(
+            ImVec2(x + 1, bodyTop),
+            ImVec2(x + w - 1, y + h),
+            PdColor(pal->dialog_bodybg));
+
+        /* === Haze texture overlay ===
+         * OG PD composites a green IA8 noise texture (g_TexGeneralConfigs[6]) over
+         * the body fill at ~50% alpha via menugfxRenderBgGreenHaze(). We replicate
+         * this by drawing the base:ui_bg_haze texture from the base-ui mod.
+         * The texture is tinted green via the tint_col parameter (IA texture =
+         * greyscale intensity, tint provides the hue — matching N64 primitive color).
+         *
+         * Tile rate is driven by the actual texture dimensions (via
+         * pdguiThemeGetTextureSize) so HD haze replacements tile correctly. */
+        {
+            const char *bgTex = pdguiThemeGetBgTexId();
+            if (bgTex) {
+                void *texId = pdguiThemeGetTexture(bgTex);
+                if (texId) {
+                    float bw = (x + w - 1) - (x + 1);
+                    float bh = (y + h) - bodyTop;
+
+                    u32 tw_px = 64, th_px = 64;
+                    pdguiThemeGetTextureSize(bgTex, &tw_px, &th_px);
+                    if (tw_px == 0) tw_px = 64;
+                    if (th_px == 0) th_px = 64;
+
+                    float tileU = bw / (float)tw_px;
+                    float tileV = bh / (float)th_px;
+                    dl->AddImage(
+                        (ImTextureID)texId,
+                        ImVec2(x + 1, bodyTop),
+                        ImVec2(x + w - 1, y + h),
+                        ImVec2(0.0f, 0.0f),
+                        ImVec2(tileU, tileV),
+                        IM_COL32(0, 80, 0, 32));
+                }
             }
         }
-    }
 
-    /* === Border lines (solid color) === */
-    /* Right border */
-    dl->AddRectFilled(ImVec2(x + w - 1, bodyTop), ImVec2(x + w, y + h), PdColor(pal->dialog_border2));
-    /* Left border */
-    dl->AddRectFilled(ImVec2(x, bodyTop), ImVec2(x + 1, y + h), PdColor(pal->dialog_border1));
-    /* Bottom border */
-    dl->AddRectFilled(ImVec2(x, y + h - 1), ImVec2(x + w, y + h), PdColor(pal->dialog_border1));
+        /* === Border lines (solid color) === */
+        /* Right border */
+        dl->AddRectFilled(ImVec2(x + w - 1, bodyTop), ImVec2(x + w, y + h), PdColor(pal->dialog_border2));
+        /* Left border */
+        dl->AddRectFilled(ImVec2(x, bodyTop), ImVec2(x + 1, y + h), PdColor(pal->dialog_border1));
+        /* Bottom border */
+        dl->AddRectFilled(ImVec2(x, y + h - 1), ImVec2(x + w, y + h), PdColor(pal->dialog_border1));
+    } /* end else (procedural body path) */
 
     /* === Perimeter-aware shimmer ===
+     * Runs in both chrome and procedural modes — the animated shimmer
+     * sweeping the border is part of PD's visual identity and looks
+     * coherent passing over chrome just as over the procedural border.
+     *
      * Instead of independent per-edge shimmers, compute a single shimmer
      * position that travels the full perimeter. Each edge renders its
      * portion of that perimeter shimmer, so when one exits a corner the

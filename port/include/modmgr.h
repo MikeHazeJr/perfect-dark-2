@@ -28,6 +28,8 @@
 #define MODMGR_DEP_ID_LEN       64
 #define MODMGR_ERROR_LEN        256
 #define MODMGR_MODS_DIR         "mods"
+#define MODMGR_MAX_TAGS          8    // S196: mod tag pool (free-form UI grouping labels)
+#define MODMGR_TAG_LEN          32    // S196: tag string length
 
 // Mod info structure — one per discovered mod
 typedef struct modinfo {
@@ -52,6 +54,21 @@ typedef struct modinfo {
 	s32  num_bodies;                     // bodies declared in mod.json
 	s32  num_heads;                      // heads declared in mod.json
 	s32  num_arenas;                     // arenas declared in mod.json
+
+	// S196: Base-Game Template Mod extensions
+	// ----------------------------------------
+	// is_template : mod.json "template": true → refuse save-over, require
+	//               Save As to create a user-editable clone (see
+	//               modmgrSaveAs).  The Modding Hub also shows a lock
+	//               icon and a "Base Game Templates" group for these.
+	// tags        : free-form string labels parsed from mod.json "tags": [...]
+	//               Used purely for UI grouping and display; the enforcement
+	//               of template behaviour comes from is_template, not from
+	//               any particular tag value.  Common labels are "base-game",
+	//               "template", "chrome", but authors can invent their own.
+	s32  is_template;                    // non-zero if mod.json had "template": true
+	s32  num_tags;                       // number of entries in tags[]
+	char tags[MODMGR_MAX_TAGS][MODMGR_TAG_LEN]; // parsed from mod.json "tags" array
 } modinfo_t;
 
 // ---- Lifecycle ----
@@ -184,6 +201,23 @@ const char *modmgrGetModDep(s32 index, s32 depIndex);
 // Get resolved mods directory path (set by modmgrInit).
 // Returns NULL if no mods directory was found.
 const char *modmgrGetModsDir(void);
+
+// --- S196: Base-Game Template Mod accessors (for UI) ---
+
+// Return 1 if this mod.json declared "template": true, 0 otherwise.
+// Template mods are refused by the save-over path; callers must use
+// modmgrSaveAs (future work) to clone to an editable user mod.
+s32  modmgrGetModIsTemplate(s32 index);
+
+// Number of tag strings in this mod's tags[] array.
+s32  modmgrGetModNumTags(s32 index);
+
+// Get tag string at tagIndex.  Returns NULL if out of range.
+const char *modmgrGetModTag(s32 index, s32 tagIndex);
+
+// Return 1 if this mod has the given tag (case-sensitive), 0 otherwise.
+// Convenience helper for Modding Hub grouping (e.g. modmgrModHasTag(i, "chrome")).
+s32  modmgrModHasTag(s32 index, const char *tag);
 
 // Signal that the Asset Catalog contents have changed.
 // Causes all catalog-backed caches (arenas, future: bodies, heads)

@@ -66,9 +66,12 @@
 #define READY_GATE_TIMEOUT_TICKS 1800
 
 /* Chat rate limiter: max 5 messages per 2-second window per client.
- * Keyed by client index (0..NET_MAX_CLIENTS). */
+ * Keyed by client index (0..NET_MAX_CLIENTS).
+ * CHAT_MSG_MAX_LEN caps per-message size so rate-limited bursts stay small
+ * (255B max vs 64KB max without cap — limits amplification factor). */
 #define CHAT_RATE_MAX_MSGS   5
 #define CHAT_RATE_WINDOW_MS  2000u
+#define CHAT_MSG_MAX_LEN     255u
 
 struct chatrate {
 	u32 timestamps[CHAT_RATE_MAX_MSGS]; /* circular ring of send times (ms) */
@@ -457,6 +460,12 @@ u32 netmsgClcChatRead(struct netbuf *src, struct netclient *srccl)
 {
 	const char *msg = netbufReadStr(src);
 	if (msg && !src->error) {
+		/* Reject oversized messages before rate-limiting — limits amplification
+		 * even at the maximum allowed send rate. */
+		if (strlen(msg) > CHAT_MSG_MAX_LEN) {
+			sysLogPrintf(LOG_WARNING, "NET: chat message too long from client %u — dropped", srccl->id);
+			return src->error;
+		}
 		/* Rate limit: max CHAT_RATE_MAX_MSGS per CHAT_RATE_WINDOW_MS per client.
 		 * Ring buffer stores timestamps of last N sends; if the oldest slot is
 		 * still within the window the ring is full and we drop the message. */
@@ -685,7 +694,6 @@ u32 netmsgSvcChatWrite(struct netbuf *dst, const char *str)
 
 u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl)
 {
-	char tmp[1024];
 	const char *msg = netbufReadStr(src);
 	if (msg && !src->error) {
 		sysLogPrintf(LOG_CHAT, "%s", msg);

@@ -111,7 +111,8 @@ static stok_t s_next(sparse_t *p)
 	return tok;
 }
 
-#define S_MAX_DEPTH 64  /* max JSON nesting depth — crafted saves can't stack-overflow */
+#define S_MAX_DEPTH 64          /* max JSON nesting depth — crafted saves can't stack-overflow */
+#define SAVE_MAX_FILE_BYTES (256 * 1024) /* 256 KB hard cap — rejects giant crafted saves before malloc */
 
 static void s_skip_value(sparse_t *p, s32 depth)
 {
@@ -180,7 +181,13 @@ static char *readFileContents(const char *path, s32 *outLen)
 	long len = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
-	char *buf = (char *)malloc(len + 1);
+	if (len <= 0 || len > SAVE_MAX_FILE_BYTES) {
+		fclose(fp);
+		if (outLen) *outLen = 0;
+		return NULL;
+	}
+
+	char *buf = (char *)malloc((size_t)len + 1);
 	if (!buf) { fclose(fp); return NULL; }
 
 	if (fread(buf, 1, len, fp) != (size_t)len) {

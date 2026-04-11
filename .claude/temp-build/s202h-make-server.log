@@ -1,0 +1,65 @@
+[  0%] Built target logview
+[ 26%] Built target pd_headers
+[ 26%] Building RC object CMakeFiles/pd-server.dir/dist/windows/icon.rc.obj
+[ 27%] Linking CXX executable PerfectDarkServer.exe
+[ 28%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_backend.cpp.obj
+[ 28%] Building CXX object CMakeFiles/pd.dir/port/fast3d/pdgui_menu_mainmenu.cpp.obj
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:8:29: warning: '/*' within comment [-Wcomment]
+    8 |  * The GLOB_RECURSE for port/*.cpp in CMakeLists.txt will auto-discover this file.
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:17:44: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+[ 28%] Building RC object CMakeFiles/pd.dir/dist/windows/icon.rc.obj
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:32:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme_loader.h:40:60: warning: '/*' within comment [-Wcomment]
+   40 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:33:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:50:60: warning: '/*' within comment [-Wcomment]
+   50 |  *  cached theme texture.  Returns 1 on success with *out_w/*out_h set,
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:35:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_menu_theme_editor.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_menu_mainmenu.cpp:38:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_layout.h:67:60: warning: '/*' within comment [-Wcomment]
+   67 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:30:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:50:60: warning: '/*' within comment [-Wcomment]
+   50 |  *  cached theme texture.  Returns 1 on success with *out_w/*out_h set,
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:31:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_nineslice.h:19:60: warning: '/*' within comment [-Wcomment]
+   19 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:32:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_effects.h:17:60: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/fast3d/pdgui_backend.cpp:33:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_fontmgr.h:24:60: warning: '/*' within comment [-Wcomment]
+   24 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+Copying libcurl-4.dll to server build output
+Copying libnghttp2-14.dll to server build output
+Copying libnghttp3-9.dll to server build output
+Copying libidn2-0.dll to server build output
+Copying libbrotlidec.dll to server build output
+[ 28%] Linking CXX executable PerfectDark.exe
+Copying libbrotlicommon.dll to server build output
+Copying libpsl-5.dll to server build output
+Copying libssh2-1.dll to server build output
+Copying libngtcp2-16.dll to server build output
+Copying libngtcp2_crypto_ossl-0.dll to server build output
+Copying libzstd.dll to server build output
+Copying libssl-3-x64.dll to server build output
+Copying libcrypto-3-x64.dll to server build output
+C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: CMakeFiles/pd.dir/objects.a(pdgui_backend.cpp.obj): in function `pdguiMenusRegisterAll':
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_menus.h:56:(.text+0x79): undefined reference to `pdguiMenuCheatsRegister'
+collect2.exe: error: ld returned 1 exit status
+make[2]: *** [CMakeFiles/pd.dir/build.make:8307: PerfectDark.exe] Error 1
+make[1]: *** [CMakeFiles/Makefile2:128: CMakeFiles/pd.dir/all] Error 2
+make[1]: *** Waiting for unfinished jobs....
+Copying libunistring-5.dll to server build output
+Copying libintl-8.dll to server build output
+Copying libiconv-2.dll to server build output
+Copying zlib1.dll to server build output
+[ 36%] Built target pd-server
+make: *** [Makefile:91: all] Error 2

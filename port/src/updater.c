@@ -363,6 +363,14 @@ static CURLcode curlGet(const char *url, curl_buffer_t *buf)
 
 	CURLcode res = curl_easy_perform(curl);
 
+	if (res == CURLE_OK) {
+		long httpCode = 0;
+		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+		if (httpCode != 200) {
+			sysLogPrintf(LOG_WARNING, "UPDATER: GitHub API HTTP %ld (url: %.80s)", httpCode, url);
+		}
+	}
+
 	curl_slist_free_all(headers);
 	curl_easy_cleanup(curl);
 
@@ -599,6 +607,10 @@ static s32 parseReleasesJson(const char *json)
 	/* Expect top-level array */
 	jtok_t arr = jp_next(&p);
 	if (arr.type != JTOK_LBRACKET) {
+		/* GitHub returns an object (not array) for rate-limit/error responses:
+		 *   {"message":"API rate limit exceeded",...}
+		 * or HTML for network errors. Log the token type to distinguish. */
+		sysLogPrintf(LOG_WARNING, "UPDATER: expected JSON array, got token type %d", (int)arr.type);
 		return -1;
 	}
 
@@ -647,7 +659,7 @@ static int SDLCALL checkThread(void *data)
 
 	char url[256];
 	snprintf(url, sizeof(url),
-		"https://api.github.com/repos/%s/%s/releases?per_page=30",
+		"https://api.github.com/repos/%s/%s/releases?per_page=100",
 		UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO);
 
 	curl_buffer_t buf;
@@ -664,12 +676,17 @@ static int SDLCALL checkThread(void *data)
 		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
 			"Update check failed: empty response");
 		s_Updater.status = UPDATER_CHECK_FAILED;
+		sysLogPrintf(LOG_WARNING, "UPDATER: empty response (size=%zu)", buf.size);
 	} else {
 		s32 count = parseReleasesJson(buf.data);
 		if (count < 0) {
 			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
 				"Update check failed: could not parse response");
 			s_Updater.status = UPDATER_CHECK_FAILED;
+			/* Log first 200 chars so we can identify what GitHub returned
+			 * (e.g. rate-limit object, HTML error page, redirect body) */
+			sysLogPrintf(LOG_WARNING, "UPDATER: non-array response — preview: %.200s",
+				buf.data ? buf.data : "(null)");
 		} else {
 			s_Updater.releaseCount = count;
 			s_Updater.latestIndex = -1;

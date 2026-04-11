@@ -233,8 +233,16 @@ static void renderThemeEditor(s32 winW, s32 winH)
                            | ImGuiWindowFlags_NoResize
                            | ImGuiWindowFlags_NoMove;
 
-    if (!ImGui::Begin("Theme Editor##P5", nullptr, flags)) {
+    /* S197a: pass a p_open pointer so ImGui renders the title-bar X button.
+     * If the user clicks X, `open` goes false; we call the hide API once we
+     * are past ImGui::End() so the logging path stays consistent. */
+    bool open = true;
+    if (!ImGui::Begin("Theme Editor##P5", &open, flags)) {
         ImGui::End();
+        if (!open) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Begin() collapsed+close (open=false)");
+            pdguiThemeEditorHide();
+        }
         return;
     }
 
@@ -312,6 +320,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     /* Close button */
     if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
+        sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
         pdguiThemeEditorHide();
     }
 
@@ -343,6 +352,13 @@ static void renderThemeEditor(s32 winW, s32 winH)
     }
 
     ImGui::End();
+
+    /* S197a: if the title-bar X button was pressed this frame, propagate to
+     * the hide API so the visibility flag and log line stay in sync. */
+    if (!open) {
+        sysLogPrintf(LOG_NOTE, "Theme editor: exit — title-bar X button (!open after End)");
+        pdguiThemeEditorHide();
+    }
 }
 
 /* =========================================================================
@@ -387,7 +403,22 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
 
     /* Fullscreen blocking overlay — dims the background AND captures all clicks
      * so the user cannot interact with windows behind the editor.
-     * Clicking the overlay dismisses the editor (click-outside-to-close). */
+     * Clicking the overlay dismisses the editor (click-outside-to-close).
+     *
+     * S197a: the previous version used ImGuiWindowFlags_NoBringToFrontOnFocus,
+     * which kept the overlay anchored below the focus stack.  With focus-
+     * ordered hit-testing, clicks landing outside the editor's rect but over
+     * a window in the focus stack (e.g. the Settings menu that launched the
+     * editor) would route to that window rather than to the overlay's
+     * InvisibleButton.  Net effect: "clicking outside the editor just changes
+     * focus instead of closing" (Mike, S197a report).
+     *
+     * Fix: call SetNextWindowFocus on the overlay so it is force-lifted to
+     * the top of the focus stack each frame, and a second SetNextWindowFocus
+     * on the editor window below so the editor stays visually in front.  The
+     * overlay is then guaranteed to be the topmost hit-test target everywhere
+     * except within the editor's own rect. */
+    ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)winW, (float)winH));
     ImGui::SetNextWindowBgAlpha(0.0f);
@@ -396,7 +427,7 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
     ImGuiWindowFlags overlayFlags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoSavedSettings;
     if (ImGui::Begin("##theme_editor_overlay", nullptr, overlayFlags)) {
         /* Draw the dim rect via this window's draw list */
         ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -405,6 +436,7 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
         /* Invisible button covering the whole screen — catches clicks */
         if (ImGui::InvisibleButton("##theme_editor_dismiss",
                                    ImVec2((float)winW, (float)winH))) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — InvisibleButton click-outside dismiss");
             pdguiThemeEditorHide();
         }
     }
@@ -413,6 +445,9 @@ void pdguiThemeEditorRender(s32 winW, s32 winH)
 
     /* Only render the editor if still visible (overlay click may have closed it) */
     if (s_Visible) {
+        /* S197a: force the editor above the overlay in focus order so it
+         * stays visually in front even though the overlay was just focused. */
+        ImGui::SetNextWindowFocus();
         renderThemeEditor(winW, winH);
     }
 }

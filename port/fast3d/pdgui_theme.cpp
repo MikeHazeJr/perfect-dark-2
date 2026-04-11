@@ -30,6 +30,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
@@ -45,6 +46,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
+#include "pdgui_nineslice.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "fs.h"
@@ -259,33 +261,45 @@ static GLuint s_decodeAndUpload(const struct PdTexConfig *cfg,
     uint32_t siz = (uint32_t)cfg->siz;
     const uint8_t *src = cfg->texptr;
 
-    /* Max texture: 256×256×4 = 256 KB -- enough for any N64 UI texture */
-    static uint8_t s_Rgba32Buf[256 * 256 * 4];
-
-    if (!w || !h || w > 256 || h > 256) {
+    /* N64 textureconfig is u8 width/height so dims are hardware-capped at
+     * 255×255 — but the decode buffer is now dynamically allocated so HD
+     * mod textures going through the TGA path can grow beyond the N64
+     * ceiling without touching this function. */
+    if (!w || !h) {
         sysLogPrintf(LOG_ERROR,
-            "PDGUI theme: bad texture dims %ux%u (max 256x256)", w, h);
+            "PDGUI theme: bad texture dims %ux%u (zero dimension)", w, h);
+        return 0;
+    }
+
+    size_t rgbaBytes = (size_t)w * (size_t)h * 4u;
+    uint8_t *rgba32 = (uint8_t *)malloc(rgbaBytes);
+    if (!rgba32) {
+        sysLogPrintf(LOG_ERROR,
+            "PDGUI theme: OOM decoding %ux%u texture (%zu bytes)",
+            w, h, rgbaBytes);
         return 0;
     }
 
     switch (fmt) {
     case PD_G_IM_FMT_RGBA:
         if (siz == PD_G_IM_SIZ_16b) {
-            decodeRgba16(src, w, h, s_Rgba32Buf);
+            decodeRgba16(src, w, h, rgba32);
         } else {
             sysLogPrintf(LOG_ERROR,
                 "PDGUI theme: unsupported RGBA siz=%u (only RGBA16 supported)", siz);
+            free(rgba32);
             return 0;
         }
         break;
 
     case PD_G_IM_FMT_IA:
-        if      (siz == PD_G_IM_SIZ_16b) decodeIa16(src, w, h, s_Rgba32Buf);
-        else if (siz == PD_G_IM_SIZ_8b)  decodeIa8 (src, w, h, s_Rgba32Buf);
-        else if (siz == PD_G_IM_SIZ_4b)  decodeIa4 (src, w, h, s_Rgba32Buf);
+        if      (siz == PD_G_IM_SIZ_16b) decodeIa16(src, w, h, rgba32);
+        else if (siz == PD_G_IM_SIZ_8b)  decodeIa8 (src, w, h, rgba32);
+        else if (siz == PD_G_IM_SIZ_4b)  decodeIa4 (src, w, h, rgba32);
         else {
             sysLogPrintf(LOG_ERROR,
                 "PDGUI theme: unsupported IA siz=%u", siz);
+            free(rgba32);
             return 0;
         }
         break;
@@ -294,13 +308,15 @@ static GLuint s_decodeAndUpload(const struct PdTexConfig *cfg,
         if (!pal) {
             sysLogPrintf(LOG_ERROR,
                 "PDGUI theme: CI texture requires palette; none supplied");
+            free(rgba32);
             return 0;
         }
-        if      (siz == PD_G_IM_SIZ_8b)  decodeCi8(src, pal, is_ia16, w, h, s_Rgba32Buf);
-        else if (siz == PD_G_IM_SIZ_4b)  decodeCi4(src, pal, is_ia16, w, h, s_Rgba32Buf);
+        if      (siz == PD_G_IM_SIZ_8b)  decodeCi8(src, pal, is_ia16, w, h, rgba32);
+        else if (siz == PD_G_IM_SIZ_4b)  decodeCi4(src, pal, is_ia16, w, h, rgba32);
         else {
             sysLogPrintf(LOG_ERROR,
                 "PDGUI theme: unsupported CI siz=%u", siz);
+            free(rgba32);
             return 0;
         }
         break;
@@ -308,10 +324,13 @@ static GLuint s_decodeAndUpload(const struct PdTexConfig *cfg,
     default:
         sysLogPrintf(LOG_ERROR,
             "PDGUI theme: unsupported N64 fmt=%u siz=%u", fmt, siz);
+        free(rgba32);
         return 0;
     }
 
-    return s_uploadGLTex(s_Rgba32Buf, w, h);
+    GLuint tex = s_uploadGLTex(rgba32, w, h);
+    free(rgba32);
+    return tex;
 }
 
 /* =========================================================================
@@ -322,6 +341,11 @@ static GLuint s_decodeAndUpload(const struct PdTexConfig *cfg,
  * ========================================================================= */
 
 static std::unordered_map<std::string, GLuint> s_ThemeTexCache;
+/* Parallel map of texture dimensions (width, height) for catalog IDs.
+ * Lets the chrome render path call pdguiNinesliceDrawEx with accurate
+ * source texture size without depending on the asset catalog's
+ * data_size_bytes heuristic. */
+static std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> s_ThemeTexDims;
 static bool s_ThemeInitDone = false;
 
 /**
@@ -400,6 +424,7 @@ static void s_registerTexConfig(const char        *catalog_id,
 
     if (gl_id) {
         s_ThemeTexCache[catalog_id] = gl_id;
+        s_ThemeTexDims[catalog_id]  = { (uint32_t)cfg->width, (uint32_t)cfg->height };
     }
 }
 
@@ -472,6 +497,15 @@ static float s_ScanlineAlpha   = 0.5f;
  * TGA format: 18-byte header, then width*height*4 bytes of BGRA pixel data.
  * We convert BGRA→RGBA during upload.
  */
+/**
+ * Load an uncompressed 24-bit or 32-bit TGA file into an OpenGL texture.
+ *
+ * Accepts arbitrary dimensions (HD mod assets welcome). RLE-compressed TGAs
+ * (image type 10) are rejected — authors must export uncompressed.
+ *
+ * For 24-bit TGA the alpha channel is synthesized as 0xFF (fully opaque)
+ * when expanding BGR -> RGBA. 32-bit TGAs preserve the file's alpha.
+ */
 static GLuint s_loadTgaTexture(const char *path, uint32_t *out_w, uint32_t *out_h)
 {
     u32 fileSize = 0;
@@ -483,49 +517,83 @@ static GLuint s_loadTgaTexture(const char *path, uint32_t *out_w, uint32_t *out_
     }
 
     /* Parse TGA header */
-    uint32_t w = (uint32_t)data[12] | ((uint32_t)data[13] << 8);
-    uint32_t h = (uint32_t)data[14] | ((uint32_t)data[15] << 8);
-    uint8_t  bpp = data[16];
+    uint8_t  idLen      = data[0];
+    uint8_t  cmapType   = data[1];
+    uint8_t  imageType  = data[2];
+    uint32_t w          = (uint32_t)data[12] | ((uint32_t)data[13] << 8);
+    uint32_t h          = (uint32_t)data[14] | ((uint32_t)data[15] << 8);
+    uint8_t  bpp        = data[16];
+    uint8_t  descriptor = data[17];
     uint32_t pixelBytes = (uint32_t)(bpp / 8);
-    uint32_t expectedSize = 18 + w * h * pixelBytes;
+    uint32_t pixelStart = 18u + (uint32_t)idLen;  /* skip optional image-id block */
+    uint32_t expectedSize = pixelStart + w * h * pixelBytes;
 
-    if (bpp != 32 || fileSize < expectedSize || w > 256 || h > 256) {
+    /* Hard rejects: RLE, colour-mapped, zero dims, non-24/32 bpp, short file. */
+    if (imageType != 2 /* uncompressed truecolour */ ||
+        cmapType != 0 ||
+        !w || !h ||
+        (bpp != 24 && bpp != 32) ||
+        fileSize < expectedSize) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI theme: '%s' unexpected format (bpp=%u %ux%u filesize=%u)",
-            path, bpp, w, h, fileSize);
+            "PDGUI theme: '%s' unsupported TGA (type=%u cmap=%u bpp=%u %ux%u filesize=%u)",
+            path, imageType, cmapType, bpp, w, h, fileSize);
         free(data);
         return 0;
     }
 
-    /* Convert BGRA → RGBA in-place */
-    uint8_t *pixels = data + 18;
-    uint32_t npix = w * h;
-    for (uint32_t i = 0; i < npix; i++) {
-        uint8_t tmp = pixels[i * 4 + 0];
-        pixels[i * 4 + 0] = pixels[i * 4 + 2];
-        pixels[i * 4 + 2] = tmp;
+    /* Allocate destination RGBA32 buffer sized for the actual image. */
+    size_t rgbaBytes = (size_t)w * (size_t)h * 4u;
+    uint8_t *rgba = (uint8_t *)malloc(rgbaBytes);
+    if (!rgba) {
+        sysLogPrintf(LOG_ERROR,
+            "PDGUI theme: '%s' OOM allocating %zu RGBA bytes (%ux%u)",
+            path, rgbaBytes, w, h);
+        free(data);
+        return 0;
     }
 
-    /* TGA is bottom-up by default (unless bit 5 of descriptor is set) */
-    bool topDown = (data[17] & 0x20) != 0;
+    /* Expand TGA pixels (BGR / BGRA) into tightly packed RGBA32. */
+    const uint8_t *src = data + pixelStart;
+    uint32_t npix = w * h;
+    if (bpp == 32) {
+        for (uint32_t i = 0; i < npix; i++) {
+            rgba[i * 4 + 0] = src[i * 4 + 2];  /* R <- B */
+            rgba[i * 4 + 1] = src[i * 4 + 1];  /* G */
+            rgba[i * 4 + 2] = src[i * 4 + 0];  /* B <- R */
+            rgba[i * 4 + 3] = src[i * 4 + 3];  /* A */
+        }
+    } else /* bpp == 24 */ {
+        for (uint32_t i = 0; i < npix; i++) {
+            rgba[i * 4 + 0] = src[i * 3 + 2];  /* R <- B */
+            rgba[i * 4 + 1] = src[i * 3 + 1];  /* G */
+            rgba[i * 4 + 2] = src[i * 3 + 0];  /* B <- R */
+            rgba[i * 4 + 3] = 0xFF;            /* opaque */
+        }
+    }
+
+    /* TGA is bottom-up by default (origin in bottom-left).
+     * Bit 5 of descriptor set => top-down (origin top-left). */
+    bool topDown = (descriptor & 0x20) != 0;
     if (!topDown) {
-        /* Flip vertically */
         uint32_t rowBytes = w * 4;
         uint8_t *rowBuf = (uint8_t *)malloc(rowBytes);
-        for (uint32_t y = 0; y < h / 2; y++) {
-            uint8_t *top = pixels + y * rowBytes;
-            uint8_t *bot = pixels + (h - 1 - y) * rowBytes;
-            memcpy(rowBuf, top, rowBytes);
-            memcpy(top, bot, rowBytes);
-            memcpy(bot, rowBuf, rowBytes);
+        if (rowBuf) {
+            for (uint32_t y = 0; y < h / 2; y++) {
+                uint8_t *top = rgba + y * rowBytes;
+                uint8_t *bot = rgba + (h - 1 - y) * rowBytes;
+                memcpy(rowBuf, top, rowBytes);
+                memcpy(top, bot, rowBytes);
+                memcpy(bot, rowBuf, rowBytes);
+            }
+            free(rowBuf);
         }
-        free(rowBuf);
     }
 
     if (out_w) *out_w = w;
     if (out_h) *out_h = h;
 
-    GLuint tex = s_uploadGLTex(pixels, w, h);
+    GLuint tex = s_uploadGLTex(rgba, w, h);
+    free(rgba);
     free(data);
     return tex;
 }
@@ -562,6 +630,7 @@ static void s_registerModTexture(const char *catalog_id, const char *path)
     }
 
     s_ThemeTexCache[catalog_id] = gl_id;
+    s_ThemeTexDims[catalog_id]  = { w, h };
 }
 
 /**
@@ -637,6 +706,7 @@ static void s_registerProceduralTexture(const char *catalog_id,
     }
 
     s_ThemeTexCache[catalog_id] = gl_id;
+    s_ThemeTexDims[catalog_id]  = { w, h };
 }
 
 /* =========================================================================
@@ -647,6 +717,11 @@ extern "C" {
 
 /* Config-backed scanline setting (persisted to pd.ini) */
 static s32 s_CfgScanlineEnabled = 1;
+
+/* Config-backed UI chrome setting.
+ * 0 = Procedural (default, pixel-for-pixel S195 behaviour)
+ * 1 = Classic (base-game test chrome — visible via Settings toggle) */
+static s32 s_CfgUiChromeEnabled = 0;
 
 /**
  * Early init: called from pdguiInit(), before texInit().
@@ -664,9 +739,32 @@ void pdguiThemeInit(void)
     configRegisterFloat("Video.ScanlineAlpha", &s_ScanlineAlpha, 0.0f, 1.0f);
     s_ScanlineEnabled = (s_CfgScanlineEnabled != 0);
 
+    /* Register UI chrome config.  The actual toggle applies later, after
+     * pdguiChromeInitializeBaseMod has registered the nineslice. */
+    configRegisterInt("Video.UiChromeEnabled", &s_CfgUiChromeEnabled, 0, 1);
+
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%%, textures deferred)",
-        s_ScanlineEnabled ? "ON" : "OFF", s_ScanlineAlpha * 100.0f);
+        "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%% chrome=%s, textures deferred)",
+        s_ScanlineEnabled ? "ON" : "OFF", s_ScanlineAlpha * 100.0f,
+        s_CfgUiChromeEnabled ? "ON" : "OFF");
+}
+
+/* Accessor used by pdguiChromeInitializeBaseMod to apply the config-loaded
+ * chrome setting once the nineslice registration has run. */
+static s32 s_getCfgUiChromeEnabled(void)
+{
+    return s_CfgUiChromeEnabled;
+}
+
+/* Mutator used by renderSettingsVideo to persist user selection. */
+void pdguiThemeSetUiChromeEnabled(s32 enabled)
+{
+    s_CfgUiChromeEnabled = enabled ? 1 : 0;
+}
+
+s32 pdguiThemeGetUiChromeEnabled(void)
+{
+    return s_CfgUiChromeEnabled;
 }
 
 /**
@@ -726,6 +824,7 @@ void pdguiThemeLateInit(void)
                 e->data_size_bytes = (u32)(w * h * 4u);
             }
             s_ThemeTexCache[k_UiTextures[i].catalog_id] = gl_id;
+            s_ThemeTexDims[k_UiTextures[i].catalog_id]  = { w, h };
             loaded++;
         } else {
             /* Fallback: generate procedural texture */
@@ -785,6 +884,25 @@ void *pdguiThemeGetTexture(const char *catalog_id)
 
     /* Unknown or failed texture — return NULL (no assert, graceful degrade) */
     return nullptr;
+}
+
+/* Look up the source texture dimensions (width, height) in pixels for a
+ * cached theme texture.  Used by the chrome renderer to compute UVs.
+ * Returns 1 on success (out_w/out_h populated), 0 if the texture is not
+ * cached or the catalog_id is unknown. */
+s32 pdguiThemeGetTextureSize(const char *catalog_id, u32 *out_w, u32 *out_h)
+{
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (!catalog_id || !catalog_id[0]) return 0;
+    if (!s_ThemeLateInitDone) return 0;
+
+    auto it = s_ThemeTexDims.find(catalog_id);
+    if (it == s_ThemeTexDims.end()) return 0;
+
+    if (out_w) *out_w = it->second.first;
+    if (out_h) *out_h = it->second.second;
+    return 1;
 }
 
 /* Return the current background texture catalog ID for dialog overlays */
@@ -1382,10 +1500,9 @@ void pdguiThemeExtractRomTextures(void)
             continue;
         }
 
-        /* Read back the decoded RGBA32 data — it's still in s_Rgba32Buf
-         * (the static buffer used by s_decodeAndUpload's callees).
-         * Actually, s_Rgba32Buf is local to s_decodeAndUpload. Instead,
-         * re-decode into our own buffer. */
+        /* s_decodeAndUpload allocates a private decode buffer and frees it
+         * on return, so we re-decode into our own s_ExtractBuf for the
+         * TGA writer below. */
         memset(s_ExtractBuf, 0, sizeof(s_ExtractBuf));
 
         uint32_t fmt = (uint32_t)cfg->fmt;
@@ -1548,6 +1665,328 @@ static bool s_baseUiTexturesExist(void)
     return false;
 }
 
+/* =========================================================================
+ * Base-game UI Chrome template mod (S196)
+ *
+ * Generates a hand-authored test chrome mod at mods/base-game/ui-chrome/
+ * containing a composite nineslice source texture, a template-flagged
+ * mod.json, and a README warning users not to edit.  The test chrome is
+ * a 64x64 greyscale+alpha composite with all 9 nineslice regions baked
+ * into a single texture:
+ *
+ *     (0..16, 0..16)   TL quarter-circle arc ring
+ *     (48..64, 0..16)  TR quarter-circle arc ring
+ *     (0..16, 48..64)  BL quarter-circle arc ring
+ *     (48..64, 48..64) BR quarter-circle arc ring
+ *     (16..48, 0..16)  top edge strip
+ *     (16..48, 48..64) bottom edge strip
+ *     (0..16, 16..48)  left edge strip
+ *     (48..64, 16..48) right edge strip
+ *     (16..48, 16..48) center crosshatch (faint)
+ *
+ * Greyscale+alpha: each pixel is B=G=R=intensity with a separate alpha,
+ * letting the theme tint recolour the whole frame.  The 16-pixel insets
+ * carve the frame into the standard 9 regions.
+ *
+ * Init flow:
+ *   1. mkdir mods/base-game/ui-chrome
+ *   2. If .tga missing: generate pixel buffer, write uncompressed 32bpp TGA
+ *   3. Always write mod.json (template:true) and README.md (idempotent)
+ *   4. Load the texture into the theme cache as "base:ui_chrome_frame"
+ *   5. Register the nineslice under the same catalog id
+ *
+ * After init the Settings Video "UI Chrome Style" dropdown can flip
+ * pdguiChromeSetEnabled(true) + pdguiSetPanelNineSlice("base:ui_chrome_frame")
+ * and pdguiDrawPdDialog will draw the nineslice instead of the procedural
+ * body.  Toggle off to return to procedural rendering.
+ * ========================================================================= */
+
+/* Write an uncompressed 32-bit top-down TGA file from a BGRA pixel buffer. */
+static bool s_writeTgaFile(const char *path, uint32_t w, uint32_t h,
+                            const uint8_t *bgra)
+{
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) {
+        sysLogPrintf(LOG_WARNING,
+            "UI.CHROME: could not open '%s' for write", path);
+        return false;
+    }
+
+    uint8_t hdr[18] = {0};
+    hdr[2]  = 2;                             /* uncompressed truecolour      */
+    hdr[12] = (uint8_t)(w & 0xff);
+    hdr[13] = (uint8_t)((w >> 8) & 0xff);
+    hdr[14] = (uint8_t)(h & 0xff);
+    hdr[15] = (uint8_t)((h >> 8) & 0xff);
+    hdr[16] = 32;                            /* 32bpp                        */
+    hdr[17] = 0x28;                          /* top-down, 8 bits alpha       */
+
+    fwrite(hdr, 1, 18, f);
+    fwrite(bgra, 1, (size_t)w * (size_t)h * 4u, f);
+    fclose(f);
+
+    sysLogPrintf(LOG_NOTE,
+        "UI.CHROME: wrote %ux%u TGA '%s' (%zu bytes)",
+        w, h, path, (size_t)(18u + (size_t)w * (size_t)h * 4u));
+    return true;
+}
+
+/* Generate the 64x64 composite chrome frame texture as a BGRA buffer.
+ * Greyscale+alpha: B=G=R=intensity, A=alpha for per-pixel transparency. */
+static void s_generateChromeFrameBgra(uint8_t *out)
+{
+    const int W = 64;
+    const int H = 64;
+    const int inset = 16;       /* corner+edge thickness */
+    const int innerR = 9;       /* inside this radius: transparent */
+    const int outerR = 15;      /* outside this radius: transparent */
+
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            int idx = (y * W + x) * 4;
+            uint8_t intensity = 0;
+            uint8_t alpha = 0;
+
+            bool inLeft   = x < inset;
+            bool inRight  = x >= W - inset;
+            bool inTop    = y < inset;
+            bool inBottom = y >= H - inset;
+
+            if ((inTop || inBottom) && (inLeft || inRight)) {
+                /* --- Corner region: quarter-circle ring --- */
+                int cx = inLeft ? inset - 1 : (W - inset);
+                int cy = inTop  ? inset - 1 : (H - inset);
+                int dx = x - cx;
+                int dy = y - cy;
+                float d = sqrtf((float)(dx * dx + dy * dy));
+
+                if (d >= (float)innerR && d <= (float)outerR) {
+                    intensity = 255;
+                    /* Radial alpha falloff so the ring has soft edges */
+                    float t = (d - (float)innerR) / (float)(outerR - innerR);
+                    float gauss = 1.0f - fabsf(t * 2.0f - 1.0f);
+                    if (gauss < 0.0f) gauss = 0.0f;
+                    if (gauss > 1.0f) gauss = 1.0f;
+                    alpha = (uint8_t)(gauss * 255.0f);
+                }
+            } else if (inTop || inBottom) {
+                /* --- Horizontal edge strip --- */
+                int distFromEdge = inTop ? y : (H - 1 - y);
+                if (distFromEdge == 0 || distFromEdge == 1) {
+                    intensity = 255;
+                    alpha = 220;
+                } else if (distFromEdge == 2 || distFromEdge == 3) {
+                    intensity = 200;
+                    alpha = 140;
+                } else if (distFromEdge < 6) {
+                    intensity = 150;
+                    alpha = 70;
+                }
+            } else if (inLeft || inRight) {
+                /* --- Vertical edge strip --- */
+                int distFromEdge = inLeft ? x : (W - 1 - x);
+                if (distFromEdge == 0 || distFromEdge == 1) {
+                    intensity = 255;
+                    alpha = 220;
+                } else if (distFromEdge == 2 || distFromEdge == 3) {
+                    intensity = 200;
+                    alpha = 140;
+                } else if (distFromEdge < 6) {
+                    intensity = 150;
+                    alpha = 70;
+                }
+            } else {
+                /* --- Center region: subtle diagonal crosshatch --- */
+                int m = (x + y) & 0x07;
+                int n = (x - y + 64) & 0x07;
+                if (m == 0 || n == 0) {
+                    intensity = 200;
+                    alpha = 40;
+                } else if (m == 4 || n == 4) {
+                    intensity = 160;
+                    alpha = 24;
+                } else {
+                    intensity = 100;
+                    alpha = 12;
+                }
+            }
+
+            out[idx + 0] = intensity;  /* B */
+            out[idx + 1] = intensity;  /* G */
+            out[idx + 2] = intensity;  /* R */
+            out[idx + 3] = alpha;      /* A */
+        }
+    }
+}
+
+/* Return true if the chrome .tga already exists on disk. */
+static bool s_baseGameChromeTgaExists(void)
+{
+    u32 sz = 0;
+    void *data = fsFileLoad("mods/base-game/ui-chrome/ui_chrome_frame.tga", &sz);
+    if (data) {
+        free(data);
+        return sz > 0;
+    }
+    return false;
+}
+
+/**
+ * Initialize the base-game UI chrome template mod.  Creates the directory
+ * tree at mods/base-game/ui-chrome/, generates a composite frame TGA
+ * programmatically, writes the mod.json manifest + README.md, loads the
+ * texture into the theme cache, and registers the nineslice definition.
+ *
+ * Idempotent: safe to call multiple times.  File generation runs only if
+ * the .tga is missing.  mod.json + README always get rewritten so schema
+ * drift is impossible and users who tampered with either file see their
+ * edits reverted on next launch (the template protection policy).
+ */
+void pdguiChromeInitializeBaseMod(void)
+{
+    static bool s_done = false;
+    if (s_done) return;
+
+    /* Ensure the directory tree exists. */
+    fsCreateDir("mods");
+    fsCreateDir("mods/base-game");
+    fsCreateDir("mods/base-game/ui-chrome");
+
+    /* Generate + write the composite chrome frame TGA if missing. */
+    if (!s_baseGameChromeTgaExists()) {
+        sysLogPrintf(LOG_NOTE,
+            "UI.CHROME: base-game chrome missing — generating programmatic test assets");
+        uint8_t pixels[64 * 64 * 4];
+        s_generateChromeFrameBgra(pixels);
+        s_writeTgaFile("mods/base-game/ui-chrome/ui_chrome_frame.tga",
+                       64, 64, pixels);
+    }
+
+    /* mod.json — always overwrite to enforce the template:true contract. */
+    {
+        static const char k_ChromeModJson[] =
+            "{\n"
+            "    \"id\": \"base.ui-chrome\",\n"
+            "    \"name\": \"Base Game UI Chrome (Test)\",\n"
+            "    \"version\": \"1.0.0\",\n"
+            "    \"description\": \"Placeholder test chrome for validating the nineslice pipeline. Replace with authored art.\",\n"
+            "    \"author\": \"PD2 Team\",\n"
+            "    \"tags\": [\"base-game\", \"template\", \"chrome\"],\n"
+            "    \"template\": true,\n"
+            "    \"bundled\": true,\n"
+            "    \"enabled\": true,\n"
+            "    \"components\": {\n"
+            "        \"textures\": [\n"
+            "            { \"id\": \"base:ui_chrome_frame\", \"file\": \"ui_chrome_frame.tga\" }\n"
+            "        ],\n"
+            "        \"nineslice\": [\n"
+            "            {\n"
+            "                \"id\": \"base:ui_chrome_frame\",\n"
+            "                \"texture\": \"base:ui_chrome_frame\",\n"
+            "                \"src_inset\": { \"top\": 16, \"bottom\": 16, \"left\": 16, \"right\": 16 },\n"
+            "                \"dst_corner_px\": { \"top\": 16, \"bottom\": 16, \"left\": 16, \"right\": 16 },\n"
+            "                \"top_mode\": \"stretch\",\n"
+            "                \"bottom_mode\": \"stretch\",\n"
+            "                \"left_mode\": \"stretch\",\n"
+            "                \"right_mode\": \"stretch\",\n"
+            "                \"center_mode\": \"tile\"\n"
+            "            }\n"
+            "        ]\n"
+            "    }\n"
+            "}\n";
+        FILE *jf = fsFileOpenWrite("mods/base-game/ui-chrome/mod.json");
+        if (jf) {
+            fwrite(k_ChromeModJson, 1, sizeof(k_ChromeModJson) - 1, jf);
+            fclose(jf);
+            sysLogPrintf(LOG_NOTE,
+                "UI.CHROME: wrote mods/base-game/ui-chrome/mod.json");
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                "UI.CHROME: could not write mods/base-game/ui-chrome/mod.json");
+        }
+    }
+
+    /* README — always overwrite so the template warning stays authoritative. */
+    {
+        static const char k_ChromeReadme[] =
+            "# Base Game UI Chrome (Test) -- Base-Game Template Mod\n"
+            "\n"
+            "This is a **base-game template mod**. Its contents are generated by the game\n"
+            "at startup and will be regenerated if the file set is incomplete or missing.\n"
+            "\n"
+            "## Do not edit this mod directly.\n"
+            "\n"
+            "Any changes you make to the files in this directory will be silently\n"
+            "overwritten the next time the game launches and validates its base-game\n"
+            "mod set. This protection exists to keep a stable reference copy that\n"
+            "other mods can build on top of.\n"
+            "\n"
+            "## To customize this mod\n"
+            "\n"
+            "Open the Mod Manager (Main Menu -> Mods -> Modding Hub) and use **Save As**\n"
+            "to create a user mod from this template. Your user mod will live in\n"
+            "`mods/user/<your-name>/` and is yours to edit freely.\n"
+            "\n"
+            "## Why this exists\n"
+            "\n"
+            "The base-game template system lets the game ship a default look and\n"
+            "feel that mods can descend from. The template is the canonical source;\n"
+            "user mods are editable copies. Keeping the two separated prevents\n"
+            "accidental overwrites of the baseline when the extractor runs again.\n";
+        FILE *rf = fsFileOpenWrite("mods/base-game/ui-chrome/README.md");
+        if (rf) {
+            fwrite(k_ChromeReadme, 1, sizeof(k_ChromeReadme) - 1, rf);
+            fclose(rf);
+            sysLogPrintf(LOG_NOTE,
+                "UI.CHROME: wrote mods/base-game/ui-chrome/README.md");
+        }
+    }
+
+    /* Load the chrome texture into the theme cache (registers it in the
+     * asset catalog and s_ThemeTexDims so the chrome render branch can
+     * resolve it by catalog id). */
+    s_registerModTexture("base:ui_chrome_frame",
+                         "mods/base-game/ui-chrome/ui_chrome_frame.tga");
+
+    /* Register the nineslice definition under the same catalog id as the
+     * texture.  The render path uses this id for both lookups. */
+    nineslice_def_t nsdef;
+    memset(&nsdef, 0, sizeof(nsdef));
+    nsdef.src_top    = 16;
+    nsdef.src_bottom = 16;
+    nsdef.src_left   = 16;
+    nsdef.src_right  = 16;
+    nsdef.dst_top    = 16;
+    nsdef.dst_bottom = 16;
+    nsdef.dst_left   = 16;
+    nsdef.dst_right  = 16;
+    nsdef.has_split  = 1;
+    nsdef.top_mode    = NINESLICE_STRETCH;
+    nsdef.bottom_mode = NINESLICE_STRETCH;
+    nsdef.left_mode   = NINESLICE_STRETCH;
+    nsdef.right_mode  = NINESLICE_STRETCH;
+    nsdef.center_mode = NINESLICE_TILE;
+    nsdef.has_per_edge_mode = 1;
+    pdguiNinesliceRegister("base:ui_chrome_frame", &nsdef);
+
+    /* Apply persisted chrome enable state from pd.ini now that the
+     * nineslice + texture are registered and resolvable. */
+    if (s_getCfgUiChromeEnabled()) {
+        pdguiSetPanelNineSlice("base:ui_chrome_frame");
+        pdguiChromeSetEnabled(1);
+        sysLogPrintf(LOG_NOTE,
+            "UI.CHROME: auto-activated on startup (Video.UiChromeEnabled=1)");
+    } else {
+        /* Ensure the active chrome id is set even when disabled, so flipping
+         * the toggle to ON later doesn't require re-selecting a mod. */
+        pdguiSetPanelNineSlice("base:ui_chrome_frame");
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "UI.CHROME: base-game chrome template mod initialized");
+    s_done = true;
+}
+
 /**
  * Frame check: auto-extract base-ui textures from ROM if they don't exist,
  * or run extraction/generation when CLI flags are set.
@@ -1642,6 +2081,11 @@ void pdguiThemeCheckExtract(void)
     if (sysArgCheck("--generate-modern-ui")) {
         s_generateModernUiTextures();
     }
+
+    /* Initialize the base-game chrome template mod on first frame.  This
+     * generates the test chrome assets, registers the texture + nineslice,
+     * and makes "base:ui_chrome_frame" available for the Settings toggle. */
+    pdguiChromeInitializeBaseMod();
 }
 
 } /* extern "C" */

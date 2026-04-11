@@ -31,6 +31,7 @@
 #include "updater.h"
 #include "actionmap.h"
 #include "savemigrate.h"
+#include "savefile.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -166,6 +167,7 @@ int main(int argc, const char **argv)
 	/* D13: Initialize update system + save migration after filesystem is ready */
 	updaterInit();
 	saveMigrateInit();
+	saveInit(); /* B-129: wire save dir into savefile.c — must follow fsInit() */
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

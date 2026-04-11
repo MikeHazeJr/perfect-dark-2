@@ -1,0 +1,27 @@
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:  client
+  Version: 0.0.76
+  Clean:   False
+  Verbose: True
+  Cores:   24
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+------------------------------------------------------------
+  Auto-Commit + Push
+------------------------------------------------------------
+  Committed: Build v0.0.76 - auto-commit before build
+  Push failed (non-fatal): To https://github.com/MikeHazeJr/perfect-dark-2.git
+
+  WARNING: 21 new commit(s) since last successful build (hash changed)
+  Last built: 9d2a1757c7597c6dbaddf694624d395ce3f7d6b0
+  Current:    fb27988cf9c73a3af469b1de68ecff86bfef0a86
+
+============================================================
+  Building: Client
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\build\client
+============================================================
+
+------------------------------------------------------------
+  Configure (CMake) [Client]
+------------------------------------------------------------

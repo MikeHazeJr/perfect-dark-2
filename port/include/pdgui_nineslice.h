@@ -36,18 +36,60 @@ extern "C" {
 /* -----------------------------------------------------------------------
  * 9-slice definition
  *
- * Insets are in texture pixels from each edge.
- * The texture is divided into a 3x3 grid by the insets.
+ * Source insets (src_*) are measured in SOURCE TEXTURE pixels and drive
+ * UV calculation.  Destination corners (dst_corner_*) are measured in
+ * DESTINATION screen pixels and drive vertex positioning.  Splitting the
+ * two lets an HD source asset (say 256px corner in 512px source) render
+ * at a small destination corner size (say 16px) without scaling the
+ * center region awkwardly.
+ *
+ * Backwards-compatible short form: authors may specify `left/right/top/
+ * bottom` only.  Those fields are used for both source and destination
+ * when the `has_split` flag is 0 (the parser sets has_split=1 when the
+ * dst_corner_* fields are explicitly present in the manifest).
+ *
+ * Fill modes:
+ *   - center_mode          STRETCH or TILE in both axes
+ *   - top_mode / bot_mode  STRETCH or TILE along the horizontal edge
+ *   - left_mode / right_mode STRETCH or TILE along the vertical edge
+ *   - edge_mode            legacy shortcut applied to all four edges
+ *                          when the parser doesn't see per-edge modes.
+ *
+ * The renderer prefers per-edge modes when `has_per_edge_mode` is set,
+ * and falls back to `edge_mode` otherwise.
  * --------------------------------------------------------------------- */
 
 typedef struct nineslice_def {
-    s32 left;          /* pixels from left edge to first vertical divider */
-    s32 right;         /* pixels from right edge to second vertical divider */
-    s32 top;           /* pixels from top edge to first horizontal divider */
-    s32 bottom;        /* pixels from bottom edge to second horizontal divider */
+    /* Legacy short-form insets (used when has_split == 0) */
+    s32 left;
+    s32 right;
+    s32 top;
+    s32 bottom;
 
-    s32 edge_mode;     /* NINESLICE_STRETCH or NINESLICE_TILE for edges */
-    s32 center_mode;   /* NINESLICE_STRETCH or NINESLICE_TILE for center */
+    /* Source-texture-pixel insets (drive UV).  Mirrors the short form
+     * when has_split == 0. */
+    s32 src_left;
+    s32 src_right;
+    s32 src_top;
+    s32 src_bottom;
+
+    /* Destination-pixel corner sizes (drive vertex layout). */
+    s32 dst_left;
+    s32 dst_right;
+    s32 dst_top;
+    s32 dst_bottom;
+
+    /* Fill modes — NINESLICE_STRETCH or NINESLICE_TILE */
+    s32 edge_mode;          /* legacy: applied to all edges when has_per_edge_mode == 0 */
+    s32 top_mode;
+    s32 bottom_mode;
+    s32 left_mode;
+    s32 right_mode;
+    s32 center_mode;
+
+    /* Schema flags */
+    s32 has_split;          /* 1 if dst_corner_px was present in manifest */
+    s32 has_per_edge_mode;  /* 1 if per-edge top/bottom/left/right modes were present */
 } nineslice_def_t;
 
 /* -----------------------------------------------------------------------
