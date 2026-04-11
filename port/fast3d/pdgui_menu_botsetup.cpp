@@ -514,30 +514,28 @@ static bool bs_BackPressed(void)
 }
 
 /* =========================================================================
- * Renderer: Simulants roster (g_MpSimulantsMenuDialog)
+ * Inline content: Simulants roster body (public -- used by modal wrapper
+ * below and by pdgui_menu_room.cpp's inline integration)
  * =========================================================================
  *
- * 8 slots + Add Simulant + Clear All + Back.  Each slot row shows either
- * "i+1: <botname>" (when occupied) or "i+1: (empty)" (when free).  Clicking
- * a slot runs menuhandlerMpSimulantSlot::SET which sets slotindex and pushes
- * the Add or Edit dialog depending on participant state.
+ * 8 slot rows + Add Simulant + Clear All.  Each slot row shows either
+ * "i+1: <botname>" (when occupied) or "i+1: (empty)" (when free).
+ * Clicking a slot runs menuhandlerMpSimulantSlot::SET which sets
+ * slotindex and pushes the Add or Edit dialog depending on participant
+ * state (these drill-downs are naturally modal single-task screens).
+ *
+ * Does NOT draw a window frame or action bar -- callers own their
+ * surrounding chrome.  Passing bodyHeight=0 uses the remaining content
+ * region height inside the current window.
  */
 
-static s32 renderMpSimulants(struct menudialog *, struct menu *, s32, s32)
+extern "C" void pdguiBotSetupDrawSimulantsBody(float bodyHeight)
 {
-    WindowFrame wf = bs_BeginStandardWindow("##bs_simulants", "Simulants", 0.50f, 0.72f);
-    if (wf.mw == 0.0f) { ImGui::End(); return 1; }
-
-    if (bs_BackPressed()) {
-        bs_CloseCurrentDialog();
-        ImGui::End();
-        return 1;
+    if (bodyHeight <= 0.0f) {
+        bodyHeight = ImGui::GetContentRegionAvail().y;
     }
 
-    float avail = ImGui::GetContentRegionAvail().y;
-    float bodyH = pdguiBodyHeightForActionBar(avail);
-
-    if (ImGui::BeginChild("##bs_sim_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##bs_sim_body", ImVec2(0, bodyHeight), false,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Add Simulant... */
@@ -590,6 +588,35 @@ static s32 renderMpSimulants(struct menudialog *, struct menu *, s32, s32)
         }
     }
     ImGui::EndChild();
+}
+
+/* =========================================================================
+ * Renderer: Simulants roster modal wrapper (g_MpSimulantsMenuDialog)
+ * =========================================================================
+ *
+ * Thin wrapper that hosts pdguiBotSetupDrawSimulantsBody inside the
+ * standard PD-styled modal frame.  Preserved so the legacy Combat
+ * Simulator menu path (which push-dialogs g_MpSimulantsMenuDialog)
+ * continues to render correctly -- satisfies "don't break linking" and
+ * "zero function loss" for the legacy push path even though the
+ * primary room.cpp entry point is the inline panel.
+ */
+
+static s32 renderMpSimulants(struct menudialog *, struct menu *, s32, s32)
+{
+    WindowFrame wf = bs_BeginStandardWindow("##bs_simulants", "Simulants", 0.50f, 0.72f);
+    if (wf.mw == 0.0f) { ImGui::End(); return 1; }
+
+    if (bs_BackPressed()) {
+        bs_CloseCurrentDialog();
+        ImGui::End();
+        return 1;
+    }
+
+    float avail = ImGui::GetContentRegionAvail().y;
+    float bodyH = pdguiBodyHeightForActionBar(avail);
+
+    pdguiBotSetupDrawSimulantsBody(bodyH);
 
     if (pdguiBeginActionBar("##bs_sim_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
