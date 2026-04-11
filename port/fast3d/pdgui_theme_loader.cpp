@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <dirent.h>   /* 2026-04-11: mods/ directory scan for custom theme.json */
+#include <sys/stat.h>
 #include <PR/ultratypes.h>
 
 #include "pdgui_theme_loader.h"
@@ -890,6 +892,149 @@ static struct theme_entry *add_entry(const char *catalog_id, const char *name,
 }
 
 /* =========================================================================
+ * 2026-04-11: Mod directory scan for custom theme.json files
+ *
+ * The theme editor's "Save as Mod" path writes to `mods/<slug>/theme.json`
+ * + `mods/<slug>/mod.json`.  Before this scan, those files were written
+ * to disk but never registered in the theme registry, so they never
+ * appeared in either the theme editor's Load Theme dropdown or the
+ * Settings → Debug UI Theme selector.  This scanner walks `mods/` at
+ * init and registers every `theme.json` it finds under the catalog ID
+ * `mod:<slug>` (matching the legacy mod naming convention so it sorts
+ * cleanly next to the `base:*` builtins).
+ *
+ * Parser is intentionally minimal — we only need the display name.  The
+ * full `parse_theme_json()` path runs later when the user actually loads
+ * the theme via pdguiThemeLoadFromCatalog().
+ * ========================================================================= */
+
+/** Extract the "name" field from a theme.json payload.  Returns a pointer
+ *  into scratch if found, or a fallback if the JSON is malformed. */
+static void extract_theme_name(const char *json, char *out, size_t outlen,
+                               const char *fallback)
+{
+    out[0] = '\0';
+
+    if (json) {
+        const char *p = strstr(json, "\"name\"");
+        if (p) {
+            p += 6; /* past "name" */
+            while (*p && *p != ':') p++;
+            if (*p == ':') p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '"') {
+                p++;
+                const char *q = p;
+                while (*q && *q != '"' && (size_t)(q - p) < outlen - 1) q++;
+                size_t n = (size_t)(q - p);
+                if (n > 0) {
+                    memcpy(out, p, n);
+                    out[n] = '\0';
+                    return;
+                }
+            }
+        }
+    }
+
+    /* Fallback: use the directory slug, with the first letter capitalised */
+    snprintf(out, outlen, "%s", fallback ? fallback : "Custom Theme");
+    if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
+    /* Replace dashes with spaces for display */
+    for (char *c = out; *c; c++) {
+        if (*c == '-' || *c == '_') *c = ' ';
+    }
+}
+
+/** Register a single `mods/<slug>/theme.json` under catalog_id `mod:<slug>`. */
+static void register_mod_theme_dir(const char *mods_dir, const char *slug)
+{
+    char theme_path[THEME_FILEPATH_LEN];
+    snprintf(theme_path, sizeof(theme_path), "%s/%s/theme.json", mods_dir, slug);
+
+    /* Skip if no theme.json in this mod dir */
+    struct stat st;
+    if (stat(theme_path, &st) != 0 || !S_ISREG(st.st_mode)) return;
+
+    /* Skip if already registered (e.g. re-init) */
+    char catalog_id[THEME_CATALOG_ID_LEN];
+    snprintf(catalog_id, sizeof(catalog_id), "mod:%s", slug);
+    if (find_entry(catalog_id)) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: '%s' already registered, skipping", catalog_id);
+        return;
+    }
+
+    /* Read the file just to extract the display name.  Malformed JSON is
+     * fine here — extract_theme_name has a fallback to the slug. */
+    u32 fileSize = 0;
+    char *raw = (char *)fsFileLoad(theme_path, &fileSize);
+    char display_name[THEME_NAME_LEN] = {0};
+
+    if (raw && fileSize > 0) {
+        char *json = (char *)malloc(fileSize + 1);
+        if (json) {
+            memcpy(json, raw, fileSize);
+            json[fileSize] = '\0';
+            extract_theme_name(json, display_name, sizeof(display_name), slug);
+            free(json);
+        }
+        free(raw);
+    } else {
+        extract_theme_name(nullptr, display_name, sizeof(display_name), slug);
+    }
+
+    /* palette_index = -1 means "JSON-based, not a built-in palette".
+     * pdguiThemeLoadFromCatalog() checks pdguiThemeIdToPaletteIndex first,
+     * falls through to find_entry + filepath load for non-builtin IDs. */
+    if (add_entry(catalog_id, display_name, theme_path, -1)) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: registered mod theme '%s' (\"%s\") from %s",
+            catalog_id, display_name, theme_path);
+    }
+}
+
+/** Scan the `mods/` directory and register every `<slug>/theme.json` found. */
+static void scan_mods_for_themes(void)
+{
+    /* Try a few locations — fsFileLoad may already know about search roots
+     * (e.g. install dir, user data dir).  We start with the plain relative
+     * path "mods" and fall back if needed. */
+    static const char * const candidates[] = { "mods" };
+    const int numCandidates = (int)(sizeof(candidates) / sizeof(candidates[0]));
+
+    int found = 0;
+    for (int ci = 0; ci < numCandidates; ci++) {
+        DIR *d = opendir(candidates[ci]);
+        if (!d) continue;
+
+        struct dirent *ent;
+        while ((ent = readdir(d)) != nullptr) {
+            const char *name = ent->d_name;
+            if (!name || name[0] == '.') continue;
+            if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+
+            /* Verify it's a directory */
+            char subdir[THEME_FILEPATH_LEN];
+            snprintf(subdir, sizeof(subdir), "%s/%s", candidates[ci], name);
+            struct stat st;
+            if (stat(subdir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+            register_mod_theme_dir(candidates[ci], name);
+            found++;
+        }
+        closedir(d);
+
+        /* First candidate that exists wins — don't double-register from
+         * multiple search roots. */
+        if (found > 0) break;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme loader: scanned mods/ — %d directories walked, %d total themes registered",
+        found, s_ThemeCount);
+}
+
+/* =========================================================================
  * Public API
  * ========================================================================= */
 
@@ -921,13 +1066,12 @@ void pdguiThemeLoaderInit(void)
         add_entry(k_BuiltinIds[i], k_BuiltinNames[i], nullptr, i);
     }
 
-    /* Scan for theme.json files in mods/ directories */
-    /* (Theme JSON files from mods are discovered by the mod manager;
-     *  here we just handle the built-in set. Mod themes register via
-     *  pdguiThemeLoadFromFile() called from mod loading.) */
+    /* 2026-04-11: scan mods/ for custom theme.json files (Save-as-Mod
+     * output from the theme editor, plus any user-authored mod themes). */
+    scan_mods_for_themes();
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme loader: init — %d built-in themes registered, active='%s'",
+        "PDGUI theme loader: init — %d themes registered (built-in + mods), active='%s'",
         s_ThemeCount, s_ActiveThemeId);
 
     /* Apply the configured theme */
@@ -1081,6 +1225,47 @@ s32 pdguiThemeIdToPaletteIndex(const char *catalog_id)
             return i;
     }
     return -1;
+}
+
+/* 2026-04-11: register a single mod theme at runtime so the Save-as-Mod
+ * path in the theme editor can make the new theme appear immediately in
+ * the Load Theme dropdown and the Settings UI Theme selector, without a
+ * restart.  Delegates to the same register_mod_theme_dir helper used by
+ * the init-time scan_mods_for_themes. */
+s32 pdguiThemeRegisterModDir(const char *slug, const char *filepath)
+{
+    if (!slug || !slug[0]) return 0;
+
+    /* If the caller already knows the exact theme.json path, use it to
+     * determine mods_dir; otherwise default to the relative "mods" root
+     * so the behaviour matches the init-time scan. */
+    char mods_dir[THEME_FILEPATH_LEN] = "mods";
+    if (filepath && filepath[0]) {
+        /* Extract the parent-of-parent directory from filepath
+         * (.../mods/<slug>/theme.json → .../mods). */
+        const char *last = strrchr(filepath, '/');
+        if (last) {
+            size_t n = (size_t)(last - filepath);
+            /* Back up once more to strip the slug segment */
+            while (n > 0 && filepath[n - 1] == '/') n--;
+            const char *prev = filepath + n;
+            while (prev > filepath && *(prev - 1) != '/' && *(prev - 1) != '\\') prev--;
+            size_t parentLen = (size_t)(prev - filepath);
+            if (parentLen > 0 && parentLen < sizeof(mods_dir)) {
+                /* parentLen includes trailing slash — drop it */
+                if (filepath[parentLen - 1] == '/' || filepath[parentLen - 1] == '\\') parentLen--;
+                memcpy(mods_dir, filepath, parentLen);
+                mods_dir[parentLen] = '\0';
+                if (!mods_dir[0]) {
+                    snprintf(mods_dir, sizeof(mods_dir), "mods");
+                }
+            }
+        }
+    }
+
+    s32 before = s_ThemeCount;
+    register_mod_theme_dir(mods_dir, slug);
+    return (s_ThemeCount > before) ? 1 : 0;
 }
 
 } /* extern "C" */

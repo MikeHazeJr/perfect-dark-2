@@ -3,6 +3,70 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S208 — 2026-04-11 (Opus 1M playtest-fixes: six bugs, one commit)
+
+**Focus**: Mike's 2026-04-11 playtest of v0.0.77 on dev @ `bfbb19b9` (Batch 8 + Batch 6 head-preview polish merged) surfaced six distinct issues: a double-menu-close race after backing out in Carrington Institute; saved action bindings populating the UI but not reaching the live input dispatcher; the Theme Customizer X button / Close button / click-outside dismiss all ineffective; the color picker popup broken inside the Theme Customizer; the main menu gamepad bumpers moving focus within the current tab instead of cycling top-level tabs; and user-saved custom themes never appearing in any Theme selection UI. Mike's direction: "Fix these with the Opus 1m thinking model." Worktree: `claude/infallible-napier` (aka `infallible-napier`).
+
+### Approach
+
+Investigated all six issues before writing any code, per the CLAUDE.md reasoning-discipline rule and the session brief's explicit "read ACTION_PAUSE dispatcher and imgui_menu IMC push path BEFORE writing any fix" instruction. The investigation revealed that Issues 3 and 4 share a single root cause (the theme editor's custom overlay + focus hack fighting ImGui's native popup system), and that Issues 1 and 4 both trace back to different flavours of stale-input-edge bugs. Full per-issue diagnosis in `context/scratch/playtest-fixes-2026-04-11.md`.
+
+- **Issue 1 (B-131, double-menu reopen)**: `renderMainMenu`'s `!IsWindowAppearing()` guard alone is insufficient because (a) `inputCtxShouldSuppressKey()` grace-guards only `SDL_KEYDOWN`, not `SDL_CONTROLLERBUTTONDOWN`, and (b) ImGui's event queue can land the opening-press IsKeyPressed edge on the frame AFTER appearing if poll/dispatch/NewFrame timing slips. Log evidence: `01:51.28 OPEN → 01:51.29 CLOSE` with no user input between. Fix: two-layer belt-and-braces — new `s_MainMenuOpenedTick` + 150 ms `MAIN_MENU_CLOSE_GRACE_MS` guard on the ESC/B close handler, plus explicit `io.AddKeyEvent(ImGuiKey_Escape/GamepadFaceRight, false)` on the appearing frame to force the ImGui key edge off.
+- **Issue 2 (B-132, saved bindings don't apply)**: `buildBindStr()` writes first-matching-IMC wins (breaks after first), but `actionmapLoadBinds()` applied the loaded string to EVERY IMC with `has_mapping[a]` set — cross-contaminating menu / pause_menu / text_input / debug_overlay with gameplay's triggers for shared actions (USE, CANCEL_USE, PAUSE). One-line fix: add `break;` after the first successful `parseBindStr()` call so load and save use the same first-match-wins semantics. Comment-only elaboration explains the symmetry.
+- **Issues 3 & 4 (B-130, theme editor close + color picker)**: hand-rolled overlay window with per-frame `SetNextWindowFocus()` fought ImGui's focus/z-order management. Title-bar X, Close button, and InvisibleButton click-outside all need the window to be the actual `HoveredWindow` at click time, and the focus thrash periodically stripped that status. Nested ColorEdit4 popups auto-dismissed because the overlay's SetNextWindowFocus stole focus from the just-opened picker. Fix: full rewrite of `renderThemeEditor` using native `BeginPopupModal` + `&p_open`. Three-layer exit: X button via &open, explicit Close button, rect-based click-outside detection suppressed by `IsAnyItemActive || IsAnyItemHovered` so clicks inside the color picker don't dismiss the modal. Escape-to-close comes free via ImGui's built-in modal behaviour. Deleted the old overlay-plus-focus-hack path entirely.
+- **Issue 5 (bumper tab nav)**: bumper checks in `renderSettingsView` and `renderMainMenu` polled `ImGuiKey_GamepadL1`/`R1`, but `NavEnableGamepad` is OFF (pdgui_backend.cpp:211) — ImGui ignores all `ImGuiKey_Gamepad*` inputs. `pdguiDriveImGuiNav()` at line 324–325 translates `ACTION_MENU_TAB_PREV`/`NEXT` to `ImGuiKey_PageUp`/`PageDown`. The unchecked injected key fell through to ImGui's default PgUp/PgDn nav (focus-up-by-page), producing Mike's "skip within tab" symptom. Fix: swap `GamepadL1/R1` → `PageUp/PageDown` in both bumper handlers. Underlying action-map LB/RB → `ACTION_MENU_TAB_PREV/NEXT` binding unchanged.
+- **Issue 6 (custom themes missing from selection)**: `pdguiThemeLoaderInit()` registered 7 built-ins but never walked `mods/` for theme.json files, and Settings → Debug's "UI Theme" selector used a hardcoded `s_ThemeNames[7]` loop that never iterated the registry. Three-piece fix:
+  1. `scan_mods_for_themes()` in `pdgui_theme_loader.cpp` using `<dirent.h>`+`<sys/stat.h>` — walks `mods/`, for each subdirectory registers `mods/<slug>/theme.json` under catalog ID `mod:<slug>` if present. Extracts the display name via a minimal string scan with a slug fallback. Called from `pdguiThemeLoaderInit` after built-in registration.
+  2. New public API `pdguiThemeRegisterModDir(slug, filepath)` + header declaration so the theme editor can register newly-saved themes immediately after `saveThemeAsMod()` succeeds, no restart required. Idempotent via `find_entry()` check.
+  3. `renderSettingsDebug()` theme selector grid rewritten to iterate `pdguiThemeGetCount()` / `GetId()` / `GetName()`. Built-ins retain their pre-tinted `s_ThemeAccentColors` via `pdguiThemeIdToPaletteIndex()` lookup; mod themes use a neutral purple/gold tint (`k_ModAccent`/`k_ModText`). A "Custom (from mods/)" header is injected once before the first mod button.
+
+### Changes
+
+- **M** `port/fast3d/pdgui_menu_mainmenu.cpp` (three edits):
+  - `renderSettingsView()` bumper checks: `ImGuiKey_GamepadL1`/`R1` → `ImGuiKey_PageUp`/`PageDown` + comment explaining the NavEnableGamepad=OFF chain.
+  - `renderMainMenu()` top-level bumper checks: same swap.
+  - `renderMainMenu()` IsWindowAppearing block: stamp `s_MainMenuOpenedTick = SDL_GetTicks()`, clear ImGui Escape/GamepadFaceRight key edges via `io.AddKeyEvent(..., false)`.
+  - `renderMainMenu()` ESC/B close handler: add `closeGracePending = (nowTick - s_MainMenuOpenedTick) < 150` guard.
+  - New file-static `s_MainMenuOpenedTick` + `#define MAIN_MENU_CLOSE_GRACE_MS 150` near the existing `s_MainMenuPushedCtx`.
+  - `renderSettingsDebug()` theme selector grid: rewritten to iterate the registry, add mod-theme tint, inject "Custom (from mods/)" header. Legacy `s_ThemeNames[7]` / `PDGUI_NUM_THEMES` statics left in place (no other caller, no behaviour change).
+- **M** `port/src/actionmap.cpp`:
+  - `actionmapLoadBinds()`: add `break;` after the first matching `parseBindStr()` call in the inner loop. Long comment explains first-match-wins symmetry with `buildBindStr()`, names the affected shared actions (USE/CANCEL_USE/PAUSE), and describes why the cross-contamination symptom was so quiet.
+- **M** `port/fast3d/pdgui_menu_theme_editor.cpp`:
+  - `renderThemeEditor()` fully rewritten: `BeginPopupModal` + `&p_open` + rect-based click-outside detection + suppression via `IsAnyItemActive/Hovered`. Banner comment documents why and lists the three bugs this closes.
+  - `pdguiThemeEditorRender()` collapsed to a simple forward to `renderThemeEditor()` — no more overlay window, no more `SetNextWindowFocus()` calls.
+  - `saveThemeAsMod()`: post-success call to `pdguiThemeRegisterModDir(dirName, themeJsonPath)` so the newly saved theme appears in the Load Theme dropdown + Settings UI Theme selector without a restart.
+- **M** `port/fast3d/pdgui_theme_loader.cpp`:
+  - `#include <dirent.h>` + `#include <sys/stat.h>` added.
+  - New static helpers `extract_theme_name()`, `register_mod_theme_dir()`, `scan_mods_for_themes()`.
+  - `pdguiThemeLoaderInit()` calls `scan_mods_for_themes()` after the built-in registration loop; log line updated to "init — %d themes registered (built-in + mods)".
+  - New public `extern "C"` function `pdguiThemeRegisterModDir(slug, filepath)` at the end of the extern block.
+- **M** `port/include/pdgui_theme_loader.h`:
+  - Declared `pdguiThemeRegisterModDir(const char *slug, const char *filepath)` with full doc comment about idempotency and use case.
+- **NEW** `context/scratch/playtest-fixes-2026-04-11.md`:
+  - Per-issue diagnosis, symptom, log evidence, root cause, fix, and verification plan. The scratch doc exists so that if any of these fixes regress, there's a single document to re-read.
+- **M** `context/bugs.md`: B-130 / B-131 / new B-132 entries marked FIXED with the Opus 1M session attribution and a one-paragraph each description of root cause + fix.
+- **M** `context/tasks-current.md`: added the Opus 1M playtest-fixes entry to the D5 / input system tables.
+- **M** `context/session-log.md`: this entry.
+
+### Zero function loss
+
+No legacy handler, action-map entry, or IMC removed. The theme editor's pdgui API (`Show/Hide/IsVisible/Render`) is unchanged externally. The rebind UI, action dispatch path, theme JSON parser, and built-in theme registration are all unchanged. The fixes are additive or narrowly-scoped edits to existing functions.
+
+Mike's standing rule `DO NOT touch pdgui_menu_solomission.cpp` respected — file untouched.
+
+### Build
+
+Configured `.claude/pf-build` from the worktree with `TEMP=/tmp` + explicit `C:/msys64/mingw64/bin/cmake.exe` invocation (avoiding the devkitPro cmake trap documented in S207). Configure clean.
+
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,681,524 bytes** (+45,442 vs pre-fix dev @ bfbb19b9's 49,636,082). Delta consistent with ~400 lines of new C++ across the theme loader, theme editor rewrite, main menu bumper fixes, and Issue 1 guard logic.
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,772,542 bytes** (-17,426 vs pre-fix 22,789,968 — build-order variance; the Issue 6 theme loader scan is in SRC_SERVER but has no runtime path impact on a headless server).
+
+Only warnings from the build are pre-existing: `modelasm_c.c` dangling-pointer note, `model.c` maybe-uninit on frac/frac2, `snd.c` strncpy truncation, `updater.h` stale `/*` in comment. Zero new warnings from the six fixes.
+
+### Result
+
+Six playtest bugs fixed in one commit. Both binaries link clean. Will merge to `dev` via `--no-ff` per the standing rule for worktree-to-dev promotion. Post-merge verification: re-run the headless build on dev to confirm line counts match and nothing drifted during merge.
+
 ## Session S207 — 2026-04-11 (D5 P3 Batch 6 polish: Live 3D head/body preview)
 
 **Focus**: Restore the legacy 3D character preview in the ImGui Simulant Character dialog (`renderMpSimulantCharacter`). Batch 6 dropped it as an intentional simplification per the scratch audit; Mike's direction is to do the full restore now rather than waiting for Batch 11, so the plumbing pattern is established early and reusable for weapon / vehicle preview surfaces later. Ran in parallel with Batch 8 on worktree `busy-lalande`, rebased onto dev after Batch 8 merged as `5063d3a3`.
