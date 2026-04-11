@@ -3,6 +3,61 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S198 — 2026-04-10 (Playtest triage v0.0.74 — B-129 agent save path fix + theme editor instrumentation)
+
+**Focus**: Three-part triage on Chris's v0.0.74 playtest (commit 20775345).
+
+### Task A — S197a in build?
+
+YES. Both S197a commits (`9ba39f84`, `94db4f5c`) are ancestors of `20775345`.
+Issues 1 and 3 are confirmed real residual bugs, not stale build artifacts.
+
+### Task B — Agent save path fix (B-129, incomplete from S190)
+
+Root cause: `saveInit()` was never called from `main.c` or `server_main.c`.
+`s_SaveDir` stayed `""` → `buildSavePath()` produced `/agent_smarch.json` (drive root).
+Windows UAC silently blocks root writes → `besttimes[]` never persisted →
+`isStageDifficultyUnlocked(stageindex+1)` returned false → game retried current stage.
+
+Fix: added `#include "savefile.h"` + `saveInit()` to both startup sequences.
+Commit `24f93fab` (worktree) cherry-picked to `dev` as `3fc345bf` (3 files, 8 insertions).
+Individual compilation verified clean: main.c.obj, server_main.c.obj, pdgui_menu_theme_editor.cpp.obj all exit 0, no new warnings.
+
+### Task C — Theme editor lifecycle instrumentation
+
+Added `sysLogPrintf` before each of the four `pdguiThemeEditorHide()` call sites:
+- Begin() collapsed+close path
+- Close button
+- Title-bar X button (`!open` after End)
+- InvisibleButton click-outside dismiss
+
+Next playtest log will reveal which path fires (or doesn't) when the user tries to close.
+
+### Diagnostic note — theme editor close (B-130)
+
+Z-order hypothesis: the Settings menu (persisted ImGui window from prior frame) may sit
+above the overlay in the z-stack, intercepting outside-area clicks before InvisibleButton.
+For the X button, working hypothesis is re-show race or focus state issue.
+**Do not fix without log evidence.**
+
+### Issue 3 — Start double-fire (B-131)
+
+Confirmed real. Deferred. Hypothesis: residual Start consume flag or lingering
+deferred-pop inputctx entry across `mainChangeToStage(0x30)`.
+
+### Context updated
+
+- bugs.md: B-129 FIXED (full), B-130 and B-131 OPEN
+- scratch: `context/scratch/playtest-triage-followup-2026-04-10.md`
+
+### Next steps
+
+1. Ship build with B-129 fix; playtest with Chris to confirm stage advance works
+2. Read next playtest log for B-130 instrumentation output
+3. Investigate B-131 (Start double-fire) in dedicated session
+
+---
+
 ## Session S197a — 2026-04-10 (Input regression diagnostic + fix, post-S196)
 
 **Focus**: Chase down the input regressions Mike noticed immediately after
