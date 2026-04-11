@@ -3,6 +3,48 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S206 — 2026-04-11 (D5 P3 Batch 8: MP Pause & In-Game)
+
+**Focus**: Complete D5 Phase 3 Batch 8 — replace the 6 legacy multiplayer pause / in-match dialogs (`g_MpPauseControlMenuDialog`, `g_MpPauseInventoryMenuDialog`, `g_MpPausePlayerStatsMenuDialog`, `g_MpPausePlayerRankingMenuDialog`, `g_MpPauseTeamRankingsMenuDialog`, `g_MpPlayerOptionsMenuDialog`) with ImGui renderers, preserving the same network-write paths the legacy dropdowns used (Mike's standing directive from Batch 7 carried forward: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
+
+### Approach
+
+- New file `port/fast3d/pdgui_menu_mppause.cpp` (1210 lines) owns all 6 renderers, cloning the `s205` shadow-struct pattern from `pdgui_menu_mpadvanced.cpp` with the suffix bumped to `s206`. Shadow types, MENUOP_* block, legacy-handler forward decls, dropdown/list/checkbox/plain-SET helpers + hub row helpers are all seeded up front from the Batch 4 lesson ("seed the MENUOP_* block before writing any renderer code to avoid the mid-flight gotcha"). The shadow struct is file-local — no new shared header.
+- **Standalone-file pattern** (Batch 7 precedent): the existing `pdgui_menu_mpingame.cpp` is reserved for the in-match kill ticker overlay and legacy endscreen dialog suppression and must not be polluted with pause-menu renderers. Batch 8 lives in a fresh `pdgui_menu_mppause.cpp`. `pdguiMpIngameRegister()` (ticker) and `pdguiMenuMpPauseRegister()` (Batch 8) are both wired into `pdguiMenusRegisterAll()` in `pdgui_menus.h` (+2 lines).
+- Renderer mapping (6 impls → 6 dialogs):
+  - `renderMpPauseControl` → `g_MpPauseControlMenuDialog` (11-item hub: challenge/scenario/limit labels with CHECKHIDDEN per row, live match-time readout via `menutextMatchTime(0)`, PC-dead pause toggle via `menuhandlerMpPause` (always hidden via legacy CHECKHIDDEN because `PLAYERCOUNT()==1` on PC), netplay-only team dropdown via `menuhandlerNetTeamSwitch`, netplay-only Controls push-row via `menuhandlerNetPauseControls`, End Game push to `g_MpEndGameMenuDialog`)
+  - `renderMpPauseInventory` → `g_MpPauseInventoryMenuDialog` (LIST via `menuhandlerInventoryList` MENUOP_GETOPTIONCOUNT/TEXT/SET/GETSELECTEDINDEX, SET uses `list.unk04=0` to match legacy equip semantics not device-toggle; marquee description via `mpMenuTextWeaponDescription(nullptr)`)
+  - `renderMpPausePlayerStats` → `g_MpPausePlayerStatsMenuDialog` (Stats-For dropdown via `mpStatsForPlayerDropdownHandler`; kills-vs-deaths ImGui table built from `mpGetPlayerRankings` + direct `mpchr->killcounts[]` reads; title text via `mpMenuTitleStatsFor(nullptr)`)
+  - `renderMpPausePlayerRanking` → `g_MpPausePlayerRankingMenuDialog` (pure read-only ImGui ranking table over `mpGetPlayerRankings`)
+  - `renderMpPauseTeamRankings` → `g_MpPauseTeamRankingsMenuDialog` (pure read-only ImGui team ranking table over `mpGetTeamRankings` + new `pdguiMppGetTeamName` bridge)
+  - `renderMpPlayerOptions` → `g_MpPlayerOptionsMenuDialog` (4 checkboxes via `menuhandlerMpDisplayOptionCheckbox` with MPDISPLAYOPTION_* param3 masks, writes `g_PlayerConfigsArray[g_MpPlayerNum].base.displayoptions`)
+- **Network match start / end wiring audit** (Mike's carry-forward requirement): 9 fields traced writer → backing global → start reader → end reader. Only ONE write propagates on the wire: in-match team switch via `menuhandlerNetTeamSwitch` → `g_NetLocalClient->settings.team` + `g_NetLocalClient->config->base.team` → `netClientSettingsChanged()` → `CLC_SETTINGS` serializer → server authoritative broadcast. Exact same code path the legacy N64 dropdown used; the s206 call-through is transparent. All other writes are local: `displayoptions` per-player read by `scenarios.c:735/771/773` and `radar.c:262` per-frame, `g_MpSelectedPlayersForStats[g_MpPlayerNum]` view-state only, inventory equip via same `bgunEquipWeapon2` path the player's normal "Next Weapon" input uses, PC-dead pause toggle. No new shadow/cache copies. Full audit table in `context/scratch/D5-P3-batch8-2026-04-11.md`.
+- **Two-word static removal in `src/game/mplayer/ingame.c`**: `menuhandlerNetTeamSwitch` and `menuhandlerNetPauseControls` were file-local `static` because they're only used in one menuitem array in ingame.c. The C++ renderer needs to call them through the s206 function-pointer delegate, so removed `static` on both (2 one-word edits). Grepped the codebase for any callers that rely on the static scope — none exist. Zero semantic change.
+- **Bridge accessor added**: new `pdguiMppGetTeamName(u32 team)` in `port/fast3d/pdgui_bridge.c` (+14 lines) so the C++ renderer does not have to clone `struct bossfile`. Single point of truth for the `g_BossFile.teamnames[team]` read used by Team Rankings.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_mppause.cpp` (+1210 lines): full Batch 8 implementation
+- **NEW** `context/scratch/D5-P3-batch8-2026-04-11.md` (+384 lines): dialog mapping, 9-row network audit, 20-row zero-function-loss audit, build outputs, integration pattern notes
+- `port/fast3d/pdgui_bridge.c` (811 → 825, +14): new `pdguiMppGetTeamName` accessor under a new section header
+- `port/include/pdgui_menus.h` (69 → 71, +2): declared + called `pdguiMenuMpPauseRegister()` in `pdguiMenusRegisterAll()`
+- `src/game/mplayer/ingame.c`: 2 one-word edits — removed `static` from `menuhandlerNetTeamSwitch` + `menuhandlerNetPauseControls`
+- `context/tasks-current.md`: Batch 8 entry appended to the D5 Phase 3 cell alongside the Batch 7 entry
+
+### Build
+
+- Fresh configure from worktree `determined-robinson` in `.claude/b8-out` (first attempt failed because `devkitPro` cmake was on PATH ahead of the msys64 one; explicit binary path + PATH prefix fixed it — documented in the scratch doc for future batches)
+- Client (`pd` target): `[100%] Built target pd`; `PerfectDark.exe` = **49,726,176 bytes** (+159,695 vs Batch 7's 49,566,481)
+- Server (`pd-server` target): `[100%] Built target pd-server`; `PerfectDarkServer.exe` = **22,773,054 bytes** (+1,536 vs Batch 7's 22,771,518; build-order variance — neither mppause.cpp, bridge, nor ingame.c is in SRC_SERVER whitelist)
+- Initial build raised 2 undefined references (`menuhandlerNetTeamSwitch`, `menuhandlerNetPauseControls`) because both handlers were `static` in ingame.c. Removing `static` fixed both. No new warnings from mppause.cpp itself.
+- Post-merge dev build verified clean (`.claude/b8-dev-verify`): both targets link with zero undefined references, zero new warnings.
+
+### Result
+
+Batch 8 done. 6 legacy pause/in-game dialogs now render through ImGui via hot-swap, with the one network-propagating write (in-match team switch) routed through the exact same `CLC_SETTINGS` serializer path the legacy N64 dropdown used. Zero function loss. Merged to dev via `--no-ff` as `950bf712`; post-merge line counts match pre-merge exactly (1210/1059/71/825/1167/384). Next up: Batch 11 (MP Player Config & Stats, 5 screens) or Batch 12 (Music & Misc, 4 screens) — both independent of Batch 8.
+
+---
+
 ## Session S205 — 2026-04-11 (D5 P3 Batch 7: MP Advanced / Quick paths)
 
 **Focus**: Complete D5 Phase 3 Batch 7 — replace 11 legacy navigation-hub dialogs in the Combat Simulator setup layer with ImGui renderers, with a mandatory network match start / end wiring audit (Mike's explicit direction: "Ensure any network play properly passes menu info into the relevant match start / end procedures").
