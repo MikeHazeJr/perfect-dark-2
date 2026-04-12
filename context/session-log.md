@@ -3,6 +3,30 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S218 — 2026-04-12 (Controller Bindings Fix — Radial Menu Accessible)
+
+**Focus**: Fix default controller bindings so radial menu/weapon gear is accessible on gamepad. Solo mission objectives requiring gadgets (CamSpy) were impossible to complete on controller.
+
+### Changes
+
+- **actionmap.cpp** — Default gamepad bindings reworked (+3 lines net):
+  - X button: dual-binds `ACTION_USE` + `ACTION_RELOAD` (context-dependent, cooldown already implemented)
+  - Y button: changed from `ACTION_USE` to `ACTION_WEAPON_NEXT` (weapon cycle)
+  - D-pad Left: changed from `ACTION_CBUTTON_LEFT` to `ACTION_DPAD_DOWN` (radial menu / weapon gear)
+  - LB/RB remain weapon prev/next as secondary bindings
+  - A button: unchanged (Jump)
+  - B button: unchanged (Cancel/Crouch)
+
+- **README.md** — Controller layout table updated to reflect new bindings
+
+### Root Cause
+D-pad buttons were all bound to C-button actions (legacy N64 look directions), not D-pad actions. The radial menu (`BUTTON_RADIAL = D_JPAD`) required `ACTION_DPAD_DOWN` to be fired, but no gamepad button was bound to any `ACTION_DPAD_*` action. Result: weapon gear completely unreachable on controller.
+
+### Decisions
+- Mike's layout: X=Interact+Reload, Y=Weapon Cycle, A=Jump, DpadLeft=Radial Menu
+- D-pad Up/Down/Right remain as C-buttons for legacy N64 look; D-pad Left reassigned to radial
+- Menu IMCs unaffected (they use D-pad for nav with higher priority, only active during menus)
+
 ## Session S217 — 2026-04-12 (Skin Editor Batches S-7 + S-8 + S-9 — FEATURE COMPLETE)
 
 **Focus**: Complete the Skin Editor feature: S-7 blend modes, S-8 UV wireframe, S-9 network sync. Worktree: `claude/goofy-noether`, continuing from S216.

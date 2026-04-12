@@ -10,6 +10,13 @@
 
 ### Input System
 
+#### Done (S218)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **Controller radial menu inaccessible** | FIXED (S218) | D-pad was all C-buttons; no gamepad button fired ACTION_DPAD_DOWN (radial). DpadLeft now opens radial menu. |
+| **Controller layout: X=interact+reload, Y=weapon cycle** | FIXED (S218) | X dual-binds USE+RELOAD. Y changed from USE to WEAPON_NEXT. DpadLeft=radial. A=jump, B=cancel/crouch unchanged. |
+
 #### Done (S189 + pre-S189)
 
 | Item | Status | Detail |
