@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-11, Batch 12 DONE (D5 P3 Batch 12 Music & Misc (4 dialogs) -- EXTENDED pdgui_menu_mpsettings.cpp 244->925 (s208 shadow ABI: tunes/soundtrack/team-names renderers) + pdgui_menu_challenges.cpp +21 (root dialog register) + pdgui_bridge.c +72 (team name get/set accessors) + pdgui_menu_warning.cpp -23 (fallback cleanup); network audit: 8 of 9 fields local-only g_BossFile, 1 WIRED via existing g_MpSetup -> SVC_STAGE_START; client +40KB, server unchanged.)
+> **Last updated**: 2026-04-12, S220 B-133 FIXED (inline Vp in display list caused GBI crash in character preview — pdgui_charpreview.c static Vp + gfx_pc.cpp PRIxPTR format fix)
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding

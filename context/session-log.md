@@ -3,6 +3,37 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S220 — 2026-04-12 (B-133: Inline Vp GBI Crash Fix)
+
+**Focus**: Fatal crash "Unknown GBI opcode 0x1ff02" when character preview renders.
+
+### Root Cause
+
+`pdguiCharPreviewRenderGBI()` embedded a `Vp` struct inline in the GBI display list buffer:
+```c
+Vp *vp = (Vp *)gdl;
+gdl = (Gfx *)((u8 *)gdl + sizeof(Vp));
+```
+
+The GBI interpreter in `gfx_run_dl()` walks the display list sequentially with `++cmd`. After processing the `G_SETFB_EXT` command, it landed on the Vp data and tried to execute it as a command. The viewport's `vscale[0] = 512 (0x0200)` became the opcode byte. On 64-bit, `uintptr_t w0 >> 24` captured all 8 bytes of the Vp, producing the bogus opcode `0x1FF02` (includes `G_MAXZ/2 = 0x01FF` from vscale[2]).
+
+### Fix
+
+- **`pdgui_charpreview.c`**: Replaced inline Vp allocation with a `static Vp s_PreviewVp` — the viewport data lives outside the display list, and `gSPViewport` just stores a pointer to it.
+- **`gfx_pc.cpp`**: Added `<cinttypes>` and fixed the `sysFatalError` format string to use `PRIxPTR` for the 64-bit `w0`/`w1` values (was `%08x` which is UB for `uintptr_t`).
+
+### Verification
+
+- Both client and server build clean (100%, linked)
+- Merged worktree `claude/focused-hellman` into `dev`
+
+### Next Steps
+
+- Mike: playtest character preview (agent select, room lobby, skin editor)
+- No other inline display list data patterns found in the codebase
+
+---
+
 ## Session S219 — 2026-04-12 (File Browser + Skin Preview Fix)
 
 **Focus**: Two issues — (1) add shared ImGui file browser for audio/skin import, (2) fix skin editor 3D preview not rendering.

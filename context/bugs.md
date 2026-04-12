@@ -58,6 +58,7 @@
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| B-133 | Inline Vp in display list caused GBI crash — charpreview embedded Vp data inline in GBI display list; interpreter tried to execute it as opcode 0x02 (vscale bytes), fatal error. Fix: static Vp. | S210 — pdgui_charpreview.c: s_PreviewVp static + gfx_pc.cpp: PRIxPTR format fix |
 | B-81 | JSON tokenizer unbounded recursion — crafted save nesting → stack overflow | S200 — savefile.c: S_MAX_DEPTH 64 guard + 256KB file size cap |
 | B-78 | Chat rebroadcast DoS amplification — no message size cap; rate limiter alone allowed 160KB/s per attacker | 2026-04-11 — netmsg.c: CHAT_MSG_MAX_LEN 255 + length check before rate-limit ring (cb6f4763) |
 | B-84 | Dead `tmp[1024]` in `netmsgSvcChatRead` | 2026-04-11 — removed alongside B-78 fix |
