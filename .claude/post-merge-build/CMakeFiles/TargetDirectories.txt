@@ -1,0 +1,6 @@
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/pd_headers.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/pd.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/pd-server.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/logview.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/edit_cache.dir
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/post-merge-build/CMakeFiles/rebuild_cache.dir
