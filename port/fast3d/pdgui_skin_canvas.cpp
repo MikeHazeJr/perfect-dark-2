@@ -511,6 +511,37 @@ void skinCanvasGetCompositePixel(s32 x, s32 y, u8 *r, u8 *g, u8 *b, u8 *a)
     if (a) *a = s_Composite[off + 3];
 }
 
+void skinCanvasSetLayerPixels(s32 idx, const u8 *rgba, s32 srcW, s32 srcH)
+{
+    if (!s_Initialized) return;
+    if (idx < 0 || idx >= s_NumLayers) return;
+    if (!rgba || !s_Layers[idx].pixels) return;
+
+    if (srcW == s_Width && srcH == s_Height) {
+        /* Exact match — direct copy */
+        memcpy(s_Layers[idx].pixels, rgba, (size_t)s_Width * s_Height * 4);
+    } else {
+        /* Scale with nearest-neighbor sampling */
+        u8 *dst = s_Layers[idx].pixels;
+        for (s32 dy = 0; dy < s_Height; dy++) {
+            s32 sy = dy * srcH / s_Height;
+            if (sy >= srcH) sy = srcH - 1;
+            for (s32 dx = 0; dx < s_Width; dx++) {
+                s32 sx = dx * srcW / s_Width;
+                if (sx >= srcW) sx = srcW - 1;
+                const u8 *sp = &rgba[(sy * srcW + sx) * 4];
+                s32 off = (dy * s_Width + dx) * 4;
+                dst[off + 0] = sp[0];
+                dst[off + 1] = sp[1];
+                dst[off + 2] = sp[2];
+                dst[off + 3] = sp[3];
+            }
+        }
+    }
+
+    s_Dirty = 1;
+}
+
 void skinCanvasMarkDirty(void) { s_Dirty = 1; }
 
 void skinCanvasUpdate(void)

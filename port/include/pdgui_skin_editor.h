@@ -95,6 +95,10 @@ void skinCanvasGetPixel(s32 x, s32 y, u8 *r, u8 *g, u8 *b, u8 *a);
 /** Get a pixel from the composited result. */
 void skinCanvasGetCompositePixel(s32 x, s32 y, u8 *r, u8 *g, u8 *b, u8 *a);
 
+/** Load RGBA pixel data into a specific layer.
+ *  Scales with nearest-neighbor if srcW/srcH differ from canvas size. */
+void skinCanvasSetLayerPixels(s32 idx, const u8 *rgba, s32 srcW, s32 srcH);
+
 /** Mark canvas dirty — triggers recomposite + GL upload next frame. */
 void skinCanvasMarkDirty(void);
 

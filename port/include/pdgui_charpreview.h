@@ -115,6 +115,21 @@ u32  pdguiCharPreviewGetSkinOverrideTexId(void);
 struct menu;
 Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu);
 
+/* ---- Skin Texture Capture (Batch S-9) ----
+ * One-shot capture of the original body texture from the GBI pipeline.
+ * Flow: request → wait for model load → render without override → readback.
+ *
+ * Call RequestSkinCapture to start.
+ * Call SkinCapturePoll each frame during ImGui phase.
+ * When SkinCaptureReady returns non-zero, call SkinCaptureGetPixels.
+ * Call SkinCaptureConsume when done to free the pixel buffer. */
+
+void  pdguiCharPreviewRequestSkinCapture(void);
+void  pdguiCharPreviewSkinCapturePoll(void);
+s32   pdguiCharPreviewSkinCaptureReady(void);
+u8   *pdguiCharPreviewSkinCaptureGetPixels(s32 *outW, s32 *outH);
+void  pdguiCharPreviewSkinCaptureConsume(void);
+
 #ifdef __cplusplus
 }
 #endif

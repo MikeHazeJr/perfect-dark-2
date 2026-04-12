@@ -147,6 +147,10 @@ static char s_ExportStatus[128] = "";
 static bool s_ExportOk          = false;
 static int  s_ExportMode        = 0;  /* 0 = Template (with UV guide), 1 = Clean */
 
+/* S-9: Base skin texture capture state */
+static bool s_CaptureRequested  = false;  /* Capture in progress */
+static bool s_CaptureLoaded     = false;  /* Base texture loaded into layer 0 */
+
 /* Character entries (for save dialog referencing selected char) */
 struct CharEntry {
     char id[64];
@@ -794,6 +798,8 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
         } else {
             ImGui::TextDisabled("(rendering...)");
         }
+    } else if (s_EditorActive && s_CaptureRequested && !s_CaptureLoaded) {
+        ImGui::TextDisabled("Capturing base skin texture...");
     } else {
         ImGui::TextDisabled("Select a character and\nclick 'New Skin' to begin.");
     }
@@ -883,7 +889,14 @@ static void renderCharacterSelector(float w, float h, float scale)
         /* S-8: Extract UV wireframe from body model */
         skinUvExtract(s_PreviewBodyId, canvasW, canvasH);
 
-        sysLogPrintf(LOG_NOTE, "skin_editor: new skin %dx%d for %s",
+        /* S-9: Request base skin texture capture.  The capture runs over
+         * the next few frames — the model needs to load first.  When
+         * complete, the captured pixels populate layer 0 (Background). */
+        s_CaptureRequested = true;
+        s_CaptureLoaded    = false;
+        pdguiCharPreviewRequestSkinCapture();
+
+        sysLogPrintf(LOG_NOTE, "skin_editor: new skin %dx%d for %s (capture requested)",
                      canvasW, canvasH, s_CharEntries[s_SelectedChar].id);
     }
 
@@ -893,6 +906,9 @@ static void renderCharacterSelector(float w, float h, float scale)
     if (s_EditorActive) {
         if (PdButton("Close Editor", ImVec2(-1, 28.0f * scale))) {
             pdguiCharPreviewClearSkinOverride();
+            pdguiCharPreviewSkinCaptureConsume();  /* S-9: cleanup */
+            s_CaptureRequested = false;
+            s_CaptureLoaded    = false;
             skinUvClear();
             skinCanvasDestroy();
             s_EditorActive = false;
@@ -1501,6 +1517,29 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
     /* Update canvas (recomposite + GL upload if dirty) */
     if (s_EditorActive) {
         skinCanvasUpdate();
+
+        /* S-9: Poll skin capture state machine.  This runs during the
+         * ImGui phase — the GBI has already executed so the FBO texture
+         * contains valid rendered data. */
+        pdguiCharPreviewSkinCapturePoll();
+
+        if (s_CaptureRequested && !s_CaptureLoaded) {
+            if (pdguiCharPreviewSkinCaptureReady()) {
+                s32 srcW = 0, srcH = 0;
+                u8 *pixels = pdguiCharPreviewSkinCaptureGetPixels(&srcW, &srcH);
+                if (pixels && srcW > 0 && srcH > 0) {
+                    /* Load captured texture into layer 0 (Background) */
+                    skinCanvasSetLayerPixels(0, pixels, srcW, srcH);
+                    skinCanvasMarkDirty();
+                    s_CaptureLoaded = true;
+                    sysLogPrintf(LOG_NOTE,
+                        "skin_editor: base texture loaded into layer 0 (%dx%d -> %dx%d)",
+                        srcW, srcH, skinCanvasGetWidth(), skinCanvasGetHeight());
+                }
+                pdguiCharPreviewSkinCaptureConsume();
+                s_CaptureRequested = false;
+            }
+        }
 
         /* S-2: Set skin override so the 3D preview uses our canvas texture */
         u32 canvasTex = skinCanvasGetGlTexture();

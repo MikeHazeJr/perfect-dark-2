@@ -323,6 +323,35 @@ static s32 s_SkinOverrideWidth  = 0;
 static s32 s_SkinOverrideHeight = 0;
 static s32 s_SkinOverrideActive = 0;
 
+/* ========================================================================
+ * Skin Texture Capture (Batch S-9)
+ *
+ * State machine for capturing the original body texture from the GBI
+ * pipeline.  The flow:
+ *   1. Caller requests capture (pdguiCharPreviewRequestSkinCapture)
+ *   2. Next render: override is suppressed, gfx_pc capture mode is active
+ *   3. After FBO pass: we read back the rendered model from the FBO
+ *   4. Caller polls pdguiCharPreviewSkinCaptureReady() and retrieves pixels
+ * ======================================================================== */
+
+#define SKIN_CAPTURE_IDLE       0
+#define SKIN_CAPTURE_WAITING    1  /* waiting for model to load (loaddelay) */
+#define SKIN_CAPTURE_RENDERING  2  /* model loaded, capture pass in progress */
+#define SKIN_CAPTURE_COMPLETE   3  /* pixels captured, ready to read */
+
+static s32  s_SkinCaptureState = SKIN_CAPTURE_IDLE;
+static s32  s_SkinCaptureDelay = 0;  /* frames to wait for model load */
+static u8  *s_SkinCapturePixels = NULL;
+static s32  s_SkinCaptureSrcW = 0;
+static s32  s_SkinCaptureSrcH = 0;
+
+/* gfx_pc.cpp capture API — extern declarations */
+extern void gfxSkinCaptureRequest(void);
+extern void gfxSkinCaptureFinalizeFbo(u32 fboTexId);
+extern s32  gfxSkinCaptureIsComplete(void);
+extern void gfxSkinCaptureGetResult(u32 *texId, s32 *texW, s32 *texH);
+extern void gfxSkinCaptureClear(void);
+
 void pdguiCharPreviewSetSkinOverride(u32 glTexId, s32 texWidth, s32 texHeight)
 {
     s_SkinOverrideTexId  = glTexId;
@@ -350,6 +379,63 @@ u32 pdguiCharPreviewGetSkinOverrideTexId(void)
 }
 
 /* ========================================================================
+ * Skin Texture Capture API (S-9)
+ * ======================================================================== */
+
+void pdguiCharPreviewRequestSkinCapture(void)
+{
+    /* Free any previous capture */
+    if (s_SkinCapturePixels) {
+        free(s_SkinCapturePixels);
+        s_SkinCapturePixels = NULL;
+    }
+    s_SkinCaptureSrcW = 0;
+    s_SkinCaptureSrcH = 0;
+
+    /* Start the delay — need 2 frames for the model to load.
+     * The charpreview render hook calls menuRenderModel which has a
+     * loaddelay phase.  We wait a few frames then trigger capture. */
+    s_SkinCaptureState = SKIN_CAPTURE_WAITING;
+    s_SkinCaptureDelay = 3;  /* 3 frames should cover loaddelay */
+
+    gfxSkinCaptureClear();
+
+    sysLogPrintf(LOG_NOTE, "skin_capture: capture requested, waiting %d frames",
+                 s_SkinCaptureDelay);
+}
+
+s32 pdguiCharPreviewSkinCaptureReady(void)
+{
+    return (s_SkinCaptureState == SKIN_CAPTURE_COMPLETE) ? 1 : 0;
+}
+
+u8 *pdguiCharPreviewSkinCaptureGetPixels(s32 *outW, s32 *outH)
+{
+    if (s_SkinCaptureState != SKIN_CAPTURE_COMPLETE || !s_SkinCapturePixels) {
+        if (outW) *outW = 0;
+        if (outH) *outH = 0;
+        return NULL;
+    }
+
+    if (outW) *outW = s_SkinCaptureSrcW;
+    if (outH) *outH = s_SkinCaptureSrcH;
+    return s_SkinCapturePixels;
+}
+
+void pdguiCharPreviewSkinCaptureConsume(void)
+{
+    /* Caller takes ownership — we just reset state */
+    if (s_SkinCapturePixels) {
+        free(s_SkinCapturePixels);
+        s_SkinCapturePixels = NULL;
+    }
+    s_SkinCaptureSrcW = 0;
+    s_SkinCaptureSrcH = 0;
+    s_SkinCaptureState = SKIN_CAPTURE_IDLE;
+    gfxSkinCaptureClear();
+}
+
+/* ========================================================================
  * GBI-Phase Render Hook
  * ======================================================================== */
 
@@ -368,6 +454,16 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 {
     if (!s_PreviewRequested || s_PreviewFb < 0) {
         return gdl;
+    }
+
+    /* Skin capture state machine: count down delay frames (S-9) */
+    if (s_SkinCaptureState == SKIN_CAPTURE_WAITING) {
+        s_SkinCaptureDelay--;
+        if (s_SkinCaptureDelay <= 0) {
+            s_SkinCaptureState = SKIN_CAPTURE_RENDERING;
+            gfxSkinCaptureRequest();
+            sysLogPrintf(LOG_NOTE, "skin_capture: delay elapsed, capture pass active");
+        }
     }
 
     /* menuRenderModel handles two phases:
@@ -440,4 +536,73 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     s_PreviewRequested = 0;
 
     return gdl;
+}
+
+/**
+ * Poll the skin capture state machine.  Must be called during the ImGui
+ * phase (after gfx_run has processed GBI commands) so the FBO texture
+ * contains valid rendered data.
+ *
+ * When the capture FBO pass completed this frame, reads back the FBO
+ * texture pixels and transitions to SKIN_CAPTURE_COMPLETE.
+ */
+void pdguiCharPreviewSkinCapturePoll(void)
+{
+    if (s_SkinCaptureState != SKIN_CAPTURE_RENDERING) {
+        return;
+    }
+
+    /* The capture pass was active this frame.  By the time ImGui renders,
+     * gfx_run_dl has processed the GBI and the preview FBO texture
+     * (s_PreviewTexId) contains the model rendered with the ORIGINAL body
+     * texture (since gfx_pc's capture mode suppressed the override).
+     *
+     * Read back the FBO color texture.  gfx_pc recorded the N64 body
+     * texture tile dimensions — we read the whole FBO and the caller can
+     * scale as needed. */
+
+    if (s_PreviewTexId == 0 || !s_PreviewReady) {
+        /* FBO didn't render yet — stay in RENDERING, try next frame */
+        return;
+    }
+
+    const s32 w = CHARPREVIEW_WIDTH;
+    const s32 h = CHARPREVIEW_HEIGHT;
+
+    u8 *pixels = (u8 *)malloc((size_t)w * h * 4);
+    if (!pixels) {
+        sysLogPrintf(LOG_WARNING, "skin_capture: malloc failed for %dx%d readback", w, h);
+        s_SkinCaptureState = SKIN_CAPTURE_IDLE;
+        gfxSkinCaptureClear();
+        return;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, s_PreviewTexId);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    /* Get the N64 body texture dimensions from the capture result.
+     * If gfx_pc didn't record them (model didn't render a texture),
+     * use the FBO dimensions as fallback. */
+    s32 srcW = 0, srcH = 0;
+    gfxSkinCaptureGetResult(NULL, &srcW, &srcH);
+    if (srcW <= 0 || srcH <= 0) {
+        srcW = w;
+        srcH = h;
+    }
+
+    /* Store the FBO pixels (full 256x256 render).  The caller will use
+     * the N64 texture dimensions for proper scaling into the canvas. */
+    if (s_SkinCapturePixels) {
+        free(s_SkinCapturePixels);
+    }
+    s_SkinCapturePixels = pixels;
+    s_SkinCaptureSrcW = w;  /* FBO dimensions — full rendered frame */
+    s_SkinCaptureSrcH = h;
+
+    s_SkinCaptureState = SKIN_CAPTURE_COMPLETE;
+    gfxSkinCaptureClear();
+
+    sysLogPrintf(LOG_NOTE, "skin_capture: readback complete %dx%d (body tex %dx%d)",
+                 w, h, srcW, srcH);
 }
