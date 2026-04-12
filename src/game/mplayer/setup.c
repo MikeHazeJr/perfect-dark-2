@@ -29,6 +29,7 @@
 #include "mpsetups.h"
 #include "game/mplayer/participant.h"
 #include "net/net.h"
+#include "net/matchsetup.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
 
@@ -518,6 +519,8 @@ MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menui
 		return (uintptr_t) mpGetWeaponSetName(data->dropdown.value);
 	case MENUOP_SET:
 		mpSetWeaponSet(data->dropdown.value);
+		/* Sync match config so matchStart() uses the correct weapon set */
+		g_MatchConfig.weaponSetIndex = (s8)data->dropdown.value;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = mpGetWeaponSet();
@@ -3386,7 +3389,13 @@ MenuItemHandlerResult menuhandlerMpSimulantHead(s32 operation, struct menuitem *
 MenuItemHandlerResult menuhandlerMpSimulantBody(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		mpchrSetBodyByIndex(&g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base, data->carousel.value);
+		struct mpchrconfig *cfg = &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base;
+		/* Auto-select the default head for this body (same as player handler) */
+		if (cfg->mpheadnum < mpGetNumHeads()) {
+			s32 dh = catalogGetBodyDefaultMpHeadIdx(data->carousel.value);
+			mpchrSetHeadByIndex(cfg, dh >= 0 ? dh : 0);
+		}
+		mpchrSetBodyByIndex(cfg, data->carousel.value);
 	}
 
 	return mpCharacterBodyMenuHandler(operation, item, data,

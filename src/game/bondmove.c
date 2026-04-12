@@ -2166,7 +2166,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	s32 usereloads = (controlmode != CONTROLMODE_PC);
 	usereloads = usereloads || PLAYER_EXTCFG().usereloads;
 	if (controlmode == CONTROLMODE_PC && movedata.alt1tapcount) {
-		g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD;
+		/* PC: X/Reload is context-dependent — try interact first, reload if
+		 * nothing interactable is nearby.  Setting both flags lets the
+		 * JO_ACTION_ACTIVATE check in lv.c run first; if currentPlayerInteract()
+		 * succeeds it cancels the reload automatically. */
+		g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD | JO_ACTION_ACTIVATE;
 	}
 	if (movedata.btapcount) {
 		g_Vars.currentplayer->activatetimelast = g_Vars.currentplayer->activatetimethis;
