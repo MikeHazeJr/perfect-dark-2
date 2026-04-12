@@ -779,8 +779,13 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			? g_MatchConfig.spawn_weapon_id : "");
 
 		/* A-7: mod track ID for network-synced mod audio.
-		 * Host's selected mod track is sent so clients play the same music. */
+		 * Host's selected mod track is sent so clients play the same music.
+		 * Server build has no audio state — write empty string as placeholder. */
+#if !defined(PD_SERVER)
 		netbufWriteStr(dst, audioGetModTrackId());
+#else
+		netbufWriteStr(dst, "");
+#endif
 	}
 
 	// who the fuck is in the game
@@ -999,9 +1004,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 		/* A-7: read host's mod track ID for network-synced mod audio.
 		 * If non-empty, the client will use this mod track at match start
-		 * instead of their own selection — host's music is authoritative. */
+		 * instead of their own selection — host's music is authoritative.
+		 * Server build discards this field (no audio state). */
 		{
 			const char *modtrack_str = netbufReadStr(src);
+#if !defined(PD_SERVER)
 			const char *modtrack = modtrack_str ? modtrack_str : "";
 			if (modtrack[0]) {
 				audioSetModTrackId(modtrack);
@@ -1009,6 +1016,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 					modtrack);
 			}
 			/* If empty, keep client's own mod track setting — host has no mod music */
+#else
+			(void)modtrack_str;
+#endif
 		}
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}

@@ -2467,9 +2467,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
         nio.AddKeyEvent(ImGuiKey_GamepadStart, false);
         nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
         nio.AddKeyEvent(ImGuiKey_Enter, false);
-        /* Clear nav active ID — prevent stale gamepad focus from
-         * auto-selecting a button before user deliberately navigates. */
-        ImGui::ClearActiveID();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
