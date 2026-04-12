@@ -36,6 +36,8 @@
 #include "mpsetups.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
+#include "audio.h"
+#include "modmusic.h"
 #include "game/bg.h"
 
 #include "system.h"
@@ -3326,6 +3328,21 @@ s32 mpChooseTrack(void)
 {
 	s32 i;
 	s32 tracknum;
+
+	/* Batch A-4: If a mod track is selected (catalog ID in pd.ini),
+	 * resolve it and start mod music playback. Return -2 to suppress
+	 * the N64 sequencer — musicStartPrimary skips when track < 0. */
+	{
+		const char *modId = audioGetModTrackId();
+		if (modId && modId[0]) {
+			catalog_audio_result_t ar;
+			if (catalogResolveAudio(modId, &ar) && ar.file_path && ar.file_path[0]) {
+				modMusicPlay(ar.file_path);
+				return -2;
+			}
+			/* Catalog entry missing/invalid — fall through to base music */
+		}
+	}
 
 	if (mpGetUsingMultipleTunes()) {
 		s32 numunlocked = mpGetNumUnlockedTracks();
