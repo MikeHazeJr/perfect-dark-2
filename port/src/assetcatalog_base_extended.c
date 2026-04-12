@@ -8,6 +8,7 @@
  *   ASSET_PROP      -- 8 base prop categories (PROPTYPE_* constants)
  *   ASSET_GAMEMODE  -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
  *   ASSET_AUDIO     -- 1545 SFX entries (full main bank, 0x0000..0x0608)
+ *                   -- 43 music tracks (g_MpTracks[], AUDIO_CAT_MUSIC)
  *   ASSET_HUD       -- 6 HUD element categories (HUD_ELEM_*)
  *   ASSET_LANG      -- 68 language string banks (LANGBANK_* constants)
  *
@@ -210,6 +211,68 @@ static const struct {
  * category = 0 (AUDIO_CAT_SFX) for all base SFX entries.
  */
 #define NUM_BASE_SFX_ENTRIES 1545
+
+/* ========================================================================
+ * Music Track Table (base game)
+ *
+ * Maps g_MpTracks[] index to human-readable catalog slug + display name.
+ * musicnum is the N64 sequencer index (MUSIC_* enum from sequences.h).
+ * duration is in seconds (from g_MpTracks[].duration field).
+ * Slug format: "track_<descriptive_name>" — matches catalog ID mandate.
+ * ======================================================================== */
+
+static const struct {
+	s32         musicnum;     /* MUSIC_* enum value (from sequences.h via constants.h) */
+	s32         duration;     /* seconds (from g_MpTracks[].duration) */
+	const char *slug;         /* catalog slug (without "base:" prefix) */
+	const char *display_name; /* human-readable display name */
+} s_BaseMusicTracks[] = {
+	{ MUSIC_DARK_COMBAT,       160, "track_dark_combat",           "Dark Combat" },
+	{ MUSIC_SKEDAR_MYSTERY,    170, "track_skedar_mystery",        "Skedar Mystery" },
+	{ MUSIC_CI_OPERATIVE,      170, "track_ci_operative",          "CI Operative" },
+	{ MUSIC_DATADYNE_ACTION,   180, "track_datadyne_action",       "dataDyne Action" },
+	{ MUSIC_MAIAN_TEARS,       200, "track_maian_tears",           "Maian Tears" },
+	{ MUSIC_ALIEN_CONFLICT,    197, "track_alien_conflict",        "Alien Conflict" },
+	{ MUSIC_CI,                120, "track_carrington_institute",  "Carrington Institute" },
+	{ MUSIC_DEFECTION,         120, "track_dd_central",            "dD Central" },
+	{ MUSIC_DEFECTION_X,       120, "track_dd_central_x",          "dD Central X" },
+	{ MUSIC_INVESTIGATION,     120, "track_dd_research",           "dD Research" },
+	{ MUSIC_INVESTIGATION_X,   120, "track_dd_research_x",         "dD Research X" },
+	{ MUSIC_EXTRACTION,        120, "track_dd_extraction",         "dD Extraction" },
+	{ MUSIC_EXTRACTION_X,      120, "track_dd_extraction_x",       "dD Extraction X" },
+	{ MUSIC_VILLA,             120, "track_carrington_villa",      "Carrington Villa" },
+	{ MUSIC_VILLA_X,           120, "track_carrington_villa_x",    "Carrington Villa X" },
+	{ MUSIC_CHICAGO,           120, "track_chicago",               "Chicago" },
+	{ MUSIC_CHICAGO_X,         120, "track_chicago_x",             "Chicago X" },
+	{ MUSIC_G5,                120, "track_g5_building",           "G5 Building" },
+	{ MUSIC_G5_X,              120, "track_g5_building_x",         "G5 Building X" },
+	{ MUSIC_INFILTRATION,      120, "track_a51_infiltration",      "A51 Infiltration" },
+	{ MUSIC_INFILTRATION_X,    120, "track_a51_infiltration_x",    "A51 Infiltration X" },
+	{ MUSIC_RESCUE,            120, "track_a51_rescue",            "A51 Rescue" },
+	{ MUSIC_RESCUE_X,          120, "track_a51_rescue_x",          "A51 Rescue X" },
+	{ MUSIC_ESCAPE,            120, "track_a51_escape",            "A51 Escape" },
+	{ MUSIC_ESCAPE_X,          120, "track_a51_escape_x",          "A51 Escape X" },
+	{ MUSIC_AIRBASE,           120, "track_air_base",              "Air Base" },
+	{ MUSIC_AIRBASE_X,         120, "track_air_base_x",            "Air Base X" },
+	{ MUSIC_AIRFORCEONE,       120, "track_air_force_one",         "Air Force One" },
+	{ MUSIC_AIRFORCEONE_X,     120, "track_air_force_one_x",       "Air Force One X" },
+	{ MUSIC_CRASHSITE,         120, "track_crash_site",            "Crash Site" },
+	{ MUSIC_CRASHSITE_X,       120, "track_crash_site_x",          "Crash Site X" },
+	{ MUSIC_PELAGIC,           120, "track_pelagic_ii",            "Pelagic II" },
+	{ MUSIC_PELAGIC_X,         120, "track_pelagic_ii_x",          "Pelagic II X" },
+	{ MUSIC_DEEPSEA,           120, "track_deep_sea",              "Deep Sea" },
+	{ MUSIC_DEEPSEA_X,         120, "track_deep_sea_x",            "Deep Sea X" },
+	{ MUSIC_DEFENSE,           120, "track_institute_defense",     "Institute Defense" },
+	{ MUSIC_DEFENSE_X,         120, "track_institute_defense_x",   "Institute Defense X" },
+	{ MUSIC_ATTACKSHIP,        120, "track_attack_ship",           "Attack Ship" },
+	{ MUSIC_ATTACKSHIP_X,      120, "track_attack_ship_x",         "Attack Ship X" },
+	{ MUSIC_SKEDARRUINS,       120, "track_skedar_ruins",          "Skedar Ruins" },
+	{ MUSIC_SKEDARRUINS_X,     120, "track_skedar_ruins_x",        "Skedar Ruins X" },
+	{ MUSIC_CREDITS,           120, "track_end_credits",           "End Credits" },
+	{ MUSIC_SKEDARRUINS_KING,  120, "track_skedar_warrior",        "Skedar Warrior" },
+};
+
+#define NUM_BASE_MUSIC_TRACKS (sizeof(s_BaseMusicTracks) / sizeof(s_BaseMusicTracks[0]))
 
 /* ========================================================================
  * HUD Table
@@ -463,7 +526,33 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries (SFX)", n);
+		count += n;
+	}
+
+	/* ---- music tracks (AUDIO_CAT_MUSIC) ---- */
+	{
+		s32 n = 0;
+		for (s32 i = 0; i < (s32)NUM_BASE_MUSIC_TRACKS; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseMusicTracks[i].slug);
+			asset_entry_t *e = assetCatalogRegisterAudio(
+				idbuf,
+				s_BaseMusicTracks[i].musicnum,
+				s_BaseMusicTracks[i].display_name,
+				AUDIO_CAT_MUSIC,
+				s_BaseMusicTracks[i].duration * 1000, /* seconds -> ms */
+				"");
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register music track %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = i; /* index into g_MpTracks[] */
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base music tracks", n);
 		count += n;
 	}
 

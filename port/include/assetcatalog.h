@@ -708,6 +708,14 @@ typedef struct {
     u16                  session_id;
 } catalog_prop_result_t;
 
+/** Result struct for audio asset resolution (Batch A-1). */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  sound_id;   /**< MUSIC_* enum for music, SFX index for SFX */
+    s32                  category;   /**< AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
+    const char          *file_path;  /**< disk path for mod audio, "" for ROM-embedded */
+} catalog_audio_result_t;
+
 /* ── SA-2: Resolution by catalog string ID ─────────────────────────────── */
 
 /** Resolve a body asset by catalog string ID. Returns 1 on success, 0 on failure. */
@@ -724,6 +732,9 @@ s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out);
 
 /** Resolve a prop asset by catalog string ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolveProp(const char *id, catalog_prop_result_t *out);
+
+/** Resolve an audio asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out);
 
 /* ── SA-2: Resolution by session wire ID ───────────────────────────────── */
 
