@@ -122,6 +122,21 @@ s32  skinCanvasUndo(void);
 /** Redo last undone stroke. Returns 0 on success, -1 if nothing to redo. */
 s32  skinCanvasRedo(void);
 
+/* ---- UV Wireframe (pdgui_skin_uv.cpp, S-8) ---- */
+
+/** Extract UV coordinates from a body model for wireframe overlay.
+ *  texW/texH are the canvas dimensions for normalization. */
+void skinUvExtract(const char *body_id, s32 texW, s32 texH);
+
+/** Clear extracted UV data. */
+void skinUvClear(void);
+
+/** Get number of UV wireframe lines. */
+s32  skinUvGetNumLines(void);
+
+/** Get a UV line segment (normalized 0..1 coordinates). */
+void skinUvGetLine(s32 idx, f32 *u0, f32 *v0, f32 *u1, f32 *v1);
+
 /* ---- Editor UI (pdgui_skin_editor.cpp) ---- */
 
 /** Called from Modding Hub when Skin Editor tab is selected.
