@@ -1660,8 +1660,19 @@ bool currentPlayerInteract(bool eyespy)
 	prop = propFindForInteract(eyespy);
 
 	if (prop) {
-		// if we aren't the authority, don't do anything
 		if (g_NetMode == NETMODE_CLIENT) {
+			/* Client-side prediction for doors: locally start the door
+			 * opening so the player sees immediate feedback instead of
+			 * waiting for the server round-trip.  The server will send
+			 * SVC_PROP_DOOR with the authoritative mode — if it differs
+			 * (e.g. door was locked), the client corrects.
+			 *
+			 * Non-door interact (OBJ, WEAPON) stays server-authoritative
+			 * because pickups/switches have inventory side-effects that
+			 * the client can't safely predict. */
+			if (prop->type == PROPTYPE_DOOR) {
+				propdoorInteract(prop);
+			}
 			return false;
 		}
 

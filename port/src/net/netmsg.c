@@ -1966,7 +1966,7 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 			-1,                     // pad
 			OBJFLAG_FALL,           // flags
 			0,                      // flags2
-			0,                      // flags3
+			OBJFLAG3_WALKTHROUGH,   // flags3 — weapon pickups must be walkthrough, not solid
 			NULL,                   // prop
 			NULL,                   // model
 			1, 0, 0,                // realrot

@@ -157,60 +157,31 @@ Gfx *conRender(Gfx *gdl)
 		return gdl;
 	}
 
-	gdl = text0f153628(gdl);
-
-	if (!conOpen) {
+	/* GBI console overlay is permanently disabled — ImGui console is the
+	 * sole interactive console.  Only render notification messages here. */
+	if (conMsgRows > 0) {
+		gdl = text0f153628(gdl);
 		gSPExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT, G_ASPECT_LEFT_EXT);
 		gdl = conRenderMsgs(gdl);
-	} else {
-		s32 x, y;
-		gSPExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT, G_ASPECT_CENTER_EXT);
-		gdl = hudmsgRenderBox(gdl, 16, 0, SCREEN_WIDTH_LO - 16, 4 + 8 * (CON_VISROWS + 1), 1.f, conTextColour, 0.9f);
-		for (s32 i = 0; i < CON_VISROWS; ++i) {
-			char *s = conVisRows[i];
-			if (s) {
-				x = 18;
-				y = 4 + 8 * (CON_VISROWS - i - 1);
-				gdl = textRenderProjected(gdl, &x, &y, s, g_CharsHandelGothicXs, g_FontHandelGothicXs, conTextColour, viGetWidth(), viGetHeight(), 0, 0);
-			}
-		}
-		char tmp[CON_COLS + 3];
-		snprintf(tmp, sizeof(tmp), "> %s", conInput);
-		x = 18;
-		y = 4 + 8 * CON_VISROWS;
-		gdl = textRenderProjected(gdl, &x, &y, tmp, g_CharsHandelGothicXs, g_FontHandelGothicXs, conTextColour, viGetWidth(), viGetHeight(), 0, 0);
+		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+		gdl = text0f153780(gdl);
 	}
-
-	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
-
-	gdl = text0f153780(gdl);
 
 	return gdl;
 }
 
 void conTick(void)
 {
-	/* Action map: backtick → ACTION_CONSOLE_TOGGLE (edge-triggered) */
-	if (actionPressed(0, ACTION_CONSOLE_TOGGLE)) {
-		conOpen = !conOpen;
-		g_MenuKeyboardPlayer = -1;
-		if (conOpen) {
-			inputClearLastTextChar();
-			inputStartTextInput();
-		} else {
-			inputStopTextInput();
-		}
-	}
-
-	if (conOpen) {
-		if (inputTextHandler(conInput, CON_COLS, &conInputCol, false)) {
-			if (g_NetMode) {
-				netChat(NULL, conInput);
-			}
-			conInput[0] = '\0';
-			conInputCol = 0;
-		}
-	}
+	/* GBI console is disabled — ImGui console (pdguiConsoleToggle in
+	 * gfx_sdl2.cpp / pdgui_backend.cpp) is the sole console overlay.
+	 * The old GBI text rendering path crashed during gameplay because
+	 * hudmsgRenderBox / textRenderProjected depend on game rendering
+	 * state that isn't always initialized (access violation on backtick
+	 * during Combat Simulator).
+	 *
+	 * conRender() still draws notification messages (conMsgRows > 0)
+	 * when conOpen == 0, which is safe — those only use the font
+	 * pointers which are NULL-guarded at the top of conRender(). */
 }
 
 s32 conIsOpen(void)
