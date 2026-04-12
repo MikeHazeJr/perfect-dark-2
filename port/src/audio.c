@@ -1,9 +1,11 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
+#include <string.h>
 #include <SDL.h>
 #include "platform.h"
 #include "config.h"
 #include "audio.h"
+#include "modmusic.h"
 #include "system.h"
 
 static SDL_AudioDeviceID dev;
@@ -105,11 +107,31 @@ void audioSetNextBuffer(const s16 *buf, u32 len)
 	nextSize = len;
 }
 
+/* Writable mix buffer for blending mod music into the N64 RSP output.
+ * nextBuf is const (RSP output is read-only), so when mod music is
+ * active we copy into this buffer, mix mod PCM on top, then queue it. */
+static s16 s_MixBuf[8192]; /* 8192 samples = 4096 stereo frames — covers any realistic frame */
+
 void audioEndFrame(void)
 {
 	if (nextBuf && nextSize) {
 		if (audioGetSamplesBuffered() < queueLimit) {
-			SDL_QueueAudio(dev, nextBuf, nextSize);
+			if (modMusicIsPlaying()) {
+				/* Copy N64 output into writable buffer, mix mod music on top */
+				u32 numSamples = nextSize / sizeof(s16);
+				u32 numFrames = numSamples / 2;
+
+				if (numSamples > sizeof(s_MixBuf) / sizeof(s16)) {
+					numSamples = sizeof(s_MixBuf) / sizeof(s16);
+					numFrames = numSamples / 2;
+				}
+
+				memcpy(s_MixBuf, nextBuf, numSamples * sizeof(s16));
+				modMusicMixInto(s_MixBuf, numFrames);
+				SDL_QueueAudio(dev, s_MixBuf, numSamples * sizeof(s16));
+			} else {
+				SDL_QueueAudio(dev, nextBuf, nextSize);
+			}
 		}
 		nextBuf = NULL;
 		nextSize = 0;
