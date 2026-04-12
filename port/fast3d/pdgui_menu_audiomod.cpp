@@ -71,10 +71,10 @@ void assetCatalogIterateByType(asset_type_e type,
  * Constants
  * ======================================================================== */
 
-#define AUDIOMOD_MAX_ENTRIES  2048  /* must exceed base SFX (1545) + music (43) + mods */
 #define AUDIOMOD_PATH_LEN    256
 #define AUDIOMOD_NAME_LEN    64
 #define AUDIOMOD_ID_LEN      CATALOG_ID_LEN
+#define AUDIOMOD_INITIAL_CAP 256   /* initial alloc; grows 2x as needed */
 
 /* Log level constants (matching system.h values) */
 #ifndef LOG_NOTE
@@ -114,9 +114,10 @@ struct AudioModEntry {
     s32  bundled;
 };
 
-static AudioModEntry s_AudioEntries[AUDIOMOD_MAX_ENTRIES];
-static int           s_AudioNumEntries  = 0;
-static int           s_AudioSelected    = -1;
+static AudioModEntry *s_AudioEntries   = nullptr;
+static int           s_AudioNumEntries = 0;
+static int           s_AudioCapacity   = 0;
+static int           s_AudioSelected   = -1;
 static int           s_AudioCategoryTab = -1;    /* -1=All, 0=SFX, 1=Music, 2=Voice */
 static bool          s_AudioPreviewing  = false;  /* true while preview is active */
 
@@ -135,20 +136,41 @@ static bool s_AudioStatusOk       = true;
 
 #define PACK_MAX_TRACKS 64
 
-static bool s_PackCreatorOpen   = false;
-static char s_PackName[128]     = "";
-static char s_PackVersion[32]   = "1.0.0";
-static bool s_PackTrackSelected[AUDIOMOD_MAX_ENTRIES]; /* parallel to s_AudioEntries */
-static int  s_PackNumMusicTracks = 0; /* count of music entries for display */
+static bool  s_PackCreatorOpen   = false;
+static char  s_PackName[128]     = "";
+static char  s_PackVersion[32]   = "1.0.0";
+static bool *s_PackTrackSelected = nullptr; /* parallel to s_AudioEntries, same capacity */
+static int   s_PackNumMusicTracks = 0; /* count of music entries for display */
 
 /* ========================================================================
  * Helpers — catalog iteration
  * ======================================================================== */
 
+/** Ensure s_AudioEntries and s_PackTrackSelected can hold at least `needed` entries. */
+static void audioModEnsureCapacity(int needed)
+{
+    if (needed <= s_AudioCapacity) return;
+    int newCap = s_AudioCapacity ? s_AudioCapacity : AUDIOMOD_INITIAL_CAP;
+    while (newCap < needed) newCap *= 2;
+
+    s_AudioEntries = (AudioModEntry *)realloc(s_AudioEntries,
+                                               (size_t)newCap * sizeof(AudioModEntry));
+    s_PackTrackSelected = (bool *)realloc(s_PackTrackSelected,
+                                           (size_t)newCap * sizeof(bool));
+    /* Zero the newly allocated region */
+    if (newCap > s_AudioCapacity) {
+        memset(&s_AudioEntries[s_AudioCapacity], 0,
+               (size_t)(newCap - s_AudioCapacity) * sizeof(AudioModEntry));
+        memset(&s_PackTrackSelected[s_AudioCapacity], 0,
+               (size_t)(newCap - s_AudioCapacity) * sizeof(bool));
+    }
+    s_AudioCapacity = newCap;
+}
+
 static void audioModCollectCallback(const asset_entry_t *e, void *ud)
 {
     int *n = (int *)ud;
-    if (*n >= AUDIOMOD_MAX_ENTRIES) return;
+    audioModEnsureCapacity(*n + 1);
 
     AudioModEntry &ae = s_AudioEntries[*n];
     strncpy(ae.id, e->id, AUDIOMOD_ID_LEN - 1);
@@ -175,6 +197,10 @@ void pdguiAudioModRefresh(void)
     s_AudioNumEntries = 0;
     assetCatalogIterateByType(ASSET_AUDIO, audioModCollectCallback,
                               &s_AudioNumEntries);
+    /* Clear pack selection for current capacity */
+    if (s_PackTrackSelected && s_AudioCapacity > 0) {
+        memset(s_PackTrackSelected, 0, (size_t)s_AudioCapacity * sizeof(bool));
+    }
     s_AudioSelected   = -1;
     s_AudioPreviewing = false;
     s_AudioStatusMsg[0] = '\0';
@@ -497,7 +523,7 @@ static void renderPackCreator(float contentW, float scale)
     if (!s_PackCreatorOpen) {
         if (PdButtonAudio("Open Pack Creator##aud_pk", ImVec2(180.0f * scale, 0.0f))) {
             s_PackCreatorOpen = true;
-            memset(s_PackTrackSelected, 0, sizeof(s_PackTrackSelected));
+            if (s_PackTrackSelected) memset(s_PackTrackSelected, 0, (size_t)s_AudioCapacity * sizeof(bool));
             s_PackName[0] = '\0';
             snprintf(s_PackVersion, sizeof(s_PackVersion), "1.0.0");
         }
@@ -560,7 +586,7 @@ static void renderPackCreator(float contentW, float scale)
     }
     ImGui::SameLine();
     if (PdButtonAudio("None##pk", ImVec2(48.0f * scale, 22.0f * scale))) {
-        memset(s_PackTrackSelected, 0, sizeof(s_PackTrackSelected));
+        if (s_PackTrackSelected) memset(s_PackTrackSelected, 0, (size_t)s_AudioCapacity * sizeof(bool));
     }
     ImGui::SameLine();
     ImGui::TextDisabled("%d / %d selected", selectedCount, musicCount);
