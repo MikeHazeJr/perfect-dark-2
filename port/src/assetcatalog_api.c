@@ -111,6 +111,15 @@ static void s_fillPropResult(const asset_entry_t *e, catalog_prop_result_t *out)
     out->session_id = sessionCatalogLookupWireId(e->id);
 }
 
+static void s_fillAudioResult(const asset_entry_t *e, catalog_audio_result_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->entry     = e;
+    out->sound_id  = e->ext.audio.sound_id;
+    out->category  = e->ext.audio.category;
+    out->file_path = e->ext.audio.file_path;
+}
+
 /* -------------------------------------------------------------------------
  * Resolution by catalog string ID
  * ------------------------------------------------------------------------- */
@@ -187,6 +196,21 @@ s32 catalogResolveProp(const char *id, catalog_prop_result_t *out)
         return 0;
     }
     s_fillPropResult(e, out);
+    return 1;
+}
+
+s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out)
+{
+    const asset_entry_t *e;
+
+    memset(out, 0, sizeof(*out));
+    e = assetCatalogResolve(id);
+    if (!e || e->type != ASSET_AUDIO) {
+        sysLogPrintf(LOG_WARNING, "[CATALOG-ERROR] catalogResolveAudio: '%s' not found or wrong type",
+                     id ? id : "(null)");
+        return 0;
+    }
+    s_fillAudioResult(e, out);
     return 1;
 }
 
