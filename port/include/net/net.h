@@ -9,7 +9,9 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 32  /* v32: scenario identity uses catalog ID string on wire (CLC_LOBBY_START,
+#define NET_PROTOCOL_VER 33  /* v33: A-7 mod audio network sync — SVC_STAGE_START includes mod_track_id
+                               * string, ASSET_AUDIO in SVC_CATALOG_INFO distribution.
+                               * v32: scenario identity uses catalog ID string on wire (CLC_LOBBY_START,
                                * SVC_STAGE_START, server query). scenario u8 replaced by str.
                                * v31: SVC_PROP_SPAWN modelnum on wire uses catalog session refs (u16)
                                * instead of raw s16 model index.  Bot body/head decode uses

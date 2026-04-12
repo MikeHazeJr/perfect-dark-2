@@ -45,6 +45,7 @@
 #include "room.h"
 #include "scenario_save.h"
 #include "assetcatalog.h"
+#include "audio.h"
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
 #include "game/mplayer/scenarios.h"
@@ -776,6 +777,10 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		 * to resolve spawnWeaponNum on their side for player spawn. */
 		netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id[0]
 			? g_MatchConfig.spawn_weapon_id : "");
+
+		/* A-7: mod track ID for network-synced mod audio.
+		 * Host's selected mod track is sent so clients play the same music. */
+		netbufWriteStr(dst, audioGetModTrackId());
 	}
 
 	// who the fuck is in the game
@@ -990,6 +995,20 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START spawn weapon '%s' → weaponnum=%d",
 				g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
 				(s32)g_MatchConfig.spawnWeaponNum);
+		}
+
+		/* A-7: read host's mod track ID for network-synced mod audio.
+		 * If non-empty, the client will use this mod track at match start
+		 * instead of their own selection — host's music is authoritative. */
+		{
+			const char *modtrack_str = netbufReadStr(src);
+			const char *modtrack = modtrack_str ? modtrack_str : "";
+			if (modtrack[0]) {
+				audioSetModTrackId(modtrack);
+				sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START mod track '%s' from host",
+					modtrack);
+			}
+			/* If empty, keep client's own mod track setting — host has no mod music */
 		}
 		snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "server");
 	}
@@ -4720,11 +4739,13 @@ static void catalogInfoCollectCb(const asset_entry_t *e, void *ud)
 
 u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
 {
-	/* Collect all non-bundled enabled entries from the catalog */
+	/* Collect all non-bundled enabled entries from the catalog.
+	 * A-7: ASSET_AUDIO added for mod audio network distribution. */
 	static const asset_type_e s_types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
 		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
 		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI,
+		ASSET_AUDIO,
 		ASSET_NONE  /* sentinel */
 	};
 
