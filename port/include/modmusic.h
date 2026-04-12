@@ -1,10 +1,12 @@
 /**
- * modmusic.h -- Mod music stream playback (Batch A-2)
+ * modmusic.h -- Mod music stream playback (Batch A-2, extended A-6)
  *
  * Parallel PCM playback path for mod music tracks. Runs alongside the
- * existing N64 ADPCM/sequencer pipeline. Loaded WAV files are decoded
- * to S16 stereo at device sample rate and mixed into audioEndFrame's
- * output buffer via modMusicMixInto().
+ * existing N64 ADPCM/sequencer pipeline. Audio files (WAV, MP3, OGG)
+ * are decoded to S16 stereo at device sample rate and mixed into
+ * audioEndFrame's output buffer via modMusicMixInto().
+ *
+ * Supported formats (A-6): WAV (SDL), MP3 (minimp3), OGG (stb_vorbis).
  *
  * Volume is master * music_layer * mod_music_volume.
  * When a mod track is active, the base N64 sequencer is silenced via
@@ -20,7 +22,8 @@
 extern "C" {
 #endif
 
-/** Load a WAV file from disk and begin playback. Stops any current mod track. */
+/** Load an audio file from disk and begin playback. Stops any current mod track.
+ *  Accepts WAV, MP3, and OGG formats (detected by extension). */
 void modMusicPlay(const char *file_path);
 
 /** Stop mod music playback and free the PCM buffer. Restores base music volume. */

@@ -128,6 +128,18 @@ static char s_AudioStatusMsg[256] = "";
 static bool s_AudioStatusOk       = true;
 
 /* ========================================================================
+ * A-5: Soundtrack Pack Creation state
+ * ======================================================================== */
+
+#define PACK_MAX_TRACKS 64
+
+static bool s_PackCreatorOpen   = false;
+static char s_PackName[128]     = "";
+static char s_PackVersion[32]   = "1.0.0";
+static bool s_PackTrackSelected[AUDIOMOD_MAX_ENTRIES]; /* parallel to s_AudioEntries */
+static int  s_PackNumMusicTracks = 0; /* count of music entries for display */
+
+/* ========================================================================
  * Helpers — catalog iteration
  * ======================================================================== */
 
@@ -310,6 +322,239 @@ static bool importAudioFile(const char *filePath, const char *displayName,
                  filePath, catalogId, modDir);
 
     return true;
+}
+
+/* ========================================================================
+ * A-5: Soundtrack Pack — create pack as mod directory with mod.json
+ * ======================================================================== */
+
+/**
+ * Create a soundtrack pack mod directory containing:
+ *   mods/<slug>/mod.json        — multi-component manifest
+ *   mods/<slug>/tracks/<file>   — copied audio files
+ *
+ * Each selected music track becomes a component in mod.json.
+ * After creation, registers all components in the catalog immediately.
+ */
+static bool createSoundtrackPack(const char *packName, const char *version)
+{
+    if (!packName || !packName[0]) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Pack creation failed: name is required");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Count selected music tracks */
+    int selCount = 0;
+    for (int i = 0; i < s_AudioNumEntries; i++) {
+        if (s_PackTrackSelected[i] &&
+            s_AudioEntries[i].category == AUDIO_CAT_MUSIC &&
+            s_AudioEntries[i].file_path[0] &&
+            !s_AudioEntries[i].bundled) {
+            selCount++;
+        }
+    }
+    if (selCount == 0) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Pack creation failed: select at least one mod music track");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Sanitize pack name to directory slug */
+    char slug[64];
+    sanitizeDirName(packName, slug, sizeof(slug));
+
+    /* Create directory structure: mods/<slug>/tracks/ */
+    char modDir[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+    fsCreateDir(modDir);
+
+    char tracksDir[FS_MAXPATH];
+    snprintf(tracksDir, sizeof(tracksDir), "mods/%s/tracks", slug);
+    fsCreateDir(tracksDir);
+
+    /* Build mod.json */
+    char jsonPath[FS_MAXPATH];
+    snprintf(jsonPath, sizeof(jsonPath), "%s/mod.json", modDir);
+    FILE *f = fopen(jsonPath, "w");
+    if (!f) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Pack creation failed: could not write mod.json");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    fprintf(f, "{\n");
+    fprintf(f, "  \"name\": \"%s\",\n", slug);
+    fprintf(f, "  \"display_name\": \"%s\",\n", packName);
+    fprintf(f, "  \"version\": \"%s\",\n", version && version[0] ? version : "1.0.0");
+    fprintf(f, "  \"category\": \"music\",\n");
+    fprintf(f, "  \"components\": [\n");
+
+    int written = 0;
+    for (int i = 0; i < s_AudioNumEntries; i++) {
+        if (!s_PackTrackSelected[i]) continue;
+        const AudioModEntry &ae = s_AudioEntries[i];
+        if (ae.category != AUDIO_CAT_MUSIC || !ae.file_path[0] || ae.bundled) continue;
+
+        /* Extract filename from source path */
+        const char *srcFile = ae.file_path;
+        for (const char *p = ae.file_path; *p; p++) {
+            if (*p == '/' || *p == '\\') srcFile = p + 1;
+        }
+
+        /* Copy audio file to tracks/ subfolder */
+        char dstPath[FS_MAXPATH];
+        snprintf(dstPath, sizeof(dstPath), "%s/%s", tracksDir, srcFile);
+        if (!copyFile(ae.file_path, dstPath)) {
+            sysLogPrintf(LOG_WARNING, "AUDIOMOD: pack: failed to copy '%s'", ae.file_path);
+            continue;
+        }
+
+        /* Write component entry */
+        if (written > 0) fprintf(f, ",\n");
+        char trackId[AUDIOMOD_ID_LEN];
+        snprintf(trackId, sizeof(trackId), "%s:track%d", slug, written);
+
+        fprintf(f, "    {\n");
+        fprintf(f, "      \"type\": \"audio\",\n");
+        fprintf(f, "      \"catalog_id\": \"%s\",\n", trackId);
+        fprintf(f, "      \"name\": \"%s\",\n", ae.name[0] ? ae.name : srcFile);
+        fprintf(f, "      \"category\": 1,\n");
+        fprintf(f, "      \"file_path\": \"tracks/%s\"\n", srcFile);
+        fprintf(f, "    }");
+
+        /* Register component in catalog immediately */
+        char fullTrackPath[FS_MAXPATH];
+        snprintf(fullTrackPath, sizeof(fullTrackPath), "%s/%s", tracksDir, srcFile);
+        asset_entry_t *e = assetCatalogRegisterAudio(
+            trackId, 0, ae.name[0] ? ae.name : srcFile,
+            AUDIO_CAT_MUSIC, ae.duration_ms, fullTrackPath);
+        if (e) {
+            e->bundled = 0;
+            e->enabled = 1;
+            strncpy(e->dirpath, modDir, FS_MAXPATH - 1);
+            e->dirpath[FS_MAXPATH - 1] = '\0';
+        }
+
+        written++;
+    }
+
+    fprintf(f, "\n  ]\n");
+    fprintf(f, "}\n");
+    fclose(f);
+
+    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+             "Created pack '%s' with %d tracks in mods/%s/",
+             packName, written, slug);
+    s_AudioStatusOk = true;
+
+    sysLogPrintf(LOG_NOTE, "AUDIOMOD: created pack '%s' -> mods/%s/ (%d tracks)",
+                 packName, slug, written);
+
+    return true;
+}
+
+/**
+ * Render the inline "Create Pack" section below the import section.
+ * Shows a list of mod music tracks with checkboxes, name/version fields,
+ * and a Create button.
+ */
+static void renderPackCreator(float contentW, float scale)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::TextUnformatted("CREATE SOUNDTRACK PACK");
+    ImGui::PopStyleColor();
+
+    if (!s_PackCreatorOpen) {
+        if (PdButtonAudio("Open Pack Creator##aud_pk", ImVec2(180.0f * scale, 0.0f))) {
+            s_PackCreatorOpen = true;
+            memset(s_PackTrackSelected, 0, sizeof(s_PackTrackSelected));
+            s_PackName[0] = '\0';
+            snprintf(s_PackVersion, sizeof(s_PackVersion), "1.0.0");
+        }
+        return;
+    }
+
+    /* Name + Version row */
+    {
+        float nameW = contentW * 0.55f;
+        float verW  = contentW * 0.20f;
+
+        ImGui::SetNextItemWidth(nameW);
+        ImGui::InputText("##pk_name", s_PackName, sizeof(s_PackName));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Pack Name");
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(verW);
+        ImGui::InputText("##pk_ver", s_PackVersion, sizeof(s_PackVersion));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Ver");
+    }
+
+    /* Track selection: show only non-bundled music entries with file paths */
+    int musicCount = 0;
+    int selectedCount = 0;
+
+    float listH = 120.0f * scale;
+    ImGui::BeginChild("##pk_tracklist", ImVec2(contentW, listH), true,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    for (int i = 0; i < s_AudioNumEntries; i++) {
+        const AudioModEntry &ae = s_AudioEntries[i];
+        if (ae.category != AUDIO_CAT_MUSIC) continue;
+        if (!ae.file_path[0]) continue;
+        if (ae.bundled) continue;
+
+        musicCount++;
+        char cbLabel[128];
+        snprintf(cbLabel, sizeof(cbLabel), "%s##pk_%d",
+                 ae.name[0] ? ae.name : ae.id, i);
+        ImGui::Checkbox(cbLabel, &s_PackTrackSelected[i]);
+        if (s_PackTrackSelected[i]) selectedCount++;
+    }
+
+    if (musicCount == 0) {
+        ImGui::TextDisabled("No mod music tracks available. Import some first.");
+    }
+
+    ImGui::EndChild();
+
+    /* Select All / Clear / Create / Close buttons */
+    if (PdButtonAudio("All##pk", ImVec2(42.0f * scale, 22.0f * scale))) {
+        for (int i = 0; i < s_AudioNumEntries; i++) {
+            if (s_AudioEntries[i].category == AUDIO_CAT_MUSIC &&
+                s_AudioEntries[i].file_path[0] && !s_AudioEntries[i].bundled) {
+                s_PackTrackSelected[i] = true;
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (PdButtonAudio("None##pk", ImVec2(48.0f * scale, 22.0f * scale))) {
+        memset(s_PackTrackSelected, 0, sizeof(s_PackTrackSelected));
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d / %d selected", selectedCount, musicCount);
+
+    ImGui::SameLine(contentW - 240.0f * scale);
+
+    bool canCreate = (s_PackName[0] != '\0' && selectedCount > 0);
+    if (!canCreate) ImGui::BeginDisabled();
+    if (PdButtonAudio("Create Pack##aud_pk", ImVec2(120.0f * scale, 0.0f))) {
+        if (createSoundtrackPack(s_PackName, s_PackVersion)) {
+            pdguiAudioModRefresh();
+            s_PackCreatorOpen = false;
+        }
+    }
+    if (!canCreate) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (PdButtonAudio("Close##pk", ImVec2(80.0f * scale, 0.0f))) {
+        s_PackCreatorOpen = false;
+    }
 }
 
 /* ========================================================================
@@ -568,6 +813,8 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
     ImGui::TextUnformatted("IMPORT AUDIO");
     ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::TextDisabled("  (MP3, WAV, OGG)");
 
     /* File path */
     ImGui::SetNextItemWidth(contentW - 60.0f * scale);
@@ -606,6 +853,11 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
         }
         if (!canImport) ImGui::EndDisabled();
     }
+
+    /* ---- A-5: Soundtrack Pack Creator ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+    renderPackCreator(contentW, scale);
 
     /* ---- Footer: status ---- */
     ImGui::Separator();
