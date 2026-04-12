@@ -69,7 +69,7 @@ SDL_mixer provides channels (numbered tracks for SFX) + a single music stream. `
 
 - **Base tracks**: `g_MpTracks[]` array in `src/game/mplayer/mplayer.c`. Each entry has `musicnum` (N64 sequencer index) and `name` (langID for display). Tracks are selected via `mpGetNumUnlockedTracks()` (`mplayer.c:3220`).
 - **Persistence**: Single-tune `g_BossFile.tracknum` + multi-tune `g_BossFile.multipletracknums[16]` bitmask + `g_BossFile.usingmultipletunes` flag.
-- **Network**: LOCAL-ONLY. Each client picks its own music independently at match start via `mpMusicStart()`. No wire field for music.
+- **Network**: Base game music is LOCAL-ONLY (each client picks its own music independently at match start via `mpMusicStart()`). **Mod audio will be network-synced** via the mod propagation pipeline (see §6.6).
 - **NOT in catalog**: Base game music tracks are NOT registered in the asset catalog. They exist only as the legacy `g_MpTracks[]` array.
 
 ### 2.3 Catalog Audio Types (exist but mostly unused)
@@ -130,7 +130,7 @@ typedef struct {
 s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out);
 ```
 
-**Self-critique**: Registering ~30 base tracks is cheap (same pattern as 1545 SFX entries). The risk is that code reading `g_MpTracks[]` directly must be updated to also query the catalog for mod tracks. The soundtrack UI already delegates to legacy handlers — those handlers would need a parallel "mod tracks" section.
+**[DECIDED]**: All ~30 base music tracks from `g_MpTracks[]` are registered as `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` catalog entries with `base:` prefix. The game sees mod content natively alongside base content — both are catalog entries, distinguished only by the mod tag (`base:` vs `modslug:`). Uniform catalog queries for all tracks, no special-casing. Registering ~30 base tracks is cheap (same pattern as 1545 SFX entries). Code reading `g_MpTracks[]` directly must be updated to also query the catalog for mod tracks.
 
 ### 3.2 Mod Audio Component — On-Disk Format
 
@@ -162,9 +162,11 @@ sound_id = 0x0042     # overrides base:sfx_0042
 file_path = explosion.wav
 ```
 
-**Supported formats**: WAV (already supported by `audioPlayFileSound`). OGG support requires adding `SDL_LoadWAV` equivalent for OGG — either via stb_vorbis (single-header, public domain) or SDL_mixer's `Mix_LoadWAV` with SDL_mixer linkage.
+**Supported import formats**: MP3, WAV, and OGG are all accepted at import time. On import, the file is converted to the native playback format (WAV at device sample rate) and saved as the mod's audio file. This means the mod system stores a single format internally while accepting common formats from users.
 
-**Self-critique**: OGG support is a new dependency. WAV-only is viable for v1 but music files in WAV are large (~30MB for 3 minutes at 22050Hz stereo). OGG reduces that to ~3MB. Recommend: WAV for v1, OGG in a follow-up batch.
+**Import conversion pipeline**: `skinEditorImportAudio(path)` detects format by extension, decodes via the appropriate library (stb_vorbis for OGG, dr_mp3 or minimp3 for MP3, SDL_LoadWAV for WAV), resamples to 22050Hz S16 stereo if needed, and writes the result as the mod's `track.wav`. The original file is not kept.
+
+**Dependencies**: OGG requires stb_vorbis (single-header, public domain). MP3 requires minimp3 (single-header, CC0). Both are zero-cost vendored headers.
 
 ### 3.3 Mod Soundtrack Bus — Playback Architecture
 
@@ -209,7 +211,9 @@ void audioEndFrame(void) {
 
 **Volume**: Mod music volume is `g_AudioMasterVolume * g_AudioMusicVolume * s_ModMusicVolume`. This uses the existing Music volume layer so the player's "Music Volume" slider controls both N64 sequences and mod music.
 
-**Self-critique**: Mixing into the N64 output buffer means mod music and N64 music play simultaneously if both are active. The soundtrack system must mute the N64 sequencer (`musicSetVolume(0)`) when a mod soundtrack is playing. What could go wrong: if `nextBuf` is const (the N64 RSP output is read-only), we'd need a separate mix buffer. Checking `audio.c:10`: `static const s16 *nextBuf` — it IS const. Solution: allocate a separate mix buffer in `audioEndFrame`.
+**Muting base music**: When a mod track is active, the base N64 sequencer is silenced via `musicSetVolume(0)` at the `audio.c` level — our own volume control system, NOT the legacy N64 sequencer mute. When the mod track ends or the user switches back to a base track, `musicSetVolume()` is restored to the player's Music volume setting. **[DECIDED: use our volume control, not sequencer mute]**
+
+**Self-critique**: Mixing into the N64 output buffer means mod music and N64 music play simultaneously if both are active. The above `musicSetVolume(0)` call prevents this. If `nextBuf` is const (the N64 RSP output is read-only), we'd need a separate mix buffer. Checking `audio.c:10`: `static const s16 *nextBuf` — it IS const. Solution: allocate a separate mix buffer in `audioEndFrame`.
 
 ### 3.4 Soundtrack Pack System
 
@@ -278,7 +282,7 @@ The scanner registers each component as an `ASSET_AUDIO` entry with `AUDIO_CAT_M
 +--------------------------------------------------+
 ```
 
-**List panel**: Iterates catalog entries with `assetCatalogIterateByType(ASSET_AUDIO, ...)`, filtered by the selected category tab. Base entries shown dimmed (not editable), mod entries shown normally.
+**List panel**: Iterates catalog entries with `assetCatalogIterateByType(ASSET_AUDIO, ...)`, filtered by the selected category tab. **Mod tracks appear inline alongside base content** — the game sees them the same way, distinguished only by mod tag. Base entries shown dimmed (not editable), mod entries shown normally. No separate "mod audio" dialog — mod content is first-class. **[DECIDED: inline display, not segregated]**
 
 **Details panel**: Shows metadata for the selected entry. "Play" button calls `audioPlayFileSound()` for SFX/Voice or `modMusicPlay()` for Music.
 
@@ -290,7 +294,7 @@ The scanner registers each component as an `ASSET_AUDIO` entry with `AUDIO_CAT_M
 
 **Current**: `renderSoundtrack` in `pdgui_menu_mpsettings.cpp:680` shows base game tracks only.
 
-**Extension**: Add a collapsible "Mod Tracks" section below the base game tracks in `renderSelectTunes`. This section lists all `ASSET_AUDIO` entries with `category == AUDIO_CAT_MUSIC` that are NOT base game (i.e., `!entry->bundled`).
+**Extension**: Add a collapsible "Mod Tracks" section below the base game tracks in `renderSelectTunes`. This section lists all `ASSET_AUDIO` entries with `category == AUDIO_CAT_MUSIC` that are NOT base game (i.e., `!entry->bundled`). Mod tracks feel first-class — same interaction, same selection behavior, same visual weight as base tracks. The collapsible section is an organizational aid, not a segregation boundary. **[DECIDED: collapsible section OK, mod content first-class]**
 
 ```
 renderSelectTunes (extended):
@@ -310,7 +314,7 @@ When a mod track is selected:
 2. Store the selected mod track's catalog ID in a new field: `g_BossFile.mod_track_id[64]`
 3. At match start, `mpMusicStart()` checks: if `tracknum == -2`, call `modMusicPlay(entry->ext.audio.file_path)` instead of the N64 sequencer path
 
-**Network**: Mod music track selection remains LOCAL-ONLY (same as base game tracks). Each client plays their own soundtrack independently.
+**Network**: Mod audio is **network-synced**. When a mod track is shared, selected for download, used in a match, or included in a manifest, it is distributed to connected players via the existing mod propagation pipeline. This means all players in a match can hear the host's custom soundtrack if they accept the mod download. **[DECIDED: network-synced via mod propagation pipeline, NOT local-only]**
 
 **Self-critique**: Adding `mod_track_id[64]` to `g_BossFile` changes the save format. This requires a SAVE_VERSION bump. Alternative: store the mod track selection in pd.ini via `configRegisterString()` instead of g_BossFile. **Recommend pd.ini** — avoids save format change and is consistent with how volume layers are stored.
 
@@ -382,7 +386,7 @@ Soundtrack menu (in-match settings):
 **Scope**: Extend `renderSelectTunes` with collapsible "Mod Tracks" section. Store mod track selection in pd.ini. Wire `mpMusicStart` to read mod track selection.
 **Files touched**: `port/fast3d/pdgui_menu_mpsettings.cpp` (+80 — mod tracks section in renderSelectTunes), `port/src/audio.c` (+5 — configRegisterString for mod track selection), `src/game/mplayer/mplayer.c` (+20 — mpMusicStart check for mod track)
 **Dependencies**: Batch A-2, A-3
-**Network**: No wire changes. Mod track selection is local-only per client.
+**Network**: Mod track selection stored locally in pd.ini. Network distribution handled by Batch A-7 via mod propagation pipeline.
 **Build impact**: Client +3KB, server unchanged
 **Acceptance**: Mod tracks appear in Soundtrack menu below base tracks. Selecting a mod track plays it during match. Base game tracks still work. pd.ini persists selection.
 
@@ -394,32 +398,51 @@ Soundtrack menu (in-match settings):
 **Build impact**: Client +5KB
 **Acceptance**: Creating a pack writes a valid mod directory with mod.json listing multiple audio components. Pack tracks appear in Soundtrack menu after creation.
 
-### Batch A-6: OGG Vorbis Support (optional)
-**Scope**: Add stb_vorbis (single-header, public domain) to decode OGG files. Extend `audioPlayFileSound` and `modMusicPlay` to handle `.ogg`.
-**Files touched**: NEW `port/external/stb_vorbis.c` (vendored), `port/src/audio.c` (+30 — OGG loading path), `port/src/modmusic.c` (+20 — OGG loading path)
+### Batch A-6: Multi-Format Import (MP3 + WAV + OGG) — v1 REQUIRED
+**Scope**: Import accepts MP3, WAV, and OGG files. On import, decode to native PCM and save as mod. Add stb_vorbis (public domain) for OGG and minimp3 (CC0) for MP3. Extend `audioPlayFileSound` and `modMusicPlay` to handle all three input formats. **[DECIDED: all three formats in v1, not deferred]**
+**Files touched**: NEW `port/external/stb_vorbis.c` (vendored), NEW `port/external/minimp3.h` (vendored), `port/src/audio.c` (+50 — OGG + MP3 loading paths), `port/src/modmusic.c` (+30 — format detection + decode)
 **Dependencies**: Batch A-2
 **Network**: None
-**Build impact**: Client +40KB (stb_vorbis is ~5000 lines)
-**Acceptance**: `.ogg` files play correctly via both audioPlayFileSound and modMusicPlay.
+**Build impact**: Client +60KB (stb_vorbis ~5000 lines + minimp3 ~2000 lines)
+**Acceptance**: `.mp3`, `.wav`, and `.ogg` files all import correctly and play via both audioPlayFileSound and modMusicPlay. Format conversion on save produces valid output.
+
+### Batch A-7: Network Sync for Mod Audio
+**Scope**: Integrate mod audio with the existing mod propagation pipeline. When a mod track is shared, selected for download, used in a match, or included in a manifest, distribute it to connected players. **[DECIDED: network-synced, uses existing mod propagation]**
+**Files touched**: `port/src/net/modpropagation.c` (+40 — audio mod type registration), `port/src/modmusic.c` (+20 — propagation hooks)
+**Dependencies**: Batch A-4, existing mod propagation pipeline
+**Network**: Uses existing mod propagation wire protocol — no new message types needed, just a new mod content type
+**Build impact**: Client +2KB, server +1KB
+**Acceptance**: Host with a mod soundtrack propagates it to connected clients. Clients can hear the host's custom music during match.
 
 ---
 
-## 6. Open Questions for Mike
+## 6. Resolved Design Questions
 
-### 6.1 Mod Music Bus Architecture
-Does `sndp_*` / the N64 sequencer support a concept of "mute all music sequences while mod music plays"? Or do we need to call `musicSetVolume(0)` at the `audio.c` level to silence base music when a mod track is active? The design assumes the latter, but if the sequencer has a cleaner mute API, that's preferable.
+> All questions resolved 2026-04-11 by game director (Mike).
 
-### 6.2 Audio Catalog Registration Scope
-The base game has 1545 SFX entries already registered. Should we also register the ~30 base music tracks (from `g_MpTracks[]`) as `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` entries? This design assumes yes — it makes the Soundtrack UI able to query the catalog uniformly for all tracks. But it means `mpMusicStart` needs to know whether a track is base (use N64 sequencer) or mod (use `modMusicPlay`).
+### 6.1 Mod Music Bus Architecture — RESOLVED
+**Question**: Use N64 sequencer mute or our own volume control to silence base music during mod playback?
+**Decision**: Use OUR volume control system — `musicSetVolume(0)` or equivalent at the `audio.c` level. NOT the legacy N64 sequencer mute. This keeps control in our audio pipeline where we can manage it cleanly.
 
-### 6.3 Mod.json vs audio.ini for Audio Components
-The existing scanner supports both `mod.json` "components" format (like base-ui) and per-component `audio.ini` files (like the INI scanner path). For audio mods, should we standardize on one? The design uses `audio.ini` for single-track mods (simpler) and `mod.json` for packs (multi-component). Is that duality acceptable or do you want one format only?
+### 6.2 Audio Catalog Registration Scope — RESOLVED
+**Question**: Register ~30 base music tracks as catalog entries alongside the 1545 SFX entries?
+**Decision**: YES — register all ~30 base music tracks from `g_MpTracks[]` as `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` catalog entries. The game sees mod content natively, same as base game content. Distinguished only by mod tag (`base:` vs `modslug:`). Uniform catalog queries for all tracks.
 
-### 6.4 WAV-Only vs OGG Support Timeline
-WAV-only is simpler (no new dependency) but music files are ~30MB each. OGG reduces to ~3MB but requires stb_vorbis (public domain, single header). Should OGG be in v1 or deferred?
+### 6.3 Mod.json vs audio.ini for Audio Components — RESOLVED
+**Question**: Standardize on one format or allow both?
+**Decision**: No preference on format duality — the game client / mod system interfaces handle creation, users won't interact with mod files directly. Keep `audio.ini` for singles and `mod.json` for packs. Both paths already work in the scanner.
 
-### 6.5 Soundtrack UI Location
-Should mod tracks appear in the existing Soundtrack menu (Batch 12 `renderSelectTunes`) as a collapsible section below base tracks? Or should they be a separate "Custom Soundtrack" dialog accessible from the Soundtrack hub? The design proposes inline (collapsible section) for discoverability, but a separate dialog keeps the existing UI cleaner.
+### 6.4 Import Format Support — RESOLVED
+**Question**: WAV-only for v1, or add OGG?
+**Decision**: Import accepts MP3, WAV, AND OGG — all three formats in v1. Convert to native format when saving as mod. No deferred format support. Dependencies: stb_vorbis (public domain) for OGG, minimp3 (CC0) for MP3.
+
+### 6.5 Soundtrack UI Location — RESOLVED
+**Question**: Mod tracks inline in existing Soundtrack menu, or separate dialog?
+**Decision**: Mod tracks appear natively alongside base content — the game sees them the same way, only distinguished by mod tag. Design should reflect this: mod audio shows inline with base audio, not segregated into a separate dialog. The collapsible section approach is fine as long as mod content feels first-class.
+
+### 6.6 Network Sync — RESOLVED (added by director)
+**Question**: Should mod audio be local-only or network-synced?
+**Decision**: Mod audio is **network-synced**. Distributed to connected players when shared, selected for download, used in a match, or included in a manifest. Uses the existing mod propagation pipeline — no new wire protocol needed, just a new mod content type registration.
 
 ---
 
@@ -445,6 +468,7 @@ Should mod tracks appear in the existing Soundtrack menu (Batch 12 `renderSelect
 
 ### No Changes To
 - `pdgui_menu_solomission.cpp` (standing rule)
-- `port/src/net/*` (no wire changes)
 - `port/fast3d/pdgui_backend.cpp` (no new render hooks)
 - Build files (CMake GLOB_RECURSE auto-discovers new .c/.cpp)
+
+**Note**: `port/src/net/modpropagation.c` IS touched (Batch A-7) for network sync of mod audio.

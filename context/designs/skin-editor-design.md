@@ -83,8 +83,9 @@ Blender's Texture Paint provides: Draw, Soften, Smear, Clone, Fill. Brush radius
 - **Enum value**: `ASSET_SKIN` = index 3 in `asset_type_e` (`port/include/assetcatalog.h:55`).
 - **Ext union**: `ext.skin.target_id[CATALOG_ID_LEN]` — soft reference to the target character (e.g., `"base:joanna_dark"`).
 - **Registration**: `assetCatalogRegisterSkin(id, target_id)` exists (`port/include/assetcatalog.h:398`) but is NEVER called anywhere. Zero skin entries in the catalog today.
-- **Query API**: `assetCatalogGetSkinsForTarget(target_id, out, maxout)` exists (`port/include/assetcatalog.h:603`) — iterates catalog for ASSET_SKIN entries matching a target character. Returns count.
+- **Query API**: `assetCatalogGetSkinsForTarget(target_id, out, maxout)` exists (`port/include/assetcatalog.h:603`) — iterates catalog for ASSET_SKIN entries matching a target character. Returns count. **This is the key API for the multi-skin-per-character model** — when selecting a character like Joanna Dark, call this to get all skins for her as child entries.
 - **Scanner support**: `assetcatalog_scanner.c:208` maps `"skins"` directory → `ASSET_SKIN`. Line 338 parses `skin.ini` with `target` field.
+- **[DECIDED: characters have MULTIPLE SKINS as children]**: When selecting a character (e.g., Joanna Dark), the UI shows all skins for that character as child entries — not a single override, not one huge flat list of all skins across all characters. The `assetCatalogGetSkinsForTarget()` API already supports this pattern.
 
 ### 2.3 Live 3D Preview Infrastructure
 
@@ -197,7 +198,9 @@ rgba_t composite_pixel(rgba_t backdrop, rgba_t src, s32 blend_mode, f32 opacity)
 
 **GL texture upload**: When `dirty` is set, recomposite all layers into `composite`, then `glTexSubImage2D(gl_texture, ...)` to update the GL texture. This texture is used both for the 2D canvas display in ImGui and for the live 3D preview override.
 
-**Self-critique**: At PD texture sizes (32x64 = 2048 pixels), compositing is trivially fast — even 8 layers at 60fps is ~130K pixel ops/frame. No performance concern.
+**[DECIDED: in-memory canvas until save]**: The canvas is purely in-memory until explicit "Save as Mod". No half-done skins pollute the catalog. The 3D preview uses the GL texture directly, not the catalog texture path. The live preview must look polished — visual quality is the gate for this approach being acceptable.
+
+**Self-critique**: At PD texture sizes, compositing is trivially fast — even 8 layers at 60fps is ~130K pixel ops/frame. No performance concern. Canvas dimensions are flexible — use whatever dimensions we want, just crop proportionally. Not locked to N64-era sizes. **[DECIDED: flexible texture scaling]**
 
 ### 3.3 Live 3D Preview with Skin Override
 
@@ -251,7 +254,7 @@ In gfx_pc.cpp (or gfx_opengl.cpp):
 
 **Import flow**:
 1. User specifies image path (text input or file browser)
-2. Load image via `stbi_load()` (stb_image already vendored? check — if not, add as public-domain single-header)
+2. Load image via `stbi_load()` — **[DECIDED: check if stb_image.h is already vendored; if not, add it]** (single public-domain header)
 3. Display import preview with source image on left, target UV layout on right
 4. User can choose:
    - **Stretch to fit**: Scale source to target texture dimensions
@@ -311,7 +314,7 @@ When the user clicks "Save as Mod":
    target = base:joanna_dark
    ```
 5. Register in catalog: `assetCatalogRegisterSkin(id, target_id)` + set `dirpath`, `enabled = 1`
-6. Call `catalogRefreshMods()` or direct registration (same pattern as theme editor)
+6. **HOT RELOAD**: Update the catalog immediately for the new asset type on save. No `modmgrApplyChanges()` restart flow, no return-to-title. The new skin appears in the catalog and is selectable immediately after save. The texture override already active in the preview FBO is promoted to a permanent catalog entry with a disk-backed texture. **[DECIDED: hot reload, NOT return-to-title]**
 
 **File format choice**: TGA is the simplest format to write (no compression, just header + pixels), and the existing base-ui mod already uses TGA textures (`mods/base-ui/textures/ui_bg_haze.tga`). This is the established convention.
 
@@ -444,7 +447,7 @@ No input context push/pop within the skin editor. All tool switching is ImGui-in
 **Scope**: "Save as Mod" dialog. Flatten canvas → TGA file. Write skin.ini. Register in catalog. Skin appears in character selection.
 **Files touched**: `port/fast3d/pdgui_skin_editor.cpp` (+150 — save dialog, TGA writer, catalog registration), `port/fast3d/pdgui_bridge.c` (+20 — skin catalog bridge accessors)
 **Dependencies**: Batch S-1, S-2
-**Network**: Skin catalog ID stored in matchslot as body_id/head_id (existing field). When a skin mod overrides a body texture, the body's catalog ID stays the same — the skin is a visual-only overlay. No new wire fields needed.
+**Network**: Skin catalog ID stored in matchslot as body_id/head_id (existing field). Skins are **network-synced** via the existing mod propagation pipeline — when a player uses a custom skin in a match, the skin mod is distributed to connected players so all participants can see it. **[DECIDED: network-synced, NOT local-only]**
 **Build impact**: Client +4KB
 **Acceptance**: Save creates a valid mod directory under `mods/`. Skin appears in Modding Hub INI editor. Character using the skin body shows the custom texture in-game.
 
@@ -482,28 +485,33 @@ No input context push/pop within the skin editor. All tool switching is ImGui-in
 
 ---
 
-## 6. Open Questions for Mike
+## 6. Resolved Design Questions
 
-### 6.1 Edit-in-Memory vs Save-on-Disk
-Does the existing mod system write eagerly (every change hits disk) or on-save? The skin editor needs to edit in-memory (the canvas is a pixel buffer) and only commit to disk on explicit "Save as Mod". This means the catalog might temporarily have a skin entry that doesn't have a disk-backed texture file yet. **Proposed**: The canvas is purely in-memory until save. The catalog entry is only created at save time — no half-done skins pollute the catalog. The 3D preview uses the GL texture directly, not the catalog texture path.
+> All questions resolved 2026-04-11 by game director (Mike).
 
-### 6.2 Live Texture Replacement at Runtime
-Does the catalog texture path support live texture replacement at runtime? Specifically: if I overwrite `mods/my-skin/texture.tga` on disk while the game is running, will the model update? Today the answer is no — textures are loaded once at `fileLoadToNew()` time. The skin editor bypasses this by injecting the canvas GL texture directly into the preview FBO render. But for the saved skin to appear on the actual in-game character (not just the preview), we'd need either: (A) a texture reload mechanism, or (B) return to title screen after saving (like `modmgrApplyChanges()` does today). **Recommend option B for v1.**
+### 6.1 Edit-in-Memory vs Save-on-Disk — RESOLVED
+**Question**: In-memory canvas until save, or eager disk writes?
+**Decision**: In-memory canvas until save is fine IF visual quality is good. The live preview must look polished. The canvas is purely in-memory — no half-done skins pollute the catalog. The 3D preview uses the GL texture directly. Catalog entry created only at save time.
 
-### 6.3 Skin-to-Body Mapping
-A skin mod targets a specific body (via `ext.skin.target_id`). But bodies have different texture layouts (some use one texture file, some use multiple). How does the game decide which texture file to replace when a skin is applied? The design assumes each body has one primary texture file, and the skin replaces it entirely. Is that correct, or do some bodies have multi-file textures that would need separate skin layers?
+### 6.2 Live Texture Replacement at Runtime — RESOLVED
+**Question**: Return to title screen after saving (like `modmgrApplyChanges()`), or hot reload?
+**Decision**: **HOT RELOAD on save** — update the catalog immediately for the new asset type. No `modmgrApplyChanges()` restart flow. The saved skin appears in the catalog and is selectable immediately without restarting or returning to title.
 
-### 6.4 stb_image Availability
-Is `stb_image.h` already vendored somewhere in the repo? If not, it's a single public-domain header file that adds PNG/TGA/BMP/JPG loading. Needed for image import in Batch S-5.
+### 6.3 Skin-to-Body Mapping — RESOLVED
+**Question**: Single skin override per character, or multiple skins as children?
+**Decision**: Characters have **MULTIPLE SKINS as children**, not single-override. When selecting e.g. Joanna Dark, you see all skins for her as child entries. NOT one huge flat list of all skins across all characters. The `assetCatalogGetSkinsForTarget()` API already supports this parent-children query pattern.
 
-### 6.5 Texture Resolution
-What are the actual texture dimensions for PD character bodies? The design assumes small (32x64 or 64x64 based on N64 era). The exact dimensions determine canvas size and whether pixel-level controller painting is practical.
+### 6.4 stb_image Availability — RESOLVED
+**Question**: Is `stb_image.h` already vendored?
+**Decision**: Check if stb_image.h is already vendored in the repo. If not, it needs to be added — single public-domain header, no licensing concern.
 
-### 6.6 Skin Application in Multiplayer
-When a player uses a custom skin, should other players see it? Options:
-- **Local-only**: Only the player sees their own skin. No network sync needed. Simplest.
-- **Network-synced**: All players download and see the skin. Requires texture transfer protocol. Very complex.
-**Recommend local-only for v1.** Network skin sync is a v2+ feature that requires a content distribution mechanism.
+### 6.5 Texture Resolution — RESOLVED
+**Question**: Locked to N64-era texture sizes, or flexible?
+**Decision**: Texture scaling is flexible — use whatever dimensions we want, just crop proportionally. Not locked to N64-era sizes. This means canvas dimensions are not fixed at 32x64; the editor can support larger textures for higher-quality skins.
+
+### 6.6 Skin Application in Multiplayer — RESOLVED
+**Question**: Local-only or network-synced?
+**Decision**: **NETWORK-SYNCED** through the existing mod propagation pipeline. NOT local-only. The mod propagation system handles distribution to connected players — "we have made it simple." See Batch S-9 for implementation details.
 
 ---
 
@@ -528,9 +536,18 @@ When a player uses a custom skin, should other players see it? Options:
 | `port/fast3d/pdgui_bridge.c` | Skin catalog bridge accessors | +20 |
 | `port/include/pdgui_menus.h` | Registration forward decl | +2 |
 
+### Batch S-9: Network Sync for Skins
+**Scope**: Integrate skin mods with the existing mod propagation pipeline. When a player uses a custom skin in a match, distribute it to connected players. **[DECIDED: network-synced via mod propagation]**
+**Files touched**: `port/src/net/modpropagation.c` (+30 — skin mod type registration), `port/fast3d/pdgui_skin_editor.cpp` (+15 — propagation hooks on save)
+**Dependencies**: Batch S-4, existing mod propagation pipeline
+**Network**: Uses existing mod propagation wire protocol — no new message types, just a new mod content type
+**Build impact**: Client +1KB, server +1KB
+**Acceptance**: Player A with a custom skin is visible to Player B in a match after mod propagation completes.
+
 ### No Changes To
 - `pdgui_menu_solomission.cpp` (standing rule)
 - `port/src/actionmap.cpp` (no new actions/IMCs — avoids cross-contamination)
 - `port/src/inputctx.c` (no new input contexts)
-- `port/src/net/*` (no wire changes for v1 — skins are local-only)
 - Build files (CMake GLOB_RECURSE auto-discovers new .c/.cpp)
+
+**Note**: `port/src/net/modpropagation.c` IS touched (Batch S-9) for network sync of skins.
