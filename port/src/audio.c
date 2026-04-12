@@ -315,6 +315,23 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
     return 1;
 }
 
+/* ========================================================================
+ * Mod track selection — catalog ID persisted to pd.ini (Batch A-4)
+ * ======================================================================== */
+
+static char g_AudioModTrackId[64] = "";
+
+const char *audioGetModTrackId(void) { return g_AudioModTrackId; }
+
+void audioSetModTrackId(const char *id)
+{
+	if (id && id[0]) {
+		snprintf(g_AudioModTrackId, sizeof(g_AudioModTrackId), "%s", id);
+	} else {
+		g_AudioModTrackId[0] = '\0';
+	}
+}
+
 PD_CONSTRUCTOR static void audioConfigInit(void)
 {
 	configRegisterInt("Audio.BufferSize", &bufferSize, 0, 1 * 1024 * 1024);
@@ -325,4 +342,7 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 	configRegisterFloat("Audio.MusicVolume",    &g_AudioMusicVolume,    0.0f, 1.0f);
 	configRegisterFloat("Audio.GameplayVolume", &g_AudioGameplayVolume, 0.0f, 1.0f);
 	configRegisterFloat("Audio.UIVolume",       &g_AudioUiVolume,       0.0f, 1.0f);
+
+	/* Mod track selection — catalog ID (empty = use base game music) */
+	configRegisterString("Audio.ModTrackId", g_AudioModTrackId, sizeof(g_AudioModTrackId));
 }

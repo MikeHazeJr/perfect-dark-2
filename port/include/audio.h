@@ -42,4 +42,10 @@ void audioApplyVolumes(void);
  * Applies persisted volume layers from pd.ini on first call. */
 void audioNotifyEngineReady(void);
 
+/* Mod track selection — catalog ID of the selected mod music track.
+ * Empty string means "no mod track selected" (use base game music).
+ * Persisted to pd.ini as Audio.ModTrackId. */
+const char *audioGetModTrackId(void);
+void audioSetModTrackId(const char *id);
+
 #endif
