@@ -1,19 +1,49 @@
 /**
- * pdgui_menu_mpsettings.cpp -- MP per-player handicap screen.
+ * pdgui_menu_mpsettings.cpp -- MP handicap + Batch 12 Music & Misc screens.
  *
- * Replaces g_MpHandicapsMenuDialog with an ImGui screen that shows
- * per-player handicap sliders.
+ * D5 Phase 3 Batch 12.
  *
- * Handicap is stored as a u8 in g_PlayerConfigsArray[n].handicap.
- * 0x80 = 100% (no modifier). mpHandicapToDamageScale(h) returns
- * the multiplier (e.g., 0x40 → 0.5× = 50% damage received).
+ * This file hosts four distinct renderers:
  *
- * matchGetPlayerHandicap / matchSetPlayerHandicap / matchResetHandicaps
- * are wrappers in matchsetup.c that avoid exposing types.h here.
+ *   g_MpHandicapsMenuDialog   -> renderHandicap       (pre-existing — Group 4 player handicaps)
+ *   g_MpSelectTunesMenuDialog -> renderSelectTunes    (Batch 12 — music track picker)
+ *   g_MpSoundtrackMenuDialog  -> renderSoundtrack     (Batch 12 — soundtrack config hub)
+ *   g_MpTeamNamesMenuDialog   -> renderTeamNames      (Batch 12 — inline team-name editor)
  *
- * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
+ * Design (Batch 12 additions):
+ *   - The three new dialogs use the s208 shadow-struct call-through pattern
+ *     (cloned from s207 in pdgui_menu_playerconfig.cpp) so every state
+ *     mutation routes through a legacy C handler -- zero function loss.
+ *     Tunes/Soundtrack delegate to `mpSelectTuneListHandler` and
+ *     `menuhandlerMpMultipleTunes`, preserving every MENUOP_* branch.
+ *   - Team Names replaces the legacy KEYBOARD drill-down
+ *     (g_MpChangeTeamNameMenuDialog) with an inline ImGui::InputText per
+ *     row.  The legacy `mpTeamNameMenuHandler::MENUOP_SETTEXT` write
+ *     semantics are mirrored in pdgui_bridge.c's `pdguiMpsTeamNameSet`
+ *     accessor (11-char cap, '\n' terminator, MODFILE_MPSETUP dirty flag)
+ *     so g_BossFile.teamnames is written identically to the legacy path.
+ *   - `menudialogMpSelectTune` MENUOP_OPEN/CLOSE still fire via the legacy
+ *     menu runtime (hotswap only intercepts RENDER) so the g_MusicInterval240
+ *     preview-pacing tuning continues to work.
+ *   - `mpMenuTextSelectTuneOrTunes` / `mpMenuTextCurrentTrack` dynamic-text
+ *     helpers are invoked directly with nullptr (their bodies ignore the
+ *     item argument — they read globals).
  *
- * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+ * NETWORK MATCH START/END AUDIT
+ *   See context/scratch/D5-P3-batch12-2026-04-11.md for the full 9-row audit.
+ *   Summary: 8 of 9 fields are LOCAL-ONLY -- tunes, soundtrack flag, and team
+ *   names all live in `g_BossFile` and never cross the wire (grep across
+ *   port/src/net/ for 'teamnames\|tracknum' returns nothing).  Each client
+ *   plays its own music and displays its own team labels from its own boss
+ *   file.  The one WIRED field is the challenge match-start flow, which
+ *   propagates via the established `g_MpSetup` -> SVC_STAGE_START pipeline
+ *   and is exercised by `matchStartFromChallenge` in pdgui_menu_challenges.cpp.
+ *   Batch 12 introduces zero shadow/cached copies.
+ *
+ * IMPORTANT: C++ file -- must NOT include types.h (#define bool s32 breaks
+ * C++).  Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+ * All game-state access that requires types.h knowledge goes through
+ * pdgui_bridge.c accessors.
  */
 
 #include <SDL.h>
@@ -26,7 +56,10 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
+#include "pdgui.h"          /* langSafe */
 #include "system.h"
+#include "inputctx.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -34,27 +67,114 @@
 
 extern "C" {
 
-/* Dialog we replace */
-extern struct menudialogdef g_MpHandicapsMenuDialog;
+/* ---- Opaque types for function signatures ---- */
+struct menuitem;
+struct menudialog;
+struct menudialogdef;
+struct menu;
 
-/* Menu stack */
+/* ---- Dialog definitions ---- */
+extern struct menudialogdef g_MpHandicapsMenuDialog;
+extern struct menudialogdef g_MpSelectTunesMenuDialog;
+extern struct menudialogdef g_MpSoundtrackMenuDialog;
+extern struct menudialogdef g_MpTeamNamesMenuDialog;
+
+/* ---- Menu stack ---- */
+void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 
-/* Handicap wrappers (matchsetup.c — avoid types.h in C++) */
+/* ---- Handicap wrappers (matchsetup.c -- avoid types.h in C++) ---- */
 u8   matchGetPlayerHandicap(s32 playernum);
 void matchSetPlayerHandicap(s32 playernum, u8 val);
 void matchResetHandicaps(void);
 
-/* Player names (for labels) */
+/* ---- Player names (for labels) ---- */
 const char *mpPlayerConfigGetName(s32 playernum);
 
-/* Match config types, struct definitions, and g_MatchConfig */
+/* ---- Match config types, struct definitions, and g_MatchConfig ---- */
 #include "net/matchsetup.h"
+
+/* ---- Batch 12 legacy handlers (mpSelectTunes / multi-tunes checkbox)
+ * Declared with the shadow types so the C++ function-pointer conversion
+ * in list_GetOptionCount / checkbox_Get / etc. is exact.  At link time
+ * these resolve to the same symbols as the legacy handlerdata-taking
+ * declarations in setup.c because `extern "C"` mangling ignores
+ * parameter types. ---- */
+struct s208_menuitem;
+union  s208_handlerdata;
+uintptr_t mpSelectTuneListHandler  (s32 op, struct s208_menuitem *, union s208_handlerdata *);
+uintptr_t menuhandlerMpMultipleTunes(s32 op, struct s208_menuitem *, union s208_handlerdata *);
+
+/* ---- Batch 12 dynamic-text helpers (setup.c) ----
+ * Both ignore `item` and read globals directly; safe to call with nullptr. */
+char *mpMenuTextSelectTuneOrTunes(struct menuitem *item);
+char *mpMenuTextCurrentTrack     (struct menuitem *item);
+
+/* ---- Batch 12 plain helpers (mplayer.c / music.c) ---- */
+s32   mpGetNumUnlockedTracks(void);
+char *mpGetTrackName(s32 slotindex);
+s32   mpGetTrackMusicNum(s32 slotindex);
+s32   mpGetUsingMultipleTunes(void);
+s32   mpIsMultiTrackSlotEnabled(s32 slot);
+s32   mpGetCurrentTrackSlotNum(void);
+void  mpEnableAllMultiTracks(void);
+void  mpDisableAllMultiTracks(void);
+void  mpRandomiseMultiTracks(void);
+void  mpSetTrackToRandom(void);
+void  musicStartTrackAsMenu(s32 tracknum);
+
+/* ---- Batch 12 team name bridge accessors (pdgui_bridge.c) ---- */
+void pdguiMpsTeamNameGet(u32 team, char *out, u32 outlen);
+void pdguiMpsTeamNameSet(u32 team, const char *text);
+
+/* ---- Language helpers ---- */
+char *langGet(s32 textid);
+
+/* ---- MENUOP_* opcodes (declared locally per the Batch 4 gotcha; values
+ * must match src/include/constants.h exactly) ---- */
+#define MENUOP_GET                 8
+#define MENUOP_SET                 6
+#define MENUOP_GETOPTIONCOUNT      1
+#define MENUOP_GETOPTIONTEXT       3
+#define MENUOP_GETSELECTEDINDEX    7
+#define MENUOP_LISTITEMFOCUS       16
+#define MENUOP_GETLISTITEMCHECKBOX 11
+
+/* ---- Team count constant (constants.h MAX_TEAMS) ---- */
+#define PDMS_MAX_TEAMS 8
+
+/* ---- s208 shadow menuitem / handlerdata ----
+ * ABI-compatible with the real types in src/include/types.h:3337..3417.
+ * Cloned from the s207 pattern in pdgui_menu_playerconfig.cpp.  We only
+ * need the list and checkbox variants for Batch 12.
+ */
+struct s208_handlerdata_list_t {
+    uintptr_t value;           /* slot idx, count, char* return */
+    s32       unk04;           /* checkbox state on GETLISTITEMCHECKBOX */
+    s32       groupstartindex;
+    s32       unk0c;
+};
+struct s208_handlerdata_checkbox { u32 value; };
+
+union s208_handlerdata {
+    struct s208_handlerdata_list_t   list;
+    struct s208_handlerdata_checkbox checkbox;
+    u8 _pad[256];
+};
+
+struct s208_menuitem {
+    u8        type;
+    u8        param;
+    u32       flags;
+    intptr_t  param2;
+    intptr_t  param3;
+    uintptr_t (*handler)(s32 op, struct s208_menuitem *, union s208_handlerdata *);
+};
 
 } /* extern "C" */
 
 /* ========================================================================
- * Button wrapper
+ * Button wrapper (shared with renderHandicap)
  * ======================================================================== */
 
 extern "C" void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
@@ -74,7 +194,157 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
 }
 
 /* ========================================================================
- * Helpers
+ * s208 call-through helpers (Batch 12 new)
+ * ======================================================================== */
+
+typedef uintptr_t (*ListFn)(s32, s208_menuitem *, s208_handlerdata *);
+typedef uintptr_t (*CheckboxFn)(s32, s208_menuitem *, s208_handlerdata *);
+
+static s32 list_GetOptionCount(ListFn fn, u8 param)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    fn(MENUOP_GETOPTIONCOUNT, &it, &h);
+    return (s32)h.list.value;
+}
+
+static const char *list_GetOptionText(ListFn fn, u8 param, s32 idx)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    h.list.value = (uintptr_t)idx;
+    uintptr_t r = fn(MENUOP_GETOPTIONTEXT, &it, &h);
+    return (const char *)r;
+}
+
+static s32 list_GetSelectedIndex(ListFn fn, u8 param)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    fn(MENUOP_GETSELECTEDINDEX, &it, &h);
+    return (s32)h.list.value;
+}
+
+static void list_SetClick(ListFn fn, u8 param, s32 idx)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    h.list.value = (uintptr_t)idx;
+    h.list.unk04 = 0;  /* legacy "click" semantics — see mpSelectTuneListHandler:4487 */
+    fn(MENUOP_SET, &it, &h);
+}
+
+static void list_Focus(ListFn fn, u8 param, s32 idx)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    h.list.value = (uintptr_t)idx;
+    fn(MENUOP_LISTITEMFOCUS, &it, &h);
+}
+
+static s32 list_GetListItemCheckbox(ListFn fn, u8 param, s32 idx)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    h.list.value = (uintptr_t)idx;
+    fn(MENUOP_GETLISTITEMCHECKBOX, &it, &h);
+    return h.list.unk04;
+}
+
+static s32 checkbox_Get(CheckboxFn fn, u8 param)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    /* The legacy menuhandlerMpMultipleTunes MENUOP_GET branch returns the
+     * value directly via the function return, not through handlerdata. */
+    return (s32)fn(MENUOP_GET, &it, &h);
+}
+
+static void checkbox_Set(CheckboxFn fn, u8 param, s32 on)
+{
+    s208_menuitem it{};
+    it.param = param;
+    s208_handlerdata h{};
+    h.checkbox.value = on ? 1 : 0;
+    fn(MENUOP_SET, &it, &h);
+}
+
+/* ========================================================================
+ * Window-frame helpers (Batch 12 new -- clone of pc_BeginStandardWindow in
+ * pdgui_menu_playerconfig.cpp).  Kept file-local because a shared helper
+ * would require a new header.
+ * ======================================================================== */
+
+struct PdmsWindowFrame {
+    float mw;
+    float mh;
+    ImVec2 pos;
+};
+
+static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char *title,
+                                                 float widthFrac, float heightFrac)
+{
+    pdguiPopupDarkenBehind(0.55f);
+
+    PdmsWindowFrame wf;
+    wf.mw  = pdguiMenuWidth()  * widthFrac;
+    wf.mh  = pdguiMenuHeight() * heightFrac;
+    wf.pos = pdguiCenterPos(wf.mw, wf.mh);
+
+    ImGui::SetNextWindowPos(wf.pos);
+    ImGui::SetNextWindowSize(ImVec2(wf.mw, wf.mh));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
+                           | ImGuiWindowFlags_NoMove
+                           | ImGuiWindowFlags_NoCollapse
+                           | ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoTitleBar
+                           | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin(imguiId, nullptr, flags)) {
+        wf.mw = 0.0f;
+        return wf;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
+    }
+
+    float titleH = pdguiScale(39.0f);
+    pdguiDrawPdDialog(wf.pos.x, wf.pos.y, wf.mw, wf.mh, title, 1);
+    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    return wf;
+}
+
+static void pdms_CloseCurrentDialog(void)
+{
+    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
+    menuPopDialog();
+}
+
+static bool pdms_BackPressed(void)
+{
+    return !ImGui::IsWindowAppearing() &&
+           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+}
+
+/* ========================================================================
+ * Helpers (handicap renderer — pre-existing)
  * ======================================================================== */
 
 /* Count human-player slots in g_MatchConfig */
@@ -88,7 +358,7 @@ static int countHumanSlots(void)
 }
 
 /* ========================================================================
- * Main render function
+ * Main render function — Handicaps (pre-existing, unchanged)
  * ======================================================================== */
 
 static bool s_Registered = false;
@@ -226,6 +496,410 @@ static s32 renderHandicap(struct menudialog *dialog,
 }
 
 /* ========================================================================
+ * Renderer: Select Tunes (g_MpSelectTunesMenuDialog) -- Batch 12
+ * ======================================================================== *
+ *
+ * Legacy layout (setup.c:4702 g_MpSelectTunesMenuItems):
+ *   LIST -> mpSelectTuneListHandler
+ *
+ * List shape (driven by `mpGetNumUnlockedTracks` + `mpGetUsingMultipleTunes`):
+ *   Single-tune mode: [track0, track1, ..., trackN-1, "Random"]
+ *     Radio behavior: pick any slot to set `g_BossFile.tracknum`; pick the
+ *     "Random" sentinel (index == numTracks) to set `g_BossFile.tracknum = -1`.
+ *   Multi-tune mode: [track0, track1, ..., trackN-1, "Select All",
+ *                     "Select None", "Randomize"]
+ *     Checkbox behavior: each track row toggles its bit in
+ *     `g_BossFile.multipletracknums[]` via `mpSetTrackSlotEnabled`.
+ *     Bulk rows call `mpEnableAllMultiTracks`/`Disable`/`Randomise`.
+ *
+ * Hover preview: per-frame LISTITEMFOCUS writes `g_CurrentTrack` (legacy)
+ * and calls `musicStartTrackAsMenu(mpGetTrackMusicNum(slot))` to start the
+ * track so the player hears what they're selecting.  We keep the same
+ * behavior by calling `list_Focus` on hover transition.
+ *
+ * menudialogMpSelectTune MENUOP_OPEN/CLOSE still fire via the legacy menu
+ * runtime (hotswap only intercepts RENDER), so `g_MusicInterval240` gets
+ * tuned to 80 on open and restored to 15 on close automatically.
+ *
+ * Network: LOCAL-ONLY.  `g_BossFile.tracknum` / `multipletracknums[]` are
+ * per-client boss file state; no wire field.  Each client plays its own
+ * music on match start.  See scratch doc rows 1-4.
+ */
+
+static s32 s_TunesHoverIdx = -1;
+
+static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
+{
+    PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_tunes",
+                                                    "Select Tune",
+                                                    0.52f, 0.72f);
+    if (wf.mw == 0.0f) { ImGui::End(); return 1; }
+
+    if (ImGui::IsWindowAppearing()) {
+        s_TunesHoverIdx = -1;
+    }
+
+    if (pdms_BackPressed()) {
+        pdms_CloseCurrentDialog();
+        ImGui::End();
+        return 1;
+    }
+
+    const int numTracks = mpGetNumUnlockedTracks();
+    const bool multi    = mpGetUsingMultipleTunes() != 0;
+    const int totalRows = multi ? (numTracks + 3) : (numTracks + 1);
+    const int currentSingleSlot = multi ? -1 : mpGetCurrentTrackSlotNum();
+
+    /* Update title subtitle so the user knows what mode they're in. */
+    ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f),
+                       multi ? "Multi-tune mode: pick tracks to shuffle"
+                             : "Single-tune mode: pick one track or Random");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    float avail = ImGui::GetContentRegionAvail().y;
+    float bodyH = pdguiBodyHeightForActionBar(avail);
+
+    if (ImGui::BeginChild("##pdms_tunes_body", ImVec2(0, bodyH), false,
+                          ImGuiWindowFlags_NoBackground)) {
+
+        /* ---- Track rows ---- */
+        for (int i = 0; i < numTracks; i++) {
+            const char *name = mpGetTrackName(i);
+            if (!name || !name[0]) name = "???";
+            ImGui::PushID(i);
+
+            bool activated = false;
+
+            if (multi) {
+                /* Read current enable state for the checkbox visual. */
+                bool enabled = mpIsMultiTrackSlotEnabled(i) != 0;
+                ImGui::SetNextItemWidth(pdguiScale(22.0f));
+                if (ImGui::Checkbox("##en", &enabled)) {
+                    /* Clicking the checkbox invokes the legacy toggle path
+                     * (mpSetTrackSlotEnabled flips the bit in multi mode). */
+                    list_SetClick(mpSelectTuneListHandler, 0, i);
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+                ImGui::SameLine();
+                if (ImGui::Selectable(name, false, 0,
+                                      ImVec2(0, pdguiScale(22.0f)))) {
+                    /* Row body click also toggles the slot. */
+                    list_SetClick(mpSelectTuneListHandler, 0, i);
+                    activated = true;
+                }
+            } else {
+                bool isSel = (i == currentSingleSlot);
+                if (ImGui::Selectable(name, isSel, 0,
+                                      ImVec2(0, pdguiScale(22.0f)))) {
+                    list_SetClick(mpSelectTuneListHandler, 0, i);
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    activated = true;
+                }
+            }
+
+            /* Hover preview via LISTITEMFOCUS. */
+            if (ImGui::IsItemHovered() && s_TunesHoverIdx != i) {
+                s_TunesHoverIdx = i;
+                list_Focus(mpSelectTuneListHandler, 0, i);
+            }
+
+            (void)activated;
+            ImGui::PopID();
+        }
+
+        ImGui::Dummy(ImVec2(0, pdguiScale(6.0f)));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, pdguiScale(6.0f)));
+
+        /* ---- Extra rows ---- */
+        if (multi) {
+            /* Indices numTracks+0/+1/+2: Select All / Select None / Randomize */
+            const char *extraLabels[3] = { "Select All", "Select None", "Randomize" };
+            for (int e = 0; e < 3; e++) {
+                ImGui::PushID(numTracks + e);
+                if (ImGui::Selectable(extraLabels[e], false, 0,
+                                      ImVec2(0, pdguiScale(24.0f)))) {
+                    list_SetClick(mpSelectTuneListHandler, 0, numTracks + e);
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+                ImGui::PopID();
+            }
+        } else {
+            /* Index numTracks: Random */
+            ImGui::PushID(numTracks);
+            bool isRandomSelected = (currentSingleSlot < 0);
+            if (ImGui::Selectable("Random", isRandomSelected, 0,
+                                  ImVec2(0, pdguiScale(24.0f)))) {
+                list_SetClick(mpSelectTuneListHandler, 0, numTracks);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+            ImGui::PopID();
+        }
+
+        if (numTracks <= 0) {
+            ImGui::TextDisabled("(No tunes unlocked)");
+        }
+
+        (void)totalRows;
+    }
+    ImGui::EndChild();
+
+    if (pdguiBeginActionBar("##pdms_tunes_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+            pdms_CloseCurrentDialog();
+        }
+    }
+    pdguiEndActionBar();
+
+    ImGui::End();
+    return 1;
+}
+
+/* ========================================================================
+ * Renderer: Soundtrack (g_MpSoundtrackMenuDialog) -- Batch 12
+ * ======================================================================== *
+ *
+ * Legacy layout (setup.c:4723 g_MpSoundtrackMenuItems):
+ *   LABEL            "Current:"
+ *   LABEL            mpMenuTextCurrentTrack (dynamic: track name or "Multiple Tunes" or "Random")
+ *   SEPARATOR
+ *   SELECTABLE       mpMenuTextSelectTuneOrTunes -> push g_MpSelectTunesMenuDialog
+ *   CHECKBOX         "Multiple Tunes" -> menuhandlerMpMultipleTunes
+ *   SEPARATOR
+ *   SELECTABLE       "Back" (CLOSESDIALOG)
+ *
+ * ImGui shape: same four controls stacked in a compact modal, plus a docked
+ * Back action bar.
+ *
+ * Network: LOCAL-ONLY.  Writes to `g_BossFile` via `mpSetUsingMultipleTunes`.
+ * See scratch doc row 5.
+ */
+
+static s32 renderSoundtrack(struct menudialog *, struct menu *, s32, s32)
+{
+    PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_soundtrack",
+                                                    "Soundtrack",
+                                                    0.50f, 0.58f);
+    if (wf.mw == 0.0f) { ImGui::End(); return 1; }
+
+    if (pdms_BackPressed()) {
+        pdms_CloseCurrentDialog();
+        ImGui::End();
+        return 1;
+    }
+
+    float avail = ImGui::GetContentRegionAvail().y;
+    float bodyH = pdguiBodyHeightForActionBar(avail);
+
+    if (ImGui::BeginChild("##pdms_soundtrack_body", ImVec2(0, bodyH), false,
+                          ImGuiWindowFlags_NoBackground)) {
+
+        /* "Current:" row */
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Current Track:");
+        ImGui::SameLine();
+        const char *cur = mpMenuTextCurrentTrack(nullptr);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s",
+                           cur && cur[0] ? cur : "---");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* "Select Tune(s)" push-selectable.  The dynamic label swaps between
+         * "Select Tune" (multi-mode) and "Select Tunes" (single-mode). */
+        const char *pickLabel = mpMenuTextSelectTuneOrTunes(nullptr);
+        if (!pickLabel || !pickLabel[0]) pickLabel = "Select Tune";
+
+        float selH = pdguiScale(36.0f);
+        if (ImGui::Selectable(pickLabel, false, 0, ImVec2(0, selH))) {
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            menuPushDialog(&g_MpSelectTunesMenuDialog);
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* "Multiple Tunes" checkbox routed through the legacy handler. */
+        bool multi = checkbox_Get(menuhandlerMpMultipleTunes, 0) != 0;
+        bool newMulti = multi;
+        if (ImGui::Checkbox("Multiple Tunes", &newMulti)) {
+            checkbox_Set(menuhandlerMpMultipleTunes, 0, newMulti ? 1 : 0);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("  Shuffle a set of tracks between matches");
+    }
+    ImGui::EndChild();
+
+    if (pdguiBeginActionBar("##pdms_soundtrack_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+            pdms_CloseCurrentDialog();
+        }
+    }
+    pdguiEndActionBar();
+
+    ImGui::End();
+    return 1;
+}
+
+/* ========================================================================
+ * Renderer: Team Names (g_MpTeamNamesMenuDialog) -- Batch 12
+ * ======================================================================== *
+ *
+ * Legacy layout (setup.c:4813 g_MpTeamNamesMenuItems):
+ *   SELECTABLE x8  -> menuhandlerMpTeamNameSlot(team=0..7) pushes g_MpChangeTeamNameMenuDialog
+ *   SEPARATOR
+ *   SELECTABLE      "Back" (CLOSESDIALOG)
+ *
+ * The legacy flow pushes a KEYBOARD drill-down for each team name.  PC
+ * replaces that with an inline ImGui::InputText per row — faster, no
+ * modal-stack thrash.  Writes go through `pdguiMpsTeamNameSet` which
+ * mirrors the legacy `mpTeamNameMenuHandler::MENUOP_SETTEXT` byte layout
+ * (11-char cap, '\n' terminator, MODFILE_MPSETUP dirty flag).
+ *
+ * The 8 team colours are fixed (R/Y/B/M/C/O/P/Brown) — legacy uses
+ * L_OPTIONS_008..L_OPTIONS_015; we hardcode English fallbacks for
+ * consistency with other Batch-N ImGui renderers.
+ *
+ * Network: LOCAL-ONLY.  `g_BossFile.teamnames[MAX_TEAMS][12]` is per-client
+ * display state.  Each client sees team labels from its OWN boss file in
+ * the scoreboard and pause rankings.  See scratch doc row 6.
+ */
+
+struct TeamSlotInfo {
+    const char *colourName;
+    ImVec4      swatch;
+};
+
+static const TeamSlotInfo s_TeamSlots[PDMS_MAX_TEAMS] = {
+    { "Red",     ImVec4(0.90f, 0.18f, 0.18f, 1.0f) },
+    { "Yellow",  ImVec4(0.95f, 0.88f, 0.20f, 1.0f) },
+    { "Blue",    ImVec4(0.22f, 0.42f, 0.95f, 1.0f) },
+    { "Magenta", ImVec4(0.92f, 0.28f, 0.85f, 1.0f) },
+    { "Cyan",    ImVec4(0.20f, 0.88f, 0.92f, 1.0f) },
+    { "Orange",  ImVec4(0.98f, 0.60f, 0.12f, 1.0f) },
+    { "Pink",    ImVec4(0.98f, 0.62f, 0.72f, 1.0f) },
+    { "Brown",   ImVec4(0.55f, 0.38f, 0.22f, 1.0f) },
+};
+
+/* Per-session edit buffers.  ImGui::InputText owns the buffer during the
+ * frame; we seed it from the bridge getter on window-appearing, then push
+ * changes back to g_BossFile on commit (Enter, lose focus, or row click). */
+static char s_TeamNameBuf[PDMS_MAX_TEAMS][16];
+static bool s_TeamNameBufSeeded = false;
+
+static void tn_SeedBuffers(void)
+{
+    for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
+        pdguiMpsTeamNameGet(t, s_TeamNameBuf[t], sizeof(s_TeamNameBuf[t]));
+    }
+    s_TeamNameBufSeeded = true;
+}
+
+static void tn_CommitBuffer(u32 team)
+{
+    if (team >= PDMS_MAX_TEAMS) return;
+    pdguiMpsTeamNameSet(team, s_TeamNameBuf[team]);
+}
+
+static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
+{
+    PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_teamnames",
+                                                    "Team Names",
+                                                    0.56f, 0.72f);
+    if (wf.mw == 0.0f) { ImGui::End(); return 1; }
+
+    if (ImGui::IsWindowAppearing()) {
+        tn_SeedBuffers();
+    }
+
+    if (pdms_BackPressed()) {
+        /* Commit any buffered edits before closing so a half-typed name
+         * is preserved when the user escapes out. */
+        for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
+            tn_CommitBuffer(t);
+        }
+        pdms_CloseCurrentDialog();
+        ImGui::End();
+        return 1;
+    }
+
+    ImGui::TextDisabled("Edit team labels shown on the scoreboard. 11 chars max.");
+    ImGui::Spacing();
+
+    float avail = ImGui::GetContentRegionAvail().y;
+    float bodyH = pdguiBodyHeightForActionBar(avail);
+
+    if (ImGui::BeginChild("##pdms_teamnames_body", ImVec2(0, bodyH), false,
+                          ImGuiWindowFlags_NoBackground)) {
+
+        float swatchW = pdguiScale(18.0f);
+        float swatchH = pdguiScale(18.0f);
+        float labelW  = pdguiScale(92.0f);
+        float inputW  = pdguiScale(220.0f);
+
+        for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
+            ImGui::PushID((int)t);
+
+            /* Colour swatch */
+            ImGui::ColorButton("##swatch",
+                               s_TeamSlots[t].swatch,
+                               ImGuiColorEditFlags_NoTooltip |
+                               ImGuiColorEditFlags_NoDragDrop |
+                               ImGuiColorEditFlags_NoAlpha,
+                               ImVec2(swatchW, swatchH));
+            ImGui::SameLine();
+
+            /* Colour label (fixed) */
+            ImGui::SetNextItemWidth(labelW);
+            ImGui::TextColored(s_TeamSlots[t].swatch, "%s", s_TeamSlots[t].colourName);
+            ImGui::SameLine(labelW + swatchW + pdguiScale(24.0f));
+
+            /* Editable team name */
+            ImGui::SetNextItemWidth(inputW);
+            ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue;
+            if (ImGui::InputText("##name", s_TeamNameBuf[t],
+                                 sizeof(s_TeamNameBuf[t]), flags)) {
+                /* Enter pressed — commit immediately. */
+                tn_CommitBuffer(t);
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            /* Commit on lose-focus too (click-away, tab-out, etc.).
+             * ImGui reports IsItemDeactivatedAfterEdit for any edit
+             * completed by a focus transition. */
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                tn_CommitBuffer(t);
+            }
+
+            ImGui::PopID();
+            ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
+        }
+
+        if (!s_TeamNameBufSeeded) {
+            /* Defensive — should always be seeded by IsWindowAppearing. */
+            tn_SeedBuffers();
+        }
+    }
+    ImGui::EndChild();
+
+    if (pdguiBeginActionBar("##pdms_teamnames_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+            for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
+                tn_CommitBuffer(t);
+            }
+            pdms_CloseCurrentDialog();
+        }
+    }
+    pdguiEndActionBar();
+
+    ImGui::End();
+    return 1;
+}
+
+/* ========================================================================
  * Registration
  * ======================================================================== */
 
@@ -234,10 +908,18 @@ extern "C" {
 void pdguiMenuMpSettingsRegister(void)
 {
     if (!s_Registered) {
-        pdguiHotswapRegister(&g_MpHandicapsMenuDialog, renderHandicap, "Player Handicaps");
+        pdguiHotswapRegister(&g_MpHandicapsMenuDialog, renderHandicap,
+                             "Player Handicaps");
+        pdguiHotswapRegister(&g_MpSelectTunesMenuDialog, renderSelectTunes,
+                             "MP Select Tunes");
+        pdguiHotswapRegister(&g_MpSoundtrackMenuDialog, renderSoundtrack,
+                             "MP Soundtrack");
+        pdguiHotswapRegister(&g_MpTeamNamesMenuDialog, renderTeamNames,
+                             "MP Team Names");
         s_Registered = true;
     }
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_mpsettings: registered");
+    sysLogPrintf(LOG_NOTE,
+        "pdgui_menu_mpsettings: registered (handicaps + Batch 12 Music & Team Names)");
 }
 
 } /* extern "C" */

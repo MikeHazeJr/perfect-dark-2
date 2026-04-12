@@ -883,3 +883,75 @@ s32 pdguiPcPlayerConfigGetMedalCount(s32 which)
     }
 }
 
+/* ========================================================================
+ * MP Settings bridge (pdgui_menu_mpsettings.cpp, Batch 12 Music & Misc)
+ *
+ * Team name accessors for the inline Team Names editor.  These mirror the
+ * read/write semantics of the legacy `mpTeamNameMenuHandler::MENUOP_GETTEXT`
+ * and `MENUOP_SETTEXT` branches in `src/game/mplayer/setup.c:4589`:
+ *
+ *   - Storage layout: `g_BossFile.teamnames[MAX_TEAMS][12]`.  Each slot is
+ *     up to 11 printable chars followed by a `'\n'` terminator, with any
+ *     remaining bytes zero-filled.
+ *   - Write: clamp to 11 chars, place `'\n'` at the first free position,
+ *     zero the rest, set `MODFILE_MPSETUP` dirty flag so the boss file
+ *     persists on save.
+ *
+ * The C++ renderer cannot include types.h (bool redefinition breaks C++),
+ * so it goes through these accessors instead of touching g_BossFile
+ * directly.  Same pattern as `pdguiMppGetTeamName` (Batch 8) which reads
+ * the same field from the pause team-rankings dialog.
+ * ======================================================================== */
+
+void pdguiMpsTeamNameGet(u32 team, char *out, u32 outlen)
+{
+    u32 i;
+    if (!out || outlen == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (team >= MAX_TEAMS) {
+        team = 0;
+    }
+    /* Copy until '\n' or '\0' or the 11-char source cap.  Reserve one byte
+     * of outlen for the trailing '\0'. */
+    for (i = 0; i < 11 && (i + 1) < outlen; i++) {
+        char c = g_BossFile.teamnames[team][i];
+        if (c == '\n' || c == '\0') {
+            break;
+        }
+        out[i] = c;
+    }
+    out[i] = '\0';
+}
+
+void pdguiMpsTeamNameSet(u32 team, const char *text)
+{
+    s32 i;
+    if (!text) {
+        return;
+    }
+    if (team >= MAX_TEAMS) {
+        return;
+    }
+    /* Mirror mpTeamNameMenuHandler::MENUOP_SETTEXT exactly:
+     *   - copy up to 11 chars from `text` stopping at first '\0'
+     *   - place '\n' at the first free position
+     *   - zero-fill the rest
+     *   - mark MP setup modified so it persists on next save */
+    i = 0;
+    while (i < 11 && text[i] != '\0') {
+        g_BossFile.teamnames[team][i] = text[i];
+        i++;
+    }
+    g_BossFile.teamnames[team][i] = '\n';
+    i++;
+    while (i < 11) {
+        g_BossFile.teamnames[team][i] = '\0';
+        i++;
+    }
+    /* The legacy storage is [12] wide — ensure the final byte is clean. */
+    g_BossFile.teamnames[team][11] = '\0';
+    g_Vars.modifiedfiles |= MODFILE_MPSETUP;
+}
+

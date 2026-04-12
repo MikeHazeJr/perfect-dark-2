@@ -1066,40 +1066,18 @@ void pdguiMenuWarningRegister(void)
                           renderDefaultDialog,
                           "MP Load Player (Batch 11 partial - LIST deferred)");
 
-    /* S195 Batch 12 — Music & Misc.
-     *
-     * g_MpSelectTunesMenuDialog: LIST of music tracks.  DEFERRED.
-     * g_MpSoundtrackMenuDialog:  Config screen, likely CHECKBOX + DROPDOWN.
-     *                            Should work with B4 extensions.
-     * g_MpTeamNamesMenuDialog:   KEYBOARD text entry per team.  Currently
-     *                            the KEYBOARD handler uses a single buffer
-     *                            (s_KbdBuffer), so this dialog would render
-     *                            but multi-entry edits aren't wired.
-     *                            Registered with type fallback for now.
-     * g_MpChallengesMenuDialog:  LIST of challenges — DEFERRED (already has
-     *                            a dedicated renderer in pdgui_menu_challenges.cpp
-     *                            for the DETAIL dialog, this is the parent).
-     */
-    extern struct menudialogdef g_MpSelectTunesMenuDialog;
-    extern struct menudialogdef g_MpSoundtrackMenuDialog;
-    extern struct menudialogdef g_MpTeamNamesMenuDialog;
-    extern struct menudialogdef g_MpChallengesMenuDialog;
-
-    pdguiHotswapRegister(&g_MpSelectTunesMenuDialog,
-                          renderDefaultDialog,
-                          "MP Select Tunes (Batch 12 partial - LIST deferred)");
-    pdguiHotswapRegister(&g_MpSoundtrackMenuDialog,
-                          renderDefaultDialog,
-                          "MP Soundtrack (Batch 12)");
-    pdguiHotswapRegister(&g_MpTeamNamesMenuDialog,
-                          renderDefaultDialog,
-                          "MP Team Names (Batch 12 - single-entry KEYBOARD)");
-    pdguiHotswapRegister(&g_MpChallengesMenuDialog,
-                          renderDefaultDialog,
-                          "MP Challenges root (Batch 12 partial - LIST deferred)");
+    /* S209 Batch 12 — Music & Misc: the 4 Batch 12 dialogs
+     * (g_MpSelectTunesMenuDialog, g_MpSoundtrackMenuDialog,
+     * g_MpTeamNamesMenuDialog, g_MpChallengesMenuDialog) are now fully
+     * implemented in pdgui_menu_mpsettings.cpp (tunes/soundtrack/teamnames)
+     * and pdgui_menu_challenges.cpp (challenges root).  The previous
+     * renderDefaultDialog placeholders here were removed since the real
+     * renderers register later in pdguiMenusRegisterAll() and would
+     * silently override them anyway — keeping the placeholders just
+     * spammed stale "Batch 12 partial" strings into the init log. */
 
     s_Registered = true;
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS fallbacks + S193 Batch 1 + S195 Batches 4/8/11/12 explicit dialogs");
+    sysLogPrintf(LOG_NOTE, "pdgui_menu_warning: Registered DEFAULT + DANGER + SUCCESS fallbacks + S193 Batch 1 + S195 Batches 4/8/11 explicit dialogs");
 }
 
 } /* extern "C" */
