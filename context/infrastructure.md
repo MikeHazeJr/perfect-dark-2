@@ -40,7 +40,7 @@ Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/
 | D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
 | D3R | Component Mod Architecture | ✅ **ALL DONE** (D3R-1–11, S46a, S46b) | S80 |
 | D4 | Menu Migration | ♻️ Superseded (ongoing, no longer blocks) | S22 |
-| D5 | Settings / Graphics / QoL | 🔶 Partial (UI Scaling done S97) | S97 |
+| D5 | Settings / Graphics / QoL | 🔶 Partial (UI Scaling S97; **Phase 3 menu replacement COMPLETE 2026-04-11 — all 254 dialogs landed across Batches 0/1/2/3/4/5/6/6-polish/7/8/10/11/12**) | S97/S192-S209 |
 | D6 | Persistent Stats | 🔶 Partial | S49 |
 | D7 | Discord Rich Presence | 📋 Planned | — |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
