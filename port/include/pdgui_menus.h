@@ -26,8 +26,8 @@ void pdguiMenuWarningRegister(void);
 void pdguiMenuNetworkRegister(void);
 void pdguiMenuSoloMissionRegister(void);  /* Group 1: Solo Mission Flow */
 void pdguiMenuTeamSetupRegister(void);    /* Group 4: Team assignment screen */
-void pdguiMenuMpSettingsRegister(void);   /* Group 4: Player handicaps screen */
-void pdguiMenuChallengesRegister(void);   /* Group 4: Combat challenge browser */
+void pdguiMenuMpSettingsRegister(void);   /* Group 4: Player handicaps + D5 P3 Batch 12 Music/Soundtrack/Team Names */
+void pdguiMenuChallengesRegister(void);   /* Group 4: Combat challenge browser (+ D5 P3 Batch 12 root variant) */
 void pdguiMpIngameRegister(void);         /* Group 5: MP In-Game overlays + endscreen suppression */
 void pdguiMenuEndscreenRegister(void);    /* Group 2: SP/MP end screens */
 void pdguiMenuTrainingRegister(void);     /* Group 6: Firing Range, DT, HT, Bio dialogs */

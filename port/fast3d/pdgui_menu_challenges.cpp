@@ -1,8 +1,9 @@
 /**
  * pdgui_menu_challenges.cpp -- Combat challenge browser and launcher.
  *
- * Replaces g_MpChallengeListOrDetailsMenuDialog and
- * g_MpCompletedChallengesMenuDialog with an ImGui two-panel screen:
+ * Replaces g_MpChallengeListOrDetailsMenuDialog,
+ * g_MpCompletedChallengesMenuDialog, and (Batch 12)
+ * g_MpChallengesMenuDialog with an ImGui two-panel screen:
  *
  *   Left:  scrollable challenge list — name + 4-player completion dots
  *   Right: selected challenge description + "Accept Challenge" button
@@ -10,6 +11,17 @@
  * Accepting calls matchStartFromChallenge(slot) which wraps
  * challengeSetCurrentBySlot() + mpStartMatch() without clobbering the
  * challenge's g_MpSetup config through the normal g_MatchConfig path.
+ *
+ * Batch 12 notes: g_MpChallengesMenuDialog is the root-menu entry point
+ * (setup.c:5299) reached from Combat Simulator → Combat Challenges.  It
+ * uses the SAME mpChallengesListMenuHandler as the Advanced-Setup variant
+ * (g_MpChallengeListOrDetailsMenuDialog) but with item->param=1 instead
+ * of 0, routing the legacy confirm dialog through the QuickGo branch.
+ * The ImGui renderer bypasses both legacy confirm paths and calls
+ * matchStartFromChallenge directly, so the param distinction is
+ * irrelevant at the render layer — we reuse the same renderChallenges
+ * function.  Network match-start propagates via the established
+ * g_MpSetup → SVC_STAGE_START pipeline (scratch doc row 7).
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  *
@@ -38,6 +50,7 @@ extern "C" {
 /* Dialogs we replace */
 extern struct menudialogdef g_MpChallengeListOrDetailsMenuDialog;
 extern struct menudialogdef g_MpCompletedChallengesMenuDialog;
+extern struct menudialogdef g_MpChallengesMenuDialog;  /* Batch 12 — root-menu variant */
 
 /* Menu stack */
 void menuPopDialog(void);
@@ -358,9 +371,18 @@ void pdguiMenuChallengesRegister(void)
                              renderChallenges, "Combat Challenges");
         pdguiHotswapRegister(&g_MpCompletedChallengesMenuDialog,
                              renderCompletedChallenges, "Completed Challenges");
+        /* Batch 12: the root-menu variant shares the same renderer.  Both
+         * dialogs present the same list and the same immediate-start
+         * semantics (matchStartFromChallenge).  The legacy item->param
+         * distinction (0 = via Advanced Setup, 1 = via root → QuickGo)
+         * is bypassed because renderChallenges calls matchStartFromChallenge
+         * directly, skipping both confirm dialogs. */
+        pdguiHotswapRegister(&g_MpChallengesMenuDialog,
+                             renderChallenges, "Combat Challenges (root)");
         s_Registered = true;
     }
-    sysLogPrintf(LOG_NOTE, "pdgui_menu_challenges: registered");
+    sysLogPrintf(LOG_NOTE,
+        "pdgui_menu_challenges: registered (list/details + completed + Batch 12 root)");
 }
 
 } /* extern "C" */
