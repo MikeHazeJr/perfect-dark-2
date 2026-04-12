@@ -78,6 +78,7 @@ extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
+extern struct menudialogdef g_CheatsMenuDialog;
 
 /* D5 P3 Batch 4 -- Cinema dialog (cutscene viewer). */
 extern struct menudialogdef g_CinemaMenuDialog;
@@ -2349,14 +2350,44 @@ static void renderSettingsView(float scale, float contentH)
         ImGui::EndTabBar();
     }
 
+    /* Cheats button — opens cheats hub dialog from Settings */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        float cheatsW = ImGui::GetContentRegionAvail().x * 0.4f;
+        float cheatsH = pdguiScale(34.0f);
+        /* Center the button */
+        float cx = (ImGui::GetContentRegionAvail().x - cheatsW) * 0.5f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cx);
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.30f, 0.15f, 0.40f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.45f, 0.22f, 0.55f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.55f, 0.30f, 0.65f, 1.0f));
+        if (ImGui::Button("Cheats", ImVec2(cheatsW, cheatsH))) {
+            menuPushDialog(&g_CheatsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+        ImGui::PopStyleColor(3);
+    }
+
     /* Bumper hint at bottom */
     ImGui::TextDisabled("LB / RB to switch tabs");
 }
+
+/* B-131 ext: duplicate dialog guard — prevents overlapped instances when
+ * Start/Pause pushes the dialog while it's already rendering. */
+static bool s_MainMenuIsRendering = false;
 
 static s32 renderMainMenu(struct menudialog *dialog,
                            struct menu *menu,
                            s32 winW, s32 winH)
 {
+    /* Duplicate guard: if we're already mid-render (second dialog instance
+     * on the stack), silently consume but don't draw a second copy. */
+    if (s_MainMenuIsRendering) {
+        return 1; /* consumed — prevent legacy from rendering */
+    }
+    s_MainMenuIsRendering = true;
     /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission
      * endscreen (which sets palette 3=green or 2=red and never restores it).
      * P5: Uses catalog-backed theme instead of hardcoded blue.
@@ -2390,6 +2421,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     if (!ImGui::Begin("##main_menu", nullptr, wflags)) {
         ImGui::End();
+        s_MainMenuIsRendering = false;
         return 1;
     }
 
@@ -2428,6 +2460,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGuiIO &nio = ImGui::GetIO();
         nio.AddKeyEvent(ImGuiKey_Escape, false);
         nio.AddKeyEvent(ImGuiKey_GamepadFaceRight, false);
+        /* B-131 extension: also clear Start/A/Enter edges to prevent the
+         * opening press from being read as a menu selection on the first
+         * frame.  Without this, opening with Start can auto-select the
+         * first focused button. */
+        nio.AddKeyEvent(ImGuiKey_GamepadStart, false);
+        nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
+        nio.AddKeyEvent(ImGuiKey_Enter, false);
+        /* Clear nav active ID — prevent stale gamepad focus from
+         * auto-selecting a button before user deliberately navigates. */
+        ImGui::ClearActiveID();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
 
@@ -2526,25 +2568,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * 2026-04-11 fix: poll PageUp/PageDown instead of GamepadL1/R1.  See
      * renderSettingsView() comment for the full rationale.  pdguiDriveImGuiNav
      * already injects these keys from ACTION_MENU_TAB_PREV/NEXT every frame. */
-    if (!ImGui::IsWindowAppearing()) {
-        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
-            if (s_MenuView <= 1) {
-                s_MenuView = 4;
-            } else {
-                s_MenuView--;
-            }
-            s_NeedsFocus = true;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
-            if (s_MenuView >= 4 || s_MenuView == 0) {
-                s_MenuView = 1;
-            } else {
-                s_MenuView++;
-            }
-            s_NeedsFocus = true;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
+    /* Issue 12: bumpers (LB/RB → PageUp/PageDown) only switch tabs inside
+     * the Settings sub-view (view 2).  At the root level they do nothing.
+     * The Settings view handles its own bumper tab switching internally
+     * in renderSettingsView(). Consume PageUp/PageDown at all other levels
+     * to prevent ImGui's nav from scrolling or jumping focus. */
+    if (!ImGui::IsWindowAppearing() && s_MenuView != 2) {
+        /* Silently consume bumper presses — no action at root or non-Settings views */
+        (void)ImGui::IsKeyPressed(ImGuiKey_PageUp, false);
+        (void)ImGui::IsKeyPressed(ImGuiKey_PageDown, false);
     }
 
     if (s_MenuView == 0) {
@@ -2923,6 +2955,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     pdguiNavTickWrap();
 
     ImGui::End();
+    s_MainMenuIsRendering = false;
     return 1;  /* Handled */
 }
 

@@ -55,6 +55,8 @@ extern s32 g_NetMode;
 void mainEndStage(void);
 void mainChangeToStage(s32 stagenum);
 void netDisconnect(void);
+void pdguiEndscreenExitToMainMenu(void);
+void pdguiSoloRoomReturn(void);
 
 /* Mouse */
 s32 inputMouseIsLocked(void);
@@ -404,6 +406,27 @@ static bool PdPauseButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * Pause Menu — Tab: Rankings
  * ======================================================================== */
 
+/* Team color table — shared by rankings tab, overlay, and game-over screen */
+static const ImVec4 s_TeamColors[] = {
+    ImVec4(1.0f, 0.3f, 0.3f, 1.0f),  /* Red */
+    ImVec4(0.3f, 0.5f, 1.0f, 1.0f),  /* Blue */
+    ImVec4(0.3f, 1.0f, 0.3f, 1.0f),  /* Green */
+    ImVec4(1.0f, 1.0f, 0.3f, 1.0f),  /* Yellow */
+    ImVec4(1.0f, 0.5f, 0.0f, 1.0f),  /* Orange */
+    ImVec4(0.8f, 0.3f, 1.0f, 1.0f),  /* Purple */
+    ImVec4(0.5f, 0.5f, 0.5f, 1.0f),  /* Grey */
+    ImVec4(1.0f, 1.0f, 1.0f, 1.0f),  /* White */
+};
+
+/* Dim version of team colors for row backgrounds */
+static ImVec4 teamRowBg(u8 team, bool isPlayer)
+{
+    if (team >= 8) team = 7;
+    ImVec4 c = s_TeamColors[team];
+    float a = isPlayer ? 0.25f : 0.12f;
+    return ImVec4(c.x, c.y, c.z, a);
+}
+
 static void renderRankingsTab(float contentW)
 {
     ScorecardRow rows[MAX_MPCHRS_PM];
@@ -412,60 +435,85 @@ static void renderRankingsTab(float contentW)
     u32 options = pdguiPauseGetOptions();
     bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
 
-    /* Column headers */
+    s32 numCols = teamsEnabled ? 6 : 5;
+    ImGuiTableFlags tflags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit
+                           | ImGuiTableFlags_NoBordersInBodyUntilResize
+                           | ImGuiTableFlags_PadOuterX;
+
+    if (!ImGui::BeginTable("##rankings_tbl", numCols, tflags)) return;
+
+    /* Setup columns */
+    ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(32.0f));
+    ImGui::TableSetupColumn("Name",   ImGuiTableColumnFlags_WidthStretch);
+    if (teamsEnabled)
+        ImGui::TableSetupColumn("Team",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(50.0f));
+    ImGui::TableSetupColumn("Score",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(60.0f));
+    ImGui::TableSetupColumn("Kills",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(55.0f));
+    ImGui::TableSetupColumn("Deaths", ImGuiTableColumnFlags_WidthFixed, pdguiScale(60.0f));
+
+    /* Header row */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.8f, 1.0f, 1.0f));
-    if (teamsEnabled) {
-        ImGui::Text("%-4s %-14s %5s %5s %5s %5s", "#", "Name", "Team", "Score", "Kills", "Deaths");
-    } else {
-        ImGui::Text("%-4s %-14s %7s %7s %7s", "#", "Name", "Score", "Kills", "Deaths");
-    }
+    ImGui::TableHeadersRow();
     ImGui::PopStyleColor();
 
-    ImGui::Separator();
-
-    /* Team color table */
-    static const ImVec4 s_TeamColors[] = {
-        ImVec4(1.0f, 0.3f, 0.3f, 1.0f),  /* Red */
-        ImVec4(0.3f, 0.5f, 1.0f, 1.0f),  /* Blue */
-        ImVec4(0.3f, 1.0f, 0.3f, 1.0f),  /* Green */
-        ImVec4(1.0f, 1.0f, 0.3f, 1.0f),  /* Yellow */
-        ImVec4(1.0f, 0.5f, 0.0f, 1.0f),  /* Orange */
-        ImVec4(0.8f, 0.3f, 1.0f, 1.0f),  /* Purple */
-        ImVec4(0.5f, 0.5f, 0.5f, 1.0f),  /* Grey */
-        ImVec4(1.0f, 1.0f, 1.0f, 1.0f),  /* White */
-    };
-
     for (s32 i = 0; i < count; i++) {
-        /* Highlight the local player */
-        if (rows[i].isPlayer) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.4f, 1.0f));
+        ImGui::TableNextRow();
+
+        /* Team-colored row background (entire row) */
+        if (teamsEnabled) {
+            ImVec4 bg = teamRowBg(rows[i].team, rows[i].isPlayer);
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                   ImGui::GetColorU32(bg));
+        } else if (rows[i].isPlayer) {
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                   IM_COL32(255, 230, 100, 40));
         }
 
-        char rankStr[8];
-        snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
+        char buf[32];
 
+        /* # */
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d.", i + 1);
+        ImGui::TextUnformatted(buf);
+
+        /* Name */
+        ImGui::TableNextColumn();
+        if (rows[i].isPlayer) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.95f, 0.7f, 1.0f));
+            ImGui::TextUnformatted(rows[i].name);
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::TextUnformatted(rows[i].name);
+        }
+
+        /* Team */
         if (teamsEnabled) {
+            ImGui::TableNextColumn();
             u8 team = rows[i].team;
             if (team >= 8) team = 7;
-            ImVec4 tc = s_TeamColors[team];
-
-            ImGui::Text("%-4s %-14s", rankStr, rows[i].name);
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, tc);
-            ImGui::Text("  T%d  ", team + 1);
-            ImGui::PopStyleColor();
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::Text("%5d %5d %5d", rows[i].score, rows[i].kills, rows[i].deaths);
-        } else {
-            ImGui::Text("%-4s %-14s %7d %7d %7d",
-                         rankStr, rows[i].name,
-                         rows[i].score, rows[i].kills, rows[i].deaths);
-        }
-
-        if (rows[i].isPlayer) {
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[team]);
+            snprintf(buf, sizeof(buf), "T%d", team + 1);
+            ImGui::TextUnformatted(buf);
             ImGui::PopStyleColor();
         }
+
+        /* Score */
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].score);
+        ImGui::TextUnformatted(buf);
+
+        /* Kills */
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].kills);
+        ImGui::TextUnformatted(buf);
+
+        /* Deaths */
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].deaths);
+        ImGui::TextUnformatted(buf);
     }
+
+    ImGui::EndTable();
 }
 
 /* ========================================================================
@@ -764,63 +812,82 @@ void pdguiScorecardRender(s32 winW, s32 winH)
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.7f, 1.0f, 1.0f));
         ImGui::Text("SCOREBOARD");
-        ImGui::SameLine(boardW - 100.0f);
+        ImGui::SameLine(boardW - pdguiScale(100.0f));
         ImGui::Text("%s", timebuf);
         ImGui::PopStyleColor();
 
         ImGui::Separator();
 
-        /* Column header */
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.6f, 0.8f, 0.9f));
-        if (teamsEnabled) {
-            ImGui::Text("%-3s %-12s %4s %5s %5s %6s", "#", "Name", "T", "Score", "K", "D");
-        } else {
-            ImGui::Text("%-3s %-14s %7s %5s %5s", "#", "Name", "Score", "K", "D");
-        }
-        ImGui::PopStyleColor();
+        /* Table-based layout for proper column alignment */
+        s32 numCols = teamsEnabled ? 6 : 5;
+        ImGuiTableFlags tflags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit
+                               | ImGuiTableFlags_PadOuterX;
 
-        /* Team colors (same as pause menu) */
-        static const ImVec4 s_TeamColors[] = {
-            ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
-            ImVec4(0.3f, 0.5f, 1.0f, 1.0f),
-            ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
-            ImVec4(1.0f, 1.0f, 0.3f, 1.0f),
-            ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
-            ImVec4(0.8f, 0.3f, 1.0f, 1.0f),
-            ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-            ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
-        };
+        if (ImGui::BeginTable("##sc_tbl", numCols, tflags)) {
+            ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(28.0f));
+            ImGui::TableSetupColumn("Name",   ImGuiTableColumnFlags_WidthStretch);
+            if (teamsEnabled)
+                ImGui::TableSetupColumn("T",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(36.0f));
+            ImGui::TableSetupColumn("Score",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(52.0f));
+            ImGui::TableSetupColumn("K",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(40.0f));
+            ImGui::TableSetupColumn("D",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(40.0f));
 
-        /* Rows */
-        for (s32 i = 0; i < count; i++) {
-            /* Highlight local player with gold text */
-            if (rows[i].isPlayer) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.4f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.6f, 0.8f, 0.9f));
+            ImGui::TableHeadersRow();
+            ImGui::PopStyleColor();
+
+            for (s32 i = 0; i < count; i++) {
+                ImGui::TableNextRow();
+
+                /* Team-colored row background */
+                if (teamsEnabled) {
+                    ImVec4 bg = teamRowBg(rows[i].team, rows[i].isPlayer);
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                           ImGui::GetColorU32(bg));
+                } else if (rows[i].isPlayer) {
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                           IM_COL32(255, 230, 100, 35));
+                }
+
+                char buf[32];
+
+                ImGui::TableNextColumn();
+                snprintf(buf, sizeof(buf), "%d.", i + 1);
+                ImGui::TextUnformatted(buf);
+
+                ImGui::TableNextColumn();
+                if (rows[i].isPlayer) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.95f, 0.7f, 1.0f));
+                    ImGui::TextUnformatted(rows[i].name);
+                    ImGui::PopStyleColor();
+                } else {
+                    ImGui::TextUnformatted(rows[i].name);
+                }
+
+                if (teamsEnabled) {
+                    ImGui::TableNextColumn();
+                    u8 team = rows[i].team;
+                    if (team >= 8) team = 7;
+                    ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[team]);
+                    snprintf(buf, sizeof(buf), "T%d", team + 1);
+                    ImGui::TextUnformatted(buf);
+                    ImGui::PopStyleColor();
+                }
+
+                ImGui::TableNextColumn();
+                snprintf(buf, sizeof(buf), "%d", rows[i].score);
+                ImGui::TextUnformatted(buf);
+
+                ImGui::TableNextColumn();
+                snprintf(buf, sizeof(buf), "%d", rows[i].kills);
+                ImGui::TextUnformatted(buf);
+
+                ImGui::TableNextColumn();
+                snprintf(buf, sizeof(buf), "%d", rows[i].deaths);
+                ImGui::TextUnformatted(buf);
             }
 
-            char rankStr[8];
-            snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
-
-            if (teamsEnabled) {
-                u8 team = rows[i].team;
-                if (team >= 8) team = 7;
-
-                ImGui::Text("%-3s %-12s", rankStr, rows[i].name);
-                ImGui::SameLine(0.0f, 0.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[team]);
-                ImGui::Text(" T%d ", team + 1);
-                ImGui::PopStyleColor();
-                ImGui::SameLine(0.0f, 0.0f);
-                ImGui::Text(" %5d %5d %5d", rows[i].score, rows[i].kills, rows[i].deaths);
-            } else {
-                ImGui::Text("%-3s %-14s %7d %5d %5d",
-                             rankStr, rows[i].name,
-                             rows[i].score, rows[i].kills, rows[i].deaths);
-            }
-
-            if (rows[i].isPlayer) {
-                ImGui::PopStyleColor();
-            }
+            ImGui::EndTable();
         }
     }
     ImGui::End();
@@ -862,20 +929,24 @@ static const MedalDef s_MedalDefs[] = {
 static void renderGameOverRankings(float contentW, s32 count,
                                    const ScorecardRow *rows, bool teamsEnabled)
 {
-    /* Team color table */
-    static const ImVec4 s_TeamCols[] = {
-        ImVec4(1.0f, 0.3f, 0.3f, 1.0f), ImVec4(0.3f, 0.5f, 1.0f, 1.0f),
-        ImVec4(0.3f, 1.0f, 0.3f, 1.0f), ImVec4(1.0f, 1.0f, 0.3f, 1.0f),
-        ImVec4(1.0f, 0.5f, 0.0f, 1.0f), ImVec4(0.8f, 0.3f, 1.0f, 1.0f),
-        ImVec4(0.5f, 0.5f, 0.5f, 1.0f), ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
-    };
+    s32 numCols = teamsEnabled ? 7 : 6;
+    ImGuiTableFlags tflags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit
+                           | ImGuiTableFlags_PadOuterX;
 
-    /* Column header */
+    if (!ImGui::BeginTable("##go_rank_tbl", numCols, tflags)) return;
+
+    ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(28.0f));
+    ImGui::TableSetupColumn("Name",   ImGuiTableColumnFlags_WidthStretch);
+    if (teamsEnabled)
+        ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, pdguiScale(44.0f));
+    ImGui::TableSetupColumn("Score",  ImGuiTableColumnFlags_WidthFixed, pdguiScale(56.0f));
+    ImGui::TableSetupColumn("K",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(40.0f));
+    ImGui::TableSetupColumn("D",      ImGuiTableColumnFlags_WidthFixed, pdguiScale(40.0f));
+    ImGui::TableSetupColumn("Acc%",   ImGuiTableColumnFlags_WidthFixed, pdguiScale(52.0f));
+
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.65f, 0.85f, 1.0f));
-    ImGui::Text("%-3s %-14s %6s %5s %5s %6s", "#", "Name", "Score", "K", "D", "Acc%");
+    ImGui::TableHeadersRow();
     ImGui::PopStyleColor();
-    ImGui::Separator();
-    ImGui::Spacing();
 
     s32 prevTeam = -1;
     for (s32 i = 0; i < count; i++) {
@@ -883,43 +954,80 @@ static void renderGameOverRankings(float contentW, s32 count,
         if (teamsEnabled && (s32)rows[i].team != prevTeam) {
             prevTeam = (s32)rows[i].team;
             u8 hteam = rows[i].team < 8 ? rows[i].team : 7;
-            ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamCols[hteam]);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[hteam]);
             ImGui::Text("  -- Team %d --", hteam + 1);
             ImGui::PopStyleColor();
         }
 
-        /* Row color: gold for overall 1st, team-color for team members,
-         * cyan for local human player, dim for bots */
-        ImVec4 rowColor;
-        if (i == 0) {
-            rowColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);   /* gold: overall 1st */
+        ImGui::TableNextRow();
+
+        /* Team-colored row background */
+        if (teamsEnabled) {
+            ImVec4 bg = teamRowBg(rows[i].team, rows[i].isPlayer);
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                   ImGui::GetColorU32(bg));
+        } else if (i == 0) {
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                   IM_COL32(255, 210, 50, 40));
         } else if (rows[i].isPlayer) {
-            rowColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);    /* cyan: local human */
-        } else if (teamsEnabled) {
-            u8 tc = rows[i].team < 8 ? rows[i].team : 7;
-            ImVec4 tc4 = s_TeamCols[tc];
-            rowColor = ImVec4(tc4.x * 0.85f, tc4.y * 0.85f, tc4.z * 0.85f, 1.0f);
-        } else {
-            rowColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);  /* dim: bot */
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                                   IM_COL32(100, 200, 255, 35));
         }
 
-        char rankStr[8];
-        snprintf(rankStr, sizeof(rankStr), "%d.", i + 1);
-
-        char accBuf[10];
-        if (rows[i].accuracy >= 0.0f) {
-            snprintf(accBuf, sizeof(accBuf), "%.1f", rows[i].accuracy);
+        /* Name color: gold for 1st, cyan for local player, white for others */
+        ImVec4 nameColor;
+        if (i == 0) {
+            nameColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
+        } else if (rows[i].isPlayer) {
+            nameColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);
         } else {
-            accBuf[0] = '-'; accBuf[1] = '-'; accBuf[2] = '\0';
+            nameColor = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, rowColor);
-        ImGui::Text("%-3s %-14s %6d %5d %5d %6s",
-                    rankStr, rows[i].name,
-                    rows[i].score, rows[i].kills, rows[i].deaths, accBuf);
+        char buf[32];
+
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d.", i + 1);
+        ImGui::TextUnformatted(buf);
+
+        ImGui::TableNextColumn();
+        ImGui::PushStyleColor(ImGuiCol_Text, nameColor);
+        ImGui::TextUnformatted(rows[i].name);
         ImGui::PopStyleColor();
+
+        if (teamsEnabled) {
+            ImGui::TableNextColumn();
+            u8 team = rows[i].team < 8 ? rows[i].team : 7;
+            ImGui::PushStyleColor(ImGuiCol_Text, s_TeamColors[team]);
+            snprintf(buf, sizeof(buf), "T%d", team + 1);
+            ImGui::TextUnformatted(buf);
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].score);
+        ImGui::TextUnformatted(buf);
+
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].kills);
+        ImGui::TextUnformatted(buf);
+
+        ImGui::TableNextColumn();
+        snprintf(buf, sizeof(buf), "%d", rows[i].deaths);
+        ImGui::TextUnformatted(buf);
+
+        ImGui::TableNextColumn();
+        if (rows[i].accuracy >= 0.0f) {
+            snprintf(buf, sizeof(buf), "%.1f", rows[i].accuracy);
+        } else {
+            buf[0] = '-'; buf[1] = '-'; buf[2] = '\0';
+        }
+        ImGui::TextUnformatted(buf);
     }
+
+    ImGui::EndTable();
     (void)contentW;
 }
 
@@ -1254,7 +1362,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
 
         ImGui::SetCursorPosX(padX);
 
-        /* --- Return to Lobby: end match, stay connected, show room screen --- */
+        /* --- Return to Lobby: end match cleanly, show room screen --- */
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.08f, 0.25f, 0.55f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.40f, 0.80f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.25f, 0.55f, 1.00f, 1.0f));
@@ -1262,12 +1370,15 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-                inputCtxPush(&g_CtxImGuiMenu);
-            }
-            mainChangeToStage(0x26); /* STAGE_CITRAINING — lobby hub */
+            /* Use the same exit path as the endscreen: pop menu stack + save
+             * config.  Do NOT call mainChangeToStage(0x26) — that re-enters the
+             * full stage-load path (lv.c lvReset) which physically spawns bots
+             * and crashes because there is no valid spawn context for them. */
+            pdguiEndscreenExitToMainMenu();
             if (g_NetMode != NETMODE_NONE) {
                 pdguiSetInRoom(1);   /* remain in room, show room screen */
+            } else {
+                pdguiSoloRoomReturn(); /* solo: preserve config for rematch */
             }
         }
         ImGui::PopStyleColor(3);

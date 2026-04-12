@@ -17,6 +17,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "pdgui_hud.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -339,6 +340,11 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 			vmpchr->killcounts[vmpindex]++;
 		}
 
+		/* PC: ImGui killfeed — suicide */
+		if (g_Vars.normmplayerisrunning && vmpchr) {
+			pdguiKillfeedPush(NULL, 0, vmpchr->name, vmpchr->team, 1);
+		}
+
 		/* PC: track suicide in persistent stats */
 		if (vplayernum < PLAYERCOUNT()) {
 			statIncrement("deaths.total", 1);
@@ -386,6 +392,12 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 
 		if (ampchr && vmpindex >= 0) {
 			ampchr->killcounts[vmpindex]++;
+		}
+
+		/* PC: ImGui killfeed — normal kill */
+		if (g_Vars.normmplayerisrunning && ampchr && vmpchr) {
+			pdguiKillfeedPush(ampchr->name, ampchr->team,
+			                  vmpchr->name, vmpchr->team, 0);
 		}
 
 		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {

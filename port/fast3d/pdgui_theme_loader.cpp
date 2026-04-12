@@ -910,29 +910,39 @@ static struct theme_entry *add_entry(const char *catalog_id, const char *name,
 
 /** Extract the "name" field from a theme.json payload.  Returns a pointer
  *  into scratch if found, or a fallback if the JSON is malformed. */
+/* Extract the first quoted value after a JSON key.  Returns true if found. */
+static bool extract_json_string(const char *json, const char *key,
+                                 char *out, size_t outlen)
+{
+    const char *p = strstr(json, key);
+    if (!p) return false;
+    p += strlen(key);
+    while (*p && *p != ':') p++;
+    if (*p == ':') p++;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '"') return false;
+    p++;
+    const char *q = p;
+    while (*q && *q != '"' && (size_t)(q - p) < outlen - 1) q++;
+    size_t n = (size_t)(q - p);
+    if (n == 0) return false;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return true;
+}
+
 static void extract_theme_name(const char *json, char *out, size_t outlen,
                                const char *fallback)
 {
     out[0] = '\0';
 
     if (json) {
-        const char *p = strstr(json, "\"name\"");
-        if (p) {
-            p += 6; /* past "name" */
-            while (*p && *p != ':') p++;
-            if (*p == ':') p++;
-            while (*p == ' ' || *p == '\t') p++;
-            if (*p == '"') {
-                p++;
-                const char *q = p;
-                while (*q && *q != '"' && (size_t)(q - p) < outlen - 1) q++;
-                size_t n = (size_t)(q - p);
-                if (n > 0) {
-                    memcpy(out, p, n);
-                    out[n] = '\0';
-                    return;
-                }
-            }
+        /* Prefer "display_name" (mod.json convention), fall back to "name" */
+        if (extract_json_string(json, "\"display_name\"", out, outlen)) {
+            return;
+        }
+        if (extract_json_string(json, "\"name\"", out, outlen)) {
+            return;
         }
     }
 
@@ -945,15 +955,28 @@ static void extract_theme_name(const char *json, char *out, size_t outlen,
     }
 }
 
-/** Register a single `mods/<slug>/theme.json` under catalog_id `mod:<slug>`. */
+/** Register a single mod directory as a theme.
+ *  Checks for `mods/<slug>/theme.json` first, then falls back to
+ *  `mods/<slug>/mod.json` (which may contain a "theme" section). */
 static void register_mod_theme_dir(const char *mods_dir, const char *slug)
 {
     char theme_path[THEME_FILEPATH_LEN];
     snprintf(theme_path, sizeof(theme_path), "%s/%s/theme.json", mods_dir, slug);
 
-    /* Skip if no theme.json in this mod dir */
+    /* Check for theme.json first, then fall back to mod.json with "theme" key */
     struct stat st;
-    if (stat(theme_path, &st) != 0 || !S_ISREG(st.st_mode)) return;
+    bool found_theme_json = (stat(theme_path, &st) == 0 && S_ISREG(st.st_mode));
+    if (!found_theme_json) {
+        snprintf(theme_path, sizeof(theme_path), "%s/%s/mod.json", mods_dir, slug);
+        if (stat(theme_path, &st) != 0 || !S_ISREG(st.st_mode)) return;
+        /* Quick check: does mod.json contain a "theme" key? */
+        u32 sz = 0;
+        char *raw = (char *)fsFileLoad(theme_path, &sz);
+        if (!raw) return;
+        bool has_theme = (sz > 0 && strstr(raw, "\"theme\"") != NULL);
+        free(raw);
+        if (!has_theme) return;
+    }
 
     /* Skip if already registered (e.g. re-init) */
     char catalog_id[THEME_CATALOG_ID_LEN];
