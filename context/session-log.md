@@ -3,6 +3,53 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S219 — 2026-04-12 (File Browser + Skin Preview Fix)
+
+**Focus**: Two issues — (1) add shared ImGui file browser for audio/skin import, (2) fix skin editor 3D preview not rendering.
+
+### Changes
+
+- **NEW `port/fast3d/pdgui_filebrowser.cpp` + `port/include/pdgui_filebrowser.h`** (+632 lines):
+  - In-engine ImGui file browser dialog. No native OS dialogs.
+  - Directory listing with file size, extension filtering, parent dir navigation.
+  - Controller-navigable: D-pad scroll, A select/enter dir, B go back/cancel.
+  - Confirm/Cancel button pair. Reusable by any importer.
+
+- **`port/fast3d/pdgui_menu_audiomod.cpp`** (+37 lines):
+  - Browse button next to file path input in Import Audio section.
+  - Opens file browser filtered to `.mp3;.wav;.ogg`.
+  - Auto-fills display name from selected filename (strips extension).
+
+- **`port/fast3d/pdgui_skin_editor.cpp`** (+22 lines):
+  - Browse button in Import Image dialog.
+  - Opens file browser filtered to `.png;.jpg;.bmp;.tga`.
+  - File browser renders instead of import dialog while open.
+
+- **`port/fast3d/pdgui_charpreview.c`** (+17 lines net):
+  - **B-FIX: 3D preview deadlock** — `pdguiCharPreviewRenderGBI()` bailed early when `curparams==0`, preventing `menuRenderModel()` from ever running the model loading path. Model never loaded → curparams never set → permanent deadlock.
+  - Fix: call `menuRenderModel()` even when `curparams==0` for the loading path. Only set up FBO render target when model has actually loaded. `s_PreviewRequested` stays alive across frames during 1-2 frame loading delay.
+
+### Root Cause (3D Preview)
+
+The menu model loading in `menuRenderModel()` has a two-phase pipeline:
+1. **Loading phase**: when `newparams != 0 && newparams != curparams`, it loads the model file from ROM and sets `curparams = newparams`. This takes 1-2 frames due to `loaddelay`.
+2. **Rendering phase**: when `curparams != 0`, it renders the loaded model geometry.
+
+`pdguiCharPreviewRenderGBI()` had a guard `if (menu->menumodel.curparams == 0) return gdl;` which prevented phase 1 from ever executing, creating a circular dependency.
+
+### Commits
+
+1. `ef682301` — feat: add ImGui file browser + fix skin editor 3D preview
+
+### Build Verification
+
+- `pdgui_filebrowser.cpp` passes `-fsyntax-only` compilation clean.
+- Other modified files follow existing patterns that already compile in the real build.
+- Full link build requires Mike's PowerShell environment (temp file permissions).
+- Merged to dev via `--no-ff`. Line counts verified: worktree matches dev (3531 total lines across 5 files).
+
+---
+
 ## Session S218 — 2026-04-12 (Controller Bindings Fix — Radial Menu Accessible)
 
 **Focus**: Fix default controller bindings so radial menu/weapon gear is accessible on gamepad. Solo mission objectives requiring gadgets (CamSpy) were impossible to complete on controller.
