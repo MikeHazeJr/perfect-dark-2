@@ -3,6 +3,47 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S212 — 2026-04-12 (Audio Mod Menu Batch A-3: Audio Mod Menu UI)
+
+**Focus**: Implement Batch A-3 — Audio Mod Menu UI. New tab in Modding Hub for browsing, auditioning, and importing audio mods. Worktree: `claude/vigorous-liskov`, dev baseline `7d94db92`.
+
+### Changes
+
+- **NEW** `port/fast3d/pdgui_menu_audiomod.cpp` (625 lines):
+  - Category tab bar: All / SFX / Music / Voice filters with entry counts
+  - Left panel: scrollable list of all ASSET_AUDIO catalog entries
+  - Bundled entries dimmed, mod entries normal color
+  - Right panel: metadata display (name, ID, category, duration, file, source)
+  - Play/Stop: Music via `modMusicPlay()` (A-2), SFX via `audioPlayFileSound()`
+  - Auto-detect track end for music previews
+  - Import section: file path + name + category inputs
+  - Import creates `mods/<slug>/` with `audio.ini`, copies audio file, registers in catalog immediately (no restart needed)
+  - Follows moddinghub patterns: PdButton with edge glow, extern "C" guards, PD-authentic styling
+
+- **M** `port/fast3d/pdgui_menu_moddinghub.cpp` (+12/-4 lines):
+  - Added extern "C" declarations for `pdguiAudioModRefresh()` / `pdguiAudioModRender()`
+  - Tab bar expanded from 4 to 5 tabs ("Audio Mods" at index 4)
+  - Refresh callback and content routing for tab index 4
+  - Footer description array extended
+
+### Design Decisions
+
+- **Standalone file over inline**: Created `pdgui_menu_audiomod.cpp` as the design doc preferred (§5 A-3: "NEW port/fast3d/pdgui_menu_audiomod.cpp ~600 lines"). Keeps the moddinghub file from growing unwieldy.
+- **Category filter via tab buttons**: Matches the existing tool selector bar pattern in the hub. No ImGui TabBar — uses PdButton row with active highlighting.
+- **Import creates mod directory immediately**: Same pattern as `saveThemeAsMod()` in theme editor. No restart needed — catalog registration is live.
+- **Preview stops on selection change**: Switching the selected entry stops any active music preview to avoid confusion.
+
+### Build
+
+GCC toolchain still non-functional — system-wide `cc1.exe` temp file creation failure (`Cannot create temporary file in C:\WINDOWS\: Permission denied`). Same issue as S210. Code review performed; all patterns follow established conventions.
+
+### Next
+
+- **Batch A-4**: Soundtrack Menu Extension — extend `renderSelectTunes` with mod tracks section, store selection in pd.ini, wire `mpMusicStart`.
+- **Build verification**: Needed when GCC toolchain is restored.
+
+---
+
 ## Session S211 — 2026-04-12 (Audio Mod Menu Batch A-2: Mod Music Stream)
 
 **Focus**: Implement Batch A-2 — parallel PCM playback path for mod music tracks. WAV loading, volume control, mixing into `audioEndFrame`. Worktree: `claude/happy-gauss`, dev baseline `ab124833`.

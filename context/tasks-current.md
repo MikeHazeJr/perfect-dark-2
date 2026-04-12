@@ -166,8 +166,8 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 |-------|-------|--------|--------|
 | **A-1** | Catalog Audio Extension | **DONE** (2026-04-12) | 43 base music tracks registered as ASSET_AUDIO/AUDIO_CAT_MUSIC. `catalog_audio_result_t` + `catalogResolveAudio()` added. 125 lines across 3 files. |
 | **A-2** | Mod Music Stream | **DONE** (2026-04-12) | `modmusic.c` (254 lines) + `modmusic.h` (52 lines) — WAV loading, PCM playback, volume, mixing into audioEndFrame via writable copy buffer. `audio.c` +21 lines. Both builds pass. |
-| **A-3** | Audio Mod Menu UI | NEXT | New tab in Modding Hub — browse/audition/import audio mods |
-| **A-4** | Soundtrack Menu Extension | PENDING | Mod tracks in renderSelectTunes, pd.ini persistence |
+| **A-3** | Audio Mod Menu UI | **DONE** (2026-04-12) | `pdgui_menu_audiomod.cpp` (625 lines) — new tab 4 in Modding Hub. Category tabs (All/SFX/Music/Voice), list + detail panels, Play/Stop preview, import creates mod dir + audio.ini + catalog registration. `moddinghub.cpp` +12 lines. Build blocked by system GCC temp issue. |
+| **A-4** | Soundtrack Menu Extension | NEXT | Mod tracks in renderSelectTunes, pd.ini persistence |
 | **A-5** | Soundtrack Pack Creation | PENDING | Multi-track pack creation dialog |
 | **A-6** | Multi-Format Import | PENDING | MP3 + WAV + OGG via stb_vorbis + minimp3 |
 | **A-7** | Network Sync | PENDING | Mod audio via existing mod propagation pipeline |
