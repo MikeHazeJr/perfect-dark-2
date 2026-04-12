@@ -4740,7 +4740,8 @@ static void catalogInfoCollectCb(const asset_entry_t *e, void *ud)
 u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
 {
 	/* Collect all non-bundled enabled entries from the catalog.
-	 * A-7: ASSET_AUDIO added for mod audio network distribution. */
+	 * A-7: ASSET_AUDIO added for mod audio network distribution.
+	 * S-9: ASSET_SKIN already present — skin mods distributed via same pipeline. */
 	static const asset_type_e s_types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
 		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
