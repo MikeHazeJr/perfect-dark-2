@@ -1350,9 +1350,10 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(0, JOFS_LTRIG));
         addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* L_TRIG: fire mode cycle */
         addBind(imc, ACTION_RELOAD,         VKL_R);
-        addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON */
+        addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON: reload */
         addBind(imc, ACTION_USE,            VKL_F);
-        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_Y)); /* Y_BUTTON / door open, interact */
+        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_X)); /* X_BUTTON: interact (dual-bind w/ reload, context-dependent) */
+        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_Y)); /* Y_BUTTON: cycle weapon */
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
         addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel, FarSight exit */
         addBind(imc, ACTION_CROUCH,         VK_LCTRL);
@@ -1381,10 +1382,12 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(0, JOFS_RSTICK_LEFT));
         addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT);
         addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
-        /* C-buttons: D-pad on gamepad (no kbd default; mouse handles aiming) */
+        /* D-pad gameplay bindings:
+         * Left  = radial/weapon gear menu (ACTION_DPAD_DOWN → BUTTON_RADIAL = D_JPAD)
+         * Up/Down/Right = C-buttons (legacy N64 look directions) */
         addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(0, JBTN_DPAD_UP));
         addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(0, JBTN_DPAD_DOWN));
-        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(0, JBTN_DPAD_LEFT));
+        addBind(imc, ACTION_DPAD_DOWN,      JOY_BTN(0, JBTN_DPAD_LEFT));  /* D-Left opens radial menu */
         addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(0, JBTN_DPAD_RIGHT));
         addBind(imc, ACTION_PAUSE,          VK_ESCAPE);
         addBind(imc, ACTION_PAUSE,          JOY_BTN(0, JBTN_START));

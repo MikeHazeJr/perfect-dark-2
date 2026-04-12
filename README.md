@@ -114,10 +114,10 @@ Controls can be rebound in `pd.ini`. Default control scheme is as follows:
 | Crouch cycle     | N/A                    | L3                       | `0x80000000` (Extra)      |
 | Half-Crouch      | Shift                  | N/A                      | `0x40000000` (Extra)      |
 | Full-Crouch      | Control                | N/A                      | `0x20000000` (Extra)      |
-| Reload           | R                      | X                        | X `(0x40)`                |
-| Previous weapon  | Mousewheel forward     | B                        | D-Left                    |
-| Next weapon      | Mousewheel back        | Y                        | Y `(0x80)`                |
-| Radial menu      | Q                      | LB                       | D-Down                    |
+| Interact/Reload  | F / R                  | X                        | X `(0x40)`                |
+| Previous weapon  | Mousewheel forward     | LB                       | D-Left                    |
+| Next weapon      | Mousewheel back        | Y / RB                   | Y `(0x80)`                |
+| Radial menu      | Q                      | D-Left                   | D-Down                    |
 | Alt fire mode    | F                      | RB                       | L Trigger                 |
 | Alt-fire oneshot | `F + LMB` or `E + LMB` | `A + RT` or  `RB + RT`   | `A + Z`     or `L + Z`    |
 | Quick-detonate   | `E + Q`   or `E + R`   | `A + B`  or  `A + X`     | `A + D-Left`or `A + X`    |
