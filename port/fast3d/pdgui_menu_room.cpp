@@ -1232,11 +1232,20 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     /* Scrollable list */
     ImGui::BeginChild("##room_players_list", ImVec2(0, listH), false);
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Players in Room");
+    /* Header with player/bot count summary */
+    {
+        s32 numPlayers = s_IsSoloMode ? 1 : humanCount;
+        s32 numBots = s_BotSelectCount;
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                           "Players in Room  (%d Player%s, %d Bot%s)",
+                           numPlayers, numPlayers != 1 ? "s" : "",
+                           numBots,    numBots != 1    ? "s" : "");
+    }
     ImGui::Separator();
 
     if (s_IsSoloMode) {
-        /* Solo mode: always exactly one local human player (g_MatchConfig.slots[0]) */
+        /* Solo mode: always exactly one local human player (g_MatchConfig.slots[0]).
+         * Uses identity profile name (agent name) via mpPlayerConfigGetName. */
         const char *playerName = mpPlayerConfigGetName(0);
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", playerName ? playerName : "Player 1");
         ImGui::SameLine();
@@ -2244,9 +2253,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         s_Arenas[s_SelectedArena].id,
                         (int)s_Arenas[s_SelectedArena].stagenum);
                     if (s_IsSoloMode) {
-                        /* Solo play: matchStart() resolves stage_id → stagenum. */
+                        /* Solo play: matchStart() resolves stage_id → stagenum.
+                         * Keep s_MatchConfigInited=true so returning via
+                         * pdguiSoloRoomReturn() preserves the full room setup
+                         * (bots, weapons, arena, settings). */
                         pdguiSoloRoomClose();
-                        s_MatchConfigInited = false;
                         matchStart();
                     } else {
                         int numBots = countBots();

@@ -148,6 +148,14 @@ static void decodeRgba16(const uint8_t *src, uint32_t w, uint32_t h,
     }
 }
 
+/* RGBA32: N64 stores as R,G,B,A in big-endian order — 4 bytes per pixel,
+ * same as our output format. Direct copy. */
+static void decodeRgba32(const uint8_t *src, uint32_t w, uint32_t h,
+                          uint8_t *out)
+{
+    memcpy(out, src, (size_t)w * (size_t)h * 4u);
+}
+
 static void decodeIa16(const uint8_t *src, uint32_t w, uint32_t h,
                         uint8_t *out)
 {
@@ -284,9 +292,11 @@ static GLuint s_decodeAndUpload(const struct PdTexConfig *cfg,
     case PD_G_IM_FMT_RGBA:
         if (siz == PD_G_IM_SIZ_16b) {
             decodeRgba16(src, w, h, rgba32);
+        } else if (siz == PD_G_IM_SIZ_32b) {
+            decodeRgba32(src, w, h, rgba32);
         } else {
             sysLogPrintf(LOG_ERROR,
-                "PDGUI theme: unsupported RGBA siz=%u (only RGBA16 supported)", siz);
+                "PDGUI theme: unsupported RGBA siz=%u", siz);
             free(rgba32);
             return 0;
         }

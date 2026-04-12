@@ -2166,11 +2166,25 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	s32 usereloads = (controlmode != CONTROLMODE_PC);
 	usereloads = usereloads || PLAYER_EXTCFG().usereloads;
 	if (controlmode == CONTROLMODE_PC && movedata.alt1tapcount) {
-		/* PC: X/Reload is context-dependent — try interact first, reload if
-		 * nothing interactable is nearby.  Setting both flags lets the
-		 * JO_ACTION_ACTIVATE check in lv.c run first; if currentPlayerInteract()
-		 * succeeds it cancels the reload automatically. */
-		g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD | JO_ACTION_ACTIVATE;
+		/* PC: X/Reload is context-dependent with double-tap cooldown.
+		 *
+		 * First tap: set ACTIVATE + RELOAD — interact takes priority in lv.c;
+		 *   if interact succeeds, RELOAD is cancelled; if nothing is nearby,
+		 *   RELOAD fires.
+		 *
+		 * Double-tap within 30 ticks (~500ms at 60Hz): skip ACTIVATE and
+		 *   only RELOAD.  This lets a player double-tap X to first interact
+		 *   (open door) and then immediately reload without having to wait
+		 *   for the interact cooldown to expire. */
+		s32 sinceLast = g_Vars.lvframe60 - g_Vars.currentplayer->activatetimethis;
+		if (sinceLast >= 0 && sinceLast < TICKS(30)) {
+			/* Recent interact — double-tap: reload only */
+			g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD;
+		} else {
+			/* First tap or cooldown expired: try interact + reload fallback */
+			g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD | JO_ACTION_ACTIVATE;
+			g_Vars.currentplayer->activatetimethis = g_Vars.lvframe60;
+		}
 	}
 	if (movedata.btapcount) {
 		g_Vars.currentplayer->activatetimelast = g_Vars.currentplayer->activatetimethis;

@@ -910,29 +910,39 @@ static struct theme_entry *add_entry(const char *catalog_id, const char *name,
 
 /** Extract the "name" field from a theme.json payload.  Returns a pointer
  *  into scratch if found, or a fallback if the JSON is malformed. */
+/* Extract the first quoted value after a JSON key.  Returns true if found. */
+static bool extract_json_string(const char *json, const char *key,
+                                 char *out, size_t outlen)
+{
+    const char *p = strstr(json, key);
+    if (!p) return false;
+    p += strlen(key);
+    while (*p && *p != ':') p++;
+    if (*p == ':') p++;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '"') return false;
+    p++;
+    const char *q = p;
+    while (*q && *q != '"' && (size_t)(q - p) < outlen - 1) q++;
+    size_t n = (size_t)(q - p);
+    if (n == 0) return false;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return true;
+}
+
 static void extract_theme_name(const char *json, char *out, size_t outlen,
                                const char *fallback)
 {
     out[0] = '\0';
 
     if (json) {
-        const char *p = strstr(json, "\"name\"");
-        if (p) {
-            p += 6; /* past "name" */
-            while (*p && *p != ':') p++;
-            if (*p == ':') p++;
-            while (*p == ' ' || *p == '\t') p++;
-            if (*p == '"') {
-                p++;
-                const char *q = p;
-                while (*q && *q != '"' && (size_t)(q - p) < outlen - 1) q++;
-                size_t n = (size_t)(q - p);
-                if (n > 0) {
-                    memcpy(out, p, n);
-                    out[n] = '\0';
-                    return;
-                }
-            }
+        /* Prefer "display_name" (mod.json convention), fall back to "name" */
+        if (extract_json_string(json, "\"display_name\"", out, outlen)) {
+            return;
+        }
+        if (extract_json_string(json, "\"name\"", out, outlen)) {
+            return;
         }
     }
 

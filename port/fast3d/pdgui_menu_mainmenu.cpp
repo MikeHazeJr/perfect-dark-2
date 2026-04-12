@@ -2350,6 +2350,26 @@ static void renderSettingsView(float scale, float contentH)
         ImGui::EndTabBar();
     }
 
+    /* Cheats button — opens cheats hub dialog from Settings */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        float cheatsW = ImGui::GetContentRegionAvail().x * 0.4f;
+        float cheatsH = pdguiScale(34.0f);
+        /* Center the button */
+        float cx = (ImGui::GetContentRegionAvail().x - cheatsW) * 0.5f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cx);
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.30f, 0.15f, 0.40f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.45f, 0.22f, 0.55f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.55f, 0.30f, 0.65f, 1.0f));
+        if (ImGui::Button("Cheats", ImVec2(cheatsW, cheatsH))) {
+            menuPushDialog(&g_CheatsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+        ImGui::PopStyleColor(3);
+    }
+
     /* Bumper hint at bottom */
     ImGui::TextDisabled("LB / RB to switch tabs");
 }
@@ -2691,13 +2711,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             }
 
             if (disabled) ImGui::EndDisabled();
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Cheats -- opens cheats hub dialog */
-        if (PdButton("Cheats", ImVec2(buttonW, buttonH))) {
-            menuPushDialog(&g_CheatsMenuDialog);
         }
 
     } else if (s_MenuView == 2) {
