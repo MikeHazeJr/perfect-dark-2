@@ -186,9 +186,9 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **S-4** | Save as Mod | **DONE** (2026-04-12) | TGA writer (uncompressed BGRA), skin.ini with target body ref, `assetCatalogRegisterSkin()` hot reload. Save dialog popup with name input, Ctrl+S shortcut. `pdgui_skin_editor.cpp` +150 lines. |
 | **S-5** | Image Import | **DONE** (2026-04-12) | `stb_image.h` v2.30 vendored in `port/external/`. Import dialog with path input, nearest-neighbor scale to canvas, placed as new layer. PNG/TGA/BMP/JPG support. `pdgui_skin_editor.cpp` +80 lines. |
 | **S-6** | PD-Style Downrez | **DONE** (2026-04-12) | NEW `pdgui_skin_quantize.cpp` (~250 lines) — median-cut quantization (16/32/256 colors) + Bayer 4x4 / Floyd-Steinberg dithering. Before/after preview dialog. `pdgui_skin_editor.cpp` +100 lines. |
-| **S-7** | Blend Mode Extensions | PLANNED | Hue, Burn, Saturation blend modes. |
-| **S-8** | UV Remap | PLANNED | UV wireframe overlay, region mapping. |
-| **S-9** | Network Sync | PLANNED | Skin mod distribution via existing propagation pipeline. |
+| **S-7** | Blend Mode Extensions | **DONE** (2026-04-12) | Hue (RGB->HSL component swap), Burn (color burn formula), Saturation (HSL S-swap) added to compositor. Per-layer blend mode Combo dropdown in editor. `pdgui_skin_canvas.cpp` +80 lines. |
+| **S-8** | UV Wireframe Overlay | **DONE** (2026-04-12) | NEW `pdgui_skin_uv.cpp` (~200 lines) — walks model node tree, extracts Vtx.s/t from MODELNODETYPE_DL nodes, normalizes to 0..1. Orange wireframe overlay on 2D canvas, [U] toggle. Up to 2048 UV line segments. |
+| **S-9** | Network Sync | **DONE** (2026-04-12) | ASSET_SKIN already in SVC_CATALOG_INFO s_types[] and netdistrib.c skin.ini handler. Entire pipeline pre-wired: catalog, scanner, netmsg, netdistrib, modpack. S-4 save format is scanner-compatible. Zero new code needed beyond documentation comment. |
 
 ---
 

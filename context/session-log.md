@@ -3,6 +3,65 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S217 — 2026-04-12 (Skin Editor Batches S-7 + S-8 + S-9 — FEATURE COMPLETE)
+
+**Focus**: Complete the Skin Editor feature: S-7 blend modes, S-8 UV wireframe, S-9 network sync. Worktree: `claude/goofy-noether`, continuing from S216.
+
+### Changes
+
+- **S-7: Blend Mode Extensions** — `port/fast3d/pdgui_skin_canvas.cpp` (+80 lines):
+  - `SKIN_BLEND_HUE`: RGB->HSL, swap H from source, keep S+L from backdrop, HSL->RGB. Recolors outfits while preserving shading.
+  - `SKIN_BLEND_BURN`: Color burn formula `1 - ((1-base) / (blend+1))`. Darkens and increases contrast.
+  - `SKIN_BLEND_SATURATION`: RGB->HSL, swap S from source, keep H+L from backdrop, HSL->RGB. Adjusts color intensity.
+  - Editor: per-layer blend mode `ImGui::Combo` dropdown in layer panel (+8 lines).
+
+- **S-8: UV Wireframe Overlay** — NEW `port/fast3d/pdgui_skin_uv.cpp` (~200 lines):
+  - `walkModelTree()` — recursive traversal of model node tree.
+  - `extractUvFromDlNode()` — reads `Vtx.s/t` (s10.5 fixed-point) from `MODELNODETYPE_DL` (0x18) rodata, normalizes to 0..1 UV space.
+  - `skinUvExtract(body_id, texW, texH)` — resolves body catalog entry → modeldef → walks tree. Up to 2048 UV lines.
+  - Editor: orange semi-transparent wireframe overlay on 2D canvas. [U] key toggle. Extract on "New Skin", clear on "Close Editor".
+  - Header: UV API declarations added to `pdgui_skin_editor.h` (+12 lines).
+
+- **S-9: Network Sync** — Verification + documentation only:
+  - `ASSET_SKIN` already in `SVC_CATALOG_INFO` `s_types[]` (netmsg.c:4745).
+  - `skin.ini` already in `netdistrib.c` extraction handler (line 947).
+  - Full pipeline pre-wired: assetcatalog_scanner.c, modmgr.c, modpack.c all handle ASSET_SKIN.
+  - S-4's save format (skin.ini with `[skin]` section + `target` field) is exactly what the scanner expects.
+  - Added S-9 documentation comment in netmsgSvcCatalogInfoWrite().
+
+### Design Decisions
+
+- **Hue/Saturation via HSL**: Full RGB→HSL→RGB conversion for Hue and Saturation blend modes. HSL chosen over HSV because it preserves perceived lightness better for skin recoloring.
+- **UV approximation**: Without full GBI display list triangle parsing, UV wireframe uses consecutive vertex pairs from each DL node. Gives reasonable wireframe that shows UV layout structure.
+- **S-9 zero new code**: The existing infrastructure (built for maps, characters, weapons, audio) already handles ASSET_SKIN at every level. This is the mod architecture working as designed.
+
+### Commits (on worktree branch `claude/goofy-noether`)
+
+1. `630ec32d` — feat(S-7): Blend Mode Extensions — Hue, Burn, Saturation + dropdown
+2. `940c1a6b` — feat(S-8): UV Wireframe Overlay — model UV extraction + canvas display
+3. `9ce98ee9` — feat(S-9): Network Sync for Skins — verify pipeline completeness
+
+### Build Verification
+
+Syntax-only compilation passes clean for all files:
+- pdgui_skin_canvas.cpp, pdgui_skin_editor.cpp, pdgui_skin_quantize.cpp, pdgui_skin_uv.cpp — all clean.
+
+### Skin Editor Feature Summary (S-1 through S-9, ALL COMPLETE)
+
+| Batch | Scope | Lines |
+|-------|-------|-------|
+| S-1 | Canvas + 2D Editor + Draw/Erase | ~1500 (3 new files) |
+| S-2 | Live 3D Preview Override | +65 (3 modified) |
+| S-3 | Fill + Line + Brush + Undo | (in S-1) |
+| S-4 | Save as Mod (TGA + skin.ini + catalog) | +150 |
+| S-5 | Image Import (stb_image) | +80 + 7988 (vendor) |
+| S-6 | PD-Style Downrez (quantize + dither) | ~300 (new file) |
+| S-7 | Blend Modes (Hue/Burn/Saturation) | +90 |
+| S-8 | UV Wireframe Overlay | ~200 (new file) |
+| S-9 | Network Sync | +1 (comment) |
+
+---
+
 ## Session S216 — 2026-04-12 (Skin Editor Batches S-4 + S-5 + S-6)
 
 **Focus**: Implement Skin Editor Batches S-4, S-5, S-6 in a single session. Worktree: `claude/goofy-noether`, continuing from S215.

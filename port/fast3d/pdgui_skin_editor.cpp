@@ -99,6 +99,7 @@ static float s_Zoom       = 8.0f;    /* Pixels per canvas pixel */
 static float s_PanX       = 0.0f;
 static float s_PanY       = 0.0f;
 static bool  s_ShowGrid   = true;
+static bool  s_ShowUv     = false;   /* S-8: UV wireframe overlay */
 static bool  s_Dragging   = false;   /* Mouse-drag stroke in progress */
 
 /* Line tool state (S-3) */
@@ -367,6 +368,18 @@ static void renderCanvas(float panelW, float panelH, float scale)
         }
     }
 
+    /* S-8: UV wireframe overlay */
+    if (s_ShowUv) {
+        s32 numUvLines = skinUvGetNumLines();
+        for (s32 i = 0; i < numUvLines; i++) {
+            f32 u0, v0, u1, v1;
+            skinUvGetLine(i, &u0, &v0, &u1, &v1);
+            ImVec2 p0(texMin.x + u0 * texW, texMin.y + v0 * texH);
+            ImVec2 p1(texMin.x + u1 * texW, texMin.y + v1 * texH);
+            dl->AddLine(p0, p1, IM_COL32(255, 128, 0, 100), 1.0f);
+        }
+    }
+
     /* Canvas border */
     dl->AddRect(texMin, texMax, IM_COL32(0, 200, 255, 120), 0.0f, 0, 1.0f);
 
@@ -481,6 +494,9 @@ static void renderCanvas(float panelW, float panelH, float scale)
 
         /* Grid toggle */
         if (ImGui::IsKeyPressed(ImGuiKey_G)) s_ShowGrid = !s_ShowGrid;
+
+        /* S-8: UV overlay toggle */
+        if (ImGui::IsKeyPressed(ImGuiKey_U)) s_ShowUv = !s_ShowUv;
 
         /* Undo/Redo (S-3) */
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
@@ -641,11 +657,20 @@ static void renderToolPanel(float panelW, float panelH, float scale)
         }
         if (isActive) ImGui::PopStyleColor();
 
-        /* Opacity slider for active layer */
+        /* Opacity slider + blend mode for active layer */
         if (isActive) {
             float op = skinCanvasGetLayerOpacity(i);
             if (ImGui::SliderFloat("##op", &op, 0.0f, 1.0f, "%.2f")) {
                 skinCanvasSetLayerOpacity(i, op);
+            }
+
+            /* S-7: Blend mode dropdown */
+            static const char *blendNames[] = {
+                "Normal", "Multiply", "Screen", "Hue", "Burn", "Saturation"
+            };
+            int bm = skinCanvasGetLayerBlendMode(i);
+            if (ImGui::Combo("##blend", &bm, blendNames, SKIN_BLEND_COUNT)) {
+                skinCanvasSetLayerBlendMode(i, bm);
             }
         }
 
@@ -825,6 +850,9 @@ static void renderCharacterSelector(float w, float h, float scale)
         s_BrushSize   = 1;
         s_LineStarted = false;
 
+        /* S-8: Extract UV wireframe from body model */
+        skinUvExtract(s_PreviewBodyId, canvasW, canvasH);
+
         sysLogPrintf(LOG_NOTE, "skin_editor: new skin %dx%d for %s",
                      canvasW, canvasH, s_CharEntries[s_SelectedChar].id);
     }
@@ -835,6 +863,7 @@ static void renderCharacterSelector(float w, float h, float scale)
     if (s_EditorActive) {
         if (PdButton("Close Editor", ImVec2(-1, 28.0f * scale))) {
             pdguiCharPreviewClearSkinOverride();
+            skinUvClear();
             skinCanvasDestroy();
             s_EditorActive = false;
             s_PreviewBodyId[0] = '\0';

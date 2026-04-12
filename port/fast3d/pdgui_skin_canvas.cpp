@@ -123,7 +123,7 @@ static void compositeAllLayers(void)
             const f32 srcAlpha = (sa / 255.0f) * layerOpacity;
             const u8 dr = dst[0], dg = dst[1], db = dst[2], da = dst[3];
 
-            /* Blend mode: only Normal for S-1. Extended modes added in S-7. */
+            /* Blend modes (S-7: full set) */
             u8 br = sr, bg = sg, bb = sb;
 
             switch (layer->blend_mode) {
@@ -139,6 +139,102 @@ static void compositeAllLayers(void)
                 bg = (u8)(255 - ((255 - dg) * (255 - sg)) / 255);
                 bb = (u8)(255 - ((255 - db) * (255 - sb)) / 255);
                 break;
+            case SKIN_BLEND_HUE: {
+                /* RGB->HSL, take H from src, S+L from backdrop, HSL->RGB */
+                f32 dr_f = dr / 255.0f, dg_f = dg / 255.0f, db_f = db / 255.0f;
+                f32 sr_f = sr / 255.0f, sg_f = sg / 255.0f, sb_f = sb / 255.0f;
+
+                /* Backdrop HSL */
+                f32 dmax = dr_f > dg_f ? (dr_f > db_f ? dr_f : db_f) : (dg_f > db_f ? dg_f : db_f);
+                f32 dmin = dr_f < dg_f ? (dr_f < db_f ? dr_f : db_f) : (dg_f < db_f ? dg_f : db_f);
+                f32 d_l = (dmax + dmin) * 0.5f;
+                f32 d_s = 0.0f;
+                if (dmax != dmin) d_s = d_l < 0.5f ? (dmax - dmin) / (dmax + dmin)
+                                                    : (dmax - dmin) / (2.0f - dmax - dmin);
+
+                /* Source hue */
+                f32 smax = sr_f > sg_f ? (sr_f > sb_f ? sr_f : sb_f) : (sg_f > sb_f ? sg_f : sb_f);
+                f32 smin = sr_f < sg_f ? (sr_f < sb_f ? sr_f : sb_f) : (sg_f < sb_f ? sg_f : sb_f);
+                f32 s_h = 0.0f;
+                if (smax != smin) {
+                    f32 sd = smax - smin;
+                    if (smax == sr_f) s_h = fmodf((sg_f - sb_f) / sd, 6.0f);
+                    else if (smax == sg_f) s_h = (sb_f - sr_f) / sd + 2.0f;
+                    else s_h = (sr_f - sg_f) / sd + 4.0f;
+                    s_h /= 6.0f;
+                    if (s_h < 0.0f) s_h += 1.0f;
+                }
+
+                /* HSL->RGB with src hue, backdrop S+L */
+                f32 h = s_h, s = d_s, l = d_l;
+                f32 c = (1.0f - fabsf(2.0f * l - 1.0f)) * s;
+                f32 x = c * (1.0f - fabsf(fmodf(h * 6.0f, 2.0f) - 1.0f));
+                f32 m = l - c * 0.5f;
+                f32 rf, gf, bf;
+                s32 hi = (s32)(h * 6.0f) % 6;
+                switch (hi) {
+                case 0: rf = c; gf = x; bf = 0; break;
+                case 1: rf = x; gf = c; bf = 0; break;
+                case 2: rf = 0; gf = c; bf = x; break;
+                case 3: rf = 0; gf = x; bf = c; break;
+                case 4: rf = x; gf = 0; bf = c; break;
+                default: rf = c; gf = 0; bf = x; break;
+                }
+                br = clamp_u8((s32)((rf + m) * 255.0f));
+                bg = clamp_u8((s32)((gf + m) * 255.0f));
+                bb = clamp_u8((s32)((bf + m) * 255.0f));
+            } break;
+            case SKIN_BLEND_BURN:
+                br = clamp_u8(255 - ((255 - dr) * 255) / (sr + 1));
+                bg = clamp_u8(255 - ((255 - dg) * 255) / (sg + 1));
+                bb = clamp_u8(255 - ((255 - db) * 255) / (sb + 1));
+                break;
+            case SKIN_BLEND_SATURATION: {
+                /* Take saturation from src, hue+luminosity from backdrop */
+                f32 dr_f = dr / 255.0f, dg_f = dg / 255.0f, db_f = db / 255.0f;
+                f32 sr_f = sr / 255.0f, sg_f = sg / 255.0f, sb_f = sb / 255.0f;
+
+                /* Backdrop H+L */
+                f32 dmax = dr_f > dg_f ? (dr_f > db_f ? dr_f : db_f) : (dg_f > db_f ? dg_f : db_f);
+                f32 dmin = dr_f < dg_f ? (dr_f < db_f ? dr_f : db_f) : (dg_f < db_f ? dg_f : db_f);
+                f32 d_l = (dmax + dmin) * 0.5f;
+                f32 d_h = 0.0f;
+                if (dmax != dmin) {
+                    f32 dd = dmax - dmin;
+                    if (dmax == dr_f) d_h = fmodf((dg_f - db_f) / dd, 6.0f);
+                    else if (dmax == dg_f) d_h = (db_f - dr_f) / dd + 2.0f;
+                    else d_h = (dr_f - dg_f) / dd + 4.0f;
+                    d_h /= 6.0f;
+                    if (d_h < 0.0f) d_h += 1.0f;
+                }
+
+                /* Source saturation */
+                f32 smax = sr_f > sg_f ? (sr_f > sb_f ? sr_f : sb_f) : (sg_f > sb_f ? sg_f : sb_f);
+                f32 smin = sr_f < sg_f ? (sr_f < sb_f ? sr_f : sb_f) : (sg_f < sb_f ? sg_f : sb_f);
+                f32 s_l = (smax + smin) * 0.5f;
+                f32 s_s = 0.0f;
+                if (smax != smin) s_s = s_l < 0.5f ? (smax - smin) / (smax + smin)
+                                                    : (smax - smin) / (2.0f - smax - smin);
+
+                /* HSL->RGB with backdrop H+L, src S */
+                f32 h = d_h, s = s_s, l = d_l;
+                f32 c = (1.0f - fabsf(2.0f * l - 1.0f)) * s;
+                f32 x = c * (1.0f - fabsf(fmodf(h * 6.0f, 2.0f) - 1.0f));
+                f32 m = l - c * 0.5f;
+                f32 rf, gf, bf;
+                s32 hi = (s32)(h * 6.0f) % 6;
+                switch (hi) {
+                case 0: rf = c; gf = x; bf = 0; break;
+                case 1: rf = x; gf = c; bf = 0; break;
+                case 2: rf = 0; gf = c; bf = x; break;
+                case 3: rf = 0; gf = x; bf = c; break;
+                case 4: rf = x; gf = 0; bf = c; break;
+                default: rf = c; gf = 0; bf = x; break;
+                }
+                br = clamp_u8((s32)((rf + m) * 255.0f));
+                bg = clamp_u8((s32)((gf + m) * 255.0f));
+                bb = clamp_u8((s32)((bf + m) * 255.0f));
+            } break;
             default:
                 break;
             }
