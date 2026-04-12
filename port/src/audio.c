@@ -316,12 +316,31 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
 }
 
 /* ========================================================================
- * Mod track selection — catalog ID persisted to pd.ini (Batch A-4)
+ * Mod track playlist — persisted to pd.ini (A-4 single → playlist upgrade)
  * ======================================================================== */
 
-static char g_AudioModTrackId[64] = "";
+static char g_AudioModTrackId[64] = "";  /* backward compat: current/first track */
 
-const char *audioGetModTrackId(void) { return g_AudioModTrackId; }
+/* Playlist: up to AUDIO_MAX_PLAYLIST catalog IDs. Serialized as semicolon-
+ * delimited string in pd.ini (Audio.ModPlaylist). */
+static char g_AudioModPlaylist[AUDIO_MAX_PLAYLIST][64];
+static s32  g_AudioModPlaylistCount = 0;
+static s32  g_AudioModShuffle = 1;  /* default: shuffle on */
+static s32  g_AudioModPlaylistSeqIdx = 0;  /* sequential playback index */
+
+/* pd.ini serialization buffer for playlist (semicolon-delimited) */
+static char g_AudioModPlaylistStr[AUDIO_MAX_PLAYLIST * 65] = "";
+
+static void audioPlaylistSerialize(void);  /* forward decl */
+
+const char *audioGetModTrackId(void)
+{
+	/* Backward compat: return first playlist entry if playlist has entries */
+	if (g_AudioModPlaylistCount > 0) {
+		return g_AudioModPlaylist[0];
+	}
+	return g_AudioModTrackId;
+}
 
 void audioSetModTrackId(const char *id)
 {
@@ -329,6 +348,159 @@ void audioSetModTrackId(const char *id)
 		snprintf(g_AudioModTrackId, sizeof(g_AudioModTrackId), "%s", id);
 	} else {
 		g_AudioModTrackId[0] = '\0';
+	}
+}
+
+/* ---- Playlist API ---- */
+
+s32 audioGetModPlaylistCount(void) { return g_AudioModPlaylistCount; }
+
+const char *audioGetModPlaylistEntry(s32 idx)
+{
+	if (idx < 0 || idx >= g_AudioModPlaylistCount) return "";
+	return g_AudioModPlaylist[idx];
+}
+
+s32 audioSetModPlaylistEntry(s32 idx, const char *catalog_id)
+{
+	if (idx < 0 || idx >= AUDIO_MAX_PLAYLIST || !catalog_id) return -1;
+	snprintf(g_AudioModPlaylist[idx], 64, "%s", catalog_id);
+	if (idx >= g_AudioModPlaylistCount) g_AudioModPlaylistCount = idx + 1;
+	return 0;
+}
+
+s32 audioAddModPlaylistEntry(const char *catalog_id)
+{
+	if (!catalog_id || !catalog_id[0]) return -1;
+	if (g_AudioModPlaylistCount >= AUDIO_MAX_PLAYLIST) return -1;
+	/* Check for duplicates */
+	for (s32 i = 0; i < g_AudioModPlaylistCount; i++) {
+		if (strcmp(g_AudioModPlaylist[i], catalog_id) == 0) return i;
+	}
+	snprintf(g_AudioModPlaylist[g_AudioModPlaylistCount], 64, "%s", catalog_id);
+	g_AudioModPlaylistCount++;
+	audioPlaylistSerialize();
+	return g_AudioModPlaylistCount - 1;
+}
+
+s32 audioRemoveModPlaylistEntry(const char *catalog_id)
+{
+	if (!catalog_id || !catalog_id[0]) return -1;
+	for (s32 i = 0; i < g_AudioModPlaylistCount; i++) {
+		if (strcmp(g_AudioModPlaylist[i], catalog_id) == 0) {
+			/* Shift remaining entries down */
+			for (s32 j = i; j < g_AudioModPlaylistCount - 1; j++) {
+				memcpy(g_AudioModPlaylist[j], g_AudioModPlaylist[j + 1], 64);
+			}
+			g_AudioModPlaylistCount--;
+			g_AudioModPlaylist[g_AudioModPlaylistCount][0] = '\0';
+			if (g_AudioModPlaylistSeqIdx >= g_AudioModPlaylistCount) {
+				g_AudioModPlaylistSeqIdx = 0;
+			}
+			audioPlaylistSerialize();
+			return 0;
+		}
+	}
+	return -1;
+}
+
+void audioClearModPlaylist(void)
+{
+	for (s32 i = 0; i < AUDIO_MAX_PLAYLIST; i++) {
+		g_AudioModPlaylist[i][0] = '\0';
+	}
+	g_AudioModPlaylistCount = 0;
+	g_AudioModPlaylistSeqIdx = 0;
+	g_AudioModTrackId[0] = '\0';
+	audioPlaylistSerialize();
+}
+
+s32 audioIsInModPlaylist(const char *catalog_id)
+{
+	if (!catalog_id || !catalog_id[0]) return 0;
+	for (s32 i = 0; i < g_AudioModPlaylistCount; i++) {
+		if (strcmp(g_AudioModPlaylist[i], catalog_id) == 0) return 1;
+	}
+	return 0;
+}
+
+s32 audioGetModShuffle(void) { return g_AudioModShuffle; }
+void audioSetModShuffle(s32 on) { g_AudioModShuffle = on ? 1 : 0; }
+
+const char *audioPickNextPlaylistTrack(void)
+{
+	if (g_AudioModPlaylistCount <= 0) return "";
+
+	if (g_AudioModShuffle) {
+		/* Random pick from playlist */
+		s32 idx = rand() % g_AudioModPlaylistCount;
+		/* Update backward-compat field */
+		snprintf(g_AudioModTrackId, sizeof(g_AudioModTrackId), "%s",
+		         g_AudioModPlaylist[idx]);
+		return g_AudioModPlaylist[idx];
+	}
+
+	/* Sequential: advance index, wrap around */
+	if (g_AudioModPlaylistSeqIdx >= g_AudioModPlaylistCount) {
+		g_AudioModPlaylistSeqIdx = 0;
+	}
+	s32 idx = g_AudioModPlaylistSeqIdx;
+	g_AudioModPlaylistSeqIdx++;
+	/* Update backward-compat field */
+	snprintf(g_AudioModTrackId, sizeof(g_AudioModTrackId), "%s",
+	         g_AudioModPlaylist[idx]);
+	return g_AudioModPlaylist[idx];
+}
+
+void audioResetPlaylistIndex(void)
+{
+	g_AudioModPlaylistSeqIdx = 0;
+}
+
+/* ---- Playlist serialization to/from pd.ini ---- */
+
+static void audioPlaylistSerialize(void)
+{
+	/* Build semicolon-delimited string from playlist array */
+	g_AudioModPlaylistStr[0] = '\0';
+	s32 pos = 0;
+	for (s32 i = 0; i < g_AudioModPlaylistCount; i++) {
+		if (g_AudioModPlaylist[i][0]) {
+			if (pos > 0 && pos < (s32)sizeof(g_AudioModPlaylistStr) - 1) {
+				g_AudioModPlaylistStr[pos++] = ';';
+			}
+			s32 len = (s32)strlen(g_AudioModPlaylist[i]);
+			if (pos + len < (s32)sizeof(g_AudioModPlaylistStr)) {
+				memcpy(&g_AudioModPlaylistStr[pos], g_AudioModPlaylist[i], len);
+				pos += len;
+			}
+		}
+	}
+	g_AudioModPlaylistStr[pos] = '\0';
+}
+
+static void audioPlaylistDeserialize(void)
+{
+	g_AudioModPlaylistCount = 0;
+	if (!g_AudioModPlaylistStr[0]) return;
+
+	const char *p = g_AudioModPlaylistStr;
+	while (*p && g_AudioModPlaylistCount < AUDIO_MAX_PLAYLIST) {
+		const char *semi = strchr(p, ';');
+		s32 len = semi ? (s32)(semi - p) : (s32)strlen(p);
+		if (len > 0 && len < 64) {
+			memcpy(g_AudioModPlaylist[g_AudioModPlaylistCount], p, len);
+			g_AudioModPlaylist[g_AudioModPlaylistCount][len] = '\0';
+			g_AudioModPlaylistCount++;
+		}
+		if (!semi) break;
+		p = semi + 1;
+	}
+
+	/* Update backward-compat single-track field */
+	if (g_AudioModPlaylistCount > 0) {
+		snprintf(g_AudioModTrackId, sizeof(g_AudioModTrackId), "%s",
+		         g_AudioModPlaylist[0]);
 	}
 }
 
@@ -343,6 +515,20 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 	configRegisterFloat("Audio.GameplayVolume", &g_AudioGameplayVolume, 0.0f, 1.0f);
 	configRegisterFloat("Audio.UIVolume",       &g_AudioUiVolume,       0.0f, 1.0f);
 
-	/* Mod track selection — catalog ID (empty = use base game music) */
-	configRegisterString("Audio.ModTrackId", g_AudioModTrackId, sizeof(g_AudioModTrackId));
+	/* Mod track playlist — semicolon-delimited catalog IDs */
+	configRegisterString("Audio.ModPlaylist", g_AudioModPlaylistStr,
+	                     sizeof(g_AudioModPlaylistStr));
+	configRegisterInt("Audio.ModShuffle", &g_AudioModShuffle, 0, 1);
+
+	/* Legacy single-track field (kept for backward compat with old pd.ini) */
+	configRegisterString("Audio.ModTrackId", g_AudioModTrackId,
+	                     sizeof(g_AudioModTrackId));
+
+	/* After config load, deserialize playlist from string.
+	 * If playlist is empty but legacy ModTrackId has a value, migrate it. */
+	audioPlaylistDeserialize();
+	if (g_AudioModPlaylistCount == 0 && g_AudioModTrackId[0]) {
+		audioAddModPlaylistEntry(g_AudioModTrackId);
+		audioPlaylistSerialize();
+	}
 }

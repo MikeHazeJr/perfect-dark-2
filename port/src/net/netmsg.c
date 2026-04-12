@@ -779,10 +779,19 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			? g_MatchConfig.spawn_weapon_id : "");
 
 		/* A-7: mod track ID for network-synced mod audio.
-		 * Host's selected mod track is sent so clients play the same music.
-		 * Server build has no audio state — write empty string as placeholder. */
+		 * Host resolves one track from the playlist (shuffle/sequential)
+		 * and sends that single ID so all clients play the same music.
+		 * Server build has no audio state — write empty string. */
 #if !defined(PD_SERVER)
-		netbufWriteStr(dst, audioGetModTrackId());
+		{
+			const char *wireTrack = "";
+			if (audioGetModPlaylistCount() > 0) {
+				wireTrack = audioPickNextPlaylistTrack();
+			} else {
+				wireTrack = audioGetModTrackId();
+			}
+			netbufWriteStr(dst, wireTrack ? wireTrack : "");
+		}
 #else
 		netbufWriteStr(dst, "");
 #endif

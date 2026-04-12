@@ -48,6 +48,10 @@
 #define STBI_ONLY_JPEG
 #include "../external/stb_image.h"
 
+/* Export Template: stb_image_write for PNG output (public domain, vendored) */
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "../external/stb_image_write.h"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -134,6 +138,13 @@ static int  s_DownrezMaxColors  = 16;
 static int  s_DownrezDitherMode = 1;
 static u8  *s_DownrezPreview    = NULL;
 static u32  s_DownrezPreviewTex = 0;
+
+/* Export Template dialog state */
+static bool s_ExportDialogOpen  = false;
+static char s_ExportFilename[256] = "";
+static char s_ExportStatus[128] = "";
+static bool s_ExportOk          = false;
+static int  s_ExportMode        = 0;  /* 0 = Template (with UV guide), 1 = Clean */
 
 /* Character entries (for save dialog referencing selected char) */
 struct CharEntry {
@@ -694,6 +705,20 @@ static void renderToolPanel(float panelW, float panelH, float scale)
 
     float actionW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f;
 
+    /* Export Template */
+    if (PdButton("Export Template", ImVec2(actionW, 0))) {
+        s_ExportDialogOpen = true;
+        s_ExportStatus[0] = '\0';
+        if (!s_ExportFilename[0] && s_SelectedChar >= 0) {
+            snprintf(s_ExportFilename, sizeof(s_ExportFilename), "%s_template.png",
+                     s_CharEntries[s_SelectedChar].name);
+            /* Sanitize filename: replace spaces with underscores */
+            for (char *p = s_ExportFilename; *p; p++) {
+                if (*p == ' ') *p = '_';
+            }
+        }
+    }
+
     /* S-5: Import Image */
     if (PdButton("Import Image", ImVec2(actionW, 0))) {
         s_ImportDialogOpen = true;
@@ -723,10 +748,14 @@ static void renderToolPanel(float panelW, float panelH, float scale)
     }
     ImGui::PopStyleColor(2);
 
-    /* Status message from last save */
+    /* Status messages from last save/export */
     if (s_SaveStatus[0]) {
         ImGui::TextColored(s_SaveOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
                            "%s", s_SaveStatus);
+    }
+    if (s_ExportStatus[0]) {
+        ImGui::TextColored(s_ExportOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+                           "%s", s_ExportStatus);
     }
 
     ImGui::EndChild();
@@ -1261,6 +1290,182 @@ static void renderDownrezDialog(float scale)
 }
 
 /* ========================================================================
+ * Export Template — composite base texture + optional UV wireframe → PNG
+ * ======================================================================== */
+
+static bool exportSkinTemplate(const char *filename, int mode)
+{
+    if (!filename || !filename[0]) return false;
+
+    skinCanvasUpdate();
+    const u8 *composite = skinCanvasGetCompositePixels();
+    s32 cw = skinCanvasGetWidth();
+    s32 ch = skinCanvasGetHeight();
+    if (!composite || cw <= 0 || ch <= 0) return false;
+
+    /* Allocate output RGBA buffer */
+    s32 pixelCount = cw * ch;
+    u8 *outBuf = (u8 *)malloc(pixelCount * 4);
+    if (!outBuf) return false;
+
+    /* Copy base composite */
+    memcpy(outBuf, composite, pixelCount * 4);
+
+    /* Mode 0 = Template (with UV guide overlay at ~40% opacity) */
+    if (mode == 0 && s_PreviewBodyId[0]) {
+        /* Ensure UV data is extracted for current body */
+        skinUvExtract(s_PreviewBodyId, cw, ch);
+
+        s32 numLines = skinUvGetNumLines();
+        if (numLines > 0) {
+            /* Draw UV wireframe lines onto the output buffer */
+            for (s32 li = 0; li < numLines; li++) {
+                f32 u0, v0, u1, v1;
+                skinUvGetLine(li, &u0, &v0, &u1, &v1);
+
+                /* Convert normalized UV to pixel coords */
+                s32 x0 = (s32)(u0 * cw);
+                s32 y0 = (s32)(v0 * ch);
+                s32 x1 = (s32)(u1 * cw);
+                s32 y1 = (s32)(v1 * ch);
+
+                /* Bresenham line with alpha blending at ~40% */
+                s32 dx = abs(x1 - x0);
+                s32 dy = -abs(y1 - y0);
+                s32 sx = x0 < x1 ? 1 : -1;
+                s32 sy = y0 < y1 ? 1 : -1;
+                s32 err = dx + dy;
+
+                for (;;) {
+                    if (x0 >= 0 && x0 < cw && y0 >= 0 && y0 < ch) {
+                        s32 idx = (y0 * cw + x0) * 4;
+                        /* Blend cyan wireframe at 40% opacity over existing pixel */
+                        f32 alpha = 0.4f;
+                        u8 wr = 0, wg = 255, wb = 255;  /* cyan */
+                        outBuf[idx + 0] = (u8)(outBuf[idx + 0] * (1.0f - alpha) + wr * alpha);
+                        outBuf[idx + 1] = (u8)(outBuf[idx + 1] * (1.0f - alpha) + wg * alpha);
+                        outBuf[idx + 2] = (u8)(outBuf[idx + 2] * (1.0f - alpha) + wb * alpha);
+                        outBuf[idx + 3] = 255;
+                    }
+                    if (x0 == x1 && y0 == y1) break;
+                    s32 e2 = 2 * err;
+                    if (e2 >= dy) { err += dy; x0 += sx; }
+                    if (e2 <= dx) { err += dx; y0 += sy; }
+                }
+            }
+        }
+    }
+    /* Mode 1 = Clean (base texture only) — outBuf already has the composite */
+
+    /* Ensure exports/ directory exists */
+    if (fsCreateDir("exports") < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "skin_editor: cannot create 'exports/' (errno %d)", errno);
+        free(outBuf);
+        return false;
+    }
+
+    /* Build full path */
+    char fullPath[512];
+    snprintf(fullPath, sizeof(fullPath), "exports/%s", filename);
+
+    /* Ensure filename ends with .png */
+    s32 len = (s32)strlen(fullPath);
+    if (len < 4 || strcmp(&fullPath[len - 4], ".png") != 0) {
+        if (len + 4 < (s32)sizeof(fullPath)) {
+            strcat(fullPath, ".png");
+        }
+    }
+
+    /* Write PNG via stb_image_write */
+    s32 result = stbi_write_png(fullPath, cw, ch, 4, outBuf, cw * 4);
+    free(outBuf);
+
+    if (result) {
+        sysLogPrintf(LOG_NOTE, "skin_editor: exported template to '%s' (%dx%d)",
+                     fullPath, cw, ch);
+    } else {
+        sysLogPrintf(LOG_WARNING, "skin_editor: failed to write '%s'", fullPath);
+    }
+
+    return result != 0;
+}
+
+static void renderExportDialog(float scale)
+{
+    if (!s_ExportDialogOpen) return;
+
+    ImGui::OpenPopup("Export Template");
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(380.0f * scale, 0));
+
+    if (ImGui::BeginPopupModal("Export Template", &s_ExportDialogOpen,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        /* Character name display */
+        if (s_SelectedChar >= 0 && s_SelectedChar < s_NumCharEntries) {
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                               "Character: %s", s_CharEntries[s_SelectedChar].name);
+        }
+        ImGui::Spacing();
+
+        /* Export mode radio buttons */
+        ImGui::Text("Export Mode:");
+        if (ImGui::RadioButton("Template (with UV guide)", s_ExportMode == 0)) {
+            s_ExportMode = 0;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("  Base + wireframe overlay");
+
+        if (ImGui::RadioButton("Clean (base texture only)", s_ExportMode == 1)) {
+            s_ExportMode = 1;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("  Texture only");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* Filename input */
+        ImGui::Text("Filename:");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##export_fn", s_ExportFilename, sizeof(s_ExportFilename));
+        ImGui::TextDisabled("Saved to exports/ folder");
+
+        ImGui::Spacing();
+
+        /* Export / Cancel buttons */
+        float btnW = 140.0f * scale;
+        if (PdButton("Export", ImVec2(btnW, 0))) {
+            if (exportSkinTemplate(s_ExportFilename, s_ExportMode)) {
+                snprintf(s_ExportStatus, sizeof(s_ExportStatus),
+                         "Exported to exports/%s", s_ExportFilename);
+                s_ExportOk = true;
+                s_ExportDialogOpen = false;
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
+            } else {
+                snprintf(s_ExportStatus, sizeof(s_ExportStatus), "Export failed!");
+                s_ExportOk = false;
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+        ImGui::SameLine();
+        if (PdButton("Cancel", ImVec2(btnW, 0))) {
+            s_ExportDialogOpen = false;
+        }
+
+        if (s_ExportStatus[0]) {
+            ImGui::TextColored(s_ExportOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+                               "%s", s_ExportStatus);
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/* ========================================================================
  * Main render (called from Modding Hub)
  * ======================================================================== */
 
@@ -1306,10 +1511,11 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
     ImGui::SameLine();
     renderToolPanel(toolsW, contentH, scale);
 
-    /* S-4/S-5/S-6: Popup dialogs (rendered after panels) */
+    /* S-4/S-5/S-6 + Export: Popup dialogs (rendered after panels) */
     renderSaveDialog(scale);
     renderImportDialog(scale);
     renderDownrezDialog(scale);
+    renderExportDialog(scale);
 
     /* Ctrl+S shortcut for save */
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
