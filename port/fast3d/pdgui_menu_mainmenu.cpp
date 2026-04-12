@@ -2350,26 +2350,6 @@ static void renderSettingsView(float scale, float contentH)
         ImGui::EndTabBar();
     }
 
-    /* Cheats button — opens cheats hub dialog from Settings */
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    {
-        float cheatsW = ImGui::GetContentRegionAvail().x * 0.4f;
-        float cheatsH = pdguiScale(34.0f);
-        /* Center the button */
-        float cx = (ImGui::GetContentRegionAvail().x - cheatsW) * 0.5f;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cx);
-        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.30f, 0.15f, 0.40f, 0.90f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.45f, 0.22f, 0.55f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.55f, 0.30f, 0.65f, 1.0f));
-        if (ImGui::Button("Cheats", ImVec2(cheatsW, cheatsH))) {
-            menuPushDialog(&g_CheatsMenuDialog);
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        }
-        ImGui::PopStyleColor(3);
-    }
-
     /* Bumper hint at bottom */
     ImGui::TextDisabled("LB / RB to switch tabs");
 }
@@ -2625,6 +2605,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
+        /* Cheats -- opens cheats hub dialog */
+        if (PdButton("Cheats", ImVec2(buttonW, buttonH * 1.2f))) {
+            menuPushDialog(&g_CheatsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
         /* Stats -- opens the Stats Viewer (view 5) */
         if (PdButton("Stats", ImVec2(buttonW, buttonH * 1.2f))) {
             s_MenuView = 5;
@@ -2714,9 +2702,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* ================================================================
          * SETTINGS SUB-MENU
          * Navigation: B/Escape returns to top-level (handled above).
+         *
+         * Wrap in a constraining BeginChild so the tab content renders
+         * within the body region and doesn't fall behind the PD dialog
+         * chrome drawn by drawPdWindowFrame(). Without this wrapper the
+         * tab content uses the parent window's full region and the
+         * procedural body background (AddRectFilled in pdguiDrawPdDialog)
+         * can overdraw on top of the settings widgets.
          * ================================================================ */
         float contentH = dialogH - pdTitleH - 40.0f * scale;
-        renderSettingsView(scale, contentH);
+        if (ImGui::BeginChild("##main_settings_body", ImVec2(0.0f, contentH), false,
+                              ImGuiWindowFlags_NoBackground)) {
+            renderSettingsView(scale, contentH);
+        }
+        ImGui::EndChild();
 
     } else if (s_MenuView == 3) {
         /* ================================================================
