@@ -863,15 +863,26 @@ void actionmapPollFrame(void)
      * so any gamepad event (stick noise) would switch s_LastDevice to GAMEPAD
      * and WASD synthesis would stop — causing "moves for 1 frame" behavior.
      * Now: gamepad sticks write first (above), then WASD overrides IF any
-     * WASD key is held. Both inputs can coexist. */
+     * WASD key is held. Both inputs can coexist.
+     *
+     * 2026-04-12: Skip synthesis when the analog stick path already set
+     * non-zero axis values. LSTICK_UP/DOWN/LEFT/RIGHT are now bound to
+     * the movement actions (for rebind UI display), so their synthetic
+     * digital VKs fire when the stick crosses the threshold. Without this
+     * guard, the synthesis would snap smooth analog values to digital ±1.0
+     * whenever the stick passes the threshold. */
     {
+        f32 axmx = s_State[0][ACTION_AXIS_MOVE_X].value;
+        f32 axmy = s_State[0][ACTION_AXIS_MOVE_Y].value;
+        bool analogStickActive = (axmx != 0.0f || axmy != 0.0f);
+
         f32 mx = 0.0f, my = 0.0f;
         if (s_State[0][ACTION_MOVE_RIGHT].held)    mx += 1.0f;
         if (s_State[0][ACTION_MOVE_LEFT].held)     mx -= 1.0f;
         if (s_State[0][ACTION_MOVE_FORWARD].held)  my += 1.0f;  /* Y+ = forward (N64 convention) */
         if (s_State[0][ACTION_MOVE_BACKWARD].held) my -= 1.0f;
 
-        if (mx != 0.0f || my != 0.0f) {
+        if ((mx != 0.0f || my != 0.0f) && !analogStickActive) {
             /* Normalize diagonal */
             f32 len = sqrtf(mx * mx + my * my);
             if (len > 1.0f) { mx /= len; my /= len; }
@@ -1335,20 +1346,25 @@ static void setupGameplayDefaults(s32 player)
 
     /* Keyboard/mouse defaults for player 0 */
     if (p == 0) {
-        /* Left stick movement intentionally has NO controller button bind here.
-         * Analog movement is handled by the SDL_GameControllerGetAxis path in
-         * actionmapPollFrame() → ACTION_AXIS_MOVE_X/Y. Binding JOFS_LSTICK_* as
-         * buttons would cause the WASD synthesis block to overwrite the analog values
-         * with snapped digital values, clobbering smooth analog movement. */
+        /* Left stick directions are bound to movement for display in the
+         * rebind UI (so Forward shows "LSTICK_UP" etc.). Smooth analog
+         * movement from SDL_GameControllerGetAxis still takes priority —
+         * the WASD synthesis block skips when the analog path already
+         * provided axis values (see actionmapPollFrame). */
         addBind(imc, ACTION_MOVE_FORWARD,   VKL_W);
+        addBind(imc, ACTION_MOVE_FORWARD,   JOY_BTN(0, JOFS_LSTICK_UP));
         addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S);
+        addBind(imc, ACTION_MOVE_BACKWARD,  JOY_BTN(0, JOFS_LSTICK_DOWN));
         addBind(imc, ACTION_MOVE_LEFT,      VK_A);
+        addBind(imc, ACTION_MOVE_LEFT,      JOY_BTN(0, JOFS_LSTICK_LEFT));
         addBind(imc, ACTION_MOVE_RIGHT,     VKL_D);
+        addBind(imc, ACTION_MOVE_RIGHT,     JOY_BTN(0, JOFS_LSTICK_RIGHT));
         addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT);
         addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(0, JOFS_RTRIG));
         addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT);
         addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* L_TRIG: fire mode cycle */
+        addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* fire mode cycle — kbd */
+        addBind(imc, ACTION_FIRE_MODE,      JOY_BTN(0, JBTN_DPAD_RIGHT)); /* fire mode — D-Right */
         addBind(imc, ACTION_RELOAD,         VKL_R);
         addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON: reload */
         addBind(imc, ACTION_USE,            VKL_F);
@@ -1382,13 +1398,19 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(0, JOFS_RSTICK_LEFT));
         addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT);
         addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
-        /* D-pad gameplay bindings:
-         * Left  = radial/weapon gear menu (ACTION_DPAD_DOWN → BUTTON_RADIAL = D_JPAD)
-         * Up/Down/Right = C-buttons (legacy N64 look directions) */
-        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(0, JBTN_DPAD_UP));
-        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(0, JBTN_DPAD_DOWN));
+        /* C-button bindings: map to right stick directions.
+         * C-Left intentionally maps to RSTICK_RIGHT (per game director). */
+        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(0, JOFS_RSTICK_UP));
+        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(0, JOFS_RSTICK_DOWN));
+        /* D-pad bindings:
+         * Left  = radial/weapon gear menu
+         * Up    = D-pad up
+         * Right = Fire Mode (bound above) */
         addBind(imc, ACTION_DPAD_DOWN,      JOY_BTN(0, JBTN_DPAD_LEFT));  /* D-Left opens radial menu */
-        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(0, JBTN_DPAD_RIGHT));
+        addBind(imc, ACTION_DPAD_UP,        JOY_BTN(0, JBTN_DPAD_UP));
+        addBind(imc, ACTION_DPAD_RIGHT,     JOY_BTN(0, JBTN_DPAD_RIGHT));
         addBind(imc, ACTION_PAUSE,          VK_ESCAPE);
         addBind(imc, ACTION_PAUSE,          JOY_BTN(0, JBTN_START));
         addBind(imc, ACTION_SCREENSHOT,     VKL_F5);

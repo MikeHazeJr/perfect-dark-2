@@ -28,6 +28,7 @@
 
 /* D5.0 ROM texture decode layer + theme draw functions */
 #include "pdgui_theme.h"
+#include "pdgui_theme_loader.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_effects.h"
 #include "pdgui_fontmgr.h"
@@ -268,6 +269,11 @@ void pdguiInit(void *sdlWindow)
 
     /* D5.0: decode ROM UI textures → GL, register ASSET_UI catalog entries */
     pdguiThemeInit();
+
+    /* Register built-in + mod themes in the theme loader registry.
+     * Must run after pdguiThemeInit (which sets up the palette system)
+     * and after pdguiMenusRegisterAll (which may reference theme APIs). */
+    pdguiThemeLoaderInit();
 
     /* P4: Initialize 9-slice, effects, and font manager subsystems */
     pdguiNinesliceInit();

@@ -414,10 +414,15 @@ static s32 renderCheatsHub(struct menudialog *dialog,
 {
     (void)dialog; (void)menu; (void)winW; (void)winH;
 
-    /* Pending tab set by a sub-dialog redirect ­-- apply once at entry. */
+    /* Pending tab set by a sub-dialog redirect -- apply once at entry.
+     * s_ForceSelectTab is true for exactly one frame after a programmatic
+     * tab change (redirect or bumper press). SetSelected only fires on
+     * that frame, so user clicks work normally on all other frames. */
+    static bool s_ForceSelectTab = false;
     if (s_PendingTab >= 0 && s_PendingTab < SC_TAB_COUNT) {
         s_CheatsTab = s_PendingTab;
         s_PendingTab = -1;
+        s_ForceSelectTab = true;
     }
 
     pdguiPopupDarkenBehind(0.55f);
@@ -479,21 +484,22 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         /* Bumper (LB/RB) tab cycling via PageUp/PageDown */
         if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
             s_CheatsTab = (s_CheatsTab - 1 + SC_TAB_COUNT) % SC_TAB_COUNT;
+            s_ForceSelectTab = true;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
             s_CheatsTab = (s_CheatsTab + 1) % SC_TAB_COUNT;
+            s_ForceSelectTab = true;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
 
-        /* Tab strip */
+        /* Tab strip — SetSelected only fires on the frame after a
+         * programmatic tab change (redirect or bumper press). On all
+         * other frames, ImGui handles tab clicks normally. */
         if (ImGui::BeginTabBar("##cheats_tabs", ImGuiTabBarFlags_None)) {
             for (s32 i = 0; i < SC_TAB_COUNT; i++) {
                 ImGuiTabItemFlags tflags = ImGuiTabItemFlags_None;
-                if (i == s_CheatsTab) {
-                    /* Force-select the current tab on the first frame after
-                     * a redirect so pending-tab handoff from a sub-dialog
-                     * lands on the right panel. */
+                if (s_ForceSelectTab && i == s_CheatsTab) {
                     tflags |= ImGuiTabItemFlags_SetSelected;
                 }
                 if (ImGui::BeginTabItem(k_Tabs[i].english, nullptr, tflags)) {
@@ -588,6 +594,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                 }
             }
             ImGui::EndTabBar();
+            s_ForceSelectTab = false; /* consumed — let user clicks work normally */
         }
     }
     ImGui::EndChild();
