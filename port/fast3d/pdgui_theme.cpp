@@ -1582,8 +1582,83 @@ void pdguiThemeExtractRomTextures(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI extract: done — %u textures extracted to mods/base-ui/textures/",
+        "PDGUI extract: ROM pass done — %u textures extracted to mods/base-ui/textures/",
         extracted);
+
+    /* Second pass: generate procedural fallbacks for any TGAs that ROM
+     * extraction didn't produce.  This handles edge cases like textures
+     * whose ROM configs have zero dimensions, are in unsupported formats,
+     * or whose texLoadFromConfig() call didn't fully decompress the data. */
+    static const struct {
+        const char *filename;     /* same as k_Extracts[].filename */
+        const char *proc_name;    /* procedural generator name */
+        uint32_t    w, h;         /* procedural dimensions */
+    } k_Fallbacks[] = {
+        { "ui_noise_sm",    "noise_sm", 16, 16 },
+        { "ui_particles",   "solid",     1,  1 },
+        { "ui_noise_lg",    "noise_lg", 16, 16 },
+        { "ui_grad_bar",    "solid",     2,  8 },
+        { "ui_mirror_tile", "solid",     8,  8 },
+        { "ui_bg_haze",     "haze",     64, 64 },
+        { "ui_dot_tile",    "solid",     8,  8 },
+        { "ui_nuke",        "noise_lg", 64, 64 },
+        { "ui_bg_alt",      "noise_lg", 64, 64 },
+        { "ui_icon_a",      "solid",    14, 14 },
+        { "ui_icon_b",      "solid",    11, 11 },
+        { "ui_icon_c",      "solid",    14, 14 },
+        { "ui_deco",        "solid",    32, 32 },
+        { "ui_stars",       "solid",    16, 16 },
+    };
+
+    unsigned fallback_count = 0;
+    for (unsigned i = 0; i < sizeof(k_Fallbacks) / sizeof(k_Fallbacks[0]); i++) {
+        char path[256];
+        snprintf(path, sizeof(path), "mods/base-ui/textures/%s.tga",
+                 k_Fallbacks[i].filename);
+
+        /* Check if TGA was already written by the ROM extraction pass */
+        u32 probe_sz = 0;
+        void *probe = fsFileLoad(path, &probe_sz);
+        if (probe && probe_sz > 0) {
+            free(probe);
+            continue;  /* Already exists — skip */
+        }
+        if (probe) free(probe);
+
+        /* Generate procedural fallback */
+        uint32_t fw = k_Fallbacks[i].w;
+        uint32_t fh = k_Fallbacks[i].h;
+        GLuint fb_tex = s_generateProceduralTexture(
+            k_Fallbacks[i].proc_name, fw, fh);
+        if (!fb_tex) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI extract: fallback generation failed for '%s'",
+                k_Fallbacks[i].filename);
+            continue;
+        }
+
+        /* Read back the GL texture pixels and write TGA */
+        uint8_t *fb_pixels = (uint8_t *)malloc(fw * fh * 4);
+        if (fb_pixels) {
+            glBindTexture(GL_TEXTURE_2D, fb_tex);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, fb_pixels);
+            if (s_writeTga(path, fb_pixels, fw, fh)) {
+                sysLogPrintf(LOG_NOTE,
+                    "PDGUI extract: fallback '%s' %ux%u (%s) → %s",
+                    k_Fallbacks[i].filename, fw, fh,
+                    k_Fallbacks[i].proc_name, path);
+                fallback_count++;
+            }
+            free(fb_pixels);
+        }
+        glDeleteTextures(1, &fb_tex);
+    }
+
+    if (fallback_count > 0) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI extract: generated %u procedural fallback TGA(s) for "
+            "textures ROM extraction couldn't produce", fallback_count);
+    }
 }
 
 /**
@@ -1661,18 +1736,66 @@ static void s_generateModernUiTextures(void)
 }
 
 /**
- * Check if the base-ui mod textures exist by probing the key haze texture.
- * Returns true if the file loads successfully (non-zero size).
+ * List of all expected base-ui TGA filenames (must stay in sync with
+ * k_UiTextures[] in pdguiThemeLateInit and k_Extracts[] in
+ * pdguiThemeExtractRomTextures).
+ */
+static const char *k_ExpectedBaseUiTgas[] = {
+    "mods/base-ui/textures/ui_bg_haze.tga",
+    "mods/base-ui/textures/ui_particles.tga",
+    "mods/base-ui/textures/ui_noise_sm.tga",
+    "mods/base-ui/textures/ui_noise_lg.tga",
+    "mods/base-ui/textures/ui_grad_bar.tga",
+    "mods/base-ui/textures/ui_mirror_tile.tga",
+    "mods/base-ui/textures/ui_dot_tile.tga",
+    "mods/base-ui/textures/ui_nuke.tga",
+    "mods/base-ui/textures/ui_bg_alt.tga",
+    "mods/base-ui/textures/ui_deco.tga",
+    "mods/base-ui/textures/ui_icon_a.tga",
+    "mods/base-ui/textures/ui_icon_b.tga",
+    "mods/base-ui/textures/ui_icon_c.tga",
+};
+static const unsigned k_NumExpectedBaseUiTgas =
+    sizeof(k_ExpectedBaseUiTgas) / sizeof(k_ExpectedBaseUiTgas[0]);
+
+/**
+ * Check if ALL base-ui mod textures exist.  Returns true only if every
+ * expected TGA file is present and non-empty.
  */
 static bool s_baseUiTexturesExist(void)
 {
-    u32 sz = 0;
-    void *probe = fsFileLoad("mods/base-ui/textures/ui_bg_haze.tga", &sz);
-    if (probe) {
+    for (unsigned i = 0; i < k_NumExpectedBaseUiTgas; i++) {
+        u32 sz = 0;
+        void *probe = fsFileLoad(k_ExpectedBaseUiTgas[i], &sz);
+        if (!probe || sz == 0) {
+            if (probe) free(probe);
+            return false;
+        }
         free(probe);
-        return true;
     }
-    return false;
+    return true;
+}
+
+/**
+ * Check which individual TGA files are missing and return a count.
+ * Fills `missing_mask` bitfield (bit i set = file i missing).
+ * max 64 files tracked (more than enough for our 13).
+ */
+static unsigned s_countMissingBaseUiTgas(uint64_t *missing_mask)
+{
+    uint64_t mask = 0;
+    unsigned count = 0;
+    for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
+        u32 sz = 0;
+        void *probe = fsFileLoad(k_ExpectedBaseUiTgas[i], &sz);
+        if (!probe || sz == 0) {
+            mask |= (1ull << i);
+            count++;
+        }
+        if (probe) free(probe);
+    }
+    if (missing_mask) *missing_mask = mask;
+    return count;
 }
 
 /* =========================================================================
@@ -1742,103 +1865,147 @@ static bool s_writeTgaFile(const char *path, uint32_t w, uint32_t h,
 }
 
 /* Generate the 64x64 composite chrome frame texture as a BGRA buffer.
- * Greyscale+alpha: B=G=R=intensity, A=alpha for per-pixel transparency. */
+ *
+ * PD-authentic look: metallic blue-cyan gradient border with bevel highlight
+ * on outer edge, dark navy body interior, and subtle inner glow.  Matches the
+ * PD N64 dialog chrome aesthetic (dialog_border1 / dialog_border2 colours from
+ * the Blue palette with a specular highlight gradient).
+ *
+ * TODO(D5.CHROME): Replace with real ROM texture extraction once the specific
+ * ROM addresses for PD's dialog chrome source art are identified.  The OG
+ * chrome is assembled by menugfxRenderDialogBackground() compositing palette
+ * colors + textured strips — there is no single source texture.  This
+ * procedural version faithfully reconstructs that look.
+ *
+ * Nine-slice layout (16px insets):
+ *   Corners (0-16, 0-16 etc): rounded metallic bevel
+ *   Edges: metallic gradient strip with specular highlight
+ *   Center: semi-transparent dark navy with subtle noise
+ */
 static void s_generateChromeFrameBgra(uint8_t *out)
 {
     const int W = 64;
     const int H = 64;
-    const int inset = 16;       /* corner+edge thickness */
-    const int innerR = 9;       /* inside this radius: transparent */
-    const int outerR = 15;      /* outside this radius: transparent */
+    const int inset = 16;       /* corner+edge border thickness (9-slice) */
+    const int borderW = 3;      /* outer border pixel width */
+    const int glowW   = 5;      /* inner glow gradient width */
+
+    /* PD Blue palette colors (RGBA order, matching k_PalBlue) */
+    const float border1_r = 0.00f, border1_g = 0.376f, border1_b = 0.749f; /* #0060BF */
+    const float border2_r = 0.00f, border2_g = 0.941f, border2_b = 1.00f;  /* #00F0FF cyan */
+    const float body_r    = 0.00f, body_g    = 0.00f,  body_b    = 0.184f;  /* #00002F navy */
+    const float hilite_r  = 0.56f, hilite_g  = 1.00f,  hilite_b  = 1.00f;  /* #8FFFFF specular */
 
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             int idx = (y * W + x) * 4;
-            uint8_t intensity = 0;
-            uint8_t alpha = 0;
+            float r = 0, g = 0, b = 0, a = 0;
 
-            bool inLeft   = x < inset;
-            bool inRight  = x >= W - inset;
-            bool inTop    = y < inset;
-            bool inBottom = y >= H - inset;
+            /* Distance from each edge */
+            int dLeft   = x;
+            int dRight  = W - 1 - x;
+            int dTop    = y;
+            int dBottom = H - 1 - y;
+            int dMinH   = dLeft < dRight  ? dLeft : dRight;   /* min horiz */
+            int dMinV   = dTop  < dBottom ? dTop  : dBottom;   /* min vert */
+            int dEdge   = dMinH < dMinV   ? dMinH : dMinV;     /* min from any edge */
 
-            if ((inTop || inBottom) && (inLeft || inRight)) {
-                /* --- Corner region: quarter-circle ring --- */
-                int cx = inLeft ? inset - 1 : (W - inset);
-                int cy = inTop  ? inset - 1 : (H - inset);
+            bool inCornerZone = (dMinH < inset && dMinV < inset);
+            bool inEdgeZone   = (dEdge < inset);
+
+            if (inCornerZone) {
+                /* --- Corner region: rounded bevel --- */
+                /* Center of curvature for this corner */
+                int cx = (x < inset) ? inset - 1 : (W - inset);
+                int cy = (y < inset) ? inset - 1 : (H - inset);
                 int dx = x - cx;
                 int dy = y - cy;
-                float d = sqrtf((float)(dx * dx + dy * dy));
+                float dist = sqrtf((float)(dx * dx + dy * dy));
+                float maxR = (float)(inset - 1);
 
-                if (d >= (float)innerR && d <= (float)outerR) {
-                    intensity = 255;
-                    /* Radial alpha falloff so the ring has soft edges */
-                    float t = (d - (float)innerR) / (float)(outerR - innerR);
-                    float gauss = 1.0f - fabsf(t * 2.0f - 1.0f);
-                    if (gauss < 0.0f) gauss = 0.0f;
-                    if (gauss > 1.0f) gauss = 1.0f;
-                    alpha = (uint8_t)(gauss * 255.0f);
+                if (dist > maxR + 1.0f) {
+                    /* Outside the corner arc — fully transparent */
+                    a = 0;
+                } else if (dist > maxR - (float)borderW) {
+                    /* Outer border ring: bright cyan with specular gradient */
+                    float ring_t = (maxR - dist) / (float)borderW;
+                    if (ring_t < 0) ring_t = 0;
+                    if (ring_t > 1) ring_t = 1;
+                    /* Blend border2 (cyan) → hilite at outer edge */
+                    float spec = 1.0f - ring_t;  /* specular at outermost */
+                    r = border2_r + (hilite_r - border2_r) * spec * 0.6f;
+                    g = border2_g + (hilite_g - border2_g) * spec * 0.6f;
+                    b = border2_b + (hilite_b - border2_b) * spec * 0.6f;
+                    /* Anti-alias outer edge */
+                    float edgeFade = (maxR + 1.0f - dist);
+                    if (edgeFade > 1.0f) edgeFade = 1.0f;
+                    a = 0.86f * edgeFade;
+                } else if (dist > maxR - (float)(borderW + glowW)) {
+                    /* Inner glow: gradient from border1 (blue) → body (navy) */
+                    float glow_t = (maxR - (float)borderW - dist) / (float)glowW;
+                    if (glow_t < 0) glow_t = 0;
+                    if (glow_t > 1) glow_t = 1;
+                    r = border1_r * (1.0f - glow_t) + body_r * glow_t;
+                    g = border1_g * (1.0f - glow_t) + body_g * glow_t;
+                    b = border1_b * (1.0f - glow_t) + body_b * glow_t;
+                    a = 0.62f * (1.0f - glow_t * 0.3f);
+                } else {
+                    /* Interior: dark navy body */
+                    r = body_r; g = body_g; b = body_b;
+                    a = 0.62f;
                 }
-            } else if (inTop || inBottom) {
-                /* --- Horizontal edge strip --- */
-                int distFromEdge = inTop ? y : (H - 1 - y);
-                if (distFromEdge == 0 || distFromEdge == 1) {
-                    intensity = 255;
-                    alpha = 220;
-                } else if (distFromEdge == 2 || distFromEdge == 3) {
-                    intensity = 200;
-                    alpha = 140;
-                } else if (distFromEdge < 6) {
-                    intensity = 150;
-                    alpha = 70;
-                }
-            } else if (inLeft || inRight) {
-                /* --- Vertical edge strip --- */
-                int distFromEdge = inLeft ? x : (W - 1 - x);
-                if (distFromEdge == 0 || distFromEdge == 1) {
-                    intensity = 255;
-                    alpha = 220;
-                } else if (distFromEdge == 2 || distFromEdge == 3) {
-                    intensity = 200;
-                    alpha = 140;
-                } else if (distFromEdge < 6) {
-                    intensity = 150;
-                    alpha = 70;
+            } else if (inEdgeZone) {
+                /* --- Edge strip: metallic gradient border --- */
+                if (dEdge < borderW) {
+                    /* Outer border: bright cyan → specular highlight */
+                    float t = (float)dEdge / (float)borderW;
+                    /* Top/left edges get highlight, bottom/right get darker */
+                    float spec = 0;
+                    if (dTop < borderW || dLeft < borderW) {
+                        spec = (1.0f - t) * 0.7f;  /* bright highlight */
+                    } else {
+                        spec = (1.0f - t) * 0.3f;  /* subtle highlight */
+                    }
+                    r = border2_r + (hilite_r - border2_r) * spec;
+                    g = border2_g + (hilite_g - border2_g) * spec;
+                    b = border2_b + (hilite_b - border2_b) * spec;
+                    a = 0.86f;
+                } else if (dEdge < borderW + glowW) {
+                    /* Inner glow: border1 (medium blue) → body (navy) */
+                    float glow_t = (float)(dEdge - borderW) / (float)glowW;
+                    r = border1_r * (1.0f - glow_t) + body_r * glow_t;
+                    g = border1_g * (1.0f - glow_t) + body_g * glow_t;
+                    b = border1_b * (1.0f - glow_t) + body_b * glow_t;
+                    a = 0.62f * (1.0f - glow_t * 0.3f);
+                } else {
+                    /* Rest of edge region: dark navy body */
+                    r = body_r; g = body_g; b = body_b;
+                    a = 0.62f;
                 }
             } else {
-                /* --- Center region: subtle diagonal crosshatch --- */
-                int m = (x + y) & 0x07;
-                int n = (x - y + 64) & 0x07;
-                if (m == 0 || n == 0) {
-                    intensity = 200;
-                    alpha = 40;
-                } else if (m == 4 || n == 4) {
-                    intensity = 160;
-                    alpha = 24;
-                } else {
-                    intensity = 100;
-                    alpha = 12;
-                }
+                /* --- Center region: semi-transparent dark navy + subtle noise --- */
+                /* XorShift noise for subtle texture (deterministic per pixel) */
+                uint32_t seed = (uint32_t)(x * 7919 + y * 6271 + 0xA5A5A5A5u);
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                float noise = (float)((seed >> 16) & 0xFF) / 255.0f;
+                float nv = 0.02f * (noise - 0.5f);  /* +/- 1% intensity variation */
+                r = body_r + nv;
+                g = body_g + nv;
+                b = body_b + nv;
+                a = 0.62f;
             }
 
-            out[idx + 0] = intensity;  /* B */
-            out[idx + 1] = intensity;  /* G */
-            out[idx + 2] = intensity;  /* R */
-            out[idx + 3] = alpha;      /* A */
+            /* Clamp and write BGRA */
+            if (r < 0) r = 0; if (r > 1) r = 1;
+            if (g < 0) g = 0; if (g > 1) g = 1;
+            if (b < 0) b = 0; if (b > 1) b = 1;
+            if (a < 0) a = 0; if (a > 1) a = 1;
+            out[idx + 0] = (uint8_t)(b * 255.0f);  /* B */
+            out[idx + 1] = (uint8_t)(g * 255.0f);  /* G */
+            out[idx + 2] = (uint8_t)(r * 255.0f);  /* R */
+            out[idx + 3] = (uint8_t)(a * 255.0f);  /* A */
         }
     }
-}
-
-/* Return true if the chrome .tga already exists on disk. */
-static bool s_baseGameChromeTgaExists(void)
-{
-    u32 sz = 0;
-    void *data = fsFileLoad("mods/base-game/ui-chrome/ui_chrome_frame.tga", &sz);
-    if (data) {
-        free(data);
-        return sz > 0;
-    }
-    return false;
 }
 
 /**
@@ -1862,10 +2029,13 @@ void pdguiChromeInitializeBaseMod(void)
     fsCreateDir("mods/base-game");
     fsCreateDir("mods/base-game/ui-chrome");
 
-    /* Generate + write the composite chrome frame TGA if missing. */
-    if (!s_baseGameChromeTgaExists()) {
+    /* Generate + write the composite chrome frame TGA.
+     * Always regenerate: the template mod is owned by the game engine and
+     * gets rewritten on launch (template protection policy).  This ensures
+     * users always get the latest procedural chrome even after upgrades. */
+    {
         sysLogPrintf(LOG_NOTE,
-            "UI.CHROME: base-game chrome missing — generating programmatic test assets");
+            "UI.CHROME: base-game chrome missing — generating PD-authentic chrome frame");
         uint8_t pixels[64 * 64 * 4];
         s_generateChromeFrameBgra(pixels);
         s_writeTgaFile("mods/base-game/ui-chrome/ui_chrome_frame.tga",
@@ -1877,9 +2047,9 @@ void pdguiChromeInitializeBaseMod(void)
         static const char k_ChromeModJson[] =
             "{\n"
             "    \"id\": \"base.ui-chrome\",\n"
-            "    \"name\": \"Base Game UI Chrome (Test)\",\n"
-            "    \"version\": \"1.0.0\",\n"
-            "    \"description\": \"Placeholder test chrome for validating the nineslice pipeline. Replace with authored art.\",\n"
+            "    \"name\": \"Base Game UI Chrome\",\n"
+            "    \"version\": \"1.1.0\",\n"
+            "    \"description\": \"PD-authentic metallic blue chrome frame with beveled borders. Generated procedurally from PD palette colors.\",\n"
             "    \"author\": \"PD2 Team\",\n"
             "    \"tags\": [\"base-game\", \"template\", \"chrome\"],\n"
             "    \"template\": true,\n"
@@ -1919,7 +2089,7 @@ void pdguiChromeInitializeBaseMod(void)
     /* README — always overwrite so the template warning stays authoritative. */
     {
         static const char k_ChromeReadme[] =
-            "# Base Game UI Chrome (Test) -- Base-Game Template Mod\n"
+            "# Base Game UI Chrome -- Base-Game Template Mod\n"
             "\n"
             "This is a **base-game template mod**. Its contents are generated by the game\n"
             "at startup and will be regenerated if the file set is incomplete or missing.\n"
@@ -2011,84 +2181,115 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
-    /* Auto-extract: if base-ui textures don't exist yet, create the full
-     * mod structure (mod.json + TGA textures) from ROM data. This makes
-     * the game self-sufficient — no external files needed in the zip. */
-    if (!s_baseUiTexturesExist()) {
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI theme: base-ui mod missing — auto-creating from ROM");
-        fsCreateDir("mods");
-        fsCreateDir("mods/base-ui");
-        fsCreateDir("mods/base-ui/textures");
+    /* Auto-extract: if ANY base-ui textures are missing, run extraction from
+     * ROM data.  This handles both first-launch (all missing) and partial
+     * extraction (e.g. ui_particles.tga missing while others exist).
+     * The extraction pipeline writes all TGAs, then we reload the theme. */
+    {
+        uint64_t missing_mask = 0;
+        unsigned n_missing = s_countMissingBaseUiTgas(&missing_mask);
 
-        /* Write mod.json manifest so the mod manager recognizes this as
-         * a proper mod. The theme config in here drives palette, scanlines,
-         * and background texture selection. */
-        {
-            static const char k_ModJson[] =
-                "{\n"
-                "    \"name\": \"base-ui\",\n"
-                "    \"display_name\": \"Perfect Dark Base UI\",\n"
-                "    \"version\": \"1.0.0\",\n"
-                "    \"description\": \"Original N64 UI textures extracted from ROM.\",\n"
-                "    \"author\": \"Rare / PD2 Team\",\n"
-                "    \"category\": \"ui\",\n"
-                "    \"bundled\": true,\n"
-                "    \"enabled\": true,\n"
-                "    \"components\": [\n"
-                "        {\n"
-                "            \"type\": \"ui\",\n"
-                "            \"textures\": [\n"
-                "                { \"catalog_id\": \"base:ui_bg_haze\",     \"path\": \"textures/ui_bg_haze.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_particles\",   \"path\": \"textures/ui_particles.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_noise_sm\",    \"path\": \"textures/ui_noise_sm.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_noise_lg\",    \"path\": \"textures/ui_noise_lg.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_grad_bar\",    \"path\": \"textures/ui_grad_bar.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_mirror_tile\", \"path\": \"textures/ui_mirror_tile.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_dot_tile\",    \"path\": \"textures/ui_dot_tile.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_nuke\",        \"path\": \"textures/ui_nuke.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_bg_alt\",      \"path\": \"textures/ui_bg_alt.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_deco\",        \"path\": \"textures/ui_deco.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_icon_a\",      \"path\": \"textures/ui_icon_a.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_icon_b\",      \"path\": \"textures/ui_icon_b.tga\" },\n"
-                "                { \"catalog_id\": \"base:ui_icon_c\",      \"path\": \"textures/ui_icon_c.tga\" }\n"
-                "            ]\n"
-                "        }\n"
-                "    ],\n"
-                "    \"theme\": {\n"
-                "        \"default_palette\": 1,\n"
-                "        \"background_texture\": \"base:ui_bg_haze\",\n"
-                "        \"scanline_enabled\": true,\n"
-                "        \"scanline_alpha\": 0.5,\n"
-                "        \"tint_strength\": 0.0,\n"
-                "        \"text_glow_intensity\": 0.6\n"
-                "    }\n"
-                "}\n";
-
-            FILE *jf = fsFileOpenWrite("mods/base-ui/mod.json");
-            if (jf) {
-                fwrite(k_ModJson, 1, sizeof(k_ModJson) - 1, jf);
-                fclose(jf);
-                sysLogPrintf(LOG_NOTE, "PDGUI theme: wrote mods/base-ui/mod.json");
-            } else {
-                sysLogPrintf(LOG_WARNING, "PDGUI theme: could not write mod.json");
-            }
-        }
-
-        /* Extract ROM textures to TGA files */
-        pdguiThemeExtractRomTextures();
-
-        /* Verify extraction succeeded before re-init */
-        if (s_baseUiTexturesExist()) {
+        if (n_missing > 0) {
             sysLogPrintf(LOG_NOTE,
-                "PDGUI theme: extraction verified — reloading theme textures");
-            /* Reload theme textures now that TGA files exist */
+                "PDGUI theme: %u of %u base-ui TGAs missing (mask=0x%llx) — "
+                "auto-extracting from ROM",
+                n_missing, k_NumExpectedBaseUiTgas,
+                (unsigned long long)missing_mask);
+
+            /* Log which specific files are missing */
+            for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
+                if (missing_mask & (1ull << i)) {
+                    sysLogPrintf(LOG_NOTE, "  MISSING: %s", k_ExpectedBaseUiTgas[i]);
+                }
+            }
+
+            fsCreateDir("mods");
+            fsCreateDir("mods/base-ui");
+            fsCreateDir("mods/base-ui/textures");
+
+            /* Write mod.json manifest so the mod manager recognizes this as
+             * a proper mod. The theme config in here drives palette, scanlines,
+             * and background texture selection. */
+            {
+                static const char k_ModJson[] =
+                    "{\n"
+                    "    \"name\": \"base-ui\",\n"
+                    "    \"display_name\": \"Perfect Dark Base UI\",\n"
+                    "    \"version\": \"1.0.0\",\n"
+                    "    \"description\": \"Original N64 UI textures extracted from ROM.\",\n"
+                    "    \"author\": \"Rare / PD2 Team\",\n"
+                    "    \"category\": \"ui\",\n"
+                    "    \"bundled\": true,\n"
+                    "    \"enabled\": true,\n"
+                    "    \"components\": [\n"
+                    "        {\n"
+                    "            \"type\": \"ui\",\n"
+                    "            \"textures\": [\n"
+                    "                { \"catalog_id\": \"base:ui_bg_haze\",     \"path\": \"textures/ui_bg_haze.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_particles\",   \"path\": \"textures/ui_particles.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_noise_sm\",    \"path\": \"textures/ui_noise_sm.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_noise_lg\",    \"path\": \"textures/ui_noise_lg.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_grad_bar\",    \"path\": \"textures/ui_grad_bar.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_mirror_tile\", \"path\": \"textures/ui_mirror_tile.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_dot_tile\",    \"path\": \"textures/ui_dot_tile.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_nuke\",        \"path\": \"textures/ui_nuke.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_bg_alt\",      \"path\": \"textures/ui_bg_alt.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_deco\",        \"path\": \"textures/ui_deco.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_icon_a\",      \"path\": \"textures/ui_icon_a.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_icon_b\",      \"path\": \"textures/ui_icon_b.tga\" },\n"
+                    "                { \"catalog_id\": \"base:ui_icon_c\",      \"path\": \"textures/ui_icon_c.tga\" }\n"
+                    "            ]\n"
+                    "        }\n"
+                    "    ],\n"
+                    "    \"theme\": {\n"
+                    "        \"default_palette\": 1,\n"
+                    "        \"background_texture\": \"base:ui_bg_haze\",\n"
+                    "        \"scanline_enabled\": true,\n"
+                    "        \"scanline_alpha\": 0.5,\n"
+                    "        \"tint_strength\": 0.0,\n"
+                    "        \"text_glow_intensity\": 0.6\n"
+                    "    }\n"
+                    "}\n";
+
+                FILE *jf = fsFileOpenWrite("mods/base-ui/mod.json");
+                if (jf) {
+                    fwrite(k_ModJson, 1, sizeof(k_ModJson) - 1, jf);
+                    fclose(jf);
+                    sysLogPrintf(LOG_NOTE, "PDGUI theme: wrote mods/base-ui/mod.json");
+                } else {
+                    sysLogPrintf(LOG_WARNING, "PDGUI theme: could not write mod.json");
+                }
+            }
+
+            /* Extract ROM textures to TGA files (writes ALL textures, not
+             * just missing ones — idempotent overwrites are fine) */
+            pdguiThemeExtractRomTextures();
+
+            /* Verify extraction and report per-file results */
+            uint64_t still_missing = 0;
+            unsigned n_still = s_countMissingBaseUiTgas(&still_missing);
+            if (n_still == 0) {
+                sysLogPrintf(LOG_NOTE,
+                    "PDGUI theme: extraction verified — all %u TGAs present, "
+                    "reloading theme textures", k_NumExpectedBaseUiTgas);
+            } else {
+                sysLogPrintf(LOG_WARNING,
+                    "PDGUI theme: extraction ran but %u TGA(s) still missing "
+                    "(mask=0x%llx) — check ROM data and file permissions",
+                    n_still, (unsigned long long)still_missing);
+                for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
+                    if (still_missing & (1ull << i)) {
+                        sysLogPrintf(LOG_WARNING,
+                            "  STILL MISSING: %s", k_ExpectedBaseUiTgas[i]);
+                    }
+                }
+            }
+
+            /* Reload theme textures now that TGA files exist (or have been
+             * updated).  Reset the late-init flag so pdguiThemeLateInit()
+             * re-runs and picks up the newly extracted files. */
             s_ThemeLateInitDone = false;
             pdguiThemeLateInit();
-        } else {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI theme: extraction ran but TGA files still missing — "
-                "check that mods/base-ui/textures/ is writable");
         }
     }
 
