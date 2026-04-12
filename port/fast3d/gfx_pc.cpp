@@ -30,6 +30,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "pdgui_charpreview.h"
 
 uintptr_t gfxFramebuffer;
 
@@ -853,7 +854,30 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
+/* Skin editor override: when active during preview FBO render, the first
+ * texture import is replaced with the editor's canvas GL texture.  This
+ * substitutes the body texture on the 3D model with the live canvas.
+ * The flag resets after each substitution so head/other textures render
+ * normally.  (Batch S-2) */
+static bool s_SkinOverrideUsedThisFrame = false;
+
 static void import_texture(int i, int tile, bool importReplacement) {
+    /* Skin override check: if we're rendering into the preview FBO and
+     * the skin editor has an active override, substitute the first
+     * texture with the canvas texture.  (S-2) */
+    if (fbActive && pdguiCharPreviewHasSkinOverride() && !s_SkinOverrideUsedThisFrame) {
+        u32 overrideTex = pdguiCharPreviewGetSkinOverrideTexId();
+        if (overrideTex != 0) {
+            s_SkinOverrideUsedThisFrame = true;
+            gfx_rapi->select_texture(i, overrideTex, false);
+            gfx_rapi->set_sampler_parameters(i, false, G_TX_NOMIRROR | G_TX_CLAMP,
+                                              G_TX_NOMIRROR | G_TX_CLAMP);
+            rendering_state.textures[i] = nullptr;
+            rdp.textures_changed[i] = false;
+            return;
+        }
+    }
+
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
     const uint8_t fmt = rdp.texture_tile[tile].fmt;
     const uint8_t siz = rdp.texture_tile[tile].siz;
@@ -2515,6 +2539,7 @@ static void gfx_run_dl(Gfx* cmd) {
                     // don't care about noise here
                     gfx_set_framebuffer(cmd->words.w1, 1.f);
                     fbActive = true;
+                    s_SkinOverrideUsedThisFrame = false; /* reset for new FBO pass (S-2) */
                 } else {
                     gfx_reset_framebuffer();
                     fbActive = false;

@@ -315,6 +315,41 @@ void pdguiCharPreviewFreeTexture(u32 texId)
 }
 
 /* ========================================================================
+ * Skin Override (Batch S-2)
+ * ======================================================================== */
+
+static u32 s_SkinOverrideTexId  = 0;
+static s32 s_SkinOverrideWidth  = 0;
+static s32 s_SkinOverrideHeight = 0;
+static s32 s_SkinOverrideActive = 0;
+
+void pdguiCharPreviewSetSkinOverride(u32 glTexId, s32 texWidth, s32 texHeight)
+{
+    s_SkinOverrideTexId  = glTexId;
+    s_SkinOverrideWidth  = texWidth;
+    s_SkinOverrideHeight = texHeight;
+    s_SkinOverrideActive = (glTexId != 0) ? 1 : 0;
+}
+
+void pdguiCharPreviewClearSkinOverride(void)
+{
+    s_SkinOverrideTexId  = 0;
+    s_SkinOverrideWidth  = 0;
+    s_SkinOverrideHeight = 0;
+    s_SkinOverrideActive = 0;
+}
+
+s32 pdguiCharPreviewHasSkinOverride(void)
+{
+    return s_SkinOverrideActive;
+}
+
+u32 pdguiCharPreviewGetSkinOverrideTexId(void)
+{
+    return s_SkinOverrideTexId;
+}
+
+/* ========================================================================
  * GBI-Phase Render Hook
  * ======================================================================== */
 

@@ -174,6 +174,24 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 ---
 
+## Skin Editor (Phase 2 Feature)
+
+> Design doc: `context/designs/skin-editor-design.md`
+
+| Batch | Scope | Status | Detail |
+|-------|-------|--------|--------|
+| **S-1** | Canvas System + 2D Editor | **DONE** (2026-04-12) | `pdgui_skin_canvas.cpp` (~380 lines) — 8-layer RGBA32 canvas with compositing, GL texture upload, undo/redo ring buffer (32 slots). `pdgui_skin_editor.cpp` (~800 lines) — three-panel editor UI (canvas/preview/tools), 5 tools (Draw/Erase/Fill/Eyedropper/Line), HSV color picker, brush size 1-8px, zoom/pan, pixel grid. `pdgui_skin_editor.h` (~130 lines). Modding Hub tab 5 integration. |
+| **S-2** | Live 3D Preview Override | **DONE** (2026-04-12) | `pdguiCharPreviewSetSkinOverride(glTexId, w, h)` API in charpreview. `gfx_pc.cpp` texture substitution hook during preview FBO render — first texture import replaced with canvas GL texture when override active. Resets per-FBO-pass. +35 lines charpreview, +20 lines gfx_pc. |
+| **S-3** | Fill + Line + Brush + Undo | **DONE** (2026-04-12) | Flood-fill (stack-based 4-connected), Bresenham line drawing, variable brush 1-8px, undo/redo (Ctrl+Z/Y). Implemented within S-1 files. |
+| **S-4** | Save as Mod | PLANNED | TGA writer, skin.ini, catalog registration, hot reload. |
+| **S-5** | Image Import | PLANNED | stb_image, stretch-to-fit, import as layer. |
+| **S-6** | PD-Style Downrez | PLANNED | Median-cut quantization, Bayer/Floyd-Steinberg dithering. |
+| **S-7** | Blend Mode Extensions | PLANNED | Hue, Burn, Saturation blend modes. |
+| **S-8** | UV Remap | PLANNED | UV wireframe overlay, region mapping. |
+| **S-9** | Network Sync | PLANNED | Skin mod distribution via existing propagation pipeline. |
+
+---
+
 ## Design Guidelines (Planned)
 
 | System | Status |
