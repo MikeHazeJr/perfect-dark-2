@@ -1049,12 +1049,37 @@ static void renderModdingHub(s32 winW, s32 winH)
     {
         const float btnW = 140.0f * scale;
         const float btnH = 28.0f * scale;
+        static const int NUM_TOOLS = 6;
 
         static const char *toolNames[] = {
             "Mod Manager", "INI Editor", "Model Scale Tool", "Mod Pack", "Audio Mods", "Skin Editor"
         };
 
-        for (int i = 0; i < 6; i++) {
+        /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav */
+        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+            int next = (s_ActiveTool - 1 + NUM_TOOLS) % NUM_TOOLS;
+            s_ActiveTool = next;
+            if (next == 0) pdguiModManagerRefreshSnapshot();
+            else if (next == 1) iniRefreshEntries();
+            else if (next == 2) scaleRefreshEntries();
+            else if (next == 3) packRefreshEntries();
+            else if (next == 4) pdguiAudioModRefresh();
+            else if (next == 5) pdguiSkinEditorRefresh();
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+            int next = (s_ActiveTool + 1) % NUM_TOOLS;
+            s_ActiveTool = next;
+            if (next == 0) pdguiModManagerRefreshSnapshot();
+            else if (next == 1) iniRefreshEntries();
+            else if (next == 2) scaleRefreshEntries();
+            else if (next == 3) packRefreshEntries();
+            else if (next == 4) pdguiAudioModRefresh();
+            else if (next == 5) pdguiSkinEditorRefresh();
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+
+        for (int i = 0; i < NUM_TOOLS; i++) {
             if (i > 0) ImGui::SameLine();
 
             bool active = (s_ActiveTool == i);

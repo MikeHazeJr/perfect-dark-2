@@ -377,8 +377,16 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
 
     ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
 
-    /* Tab bar */
+    /* Tab bar — bumper (LB/RB) cycling via PageUp/PageDown */
     const char *tabs[] = { "Overview", "Weapons", "Modes", "Achievements" };
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+        s_StatsTab = (s_StatsTab - 1 + 4) % 4;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+        s_StatsTab = (s_StatsTab + 1) % 4;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
     float tabW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f) / 4.0f;
     for (s32 t = 0; t < 4; t++) {
         if (t > 0) ImGui::SameLine();

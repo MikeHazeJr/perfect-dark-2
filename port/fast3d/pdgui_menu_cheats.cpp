@@ -476,6 +476,16 @@ static s32 renderCheatsHub(struct menudialog *dialog,
     if (ImGui::BeginChild("##cheats_body", ImVec2(0, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
 
+        /* Bumper (LB/RB) tab cycling via PageUp/PageDown */
+        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+            s_CheatsTab = (s_CheatsTab - 1 + SC_TAB_COUNT) % SC_TAB_COUNT;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+            s_CheatsTab = (s_CheatsTab + 1) % SC_TAB_COUNT;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
+
         /* Tab strip */
         if (ImGui::BeginTabBar("##cheats_tabs", ImGuiTabBarFlags_None)) {
             for (s32 i = 0; i < SC_TAB_COUNT; i++) {
