@@ -26,6 +26,11 @@
 #include "game/endscreen.h"
 #include "game/mainmenu.h"
 #include "game/menu.h"
+#include "game/options.h"
+#include "game/training.h"
+#include "game/bondgun.h"
+#include "game/game_0b0fd0.h"
+#include "files.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
@@ -953,5 +958,447 @@ void pdguiMpsTeamNameSet(u32 team, const char *text)
     /* The legacy storage is [12] wide — ensure the final byte is clean. */
     g_BossFile.teamnames[team][11] = '\0';
     g_Vars.modifiedfiles |= MODFILE_MPSETUP;
+}
+
+/* ========================================================================
+ * Training bridge (pdgui_menu_training.cpp, Batch 10 Training NULL-FN)
+ *
+ * Batch 10 ImGui replacements for the 10 Training/Hangar NULL-FN dialogs:
+ *
+ *   g_FrWeaponListMenuDialog            (needs weapon slot/name/score tier/filenum)
+ *   g_BioListMenuDialog                 (needs grouped chrbio/miscbio list)
+ *   g_BioProfileMenuDialog              (needs 3D char preview + name/age/race/desc)
+ *   g_DtListMenuDialog                  (needs device list)
+ *   g_DtDetailsMenuDialog               (needs 3D weapon preview + desc)
+ *   g_HtDetailsMenuDialog               (needs 3D weapon preview + desc)
+ *   g_HangarListMenuDialog              (needs grouped location/vehicle list)
+ *   g_HangarVehicleHolographMenuDialog  (needs 3D vehicle preview)
+ *   g_HangarVehicleDetailsMenuDialog    (needs hangar bio text)
+ *   g_HangarLocationDetailsMenuDialog   (needs hangar bio text)
+ *
+ * The C++ renderer cannot include types.h (bool redefinition breaks C++),
+ * so all `struct chrbio` / `struct miscbio` / `struct hangarbio` field reads
+ * and global slot updates go through these accessors.  The actual training
+ * data providers (`trainingmenus.c`, `trainingmisc.c`) are UNCHANGED; this
+ * file only wraps their existing public API surface (`game/training.h`) in
+ * small C-linkage helpers the renderer can call without including types.h.
+ *
+ * Zero function loss: every accessor forwards to a legacy function; there
+ * are no alternate-path implementations of the underlying predicates.
+ * ======================================================================== */
+
+/* ---- Firing Range ------------------------------------------------------ */
+
+s32 pdguiTrFrNumWeaponsAvailable(void)
+{
+    return frGetNumWeaponsAvailable();
+}
+
+u32 pdguiTrFrWeaponBySlot(s32 slot)
+{
+    return frGetWeaponBySlot(slot);
+}
+
+const char *pdguiTrFrWeaponName(u32 weaponnum)
+{
+    return bgunGetName((s32)weaponnum);
+}
+
+s32 pdguiTrFrWeaponScoreTier(u32 weaponnum)
+{
+    return ciGetFiringRangeScore(frGetWeaponIndexByWeapon(weaponnum));
+}
+
+u32 pdguiTrFrWeaponFilenum(u32 weaponnum)
+{
+    return (u32)weaponGetFileNum((s32)weaponnum);
+}
+
+s32 pdguiTrFrGetSlot(void)
+{
+    return frGetSlot();
+}
+
+void pdguiTrFrSetSlot(s32 slot)
+{
+    frSetSlot(slot);
+}
+
+const char *pdguiTrFrWeaponDescription(void)
+{
+    /* Returns DESCRIPTION_FRWEAPON body (the weapon-info scrollable).  Legacy
+     * path resolves it against the CURRENT slot via frGetSlot(), so callers
+     * typically set the slot first via pdguiTrFrSetSlot(). */
+    return frGetWeaponDescription();
+}
+
+s32 pdguiTrFrIsInTraining(void)
+{
+    return frIsInTraining();
+}
+
+/* ---- Bios (characters + misc) ------------------------------------------ */
+
+s32 pdguiTrBioNumChr(void)
+{
+    return ciGetNumUnlockedChrBios();
+}
+
+s32 pdguiTrBioNumMisc(void)
+{
+    return ciGetNumUnlockedMiscBios();
+}
+
+const char *pdguiTrBioChrName(s32 slot)
+{
+    struct chrbio *bio = ciGetChrBioByBodynum((u32)ciGetChrBioBodynumBySlot(slot));
+    if (!bio) return "";
+    return langGet((s32)bio->name);
+}
+
+const char *pdguiTrBioMiscName(s32 slot)
+{
+    struct miscbio *bio = ciGetMiscBio(ciGetMiscBioIndexBySlot(slot));
+    if (!bio) return "";
+    return langGet((s32)bio->name);
+}
+
+s32 pdguiTrBioGetSlot(void)
+{
+    return (s32)g_ChrBioSlot;
+}
+
+void pdguiTrBioSetSlot(s32 slot)
+{
+    if (slot < 0) slot = 0;
+    g_ChrBioSlot = (u8)slot;
+}
+
+const char *pdguiTrBioChrAge(void)
+{
+    struct chrbio *bio =
+        ciGetChrBioByBodynum((u32)ciGetChrBioBodynumBySlot((s32)g_ChrBioSlot));
+    if (!bio) return "";
+    return langGet((s32)bio->age);
+}
+
+const char *pdguiTrBioChrRace(void)
+{
+    struct chrbio *bio =
+        ciGetChrBioByBodynum((u32)ciGetChrBioBodynumBySlot((s32)g_ChrBioSlot));
+    if (!bio) return "";
+    return langGet((s32)bio->race);
+}
+
+const char *pdguiTrBioChrDescription(void)
+{
+    /* Legacy handler reads from g_ChrBioSlot via ciGetChrBioDescription(). */
+    return ciGetChrBioDescription();
+}
+
+const char *pdguiTrBioMiscDescription(void)
+{
+    return ciGetMiscBioDescription();
+}
+
+/* For the character preview: the chrbio is keyed by bodynum (legacy constant,
+ * not mp index).  pdguiModelPreviewDraw() wants catalog ID strings.  This
+ * helper mirrors ciCharacterProfileMenuDialog's resolution: bodynum ->
+ * mpbodynum via mpGetMpbodynumByBodynum(), then catalog_id via catalogMpBodyId()
+ * for the body, and the default paired head via catalogGetBodyDefaultMpHeadIdx()
+ * + catalogMpHeadId(). */
+void pdguiTrBioGetCurrentChrCatalogIds(const char **head_id_out,
+                                        const char **body_id_out)
+{
+    if (head_id_out) *head_id_out = NULL;
+    if (body_id_out) *body_id_out = NULL;
+
+    s32 bodynum = ciGetChrBioBodynumBySlot((s32)g_ChrBioSlot);
+    if (bodynum < 0) {
+        return;
+    }
+
+    s32 mpbodynum = mpGetMpbodynumByBodynum((u16)bodynum);
+    if (mpbodynum < 0) {
+        return;
+    }
+
+    if (body_id_out) {
+        *body_id_out = catalogMpBodyId(mpbodynum);
+    }
+
+    s32 mpheadnum = catalogGetBodyDefaultMpHeadIdx(mpbodynum);
+    if (mpheadnum < 0) {
+        mpheadnum = 0;
+    }
+    if (head_id_out) {
+        *head_id_out = catalogMpHeadId(mpheadnum);
+    }
+}
+
+/* ---- Device Training --------------------------------------------------- */
+
+s32 pdguiTrDtNumAvailable(void)
+{
+    return dtGetNumAvailable();
+}
+
+u32 pdguiTrDtWeaponBySlot(s32 slot)
+{
+    return dtGetWeaponByDeviceIndex(dtGetIndexBySlot(slot));
+}
+
+const char *pdguiTrDtDeviceName(s32 slot)
+{
+    return bgunGetName((s32)dtGetWeaponByDeviceIndex(dtGetIndexBySlot(slot)));
+}
+
+s32 pdguiTrDtGetSlot(void)
+{
+    return (s32)g_DtSlot;
+}
+
+void pdguiTrDtSetSlot(s32 slot)
+{
+    if (slot < 0) slot = 0;
+    g_DtSlot = (u8)slot;
+}
+
+const char *pdguiTrDtCurrentDescription(void)
+{
+    return dtGetDescription();
+}
+
+u32 pdguiTrDtCurrentWeaponFilenum(void)
+{
+    u32 weaponnum = dtGetWeaponByDeviceIndex(dtGetIndexBySlot((s32)g_DtSlot));
+    return (u32)weaponGetFileNum((s32)weaponnum);
+}
+
+s32 pdguiTrDtIsInTraining(void)
+{
+    struct trainingdata *data = dtGetData();
+    return data ? data->intraining : 0;
+}
+
+/* ---- Holo Training ----------------------------------------------------- */
+
+s32 pdguiTrHtGetSlot(void)
+{
+    return (s32)var80088bb4;
+}
+
+void pdguiTrHtSetSlot(s32 slot)
+{
+    if (slot < 0) slot = 0;
+    var80088bb4 = (u8)slot;
+}
+
+const char *pdguiTrHtCurrentDescription(void)
+{
+    return htGetDescription();
+}
+
+s32 pdguiTrHtIsInTraining(void)
+{
+    struct trainingdata *data = getHoloTrainingData();
+    return data ? data->intraining : 0;
+}
+
+/* HT details uses the same "current-selection drives the preview model" rule
+ * as DT.  The legacy MENUOP_OPEN handler calls func0f1a2198() which sets up
+ * the menumodel for the current HT slot.  Mirror its internals so the bridge
+ * can hand the caller a filenum without requiring the legacy OPEN path.
+ *
+ * Reading the legacy asset path: htGetIndexBySlot(slot) -> a holo-training
+ * index; func0f1a25c0(index) -> a weapon num for that hologram (i.e. the
+ * weapon the training simulates).  We resolve through the same public chain
+ * and take weaponGetFileNum on the resulting weaponnum. */
+u32 pdguiTrHtCurrentWeaponFilenum(void)
+{
+    s32 index = htGetIndexBySlot((s32)var80088bb4);
+    if (index < 0) {
+        return 0;
+    }
+    u32 weaponnum = func0f1a25c0(index);
+    if (weaponnum == 0) {
+        return 0;
+    }
+    return (u32)weaponGetFileNum((s32)weaponnum);
+}
+
+/* ---- Hangar ------------------------------------------------------------ */
+
+s32 pdguiTrHangarNumTotal(void)
+{
+    return ciGetNumUnlockedHangarBios();
+}
+
+s32 pdguiTrHangarNumLocations(void)
+{
+    return ciGetNumUnlockedLocationBios();
+}
+
+s32 pdguiTrHangarGetSlot(void)
+{
+    return (s32)g_HangarBioSlot;
+}
+
+void pdguiTrHangarSetSlot(s32 slot)
+{
+    if (slot < 0) slot = 0;
+    g_HangarBioSlot = (u8)slot;
+}
+
+s32 pdguiTrHangarSlotIsLocation(s32 slot)
+{
+    s32 bioindex = ciGetHangarBioIndexBySlot(slot);
+    /* HANGARBIO_SKEDARRUINS (13) is the last location index, matching the
+     * legacy ciHangarInformationMenuHandler boundary check. */
+    return bioindex <= 13;
+}
+
+const char *pdguiTrHangarSlotName(s32 slot)
+{
+    struct hangarbio *bio = ciGetHangarBio(ciGetHangarBioIndexBySlot(slot));
+    if (!bio) return "";
+    return langGet((s32)bio->name);
+}
+
+/* The current hangar name/subheading/description functions all key off
+ * g_HangarBioSlot, so set the slot first via pdguiTrHangarSetSlot() before
+ * reading these. */
+const char *pdguiTrHangarCurrentFullName(void)
+{
+    struct hangarbio *bio =
+        ciGetHangarBio(ciGetHangarBioIndexBySlot((s32)g_HangarBioSlot));
+    if (!bio) return "";
+    return langGet((s32)bio->name);
+}
+
+/* The subheading lives in the same string as the name, separated by a pipe:
+ * "Lucerne Tower\0|Global headquarters\n".  Mirror the legacy parser in
+ * ciMenuTextHangarBioSubheading() -- find the '|' and return the rest. */
+const char *pdguiTrHangarCurrentSubheading(void)
+{
+    struct hangarbio *bio =
+        ciGetHangarBio(ciGetHangarBioIndexBySlot((s32)g_HangarBioSlot));
+    if (!bio) return "";
+    const char *name = langGet((s32)bio->name);
+    if (!name) return "";
+    const char *p = name;
+    while (*p && *p != '|') p++;
+    if (*p == '|') return p + 1;
+    return "";
+}
+
+const char *pdguiTrHangarCurrentDescription(void)
+{
+    return ciGetHangarBioDescription();
+}
+
+/* For the vehicle holograph: mirror the legacy biovehicleitem[] table in
+ * ciHangarHolographMenuDialog (trainingmenus.c:2657).  The legacy table is
+ * indexed by (hangar bio index - NUM_BIO_LOCATIONS) and stores the file id
+ * that drives MENUMODELPARAMS_SET_FILENUM for the holograph render.  Kept in
+ * sync with the legacy table so no behavior drift. */
+u32 pdguiTrHangarCurrentVehicleFilenum(void)
+{
+    const u32 items[] = {
+        FILE_PDROPSHIP,        /* dropship */
+        FILE_PHOVERCRATE1,     /* hovercrate */
+        FILE_PHOVBIKE,         /* hoverbike */
+        FILE_PHOOVERBOT,       /* hoverbot */
+        FILE_PDD_HOVERCOPTER,  /* hovercopter */
+        FILE_CCHICROB,         /* chicken robot */
+        FILE_PA51INTERCEPTOR,  /* A51 interceptor */
+        FILE_PELVIS_SAUCER,    /* flying saucer */
+        FILE_PSK_SHUTTLE,      /* skedar shuttle */
+    };
+    s32 bioindex = ciGetHangarBioIndexBySlot((s32)g_HangarBioSlot);
+    /* Locations occupy indices 0..13; vehicles start at 14.  Indices beyond
+     * the items[] length are defensively clamped to zero so the preview
+     * gracefully falls back to the placeholder silhouette. */
+    s32 veh = bioindex - 14;
+    if (veh < 0 || veh >= (s32)(sizeof(items) / sizeof(items[0]))) {
+        return 0;
+    }
+    return items[veh];
+}
+
+/* ========================================================================
+ * Control diagram bridge (pdgui_menu_controldiagram.cpp, Batch 10)
+ *
+ * Small wrappers over optionsGetControlMode() / optionsSetControlMode() and
+ * the PC ext-controls flag.  Same pattern as the Aim Control dropdown in
+ * mpsettings — the C++ renderer should not reach into g_PlayerExtCfg[].
+ * ======================================================================== */
+
+s32 pdguiCdGetControlMode(s32 mpindex)
+{
+    if (mpindex < 0) mpindex = 0;
+    return optionsGetControlMode(mpindex);
+}
+
+void pdguiCdSetControlMode(s32 mpindex, s32 mode)
+{
+    if (mpindex < 0) mpindex = 0;
+    optionsSetControlMode(mpindex, mode);
+    g_PlayerExtCfg[mpindex & 3].extcontrols = (mode == CONTROLMODE_PC);
+    g_Vars.modifiedfiles |= MODFILE_GAME;
+}
+
+/* ---- MP Control Options (Batch 10: g_MpControlMenuDialog) -------------- *
+ * The legacy menuhandlerMpControlCheckbox reads/writes single bits on
+ * g_PlayerConfigsArray[g_MpPlayerNum].options.  OPTION_* constants are the
+ * bit masks.  We mirror that directly to preserve behavior including the
+ * OPTION_FORWARDPITCH inversion quirk (its GET inverts the stored bit). */
+
+s32 pdguiCdGetPlayerOption(s32 option)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return 0;
+    }
+    /* Legacy OPTION_FORWARDPITCH inversion: stored bit = "use raw pitch",
+     * displayed as "reverse pitch" (inverted). */
+    if (option == OPTION_FORWARDPITCH) {
+        return ((g_PlayerConfigsArray[g_MpPlayerNum].options & (u32)option) == 0) ? 1 : 0;
+    }
+    return ((g_PlayerConfigsArray[g_MpPlayerNum].options & (u32)option) != 0) ? 1 : 0;
+}
+
+void pdguiCdSetPlayerOption(s32 option, s32 on)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return;
+    }
+    s32 effective = on;
+    /* FORWARDPITCH inverted the same way as the legacy SET branch — clearing
+     * the UI checkbox stores the bit; setting it clears the bit. */
+    if (option == OPTION_FORWARDPITCH) {
+        effective = on ? 0 : 1;
+    }
+    g_PlayerConfigsArray[g_MpPlayerNum].options &= ~(u32)option;
+    if (effective) {
+        g_PlayerConfigsArray[g_MpPlayerNum].options |= (u32)option;
+    }
+    g_Vars.modifiedfiles |= MODFILE_GAME;
+}
+
+s32 pdguiCdGetAimControl(void)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return 0;
+    }
+    return optionsGetAimControl(g_MpPlayerNum);
+}
+
+void pdguiCdSetAimControl(s32 mode)
+{
+    if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+        return;
+    }
+    optionsSetAimControl(g_MpPlayerNum, mode);
+    g_Vars.modifiedfiles |= MODFILE_GAME;
 }
 
