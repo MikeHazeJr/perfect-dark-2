@@ -158,6 +158,22 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 ---
 
+## Audio Mod Menu (Phase 2 Feature)
+
+> Design doc: `context/designs/audio-mod-menu-design.md`
+
+| Batch | Scope | Status | Detail |
+|-------|-------|--------|--------|
+| **A-1** | Catalog Audio Extension | **DONE** (2026-04-12) | 43 base music tracks registered as ASSET_AUDIO/AUDIO_CAT_MUSIC. `catalog_audio_result_t` + `catalogResolveAudio()` added. 125 lines across 3 files. |
+| **A-2** | Mod Music Stream | NEXT | `modmusic.c` — WAV loading, PCM playback, mixing into audioEndFrame |
+| **A-3** | Audio Mod Menu UI | PENDING | New tab in Modding Hub — browse/audition/import audio mods |
+| **A-4** | Soundtrack Menu Extension | PENDING | Mod tracks in renderSelectTunes, pd.ini persistence |
+| **A-5** | Soundtrack Pack Creation | PENDING | Multi-track pack creation dialog |
+| **A-6** | Multi-Format Import | PENDING | MP3 + WAV + OGG via stb_vorbis + minimp3 |
+| **A-7** | Network Sync | PENDING | Mod audio via existing mod propagation pipeline |
+
+---
+
 ## Design Guidelines (Planned)
 
 | System | Status |
