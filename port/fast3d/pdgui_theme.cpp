@@ -2068,9 +2068,18 @@ void pdguiThemeCheckExtract(void)
         /* Extract ROM textures to TGA files */
         pdguiThemeExtractRomTextures();
 
-        /* Reload theme textures now that TGA files exist */
-        s_ThemeLateInitDone = false;
-        pdguiThemeLateInit();
+        /* Verify extraction succeeded before re-init */
+        if (s_baseUiTexturesExist()) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI theme: extraction verified — reloading theme textures");
+            /* Reload theme textures now that TGA files exist */
+            s_ThemeLateInitDone = false;
+            pdguiThemeLateInit();
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI theme: extraction ran but TGA files still missing — "
+                "check that mods/base-ui/textures/ is writable");
+        }
     }
 
     /* CLI flags for manual re-extract / modern UI generation */

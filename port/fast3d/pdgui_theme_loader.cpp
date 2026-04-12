@@ -945,15 +945,28 @@ static void extract_theme_name(const char *json, char *out, size_t outlen,
     }
 }
 
-/** Register a single `mods/<slug>/theme.json` under catalog_id `mod:<slug>`. */
+/** Register a single mod directory as a theme.
+ *  Checks for `mods/<slug>/theme.json` first, then falls back to
+ *  `mods/<slug>/mod.json` (which may contain a "theme" section). */
 static void register_mod_theme_dir(const char *mods_dir, const char *slug)
 {
     char theme_path[THEME_FILEPATH_LEN];
     snprintf(theme_path, sizeof(theme_path), "%s/%s/theme.json", mods_dir, slug);
 
-    /* Skip if no theme.json in this mod dir */
+    /* Check for theme.json first, then fall back to mod.json with "theme" key */
     struct stat st;
-    if (stat(theme_path, &st) != 0 || !S_ISREG(st.st_mode)) return;
+    bool found_theme_json = (stat(theme_path, &st) == 0 && S_ISREG(st.st_mode));
+    if (!found_theme_json) {
+        snprintf(theme_path, sizeof(theme_path), "%s/%s/mod.json", mods_dir, slug);
+        if (stat(theme_path, &st) != 0 || !S_ISREG(st.st_mode)) return;
+        /* Quick check: does mod.json contain a "theme" key? */
+        u32 sz = 0;
+        char *raw = (char *)fsFileLoad(theme_path, &sz);
+        if (!raw) return;
+        bool has_theme = (sz > 0 && strstr(raw, "\"theme\"") != NULL);
+        free(raw);
+        if (!has_theme) return;
+    }
 
     /* Skip if already registered (e.g. re-init) */
     char catalog_id[THEME_CATALOG_ID_LEN];
