@@ -1,5 +1,6 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <SDL.h>
 #include "platform.h"
