@@ -92,6 +92,23 @@ u32 pdguiCharPreviewBakeToTexture(void);
 /* Delete a texture previously returned by pdguiCharPreviewBakeToTexture. */
 void pdguiCharPreviewFreeTexture(u32 texId);
 
+/* ---- Skin Override (Batch S-2) ----
+ * When active, the preview FBO render substitutes the given GL texture
+ * for the body's texture.  Used by the skin editor to show live edits
+ * on the 3D model.  Only affects the preview FBO render, never the
+ * main game render.
+ *
+ * Call SetSkinOverride before each frame's pdguiCharPreviewRequest.
+ * Call ClearSkinOverride when the skin editor closes. */
+void pdguiCharPreviewSetSkinOverride(u32 glTexId, s32 texWidth, s32 texHeight);
+void pdguiCharPreviewClearSkinOverride(void);
+
+/* Query: is a skin override currently active? */
+s32  pdguiCharPreviewHasSkinOverride(void);
+
+/* Get the override GL texture ID (0 if none). For gfx_pc to check. */
+u32  pdguiCharPreviewGetSkinOverrideTexId(void);
+
 /* GBI-phase hook: renders the model to the preview FBO.
  * Called from menuRenderDialog when hotswap is active but preview needed.
  * Returns updated display list pointer. */
