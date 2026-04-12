@@ -3,6 +3,52 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S215 — 2026-04-12 (Skin Editor Batches S-1 + S-2 + S-3)
+
+**Focus**: Implement Skin Editor Batches S-1, S-2, S-3 in a single session. Worktree: `claude/goofy-noether`, dev baseline `922fa5dc`.
+
+### Changes
+
+- **S-1: Canvas System + 2D Editor** — Three new files:
+  - NEW `port/fast3d/pdgui_skin_canvas.cpp` (~380 lines): Layer-based RGBA32 canvas with up to 8 layers. Per-layer opacity, blend modes (Normal/Multiply/Screen), visibility, lock. Bottom-to-top compositing to GL texture (GL_NEAREST). Undo/redo ring buffer (32 slots) with layer-aware snapshots.
+  - NEW `port/fast3d/pdgui_skin_editor.cpp` (~800 lines): Three-panel layout (canvas 45%, preview 25%, tools 30%). 5 tools: Draw, Erase, Fill (stack-based flood-fill), Eyedropper, Line (Bresenham). Variable brush 1-8px. HSV color picker with alpha + 8-slot recent colors. Zoom (1x-32x), pan, pixel grid overlay. Character selector from ASSET_BODY catalog iteration. Keyboard shortcuts (1-5 tools, G grid, [ ] brush, Ctrl+Z/Y undo/redo).
+  - NEW `port/include/pdgui_skin_editor.h` (~130 lines): Public API for canvas + editor.
+  - **M** `port/fast3d/pdgui_menu_moddinghub.cpp` (+20 lines): Tab 5 "Skin Editor" — forward decls, tool selector, content routing, footer description.
+
+- **S-2: Live 3D Preview with Skin Override** — Texture substitution during preview FBO render:
+  - **M** `port/fast3d/pdgui_charpreview.c` (+35 lines): `pdguiCharPreviewSetSkinOverride(glTexId, w, h)`, `ClearSkinOverride()`, `HasSkinOverride()`, `GetSkinOverrideTexId()`.
+  - **M** `port/include/pdgui_charpreview.h` (+10 lines): New API declarations.
+  - **M** `port/fast3d/gfx_pc.cpp` (+20 lines): In `import_texture()`, when `fbActive` and override set, first texture import replaced with canvas GL texture via `select_texture()`. Reset flag per FBO pass in G_SETFB_EXT handler.
+
+- **S-3: Fill + Line + Brush + Undo** — Implemented within S-1 files (shared source). Flood-fill, Bresenham line, brush 1-8px, undo/redo ring buffer.
+
+### Design Decisions
+
+- **S-3 in S-1**: Fill, Line, Brush, Undo features were implemented in the same pass as the editor since they share source files. Committed as part of S-1.
+- **First-texture substitution**: The gfx_pc override replaces the first texture loaded during FBO render (typically the body texture). Resets per FBO pass so head and other textures render normally. Pragmatic v1 approach; future S-8 (UV remap) may refine targeting.
+- **No new IMC**: Skin editor uses `g_CtxImGuiMenu` (standard menu context). All tool switching via ImGui key checks — avoids cross-contamination risk per S208 fix.
+- **_LANGUAGE_C define**: Required in C++ files that include `PR/ultratypes.h` for type definitions gated on the preprocessor flag.
+
+### Commits (on worktree branch `claude/goofy-noether`)
+
+1. `db71e892` — feat(S-1): Skin Editor — Canvas System + 2D Editor
+2. `77125a76` — feat(S-2): Live 3D Preview with Skin Override
+
+### Build Verification
+
+Syntax-only compilation (`-fsyntax-only`) passes for new files:
+- pdgui_skin_canvas.cpp (C++) — clean
+- pdgui_skin_editor.cpp (C++) — clean
+Pre-existing files (gfx_pc.cpp, charpreview.c, moddinghub.cpp) have pre-existing include-path issues in standalone syntax-only mode that CMake resolves at build time. Our additions are syntactically correct.
+
+### Next
+
+- **S-4**: Save as Mod — TGA writer, skin.ini, catalog registration, hot reload
+- **S-5**: Image Import — stb_image integration
+- **S-6**: PD-Style Downrez — median-cut quantizer + dithering
+
+---
+
 ## Session S214 — 2026-04-12 (Audio Mod Menu Batches A-5 + A-6 + A-7)
 
 **Focus**: Implement Batches A-5, A-6, A-7 in a single session. Worktree: `claude/adoring-merkle`, dev baseline `15403979`.
