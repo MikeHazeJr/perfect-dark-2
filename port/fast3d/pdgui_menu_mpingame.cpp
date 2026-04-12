@@ -75,92 +75,88 @@ extern struct menudialogdef g_MpEndscreenTeamRankingMenuDialog;
 extern struct menudialogdef g_MpEndscreenPlayerStatsMenuDialog;
 extern struct menudialogdef g_MpEndscreenSavePlayerMenuDialog;
 
+/* Team colors — shared with pdgui_menu_pausemenu.cpp pattern */
+u32 pdguiPauseGetOptions(void);
+#define MPOPTION_TEAMSENABLED_KF  0x00000002
+
 } /* extern "C" */
 
 /* ============================================================================
- * Kill / score ticker
+ * Killfeed — event-driven ring buffer
+ *
+ * Receives kill events via pdguiKillfeedPush() (called from mpstats.c).
+ * Shows "attacker killed victim" with team-colored names.
  * ========================================================================== */
 
-static const int   TICKER_MAX       = 5;       /* max simultaneous notifications */
-static const float TICKER_LIFE_S    = 3.5f;    /* total lifetime in seconds */
-static const float TICKER_FADEIN_S  = 0.15f;   /* slide-in duration */
-static const float TICKER_FADEOUT_S = 0.45f;   /* fade-out duration */
-static const float TICKER_SLIDE_PX  = 80.0f;   /* right-to-left slide-in distance (at 720p) */
-static const float TICKER_POLL_S    = 0.08f;   /* score poll interval (~12 Hz is plenty) */
+static const int   KILLFEED_MAX       = 12;     /* ring buffer capacity */
+static const float KILLFEED_LIFE_S    = 5.0f;   /* total display lifetime */
+static const float KILLFEED_FADEIN_S  = 0.12f;  /* slide-in duration */
+static const float KILLFEED_FADEOUT_S = 0.6f;   /* fade-out duration */
+static const float KILLFEED_SLIDE_PX  = 60.0f;  /* right-to-left slide distance (720p) */
 
-struct TickerNote {
-    char   playerName[16];
-    s32    delta;
-    float  birthTime;   /* SDL_GetTicks64() in seconds */
+struct KillfeedEntry {
+    char   attackerName[16];
+    char   victimName[16];
+    u8     attackerTeam;
+    u8     victimTeam;
+    u8     isSuicide;
+    float  birthTime;
     bool   active;
 };
 
-static TickerNote  s_Notes[TICKER_MAX];
-static s32         s_LastScores[MAX_MPCHRS_TICKER];
-static bool        s_ScoresInited = false;
-static float       s_NextPollTime = 0.0f;
+static KillfeedEntry s_Killfeed[KILLFEED_MAX];
+static int           s_KillfeedHead = 0;  /* next write slot (ring) */
 
-static float tickerNow()
+/* Team color palette (same as scorecard) */
+static const ImVec4 s_KfTeamColors[] = {
+    ImVec4(1.0f, 0.35f, 0.35f, 1.0f),  /* Red */
+    ImVec4(0.35f, 0.55f, 1.0f, 1.0f),  /* Blue */
+    ImVec4(0.35f, 1.0f, 0.35f, 1.0f),  /* Green */
+    ImVec4(1.0f, 1.0f, 0.35f, 1.0f),   /* Yellow */
+    ImVec4(1.0f, 0.55f, 0.05f, 1.0f),  /* Orange */
+    ImVec4(0.85f, 0.35f, 1.0f, 1.0f),  /* Purple */
+    ImVec4(0.6f, 0.6f, 0.6f, 1.0f),    /* Grey */
+    ImVec4(1.0f, 1.0f, 1.0f, 1.0f),    /* White */
+};
+
+static float kfNow()
 {
     return (float)(SDL_GetTicks64()) / 1000.0f;
 }
 
-static void tickerPush(const char *name, s32 delta)
+static void copyName(char *dst, s32 dstLen, const char *src)
 {
-    /* Evict oldest if full */
-    float now = tickerNow();
-    int   slot = -1;
-    float oldest = 1e30f;
-    for (int i = 0; i < TICKER_MAX; i++) {
-        if (!s_Notes[i].active) { slot = i; break; }
-        if (s_Notes[i].birthTime < oldest) { oldest = s_Notes[i].birthTime; slot = i; }
+    if (!src) { dst[0] = '?'; dst[1] = '\0'; return; }
+    s32 j;
+    for (j = 0; j < dstLen - 1 && src[j] != '\0' && src[j] != '\n'; j++) {
+        dst[j] = src[j];
     }
-    if (slot < 0) slot = 0;
-
-    TickerNote &n = s_Notes[slot];
-    strncpy(n.playerName, name, sizeof(n.playerName) - 1);
-    n.playerName[sizeof(n.playerName) - 1] = '\0';
-    n.delta     = delta;
-    n.birthTime = now;
-    n.active    = true;
+    dst[j] = '\0';
 }
 
-static void tickerPoll()
+static void killfeedReset()
 {
-    float now = tickerNow();
-    if (now < s_NextPollTime) return;
-    s_NextPollTime = now + TICKER_POLL_S;
-
-    struct ranking_ticker rankings[MAX_MPCHRS_TICKER];
-    s32 count = mpGetPlayerRankings(rankings);
-    if (count <= 0) { s_ScoresInited = false; return; }
-
-    if (!s_ScoresInited) {
-        /* Baseline snapshot — don't fire notifications on first seen */
-        for (int i = 0; i < count && i < MAX_MPCHRS_TICKER; i++) {
-            s_LastScores[i] = rankings[i].score;
-        }
-        s_ScoresInited = true;
-        return;
+    for (int i = 0; i < KILLFEED_MAX; i++) {
+        s_Killfeed[i].active = false;
     }
-
-    for (int i = 0; i < count && i < MAX_MPCHRS_TICKER; i++) {
-        s32 newScore = rankings[i].score;
-        s32 oldScore = s_LastScores[i];
-        if (newScore > oldScore && rankings[i].mpchr) {
-            tickerPush(rankings[i].mpchr->name, newScore - oldScore);
-        }
-        s_LastScores[i] = newScore;
-    }
+    s_KillfeedHead = 0;
 }
 
-static void tickerReset()
+/* C-callable: push a kill event into the ring buffer */
+extern "C" void pdguiKillfeedPush(const char *attackerName, u8 attackerTeam,
+                                   const char *victimName, u8 victimTeam,
+                                   s32 isSuicide)
 {
-    for (int i = 0; i < TICKER_MAX; i++) {
-        s_Notes[i].active = false;
-    }
-    s_ScoresInited = false;
-    s_NextPollTime = 0.0f;
+    KillfeedEntry &e = s_Killfeed[s_KillfeedHead];
+    copyName(e.attackerName, sizeof(e.attackerName), attackerName);
+    copyName(e.victimName,   sizeof(e.victimName),   victimName);
+    e.attackerTeam = attackerTeam;
+    e.victimTeam   = victimTeam;
+    e.isSuicide    = (u8)isSuicide;
+    e.birthTime    = kfNow();
+    e.active       = true;
+
+    s_KillfeedHead = (s_KillfeedHead + 1) % KILLFEED_MAX;
 }
 
 /* ============================================================================
@@ -171,65 +167,85 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
 {
     /* Only active during a live match, and suppress during game over */
     if (!pdguiPauseGetNormMplayerIsRunning()) {
-        tickerReset();
+        killfeedReset();
         return;
     }
     if (pdguiPauseGetPaused() >= MPPAUSEMODE_GAMEOVER_TICKER) {
-        tickerReset();
-        return;
+        return; /* Keep entries but stop rendering — they'll expire naturally */
     }
 
-    tickerPoll();
+    bool teamsEnabled = (pdguiPauseGetOptions() & MPOPTION_TEAMSENABLED_KF) != 0;
+    float now = kfNow();
 
-    /* --- Render active notifications --- */
-    float now = tickerNow();
-    float sf  = pdguiScaleFactor();
+    /* Layout — smaller pills for a compact killfeed */
+    float fontSize = pdguiScale(13.0f); /* smaller than default HUD text */
+    float pillH  = pdguiScale(22.0f);
+    float pillW  = pdguiScale(320.0f);
+    float padX   = pdguiScale(8.0f);
+    float padY   = pdguiScale(3.0f);
+    float gapY   = pdguiScale(2.0f);
 
-    /* Notification pill dimensions */
-    float pillH  = pdguiScale(33.0f);
-    float pillW  = pdguiScale(270.0f);
-    float padX   = pdguiScale(12.0f);
-    float padY   = pdguiScale(6.0f);
-    float gapY   = pdguiScale(6.0f);
+    /* Position: top-right, below the HUD scorebox */
+    float baseX = (float)winW - pillW - pdguiScale(14.0f);
+    float baseY = pdguiScale(110.0f);
 
-    /* Position: top-right, offset below HUD box (~76px of HUD at 720p) */
-    float baseX = (float)winW - pillW - pdguiScale(18.0f);
-    float baseY = pdguiScale(126.0f);  /* below top-right HUD scorebox */
-
+    /* Collect and sort active entries by birth time (newest first at top) */
+    struct SortEntry { int idx; float birth; };
+    SortEntry sorted[KILLFEED_MAX];
     int activeCount = 0;
-    for (int i = 0; i < TICKER_MAX; i++) {
-        TickerNote &n = s_Notes[i];
-        if (!n.active) continue;
 
-        float age = now - n.birthTime;
-        if (age >= TICKER_LIFE_S) { n.active = false; continue; }
+    for (int i = 0; i < KILLFEED_MAX; i++) {
+        KillfeedEntry &e = s_Killfeed[i];
+        if (!e.active) continue;
+        float age = now - e.birthTime;
+        if (age >= KILLFEED_LIFE_S) { e.active = false; continue; }
+        sorted[activeCount].idx   = i;
+        sorted[activeCount].birth = e.birthTime;
+        activeCount++;
+    }
+
+    /* Sort newest-first */
+    for (int i = 1; i < activeCount; i++) {
+        SortEntry tmp = sorted[i];
+        int j = i - 1;
+        while (j >= 0 && sorted[j].birth < tmp.birth) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = tmp;
+    }
+
+    /* Apply a small global font scale for the killfeed */
+    ImGui::PushFont(nullptr); /* use default font */
+
+    for (int si = 0; si < activeCount; si++) {
+        KillfeedEntry &e = s_Killfeed[sorted[si].idx];
+        float age = now - e.birthTime;
 
         /* Alpha: fade in, hold, fade out */
         float alpha = 1.0f;
-        if (age < TICKER_FADEIN_S) {
-            alpha = age / TICKER_FADEIN_S;
-        } else if (age > TICKER_LIFE_S - TICKER_FADEOUT_S) {
-            alpha = (TICKER_LIFE_S - age) / TICKER_FADEOUT_S;
+        if (age < KILLFEED_FADEIN_S) {
+            alpha = age / KILLFEED_FADEIN_S;
+        } else if (age > KILLFEED_LIFE_S - KILLFEED_FADEOUT_S) {
+            alpha = (KILLFEED_LIFE_S - age) / KILLFEED_FADEOUT_S;
         }
         if (alpha < 0.0f) alpha = 0.0f;
         if (alpha > 1.0f) alpha = 1.0f;
 
         /* Slide: enter from the right */
-        float slideProgress = (age < TICKER_FADEIN_S)
-            ? (age / TICKER_FADEIN_S)
-            : 1.0f;
-        float slideOffset = pdguiScale(TICKER_SLIDE_PX) * (1.0f - slideProgress);
+        float slideProgress = (age < KILLFEED_FADEIN_S)
+            ? (age / KILLFEED_FADEIN_S) : 1.0f;
+        float slideOffset = pdguiScale(KILLFEED_SLIDE_PX) * (1.0f - slideProgress);
 
         float x = baseX + slideOffset;
-        float y = baseY + activeCount * (pillH + gapY);
+        float y = baseY + si * (pillH + gapY);
 
-        /* Build window name per-slot to allow multiple unique windows */
         char wname[32];
-        snprintf(wname, sizeof(wname), "##ticker%d", i);
+        snprintf(wname, sizeof(wname), "##kf%d", sorted[si].idx);
 
         ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(pillW, pillH + padY * 2.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.72f * alpha);
+        ImGui::SetNextWindowBgAlpha(0.65f * alpha);
 
         ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDecoration    |
@@ -240,44 +256,68 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoFocusOnAppearing;
 
-        ImGui::PushStyleColor(ImGuiCol_WindowBg,   ImVec4(0.08f, 0.08f, 0.10f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border,     ImVec4(0.40f, 0.40f, 0.50f, alpha * 0.6f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padX, padY));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.08f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Border,   ImVec4(0.30f, 0.30f, 0.40f, alpha * 0.4f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,  ImVec2(padX, padY));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.5f);
+
+        float fontScale = fontSize / ImGui::GetFontSize();
+        ImGui::SetWindowFontScale(fontScale);
 
         if (ImGui::Begin(wname, nullptr, flags)) {
-            /* Delta label: "+1", "+2", etc. — gold colored */
-            char deltaStr[12];
-            snprintf(deltaStr, sizeof(deltaStr), "+%d", n.delta);
+            ImGui::SetWindowFontScale(fontScale);
 
-            /* Arrow glyph */
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.75f, 0.20f, alpha));
-            ImGui::TextUnformatted("\xe2\x96\xba");  /* ► U+25BA */
-            ImGui::PopStyleColor();
+            if (e.isSuicide) {
+                /* Suicide: "Player suicided" */
+                u8 vt = e.victimTeam < 8 ? e.victimTeam : 7;
+                ImVec4 vc = teamsEnabled ? s_KfTeamColors[vt]
+                                         : ImVec4(0.9f, 0.9f, 0.9f, alpha);
+                vc.w = alpha;
 
-            ImGui::SameLine(0.0f, pdguiScale(6.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, vc);
+                ImGui::TextUnformatted(e.victimName);
+                ImGui::PopStyleColor();
 
-            /* Player name — white */
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, alpha));
-            ImGui::TextUnformatted(n.playerName);
-            ImGui::PopStyleColor();
+                ImGui::SameLine(0.0f, pdguiScale(4.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, alpha));
+                ImGui::TextUnformatted("suicided");
+                ImGui::PopStyleColor();
+            } else {
+                /* Kill: "Attacker killed Victim" */
+                u8 at = e.attackerTeam < 8 ? e.attackerTeam : 7;
+                u8 vt = e.victimTeam < 8   ? e.victimTeam   : 7;
+                ImVec4 ac = teamsEnabled ? s_KfTeamColors[at]
+                                         : ImVec4(1.0f, 1.0f, 1.0f, alpha);
+                ImVec4 vc = teamsEnabled ? s_KfTeamColors[vt]
+                                         : ImVec4(0.7f, 0.7f, 0.7f, alpha);
+                ac.w = alpha;
+                vc.w = alpha;
 
-            /* Score delta — right-aligned gold */
-            float deltaW = ImGui::CalcTextSize(deltaStr).x;
-            float available = ImGui::GetContentRegionAvail().x;
-            ImGui::SameLine(available - deltaW);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.25f, alpha));
-            ImGui::TextUnformatted(deltaStr);
-            ImGui::PopStyleColor();
+                ImGui::PushStyleColor(ImGuiCol_Text, ac);
+                ImGui::TextUnformatted(e.attackerName);
+                ImGui::PopStyleColor();
+
+                ImGui::SameLine(0.0f, pdguiScale(4.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, alpha));
+                ImGui::TextUnformatted("killed");
+                ImGui::PopStyleColor();
+
+                ImGui::SameLine(0.0f, pdguiScale(4.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, vc);
+                ImGui::TextUnformatted(e.victimName);
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::SetWindowFontScale(1.0f);
         }
         ImGui::End();
 
         ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
-
-        activeCount++;
     }
+
+    ImGui::PopFont();
 }
 
 /* ============================================================================

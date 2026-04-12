@@ -15,6 +15,15 @@ extern "C" {
 
 void pdguiHudRender(s32 winW, s32 winH);
 
+/**
+ * Push a kill event into the ImGui killfeed overlay.
+ * Called from mpstatsRecordDeath() for every kill in the match.
+ * Team values are 0-7 matching MpSetup team indices.
+ */
+void pdguiKillfeedPush(const char *attackerName, u8 attackerTeam,
+                       const char *victimName, u8 victimTeam,
+                       s32 isSuicide);
+
 #ifdef __cplusplus
 }
 #endif
