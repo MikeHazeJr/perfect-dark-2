@@ -37,6 +37,7 @@ void pdguiMenuBotSetupRegister(void);     /* D5 P3 Batch 6: Bot/Simulant Setup (
 void pdguiMenuMpAdvancedRegister(void);   /* D5 P3 Batch 7: MP Advanced/Quick paths (11 dialogs) */
 void pdguiMenuMpPauseRegister(void);      /* D5 P3 Batch 8: MP Pause & In-Game (6 dialogs) */
 void pdguiMenuPlayerConfigRegister(void); /* D5 P3 Batch 11: MP Player Config & Stats (5 dialogs) */
+void pdguiMenuControlDiagramRegister(void); /* D5 P3 Batch 10: Solo + MP control style dialogs (2 dialogs) */
 /* Lobby renders as overlay from pdguiLobbyRender, not via hotswap */
 /* void pdguiMenuSettingsRegister(void);   -- TODO: standalone settings if needed */
 
@@ -64,6 +65,7 @@ static inline void pdguiMenusRegisterAll(void)
     pdguiMenuMpAdvancedRegister();
     pdguiMenuMpPauseRegister();
     pdguiMenuPlayerConfigRegister();
+    pdguiMenuControlDiagramRegister();
 }
 
 #ifdef __cplusplus
