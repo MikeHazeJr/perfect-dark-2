@@ -370,10 +370,32 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         return gdl;
     }
 
-    /* Only render if the menu model has loaded (curparams matches newparams) */
+    /* menuRenderModel handles two phases:
+     *   1. Loading: when newparams != 0 && newparams != curparams, it loads
+     *      the model file and sets curparams = newparams. This takes 1-2
+     *      frames due to loaddelay.
+     *   2. Rendering: when curparams != 0 and the model is loaded, it
+     *      actually renders geometry.
+     *
+     * We must call menuRenderModel even when curparams == 0 so the loading
+     * path can execute. But we only set up the FBO render target and mark
+     * the preview as ready when the model has actually loaded (curparams != 0
+     * after the call). If the model is still loading, we keep
+     * s_PreviewRequested alive so the next frame tries again. */
+
+    s32 renderModelType = MENUMODELTYPE_DEFAULT;
+    if (s_PreviewType == PDGUI_PREVIEW_WEAPON) {
+        renderModelType = MENUMODELTYPE_HUDPIECE;
+    }
+
     if (menu->menumodel.curparams == 0) {
+        /* Model not loaded yet — let menuRenderModel run the loading path
+         * without FBO setup. Keep s_PreviewRequested alive for next frame. */
+        gdl = menuRenderModel(gdl, &menu->menumodel, renderModelType);
         return gdl;
     }
+
+    /* Model is loaded — render to the preview FBO */
 
     /* Switch render target to our preview FBO */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, s_PreviewFb);
@@ -402,20 +424,7 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     /* Enable Z-buffer for model rendering */
     gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
-    /* Choose MENUMODELTYPE based on the current preview type.
-     *  CHARACTER -> DEFAULT  (head+body pair, full character pose)
-     *  WEAPON    -> HUDPIECE (weapon-inventory render path)
-     *  VEHICLE   -> DEFAULT  (generic model, wide framing via camera pass)
-     *  PROP      -> DEFAULT  (generic single model)
-     * Per-type camera / scale tuning for vehicles and props is a Batch 10
-     * concern; for Batch 0 we expose the API shape and use DEFAULT as the
-     * safe rendering fallback. */
-    s32 renderModelType = MENUMODELTYPE_DEFAULT;
-    if (s_PreviewType == PDGUI_PREVIEW_WEAPON) {
-        renderModelType = MENUMODELTYPE_HUDPIECE;
-    }
-
-    /* Render the selected model */
+    /* Render the loaded model */
     gdl = menuRenderModel(gdl, &menu->menumodel, renderModelType);
 
     /* Disable Z-buffer */

@@ -32,6 +32,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_filebrowser.h"
 #include "pdgui_skin_editor.h"
 #include "pdgui_charpreview.h"
 #include "pdgui_model_preview.h"
@@ -1123,18 +1124,37 @@ static void renderImportDialog(float scale)
 {
     if (!s_ImportDialogOpen) return;
 
+    /* If file browser is open, render it instead of the import dialog */
+    if (pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            strncpy(s_ImportPath, pdguiFileBrowserGetPath(), sizeof(s_ImportPath) - 1);
+            s_ImportPath[sizeof(s_ImportPath) - 1] = '\0';
+            pdguiFileBrowserClose();
+        }
+        if (!pdguiFileBrowserIsOpen() && !s_ImportPath[0]) {
+            /* Browser was cancelled and no path was set */
+        }
+        return;
+    }
+
     ImGui::OpenPopup("Import Image");
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(400.0f * scale, 0));
+    ImGui::SetNextWindowSize(ImVec2(450.0f * scale, 0));
 
     if (ImGui::BeginPopupModal("Import Image", &s_ImportDialogOpen,
             ImGuiWindowFlags_AlwaysAutoResize)) {
 
         ImGui::Text("Image path (PNG, TGA, BMP, JPG):");
-        ImGui::SetNextItemWidth(-1);
+
+        float browseW = 80.0f * scale;
+        ImGui::SetNextItemWidth(-browseW - ImGui::GetStyle().ItemSpacing.x);
         ImGui::InputText("##importpath", s_ImportPath, sizeof(s_ImportPath));
+        ImGui::SameLine();
+        if (PdButton("Browse##skin", ImVec2(browseW, 0))) {
+            pdguiFileBrowserOpen("Import Image", "mods", ".png;.jpg;.bmp;.tga");
+        }
 
         ImGui::Spacing();
 
