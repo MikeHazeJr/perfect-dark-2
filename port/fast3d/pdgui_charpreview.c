@@ -52,6 +52,7 @@ static s32 s_PreviewType    = PDGUI_PREVIEW_CHARACTER; /* Current model type */
 static u32 s_PreviewTexId = 0;       /* GL texture ID of the rendered preview */
 static s32 s_PreviewReady = 0;       /* Non-zero if texture has valid content */
 static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
+static Vp  s_PreviewVp;              /* Viewport for FBO render (must NOT be inline in display list) */
 
 /* ========================================================================
  * Init / Shutdown
@@ -496,22 +497,20 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     /* Switch render target to our preview FBO */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, s_PreviewFb);
 
-    /* Set up viewport for the small FBO */
-    {
-        Vp *vp = (Vp *)gdl;
-        gdl = (Gfx *)((u8 *)gdl + sizeof(Vp));
+    /* Set up viewport for the small FBO.
+     * IMPORTANT: The Vp must NOT be inline in the display list — the GBI
+     * interpreter walks the list sequentially and would try to execute
+     * the Vp data as a command (B-132: opcode 0x02 = vscale[0] bytes). */
+    s_PreviewVp.vp.vscale[0] = CHARPREVIEW_WIDTH * 2;
+    s_PreviewVp.vp.vscale[1] = CHARPREVIEW_HEIGHT * 2;
+    s_PreviewVp.vp.vscale[2] = G_MAXZ / 2;
+    s_PreviewVp.vp.vscale[3] = 0;
+    s_PreviewVp.vp.vtrans[0] = CHARPREVIEW_WIDTH * 2;
+    s_PreviewVp.vp.vtrans[1] = CHARPREVIEW_HEIGHT * 2;
+    s_PreviewVp.vp.vtrans[2] = G_MAXZ / 2;
+    s_PreviewVp.vp.vtrans[3] = 0;
 
-        vp->vp.vscale[0] = CHARPREVIEW_WIDTH * 2;
-        vp->vp.vscale[1] = CHARPREVIEW_HEIGHT * 2;
-        vp->vp.vscale[2] = G_MAXZ / 2;
-        vp->vp.vscale[3] = 0;
-        vp->vp.vtrans[0] = CHARPREVIEW_WIDTH * 2;
-        vp->vp.vtrans[1] = CHARPREVIEW_HEIGHT * 2;
-        vp->vp.vtrans[2] = G_MAXZ / 2;
-        vp->vp.vtrans[3] = 0;
-
-        gSPViewport(gdl++, vp);
-    }
+    gSPViewport(gdl++, &s_PreviewVp);
 
     /* Set scissor to the FBO size */
     gDPSetScissor(gdl++, G_SC_NON_INTERLACE,

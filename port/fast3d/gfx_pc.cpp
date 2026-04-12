@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cassert>
 #include <cstdio>
+#include <cinttypes>
 
 #include <map>
 #include <set>
@@ -2607,7 +2608,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPTILESYNC:
                 break;
             default:
-                sysFatalError("Unknown GBI opcode 0x%02x at %p.\nw0 %08x\nw1 %08x", opcode, cmd, cmd->words.w0, cmd->words.w1);
+                sysFatalError("Unknown GBI opcode 0x%02x at %p.\nw0 %08" PRIxPTR "\nw1 %08" PRIxPTR, opcode, cmd, cmd->words.w0, cmd->words.w1);
                 break;
         }
         ++cmd;
