@@ -48,6 +48,10 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 void pdguiModManagerRefreshSnapshot(void);
 void pdguiModManagerRenderContent(float w, float h, float scale, s32 *outClose);
 
+/* Audio Mod Menu (Batch A-3 — pdgui_menu_audiomod.cpp) */
+void pdguiAudioModRefresh(void);
+void pdguiAudioModRender(float contentW, float contentH, float scale);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -84,7 +88,7 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * ======================================================================== */
 
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI Editor, 2=Model Scale */
+static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio */
 
 /* ========================================================================
  * INI Editor state
@@ -1043,10 +1047,10 @@ static void renderModdingHub(s32 winW, s32 winH)
         const float btnH = 28.0f * scale;
 
         static const char *toolNames[] = {
-            "Mod Manager", "INI Editor", "Model Scale Tool", "Mod Pack"
+            "Mod Manager", "INI Editor", "Model Scale Tool", "Mod Pack", "Audio Mods"
         };
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             if (i > 0) ImGui::SameLine();
 
             bool active = (s_ActiveTool == i);
@@ -1065,6 +1069,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (i == 1) iniRefreshEntries();
                     else if (i == 2) scaleRefreshEntries();
                     else if (i == 3) packRefreshEntries();
+                    else if (i == 4) pdguiAudioModRefresh();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -1099,6 +1104,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         renderScaleTool(dialogW, contentH, scale);
     } else if (s_ActiveTool == 3) {
         renderPackTool(dialogW, contentH, scale);
+    } else if (s_ActiveTool == 4) {
+        pdguiAudioModRender(dialogW, contentH, scale);
     }
 
     /* ---- Hub footer ---- */
@@ -1110,7 +1117,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Enable/disable mod components",
         "Edit mod .ini manifests",
         "Bake model scale to file",
-        "Export/import .pdpack files"
+        "Export/import .pdpack files",
+        "Browse, audition, and import audio mods"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 

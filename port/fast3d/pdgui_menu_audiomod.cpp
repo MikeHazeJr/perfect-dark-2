@@ -1,0 +1,625 @@
+/**
+ * pdgui_menu_audiomod.cpp -- Audio Mod Menu (Batch A-3)
+ *
+ * New tab in the Modding Hub for browsing, auditioning, and importing
+ * audio mods. Lists all ASSET_AUDIO catalog entries (SFX, Music, Voice),
+ * provides Play/Stop preview, and imports new audio files as mod components.
+ *
+ * Acceptance criteria (from design doc §5, Batch A-3):
+ *   - Tab visible in Modding Hub
+ *   - Lists all ASSET_AUDIO entries filtered by category
+ *   - Play works for SFX (audioPlayFileSound) and Music (modMusicPlay)
+ *   - Import creates a valid mod directory that persists across restart
+ *
+ * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
+ * Forward-declare all C symbols via extern "C" blocks.
+ *
+ * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+ */
+
+#include <SDL.h>
+#include <PR/ultratypes.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+#include "imgui/imgui.h"
+#include "pdgui_style.h"
+#include "pdgui_scaling.h"
+#include "pdgui_audio.h"
+#include "assetcatalog.h"
+#include "fs.h"
+
+/* ========================================================================
+ * Forward declarations for C symbols
+ * ======================================================================== */
+
+extern "C" {
+
+void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+void sysLogPrintf(s32 level, const char *fmt, ...);
+
+/* audio.c */
+s32  audioPlayFileSound(const char *path, u16 volume, u8 pan);
+f32  audioGetMasterVolume(void);
+f32  audioGetMusicVolume(void);
+
+/* modmusic.c */
+void modMusicPlay(const char *file_path);
+void modMusicStop(void);
+s32  modMusicIsPlaying(void);
+
+/* fs.c */
+s32 fsCreateDir(const char *path);
+
+/* assetcatalog.c */
+asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
+                                          const char *name, s32 category,
+                                          s32 duration_ms,
+                                          const char *file_path);
+s32 assetCatalogHasEntry(const char *id);
+void assetCatalogIterateByType(asset_type_e type,
+                                void (*fn)(const asset_entry_t *, void *),
+                                void *userdata);
+
+} /* extern "C" */
+
+/* ========================================================================
+ * Constants
+ * ======================================================================== */
+
+#define AUDIOMOD_MAX_ENTRIES  512
+#define AUDIOMOD_PATH_LEN    256
+#define AUDIOMOD_NAME_LEN    64
+#define AUDIOMOD_ID_LEN      CATALOG_ID_LEN
+
+/* Log level constants (matching system.h values) */
+#ifndef LOG_NOTE
+#define LOG_NOTE    2
+#define LOG_WARNING 3
+#endif
+
+/* ========================================================================
+ * PdButton helper (same as moddinghub — local copy to keep standalone)
+ * ======================================================================== */
+
+static bool PdButtonAudio(const char *label, const ImVec2 &size = ImVec2(0,0))
+{
+    bool clicked = ImGui::Button(label, size);
+    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
+                                rmax.x - rmin.x, rmax.y - rmin.y,
+                                ImGui::IsItemActive() ? 1 : 0);
+    }
+    return clicked;
+}
+
+/* ========================================================================
+ * State
+ * ======================================================================== */
+
+struct AudioModEntry {
+    char id[AUDIOMOD_ID_LEN];
+    char name[AUDIOMOD_NAME_LEN];
+    char file_path[AUDIOMOD_PATH_LEN];
+    s32  sound_id;
+    s32  category;      /* AUDIO_CAT_SFX / MUSIC / VOICE */
+    s32  duration_ms;
+    s32  bundled;
+};
+
+static AudioModEntry s_AudioEntries[AUDIOMOD_MAX_ENTRIES];
+static int           s_AudioNumEntries  = 0;
+static int           s_AudioSelected    = -1;
+static int           s_AudioCategoryTab = -1;    /* -1=All, 0=SFX, 1=Music, 2=Voice */
+static bool          s_AudioPreviewing  = false;  /* true while preview is active */
+
+/* Import fields */
+static char s_ImportFilePath[AUDIOMOD_PATH_LEN] = "";
+static char s_ImportName[AUDIOMOD_NAME_LEN]     = "";
+static int  s_ImportCategory = 1;  /* default to Music */
+
+/* Status line */
+static char s_AudioStatusMsg[256] = "";
+static bool s_AudioStatusOk       = true;
+
+/* ========================================================================
+ * Helpers — catalog iteration
+ * ======================================================================== */
+
+static void audioModCollectCallback(const asset_entry_t *e, void *ud)
+{
+    int *n = (int *)ud;
+    if (*n >= AUDIOMOD_MAX_ENTRIES) return;
+
+    AudioModEntry &ae = s_AudioEntries[*n];
+    strncpy(ae.id, e->id, AUDIOMOD_ID_LEN - 1);
+    ae.id[AUDIOMOD_ID_LEN - 1] = '\0';
+    strncpy(ae.name, e->ext.audio.name, AUDIOMOD_NAME_LEN - 1);
+    ae.name[AUDIOMOD_NAME_LEN - 1] = '\0';
+    strncpy(ae.file_path, e->ext.audio.file_path, AUDIOMOD_PATH_LEN - 1);
+    ae.file_path[AUDIOMOD_PATH_LEN - 1] = '\0';
+    ae.sound_id    = e->ext.audio.sound_id;
+    ae.category    = e->ext.audio.category;
+    ae.duration_ms = e->ext.audio.duration_ms;
+    ae.bundled     = e->bundled;
+    (*n)++;
+}
+
+/* ========================================================================
+ * Public API: refresh + render
+ * ======================================================================== */
+
+extern "C" {
+
+void pdguiAudioModRefresh(void)
+{
+    s_AudioNumEntries = 0;
+    assetCatalogIterateByType(ASSET_AUDIO, audioModCollectCallback,
+                              &s_AudioNumEntries);
+    s_AudioSelected   = -1;
+    s_AudioPreviewing = false;
+    s_AudioStatusMsg[0] = '\0';
+    sysLogPrintf(LOG_NOTE, "AUDIOMOD: refreshed, %d entries", s_AudioNumEntries);
+}
+
+} /* extern "C" */
+
+/* ========================================================================
+ * Helpers — import
+ * ======================================================================== */
+
+static void sanitizeDirName(const char *name, char *out, int maxLen)
+{
+    int len = 0;
+    for (int i = 0; name[i] && len < maxLen - 1; i++) {
+        char c = name[i];
+        if (c == ' ') c = '-';
+        else if (c >= 'A' && c <= 'Z') c = c + 32;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+            out[len++] = c;
+        }
+    }
+    if (len == 0) {
+        strncpy(out, "audio-mod", maxLen);
+        len = 9;
+    }
+    out[len] = '\0';
+}
+
+static bool copyFile(const char *src, const char *dst)
+{
+    FILE *fin = fopen(src, "rb");
+    if (!fin) return false;
+
+    FILE *fout = fopen(dst, "wb");
+    if (!fout) { fclose(fin); return false; }
+
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fin)) > 0) {
+        if (fwrite(buf, 1, n, fout) != n) {
+            fclose(fin);
+            fclose(fout);
+            return false;
+        }
+    }
+    fclose(fin);
+    fclose(fout);
+    return true;
+}
+
+/**
+ * Import an audio file as a new mod component.
+ * Creates mods/<slug>/ directory with audio.ini + copied audio file.
+ * Registers the new entry in the catalog immediately.
+ */
+static bool importAudioFile(const char *filePath, const char *displayName,
+                            int category)
+{
+    if (!filePath || !filePath[0] || !displayName || !displayName[0]) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Import failed: file path and name are required");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Extract filename from path */
+    const char *fileName = filePath;
+    for (const char *p = filePath; *p; p++) {
+        if (*p == '/' || *p == '\\') fileName = p + 1;
+    }
+    if (!fileName[0]) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Import failed: invalid file path");
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Sanitize display name to directory slug */
+    char slug[64];
+    sanitizeDirName(displayName, slug, sizeof(slug));
+
+    /* Build mod directory path: mods/<slug>/ */
+    char modDir[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+
+    /* Create directory */
+    if (fsCreateDir(modDir) != 0) {
+        /* Directory may already exist — that's fine for overwrite */
+        struct stat st;
+        if (stat(modDir, &st) != 0) {
+            snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                     "Import failed: could not create directory %s", modDir);
+            s_AudioStatusOk = false;
+            return false;
+        }
+    }
+
+    /* Copy audio file into mod directory */
+    char dstFile[FS_MAXPATH];
+    snprintf(dstFile, sizeof(dstFile), "%s/%s", modDir, fileName);
+    if (!copyFile(filePath, dstFile)) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Import failed: could not copy %s", fileName);
+        s_AudioStatusOk = false;
+        return false;
+    }
+
+    /* Write audio.ini */
+    char iniPath[FS_MAXPATH];
+    snprintf(iniPath, sizeof(iniPath), "%s/audio.ini", modDir);
+    FILE *f = fopen(iniPath, "w");
+    if (!f) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Import failed: could not write audio.ini");
+        s_AudioStatusOk = false;
+        return false;
+    }
+    fprintf(f, "[audio]\n");
+    fprintf(f, "type = audio\n");
+    fprintf(f, "name = %s\n", displayName);
+    fprintf(f, "category = %d\n", category);
+    fprintf(f, "duration_ms = 0\n");
+    fprintf(f, "file_path = %s\n", fileName);
+    fclose(f);
+
+    /* Build catalog ID: <slug>:<sanitized-name> */
+    char catalogId[AUDIOMOD_ID_LEN];
+    snprintf(catalogId, sizeof(catalogId), "%s:audio", slug);
+
+    /* Register in catalog immediately (no restart needed) */
+    asset_entry_t *e = assetCatalogRegisterAudio(
+        catalogId, 0, displayName, category, 0, dstFile);
+    if (e) {
+        e->bundled = 0;
+        e->enabled = 1;
+        strncpy(e->dirpath, modDir, FS_MAXPATH - 1);
+        e->dirpath[FS_MAXPATH - 1] = '\0';
+    }
+
+    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+             "Imported '%s' as %s", displayName, catalogId);
+    s_AudioStatusOk = true;
+
+    sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
+                 filePath, catalogId, modDir);
+
+    return true;
+}
+
+/* ========================================================================
+ * Helpers — category display
+ * ======================================================================== */
+
+static const char *categoryName(int cat)
+{
+    switch (cat) {
+        case AUDIO_CAT_SFX:   return "SFX";
+        case AUDIO_CAT_MUSIC: return "Music";
+        case AUDIO_CAT_VOICE: return "Voice";
+        default:               return "Unknown";
+    }
+}
+
+static const char *formatDuration(int ms, char *buf, int bufLen)
+{
+    if (ms <= 0) {
+        snprintf(buf, bufLen, "--:--");
+    } else {
+        int sec = ms / 1000;
+        int min = sec / 60;
+        sec = sec % 60;
+        snprintf(buf, bufLen, "%d:%02d", min, sec);
+    }
+    return buf;
+}
+
+/* ========================================================================
+ * Render — called from moddinghub when Audio Mods tab is active
+ * ======================================================================== */
+
+extern "C" {
+
+void pdguiAudioModRender(float contentW, float contentH, float scale)
+{
+    const float footerH = 36.0f * scale;
+    const float listW   = contentW * 0.38f;
+    const float detailW = contentW - listW - ImGui::GetStyle().ItemSpacing.x;
+
+    /* ---- Category tab bar ---- */
+    {
+        struct CatTab { const char *label; int filter; };
+        static const CatTab tabs[] = {
+            { "All",   -1 },
+            { "SFX",    AUDIO_CAT_SFX },
+            { "Music",  AUDIO_CAT_MUSIC },
+            { "Voice",  AUDIO_CAT_VOICE },
+        };
+        float tabW = 70.0f * scale;
+        float tabH = 24.0f * scale;
+
+        for (int i = 0; i < 4; i++) {
+            if (i > 0) ImGui::SameLine();
+            bool active = (s_AudioCategoryTab == tabs[i].filter);
+            if (active) {
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                    ImVec4(0.10f, 0.25f, 0.50f, 0.90f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                    ImVec4(0.15f, 0.35f, 0.65f, 0.95f));
+            }
+            char tabId[32];
+            snprintf(tabId, sizeof(tabId), "%s##audtab%d", tabs[i].label, i);
+            if (PdButtonAudio(tabId, ImVec2(tabW, tabH))) {
+                s_AudioCategoryTab = tabs[i].filter;
+                s_AudioSelected = -1;
+            }
+            if (active) ImGui::PopStyleColor(2);
+        }
+
+        /* Entry count for current filter */
+        int filteredCount = 0;
+        for (int i = 0; i < s_AudioNumEntries; i++) {
+            if (s_AudioCategoryTab == -1 ||
+                s_AudioEntries[i].category == s_AudioCategoryTab) {
+                filteredCount++;
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%d entries)", filteredCount);
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Left panel: entry list ---- */
+    ImGui::BeginChild("##audiomod_list", ImVec2(listW, contentH - footerH - 32.0f * scale),
+                      true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    int visibleIdx = 0;
+    for (int i = 0; i < s_AudioNumEntries; i++) {
+        const AudioModEntry &ae = s_AudioEntries[i];
+
+        /* Category filter */
+        if (s_AudioCategoryTab != -1 && ae.category != s_AudioCategoryTab) {
+            continue;
+        }
+
+        /* Dim bundled entries */
+        bool isBundled = (ae.bundled != 0);
+        if (isBundled) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.55f, 0.9f));
+        }
+
+        /* Build display label: name or ID */
+        char label[128];
+        if (ae.name[0]) {
+            snprintf(label, sizeof(label), "%s##ae%d", ae.name, i);
+        } else {
+            snprintf(label, sizeof(label), "%s##ae%d", ae.id, i);
+        }
+
+        bool sel = (s_AudioSelected == i);
+        if (ImGui::Selectable(label, sel)) {
+            s_AudioSelected = i;
+            /* Stop any current preview when changing selection */
+            if (s_AudioPreviewing) {
+                if (modMusicIsPlaying()) modMusicStop();
+                s_AudioPreviewing = false;
+            }
+        }
+
+        if (isBundled) {
+            ImGui::PopStyleColor();
+        }
+
+        visibleIdx++;
+    }
+
+    if (visibleIdx == 0) {
+        ImGui::TextDisabled("No audio entries for this category.");
+    }
+
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    /* ---- Right panel: details + controls ---- */
+    ImGui::BeginChild("##audiomod_detail", ImVec2(detailW, contentH - footerH - 32.0f * scale),
+                      true);
+
+    if (s_AudioSelected < 0 || s_AudioSelected >= s_AudioNumEntries) {
+        ImGui::TextDisabled("Select an audio entry from the list.");
+    } else {
+        const AudioModEntry &ae = s_AudioEntries[s_AudioSelected];
+
+        /* Header: name + ID */
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+        if (ae.name[0]) {
+            ImGui::Text("%s", ae.name);
+        } else {
+            ImGui::Text("%s", ae.id);
+        }
+        ImGui::PopStyleColor();
+
+        ImGui::TextDisabled("ID: %s", ae.id);
+        ImGui::Separator();
+
+        /* Metadata */
+        ImGui::Text("Category:  %s", categoryName(ae.category));
+
+        char durBuf[16];
+        ImGui::Text("Duration:  %s", formatDuration(ae.duration_ms, durBuf, sizeof(durBuf)));
+
+        if (ae.sound_id > 0) {
+            ImGui::Text("Sound ID:  0x%04x", ae.sound_id);
+        }
+
+        if (ae.file_path[0]) {
+            /* Show just the filename, not full path */
+            const char *fname = ae.file_path;
+            for (const char *p = ae.file_path; *p; p++) {
+                if (*p == '/' || *p == '\\') fname = p + 1;
+            }
+            ImGui::Text("File:      %s", fname);
+        } else {
+            ImGui::TextDisabled("File:      (ROM-embedded)");
+        }
+
+        if (ae.bundled) {
+            ImGui::TextDisabled("Source:    Base Game");
+        } else {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Source:    Mod");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        /* ---- Playback controls ---- */
+        float btnW = 80.0f * scale;
+        float btnH = 28.0f * scale;
+
+        if (ae.category == AUDIO_CAT_MUSIC) {
+            /* Music: use modMusicPlay / modMusicStop */
+            if (ae.file_path[0]) {
+                bool isPlaying = (s_AudioPreviewing && modMusicIsPlaying());
+
+                if (!isPlaying) {
+                    if (PdButtonAudio("Play##aud", ImVec2(btnW, btnH))) {
+                        modMusicPlay(ae.file_path);
+                        s_AudioPreviewing = true;
+                        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                                 "Playing: %s", ae.name[0] ? ae.name : ae.id);
+                        s_AudioStatusOk = true;
+                    }
+                } else {
+                    if (PdButtonAudio("Stop##aud", ImVec2(btnW, btnH))) {
+                        modMusicStop();
+                        s_AudioPreviewing = false;
+                        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                                 "Stopped");
+                        s_AudioStatusOk = true;
+                    }
+                }
+
+                /* Auto-detect track end */
+                if (s_AudioPreviewing && !modMusicIsPlaying()) {
+                    s_AudioPreviewing = false;
+                    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                             "Track finished");
+                    s_AudioStatusOk = true;
+                }
+            } else {
+                ImGui::BeginDisabled();
+                ImGui::Button("Play##aud", ImVec2(btnW, btnH));
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::TextDisabled("(ROM music — use base game player)");
+            }
+        } else {
+            /* SFX / Voice: use audioPlayFileSound */
+            if (ae.file_path[0]) {
+                if (PdButtonAudio("Play##aud", ImVec2(btnW, btnH))) {
+                    audioPlayFileSound(ae.file_path, 0x7FFF, 64);
+                    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                             "Playing SFX: %s", ae.name[0] ? ae.name : ae.id);
+                    s_AudioStatusOk = true;
+                }
+            } else {
+                ImGui::BeginDisabled();
+                ImGui::Button("Play##aud", ImVec2(btnW, btnH));
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::TextDisabled("(ROM sound — preview N/A)");
+            }
+        }
+    }
+
+    ImGui::EndChild();
+
+    /* ---- Import section (below the panels) ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::TextUnformatted("IMPORT AUDIO");
+    ImGui::PopStyleColor();
+
+    /* File path */
+    ImGui::SetNextItemWidth(contentW - 60.0f * scale);
+    ImGui::InputText("##aud_imppath", s_ImportFilePath, sizeof(s_ImportFilePath));
+    ImGui::SameLine();
+    ImGui::TextDisabled("File");
+
+    /* Name + Category + Import button on same row */
+    {
+        float nameW = contentW * 0.40f;
+        float catW  = 100.0f * scale;
+        float impBtnW = 100.0f * scale;
+
+        ImGui::SetNextItemWidth(nameW);
+        ImGui::InputText("##aud_impname", s_ImportName, sizeof(s_ImportName));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Name");
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(catW);
+        const char *catItems[] = { "SFX", "Music", "Voice" };
+        ImGui::Combo("##aud_impcat", &s_ImportCategory, catItems, 3);
+
+        ImGui::SameLine();
+
+        bool canImport = (s_ImportFilePath[0] != '\0' && s_ImportName[0] != '\0');
+        if (!canImport) ImGui::BeginDisabled();
+        if (PdButtonAudio("Import##aud", ImVec2(impBtnW, 0.0f))) {
+            if (importAudioFile(s_ImportFilePath, s_ImportName, s_ImportCategory)) {
+                /* Refresh the list to show the new entry */
+                pdguiAudioModRefresh();
+                /* Clear import fields on success */
+                s_ImportFilePath[0] = '\0';
+                s_ImportName[0]     = '\0';
+            }
+        }
+        if (!canImport) ImGui::EndDisabled();
+    }
+
+    /* ---- Footer: status ---- */
+    ImGui::Separator();
+    if (s_AudioStatusMsg[0]) {
+        if (s_AudioStatusOk) {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                               "%s", s_AudioStatusMsg);
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "%s", s_AudioStatusMsg);
+        }
+    } else {
+        ImGui::TextDisabled("Audio Mods — browse, audition, and import audio");
+    }
+}
+
+} /* extern "C" */
