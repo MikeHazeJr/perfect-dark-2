@@ -3,6 +3,46 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S211 — 2026-04-12 (Audio Mod Menu Batch A-2: Mod Music Stream)
+
+**Focus**: Implement Batch A-2 — parallel PCM playback path for mod music tracks. WAV loading, volume control, mixing into `audioEndFrame`. Worktree: `claude/happy-gauss`, dev baseline `ab124833`.
+
+### Changes
+
+- **NEW** `port/include/modmusic.h` (52 lines):
+  - Public C API: `modMusicPlay()`, `modMusicStop()`, `modMusicSetVolume()`, `modMusicGetVolume()`, `modMusicIsPlaying()`, `modMusicMixInto()`.
+  - `extern "C"` guards for C++ interop.
+
+- **NEW** `port/src/modmusic.c` (254 lines):
+  - WAV loading via `SDL_LoadWAV` + `SDL_AudioCVT` (converts to 22050Hz S16 stereo).
+  - Static state: PCM buffer, position, playing flag, mod-specific volume.
+  - Volume chain: `audioGetMasterVolume() * audioGetMusicVolume() * s_ModMusicVolume` — player's Music slider controls mod tracks.
+  - Base N64 sequencer muted via `musicSetVolume(0)` during mod playback; restored via `audioApplyVolumes()` on stop.
+  - Saturating S16 additive mix in `modMusicMixInto()`.
+  - Track-end detection: marks stopped, restores base music, defers buffer free to next play/explicit stop.
+
+- **M** `port/src/audio.c` (+21 lines):
+  - Added `#include "modmusic.h"` and `#include <string.h>`.
+  - Static `s_MixBuf[8192]` — writable copy buffer (nextBuf is `const s16 *`, RSP output is read-only).
+  - `audioEndFrame()` now branches: if mod music playing, copies N64 output into mix buffer, calls `modMusicMixInto()`, then queues mix buffer. Otherwise queues original N64 buffer as before.
+
+### Design Decisions
+
+- **Writable mix buffer over in-place**: `nextBuf` is `const s16 *` (RSP output). Rather than casting away const (fragile), we copy into a static mix buffer. 8192 S16 samples = 4096 stereo frames covers any realistic frame size at 22050Hz.
+- **Saturating mix**: Clamp to [-32768, 32767] rather than wrapping. Prevents audio distortion on simultaneous base + mod audio.
+- **Track-end cleanup deferred**: When track finishes mid-frame, we mark stopped but don't free the buffer. Next `modMusicPlay()` or explicit `modMusicStop()` frees it. Avoids use-after-free if audioEndFrame re-enters.
+- **No looping yet**: Single-play-through. Looping can be added in A-3 or A-4 when the UI needs it.
+
+### Build
+
+Both targets pass (client exit 0, server exit 0). Server doesn't include `modmusic.c` (explicit SRC_SERVER file list). Only pre-existing warnings (model.c, snd.c, types.h).
+
+### Next
+
+- **Batch A-3**: Audio Mod Menu UI — new tab in Modding Hub for browsing/auditioning/importing audio mods.
+
+---
+
 ## Session S210 — 2026-04-12 (Audio Mod Menu Batch A-1: Catalog Audio Extension)
 
 **Focus**: Implement Batch A-1 of the Audio Mod Menu feature — register all 43 base game music tracks from `g_MpTracks[]` as `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` catalog entries with human-readable IDs, and add `catalogResolveAudio()` for type-safe audio asset resolution. Worktree: `claude/pensive-payne`, dev baseline `e26201c9`.
