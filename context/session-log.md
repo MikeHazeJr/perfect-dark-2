@@ -3,6 +3,41 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S210 — 2026-04-12 (Audio Mod Menu Batch A-1: Catalog Audio Extension)
+
+**Focus**: Implement Batch A-1 of the Audio Mod Menu feature — register all 43 base game music tracks from `g_MpTracks[]` as `ASSET_AUDIO` / `AUDIO_CAT_MUSIC` catalog entries with human-readable IDs, and add `catalogResolveAudio()` for type-safe audio asset resolution. Worktree: `claude/pensive-payne`, dev baseline `e26201c9`.
+
+### Changes
+
+- **M** `port/src/assetcatalog_base_extended.c` (+91 lines):
+  - New `s_BaseMusicTracks[]` static table: 43 entries mapping `MUSIC_*` enum values to human-readable catalog slugs (e.g., `track_dark_combat`, `track_carrington_institute`) and display names. Uses symbolic `MUSIC_*` enum names from `sequences.h` (included via `constants.h`), not hardcoded integers.
+  - New registration loop in `assetCatalogRegisterBaseGameExtended()`: registers each track as `ASSET_AUDIO` with `AUDIO_CAT_MUSIC`, `duration_ms` (seconds * 1000), `bundled=1`, `load_state=LOADED`. Same pattern as existing 1545 SFX entries.
+
+- **M** `port/include/assetcatalog.h` (+11 lines):
+  - New `catalog_audio_result_t` struct: `entry`, `sound_id`, `category`, `file_path`. Lighter than other result types — no `net_hash`/`session_id` needed since audio isn't session-catalog wired.
+  - Declaration: `s32 catalogResolveAudio(const char *id, catalog_audio_result_t *out)`.
+
+- **M** `port/src/assetcatalog_api.c` (+24 lines):
+  - `s_fillAudioResult()` helper: fills result from `ext.audio.*` fields.
+  - `catalogResolveAudio()`: follows identical pattern to `catalogResolveBody/Head/Stage/Weapon/Prop`.
+
+### Decisions
+
+- **Catalog IDs are human-readable**: `base:track_dark_combat` not `base:music_0040`. Matches the catalog ID mandate and makes debugging/modding transparent.
+- **Static slug table over extern g_MpTracks[]**: `g_MpTracks` has no extern declaration in any header. Rather than adding a cross-module dependency, the slug table bakes in the fixed data (same pattern as `s_BaseWeapons[]`).
+- **No `net_hash`/`session_id` in audio result**: Audio assets aren't wired via the session catalog. Simpler result struct. Can be added later if Batch A-7 (network sync) needs it.
+
+### Build
+
+GCC toolchain non-functional at time of implementation — system-level `cc1.exe` temp file creation failure affecting ALL compilation (`Cannot create temporary file in C:\WINDOWS\: Permission denied`). Not related to our changes. Code review performed; all patterns follow established conventions.
+
+### Next
+
+- **Batch A-2**: `modmusic.c` — mod music stream with WAV loading, PCM playback, mixing into `audioEndFrame`.
+- **Build verification**: Needed when GCC toolchain is restored.
+
+---
+
 ## Session S209 — 2026-04-11 (D5 P3 Batch 11: MP Player Config & Stats)
 
 **Focus**: Complete D5 Phase 3 Batch 11 — replace the 5 legacy multiplayer player-config / game-setup-load dialogs (`g_MpCharacterMenuDialog`, `g_MpPlayerStatsMenuDialog`, `g_MpLoadSettingsMenuDialog`, `g_MpLoadPresetMenuDialog`, `g_MpLoadPlayerMenuDialog`) with ImGui renderers, delegating every state mutation to the existing setup.c handlers through the shadow-struct call-through pattern, while auditing every field end-to-end against the network match-start / match-end pipelines per Mike's standing rule carried forward from Batches 7/8. Worktree: `claude/pedantic-khorana`, dev baseline `8730cf19`.
