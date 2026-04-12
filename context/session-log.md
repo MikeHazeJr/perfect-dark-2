@@ -3,6 +3,60 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S216 — 2026-04-12 (Skin Editor Batches S-4 + S-5 + S-6)
+
+**Focus**: Implement Skin Editor Batches S-4, S-5, S-6 in a single session. Worktree: `claude/goofy-noether`, continuing from S215.
+
+### Changes
+
+- **S-4: Save as Mod** — `port/fast3d/pdgui_skin_editor.cpp` (+150 lines):
+  - `sanitizeSlug()` — lowercase, spaces→dashes, filesystem-safe.
+  - `writeTga()` — 18-byte header + BGRA pixel data (TGA convention), uncompressed type 2.
+  - `saveSkinAsMod()` — creates `mods/<slug>/`, writes `texture.tga` + `skin.ini` with `target = <body_id>`, calls `assetCatalogRegisterSkin()` for immediate hot reload.
+  - `renderSaveDialog()` — popup with name input, target display, save/cancel, status feedback.
+  - Ctrl+S keyboard shortcut opens save dialog.
+
+- **S-5: Image Import** — `port/external/stb_image.h` (7988 lines, vendored) + editor (+80 lines):
+  - NEW `port/external/stb_image.h` — stb_image v2.30 by Sean Barrett (public domain / MIT). PNG/TGA/BMP/JPG loading.
+  - `importImageToLayer()` — loads image via `stbi_load()`, adds new layer, nearest-neighbor scales to canvas dimensions.
+  - `renderImportDialog()` — popup with path input, import/cancel, status feedback.
+  - "Import Image" button in tool panel actions section.
+
+- **S-6: PD-Style Downrez** — NEW `port/fast3d/pdgui_skin_quantize.cpp` (~250 lines) + editor (+100 lines):
+  - `medianCut()` — recursive color space splitting along largest-range axis. Supports 16/32/256 color palettes.
+  - `skinQuantize()` — public API with three dither modes: None, Bayer 4x4 (ordered), Floyd-Steinberg (error diffusion).
+  - `downrezGeneratePreview()` — quantizes composite, uploads to GL texture for preview.
+  - `renderDownrezDialog()` — popup with palette size (16/32/256) + dither mode radio buttons, before/after side-by-side preview, apply/cancel.
+  - "PD Style" button in tool panel actions section.
+
+### Design Decisions
+
+- **TGA format**: Uncompressed type 2 with BGRA byte order. Matches existing base-ui mod convention.
+- **stb_image vendored**: Full 7988-line header placed in `port/external/` alongside existing `stb_vorbis.c`. `STB_IMAGE_IMPLEMENTATION` defined in `pdgui_skin_editor.cpp`.
+- **Nearest-neighbor scale**: Import scales using nearest-neighbor (floor division) to preserve pixel-art crispness at N64 resolutions.
+- **Median-cut over libimagequant**: Custom implementation avoids GPL dependency (~250 lines C vs. external library).
+
+### Commits (on worktree branch `claude/goofy-noether`)
+
+1. `d6a172a4` — feat(S-4): Save as Mod — TGA writer + skin.ini + catalog registration
+2. `cc803f16` — vendor(S-5): add stb_image.h v2.30 (public domain)
+3. `50bb0c51` — feat(S-6): PD-Style Downrez — median-cut quantizer + dithering
+
+### Build Verification
+
+Syntax-only compilation passes for all new/modified files:
+- pdgui_skin_editor.cpp (C++) — clean (with S-4/S-5/S-6 additions)
+- pdgui_skin_quantize.cpp (C++) — clean
+- pdgui_skin_canvas.cpp (C++) — clean (unchanged)
+
+### Next
+
+- **S-7**: Blend Mode Extensions (Hue, Burn, Saturation)
+- **S-8**: UV Remap + Advanced Import
+- **S-9**: Network Sync for Skins
+
+---
+
 ## Session S215 — 2026-04-12 (Skin Editor Batches S-1 + S-2 + S-3)
 
 **Focus**: Implement Skin Editor Batches S-1, S-2, S-3 in a single session. Worktree: `claude/goofy-noether`, dev baseline `922fa5dc`.

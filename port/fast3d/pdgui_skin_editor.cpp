@@ -8,10 +8,15 @@
  * Batch S-1: 2D canvas view, Draw + Erase, color picker, layer panel
  * Batch S-2: 3D preview wiring (pdguiCharPreviewSetSkinOverride)
  * Batch S-3: Fill, Line, Brush Size, Undo/Redo
+ * Batch S-4: Save as Mod — TGA writer, skin.ini, catalog registration
+ * Batch S-5: Image Import — stb_image, scale-to-fit, import as layer
+ * Batch S-6: PD-Style Downrez — median-cut quantize + dithering
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
  */
+
+#include "glad/glad.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +37,16 @@
 #include "pdgui_model_preview.h"
 #include "assetcatalog.h"
 #include "system.h"
+#include "fs.h"
+#include <errno.h>
+
+/* S-5: stb_image for image import (public domain, vendored) */
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#define STBI_ONLY_TGA
+#define STBI_ONLY_BMP
+#define STBI_ONLY_JPEG
+#include "../external/stb_image.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -100,6 +115,35 @@ static s32 s_NumRecentColors = 0;
 static char s_PreviewBodyId[64] = "";
 static char s_PreviewHeadId[64] = "";
 static float s_PreviewRotAngle  = 0.0f;
+
+/* S-4: Save dialog state */
+static bool  s_SaveDialogOpen = false;
+static char  s_SaveName[64]   = "";
+static char  s_SaveStatus[128] = "";
+static bool  s_SaveOk = false;
+
+/* S-5: Import dialog state */
+static bool s_ImportDialogOpen = false;
+static char s_ImportPath[512]  = "";
+static char s_ImportStatus[128] = "";
+
+/* S-6: Downrez dialog state */
+static bool s_DownrezDialogOpen = false;
+static int  s_DownrezMaxColors  = 16;
+static int  s_DownrezDitherMode = 1;
+static u8  *s_DownrezPreview    = NULL;
+static u32  s_DownrezPreviewTex = 0;
+
+/* Character entries (for save dialog referencing selected char) */
+struct CharEntry {
+    char id[64];
+    char name[64];
+};
+
+#define MAX_CHAR_ENTRIES 128
+static CharEntry s_CharEntries[MAX_CHAR_ENTRIES];
+static s32 s_NumCharEntries = 0;
+static s32 s_SelectedChar   = -1;
 
 /* ========================================================================
  * Color helpers
@@ -618,6 +662,48 @@ static void renderToolPanel(float panelW, float panelH, float scale)
         skinCanvasRemoveLayer(activeLi);
     }
 
+    /* ---- Actions (S-4, S-5, S-6) ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("ACTIONS");
+
+    float actionW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+
+    /* S-5: Import Image */
+    if (PdButton("Import Image", ImVec2(actionW, 0))) {
+        s_ImportDialogOpen = true;
+        s_ImportStatus[0] = '\0';
+    }
+
+    /* S-6: Convert to PD Style */
+    if (PdButton("PD Style", ImVec2(actionW, 0))) {
+        s_DownrezDialogOpen = true;
+        s_DownrezMaxColors = 16;
+        s_DownrezDitherMode = 1;
+        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; }
+    }
+
+    ImGui::Spacing();
+
+    /* S-4: Save as Mod */
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.05f, 0.35f, 0.15f, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.1f, 0.5f, 0.2f, 0.9f));
+    if (PdButton("Save as Mod", ImVec2(actionW, 28.0f * scale))) {
+        s_SaveDialogOpen = true;
+        s_SaveStatus[0] = '\0';
+        if (!s_SaveName[0] && s_SelectedChar >= 0) {
+            snprintf(s_SaveName, sizeof(s_SaveName), "Custom %s",
+                     s_CharEntries[s_SelectedChar].name);
+        }
+    }
+    ImGui::PopStyleColor(2);
+
+    /* Status message from last save */
+    if (s_SaveStatus[0]) {
+        ImGui::TextColored(s_SaveOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+                           "%s", s_SaveStatus);
+    }
+
     ImGui::EndChild();
 }
 
@@ -663,16 +749,6 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
 /* ========================================================================
  * Character selector (for choosing which body to skin)
  * ======================================================================== */
-
-struct CharEntry {
-    char id[64];
-    char name[64];
-};
-
-#define MAX_CHAR_ENTRIES 128
-static CharEntry s_CharEntries[MAX_CHAR_ENTRIES];
-static s32 s_NumCharEntries = 0;
-static s32 s_SelectedChar   = -1;
 
 static void charCollector(const asset_entry_t *e, void *ud)
 {
@@ -770,6 +846,392 @@ static void renderCharacterSelector(float w, float h, float scale)
 }
 
 /* ========================================================================
+ * S-4: Save as Mod — TGA writer + skin.ini + catalog registration
+ * ======================================================================== */
+
+/* Sanitize a display name into a filesystem-safe slug */
+static void sanitizeSlug(const char *name, char *out, int maxLen)
+{
+    int len = 0;
+    for (int i = 0; name[i] && len < maxLen - 1; i++) {
+        char c = name[i];
+        if (c == ' ') c = '-';
+        else if (c >= 'A' && c <= 'Z') c = c + 32;
+        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
+            continue;
+        out[len++] = c;
+    }
+    out[len] = '\0';
+}
+
+/* Write uncompressed TGA (type 2, RGBA) */
+static bool writeTga(const char *path, const u8 *rgba, s32 w, s32 h)
+{
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) return false;
+
+    u8 header[18];
+    memset(header, 0, 18);
+    header[2]  = 2;              /* uncompressed true-color */
+    header[12] = (u8)(w & 0xFF);
+    header[13] = (u8)((w >> 8) & 0xFF);
+    header[14] = (u8)(h & 0xFF);
+    header[15] = (u8)((h >> 8) & 0xFF);
+    header[16] = 32;             /* 32 bits per pixel */
+    header[17] = 0x28;           /* top-left origin + 8 alpha bits */
+    fwrite(header, 1, 18, f);
+
+    /* TGA stores BGRA, not RGBA */
+    for (s32 i = 0; i < w * h; i++) {
+        u8 bgra[4] = { rgba[i*4+2], rgba[i*4+1], rgba[i*4+0], rgba[i*4+3] };
+        fwrite(bgra, 1, 4, f);
+    }
+
+    bool ok = !ferror(f);
+    fclose(f);
+    return ok;
+}
+
+static bool saveSkinAsMod(const char *displayName, const char *targetBodyId)
+{
+    if (!displayName || !displayName[0] || !targetBodyId || !targetBodyId[0]) return false;
+
+    char slug[64];
+    sanitizeSlug(displayName, slug, sizeof(slug));
+    if (!slug[0]) return false;
+
+    /* Create directories */
+    char modDir[256];
+    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+
+    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "skin_editor: cannot create 'mods/' (errno %d)", errno);
+        return false;
+    }
+    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "skin_editor: cannot create '%s' (errno %d)", modDir, errno);
+        return false;
+    }
+
+    /* Flatten canvas and write TGA */
+    skinCanvasUpdate();
+    const u8 *composite = skinCanvasGetCompositePixels();
+    s32 cw = skinCanvasGetWidth();
+    s32 ch = skinCanvasGetHeight();
+    if (!composite || cw == 0 || ch == 0) return false;
+
+    char tgaPath[280];
+    snprintf(tgaPath, sizeof(tgaPath), "%s/texture.tga", modDir);
+    if (!writeTga(tgaPath, composite, cw, ch)) {
+        sysLogPrintf(LOG_WARNING, "skin_editor: failed to write '%s'", tgaPath);
+        return false;
+    }
+
+    /* Write skin.ini */
+    char iniPath[280];
+    snprintf(iniPath, sizeof(iniPath), "%s/skin.ini", modDir);
+    FILE *f = fsFileOpenWrite(iniPath);
+    if (!f) {
+        sysLogPrintf(LOG_WARNING, "skin_editor: cannot write '%s'", iniPath);
+        return false;
+    }
+    fprintf(f, "[skin]\n");
+    fprintf(f, "type = skin\n");
+    fprintf(f, "name = %s\n", displayName);
+    fprintf(f, "target = %s\n", targetBodyId);
+    bool ok = !ferror(f);
+    fclose(f);
+    if (!ok) return false;
+
+    /* Register in catalog immediately (hot reload) */
+    char catalogId[128];
+    snprintf(catalogId, sizeof(catalogId), "mod:%s", slug);
+
+    asset_entry_t *entry = assetCatalogRegisterSkin(catalogId, targetBodyId);
+    if (entry) {
+        strncpy(entry->dirpath, modDir, FS_MAXPATH - 1);
+        entry->dirpath[FS_MAXPATH - 1] = '\0';
+        entry->enabled = 1;
+        entry->bundled = 0;
+        sysLogPrintf(LOG_NOTE, "skin_editor: registered '%s' targeting '%s'",
+                     catalogId, targetBodyId);
+    }
+
+    sysLogPrintf(LOG_NOTE, "skin_editor: saved mod to '%s'", modDir);
+    return true;
+}
+
+static void renderSaveDialog(float scale)
+{
+    if (!s_SaveDialogOpen) return;
+
+    ImGui::OpenPopup("Save Skin as Mod");
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(350.0f * scale, 0));
+
+    if (ImGui::BeginPopupModal("Save Skin as Mod", &s_SaveDialogOpen,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        ImGui::Text("Skin Name:");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##skinname", s_SaveName, sizeof(s_SaveName));
+
+        if (s_PreviewBodyId[0]) {
+            ImGui::TextDisabled("Target: %s", s_PreviewBodyId);
+        }
+
+        ImGui::Spacing();
+
+        if (PdButton("Save", ImVec2(120.0f * scale, 0))) {
+            if (saveSkinAsMod(s_SaveName, s_PreviewBodyId)) {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Saved as mod:%s", s_SaveName);
+                s_SaveOk = true;
+                s_SaveDialogOpen = false;
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
+            } else {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus), "Save failed!");
+                s_SaveOk = false;
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+        ImGui::SameLine();
+        if (PdButton("Cancel", ImVec2(120.0f * scale, 0))) {
+            s_SaveDialogOpen = false;
+        }
+
+        if (s_SaveStatus[0]) {
+            ImGui::TextColored(s_SaveOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+                               "%s", s_SaveStatus);
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/* ========================================================================
+ * S-5: Image Import — stb_image load + scale to canvas
+ * ======================================================================== */
+
+static void importImageToLayer(const char *path)
+{
+    if (!path || !path[0]) return;
+
+    s32 imgW, imgH, imgC;
+    u8 *imgData = stbi_load(path, &imgW, &imgH, &imgC, 4); /* force RGBA */
+    if (!imgData) {
+        snprintf(s_ImportStatus, sizeof(s_ImportStatus),
+                 "Failed: %s", stbi_failure_reason());
+        return;
+    }
+
+    s32 cw = skinCanvasGetWidth();
+    s32 ch = skinCanvasGetHeight();
+
+    /* Add a new layer for the import */
+    s32 layerIdx = skinCanvasAddLayer();
+    if (layerIdx < 0) {
+        stbi_image_free(imgData);
+        snprintf(s_ImportStatus, sizeof(s_ImportStatus), "Max layers reached");
+        return;
+    }
+
+    /* Scale image to canvas dimensions (nearest-neighbor) */
+    for (s32 y = 0; y < ch; y++) {
+        for (s32 x = 0; x < cw; x++) {
+            s32 srcX = (x * imgW) / cw;
+            s32 srcY = (y * imgH) / ch;
+            if (srcX >= imgW) srcX = imgW - 1;
+            if (srcY >= imgH) srcY = imgH - 1;
+
+            s32 srcOff = (srcY * imgW + srcX) * 4;
+            skinCanvasSetPixel(x, y,
+                imgData[srcOff], imgData[srcOff+1],
+                imgData[srcOff+2], imgData[srcOff+3]);
+        }
+    }
+
+    stbi_image_free(imgData);
+    skinCanvasMarkDirty();
+    snprintf(s_ImportStatus, sizeof(s_ImportStatus),
+             "Imported %dx%d -> %dx%d", imgW, imgH, cw, ch);
+    sysLogPrintf(LOG_NOTE, "skin_editor: imported '%s' (%dx%d -> %dx%d)",
+                 path, imgW, imgH, cw, ch);
+}
+
+static void renderImportDialog(float scale)
+{
+    if (!s_ImportDialogOpen) return;
+
+    ImGui::OpenPopup("Import Image");
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(400.0f * scale, 0));
+
+    if (ImGui::BeginPopupModal("Import Image", &s_ImportDialogOpen,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        ImGui::Text("Image path (PNG, TGA, BMP, JPG):");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##importpath", s_ImportPath, sizeof(s_ImportPath));
+
+        ImGui::Spacing();
+
+        if (PdButton("Import", ImVec2(120.0f * scale, 0))) {
+            importImageToLayer(s_ImportPath);
+            if (s_ImportStatus[0] && strncmp(s_ImportStatus, "Failed", 6) != 0) {
+                s_ImportDialogOpen = false;
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
+            } else {
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+        ImGui::SameLine();
+        if (PdButton("Cancel", ImVec2(120.0f * scale, 0))) {
+            s_ImportDialogOpen = false;
+        }
+
+        if (s_ImportStatus[0]) {
+            bool ok = (strncmp(s_ImportStatus, "Failed", 6) != 0 &&
+                       strncmp(s_ImportStatus, "Max", 3) != 0);
+            ImGui::TextColored(ok ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+                               "%s", s_ImportStatus);
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/* ========================================================================
+ * S-6: PD-Style Downrez — Median-cut quantize + dithering
+ * ======================================================================== */
+
+/* Forward declaration — implementation in pdgui_skin_quantize.cpp */
+extern "C" void skinQuantize(const u8 *src, u8 *dst, s32 w, s32 h,
+                             s32 max_colors, s32 dither_mode);
+
+static void downrezGeneratePreview(void)
+{
+    s32 cw = skinCanvasGetWidth();
+    s32 ch = skinCanvasGetHeight();
+    if (cw == 0 || ch == 0) return;
+
+    skinCanvasUpdate();
+    const u8 *composite = skinCanvasGetCompositePixels();
+    if (!composite) return;
+
+    size_t bufSize = (size_t)cw * ch * 4;
+    if (!s_DownrezPreview) {
+        s_DownrezPreview = (u8 *)malloc(bufSize);
+        if (!s_DownrezPreview) return;
+    }
+
+    skinQuantize(composite, s_DownrezPreview, cw, ch,
+                 s_DownrezMaxColors, s_DownrezDitherMode);
+
+    /* Upload to GL texture for preview */
+    if (s_DownrezPreviewTex == 0) {
+        glGenTextures(1, &s_DownrezPreviewTex);
+    }
+    glBindTexture(GL_TEXTURE_2D, s_DownrezPreviewTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, cw, ch, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, s_DownrezPreview);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+static void renderDownrezDialog(float scale)
+{
+    if (!s_DownrezDialogOpen) return;
+
+    ImGui::OpenPopup("Convert to PD Style");
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(500.0f * scale, 0));
+
+    if (ImGui::BeginPopupModal("Convert to PD Style", &s_DownrezDialogOpen,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        ImGui::Text("Palette size:");
+        bool changed = false;
+        changed |= ImGui::RadioButton("16 colors (CI4)", &s_DownrezMaxColors, 16);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("32 colors", &s_DownrezMaxColors, 32);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("256 colors (CI8)", &s_DownrezMaxColors, 256);
+
+        ImGui::Text("Dithering:");
+        changed |= ImGui::RadioButton("None", &s_DownrezDitherMode, 0);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("Bayer 4x4", &s_DownrezDitherMode, 1);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("Floyd-Steinberg", &s_DownrezDitherMode, 2);
+
+        if (changed || !s_DownrezPreview) {
+            downrezGeneratePreview();
+        }
+
+        /* Before/after preview */
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        s32 cw = skinCanvasGetWidth();
+        s32 ch = skinCanvasGetHeight();
+        float previewScale = 3.0f * scale;
+        float pw = cw * previewScale;
+        float ph = ch * previewScale;
+
+        ImGui::Text("Before:");
+        ImGui::SameLine(pw + 30.0f * scale);
+        ImGui::Text("After:");
+
+        u32 origTex = skinCanvasGetGlTexture();
+        if (origTex != 0) {
+            ImGui::Image((ImTextureID)(uintptr_t)origTex, ImVec2(pw, ph));
+        }
+        ImGui::SameLine();
+        if (s_DownrezPreviewTex != 0) {
+            ImGui::Image((ImTextureID)(uintptr_t)s_DownrezPreviewTex, ImVec2(pw, ph));
+        }
+
+        ImGui::Spacing();
+
+        if (PdButton("Apply", ImVec2(120.0f * scale, 0))) {
+            /* Replace active layer with quantized result */
+            skinCanvasUndoPush();
+            u8 *activePixels = skinCanvasGetActivePixels();
+            if (activePixels && s_DownrezPreview) {
+                memcpy(activePixels, s_DownrezPreview,
+                       (size_t)cw * ch * 4);
+                skinCanvasMarkDirty();
+            }
+            s_DownrezDialogOpen = false;
+            pdguiPlaySound(PDGUI_SND_SUCCESS);
+        }
+        ImGui::SameLine();
+        if (PdButton("Cancel", ImVec2(120.0f * scale, 0))) {
+            s_DownrezDialogOpen = false;
+        }
+
+        ImGui::EndPopup();
+    }
+
+    /* Cleanup preview on close */
+    if (!s_DownrezDialogOpen) {
+        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; }
+        if (s_DownrezPreviewTex) {
+            glDeleteTextures(1, &s_DownrezPreviewTex);
+            s_DownrezPreviewTex = 0;
+        }
+    }
+}
+
+/* ========================================================================
  * Main render (called from Modding Hub)
  * ======================================================================== */
 
@@ -814,6 +1276,17 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
     renderPreviewPanel(previewW, contentH, scale);
     ImGui::SameLine();
     renderToolPanel(toolsW, contentH, scale);
+
+    /* S-4/S-5/S-6: Popup dialogs (rendered after panels) */
+    renderSaveDialog(scale);
+    renderImportDialog(scale);
+    renderDownrezDialog(scale);
+
+    /* Ctrl+S shortcut for save */
+    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        s_SaveDialogOpen = true;
+        s_SaveStatus[0] = '\0';
+    }
 }
 
 } /* extern "C" */
