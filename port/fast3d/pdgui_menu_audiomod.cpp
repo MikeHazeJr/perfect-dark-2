@@ -28,6 +28,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_filebrowser.h"
 #include "assetcatalog.h"
 #include "fs.h"
 
@@ -816,11 +817,42 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
     ImGui::SameLine();
     ImGui::TextDisabled("  (MP3, WAV, OGG)");
 
-    /* File path */
-    ImGui::SetNextItemWidth(contentW - 60.0f * scale);
-    ImGui::InputText("##aud_imppath", s_ImportFilePath, sizeof(s_ImportFilePath));
-    ImGui::SameLine();
-    ImGui::TextDisabled("File");
+    /* File path + Browse button */
+    {
+        float browseW = 80.0f * scale;
+        ImGui::SetNextItemWidth(contentW - browseW - 70.0f * scale);
+        ImGui::InputText("##aud_imppath", s_ImportFilePath, sizeof(s_ImportFilePath));
+        ImGui::SameLine();
+        if (PdButtonAudio("Browse##aud", ImVec2(browseW, 0.0f))) {
+            pdguiFileBrowserOpen("Import Audio", "mods", ".mp3;.wav;.ogg");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("File");
+    }
+
+    /* Handle file browser result */
+    if (pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            strncpy(s_ImportFilePath, pdguiFileBrowserGetPath(), sizeof(s_ImportFilePath) - 1);
+            s_ImportFilePath[sizeof(s_ImportFilePath) - 1] = '\0';
+            /* Auto-fill name from filename if empty */
+            if (!s_ImportName[0]) {
+                const char *fname = s_ImportFilePath;
+                for (const char *p = s_ImportFilePath; *p; p++) {
+                    if (*p == '/' || *p == '\\') fname = p + 1;
+                }
+                /* Strip extension for display name */
+                strncpy(s_ImportName, fname, sizeof(s_ImportName) - 1);
+                s_ImportName[sizeof(s_ImportName) - 1] = '\0';
+                char *dot = NULL;
+                for (char *p = s_ImportName; *p; p++) {
+                    if (*p == '.') dot = p;
+                }
+                if (dot) *dot = '\0';
+            }
+            pdguiFileBrowserClose();
+        }
+    }
 
     /* Name + Category + Import button on same row */
     {
