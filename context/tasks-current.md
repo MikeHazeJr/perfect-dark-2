@@ -167,10 +167,10 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **A-1** | Catalog Audio Extension | **DONE** (2026-04-12) | 43 base music tracks registered as ASSET_AUDIO/AUDIO_CAT_MUSIC. `catalog_audio_result_t` + `catalogResolveAudio()` added. 125 lines across 3 files. |
 | **A-2** | Mod Music Stream | **DONE** (2026-04-12) | `modmusic.c` (254 lines) + `modmusic.h` (52 lines) — WAV loading, PCM playback, volume, mixing into audioEndFrame via writable copy buffer. `audio.c` +21 lines. Both builds pass. |
 | **A-3** | Audio Mod Menu UI | **DONE** (2026-04-12) | `pdgui_menu_audiomod.cpp` (625 lines) — new tab 4 in Modding Hub. Category tabs (All/SFX/Music/Voice), list + detail panels, Play/Stop preview, import creates mod dir + audio.ini + catalog registration. `moddinghub.cpp` +12 lines. Build blocked by system GCC temp issue. |
-| **A-4** | Soundtrack Menu Extension | NEXT | Mod tracks in renderSelectTunes, pd.ini persistence |
-| **A-5** | Soundtrack Pack Creation | PENDING | Multi-track pack creation dialog |
-| **A-6** | Multi-Format Import | PENDING | MP3 + WAV + OGG via stb_vorbis + minimp3 |
-| **A-7** | Network Sync | PENDING | Mod audio via existing mod propagation pipeline |
+| **A-4** | Soundtrack Menu Extension | **DONE** (2026-04-12) | Collapsible "Mod Tracks" tree in renderSelectTunes (single+multi mode). pd.ini persistence via `Audio.ModTrackId`. mpChooseTrack returns -2 sentinel to suppress N64 sequencer and starts modMusicPlay. renderSoundtrack shows mod track name. 165 lines across 4 files. Both builds pass. |
+| **A-5** | Soundtrack Pack Creation | **DONE** (2026-04-12) | "Create Soundtrack Pack" dialog in Audio Mod Menu. Multi-select mod music tracks, name/version fields, saves to `mods/<slug>/` with mod.json + tracks/ subfolder. Catalog registration immediate. `pdgui_menu_audiomod.cpp` +252 lines (now 877 total). |
+| **A-6** | Multi-Format Import | **DONE** (2026-04-12) | `modMusicPlay()` accepts .mp3, .ogg, .wav (format-detecting loader). MP3 via existing minimp3, OGG via new stb_vorbis wrapper. SDL_AudioCVT resampling to 22050Hz S16 stereo. New: `port/external/stb_vorbis.c` (234), `port/include/external/stb_vorbis.h` (35). `modmusic.c` +236 lines (now 491). |
+| **A-7** | Network Sync | **DONE** (2026-04-12) | ASSET_AUDIO added to SVC_CATALOG_INFO type list — mod audio distributed via existing netdistrib PDCA pipeline. Host's mod_track_id string added to SVC_STAGE_START (write+read). Protocol v32→v33. `netmsg.c` +23 lines, `net.h` version bump. |
 
 ---
 

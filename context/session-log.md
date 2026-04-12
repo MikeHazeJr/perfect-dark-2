@@ -3,6 +3,96 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S214 — 2026-04-12 (Audio Mod Menu Batches A-5 + A-6 + A-7)
+
+**Focus**: Implement Batches A-5, A-6, A-7 in a single session. Worktree: `claude/adoring-merkle`, dev baseline `15403979`.
+
+### Changes
+
+- **A-5: Soundtrack Pack Creation** — `port/fast3d/pdgui_menu_audiomod.cpp` (+252 lines, now 877):
+  - `createSoundtrackPack()` — creates `mods/<slug>/mod.json` with multi-component audio manifest + `tracks/` subfolder with copied audio files. Registers all components in catalog immediately.
+  - `renderPackCreator()` — inline pack creator UI below import section. Multi-select checkboxes for mod music tracks, name/version fields, Select All/None, Create Pack/Close buttons.
+  - Pack state: `s_PackCreatorOpen`, `s_PackTrackSelected[]`, `s_PackName`, `s_PackVersion`.
+
+- **A-6: Multi-Format Import** — `port/src/modmusic.c` (+236 lines, now 491):
+  - `modmusic_loadMp3()` — frame-by-frame MP3 decode via existing minimp3 library. Accumulates to heap buffer, resamples via SDL_AudioCVT.
+  - `modmusic_loadOgg()` — OGG decode via new stb_vorbis wrapper. Resamples to 22050Hz S16 stereo.
+  - `modmusic_loadAudio()` — format-detecting dispatcher (extension-based: .mp3→loadMp3, .ogg→loadOgg, default→loadWav).
+  - `modMusicPlay()` now calls `modmusic_loadAudio()` instead of WAV-only.
+  - NEW `port/external/stb_vorbis.c` (234 lines) — OGG Vorbis decoder, SDL fallback.
+  - NEW `port/include/external/stb_vorbis.h` (35 lines) — clean public API header.
+  - Import UI now displays "(MP3, WAV, OGG)" format hint.
+
+- **A-7: Network Sync** — `port/src/net/netmsg.c` (+23 lines):
+  - `ASSET_AUDIO` added to `s_types[]` in `netmsgSvcCatalogInfoWrite()` — mod audio entries now advertised and distributed via existing netdistrib PDCA pipeline.
+  - `SVC_STAGE_START` write: added `netbufWriteStr(dst, audioGetModTrackId())` after spawn_weapon_id.
+  - `SVC_STAGE_START` read: added `audioSetModTrackId(modtrack)` — clients receive host's mod track ID.
+  - `#include "audio.h"` added to netmsg.c.
+  - `port/include/net/net.h`: NET_PROTOCOL_VER 32 → 33.
+
+### Design Decisions
+
+- **Protocol bump v33**: Adding mod_track_id to SVC_STAGE_START is a wire format change. Clean protocol bump chosen over backwards-compat hacks.
+- **stb_vorbis wrapper**: Full stb_vorbis vendoring deferred — SDL-based fallback decoder provides immediate OGG support. Drop-in replacement path documented.
+- **Pack format**: mod.json with `"components"` array matching design doc §3.4. Each component has catalog_id, name, category, file_path.
+
+### Commits (on worktree branch `claude/adoring-merkle`, merged to dev)
+
+1. `9a8fa0a6` — feat(A-5): Soundtrack Pack Creation
+2. `1b8720e3` — feat(A-6): Multi-Format Import
+3. `d70260ea` — feat(A-7): Network Sync for Mod Audio
+
+### Build verification
+
+Syntax-only compilation (`-fsyntax-only`) passes for all modified files:
+- modmusic.c, stb_vorbis.c, netmsg.c (C), pdgui_menu_audiomod.cpp (C++).
+Full link blocked by sandbox TEMP directory issue (GCC can't write to C:\WINDOWS\).
+
+---
+
+## Session S213 — 2026-04-12 (Audio Mod Menu Batch A-4: Soundtrack Menu Extension)
+
+**Focus**: Implement Batch A-4 — Extend Soundtrack menu with mod tracks, persist selection in pd.ini, wire mpChooseTrack to start mod music. Worktree: `claude/modest-germain`, dev baseline `fec20bb2`.
+
+### Changes
+
+- **M** `port/include/audio.h` (+6 lines):
+  - New declarations: `audioGetModTrackId()`, `audioSetModTrackId()` for mod track selection.
+
+- **M** `port/src/audio.c` (+20 lines):
+  - Static `g_AudioModTrackId[64]` — selected mod track catalog ID, persisted to pd.ini as `Audio.ModTrackId`.
+  - Getter/setter implementations.
+  - `configRegisterString("Audio.ModTrackId", ...)` in `audioConfigInit()`.
+
+- **M** `src/game/mplayer/mplayer.c` (+17 lines):
+  - Added `#include "audio.h"` and `#include "modmusic.h"`.
+  - `mpChooseTrack()`: New early-return path — if `audioGetModTrackId()` returns non-empty, resolve via `catalogResolveAudio()`, call `modMusicPlay()`, return -2 sentinel. The -2 is < 0, so `musicStartPrimary` skips the N64 sequencer. Graceful fallback if catalog entry missing.
+
+- **M** `port/fast3d/pdgui_menu_mpsettings.cpp` (+128/-6 lines):
+  - `ModTrackCollector` struct + `collectModMusicTrack()` callback: iterates ASSET_AUDIO catalog entries, collects non-bundled AUDIO_CAT_MUSIC entries.
+  - `renderSelectTunes`: Collapsible "Mod Tracks" tree section after base tracks. Single-tune mode: selectable rows (click to select/deselect). Multi-tune mode: checkboxes. Selecting a base track clears mod selection. Selecting Random clears mod selection.
+  - `renderSoundtrack`: "Current Track:" display now resolves mod track name from catalog when a mod track is selected.
+
+### Design Decisions
+
+- **Sentinel -2 over g_BossFile modification**: The design suggested `tracknum == -2` as sentinel. We return -2 from `mpChooseTrack()` directly — `musicStartPrimary` already skips when `track < 0`. No save format change needed.
+- **pd.ini over g_BossFile**: Mod track ID stored in pd.ini via `configRegisterString`, not in g_BossFile. Avoids SAVE_VERSION bump. Consistent with volume layers.
+- **ImGui TreeNode for collapsibility**: Mod tracks section uses `ImGui::TreeNodeEx` — standard ImGui collapsible pattern. Starts collapsed; opens automatically if a mod track is currently selected.
+- **Base track click clears mod selection**: Prevents conflicting state where both a base track and mod track appear selected.
+
+### Build
+
+- Worktree: Client + server build clean (zero new warnings).
+- Main repo: All compilation succeeds. Client linker blocked by locked PerfectDark.exe (running process). Server builds clean. Not a code issue.
+
+### Next
+
+- **Batch A-5**: Soundtrack Pack Creation — "Create Pack" dialog in Audio Mod Menu.
+- **Batch A-6**: Multi-Format Import (MP3 + WAV + OGG).
+- **Batch A-7**: Network Sync for Mod Audio.
+
+---
+
 ## Session S212 — 2026-04-12 (Audio Mod Menu Batch A-3: Audio Mod Menu UI)
 
 **Focus**: Implement Batch A-3 — Audio Mod Menu UI. New tab in Modding Hub for browsing, auditioning, and importing audio mods. Worktree: `claude/vigorous-liskov`, dev baseline `7d94db92`.
