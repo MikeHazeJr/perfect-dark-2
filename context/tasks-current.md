@@ -165,8 +165,8 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | Batch | Scope | Status | Detail |
 |-------|-------|--------|--------|
 | **A-1** | Catalog Audio Extension | **DONE** (2026-04-12) | 43 base music tracks registered as ASSET_AUDIO/AUDIO_CAT_MUSIC. `catalog_audio_result_t` + `catalogResolveAudio()` added. 125 lines across 3 files. |
-| **A-2** | Mod Music Stream | NEXT | `modmusic.c` — WAV loading, PCM playback, mixing into audioEndFrame |
-| **A-3** | Audio Mod Menu UI | PENDING | New tab in Modding Hub — browse/audition/import audio mods |
+| **A-2** | Mod Music Stream | **DONE** (2026-04-12) | `modmusic.c` (254 lines) + `modmusic.h` (52 lines) — WAV loading, PCM playback, volume, mixing into audioEndFrame via writable copy buffer. `audio.c` +21 lines. Both builds pass. |
+| **A-3** | Audio Mod Menu UI | NEXT | New tab in Modding Hub — browse/audition/import audio mods |
 | **A-4** | Soundtrack Menu Extension | PENDING | Mod tracks in renderSelectTunes, pd.ini persistence |
 | **A-5** | Soundtrack Pack Creation | PENDING | Multi-track pack creation dialog |
 | **A-6** | Multi-Format Import | PENDING | MP3 + WAV + OGG via stb_vorbis + minimp3 |
