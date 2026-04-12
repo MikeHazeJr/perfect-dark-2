@@ -3,6 +3,38 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S221 — 2026-04-12 (9-Issue Playtest Fix Batch)
+
+**Focus**: Mike's v0.0.83 playtest surfaced 9 issues; all nine fixed in one worktree batch.
+
+### Changes (5 files, +204/-225 lines)
+
+1. **Issue 1: Settings Z-order** — Settings content rendered behind PD dialog chrome. Wrapped `renderSettingsView` in a constraining `BeginChild` in the main menu path (line 2713). The CI redirect path already had this wrapper (line 3080) but the main menu was missing it.
+
+2. **Issue 2: Cheats as top-level tab** — Removed the Cheats button from inside `renderSettingsView()`. Added "Cheats" as a top-level button in the main menu hub alongside Solo Play, Settings, etc.
+
+3. **Issue 3: Default controller bindings** — Added LSTICK_UP/DOWN/LEFT/RIGHT to movement actions for rebind UI display. Modified WASD→axis synthesis to skip when analog stick already provides values (prevents digital snap overriding smooth analog). C-buttons remapped to right stick. D-Pad Up/Right explicitly mapped. Fire Mode bound to DPAD_RIGHT.
+
+4. **Issue 4: Themes empty in Debug tab** — `pdguiThemeLoaderInit()` was NEVER CALLED. Added the call in `pdguiInit()` after `pdguiThemeInit()`. Now 7 built-in themes + mod themes appear.
+
+5. **Issue 5: Catalog missing music** — `AUDIOMOD_MAX_ENTRIES` was 512 but 1545 SFX entries overflow the buffer before 43 music tracks load. Increased to 2048.
+
+6. **Issue 6: Cheats tab snap-back** — `ImGuiTabItemFlags_SetSelected` was set on EVERY frame for `s_CheatsTab`. Now only set on the frame after a programmatic change (redirect or bumper press).
+
+7. **Issues 7+8: Audio mod restructure** — Complete layout rewrite: TOP=Pack Creator, MIDDLE=Export Track (music list + play/export), BOTTOM=Import Audio. Removed raw catalog browser. Fixed text/input overlap by proper layout ordering.
+
+8. **Issue 9: Import copy failure** — `copyFile()` used bare `fopen()` with relative paths. Now resolves destination through `fsFullPath()`. Added logging for source/dest paths.
+
+### Build Verification
+- All 5 files pass `-fsyntax-only` compilation (GCC 13, MinGW)
+- Full link build requires Mike's PowerShell environment (temp file permissions issue)
+- Merged worktree to dev via `--no-ff`. Line counts verified: all 5 files match.
+
+### Stick Input Design Note
+Analog stick movement uses `SDL_GameControllerGetAxis` → `applyDeadzone()` → smooth float. The deadzone function normalizes: deadzone-to-1.0 range is linearly mapped to 0.0-1.0. LSTICK direction VKs are bound for display only; the WASD synthesis guard prevents them from overriding smooth analog values.
+
+---
+
 ## Session S220 — 2026-04-12 (B-133: Inline Vp GBI Crash Fix)
 
 **Focus**: Fatal crash "Unknown GBI opcode 0x1ff02" when character preview renders.
