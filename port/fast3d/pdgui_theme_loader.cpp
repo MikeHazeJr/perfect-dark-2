@@ -149,6 +149,9 @@ struct theme_entry {
     char name[THEME_NAME_LEN];
     char filepath[THEME_FILEPATH_LEN]; /* empty for built-in */
     s32  palette_index;                /* 0-6 for built-in, -1 for JSON */
+    s32  enabled;                      /* 1=available in selector, 0=disabled */
+    s32  first_sight;                  /* transient: 1 if just discovered this session */
+    char cfg_enabled_key[96];          /* pd.ini key for enabled persistence */
 };
 
 static struct theme_entry s_Themes[THEME_MAX_REGISTERED];
@@ -156,6 +159,11 @@ static s32 s_ThemeCount = 0;
 static char s_ActiveThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
 static char s_CfgThemeId[THEME_CATALOG_ID_LEN] = THEME_DEFAULT_ID;
 static s32 s_LoaderInitDone = 0;
+
+/* Comma-separated list of mod theme slugs seen in prior sessions.
+ * Used to detect first-sight themes for default-enabled auto-apply. */
+static char s_SeenModThemes[2048] = "";
+#define THEME_SEEN_KEY "Theme.SeenMods"
 
 /* =========================================================================
  * Minimal JSON tokenizer (mirrors modmgr.c approach, C++ compatible)
@@ -867,6 +875,39 @@ static const u32 k_BuiltinGlowColors[7] = {
 };
 
 /* =========================================================================
+ * Seen-mods helpers (first-sight detection for default-enabled policy)
+ * ========================================================================= */
+
+static bool theme_slug_is_seen(const char *slug)
+{
+    if (!slug || !slug[0] || !s_SeenModThemes[0]) return false;
+    size_t slen = strlen(slug);
+    const char *p = s_SeenModThemes;
+    while (*p) {
+        if (strncmp(p, slug, slen) == 0 && (p[slen] == ',' || p[slen] == '\0'))
+            return true;
+        p = strchr(p, ',');
+        if (!p) break;
+        p++;
+    }
+    return false;
+}
+
+static void theme_mark_slug_seen(const char *slug)
+{
+    if (!slug || !slug[0]) return;
+    if (theme_slug_is_seen(slug)) return;
+    size_t cur = strlen(s_SeenModThemes);
+    size_t slen = strlen(slug);
+    if (cur > 0 && cur + 1 + slen < sizeof(s_SeenModThemes)) {
+        s_SeenModThemes[cur] = ',';
+        memcpy(s_SeenModThemes + cur + 1, slug, slen + 1);
+    } else if (cur == 0 && slen < sizeof(s_SeenModThemes)) {
+        memcpy(s_SeenModThemes, slug, slen + 1);
+    }
+}
+
+/* =========================================================================
  * Registry helpers
  * ========================================================================= */
 
@@ -888,6 +929,9 @@ static struct theme_entry *add_entry(const char *catalog_id, const char *name,
     snprintf(e->name, sizeof(e->name), "%s", name);
     snprintf(e->filepath, sizeof(e->filepath), "%s", filepath ? filepath : "");
     e->palette_index = palette_index;
+    e->enabled = 1;       /* default-enabled policy */
+    e->first_sight = 0;
+    e->cfg_enabled_key[0] = '\0';
     return e;
 }
 
@@ -1009,10 +1053,27 @@ static void register_mod_theme_dir(const char *mods_dir, const char *slug)
     /* palette_index = -1 means "JSON-based, not a built-in palette".
      * pdguiThemeLoadFromCatalog() checks pdguiThemeIdToPaletteIndex first,
      * falls through to find_entry + filepath load for non-builtin IDs. */
-    if (add_entry(catalog_id, display_name, theme_path, -1)) {
+    struct theme_entry *e = add_entry(catalog_id, display_name, theme_path, -1);
+    if (e) {
+        /* Default-enabled policy: persist enabled flag in pd.ini.
+         * Key format: Theme.Enable.<slug>  (slug is the mod directory name).
+         * First registration defaults to enabled=1; subsequent sessions
+         * respect the stored value (user may have toggled off). */
+        snprintf(e->cfg_enabled_key, sizeof(e->cfg_enabled_key),
+                 "Theme.Enable.%s", slug);
+        e->enabled = 1;
+        configRegisterInt(e->cfg_enabled_key, &e->enabled, 0, 1);
+
+        /* First-sight detection: if this slug wasn't in the seen list
+         * from a prior session, it's brand new — auto-apply later. */
+        e->first_sight = !theme_slug_is_seen(slug);
+        if (e->first_sight) {
+            theme_mark_slug_seen(slug);
+        }
+
         sysLogPrintf(LOG_NOTE,
-            "PDGUI theme loader: registered mod theme '%s' (\"%s\") from %s",
-            catalog_id, display_name, theme_path);
+            "PDGUI theme loader: registered mod theme '%s' (\"%s\") from %s [enabled=%d, first_sight=%d]",
+            catalog_id, display_name, theme_path, e->enabled, e->first_sight);
     }
 }
 
@@ -1068,8 +1129,9 @@ void pdguiThemeLoaderInit(void)
     if (s_LoaderInitDone) return;
     s_LoaderInitDone = 1;
 
-    /* Register pd.ini config var for active theme */
+    /* Register pd.ini config vars for active theme + seen-mods tracking */
     configRegisterString(THEME_CFG_KEY, s_CfgThemeId, sizeof(s_CfgThemeId));
+    configRegisterString(THEME_SEEN_KEY, s_SeenModThemes, sizeof(s_SeenModThemes));
 
     /* If config had a saved theme, use it */
     if (s_CfgThemeId[0]) {
@@ -1097,7 +1159,22 @@ void pdguiThemeLoaderInit(void)
         "PDGUI theme loader: init — %d themes registered (built-in + mods), active='%s'",
         s_ThemeCount, s_ActiveThemeId);
 
-    /* Apply the configured theme */
+    /* Default-enabled policy: auto-apply the first newly-detected mod theme.
+     * "First-sight" means this slug was not in Theme.SeenMods from a prior
+     * session.  Only one theme auto-applies per init (the first found). */
+    for (s32 i = 0; i < s_ThemeCount; i++) {
+        if (s_Themes[i].palette_index < 0 && s_Themes[i].first_sight
+            && s_Themes[i].enabled) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI theme loader: auto-applying first-sight theme '%s'",
+                s_Themes[i].catalog_id);
+            pdguiThemeLoadFromCatalog(s_Themes[i].catalog_id);
+            configSave("pd.ini");
+            break;
+        }
+    }
+
+    /* Apply the configured theme (if no first-sight override happened) */
     s32 palIdx = pdguiThemeIdToPaletteIndex(s_ActiveThemeId);
     if (palIdx >= 0) {
         pdguiThemeSetPalette(palIdx);
@@ -1248,6 +1325,31 @@ s32 pdguiThemeIdToPaletteIndex(const char *catalog_id)
             return i;
     }
     return -1;
+}
+
+/* -----------------------------------------------------------------------
+ * Per-theme enabled flag (default-enabled policy, 2026-04-13)
+ * --------------------------------------------------------------------- */
+
+s32 pdguiThemeIsEnabled(s32 index)
+{
+    if (index < 0 || index >= s_ThemeCount) return 0;
+    /* Built-in themes are always enabled */
+    if (s_Themes[index].palette_index >= 0) return 1;
+    return s_Themes[index].enabled;
+}
+
+void pdguiThemeSetEnabled(s32 index, s32 enabled)
+{
+    if (index < 0 || index >= s_ThemeCount) return;
+    /* Built-in themes cannot be disabled */
+    if (s_Themes[index].palette_index >= 0) return;
+    s_Themes[index].enabled = enabled ? 1 : 0;
+    /* If disabling the currently-active theme, revert to default */
+    if (!enabled && strcmp(s_Themes[index].catalog_id, s_ActiveThemeId) == 0) {
+        pdguiThemeLoadFromCatalog(THEME_DEFAULT_ID);
+    }
+    configSave("pd.ini");
 }
 
 /* 2026-04-11: register a single mod theme at runtime so the Save-as-Mod

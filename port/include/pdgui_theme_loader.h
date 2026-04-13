@@ -103,6 +103,17 @@ const char *pdguiThemeGetName(s32 index);
  *  Returns "base:theme_blue" as default. */
 const char *pdguiThemeGetActiveId(void);
 
+/** Check if the Nth registered theme is enabled.
+ *  Built-in themes are always enabled.  Mod themes default to enabled
+ *  on first detection; user can toggle off via pdguiThemeSetEnabled().
+ *  Returns 1 if enabled, 0 if disabled or out of range. */
+s32 pdguiThemeIsEnabled(s32 index);
+
+/** Set the enabled flag for a mod theme (no-op for built-in themes).
+ *  If disabling the currently active theme, reverts to default.
+ *  Persists to pd.ini immediately. */
+void pdguiThemeSetEnabled(s32 index, s32 enabled);
+
 /* -----------------------------------------------------------------------
  * Built-in palette index ↔ catalog ID mapping
  * --------------------------------------------------------------------- */
