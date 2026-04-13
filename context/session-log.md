@@ -3,6 +3,37 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S239 — 2026-04-13 (L2 Universal Spawn Pool: L1-L4 Chain)
+
+**Focus**: Implement the L1-L4 spawn system fallback chain from the spawn architecture design doc. Raycast-budget validation at all tiers.
+
+### Changes (4 files, +996/-58 lines)
+
+1. **`src/game/spawnpool.c`** (NEW, 820 lines): Core spawn pool system.
+   - Deterministic xorshift32 PRNG seeded from `hash(stage_id) ^ match_seed`
+   - `spawnPoolComputeAABB()`: stage bounding box from `g_Rooms[].bbmin/bbmax`
+   - `spawnPoolRaycastBudget()`: 14-ray validation (6 cardinal + 8 diagonal), backface rejection, distance-sum threshold
+   - `spawnPoolValidateCandidate()`: ground clearance + vertical clearance + room validity + pos-in-room + min spacing + raycast budget
+   - L1: declared INTROCMD_SPAWN pads, validated and filtered
+   - L2: waypoint/navmesh sampling with deterministic RNG, validation
+   - L3: AABB grid raycast (row-major, oversample 4x, deterministic)
+   - L4: centroid + radial dilation (8 dilations, 1.5x per step), last-resort accepts highest-budget candidates
+
+2. **`src/include/game/spawnpool.h`** (NEW, 109 lines): Types (`spawn_point_t`, `spawn_pool_t`, `spawn_aabb_t`) and public API.
+
+3. **`src/game/player.c`**: `g_SpawnPoints[24]` expanded to `g_SpawnPoints[MAX_MPCHRS]` (40). Zero-pad fallback in `playerChooseSpawnLocation` now uses pool positions when `spawnPoolIsReady()`.
+
+4. **`src/game/playerreset.c`**: `spawnPoolBuildGlobal()` called after INTROCMD_SPAWN + existing waypoint/pad fallback pass. Runs for MP and networked matches.
+
+### Build Verification
+- pd: 690 objects, linked clean
+- pd-server: 59 objects, linked clean
+
+### Merge
+- `--no-ff` to dev, post-merge line counts verified
+
+---
+
 ## Session S238 — 2026-04-13 (Menu & Input Consistency: F-1.1, F-1.2, F-2.1)
 
 **Focus**: Master Orchestration Plan Layer 1-2 menu consistency + Layer 2 feature (arena list).

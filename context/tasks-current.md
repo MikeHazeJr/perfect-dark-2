@@ -17,6 +17,17 @@
 ---
 
 
+## Spawn System (L2 Architecture)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **L2 spawn pool: L1-L4 chain** | DONE (S239) | `spawnpool.c/h`: raycast-budget validator + L1 declared + L2 waypoint + L3 grid + L4 radial. Deterministic from (stage_id, match_seed). Guarantees >= N+M spawn points on any map. `g_SpawnPoints` expanded 24->40. |
+| **match_seed via SVC_STAGE_START** | PENDING | Currently using `stagenum ^ 0x12345678`. Need server-generated seed distributed via SVC_STAGE_START for true cross-client determinism. |
+| **B-19 resolution** | IMPROVED (S239) | Bot spawn stacking partially addressed -- L1-L4 chain provides validated spread-out spawns. Full B-19 fix requires match_seed + spawnPoolSelect() for initial placement. |
+| **Smoke test: all base + mod maps** | PENDING | Run pool build on all 14 MP arenas + GEX/Kakariko/DarkNoon stages. Verify max_layer_used <= 2 for base maps, log any L3/L4 activations. |
+
+---
+
 ## v0.1.0 "Foundation" Release Prep
 
 ### Input System
