@@ -1,5 +1,0 @@
-Cannot create temporary file in C:\WINDOWS\: Permission denied
-make[2]: *** [CMakeFiles/logview.dir/build.make:80: CMakeFiles/logview.dir/tools/logview.c.obj] Error 3
-make[1]: *** [CMakeFiles/Makefile2:192: CMakeFiles/logview.dir/all] Error 2
-make[1]: *** Waiting for unfinished jobs....
-make: *** [Makefile:91: all] Error 2
