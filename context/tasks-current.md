@@ -16,24 +16,6 @@
 
 ---
 
-## Master Orchestration Plan — Layer 0 Progress (2026-04-13)
-
-> Plan doc: `context/designs/master-orchestration-plan-2026-04-13.md`. Items run in parallel across worktrees.
-
-| ID | Title | Status | Notes |
-|----|-------|--------|-------|
-| **L0-BUILD** | Warm-ccache sloppiness tweak | DONE (S231) | `CCACHE_SLOPPINESS=pch_defines,time_macros` set |
-| **L0-LINK** | pdguiThemeRegisterModDir server link | OPEN (S223 pre-existing) | Needs stub or header export |
-| **FIX-A** | Chr tick isolation + lifetime hardening | OPEN | chr.c / chraction.c / crash.c / participant.c |
-| **F-0.1** | Campaign language-bank shadow fix | DONE (S233 worktree) | pdgui_menu_solomission.cpp |
-| **F-0.2** | Context leak in training menu | DONE (S233 worktree) | pdgui_menu_training.cpp |
-| **F-0.4** | Stale manifest on return-to-room | DONE (S233 worktree) | pdmain.c |
-| **L1-1** | Clear g_ClientManifest on match end | **DONE (S233)** | `manifestClear(&g_ClientManifest)` after `sessionCatalogTeardown()` in `netmsg.c:~1391` |
-| **FIX-B.2** | Graceful fallback for missing models | **DONE (S233)** | NULL guard in `setupLoadModeldef` (setuputils.c:172-184); `sysLogPrintf(WARNING)` + return false instead of crashing on NULL modeldef |
-| **CLOSE** | Close B-72, B-21 in bugs.md | **DONE (S233)** | B-72 CLOSED (v27 refactor confirmed). B-21 CLOSED-TENTATIVE (S124+S208 two-layer fix). |
-| **F-0.3** | Context leak in game-over panels | OPEN | pdgui_menu_pausemenu.cpp |
-
----
 
 ## v0.1.0 "Foundation" Release Prep
 
@@ -241,9 +223,9 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **F-0.3** | Game-over panels push-without-pop | RESOLVED | S233 | Dead code (`#if 0`); endscreen.cpp handles correctly |
 | **F-0.4** | Stale manifest on return-to-room | DONE | S233 | `manifestClear` added to `pdguiEndscreenExitToMainMenu()` (Option A) |
 | **FIX-A** | Chr tick isolation + lifetime hardening | **DONE** | S234 | All 4 sub-items: A.1 stack depth cap, A.2 generation tokens, A.3 crash handler hardening, A.4 stack watermark. Both targets build clean. Awaiting 31-bot playtest. |
-| **L1-1** | Clear g_ClientManifest on match end | PENDING | — | `netmsg.c` SVC_STAGE_END handler |
-| **FIX-B.2** | Graceful fallback for missing models | PENDING | — | `setup.c` / model loader |
-| **CLOSE** | Close B-72, B-21 in bugs.md | PENDING | — | |
+| **L1-1** | Clear g_ClientManifest on match end | **DONE** | S235 | `manifestClear(&g_ClientManifest)` after `sessionCatalogTeardown()` in `netmsg.c:~1391`. Prevents stale match-N assets leaking into match N+1. |
+| **FIX-B.2** | Graceful fallback for missing models | **DONE** | S235 | NULL guard in `setupLoadModeldef` (setuputils.c); `LOG_WARNING` + return false on NULL modeldef. Converts hard crash → missing prop. |
+| **CLOSE** | Close B-72, B-21 in bugs.md | **DONE** | S235 | B-72 CLOSED (v27 refactor). B-21 CLOSED-TENTATIVE (S124+S208 two-layer fix; confirm next playtest). |
 
 ---
 
