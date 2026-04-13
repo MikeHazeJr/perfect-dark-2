@@ -3,6 +3,28 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S222 — 2026-04-12 (3 Audio Mod Playtest Fixes)
+
+**Focus**: Three audio mod issues from Mike's playtest — MP3 playback failure, missing import feedback, no music selection in room menu.
+
+### Changes (3 files, +55/-8 lines)
+
+1. **Issue 1: MP3 playback path resolution** — `modMusicPlay()` received relative paths like `mods/memory-remains/The Memory Remains.mp3` but the format-specific loaders (`modmusic_loadMp3`, `SDL_LoadWAV`, `stb_vorbis_decode_filename`) all use raw `fopen()` which fails when the game's CWD doesn't match the data directory. Fixed by resolving relative paths through `fsFullPath()` before passing to loaders. Result copied to stack buffer since `fsFullPath()` returns a static pointer.
+
+2. **Issue 2: Import success feedback** — Added timed green flash effect (4s duration) on the status bar when audio import or pack creation succeeds. The status message pulses with a green highlight background that fades smoothly, making success clearly visible.
+
+3. **Issue 3: Music selection in room menu** — Added "Select Music..." button in Combat Sim tab alongside Player Handicaps and Team Setup. Opens the existing Select Tunes dialog (`g_MpSelectTunesMenuDialog`) which has the playlist/shuffle system. Not leader-gated since music is a personal preference.
+
+### Build Verification
+- Merged worktree `claude/happy-noyce` to `dev` via `--no-ff` (two merges: main fix + static buffer safety)
+- Line counts verified: all 3 files match between worktree and main repo (4279 total)
+- Full build pending
+
+### Key Insight
+The MP3 decoder was already fully implemented in modmusic.c (minimp3 integration, frame-by-frame decode, SDL_AudioCVT resampling). The failure was purely a path resolution issue — `fopen("mods/memory-remains/The Memory Remains.mp3", "rb")` fails because the game's CWD is not the data directory. All audio format loaders (WAV, MP3, OGG) benefit from this fix.
+
+---
+
 ## Session S221 — 2026-04-12 (9-Issue Playtest Fix Batch)
 
 **Focus**: Mike's v0.0.83 playtest surfaced 9 issues; all nine fixed in one worktree batch.
