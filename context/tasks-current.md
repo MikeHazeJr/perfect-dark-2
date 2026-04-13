@@ -15,6 +15,25 @@
 
 ---
 
+## Master Orchestration Plan — Layer 0 Progress (2026-04-13)
+
+> Plan doc: `context/designs/master-orchestration-plan-2026-04-13.md`. Items run in parallel across worktrees.
+
+| ID | Title | Status | Notes |
+|----|-------|--------|-------|
+| **L0-BUILD** | Warm-ccache sloppiness tweak | DONE (S231) | `CCACHE_SLOPPINESS=pch_defines,time_macros` set |
+| **L0-LINK** | pdguiThemeRegisterModDir server link | OPEN (S223 pre-existing) | Needs stub or header export |
+| **FIX-A** | Chr tick isolation + lifetime hardening | OPEN | chr.c / chraction.c / crash.c / participant.c |
+| **F-0.1** | Campaign language-bank shadow fix | DONE (S233 worktree) | pdgui_menu_solomission.cpp |
+| **F-0.2** | Context leak in training menu | DONE (S233 worktree) | pdgui_menu_training.cpp |
+| **F-0.4** | Stale manifest on return-to-room | DONE (S233 worktree) | pdmain.c |
+| **L1-1** | Clear g_ClientManifest on match end | **DONE (S233)** | `manifestClear(&g_ClientManifest)` after `sessionCatalogTeardown()` in `netmsg.c:~1391` |
+| **FIX-B.2** | Graceful fallback for missing models | **DONE (S233)** | NULL guard in `setupLoadModeldef` (setuputils.c:172-184); `sysLogPrintf(WARNING)` + return false instead of crashing on NULL modeldef |
+| **CLOSE** | Close B-72, B-21 in bugs.md | **DONE (S233)** | B-72 CLOSED (v27 refactor confirmed). B-21 CLOSED-TENTATIVE (S124+S208 two-layer fix). |
+| **F-0.3** | Context leak in game-over panels | OPEN | pdgui_menu_pausemenu.cpp |
+
+---
+
 ## v0.1.0 "Foundation" Release Prep
 
 ### Input System
@@ -152,7 +171,7 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | Bug | Description | File |
 |-----|-------------|------|
 | **B-60** | Stray 'g'+'s' behind Video/Audio tabs | pdgui_menu_mainmenu.cpp |
-| **B-72** | SVC_LOBBY_STATE raw stagenum (display-only) | netmsg.c |
+| ~~**B-72**~~ | ~~SVC_LOBBY_STATE raw stagenum (display-only)~~ | **CLOSED 2026-04-13** — confirmed fixed by v27 refactor (netmsgSvcLobbyStateWrite uses string ID + assetCatalogResolve) |
 | **B-95** | Update banner persists during gameplay | pdgui_menu_update.cpp |
 | **B-97** | Special Assignments not separated from missions | pdgui_menu_solomission.cpp |
 | JUMP_LANDING log spam | Every frame during pause logs ground clamp | movement |

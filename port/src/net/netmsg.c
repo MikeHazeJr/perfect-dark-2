@@ -1390,6 +1390,12 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 	/* SA-1: tear down session catalog on match end (client-side). */
 	sessionCatalogTeardown();
 
+	/* L1-1: clear stale client manifest so no match-N assets leak into match N+1.
+	 * The manifest is fully rebuilt when SVC_MATCH_MANIFEST arrives for the next
+	 * match.  Without this, any code path that triggers mainChangeToStage() between
+	 * matches could load the wrong assets from the previous manifest. */
+	manifestClear(&g_ClientManifest);
+
 	/* Bot authority relinquished at match end — next match will re-assign */
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;

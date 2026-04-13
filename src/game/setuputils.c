@@ -14,6 +14,7 @@
 #include "platform.h"
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
+#include "system.h"
 
 struct stagesetup g_StageSetup;
 u8 *g_GeCreditsData;
@@ -172,6 +173,22 @@ bool setupLoadModeldef(s32 modelnum)
 	if (g_ModelStates[modelnum].modeldef == NULL) {
 		fileid = catalogGetPropFilenumByIndex(modelnum); /* SA-5c */
 		g_ModelStates[modelnum].modeldef = modeldefLoadToNew((u16)fileid);
+
+		/* FIX-B.2: graceful fallback for missing prop/weapon models.
+		 * modeldefLoadToNew() returns NULL when the file is absent from ROM
+		 * data (e.g., a mod asset not present in the manifest, or a catalog
+		 * gap).  Calling modelAllocateRwData(NULL) would immediately crash
+		 * at modeldef->rwdatalen.  Instead, log a warning and return false
+		 * so the caller skips entity initialisation for this modelnum.
+		 * This converts a hard crash into a missing prop — visually wrong
+		 * but diagnosable. */
+		if (g_ModelStates[modelnum].modeldef == NULL) {
+			sysLogPrintf(LOG_WARNING, "FIX-B.2: modelnum %d (fileid=0x%04x, id=%s) failed to load — entity skipped",
+				modelnum, (unsigned)fileid,
+				model_id ? model_id : "<unknown>");
+			return false;
+		}
+
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
 		return true;
 	}
