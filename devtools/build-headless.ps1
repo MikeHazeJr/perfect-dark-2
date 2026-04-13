@@ -98,6 +98,11 @@ if (-not (Test-Path $goodTemp)) { $goodTemp = "C:\Users\mikeh\AppData\Local\Temp
 $env:TEMP = $goodTemp
 $env:TMP  = $goodTemp
 
+# ccache sloppiness: allow PCH timestamp variation so TUs that include a PCH
+# are still cacheable. Without this, target_precompile_headers causes 78% of
+# TUs to be marked uncacheable and warm builds regress from ~9s to ~31s.
+$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
+
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
 
