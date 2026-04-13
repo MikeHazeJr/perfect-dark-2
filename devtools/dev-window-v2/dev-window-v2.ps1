@@ -303,13 +303,13 @@ function Auto-Commit-Sync {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Perfect Dark 2 - Dev Window v2"
+        Title="Perfect Dark 2  |  Dev Window v2"
         MinWidth="700" MinHeight="500"
-        Background="#1E1E1E"
+        Background="#141820"
         WindowStartupLocation="CenterScreen"
         TextElement.FontFamily="Segoe UI"
-        TextElement.FontSize="13.33"
-        TextElement.Foreground="#DCDCDC">
+        TextElement.FontSize="13"
+        TextElement.Foreground="#C8D0DC">
     <Window.Resources>
         <Style x:Key="AccentBtn" TargetType="Button">
             <Setter Property="Background" Value="#0090D0"/>
@@ -450,19 +450,50 @@ function Auto-Commit-Sync {
     </Window.Resources>
 
     <DockPanel>
-        <!-- Status Bar -->
-        <Border DockPanel.Dock="Bottom" Background="#252530" Padding="8,4">
+        <!-- Header Brand Bar -->
+        <Border DockPanel.Dock="Top" Background="#0C1220" BorderBrush="#0A2040" BorderThickness="0,0,0,1" Padding="14,7">
             <DockPanel>
-                <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0" Margin="0,0,16,0"/>
-                <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#8C8C8C" Margin="0,0,16,0"/>
-                <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400" Margin="0,0,16,0"/>
-                <TextBlock x:Name="StatusAuth" Text="auth: --" Foreground="#8C8C8C" Margin="0,0,16,0"/>
-                <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#DAA520" HorizontalAlignment="Right"/>
+                <TextBlock DockPanel.Dock="Right"
+                           Text="Ctrl+B=Build    Ctrl+R=Release    Ctrl+L=Log    Ctrl+G=Game"
+                           Foreground="#1E3050" FontSize="10" FontFamily="Consolas"
+                           VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#0090D0" CornerRadius="2" Padding="7,2" Margin="0,0,10,0">
+                        <TextBlock Text="PD2" FontSize="13" FontWeight="Black" Foreground="White"
+                                   FontFamily="Consolas"/>
+                    </Border>
+                    <TextBlock Text="Dev Window" FontSize="13" Foreground="#6878A0"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text=" v2" FontSize="13" Foreground="#0090D0"
+                               FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" Background="#0A0F1A" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="10,5">
+            <DockPanel>
+                <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#C8A000"
+                           FontFamily="Consolas" FontSize="11" FontWeight="SemiBold"
+                           DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                <Rectangle Width="1" Fill="#162030" Margin="12,0" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="StatusAuth" Text="auth: --" Foreground="#506070"
+                           FontFamily="Consolas" FontSize="11"
+                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
+                <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0"
+                           FontFamily="Consolas" FontSize="11" Margin="0,0,12,0"/>
+                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
+                <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#3A5070"
+                           FontFamily="Consolas" FontSize="11" Margin="0,0,12,0"/>
+                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
+                <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
+                           FontFamily="Consolas" FontSize="11"/>
             </DockPanel>
         </Border>
 
         <!-- Bottom Bar: Run Server + Run Game -->
-        <Border DockPanel.Dock="Bottom" Background="#1E1E1E" Padding="4">
+        <Border DockPanel.Dock="Bottom" Background="#0C1018" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -477,29 +508,31 @@ function Auto-Commit-Sync {
         </Border>
 
         <!-- Tab Control -->
-        <TabControl x:Name="TabControl" Background="#1E1E1E" BorderThickness="0" Padding="0">
+        <TabControl x:Name="TabControl" Background="#141820" BorderThickness="0" Padding="0">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
-                    <Setter Property="Background" Value="#282828"/>
-                    <Setter Property="Foreground" Value="#8C8C8C"/>
-                    <Setter Property="Padding" Value="16,6"/>
+                    <Setter Property="Background" Value="#141820"/>
+                    <Setter Property="Foreground" Value="#44586C"/>
+                    <Setter Property="Padding" Value="20,9"/>
                     <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="TabItem">
                                 <Border x:Name="tabBorder" Background="{TemplateBinding Background}"
-                                        Padding="{TemplateBinding Padding}" Margin="0,0,1,0"
+                                        Padding="{TemplateBinding Padding}" Margin="0,0,0,0"
                                         BorderBrush="Transparent" BorderThickness="0,0,0,2">
                                     <ContentPresenter ContentSource="Header"/>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="tabBorder" Property="Background" Value="#1E1E1E"/>
+                                        <Setter TargetName="tabBorder" Property="Background" Value="#141820"/>
                                         <Setter TargetName="tabBorder" Property="BorderBrush" Value="#0090D0"/>
-                                        <Setter Property="Foreground" Value="#DCDCDC"/>
+                                        <Setter Property="Foreground" Value="#D0DCF0"/>
                                     </Trigger>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="tabBorder" Property="Background" Value="#323232"/>
+                                        <Setter TargetName="tabBorder" Property="Background" Value="#1A2030"/>
+                                        <Setter Property="Foreground" Value="#7090B0"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -509,23 +542,23 @@ function Auto-Commit-Sync {
             </TabControl.Resources>
 
             <!-- BUILD TAB -->
-            <TabItem Header="Build">
-                <DockPanel Margin="8">
+            <TabItem Header="BUILD">
+                <DockPanel Margin="10">
                     <!-- Hero Buttons Row -->
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="BtnBuild" Style="{StaticResource GreenBtn}"
-                                FontSize="20" FontWeight="Bold" Padding="16,28" Grid.Column="0">
-                            <TextBlock Text="BUILD" FontSize="20" FontWeight="Bold"/>
+                                FontSize="20" FontWeight="Black" MinHeight="82" Padding="16,0" Grid.Column="0">
+                            <TextBlock Text="BUILD" FontSize="20" FontWeight="Black" FontFamily="Consolas"/>
                         </Button>
                         <Button x:Name="BtnRelease" Style="{StaticResource GoldBtn}"
-                                FontSize="16" FontWeight="Bold" Padding="16,20" Grid.Column="2">
+                                FontSize="14" FontWeight="Bold" MinHeight="82" Padding="16,0" Grid.Column="2">
                             <TextBlock x:Name="TxtRelease" Text="RELEASE" TextAlignment="Center"
-                                       FontSize="16" FontWeight="Bold"/>
+                                       FontSize="14" FontWeight="Bold" LineHeight="18"/>
                         </Button>
                     </Grid>
 
@@ -533,91 +566,109 @@ function Auto-Commit-Sync {
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="252"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Left: Build Status -->
-                        <StackPanel Grid.Column="0">
-                            <TextBlock x:Name="LblClientStatus" Text="client: --" Foreground="#8C8C8C" Margin="0,2"/>
-                            <TextBlock x:Name="LblServerStatus" Text="server: --" Foreground="#8C8C8C" Margin="0,2"/>
-                            <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#8C8C8C" Margin="0,4,0,2"/>
+                        <!-- Left: Build Status (card panel) -->
+                        <Border Grid.Column="0" Background="#0E1420" CornerRadius="4"
+                                BorderBrush="#162438" BorderThickness="1" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock x:Name="LblClientStatus" Text="client: --"
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="11" Margin="0,0,0,3"/>
+                                <TextBlock x:Name="LblServerStatus" Text="server: --"
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6"/>
+                                <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#506880"
+                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
 
-                            <!-- Progress Bar -->
-                            <Border x:Name="ProgressBack" Background="#323232" Height="18"
-                                    CornerRadius="2" Margin="0,2" Visibility="Collapsed">
-                                <Grid>
-                                    <Border x:Name="ProgressFill" Background="#00B400"
-                                            CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
-                                    <TextBlock x:Name="LblProgressText" Text="" Foreground="White"
-                                               FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Border>
+                                <!-- Progress Bar -->
+                                <Border x:Name="ProgressBack" Background="#0A1520" Height="16"
+                                        CornerRadius="3" Margin="0,2" Visibility="Collapsed"
+                                        BorderBrush="#1A3050" BorderThickness="1">
+                                    <Grid>
+                                        <Border x:Name="ProgressFill" Background="#0090D0"
+                                                CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
+                                        <TextBlock x:Name="LblProgressText" Text="" Foreground="White"
+                                                   FontFamily="Consolas" FontSize="10"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
 
-                            <!-- Action Buttons Row -->
-                            <StackPanel Orientation="Horizontal" Margin="0,4">
-                                <Button x:Name="BtnStop" Content="STOP" Style="{StaticResource RedBtn}"
-                                        Padding="12,4" Margin="0,0,4,0" Visibility="Collapsed"/>
-                                <Button x:Name="BtnCopyErrors" Content="Copy Errors" Style="{StaticResource ToolBtn}"
-                                        Margin="0,0,4,0" Visibility="Collapsed"/>
-                                <Button x:Name="BtnCopyLog" Content="Copy Log" Style="{StaticResource ToolBtn}"
-                                        Margin="0,0,4,0" Visibility="Collapsed"/>
-                                <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
-                                        ToolTip="Validate clean git state + run git-snapshot.sh"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- Right: Version + Auth -->
-                        <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                            <TextBlock Text="version:" Foreground="#8C8C8C" FontSize="11" Margin="0,0,0,2"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                <StackPanel Margin="0,0,8,0">
-                                    <TextBlock Text="major" Foreground="#8C8C8C" FontSize="9"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                        <TextBox x:Name="TxtVerMajor" Width="32" TextAlignment="Center"
-                                                 Background="#323232" Foreground="#DCDCDC" BorderBrush="#505050"
-                                                 FontFamily="Consolas" FontWeight="Bold" Padding="2"/>
-                                        <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                    </StackPanel>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0">
-                                    <TextBlock Text="minor" Foreground="#8C8C8C" FontSize="9"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                        <TextBox x:Name="TxtVerMinor" Width="32" TextAlignment="Center"
-                                                 Background="#323232" Foreground="#DCDCDC" BorderBrush="#505050"
-                                                 FontFamily="Consolas" FontWeight="Bold" Padding="2"/>
-                                        <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                    </StackPanel>
-                                </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="patch" Foreground="#8C8C8C" FontSize="9"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                        <TextBox x:Name="TxtVerPatch" Width="32" TextAlignment="Center"
-                                                 Background="#323232" Foreground="#DCDCDC" BorderBrush="#505050"
-                                                 FontFamily="Consolas" FontWeight="Bold" Padding="2"/>
-                                        <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                Padding="4,1" Width="22" FontFamily="Consolas"/>
-                                    </StackPanel>
+                                <!-- Action Buttons Row -->
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button x:Name="BtnStop" Content="STOP" Style="{StaticResource RedBtn}"
+                                            Padding="10,4" Margin="0,0,4,0" Visibility="Collapsed"/>
+                                    <Button x:Name="BtnCopyErrors" Content="Copy Errors" Style="{StaticResource ToolBtn}"
+                                            Margin="0,0,4,0" Visibility="Collapsed"/>
+                                    <Button x:Name="BtnCopyLog" Content="Copy Log" Style="{StaticResource ToolBtn}"
+                                            Margin="0,0,4,0" Visibility="Collapsed"/>
+                                    <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
+                                            ToolTip="Validate clean git state + run git-snapshot.sh"/>
                                 </StackPanel>
                             </StackPanel>
-                            <CheckBox x:Name="ChkStable" Content="Stable" Foreground="#DAA520"
-                                      FontWeight="SemiBold" Margin="0,2"/>
-                            <TextBlock x:Name="LblAuthStatus" Text="auth: --" Foreground="#8C8C8C"
-                                       Margin="0,4" Cursor="Hand"/>
-                            <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#8C8C8C" Margin="0,2"/>
-                            <TextBlock x:Name="LblDevVersion" Text="Dev Latest: --" Foreground="#508CDC" Margin="0,2"/>
-                        </StackPanel>
+                        </Border>
+
+                        <!-- Right: Version + Auth (card panel) -->
+                        <Border Grid.Column="2" Background="#0E1420" CornerRadius="4"
+                                BorderBrush="#162438" BorderThickness="1" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="9"
+                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,5"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Text="MAJ" Foreground="#2A4060" FontSize="9"
+                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerMajor" Width="30" TextAlignment="Center"
+                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                            <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Text="MIN" Foreground="#2A4060" FontSize="9"
+                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerMinor" Width="30" TextAlignment="Center"
+                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                            <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="PAT" Foreground="#2A4060" FontSize="9"
+                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerPatch" Width="30" TextAlignment="Center"
+                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                            <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
+                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                                <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
+                                          FontSize="11" FontWeight="SemiBold" Margin="0,2,0,6"/>
+                                <TextBlock x:Name="LblAuthStatus" Text="auth: --" Foreground="#44586C"
+                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,3" Cursor="Hand"/>
+                                <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
+                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,2"/>
+                                <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#3860A0"
+                                           FontFamily="Consolas" FontSize="11"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
 
                     <!-- Utility Buttons Row -->
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,0">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,2,0,0">
                         <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
@@ -626,19 +677,22 @@ function Auto-Commit-Sync {
             </TabItem>
 
             <!-- LOG TAB -->
-            <TabItem Header="Log">
-                <DockPanel Margin="8">
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+            <TabItem Header="LOG">
+                <DockPanel Margin="10">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                         <Button x:Name="BtnLogClear" Content="Clear" Style="{StaticResource ToolBtn}"
-                                DockPanel.Dock="Right" Margin="4,0,0,0"/>
-                        <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#8C8C8C"
-                                  IsChecked="True" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0"/>
-                        <TextBox x:Name="TxtLogFilter" Background="#323232" Foreground="#DCDCDC"
-                                 BorderBrush="#505050" Padding="4,2"
+                                DockPanel.Dock="Right" Margin="6,0,0,0"/>
+                        <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#44586C"
+                                  FontFamily="Consolas" FontSize="11"
+                                  IsChecked="True" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0"/>
+                        <TextBox x:Name="TxtLogFilter" Background="#0A1020" Foreground="#6888A8"
+                                 BorderBrush="#1A3050" Padding="6,3"
+                                 FontFamily="Consolas" FontSize="11"
                                  Tag="Filter..." FontStyle="Italic"/>
                     </DockPanel>
-                    <RichTextBox x:Name="LogOutput" Background="#141414" Foreground="#8C8C8C"
-                                 IsReadOnly="True" BorderThickness="0" FontFamily="Consolas"
+                    <RichTextBox x:Name="LogOutput" Background="#080D14" Foreground="#6888A8"
+                                 IsReadOnly="True" BorderThickness="1" BorderBrush="#0E1E30"
+                                 FontFamily="Consolas"
                                  FontSize="11" VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Auto">
                         <FlowDocument>
@@ -649,19 +703,20 @@ function Auto-Commit-Sync {
             </TabItem>
 
             <!-- DOCS TAB -->
-            <TabItem Header="Docs">
-                <Grid Margin="8">
+            <TabItem Header="DOCS">
+                <Grid Margin="10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="240"/>
-                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="6"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <ListBox x:Name="DocList" Grid.Column="0" Background="#1E1E1E" Foreground="#DCDCDC"
-                             BorderBrush="#3C3C3C" FontFamily="Consolas" FontSize="11"/>
-                    <GridSplitter Grid.Column="1" Width="4" Background="#3C3C3C" HorizontalAlignment="Stretch"/>
-                    <TextBox x:Name="DocContent" Grid.Column="2" Background="#141414" Foreground="#DCDCDC"
+                    <ListBox x:Name="DocList" Grid.Column="0" Background="#0E1420" Foreground="#6888A8"
+                             BorderBrush="#162438" BorderThickness="1"
+                             FontFamily="Consolas" FontSize="11"/>
+                    <GridSplitter Grid.Column="1" Width="6" Background="#0A1828" HorizontalAlignment="Stretch"/>
+                    <TextBox x:Name="DocContent" Grid.Column="2" Background="#080D14" Foreground="#A0B8D0"
                              IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto" BorderThickness="0"
+                             VerticalScrollBarVisibility="Auto" BorderThickness="1" BorderBrush="#0E1E30"
                              FontFamily="Consolas" FontSize="11"/>
                 </Grid>
             </TabItem>
@@ -979,16 +1034,20 @@ function Start-PushRelease {
     $ui["LblClientStatus"].Text = "client: building..."
 
     $script:BuildVersion = $ver
-    foreach ($s in (Get-BuildSteps $ver $true)) { [void]$script:BuildStepQueue.Add($s) }
+    foreach ($s in (Get-BuildSteps $ver $false)) { [void]$script:BuildStepQueue.Add($s) }
 
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
+    # -SkipBuild: dev-window-v2 already built both targets above; release.ps1 skips cmake step 0.
+    # -SkipPush:$false: always push to GitHub (not skipped).
     [void]$script:BuildStepQueue.Add(@{
-        Name   = "Release: push to GitHub"
+        Name   = "Release: packaging + GitHub push"
         Exe    = $psExe
         Target = "client"
-        Args   = "-ExecutionPolicy Bypass -File `"" + $releaseScript + "`" -Version `"" + $vs + "`"" + $prerelArg + " -SkipPush:$" + "false"
+        Args   = "-ExecutionPolicy Bypass -File `"" + $releaseScript + "`" -Version `"" + $vs + "`"" + $prerelArg + " -SkipBuild -SkipPush:`$false"
     })
+    # Auto-switch to Log tab so release output is visible (gh upload can take 30-60s silently)
+    $ui["TabControl"].SelectedIndex = 1
     $script:BuildTimer.Start()
 }
 
@@ -1134,6 +1193,13 @@ $script:BuildTimer.Add_Tick({
                     $ui["LblServerStatus"].Text = "server: building..."
                     $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
                 }
+                # When the release step starts, inject a banner in the log so output is traceable
+                if ($next.Name -match "Release") {
+                    Add-LogLine "" "#1A3050"
+                    Add-LogLine ">>> Release: packaging + GitHub push" "#0090D0"
+                    Add-LogLine "    gh upload may be quiet for 30-90s -- output arrives when GitHub responds" "#44586C"
+                    Add-LogLine "" "#1A3050"
+                }
                 Start-Build-Step $next
             } else {
                 $script:BuildTimer.Stop()
@@ -1178,7 +1244,11 @@ $script:BuildTimer.Add_Tick({
             $sil = [math]::Floor(([DateTime]::Now - $script:LastOutputTime).TotalSeconds)
             if ($sil -gt 2) {
                 $spin = $script:SpinnerChars[$script:SpinnerIndex % 4]; $script:SpinnerIndex++
-                $ui["LblBuildActivity"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s"
+                $hint = ""
+                if ($script:CurrentStepName -match "Release" -and $sil -gt 30) {
+                    $hint = "  [gh upload -- see Log tab]"
+                }
+                $ui["LblBuildActivity"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s" + $hint
             } else {
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " (" + $el + "s)"
             }

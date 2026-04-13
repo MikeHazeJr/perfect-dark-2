@@ -27,7 +27,8 @@ param(
     [switch]$Nightly,
     [switch]$SkipPush,
     [switch]$DryRun,
-    [switch]$Prerelease
+    [switch]$Prerelease,
+    [switch]$SkipBuild   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,16 +88,9 @@ $ReleaseNotes = "UNRELEASED.md"
 # Step 0: Rebuild from source (cmake reconfigure + compile)
 # Version is baked in at cmake configure time via versioninfo.h.in.
 # Pre-existing binaries may embed a stale version — always reconfigure + build.
+# Pass -SkipBuild when the caller (e.g. dev-window-v2.ps1) has already built
+# both targets; artifacts must already exist in Build/.
 # ============================================================================
-
-Write-Host ""
-Write-Host "[0/7] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
-
-# Version parts for cmake -D flags (already resolved above from CMakeLists.txt or -Version param)
-$vParts = $Version -split '\.'
-$vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } else { "0" }
-$vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
-$vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
 
 # Build tool paths — same as build-headless.ps1 and dev-window-v2.ps1
 $CMakeExe  = "cmake"
@@ -104,76 +98,111 @@ $CCExe     = "C:/msys64/mingw64/bin/cc.exe"
 $Cores     = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
 $BuildDir  = Join-Path $ProjectRoot "Build"
 
-# MSYS2/MinGW64 environment
-$env:MSYSTEM      = "MINGW64"
-$env:MINGW_PREFIX = "/mingw64"
-$env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
-$env:TEMP         = "$env:USERPROFILE\AppData\Local\Temp"
-$env:TMP          = $env:TEMP
+# MSYS2/MinGW64 environment — set early so all git/cmake subprocesses inherit
+$env:MSYSTEM           = "MINGW64"
+$env:MINGW_PREFIX      = "/mingw64"
+$env:PATH              = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
+$env:TEMP              = "$env:USERPROFILE\AppData\Local\Temp"
+$env:TMP               = $env:TEMP
+$env:GIT_TERMINAL_PROMPT = "0"   # prevent git from hanging on credential prompts
 
-$vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
+# Version parts for cmake -D flags (resolved above from CMakeLists.txt or -Version param)
+$vParts = $Version -split '\.'
+$vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } else { "0" }
+$vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
+$vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
 
-# ---- Pre-build: always commit + push so the release tag lands on a clean commit ----
-Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
-$savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-$statusOut = git -C $ProjectRoot status --porcelain 2>&1
-if ($statusOut) {
-    git -C $ProjectRoot add -A 2>&1 | Out-Null
-    git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
-    Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
-} else {
-    Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
-}
-$currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
-$pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
-$pushExit = $LASTEXITCODE
-$ErrorActionPreference = $savedEAP
-if ($pushExit -ne 0) {
-    Write-Host "  [pre-build] Push failed (continuing -- will retry in Step 4)." -ForegroundColor Yellow
-} else {
-    Write-Host "  [pre-build] Pushed to remote." -ForegroundColor Green
-}
+Write-Host ""
+if ($SkipBuild) {
+    Write-Host "[0/7] Skipping rebuild (-SkipBuild set; using existing artifacts in Build/)." -ForegroundColor Gray
 
-# ---- Single configure (unified Build/ dir) then build both targets ----
-$buildOk = $true
-
-Write-Host "  [cmake] configure (Ninja + ccache)..." -ForegroundColor Gray
-$savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-$cfgOut  = & $CMakeExe -G Ninja "-DCMAKE_C_COMPILER=$CCExe" `
-    "-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
-    "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
-$cfgExit = $LASTEXITCODE
-$ErrorActionPreference = $savedEAP
-
-if ($cfgExit -ne 0) {
-    $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    Write-Host "  ERROR: cmake configure failed (exit $cfgExit)" -ForegroundColor Red
-    $buildOk = $false
-}
-
-if ($buildOk) {
-    foreach ($t in @(@{ Name="client"; Target="pd" }, @{ Name="server"; Target="pd-server" })) {
-        Write-Host "  [$($t.Name)] cmake build ($($t.Target))..." -ForegroundColor Gray
-        $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        $bldOut  = & $CMakeExe --build $BuildDir --target $t.Target 2>&1
-        $bldExit = $LASTEXITCODE
-        $ErrorActionPreference = $savedEAP
-
-        if ($bldExit -ne 0) {
-            $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-            Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
-            $buildOk = $false; break
-        }
-        Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
+    # Commit any pending changes so the release tag lands on a clean commit
+    Write-Host "  [pre-release] Committing any pending changes..." -ForegroundColor Gray
+    $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $statusOut = git -C $ProjectRoot status --porcelain 2>&1
+    if ($statusOut) {
+        git -C $ProjectRoot add -A 2>&1 | Out-Null
+        git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
+        Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
+    } else {
+        Write-Host "  [pre-release] Nothing to commit." -ForegroundColor Gray
     }
-}
+    $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
+    $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
+    $pushExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+    if ($pushExit -ne 0) {
+        Write-Host "  [pre-release] Push failed (will retry in Step 4)." -ForegroundColor Yellow
+    } else {
+        Write-Host "  [pre-release] Pushed to remote." -ForegroundColor Green
+    }
+} else {
+    Write-Host "[0/7] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
 
-if (-not $buildOk) {
-    Write-Host ""
-    Write-Host "  ERROR: Build failed. Fix errors before releasing." -ForegroundColor Red
-    exit 1
+    $vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
+
+    # ---- Pre-build: commit + push so the release tag lands on a clean commit ----
+    Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
+    $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $statusOut = git -C $ProjectRoot status --porcelain 2>&1
+    if ($statusOut) {
+        git -C $ProjectRoot add -A 2>&1 | Out-Null
+        git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
+        Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+    } else {
+        Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
+    }
+    $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
+    $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
+    $pushExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+    if ($pushExit -ne 0) {
+        Write-Host "  [pre-build] Push failed (continuing -- will retry in Step 4)." -ForegroundColor Yellow
+    } else {
+        Write-Host "  [pre-build] Pushed to remote." -ForegroundColor Green
+    }
+
+    # ---- Single configure (unified Build/ dir) then build both targets ----
+    $buildOk = $true
+
+    Write-Host "  [cmake] configure (Ninja + ccache)..." -ForegroundColor Gray
+    $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $cfgOut  = & $CMakeExe -G Ninja "-DCMAKE_C_COMPILER=$CCExe" `
+        "-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
+        "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
+    $cfgExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($cfgExit -ne 0) {
+        $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host "  ERROR: cmake configure failed (exit $cfgExit)" -ForegroundColor Red
+        $buildOk = $false
+    }
+
+    if ($buildOk) {
+        foreach ($t in @(@{ Name="client"; Target="pd" }, @{ Name="server"; Target="pd-server" })) {
+            Write-Host "  [$($t.Name)] cmake build ($($t.Target))..." -ForegroundColor Gray
+            $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            $bldOut  = & $CMakeExe --build $BuildDir --target $t.Target 2>&1
+            $bldExit = $LASTEXITCODE
+            $ErrorActionPreference = $savedEAP
+
+            if ($bldExit -ne 0) {
+                $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+                Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
+                $buildOk = $false; break
+            }
+            Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
+        }
+    }
+
+    if (-not $buildOk) {
+        Write-Host ""
+        Write-Host "  ERROR: Build failed. Fix errors before releasing." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
 }
-Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
 
 # Build artifact paths -- unified Build/ directory
 $ClientExe = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
