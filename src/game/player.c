@@ -80,6 +80,7 @@
 #include "net/matchsetup.h"
 #include "assetcatalog.h"
 #include "actionmap.h"
+#include "game/spawnpool.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -120,7 +121,7 @@ f32 g_CutsceneCurTotalFrame60f;
 s32 g_CutsceneTweenDuration60;
 f32 g_CutsceneTweenFrac; // 0 when bars across the top and bottom, 1 when fullscreen
 u32 var8009de34;
-s16 g_SpawnPoints[24];
+s16 g_SpawnPoints[MAX_MPCHRS];
 s32 g_NumSpawnPoints;
 
 struct vimode g_ViModes[] = {
@@ -235,23 +236,36 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 	u8 badpads[MAX_MPCHRS];
 	f32 padsqdists[MAX_MPCHRS];
 
-	// PC: Guard against numpads == 0, which causes divide-by-zero at
-	// rngRandom() % numpads below. This happens on mod stages whose setup
-	// files have no valid intro data (so no INTROCMD_SPAWN populated
-	// g_SpawnPoints). Scan pads for the first one with a valid (non-negative)
-	// room number — pad 0 may be a non-player pad with room < 0, which causes
-	// CD queries to fail silently and leaves the player spawning in the void.
-	// Probe 8 directions for the nearest wall and face away from it.
+	/* PC: If no pad-based spawn points are available, check the spawn pool
+	 * for validated positions (L3 grid / L4 radial). The pool guarantees
+	 * points exist even on maps with zero declared pads. */
 	if (numpads <= 0) {
-		struct pad fallbackpad;
-		s32 fallbackpadnum = 0;
-		static const f32 dirX[8] = {0.0f, 0.707f, 1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f};
-		static const f32 dirZ[8] = {1.0f, 0.707f, 0.0f, -0.707f, -1.0f, -0.707f, 0.0f, 0.707f};
-		f32 wallX = 0, wallZ = 0;
-		s32 wallCount = 0;
-		s32 dir;
+		const spawn_pool_t *pool = spawnPoolGet();
 
+		if (spawnPoolIsReady() && pool->count > 0) {
+			/* Pick a random pool entry using the game RNG (fine for
+			 * runtime selection -- determinism only matters for pool
+			 * construction, not for which point is chosen per-respawn). */
+			s32 idx = rngRandom() % pool->count;
+			dstpos->x = pool->points[idx].pos.x;
+			dstpos->y = pool->points[idx].pos.y;
+			dstpos->z = pool->points[idx].pos.z;
+			dstrooms[0] = pool->points[idx].room;
+			dstrooms[1] = -1;
+
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN: zero-pad path using pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d",
+				idx, pool->points[idx].layer,
+				dstpos->x, dstpos->y, dstpos->z, (s32)dstrooms[0]);
+
+			return 0;
+		}
+
+		/* Legacy fallback if pool isn't ready yet (shouldn't happen in
+		 * normal flow, but keep as safety net) */
 		{
+			struct pad fallbackpad;
+			s32 fallbackpadnum = 0;
 			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
 			s32 pi;
 			for (pi = 0; pi < maxpads && pi < 64; pi++) {
@@ -262,52 +276,33 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 					break;
 				}
 			}
-		}
-		padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
-		dstpos->x = fallbackpad.pos.x;
-		dstpos->y = fallbackpad.pos.y;
-		dstpos->z = fallbackpad.pos.z;
-		dstrooms[0] = fallbackpad.room;
-		dstrooms[1] = -1;
+			padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
+			dstpos->x = fallbackpad.pos.x;
+			dstpos->y = fallbackpad.pos.y;
+			dstpos->z = fallbackpad.pos.z;
+			dstrooms[0] = fallbackpad.room;
+			dstrooms[1] = -1;
 
-		/* If stored room is -1, derive from position */
-		if (dstrooms[0] == -1) {
-			RoomNum inrooms[21];
-			RoomNum aboverooms[21];
-			RoomNum bestroom = -1;
-			inrooms[0] = -1;
-			bgFindRoomsByPos(dstpos, inrooms, aboverooms, 20, &bestroom);
-			if (inrooms[0] >= 0) {
-				dstrooms[0] = inrooms[0];
-				dstrooms[1] = -1;
-			} else if (bestroom >= 0) {
-				dstrooms[0] = bestroom;
-				dstrooms[1] = -1;
+			if (dstrooms[0] == -1) {
+				RoomNum inrooms[21];
+				RoomNum aboverooms[21];
+				RoomNum bestroom = -1;
+				inrooms[0] = -1;
+				bgFindRoomsByPos(dstpos, inrooms, aboverooms, 20, &bestroom);
+				if (inrooms[0] >= 0) {
+					dstrooms[0] = inrooms[0];
+					dstrooms[1] = -1;
+				} else if (bestroom >= 0) {
+					dstrooms[0] = bestroom;
+					dstrooms[1] = -1;
+				}
 			}
+
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN: no pool available, using legacy pad %d fallback (room=%d)",
+				fallbackpadnum, (s32)fallbackpad.room);
+			return 0;
 		}
-
-		for (dir = 0; dir < 8; dir++) {
-			struct coord probe;
-			probe.x = dstpos->x + dirX[dir] * 200.0f;
-			probe.y = dstpos->y;
-			probe.z = dstpos->z + dirZ[dir] * 200.0f;
-
-			if (cdExamCylMove01(dstpos, &probe, 30, dstrooms, CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
-				wallX += dirX[dir];
-				wallZ += dirZ[dir];
-				wallCount++;
-			}
-		}
-
-		sysLogPrintf(LOG_WARNING, "SPAWN: no spawn pads available, using pad %d fallback (room=%d, walls=%d)", fallbackpadnum, fallbackpad.room, wallCount);
-
-		if (wallCount > 0) {
-			// Return value goes through M_BADTAU - result, so the actual look
-			// direction becomes (sin(result), cos(result)). To face away from
-			// wall vector (wallX, wallZ), we need look = (-wallX, -wallZ).
-			return atan2f(-wallX, -wallZ);
-		}
-		return 0;
 	}
 
 	u8 stack1[0x10];

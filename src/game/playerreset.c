@@ -28,6 +28,7 @@
 #include "net/net.h"
 #include "lib/rng.h"
 #include "navspawn.h"
+#include "game/spawnpool.h"
 
 void playerInitEyespy(void)
 {
@@ -184,7 +185,7 @@ void playerReset(void)
 			}
 			switch (cmd->type) {
 			case INTROCMD_SPAWN:
-				if (cmd->param2 == 0 && g_NumSpawnPoints < 24) { // 24 = sizeof g_SpawnPoints in player.c
+				if (cmd->param2 == 0 && g_NumSpawnPoints < MAX_MPCHRS) {
 					g_SpawnPoints[g_NumSpawnPoints++] = cmd->param1;
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 12);
@@ -410,6 +411,19 @@ void playerReset(void)
 		g_NetMode,
 		cmd ? "ok" : "null",
 		g_PadsFile ? "ok" : "null");
+
+	/* L2 spawn pool: build validated pool from L1-L4 hierarchy.
+	 * This runs after INTROCMD_SPAWN + waypoint/pad fallbacks have populated
+	 * g_SpawnPoints[]. The pool guarantees enough spawn points for all
+	 * participants even on maps with zero declared spawns.
+	 * match_seed: use stagenum XOR'd with a time-based value for now;
+	 * will be replaced by server-distributed seed via SVC_STAGE_START. */
+	if (g_Vars.mplayerisrunning || g_NetMode != NETMODE_NONE) {
+		s32 spawn_needed = PLAYERCOUNT() + g_BotCount;
+		u32 match_seed = (u32)g_Vars.stagenum ^ 0x12345678u;
+		if (spawn_needed < 4) spawn_needed = 4; /* minimum for reasonable dispersal */
+		spawnPoolBuildGlobal(g_MissionConfig.stage_id, match_seed, spawn_needed);
+	}
 
 	invGiveSingleWeapon(WEAPON_UNARMED);
 
