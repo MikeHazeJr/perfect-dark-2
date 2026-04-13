@@ -525,6 +525,40 @@ void netDistribServerTick(void)
     }
 }
 
+void netDistribServerGetClientStatus(s32 client_index,
+                                     distrib_server_client_status_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+
+    if (!s_Initialized || client_index < 0 || client_index > NET_MAX_CLIENTS) return;
+
+    const struct netclient *target = &g_NetClients[client_index];
+    for (s32 i = 0; i < DISTRIB_MAX_QUEUE; i++) {
+        if (s_Queue[i].active && s_Queue[i].cl == target) {
+            out->queue_remaining++;
+            if (!out->current_id[0]) {
+                strncpy(out->current_id, s_Queue[i].catalog_id,
+                        sizeof(out->current_id) - 1);
+            }
+        }
+    }
+    out->queue_total = out->queue_remaining;
+}
+
+void netDistribServerRebroadcastCatalog(void)
+{
+    if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
+
+    for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+        struct netclient *cl = &g_NetClients[i];
+        if (cl->state == CLSTATE_LOBBY) {
+            netDistribServerSendCatalogInfo(cl);
+        }
+    }
+    sysLogPrintf(LOG_NOTE, "DISTRIB: re-broadcast SVC_CATALOG_INFO to all lobby clients");
+}
+
 void netDistribSendKillFeed(const char *attacker, const char *victim,
                             const char *weapon, u8 flags)
 {

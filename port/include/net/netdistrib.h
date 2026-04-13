@@ -104,6 +104,24 @@ typedef struct crash_recovery_state {
 } crash_recovery_state_t;
 
 /* ========================================================================
+ * Server-side per-client download status (v34)
+ * ======================================================================== */
+
+typedef struct distrib_server_client_status {
+    s32 queue_remaining;     /* components still queued for this client */
+    s32 queue_total;         /* total components queued for this client since ready gate */
+    char current_id[64];     /* component currently being sent (empty if idle) */
+} distrib_server_client_status_t;
+
+/**
+ * Query the server-side transfer status for a specific client.
+ * client_index: index into g_NetClients[].
+ * Fills out with queue status. Safe to call from UI thread.
+ */
+void netDistribServerGetClientStatus(s32 client_index,
+                                     distrib_server_client_status_t *out);
+
+/* ========================================================================
  * Server API
  * ======================================================================== */
 
@@ -137,6 +155,13 @@ void netDistribServerHandleDiff(struct netclient *cl,
  * Sends the next pending component to each client.
  */
 void netDistribServerTick(void);
+
+/**
+ * Re-send SVC_CATALOG_INFO to all clients in CLSTATE_LOBBY.
+ * Call after the host imports a new mod while clients are connected,
+ * so they can diff and download the new content before match start.
+ */
+void netDistribServerRebroadcastCatalog(void);
 
 /**
  * Broadcast a kill feed event to all clients currently in CLSTATE_LOBBY.

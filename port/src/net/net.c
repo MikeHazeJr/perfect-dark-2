@@ -44,6 +44,7 @@
 #include "utils.h"
 #include "room.h"
 #include "assetcatalog.h"
+#include "audio.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #endif
@@ -1317,6 +1318,7 @@ static void netClientEvReceive(struct netclient *cl)
 			/* R-3: Room networking */
 			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
+			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
 			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
@@ -1632,6 +1634,8 @@ void netEndFrame(void)
 		netDistribServerTick();
 		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
 		readyGateTickCountdown();
+		/* v34: advance music playlist when track ends (host only, no-op if no playlist) */
+		audioNetworkMusicTick();
 
 		/* U-10: Stage-ready timeout — if not all clients reported ready within the
 		 * deadline, delegate BOT_AUTHORITY to the first available CLSTATE_GAME client

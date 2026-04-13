@@ -94,6 +94,7 @@ void lobbyUpdate(void);
 
 /* D3R-9: Distribution overlay and kill feed (pdgui_lobby_distrib.cpp) */
 void pdguiDistribOverlayRender(s32 winW, s32 winH);
+void pdguiHostDistribOverlayRender(s32 winW, s32 winH);
 void pdguiKillFeedRender(s32 winW, s32 winH);
 
 /* Lobby player data (from netlobby.h, simplified for C++) */
@@ -425,6 +426,8 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             }
             /* D3R-9: download progress overlay on top of either screen */
             pdguiDistribOverlayRender(winW, winH);
+            /* v34: host sees per-client download status during ready gate */
+            pdguiHostDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
             /* In game (or transitioning): show minimal sidebar overlay */
             renderInGameSidebar(winW, winH);

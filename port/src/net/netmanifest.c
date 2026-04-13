@@ -39,6 +39,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "modmgr.h"
+#include "audio.h"
 #include "sha256.h"
 #include "net/netbuf.h"
 #include "net/matchsetup.h"
@@ -533,6 +534,34 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         }
     }
 
+    /* ---- Audio playlist tracks (v34) ---- */
+    /* All tracks in the host's playlist must be present on every client
+     * before match start. The ready gate will transfer missing ones. */
+    {
+        const s32 plcount = audioGetModPlaylistCount();
+        for (i = 0; i < plcount; i++) {
+            const char *tid = audioGetModPlaylistEntry(i);
+            if (tid && tid[0]) {
+                const asset_entry_t *ae = assetCatalogResolve(tid);
+                if (ae && !ae->bundled) {
+                    manifestAddEntry(out, ae->id,
+                                     MANIFEST_TYPE_AUDIO, MANIFEST_SLOT_MATCH);
+                }
+            }
+        }
+        /* Single-track fallback: if no playlist but a track is set */
+        if (plcount == 0) {
+            const char *single = audioGetModTrackId();
+            if (single && single[0]) {
+                const asset_entry_t *ae = assetCatalogResolve(single);
+                if (ae && !ae->bundled) {
+                    manifestAddEntry(out, ae->id,
+                                     MANIFEST_TYPE_AUDIO, MANIFEST_SLOT_MATCH);
+                }
+            }
+        }
+    }
+
     /* Seal: compute manifest-level hash over all entries */
     manifestComputeHash(out);
 }
@@ -547,7 +576,7 @@ void manifestLog(const match_manifest_t *m)
 {
     s32 i;
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG", "AUDIO"
     };
 
     sysLogPrintf(LOG_NOTE,
@@ -671,6 +700,31 @@ void manifestBuildForHost(match_manifest_t *out)
             }
             manifestAddModEntry(out, mod->id,
                                 MANIFEST_SLOT_MATCH, mod->sha256);
+        }
+    }
+
+    /* ---- Audio playlist tracks (v34) ---- */
+    {
+        const s32 plcount = audioGetModPlaylistCount();
+        for (i = 0; i < plcount; i++) {
+            const char *tid = audioGetModPlaylistEntry(i);
+            if (tid && tid[0]) {
+                const asset_entry_t *ae = assetCatalogResolve(tid);
+                if (ae && !ae->bundled) {
+                    manifestAddEntry(out, ae->id,
+                                     MANIFEST_TYPE_AUDIO, MANIFEST_SLOT_MATCH);
+                }
+            }
+        }
+        if (plcount == 0) {
+            const char *single = audioGetModTrackId();
+            if (single && single[0]) {
+                const asset_entry_t *ae = assetCatalogResolve(single);
+                if (ae && !ae->bundled) {
+                    manifestAddEntry(out, ae->id,
+                                     MANIFEST_TYPE_AUDIO, MANIFEST_SLOT_MATCH);
+                }
+            }
         }
     }
 
@@ -1352,7 +1406,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
 void manifestCheck(const match_manifest_t *manifest)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG", "AUDIO"
     };
 
     /* v27: catalog ID strings only — no u32 net_hash on wire.

@@ -46,6 +46,7 @@
 #include "scenario_save.h"
 #include "assetcatalog.h"
 #include "audio.h"
+#include "modmusic.h"
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
 #include "game/mplayer/scenarios.h"
@@ -5526,6 +5527,70 @@ u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	return src->error;
+}
+
+/* ---- SVC_MUSIC_ADVANCE (v34) ---- */
+
+u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id)
+{
+	netbufWriteU8(dst, SVC_MUSIC_ADVANCE);
+	netbufWriteStr(dst, track_id ? track_id : "");
+	return dst->error;
+}
+
+u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl)
+{
+	const char *track_str = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	const char *track_id = track_str ? track_str : "";
+	if (!track_id[0]) return src->error;
+
+#if !defined(PD_SERVER)
+	/* Client: set the track and start playback */
+	audioSetModTrackId(track_id);
+
+	/* Resolve file path from catalog and play */
+	{
+		const asset_entry_t *ae = assetCatalogResolve(track_id);
+		if (ae && ae->ext.audio.file_path[0]) {
+			const char *fpath = fsFullPath(ae->ext.audio.file_path);
+			if (fpath) {
+				modMusicPlay(fpath);
+			} else {
+				modMusicPlay(ae->ext.audio.file_path);
+			}
+			sysLogPrintf(LOG_NOTE, "NET: SVC_MUSIC_ADVANCE: playing '%s'", track_id);
+		} else {
+			sysLogPrintf(LOG_WARNING, "NET: SVC_MUSIC_ADVANCE: track '%s' not in catalog", track_id);
+		}
+	}
+#else
+	(void)track_id;
+#endif
+
+	return src->error;
+}
+
+/**
+ * Broadcast SVC_MUSIC_ADVANCE to all clients in a room (or all if room_id == 0xFF).
+ * Called by the host when a track ends and the next playlist track is picked.
+ */
+void netMusicBroadcastAdvance(const char *track_id, u8 room_id)
+{
+	if (g_NetMode != NETMODE_SERVER || !track_id || !track_id[0]) return;
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcMusicAdvanceWrite(&g_NetMsgRel, track_id);
+
+	if (room_id != 0xFF) {
+		netSendToRoom(room_id, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	} else {
+		netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	}
+
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MUSIC_ADVANCE broadcast: '%s' room=%u",
+	             track_id, (unsigned)room_id);
 }
 
 u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name)
