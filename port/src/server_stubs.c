@@ -413,6 +413,9 @@ s32 g_NumStages = 0;
 s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
 void catalogUnloadAsset(const char *assetId) { (void)assetId; }
 
+/* --- Theme stubs — server has no renderer/ImGui --- */
+s32 pdguiThemeRegisterModDir(const char *slug, const char *filepath) { (void)slug; (void)filepath; return 0; }
+
 /* --- Audio stubs (v34) — server has no audio state --- */
 s32         audioGetModPlaylistCount(void)                  { return 0; }
 const char *audioGetModPlaylistEntry(s32 idx)               { (void)idx; return ""; }
