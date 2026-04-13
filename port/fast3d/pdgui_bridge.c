@@ -750,6 +750,15 @@ const char *pdguiEndscreenGetCheatComplName(void)
  */
 void pdguiEndscreenStartMission(void)
 {
+    /* L1-4: Clear stale co-op player-netclient linkages (same as ExitToMainMenu path).
+     * Mission retry re-loads the stage, which calls playermgrReset() — any live
+     * ncl->player pointer becomes dangling at that point. */
+    if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
+        for (s32 i = 0; i < g_NetMaxClients; ++i) {
+            g_NetClients[i].player = NULL;
+            g_NetClients[i].config = NULL;
+        }
+    }
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
@@ -785,6 +794,17 @@ void pdguiEndscreenExitToMainMenu(void)
      * returning to the room/menu.  manifestMenuTransition() in
      * mainChangeToStage will rebuild the menu manifest immediately. */
     manifestClear(&g_ClientManifest);
+    /* L1-4: Clear stale co-op player-netclient linkages on match end.
+     * Server-side co-op/anti keeps ncl->player and ncl->config live after
+     * SVC_STAGE_END for endscreen display.  These pointers become dangling
+     * once playermgrReset() runs in the next stage load.  NULL them here so
+     * no code path between now and the next stage load can dereference them. */
+    if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
+        for (s32 i = 0; i < g_NetMaxClients; ++i) {
+            g_NetClients[i].player = NULL;
+            g_NetClients[i].config = NULL;
+        }
+    }
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }

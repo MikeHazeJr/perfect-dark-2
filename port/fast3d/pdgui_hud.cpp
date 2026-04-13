@@ -35,6 +35,12 @@ extern "C" {
 /* Game-running guard */
 s32 pdguiPauseGetNormMplayerIsRunning(void);
 
+/* L1-3: endscreen state — set to 1 when the post-match endscreen is active.
+ * Declared in data.h / defined in pdmain.c.  Suppress HUD during endscreen:
+ * normmplayerisrunning stays true for the endscreen panel, so we need an
+ * extra gate to avoid drawing the score panel / timer behind the backdrop. */
+extern s32 g_MainIsEndscreen;
+
 /* Score / ranking access.
  * MAX_MPCHRS = MAX_PLAYERS + MAX_BOTS = 8 + 32 = 40 (constants.h) */
 #define MAX_MPCHRS_HUD    40
@@ -167,8 +173,10 @@ static s32 buildScoreRows(HudScoreRow *out, s32 maxOut, s32 *outScoreLimit)
 
 void pdguiHudRender(s32 winW, s32 winH)
 {
-    /* Only show during an active match */
-    if (!pdguiPauseGetNormMplayerIsRunning()) {
+    /* Only show during an active match; suppress during the endscreen.
+     * normmplayerisrunning stays true while the endscreen backdrop is
+     * visible, so g_MainIsEndscreen is the authoritative gate here. */
+    if (!pdguiPauseGetNormMplayerIsRunning() || g_MainIsEndscreen) {
         return;
     }
 
