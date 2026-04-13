@@ -3,6 +3,29 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S235 — 2026-04-13 (Layer 0 Manifest Safety Fixes + Bug Closes)
+
+**Focus**: Master Orchestration Plan Layer 0 — manifest safety fixes L1-1 and FIX-B.2, plus closing B-72/B-21.
+**Worktree**: `sleepy-mcnulty` (parallel to S233 menu fixes and S234 FIX-A chr tick).
+
+**Changes** (`port/src/net/netmsg.c`, `src/game/setuputils.c`, `context/bugs.md`, context):
+
+1. **L1-1 — manifestClear on match end** (`netmsg.c:~1391`): Added `manifestClear(&g_ClientManifest)` immediately after `sessionCatalogTeardown()` in `netmsgSvcStageEndRead()`. Prevents stale match-N assets from leaking into match N+1 via any `mainChangeToStage()` call triggered between matches. `netmanifest.h` already included — no new include needed.
+
+2. **FIX-B.2 — Graceful fallback for missing models** (`setuputils.c:setupLoadModeldef`): Added NULL guard after `modeldefLoadToNew()` call. If the model file is absent (mod asset not in ROM, catalog gap, etc.), logs `LOG_WARNING` with modelnum/fileid/catalog_id and returns `false` instead of passing NULL to `modelAllocateRwData()` which immediately dereferences `modeldef->rwdatalen` → hard crash. Added `#include "system.h"` for `sysLogPrintf`. Converts hard crash into missing prop — visually wrong but diagnosable. All callers of `setupLoadModeldef` already ignore or OR the return value.
+
+3. **B-72 CLOSED** (`bugs.md`): Confirmed fixed by v27 protocol refactor — `netmsgSvcLobbyStateWrite` now uses `const char *stage_id` + `netbufWriteStr`, read side resolves via `assetCatalogResolve`. No raw stagenum on wire.
+
+4. **B-21 CLOSED-TENTATIVE** (`bugs.md`): Two-layer fix in place — S124 `push_tick` 100ms grace guard (inputctx.c) + S208 150ms `MAIN_MENU_CLOSE_GRACE_MS` + `io.AddKeyEvent(Escape, false)` on appear (pdgui_menu_mainmenu.cpp). Confirm next playtest; promote to FIXED if no recurrence.
+
+**Decisions**:
+- `manifestClear` placement: after `sessionCatalogTeardown()` (not before) so catalog teardown runs on a still-valid manifest
+- `setupLoadModeldef` returns `false` on load failure (not `true`): callers interpret `true` as "freshly loaded"; returning `false` for "load failed" is semantically clean and no caller crashes on it
+
+**Next steps**: Layer 0 now complete. Layer 1 (L1-2 through L1-5 + FIX-B.1) next.
+
+---
+
 ## Session S234 -- 2026-04-13 (FIX-A: Chr Tick Isolation + Lifetime Hardening)
 
 **Focus**: Execute master orchestration plan Layer 0 FIX-A — stack/memory corruption hardening for chr tick (B-126, B-112). Deep engine work in chr.c, chraction.c, crash.c.
