@@ -126,9 +126,11 @@ static char s_ImportFilePath[AUDIOMOD_PATH_LEN] = "";
 static char s_ImportName[AUDIOMOD_NAME_LEN]     = "";
 static int  s_ImportCategory = 1;  /* default to Music */
 
-/* Status line */
+/* Status line + timed flash for import success */
 static char s_AudioStatusMsg[256] = "";
 static bool s_AudioStatusOk       = true;
+static Uint32 s_AudioStatusFlashStart = 0;  /* SDL_GetTicks() when status was set */
+#define AUDIOMOD_FLASH_DURATION_MS 4000     /* how long the success flash lasts */
 
 /* ========================================================================
  * A-5: Soundtrack Pack Creation state
@@ -369,6 +371,7 @@ static bool importAudioFile(const char *filePath, const char *displayName,
     snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
              "Imported '%s' as %s", displayName, catalogId);
     s_AudioStatusOk = true;
+    s_AudioStatusFlashStart = SDL_GetTicks();
 
     sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
                  filePath, catalogId, modDir);
@@ -502,6 +505,7 @@ static bool createSoundtrackPack(const char *packName, const char *version)
              "Created pack '%s' with %d tracks in mods/%s/",
              packName, written, slug);
     s_AudioStatusOk = true;
+    s_AudioStatusFlashStart = SDL_GetTicks();
 
     sysLogPrintf(LOG_NOTE, "AUDIOMOD: created pack '%s' -> mods/%s/ (%d tracks)",
                  packName, slug, written);
@@ -861,12 +865,30 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
         if (!canImport) ImGui::EndDisabled();
     }
 
-    /* ---- Footer: status ---- */
+    /* ---- Footer: status with flash effect ---- */
     ImGui::Spacing();
     ImGui::Separator();
     if (s_AudioStatusMsg[0]) {
         if (s_AudioStatusOk) {
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+            /* Pulsing green flash for success — fades over AUDIOMOD_FLASH_DURATION_MS */
+            Uint32 elapsed = SDL_GetTicks() - s_AudioStatusFlashStart;
+            float flashAlpha = 1.0f;
+            if (s_AudioStatusFlashStart > 0 && elapsed < AUDIOMOD_FLASH_DURATION_MS) {
+                /* Pulse: bright for first 500ms, then fade */
+                float t = (float)elapsed / (float)AUDIOMOD_FLASH_DURATION_MS;
+                flashAlpha = (t < 0.125f) ? 1.0f : (1.0f - (t - 0.125f) / 0.875f);
+
+                /* Draw a subtle green highlight bar behind the text */
+                ImVec2 cpos = ImGui::GetCursorScreenPos();
+                float barW = ImGui::GetContentRegionAvail().x;
+                float barH = ImGui::GetTextLineHeightWithSpacing() + 4.0f;
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cpos,
+                    ImVec2(cpos.x + barW, cpos.y + barH),
+                    ImGui::GetColorU32(ImVec4(0.1f, 0.5f, 0.1f, 0.3f * flashAlpha)),
+                    4.0f);
+            }
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, flashAlpha),
                                "%s", s_AudioStatusMsg);
         } else {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
