@@ -3,6 +3,25 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S232 -- 2026-04-13 (Dev Window v2 Visual Overhaul + Release Hang Fix)
+
+**Focus**: Three bug fixes for dev-window-v2.ps1 + release.ps1. Code changes only — no docs.
+
+**Changes** (`devtools/dev-window-v2/dev-window-v2.ps1`, `devtools/release.ps1`):
+1. **Button sizing**: BUILD (Padding=16,28) and RELEASE (Padding=16,20) had mismatched heights side-by-side. Both now `MinHeight=82 Padding=16,0` for uniform hero row.
+2. **Visual redesign**: Branded header bar (PD2 badge + "Dev Window v2"), deeper background (#141820), card panels for status/version areas, updated tab style (SemiBold, bottom-border indicator), Consolas monospace throughout — distinctly different from v1.
+3. **Release hang (double build)**: `Start-PushRelease` queued its own cmake build then called `release.ps1` which also rebuilt from scratch = 2× build time looked like a hang. Added `-SkipBuild` switch to `release.ps1`; caller passes it to skip cmake step 0. Auto-switches to Log tab on release start. Log banner warns "gh upload may be quiet 30-90s." Heartbeat hint in activity label after 30s silence. `GIT_TERMINAL_PROMPT=0` moved to top of `release.ps1` (was set after pre-build git push, leaving a credential-prompt window).
+
+**Merged**: worktree `serene-lichterman` → `dev` (--no-ff). Conflict in `release.ps1` (HEAD added `CCACHE_SLOPPINESS`, branch added `GIT_TERMINAL_PROMPT`) — both kept.
+
+---
+
+## Session S230 -- 2026-04-13 (Master Orchestration Plan)
+
+**Focus**: Consolidate five architecture audit docs into single dependency-ordered execution plan. Design doc only -- zero code changes.
+
+**Deliverable**: `context/designs/master-orchestration-plan-2026-04-13.md` — 75 items across 8 layers (~20-25 sessions). Fold-in mapping of infra classes A-G, parallel-safe batches with collision map, protocol bump isolation, playable build cut points.
+
 ## Session S229 -- 2026-04-13 (Menu & Input Architecture Audit)
 
 **Focus**: Deep architectural audit of menu stack, input context system, campaign menus, and arena list. Design docs only -- zero code changes.
