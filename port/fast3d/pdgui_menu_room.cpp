@@ -294,12 +294,29 @@ const char *arenaGetName(u16 textId)
  * Replaces the old hardcoded table: catalog is the single source of truth.
  * ======================================================================== */
 
-struct arena_entry { char name[64]; char id[64]; s32 stagenum; };
+/* F-2.1: Arena sections — base MP, campaign (solo missions), mod maps */
+#define ARENA_SEC_MP_BASE  0
+#define ARENA_SEC_CAMPAIGN 1
+#define ARENA_SEC_MOD      2
+#define ARENA_SEC_COUNT    3
+
+struct arena_entry {
+    char name[64];
+    char id[64];
+    s32  stagenum;
+    char category[32]; /* F-2.1: from catalog (Dark, Solo Missions, Classic, etc.) */
+    s32  bundled;      /* F-2.1: shipped with game */
+    s32  section;      /* F-2.1: ARENA_SEC_MP_BASE / CAMPAIGN / MOD */
+};
 
 static arena_entry *s_Arenas = NULL;
 static int s_NumArenas = 0;
 static int s_ArenasCapacity = 0;
 static bool s_ArenasBuilt = false;
+
+/* F-2.1: Section boundaries (computed after sort) */
+static int s_SectionStart[ARENA_SEC_COUNT];
+static int s_SectionCount[ARENA_SEC_COUNT];
 
 static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
 {
@@ -323,15 +340,38 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
         return;
     }
 
-    strncpy(s_Arenas[s_NumArenas].name, name, 63);
-    s_Arenas[s_NumArenas].name[63] = '\0';
-    strncpy(s_Arenas[s_NumArenas].id, e->id, 63);
-    s_Arenas[s_NumArenas].id[63] = '\0';
-    s_Arenas[s_NumArenas].stagenum = e->ext.arena.stagenum;
-    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" id='%s' stagenum=0x%02x registered",
-        s_NumArenas, s_Arenas[s_NumArenas].name, s_Arenas[s_NumArenas].id,
-        s_Arenas[s_NumArenas].stagenum);
+    arena_entry *a = &s_Arenas[s_NumArenas];
+    strncpy(a->name, name, 63);
+    a->name[63] = '\0';
+    strncpy(a->id, e->id, 63);
+    a->id[63] = '\0';
+    a->stagenum = e->ext.arena.stagenum;
+
+    /* F-2.1: Capture category and bundled for section classification */
+    strncpy(a->category, e->category, 31);
+    a->category[31] = '\0';
+    a->bundled = e->bundled;
+
+    if (!a->bundled) {
+        a->section = ARENA_SEC_MOD;
+    } else if (strcmp(a->category, "Solo Missions") == 0) {
+        a->section = ARENA_SEC_CAMPAIGN;
+    } else {
+        a->section = ARENA_SEC_MP_BASE;
+    }
+
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena[%d] \"%s\" id='%s' stagenum=0x%02x sec=%d registered",
+        s_NumArenas, a->name, a->id, a->stagenum, a->section);
     s_NumArenas++;
+}
+
+/* F-2.1: Sort arenas — primary by section, secondary alphabetical by name */
+static int arenaCompare(const void *a, const void *b)
+{
+    const arena_entry *ea = (const arena_entry *)a;
+    const arena_entry *eb = (const arena_entry *)b;
+    if (ea->section != eb->section) return ea->section - eb->section;
+    return strcasecmp(ea->name, eb->name);
 }
 
 static void buildArenaListFromCatalog(void)
@@ -343,7 +383,28 @@ static void buildArenaListFromCatalog(void)
     sysLogPrintf(LOG_NOTE, "CATALOG: building arena list from catalog (%d ASSET_ARENA entries)",
         assetCatalogGetCountByType(ASSET_ARENA));
     assetCatalogIterateByType(ASSET_ARENA, catalogArenaCollect, NULL);
-    sysLogPrintf(LOG_NOTE, "CATALOG: arena list built: %d arenas", s_NumArenas);
+
+    /* F-2.1: Sort by section then alphabetical */
+    if (s_NumArenas > 1) {
+        qsort(s_Arenas, s_NumArenas, sizeof(arena_entry), arenaCompare);
+    }
+
+    /* F-2.1: Compute section boundaries */
+    for (int s = 0; s < ARENA_SEC_COUNT; s++) {
+        s_SectionStart[s] = 0;
+        s_SectionCount[s] = 0;
+    }
+    for (int i = 0; i < s_NumArenas; i++) {
+        int sec = s_Arenas[i].section;
+        if (sec >= 0 && sec < ARENA_SEC_COUNT) {
+            if (s_SectionCount[sec] == 0) s_SectionStart[sec] = i;
+            s_SectionCount[sec]++;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE, "CATALOG: arena list built: %d arenas (MP=%d, Campaign=%d, Mod=%d)",
+        s_NumArenas, s_SectionCount[ARENA_SEC_MP_BASE],
+        s_SectionCount[ARENA_SEC_CAMPAIGN], s_SectionCount[ARENA_SEC_MOD]);
     s_ArenasBuilt = true;
 }
 
@@ -1607,24 +1668,36 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
     ImGui::Spacing();
 
-    /* --- Arena --- */
+    /* --- Arena (F-2.1: collapsible sections, alphabetized) --- */
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Arena");
     if (!leader) ImGui::BeginDisabled();
     ImGui::SetNextItemWidth(comboW);
     const char *arenaLabel = (s_NumArenas > 0) ? s_Arenas[s_SelectedArena].name : "(none)";
     if (ImGui::BeginCombo("##arena", arenaLabel)) {
-        for (int ai = 0; ai < s_NumArenas; ai++) {
-            bool sel = (ai == s_SelectedArena);
-            if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
-                s_SelectedArena = ai;
-                strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
-                        sizeof(g_MatchConfig.stage_id) - 1);
-                g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
-                sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
-                    s_Arenas[ai].name, s_Arenas[ai].id);
-                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        static const char *k_SectionNames[] = {
+            "Multiplayer Arenas", "Campaign Maps", "Mod Maps"
+        };
+        for (int sec = 0; sec < ARENA_SEC_COUNT; sec++) {
+            if (s_SectionCount[sec] == 0) continue;
+            char hdr[128];
+            snprintf(hdr, sizeof(hdr), "%s (%d)", k_SectionNames[sec], s_SectionCount[sec]);
+            if (ImGui::TreeNodeEx(hdr, ImGuiTreeNodeFlags_DefaultOpen)) {
+                for (int ai = s_SectionStart[sec];
+                     ai < s_SectionStart[sec] + s_SectionCount[sec]; ai++) {
+                    bool sel = (ai == s_SelectedArena);
+                    if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
+                        s_SelectedArena = ai;
+                        strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
+                                sizeof(g_MatchConfig.stage_id) - 1);
+                        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                        sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
+                            s_Arenas[ai].name, s_Arenas[ai].id);
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::TreePop();
             }
-            if (sel) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
     }
@@ -2847,6 +2920,10 @@ extern "C" void pdguiRoomScreenReset(void)
     s_NumArenas         = 0;
     s_ArenasCapacity    = 0;
     s_ArenasBuilt       = false;
+    for (int i = 0; i < ARENA_SEC_COUNT; i++) {
+        s_SectionStart[i] = 0;
+        s_SectionCount[i] = 0;
+    }
     s_CodeGenerated     = false;
     s_IsSoloMode        = false;  /* caller sets via pdguiRoomScreenSetSolo() after reset */
     s_ActiveTab         = 0;
