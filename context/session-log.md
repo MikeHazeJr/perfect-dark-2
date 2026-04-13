@@ -3,6 +3,43 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S237 — 2026-04-13 (Layer 1 Networking Safety Baseline)
+
+**Focus**: Master Orchestration Plan Layer 1 — four networking safety fixes with zero protocol changes.
+**Worktree**: `sleepy-mcnulty` (continuation of L0 session, same worktree rebased to latest dev).
+**Files changed**: `port/src/net/net.c`, `port/fast3d/pdgui_hud.cpp`, `port/fast3d/pdgui_bridge.c`
+
+### Changes
+
+**L1-2 — Periodic score broadcast** (`net.c`, inside `netEndFrame()` server block):
+- Added `if ((g_NetTick % 300) == 0 && g_Vars.mplayerisrunning)` → `netmsgSvcPlayerScoresWrite(&g_NetMsgRel)`
+- Placed between the "preserved player slot expiry" block and the "pending resync" block, outside the `g_NetNextUpdate` throttle gate so it fires every 300 ticks unconditionally
+- Bounds any score drift from a dropped `SVC_PLAYER_STATS` death packet to ≤5 seconds (~200 bytes overhead per broadcast)
+
+**L1-3 — HUD endscreen gate** (`pdgui_hud.cpp`):
+- Added `extern s32 g_MainIsEndscreen;` to C boundary declarations block (data.h/pdmain.c definition)
+- Changed `if (!pdguiPauseGetNormMplayerIsRunning())` → `if (!pdguiPauseGetNormMplayerIsRunning() || g_MainIsEndscreen)`
+- `normmplayerisrunning` stays true during endscreen backdrop; this gate stops the HUD from drawing score panel + timer behind the occluded layer
+
+**L1-4 — Co-op netclient linkage clear** (`pdgui_bridge.c`):
+- Added co-op linkage clear loop in both `pdguiEndscreenExitToMainMenu()` and `pdguiEndscreenStartMission()`
+- When `g_NetGameMode == NETGAMEMODE_COOP || NETGAMEMODE_ANTI`, NULLs `ncl->player` and `ncl->config` for all `g_NetClients[0..g_NetMaxClients-1]`
+- `playermgrReset()` runs on next stage load — these pointers would be dangling by then anyway
+
+**L1-5 — Scores in initial resync** (`net.c:~738`):
+- `g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS` → added `| NET_RESYNC_FLAG_SCORES`
+- Late joiners and clients that miss early kills now get a score sync from the initial post-load resync rather than waiting for the first 300-frame periodic tick
+
+**Decisions**:
+- Score broadcast at net tick 0 is intentional (tick 0 mod 300 = 0) — a harmless one-frame send at match start on top of the L1-5 resync. Net effect: double-send on frame 0, which is fine.
+- L1-4 clears BOTH exit functions (retry + return-to-menu) — the spec listed both and both trigger a stage reload that calls `playermgrReset()`
+
+**No protocol bump** — all four items are wire-compatible with current clients.
+
+**Next steps**: FIX-B.1 (deep manifest scanner) is the remaining high-priority Layer 1 item; depends on FIX-B.2 (done). Then Layer 2 (co-op manifest pipeline, protocol v34).
+
+---
+
 ## Session S236 — 2026-04-13 (Design Refinement: Raycast-Budget Spawn Validation)
 
 **Focus**: Docs-only update. Replaced stuck-relocation 1/4-damage-for-2s rule (retired) with raycast-budget spawn validation applied uniformly across all L1–L4 tiers in `spawn-system-architecture-2026-04-13.md`; added L4 dilation behavior; updated master orchestration plan Layer 2 note. No code changes.

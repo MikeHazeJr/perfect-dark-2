@@ -735,7 +735,10 @@ void netServerStageStart(void)
 	// Schedule a full state resync shortly after stage start.
 	// Bots and props are created deterministically from the same RNG seed,
 	// but a full resync ensures all clients converge even if timing differs.
-	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS;
+	// L1-5: include SCORES so late-joining clients or clients that miss early
+	// kills get current scores immediately rather than waiting for the next
+	// 300-frame periodic broadcast (L1-2).
+	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
 }
@@ -1587,6 +1590,16 @@ void netEndFrame(void)
 					--g_NetNumPreserved;
 				}
 			}
+		}
+
+		/* L1-2: Periodic score broadcast every 300 frames (~5 s at 60 fps).
+		 * Score mutations are event-driven (SVC_PLAYER_STATS on each death), but
+		 * a single dropped reliable packet causes permanent divergence until
+		 * reconnect.  This gives a bounded correction window so no client can
+		 * stay out of sync for more than 5 seconds. ~200 bytes per broadcast.
+		 * Guard with mplayerisrunning so the broadcast stops at match end. */
+		if ((g_NetTick % 300) == 0 && g_Vars.mplayerisrunning) {
+			netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
 		}
 
 		// Handle pending resync requests from clients
