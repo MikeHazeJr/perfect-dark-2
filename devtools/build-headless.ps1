@@ -79,10 +79,11 @@ $CC         = "C:/msys64/mingw64/bin/cc.exe"
 $NinjaExe   = "C:\msys64\mingw64\bin\ninja.exe"
 $Generator  = "Ninja"
 
-# ccache and mold: injected via cmake launcher flags
-# Install: pacman -S --noconfirm mingw-w64-x86_64-ccache mingw-w64-x86_64-mold
+# ccache: injected via cmake launcher flags
+# Install: pacman -S --noconfirm mingw-w64-x86_64-ccache
+# NOTE: mold was installed (mold 2.40.4) but -fuse-ld=mold fails on MinGW because
+# GCC looks for ld.mold.exe which doesn't exist (only mold.exe). Rolled back to GNU ld.
 $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-$MoldLinker     = "-DCMAKE_EXE_LINKER_FLAGS=`"-fuse-ld=mold`""
 
 # MSYS2 MINGW64 environment  -  same as GUI version
 $env:MSYSTEM      = "MINGW64"
@@ -538,10 +539,10 @@ if ($needsClean) {
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
-$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" $CcacheLauncher $MoldLinker -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
 
 $script:StepStart = [DateTime]::Now
-$configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache + mold)" `
+$configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `
                               -Exe $CMakeExe `
                               -ArgList $configArgs `
                               -ShowAll $Verbose.IsPresent

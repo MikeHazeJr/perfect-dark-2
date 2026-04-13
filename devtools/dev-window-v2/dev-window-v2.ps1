@@ -911,8 +911,8 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $needsConfigure = $forceClean -or (Test-NeedsConfigure $script:BuildDir)
 
     if ($needsConfigure) {
-        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold`" -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
-        [void]$steps.Add(@{Name="Configure (Ninja + ccache + mold)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
+        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
+        [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
     }
     [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})
     [void]$steps.Add(@{Name="Build (server: pd-server)"; Exe=$script:CMake; Target="server"; Args="--build `"" + $script:BuildDir + "`" --target pd-server"})

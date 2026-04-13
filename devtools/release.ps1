@@ -137,11 +137,10 @@ if ($pushExit -ne 0) {
 # ---- Single configure (unified Build/ dir) then build both targets ----
 $buildOk = $true
 
-Write-Host "  [cmake] configure (Ninja + ccache + mold)..." -ForegroundColor Gray
+Write-Host "  [cmake] configure (Ninja + ccache)..." -ForegroundColor Gray
 $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 $cfgOut  = & $CMakeExe -G Ninja "-DCMAKE_C_COMPILER=$CCExe" `
     "-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
-    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold" `
     "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
 $cfgExit = $LASTEXITCODE
 $ErrorActionPreference = $savedEAP
