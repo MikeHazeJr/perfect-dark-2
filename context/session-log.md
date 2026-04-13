@@ -3,6 +3,43 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S224 — 2026-04-13 (Static Link / DLL Elimination)
+
+**Focus**: Remove all DLL runtime dependencies from `PerfectDark.exe` and `PerfectDarkServer.exe`. Ship as single executables.
+
+### Changes (2 files + 1 design doc)
+
+1. **SDL2 static dep expansion** (`CMakeLists.txt` lines 247, 253): Added `dinput8 dxguid shell32 user32 uuid` to both SDL2 static linking branches. SDL2's pkg-config requires these Windows system import libs for a fully static build; they were absent from our prior list, which could leave SDL2 symbol references unresolved at link time on machines without SDL2.dll.
+
+2. **DLL copy block removed** (`CMakeLists.txt` lines 576–614): Removed the entire `if(WIN32)` block that `copy_if_different`-ed 17 DLLs (libcurl-4.dll, zlib1.dll, libssl-3-x64.dll, and 14 transitive deps) next to the built executables after each build. This was dead code — all of those libraries have been statically linked via `.a` files since an earlier session. Replaced with a comment block explaining the static link status.
+
+3. **Design doc** (`context/designs/static-link-dll-elimination-2026-04-13.md`): Full DLL audit table (22 libraries), per-library static/dynamic status, carve-out for `opengl32.dll`, LGPL license notes, conditional library fallback analysis, and step-by-step verification instructions for Mike.
+
+### DLL Summary
+
+| Library | Result |
+|---|---|
+| SDL2 | Static (`.a`) |
+| zlib | Static (`.a`) |
+| libcurl + full TLS chain (libssl, libcrypto, libnghttp2, libnghttp3, libngtcp2, libssh2, libbrotli, libidn2, libpsl, libzstd, libunistring, libintl, libiconv) | Static (`.a`, conditional `if(EXISTS ...)`) |
+| libgcc / libstdc++ / libwinpthread | Static (linker flags) |
+| opengl32.dll | **CARVE-OUT** — Windows system DLL, must stay dynamic |
+
+### Build Verification
+- Pending Mike's compile. No game code touched. Changes are build-system only.
+- Expect exe to be 15–25 MB larger than dynamic build.
+- Verify with: `objdump -p Build/PerfectDark.exe | grep "DLL Name"` — should show only Windows system DLLs.
+
+### Decisions
+- `dxerr8` omitted from SDL2 deps: removed from modern MinGW (symbols merged into dxguid). Confirmed correct.
+- LGPL static linking OK for this project: open-source repo satisfies relinking requirement.
+- opengl32 carve-out documented: no static libGL exists for Windows; every Windows install has opengl32.dll.
+
+### Next Steps
+- Mike: build and run `objdump` verification. If any MSYS2 DLL still appears, check CMake configure output for `WARNING: Static .a not found` messages, then `pacman -S` the missing package.
+
+---
+
 ## Session S223 — 2026-04-13 (HUD Score Panel Redesign + B-60 Fix)
 
 **Focus**: Mike's spec for modern FPS-style score panel docked below minimap, plus B-60 fix and event-driven score sync.

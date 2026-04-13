@@ -244,13 +244,13 @@ if(WIN32)
   if(EXISTS "${_msys_lib}/libSDL2.a" AND EXISTS "${_msys_lib}/libSDL2main.a")
     message(STATUS "SDL2: Static linking via ${_msys_lib}/libSDL2.a")
     list(APPEND LIBS mingw32 "${_msys_lib}/libSDL2main.a" "${_msys_lib}/libSDL2.a")
-    list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm)
+    list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid)
   elseif(SDL2_INCLUDE_DIR)
     get_filename_component(_sdl2_lib "${SDL2_INCLUDE_DIR}/../lib" ABSOLUTE)
     if(EXISTS "${_sdl2_lib}/libSDL2.a" AND EXISTS "${_sdl2_lib}/libSDL2main.a")
       message(STATUS "SDL2: Static linking via ${_sdl2_lib}/libSDL2.a")
       list(APPEND LIBS mingw32 "${_sdl2_lib}/libSDL2main.a" "${_sdl2_lib}/libSDL2.a")
-      list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm)
+      list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid)
     else()
       message(WARNING "SDL2: No libSDL2.a at ${_sdl2_lib} or ${_msys_lib}, falling back to dynamic")
       list(APPEND LIBS "${SDL2_LIBRARY}")
@@ -573,42 +573,9 @@ if(NINTENDO_SWITCH)
   )
 endif()
 
-# Windows: copy required runtime DLLs next to the executables after build.
-# Release packaging (release.ps1) handles DLLs separately for distribution.
-if(WIN32)
-  get_filename_component(_MINGW_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
-  set(_RUNTIME_DLLS
-    "libcurl-4.dll"
-    # libcurl transitive dependencies (MSYS2 MinGW64 dynamic curl):
-    "libnghttp2-14.dll"
-    "libnghttp3-9.dll"
-    "libidn2-0.dll"
-    "libbrotlidec.dll"
-    "libbrotlicommon.dll"
-    "libpsl-5.dll"
-    "libssh2-1.dll"
-    "libngtcp2-16.dll"
-    "libngtcp2_crypto_ossl-0.dll"
-    "libzstd.dll"
-    "libssl-3-x64.dll"
-    "libcrypto-3-x64.dll"
-    "libunistring-5.dll"
-    "libintl-8.dll"
-    "libiconv-2.dll"
-    "zlib1.dll"
-  )
-  foreach(_dll ${_RUNTIME_DLLS})
-    if(EXISTS "${_MINGW_BIN}/${_dll}")
-      add_custom_command(TARGET pd POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd>"
-        COMMENT "Copying ${_dll} to client build output")
-      add_custom_command(TARGET pd-server POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_MINGW_BIN}/${_dll}" "$<TARGET_FILE_DIR:pd-server>"
-        COMMENT "Copying ${_dll} to server build output")
-    else()
-      message(WARNING "${_dll} not found in ${_MINGW_BIN} -- game will not run without it")
-    endif()
-  endforeach()
-endif()
+# Windows: no DLL copy step — all third-party libraries are statically linked.
+# SDL2, zlib, libcurl (+ full TLS chain), libgcc, libstdc++, and libwinpthread
+# are all compiled into PerfectDark.exe and PerfectDarkServer.exe.
+# The only runtime dependency on Windows is opengl32.dll, which is a system DLL
+# present on every Windows installation and must NOT be statically linked.
+# See context/designs/static-link-dll-elimination-2026-04-13.md for the full audit.
