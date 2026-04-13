@@ -3,6 +3,47 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S226 — 2026-04-13 (Smoke Verify: Post-S224/S225)
+
+**Focus**: End-to-end verification that build-pipeline overhaul (S224) and static-link DLL elimination (S225) haven't regressed anything.
+
+### Results
+
+| Check | Result |
+|-------|--------|
+| Cold build (pd / server) | ✓ 41.5s / 7.9s |
+| **Warm build <12s** | **❌ BLOCKER — 30.7s (PCH breaks ccache)** |
+| Incremental (1 .c file) | ✓ 3.6s |
+| DLL audit — client | ✓ PASS (19 Windows system DLLs, no MSYS2) |
+| DLL audit — server | ✓ PASS (identical) |
+| Standalone exe | ✓ PASS (ldd: 31 deps, all Windows) |
+| Build errors | ✓ Zero |
+| Exe size (client) | ✓ 48.6 MiB (matches S224 reference) |
+
+### Blocker: Warm ccache Regression
+
+PCH (`target_precompile_headers` added in S225 CMakeLists.txt) breaks ccache:
+78% of compile units are "uncacheable", limiting cache effectiveness. Warm build time
+regressed from 9.4s (S224 reference, pre-PCH) to 30.7s.
+
+**Fix options**:
+1. Remove `target_precompile_headers(pd ...)` from CMakeLists.txt → restores ~9.4s warm
+2. `ccache --set-config sloppiness=pch_defines,time_macros` → may fix without removing PCH
+3. `CCACHE_PCH_EXTERNAL=true` → if ccache 4.12 supports it for MinGW
+
+**File**: `CMakeLists.txt` — `target_precompile_headers(pd PRIVATE ...)` block (commit `955dffa2`)
+
+**Static-link / DLL elimination confirmed correct**: zero MSYS2 DLLs in both exes.
+
+Full report: `context/builds/smoke-verify-2026-04-13.md`
+
+### Next Steps
+- Mike decides: remove PCH vs. tune ccache sloppiness
+- Monitor warm build time after fix
+- No code regressions found in game or port code
+
+---
+
 ## Session S225 — 2026-04-13 (Build Pipeline Improvements)
 
 **Focus**: Implement full build pipeline improvements from `context/designs/build-pipeline-improvements-2026-04-13.md`.
