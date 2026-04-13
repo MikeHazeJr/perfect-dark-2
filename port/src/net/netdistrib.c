@@ -944,24 +944,45 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         /* Hot-register in catalog */
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "textures.ini",
-                                    "skin.ini", "weapon.ini", NULL };
+                                    "skin.ini", "weapon.ini", "audio.ini",
+                                    "sfx.ini", "music.ini", NULL };
         ini_section_t ini;
         s32 registered = 0;
 
         for (s32 k = 0; ini_names[k] && !registered; k++) {
             snprintf(inipath, sizeof(inipath), "%s/%s", destdir, ini_names[k]);
             if (iniParse(inipath, &ini)) {
-                asset_entry_t *e = assetCatalogRegister(slot->id, ASSET_NONE);
-                if (e) {
-                    strncpy(e->id, slot->id, sizeof(e->id) - 1);
-                    strncpy(e->category, slot->category, sizeof(e->category) - 1);
-                    strncpy(e->dirpath, destdir, sizeof(e->dirpath) - 1);
-                    e->enabled = 1;
-                    e->temporary = slot->temporary;
-                    e->bundled = 0;
-                    e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                    sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' from %s", slot->id, destdir);
-                    registered = 1;
+                /* audio.ini: register via audio-specific API for catalog audio fields */
+                if (strcmp(ini_names[k], "audio.ini") == 0) {
+                    const char *aname = iniGet(&ini, "name", slot->id);
+                    s32 cat = iniGetInt(&ini, "category", 1);
+                    s32 dur = iniGetInt(&ini, "duration_ms", 0);
+                    const char *fpath = iniGet(&ini, "file_path", "");
+                    char fullfile[FS_MAXPATH];
+                    snprintf(fullfile, sizeof(fullfile), "%s/%s", destdir, fpath);
+                    asset_entry_t *e = assetCatalogRegisterAudio(
+                        slot->id, 0, aname, cat, dur, fullfile);
+                    if (e) {
+                        strncpy(e->dirpath, destdir, sizeof(e->dirpath) - 1);
+                        e->enabled = 1;
+                        e->temporary = slot->temporary;
+                        e->bundled = 0;
+                        sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered audio '%s' from %s", slot->id, destdir);
+                        registered = 1;
+                    }
+                } else {
+                    asset_entry_t *e = assetCatalogRegister(slot->id, ASSET_NONE);
+                    if (e) {
+                        strncpy(e->id, slot->id, sizeof(e->id) - 1);
+                        strncpy(e->category, slot->category, sizeof(e->category) - 1);
+                        strncpy(e->dirpath, destdir, sizeof(e->dirpath) - 1);
+                        e->enabled = 1;
+                        e->temporary = slot->temporary;
+                        e->bundled = 0;
+                        e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
+                        sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' from %s", slot->id, destdir);
+                        registered = 1;
+                    }
                 }
             }
         }

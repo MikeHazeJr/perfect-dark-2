@@ -49,6 +49,7 @@ typedef struct modinfo {
 	s32  loaded;                         // assets currently registered in tables
 	s32  bundled;                        // reserved; always 0 (no hardcoded bundled mods)
 	s32  has_modjson;                    // has mod.json manifest
+	s32  has_audioini;                   // has audio.ini (ini-based audio mod)
 	s32  valid;                          // true if manifest passed validation
 	char validation_error[MODMGR_ERROR_LEN]; // if !valid, describes what's wrong
 	s32  num_bodies;                     // bodies declared in mod.json

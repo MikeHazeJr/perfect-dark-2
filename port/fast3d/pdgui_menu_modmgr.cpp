@@ -866,7 +866,7 @@ static void renderInstalledModsTab(float scale)
             ImGui::TextWrapped("Place mod folders in a 'mods/' directory next to the game executable.");
         }
         ImGui::Spacing();
-        ImGui::TextDisabled("Each mod needs a mod.json manifest file.");
+        ImGui::TextDisabled("Each mod needs a mod.json or audio.ini manifest file.");
         return;
     }
 
