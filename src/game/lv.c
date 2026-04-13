@@ -47,6 +47,7 @@
 #include "game/mplayer/setup.h"
 #include "game/music.h"
 #include "modmusic.h"
+#include "pdgui_charpreview.h"
 #include "game/nbomb.h"
 #include "game/objectives.h"
 #include "game/pak.h"
@@ -1380,6 +1381,13 @@ Gfx *lvRender(Gfx *gdl)
 
 				if (g_Vars.currentplayer->menuisactive) {
 					gdl = menuRender(gdl);
+				} else {
+					/* Charpreview FBO: render even when menus are inactive so
+					 * standalone ImGui screens (modding hub, skin editor) get
+					 * their 3D character previews.  menuRender calls it via
+					 * menuRenderDialog, but when no menus are active we must
+					 * call it directly.  Uses player 0's menu struct. */
+					gdl = pdguiCharPreviewRenderGBI(gdl, &g_Menus[0]);
 				}
 			} else {
 				if (var80075d60 == 2) {

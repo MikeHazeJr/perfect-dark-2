@@ -697,16 +697,31 @@ static void modmgrScanDirectory(void)
 
 	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
 	// mods live at ./mods/ relative to the working directory. Try CWD first,
-	// then exe dir, then the base dir fallback.
+	// then exe dir, then the base dir fallback. fsFullPath returns a static
+	// pointer so we must copy before calling it again.
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	const char *candidates[] = {
-		"./" MODMGR_MODS_DIR,
-		fsFullPath("$E/" MODMGR_MODS_DIR),
-		fsFullPath(MODMGR_MODS_DIR),
-	};
+	char candidateBufs[3][512];
+	const char *candidates[3];
+
+	strncpy(candidateBufs[0], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[0]));
+	candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
+	{
+		const char *p = fsFullPath("$E/" MODMGR_MODS_DIR);
+		strncpy(candidateBufs[1], p ? p : "", sizeof(candidateBufs[1]));
+		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
+	}
+	{
+		const char *p = fsFullPath(MODMGR_MODS_DIR);
+		strncpy(candidateBufs[2], p ? p : "", sizeof(candidateBufs[2]));
+		candidateBufs[2][sizeof(candidateBufs[2]) - 1] = '\0';
+	}
+	candidates[0] = candidateBufs[0];
+	candidates[1] = candidateBufs[1];
+	candidates[2] = candidateBufs[2];
 
 	for (s32 i = 0; i < 3; i++) {
+		if (!candidates[i][0]) continue;
 		dir = opendir(candidates[i]);
 		if (dir) {
 			modsdir = candidates[i];
@@ -805,6 +820,83 @@ static void modmgrScanDirectory(void)
 	}
 
 	closedir(dir);
+
+	/* Scan remaining candidate directories for mods not in the primary dir.
+	 * This catches mods placed in data/mods/ when ./mods/ was the primary,
+	 * or vice versa. Duplicate mod IDs are skipped. */
+	for (s32 ci = 0; ci < 3 && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
+		if (!candidates[ci][0]) continue;
+		if (strcmp(candidates[ci], modsdir) == 0) continue; /* skip primary */
+
+		DIR *altdir = opendir(candidates[ci]);
+		if (!altdir) continue;
+
+		sysLogPrintf(LOG_NOTE, "modmgr: also scanning '%s'", candidates[ci]);
+
+		struct dirent *altent;
+		while ((altent = readdir(altdir)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
+			if (altent->d_name[0] == '.') continue;
+
+			char altpath[FS_MAXPATH + 1];
+			snprintf(altpath, sizeof(altpath), "%s/%s", candidates[ci], altent->d_name);
+
+			struct stat altst;
+			if (stat(altpath, &altst) != 0 || !S_ISDIR(altst.st_mode)) continue;
+
+			char altcheck[FS_MAXPATH + 1];
+			snprintf(altcheck, sizeof(altcheck), "%s/mod.json", altpath);
+			if (fsFileSize(altcheck) <= 0) continue;
+
+			/* Check for duplicate mod ID (already scanned from primary dir) */
+			bool dup = false;
+			for (s32 k = 0; k < g_ModRegistryCount; k++) {
+				if (strcmp(g_ModRegistry[k].id, altent->d_name) == 0) {
+					dup = true;
+					break;
+				}
+			}
+			if (dup) continue;
+
+			modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
+			memset(mod, 0, sizeof(modinfo_t));
+			strncpy(mod->dirpath, altpath, FS_MAXPATH - 1);
+			mod->dirpath[FS_MAXPATH - 1] = '\0';
+
+			if (!modmgrParseModJson(mod)) {
+				strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
+				mod->id[MODMGR_ID_LEN - 1] = '\0';
+				strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
+				mod->name[MODMGR_NAME_LEN - 1] = '\0';
+				mod->valid = false;
+				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json");
+				mod->has_modjson = false;
+			}
+
+			mod->bundled = 0;
+
+			char hashsrc[256];
+			snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
+			mod->contenthash = modmgrHashString(hashsrc);
+
+			{
+				char modjsonpath[FS_MAXPATH + 1];
+				snprintf(modjsonpath, sizeof(modjsonpath), "%s/mod.json", altpath);
+				if (sha256HashFile(modjsonpath, mod->sha256) != 0) {
+					sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
+				}
+			}
+
+			mod->size_bytes = modmgrComputeDirSize(altpath);
+			mod->enabled = 0;
+
+			g_ModRegistryCount++;
+			sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) from alt dir '%s'",
+				g_ModRegistryCount - 1, mod->id, mod->name, candidates[ci]);
+		}
+
+		closedir(altdir);
+	}
+
 	sysLogPrintf(LOG_NOTE, "modmgr: scan complete — %d mods found", g_ModRegistryCount);
 }
 
