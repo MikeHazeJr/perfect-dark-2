@@ -427,8 +427,9 @@ foreach ($tool in @($MakeExe, "C:\msys64\mingw64\bin\cc.exe")) {
 Write-Header "Auto-Commit + Push"
 $lockFile = Join-Path $ProjectDir ".git\index.lock"
 if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
-# dev.lock -- left behind by code sessions; delete silently before any git ops
+# dev.lock -- left behind by interrupted fetch/push or code sessions; delete silently
 foreach ($devLock in @(
+    (Join-Path $ProjectDir ".git\refs\remotes\origin\dev.lock"),
     (Join-Path $ProjectDir "dev.lock"),
     (Join-Path $ClientBuildDir "dev.lock"),
     (Join-Path $ServerBuildDir "dev.lock")
