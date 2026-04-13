@@ -208,6 +208,25 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 ---
 
+## Master Orchestration Plan — Layer 0 Execution
+
+> Source: `context/designs/master-orchestration-plan-2026-04-13.md`
+
+| ID | Title | Status | Session | Detail |
+|----|-------|--------|---------|--------|
+| **L0-BUILD** | Warm-ccache sloppiness | DONE | S231 | `CCACHE_SLOPPINESS=pch_defines,time_macros` in all build scripts |
+| **L0-LINK** | pdguiThemeRegisterModDir server link | DONE | S231 | Verified both targets link |
+| **F-0.1** | Campaign language-bank shadow fix | DONE | S233 | 46 shadow defines fixed: added LANGBANK prefix (OPTIONS=0x5600, MPWEAPONS=0x5400) |
+| **F-0.2** | Training FR weapon list context leak | DONE | S233 | Added `s_FrWeaponPushedCtx` tracking + `inputCtxPopDeferred` on both exit paths |
+| **F-0.3** | Game-over panels push-without-pop | RESOLVED | S233 | Dead code (`#if 0`); endscreen.cpp handles correctly |
+| **F-0.4** | Stale manifest on return-to-room | DONE | S233 | `manifestClear` added to `pdguiEndscreenExitToMainMenu()` (Option A) |
+| **FIX-A** | Chr tick isolation + lifetime hardening | IN PROGRESS | — | Parallel session; link error on `s_ThreadStackBase` |
+| **L1-1** | Clear g_ClientManifest on match end | PENDING | — | `netmsg.c` SVC_STAGE_END handler |
+| **FIX-B.2** | Graceful fallback for missing models | PENDING | — | `setup.c` / model loader |
+| **CLOSE** | Close B-72, B-21 in bugs.md | PENDING | — | |
+
+---
+
 ## Design Guidelines (Planned)
 
 | System | Status |

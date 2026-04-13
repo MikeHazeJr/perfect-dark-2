@@ -3,6 +3,35 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S233 -- 2026-04-13 (L0 Menu Foundation Fixes: F-0.1, F-0.2, F-0.4)
+
+**Focus**: Execute Layer 0 menu foundation fixes from master orchestration plan. Three code fixes, one verified-resolved.
+
+### Changes
+
+**F-0.1: Campaign language-ID shadow fix** (`port/fast3d/pdgui_menu_solomission.cpp`)
+- All 46 shadow `#define` values for `L_OPTIONS_*` and `L_MPWEAPONS_*` were missing the bank prefix. Encoding is `(LANGBANK << 9) | offset`. Bank 0 is NULL → ~15 invisible strings, ~15 English fallbacks.
+- Fixed: LANGBANK_OPTIONS (0x2b) → prefix 0x5600. LANGBANK_MPWEAPONS (0x2a) → prefix 0x5400. Includes S194 Batch 2 co-op/counter-op defines.
+
+**F-0.2: Training FR weapon list context leak** (`port/fast3d/pdgui_menu_training.cpp`)
+- `inputCtxPush(&g_CtxImGuiMenu)` on window appear had no matching pop. Added `s_FrWeaponPushedCtx` tracking flag + `inputCtxPopDeferred` on both exit paths (backPressed + Back button).
+
+**F-0.3: Game-over panels — verified resolved (no code change)**
+- The audit cited `pdgui_menu_pausemenu.cpp:1258,1408` but this code is inside `#if 0` (dead since endscreen.cpp replacement in B-45). The actual endscreen (`pdgui_menu_endscreen.cpp`) properly pops via `pdguiEndscreenExitToMainMenu()` on all exit paths.
+
+**F-0.4: Stale manifest on return-to-room** (`port/fast3d/pdgui_bridge.c`)
+- Added `manifestClear(&g_ClientManifest)` + include of `net/netmanifest.h` to `pdguiEndscreenExitToMainMenu()`. STAGE_CITRAINING is a gameplay stage so `mainChangeToStage()` doesn't hit the `!STAGE_IS_GAMEPLAY` branch. Option A (surgical) per audit.
+
+### Build verification
+- All 3 files compile cleanly (0 errors, only pre-existing comment warnings)
+- Full link blocked by parallel FIX-A session's `s_ThreadStackBase` undefined reference in `chraction.c` — not from this session's changes
+
+### Next steps
+- Remaining L0 items: L0-BUILD (done S231), L0-LINK (done S231), FIX-A (parallel session), L1-1, FIX-B.2, CLOSE
+- Layer 1 after L0 complete
+
+---
+
 ## Session S232 -- 2026-04-13 (Dev Window v2 Visual Overhaul + Release Hang Fix)
 
 **Focus**: Three bug fixes for dev-window-v2.ps1 + release.ps1. Code changes only — no docs.
