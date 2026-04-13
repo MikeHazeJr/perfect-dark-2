@@ -17,6 +17,22 @@
 ---
 
 
+## Mod Map Import Pipeline (L3)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **M-5.1: mapimport.h + import_context_t** | DONE (S240) | Header with typed error codes, context struct, public API. |
+| **M-5.2: mapImportNormalize** | DONE (S240) | BG header validation, pad bounds check, room count limits. |
+| **M-5.3: mapImportGenerate** | DONE (S240) | Runtime L2-L4 spawn fallback noted; mod.json generation. |
+| **M-5.4: mapImportEmit** | DONE (S240) | Atomic write via temp dir + rename. File copy with fallback. |
+| **M-5.5: mapImportValidate** | DONE (S240) | Output integrity checks (mod.json, BG file present). |
+| **M-5.6: mapImportRegister** | DONE (S240) | Signals modmgrCatalogChanged() for catalog pickup. |
+| **M-6.1: Import UI button** | PENDING | Add "Import Map" button to Modding Hub. |
+| **M-6.2: Import dialog** | PENDING | Directory selection, progress display, result summary. |
+| **M-7.x: Retroactive validation** | PENDING | Run all base + mod arenas through smoke test. |
+
+---
+
 ## Spawn System (L2 Architecture)
 
 | Item | Status | Detail |

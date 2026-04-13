@@ -3,6 +3,47 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S240 — 2026-04-13 (L3 Mod Map Import Pipeline)
+
+**Focus**: Implement Layer 3 from the master orchestration plan — PD-native binary format map importer. Full 6-stage pipeline per the design doc.
+
+### Changes (2 new files, +1080 lines)
+
+1. **`port/include/mapimport.h`** (NEW, 149 lines): Public API header.
+   - `import_context_t` struct: carries state through all 6 pipeline stages
+   - `mapimport_result_e` enum: typed error codes for every failure mode
+   - `mapImport()`: full pipeline entry point
+   - `mapImportParse()`: non-destructive scan for UI preview
+   - `mapImportExists()`: duplicate detection
+   - `mapImportResultStr()`: human-readable error strings
+
+2. **`port/src/mapimport.c`** (NEW, 931 lines): Full pipeline implementation.
+   - **Stage 1 PARSE**: Scans source directory for BG/pad/setup/mod.json files. Validates BG header (non-zero room count), pad file size.
+   - **Stage 2 NORMALIZE**: Bounds-checks room count (max 256) and pad count (max 1024). Detects missing spawns/waypoints.
+   - **Stage 3 GENERATE**: Notes missing spawns for runtime L2-L4 fallback. Generates mod.json with `imported:<name>` namespace.
+   - **Stage 4 EMIT**: Atomic write via temp dir + rename. Copies BG, pads, setup, textures, generates mod.json, writes `import_metadata.json` diagnostic. Rename fallback for cross-volume copies on Windows.
+   - **Stage 5 VALIDATE**: Verifies output directory integrity — mod.json present, BG file present and non-trivial.
+   - **Stage 6 REGISTER**: Signals `modmgrCatalogChanged()` for catalog pickup on next reload/title-screen.
+   - Helpers: `sanitizeName()`, `copyFile()`, `mkdirSafe()`, `removeDirRecursive()`, file-type detection for .bg/.pad/.setup
+
+### Spawn Pool Integration
+- Maps without INTROCMD_SPAWN entries rely on the L2 universal spawn pool's L1-L4 fallback chain at match-load time. No special handling or pre-computation at import time — the spawn pool guarantees N+M spawn points on any map.
+
+### Build Verification
+- pd (client): 752 objects, linked clean. `mapimport.c.obj` present.
+- pd-server: linked clean. mapimport.c excluded (server uses explicit source list; import pipeline is client-only).
+
+### Parallel Safety
+- Zero overlap with Match Lifecycle Major session (they own netmsg.c/net.c).
+- File surface: `port/include/mapimport.h`, `port/src/mapimport.c` (both new).
+
+### Next Steps
+- **M-6.1/6.2**: Import UI in Modding Hub (`pdgui_menu_moddinghub.cpp`) — button + dialog
+- **M-7.x**: Retroactive validation — run all base + mod arenas through import smoke test
+- match_seed via SVC_STAGE_START (still pending from spawn system)
+
+---
+
 ## Session S239 — 2026-04-13 (L2 Universal Spawn Pool: L1-L4 Chain)
 
 **Focus**: Implement the L1-L4 spawn system fallback chain from the spawn architecture design doc. Raycast-budget validation at all tiers.
