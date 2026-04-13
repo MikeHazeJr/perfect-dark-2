@@ -36,6 +36,7 @@ extern "C" {
 #include "updateversion.h"
 #include "pdgui_pausemenu.h"
 s32 pdguiHotswapWasActive(void);
+s32 pdguiPauseGetNormMplayerIsRunning(void);
 }
 
 /* ========================================================================
@@ -654,9 +655,14 @@ void pdguiUpdateRender(void)
 	/* Version watermark — always visible in bottom-right corner */
 	renderVersionWatermark();
 
-	/* Show notification banner when update available */
-	if (status == UPDATER_CHECK_DONE && updaterIsUpdateAvailable() && !s_NotificationDismissed) {
+	/* Show notification banner when update available.
+	 * S221 B-95 fix: suppress during active gameplay — the banner should
+	 * only appear in menus/lobby, not during combat or solo missions. */
+	if (status == UPDATER_CHECK_DONE && updaterIsUpdateAvailable() &&
+	    !s_NotificationDismissed && !pdguiPauseGetNormMplayerIsRunning()) {
 		s_ShowNotification = true;
+	} else if (pdguiPauseGetNormMplayerIsRunning()) {
+		s_ShowNotification = false;
 	}
 
 	if (s_ShowNotification) {
