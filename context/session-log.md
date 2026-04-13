@@ -3,6 +3,46 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S226 — 2026-04-13 (Universal Spawn + Map Import Architecture)
+
+**Focus**: High-contact architectural design for universal spawn system (zero-failure guarantee) and mod map import pipeline. Design docs only, no code changes.
+
+### Deliverables (3 design docs)
+
+1. **`context/designs/spawn-system-architecture-2026-04-13.md`** — Full audit of current spawn system (`playerChooseSpawnLocation`, `playerreset.c` fallbacks, `scenarioChooseSpawnLocation`). Proposed L1-L4 layered fallback hierarchy:
+   - L1: Declared spawn points (existing INTROCMD_SPAWN)
+   - L2: Waypoint/navmesh sampling with deterministic RNG + validation pipeline
+   - L3: Grid sampling on map AABB floor plane with raycast-to-ground
+   - L4: Bounding box center + radial offsets (unconditional, guaranteed N+M points)
+   - Validation rules: ground clearance, vertical clearance, room validity, min spacing
+   - Network: server distributes `match_seed` in SVC_STAGE_START, clients compute identical pool
+
+2. **`context/designs/mod-map-import-pipeline-2026-04-13.md`** — Six-stage pipeline: Parse -> Normalize -> Generate -> Emit -> Validate -> Register. Generates missing spawn points (invokes L2+L3 at import time), missing navmesh, missing setup files, missing mod.json. Smoke test: load + spawn pool + collision + 30s headless match. Error handling with actionable user messages.
+
+3. **`context/designs/spawn-and-import-fix-plan-2026-04-13.md`** — Seven-phase implementation punch list ordered by dependency. L4 first (hard floor), then L3, L2, spawn selection improvements, import pipeline, import UI, retroactive validation. ~2,100 lines new code across ~11 files.
+
+### Key Findings
+
+- Current spawn system has a zero-pad fallback (`player.c:245-311`) that scans pads and probes walls. It works but is not deterministic across clients and has no hard guarantee.
+- `g_SpawnPoints[24]` is undersized for MAX_MPCHRS=36. Needs expansion.
+- Waypoint sampling in `playerreset.c:282-381` uses the game RNG, which can diverge between clients.
+- L2 geometry sampling IS feasible: `cdFindGroundInfoAtCyl()`, `bgFindRoomsByPos()`, `cdExamCylMove01()` provide all the primitives needed for ground-check, room-resolve, and clearance-test. No new infrastructure required.
+- All current mod maps (GEX, Kakariko, Dark Noon, GF64) are already in PD-native format. The import pipeline's primary value is handling maps with missing metadata and ensuring quality via smoke tests.
+
+### Decisions
+
+- **Hybrid spawn generation**: Pre-compute 24 spawns at import time (baked into setup file as INTROCMD_SPAWN), supplement at match-load if needed.
+- **Deterministic seeding**: Separate PRNG seeded from `hash(stage_id) ^ match_seed`. Server distributes match_seed.
+- **L4 unconditional guarantee**: Accepts all candidates. May produce poor gameplay but NEVER crashes. Prominent logging when activated.
+- **Foreign formats out of scope for v1.0**: No Quake/Source/Unreal map conversion. Only PD-native and GE-format maps.
+
+### Next Steps
+
+- Implementation begins with Phase 1 (L4 radial fallback) -- smallest scope, biggest safety improvement
+- Phase 7 retroactive validation should run on all existing maps to catch pre-existing spawn issues
+
+---
+
 ## Session S225 — 2026-04-13 (Build Pipeline Improvements)
 
 **Focus**: Implement full build pipeline improvements from `context/designs/build-pipeline-improvements-2026-04-13.md`.
