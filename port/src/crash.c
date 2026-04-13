@@ -129,7 +129,7 @@ static void crashStackTrace(char *msg, PEXCEPTION_POINTERS exinfo)
  * This catches stack overflows that the UEF (crashHandler) would miss
  * because the UEF's own 8 KB stack allocation overflows the guard page.
  */
-static char s_VehMsg[512];
+static char s_VehMsg[768];
 static volatile long s_VehFired = 0;
 
 static long __stdcall crashVectoredHandler(PEXCEPTION_POINTERS exinfo)
@@ -165,15 +165,30 @@ static long __stdcall crashVectoredHandler(PEXCEPTION_POINTERS exinfo)
 		if (code == EXCEPTION_STACK_OVERFLOW) codename = "STACK_OVERFLOW";
 		else if (code == EXCEPTION_ACCESS_VIOLATION) codename = "ACCESS_VIOLATION";
 
-		snprintf(s_VehMsg, sizeof(s_VehMsg),
-			"FATAL: %s PC=%p (+0x%llx) CODE=0x%08lx MODULE=%p RSP=%p\n",
-			codename, pc, (unsigned long long)offset, code, modbase,
+		{
+			int vpos = 0;
+			vpos += snprintf(s_VehMsg + vpos, sizeof(s_VehMsg) - vpos,
+				"FATAL: %s PC=%p (+0x%llx) CODE=0x%08lx MODULE=%p RSP=%p\n",
+				codename, pc, (unsigned long long)offset, code, modbase,
 #ifdef PLATFORM_X86_64
-			(void *)(uintptr_t)exinfo->ContextRecord->Rsp
+				(void *)(uintptr_t)exinfo->ContextRecord->Rsp
 #else
-			(void *)(uintptr_t)exinfo->ContextRecord->Esp
+				(void *)(uintptr_t)exinfo->ContextRecord->Esp
 #endif
-		);
+			);
+
+			/* FIX-A.3: Append chr tick diagnostic to VEH output.
+			 * Read from globals only — no heap, no stack allocation. */
+#if !defined(PD_SERVER)
+			{
+				extern s32 g_ChrLastTickedIndex;
+				extern u32 g_ChrTickMaxStackUsed;
+				vpos += snprintf(s_VehMsg + vpos, sizeof(s_VehMsg) - vpos,
+					"  chr_slot=%d stack_watermark=%u\n",
+					g_ChrLastTickedIndex, (unsigned)g_ChrTickMaxStackUsed);
+			}
+#endif
+		}
 
 		/* Direct file write — sysLogPrintf uses too much stack */
 		const char *logpath = sysLogGetPath();
@@ -382,11 +397,25 @@ static char crashMsg[1024];
 
 #ifdef PLATFORM_WIN32
 /**
- * SIGABRT handler for GCC's -fstack-protector-strong.
+ * FIX-A.3: Hardened SIGABRT handler for GCC's -fstack-protector-strong.
+ *
  * When __stack_chk_fail detects a smashed canary it calls abort(),
  * which raises SIGABRT through the CRT. The VEH/UEF never see it,
  * so we catch it here with signal().
+ *
+ * CRITICAL: This handler must use ONLY STATIC BUFFERS and write
+ * directly to a pre-queried file descriptor.  The previous version
+ * called sysLogPrintf (~2 KB stack) and sysFatalError (SDL dialog +
+ * more stack), which could double-fault if the stack was already
+ * near its limit.  Now we use a single 512-byte static buffer,
+ * snprintf into it, and write via fopen/fprintf/fclose (minimal
+ * stack footprint) plus fputs to stderr.
+ *
+ * After writing diagnostics, we call _exit(3) directly instead of
+ * sysFatalError to avoid any further stack usage.
  */
+static char s_AbrtMsg[512];  /* static — zero stack cost */
+
 static void crashSigabrtHandler(int sig)
 {
 	static volatile long s_AbrtFired = 0;
@@ -394,39 +423,56 @@ static void crashSigabrtHandler(int sig)
 		_exit(3);
 	}
 
-	/* B-112/B-126 diagnostics: identify which chr was mid-tick when the
-	 * stack-protector canary smashed. Only the client runs chraTick; the
-	 * dedicated server has no chr tick loop, so this probe is client-only.
-	 * g_ChrLastTickedIndex is defined in src/game/chr.c, which is not part
-	 * of the server's CMake source list (SRC_SERVER). The PD_SERVER guard
-	 * keeps the server link clean and degrades the log line gracefully. */
-	char chrIdxMsg[64];
+	/* Gather diagnostics into the static buffer.
+	 * All data is read from globals — no heap or stack allocations. */
 #if !defined(PD_SERVER)
 	extern s32 g_ChrLastTickedIndex;
-	snprintf(chrIdxMsg, sizeof(chrIdxMsg),
-		"%d (B-112 probe; -1=not in chraTick)", g_ChrLastTickedIndex);
+	extern u32 g_ChrTickMaxStackUsed;
+	extern uintptr_t g_ChrTickStackBase;
+#endif
+	int pos = 0;
+
+	pos += snprintf(s_AbrtMsg + pos, sizeof(s_AbrtMsg) - pos,
+		"FATAL: SIGABRT caught — likely __stack_chk_fail (stack canary smashed)\n");
+
+#if !defined(PD_SERVER)
+	/* B-112/B-126: which chr was mid-tick? */
+	pos += snprintf(s_AbrtMsg + pos, sizeof(s_AbrtMsg) - pos,
+		"  chr_slot_index=%d (-1=not in chraTick)\n", g_ChrLastTickedIndex);
+
+	/* FIX-A.4: how deep was the stack when we crashed? */
+	if (g_ChrTickStackBase != 0) {
+		uintptr_t frame_now = (uintptr_t)__builtin_frame_address(0);
+		uintptr_t crash_depth = g_ChrTickStackBase - frame_now;
+		pos += snprintf(s_AbrtMsg + pos, sizeof(s_AbrtMsg) - pos,
+			"  stack_depth_at_crash=%llu max_watermark=%u base=%p\n",
+			(unsigned long long)crash_depth,
+			(unsigned)g_ChrTickMaxStackUsed,
+			(void *)g_ChrTickStackBase);
+	}
 #else
-	snprintf(chrIdxMsg, sizeof(chrIdxMsg),
-		"n/a (server build — no chr tick loop)");
+	pos += snprintf(s_AbrtMsg + pos, sizeof(s_AbrtMsg) - pos,
+		"  (server build — no chr tick loop)\n");
 #endif
 
+	/* Write to log file — direct fopen, not sysLogPrintf */
 	const char *logpath = sysLogGetPath();
 	if (logpath && logpath[0]) {
 		FILE *f = fopen(logpath, "ab");
 		if (f) {
-			fprintf(f, "FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow)\n");
-			fprintf(f, "FATAL: last chr tick index=%s\n", chrIdxMsg);
+			fputs(s_AbrtMsg, f);
 			fclose(f);
 		}
 	}
-	fputs("FATAL: SIGABRT caught — likely __stack_chk_fail (stack buffer overflow detected)\n", stderr);
+
+	/* Write to stderr */
+	fputs(s_AbrtMsg, stderr);
 	fflush(stderr);
 
-	sysLogPrintf(LOG_ERROR, "CRASH: SIGABRT — stack-protector canary smashed or abort(); last chr idx=%s", chrIdxMsg);
-
-	sysFatalError("SIGABRT: Stack buffer overflow detected by -fstack-protector-strong.\n"
-		"Check the log — the corrupted function's canary was smashed.\n"
-		"This confirms a buffer overrun inside a game tick function.");
+	/* Hard exit — do NOT call sysFatalError (uses too much stack).
+	 * The diagnostic is already in the log file and stderr.
+	 * Exit code 3 = SIGABRT convention. */
+	_exit(3);
 }
 #endif
 

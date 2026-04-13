@@ -221,7 +221,7 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **F-0.2** | Training FR weapon list context leak | DONE | S233 | Added `s_FrWeaponPushedCtx` tracking + `inputCtxPopDeferred` on both exit paths |
 | **F-0.3** | Game-over panels push-without-pop | RESOLVED | S233 | Dead code (`#if 0`); endscreen.cpp handles correctly |
 | **F-0.4** | Stale manifest on return-to-room | DONE | S233 | `manifestClear` added to `pdguiEndscreenExitToMainMenu()` (Option A) |
-| **FIX-A** | Chr tick isolation + lifetime hardening | IN PROGRESS | — | Parallel session; link error on `s_ThreadStackBase` |
+| **FIX-A** | Chr tick isolation + lifetime hardening | **DONE** | S234 | All 4 sub-items: A.1 stack depth cap, A.2 generation tokens, A.3 crash handler hardening, A.4 stack watermark. Both targets build clean. Awaiting 31-bot playtest. |
 | **L1-1** | Clear g_ClientManifest on match end | PENDING | — | `netmsg.c` SVC_STAGE_END handler |
 | **FIX-B.2** | Graceful fallback for missing models | PENDING | — | `setup.c` / model loader |
 | **CLOSE** | Close B-72, B-21 in bugs.md | PENDING | — | |

@@ -81,6 +81,23 @@ s32 g_NumChrSlots = 0;
  * report which slot was mid-tick without any heap access. -1 = not in chraTick. */
 s32 g_ChrLastTickedIndex = -1;
 
+/* FIX-A.2: Monotonic counter for chr slot generation tokens.
+ * Incremented each time any chr slot is allocated via chrInit().
+ * The value is written into chr->generation so that external code
+ * holding a cached (chr_ptr, generation) pair can detect stale pointers
+ * even when the slot has been freed and reallocated at the same address. */
+static u32 s_ChrGenerationCounter = 0;
+
+/* FIX-A.1 / FIX-A.4: Thread stack base address, captured once at init.
+ * Used by chraTick to measure per-chr stack depth and bail out if a
+ * single AI evaluation consumes too much stack.
+ * Non-static because chraction.c reads it directly. */
+uintptr_t g_ChrTickStackBase = 0;
+
+/* FIX-A.4: Worst-case stack usage seen this frame (bytes from base).
+ * Reset each frame in lvTick; logged when it exceeds the warning threshold. */
+u32 g_ChrTickMaxStackUsed = 0;
+
 s32 chrsGetNumSlots(void)
 {
 	return g_NumChrSlots;
@@ -1104,6 +1121,11 @@ void chrInit(struct prop *prop, u8 *ailist)
 
 	chr->chrnum = chrsGetNextUnusedChrnum();
 	chrRegister(chr->chrnum, i);
+
+	/* FIX-A.2: Stamp this slot with a unique generation token.
+	 * Any cached (chr*, generation) pair becomes stale the next time
+	 * the same slot is reused. */
+	chr->generation = ++s_ChrGenerationCounter;
 
 	chr->headnum = 0;
 	chr->bodynum = 0;
@@ -6673,4 +6695,40 @@ void chrSetDrCarollImages(struct chrdata *drcaroll, s32 imageleft, s32 imagerigh
 			}
 		}
 	}
+}
+
+/* ========================================================================
+ * FIX-A: Chr Tick Isolation and Lifetime Hardening (B-126, B-112)
+ * ======================================================================== */
+
+/**
+ * FIX-A.2: Validate a cached (chr*, generation) pair.
+ * Returns true only if:
+ *  1. chr falls within g_ChrSlots or g_BgChrs range
+ *  2. The slot's current generation matches cached_generation
+ * A mismatch means the slot was freed and reallocated — the pointer is stale.
+ */
+bool chrIsGenerationValid(struct chrdata *chr, u32 cached_generation)
+{
+	if (!chr) {
+		return false;
+	}
+
+	if (!chrPtrIsValid(chr)) {
+		return false;
+	}
+
+	return chr->generation == cached_generation;
+}
+
+/**
+ * FIX-A.1/A.4: Capture the current thread's stack base address.
+ * Must be called from the main thread before entering the game loop.
+ * On GCC/MinGW we use __builtin_frame_address(0) as an approximation
+ * of the stack base (it's near the top of main's frame, which is close
+ * to the base on a downward-growing stack).
+ */
+void chrTickStackInit(void)
+{
+	g_ChrTickStackBase = (uintptr_t)__builtin_frame_address(0);
 }

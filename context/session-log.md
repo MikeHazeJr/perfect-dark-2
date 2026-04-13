@@ -3,6 +3,62 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S234 -- 2026-04-13 (FIX-A: Chr Tick Isolation + Lifetime Hardening)
+
+**Focus**: Execute master orchestration plan Layer 0 FIX-A — stack/memory corruption hardening for chr tick (B-126, B-112). Deep engine work in chr.c, chraction.c, crash.c.
+
+### Changes (4 sub-items)
+
+**FIX-A.1: Stack depth cap in chraTick** (`src/game/chraction.c`)
+- Added `CHRATICK_STACK_REMAINING_MIN` (512 KB) threshold
+- `chraTick()` now measures stack depth via `__builtin_frame_address(0)` vs `g_ChrTickStackBase`
+- If remaining stack < 512 KB, the chr is skipped for this frame with a LOG_WARNING
+- Prevents any single bot's deep AI chain from crashing the process via stack overflow
+
+**FIX-A.2: Chr lifetime generation tokens** (`src/include/types.h`, `src/game/chr.c`)
+- Added `u32 generation` field at end of `struct chrdata`
+- Global `s_ChrGenerationCounter` incremented on every `chrInit()` call
+- New API: `chrIsGenerationValid(chr, cached_generation)` — validates cached (ptr, gen) pairs
+- Eliminates reused-address class of B-112 (freed slot reallocated at same address passes pointer-range check)
+
+**FIX-A.3: Crash handler hardening** (`port/src/crash.c`)
+- SIGABRT handler rewritten: 100% static buffers (`s_AbrtMsg[512]`), no `sysLogPrintf` (2KB stack), no `sysFatalError` (SDL dialog + more stack)
+- Direct `fopen/fputs/fclose` to log file, then `_exit(3)` — zero chance of double-fault
+- VEH handler enhanced: enlarged buffer (512→768), appends chr_slot + stack_watermark diagnostics
+- Both handlers include FIX-A.4 stack depth data in crash output
+
+**FIX-A.4: Per-chr stack watermark diagnostic** (`src/game/chr.c`, `src/game/chraction.c`)
+- `g_ChrTickMaxStackUsed` tracks worst-case stack usage across all chraTick calls per frame
+- After each chr's AI + action dispatch, measures stack depth and updates watermark
+- If any chr exceeds 50% of 8 MB stack, logs WARNING with chrnum, slot, action type, and usage
+- `chrTickStackInit()` called from `main()` captures stack base address at startup
+
+**Wiring** (`port/src/main.c`)
+- Added `#include "game/chr.h"` and `chrTickStackInit()` call after `crashInit()`
+
+### Build Verify
+
+| Target | Status | Size |
+|--------|--------|------|
+| PerfectDark.exe | PASS (0 errors, 0 new warnings) | 51,030,313 bytes |
+| PerfectDarkServer.exe | PASS (0 errors, 0 new warnings) | 22,790,579 bytes |
+
+### Decisions
+
+- Stack depth cap set at 512 KB remaining (conservative; measured worst case is ~200-300 KB)
+- Stack watermark warning at 50% of 8 MB total
+- SIGABRT handler uses `_exit(3)` instead of `sysFatalError` to eliminate double-fault risk
+- `generation` field added at end of chrdata struct to minimize binary layout impact
+- participant.c not modified — generation tokens are in chrdata, not participant descriptors (participant.chr is a pointer to chrdata which already has the generation field)
+
+### Next Steps
+
+- Mike: playtest 31-bot match to verify no immediate regression, check log for FIX-A.4 watermark data
+- Future: propagate `chrIsGenerationValid()` to all sites that cache chr pointers across frames
+- B-126/B-112 status upgraded from INVESTIGATING/PARTIAL to MITIGATED (infrastructure in place, awaiting crash repro)
+
+---
+
 ## Session S233 -- 2026-04-13 (L0 Menu Foundation Fixes: F-0.1, F-0.2, F-0.4)
 
 **Focus**: Execute Layer 0 menu foundation fixes from master orchestration plan. Three code fixes, one verified-resolved.

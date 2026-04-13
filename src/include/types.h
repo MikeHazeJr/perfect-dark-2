@@ -1337,6 +1337,18 @@ struct chrdata {
 	/*0x362*/ u8 drcarollimage_left : 4;
 	/*0x362*/ u8 drcarollimage_right : 4;
 	/*0x364*/ struct prop *lift;
+
+	/**
+	 * FIX-A.2: Lifetime generation counter.
+	 * Incremented each time this chrdata slot is allocated (chrInit).
+	 * External code that caches a chr pointer should also cache the
+	 * generation value.  Before dereferencing, compare the cached
+	 * generation with chr->generation — a mismatch means the slot was
+	 * freed and reallocated, so the pointer is stale.
+	 * Deliberately u32: wraps at 4 billion, which is fine — we only
+	 * care that consecutive allocs at the SAME address differ.
+	 */
+	/*0x368*/ u32 generation;
 };
 
 // This appears to be misnamed. Not only is it projectiles such as grenades and

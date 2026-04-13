@@ -37,6 +37,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
 #include "game/stagetable.h"
+#include "game/chr.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -148,6 +149,11 @@ int main(int argc, const char **argv)
 	if (!sysArgCheck("--no-crash-handler")) {
 		crashInit();
 	}
+
+	/* FIX-A.1/A.4: Capture stack base for chraTick depth monitoring.
+	 * Called from main()'s frame so the base address is near the top
+	 * of the 8 MB stack.  Must be before the game loop starts. */
+	chrTickStackInit();
 
 	/* Parse --dedicated early so the window title is correct in videoInit */
 	if (sysArgCheck("--dedicated")) {

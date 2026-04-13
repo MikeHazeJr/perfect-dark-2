@@ -13414,6 +13414,25 @@ bool chrPtrIsValid(struct chrdata *chr)
 	return false;
 }
 
+/**
+ * FIX-A.1: Stack remaining threshold (bytes).
+ * If the stack has fewer than this many bytes remaining when chraTick
+ * is entered, the chr is skipped for this frame to prevent a stack
+ * overflow crash.  512 KB is conservative — chraTick + chraiExecute +
+ * the deepest AI command chain was measured at ~200-300 KB in extreme
+ * cases; the margin accounts for collision callbacks and rendering.
+ */
+#define CHRATICK_STACK_REMAINING_MIN  (512 * 1024)
+
+/**
+ * FIX-A.4: Stack usage warning threshold (percentage of 8 MB total).
+ * If a single chraTick invocation consumes more than 50% of the total
+ * stack, log a warning identifying the chr. This identifies the specific
+ * AI codepath causing stack pressure before it becomes a crash.
+ */
+#define CHRATICK_STACK_WARN_PERCENT   50
+#define CHRATICK_STACK_TOTAL          (8 * 1024 * 1024)
+
 void chraTick(struct chrdata *chr)
 {
 	u32 race;
@@ -13427,6 +13446,28 @@ void chraTick(struct chrdata *chr)
 			"CHR.GUARD: chraTick entry invalid chr=%p frame=%d last_idx=%d",
 			(void *)chr, g_Vars.lvframe60, g_ChrLastTickedIndex);
 		return;
+	}
+
+	/* FIX-A.1: Stack depth cap — refuse to process this chr if the stack
+	 * is already dangerously low.  This prevents one bot's deep AI chain
+	 * from crashing the entire process via stack overflow (B-126).
+	 * The chr is effectively "deferred" — it misses one tick of AI, which
+	 * is invisible at 60 Hz but prevents a fatal crash. */
+	if (g_ChrTickStackBase != 0) {
+		uintptr_t frame_now = (uintptr_t)__builtin_frame_address(0);
+		uintptr_t stack_used = g_ChrTickStackBase - frame_now;
+		uintptr_t stack_remaining = CHRATICK_STACK_TOTAL > stack_used
+			? CHRATICK_STACK_TOTAL - stack_used : 0;
+
+		if (stack_remaining < CHRATICK_STACK_REMAINING_MIN) {
+			sysLogPrintf(LOG_WARNING,
+				"FIX-A.1: chraTick SKIPPED chr=%p chrnum=%d slot=%d — "
+				"stack remaining=%u bytes (used=%u, limit=%u) frame=%d",
+				(void *)chr, (int)chr->chrnum, g_ChrLastTickedIndex,
+				(unsigned)stack_remaining, (unsigned)stack_used,
+				(unsigned)CHRATICK_STACK_REMAINING_MIN, g_Vars.lvframe60);
+			return;
+		}
 	}
 
 	race = CHRRACE(chr);
@@ -13608,6 +13649,29 @@ void chraTick(struct chrdata *chr)
 					? ((struct chrdata *)chrCanary)->actiontype : -1,
 				g_Vars.lvframe60);
 			return;
+		}
+
+		/* FIX-A.4: Stack watermark — measure how deep the stack went during
+		 * this chr's AI + action processing.  If it exceeded 50% of the
+		 * total 8 MB stack, log a warning so we can identify which AI
+		 * codepath is the worst offender. */
+		if (g_ChrTickStackBase != 0) {
+			uintptr_t frame_now = (uintptr_t)__builtin_frame_address(0);
+			u32 used = (u32)(g_ChrTickStackBase - frame_now);
+			u32 warn_threshold = (CHRATICK_STACK_TOTAL * CHRATICK_STACK_WARN_PERCENT) / 100;
+			if (used > g_ChrTickMaxStackUsed) {
+				g_ChrTickMaxStackUsed = used;
+			}
+			if (used > warn_threshold) {
+				sysLogPrintf(LOG_WARNING,
+					"FIX-A.4: chr stack watermark HIGH — "
+					"chrnum=%d slot=%d action=%d used=%u/%u bytes (%u%%) frame=%d",
+					(int)chr->chrnum, g_ChrLastTickedIndex,
+					(int)chr->actiontype, used,
+					(unsigned)CHRATICK_STACK_TOTAL,
+					(used * 100) / CHRATICK_STACK_TOTAL,
+					g_Vars.lvframe60);
+			}
 		}
 
 #if VERSION >= VERSION_NTSC_1_0

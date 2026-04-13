@@ -50,6 +50,21 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 void chrHit(struct shotdata *shotdata, struct hit *hit);
 bool chrPtrIsValid(struct chrdata *chr);
 extern s32 g_ChrLastTickedIndex; /* B-112: g_ChrSlots index of chr currently in chraTick; -1=none */
+extern u32 g_ChrTickMaxStackUsed; /* FIX-A.4: worst-case stack bytes used in chraTick this frame */
+extern uintptr_t g_ChrTickStackBase; /* FIX-A.1: thread stack base for depth measurement */
+
+/**
+ * FIX-A.2: Validate a cached (chr*, generation) pair.
+ * Returns true if chr is in a valid slot AND its generation matches.
+ * Use this before dereferencing a chr pointer that was cached across frames.
+ */
+bool chrIsGenerationValid(struct chrdata *chr, u32 cached_generation);
+
+/**
+ * FIX-A.1/A.4: Record the current thread's stack base address.
+ * Call once from the main thread before entering the game loop.
+ */
+void chrTickStackInit(void);
 void chr0f028498(bool value);
 void chrsCheckForNoise(f32 noiseradius);
 bool chrCalculateAutoAim(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3);
