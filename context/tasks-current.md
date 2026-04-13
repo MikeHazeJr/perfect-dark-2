@@ -227,6 +227,16 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **FIX-B.2** | Graceful fallback for missing models | **DONE** | S235 | NULL guard in `setupLoadModeldef` (setuputils.c); `LOG_WARNING` + return false on NULL modeldef. Converts hard crash → missing prop. |
 | **CLOSE** | Close B-72, B-21 in bugs.md | **DONE** | S235 | B-72 CLOSED (v27 refactor). B-21 CLOSED-TENTATIVE (S124+S208 two-layer fix; confirm next playtest). |
 
+### Layer 1: Networking Safety Baseline (no protocol changes)
+
+| ID | Title | Status | Session | Detail |
+|----|-------|--------|---------|--------|
+| **L1-2** | Periodic score broadcast (300 frames) | **DONE** | S236 | `(g_NetTick % 300) == 0 && mplayerisrunning` in `netEndFrame()` server path. Bounds drift from any dropped `SVC_PLAYER_STATS` to ≤5s. |
+| **L1-3** | Gate HUD during endscreen | **DONE** | S236 | `pdguiHudRender()`: added `\|\| g_MainIsEndscreen` to render guard. `extern s32 g_MainIsEndscreen` declared in C boundary block. |
+| **L1-4** | Clear co-op netclient linkages at endscreen | **DONE** | S236 | `pdguiEndscreenExitToMainMenu()` + `pdguiEndscreenStartMission()`: NULL `ncl->player` + `ncl->config` for all clients when COOP/ANTI. |
+| **L1-5** | NET_RESYNC_FLAG_SCORES in initial resync | **DONE** | S236 | `g_NetPendingResyncFlags` at match start now includes `NET_RESYNC_FLAG_SCORES`. Late joiners get current scores immediately. |
+| **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | OPEN | — | `netmanifest.c`, `setup.c` — depends on FIX-B.2 (done) |
+
 ---
 
 ## Design Guidelines (Planned)
