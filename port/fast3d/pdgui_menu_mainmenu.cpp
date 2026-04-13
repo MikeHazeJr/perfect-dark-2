@@ -1544,12 +1544,22 @@ static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
 
     ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    /* B-60 fix: clip title text + glow to the title bar rect.
+     * Without this, font descenders (e.g., 'g' and 's' in "Settings")
+     * bleed below the title bar into the body area, appearing as stray
+     * characters behind tab content when the body uses NoBackground. */
+    dl->PushClipRect(ImVec2(dialogX, dialogY),
+                     ImVec2(dialogX + dialogW, dialogY + pdTitleH));
+
     pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
                       dialogW - 16.0f, pdTitleH - 4.0f);
     ImVec2 titleSize = ImGui::CalcTextSize(title);
     dl->AddText(ImVec2(dialogX + 10.0f,
                        dialogY + (pdTitleH - titleSize.y) * 0.5f),
                 pdguiPalImU32(PDPAL_TITLEFG, 255), title);
+
+    dl->PopClipRect();
 
     return pdTitleH;
 }

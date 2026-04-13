@@ -137,7 +137,7 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | Menu opacity stacking | Main menu BG gets more opaque after repeated open/close | pdgui haze overlay |
 | Prop sync not event-driven | CRC polling instead of event-driven | net sync |
 | Some maps don't spawn enemies | Navmesh/pad coverage gaps post-AIDROP fix | various |
-| Killfeed only shows player kills | Bot kills not in killfeed | netdistrib.c |
+| ~~Killfeed only shows player kills~~ | **VERIFIED S223**: killfeed shows ALL kill combos (player/bot any direction). `mpstatsRecordDeath` → `pdguiKillfeedPush` has no player-only gate. The note likely referred to the unused lobby `netDistribSendKillFeed()`. | mpstats.c |
 
 ### LOW
 | Bug | Description | File |

@@ -36,6 +36,7 @@
 #include "modelcatalog.h"
 #include "inputctx.h"
 #include "config.h"
+#include "lib/vi.h"
 
 /**
  * Set the MP player config name for a given player number.
@@ -492,6 +493,109 @@ s32 pdguiHudIsRadarVisible(void)
     /* Check per-player display option (bit 2 = radar enabled) */
     if ((g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.displayoptions & 0x04) == 0) return 0;
     return 1;
+}
+
+/**
+ * Get the radar's rendered rectangle in normalized screen coordinates (0.0-1.0).
+ * Returns 1 if radar is visible, 0 otherwise.
+ * The HUD score panel docks directly below this rect.
+ *
+ * Radar center: g_RadarX, g_RadarY in GBI framebuffer coordinates.
+ * Radar radius: 0x10 (16) GBI pixels for the background texture.
+ * Single-player PC: g_ScaleX = 1, viewWidth = 320.
+ */
+extern u32 g_RadarX;
+extern u32 g_RadarY;
+
+s32 pdguiHudGetRadarRect(float *outX, float *outY, float *outW, float *outH)
+{
+    if (!pdguiHudIsRadarVisible()) {
+        *outX = *outY = *outW = *outH = 0.0f;
+        return 0;
+    }
+
+    /* Radar background is drawn as a 32x32 textured quad centered on
+     * (g_RadarX, g_RadarY) in GBI coordinates.  The texture config uses
+     * arg4 = 0x10 (16 pixels half-extent), so full extent is 32x32 in
+     * GBI space.  radarRender also draws dots beyond this, but the
+     * background rect is the visual bounding box. */
+    s32 viewW = viGetViewWidth();
+    s32 viewH = viGetViewHeight();
+    if (viewW <= 0) viewW = 320;
+    if (viewH <= 0) viewH = 240;
+
+    float cx = (float)g_RadarX / (float)viewW;
+    float cy = (float)g_RadarY / (float)viewH;
+    float rw = 18.0f / (float)viewW;  /* slightly wider than 16 for padding */
+    float rh = 18.0f / (float)viewH;
+
+    *outX = cx - rw;
+    *outY = cy - rh;
+    *outW = rw * 2.0f;
+    *outH = rh * 2.0f;
+    return 1;
+}
+
+/**
+ * Score limit for individual players (FFA mode).
+ * Stored 0-based internally (0 = score limit of 1). >=99 means unlimited.
+ */
+s32 pdguiHudGetScoreLimit(void)
+{
+    return (s32)g_MpSetup.scorelimit;
+}
+
+/**
+ * Score limit for teams (team mode).
+ * 0 = unlimited.
+ */
+s32 pdguiHudGetTeamScoreLimit(void)
+{
+    return (s32)g_MpSetup.teamscorelimit;
+}
+
+/**
+ * Query whether teams are enabled in the current match.
+ */
+s32 pdguiHudIsTeamsEnabled(void)
+{
+    return (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 1 : 0;
+}
+
+/**
+ * Get the RGBA color for a team index (0-7).
+ * Returns 0xRRGGBBFF format for ImGui consumption.
+ */
+u32 pdguiHudGetTeamColor(s32 teamIndex)
+{
+    /* Standard PD team colors matching the palette used in multiplayer */
+    static const u32 s_TeamColors[8] = {
+        0xFF5555FFu,  /* 0: Red */
+        0x5588FFFFu,  /* 1: Blue */
+        0x55FF55FFu,  /* 2: Green */
+        0xFFFF55FFu,  /* 3: Yellow */
+        0xFF8800FFu,  /* 4: Orange */
+        0xDD55FFFFu,  /* 5: Purple */
+        0x999999FFu,  /* 6: Grey */
+        0xFFFFFFFFu,  /* 7: White */
+    };
+
+    if (teamIndex < 0 || teamIndex >= 8) teamIndex = 7;
+    return s_TeamColors[teamIndex];
+}
+
+/**
+ * Get the display name for a team by index (0-7).
+ * Returns a static string like "Red", "Blue", etc.
+ */
+const char *pdguiHudGetTeamName(s32 teamIndex)
+{
+    static const char *s_TeamNames[8] = {
+        "Red", "Blue", "Green", "Yellow",
+        "Orange", "Purple", "Grey", "White"
+    };
+    if (teamIndex < 0 || teamIndex >= 8) teamIndex = 7;
+    return s_TeamNames[teamIndex];
 }
 
 const char *pdguiPauseGetStageName(u8 stagenum)

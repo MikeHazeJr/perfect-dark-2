@@ -24,6 +24,15 @@ void pdguiKillfeedPush(const char *attackerName, u8 attackerTeam,
                        const char *victimName, u8 victimTeam,
                        s32 isSuicide);
 
+/* Bridge functions for HUD score panel (pdgui_bridge.c) */
+s32 pdguiHudIsRadarVisible(void);
+s32 pdguiHudGetRadarRect(float *outX, float *outY, float *outW, float *outH);
+s32 pdguiHudGetScoreLimit(void);
+s32 pdguiHudGetTeamScoreLimit(void);
+s32 pdguiHudIsTeamsEnabled(void);
+u32 pdguiHudGetTeamColor(s32 teamIndex);
+const char *pdguiHudGetTeamName(s32 teamIndex);
+
 #ifdef __cplusplus
 }
 #endif
