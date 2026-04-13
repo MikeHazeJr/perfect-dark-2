@@ -92,6 +92,9 @@ static struct {
 	u32 deadline_ticks;      /* g_NetTick value at which timeout fires */
 	u8  stagenum;            /* saved for mainChangeToStage() when gate fires */
 	u8  total_count;         /* popcount(expected_mask) */
+	/* L2-1: game mode + difficulty for co-op/anti gate completion */
+	u8  game_mode;           /* NETGAMEMODE_MP / COOP / ANTI */
+	u8  difficulty;          /* co-op difficulty (unused for MP) */
 	/* Phase F: countdown */
 	s32 countdown_active;    /* 1 during the 3-second pre-launch countdown */
 	u32 countdown_next_tick; /* g_NetTick at which to decrement + re-broadcast */
@@ -712,6 +715,10 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 	netbufWriteU64(dst, g_RngSeed);
 	netbufWriteU64(dst, g_Rng2Seed);
+	/* L2-4: match_seed for deterministic spawn pool generation.
+	 * All clients receive this and store in g_NetMatchSeed so future
+	 * spawnpool.c can produce identical spawn pools on every machine. */
+	netbufWriteU32(dst, g_NetMatchSeed);
 
 	/* SA-3: stage as session ID. session_id=0 signals "return to lobby" on the client.
 	 * Use g_MpSetup.stage_id (the primary catalog ID) directly — no reverse-resolve
@@ -896,6 +903,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_NetRngSeeds[0] = netbufReadU64(src);
 	g_NetRngSeeds[1] = netbufReadU64(src);
 	g_NetRngLatch = true;
+	/* L2-4: match_seed for deterministic spawn pools */
+	g_NetMatchSeed = netbufReadU32(src);
 
 	/* SA-3: stage as session ID; 0 = return to lobby */
 	const u16 stage_session = catalogReadAssetRef(src);
@@ -1172,6 +1181,19 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		titleSetNextMode(TITLEMODE_SKIP);
 		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x (co-op)", (unsigned)stagenum);
 		mainChangeToStage(stagenum);
+
+#if !defined(PD_SERVER)
+		/* L2-2: Notify server that this co-op client's stage is loaded.
+		 * Mirrors the CombatSim CLC_STAGE_READY at line ~1307.
+		 * On dedicated servers this enables bot authority delegation;
+		 * on listen servers it confirms the client is ready. */
+		if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient) {
+			sysLogPrintf(LOG_NOTE, "NET: sending CLC_STAGE_READY (co-op)");
+			netbufStartWrite(&g_NetMsgRel);
+			netmsgClcStageReadyWrite(&g_NetMsgRel);
+			netSend(g_NetLocalClient, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		}
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 		viBlack(true);
@@ -4119,8 +4141,9 @@ void readyGateTickCountdown(void)
 	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
 
 	if (s_ReadyGate.countdown_secs == 0) {
-		sysLogPrintf(LOG_NOTE, "NET: countdown complete — launching match (stage %u room %u)",
-		             (unsigned)s_ReadyGate.stagenum, (unsigned)s_ReadyGate.room_id);
+		sysLogPrintf(LOG_NOTE, "NET: countdown complete -- launching match (stage %u room %u mode %u)",
+		             (unsigned)s_ReadyGate.stagenum, (unsigned)s_ReadyGate.room_id,
+		             (unsigned)s_ReadyGate.game_mode);
 		s_ReadyGate.active           = 0;
 		s_ReadyGate.countdown_active = 0;
 
@@ -4133,8 +4156,17 @@ void readyGateTickCountdown(void)
 		extern u8 g_NetMatchRoomId;
 		g_NetMatchRoomId = s_ReadyGate.room_id;
 
-		mainChangeToStage(s_ReadyGate.stagenum);
-		netServerStageStart();
+		/* L2-1: Branch launch path by game mode.  CombatSim uses
+		 * netServerStageStart(); co-op/anti uses netServerCoopStageStart()
+		 * which sets up g_MissionConfig and player numbers differently. */
+		if (s_ReadyGate.game_mode == NETGAMEMODE_COOP ||
+		    s_ReadyGate.game_mode == NETGAMEMODE_ANTI) {
+			mainChangeToStage(s_ReadyGate.stagenum);
+			netServerCoopStageStart(s_ReadyGate.stagenum, s_ReadyGate.difficulty);
+		} else {
+			mainChangeToStage(s_ReadyGate.stagenum);
+			netServerStageStart();
+		}
 	} else {
 		s_ReadyGate.countdown_next_tick = g_NetTick + 60;
 	}
@@ -4612,6 +4644,8 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
 			s_ReadyGate.stagenum      = g_MpSetup.stagenum;
 			s_ReadyGate.total_count   = total_count;
+			s_ReadyGate.game_mode     = NETGAMEMODE_MP;
+			s_ReadyGate.difficulty    = 0;
 			s_ReadyGate.room_id       = matchRoomId;
 
 			hub_room_t *room = (matchRoomId != 0xFF) ? roomGetById(matchRoomId) : roomGetById(0);
@@ -4637,14 +4671,69 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 		}
 	} else {
-		/* Co-op or Counter-op — uses mission config */
+		/* L2-1: Co-op or Counter-op -- uses mission config.
+		 * Now routed through the manifest pipeline + ready gate, matching
+		 * the CombatSim path.  Previously this was an instant start that
+		 * bypassed all asset verification.
+		 *
+		 * Flow: build manifest -> broadcast SVC_MATCH_MANIFEST -> enter
+		 * ready gate -> countdown -> netServerCoopStageStart(). */
 		g_MissionConfig.stagenum = g_MpSetup.stagenum;
-		/* Phase 2: populate PRIMARY catalog ID string field */
 		strncpy(g_MissionConfig.stage_id, g_MpSetup.stage_id, sizeof(g_MissionConfig.stage_id) - 1);
 		g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
 		g_MissionConfig.difficulty = difficulty;
-		mainChangeToStage(g_MpSetup.stagenum);
-		netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
+
+		/* Build manifest for co-op mission: stage + player bodies/heads + mods.
+		 * manifestBuild() reads g_MpSetup.stage_id, g_NetClients[], g_MatchConfig.slots[],
+		 * and modmgrGetCount/GetMod -- all already populated by CLC_LOBBY_START parsing. */
+		manifestBuild(&g_ServerManifest, NULL, NULL);
+		sysLogPrintf(LOG_NOTE, "NET: co-op manifest built: %d entries, hash=0x%08x",
+		             g_ServerManifest.num_entries, g_ServerManifest.manifest_hash);
+
+		/* Broadcast manifest + session catalog to all clients */
+		sessionCatalogBuild(&g_ServerManifest);
+		sessionCatalogBroadcast();
+		{
+			netbufStartWrite(&g_NetMsgRel);
+			netmsgSvcMatchManifestWrite(&g_NetMsgRel, &g_ServerManifest);
+			netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		}
+
+		/* Enter the ready gate -- reuse same state machine as CombatSim */
+		{
+			u32 expected_mask = 0;
+			u8  total_count   = 0;
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				if (g_NetClients[ci].state == CLSTATE_LOBBY) {
+					g_NetClients[ci].state = CLSTATE_PREPARING;
+					expected_mask |= (1u << ci);
+					total_count++;
+				}
+			}
+
+			s_ReadyGate.active        = 1;
+			s_ReadyGate.expected_mask = expected_mask;
+			s_ReadyGate.ready_mask    = 0;
+			s_ReadyGate.declined_mask = 0;
+			s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
+			s_ReadyGate.stagenum      = g_MpSetup.stagenum;
+			s_ReadyGate.total_count   = total_count;
+			s_ReadyGate.game_mode     = g_NetGameMode;
+			s_ReadyGate.difficulty    = difficulty;
+			s_ReadyGate.room_id       = 0xFF; /* co-op is global, no room scoping */
+
+			if (total_count == 0) {
+				/* No clients -- fire immediately */
+				s_ReadyGate.active = 0;
+				mainChangeToStage(g_MpSetup.stagenum);
+				netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
+			} else {
+				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);
+				sysLogPrintf(LOG_NOTE,
+				             "NET: co-op ready gate active -- %u clients CLSTATE_PREPARING deadline=%u",
+				             (unsigned)total_count, (unsigned)s_ReadyGate.deadline_ticks);
+			}
+		}
 	}
 
 	/* H-S1: NET_CLIENT_BUFSIZE is now 16KB (was 1440) — large enough for

@@ -95,6 +95,7 @@ bool g_NetPendingBotAuthority = false;
 /* U-10: Stage-ready handshake — server-side tracking (dedicated server only). */
 s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not waiting */
 bool g_NetBotAuthorityDelegated = false; /* true once SVC_BOT_AUTHORITY sent this match */
+u32  g_NetMatchSeed             = 0;    /* L2-4: server-generated seed for deterministic spawn pools */
 
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
@@ -707,6 +708,11 @@ void netServerStageStart(void)
 	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
 	g_NetNumPreserved = 0;
 
+	/* L2-4: Generate match seed from RNG for deterministic spawn pools.
+	 * Both server and all clients will use this to build identical spawn
+	 * point pools via spawnpool.c (future). */
+	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
+
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageStartWrite(&g_NetMsgRel);
 	if (g_NetMatchRoomId != 0xFF) {
@@ -782,6 +788,9 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		g_NetClients[i].flags &= ~CLFLAG_COOPREADY;
 	}
+
+	/* L2-4: Generate match seed for deterministic spawn pools */
+	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
 
 	// broadcast stage start to all clients
 	netbufStartWrite(&g_NetMsgRel);

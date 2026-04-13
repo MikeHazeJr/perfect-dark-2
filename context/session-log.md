@@ -3,7 +3,52 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
-## Session S235 — 2026-04-13 (Layer 0 Manifest Safety Fixes + Bug Closes)
+## Session S236 -- 2026-04-13 (L5 Match Lifecycle Major: Co-op Manifest + Protocol Bump)
+
+**Focus**: Master Orchestration Plan Layer 5 -- co-op/counter-op manifest pipeline integration, CLC_STAGE_READY for co-op, protocol bump v34 to v35, match_seed in SVC_STAGE_START.
+
+### Changes (3 files)
+
+1. **`port/include/net/net.h`**:
+   - Protocol bump: `NET_PROTOCOL_VER` 34 to 35 (comment documents v35 additions)
+   - New global: `extern u32 g_NetMatchSeed` -- server-generated seed for deterministic spawn pools
+
+2. **`port/src/net/net.c`**:
+   - New global: `u32 g_NetMatchSeed = 0`
+   - `netServerStageStart()`: generates match_seed from `g_RngSeed ^ g_NetTick` before SVC_STAGE_START write
+   - `netServerCoopStageStart()`: same seed generation
+
+3. **`port/src/net/netmsg.c`**:
+   - `s_ReadyGate` struct: added `game_mode` and `difficulty` fields for co-op gate completion
+   - CombatSim ready gate entry: sets `game_mode = NETGAMEMODE_MP`
+   - **L2-1**: Co-op/Counter-Op CLC_LOBBY_START handler completely rewritten -- now builds manifest via `manifestBuild()`, broadcasts `SVC_MATCH_MANIFEST` + session catalog, enters ready gate with proper client tracking. Previously was instant-start (no asset verification).
+   - **L2-2**: `readyGateTickCountdown()` completion: branches on `game_mode` to call `netServerCoopStageStart()` for co-op/anti or `netServerStageStart()` for MP
+   - **L2-2**: Co-op SVC_STAGE_START client read: now sends `CLC_STAGE_READY` after `mainChangeToStage()`, matching the CombatSim path
+   - **L2-4**: `netmsgSvcStageStartWrite()`: writes `g_NetMatchSeed` (u32) after RNG seeds
+   - **L2-4**: `netmsgSvcStageStartRead()`: reads `g_NetMatchSeed` (u32) after RNG seeds
+
+### Build Verification
+
+Both targets build clean (0 errors, pre-existing warnings only):
+- `pd` (PerfectDark.exe): 689/689 compiled + linked
+- `pd-server` (PerfectDarkServer.exe): 59/59 compiled + linked
+
+### Architectural Impact
+
+- Co-op and Counter-Op now go through the same manifest+ready gate pipeline as CombatSim
+- Old v34 clients are cleanly rejected with "Protocol or version mismatch" message
+- `g_NetMatchSeed` is distributed but not yet consumed -- future spawnpool.c will use it
+- Co-op clients now confirm stage load via CLC_STAGE_READY (enables bot authority delegation)
+
+### Next Steps
+
+- Layer 5 continuation: L3 transient mod enablement (requires L2 to stabilize first)
+- Playtest: 2-player co-op with mod content -- verify manifest check catches missing assets
+- Playtest: verify CLC_STAGE_READY timing doesn't add perceptible delay to co-op start
+
+---
+
+## Session S235 -- 2026-04-13 (Layer 0 Manifest Safety Fixes + Bug Closes)
 
 **Focus**: Master Orchestration Plan Layer 0 — manifest safety fixes L1-1 and FIX-B.2, plus closing B-72/B-21.
 **Worktree**: `sleepy-mcnulty` (parallel to S233 menu fixes and S234 FIX-A chr tick).

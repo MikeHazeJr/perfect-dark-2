@@ -9,7 +9,9 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 34  /* v34: playlist tracks in manifest, SVC_MUSIC_ADVANCE, per-client DL status.
+#define NET_PROTOCOL_VER 35  /* v35: co-op/anti manifest pipeline, CLC_STAGE_READY for co-op,
+                               * match_seed in SVC_STAGE_START for deterministic spawn pools.
+                               * v34: playlist tracks in manifest, SVC_MUSIC_ADVANCE, per-client DL status.
                                * v33: A-7 mod audio network sync — SVC_STAGE_START includes mod_track_id
                                * string, ASSET_AUDIO in SVC_CATALOG_INFO distribution.
                                * v32: scenario identity uses catalog ID string on wire (CLC_LOBBY_START,
@@ -230,6 +232,12 @@ extern bool g_NetPendingBotAuthority;
  *   the timeout path and the CLC_STAGE_READY handler don't double-send. */
 extern s32  g_NetStageReadyDeadline;
 extern bool g_NetBotAuthorityDelegated;
+
+/* L2-4: Server-generated match seed distributed via SVC_STAGE_START.
+ * Used by spawnpool.c (future) for deterministic spawn pool generation
+ * that all clients agree on. Set by server before SVC_STAGE_START write;
+ * read by clients in SVC_STAGE_START handler. */
+extern u32  g_NetMatchSeed;
 
 extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;
