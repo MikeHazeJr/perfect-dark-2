@@ -67,12 +67,8 @@ struct ranking_ticker {
 
 s32 mpGetPlayerRankings(struct ranking_ticker *rankings);
 
-/* Endscreen dialog symbols not declared in data.h */
-extern struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;
-extern struct menudialogdef g_MpEndscreenTeamGameOverMenuDialog;
-extern struct menudialogdef g_MpEndscreenPlayerRankingMenuDialog;
-extern struct menudialogdef g_MpEndscreenTeamRankingMenuDialog;
-extern struct menudialogdef g_MpEndscreenPlayerStatsMenuDialog;
+/* Endscreen dialog symbols — only SavePlayer is still registered here.
+ * Root + sub dialogs are handled by pdgui_menu_endscreen.cpp. */
 extern struct menudialogdef g_MpEndscreenSavePlayerMenuDialog;
 
 /* Team colors — shared with pdgui_menu_pausemenu.cpp pattern */
@@ -342,22 +338,19 @@ static s32 renderNoop(struct menudialog * /*dialog*/, struct menu * /*root*/,
 
 extern "C" void pdguiMpIngameRegister(void)
 {
-    /* Suppress the five DEFAULT-type endscreen dialogs.
-     * pdguiGameOverRender owns the actual end-screen UI. */
-    pdguiHotswapRegister(&g_MpEndscreenIndGameOverMenuDialog,
-        renderNoop, "MP Endscreen Ind (suppressed)");
-    pdguiHotswapRegister(&g_MpEndscreenTeamGameOverMenuDialog,
-        renderNoop, "MP Endscreen Team (suppressed)");
-    pdguiHotswapRegister(&g_MpEndscreenPlayerRankingMenuDialog,
-        renderNoop, "MP Endscreen Player Ranking (suppressed)");
-    pdguiHotswapRegister(&g_MpEndscreenTeamRankingMenuDialog,
-        renderNoop, "MP Endscreen Team Ranking (suppressed)");
-    pdguiHotswapRegister(&g_MpEndscreenPlayerStatsMenuDialog,
-        renderNoop, "MP Endscreen Player Stats (suppressed)");
-
-    /* B-115 fix: suppress Save Player — auto-save via configSave("pd.ini")
+    /* Endscreen ROOT dialogs (IndGameOver, TeamGameOver) are registered by
+     * pdguiMenuEndscreenRegister() with full ImGui renders (rankings, stats,
+     * action buttons, input context push).  Do NOT re-register them here
+     * as noops — that was the pre-endscreen.cpp approach and caused a
+     * dual-render conflict when both paths existed.
+     *
+     * Endscreen SUB dialogs (PlayerRanking, TeamRanking, PlayerStats) are
+     * also registered by endscreen.cpp as noops — content folded into root.
+     *
+     * B-115 fix: suppress Save Player — auto-save via configSave("pd.ini")
      * in pdguiEndscreenExitToMainMenu() handles PC saving. Legacy N64 dialog
-     * was for Controller Pak writes; keeping it native stole input from ImGui. */
+     * was for Controller Pak writes; keeping it native stole input from ImGui.
+     * This dialog is NOT registered by endscreen.cpp, so we keep it here. */
     pdguiHotswapRegister(&g_MpEndscreenSavePlayerMenuDialog,
         renderNoop, "MP Endscreen Save Player (suppressed)");
 }

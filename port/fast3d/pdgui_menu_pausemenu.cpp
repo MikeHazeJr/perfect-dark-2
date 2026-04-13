@@ -1157,6 +1157,18 @@ static void renderGameOverPersonal(float contentW)
 
 void pdguiGameOverRender(s32 winW, s32 winH)
 {
+    /* B-45 legacy: this standalone renderer was the only GAMEOVER screen before
+     * pdgui_menu_endscreen.cpp existed.  Now the endscreen hotswap renderers
+     * (mpGameOverIndRender / mpGameOverTeamRender) handle everything — they
+     * provide rankings, stats, awards, input context push, and action buttons.
+     * Running both produces two overlapping ImGui windows fighting for focus,
+     * which is the root cause of the post-match "stuck" bug.
+     * Disabled: endscreen.cpp is the sole MP endscreen path. */
+    (void)winW;
+    (void)winH;
+    return;
+
+#if 0  /* Retained for reference — the endscreen hotswap renders replace this */
     if (pdguiPauseGetPaused() != MPPAUSEMODE_GAMEOVER) return;
     if (!pdguiPauseGetNormMplayerIsRunning()) return;
 
@@ -1411,6 +1423,7 @@ void pdguiGameOverRender(s32 winW, s32 winH)
 
     /* Clear reset flag when leaving GAMEOVER state */
     /* (already handled: early return at top clears s_prevWasGameOver on next entry) */
+#endif /* retained for reference */
 }
 
 /* Companion: clear the game-over tab state on stage transition so the

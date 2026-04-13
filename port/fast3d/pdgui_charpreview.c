@@ -36,11 +36,12 @@
 #include "modelcatalog.h"
 #include "pdgui_charpreview.h"
 
-/* Forward declarations for VI dimensions (vi.c) — needed to restore
- * scissor after FBO render.  Cannot include lib/vi.h directly due
- * to include hierarchy constraints. */
+/* Forward declarations for VI functions (vi.c) — needed to restore
+ * scissor and viewport after FBO render.  Cannot include lib/vi.h
+ * directly due to include hierarchy constraints. */
 extern s16 viGetWidth(void);
 extern s16 viGetHeight(void);
+extern Vp *viGetCurrentPlayerViewport(void);
 
 /* ========================================================================
  * State
@@ -541,6 +542,13 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
      * blue triangles in the sky. */
     gDPSetScissor(gdl++, G_SC_NON_INTERLACE,
                   0, 0, viGetWidth(), viGetHeight());
+
+    /* B-136: Restore viewport to the current player's full-screen viewport.
+     * The FBO pass set viewport to CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT.
+     * Without restoring, subsequent GBI commands (menu model renders, etc.)
+     * draw into a 256x256 region at the top-left of the main framebuffer,
+     * producing a visible black rectangle. */
+    gSPViewport(gdl++, viGetCurrentPlayerViewport());
 
     /* Mark preview as ready. The texture ID was cached at init time.
      * The GBI commands above will be processed by gfx_run_dl before
