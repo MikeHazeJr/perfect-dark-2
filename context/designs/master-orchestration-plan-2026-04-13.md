@@ -119,6 +119,8 @@ The Opus 1M bug-sweep (FIX-A through FIX-G) doesn't exist in isolation — most 
 
 **Smoke-verify checkpoint after Layer 2**: Load Skedar Ruins with 31 bots — verify distributed spawns (not all stacked). Load a zero-pad test map — verify L4 radial generates spawns. 2-client online match — verify both clients produce identical spawn pools (deterministic RNG from match_seed).
 
+**Spawn validation note**: The L1–L4 fallback chain now includes **raycast-budget validation at every tier**. Every candidate fires ~14 rays (6 cardinal + 8 diagonal); backface hit = reject (inside geometry); sum of ray distances must meet ≥ 10–20m threshold. L4 dilates its radial pattern until candidates pass; last resort = highest-budget candidates. Determinism seeded from `match_id ^ player_slot`. See [spawn-system-architecture-2026-04-13.md §3.0](spawn-system-architecture-2026-04-13.md) for the full algorithm.
+
 ---
 
 ### Layer 3: Mod Map Import Pipeline
