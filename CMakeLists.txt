@@ -465,6 +465,21 @@ add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})
 set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
+
+# Precompiled header for the "core 4" game headers (C only -- C++ port files differ).
+# types.h, ultra64.h, data.h, constants.h are included by >50% of game TUs.
+# PCH saves parsing them ~350x per clean build (~5-8s on 24 cores).
+# Note: the -include "versioninfo.h" force-include coexists safely because
+# versioninfo.h is generated at configure time and has its own include guards.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+  target_precompile_headers(pd PRIVATE
+    "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/src/include/types.h>"
+    "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/include/ultra64.h>"
+    "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/src/include/data.h>"
+    "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/src/include/constants.h>"
+  )
+endif()
+
 if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
   # 8 MB stack: default 2 MB is too small for 31-bot matches where deep

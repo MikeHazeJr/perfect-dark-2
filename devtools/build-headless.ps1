@@ -4,14 +4,19 @@
     Headless build script for Perfect Dark PC Port  -  no GUI, pure console output.
 
 .DESCRIPTION
-    Runs the same CMake configure + build pipeline as build-gui.ps1 but without
+    Runs the same CMake configure + build pipeline as dev-window-v2.ps1 but without
     any WinForms or windows. Suitable for CI, code sessions, and terminal use.
+    Uses Ninja generator, unified Build/ directory, ccache, and mold linker.
 
 .PARAMETER Target
     What to build: client, server, or all (default: all)
 
 .PARAMETER Clean
     Remove the build directory before configuring (clean build).
+
+.PARAMETER AutoCommit
+    Commit and push pending changes before building. Default: OFF.
+    release.ps1 always commits; this flag is opt-in for development builds.
 
 .PARAMETER Verbose
     Show full compiler output. Without this flag, only errors and summary lines
@@ -21,6 +26,7 @@
     .\build-headless.ps1
     .\build-headless.ps1 -Target client -Clean
     .\build-headless.ps1 -Target server -Verbose
+    .\build-headless.ps1 -AutoCommit
     powershell -File build-headless.ps1 -Target all -Clean
 #>
 
@@ -34,6 +40,8 @@ param(
 
     [switch]$Clean,
 
+    [switch]$AutoCommit,
+
     [switch]$Verbose
 )
 
@@ -41,10 +49,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Configuration  -  mirrors dev-window.ps1 Get-BuildSteps exactly
+# Configuration  -  mirrors dev-window-v2.ps1 Get-BuildSteps exactly
 #
 # SYNC RULE: The cmake configure args (flags, generator, paths) MUST match
-# dev-window.ps1 Get-BuildSteps(). If you change one, change the other.
+# dev-window-v2.ps1 Get-BuildSteps(). If you change one, change the other.
 # The VERSION_SEM_* flags are injected here and in Get-BuildSteps so both
 # produce identical binaries given the same version string.
 # ============================================================================
@@ -62,12 +70,19 @@ if ($ProjectDir -match [regex]::Escape('.claude\worktrees\')) {
     Write-Warning "Worktree path detected -- redirecting build to main working copy: $ProjectDir"
 }
 
-$ClientBuildDir = Join-Path $ProjectDir "build\client"
-$ServerBuildDir = Join-Path $ProjectDir "build\server"
-$AddinDir       = Join-Path $ProjectDir "..\post-batch-addin"
-$CMakeExe       = "cmake"
-$MakeExe        = "C:\msys64\usr\bin\make.exe"
-$CC             = "C:/msys64/mingw64/bin/cc.exe"
+# Unified build directory (client + server share one dir -- no double-compile)
+$BuildDir   = Join-Path $ProjectDir "Build"
+$StateFile  = Join-Path $BuildDir ".last_build_state.json"
+$AddinDir   = Join-Path $ProjectDir "..\post-batch-addin"
+$CMakeExe   = "cmake"
+$CC         = "C:/msys64/mingw64/bin/cc.exe"
+$NinjaExe   = "C:\msys64\mingw64\bin\ninja.exe"
+$Generator  = "Ninja"
+
+# ccache and mold: injected via cmake launcher flags
+# Install: pacman -S --noconfirm mingw-w64-x86_64-ccache mingw-w64-x86_64-mold
+$CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+$MoldLinker     = "-DCMAKE_EXE_LINKER_FLAGS=`"-fuse-ld=mold`""
 
 # MSYS2 MINGW64 environment  -  same as GUI version
 $env:MSYSTEM      = "MINGW64"
@@ -86,7 +101,7 @@ $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
 
 # ============================================================================
-# Version resolution  -  mirrors dev-window.ps1 Get-ProjectVersion
+# Version resolution  -  mirrors dev-window-v2.ps1 Get-ProjectVersion
 # If -Version "X.Y.Z" supplied, use it. Otherwise read CMakeLists.txt.
 # ============================================================================
 
@@ -133,7 +148,7 @@ function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
 
 # Returns $true if the line looks like a compiler/linker error
 function Is-ErrorLine([string]$line) {
-    return $line -match ':\s*error\s*:|:\s*fatal error\s*:|^make.*\*\*\*.*Error|FAILED|undefined reference|multiple definition|collect2:\s*error|ld returned|cannot find -l|CMake Error|error:\s|Error:'
+    return $line -match ':\s*error\s*:|:\s*fatal error\s*:|^make.*\*\*\*.*Error|^ninja.*\[\d+/\d+\].*FAILED|FAILED|undefined reference|multiple definition|collect2:\s*error|ld returned|cannot find -l|CMake Error|error:\s|Error:'
 }
 
 # ============================================================================
@@ -177,9 +192,6 @@ function Invoke-BuildStep {
     $errorLines  = [System.Collections.Generic.List[string]]::new()
 
     # Async readers to prevent deadlock when both stdout and stderr fill
-    $stdoutSb = [System.Text.StringBuilder]::new()
-    $stderrSb = [System.Text.StringBuilder]::new()
-
     $stdoutQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $stderrQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 
@@ -286,10 +298,10 @@ function Invoke-BuildStep {
 
         # Surface CMake diagnostic logs on configure failures
         if ($StepName -match "Configure") {
-            $cmakeErrLog = Join-Path $script:CurrentBuildDir "CMakeFiles\CMakeError.log"
-            $cmakeOutLog = Join-Path $script:CurrentBuildDir "CMakeFiles\CMakeConfigureLog.yaml"
+            $cmakeErrLog = Join-Path $BuildDir "CMakeFiles\CMakeError.log"
+            $cmakeOutLog = Join-Path $BuildDir "CMakeFiles\CMakeConfigureLog.yaml"
             if (-not (Test-Path $cmakeOutLog)) {
-                $cmakeOutLog = Join-Path $script:CurrentBuildDir "CMakeFiles\CMakeOutput.log"
+                $cmakeOutLog = Join-Path $BuildDir "CMakeFiles\CMakeOutput.log"
             }
             foreach ($logFile in @($cmakeErrLog, $cmakeOutLog)) {
                 if (Test-Path $logFile) {
@@ -323,184 +335,226 @@ function Invoke-BuildStep {
 }
 
 # ============================================================================
-# Build a single target (client or server)
+# Smart clean-build detection
+# Heuristics: force clean when (a) CMakeCache.txt missing, (b) generator
+# changed, (c) compiler version changed, (d) branch changed, (e) -Clean flag.
+# State is persisted in Build/.last_build_state.json.
 # ============================================================================
 
-function Invoke-Target {
-    param(
-        [string]$TargetName   # "client" or "server"
-    )
+function Get-CurrentBranch {
+    try {
+        $b = (& git -C $ProjectDir rev-parse --abbrev-ref HEAD 2>$null)
+        if ($b) { return $b.Trim() }
+    } catch {}
+    return ""
+}
 
-    $buildDir   = if ($TargetName -eq "server") { $ServerBuildDir } else { $ClientBuildDir }
-    $makeTarget = if ($TargetName -eq "server") { "--target pd-server" } else { "--target pd" }
-    $label      = if ($TargetName -eq "server") { "Server" } else { "Client" }
+function Read-BuildState {
+    if (Test-Path $StateFile) {
+        try { return (Get-Content $StateFile -Raw -ErrorAction Stop | ConvertFrom-Json) } catch {}
+    }
+    return $null
+}
 
-    $script:CurrentBuildDir = $buildDir
+function Write-BuildState([string]$headHash) {
+    $state = @{
+        generator = $Generator
+        compiler  = $CC
+        branch    = (Get-CurrentBranch)
+        builtHash = $headHash
+    }
+    $dir = Split-Path $StateFile -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    try { $state | ConvertTo-Json -Depth 3 | Set-Content $StateFile -Encoding UTF8 -ErrorAction Stop } catch {}
+}
 
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host "  Building: $label" -ForegroundColor White
-    Write-Host "  Dir:      $buildDir" -ForegroundColor DarkGray
-    Write-Host "============================================================" -ForegroundColor DarkCyan
+function Test-NeedsCleanBuild {
+    # (e) Explicit -Clean flag
+    if ($Clean) { return $true }
 
-    # Clean
-    if ($Clean) {
-        if (Test-Path $buildDir) {
-            Write-Info "  Cleaning build directory..."
-            Remove-Item -Path $buildDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Ok "  Cleaned: $buildDir"
-        } else {
-            Write-Info "  Clean requested but directory does not exist  -  proceeding as fresh build."
-        }
+    # (a) CMakeCache.txt missing (fresh dir or someone deleted it)
+    $cacheFile = Join-Path $BuildDir "CMakeCache.txt"
+    if (-not (Test-Path $cacheFile)) { return $true }
+
+    $state = Read-BuildState
+    if ($null -eq $state) {
+        # No state file: migrating from Unix Makefiles or first Ninja run
+        Write-Info "  [smart-clean] No state file -- forcing clean (migration or first Ninja run)"
+        return $true
     }
 
-    # Configure -- flags match dev-window.ps1 Get-BuildSteps() exactly (including VERSION_SEM_*)
-    $configArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CC`" -B `"$buildDir`" -S `"$ProjectDir`"$vFlags"
-
-    $script:StepStart = [DateTime]::Now
-    $configOk = Invoke-BuildStep -StepName "Configure (CMake) [$label]" `
-                                  -Exe $CMakeExe `
-                                  -ArgList $configArgs `
-                                  -ShowAll $Verbose.IsPresent
-
-    if (-not $configOk) { return $false }
-
-    # Build
-    $buildArgs = "--build `"$buildDir`" $makeTarget -- -j$Cores -k"
-
-    $script:StepStart = [DateTime]::Now
-    $buildOk = Invoke-BuildStep -StepName "Compile [$label]" `
-                                 -Exe $CMakeExe `
-                                 -ArgList $buildArgs `
-                                 -ShowAll $Verbose.IsPresent
-
-    if (-not $buildOk) { return $false }
-
-    # Post-build addin copy (client only)
-    if ($TargetName -eq "client") {
-        $dataDir = Join-Path $AddinDir "data"
-        if (Test-Path $dataDir) {
-            Write-Header "Post-Build: Copy Addin Files"
-            try {
-                Copy-Item $dataDir -Destination $buildDir -Recurse -Force
-                Write-Ok "  Copied addin\data -> $buildDir"
-            } catch {
-                Write-Warn "  Addin copy failed (non-fatal): $($_.Exception.Message)"
-            }
-        }
+    # (b) Generator changed (e.g. migrating from Unix Makefiles)
+    if ($state.generator -ne $Generator) {
+        Write-Info "  [smart-clean] Generator changed ($($state.generator) -> $Generator) -- forcing clean"
+        return $true
     }
 
-    return $true
+    # (c) Compiler changed
+    if ($state.compiler -ne $CC) {
+        Write-Info "  [smart-clean] Compiler changed ($($state.compiler) -> $CC) -- forcing clean"
+        return $true
+    }
+
+    # (d) Branch changed
+    $currentBranch = Get-CurrentBranch
+    if ($currentBranch -and $state.branch -and $currentBranch -ne $state.branch) {
+        Write-Info "  [smart-clean] Branch changed ($($state.branch) -> $currentBranch) -- forcing clean"
+        return $true
+    }
+
+    return $false
 }
 
 # ============================================================================
-# Main
+# Main build flow
 # ============================================================================
 
-$script:CurrentBuildDir = $ClientBuildDir
-$script:StepStart       = [DateTime]::Now
-
+$script:StepStart = [DateTime]::Now
 $totalStart = [DateTime]::Now
+
+$currentHash = (& git -C $ProjectDir rev-parse HEAD 2>$null)
+if ($currentHash) { $currentHash = $currentHash.Trim() }
 
 Write-Host ""
 Write-Host "  Perfect Dark PC Port  -  Headless Build" -ForegroundColor Cyan
-Write-Host "  Target:  $Target" -ForegroundColor Gray
-Write-Host "  Version: $VerMajor.$VerMinor.$VerPatch" -ForegroundColor Gray
-Write-Host "  Clean:   $($Clean.IsPresent)" -ForegroundColor Gray
-Write-Host "  Verbose: $($Verbose.IsPresent)" -ForegroundColor Gray
-Write-Host "  Cores:   $Cores" -ForegroundColor Gray
+Write-Host "  Target:     $Target" -ForegroundColor Gray
+Write-Host "  Version:    $VerMajor.$VerMinor.$VerPatch" -ForegroundColor Gray
+Write-Host "  Clean:      $($Clean.IsPresent)" -ForegroundColor Gray
+Write-Host "  AutoCommit: $($AutoCommit.IsPresent)" -ForegroundColor Gray
+Write-Host "  Verbose:    $($Verbose.IsPresent)" -ForegroundColor Gray
+Write-Host "  Cores:      $Cores" -ForegroundColor Gray
+Write-Host "  Generator:  $Generator" -ForegroundColor Gray
+Write-Host "  BuildDir:   $BuildDir" -ForegroundColor DarkGray
 Write-Host "  ProjectDir: $ProjectDir" -ForegroundColor DarkGray
 
 # Validate tools
-foreach ($tool in @($MakeExe, "C:\msys64\mingw64\bin\cc.exe")) {
+foreach ($tool in @($NinjaExe, "C:\msys64\mingw64\bin\cc.exe")) {
     if (-not (Test-Path $tool)) {
         Write-Err "Required tool not found: $tool"
         Write-Err "Install MSYS2/MinGW64 to C:\msys64 or adjust paths in build-headless.ps1"
+        Write-Err "  Ninja:  pacman -S mingw-w64-x86_64-ninja"
+        Write-Err "  ccache: pacman -S mingw-w64-x86_64-ccache"
         exit 1
     }
 }
 
 # ============================================================================
-# Auto-commit + push
+# Auto-Commit + Push (opt-in via -AutoCommit)
 # ============================================================================
 
-Write-Header "Auto-Commit + Push"
-$lockFile = Join-Path $ProjectDir ".git\index.lock"
-if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
-# dev.lock -- left behind by interrupted fetch/push or code sessions; delete silently
-foreach ($devLock in @(
-    (Join-Path $ProjectDir ".git\refs\remotes\origin\dev.lock"),
-    (Join-Path $ProjectDir "dev.lock"),
-    (Join-Path $ClientBuildDir "dev.lock"),
-    (Join-Path $ServerBuildDir "dev.lock")
-)) {
-    if (Test-Path $devLock) { Remove-Item $devLock -Force -ErrorAction SilentlyContinue }
-}
-$commitMsg = "Build v$VerMajor.$VerMinor.$VerPatch - auto-commit before build"
-$stChanges = & git -C $ProjectDir status --porcelain 2>$null
-if ($stChanges) {
-    # SP-9 truncation guard: flag any file where net line delta < -20 AND
-    # additions < 1/3 of deletions.  That pattern (mostly-deleted, few-added)
-    # matches every known AI-pipeline truncation incident; it does NOT match
-    # legitimate large rewrites (which have high additions too).
-    # Abort the commit but let the build continue from the working copy so the
-    # developer still gets a build result and can inspect the damage.
-    $numstatOut  = & git -C $ProjectDir diff HEAD --numstat 2>$null
-    $flaggedFiles = @()
-    foreach ($numLine in $numstatOut) {
-        if ($numLine -match '^(\d+)\s+(\d+)\s+(.+)$') {
-            $added    = [int]$Matches[1]
-            $deleted  = [int]$Matches[2]
-            $file     = $Matches[3].Trim()
-            $net      = $added - $deleted
-            $threshold = [Math]::Max(1, [Math]::Floor($deleted / 3))
-            if ($net -lt -20 -and $added -lt $threshold) {
-                $flaggedFiles += "    $file  (net ${net}: +$added / -$deleted)"
+if ($AutoCommit) {
+    Write-Header "Auto-Commit + Push"
+    $lockFile = Join-Path $ProjectDir ".git\index.lock"
+    if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+    # dev.lock -- left behind by interrupted fetch/push or code sessions; delete silently
+    foreach ($devLock in @(
+        (Join-Path $ProjectDir ".git\refs\remotes\origin\dev.lock"),
+        (Join-Path $ProjectDir "dev.lock")
+    )) {
+        if (Test-Path $devLock) { Remove-Item $devLock -Force -ErrorAction SilentlyContinue }
+    }
+    $commitMsg = "Build v$VerMajor.$VerMinor.$VerPatch - auto-commit before build"
+    $stChanges = & git -C $ProjectDir status --porcelain 2>$null
+    if ($stChanges) {
+        # SP-9 truncation guard: flag any file where net line delta < -20 AND
+        # additions < 1/3 of deletions.  That pattern (mostly-deleted, few-added)
+        # matches every known AI-pipeline truncation incident; it does NOT match
+        # legitimate large rewrites (which have high additions too).
+        $numstatOut  = & git -C $ProjectDir diff HEAD --numstat 2>$null
+        $flaggedFiles = @()
+        foreach ($numLine in $numstatOut) {
+            if ($numLine -match '^(\d+)\s+(\d+)\s+(.+)$') {
+                $added    = [int]$Matches[1]
+                $deleted  = [int]$Matches[2]
+                $file     = $Matches[3].Trim()
+                $net      = $added - $deleted
+                $threshold = [Math]::Max(1, [Math]::Floor($deleted / 3))
+                if ($net -lt -20 -and $added -lt $threshold) {
+                    $flaggedFiles += "    $file  (net ${net}: +$added / -$deleted)"
+                }
             }
         }
-    }
-    if ($flaggedFiles.Count -gt 0) {
-        Write-Warn ""
-        Write-Warn "  [SP-9 GUARD] Auto-commit SKIPPED -- unexpected file shrinkage:"
-        $flaggedFiles | ForEach-Object { Write-Warn $_ }
-        Write-Warn "  Verify file content against HEAD before committing."
-        Write-Warn "  Restore: git -C `"$ProjectDir`" checkout HEAD -- <file>"
-        Write-Info "  Build continues from working copy (commit was NOT made)."
+        if ($flaggedFiles.Count -gt 0) {
+            Write-Warn ""
+            Write-Warn "  [SP-9 GUARD] Auto-commit SKIPPED -- unexpected file shrinkage:"
+            $flaggedFiles | ForEach-Object { Write-Warn $_ }
+            Write-Warn "  Verify file content against HEAD before committing."
+            Write-Warn "  Restore: git -C `"$ProjectDir`" checkout HEAD -- <file>"
+            Write-Info "  Build continues from working copy (commit was NOT made)."
+        } else {
+            & git -C $ProjectDir add -A 2>$null | Out-Null
+            & git -C $ProjectDir commit -m $commitMsg 2>$null | Out-Null
+            Write-Ok "  Committed: $commitMsg"
+        }
     } else {
-        & git -C $ProjectDir add -A 2>$null | Out-Null
-        & git -C $ProjectDir commit -m $commitMsg 2>$null | Out-Null
-        Write-Ok "  Committed: $commitMsg"
+        Write-Info "  Nothing to commit."
+    }
+    # Push is non-fatal -- no internet or no remote won't abort the build
+    try {
+        & git -C $ProjectDir push 2>$null | Out-Null
+        Write-Ok "  Pushed to remote."
+    } catch {
+        Write-Warn "  Push failed (non-fatal): $($_.Exception.Message)"
     }
 } else {
-    Write-Info "  Nothing to commit."
-}
-# Push is non-fatal -- no internet or no remote won't abort the build
-try {
-    & git -C $ProjectDir push 2>$null | Out-Null
-    Write-Ok "  Pushed to remote."
-} catch {
-    Write-Warn "  Push failed (non-fatal): $($_.Exception.Message)"
+    Write-Info ""
+    Write-Info "  Auto-commit disabled (pass -AutoCommit to enable)."
 }
 
 # ============================================================================
-# Stale build detection
+# Stale build detection (informational only -- does not block)
 # ============================================================================
 
-$hashFile    = Join-Path $ProjectDir "build\.last-built-hash"
-$currentHash = (& git -C $ProjectDir rev-parse HEAD 2>$null)
-if ($currentHash) { $currentHash = $currentHash.Trim() }
-if ((Test-Path $hashFile) -and $currentHash) {
-    $lastHash = (Get-Content $hashFile -Raw -ErrorAction SilentlyContinue)
-    if ($lastHash) { $lastHash = $lastHash.Trim() }
-    if ($lastHash -and $lastHash -ne $currentHash) {
-        $commitCount = (& git -C $ProjectDir rev-list --count "$lastHash..HEAD" 2>$null)
-        if ($commitCount) { $commitCount = $commitCount.Trim() } else { $commitCount = "?" }
-        Write-Warn ""
-        Write-Warn "  WARNING: $commitCount new commit(s) since last successful build (hash changed)"
-        Write-Warn "  Last built: $lastHash"
-        Write-Warn "  Current:    $currentHash"
+$state = Read-BuildState
+if ($state -and $state.builtHash -and $currentHash -and $state.builtHash -ne $currentHash) {
+    $commitCount = (& git -C $ProjectDir rev-list --count "$($state.builtHash)..HEAD" 2>$null)
+    if ($commitCount) { $commitCount = $commitCount.Trim() } else { $commitCount = "?" }
+    Write-Warn ""
+    Write-Warn "  WARNING: $commitCount new commit(s) since last successful build"
+    Write-Warn "  Last built: $($state.builtHash)"
+    Write-Warn "  Current:    $currentHash"
+}
+
+# ============================================================================
+# Smart clean (heuristic-based)
+# ============================================================================
+
+$needsClean = Test-NeedsCleanBuild
+if ($needsClean) {
+    $reason = if ($Clean) { "explicit -Clean flag" } else { "smart-clean heuristic (see above)" }
+    if (Test-Path $BuildDir) {
+        Write-Header "Cleaning Build Dir ($reason)"
+        Remove-Item -Path $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Ok "  Cleaned: $BuildDir"
+    } else {
+        Write-Info "  Build dir does not exist -- fresh build ($reason)"
     }
+} else {
+    Write-Info ""
+    Write-Info "  [smart-clean] Incremental build (no clean needed)"
 }
+
+# ============================================================================
+# CMake Configure (unified Build/ dir for both pd and pd-server)
+# ============================================================================
+
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" $CcacheLauncher $MoldLinker -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+
+$script:StepStart = [DateTime]::Now
+$configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache + mold)" `
+                              -Exe $CMakeExe `
+                              -ArgList $configArgs `
+                              -ShowAll $Verbose.IsPresent
+
+if (-not $configOk) {
+    Write-Err ""
+    Write-Err "Configure failed. Check CMake output above."
+    exit 1
+}
+
+# ============================================================================
+# Build targets
+# ============================================================================
 
 $targets = switch ($Target) {
     "client" { @("client") }
@@ -508,15 +562,46 @@ $targets = switch ($Target) {
     "all"    { @("client", "server") }
 }
 
+$cmakeTargetMap = @{ "client" = "pd"; "server" = "pd-server" }
+$exeNameMap     = @{ "client" = "PerfectDark.exe"; "server" = "PerfectDarkServer.exe" }
+
 $results  = @{}
 $anyFail  = $false
 
 foreach ($t in $targets) {
+    $cmakeTarget = $cmakeTargetMap[$t]
+    $label       = $t.Substring(0,1).ToUpper() + $t.Substring(1)
+    $buildArgs   = "--build `"$BuildDir`" --target $cmakeTarget"
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host "  Building: $label  (target: $cmakeTarget)" -ForegroundColor White
+    Write-Host "  Dir:      $BuildDir" -ForegroundColor DarkGray
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+
     $tStart = [DateTime]::Now
-    $ok = Invoke-Target -TargetName $t
+    $script:StepStart = [DateTime]::Now
+    $buildOk = Invoke-BuildStep -StepName "Compile [$label]" `
+                                 -Exe $CMakeExe `
+                                 -ArgList $buildArgs `
+                                 -ShowAll $Verbose.IsPresent
     $tElapsed = [math]::Floor(([DateTime]::Now - $tStart).TotalSeconds)
-    $results[$t] = @{ Ok = $ok; Elapsed = $tElapsed }
-    if (-not $ok) { $anyFail = $true }
+    $results[$t] = @{ Ok = $buildOk; Elapsed = $tElapsed }
+    if (-not $buildOk) { $anyFail = $true }
+
+    # Post-build addin copy (client only)
+    if ($buildOk -and $t -eq "client") {
+        $dataDir = Join-Path $AddinDir "data"
+        if (Test-Path $dataDir) {
+            Write-Header "Post-Build: Copy Addin Files"
+            try {
+                Copy-Item $dataDir -Destination $BuildDir -Recurse -Force
+                Write-Ok "  Copied addin\data -> $BuildDir"
+            } catch {
+                Write-Warn "  Addin copy failed (non-fatal): $($_.Exception.Message)"
+            }
+        }
+    }
 }
 
 # ============================================================================
@@ -534,9 +619,8 @@ foreach ($t in $targets) {
     $r      = $results[$t]
     $status = if ($r.Ok) { "PASS" } else { "FAIL" }
     $color  = if ($r.Ok) { "Green" } else { "Red" }
-    $exe    = if ($t -eq "server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
-    $dir    = if ($t -eq "server") { $ServerBuildDir } else { $ClientBuildDir }
-    $path   = Join-Path $dir $exe
+    $exe    = $exeNameMap[$t]
+    $path   = Join-Path $BuildDir $exe
 
     Write-Host ("  [{0,-6}]  {1,-8}  {2,4}s" -f $status, $t.ToUpper(), $r.Elapsed) -ForegroundColor $color
     if ($r.Ok -and (Test-Path $path)) {
@@ -553,11 +637,9 @@ if ($anyFail) {
     Write-Host "============================================================" -ForegroundColor DarkCyan
     exit 1
 } else {
-    # Record HEAD hash so next run can detect stale builds
+    # Record build state so next run can detect clean/incremental correctly
     if ($currentHash) {
-        $hashDir = Join-Path $ProjectDir "build"
-        if (-not (Test-Path $hashDir)) { New-Item -ItemType Directory -Path $hashDir -Force | Out-Null }
-        try { Set-Content -Path $hashFile -Value $currentHash -NoNewline -Encoding UTF8 } catch {}
+        Write-BuildState $currentHash
     }
     Write-Host "  Result: SUCCESS" -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor DarkCyan

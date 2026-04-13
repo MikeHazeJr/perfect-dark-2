@@ -98,11 +98,11 @@ $vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } e
 $vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
 $vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
 
-# Build tool paths — same as build-headless.ps1 and dev-window.ps1
+# Build tool paths — same as build-headless.ps1 and dev-window-v2.ps1
 $CMakeExe  = "cmake"
-$MakeExe   = "C:\msys64\usr\bin\make.exe"
 $CCExe     = "C:/msys64/mingw64/bin/cc.exe"
 $Cores     = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
+$BuildDir  = Join-Path $ProjectRoot "Build"
 
 # MSYS2/MinGW64 environment
 $env:MSYSTEM      = "MINGW64"
@@ -111,43 +111,62 @@ $env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
 $env:TEMP         = "$env:USERPROFILE\AppData\Local\Temp"
 $env:TMP          = $env:TEMP
 
-$vFlags  = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
-$targets = @(
-    @{ Name = "client"; BuildDir = "build\client"; Target = "pd"        },
-    @{ Name = "server"; BuildDir = "build\server"; Target = "pd-server" }
-)
+$vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
 
+# ---- Pre-build: always commit + push so the release tag lands on a clean commit ----
+Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
+$savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$statusOut = git -C $ProjectRoot status --porcelain 2>&1
+if ($statusOut) {
+    git -C $ProjectRoot add -A 2>&1 | Out-Null
+    git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
+    Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+} else {
+    Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
+}
+$currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
+$pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
+$pushExit = $LASTEXITCODE
+$ErrorActionPreference = $savedEAP
+if ($pushExit -ne 0) {
+    Write-Host "  [pre-build] Push failed (continuing -- will retry in Step 4)." -ForegroundColor Yellow
+} else {
+    Write-Host "  [pre-build] Pushed to remote." -ForegroundColor Green
+}
+
+# ---- Single configure (unified Build/ dir) then build both targets ----
 $buildOk = $true
-foreach ($t in $targets) {
-    $bdir = Join-Path $ProjectRoot $t.BuildDir
-    Write-Host "  [$($t.Name)] cmake configure..." -ForegroundColor Gray
 
-    $savedEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
+Write-Host "  [cmake] configure (Ninja + ccache + mold)..." -ForegroundColor Gray
+$savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$cfgOut  = & $CMakeExe -G Ninja "-DCMAKE_C_COMPILER=$CCExe" `
+    "-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
+    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold" `
+    "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
+$cfgExit = $LASTEXITCODE
+$ErrorActionPreference = $savedEAP
 
-    $cfgArgs = "-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"$MakeExe`" -DCMAKE_C_COMPILER=`"$CCExe`" -B `"$bdir`" -S `"$ProjectRoot`" $vFlags"
-    $cfgOut  = & $CMakeExe -G "Unix Makefiles" "-DCMAKE_MAKE_PROGRAM=$MakeExe" "-DCMAKE_C_COMPILER=$CCExe" "-B" $bdir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
-    $cfgExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
+if ($cfgExit -ne 0) {
+    $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    Write-Host "  ERROR: cmake configure failed (exit $cfgExit)" -ForegroundColor Red
+    $buildOk = $false
+}
 
-    if ($cfgExit -ne 0) {
-        $cfgOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-        Write-Host "  ERROR: cmake configure failed for $($t.Name) (exit $cfgExit)" -ForegroundColor Red
-        $buildOk = $false; break
+if ($buildOk) {
+    foreach ($t in @(@{ Name="client"; Target="pd" }, @{ Name="server"; Target="pd-server" })) {
+        Write-Host "  [$($t.Name)] cmake build ($($t.Target))..." -ForegroundColor Gray
+        $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $bldOut  = & $CMakeExe --build $BuildDir --target $t.Target 2>&1
+        $bldExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedEAP
+
+        if ($bldExit -ne 0) {
+            $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
+            $buildOk = $false; break
+        }
+        Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
     }
-
-    Write-Host "  [$($t.Name)] cmake build..." -ForegroundColor Gray
-    $ErrorActionPreference = "Continue"
-    $bldOut  = & $CMakeExe --build $bdir --target $t.Target -j $Cores 2>&1
-    $bldExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
-
-    if ($bldExit -ne 0) {
-        $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-        Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
-        $buildOk = $false; break
-    }
-    Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
 }
 
 if (-not $buildOk) {
@@ -157,20 +176,15 @@ if (-not $buildOk) {
 }
 Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
 
-# Build artifact paths -- supports both flat and subdirectory layouts
-# Prefer build/client/ and build/server/ (current CMake), fall back to build/
-$ClientExe = $(if (Test-Path "build/client/PerfectDark.exe") { "build/client/PerfectDark.exe" }
-               elseif (Test-Path "build/PerfectDark.exe")    { "build/PerfectDark.exe" }
-               else { "" })
-$ServerExe = $(if (Test-Path "build/server/PerfectDarkServer.exe") { "build/server/PerfectDarkServer.exe" }
-               elseif (Test-Path "build/PerfectDarkServer.exe")    { "build/PerfectDarkServer.exe" }
-               else { "" })
+# Build artifact paths -- unified Build/ directory
+$ClientExe = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
+$ServerExe = $(if (Test-Path (Join-Path $BuildDir "PerfectDarkServer.exe")) { Join-Path $BuildDir "PerfectDarkServer.exe" } else { "" })
 
-# Data and mods -- prefer build/client/ copies, fall back to post-batch-addin
-$DataSource = $(if (Test-Path "build/client/data") { "build/client/data" }
+# Data and mods -- prefer Build/ copies, fall back to post-batch-addin
+$DataSource = $(if (Test-Path (Join-Path $BuildDir "data"))  { Join-Path $BuildDir "data" }
                 elseif (Test-Path "../post-batch-addin/data") { "../post-batch-addin/data" }
                 else { "" })
-$ModsSource = $(if (Test-Path "build/client/mods") { "build/client/mods" }
+$ModsSource = $(if (Test-Path (Join-Path $BuildDir "mods"))  { Join-Path $BuildDir "mods" }
                 elseif (Test-Path "../post-batch-addin/mods") { "../post-batch-addin/mods" }
                 else { "" })
 
