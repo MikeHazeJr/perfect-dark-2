@@ -448,4 +448,13 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	}
 
 	g_Vars.totalkills++;
+
+	/* PC: event-driven score sync — flag a score resync to all clients.
+	 * NET_RESYNC_FLAG_SCORES is consumed in netEndFrame() which sends
+	 * SVC_PLAYER_SCORES to all connected clients.  Without this, scores
+	 * only sync on reconnect/demand, not per-kill. */
+	{
+		extern u32 g_NetPendingResyncFlags;
+		g_NetPendingResyncFlags |= (1 << 2);  /* NET_RESYNC_FLAG_SCORES */
+	}
 }

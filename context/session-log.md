@@ -3,6 +3,31 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S223 — 2026-04-13 (HUD Score Panel Redesign + B-60 Fix)
+
+**Focus**: Mike's spec for modern FPS-style score panel docked below minimap, plus B-60 fix and event-driven score sync.
+
+### Changes (5 files + 1 design doc)
+
+1. **Score panel rewrite** (`pdgui_hud.cpp`): Complete redesign — panel docks directly below GBI radar via `pdguiHudGetRadarRect()` normalized coordinates. No background fill, 60% opacity. Team mode shows top 2 teams with team-colored progress bars. FFA shows top 2 players with gold/silver bars. Progress bar ratio = score/limit (relative to max when no limit). Timer centered below scores.
+
+2. **Bridge functions** (`pdgui_bridge.c` + `pdgui_hud.h`): Added `pdguiHudGetRadarRect()` (radar rect in 0-1 screen coords from g_RadarX/Y), `pdguiHudGetScoreLimit()`, `pdguiHudGetTeamScoreLimit()`, `pdguiHudIsTeamsEnabled()`, `pdguiHudGetTeamColor()`, `pdguiHudGetTeamName()`.
+
+3. **Event-driven score sync** (`mpstats.c`): Added `g_NetPendingResyncFlags |= NET_RESYNC_FLAG_SCORES` at the end of `mpstatsRecordDeath()`. Previously scores only synced on reconnect/demand — now every kill triggers `SVC_PLAYER_SCORES` broadcast to all clients via the existing resync mechanism in `netEndFrame()`.
+
+4. **B-60 FIXED** (`pdgui_menu_mainmenu.cpp`): Root cause was `drawPdWindowFrame()` drawing title text without clip rect — font descenders from "Settings" bled below title bar into body area (both `##main_menu` and child use `NoBackground`). Fix: `dl->PushClipRect()` constraining title text + glow to title bar bounds.
+
+5. **Killfeed bot-vs-bot verified**: Full code trace confirms killfeed already shows ALL kill combinations. `mpstatsRecordDeath` → `pdguiKillfeedPush` fires for any `ampchr && vmpchr` — no player-only gate. The tasks-current.md note was outdated (likely referred to unused lobby `netDistribSendKillFeed()`).
+
+### Build Verification
+- `PerfectDark.exe` (client): **PASS** — 51 MB, zero errors/warnings from changed files
+- `PerfectDarkServer.exe` (server): Link error on `pdguiThemeRegisterModDir` — pre-existing issue from theme-loader session, not related to this work. Waiting for that fix to land before merge.
+
+### Design Doc
+- `context/designs/hud-score-panel.md`: Layout diagram, event flow, net sync protocol, bridge function reference
+
+---
+
 ## Session S222 — 2026-04-12 (3 Audio Mod Playtest Fixes)
 
 **Focus**: Three audio mod issues from Mike's playtest — MP3 playback failure, missing import feedback, no music selection in room menu.
