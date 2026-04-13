@@ -763,6 +763,42 @@ static void renderToolPanel(float panelW, float panelH, float scale)
                            "%s", s_ExportStatus);
     }
 
+    /* ---- Project management ---- */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("PROJECT");
+
+    /* Back to character selection */
+    if (PdButton("Back to Characters", ImVec2(actionW, 0))) {
+        pdguiCharPreviewClearSkinOverride();
+        pdguiCharPreviewSkinCaptureConsume();
+        s_CaptureRequested = false;
+        s_CaptureLoaded    = false;
+        skinUvClear();
+        skinCanvasDestroy();
+        s_EditorActive = false;
+        s_SaveStatus[0]   = '\0';
+        s_ExportStatus[0] = '\0';
+    }
+
+    /* New Skin (discard current, return to character select) */
+    if (PdButton("New Skin", ImVec2(actionW, 0))) {
+        pdguiCharPreviewClearSkinOverride();
+        pdguiCharPreviewSkinCaptureConsume();
+        s_CaptureRequested = false;
+        s_CaptureLoaded    = false;
+        skinUvClear();
+        skinCanvasDestroy();
+        s_EditorActive = false;
+        s_PreviewBodyId[0] = '\0';
+        s_PreviewHeadId[0] = '\0';
+        s_SelectedChar = -1;
+        s_SaveName[0] = '\0';
+        s_ExportFilename[0] = '\0';
+        s_SaveStatus[0]   = '\0';
+        s_ExportStatus[0] = '\0';
+    }
+
     ImGui::EndChild();
 }
 
@@ -777,7 +813,7 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
     ImGui::Text("3D PREVIEW");
     ImGui::Separator();
 
-    if (s_EditorActive && s_PreviewBodyId[0]) {
+    if (s_PreviewBodyId[0]) {
         /* Animate rotation */
         s_PreviewRotAngle += ImGui::GetIO().DeltaTime * 0.5f;
         if (s_PreviewRotAngle > 2.0f * (float)M_PI) s_PreviewRotAngle -= 2.0f * (float)M_PI;
@@ -791,6 +827,7 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
             float availW = ImGui::GetContentRegionAvail().x;
             float availH = ImGui::GetContentRegionAvail().y - 20.0f * scale;
             float side = availW < availH ? availW : availH;
+            if (side < 32.0f) side = 32.0f;
 
             ImGui::Image((ImTextureID)(uintptr_t)prevTex,
                          ImVec2(side, side),
@@ -798,10 +835,13 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
         } else {
             ImGui::TextDisabled("(rendering...)");
         }
-    } else if (s_EditorActive && s_CaptureRequested && !s_CaptureLoaded) {
-        ImGui::TextDisabled("Capturing base skin texture...");
+
+        /* Show capture status during capture */
+        if (s_EditorActive && s_CaptureRequested && !s_CaptureLoaded) {
+            ImGui::TextDisabled("Capturing base texture...");
+        }
     } else {
-        ImGui::TextDisabled("Select a character and\nclick 'New Skin' to begin.");
+        ImGui::TextDisabled("Select a character to\npreview the model.");
     }
 
     ImGui::EndChild();
@@ -839,11 +879,11 @@ static void renderCharacterSelector(float w, float h, float scale)
 
     ImGui::Text("Canvas: %dx%d", canvasW, canvasH);
     ImGui::SameLine();
-    if (ImGui::SmallButton("32x64")) { canvasW = 32; canvasH = 64; }
-    ImGui::SameLine();
     if (ImGui::SmallButton("64x64")) { canvasW = 64; canvasH = 64; }
     ImGui::SameLine();
     if (ImGui::SmallButton("128x128")) { canvasW = 128; canvasH = 128; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("256x256")) { canvasW = 256; canvasH = 256; }
 
     ImGui::Spacing();
 
@@ -855,7 +895,17 @@ static void renderCharacterSelector(float w, float h, float scale)
             if (ImGui::Selectable(s_CharEntries[i].name, sel)) {
                 s_SelectedChar = i;
                 strncpy(s_PreviewBodyId, s_CharEntries[i].id, 63);
-                /* Resolve head from body's default head catalog ID */
+                const char *headId = catalogGetBodyDefaultHead(s_CharEntries[i].id);
+                if (headId && headId[0]) {
+                    strncpy(s_PreviewHeadId, headId, 63);
+                } else {
+                    s_PreviewHeadId[0] = '\0';
+                }
+            }
+            /* Controller: also select on focus (gamepad navigation) */
+            if (ImGui::IsItemFocused() && !sel) {
+                s_SelectedChar = i;
+                strncpy(s_PreviewBodyId, s_CharEntries[i].id, 63);
                 const char *headId = catalogGetBodyDefaultHead(s_CharEntries[i].id);
                 if (headId && headId[0]) {
                     strncpy(s_PreviewHeadId, headId, 63);
@@ -886,9 +936,6 @@ static void renderCharacterSelector(float w, float h, float scale)
         s_BrushSize   = 1;
         s_LineStarted = false;
 
-        /* S-8: Extract UV wireframe from body model */
-        skinUvExtract(s_PreviewBodyId, canvasW, canvasH);
-
         /* S-9: Request base skin texture capture.  The capture runs over
          * the next few frames — the model needs to load first.  When
          * complete, the captured pixels populate layer 0 (Background). */
@@ -901,21 +948,6 @@ static void renderCharacterSelector(float w, float h, float scale)
     }
 
     if (!canCreate) ImGui::EndDisabled();
-
-    /* Close editor button */
-    if (s_EditorActive) {
-        if (PdButton("Close Editor", ImVec2(-1, 28.0f * scale))) {
-            pdguiCharPreviewClearSkinOverride();
-            pdguiCharPreviewSkinCaptureConsume();  /* S-9: cleanup */
-            s_CaptureRequested = false;
-            s_CaptureLoaded    = false;
-            skinUvClear();
-            skinCanvasDestroy();
-            s_EditorActive = false;
-            s_PreviewBodyId[0] = '\0';
-            s_PreviewHeadId[0] = '\0';
-        }
-    }
 
     ImGui::EndChild();
 }
@@ -1400,27 +1432,30 @@ static bool exportSkinTemplate(const char *filename, int mode)
         return false;
     }
 
-    /* Build full path */
-    char fullPath[512];
-    snprintf(fullPath, sizeof(fullPath), "exports/%s", filename);
+    /* Build relative path */
+    char relPath[512];
+    snprintf(relPath, sizeof(relPath), "exports/%s", filename);
 
     /* Ensure filename ends with .png */
-    s32 len = (s32)strlen(fullPath);
-    if (len < 4 || strcmp(&fullPath[len - 4], ".png") != 0) {
-        if (len + 4 < (s32)sizeof(fullPath)) {
-            strcat(fullPath, ".png");
+    s32 len = (s32)strlen(relPath);
+    if (len < 4 || strcmp(&relPath[len - 4], ".png") != 0) {
+        if (len + 4 < (s32)sizeof(relPath)) {
+            strcat(relPath, ".png");
         }
     }
 
+    /* Resolve to absolute path via fs system (stbi_write_png uses raw fopen) */
+    const char *absPath = fsFullPath(relPath);
+
     /* Write PNG via stb_image_write */
-    s32 result = stbi_write_png(fullPath, cw, ch, 4, outBuf, cw * 4);
+    s32 result = stbi_write_png(absPath, cw, ch, 4, outBuf, cw * 4);
     free(outBuf);
 
     if (result) {
         sysLogPrintf(LOG_NOTE, "skin_editor: exported template to '%s' (%dx%d)",
-                     fullPath, cw, ch);
+                     absPath, cw, ch);
     } else {
-        sysLogPrintf(LOG_WARNING, "skin_editor: failed to write '%s'", fullPath);
+        sysLogPrintf(LOG_WARNING, "skin_editor: failed to write '%s'", absPath);
     }
 
     return result != 0;
@@ -1514,11 +1549,8 @@ void pdguiSkinEditorRefresh(void)
 
 void pdguiSkinEditorRender(float contentW, float contentH, float scale)
 {
-    /* Update canvas (recomposite + GL upload if dirty) */
     if (s_EditorActive) {
-        skinCanvasUpdate();
-
-        /* S-9: Poll skin capture state machine.  This runs during the
+        /* S-9: Poll skin capture state machine FIRST.  This runs during the
          * ImGui phase — the GBI has already executed so the FBO texture
          * contains valid rendered data. */
         pdguiCharPreviewSkinCapturePoll();
@@ -1532,6 +1564,11 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
                     skinCanvasSetLayerPixels(0, pixels, srcW, srcH);
                     skinCanvasMarkDirty();
                     s_CaptureLoaded = true;
+
+                    /* UV wireframe: extract AFTER capture so model is loaded */
+                    skinUvExtract(s_PreviewBodyId,
+                                  skinCanvasGetWidth(), skinCanvasGetHeight());
+
                     sysLogPrintf(LOG_NOTE,
                         "skin_editor: base texture loaded into layer 0 (%dx%d -> %dx%d)",
                         srcW, srcH, skinCanvasGetWidth(), skinCanvasGetHeight());
@@ -1540,6 +1577,11 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
                 s_CaptureRequested = false;
             }
         }
+
+        /* Update canvas (recomposite + GL upload if dirty).
+         * MUST run AFTER capture poll so captured pixels are composited
+         * and uploaded in the same frame they become available. */
+        skinCanvasUpdate();
 
         /* S-2: Set skin override so the 3D preview uses our canvas texture */
         u32 canvasTex = skinCanvasGetGlTexture();
@@ -1553,8 +1595,12 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
     }
 
     if (!s_EditorActive) {
-        /* Show character selector when no canvas is open */
-        renderCharacterSelector(contentW, contentH, scale);
+        /* Show character selector + preview side-by-side */
+        float selW = contentW * 0.5f;
+        float prvW = contentW - selW - ImGui::GetStyle().ItemSpacing.x;
+        renderCharacterSelector(selW, contentH, scale);
+        ImGui::SameLine();
+        renderPreviewPanel(prvW, contentH, scale);
         return;
     }
 

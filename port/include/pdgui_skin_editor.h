@@ -24,8 +24,8 @@ extern "C" {
 
 /* ---- Canvas constants ---- */
 #define SKIN_MAX_LAYERS       8
-#define SKIN_DEFAULT_WIDTH   64
-#define SKIN_DEFAULT_HEIGHT  64
+#define SKIN_DEFAULT_WIDTH  256
+#define SKIN_DEFAULT_HEIGHT 256
 #define SKIN_MAX_WIDTH      256
 #define SKIN_MAX_HEIGHT     256
 
