@@ -1021,9 +1021,15 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #if !defined(PD_SERVER)
 			const char *modtrack = modtrack_str ? modtrack_str : "";
 			if (modtrack[0]) {
-				audioSetModTrackId(modtrack);
-				sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START mod track '%s' from host",
-					modtrack);
+				const asset_entry_t *ae = assetCatalogResolve(modtrack);
+				if (ae && ae->ext.audio.file_path[0]) {
+					audioSetModTrackId(modtrack);
+					sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START mod track '%s' from host",
+						modtrack);
+				} else {
+					sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE_START: mod track '%s' not available (late join?) — skipping",
+						modtrack);
+				}
 			}
 			/* If empty, keep client's own mod track setting — host has no mod music */
 #else

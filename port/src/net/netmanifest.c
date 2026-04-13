@@ -1353,6 +1353,12 @@ void manifestSPRescanSetup(s32 stagenum)
         return;
     }
 
+    if (g_NetMode != NETMODE_NONE) {
+        /* MP: client manifest was populated by the network path —
+         * SP rescan would build, diff, and discard.  Skip it. */
+        return;
+    }
+
     pre_count = (s32)g_CurrentLoadedManifest.num_entries;
 
     manifestBuildMission(stagenum, &s_SpNeededManifest);
