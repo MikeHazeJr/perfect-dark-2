@@ -13,8 +13,10 @@
 # ============================================================================
 
 $env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
-$env:MSYSTEM      = "MINGW64"
-$env:MINGW_PREFIX = "/mingw64"
+$env:MSYSTEM           = "MINGW64"
+$env:MINGW_PREFIX      = "/mingw64"
+# ccache sloppiness: allow PCH timestamp variation — prevents 78% uncacheable TU regression
+$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
 
 $_goodTemp = "$env:USERPROFILE\AppData\Local\Temp"
 if (-not (Test-Path $_goodTemp)) { $_goodTemp = "C:\Users\mikeh\AppData\Local\Temp" }
@@ -875,6 +877,7 @@ function Start-Build-Step($step) {
     $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"]  = "0"
     $psi.EnvironmentVariables["TEMP"]                 = $env:TEMP
     $psi.EnvironmentVariables["TMP"]                  = $env:TMP
+    $psi.EnvironmentVariables["CCACHE_SLOPPINESS"]    = "pch_defines,time_macros"
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     try {

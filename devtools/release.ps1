@@ -108,8 +108,10 @@ $BuildDir  = Join-Path $ProjectRoot "Build"
 $env:MSYSTEM      = "MINGW64"
 $env:MINGW_PREFIX = "/mingw64"
 $env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
-$env:TEMP         = "$env:USERPROFILE\AppData\Local\Temp"
-$env:TMP          = $env:TEMP
+$env:TEMP              = "$env:USERPROFILE\AppData\Local\Temp"
+$env:TMP               = $env:TEMP
+# ccache sloppiness: allow PCH timestamp variation — prevents 78% uncacheable TU regression
+$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
 
 $vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
 
