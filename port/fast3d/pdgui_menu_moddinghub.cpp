@@ -1116,28 +1116,38 @@ static void renderModdingHub(s32 winW, s32 winH)
     float contentH  = dialogH - contentY - hubFooterH
                     - ImGui::GetStyle().ItemSpacing.y * 2.0f;
 
-    /* Mod Manager embeds within its own child window */
-    if (s_ActiveTool == 0) {
+    /* Each tool renders in its own clipping child to prevent overlap with
+     * the tab bar above and footer below (same fix as Settings Z-order). */
+    {
         ImGuiWindowFlags cfFlags =
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoTitleBar;
-        if (ImGui::BeginChild("##modhub_modmgr", ImVec2(dialogW, contentH), false, cfFlags)) {
-            s32 wantsClose = 0;
-            pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
-            if (wantsClose) s_Visible = false;
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground;
+
+        const char *childIds[] = {
+            "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
+            "##modhub_pack", "##modhub_audio", "##modhub_skin"
+        };
+
+        if (ImGui::BeginChild(childIds[s_ActiveTool],
+                              ImVec2(dialogW, contentH), false, cfFlags)) {
+            if (s_ActiveTool == 0) {
+                s32 wantsClose = 0;
+                pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
+                if (wantsClose) s_Visible = false;
+            } else if (s_ActiveTool == 1) {
+                renderIniEditor(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 2) {
+                renderScaleTool(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 3) {
+                renderPackTool(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 4) {
+                pdguiAudioModRender(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 5) {
+                pdguiSkinEditorRender(dialogW, contentH, scale);
+            }
         }
         ImGui::EndChild();
-    } else if (s_ActiveTool == 1) {
-        renderIniEditor(dialogW, contentH, scale);
-    } else if (s_ActiveTool == 2) {
-        renderScaleTool(dialogW, contentH, scale);
-    } else if (s_ActiveTool == 3) {
-        renderPackTool(dialogW, contentH, scale);
-    } else if (s_ActiveTool == 4) {
-        pdguiAudioModRender(dialogW, contentH, scale);
-    } else if (s_ActiveTool == 5) {
-        pdguiSkinEditorRender(dialogW, contentH, scale);
     }
 
     /* ---- Hub footer ---- */
