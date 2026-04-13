@@ -83,14 +83,11 @@ namespace PD2V2 {
 
 $script:ScriptDir           = $PSScriptRoot
 $script:ProjectRoot         = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$script:BuildDir            = Join-Path $script:ProjectRoot "build"
-$script:ClientBuildDir      = Join-Path $script:BuildDir "client"
-$script:ServerBuildDir      = Join-Path $script:BuildDir "server"
+$script:BuildDir            = Join-Path $script:ProjectRoot "Build"   # unified dir for pd + pd-server
 $script:SettingsPath        = Join-Path $script:ScriptDir "settings.json"
 $script:ReleaseCachePath    = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
 $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin"
 $script:CMake               = "cmake"
-$script:Make                = "C:\msys64\usr\bin\make.exe"
 $script:CC                  = "C:/msys64/mingw64/bin/cc.exe"
 $script:ClientExeName       = "PerfectDark.exe"
 $script:ServerExeName       = "PerfectDarkServer.exe"
@@ -177,8 +174,7 @@ function Format-ElapsedTime($seconds) {
 }
 
 function Get-ExePath($name) {
-    $p = Join-Path $script:ClientBuildDir $name
-    if (Test-Path $p) { return $p }
+    # Both pd and pd-server land in the unified Build/ directory
     $p = Join-Path $script:BuildDir $name
     if (Test-Path $p) { return $p }
     return $null
@@ -838,7 +834,7 @@ $ui["DocList"].Add_SelectionChanged({
 function Copy-AddinFiles {
     $parentDir = Split-Path $script:ProjectRoot -Parent
     $srcData = Join-Path $parentDir "post-batch-addin" | Join-Path -ChildPath "data"
-    $dstData = Join-Path $script:ClientBuildDir "data"
+    $dstData = Join-Path $script:BuildDir "data"
     if (-not (Test-Path $srcData)) { return }
     try {
         if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
@@ -907,22 +903,19 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     [void]$steps.Add(@{Name="Auto-commit + push"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
 
     if ($forceClean) {
-        $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & (if exist `"" + $script:ServerBuildDir + "`" rmdir /s /q `"" + $script:ServerBuildDir + "`") & exit 0"
-        [void]$steps.Add(@{Name="Cleaning build dirs"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
+        $cleanArgs = "/c (if exist `"" + $script:BuildDir + "`" rmdir /s /q `"" + $script:BuildDir + "`") & exit 0"
+        [void]$steps.Add(@{Name="Cleaning build dir"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
     }
 
-    $needClientConfigure = $forceClean -or (Test-NeedsConfigure $script:ClientBuildDir)
-    $needServerConfigure = $forceClean -or (Test-NeedsConfigure $script:ServerBuildDir)
+    # Single configure for unified Build/ dir (pd + pd-server share one CMake dir)
+    $needsConfigure = $forceClean -or (Test-NeedsConfigure $script:BuildDir)
 
-    if ($needClientConfigure) {
-        [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
+    if ($needsConfigure) {
+        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
+        [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
     }
-    [void]$steps.Add(@{Name="Build (client)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:ClientBuildDir + "`" --target pd -- -j" + $cores + " -k"})
-
-    if ($needServerConfigure) {
-        [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
-    }
-    [void]$steps.Add(@{Name="Build (server)"; Exe=$script:CMake; Target="server"; Args="--build `"" + $script:ServerBuildDir + "`" --target pd-server -- -j" + $cores + " -k"})
+    [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})
+    [void]$steps.Add(@{Name="Build (server: pd-server)"; Exe=$script:CMake; Target="server"; Args="--build `"" + $script:BuildDir + "`" --target pd-server"})
 
     return $steps
 }

@@ -3,6 +3,57 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S225 — 2026-04-13 (Build Pipeline Improvements)
+
+**Focus**: Implement full build pipeline improvements from `context/designs/build-pipeline-improvements-2026-04-13.md`.
+
+### Changes (4 files)
+
+1. **`devtools/build-headless.ps1`** — Complete rewrite:
+   - Generator: `-G Ninja` (Unix Makefiles + make.exe removed)
+   - Unified `Build/` dir for both `pd` and `pd-server`
+   - ccache via `-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
+   - Smart clean-build detection (heuristics: CMakeCache missing, generator/compiler/branch changed, or `-Clean`). State in `Build/.last_build_state.json`.
+   - Auto-commit now opt-in via `-AutoCommit` switch (default OFF)
+
+2. **`devtools/dev-window-v2.ps1`** — Updated `Get-BuildSteps`:
+   - Ninja + unified `Build/` + ccache (same flags)
+   - Removed `$script:ClientBuildDir`, `$script:ServerBuildDir`, `$script:Make`
+   - Single configure step, two build steps (`pd`, `pd-server`)
+
+3. **`devtools/release.ps1`** — Updated Step 0 (build):
+   - Ninja + unified `Build/` + ccache
+   - Pre-build commit+push added (before tagging)
+
+4. **`CMakeLists.txt`** — PCH added after `pd` target definition:
+   - `target_precompile_headers(pd PRIVATE ...)` for C-only (types.h, ultra64.h, data.h, constants.h)
+   - Guarded by `cmake_version_greater_equal 3.16`
+   - No conflict with `-include "versioninfo.h"` force-include (verified by build)
+
+### Packages Installed
+- `mingw-w64-x86_64-ccache 4.12.3` (active)
+- `mingw-w64-x86_64-mold 2.40.4` (installed but not wired in — see rollback)
+
+### Rollback: mold linker
+`-fuse-ld=mold` fails on MinGW/MSYS2 because GCC's `collect2.exe` looks for `ld.mold.exe` which MSYS2 doesn't create (only `mold.exe`). Rolled back to GNU ld. Link time is ~1.5s (8% of build) so this is not urgent.
+
+### Build Verification (main project, Ninja + ccache, no PCH)
+| Metric | Time |
+|--------|------|
+| Configure | 2.4s |
+| Clean build (ccache cold) | 54s pd + 6s server |
+| Warm ccache (clean Build/) | 9.4s pd + 1.1s server ✓ |
+| Incremental (system.c touch) | 1.7s ✓ |
+| No-op rebuild | 0.1s |
+
+**PCH verified**: Build against worktree source (with PCH in CMakeLists.txt) succeeded, zero conflicts.
+
+### Next Steps
+- Monitor: PCH timing delta visible on next clean build after merge
+- mold: investigate `ld.mold.exe` wrapper or alternative invocation on MinGW
+
+---
+
 ## Session S224 — 2026-04-13 (Static Link / DLL Elimination)
 
 **Focus**: Remove all DLL runtime dependencies from `PerfectDark.exe` and `PerfectDarkServer.exe`. Ship as single executables.
