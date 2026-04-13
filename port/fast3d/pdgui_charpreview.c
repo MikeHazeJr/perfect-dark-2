@@ -43,6 +43,13 @@ extern s16 viGetWidth(void);
 extern s16 viGetHeight(void);
 extern Vp *viGetCurrentPlayerViewport(void);
 
+/* Forward declarations for gun memory functions (bondgun.c) — needed
+ * to allocate model memory when the standalone charpreview path runs
+ * without a legacy menu active. */
+extern bool bgunChangeGunMem(s32 newowner);
+extern u8 *bgunGetGunMem(void);
+extern u32 bgunCalculateGunMemCapacity(void);
+
 /* ========================================================================
  * State
  * ======================================================================== */
@@ -462,6 +469,19 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 {
     if (!s_PreviewRequested || s_PreviewFb < 0) {
         return gdl;
+    }
+
+    /* Ensure model memory is available.  The standalone charpreview path
+     * (called from lv.c when no legacy menu is active) bypasses the legacy
+     * menu init that normally acquires gun memory.  menuRenderModel returns
+     * immediately when allocstart is NULL, so the FBO stays black.
+     * Acquire the gun memory here — same call menuRenderModel makes for
+     * non-CI stages, but unconditional so it works on all stages. */
+    if (menu->menumodel.allocstart == NULL) {
+        if (bgunChangeGunMem(GUNMEMOWNER_INVMENU)) {
+            menu->menumodel.allocstart = bgunGetGunMem();
+            menu->menumodel.alloclen = bgunCalculateGunMemCapacity();
+        }
     }
 
     /* Skin capture state machine: count down delay frames (S-9) */
