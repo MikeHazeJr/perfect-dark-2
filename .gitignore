@@ -35,6 +35,7 @@ src/generated
 # Build tool (local machine state)
 .build-settings.json
 .build-release-cache.json
+devtools/dev-window-v2/settings.json
 
 # Tools
 tools/mkrom/mkrom
