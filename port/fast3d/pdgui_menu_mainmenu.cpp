@@ -1707,6 +1707,7 @@ static void renderSettingsDebug(float scale)
         s32 builtinIdx = pdguiThemeIdToPaletteIndex(id);
         bool isBuiltin = (builtinIdx >= 0 && builtinIdx < 7);
         bool selected  = (activeThemeId && strcmp(id, activeThemeId) == 0);
+        bool themeEnabled = pdguiThemeIsEnabled(ti) != 0;
 
         /* Insert a header + row break when transitioning from built-ins to mods. */
         if (!isBuiltin && !modHeaderShown) {
@@ -1722,6 +1723,13 @@ static void renderSettingsDebug(float scale)
         /* Pick accent + text colour for this theme */
         ImVec4 btnCol  = isBuiltin ? s_ThemeAccentColors[builtinIdx] : k_ModAccent;
         ImVec4 txtCol  = isBuiltin ? s_ThemeTextColors[builtinIdx]   : k_ModText;
+
+        /* Disabled mod themes: reduce alpha to visually distinguish */
+        if (!isBuiltin && !themeEnabled) {
+            btnCol.w *= 0.35f;
+            txtCol.w *= 0.45f;
+        }
+
         ImVec4 btnHover = ImVec4(
             btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
         ImVec4 btnActive = ImVec4(
@@ -1742,11 +1750,38 @@ static void renderSettingsDebug(float scale)
 
         char btnLabel[96];
         snprintf(btnLabel, sizeof(btnLabel), "%s##theme_%d", name, (int)ti);
-        if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
-            /* P5: catalog-backed load, handles both built-in and mod themes.
-             * This persists the selection via Theme.ActiveTheme in pd.ini. */
-            pdguiThemeLoadFromCatalog(id);
-            configSave("pd.ini");
+
+        if (!isBuiltin && !themeEnabled) {
+            /* Disabled mod theme: show as button but don't activate on click */
+            ImGui::Button(btnLabel, ImVec2(btnW, btnH));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Disabled — right-click to re-enable");
+            }
+        } else {
+            if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
+                /* P5: catalog-backed load, handles both built-in and mod themes.
+                 * This persists the selection via Theme.ActiveTheme in pd.ini. */
+                pdguiThemeLoadFromCatalog(id);
+                configSave("pd.ini");
+            }
+        }
+
+        /* Right-click context menu for mod themes: enable/disable toggle */
+        if (!isBuiltin) {
+            char ctxId[64];
+            snprintf(ctxId, sizeof(ctxId), "##themectx_%d", (int)ti);
+            if (ImGui::BeginPopupContextItem(ctxId)) {
+                if (themeEnabled) {
+                    if (ImGui::MenuItem("Disable Theme")) {
+                        pdguiThemeSetEnabled(ti, 0);
+                    }
+                } else {
+                    if (ImGui::MenuItem("Enable Theme")) {
+                        pdguiThemeSetEnabled(ti, 1);
+                    }
+                }
+                ImGui::EndPopup();
+            }
         }
 
         ImGui::PopStyleColor(4); /* Text, Active, Hovered, Button */

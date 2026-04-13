@@ -43,6 +43,7 @@
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
 #include "config.h"
@@ -1018,6 +1019,22 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         registered = 1;
                     }
                 }
+            }
+        }
+
+        /* Check for theme.json — hot-register as mod theme (default-enabled
+         * policy: first-sight themes auto-apply via pdguiThemeRegisterModDir).
+         * This runs in addition to INI registration, not instead of it — a mod
+         * can have both an asset INI and a theme.json. */
+        {
+            char theme_check[FS_MAXPATH];
+            snprintf(theme_check, sizeof(theme_check), "%s/theme.json", destdir);
+            struct stat tst;
+            if (stat(theme_check, &tst) == 0 && S_ISREG(tst.st_mode)) {
+                pdguiThemeRegisterModDir(slot->id, theme_check);
+                sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered theme '%s' from %s",
+                             slot->id, destdir);
+                if (!registered) registered = 1;
             }
         }
 
