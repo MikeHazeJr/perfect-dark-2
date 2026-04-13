@@ -149,28 +149,37 @@ For each grid point (x, z) on the AABB floor plane (y = AABB_max_y):
 center = (AABB_center_x, AABB_center_y, AABB_center_z)
   If no AABB available (no rooms loaded): center = (0, 100, 0)
 
-For i in 0..needed-1:
-  angle = (2 * PI * i) / needed
-  radius = min(200, AABB_diagonal / 4)  -- stay inside map
-  candidate = center + (cos(angle) * radius, 0, sin(angle) * radius)
+radius = min(200, AABB_diagonal / 4)  -- initial radius
 
-  Attempt ground resolution:
-    ground_y = cdFindGroundInfoAtCyl(candidate, 30, ...)
-    If valid: candidate.y = ground_y + 10
-    Else: candidate.y = center.y  -- can't find floor, use center height
+Repeat with increasing radius until all needed points pass validation (or max_attempts reached):
+  For i in 0..needed-1:
+    angle = (2 * PI * i) / needed
+    candidate = center + (cos(angle) * radius, 0, sin(angle) * radius)
 
-  Resolve room:
-    bgFindRoomsByPos(candidate, inrooms, ...)
-    If valid room found: use it
-    Else if any room exists at all: use room 0 as last resort
-    Else: room = 0 (degenerate map)
+    Attempt ground resolution:
+      ground_y = cdFindGroundInfoAtCyl(candidate, 30, ...)
+      If valid: candidate.y = ground_y + 10
+      Else: candidate.y = center.y  -- can't find floor, use center height
 
-  Accept candidate unconditionally
+    Resolve room:
+      bgFindRoomsByPos(candidate, inrooms, ...)
+      If valid room found: use it
+      Else if any room exists at all: use room 0 as last resort
+      Else: room = 0 (degenerate map)
+
+    Run raycast-budget validation (see Section 3.0).
+    Track budget score (sum of ray distances) for every candidate regardless of pass/fail.
+
+  If all needed points passed: accept, done.
+  Else: radius *= 1.5 (dilate outward). Retry.
+
+Max attempts: 8 dilations (covers radius 200 -> ~3200 units).
+Last resort: if no dilation pass, accept the `needed` candidates with highest budget scores.
 ```
 
-**Guarantee**: This always produces `needed` points. Even if every candidate is in void geometry, they still have coordinates and a room number. The player/bot will exist in the world. They may clip through geometry, but they will not crash the game.
+**Guarantee**: L4 always produces `needed` points. If no candidate ever passes full validation (completely degenerate map), the highest-budget candidates are used — players will exist in the world and may clip through geometry, but the game will not crash.
 
-**Determinism**: Pure math from AABB + needed count. No RNG. Identical on all clients.
+**Determinism**: Geometry is fixed. Dilation is deterministic. Tie-breaking seeded from `match_id ^ player_slot`. Identical on all clients.
 
 ### 2.5 Layer Orchestration
 
@@ -206,7 +215,28 @@ spawnPoolBuild(stage_id, match_seed, needed):
 
 ## 3. Validation Rules
 
-Every spawn point, regardless of origin layer, is tested against these rules before final acceptance. L4 is exempt (it accepts unconditionally to preserve the guarantee).
+Every spawn point, regardless of origin layer, is tested against these rules before final acceptance.
+
+### 3.0 Raycast-Budget Validation — Applied at All Tiers
+
+> **Design directive**: "If players get stuck we will fix that, rather than creating pathways to make it less frustrating we will eliminate the problem." — Mike Hays
+
+Every spawn candidate at any tier (L1–L4) must pass raycast-budget validation before acceptance:
+
+1. **Fire ~14 rays outward** from the candidate point:
+   - 6 cardinal axes: +X, −X, +Y, −Y, +Z, −Z
+   - 8 horizontal diagonals: ±X±Z (normalized), and optionally upper/lower diagonals for geometry with overhangs
+2. **Backface check**: Any ray that hits a backface indicates the candidate is inside solid geometry. Candidate is rejected immediately on any backface hit.
+3. **Distance sum**: Sum all ray distances. Must meet threshold: **≥ 10m–20m** (tune against player capsule volume). A spawn in a tight alcove or embedded in a wall will fail.
+4. **Pass condition**: No backface hits AND `sum(ray_distances) ≥ threshold`.
+
+**Per-tier behavior:**
+- **L1/L2/L3**: Failed candidates are skipped. If a tier produces zero passing candidates, the next tier activates.
+- **L4**: Dilates radial pattern outward (radius × 1.5 per attempt, up to 8 dilations) until candidates pass. If no dilation fully passes, accepts the `needed` candidates with highest budget scores (highest ray sum = best open space). This preserves the guarantee that L4 always produces `needed` points.
+
+**Determinism**: Ray patterns and tie-breaking are seeded from `match_id ^ player_slot`. Identical results across all clients for identical inputs.
+
+### 3.1 Standard Validation Rules
 
 | Rule | Test | Threshold | Reject Action |
 |---|---|---|---|
@@ -216,12 +246,12 @@ Every spawn point, regardless of origin layer, is tested against these rules bef
 | **Not inside geometry** | `bgTestPosInRoom(pos, resolvedroom)` | Must return true | Skip candidate |
 | **Minimum spacing** | Euclidean XZ distance to all accepted points | >= `min_spacing` (adaptive, 60-500 units) | Skip candidate |
 
-### 3.1 Validation Budget
+### 3.2 Candidate Budget
 
 To prevent infinite loops on degenerate maps, each layer has a **candidate budget**:
 - L2: `numwaypoints * 4` candidates max
 - L3: `grid_cells * 1` (each cell tested once)
-- L4: Exactly `needed` candidates, all accepted
+- L4: `needed × 8` candidates max (one radial ring per dilation attempt). All candidates are scored; highest-budget candidates are accepted if no dilation fully passes validation.
 
 If a layer exhausts its budget without filling the pool, it returns what it has and the next layer takes over.
 

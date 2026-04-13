@@ -3,6 +3,12 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S236 — 2026-04-13 (Design Refinement: Raycast-Budget Spawn Validation)
+
+**Focus**: Docs-only update. Replaced stuck-relocation 1/4-damage-for-2s rule (retired) with raycast-budget spawn validation applied uniformly across all L1–L4 tiers in `spawn-system-architecture-2026-04-13.md`; added L4 dilation behavior; updated master orchestration plan Layer 2 note. No code changes.
+
+---
+
 ## Session S235 — 2026-04-13 (Layer 0 Manifest Safety Fixes + Bug Closes)
 
 **Focus**: Master Orchestration Plan Layer 0 — manifest safety fixes L1-1 and FIX-B.2, plus closing B-72/B-21.
