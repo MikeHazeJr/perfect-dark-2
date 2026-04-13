@@ -199,6 +199,7 @@ extern s32 g_NetMode;
 struct menudialogdef;
 void menuPushDialog(struct menudialogdef *dialogdef);
 extern struct menudialogdef g_MpHandicapsMenuDialog;
+extern struct menudialogdef g_MpSelectTunesMenuDialog;
 extern struct menudialogdef g_MpTeamsMenuDialog;
 
 } /* extern "C" */
@@ -1794,6 +1795,12 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         if (!leader) ImGui::EndDisabled();
+
+        /* Music selection — available to all players (personal playlist choice) */
+        if (ImGui::Button("Select Music...", ImVec2(subBtnW, subBtnH))) {
+            menuPushDialog(&g_MpSelectTunesMenuDialog);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
     }
 
     /* Scenario-specific options */

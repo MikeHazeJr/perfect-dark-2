@@ -24,6 +24,7 @@
 #include "modmusic.h"
 #include "audio.h"
 #include "system.h"
+#include "fs.h"
 #include "external/minimp3.h"
 #include "external/stb_vorbis.h"
 
@@ -384,6 +385,7 @@ void modMusicPlay(const char *file_path)
 {
     s16 *pcm;
     u32 len;
+    const char *resolved;
 
     if (!file_path || !file_path[0]) {
         sysLogPrintf(LOG_WARNING, "modmusic: play called with empty path");
@@ -395,9 +397,23 @@ void modMusicPlay(const char *file_path)
         modMusicStop();
     }
 
-    pcm = modmusic_loadAudio(file_path, &len);
+    /* Resolve relative paths (e.g. "mods/foo/track.mp3") through fsFullPath()
+     * so the file is found regardless of CWD. Absolute paths pass through. */
+    resolved = file_path;
+    if (file_path[0] != '/' && file_path[0] != '\\' &&
+        !(file_path[0] && file_path[1] == ':')) {
+        const char *full = fsFullPath(file_path);
+        if (full) {
+            resolved = full;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE, "modmusic: loading '%s' (resolved from '%s')",
+                 resolved, file_path);
+
+    pcm = modmusic_loadAudio(resolved, &len);
     if (!pcm || len == 0) {
-        sysLogPrintf(LOG_WARNING, "modmusic: could not load '%s'", file_path);
+        sysLogPrintf(LOG_WARNING, "modmusic: could not load '%s'", resolved);
         return;
     }
 
@@ -410,7 +426,7 @@ void modMusicPlay(const char *file_path)
     modmusic_muteBaseMusic();
 
     sysLogPrintf(LOG_NOTE, "modmusic: playing '%s' (%u samples, %.1f sec)",
-                 file_path, len, (f32)len / (2.0f * 22050.0f));
+                 resolved, len, (f32)len / (2.0f * 22050.0f));
 }
 
 void modMusicStop(void)
