@@ -91,6 +91,7 @@ static void modmgrRebuildAllCaches(void);
 
 static void modmgrScanDirectory(void);
 static bool modmgrParseModJson(modinfo_t *mod);
+static bool modmgrParseAudioIni(modinfo_t *mod);
 static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
@@ -446,6 +447,120 @@ static bool modmgrParseModJson(modinfo_t *mod)
 }
 
 // ---------------------------------------------------------------------------
+// audio.ini parser — ini-based audio mod discovery
+// ---------------------------------------------------------------------------
+// Parses audio.ini from a mod directory. Format:
+//   [audio]
+//   type = audio
+//   name = My Track
+//   category = 1
+//   duration_ms = 0
+//   file_path = mytrack.mp3
+//
+// Populates modinfo_t fields so the mod appears in the Mod Manager and catalog.
+
+static bool modmgrParseAudioIni(modinfo_t *mod)
+{
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/audio.ini", mod->dirpath);
+
+	FILE *f = fopen(path, "r");
+	if (!f) return false;
+
+	char name[MODMGR_NAME_LEN] = "";
+	char file_path[FS_MAXPATH] = "";
+	s32  category = 1; /* default: music */
+	s32  duration_ms = 0;
+	bool in_audio_section = false;
+
+	char line[512];
+	while (fgets(line, sizeof(line), f)) {
+		/* Strip trailing whitespace/newline */
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' ||
+		       line[len-1] == ' ' || line[len-1] == '\t')) {
+			line[--len] = '\0';
+		}
+
+		/* Skip empty lines and comments */
+		if (len == 0 || line[0] == '#' || line[0] == ';') continue;
+
+		/* Section header */
+		if (line[0] == '[') {
+			in_audio_section = (strncmp(line, "[audio]", 7) == 0);
+			continue;
+		}
+
+		if (!in_audio_section) continue;
+
+		/* Parse key = value */
+		char *eq = strchr(line, '=');
+		if (!eq) continue;
+
+		/* Trim key */
+		char *kstart = line;
+		while (*kstart == ' ' || *kstart == '\t') kstart++;
+		char *kend = eq - 1;
+		while (kend > kstart && (*kend == ' ' || *kend == '\t')) kend--;
+		kend[1] = '\0';
+
+		/* Trim value */
+		char *vstart = eq + 1;
+		while (*vstart == ' ' || *vstart == '\t') vstart++;
+
+		if (strcmp(kstart, "name") == 0) {
+			strncpy(name, vstart, sizeof(name) - 1);
+			name[sizeof(name) - 1] = '\0';
+		} else if (strcmp(kstart, "category") == 0) {
+			category = atoi(vstart);
+		} else if (strcmp(kstart, "duration_ms") == 0) {
+			duration_ms = atoi(vstart);
+		} else if (strcmp(kstart, "file_path") == 0) {
+			strncpy(file_path, vstart, sizeof(file_path) - 1);
+			file_path[sizeof(file_path) - 1] = '\0';
+		}
+		/* "type" key is noted but not stored — the presence of audio.ini
+		 * itself is the type discriminator */
+	}
+
+	fclose(f);
+
+	if (name[0] == '\0') {
+		sysLogPrintf(LOG_WARNING, "modmgr: audio.ini in '%s' missing name field",
+			mod->dirpath);
+		return false;
+	}
+
+	/* Derive mod ID from directory name (matches how importAudioFile creates the slug) */
+	const char *dirname = mod->dirpath;
+	for (const char *p = mod->dirpath; *p; p++) {
+		if (*p == '/' || *p == '\\') dirname = p + 1;
+	}
+	snprintf(mod->id, MODMGR_ID_LEN, "%s", dirname);
+	strncpy(mod->name, name, MODMGR_NAME_LEN - 1);
+	mod->name[MODMGR_NAME_LEN - 1] = '\0';
+	strncpy(mod->version, "1.0", MODMGR_VERSION_LEN - 1);
+	strncpy(mod->author, "User", MODMGR_AUTHOR_LEN - 1);
+	snprintf(mod->description, MODMGR_DESC_LEN, "Audio mod: %s", name);
+	/* Audio mods have no base_fallback requirement — they add content, not replace */
+	mod->base_fallback[0] = '\0';
+
+	mod->has_modjson = false;
+	mod->has_audioini = true;
+	mod->valid = true;
+	mod->validation_error[0] = '\0';
+
+	(void)duration_ms;
+	(void)file_path;
+	(void)category;
+
+	sysLogPrintf(LOG_NOTE, "modmgr: parsed audio.ini for '%s' (%s)",
+		mod->id, mod->name);
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Mod content registration (D3b)
 // ---------------------------------------------------------------------------
 // Parses the mod.json "content" section and registers bodies, heads, and arenas
@@ -756,9 +871,10 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
-		// Check if it has mod.json
+		// Check for manifest: mod.json (full mod) or audio.ini (audio mod)
 		char checkpath[FS_MAXPATH + 1];
 		bool has_modjson = false;
+		bool has_audioini = false;
 
 		snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
 		if (fsFileSize(checkpath) > 0) {
@@ -766,7 +882,14 @@ static void modmgrScanDirectory(void)
 		}
 
 		if (!has_modjson) {
-			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json)", ent->d_name);
+			snprintf(checkpath, sizeof(checkpath), "%s/audio.ini", fullpath);
+			if (fsFileSize(checkpath) > 0) {
+				has_audioini = true;
+			}
+		}
+
+		if (!has_modjson && !has_audioini) {
+			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json or audio.ini)", ent->d_name);
 			continue;
 		}
 
@@ -776,16 +899,30 @@ static void modmgrScanDirectory(void)
 		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
 		mod->dirpath[FS_MAXPATH - 1] = '\0';
 
-		if (!modmgrParseModJson(mod)) {
-			// Keep the mod in the registry for UI error display, but mark invalid
-			strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
-			mod->id[MODMGR_ID_LEN - 1] = '\0';
-			strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
-			mod->name[MODMGR_NAME_LEN - 1] = '\0';
-			mod->valid = false;
-			snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json — failed to parse");
-			mod->has_modjson = false;
-			sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid mod.json (kept for error display)", ent->d_name);
+		if (has_modjson) {
+			if (!modmgrParseModJson(mod)) {
+				// Keep the mod in the registry for UI error display, but mark invalid
+				strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
+				mod->id[MODMGR_ID_LEN - 1] = '\0';
+				strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
+				mod->name[MODMGR_NAME_LEN - 1] = '\0';
+				mod->valid = false;
+				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json — failed to parse");
+				mod->has_modjson = false;
+				sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid mod.json (kept for error display)", ent->d_name);
+			}
+		} else {
+			// audio.ini-based mod
+			if (!modmgrParseAudioIni(mod)) {
+				strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
+				mod->id[MODMGR_ID_LEN - 1] = '\0';
+				strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
+				mod->name[MODMGR_NAME_LEN - 1] = '\0';
+				mod->valid = false;
+				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed audio.ini — failed to parse");
+				mod->has_audioini = false;
+				sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid audio.ini (kept for error display)", ent->d_name);
+			}
 		}
 
 		// mod->bundled is always 0 — no hardcoded bundled mods exist
@@ -797,12 +934,16 @@ static void modmgrScanDirectory(void)
 		mod->contenthash = modmgrHashString(hashsrc);
 
 		// Compute SHA-256 for authoritative network verification.
-		// Primary: hash mod.json content (stable, covers declared assets).
+		// Primary: hash manifest content (stable, covers declared assets).
 		// Fallback: hash the "id:version" string so sha256 is never all-zeroes.
 		{
-			char modjsonpath[FS_MAXPATH + 1];
-			snprintf(modjsonpath, sizeof(modjsonpath), "%s/mod.json", fullpath);
-			if (sha256HashFile(modjsonpath, mod->sha256) != 0) {
+			char manifestpath[FS_MAXPATH + 1];
+			if (has_modjson) {
+				snprintf(manifestpath, sizeof(manifestpath), "%s/mod.json", fullpath);
+			} else {
+				snprintf(manifestpath, sizeof(manifestpath), "%s/audio.ini", fullpath);
+			}
+			if (sha256HashFile(manifestpath, mod->sha256) != 0) {
 				sha256Hash(hashsrc, strlen(hashsrc), mod->sha256);
 			}
 		}
@@ -816,7 +957,7 @@ static void modmgrScanDirectory(void)
 		g_ModRegistryCount++;
 		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s",
 			g_ModRegistryCount - 1, mod->id, mod->name,
-			mod->has_modjson ? "[mod.json]" : "[legacy]");
+			mod->has_modjson ? "[mod.json]" : mod->has_audioini ? "[audio.ini]" : "[legacy]");
 	}
 
 	closedir(dir);
@@ -844,8 +985,19 @@ static void modmgrScanDirectory(void)
 			if (stat(altpath, &altst) != 0 || !S_ISDIR(altst.st_mode)) continue;
 
 			char altcheck[FS_MAXPATH + 1];
+			bool alt_has_modjson = false;
+			bool alt_has_audioini = false;
+
 			snprintf(altcheck, sizeof(altcheck), "%s/mod.json", altpath);
-			if (fsFileSize(altcheck) <= 0) continue;
+			if (fsFileSize(altcheck) > 0) {
+				alt_has_modjson = true;
+			} else {
+				snprintf(altcheck, sizeof(altcheck), "%s/audio.ini", altpath);
+				if (fsFileSize(altcheck) > 0) {
+					alt_has_audioini = true;
+				}
+			}
+			if (!alt_has_modjson && !alt_has_audioini) continue;
 
 			/* Check for duplicate mod ID (already scanned from primary dir) */
 			bool dup = false;
@@ -862,14 +1014,26 @@ static void modmgrScanDirectory(void)
 			strncpy(mod->dirpath, altpath, FS_MAXPATH - 1);
 			mod->dirpath[FS_MAXPATH - 1] = '\0';
 
-			if (!modmgrParseModJson(mod)) {
-				strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
-				mod->id[MODMGR_ID_LEN - 1] = '\0';
-				strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
-				mod->name[MODMGR_NAME_LEN - 1] = '\0';
-				mod->valid = false;
-				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json");
-				mod->has_modjson = false;
+			if (alt_has_modjson) {
+				if (!modmgrParseModJson(mod)) {
+					strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
+					mod->id[MODMGR_ID_LEN - 1] = '\0';
+					strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
+					mod->name[MODMGR_NAME_LEN - 1] = '\0';
+					mod->valid = false;
+					snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json");
+					mod->has_modjson = false;
+				}
+			} else {
+				if (!modmgrParseAudioIni(mod)) {
+					strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
+					mod->id[MODMGR_ID_LEN - 1] = '\0';
+					strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
+					mod->name[MODMGR_NAME_LEN - 1] = '\0';
+					mod->valid = false;
+					snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed audio.ini");
+					mod->has_audioini = false;
+				}
 			}
 
 			mod->bundled = 0;
@@ -879,9 +1043,13 @@ static void modmgrScanDirectory(void)
 			mod->contenthash = modmgrHashString(hashsrc);
 
 			{
-				char modjsonpath[FS_MAXPATH + 1];
-				snprintf(modjsonpath, sizeof(modjsonpath), "%s/mod.json", altpath);
-				if (sha256HashFile(modjsonpath, mod->sha256) != 0) {
+				char manifestpath[FS_MAXPATH + 1];
+				if (alt_has_modjson) {
+					snprintf(manifestpath, sizeof(manifestpath), "%s/mod.json", altpath);
+				} else {
+					snprintf(manifestpath, sizeof(manifestpath), "%s/audio.ini", altpath);
+				}
+				if (sha256HashFile(manifestpath, mod->sha256) != 0) {
 					sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
 				}
 			}
@@ -1078,6 +1246,95 @@ void modmgrLoadConfig(void)
 // Mod loading (register assets from a single mod)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Audio ini mod loading — re-parse audio.ini and register catalog entry
+// ---------------------------------------------------------------------------
+
+static void modmgrLoadAudioIni(modinfo_t *mod)
+{
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/audio.ini", mod->dirpath);
+
+	FILE *f = fopen(path, "r");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not open %s for loading", path);
+		return;
+	}
+
+	char name[MODMGR_NAME_LEN] = "";
+	char file_path[FS_MAXPATH] = "";
+	s32  category = 1;
+	s32  duration_ms = 0;
+	bool in_audio_section = false;
+
+	char line[512];
+	while (fgets(line, sizeof(line), f)) {
+		s32 len = (s32)strlen(line);
+		while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' ||
+		       line[len-1] == ' ' || line[len-1] == '\t')) {
+			line[--len] = '\0';
+		}
+		if (len == 0 || line[0] == '#' || line[0] == ';') continue;
+
+		if (line[0] == '[') {
+			in_audio_section = (strncmp(line, "[audio]", 7) == 0);
+			continue;
+		}
+		if (!in_audio_section) continue;
+
+		char *eq = strchr(line, '=');
+		if (!eq) continue;
+
+		char *kstart = line;
+		while (*kstart == ' ' || *kstart == '\t') kstart++;
+		char *kend = eq - 1;
+		while (kend > kstart && (*kend == ' ' || *kend == '\t')) kend--;
+		kend[1] = '\0';
+
+		char *vstart = eq + 1;
+		while (*vstart == ' ' || *vstart == '\t') vstart++;
+
+		if (strcmp(kstart, "name") == 0) {
+			strncpy(name, vstart, sizeof(name) - 1);
+			name[sizeof(name) - 1] = '\0';
+		} else if (strcmp(kstart, "category") == 0) {
+			category = atoi(vstart);
+		} else if (strcmp(kstart, "duration_ms") == 0) {
+			duration_ms = atoi(vstart);
+		} else if (strcmp(kstart, "file_path") == 0) {
+			strncpy(file_path, vstart, sizeof(file_path) - 1);
+			file_path[sizeof(file_path) - 1] = '\0';
+		}
+	}
+	fclose(f);
+
+	if (name[0] == '\0' || file_path[0] == '\0') {
+		sysLogPrintf(LOG_WARNING, "modmgr: audio.ini in '%s' missing name or file_path", mod->dirpath);
+		return;
+	}
+
+	/* Build catalog ID: <mod_id>:audio */
+	char catalogId[MODMGR_ID_LEN];
+	snprintf(catalogId, sizeof(catalogId), "%s:audio", mod->id);
+
+	/* Build file path relative to mods dir */
+	char relPath[FS_MAXPATH];
+	snprintf(relPath, sizeof(relPath), "%s/%s", mod->dirpath, file_path);
+
+	/* Register in asset catalog */
+	asset_entry_t *e = assetCatalogRegisterAudio(
+		catalogId, 0, name, category, duration_ms, relPath);
+	if (e) {
+		e->bundled = 0;
+		e->enabled = 1;
+		strncpy(e->dirpath, mod->dirpath, FS_MAXPATH - 1);
+		e->dirpath[FS_MAXPATH - 1] = '\0';
+	}
+
+	sysLogPrintf(LOG_NOTE, "modmgr: registered audio mod '%s' -> %s (%s)",
+		name, catalogId, relPath);
+}
+
 static void modmgrLoadMod(modinfo_t *mod)
 {
 	if (mod->loaded) return;
@@ -1085,9 +1342,14 @@ static void modmgrLoadMod(modinfo_t *mod)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
-	// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
-	// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
-	modmgrRegisterModJsonContent(mod);
+	if (mod->has_audioini) {
+		// Audio ini mod: register audio entry in catalog
+		modmgrLoadAudioIni(mod);
+	} else {
+		// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
+		// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
+		modmgrRegisterModJsonContent(mod);
+	}
 
 	// P2: Parse bot name overrides if this mod has them
 	modmgrParseBotNames(mod);

@@ -50,6 +50,7 @@ static const char *iniFilenameForType(asset_type_e type)
         case ASSET_TEXTURES:     return "textures.ini";
         case ASSET_SFX:          return "sfx.ini";
         case ASSET_MUSIC:        return "music.ini";
+        case ASSET_AUDIO:        return "audio.ini";
         case ASSET_PROP:         return "prop.ini";
         case ASSET_VEHICLE:      return "vehicle.ini";
         case ASSET_MISSION:      return "mission.ini";
@@ -63,6 +64,7 @@ static const char *iniFilenameForType(asset_type_e type)
 static const char *s_KnownIniNames[] = {
     "map.ini", "character.ini", "bot.ini", "textures.ini",
     "skin.ini", "weapon.ini", "sfx.ini", "music.ini",
+    "audio.ini",
     "prop.ini", "vehicle.ini", "mission.ini", "ui.ini", "tool.ini",
     NULL
 };
