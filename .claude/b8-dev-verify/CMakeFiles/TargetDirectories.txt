@@ -1,6 +1,0 @@
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/pd_headers.dir
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/pd.dir
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/pd-server.dir
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/logview.dir
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/edit_cache.dir
-C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/b8-dev-verify/CMakeFiles/rebuild_cache.dir
