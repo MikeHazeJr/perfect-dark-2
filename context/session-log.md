@@ -3,6 +3,18 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S231 — 2026-04-13 (L0-BUILD + L0-LINK: ccache sloppiness + server stub verify)
+
+**Focus**: Layer 0 of master orchestration plan — two build-system items.
+
+**L0-BUILD**: Added `$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"` to all three build scripts (`devtools/build-headless.ps1`, `devtools/dev-window-v2/dev-window-v2.ps1` — both top-level and psi.EnvironmentVariables subprocess block, `devtools/release.ps1`). Fix restores ccache hit rate for TUs that use PCH. **Pending Mike's warm-build timing verify** — target <12s warm.
+
+**L0-LINK**: Confirmed `pdguiThemeRegisterModDir` stub already present in `port/src/server_stubs.c:417` since theme-loader session. No code change needed; marked DONE. Both-targets build verify deferred to Mike's environment (bash-tool process isolation prevents reliable PowerShell+ccache timing).
+
+**Changes**: 3 build scripts, +14/-4 lines. Merged worktree `admiring-napier` → `dev` via `--no-ff`. Line counts verified (653/1459/640 match pre/post).
+
+---
+
 ## Session S229 -- 2026-04-13 (Menu & Input Architecture Audit)
 
 **Focus**: Deep architectural audit of menu stack, input context system, campaign menus, and arena list. Design docs only -- zero code changes.

@@ -11,7 +11,8 @@
 | Item | Status | Detail |
 |------|--------|--------|
 | **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (added dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. All 3rd-party libs now static. Carve-out: opengl32.dll (Windows system DLL). Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design doc: `context/designs/static-link-dll-elimination-2026-04-13.md`. |
-| **S223 server link error** | OPEN (pre-S224) | `PerfectDarkServer.exe` fails to link: `undefined reference to 'pdguiThemeRegisterModDir'`. Pre-existing from theme-loader session. Fix: declare `pdguiThemeRegisterModDir` in a server-visible header or add a stub in `server_stubs.c`. |
+| **L0-LINK: pdguiThemeRegisterModDir server link** | DONE (S231) | Stub confirmed present at `port/src/server_stubs.c:417` since theme-loader session. No code change needed. Both-targets link verify pending Mike's build. |
+| **L0-BUILD: ccache warm-build regression** | CODE DONE (S231) — **Mike: run warm-build timing verify** | Added `$env:CCACHE_SLOPPINESS="pch_defines,time_macros"` to all 3 build scripts. Target: warm `pd` build <12s (was 30.7s after PCH landed in commit `955dffa2`). Run: `.\devtools\build-headless.ps1 -Target client` twice; second run should be <12s. If still >12s, remove `target_precompile_headers` block from CMakeLists.txt. |
 
 ---
 

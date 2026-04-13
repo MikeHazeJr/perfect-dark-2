@@ -182,3 +182,18 @@ Pre-existing warnings, present in both builds, not regressions:
 
 **One blocker**: warm ccache regression from 9.4s → 30.7s due to PCH + ccache incompatibility.  
 **All static-link / DLL elimination work is confirmed working** — zero MSYS2 DLLs.
+
+---
+
+## L0-BUILD Fix Applied — S231 (2026-04-13)
+
+**Fix**: Added `$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"` to all three build scripts:
+- `devtools/build-headless.ps1` — top-level env section
+- `devtools/dev-window-v2/dev-window-v2.ps1` — top-level env + `psi.EnvironmentVariables` subprocess block
+- `devtools/release.ps1` — top-level env section
+
+**Rationale**: `pch_defines` tells ccache to ignore PCH defines variation; `time_macros` tells ccache to ignore `__TIME__`/`__DATE__` timestamps. Together these restore cache hit rate for TUs that use `cmake_pch.h`.
+
+**Expected result**: warm `pd` build drops from 30.7s → ~9.4s (pre-PCH reference). Fallback if still > 12s: remove `target_precompile_headers(pd PRIVATE ...)` block from CMakeLists.txt.
+
+**Mike: run warm-build verify** — two consecutive `.\devtools\build-headless.ps1 -Target client` runs. Record second-run time here and update summary table above.
