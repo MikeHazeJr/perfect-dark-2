@@ -427,6 +427,14 @@ foreach ($tool in @($MakeExe, "C:\msys64\mingw64\bin\cc.exe")) {
 Write-Header "Auto-Commit + Push"
 $lockFile = Join-Path $ProjectDir ".git\index.lock"
 if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+# dev.lock -- left behind by code sessions; delete silently before any git ops
+foreach ($devLock in @(
+    (Join-Path $ProjectDir "dev.lock"),
+    (Join-Path $ClientBuildDir "dev.lock"),
+    (Join-Path $ServerBuildDir "dev.lock")
+)) {
+    if (Test-Path $devLock) { Remove-Item $devLock -Force -ErrorAction SilentlyContinue }
+}
 $commitMsg = "Build v$VerMajor.$VerMinor.$VerPatch - auto-commit before build"
 $stChanges = & git -C $ProjectDir status --porcelain 2>$null
 if ($stChanges) {
