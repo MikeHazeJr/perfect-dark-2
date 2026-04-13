@@ -350,6 +350,11 @@ static void sortRankingsByTeam(ESRankRow *rows, s32 count)
  * Solo End Screen
  * ======================================================================== */
 
+/* Input debounce: when the endscreen first appears, suppress A/confirm for
+ * a few frames so the button press that skipped the cutscene doesn't
+ * immediately activate a menu button. */
+static s32 s_SoloEndscreenDebounce = 0;
+
 static void renderSoloEndscreen(bool completed)
 {
     /* ----- Palette ---------------------------------------------------- */
@@ -399,6 +404,15 @@ static void renderSoloEndscreen(bool completed)
         }
         /* M2.3: Refresh achievements so newly unlocked ones show */
         achievementsRefresh();
+        /* Debounce: the A press that skipped the end-of-mission cutscene
+         * must not pass through to the endscreen buttons. Suppress confirm
+         * input for 3 frames so the player has to press A again. */
+        s_SoloEndscreenDebounce = 3;
+    }
+
+    /* Tick debounce counter */
+    if (s_SoloEndscreenDebounce > 0) {
+        s_SoloEndscreenDebounce--;
     }
 
     /* ----- PD dialog frame -------------------------------------------- */
@@ -600,8 +614,12 @@ static void renderSoloEndscreen(bool completed)
     float btnGap = pdguiScale(18.0f);
     float btnY   = menuH - btnH - pdguiScale(18.0f);
 
+    /* During input debounce, suppress button activations so the A press
+     * that skipped the cutscene doesn't immediately trigger a button. */
+    bool inputSuppressed = (s_SoloEndscreenDebounce > 0);
+
     if (completed) {
-        /* RETRY  |  NEXT MISSION */
+        /* NEXT MISSION (default)  |  RETRY MISSION */
         float totalBtnW = menuW * 0.7f;
         float halfW     = (totalBtnW - btnGap) * 0.5f;
         float startX    = (menuW - totalBtnW) * 0.5f;
@@ -610,24 +628,33 @@ static void renderSoloEndscreen(bool completed)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(btnGap, pdguiScale(6.0f)));
 
-        if (PdEndButton("Retry Mission", ImVec2(halfW, btnH))) {
-            pdguiEndscreenStartMission();
+        /* Continue/Next Mission is the default-focused button (left position) */
+        if (pdguiEndscreenHasNextMission()) {
+            if (PdEndButton("Next Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
+                pdguiEndscreenNextMission();
+            }
+            ImGui::SetItemDefaultFocus();
+        } else {
+            if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
+                pdguiEndscreenStartMission();
+            }
+            ImGui::SetItemDefaultFocus();
         }
         ImGui::SameLine();
 
         if (pdguiEndscreenHasNextMission()) {
-            if (PdEndButton("Next Mission", ImVec2(halfW, btnH))) {
-                pdguiEndscreenNextMission();
+            if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
+                pdguiEndscreenStartMission();
             }
         } else {
-            if (PdEndButton("Main Menu", ImVec2(halfW, btnH))) {
+            if (PdEndButton("Main Menu", ImVec2(halfW, btnH)) && !inputSuppressed) {
                 pdguiEndscreenExitToMainMenu();
             }
         }
 
         ImGui::PopStyleVar();
     } else {
-        /* RETRY  |  MAIN MENU */
+        /* RETRY MISSION (default)  |  MAIN MENU */
         float totalBtnW = menuW * 0.7f;
         float halfW     = (totalBtnW - btnGap) * 0.5f;
         float startX    = (menuW - totalBtnW) * 0.5f;
@@ -636,9 +663,10 @@ static void renderSoloEndscreen(bool completed)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(btnGap, pdguiScale(6.0f)));
 
-        if (PdEndButton("Retry Mission", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
             pdguiEndscreenStartMission();
         }
+        ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
 
         ImGui::PushStyleColor(ImGuiCol_Button,
@@ -647,7 +675,7 @@ static void renderSoloEndscreen(bool completed)
                               ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,
                               ImVec4(0.75f, 0.2f, 0.2f, 1.0f));
-        if (PdEndButton("Main Menu", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Main Menu", ImVec2(halfW, btnH)) && !inputSuppressed) {
             pdguiEndscreenExitToMainMenu();
         }
         ImGui::PopStyleColor(3);
@@ -655,10 +683,12 @@ static void renderSoloEndscreen(bool completed)
         ImGui::PopStyleVar();
     }
 
-    /* Keyboard navigation: Enter/Start or Escape/Back */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
-        pdguiEndscreenExitToMainMenu();
+    /* Keyboard navigation: Enter/Start or Escape/Back — also debounced */
+    if (!inputSuppressed) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+            pdguiEndscreenExitToMainMenu();
+        }
     }
 
     ImGui::End();

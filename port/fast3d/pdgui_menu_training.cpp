@@ -54,6 +54,7 @@
 #include "pdgui_model_preview.h"
 #include "pdgui_charpreview.h"
 #include "system.h"
+#include "inputctx.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -1184,6 +1185,16 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         return 1;
     }
 
+    /* Push ImGui menu input context so gamepad d-pad and A/B route to ImGui
+     * instead of gameplay.  Required because this menu opens from CI gameplay
+     * (walking around Carrington Institute), not from another ImGui menu. */
+    if (ImGui::IsWindowAppearing()) {
+        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPush(&g_CtxImGuiMenu);
+        }
+        ImGui::SetWindowFocus();
+    }
+
     float diagW   = pdguiMenuWidth();
     float diagH   = pdguiMenuHeight();
     float titleH  = pdguiScale(39.0f);
@@ -1209,6 +1220,22 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
     }
 
     listHandleKeyboardNav(&s_FrWeaponCursor, count);
+
+    /* A button / Enter confirms the currently highlighted weapon */
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
+        || ImGui::IsKeyPressed(ImGuiKey_Return, false)) {
+        if (s_FrWeaponCursor >= 0 && s_FrWeaponCursor < count) {
+            pdguiTrFrSetSlot(s_FrWeaponCursor);
+            u32 weaponnum = pdguiTrFrWeaponBySlot(s_FrWeaponCursor);
+            s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
+            if (tier > 0) {
+                menuPushDialog(&g_FrDifficultyMenuDialog);
+            } else {
+                menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+            }
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+    }
 
     ImGui::BeginChild("##fr_wl_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,

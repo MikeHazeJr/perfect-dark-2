@@ -46,9 +46,11 @@ void amTick(void)
 			{
 				s8 gotonextscreen = false;
 
-				/* M0.2: stick axes — actionAxis gives -1..1, multiply by 80 for s8 range */
+				/* M0.2: stick axes — actionAxis gives -1..1, multiply by 80 for s8 range.
+				 * Use AIM axis (right stick) so player can hold D-pad left with
+				 * left thumb to keep the radial open while selecting with right thumb. */
 				f32 ax_x, ax_y;
-				actionAxis(playernum, ACTION_AXIS_MOVE_X, &ax_x, &ax_y);
+				actionAxis(playernum, ACTION_AXIS_AIM_X, &ax_x, &ax_y);
 				s8 cstickx = (s8)(ax_x * 80.0f);
 				s8 csticky = (s8)(ax_y * 80.0f);
 
