@@ -3,6 +3,29 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S229 -- 2026-04-13 (Menu & Input Architecture Audit)
+
+**Focus**: Deep architectural audit of menu stack, input context system, campaign menus, and arena list. Design docs only -- zero code changes.
+
+### Deliverables (2 design docs)
+
+1. **`context/designs/menu-input-architecture-audit-2026-04-13.md`** -- Full audit:
+   - Intended architecture (dual menu stack, input context pushdown automaton, hotswap bridge)
+   - Gap matrix: 30 menu files classified (10 conformant, 4 partial, 16 ad-hoc)
+   - Root-cause taxonomy: 6 patterns (push-no-pop, pop-no-push, SDL bypass, static state, two-stack desync, shadow header mismatch)
+   - Reinit audit: 5 gaps in room->match->room path
+   - Campaign menu: 30 wrong language ID shadow defines, ~15 visibly blank strings
+   - Arena list: data model, proposed collapsible sections
+
+2. **`context/designs/menu-input-fix-plan-2026-04-13.md`** -- 14-item fix plan across 4 layers (foundation/consistency/features/robustness)
+
+### Key Findings
+
+- Core architecture sound; targeted fix (not top-down rework) warranted
+- Campaign strings invisible = shadow #define values missing bank prefix (CRITICAL)
+- 3 context leaks (training, pausemenu game-over) -- push without pop
+- Arena list discards catalog category/bundled data during collection
+
 ## Session S228 — 2026-04-13 (Match Lifecycle Architecture Audit)
 
 **Focus**: Deep architectural audit of the full match lifecycle across all modes (CombatSim, Co-op, Counter-Op) for both online and local play. Design docs only -- no code changes.
