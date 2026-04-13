@@ -890,6 +890,17 @@ static void renderCharacterSelector(float w, float h, float scale)
     /* Character list */
     float listH = h - 120.0f * scale;
     if (ImGui::BeginListBox("##charlist", ImVec2(-1, listH))) {
+        /* Auto-select first entry if nothing is selected (controller UX) */
+        if (s_SelectedChar < 0 && s_NumCharEntries > 0) {
+            s_SelectedChar = 0;
+            strncpy(s_PreviewBodyId, s_CharEntries[0].id, 63);
+            const char *headId = catalogGetBodyDefaultHead(s_CharEntries[0].id);
+            if (headId && headId[0]) {
+                strncpy(s_PreviewHeadId, headId, 63);
+            } else {
+                s_PreviewHeadId[0] = '\0';
+            }
+        }
         for (s32 i = 0; i < s_NumCharEntries; i++) {
             bool sel = (i == s_SelectedChar);
             if (ImGui::Selectable(s_CharEntries[i].name, sel)) {

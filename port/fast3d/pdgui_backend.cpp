@@ -482,16 +482,19 @@ void pdguiRender(void)
      * Covers all hotswap→gameplay transitions: solo mission accept, endscreen
      * retry/next, and any future hotswap dialog that calls menuStop().
      *
-     * FIX-PLAYTEST-4 (B-114): Do NOT flush on lvframe60==0 (first tick of a new
-     * stage).  On mission→CI transitions, the hotswap was active in the previous
-     * stage's menus; the close fires on frame 0 of CI while lvTickPlayer is still
-     * initialising, potentially touching stale menu/ImGui state.  Deferring to
-     * frame 1+ lets the stage finish its first tick before we apply SDL state. */
+     * FIX-PLAYTEST-4 (B-114): Do NOT flush during the first few ticks of a new
+     * stage.  On mission→mission transitions (e.g., mission 1 endscreen →
+     * mission 2 gameplay), the hotswap was active in the previous stage's menus;
+     * the close fires on an early frame of the new stage while lvTickPlayer is
+     * still initialising, leaving stale ImGui/input state that auto-dismisses
+     * menus (B-134). Deferring to frame 5+ gives the stage time to fully
+     * initialize menus, input contexts, and player state before we apply SDL
+     * mouse capture. */
     {
         bool hotswapNowActive = (pdguiHotswapWasActive() != 0);
         if (hotswapWasActive && !hotswapNowActive &&
                 !pdguiIsActive() &&
-                pdmainGetLvFrame60() > 0) {
+                pdmainGetLvFrame60() > 4) {
             if (inputMouseIsLocked()) {
                 SDL_ShowCursor(SDL_DISABLE);
                 SDL_SetRelativeMouseMode(SDL_TRUE);

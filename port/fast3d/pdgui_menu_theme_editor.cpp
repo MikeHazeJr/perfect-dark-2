@@ -32,6 +32,7 @@
 #include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "pdgui_audio.h"
 
 /* =========================================================================
  * State
@@ -391,9 +392,11 @@ static void renderThemeEditor(s32 winW, s32 winH)
             if (s_SaveSuccess) {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
                          "Saved to mods/");
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
             } else {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
                          "Save failed — check logs");
+                pdguiPlaySound(PDGUI_SND_ERROR);
             }
         }
 

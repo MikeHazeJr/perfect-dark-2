@@ -36,6 +36,12 @@
 #include "modelcatalog.h"
 #include "pdgui_charpreview.h"
 
+/* Forward declarations for VI dimensions (vi.c) — needed to restore
+ * scissor after FBO render.  Cannot include lib/vi.h directly due
+ * to include hierarchy constraints. */
+extern s16 viGetWidth(void);
+extern s16 viGetHeight(void);
+
 /* ========================================================================
  * State
  * ======================================================================== */
@@ -527,6 +533,14 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 
     /* Switch back to the main framebuffer */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, 0);
+
+    /* B-135: Restore scissor to full screen after FBO render.
+     * The FBO pass set scissor to CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT.
+     * Without restoring, subsequent display list commands (sky rendering,
+     * etc.) clip to the FBO's small rectangle, producing angle-dependent
+     * blue triangles in the sky. */
+    gDPSetScissor(gdl++, G_SC_NON_INTERLACE,
+                  0, 0, viGetWidth(), viGetHeight());
 
     /* Mark preview as ready. The texture ID was cached at init time.
      * The GBI commands above will be processed by gfx_run_dl before

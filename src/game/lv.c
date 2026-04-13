@@ -46,6 +46,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
 #include "game/music.h"
+#include "modmusic.h"
 #include "game/nbomb.h"
 #include "game/objectives.h"
 #include "game/pak.h"
@@ -397,6 +398,7 @@ void lvReset(s32 stagenum)
 	g_MiscAudioHandle = NULL;
 
 	musicReset();
+	modMusicStop(); /* Stop mod music to prevent stale PCM during stage load */
 	modelmgrSetLvResetting(true);
 	surfaceReset();
 	texReset();

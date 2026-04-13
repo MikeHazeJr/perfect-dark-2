@@ -372,6 +372,7 @@ static bool importAudioFile(const char *filePath, const char *displayName,
              "Imported '%s' as %s", displayName, catalogId);
     s_AudioStatusOk = true;
     s_AudioStatusFlashStart = SDL_GetTicks();
+    pdguiPlaySound(PDGUI_SND_SUCCESS);
 
     sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
                  filePath, catalogId, modDir);
@@ -603,6 +604,9 @@ static void renderPackCreator(float contentW, float scale)
         if (createSoundtrackPack(s_PackName, s_PackVersion)) {
             pdguiAudioModRefresh();
             s_PackCreatorOpen = false;
+            pdguiPlaySound(PDGUI_SND_SUCCESS);
+        } else {
+            pdguiPlaySound(PDGUI_SND_ERROR);
         }
     }
     if (!canCreate) ImGui::EndDisabled();
@@ -860,6 +864,8 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
                 pdguiAudioModRefresh();
                 s_ImportFilePath[0] = '\0';
                 s_ImportName[0]     = '\0';
+            } else {
+                pdguiPlaySound(PDGUI_SND_ERROR);
             }
         }
         if (!canImport) ImGui::EndDisabled();

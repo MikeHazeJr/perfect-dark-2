@@ -44,7 +44,7 @@ extern "C" {
  * Registry
  * ======================================================================== */
 
-#define HOTSWAP_MAX_ENTRIES 128
+#define HOTSWAP_MAX_ENTRIES 256
 #define HOTSWAP_MAX_QUEUED  8  /* Max dialogs that can be hot-swapped per frame */
 
 struct HotswapEntry {

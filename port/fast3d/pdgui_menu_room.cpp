@@ -63,6 +63,7 @@ char *langSafe(s32 textid);
 s32 netGetMode(void);
 s32 netDisconnect(void);
 void pdguiSetInRoom(s32 inRoom);  /* pdgui_lobby.cpp — transition back to social lobby */
+s32 pdguiCountdownIsActive(void); /* pdgui_bridge.c — true during pre-match countdown */
 extern s32 g_NetMode;
 extern s32 g_NetDedicated;
 extern u8 g_NetCoopDifficulty;
@@ -2326,9 +2327,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     float leaveW = pdguiScale(s_IsSoloMode ? 140.0f : 120.0f);
     ImGui::SameLine(dialogW - leaveW - ImGui::GetStyle().WindowPadding.x * 2);
     const char *leaveLabel = s_IsSoloMode ? "Back to Menu" : "Leave Room";
+    /* During the pre-match countdown, ESC/B should ONLY cancel the countdown
+     * (handled by pdgui_countdown.cpp). Don't also leave the room. */
+    bool countdownBlocks = (!s_IsSoloMode && pdguiCountdownIsActive());
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        (!countdownBlocks &&
+         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+          ImGui::IsKeyPressed(ImGuiKey_Escape, false)))) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE via %s/ESC (solo=%d)",
                      leaveLabel, s_IsSoloMode);
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

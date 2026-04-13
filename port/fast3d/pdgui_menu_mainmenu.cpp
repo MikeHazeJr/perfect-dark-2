@@ -2677,26 +2677,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
             pdguiSoloRoomOpen();
         }
 
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Co-Operative -- local co-op campaign */
-        if (PdButton("Co-Operative", ImVec2(buttonW, buttonH))) {
-            menuhandlerMainMenuCooperative(MENUOP_SET, nullptr, nullptr);
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Counter-Operative -- requires 2 controllers */
-        {
-            bool disabled = ((joyGetConnectedControllers() & ~0x1) == 0);
-            if (disabled) ImGui::BeginDisabled();
-
-            if (PdButton("Counter-Operative", ImVec2(buttonW, buttonH))) {
-                menuhandlerMainMenuCounterOperative(MENUOP_SET, nullptr, nullptr);
-            }
-
-            if (disabled) ImGui::EndDisabled();
-        }
+        /* Co-Operative and Counter-Operative removed — no local multiplayer
+         * (single local player only, constraint in CLAUDE.md). Keep code but
+         * don't render the buttons. */
 
     } else if (s_MenuView == 2) {
         /* ================================================================
