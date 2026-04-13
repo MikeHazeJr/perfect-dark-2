@@ -3,6 +3,50 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S226 — 2026-04-13 (Match Lifecycle Architecture Audit)
+
+**Focus**: Deep architectural audit of the full match lifecycle across all modes (CombatSim, Co-op, Counter-Op) for both online and local play. Design docs only -- no code changes.
+
+### Deliverables (2 design docs)
+
+1. **`context/designs/match-lifecycle-architecture-audit-2026-04-13.md`** -- Main audit document:
+   - Full lifecycle state machine (ASCII diagram): Room -> Lobby -> Match Load -> Match Active -> Match End -> Return to Room
+   - Per-mode code path traces with file:line citations for all 4 variants (local CS, online CS, online co-op, online counter-op)
+   - State sync audit: scores (event-driven, no periodic broadcast), timer (locally ticked, no runtime sync), RNG (seeded once), objectives (server-auth), bots (delegated authority)
+   - Reinit-on-return audit: 8 subsystems audited (music, menu, input, HUD, network, player, match config, timers)
+   - 5 state leaks found (manifest not cleared, distributed mods permanent, co-op linkage persistence, HUD under endscreen, weapon set mutation)
+   - Mod transfer + transient enablement protocol design (wire format, save/restore lifecycle, failure modes, pd.ini crash-safe persistence)
+   - Catalog/manifest lifecycle across match boundaries with gap analysis
+   - 11 cross-mode gaps catalogued (G-1 through G-11)
+
+2. **`context/designs/match-lifecycle-fix-plan-2026-04-13.md`** -- Actionable fix plan:
+   - 4-layer execution plan (19 items total)
+   - Layer 1 (safety, no protocol): 5 items -- manifest clear, periodic scores, HUD gate, linkage clear, initial resync
+   - Layer 2 (co-op manifest integration, protocol bump): 5 items -- build manifest for co-op, ready gate, stage ready, unify handlers
+   - Layer 3 (transient mod enablement): 6 items -- save/restore struct, wire extensions, client enable/restore, crash-safe persistence
+   - Layer 4 (polish): 4 items -- timer sync, temp cleanup, exit path consolidation, local manifest
+
+### Key Findings
+
+- **Co-op/Counter-Op bypass the entire manifest pipeline** (no verification, no ready gate, no asset transfer). This is the highest-severity gap.
+- **No transient mod enable/disable mechanism exists** -- distribution handles mods you DON'T HAVE, but has no awareness of mods you HAVE but have DISABLED.
+- **Recommendation**: Targeted fixes + focused co-op rework, NOT full top-down rework. CombatSim pipeline is ~80% correct.
+- **Estimated effort**: 8-12 sessions across all 4 layers.
+
+### Decisions
+
+- Co-op should be plumbed INTO the existing manifest pipeline, not rebuilt separately
+- Transient mod state saved in-memory (not pd.ini) during match; pd.ini `[TransientMods]` section used only for crash recovery
+- Protocol bump to v34 required for Layer 2+3 (acceptable for pre-1.0)
+
+### Next Steps
+
+- Layer 1 items can ship immediately (1-2 sessions)
+- Layer 2 requires game director approval for co-op manifest integration approach
+- Layer 3 depends on Layer 2 stabilizing
+
+---
+
 ## Session S225 — 2026-04-13 (Build Pipeline Improvements)
 
 **Focus**: Implement full build pipeline improvements from `context/designs/build-pipeline-improvements-2026-04-13.md`.
