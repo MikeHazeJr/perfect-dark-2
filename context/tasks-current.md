@@ -6,6 +6,15 @@
 
 ---
 
+## Build / Release
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (added dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. All 3rd-party libs now static. Carve-out: opengl32.dll (Windows system DLL). Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design doc: `context/designs/static-link-dll-elimination-2026-04-13.md`. |
+| **S223 server link error** | OPEN (pre-S224) | `PerfectDarkServer.exe` fails to link: `undefined reference to 'pdguiThemeRegisterModDir'`. Pre-existing from theme-loader session. Fix: declare `pdguiThemeRegisterModDir` in a server-visible header or add a stub in `server_stubs.c`. |
+
+---
+
 ## v0.1.0 "Foundation" Release Prep
 
 ### Input System
