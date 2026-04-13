@@ -2,7 +2,42 @@
 
 > **Date**: 2026-04-13
 > **Author**: AI (S221 investigation session)
-> **Status**: PROPOSAL -- awaiting Mike's approval before implementation
+> **Status**: IMPLEMENTED (S224, 2026-04-13) -- see implementation notes below
+
+---
+
+## Implementation Summary (S224 — 2026-04-13)
+
+**Implemented:**
+- Phase 0: ccache 4.12.3 installed (`pacman -S mingw-w64-x86_64-ccache`). 100% cache-hit rate on second build.
+- Phase 1: Ninja generator in all three scripts (`build-headless.ps1`, `dev-window-v2.ps1`, `release.ps1`). Unix Makefiles + make.exe plumbing removed.
+- Phase 1: Unified `Build/` directory — pd and pd-server share one CMake dir (no more double ImGui compile).
+- Phase 1: ccache via `-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
+- Phase 2: PCH for C core-4 headers (`types.h`, `ultra64.h`, `data.h`, `constants.h`) via `target_precompile_headers`. No conflict with `-include "versioninfo.h"` force-include.
+- Smart clean-build detection in `build-headless.ps1` (heuristics: CMakeCache missing, generator/compiler/branch changed, or explicit `-Clean`). State in `Build/.last_build_state.json`.
+- Auto-commit now opt-in in `build-headless.ps1` (pass `-AutoCommit`; default OFF).
+- `release.ps1` always commits+pushes before build and uses Ninja + unified `Build/`.
+
+**Rolled back:**
+- mold linker: `-fuse-ld=mold` fails on MinGW. GCC's `collect2.exe` looks for `ld.mold.exe` which doesn't exist in MSYS2 (only `mold.exe`). Rolled back to GNU ld. mold package remains installed. Link time is ~1.5s (8% of build) — low priority.
+
+**Skipped per scope:**
+- `-O1` vs `-Og`: Mike explicitly chose to keep `-Og` for debuggability.
+- DLL copy commands: left for separate static-link session.
+- Unity build, sccache, lld: not attempted.
+
+## Measured Build Times (S224 — after implementation)
+
+| Metric | Time | Notes |
+|--------|------|-------|
+| Configure (Ninja) | 2.4s | First configure |
+| **Clean build (ccache cold, 6% hit)** | **54s pd + 6s server** | ccache warms up; subsequent runs fast |
+| **Warm ccache (clean Build/, 100% hit)** | **9.4s pd + 1.1s server** | ✓ meets <10s target |
+| **Incremental (system.c touch)** | **1.7s** | ✓ meets <5s target |
+| No-op rebuild | 0.1s | Ninja depfile check |
+| PCH build (cold PCH, warm ccache) | 38.6s | PCH itself compiles once then cached |
+
+---
 
 ---
 
