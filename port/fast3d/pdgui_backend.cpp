@@ -499,7 +499,8 @@ void pdguiRender(void)
                 SDL_ShowCursor(SDL_DISABLE);
                 SDL_SetRelativeMouseMode(SDL_TRUE);
                 sysLogPrintf(LOG_NOTE,
-                    "pdgui: hotswap closed, flushed deferred mouse capture (B-92 solo)");
+                    "pdgui: hotswap closed, flushed deferred mouse capture (B-92 solo) lvframe=%d",
+                    pdmainGetLvFrame60());
             }
         }
     }

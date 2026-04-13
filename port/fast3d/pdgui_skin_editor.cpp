@@ -912,6 +912,8 @@ static void renderCharacterSelector(float w, float h, float scale)
                 } else {
                     s_PreviewHeadId[0] = '\0';
                 }
+                sysLogPrintf(LOG_NOTE, "SKIN_EDITOR: selected char %d '%s' body='%s' head='%s'",
+                             i, s_CharEntries[i].name, s_PreviewBodyId, s_PreviewHeadId);
             }
             /* Controller: also select on focus (gamepad navigation) */
             if (ImGui::IsItemFocused() && !sel) {
