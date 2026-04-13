@@ -109,6 +109,9 @@ u32  frGetWeaponIndexByWeapon(u32 weaponnum);
 s32  frIsInTraining(void);
 u8   ciGetFiringRangeScore(s32 weaponindex);  /* score tier for visibility */
 
+/* FR session setup — must be called before entering a challenge */
+void frLoadData(void);
+
 /* Weapon description text */
 char *frGetWeaponDescription(void);
 
@@ -1221,16 +1224,23 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 
     listHandleKeyboardNav(&s_FrWeaponCursor, count);
 
-    /* A button / Enter confirms the currently highlighted weapon */
+    /* A button / Enter confirms the currently highlighted weapon.
+     * Must match legacy frWeaponListMenuHandler MENUOP_SET behavior:
+     * frLoadData() + frSetSlot() + frSetDifficulty() before pushing
+     * the sub-dialog.  Without frLoadData(), the pre-game info dialog
+     * reads uninitialized g_FrData → ACCESS_VIOLATION. */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
         || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_FrWeaponCursor >= 0 && s_FrWeaponCursor < count) {
+            frLoadData();
             pdguiTrFrSetSlot(s_FrWeaponCursor);
             u32 weaponnum = pdguiTrFrWeaponBySlot(s_FrWeaponCursor);
             s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
             if (tier > 0) {
+                frSetDifficulty(tier);
                 menuPushDialog(&g_FrDifficultyMenuDialog);
             } else {
+                frSetDifficulty(FRDIFFICULTY_BRONZE);
                 menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
             }
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -1252,16 +1262,16 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         const float rowH = pdguiScale(24.0f);
         if (ImGui::Selectable("##fr_wl_row", sel, 0, ImVec2(0, rowH))) {
             s_FrWeaponCursor = i;
-            /* Delegate to legacy SET path: update slot, then push
-             * difficulty or pre-game info based on score tier. */
+            /* Match legacy frWeaponListMenuHandler MENUOP_SET behavior:
+             * frLoadData loads the FR challenge config for the weapon. */
+            frLoadData();
             pdguiTrFrSetSlot(i);
             s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
-            /* Legacy frWeaponListMenuHandler SET behavior: call frLoadData
-             * via the legacy path is side-effectful; we mimic by pushing
-             * the dialog that the legacy handler would push. */
             if (tier > 0) {
+                frSetDifficulty(tier);
                 menuPushDialog(&g_FrDifficultyMenuDialog);
             } else {
+                frSetDifficulty(FRDIFFICULTY_BRONZE);
                 menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
             }
             pdguiPlaySound(PDGUI_SND_SELECT);
