@@ -385,6 +385,7 @@ void modMusicPlay(const char *file_path)
 {
     s16 *pcm;
     u32 len;
+    char resolvedBuf[512];
     const char *resolved;
 
     if (!file_path || !file_path[0]) {
@@ -398,13 +399,16 @@ void modMusicPlay(const char *file_path)
     }
 
     /* Resolve relative paths (e.g. "mods/foo/track.mp3") through fsFullPath()
-     * so the file is found regardless of CWD. Absolute paths pass through. */
+     * so the file is found regardless of CWD. Absolute paths pass through.
+     * Copy into a local buffer since fsFullPath() returns a static pointer. */
     resolved = file_path;
     if (file_path[0] != '/' && file_path[0] != '\\' &&
         !(file_path[0] && file_path[1] == ':')) {
         const char *full = fsFullPath(file_path);
         if (full) {
-            resolved = full;
+            strncpy(resolvedBuf, full, sizeof(resolvedBuf) - 1);
+            resolvedBuf[sizeof(resolvedBuf) - 1] = '\0';
+            resolved = resolvedBuf;
         }
     }
 
