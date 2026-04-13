@@ -3,6 +3,34 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S238 — 2026-04-13 (Menu & Input Consistency: F-1.1, F-1.2, F-2.1)
+
+**Focus**: Master Orchestration Plan Layer 1-2 menu consistency + Layer 2 feature (arena list).
+
+### Changes (5 files, +134/-31)
+
+**F-1.1: Remove SDL_WarpMouseInWindow from pause menu** (`pdgui_menu_pausemenu.cpp`)
+- Removed direct `SDL_GetMouseFocus`, `SDL_GetWindowSize`, `SDL_WarpMouseInWindow` calls from `pdguiPauseMenuOpen()`. Pre-dated `inputCtxSyncMouseMode()`. Context system's `on_push` callback for `g_CtxPauseMenu` handles mouse mode transition.
+
+**F-1.2: pdguiSoloMissionReset()** (`pdgui_menu_solomission.cpp`, `pdgui_bridge.c`, `pdgui_menu_mainmenu.cpp`)
+- New `extern "C" void pdguiSoloMissionReset(void)` zeroes all 17 persistent statics (cursor, difficulty, confirm flags, scroll, tab indices). Wired into "Solo Missions" button entry + `pdguiEndscreenExitToMainMenu()`.
+
+**F-2.1: Arena list collapsible sections** (`pdgui_menu_room.cpp`)
+- Extended `arena_entry` struct: +category, +bundled, +section fields
+- Collection callback captures category/bundled from catalog, derives section (MP_BASE / CAMPAIGN / MOD)
+- `arenaCompare` + `qsort`: primary by section, secondary alphabetical by `strcasecmp`
+- Section boundaries computed post-sort (`s_SectionStart[]`, `s_SectionCount[]`)
+- UI uses `ImGui::TreeNodeEx` with `DefaultOpen` inside combo dropdown, 3 sections
+- `syncArenaFromConfig()` unaffected (ID-based search)
+
+### Build
+- Both targets (PerfectDark.exe + PerfectDarkServer.exe) build and link cleanly
+
+### Rebase conflict
+- `pdgui_bridge.c`: L1-4 co-op linkage clear vs F-1.2 reset — resolved by keeping both blocks
+
+---
+
 ## Session S237 — 2026-04-13 (Layer 1 Networking Safety Baseline)
 
 **Focus**: Master Orchestration Plan Layer 1 — four networking safety fixes with zero protocol changes.

@@ -237,6 +237,17 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **L1-5** | NET_RESYNC_FLAG_SCORES in initial resync | **DONE** | S237 | `g_NetPendingResyncFlags` at match start now includes `NET_RESYNC_FLAG_SCORES`. Late joiners get current scores immediately. |
 | **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | OPEN | — | `netmanifest.c`, `setup.c` — depends on FIX-B.2 (done) |
 
+### Menu & Input Consistency (Layers 1-2 from menu-input-fix-plan)
+
+| ID | Title | Status | Session | Detail |
+|----|-------|--------|---------|--------|
+| **F-1.1** | Remove SDL_WarpMouseInWindow from pause | **DONE** | S238 | Pre-dated `inputCtxSyncMouseMode()`. Context `on_push` callback handles transition. |
+| **F-1.2** | pdguiSoloMissionReset() | **DONE** | S238 | Zeroes 17 statics. Wired into main menu entry + `pdguiEndscreenExitToMainMenu()`. |
+| **F-1.3** | Verify ad-hoc menus context delegation | AUDIT DONE (plan) | S229 | All OK except stats.cpp/moddinghub.cpp candidates for future push. |
+| **F-1.4** | Clean up redundant SDL calls in inputctx.c | OPEN | — | Optional cleanup. |
+| **F-2.1** | Arena list collapsible sections | **DONE** | S238 | Three sections (MP/Campaign/Mod), alphabetized, `TreeNodeEx` + `DefaultOpen`. |
+| **F-2.2** | Solo pause k_Btns static init order | OPEN | — | `langSafe()` capture at first-call. |
+
 ---
 
 ## Design Guidelines (Planned)
