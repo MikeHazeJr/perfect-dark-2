@@ -63,6 +63,11 @@ s32 mpGetPlayerRankings(struct ranking_hud *rankings);
 u32 lvGetStageTime60(void);
 s32 pdguiHudGetTimeLimitTicks(void);
 
+/* S221: Radar visibility query — score panel must not occlude the GBI radar.
+ * The radar renders at top-right in the GBI pass (before ImGui).
+ * We query whether it's active so we can offset the score panel below it. */
+s32 pdguiHudIsRadarVisible(void);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -156,7 +161,10 @@ void pdguiHudRender(s32 winW, s32 winH)
                  + (rowCount > 1 ? (rowCount - 1) * 2.0f * scale : 0.0f);
 
     float posX = winW - panelW - padX;
-    float posY = padY;
+    /* S221: Offset below the GBI radar when it's active to prevent occlusion.
+     * The radar occupies ~50 scaled units in the top-right corner. */
+    float radarClearance = pdguiHudIsRadarVisible() ? 50.0f * scale : 0.0f;
+    float posY = padY + radarClearance;
 
     ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(panelW, panelH), ImGuiCond_Always);

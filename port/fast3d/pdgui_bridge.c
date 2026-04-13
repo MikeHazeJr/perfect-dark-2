@@ -478,6 +478,22 @@ void pdguiPauseSetPlayerAborted(void)
     }
 }
 
+/**
+ * S221: Query whether the GBI radar/minimap is currently visible.
+ * Used by pdguiHudRender() to offset the score panel below the radar area.
+ * Mirrors the visibility logic in radarRender() (radar.c:257-268).
+ */
+s32 pdguiHudIsRadarVisible(void)
+{
+    if (!g_Vars.normmplayerisrunning) return 0;
+    if (g_MpSetup.options & MPOPTION_NORADAR) return 0;
+    if (!g_Vars.currentplayer || g_Vars.currentplayer->mpmenuon || g_Vars.currentplayer->isdead) return 0;
+    if (!g_Vars.currentplayerstats) return 0;
+    /* Check per-player display option (bit 2 = radar enabled) */
+    if ((g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.displayoptions & 0x04) == 0) return 0;
+    return 1;
+}
+
 const char *pdguiPauseGetStageName(u8 stagenum)
 {
     s32 count = modmgrGetTotalArenas();

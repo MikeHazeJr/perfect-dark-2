@@ -89,6 +89,9 @@ void pdguiRoomScreenSetSolo(s32 solo);
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
 
+/* HUD context gate — true when combat sim match is actively running */
+s32 pdguiPauseGetNormMplayerIsRunning(void);
+
 /* Lobby state management */
 void lobbyUpdate(void);
 
@@ -429,8 +432,14 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             /* v34: host sees per-client download status during ready gate */
             pdguiHostDistribOverlayRender(winW, winH);
         } else if (clientCount > 0) {
-            /* In game (or transitioning): show minimal sidebar overlay */
-            renderInGameSidebar(winW, winH);
+            /* In game (or transitioning): show minimal sidebar overlay.
+             * S221: Context gate — suppress during active combat sim.
+             * The sidebar should only show during lobby/ready-gate transitions,
+             * not during live gameplay where it occludes the game world.
+             * Fixes: Connected Players banner persisting during gameplay. */
+            if (!pdguiPauseGetNormMplayerIsRunning()) {
+                renderInGameSidebar(winW, winH);
+            }
             /* D3R-9: kill feed for spectating clients */
             pdguiKillFeedRender(winW, winH);
         }
@@ -438,8 +447,10 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     }
 
     /* NETMODE_SERVER without g_NetDedicated = debug local server.
-     * Show a minimal sidebar so the developer knows it's active. */
-    if (mode == NETMODE_SERVER && clientCount > 0) {
+     * Show a minimal sidebar so the developer knows it's active.
+     * S221: Same context gate — suppress during active combat sim. */
+    if (mode == NETMODE_SERVER && clientCount > 0 &&
+        !pdguiPauseGetNormMplayerIsRunning()) {
         renderInGameSidebar(winW, winH);
     }
 }
