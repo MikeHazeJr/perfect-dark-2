@@ -37,6 +37,7 @@
 #include "inputctx.h"
 #include "config.h"
 #include "lib/vi.h"
+#include "net/netmanifest.h"  /* F-0.4: manifestClear */
 
 /**
  * Set the MP player config name for a given player number.
@@ -777,6 +778,13 @@ void pdguiEndscreenNextMission(void)
 void pdguiEndscreenExitToMainMenu(void)
 {
     configSave("pd.ini");
+    /* F-0.4: Clear client manifest before stage transition.
+     * STAGE_CITRAINING is a gameplay stage, so mainChangeToStage() won't
+     * hit the !STAGE_IS_GAMEPLAY branch that normally calls manifestClear.
+     * Clearing here ensures no stale match-specific entries persist when
+     * returning to the room/menu.  manifestMenuTransition() in
+     * mainChangeToStage will rebuild the menu manifest immediately. */
+    manifestClear(&g_ClientManifest);
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }

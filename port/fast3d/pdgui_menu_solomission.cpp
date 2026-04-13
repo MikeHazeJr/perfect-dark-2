@@ -278,58 +278,63 @@ uintptr_t menuhandlerAbortMission(s32 op, void *item, void *data);
 /* Load briefing data for a stage by catalog ID (populates g_Briefing) */
 void soloLoadBriefingForStageId(const char *stage_id);
 
-/* Language text IDs for mission group headings */
-#define L_OPTIONS_122  0x007a  /* "Mission Select"     */
-#define L_OPTIONS_123  0x007b  /* "Mission 1"          */
-#define L_OPTIONS_124  0x007c  /* "Mission 2"          */
-#define L_OPTIONS_125  0x007d  /* "Mission 3"          */
-#define L_OPTIONS_126  0x007e  /* "Mission 4"          */
-#define L_OPTIONS_127  0x007f  /* "Mission 5"          */
-#define L_OPTIONS_128  0x0080  /* "Mission 6"          */
-#define L_OPTIONS_129  0x0081  /* "Mission 7"          */
-#define L_OPTIONS_130  0x0082  /* "Mission 8"          */
-#define L_OPTIONS_131  0x0083  /* "Mission 9"          */
-#define L_OPTIONS_132  0x0084  /* "Special Assignments"*/
-#define L_OPTIONS_172  0x00ac  /* "Status"             */
-#define L_OPTIONS_173  0x00ad  /* "Abort!"             */
-#define L_OPTIONS_174  0x00ae  /* "Warning"            */
-#define L_OPTIONS_175  0x00af  /* "Do you want to abort the mission?" */
-#define L_OPTIONS_176  0x00b0  /* "Cancel"             */
-#define L_OPTIONS_177  0x00b1  /* "Abort"              */
-#define L_OPTIONS_178  0x00b2  /* "Inventory"          */
-#define L_OPTIONS_181  0x00b5  /* "Audio"              */
-#define L_OPTIONS_182  0x00b6  /* "Video"              */
-#define L_OPTIONS_183  0x00b7  /* "Control"            */
-#define L_OPTIONS_184  0x00b8  /* "Display"            */
-#define L_OPTIONS_247  0x00f7  /* "Briefing"           */
-#define L_OPTIONS_248  0x00f8  /* "Select Difficulty"  */
-#define L_OPTIONS_249  0x00f9  /* "Difficulty"         */
-#define L_OPTIONS_251  0x00fb  /* "Agent"              */
-#define L_OPTIONS_252  0x00fc  /* "Special Agent"      */
-#define L_OPTIONS_253  0x00fd  /* "Perfect Agent"      */
-#define L_OPTIONS_254  0x00fe  /* "Cancel"             */
-#define L_OPTIONS_273  0x0111  /* "Overview"           */
-#define L_OPTIONS_274  0x0112  /* "Accept"             */
-#define L_OPTIONS_275  0x0113  /* "Decline"            */
-#define L_MPWEAPONS_221 0x80dd /* "Perfect Dark" (mode)*/
+/* Language text IDs for mission group headings.
+ * Encoding: (LANGBANK << 9) | string_offset.
+ * LANGBANK_OPTIONS = 0x2b -> prefix 0x5600.
+ * LANGBANK_MPWEAPONS = 0x2a -> prefix 0x5400.
+ * F-0.1: shadow defines were missing bank prefix (used raw offset in bank 0
+ * which is NULL), causing ~15 blank strings and ~15 English-only fallbacks. */
+#define L_OPTIONS_122  0x567a  /* "Mission Select"     */
+#define L_OPTIONS_123  0x567b  /* "Mission 1"          */
+#define L_OPTIONS_124  0x567c  /* "Mission 2"          */
+#define L_OPTIONS_125  0x567d  /* "Mission 3"          */
+#define L_OPTIONS_126  0x567e  /* "Mission 4"          */
+#define L_OPTIONS_127  0x567f  /* "Mission 5"          */
+#define L_OPTIONS_128  0x5680  /* "Mission 6"          */
+#define L_OPTIONS_129  0x5681  /* "Mission 7"          */
+#define L_OPTIONS_130  0x5682  /* "Mission 8"          */
+#define L_OPTIONS_131  0x5683  /* "Mission 9"          */
+#define L_OPTIONS_132  0x5684  /* "Special Assignments"*/
+#define L_OPTIONS_172  0x56ac  /* "Status"             */
+#define L_OPTIONS_173  0x56ad  /* "Abort!"             */
+#define L_OPTIONS_174  0x56ae  /* "Warning"            */
+#define L_OPTIONS_175  0x56af  /* "Do you want to abort the mission?" */
+#define L_OPTIONS_176  0x56b0  /* "Cancel"             */
+#define L_OPTIONS_177  0x56b1  /* "Abort"              */
+#define L_OPTIONS_178  0x56b2  /* "Inventory"          */
+#define L_OPTIONS_181  0x56b5  /* "Audio"              */
+#define L_OPTIONS_182  0x56b6  /* "Video"              */
+#define L_OPTIONS_183  0x56b7  /* "Control"            */
+#define L_OPTIONS_184  0x56b8  /* "Display"            */
+#define L_OPTIONS_247  0x56f7  /* "Briefing"           */
+#define L_OPTIONS_248  0x56f8  /* "Select Difficulty"  */
+#define L_OPTIONS_249  0x56f9  /* "Difficulty"         */
+#define L_OPTIONS_251  0x56fb  /* "Agent"              */
+#define L_OPTIONS_252  0x56fc  /* "Special Agent"      */
+#define L_OPTIONS_253  0x56fd  /* "Perfect Agent"      */
+#define L_OPTIONS_254  0x56fe  /* "Cancel"             */
+#define L_OPTIONS_273  0x5711  /* "Overview"           */
+#define L_OPTIONS_274  0x5712  /* "Accept"             */
+#define L_OPTIONS_275  0x5713  /* "Decline"            */
+#define L_MPWEAPONS_221 0x54dd /* "Perfect Dark" (mode)*/
 
 /* S194 Batch 2: Co-op / Counter-Op language IDs.
- * L_OPTIONS_248 = 0x00f8; values follow incrementally. */
-#define L_OPTIONS_255  0x00ff  /* "Co-Operative Options"      */
-#define L_OPTIONS_256  0x0100  /* "Radar On" (coop)            */
-#define L_OPTIONS_257  0x0101  /* "Friendly Fire"              */
-#define L_OPTIONS_258  0x0102  /* "Perfect Buddy"              */
-#define L_OPTIONS_259  0x0103  /* "Continue" (coop)            */
-#define L_OPTIONS_260  0x0104  /* "Cancel"  (coop)             */
-#define L_OPTIONS_261  0x0105  /* "Human"                      */
-#define L_OPTIONS_262  0x0106  /* "1 Simulant"                 */
-#define L_OPTIONS_263  0x0107  /* "2 Simulants"                */
-#define L_OPTIONS_264  0x0108  /* "3 Simulants"                */
-#define L_OPTIONS_265  0x0109  /* "4 Simulants"                */
-#define L_OPTIONS_266  0x010a  /* "Counter-Operative Options"  */
-#define L_OPTIONS_267  0x010b  /* "Radar On" (anti)            */
-#define L_OPTIONS_269  0x010d  /* "Continue" (anti)            */
-#define L_OPTIONS_270  0x010e  /* "Cancel"  (anti)             */
+ * Same bank prefix fix as above (F-0.1). */
+#define L_OPTIONS_255  0x56ff  /* "Co-Operative Options"      */
+#define L_OPTIONS_256  0x5700  /* "Radar On" (coop)            */
+#define L_OPTIONS_257  0x5701  /* "Friendly Fire"              */
+#define L_OPTIONS_258  0x5702  /* "Perfect Buddy"              */
+#define L_OPTIONS_259  0x5703  /* "Continue" (coop)            */
+#define L_OPTIONS_260  0x5704  /* "Cancel"  (coop)             */
+#define L_OPTIONS_261  0x5705  /* "Human"                      */
+#define L_OPTIONS_262  0x5706  /* "1 Simulant"                 */
+#define L_OPTIONS_263  0x5707  /* "2 Simulants"                */
+#define L_OPTIONS_264  0x5708  /* "3 Simulants"                */
+#define L_OPTIONS_265  0x5709  /* "4 Simulants"                */
+#define L_OPTIONS_266  0x570a  /* "Counter-Operative Options"  */
+#define L_OPTIONS_267  0x570b  /* "Radar On" (anti)            */
+#define L_OPTIONS_269  0x570d  /* "Continue" (anti)            */
+#define L_OPTIONS_270  0x570e  /* "Cancel"  (anti)             */
 
 /* ---- S194 Batch 2: menuitem + handlerdata ABI ----
  * Mirrors types.h layout.  C++ file cannot include types.h because its

@@ -1152,6 +1152,7 @@ static bool backPressed(void)
  * ========================================================================= */
 
 static s32 s_FrWeaponCursor = -1;
+static s32 s_FrWeaponPushedCtx = 0; /* F-0.2: track push so we pop on exit */
 
 static void frDrawScoreStars(float x, float y, s32 tier)
 {
@@ -1190,10 +1191,12 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 
     /* Push ImGui menu input context so gamepad d-pad and A/B route to ImGui
      * instead of gameplay.  Required because this menu opens from CI gameplay
-     * (walking around Carrington Institute), not from another ImGui menu. */
+     * (walking around Carrington Institute), not from another ImGui menu.
+     * F-0.2: track push via s_FrWeaponPushedCtx so we pop on exit. */
     if (ImGui::IsWindowAppearing()) {
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_FrWeaponPushedCtx = 1;
         }
         ImGui::SetWindowFocus();
     }
@@ -1207,6 +1210,11 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        /* F-0.2: pop the context we pushed on appear */
+        if (s_FrWeaponPushedCtx) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_FrWeaponPushedCtx = 0;
+        }
         menuPopDialog();
         ImGui::End();
         return 1;
@@ -1312,6 +1320,11 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            /* F-0.2: pop the context we pushed on appear */
+            if (s_FrWeaponPushedCtx) {
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+                s_FrWeaponPushedCtx = 0;
+            }
             menuPopDialog();
         }
     }
