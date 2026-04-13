@@ -3,6 +3,20 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S241 -- 2026-04-13 (L5 Match Lifecycle Major: Co-op Manifest + Protocol Bump)
+
+**Focus**: Master Orchestration Plan Layer 5 -- co-op/counter-op manifest pipeline integration, CLC_STAGE_READY for co-op, protocol bump v34 to v35, match_seed in SVC_STAGE_START.
+
+### Changes (3 files)
+
+1. **`port/include/net/net.h`**: Protocol bump v34 to v35. New `extern u32 g_NetMatchSeed`.
+2. **`port/src/net/net.c`**: `g_NetMatchSeed` definition. Seed generation in both `netServerStageStart()` and `netServerCoopStageStart()`.
+3. **`port/src/net/netmsg.c`**: `s_ReadyGate` gains `game_mode`/`difficulty` fields. Co-op CLC_LOBBY_START rewritten to build manifest + enter ready gate. `readyGateTickCountdown()` branches on game_mode. Co-op client sends CLC_STAGE_READY. SVC_STAGE_START writes/reads `g_NetMatchSeed`.
+
+### Build: Both targets clean (pd 689/689, pd-server 59/59).
+
+---
+
 ## Session S240 — 2026-04-13 (L3 Mod Map Import Pipeline)
 
 **Focus**: Implement Layer 3 from the master orchestration plan — PD-native binary format map importer. Full 6-stage pipeline per the design doc.
