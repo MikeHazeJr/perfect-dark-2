@@ -303,6 +303,7 @@ s32  pdguiModdingHubIsVisible(void);
 
 /* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
 void pdguiSoloRoomOpen(void);
+void pdguiSoloMissionReset(void); /* F-1.2 */
 
 /* Connect codes (connectcode.c) */
 s32 connectCodeDecode(const char *code, u32 *outIp);
@@ -2712,6 +2713,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Solo Missions -- campaign */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
+            pdguiSoloMissionReset(); /* F-1.2: clear stale cursor/difficulty state */
             menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
         }
 

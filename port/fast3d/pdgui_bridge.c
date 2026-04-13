@@ -39,6 +39,9 @@
 #include "lib/vi.h"
 #include "net/netmanifest.h"  /* F-0.4: manifestClear */
 
+/* F-1.2: Forward declaration — defined in pdgui_menu_solomission.cpp */
+void pdguiSoloMissionReset(void);
+
 /**
  * Set the MP player config name for a given player number.
  * Safely handles bounds checking and null termination.
@@ -805,6 +808,8 @@ void pdguiEndscreenExitToMainMenu(void)
             g_NetClients[i].config = NULL;
         }
     }
+    /* F-1.2: Reset solo mission menu state so re-entry starts clean. */
+    pdguiSoloMissionReset();
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }

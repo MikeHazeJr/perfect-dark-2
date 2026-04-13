@@ -3287,6 +3287,30 @@ static s32 renderOptions(struct menudialog *dialog,
  * Registration
  * ========================================================================= */
 
+/* F-1.2: Reset all persistent static state so returning to Solo Missions
+ * always starts clean.  Called from pdguiEndscreenExitToMainMenu() and on
+ * Solo Missions entry from main menu. */
+extern "C" void pdguiSoloMissionReset(void)
+{
+    s_MissionSelectIdx    = 0;
+    s_DetailDiffIdx       = 0;
+    s_DetailFocusIdx      = 0;
+    s_DetailPanelFocus    = false;
+    s_PrevBriefingStage   = -1;
+    s_ShowLockedMissions  = false;
+    s_DiffSelectIdx       = 0;
+    s_BriefingScroll      = 0.0f;
+    s_AcceptSelectIdx     = 0;
+    s_PauseSelectIdx      = 0;
+    s_RestartConfirm      = false;
+    s_RestartSelectIdx    = 0;
+    s_AbortSelectIdx      = 0;
+    s_OptionsSelectIdx    = 0;
+    s_OptionsTabIdx       = 0;
+    s_CoopAntiDiffSelectIdx = 0;
+    s_CoopAntiOptSelectIdx  = 0;
+}
+
 extern "C" {
 
 void pdguiMenuSoloMissionRegister(void)

@@ -224,16 +224,11 @@ void pdguiPauseMenuOpen(void)
 {
     if (s_pauseInCooldown()) return; /* prevent double-press */
 
-    /* Push pause context — handles mouse release and game pause via on_push. */
+    /* Push pause context — handles mouse release and game pause via on_push.
+     * F-1.1: Removed direct SDL_WarpMouseInWindow call that pre-dated
+     * inputCtxSyncMouseMode(). The context system's on_push callback for
+     * g_CtxPauseMenu now handles mouse mode transition exclusively. */
     inputCtxPush(&g_CtxPauseMenu);
-    {
-        SDL_Window *win = SDL_GetMouseFocus();
-        if (win) {
-            int w, h;
-            SDL_GetWindowSize(win, &w, &h);
-            SDL_WarpMouseInWindow(win, w / 2, h / 2);
-        }
-    }
 
     s_PauseMenuOpen = true;
     s_PauseJustOpened = true;
