@@ -3,6 +3,41 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S229 -- 2026-04-13 (Menu & Input Architecture Audit)
+
+**Focus**: Deep architectural audit of the menu stack, input context system, campaign menus, and arena list. Design docs only -- zero code changes.
+
+### Deliverables (2 design docs)
+
+1. **`context/designs/menu-input-architecture-audit-2026-04-13.md`** -- Full audit:
+   - Intended architecture (dual menu stack, input context pushdown automaton, hotswap bridge)
+   - Gap matrix: 30 menu files classified by conformance (10 conformant, 4 partial, 16 ad-hoc, 0 broken-but-working)
+   - Root-cause taxonomy: 6 patterns (A: push-no-pop, B: pop-no-push, C: direct SDL bypass, D: static state persistence, E: two-stack desync, F: shadow header mismatch)
+   - Reinit audit: 5 gaps in room->match->room path (stale manifest, music timing, room state)
+   - Campaign menu case study: 30 wrong language ID shadow defines, ~15 visibly blank strings
+   - Campaign flow state machine: 13 menu pages, reads/writes, cross-mode interactions
+   - Arena list case study: data model, catalog query, proposed collapsible sections
+
+2. **`context/designs/menu-input-fix-plan-2026-04-13.md`** -- Concrete fix plan:
+   - Layer 0 (critical): F-0.1 fix lang IDs, F-0.2 training context leak, F-0.3 game-over context leak, F-0.4 stale manifest
+   - Layer 1 (consistency): F-1.1 remove SDL warp, F-1.2 add reset function, F-1.3 verify ad-hoc menus, F-1.4 clean redundant SDL
+   - Layer 2 (features): F-2.1 arena alphabetized+collapsible, F-2.2 static init order, F-2.3 music restart
+   - Layer 3 (robustness): F-3.1 dedup in menuPush, F-3.2 pop underflow logging, F-3.3 B-92 review
+
+### Key Findings
+
+- **Core architecture is sound.** Input context stack, hotswap bridge, and two-phase render are well-designed. 10 of 30 menu files follow the B-124 push/pop pattern correctly.
+- **Campaign strings invisible = wrong shadow #define values.** The C++/C types.h bool conflict forces shadow defines for language IDs. All 30 shadow values are missing the bank prefix (upper 7 bits), causing bank=0 lookups into NULL.
+- **3 context leaks** (training.cpp L1195, pausemenu.cpp L1258/L1408) -- push without pop, cleaned only by stage transition.
+- **Arena list** has all needed catalog data (category, bundled) but discards it during collection. Fix is extend struct + qsort + CollapsingHeader.
+- **Top-down rework NOT warranted.** Targeted fixes across 6-8 files are sufficient.
+
+### Decisions
+
+- Targeted fix approach, not top-down rework
+- Campaign string fix via corrected shadow defines (F-0.1) is highest priority
+- Arena sections: Multiplayer Arenas / Campaign Maps / Mod Maps (derived from catalog `bundled` + `category`)
+
 ## Session S225 — 2026-04-13 (Build Pipeline Improvements)
 
 **Focus**: Implement full build pipeline improvements from `context/designs/build-pipeline-improvements-2026-04-13.md`.
