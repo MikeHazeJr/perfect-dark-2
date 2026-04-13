@@ -7,7 +7,17 @@
 #include "config.h"
 #include "audio.h"
 #include "modmusic.h"
+#include "assetcatalog.h"
+#include "fs.h"
 #include "system.h"
+
+/* Network externs for music tick (avoid pulling in full net headers) */
+extern s32 g_NetMode;
+extern s32 g_NetLocalBotAuthority; /* true if we are the host/bot authority */
+#define NETMODE_SERVER_AUDIO 2
+/* From netmsg.h — broadcast next track to room */
+extern void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
+extern u8 g_LocalRoomId;
 
 static SDL_AudioDeviceID dev;
 static const s16 *nextBuf;
@@ -532,4 +542,43 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 		audioAddModPlaylistEntry(g_AudioModTrackId);
 		audioPlaylistSerialize();
 	}
+}
+
+/* ---------------------------------------------------------------------------
+ * v34: Host-side per-frame music tick for networked playlist advancement.
+ *
+ * When the host is in-game with a playlist and the current track finishes,
+ * pick the next track, start it locally, and broadcast SVC_MUSIC_ADVANCE
+ * so all clients sync to the same track.
+ * --------------------------------------------------------------------------- */
+
+static s32 s_MusicWasPlaying = 0;  /* edge detector: was music playing last frame? */
+
+void audioNetworkMusicTick(void)
+{
+	/* Only the host/listen-server advances the playlist */
+	if (g_NetMode != NETMODE_SERVER_AUDIO) return;
+	if (g_AudioModPlaylistCount <= 0) return;
+
+	s32 playing = modMusicIsPlaying();
+
+	if (s_MusicWasPlaying && !playing) {
+		/* Track just ended — advance to next */
+		const char *next = audioPickNextPlaylistTrack();
+		if (next && next[0]) {
+			/* Resolve file path and play locally */
+			const asset_entry_t *ae = assetCatalogResolve(next);
+			if (ae && ae->ext.audio.file_path[0]) {
+				const char *fpath = fsFullPath(ae->ext.audio.file_path);
+				modMusicPlay(fpath ? fpath : ae->ext.audio.file_path);
+			}
+
+			/* Broadcast to all clients in the room */
+			netMusicBroadcastAdvance(next, g_LocalRoomId);
+
+			sysLogPrintf(LOG_NOTE, "AUDIO: playlist auto-advance -> '%s'", next);
+		}
+	}
+
+	s_MusicWasPlaying = playing;
 }

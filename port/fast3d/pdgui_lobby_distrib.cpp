@@ -79,7 +79,29 @@ void netDistribClientGetStatus(distrib_client_status_t *out);
 s32  netDistribClientGetKillFeed(killfeed_entry_t *out, s32 maxout);
 void netDistribClientSetTemporary(s32 temporary);
 
+/* Server-side per-client download status (v34) */
+typedef struct {
+    s32 queue_remaining;
+    s32 queue_total;
+    char current_id[64];
+} distrib_server_client_status_t;
+
+void netDistribServerGetClientStatus(s32 client_index,
+                                     distrib_server_client_status_t *out);
+
+/* Bridge functions from pdgui_bridge.c */
+s32         netLobbyGetClientCount(void);
+s32         netLobbyGetClientState(s32 idx);
+const char *netLobbyGetClientName(s32 idx);
+s32         netGetMode(void);
+s32         netGetMaxClients(void);
+
 } /* extern "C" */
+
+/* Match state constants (must match net.h values) */
+#define CLSTATE_PREPARING_UI 5
+#define CLSTATE_GAME_UI      6
+#define NETMODE_SERVER_UI    2
 
 /* ========================================================================
  * Kill feed
@@ -360,4 +382,88 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
         }
         ImGui::End();
     }
+}
+
+/* ========================================================================
+ * Host-side per-client download status overlay (v34)
+ *
+ * Shows each PREPARING client's transfer progress during the ready gate.
+ * Rendered as a compact panel on the right side of the screen.
+ * ======================================================================== */
+
+extern "C" void pdguiHostDistribOverlayRender(s32 winW, s32 winH)
+{
+    if (netGetMode() != NETMODE_SERVER_UI) return;
+
+    /* Count clients that are in PREPARING state (ready gate active) */
+    s32 clientCount = netLobbyGetClientCount();
+    if (clientCount <= 0) return;
+
+    s32 preparingCount = 0;
+    for (s32 i = 0; i < clientCount; i++) {
+        s32 st = netLobbyGetClientState(i);
+        if (st == CLSTATE_PREPARING_UI) preparingCount++;
+    }
+    if (preparingCount == 0) return;
+
+    float scale = (float)winH / 720.0f;
+    if (scale < 0.5f) scale = 0.5f;
+    float panelW = floorf(280.0f * scale);
+    float lineH  = floorf(28.0f * scale);
+    float panelH = floorf(30.0f * scale) + lineH * (float)clientCount;
+    float padX   = floorf(8.0f * scale);
+
+    ImGui::SetNextWindowPos(ImVec2((float)winW - panelW - padX,
+                                   (float)winH * 0.3f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(panelW, panelH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.80f);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+                             ImGuiWindowFlags_NoInputs |
+                             ImGuiWindowFlags_NoNav |
+                             ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoSavedSettings;
+
+    if (ImGui::Begin("##host_distrib", nullptr, flags)) {
+        float fs = floorf(12.0f * scale);
+        ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
+
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "  Player Status");
+        ImGui::Separator();
+
+        for (s32 i = 0; i < clientCount; i++) {
+            const char *name = netLobbyGetClientName(i);
+            s32 cstate = netLobbyGetClientState(i);
+
+            if (!name || !name[0]) name = "Player";
+
+            if (cstate == CLSTATE_GAME_UI) {
+                /* Already in-game / ready */
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                                   "  [READY] %s", name);
+            } else if (cstate == CLSTATE_PREPARING_UI) {
+                /* Check download status */
+                distrib_server_client_status_t dst;
+                netDistribServerGetClientStatus(i, &dst);
+
+                if (dst.queue_remaining > 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+                                       "  [DL %d left] %s",
+                                       dst.queue_remaining, name);
+                    if (dst.current_id[0]) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(%s)", dst.current_id);
+                    }
+                } else {
+                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f),
+                                       "  [CHECKING] %s", name);
+                }
+            } else {
+                ImGui::TextDisabled("  %s", name);
+            }
+        }
+
+        ImGui::SetWindowFontScale(1.0f);
+    }
+    ImGui::End();
 }

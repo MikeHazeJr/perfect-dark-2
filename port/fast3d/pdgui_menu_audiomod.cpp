@@ -55,6 +55,11 @@ s32  modMusicIsPlaying(void);
 /* fs.c */
 s32 fsCreateDir(const char *path);
 
+/* netdistrib.c — re-broadcast catalog to lobby clients after import */
+void netDistribServerRebroadcastCatalog(void);
+s32 netGetMode(void);
+#define NETMODE_SERVER_AUDIOMOD 2
+
 /* assetcatalog.c */
 asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
                                           const char *name, s32 category,
@@ -376,6 +381,12 @@ static bool importAudioFile(const char *filePath, const char *displayName,
 
     sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
                  filePath, catalogId, modDir);
+
+    /* v34: If we're hosting a server, re-broadcast catalog so connected
+     * clients learn about the new audio mod and can download it. */
+    if (netGetMode() == NETMODE_SERVER_AUDIOMOD) {
+        netDistribServerRebroadcastCatalog();
+    }
 
     return true;
 }

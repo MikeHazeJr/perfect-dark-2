@@ -60,7 +60,8 @@
 
 /* R-3: Room networking (protocol v29) */
 #define SVC_ROOM_LIST   0x75 // server→all: full room list snapshot (on any room change)
-#define SVC_ROOM_ASSIGN 0x76 // server→client: "you are now in room X" (0xFF = lounge)
+#define SVC_ROOM_ASSIGN   0x76 // server→client: "you are now in room X" (0xFF = lounge)
+#define SVC_MUSIC_ADVANCE 0x77 // server→room: advance playlist to next track (catalog ID string)
 
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
@@ -269,6 +270,11 @@ u32 netmsgSvcRoomListWrite(struct netbuf *dst);
 u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id);
 u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
+
+/* v34: Mid-match music playlist advance */
+u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id);
+u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl);
+void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
 u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
 u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);

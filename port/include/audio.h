@@ -75,4 +75,13 @@ const char *audioPickNextPlaylistTrack(void);
 /* Reset the sequential playback index (call on match end or playlist change). */
 void audioResetPlaylistIndex(void);
 
+/**
+ * Per-frame tick for host-side music advancement (v34).
+ * If the host is in-game with a playlist and the current track ended,
+ * picks the next track and broadcasts SVC_MUSIC_ADVANCE to all clients.
+ * Call once per frame from the network tick path.
+ * No-op if not host or no playlist.
+ */
+void audioNetworkMusicTick(void);
+
 #endif

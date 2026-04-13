@@ -412,3 +412,10 @@ s32 g_NumStages = 0;
 /* --- assetcatalog_load stubs — server has no game asset filesystem --- */
 s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
 void catalogUnloadAsset(const char *assetId) { (void)assetId; }
+
+/* --- Audio stubs (v34) — server has no audio state --- */
+s32         audioGetModPlaylistCount(void)                  { return 0; }
+const char *audioGetModPlaylistEntry(s32 idx)               { (void)idx; return ""; }
+const char *audioGetModTrackId(void)                        { return ""; }
+void        audioSetModTrackId(const char *id)              { (void)id; }
+void        audioNetworkMusicTick(void)                     { /* no-op on server */ }

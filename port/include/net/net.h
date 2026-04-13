@@ -9,7 +9,8 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 33  /* v33: A-7 mod audio network sync — SVC_STAGE_START includes mod_track_id
+#define NET_PROTOCOL_VER 34  /* v34: playlist tracks in manifest, SVC_MUSIC_ADVANCE, per-client DL status.
+                               * v33: A-7 mod audio network sync — SVC_STAGE_START includes mod_track_id
                                * string, ASSET_AUDIO in SVC_CATALOG_INFO distribution.
                                * v32: scenario identity uses catalog ID string on wire (CLC_LOBBY_START,
                                * SVC_STAGE_START, server query). scenario u8 replaced by str.

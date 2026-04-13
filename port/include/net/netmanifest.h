@@ -78,6 +78,7 @@ _Static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 
 #define MANIFEST_TYPE_ANIM       6  /**< Animation data (anim_%d catalog entry) */
 #define MANIFEST_TYPE_TEXTURE    7  /**< Texture data (tex_%d catalog entry) */
 #define MANIFEST_TYPE_LANG       8  /**< Language string bank (base:lang_* catalog entry) */
+#define MANIFEST_TYPE_AUDIO      9  /**< Audio mod track (playlist entry) */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */
