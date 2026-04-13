@@ -1223,7 +1223,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 
     /* A button / Enter confirms the currently highlighted weapon */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
-        || ImGui::IsKeyPressed(ImGuiKey_Return, false)) {
+        || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_FrWeaponCursor >= 0 && s_FrWeaponCursor < count) {
             pdguiTrFrSetSlot(s_FrWeaponCursor);
             u32 weaponnum = pdguiTrFrWeaponBySlot(s_FrWeaponCursor);
