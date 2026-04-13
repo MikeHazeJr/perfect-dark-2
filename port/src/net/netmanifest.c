@@ -566,6 +566,63 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     manifestComputeHash(out);
 }
 
+/* =========================================================================
+ * Menu-stage manifest: pre-populate ALL character models so the Skin Editor,
+ * Agent Select, Bot Setup, and other menu screens can preview any character
+ * from the catalog without needing a match manifest.
+ *
+ * The title screen is a stage too — it just wasn't treated as one by the
+ * manifest system until now.
+ * ========================================================================= */
+
+typedef struct {
+    match_manifest_t *manifest;
+} s_MenuIterCtx;
+
+static void s_menuBodyCallback(const asset_entry_t *entry, void *userdata)
+{
+    s_MenuIterCtx *ctx = (s_MenuIterCtx *)userdata;
+    if (!entry || !entry->id[0] || !entry->enabled) {
+        return;
+    }
+    manifestAddEntry(ctx->manifest, entry->id,
+                     MANIFEST_TYPE_BODY, MANIFEST_SLOT_MATCH);
+    s_manifestExpandDeps(ctx->manifest, entry->id, MANIFEST_SLOT_MATCH);
+}
+
+static void s_menuHeadCallback(const asset_entry_t *entry, void *userdata)
+{
+    s_MenuIterCtx *ctx = (s_MenuIterCtx *)userdata;
+    if (!entry || !entry->id[0] || !entry->enabled) {
+        return;
+    }
+    manifestAddEntry(ctx->manifest, entry->id,
+                     MANIFEST_TYPE_HEAD, MANIFEST_SLOT_MATCH);
+    s_manifestExpandDeps(ctx->manifest, entry->id, MANIFEST_SLOT_MATCH);
+}
+
+void manifestBuildForMenu(match_manifest_t *out)
+{
+    s_MenuIterCtx ctx;
+    ctx.manifest = out;
+
+    manifestClear(out);
+
+    /* Register every body and head in the catalog.  The menu stage is the
+     * hub — the Skin Editor, Agent Select, Bot Setup, and Modding Hub all
+     * need to preview arbitrary characters.  Bundled assets are ROM-resident
+     * (load is a no-op); mod assets need catalogLoadAsset() via the diff
+     * pipeline to load their files from disk. */
+    assetCatalogIterateByType(ASSET_BODY, s_menuBodyCallback, &ctx);
+    assetCatalogIterateByType(ASSET_HEAD, s_menuHeadCallback, &ctx);
+
+    manifestComputeHash(out);
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-MENU: built %d entries (all catalog bodies + heads)",
+                 (int)out->num_entries);
+}
+
 /**
  * manifestLog -- dump manifest contents to the system log (Phase B debug).
  *
@@ -1276,6 +1333,67 @@ void manifestSPTransition(s32 stagenum)
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
     manifestValidate(&s_SpLastDiff);
     manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    manifestDiffFree(&s_SpLastDiff);
+}
+
+void manifestSPRescanSetup(s32 stagenum)
+{
+    s32 pre_count;
+    s32 post_count;
+
+    /* After setupLoadFiles() populates g_StageSetup.props, re-run
+     * manifestBuildMission() so the CHR/prop scan actually finds entries.
+     * Then diff against the current loaded manifest (which was set by the
+     * pre-load manifestSPTransition) and apply only the newly discovered
+     * to_load entries.  Entries from the pre-load phase are already in
+     * g_CurrentLoadedManifest and will appear in to_keep — no double-load. */
+
+    if (g_CurrentLoadedManifest.num_entries == 0) {
+        /* No SP manifest active (MP mode or system stage). */
+        return;
+    }
+
+    pre_count = (s32)g_CurrentLoadedManifest.num_entries;
+
+    manifestBuildMission(stagenum, &s_SpNeededManifest);
+
+    post_count = (s32)s_SpNeededManifest.num_entries;
+
+    if (post_count <= pre_count) {
+        /* No new entries found — setup scan added nothing beyond what the
+         * pre-load phase already captured.  Skip the diff/apply cycle. */
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: post-setup rescan for 0x%02x — no new entries"
+                     " (pre=%d, post=%d)",
+                     (unsigned)stagenum, pre_count, post_count);
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-SP: post-setup rescan for 0x%02x — %d new entries"
+                 " (pre=%d, post=%d)",
+                 (unsigned)stagenum, post_count - pre_count,
+                 pre_count, post_count);
+
+    manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
+    manifestValidate(&s_SpLastDiff);
+    manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    manifestDiffFree(&s_SpLastDiff);
+}
+
+void manifestMenuTransition(void)
+{
+    static match_manifest_t s_MenuManifest;
+
+    manifestBuildForMenu(&s_MenuManifest);
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-MENU: transition — %d entries",
+                 (int)s_MenuManifest.num_entries);
+
+    manifestDiff(&g_CurrentLoadedManifest, &s_MenuManifest, &s_SpLastDiff);
+    manifestValidate(&s_SpLastDiff);
+    manifestApplyDiff(&s_MenuManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
 }
 

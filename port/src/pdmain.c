@@ -746,17 +746,21 @@ void mainChangeToStage(s32 stagenum)
 	pak0f11c6d0();
 
 	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
-	 * stage is committed.  Only fires for gameplay stages (not title,
-	 * credits, menus).
+	 * stage is committed.
 	 *
 	 * MP path: g_ClientManifest was populated by SVC_MATCH_MANIFEST from
 	 * the server; use it directly as the "needed" manifest.
 	 *
 	 * SP path: g_ClientManifest is empty (pure SP, no active server
 	 * manifest); build the mission manifest from catalog + setup data.
+	 * Note: g_StageSetup.props is NULL at this point (setup files not yet
+	 * loaded).  The setup-props scan runs post-load via
+	 * manifestSPRescanSetup() called from lvInit().
 	 *
-	 * Non-gameplay: clear any stale client manifest so the next SP
-	 * mission takes the SP path, not a leftover MP manifest. */
+	 * Menu/system path: build an all-character manifest so the Skin Editor,
+	 * Agent Select, Bot Setup, and Modding Hub can preview any character.
+	 * Also clears the stale client manifest so the next SP/MP transition
+	 * diffs correctly. */
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
 		if (g_ClientManifest.num_entries > 0) {
 			manifestMPTransition();
@@ -765,6 +769,7 @@ void mainChangeToStage(s32 stagenum)
 		}
 	} else {
 		manifestClear(&g_ClientManifest);
+		manifestMenuTransition();
 	}
 
 	g_MainChangeToStageNum = stagenum;

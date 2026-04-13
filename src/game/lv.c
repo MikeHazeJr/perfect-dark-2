@@ -101,6 +101,7 @@
 #include "lib/vi.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/netmanifest.h"
 #include "net/netmsg.h"
 #include "video.h"
 #include "system.h"
@@ -508,6 +509,15 @@ void lvReset(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "LOAD: about to call setupLoadFiles(0x%02x)", stagenum);
 	setupLoadFiles(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles done");
+
+	/* Post-setup manifest rescan: now that g_StageSetup.props is populated,
+	 * re-scan the setup file's CHR/prop entries and add any newly discovered
+	 * assets to the SP manifest.  The pre-load manifestSPTransition() in
+	 * mainChangeToStage() runs before setup files are loaded, so it only
+	 * captures the stage map + Joanna.  This pass captures all NPCs, enemies,
+	 * and prop models from the setup spawn list.  Fixes B-118. */
+	manifestSPRescanSetup(stagenum);
+
 	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioReset");
 	scenarioReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling varsReset");
