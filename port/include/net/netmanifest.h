@@ -378,6 +378,16 @@ void manifestApplyDiff(const match_manifest_t *needed,
 s32 manifestValidate(manifest_diff_t *diff);
 
 /**
+ * Build a manifest containing all registered ASSET_BODY and ASSET_HEAD
+ * entries from the catalog.  Used for the menu/title stage so menus that
+ * preview characters (Skin Editor, Agent Select, Bot Setup, Modding Hub)
+ * can resolve any head+body pair without a match manifest.
+ *
+ * Calls manifestComputeHash() before returning.
+ */
+void manifestBuildForMenu(match_manifest_t *out);
+
+/**
  * Convenience wrapper: build mission manifest, diff against current, apply.
  *
  * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in SP mode
@@ -385,6 +395,27 @@ s32 manifestValidate(manifest_diff_t *diff);
  * Uses module-internal static buffers — not re-entrant.
  */
 void manifestSPTransition(s32 stagenum);
+
+/**
+ * Post-setup-load rescan: re-run manifestBuildMission() AFTER
+ * setupLoadFiles() has populated g_StageSetup.props, then diff/apply
+ * any newly discovered CHR/prop entries that the pre-load phase missed.
+ *
+ * Call from lvInit() immediately after setupLoadFiles() returns.
+ * No-op if no SP manifest is active (MP mode or system stage).
+ * Uses module-internal static buffers — not re-entrant.
+ */
+void manifestSPRescanSetup(s32 stagenum);
+
+/**
+ * Menu-stage manifest transition: build all-character manifest, diff
+ * against current, apply.
+ *
+ * Call from mainChangeToStage() for STAGE_IS_SYSTEM stages.
+ * Loads mod character assets so menus can preview them.
+ * Uses module-internal static buffers — not re-entrant.
+ */
+void manifestMenuTransition(void);
 
 /**
  * Apply a diff-based asset lifecycle transition for an MP match.

@@ -90,6 +90,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 | [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | 8-phase match startup (Gather->Sync) | Match startup |
 | [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | Session catalog + typed query functions | Asset loading |
 | [designs/menu-inventory.md](designs/menu-inventory.md) | 120 screens: status, file path, D5 phase | Menu QC |
+| [designs/manifest-architecture.md](designs/manifest-architecture.md) | Manifest inclusion policy, 3 paths, stage coverage | Manifest/asset loading |
 | [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | STUN, hole-punch, relay design | NAT reference |
 | [designs/implementation-plan-mods-and-d5.md](designs/implementation-plan-mods-and-d5.md) | P1-P6 dependency graph | Mod/UI roadmap |
 | [plans/catalog-activation-plan.md](plans/catalog-activation-plan.md) | C-0 to C-9 blueprint | Asset loading |
