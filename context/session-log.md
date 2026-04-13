@@ -45,11 +45,25 @@
 
 ---
 
+## Session S231 — 2026-04-13 (L0-BUILD + L0-LINK: ccache sloppiness + server stub verify)
+
+**Focus**: Layer 0 of master orchestration plan — two build-system items.
+
+**L0-BUILD**: Added `$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"` to all three build scripts (`devtools/build-headless.ps1`, `devtools/dev-window-v2/dev-window-v2.ps1` — both top-level and psi.EnvironmentVariables subprocess block, `devtools/release.ps1`). Fix restores ccache hit rate for TUs that use PCH. **Pending Mike's warm-build timing verify** — target <12s warm.
+
+**L0-LINK**: Confirmed `pdguiThemeRegisterModDir` stub already present in `port/src/server_stubs.c:417` since theme-loader session. No code change needed; marked DONE. Both-targets build verify deferred to Mike's environment (bash-tool process isolation prevents reliable PowerShell+ccache timing).
+
+**Changes**: 3 build scripts, +14/-4 lines. Merged worktree `admiring-napier` → `dev` via `--no-ff`. Line counts verified (653/1459/640 match pre/post).
+
+---
+
 ## Session S230 -- 2026-04-13 (Master Orchestration Plan)
 
 **Focus**: Consolidate five architecture audit docs into single dependency-ordered execution plan. Design doc only -- zero code changes.
 
 **Deliverable**: `context/designs/master-orchestration-plan-2026-04-13.md` — 75 items across 8 layers (~20-25 sessions). Fold-in mapping of infra classes A-G, parallel-safe batches with collision map, protocol bump isolation, playable build cut points.
+
+---
 
 ## Session S229 -- 2026-04-13 (Menu & Input Architecture Audit)
 
