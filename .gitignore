@@ -8,7 +8,9 @@ backups/
 *.o
 *.obj
 *.a
+*.pdb
 *.pyc
+*.lnk
 
 # ROM outputs
 pd.*.z64
@@ -43,6 +45,17 @@ build/game_output.log
 
 # Claude Code worktrees (prevent git add -A from scanning them)
 .claude/worktrees/
+
+# Claude Code session build/verify directories (ephemeral build artifacts)
+.claude/b8-dev-verify/
+.claude/mb2/
+.claude/merge-build/
+.claude/post-merge-build/
+.claude/temp-build/
+.claude/verify-build/
+
+# Claude Code pre-op git snapshots (devtools/git-snapshot.sh output)
+.claude/git-snapshots/
 
 # Claude Code local settings (machine-specific, not committed)
 .claude/settings.local.json

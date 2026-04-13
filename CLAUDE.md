@@ -84,7 +84,26 @@ Before starting significant work, mentally run through:
 
 If mid-task you realize you're going deeper than expected — **stop, don't push through.** Explain what's happening, present options (refactor vs. partial modernize vs. patch), recommend one, let Mike decide.
 
-### 9. Proactive Context Saves
+### 9. Git Safety — Worktree Operations
+
+These rules prevent the class of bugs where git operations silently discard or truncate in-flight work.
+
+**Commit-first discipline.** As soon as a session has a meaningful unit of work, commit it (WIP message fine) before running ANY git operation that touches the working tree — stash, rebase, reset, checkout, merge. Uncommitted work is unprotected work.
+
+**No bare `git stash`.** Never run `git stash` or `git stash push` without explicit paths. If separating work, use `git stash push -- <path> <path>` with explicit targets only. A bare stash grabs everything in the working tree — including build-verify noise and unrelated changes — and the pop can silently corrupt or conflict.
+
+**Pre-op snapshot for destructive operations.** Before any `git rebase`, `git reset`, or `git merge`:
+1. Record current HEAD SHA: `git rev-parse HEAD`
+2. Record line counts of all changed files: `git diff --stat`
+3. After the operation, verify against the snapshot — any file that shrank unexpectedly = halt and report to the user before continuing.
+
+The optional helper `devtools/git-snapshot.sh` automates this (see `devtools/README-git-snapshot.md`).
+
+**No `git reset --hard` without human instruction.** Never use `git reset --hard` in a session unless the user explicitly instructs it. Use `git reset --soft` or `git reset --mixed` if you need to unstage.
+
+**Post-merge verification.** After any merge, re-verify line counts of all changed files vs. their worktree-pre-merge state. If any file shrank or disappeared that shouldn't have, halt and report before continuing. This applies to worktree merges, branch merges, and rebase completions.
+
+### 10. Proactive Context Saves
 
 If the conversation is getting long, suggest saving state:
 > "We've covered a lot of ground. Want me to save current state and start fresh?"
