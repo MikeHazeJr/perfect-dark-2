@@ -44,19 +44,49 @@ Both files above are dirty. About to commit as WIP so compaction cannot eat them
 - User's urgent state-dump prompt mentions "the Airbase crash" but I did not investigate a distinct Airbase crash this session. Need to check with user whether this is a separate report or part of the same End Game crash bucket.
 - **Status:** UNRESOLVED, needs user clarification.
 
-### 4c. Post-game endscreen fails to appear (Bug C)
-- **Trigger:** Match ends naturally (time/score limit) OR End Game press. Endscreen does not render.
+### 4c. Post-game endscreen fails to appear (Bug C) — UPDATED WITH USER CLARIFICATIONS
+- **User clarifications (mid-session, 2026-04-13):**
+  1. "I selected end match by clicking End Game and then Confirm" — initially framed.
+  2. Later: "User did end game with Alt + F4, game ended but no menu appeared, only a blurred background and a blurred black rectangle towards the top of the screen."
+- **Visual evidence:** The endscreen partially renders — scrim (blurred background) + title-bar rectangle at top are visible. Full content (rankings, awards, buttons) is NOT visible. This contradicts my earlier assumption that the renderer never fires. It fires, but fails to complete or content renders invisibly.
 - **Log evidence** (`context/scratch/crash-2026-04-13-postgame/pdclient.log`, 3.5 MB):
-  - `10:29.22` ACTION_PAUSE
-  - `10:32.02` STATS: saved (2.8s nav)
-  - `10:32.02` pause_menu IMC popped
-  - `10:32.03` `mpPushEndscreenDialog` logged
-  - `10:32.04` syncMouseMode → relative (gameplay)  ← anomaly
-  - `10:36.76` shutdown
-- **Anomaly:** After `mpPushEndscreenDialog`, mouse went back to gameplay-relative mode. If the endscreen render had run, `renderMpEndscreen`'s `IsWindowAppearing` branch would have pushed `g_CtxImGuiMenu` (which forces absolute/menu mouse). Grep for `GAME OVER|endscreen render|MpEndscreenInd` in pdclient.log returned empty → the hotswap renderer never executed.
-- **Hypothesis (user's, primary):** `manifestClear(&g_ClientManifest)` in `netmsgSvcStageEndRead` runs BEFORE the endscreen reads the player-score/stage/chr-model data it needs. If the renderer tries to pull from a cleared manifest, it either crashes silently or bails out.
-- **Hypothesis (mine, secondary):** Race — `mainEndStage` synchronously pushes the endscreen dialog, then `mainChangeToStage(STAGE_CITRAINING)` (triggered downstream by netDisconnect in the End-Game path, or by the subsequent tick in the natural-end path) tears down the dialog stack before any frame renders.
-- **Status:** UNRESOLVED. Next steps in §7.
+  - `10:24.59` MATCH: netmode=0 (LOCAL), stage 0x1d "Chicago" (MP arena), chrslots=0x0001, MANIFEST-SP (58 entries)
+  - `10:29.22` ACTION_PAUSE (lvframenum=460, ~7.6s in)
+  - `10:32.02` STATS: saved 14 stats
+  - `10:32.02` 'pause_menu' marked for deferred removal
+  - `10:32.02` syncMouseMode → relative (gameplay)
+  - `10:32.03` ACTIONMAP deactivated 'pause_menu' + 'menu'
+  - `10:32.03` pause_menu on_pop callback
+  - `10:32.03` `ENDSCREEN_DIAG: mpPushEndscreenDialog player=0 slot=0` (with font pointers)
+  - `10:32.03` FONT_INTEGRITY OK
+  - `10:32.04` syncMouseMode → relative (gameplay)  ← NO imgui_menu push after this
+  - `10:36.76` shutdown (clean — no crash, no VEH, no access violation)
+- **Path:** netmode=0 → `menuhandlerMpEndGame` → `mainEndStage()` → `normmplayerisrunning` branch → `mpEndMatch()` → next tick picks it up → `mpPushEndscreenDialog` → `menuPushRootDialog(&g_MpEndscreenIndGameOverMenuDialog, MENUROOT_MPENDSCREEN)`.
+- **Hotswap registration confirmed present:** `MP Game Over` → `mpGameOverIndRender` registered at entry 86/256 (log line 119).
+- **Renderer code path observations:**
+  - `renderMpEndscreen` calls `ImGui::GetBackgroundDrawList()->AddRectFilled(...)` BEFORE `ImGui::Begin`. This draws the scrim regardless of Begin result. → explains the "blurred background".
+  - `ImGui::Begin("##MpEndscreen", NULL, flags)` with `NoTitleBar|NoResize|NoMove|NoCollapse|NoBackground`.
+  - If Begin returns false: End + palette restore + return — scrim remains but nothing else draws. → does NOT match user evidence (they see a title bar rectangle too).
+  - If Begin returns true: `IsWindowAppearing` → inputCtxPush(&g_CtxImGuiMenu) → pdguiDrawPdDialog("Game Over") → content.
+  - User sees scrim + title rectangle but NOT content → `pdguiDrawPdDialog` likely ran (that draws title bar via its own draw list), but content after it is invisible/failing.
+- **Active hypotheses:**
+  1. `pdguiScaleFactor()` returns a bad value (0 or negative) → `SetWindowFontScale(sf * 1.35f)` collapses all text.
+  2. Palette 6 (black/gold for regular game over) resolves to invisible (text color = BG color).
+  3. `ImGui::Begin` returns true on first frame BUT `IsWindowAppearing()` returns false due to a prior window-name collision or state carry-over from pause menu → no context push → mouse stays gameplay-relative, text rendered but invisible against identical bg.
+  4. The window is created but positioned/sized off-screen (menuX, menuY, menuW, menuH computed from `ImGui::GetIO().DisplaySize` — if DisplaySize is reported wrong, window is invisible).
+  5. The `BeginChild("##MpContent", ...)` fails → inner content not drawn.
+  6. Font scale multiplier stacking: SetWindowFontScale(sf * 1.35f) THEN (1.0f) are mismatched with an outer style context.
+- **Failed hypotheses:**
+  - **manifestClear timing (user's original Bug C hypothesis):** FALSIFIED — this is netmode=0 local match, no SVC_STAGE_END, no netmsgSvcStageEndRead path, no manifestClear called.
+  - **mainChangeToStage race:** FALSIFIED — mainEndStage does NOT call mainChangeToStage; stage change only happens on user's Return-to-Room click.
+  - **Renderer never fires:** FALSIFIED by new user evidence — scrim + title rectangle prove the renderer enters at least past `pdguiDrawPdDialog`.
+- **Alt+F4 angle:** User said Alt+F4 was used to end the match. Possibilities:
+  - Alt+F4 was intercepted and triggered mainEndStage via the pause→End Game flow (unlikely default).
+  - Alt+F4 was pressed AFTER the match-ended state was already reached, to quit the game.
+  - The user was inside the pause menu's End Game confirmation and Alt+F4 fired Confirm somehow.
+  - This detail is less material to the root cause — the endscreen rendering failure happens regardless.
+- **Build version:** Log header `dev-window-v2-idle-hitch d9d80f87` — PRE-FIX. The current worktree WIP commit 3ea75010 is AHEAD of this log. Must rebuild to reproduce/verify.
+- **Status:** UNRESOLVED. Need a fresh build + visual test to see which hypothesis matches. Short of that, the best code-level next step is to instrument `renderMpEndscreen` with sysLogPrintf at each stage (after Begin, after IsWindowAppearing check, after pdguiDrawPdDialog, after BeginChild, on each early return) and capture a fresh log.
 
 ### 4d. False kill counter — 17 kills at match start (NEW, user raised during compaction-risk message)
 - **Log:** `context/scratch/playtest-2026-04-13-false-kills/pdclient.log` (~700 KB).
