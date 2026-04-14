@@ -32,6 +32,21 @@ ADR: `context/designs/input-authority-and-menu-pool-2026-04-13.md`
 
 ---
 
+## B-141 Audio Telemetry (S251 — investigation)
+
+Audio skips / pauses intermittent (2026-04-13 playtest, not reproducible on demand). Telemetry in place; waiting for repro to narrow mechanism.
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **audioEndFrame() instrumentation** | DONE (S251) | Counts drops (queue full), underruns (queue near-empty), hitches (>50 ms inter-frame gap). Always on, low overhead. |
+| **Audio.VerboseLog pd.ini flag** | DONE (S251) | Per-event `AUDIO[B-141]` log lines. Default off. |
+| **30s periodic summary** | DONE (S251) | Automatic summary line if any counter moved in the window. Zero-activity windows silent. |
+| **audioGetB141Counters() accessor** | DONE (S251) | Exported via `audio.h` so future diagnostic UI / dashboard can read counters without touching statics. |
+| **Repro capture** | Mike: on next occurrence | Tail `pd.log` for `AUDIO[B-141]`. Summary line gives counts per window; enable `Audio.VerboseLog=1` for per-event timestamps to correlate with gameplay events. |
+| **Root cause + fix** | BLOCKED on repro | Expected mechanism differs by symptom: hitch-dominated = main-loop stall (profile RSP or render), underrun-dominated = scheduler preemption / buffer too small, drop-dominated = producer runs ahead during slow frames. Telemetry will point the next session at the right one. |
+
+---
+
 
 ## Mod Map Import Pipeline (L3)
 
