@@ -271,9 +271,25 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **F-1.1** | Remove SDL_WarpMouseInWindow from pause | **DONE** | S238 | Pre-dated `inputCtxSyncMouseMode()`. Context `on_push` callback handles transition. |
 | **F-1.2** | pdguiSoloMissionReset() | **DONE** | S238 | Zeroes 17 statics. Wired into main menu entry + `pdguiEndscreenExitToMainMenu()`. |
 | **F-1.3** | Verify ad-hoc menus context delegation | AUDIT DONE (plan) | S229 | All OK except stats.cpp/moddinghub.cpp candidates for future push. |
-| **F-1.4** | Clean up redundant SDL calls in inputctx.c | OPEN | — | Optional cleanup. |
+| **F-1.4** | Clean up redundant SDL calls in inputctx.c | **DONE** | S242 | Removed SDL calls from 5 on_push/on_pop callbacks. `inputCtxSyncMouseMode()` sole authority. |
 | **F-2.1** | Arena list collapsible sections | **DONE** | S238 | Three sections (MP/Campaign/Mod), alphabetized, `TreeNodeEx` + `DefaultOpen`. |
-| **F-2.2** | Solo pause k_Btns static init order | OPEN | — | `langSafe()` capture at first-call. |
+| **F-2.2** | Solo pause k_Btns static init order | **RESOLVED** | S242 | Already non-static `const` local; `langSafe()` re-evaluated every frame. No fix needed. |
+
+### Menu Robustness (Layer 3 from menu-input-fix-plan)
+
+| ID | Title | Status | Session | Detail |
+|----|-------|--------|---------|--------|
+| **F-3.1** | Duplicate rejection in menuPushDialog | **DONE** | S242 | Scans layers for matching `definition` pointer; logs warning + returns early on duplicate. |
+| **F-3.2** | Pop underflow logging in menuPopDialog | **DONE** | S242 | Logs `LOG_WARNING` when called at depth 0. |
+| **F-3.3** | B-92 deferred flush review | **REVIEWED** | S242 | Still needed — hotswap→gameplay one-frame gap not covered by `inputCtxSyncMouseMode()`. |
+
+### Infrastructure Repair — Standalone Tracks
+
+| ID | Title | Status | Session | Detail |
+|----|-------|--------|---------|--------|
+| **FIX-G** | Mission category headers (B-97) | **DONE** | S242 | Sections existed (M1.1 S168). Added completion counters to chapter + SA headers. |
+| **FIX-F** | Update system reliability (B-99) | OPEN | — | Self-contained in `updater.c`. |
+| **FIX-B.1** | Deep manifest scanner | OPEN | — | `netmanifest.c`, `setup.c`. |
 
 ---
 

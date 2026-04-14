@@ -3,6 +3,37 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S242 — 2026-04-13 (Menu Polish Tail: F-3.1/F-3.2/F-1.4/FIX-G)
+
+**Focus**: Final menu system polish items from fix plan Layers 1-3 + infrastructural repair FIX-G.
+
+### Changes (3 files, +58/-19)
+
+**F-3.1: Duplicate-push rejection** (`src/game/menu.c`)
+- `menuPushDialog()` now scans existing layers for matching `definition` pointer before allocating. Logs `LOG_WARNING` and returns early on duplicate.
+
+**F-3.2: Pop underflow logging** (`src/game/menu.c`)
+- `menuPopDialog()` logs `LOG_WARNING` when called at depth 0.
+
+**F-3.3: B-92 deferred flush — reviewed, still needed** (no code change)
+- The hotswap→gameplay one-frame gap is not covered by `inputCtxSyncMouseMode()`. The B-92 deferred flush in `pdgui_backend.cpp` remains necessary.
+
+**F-1.4: Redundant SDL calls removed** (`port/src/inputctx.c`)
+- Removed `SDL_SetRelativeMouseMode`/`SDL_ShowCursor` from `gameplayOnPush`, `gameplayOnPop`, `imguiMenuOnPush`, `pauseMenuOnPush`, `debugOverlayOnPush`. `inputCtxSyncMouseMode()` is now the sole SDL mouse mode authority.
+
+**F-2.2: k_Btns — no fix needed**
+- Array is already non-static `const` local; `langSafe()` re-evaluated every frame.
+
+**FIX-G (B-97): Mission completion counters** (`port/fast3d/pdgui_menu_solomission.cpp`)
+- Chapter headers now show `"(done/total)"` completion counts (per `isStageDifficultyUnlocked`). Special Assignments header also shows count. Section separation already existed from M1.1 redesign.
+
+### Build
+- Both targets build and link cleanly. Zero errors.
+
+### Status: B-92 OPEN (reviewed, mechanism still needed), B-97 CLOSED
+
+---
+
 ## Session S241 -- 2026-04-13 (L5 Match Lifecycle Major: Co-op Manifest + Protocol Bump)
 
 **Focus**: Master Orchestration Plan Layer 5 -- co-op/counter-op manifest pipeline integration, CLC_STAGE_READY for co-op, protocol bump v34 to v35, match_seed in SVC_STAGE_START.
