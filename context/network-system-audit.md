@@ -750,12 +750,9 @@ CLC 0x10+: available
 | Topic | File |
 |-------|------|
 | S61 netSend audit (all write sites verified) | [netsend-audit.md](netsend-audit.md) |
-| Room architecture implementation plan (R-1–R-5) | [room-architecture-plan.md](room-architecture-plan.md) |
-| Client lobby UX flow (L-series phases) | [lobby-flow-plan.md](lobby-flow-plan.md) |
-| Server-as-hub vision, room types, federation | [multiplayer-plan.md](multiplayer-plan.md) |
-| Join flow audit, connect code, SVC_ROOM_LIST gap | [join-flow-plan.md](join-flow-plan.md) |
+| Room architecture, lobby UX flow, server-as-hub vision, join flow audit — all consolidated | [network-architecture.md](network-architecture.md) |
 | Mod distribution (D3R-9) | [component-mod-architecture.md](component-mod-architecture.md) |
-| Asset catalog as single load gateway | [catalog-loading-plan.md](catalog-loading-plan.md) |
+| Asset catalog as single load gateway | [_archive/plans/catalog-loading-plan.md](_archive/plans/catalog-loading-plan.md) (archived — plan closed, catalog is live) |
 | Phase status (D1–D16, SPF, B-12, R-series) | [infrastructure.md](infrastructure.md) |
 | ENet protocol, message list, damage authority | [networking.md](networking.md) |
 | Active/removed constraints | [constraints.md](constraints.md) |

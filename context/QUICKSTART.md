@@ -153,7 +153,7 @@ ninja -C Build pd pd-server
 | [bugs.md](bugs.md) | Open bug tracker |
 | [systemic-bugs.md](systemic-bugs.md) | Architectural bug patterns |
 | [infrastructure.md](infrastructure.md) | D-phase execution status |
-| [milestones.md](milestones.md) | Release version targets |
+| [roadmap.md](roadmap.md) → "Release Milestones" | Release version targets (v0.1.0 → v1.0.0) |
 | [build.md](build.md) | Build system details |
 | [networking.md](networking.md) | ENet protocol reference |
 | [collision.md](collision.md) | Capsule sweep / physics |

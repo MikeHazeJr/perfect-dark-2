@@ -1,10 +1,21 @@
 # Infrastructure Phase Tracker
 
-> Execution status for all modernization phases. For the long-term vision and priority ordering, see [roadmap.md](roadmap.md).
-> For milestone targets, see [milestones.md](milestones.md).
+> Execution status for all modernization phases. For the long-term vision and
+> priority ordering, see [roadmap.md](roadmap.md). Release milestones
+> (v0.1.0 → v1.0.0) live in roadmap.md under "Release Milestones".
 > Back to [index](README.md)
 
-> **Last updated**: 2026-04-13, S253. Wire protocol now **v35** (additive SVC_ROOM_SETTINGS/PLAYLIST on top of v34 seamless audio-mod sync + v35 L5 match lifecycle match_seed). D13 Update System FIXED via S245 FIX-F (HTTP code + rate-limit handling + exe-dir fallback + 1 MB size check). Master Orchestration Plan L0-L7 complete (FIX-B.1 sole open supporting item). See `session-log.md` S231–S253 for layer-by-layer status; `constraints.md` for current invariants.
+> **Last updated**: 2026-04-14, post-S253 consolidation. Wire protocol at
+> **v35** (v34 seamless audio-mod sync + v35 L5 match_seed + S253 additive
+> `SVC_ROOM_SETTINGS` / `SVC_ROOM_PLAYLIST` / CLC counterparts). D13 Update
+> System FIXED (S245 FIX-F). R-1 / R-2 / R-3 DONE; R-4 protocol-side DONE
+> (S143 + S253 additives); L-1 through L-4 DONE; R-5 server GUI redesign,
+> L-5 Campaign / Counter-Op setup, L-6 drop-in, D14a Counter-Op, D16 master
+> server remain planned. Master Orchestration Plan L0–L7 complete (FIX-B.1
+> sole open supporting item). See `session-log.md` S231–S253 for layer-by-layer
+> detail; `constraints.md` for current invariants;
+> [network-architecture.md](network-architecture.md) for the consolidated
+> networking roadmap.
 
 ---
 
@@ -15,226 +26,367 @@
 | `dev` | Default branch, active development. All PRs merge here. |
 | `stable` | Releases only. Created from `dev` S84. |
 
-`main` was deleted S84 (locally + GitHub remote). GitHub default branch changed to `dev`. Stale remote worktree branches also deleted S84.
+`main` was deleted S84 (local + GitHub remote). GitHub default branch is
+`dev`. Stale remote worktree branches also deleted S84.
 
-**WorktreeCreate hook** (`.claude/settings.local.json`): Blocks Claude Code from creating new worktrees (exit code 2). All Claude work happens directly in the main working copy.
+**WorktreeCreate hook** (`.claude/settings.local.json`): blocks Claude from
+creating new worktrees (exit code 2). All Claude work happens directly in the
+main working copy OR in session-created worktrees under `.claude/worktrees/`.
 
-## Build Tooling (updated S84)
+## Build Tooling
 
 | Tool | Location | Notes |
 |------|----------|-------|
-| `tools/build.sh` | Cross-session clean build. `--target both` builds client + server. |
-| `tools/build-cleanup.sh` | Removes `ClaudeBuilds/` after successful build. |
-| `tools/parse-log.sh` | Filters `sysLogPrintf` output by tag prefix. |
+| `devtools/build-headless.ps1` | PowerShell headless build (AI-facing). Self-configures env via `_build-env-prelude.ps1`. | S247 self-heal |
+| `devtools/build-env.sh` | Bash prelude: `source devtools/build-env.sh && ninja -C Build pd pd-server`. Sets TEMP/TMP + prepends MinGW to PATH. | S247 |
+| `devtools/dev-window-v2/dev-window-v2.ps1` | WPF dev window v2 — build / run / version / status. Font polish shipped S248. | — |
+| `devtools/release.ps1` | Versioned release build. | — |
 
-Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/`). Fully `rm -rf`'d after completion. `.gitignore` tracks `ClaudeBuilds/`.
+**Build environment invariants** (see project `CLAUDE.md`):
+`TEMP=C:\Users\mikeh\AppData\Local\Temp`, `/c/msys64/mingw64/bin` prepended
+to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 
 ---
 
 ## Phase Status Summary
 
-| Phase | Name | Status | Last Touched |
-|-------|------|--------|-------------|
-| D1 | N64 Strip | ✅ **DONE** | S1 |
-| D2 | Jump / Bot AI / Char Select | 🔶 Partial | S15 |
+| Phase | Name | Status | Last touched |
+|-------|------|--------|--------------|
+| D1 | N64 Strip (672 guards, 114+ files) | ✅ **DONE** | S1 |
+| D2 | Jump / Bot AI / Char Select | 🔶 Partial | S15 / S187 |
 | D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
 | D3R | Component Mod Architecture | ✅ **ALL DONE** (D3R-1–11, S46a, S46b) | S80 |
-| D4 | Menu Migration | ♻️ Superseded (ongoing, no longer blocks) | S22 |
-| D5 | Settings / Graphics / QoL | 🔶 Partial (UI Scaling S97; **Phase 3 menu replacement COMPLETE 2026-04-11 — all 254 dialogs landed across Batches 0/1/2/3/4/5/6/6-polish/7/8/10/11/12**) | S97/S192-S209 |
-| D6 | Persistent Stats | 🔶 Partial | S49 |
+| D4 | Menu Migration | ♻️ Superseded by ImGui hotswap | S22 |
+| D5 | Settings / Graphics / QoL | 🔶 Phase 3 DONE; Phase 4 (themes) partial; Phase 5 (lobby scene) planned | S221 |
+| D6 | Persistent Stats | 🔶 Partial — `playerstats.c` coded (S49), gameplay-site wire-in partial | S49 |
 | D7 | Discord Rich Presence | 📋 Planned | — |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
-| D9 | Dedicated Server | 🔶 Largely done | S47d |
+| D9 | Dedicated Server | ✅ **MOSTLY DONE** — R-1 / R-2 / R-3 / R-4 shipped; R-5 server GUI redesign planned | S253 |
 | D10 | Spectator Mode | 📋 Planned | — |
 | D11 | Simulant Creator | 📋 Planned | — |
 | D12 | Co-op Polish | 📋 Planned | — |
-| D13 | Update System | ✅ **DONE** (S245 FIX-F: HTTP code + 403 rate-limit path + exe-dir fallback + 1 MB extraction size check) | S245 |
+| D13 | Update System | ✅ **DONE** (S245 FIX-F) | S245 |
 | D14a | Counter-Op Mode | 📋 Planned | — |
-| D14b | Mod Distribution | 📋 Planned | — |
-| D15 | Map Editor / Char Creator / Skins | 📋 Planned | — |
-| D16 | Master Server | 📋 Planned | — |
-| MSP | Match Startup Pipeline | ✅ Phases A–F done (S84–S90), SA-1–SA-7 ALL DONE (S91–S97), Manifest Lifecycle Sprint Phases 0–6 ALL DONE (S110–S115) | S115 |
-| D-MEM | Memory Modernization | 🔶 M0–M1 done, MEM-1/2/3 DONE, M2–M6 (stack→heap) remain | S47a |
+| D14b | Mod Distribution | ✅ **DONE** — D3R-9 network distrib + D3R-10 mod-pack export/import + A-7 mod-audio network sync + S-9 skin network sync | S-series 2026-04-12 |
+| D15 | Map Editor / Char Creator / Skins | 🔶 Partial — Skin Editor DONE (S-1 → S-9, 2026-04-12); Map Import Pipeline DONE (L3, S240+S244); Level Editor (Forge) planned (v1.0.0) | 2026-04-12 / 2026-04-13 |
+| D16 | Master Server | 📋 Planned (see [network-architecture.md](network-architecture.md) §7 for full design) | — |
+| MSP | Match Startup Pipeline (A–F + SA-1–7 + Manifest Lifecycle 0–6 + L5) | ✅ **ALL DONE** | S115 / S241 |
+| D-MEM | Memory Modernization | 🔶 M0–M1 + MEM-1/2/3 DONE; M2–M6 stack→heap remain | S47a |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
-| B-12 | Dynamic Participant System | 🔶 Phase 1–2 done, Phase 3 (remove chrslots) next | S47b |
-| SPF | Server Platform Foundation | 🔶 SPF-1–3 coded, R-series planned (R-1 next), QC pending | S51 |
+| B-12 | Dynamic Participant System | 🔶 Phase 1–2 DONE; Phase 3 (remove chrslots) next | S47b |
+| SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
+
+### Audio / Skin / Map-Import feature lines
+
+| Line | Scope | Status | Session |
+|------|-------|--------|---------|
+| A-1 → A-7 | Audio Mod Menu (catalog extension, mod music stream, UI, soundtrack extension, pack creation, multi-format import, network sync) | ✅ **ALL DONE** | S210 – S222 (2026-04-12) |
+| S-1 → S-9 | Skin Editor (canvas + 2D editor, live 3D preview, save-as-mod, image import, quantize/dither, blend modes, UV wireframe, network sync) | ✅ **ALL DONE** | S215 – S217 (2026-04-12) |
+| L3 / M-5.x / M-6.x / M-7.x | Mod Map Import Pipeline (PD-native importer + UI + retroactive validation + smoke sweep) | ✅ **ALL DONE** | S240 / S244 / S246 |
+| L2 spawn pool | `spawnpool.c/h` L1-L4 chain + match_seed determinism + B-134 capsule-radius threshold | ✅ **ALL DONE** | S239 / S242 / S249 |
+| L5 match lifecycle | Co-op manifest pipeline + CLC_STAGE_READY + protocol v35 + match_seed in SVC_STAGE_START | ✅ **DONE** | S241 |
+| L6 rendering | FIX-C.1 canonical GBI state reset + FIX-C.3 menu opacity + sky tearing systemic defense | ✅ **DONE** | S243 |
+| L7 | FIX-F updater robustness + FIX-G mission category headers with completion counters | ✅ **DONE** | S245 |
 
 ---
 
 ## Detailed Status
 
 ### D1: N64 Strip — ✅ DONE
-672 platform guards removed across 114+ files. Zero `PLATFORM_N64` references remain.
+
+672 platform guards removed across 114+ files. Zero `PLATFORM_N64` references
+remain. Historical N64 assembly, ultra/os, ultra/libc also removed; only
+ultra/audio, ultra/gu, and 4 ultra/io VI-mode files remain.
 
 ### D2: Jump / Bot AI / Char Select — 🔶 PARTIAL
-- **D2a Char Select Redesign**: ✅ Done. Scrollable body list, live 3D preview, head detection.
-- **D2b Capsule Collision**: Testing. Capsule sweep system in capsule.c. Stationary jumping works.
-- **D2c Bot Jump AI**: Not started. Depends on D2b.
-- **D2d Custom Simulants**: Not started. Feeds D11.
 
-### D3: Mod Manager — ♻️ REDESIGNED as D3R (Session 27)
-- **D3a–D3d**: ✅ Done. Core modmgr, shadow arrays, fs.c refactor, ImGui foundation. (Legacy — replaced by D3R)
-- **D3e–D3g**: Superseded by D3R.
-- **S23 fix**: Mod manager path resolution (CWD → exe dir → base dir). Stage range check widened.
-- **S24 fix**: Bundled mod ID mismatch corrected. `g_NotLoadMod` init fix.
+- **D2a Char Select Redesign**: ✅ DONE. Scrollable body list, live 3D preview,
+  head detection.
+- **D2b Capsule Collision**: In use — capsule sweep system in `capsule.c`.
+  Stationary jumping + stair-step work. Replaces legacy `cdTestVolume` /
+  `cdFindGroundInfoAtCyl` hacks. See [collision.md](collision.md) and
+  constraint "N64 collision workarounds" (Removed 2026-03-12).
+- **D2c Bot Jump AI**: Not started. Depends on D2b stability.
+- **D2d Custom Simulants**: Feeds D11 (planned).
+- **Input rework**: S187–S190 full unification under action-map IMCs
+  (M0.2). P0-only binding setup (single-local-player constraint).
+  `setupGameplayDefaults`, CrouchMode (hold / analog / toggle / toggle+analog),
+  FarSight strafe fixes, LSTICK=Sprint binding.
 
-### D3R: Component Mod Architecture — ✅ CORE COMPLETE (Sessions 27–46)
-Full design in [component-mod-architecture.md](component-mod-architecture.md). Replaces monolithic D3 with component-based system.
-- **D3R-1 Decompose mods**: ✅ DONE (S29) — 56 maps, 42 chars, 5 tex packs
-- **D3R-2 Asset Catalog**: ✅ DONE (S28) — FNV-1a + CRC32, open addressing, 20-function API
-- **D3R-3 Base game cataloging**: ✅ DONE (S30/31) — 87 stages + 63 bodies + 75 heads
-- **D3R-4 Scanner + loader**: ✅ DONE (S30/31) — INI parser, category scan
-- **D3R-5 Callsite migration**: ✅ DONE (S38/39) — All 6 modmgr accessors catalog-backed, 62 callsites, zero caller changes
-- **D3R-6 Mod Manager UI**: ✅ DONE (S39/40) — Browse/toggle, validation, `.modstate` persistence, embedded in Modding Hub
-- **D3R-7 Modding Hub**: ✅ CODED (S40) — Hub with Mod Manager, INI Editor, Model Scale Tool. Needs build test.
-- **D3R-8 Bot Customizer**: ✅ DONE (S43) — Trait editor, `botvariant.c/h`, save-as-preset, hot-register
-- **D3R-9 Network distribution**: ✅ DONE (S44) — Protocol v20→v21, PDCA archives, zlib chunks, crash recovery, download prompt UI
-- **D3R-10 Mod Pack export/import**: ✅ DONE (S45a) — `modpack.h/c`, PDPK format, zlib, 4th tab in Modding Hub
-- **D3R-11 Legacy cleanup**: ✅ DONE (S45b) — g_ModNum removed, modconfig.txt removed, shadow arrays removed, catalog-only accessors
-- **S46a Asset Catalog expansion**: ✅ DONE — ASSET_ANIMATION/TEXTURE/GAMEMODE/AUDIO/HUD + rich ext structs. 47 weapons, 8 props, 6 gamemodes, 6 HUD elements.
-- **S46b Full enumeration**: ✅ DONE (S80) — 1207 animations, 3503 textures, 1545 audio entries registered in `assetcatalog_base_extended.c`.
+### D3R: Component Mod Architecture — ✅ CORE COMPLETE
+
+Full design in [component-mod-architecture.md](component-mod-architecture.md).
+Replaces monolithic D3 with a component-based system.
+
+- **D3R-1 Decompose mods**: ✅ DONE (S29) — 56 maps, 42 chars, 5 tex packs.
+- **D3R-2 Asset Catalog**: ✅ DONE (S28) — FNV-1a + CRC32, open addressing,
+  20-function API. String-keyed, namespace / readable-name format.
+- **D3R-3 Base game cataloging**: ✅ DONE (S30 / S31) — 87 stages + 63 bodies +
+  75 heads.
+- **D3R-4 Scanner + loader**: ✅ DONE (S30 / S31) — INI parser, category scan.
+- **D3R-5 Callsite migration**: ✅ DONE (S38 / S39) — 6 modmgr accessors
+  catalog-backed, 62 callsites, zero caller changes.
+- **D3R-6 Mod Manager UI**: ✅ DONE (S39 / S40) — Browse / toggle /
+  validation / `.modstate` persistence, embedded in Modding Hub.
+- **D3R-7 Modding Hub**: ✅ DONE — Hub with Mod Manager + INI Editor + Model
+  Scale Tool. S248 fixes: B-135 / B-136 / B-138 (mod.json id field, persistence,
+  dirty-state modal).
+- **D3R-8 Bot Customizer**: ✅ DONE (S43) — Trait editor, `botvariant.c/h`,
+  save-as-preset, hot-register.
+- **D3R-9 Network distribution**: ✅ DONE (S44) — PDCA archives, zlib chunks,
+  crash recovery, download-prompt UI, `expected_chunk` ordering guard (B-79
+  S185), 256 MB cap on decompression buffer (B-80 S185).
+- **D3R-10 Mod Pack export/import**: ✅ DONE (S45a) — `modpack.h/c`, PDPK
+  format, zlib, 4th tab in Modding Hub.
+- **D3R-11 Legacy cleanup**: ✅ DONE (S45b) — `g_ModNum` removed, modconfig.txt
+  parsing removed, shadow arrays removed, catalog-only accessors.
+- **S46a Asset Catalog expansion**: ✅ DONE — ASSET_ANIMATION / TEXTURE /
+  GAMEMODE / AUDIO / HUD + rich ext structs.
+- **S46b Full enumeration**: ✅ DONE (S80) — 1207 animations, 3503 textures,
+  1545 audio entries in `assetcatalog_base_extended.c`.
+- **A-1 → A-7 / S-1 → S-9**: complete Audio Mod Menu + Skin Editor lines
+  landed 2026-04-12 — see feature-line table above.
 
 ### D4: Menu Migration — ♻️ SUPERSEDED
-Original F11 storyboard plan superseded by direct ImGui hotswap. Component library evolves organically.
 
-**Built so far**: Agent Create, Agent Select, Match Setup, Pause Menu, Scorecard Overlay, Network/Multiplayer, Lobby, Server GUI, Update UI, Debug Menu, Typed Dialogs (Danger + Success), Mod Manager, Modding Hub, Bot Customizer, Mod Pack tab.
+F11 storyboard plan superseded by direct ImGui hotswap. ImGui menus
+(`pdgui_menu_*.cpp`) are the sole menu system (P10 D5.7 complete S184). All
+254 dialogs ported across Batches 0 / 1 / 2 / 3 / 4 / 5 / 6 / 6-polish / 7 / 8 /
+10 / 11 / 12 (S192 – S209, 2026-04-11). Legacy `menuPush`/`menuPop` dialog
+stack retained only as plumbing.
+
+### D5: Settings / Graphics / QoL — 🔶 PHASE 3 DONE
+
+- **Phase 0–2**: DONE pre-S191. UI Scaling (S97), controller bindings, radial
+  menu.
+- **Phase 3 (menu replacement)**: ✅ **COMPLETE 2026-04-11**. All 254 dialogs
+  ported to ImGui — 13 batches S192 – S209.
+- **Phase 4 (themes)**: 🔶 Partial. Theme loader + base-game template mod
+  (S196). Theme editor shipped (B-130 rewrite S208 — native `BeginPopupModal`).
+  Mod themes auto-rescan on mod apply (Issue 2/8 S253). Nineslice pipeline
+  infrastructure shipped.
+- **Phase 5 (lobby scene)**: 📋 Planned — player portraits, connected player
+  avatars, character preview.
+- **D5.1 Input ownership boundary**: ✅ DONE (S136).
+- **D5.3 Pause menu**: ✅ DONE — ImGui pause + scorecard + Return to Lobby +
+  Quit to Menu (S139 / S144).
+- **D5.4 MP post-match scoreboard**: ✅ DONE (S139) — accuracy column, team
+  section headers, dual exit buttons.
+- **D5.7 OG menu removal**: ✅ DONE (S184).
+- **D5.8 HUD score panel dock-below-minimap**: ✅ DONE (S221) — see archived
+  `_archive/designs/hud-score-panel.md`.
+
+### D6: Persistent Stats — 🔶 PARTIAL
+
+- `port/src/playerstats.c` — string-keyed hash-table counters, JSON
+  persistence to `$S/playerstats.json` (CODED S49).
+- Integrated with `fsFullPath("$S/...")`; works even when `saveInit()` is
+  delayed.
+- `statIncrement()` accessor exported. Gameplay-site wire-in (`mpstats.c`,
+  `mplayer.c`) partial — several events already recorded, others planned.
+- Achievements = future query layer on top.
+
+### D7: Discord Rich Presence — 📋 PLANNED
+
+Activity API + join button.
 
 ### D8: NAT Traversal / LAN — ✅ DONE (S83)
-All 4 phases implemented in S83:
-- **STUN client** (`port/src/net/netstun.c`): RFC 5389 Binding Request → `g_StunPublicIP`/`g_StunPublicPort`.
-- **Query advertising** (`netlobby.c`): `SVC_ADDR_QUERY` / `CLC_ADDR_REPORT` — server broadcasts STUN-discovered external IP+port to all lobby clients.
-- **Hole punch** (`port/src/net/netholepunch.c`): Symmetric hole-punch handshake (`CLC_PUNCH_REQ` / `SVC_PUNCH_REPLY`). 5 probe packets, 3s timeout, relay fallback.
-- **NAT diagnostics**: Debug menu "NAT" section shows STUN result, punch status per peer, relay fallback indicator.
 
-### D5: Settings / Graphics / QoL — 📋 PLANNED
-FOV slider, resolution, fullscreen, VSync, 4-layer audio (Master/Music/Gameplay/UI), rebindable controls. Full plan in [d5-settings-plan.md](d5-settings-plan.md).
+See [network-architecture.md](network-architecture.md) §2.4 and
+[designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md).
+STUN client, SVC_ADDR_QUERY / CLC_ADDR_REPORT, symmetric hole-punch, relay
+fallback, NAT diagnostics in debug menu.
 
-### D6: Persistent Stats — 🔶 PARTIAL (S49)
-- `port/src/playerstats.c` — string-keyed hash table of counters, JSON persistence to `$S/playerstats.json`. CODED, needs build test.
-- Stats are incremented per gameplay event (kill, death, shot, mode played, weapon used, etc.)
-- Wired into: mpstats.c + mplayer.c (planned but not yet done)
-- Achievements are a future query layer on top of stats (D6 Phase 2)
+### D9: Dedicated Server — ✅ MOSTLY DONE
 
-### D9: Dedicated Server — 🔶 LARGELY DONE
-Server process with CLI args, signal handling, 4-panel ImGui GUI (now tabbed: Server + Hub), lobby/leader election, CLC_LOBBY_START protocol, sentence-based connect code system.
+Consolidated architecture in
+[network-architecture.md](network-architecture.md) §3. Summary:
 
-**Connect codes**: `port/src/connectcode.c` — 4-word sentence encoding of IPv4. Public IP via UPnP (async) with HTTP fallback (`curl`→`api.ipify.org`). Code displayed in lobby + clipboard copy. No raw IP in any UI. See [join-flow-plan.md](join-flow-plan.md).
-
-**SPF-1 additions (S47d)**: Hub lifecycle, room system (4-room pool, 5-state machine), player identity (`pd-identity.dat`), phonetic IP encoding. See SPF section below.
-
-**Remaining**:
-- SVC_ROOM_LIST: broadcast room state from server to clients — J-3
-- Combat Sim stage selection (currently hardcoded to Complex)
-- SVC_LOBBY_LEADER broadcast on leader change
-- "Quick Play" button (auto-launch server + connect to localhost)
-
-**Done** (see [join-flow-plan.md](join-flow-plan.md)):
-- J-1: End-to-end playtest verified (S81)
-- J-2: Connect code display in server_gui.cpp — IP waterfall UPnP→STUN (S84)
-- J-4: Recent server history UI with relative timestamps (S80/S84)
-- J-5: Lobby handoff polish (S81)
+- **SPF-1 Hub / Room / Identity / Phonetic**: DONE (S47d).
+- **SPF-2a Menu Mgr**: DONE (S48 / S49).
+- **SPF-3 Lobby + Join-by-Code**: DONE (S49) — sentence connect codes, no raw
+  IP in UI.
+- **R-1 Foundation**: DONE — `hubGetMaxSlots()` + dedicated-server slot guard +
+  IP scrub (B-28 / B-29 / B-30).
+- **R-2 Room lifecycle**: DONE — demand-driven rooms, `leader_client_id`,
+  `HUB_MAX_ROOMS = 16`, `HUB_MAX_CLIENTS = 32`.
+- **R-3 Room sync protocol**: DONE (S143) — `SVC_ROOM_LIST 0x75` +
+  `SVC_ROOM_UPDATE 0x76` + `SVC_ROOM_ASSIGN 0x77` + `CLC_ROOM_JOIN 0x0A` +
+  `CLC_ROOM_LEAVE 0x0B`.
+- **R-4 Match start**: DONE (S143 base + S253 additives) — `CLC_ROOM_START 0x0F`
+  room-scoped; S253 added `SVC_ROOM_SETTINGS 0x78` + `SVC_ROOM_PLAYLIST 0x79` +
+  `CLC_ROOM_SETTINGS_UPDATE 0x13` + `CLC_ROOM_PLAYLIST_UPDATE 0x14` for
+  leader-side mutations. CLC_ROOM_KICK / TRANSFER operator ops still planned.
+- **R-5 Server GUI redesign**: 📋 Planned — Players + Rooms panels, operator
+  actions (Move / Kick / Set Leader / Close Room).
+- **J-1 / J-2 / J-3 / J-4 / J-5**: ALL DONE.
+- **Remaining**: Combat Sim stage selection (currently hardcoded in several
+  places), Quick Play auto-launch button, SVC_LOBBY_LEADER broadcast on leader
+  change, R-5 server GUI redesign, L-5 dedicated Campaign / Counter-Op setup
+  screen, L-6 drop-in prompt on client side.
 
 ### D13: Update System — ✅ DONE (S245 FIX-F)
-All source files written (S8–S11). Semantic versioning, GitHub API, SHA-256, self-replace, save migration, ImGui UI, dual-tag releases, two channels. **S245 FIX-F** closed the rough edges: (1) `curlGet()` returns HTTP code; 403 classified as rate-limit with user-visible "retry in 1 hour" message; non-JSON response classified as wrong-endpoint. (2) `fsFullPath("$E/")` fallback when `detectExePath()` yields empty `installDir`. (3) Extracted `PerfectDark.exe` checked for existence AND minimum 1 MB size before self-replace; truncated extraction rejected. B-99 closed. Full design in [update-system.md](update-system.md).
 
-### D-MEM: Memory Modernization — 🔶 M0–M1 DONE, MEM-1/2/3 DONE, M2–M6 REMAIN
+All source files written (S8 – S11). Semantic versioning, GitHub API, SHA-256,
+self-replace, save migration, ImGui UI, dual-tag releases, two channels. S245
+FIX-F closed the rough edges: (1) `curlGet()` returns HTTP code; 403 classified
+as rate-limit with user-visible message; non-JSON classified as wrong-endpoint.
+(2) `fsFullPath("$E/")` fallback when `detectExePath()` yields empty
+`installDir`. (3) Extracted `PerfectDark.exe` checked for existence AND
+minimum 1 MB size before self-replace. B-99 closed. Full design in
+[update-system.md](update-system.md).
+
+### D14a: Counter-Op Mode — 📋 PLANNED (v0.6.0)
+
+NPC possession mechanic. Room-type support (CAMPAIGN with role-assign) already
+in [network-architecture.md](network-architecture.md) §4. Per-session
+role-assign UI (L-5 Counter-Op Setup Screen) planned but not built.
+
+### D14b: Mod Distribution — ✅ DONE
+
+Network distribution protocol (D3R-9), mod-pack export/import (D3R-10),
+A-7 mod-audio network sync, S-9 skin network sync all shipped 2026-04-12.
+Protocol bumped v20 → v21 → … → v34 over the distribution pipeline evolution.
+
+### D15: Map Editor / Char Creator / Skins — 🔶 PARTIAL
+
+- **Skin Editor (S-1 → S-9)**: ✅ DONE 2026-04-12 — canvas, live 3D preview,
+  tools, save-as-mod, image import, quantize/dither, blend modes, UV wireframe,
+  network sync. Detail: `daily-logs/2026-04-12.md`.
+- **Mod Map Import Pipeline**: ✅ DONE 2026-04-13 — PD-native importer
+  (`mapimport.c/h` 6-stage pipeline), Modding Hub UI tab, smoke sweep (M-7.x).
+  Detail: session-log S240 / S244 / S246.
+- **Level Editor (Forge)**: 📋 Planned v1.0.0. Separate main-menu entry.
+- **Character Creator / Bot Customizer**: ✅ DONE (D3R-8 bot customizer; also
+  Skin Editor covers skins).
+
+### D16: Master Server — 📋 PLANNED
+
+Full design in [network-architecture.md](network-architecture.md) §7. 4-phase
+plan (D16a – D16d, ~750 LOC total). Nothing in current code needs changes to
+prepare.
+
+### MSP: Match Startup Pipeline — ✅ ALL DONE
+
+- Phases A – F: DONE (S84 – S90). 8-phase match-startup sequence (Gather →
+  Sync).
+- SA-1 – SA-7: DONE (S91 – S97). Session Catalog + Modular API.
+- Manifest Lifecycle Sprint Phases 0 – 6: DONE (S110 – S115).
+- L5 Match Lifecycle Major: DONE (S241) — co-op manifest pipeline +
+  CLC_STAGE_READY + protocol v35 + match_seed in SVC_STAGE_START.
+- MSP contributors: [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md),
+  [designs/manifest-architecture.md](designs/manifest-architecture.md),
+  [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md).
+
+### D-MEM: Memory Modernization — 🔶 M0–M1 + MEM-1/2/3 DONE
+
 - **M0**: Diagnostic log cleanup → LOG_VERBOSE. ✅
-- **M1**: `memsizes.h` created, 30+ named constants, 8 files converted. ✅ (~100 ALIGN16 remaining)
-- **MEM-1**: `asset_load_state_t` + 4 fields added to `asset_entry_t`. ✅ **DONE**
-- **MEM-2**: `assetCatalogLoad()` / `assetCatalogUnload()` — allocate/free `loaded_data`. ✅ **DONE**
-- **MEM-3**: `ref_count` acquire/release + eviction policy. ✅ **DONE**
-- **M2**: Stack→heap promotion (pak.c 16KB, texdecompress.c 12KB, menuitem.c 24KB). Not started.
-- **M3**: IS4MB ternary collapse (107 dead branches). Not started.
-- **M4**: ALIGN16 strip (119 wrappers, 39 files). Not started.
-- **M5**: Separate pool regions (architectural — eliminates overlap risk). Not started.
-- **M6**: Thread safety (mutex on mempAlloc/mempFree). Not started.
+- **M1**: `memsizes.h` created, 30+ named constants, 8 files converted. ✅
+  (~100 ALIGN16 wrappers remain as M4.)
+- **MEM-1**: `asset_load_state_t` + 4 fields added to `asset_entry_t`. ✅
+- **MEM-2**: `assetCatalogLoad()` / `assetCatalogUnload()` — allocate / free
+  `loaded_data`. ✅
+- **MEM-3**: `ref_count` acquire / release + eviction policy. ✅
+- **M2**: Stack→heap promotion (`pak.c` 16 KB, `texdecompress.c` 12 KB,
+  `menuitem.c` 24 KB). 📋 Not started.
+- **M3**: IS4MB ternary collapse (107 dead branches). 📋 Not started.
+- **M4**: ALIGN16 strip (119 wrappers, 39 files). 📋 Not started.
+- **M5**: Separate pool regions (architectural — eliminates overlap risk).
+  📋 Not started.
+- **M6**: Thread safety (mutex on `mempAlloc` / `mempFree`). 📋 Not started.
 
 Full plan in [memory-modernization.md](memory-modernization.md).
 
-### D-STAGE: Stage Decoupling — ✅ ALL PHASES DONE (S47c)
-- **Phase 1 Safety Net**: ✅ Done (S23). Bounds checks at all known access points.
-- **Phase 2 Dynamic Table**: ✅ Done (S47c). Heap-allocated `g_Stages`, `g_NumStages`, `stageTableInit()`, `stageGetEntry()`, `stageTableAppend()`.
-- **Phase 3 Domain Separation**: ✅ Done (S47c). `soloStageGetIndex()` lookup, bounds guards in `endscreen.c` + `mainmenu.c`.
+### D-STAGE: Stage Decoupling — ✅ ALL 3 PHASES DONE (S47c)
 
-See [constraints.md](constraints.md) — Index Domain Warning section.
+- **Phase 1 Safety Net**: ✅ DONE (S23). Bounds checks at all known access
+  points.
+- **Phase 2 Dynamic Table**: ✅ DONE (S47c). Heap-allocated `g_Stages`,
+  `g_NumStages`, `stageTableInit()`, `stageGetEntry()`, `stageTableAppend()`.
+- **Phase 3 Domain Separation**: ✅ DONE (S47c). `soloStageGetIndex()` lookup,
+  bounds guards in `endscreen.c` + `mainmenu.c`.
+
+See [constraints.md](constraints.md) → Index Domain Warning.
 
 ### B-12: Dynamic Participant System — 🔶 PHASE 1–2 DONE (S47b)
-- **Phase 1 Parallel Pool**: ✅ Done (S26). `participant.h/c`, heap-allocated pool (capacity MAX_MPCHRS=40), parallel sync hooks.
-- **Phase 2 Callsite Migration**: ✅ Done (S47b). 7 files, ~25 mplayer.c sites + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()` API. Build pass.
-- **Phase 3 Remove chrslots**: NEXT. Delete u64 chrslots field, legacy shims, BOT_SLOT_OFFSET. Protocol bump to v28 (next after v27).
 
-### SPF: Server Platform Foundation — 🔶 SPF-1–3 IN PROGRESS, R-series PLANNED (S51)
-New track building the community platform layer on top of the dedicated server.
+- **Phase 1 Parallel Pool**: ✅ DONE (S26). `participant.h/c`, heap-allocated
+  pool (capacity `MAX_MPCHRS = 40`), parallel sync hooks.
+- **Phase 2 Callsite Migration**: ✅ DONE (S47b). 7 files, ~25 mplayer.c sites
+  + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()`
+  API.
+- **Phase 3 Remove chrslots**: 📋 NEXT. Delete `u64 chrslots` field, legacy
+  shims, `BOT_SLOT_OFFSET`. Protocol bump next v36. Target: v0.2.0 release.
 
-- **SPF-1 Hub/Room/Identity/Phonetic**: ✅ BUILDS (S47d coded, S49 confirmed via SPF-3 build).
-  - `hub.h/c` — Hub singleton, owns rooms + identity, `hubTick()` drives room 0 from `g_Lobby.inGame`. **Note**: `hubGetMaxSlots/SetMaxSlots/GetUsedSlots/GetFreeSlots` declared in hub.h but NOT implemented in hub.c — R-1 implements them.
-  - `room.h/c` — Room struct, 5-state lifecycle (LOBBY→LOADING→MATCH→POSTGAME→CLOSED), pool of 4 (`HUB_MAX_ROOMS`), client array capped at 8 (`HUB_MAX_CLIENTS` — stale, must expand to 32); `roomGenerateName()` for auto-naming (adjective+noun)
-  - `identity.h/c` — `pd-identity.dat` persistence, 16-byte UUID, up to 4 profiles
-  - `phonetic.h/c` — CV syllable IP:port encoding (still available, coexists with sentence codes)
-  - `connectcode.h/c` — **Primary join mechanism**: 4-word sentence codes (adjective+noun+action+place = IPv4). Code-only joining enforced. No raw IP in UI.
-  - `server_main.c` — hubInit/Tick/Shutdown wired in
-  - `server_gui.cpp` — Tabbed layout (Server + Hub tabs), color-coded room states. **B-29**: raw IP shown in status bar (line 695) — remove in R-1.
-  - `CMakeLists.txt` — 4 new files added to SRC_SERVER (S47e fix)
-  - **QC PENDING** — needs end-to-end server playtest
-- **SPF-2a Menu Manager**: ✅ BUILD PASS (S48 coded, S49 extern C fix). menumgr.c/h, 100ms cooldown. Pause + modding hub + join screen wired.
-- **SPF-3 Lobby + Join-by-Code**: ✅ CODED (S49, commit `3b588c1`). Awaiting playtest.
-  - Lobby: shows hub state + room list with color-coded states and player counts
-  - Join screen: menu view 4, phonetic or direct IP input, MENU_JOIN push/pop
-- **SPF Asset Catalog Audit Phase 1**: ✅ DONE (S49). Failure logging at all critical load points.
-- **SPF Player Stats**: ✅ CODED (S49). `playerstats.h/c`, `statIncrement()`, JSON persistence. Needs wiring at gameplay sites.
-- **SPF Connect Codes**: ✅ REWRITTEN (S49). Sentence-based codes replace phonetic syllables as primary connect method. 256-word vocabulary × 4 slots = 32-bit IPv4.
-- **Join Flow**: See [join-flow-plan.md](join-flow-plan.md). Gaps: room state not yet synced to clients (SVC_ROOM_LIST needed), server GUI missing connect code display.
-- **R-series Room Architecture**: PLANNED (S51). See [room-architecture-plan.md](room-architecture-plan.md).
-  - **R-1** Foundation: hub slot pool, g_NetLocalClient=NULL for dedicated, IP scrub (B-28/29/30). No protocol change.
-  - **R-2** Room lifecycle: demand-driven rooms, leader_client_id, room_id on netclient, HUB_MAX_ROOMS=16/HUB_MAX_CLIENTS=32.
-  - **R-3** Room sync protocol: SVC_ROOM_LIST/UPDATE/ASSIGN (0x75-0x77), CLC_ROOM_JOIN/LEAVE (0x0A-0x0B).
-  - **R-4** Match start: CLC_ROOM_SETTINGS/KICK/TRANSFER/START (0x0C-0x0F), room-scoped stage start.
-  - **R-5** Server GUI redesign: Players + Rooms panels, operator actions (move/kick/set-leader/close).
-- **SPF-3+**: Social hub, content sharing, whitelists, mesh networking (milestones v0.3–v0.4).
+### Master Orchestration Plan (2026-04-13) — ✅ L0–L7 COMPLETE
 
-Architecture doc: [server-architecture.md](server-architecture.md)
+Full plan (now archived): `_archive/designs/2026-04-13/master-orchestration-plan-2026-04-13.md`.
+
+Layer-by-layer status (all DONE unless noted):
+
+- **L0**: L0-BUILD (ccache warm-build), L0-LINK (server link verify)
+- **F-0.1 / 0.2 / 0.3 / 0.4**: campaign language-bank shadow / FR weapon
+  context / game-over dead code / stale-manifest on return-to-room
+- **FIX-A**: chr tick isolation + lifetime hardening (A.1 – A.4; B-112 / B-126
+  MITIGATED)
+- **L1-1**: clear `g_ClientManifest` on match end
+- **FIX-B.2**: graceful fallback for missing models
+- **FIX-B.1**: deep manifest scanner (cinematics + AI scripts) — 📋 **OPEN**
+- **L1-2 / 3 / 4 / 5**: periodic score broadcast / HUD gate during endscreen /
+  clear co-op netclient / NET_RESYNC_FLAG_SCORES in initial resync
+- **F-1.1 / 2 / 3 / 4**: pause SDL warp removed / `pdguiSoloMissionReset()` /
+  ad-hoc menus context audit / redundant SDL calls cleanup
+- **F-2.1 / 2**: arena collapsible sections / solo pause k_Btns resolved
+- **F-3.1 / 2 / 3**: duplicate-push rejection / pop-underflow logging / B-92
+  deferred flush review
+- **FIX-C.1 / 2 / 3**: GBI state reset (B-128 systemic defense) / Skedar Ruins
+  investigation / menu opacity stacking
+- **FIX-G**: mission completion counters / SeparatorText headers
+- **FIX-F**: updater robustness (D13 closeout)
 
 ---
 
 ## Dependency Graph
 
 ```
-D1 (N64 Strip) ─── DONE
-  │
-  ├── D2 (Jump/Bots) ─── PARTIAL
-  │     ├── D2a (Char Select) ─── DONE
-  │     ├── D2b (Capsule) ─── testing
-  │     ├── D2c (Bot Jump AI) ─── needs D2b
-  │     └── D2d (Custom Sims) ─── feeds D11
-  │
-  ├── D3 (Mod Manager legacy) ─── REDESIGNED → D3R
-  │     └── D3a-d ─── DONE (replaced)
-  ├── D3R (Component Mod Architecture) ─── ✅ CORE COMPLETE
-  │     ├── D3R-1–11 ─── ALL ✅ DONE
-  │     ├── S46a (Catalog expansion) ─── ✅ DONE
-  │     └── S46b (Full enumeration) ─── ✅ DONE (S80)
-  │
-  ├── D-STAGE (Stage Decoupling) ─── ✅ ALL PHASES DONE
-  │
-  ├── B-12 (Participant System) ─── Phase 1–2 DONE, Phase 3 NEXT
-  │
-  ├── D9 (Server) ─── LARGELY DONE
-  │     └── SPF (Server Platform) ─── SPF-1 coded, SPF-2+ planned
-  │           ├── J-1 (verify join) ─── DONE (S81)
-  │           ├── J-2 (server GUI code) ─── DONE (S84)
-  │           ├── J-3 (SVC_ROOM_LIST) ─── NEXT
-  │           ├── SPF → D16 (Master Server) ─── after content tools
-  │           └── SPF → D10 (Spectator)
-  │
-  ├── D6 (Stats) ─── playerstats.c CODED (needs wire-in)
-  │
-  ├── D13 (Updater) ─── code written, needs build
-  │
-  ├── D-MEM (Memory) ─── M0-M1 done, MEM-1/2/3 DONE, M2-M6 (stack→heap) remain
-  │
-  └── Priority build order:
-        D5 (Settings) → D14a (Counter-Op) → D15 (Editor/Creator/Skins)
-        → D16 (Master Server) → D6 (Stats) → D7 (Discord)
-        → D8 (NAT) → D10 (Spectator) → D11 (Sim Creator)
-        → D12 (Co-op) → D14b (Mod Distribution)
+DONE ── D1 (N64 strip) ── D3R (component mods) ── D3R-1..11
+          │
+          ├── D-STAGE (all 3 phases DONE)
+          │
+          ├── B-12 Phase 1–2 DONE ─→ Phase 3 (remove chrslots, v0.2.0)
+          │
+          ├── MSP all phases DONE (A–F + SA-1..7 + ML 0–6 + L5)
+          │
+          ├── D8 NAT traversal DONE
+          │
+          ├── D9 dedicated server:
+          │     ├── SPF-1/2a/3 DONE
+          │     ├── R-1/2/3 DONE
+          │     ├── R-4 protocol DONE (S143 + S253)
+          │     ├── R-5 server GUI redesign — PLANNED
+          │     └── → D16 master server (post content tools)
+          │
+          ├── D5 Phase 3 DONE; Phase 4 partial; Phase 5 planned
+          │
+          ├── D13 update system DONE (S245 FIX-F)
+          │
+          ├── D14b mod distribution DONE (D3R-9/10 + A-7 + S-9)
+          │
+          ├── D15:
+          │     ├── Skin Editor DONE (S-1..S-9)
+          │     ├── Map Import Pipeline DONE (L3)
+          │     └── Level Editor — PLANNED (v0.5.0 / v1.0.0)
+          │
+          └── D-MEM: M0/M1 + MEM-1/2/3 DONE; M2–M6 not started
+
+PLANNED (by release target):
+  v0.1.0 "Foundation"  ── D5 Phase 4 / 5 finish, B-141 audio root cause
+  v0.2.0 "Connected"   ── B-12 Phase 3, R-5 server GUI, stats wire-in
+  v0.3.0 "Community"   ── L-5 Campaign/Counter-Op setup, L-6 drop-in
+  v0.4.0 "Federation"  ── D16 master server, mesh networking
+  v0.5.0 "Studio"      ── D15 level editor (Forge)
+  v0.6.0 "Spectacle"   ── D14a Counter-Op mode, D10 spectator, D12 co-op polish
+  v1.0.0 "Release"     ── D6 stats, D7 Discord, accessibility, audio polish
 ```
+
+See [roadmap.md](roadmap.md) for release milestones.
