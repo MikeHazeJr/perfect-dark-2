@@ -1079,14 +1079,19 @@ static void smokeOfflineBuildArena(const asset_entry_t *entry, void *userdata)
 	/* Offline build: zero declared pads, use current geometry state.
 	 * This exercises L2-L4 fallback paths and confirms the guarantee holds.
 	 * Results are labelled 'O' (offline) in the CSV. */
-	saved_nsp = g_NumSpawnPoints;
-	g_NumSpawnPoints = 0;
+	{
+		bool saved_ready = s_PoolReady;
 
-	t0 = clock();
-	spawnPoolBuild(&scratch, id, 0x5EC0BE45u, SPAWNPOOL_MAX); /* offline test seed */
-	ms = (u32)(((clock() - t0) * 1000u) / (u32)CLOCKS_PER_SEC);
+		saved_nsp = g_NumSpawnPoints;
+		g_NumSpawnPoints = 0;
 
-	g_NumSpawnPoints = saved_nsp;
+		t0 = clock();
+		spawnPoolBuild(&scratch, id, 0x5EC0BE45u, SPAWNPOOL_MAX); /* offline test seed */
+		ms = (u32)(((clock() - t0) * 1000u) / (u32)CLOCKS_PER_SEC);
+
+		g_NumSpawnPoints = saved_nsp;
+		s_PoolReady = saved_ready; /* offline build must not affect global pool flag */
+	}
 
 	smokeLogRecord(id, SPAWNPOOL_MAX, scratch.count, scratch.max_layer_used,
 	               SMOKE_SRC_OFFLINE, ms);
