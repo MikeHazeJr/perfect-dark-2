@@ -16,6 +16,22 @@
 
 ---
 
+## Input Authority & Menu Pool (ADR 2026-04-13)
+
+ADR: `context/designs/input-authority-and-menu-pool-2026-04-13.md`
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **Phase 1: gameplay-input authority predicate** | DONE (S250) | `gameplayInputSuppressed()` in inputctx.c — authoritative truth-source for "can gameplay actions be read now?" Covers context-stack top, window-focus lost, and 50 ms focus-regain settle window. Declared in `inputctx.h`, used by actionmap dispatch + read API. |
+| **Phase 1: dispatch-site gate (`fireVk`)** | DONE (S250) | `fireVk()` now skips `g_ImcGameplay` + `g_ImcVehicle` when predicate is true. Ctrl+V in Online window no longer writes `ACTION_JUMP` into `s_State`. |
+| **Phase 1: read-site gates (query API)** | DONE (S250) | `actionPressed/Held/Released/Value/Axis` early-return zero when suppressed AND action is gameplay-only (`actionIsGameplayOnly`). Shared actions (`ACTION_USE`, `ACTION_CANCEL_USE`, `ACTION_PAUSE`, menu nav, system hotkeys) stay readable. |
+| **Phase 1: gameplay-state flush on menu open** | DONE (S250) | `actionmapFlushGameplayState()` called from `inputCtxPush()` (fresh + resurrect paths) and on focus-lost/regain. Held keys synthesise a clean released edge so consumers see the transition. |
+| **Phase 1: SDL window focus wiring** | DONE (S250) | `gfx_sdl2.cpp` handles `SDL_WINDOWEVENT_FOCUS_LOST/GAINED` → `inputCtxNotifyFocus(0/1)`. Alt-tab flushes; regain starts 50 ms settle window. |
+| **Phase 1: playtest verify** | **Mike: verify** | Acceptance matrix in session S250 log. Key cases: Ctrl+V in Online window (no jump), hold W → open menu → close (no residual walk), alt-tab with W held (no walk on regain until re-press). |
+| **Phase 2: menu pool single-instance discipline** | QUEUED — own session | Pre-allocated menu-instance slots keyed by type. Open = populate + activate; close = deactivate + clear state. Duplicate-push becomes structurally impossible. Also resolves the shared-action leak (bondmove reading `ACTION_USE` while menu owns A). Scope: `src/game/menu.c`, `port/fast3d/pdgui_backend.cpp`, possibly new `port/src/menupool.c`. See ADR §6. |
+
+---
+
 
 ## Mod Map Import Pipeline (L3)
 

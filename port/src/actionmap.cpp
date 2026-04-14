@@ -422,9 +422,21 @@ static void fireVk(u32 vk, s32 is_down)
 
     s32 player = playerForVk(vk);
 
+    /* Dispatch-site gate (ADR 2026-04-13): when gameplay input is suppressed
+     * (non-gameplay context on top, focus lost, or focus-regain settle window),
+     * skip the gameplay + vehicle IMCs entirely. Any VK bound only there —
+     * like Ctrl→ACTION_JUMP — will fall through without writing s_State, so
+     * a Ctrl+V in the Online-window menu no longer makes the background
+     * player jump. Read-site gates in the query API are a defence in depth. */
+    s32 suppressGameplay = gameplayInputSuppressed();
+
     /* Walk contexts from highest priority to lowest */
     for (s32 ci = 0; ci < s_NumActive; ci++) {
         InputMappingContext *ctx = s_Active[ci];
+
+        if (suppressGameplay && (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle)) {
+            continue;
+        }
 
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             if (!ctx->has_mapping[a]) {
@@ -763,9 +775,13 @@ void actionmapPollFrame(void)
     /* B-124 fix (Bug D): When a menu context is active, zero all gameplay
      * axes and skip SDL stick polling entirely. The input context stack
      * blocks SDL EVENTS, but analog stick polling bypasses the event system
-     * — without this check the right stick moves the camera behind the menu. */
+     * — without this check the right stick moves the camera behind the menu.
+     *
+     * ADR 2026-04-13: broadened the trigger from "menu active" to the
+     * authority predicate gameplayInputSuppressed(), which also covers
+     * window-focus-lost and the focus-regain settle window. */
     InputContext *topCtx = inputCtxGetTop();
-    s32 menuActive = (topCtx && topCtx != &g_CtxGameplay) ? 1 : 0;
+    s32 menuActive = gameplayInputSuppressed();
 
     /* DIAG: Log context and active IMCs every ~120 frames (verbose-only). */
     if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1) {
@@ -972,6 +988,66 @@ void actionmapEndFrame(void)
 }
 
 /* ============================================================
+ * Input authority: classification + flush helpers
+ *
+ * See context/designs/input-authority-and-menu-pool-2026-04-13.md.
+ * ============================================================ */
+
+s32 actionIsGameplayOnly(InputAction a)
+{
+    if (a < 0 || a >= ACTION_COUNT) {
+        return 0;
+    }
+
+    /* Menu navigation — explicitly owned by the menu layer. */
+    if (a >= ACTION_MENU_UP && a <= ACTION_MENU_TAB_NEXT) {
+        return 0;
+    }
+
+    /* Shared / system actions: menus legitimately consume these too.
+     * (ACTION_USE and ACTION_CANCEL_USE alias ACTION_MENU_ACCEPT/CANCEL.) */
+    switch (a) {
+    case ACTION_USE:
+    case ACTION_CANCEL_USE:
+    case ACTION_PAUSE:
+    case ACTION_SCREENSHOT:
+    case ACTION_CONSOLE_TOGGLE:
+    case ACTION_DEBUG_TOGGLE:
+    case ACTION_CHEAT_ENTER:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+void actionmapFlushGameplayState(void)
+{
+    /* Zero every gameplay-only action's state across all players. Issues a
+     * synthetic "released" edge so any consumer that latched on press sees a
+     * corresponding release. */
+    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
+        for (s32 a = 0; a < ACTION_COUNT; a++) {
+            if (!actionIsGameplayOnly((InputAction)a)) {
+                continue;
+            }
+            ActionState *st = &s_State[p][a];
+            s32 wasHeld = st->held;
+            st->held     = 0;
+            st->pressed  = 0;
+            st->released = wasHeld ? 1 : st->released;
+            st->value    = 0.0f;
+        }
+        /* Stick threshold bookkeeping: clear latched digital-from-axis state so
+         * that when gameplay resumes, a subsequent axis below threshold does
+         * NOT fire a spurious release (which could be consumed by a menu
+         * handler as e.g. MOVE_LEFT toggling off). */
+        for (s32 i = 0; i < 10; i++) {
+            s_StickHeld[p][i] = 0;
+        }
+    }
+}
+
+/* ============================================================
  * Public: query API (5 functions)
  * ============================================================ */
 
@@ -979,6 +1055,10 @@ s32 actionPressed(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
+    /* Input-authority gate (ADR §3.2): gameplay-only actions do not read
+     * while gameplay is not authoritative (menu on top, focus lost, or
+     * focus-regain settle window). */
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
     return s_State[player][action].pressed;
 }
 
@@ -986,6 +1066,7 @@ s32 actionHeld(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
     return s_State[player][action].held;
 }
 
@@ -993,6 +1074,7 @@ s32 actionReleased(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
     return s_State[player][action].released;
 }
 
@@ -1000,6 +1082,7 @@ f32 actionValue(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
     return s_State[player][action].value;
 }
 
@@ -1011,6 +1094,9 @@ void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y)
 
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
+
+    /* Gate axis reads: every axis pair is gameplay-scope (MOVE, AIM). */
+    if (gameplayInputSuppressed()) return;
 
     /* Axis-pair actions: return both components */
     if (action == ACTION_AXIS_MOVE_X || action == ACTION_AXIS_MOVE_Y) {

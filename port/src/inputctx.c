@@ -28,6 +28,19 @@ static s32 s_Depth = 0;
 
 static s32 s_GamePaused = 0;
 
+/* ---- Window focus tracking (ADR 2026-04-13) ----
+ *
+ * s_WindowFocusLost is set by the SDL backend on WINDOWEVENT_FOCUS_LOST and
+ * cleared on WINDOWEVENT_FOCUS_GAINED.  s_FocusRegainTick captures the ms
+ * timestamp of the regain so we can impose an INPUTCTX_FOCUS_SETTLE_MS
+ * quiet window during which gameplay-input reads return suppressed.
+ *
+ * Why: SDL repeats held keys on focus regain as if they were fresh presses.
+ * Without a settle window, alt-tab → click-back would replay W as "just
+ * pressed" and move the player. Users must release + re-press to count. */
+static s32 s_WindowFocusLost = 0;
+static u32 s_FocusRegainTick = 0;
+
 /* ---- Stack API ---- */
 
 void inputCtxInit(void)
@@ -35,6 +48,8 @@ void inputCtxInit(void)
     memset(s_Stack, 0, sizeof(s_Stack));
     s_Depth = 0;
     s_GamePaused = 0;
+    s_WindowFocusLost = 0;
+    s_FocusRegainTick = 0;
     sysLogPrintf(LOG_NOTE, "INPUTCTX: initialized");
 }
 
@@ -88,6 +103,12 @@ void inputCtxPush(InputContext *ctx)
                 ctx->marked_for_removal = 0;
                 ctx->push_tick = SDL_GetTicks();
                 inputCtxSyncMouseMode();
+                /* Resurrecting a non-gameplay context: flush gameplay state
+                 * again — we may have been in gameplay briefly between the
+                 * deferred pop and the resurrect push. See ADR §3. */
+                if (ctx != &g_CtxGameplay) {
+                    actionmapFlushGameplayState();
+                }
                 sysLogPrintf(LOG_NOTE,
                     "INPUTCTX: push on marked '%s' at depth %d — un-marked for removal (resurrect)",
                     ctx->name ? ctx->name : "?", i);
@@ -108,6 +129,14 @@ void inputCtxPush(InputContext *ctx)
 
     if (ctx->on_push) {
         ctx->on_push(ctx);
+    }
+
+    /* Non-gameplay push: synthesise key-up for every held gameplay action.
+     * Without this, W held at menu-open would remain "held" in s_State and
+     * bondmove would see the player walking once the menu closed. See ADR
+     * context/designs/input-authority-and-menu-pool-2026-04-13.md §3. */
+    if (ctx != &g_CtxGameplay) {
+        actionmapFlushGameplayState();
     }
 
     sysLogPrintf(LOG_NOTE, "INPUTCTX: pushed '%s' (depth now %d)",
@@ -333,6 +362,67 @@ void inputCtxSyncMouseMode(void)
                          top->name ? top->name : "?");
         }
     }
+}
+
+/* ---- Focus tracking + gameplay-input authority predicate (ADR 2026-04-13) ---- */
+
+void inputCtxNotifyFocus(s32 gained)
+{
+    if (gained) {
+        if (s_WindowFocusLost) {
+            s_WindowFocusLost = 0;
+            s_FocusRegainTick = SDL_GetTicks();
+            /* On focus regain, flush gameplay state so held keys from
+             * before alt-tab don't stick. SDL will re-send KEYDOWN for
+             * anything physically still held; the user sees a brief
+             * settle window (INPUTCTX_FOCUS_SETTLE_MS) during which
+             * gameplay actions are suppressed. */
+            actionmapFlushGameplayState();
+            sysLogPrintf(LOG_NOTE, "INPUTCTX: focus GAINED — flushed gameplay, settle %dms",
+                         INPUTCTX_FOCUS_SETTLE_MS);
+        }
+    } else {
+        if (!s_WindowFocusLost) {
+            s_WindowFocusLost = 1;
+            /* Focus lost: flush now. If we held W when alt-tabbing, we
+             * must not continue walking forward while the window is
+             * backgrounded (and SDL may never deliver the KEYUP). */
+            actionmapFlushGameplayState();
+            sysLogPrintf(LOG_NOTE, "INPUTCTX: focus LOST — flushed gameplay state");
+        }
+    }
+}
+
+s32 inputCtxIsFocusLost(void)
+{
+    return s_WindowFocusLost;
+}
+
+s32 gameplayInputSuppressed(void)
+{
+    /* (a) non-gameplay context on top */
+    InputContext *top = inputCtxGetTop();
+    if (top && top != &g_CtxGameplay) {
+        return 1;
+    }
+
+    /* (b) window focus currently lost */
+    if (s_WindowFocusLost) {
+        return 1;
+    }
+
+    /* (c) focus regained but still inside settle window */
+    if (s_FocusRegainTick != 0) {
+        u32 now = SDL_GetTicks();
+        u32 elapsed = now - s_FocusRegainTick;
+        if (elapsed < INPUTCTX_FOCUS_SETTLE_MS) {
+            return 1;
+        }
+        /* Settle expired — clear so we don't keep doing subtraction. */
+        s_FocusRegainTick = 0;
+    }
+
+    return 0;
 }
 
 /* ======================================================================

@@ -3,6 +3,72 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S250 — 2026-04-13 (Input authority: gameplay-input suppression predicate + focus handling)
+
+**Focus**: 2026-04-13 playtest surfaced Ctrl+V in the main menu's Online-window jumping the background player (Ctrl is bound to `ACTION_JUMP` in the gameplay IMC). Phase 1 of the input-authority-and-menu-pool ADR: add a single truth-source predicate and short-circuit gameplay input reading at the source; Phase 2 (menu pool single-instance discipline) queued for a dedicated follow-up session.
+
+Branch: `claude/happy-hofstadter` (worktree), dev tip `6f562beb` at session start.
+
+### Architecture decision (ADR)
+
+`context/designs/input-authority-and-menu-pool-2026-04-13.md` — 8-section ADR covering both problems: (A) input bleed-through, (B) menu pool single-instance discipline. Phase 1 implements the predicate + read-site gates + focus handling. Phase 2 (menu pool) scoped but not started.
+
+### Phase 1 implementation (defense-in-depth)
+
+**New predicate** `gameplayInputSuppressed()` (in `port/src/inputctx.c`, declared in `inputctx.h`) — authoritatively `1` when ANY of: (a) top context != `&g_CtxGameplay`, (b) window focus is currently lost, (c) focus regained but still inside the `INPUTCTX_FOCUS_SETTLE_MS` (50 ms) settle window.
+
+**Classification helper** `actionIsGameplayOnly(InputAction a)` in `port/src/actionmap.cpp` — returns 1 for gameplay movement/aim/combat/weapon/vehicle/dpad/cbutton; returns 0 for `ACTION_MENU_*`, `ACTION_USE`, `ACTION_CANCEL_USE`, `ACTION_PAUSE`, and the system hotkey group. Shared actions intentionally stay readable so menu consumers and pause still work. (Known leak: background-bondmove reading ACTION_USE when menu is open — flagged as Phase 2 scope.)
+
+**Gameplay-state flush** `actionmapFlushGameplayState()` — zeroes `s_State` for all gameplay-only actions across all 4 players, synthesises a falling edge for keys that were held so consumers see a clean release. Called from:
+
+1. `inputCtxPush()` (fresh push AND resurrect of a marked-for-removal context) when `ctx != &g_CtxGameplay` — "menu open → stop walking" semantics.
+2. `inputCtxNotifyFocus(0)` — alt-tab out flushes immediately (SDL may never deliver KEYUPs while backgrounded).
+3. `inputCtxNotifyFocus(1)` — on regain, flush + stamp `s_FocusRegainTick` so the 50 ms settle window suppresses SDL auto-repeat replays.
+
+**Dispatch-site gate** — `fireVk()` in `actionmap.cpp` skips `g_ImcGameplay` and `g_ImcVehicle` when `gameplayInputSuppressed()` is true. Ctrl+V in the Online window now walks past the gameplay IMC entirely, so `ACTION_JUMP` is never written into `s_State`.
+
+**Read-site gates** — `actionPressed/Held/Released/Value/Axis` in `actionmap.cpp` early-return `0` / `0.0f` / zero-out-axis when `gameplayInputSuppressed() && actionIsGameplayOnly(action)`. Defence-in-depth against any future dispatch-site regression.
+
+**SDL window focus wiring** — `port/fast3d/gfx_sdl2.cpp` now handles `SDL_WINDOWEVENT_FOCUS_LOST` → `inputCtxNotifyFocus(0)` and `SDL_WINDOWEVENT_FOCUS_GAINED` → `inputCtxNotifyFocus(1)`, alongside the existing SIZE_CHANGED and CLOSE handlers.
+
+**Existing gate reused** — `actionmapPollFrame()` already gated SDL analog stick polling on `menuActive` (B-124d, S188). The predicate was widened from `(topCtx && topCtx != &g_CtxGameplay)` to the full `gameplayInputSuppressed()` so sticks are also zeroed on focus-lost + the settle window.
+
+### Files touched
+
+- `port/include/inputctx.h` — declare `gameplayInputSuppressed()`, `inputCtxNotifyFocus()`, `inputCtxIsFocusLost()`, `INPUTCTX_FOCUS_SETTLE_MS`.
+- `port/src/inputctx.c` — `s_WindowFocusLost` + `s_FocusRegainTick` state; focus-notify + predicate implementations; flush call on non-gameplay push (fresh + resurrect).
+- `port/include/actionmap.h` — declare `actionmapFlushGameplayState()` + `actionIsGameplayOnly()`.
+- `port/src/actionmap.cpp` — both helper bodies; dispatch-site gate in `fireVk()`; read-site gates in `actionPressed/Held/Released/Value/Axis`; `actionmapPollFrame()` now uses the predicate.
+- `port/fast3d/gfx_sdl2.cpp` — focus-lost / focus-gained window-event wiring.
+- `context/designs/input-authority-and-menu-pool-2026-04-13.md` — ADR.
+- `context/bugs.md` — `B-140` audio skips/pauses logged (2026-04-13 playtest).
+
+### Acceptance matrix (Phase 1 intent)
+
+| Scenario                                                              | Expected                                                                   |
+|-----------------------------------------------------------------------|----------------------------------------------------------------------------|
+| Hold LCTRL inside an ImGui menu (Ctrl+V in Online window)             | Background player does NOT jump. Dispatch gate blocks gameplay IMC.        |
+| Hold SPACE while any menu is on top                                   | No jump. Read-site gate returns 0 for `ACTION_JUMP`.                       |
+| Hold W during menu open → menu close                                  | Player stationary on resume; must re-press W. Flush on push released held. |
+| Alt-tab out while holding W → alt-tab back                            | Player stationary on regain until W released + re-pressed (50 ms settle).  |
+| `ACTION_USE` / `ACTION_PAUSE` while menu on top                       | Still readable — shared actions excluded from gameplay-only classification. |
+
+### Phase 2 (deferred — own session)
+
+Menu pool single-instance discipline: pre-allocated slots keyed by menu type; open = populate + activate; close = deactivate + clear. Duplicate-push becomes structurally impossible. Also resolves the shared-action leak (background-bondmove reading `ACTION_USE` while menu owns the A button) with a per-scope action-state partition. Scope: `src/game/menu.c`, `port/fast3d/pdgui_backend.cpp`, potentially a new `port/src/menupool.c`.
+
+### Bugs logged
+
+- `B-140` MED — Audio skips / pauses intermittently. Not reproducible on demand. Need profiling of the SDL audio callback under verbose logging during repro.
+
+### Next
+
+- Phase 2 menu-pool refactor (dedicated session).
+- Playtest confirmation of the acceptance matrix.
+- Investigate `B-140` audio skips when a repro emerges.
+
+---
+
 ## Session S248 — 2026-04-13 (Playtest stabilization: mod persistence, room name, countdown, songs sort)
 
 **Focus**: Six fixes from Mike's 2026-04-13 solo + Chicago multiplayer playtest. Plus Songs list F-2.1 sort/categorize upgrade.

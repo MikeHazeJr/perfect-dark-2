@@ -206,6 +206,24 @@ void actionmapPollFrame(void);
  *  Call at the end of each frame (after all consumers have queried). */
 void actionmapEndFrame(void);
 
+/** Flush (zero) all per-player state for gameplay-only actions.
+ *
+ *  Called by inputctx on non-gameplay context push (menu open) and by the
+ *  SDL focus-lost handler. Leaves menu/shared actions (ACTION_MENU_*,
+ *  ACTION_USE/_CANCEL_USE, ACTION_PAUSE, system) intact so the menu layer
+ *  retains its authoritative state. Part of the input-authority predicate
+ *  (ADR context/designs/input-authority-and-menu-pool-2026-04-13.md).
+ */
+void actionmapFlushGameplayState(void);
+
+/** Classify an action as gameplay-only.
+ *  Returns 1 for pure gameplay actions (movement, combat, weapon, vehicle,
+ *  scorecard, aim, C-buttons, D-pad when mapped to gameplay, etc.).
+ *  Returns 0 for menu nav, ACTION_USE/_CANCEL_USE, ACTION_PAUSE, and the
+ *  system hotkey group (screenshot/console/debug/cheat).
+ */
+s32 actionIsGameplayOnly(InputAction a);
+
 /* ============================================================
  * Query API (5 functions)
  * ============================================================ */
