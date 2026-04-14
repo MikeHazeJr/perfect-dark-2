@@ -1255,6 +1255,9 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_ROOM_CREATE:      rc = netmsgClcRoomCreateRead(&cl->in, cl); break;
 			case CLC_ROOM_JOIN:        rc = netmsgClcRoomJoinRead(&cl->in, cl); break;
 			case CLC_ROOM_LEAVE:       rc = netmsgClcRoomLeaveRead(&cl->in, cl); break;
+			/* R-5: Room settings + playlist sync */
+			case CLC_ROOM_SETTINGS_UPDATE: rc = netmsgClcRoomSettingsUpdateRead(&cl->in, cl); break;
+			case CLC_ROOM_PLAYLIST_UPDATE: rc = netmsgClcRoomPlaylistUpdateRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
@@ -1341,6 +1344,9 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
+			/* R-5: Room settings + playlist sync */
+			case SVC_ROOM_SETTINGS:    rc = netmsgSvcRoomSettingsRead(&cl->in, cl); break;
+			case SVC_ROOM_PLAYLIST:    rc = netmsgSvcRoomPlaylistRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
 			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;

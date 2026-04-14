@@ -1187,6 +1187,13 @@ void pdguiThemeLoaderShutdown(void)
     s_LoaderInitDone = 0;
 }
 
+/** Issue 2/8: Rescan mods/ for new theme.json files after modmgrApplyChanges().
+ *  Bypasses the s_LoaderInitDone gate — safe to call after init is complete. */
+void pdguiThemeRescanMods(void)
+{
+    scan_mods_for_themes();
+}
+
 s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
 {
     if (!catalog_id || !catalog_id[0]) return 0;

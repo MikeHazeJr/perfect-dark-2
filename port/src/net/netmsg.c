@@ -5922,3 +5922,283 @@ u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl)
 
 	return src->error;
 }
+
+/* ========================================================================
+ * R-5: Room settings + playlist sync (protocol v35 additive)
+ *
+ * SVC_ROOM_SETTINGS  0x78  server→room: match settings changed by leader
+ * SVC_ROOM_PLAYLIST  0x79  server→room: mod playlist changed by leader
+ * CLC_ROOM_SETTINGS_UPDATE 0x13  leader→server: push current match settings
+ * CLC_ROOM_PLAYLIST_UPDATE 0x14  leader→server: push current mod playlist
+ *
+ * Wire format for settings payload (shared between SVC and CLC):
+ *   numBots       u8
+ *   timelimit     u8
+ *   scorelimit    u8
+ *   teamscorelimit u16
+ *   options       u32
+ *   scenario      u8
+ *   weaponSetIdx  u8  (0xFF = custom)
+ *   stage_id      str
+ *
+ * Wire format for playlist payload:
+ *   playlist_str  str  (semicolon-delimited catalog IDs)
+ * ======================================================================== */
+
+/* ---- SVC_ROOM_SETTINGS ---- */
+
+u32 netmsgSvcRoomSettingsWrite(struct netbuf *dst, u8 numBots, u8 timelimit,
+                                u8 scorelimit, u16 teamscorelimit, u32 options,
+                                u8 scenario, u8 weaponSetIndex, const char *stage_id)
+{
+	netbufWriteU8(dst, SVC_ROOM_SETTINGS);
+	netbufWriteU8(dst, numBots);
+	netbufWriteU8(dst, timelimit);
+	netbufWriteU8(dst, scorelimit);
+	netbufWriteU16(dst, teamscorelimit);
+	netbufWriteU32(dst, options);
+	netbufWriteU8(dst, scenario);
+	netbufWriteU8(dst, weaponSetIndex);
+	netbufWriteStr(dst, stage_id ? stage_id : "");
+	return dst->error;
+}
+
+u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8  numBots        = netbufReadU8(src);
+	u8  timelimit      = netbufReadU8(src);
+	u8  scorelimit     = netbufReadU8(src);
+	u16 teamscorelimit = netbufReadU16(src);
+	u32 options        = netbufReadU32(src);
+	u8  scenario       = netbufReadU8(src);
+	u8  weaponSetIndex = netbufReadU8(src);
+	const char *stage_id = netbufReadStr(src);
+	if (src->error) return src->error;
+
+#if !defined(PD_SERVER)
+	/* Apply to local g_MatchConfig shadow so the room UI reflects host changes. */
+	g_MatchConfig.timelimit      = timelimit;
+	g_MatchConfig.scorelimit     = scorelimit;
+	g_MatchConfig.teamscorelimit = teamscorelimit;
+	g_MatchConfig.options        = options;
+	g_MatchConfig.scenario       = scenario;
+	g_MatchConfig.weaponSetIndex = (s8)weaponSetIndex;
+	if (stage_id && stage_id[0]) {
+		snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", stage_id);
+	}
+
+	/* Rebuild slot array to match numBots.
+	 * Slot 0 = local player, slots 1..numBots = bots (defaults only —
+	 * full per-bot config is deferred to R-4 CLC_ROOM_SETTINGS). */
+	s32 clampedBots = (s32)numBots;
+	if (clampedBots > MATCH_MAX_SLOTS - 1) clampedBots = MATCH_MAX_SLOTS - 1;
+	g_MatchConfig.numSlots = (u8)(1 + clampedBots);
+	g_MatchConfig.slots[0].type = SLOT_PLAYER;
+	for (s32 i = 1; i <= clampedBots; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_EMPTY) {
+			g_MatchConfig.slots[i].type          = SLOT_BOT;
+			g_MatchConfig.slots[i].botDifficulty = 2; /* NormalSim */
+			g_MatchConfig.slots[i].name[0]       = '\0';
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+	    "NET: SVC_ROOM_SETTINGS: numBots=%u tl=%u sc=%u opts=0x%08x wpn=%u stage='%s'",
+	    numBots, timelimit, scorelimit, options, weaponSetIndex,
+	    stage_id ? stage_id : "");
+#else
+	(void)numBots; (void)timelimit; (void)scorelimit; (void)teamscorelimit;
+	(void)options; (void)scenario; (void)weaponSetIndex; (void)stage_id;
+#endif
+	return src->error;
+}
+
+/* ---- SVC_ROOM_PLAYLIST ---- */
+
+u32 netmsgSvcRoomPlaylistWrite(struct netbuf *dst, const char *playlist_str)
+{
+	netbufWriteU8(dst, SVC_ROOM_PLAYLIST);
+	netbufWriteStr(dst, playlist_str ? playlist_str : "");
+	return dst->error;
+}
+
+u32 netmsgSvcRoomPlaylistRead(struct netbuf *src, struct netclient *srccl)
+{
+	const char *pl = netbufReadStr(src);
+	if (src->error) return src->error;
+
+#if !defined(PD_SERVER)
+	audioClearModPlaylist();
+	if (pl && pl[0]) {
+		/* pl is semicolon-delimited: "mod:track1;mod:track2;..." */
+		char buf[AUDIO_MAX_PLAYLIST * 65];
+		snprintf(buf, sizeof(buf), "%s", pl);
+		char *tok = strtok(buf, ";");
+		while (tok) {
+			audioAddModPlaylistEntry(tok);
+			tok = strtok(NULL, ";");
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_PLAYLIST: %d tracks loaded",
+	             audioGetModPlaylistCount());
+#else
+	(void)pl;
+#endif
+	return src->error;
+}
+
+/* ---- CLC_ROOM_SETTINGS_UPDATE ---- */
+
+u32 netmsgClcRoomSettingsUpdateWrite(struct netbuf *dst, u8 numBots, u8 timelimit,
+                                      u8 scorelimit, u16 teamscorelimit, u32 options,
+                                      u8 scenario, u8 weaponSetIndex, const char *stage_id)
+{
+	netbufWriteU8(dst, CLC_ROOM_SETTINGS_UPDATE);
+	netbufWriteU8(dst, numBots);
+	netbufWriteU8(dst, timelimit);
+	netbufWriteU8(dst, scorelimit);
+	netbufWriteU16(dst, teamscorelimit);
+	netbufWriteU32(dst, options);
+	netbufWriteU8(dst, scenario);
+	netbufWriteU8(dst, weaponSetIndex);
+	netbufWriteStr(dst, stage_id ? stage_id : "");
+	return dst->error;
+}
+
+u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8  numBots        = netbufReadU8(src);
+	u8  timelimit      = netbufReadU8(src);
+	u8  scorelimit     = netbufReadU8(src);
+	u16 teamscorelimit = netbufReadU16(src);
+	u32 options        = netbufReadU32(src);
+	u8  scenario       = netbufReadU8(src);
+	u8  weaponSetIndex = netbufReadU8(src);
+	const char *stage_id = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	/* Only the room creator (leader) may push settings. */
+	if (srccl->room_id == 0xFF) return src->error;
+	hub_room_t *room = roomGetById(srccl->room_id);
+	if (!room || room->creator_client_id != srccl->id) {
+		sysLogPrintf(LOG_NOTE,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from non-leader %u — ignored", srccl->id);
+		return src->error;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+	    "NET: CLC_ROOM_SETTINGS_UPDATE from leader %u: numBots=%u stage='%s'",
+	    srccl->id, numBots, stage_id ? stage_id : "");
+
+	/* Rebroadcast as SVC_ROOM_SETTINGS to all other room members. */
+	u8 bcastData[256];
+	struct netbuf bcast;
+	bcast.data = bcastData;
+	bcast.size = sizeof(bcastData);
+	netbufStartWrite(&bcast);
+	netmsgSvcRoomSettingsWrite(&bcast, numBots, timelimit, scorelimit,
+	                           teamscorelimit, options, scenario,
+	                           weaponSetIndex, stage_id);
+
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		struct netclient *ncl = &g_NetClients[ci];
+		if (ncl == srccl) continue;
+		if (ncl->state < CLSTATE_LOBBY) continue;
+		if (ncl->room_id != srccl->room_id) continue;
+		netSend(ncl, &bcast, true, NETCHAN_CONTROL);
+	}
+
+	return src->error;
+}
+
+/* ---- CLC_ROOM_PLAYLIST_UPDATE ---- */
+
+u32 netmsgClcRoomPlaylistUpdateWrite(struct netbuf *dst, const char *playlist_str)
+{
+	netbufWriteU8(dst, CLC_ROOM_PLAYLIST_UPDATE);
+	netbufWriteStr(dst, playlist_str ? playlist_str : "");
+	return dst->error;
+}
+
+u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
+{
+	const char *pl = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	if (srccl->room_id == 0xFF) return src->error;
+	hub_room_t *room = roomGetById(srccl->room_id);
+	if (!room || room->creator_client_id != srccl->id) return src->error;
+
+	sysLogPrintf(LOG_NOTE,
+	    "NET: CLC_ROOM_PLAYLIST_UPDATE from leader %u — rebroadcasting", srccl->id);
+
+	u8 bcastData[AUDIO_MAX_PLAYLIST * 65 + 4];
+	struct netbuf bcast;
+	bcast.data = bcastData;
+	bcast.size = sizeof(bcastData);
+	netbufStartWrite(&bcast);
+	netmsgSvcRoomPlaylistWrite(&bcast, pl);
+
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		struct netclient *ncl = &g_NetClients[ci];
+		if (ncl == srccl) continue;
+		if (ncl->state < CLSTATE_LOBBY) continue;
+		if (ncl->room_id != srccl->room_id) continue;
+		netSend(ncl, &bcast, true, NETCHAN_CONTROL);
+	}
+
+	return src->error;
+}
+
+/* ---- Convenience senders (called from C++ room screen / audio layer) ---- */
+
+void netSendRoomSettingsUpdate(void)
+{
+	if (g_NetMode != NETMODE_CLIENT) return;
+
+	u8 numBots = 0;
+	for (s32 i = 1; i < g_MatchConfig.numSlots; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_BOT) numBots++;
+	}
+	u8 wpnIdx = (g_MatchConfig.weaponSetIndex >= 0)
+	            ? (u8)g_MatchConfig.weaponSetIndex : 0xFF;
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgClcRoomSettingsUpdateWrite(
+	    &g_NetMsgRel, numBots,
+	    g_MatchConfig.timelimit, g_MatchConfig.scorelimit,
+	    g_MatchConfig.teamscorelimit, g_MatchConfig.options,
+	    g_MatchConfig.scenario, wpnIdx, g_MatchConfig.stage_id);
+	netSend(g_NetLocalServer, &g_NetMsgRel, true, NETCHAN_CONTROL);
+}
+
+void netSendRoomPlaylistUpdate(void)
+{
+	if (g_NetMode != NETMODE_CLIENT) return;
+
+	/* Serialize current playlist to semicolon-delimited string. */
+	char pl[AUDIO_MAX_PLAYLIST * 65];
+	s32  pos = 0;
+	pl[0] = '\0';
+	s32 n = audioGetModPlaylistCount();
+	for (s32 i = 0; i < n; i++) {
+		const char *id = audioGetModPlaylistEntry(i);
+		if (!id || !id[0]) continue;
+		if (pos > 0 && pos < (s32)sizeof(pl) - 1) pl[pos++] = ';';
+		s32 left = (s32)sizeof(pl) - pos - 1;
+		if (left <= 0) break;
+		s32 len = (s32)strlen(id);
+		if (len > left) len = left;
+		memcpy(pl + pos, id, (size_t)len);
+		pos += len;
+	}
+	pl[pos] = '\0';
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgClcRoomPlaylistUpdateWrite(&g_NetMsgRel, pl);
+	netSend(g_NetLocalServer, &g_NetMsgRel, true, NETCHAN_CONTROL);
+}
