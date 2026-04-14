@@ -190,6 +190,36 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 ---
 
+## 2026-04-13 Playtest Stabilization (S248)
+
+> Source: Mike's solo playtest (mod issues) + Chicago multiplayer playtest.
+
+### Fixed This Session (S248)
+
+| ID | Title | Status | Detail |
+|----|-------|--------|--------|
+| **B-135** | base-ui mod shows [INVALID] — missing `"id"` field | **FIXED S248** | Added `"id": "base-ui"` to `mods/base-ui/mod.json`. |
+| **B-136** | All mods must be re-enabled every run | **FIXED S248** | `modmgrSaveConfig()` now called after each `modmgrSetEnabled()` in mod manager UI. |
+| **B-137** | Room screen shows static "Room" title | **FIXED S248** | Dynamic title from `g_RoomCache[g_LocalRoomId].name`; format "Room: <name>". |
+| **B-138** | Apply Changes always disabled; no unsaved-changes guard | **FIXED S248** | `modmgrIsDirty()` check added; "Unsaved Changes" modal on Close/Escape. |
+| **B-139** | Countdown 3-2-1 lingers on main menu after disconnect | **FIXED S248** | `pdguiCountdownReset()` called on mode→NONE in `pdgui_lobby.cpp`. |
+| **Songs F-2.1** | Select Tunes: TreeNodeEx + alpha sort on mod tracks | **DONE S248** | Both sections (Base Tracks / Mod Tracks) wrapped in collapsible `TreeNodeEx`. Mod tracks qsort by display_name. Note: PD/GE base track split deferred (no origin metadata in `mpGetTrackName`). |
+| **Weapons F-2.1** | Weapon Set: categorize Standard/Special/Mod | **DEFERRED** | `mpGetWeaponSetName()` is a flat game array with no origin metadata. Can't categorize without hardcoding. Re-evaluate when weapon catalog metadata is richer. |
+
+### Deferred (Next Session)
+
+| ID | Title | Notes |
+|----|-------|-------|
+| **Issue 2/8** | Custom themes + song mods don't appear in Settings/Combat Sim after Mods toggle | Requires unified `modmgrCatalogChanged()` consumer notifications. |
+| **Issue 4** | Airbase Start Match → no response (client sends but server never replies) | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
+| **Bug B** | Server countdown keeps running after room closes; fires into new room | Fix in `readyGateTickCountdown()` / `netmsg.c` — off-limits (parallel End Game crash session). |
+| **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
+| **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
+| **Issue 7** | Bot count / player count display doesn't update in room when host adjusts | Requires `SVC_ROOM_SETTINGS` broadcast from server. |
+| **B-140** | Mod music playlist: can't add tracks to playlist in-match; playlist may not sync to network clients | `renderSelectTunes` / `audioModPlaylist` + network sync path needs investigation. Reported 2026-04-13. |
+
+---
+
 ## Backlog (Post v0.1.0)
 
 | Item | Target | Detail |

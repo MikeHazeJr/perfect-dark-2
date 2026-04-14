@@ -50,6 +50,7 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -562,6 +563,16 @@ static void collectModMusicTrack(const asset_entry_t *entry, void *userdata)
     col->count++;
 }
 
+/* F-2.1-songs: alpha comparator for mod track sort */
+static int modTrackCompare(const void *a, const void *b)
+{
+    const ModTrackInfo *ta = (const ModTrackInfo *)a;
+    const ModTrackInfo *tb = (const ModTrackInfo *)b;
+    const char *na = ta->display_name ? ta->display_name : ta->catalog_id;
+    const char *nb = tb->display_name ? tb->display_name : tb->catalog_id;
+    return strcasecmp(na, nb);
+}
+
 static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 {
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_tunes",
@@ -595,9 +606,12 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
             shuffle ? "Random order each round" : "Sequential (jukebox mode)");
     }
 
-    /* Collect mod tracks for playlist display */
+    /* Collect mod tracks for playlist display, then alpha-sort (F-2.1-songs) */
     ModTrackCollector mc{};
     assetCatalogIterateByType(ASSET_AUDIO, collectModMusicTrack, &mc);
+    if (mc.count > 1) {
+        qsort(mc.tracks, mc.count, sizeof(ModTrackInfo), modTrackCompare);
+    }
 
     /* Selection count display */
     {
@@ -622,89 +636,96 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
     if (ImGui::BeginChild("##pdms_tunes_body", ImVec2(0, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* ---- Base game track rows ---- */
+        /* ---- Base game track rows (F-2.1-songs: collapsible) ---- */
         if (numTracks > 0) {
-            ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 0.8f), "Base Tracks");
-            ImGui::Spacing();
+            char baseHdr[48];
+            snprintf(baseHdr, sizeof(baseHdr), "Base Tracks (%d)", numTracks);
+            if (ImGui::TreeNodeEx(baseHdr, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Spacing();
+                for (int i = 0; i < numTracks; i++) {
+                    const char *name = mpGetTrackName(i);
+                    if (!name || !name[0]) name = "???";
+                    ImGui::PushID(i);
+
+                    if (multi) {
+                        bool enabled = mpIsMultiTrackSlotEnabled(i) != 0;
+                        ImGui::SetNextItemWidth(pdguiScale(22.0f));
+                        if (ImGui::Checkbox("##en", &enabled)) {
+                            list_SetClick(mpSelectTuneListHandler, 0, i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Selectable(name, false, 0,
+                                              ImVec2(0, pdguiScale(22.0f)))) {
+                            list_SetClick(mpSelectTuneListHandler, 0, i);
+                        }
+                    } else {
+                        bool isSel = (i == currentSingleSlot) &&
+                                     (audioGetModPlaylistCount() == 0);
+                        if (ImGui::Selectable(name, isSel, 0,
+                                              ImVec2(0, pdguiScale(22.0f)))) {
+                            list_SetClick(mpSelectTuneListHandler, 0, i);
+                            audioClearModPlaylist();
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                    }
+
+                    /* Hover preview */
+                    if (ImGui::IsItemHovered() && s_TunesHoverIdx != i) {
+                        s_TunesHoverIdx = i;
+                        list_Focus(mpSelectTuneListHandler, 0, i);
+                    }
+
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+            }
         }
 
-        for (int i = 0; i < numTracks; i++) {
-            const char *name = mpGetTrackName(i);
-            if (!name || !name[0]) name = "???";
-            ImGui::PushID(i);
-
-            if (multi) {
-                bool enabled = mpIsMultiTrackSlotEnabled(i) != 0;
-                ImGui::SetNextItemWidth(pdguiScale(22.0f));
-                if (ImGui::Checkbox("##en", &enabled)) {
-                    list_SetClick(mpSelectTuneListHandler, 0, i);
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                }
-                ImGui::SameLine();
-                if (ImGui::Selectable(name, false, 0,
-                                      ImVec2(0, pdguiScale(22.0f)))) {
-                    list_SetClick(mpSelectTuneListHandler, 0, i);
-                }
-            } else {
-                bool isSel = (i == currentSingleSlot) &&
-                             (audioGetModPlaylistCount() == 0);
-                if (ImGui::Selectable(name, isSel, 0,
-                                      ImVec2(0, pdguiScale(22.0f)))) {
-                    list_SetClick(mpSelectTuneListHandler, 0, i);
-                    audioClearModPlaylist();
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                }
-            }
-
-            /* Hover preview */
-            if (ImGui::IsItemHovered() && s_TunesHoverIdx != i) {
-                s_TunesHoverIdx = i;
-                list_Focus(mpSelectTuneListHandler, 0, i);
-            }
-
-            ImGui::PopID();
-        }
-
-        /* ---- Mod Tracks section (checklist for playlist) ---- */
+        /* ---- Mod Tracks section (F-2.1-songs: collapsible, alpha-sorted) ---- */
         if (mc.count > 0) {
             ImGui::Dummy(ImVec2(0, pdguiScale(6.0f)));
             ImGui::Separator();
             ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
 
-            ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 0.8f), "Mod Tracks");
-            ImGui::Spacing();
+            char modHdr[48];
+            snprintf(modHdr, sizeof(modHdr), "Mod Tracks (%d)", mc.count);
+            if (ImGui::TreeNodeEx(modHdr, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Spacing();
+                for (int m = 0; m < mc.count; m++) {
+                    const ModTrackInfo *t = &mc.tracks[m];
+                    ImGui::PushID(numTracks + 100 + m);
 
-            for (int m = 0; m < mc.count; m++) {
-                const ModTrackInfo *t = &mc.tracks[m];
-                ImGui::PushID(numTracks + 100 + m);
+                    bool inPlaylist = audioIsInModPlaylist(t->catalog_id) != 0;
+                    const char *dispName = t->display_name ? t->display_name : t->catalog_id;
 
-                bool inPlaylist = audioIsInModPlaylist(t->catalog_id) != 0;
-
-                /* Checkbox for playlist inclusion */
-                ImGui::SetNextItemWidth(pdguiScale(22.0f));
-                if (ImGui::Checkbox("##mod_pl", &inPlaylist)) {
-                    if (inPlaylist) {
-                        audioAddModPlaylistEntry(t->catalog_id);
-                    } else {
-                        audioRemoveModPlaylistEntry(t->catalog_id);
+                    /* Checkbox for playlist inclusion */
+                    ImGui::SetNextItemWidth(pdguiScale(22.0f));
+                    if (ImGui::Checkbox("##mod_pl", &inPlaylist)) {
+                        if (inPlaylist) {
+                            audioAddModPlaylistEntry(t->catalog_id);
+                        } else {
+                            audioRemoveModPlaylistEntry(t->catalog_id);
+                        }
+                        audioResetPlaylistIndex();
+                        pdguiPlaySound(PDGUI_SND_SELECT);
                     }
-                    audioResetPlaylistIndex();
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                }
-                ImGui::SameLine();
-                if (ImGui::Selectable(t->display_name, inPlaylist, 0,
-                                       ImVec2(0, pdguiScale(22.0f)))) {
-                    /* Click row body also toggles */
-                    if (inPlaylist) {
-                        audioRemoveModPlaylistEntry(t->catalog_id);
-                    } else {
-                        audioAddModPlaylistEntry(t->catalog_id);
+                    ImGui::SameLine();
+                    if (ImGui::Selectable(dispName, inPlaylist, 0,
+                                           ImVec2(0, pdguiScale(22.0f)))) {
+                        /* Click row body also toggles */
+                        if (inPlaylist) {
+                            audioRemoveModPlaylistEntry(t->catalog_id);
+                        } else {
+                            audioAddModPlaylistEntry(t->catalog_id);
+                        }
+                        audioResetPlaylistIndex();
+                        pdguiPlaySound(PDGUI_SND_SELECT);
                     }
-                    audioResetPlaylistIndex();
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                }
 
-                ImGui::PopID();
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
             }
         }
 

@@ -54,6 +54,7 @@ s32  modmgrExceedsThreshold(s32 index);
 s32  modmgrGetSizeThresholdMB(void);
 void modmgrSetSizeThresholdMB(s32 mb);
 void modmgrSaveConfig(void);
+s32  modmgrIsDirty(void);
 
 /* UI accessor helpers (no struct layout needed) */
 const char *modmgrGetModId(s32 index);
@@ -909,9 +910,11 @@ static void renderInstalledModsTab(float scale)
                     s_SizeConfirmIdx = i;
                 } else {
                     modmgrSetEnabled(i, 1);
+                    modmgrSaveConfig();   /* persist mod-level enable immediately */
                 }
             } else if (!en && enabled) {
                 modmgrSetEnabled(i, 0);
+                modmgrSaveConfig();       /* persist mod-level disable immediately */
             }
             pdguiPlaySound(en ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
         }
@@ -974,6 +977,7 @@ static void renderInstalledModsTab(float scale)
         ImGui::Separator();
         if (ImGui::Button("Yes, Enable", ImVec2(120 * scale, 0))) {
             modmgrSetEnabled(s_SizeConfirmIdx, 1);
+            modmgrSaveConfig();   /* persist mod-level enable immediately */
             ImGui::CloseCurrentPopup();
             pdguiPlaySound(PDGUI_SND_TOGGLEON);
         }
@@ -1143,13 +1147,16 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     /* Apply Changes */
     {
         char applyLabel[48];
+        bool modDirty = (modmgrIsDirty() != 0);
         if (pending > 0) {
             snprintf(applyLabel, sizeof(applyLabel), "Apply Changes (%d)", pending);
+        } else if (modDirty) {
+            strncpy(applyLabel, "Apply Changes*", sizeof(applyLabel));
         } else {
             strncpy(applyLabel, "Apply Changes", sizeof(applyLabel));
         }
 
-        bool applyDisabled = (pending == 0);
+        bool applyDisabled = (pending == 0 && !modDirty);
         if (applyDisabled) ImGui::BeginDisabled();
 
         if (ImGui::Button(applyLabel, ImVec2(160.0f * scale, 28.0f * scale))) {
@@ -1182,16 +1189,57 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
         ImVec4(0.55f, 0.10f, 0.10f, 0.70f));
     if (ImGui::Button("Close", ImVec2(70.0f * scale, 28.0f * scale))) {
-        *outClose = 1;
+        bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
+        if (hasDirty) {
+            ImGui::OpenPopup("Unsaved Changes");
+        } else {
+            *outClose = 1;
+        }
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
     ImGui::PopStyleColor(2);
 
-    /* B button / Escape also closes */
+    /* B button / Escape also closes — same guard */
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        *outClose = 1;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
+        if (hasDirty) {
+            ImGui::OpenPopup("Unsaved Changes");
+        } else {
+            *outClose = 1;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+    }
+
+    /* Unsaved Changes guard modal */
+    if (ImGui::BeginPopupModal("Unsaved Changes", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("You have unsaved changes.");
+        ImGui::TextUnformatted("Apply them now, or discard?");
+        ImGui::Spacing();
+        if (ImGui::Button("Apply & Close", ImVec2(120.0f * scale, 0))) {
+            for (int i = 0; i < s_NumEntries; i++) {
+                if (!s_Entries[i].bundled &&
+                    s_Entries[i].enabled != s_Entries[i].orig_enabled) {
+                    assetCatalogSetEnabled(s_Entries[i].id, s_Entries[i].enabled);
+                }
+            }
+            modmgrApplyChanges();
+            ImGui::CloseCurrentPopup();
+            *outClose = 1;
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard & Close", ImVec2(120.0f * scale, 0))) {
+            ImGui::CloseCurrentPopup();
+            *outClose = 1;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80.0f * scale, 0))) {
+            ImGui::CloseCurrentPopup();
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        ImGui::EndPopup();
     }
 
     /* Validation popup (modal) */

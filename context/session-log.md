@@ -3,6 +3,55 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S248 — 2026-04-13 (Playtest stabilization: mod persistence, room name, countdown, songs sort)
+
+**Focus**: Six fixes from Mike's 2026-04-13 solo + Chicago multiplayer playtest. Plus Songs list F-2.1 sort/categorize upgrade.
+
+### Fixes Landed
+
+**B-135 — base-ui [INVALID]**: `mods/base-ui/mod.json` was missing the `"id"` field. Added `"id": "base-ui"` as first field. Validator at `modmgr.c:427` now passes.
+
+**B-136 — Mod persistence**: All mods had to be re-enabled every run. Root cause: mod-level checkbox in `pdgui_menu_modmgr.cpp` called `modmgrSetEnabled()` but never `modmgrSaveConfig()`. The `modmgrApplyChanges()` path saves both, but the direct toggle bypassed it. Fixed by calling `modmgrSaveConfig()` immediately after each of three `modmgrSetEnabled()` call sites (enable, disable, size-confirm-modal).
+
+**B-137 — Room name title**: Room screen showed static "Room" regardless of which room the client was in. Added `#include "room.h"` in `pdgui_menu_room.cpp`; title now looks up `g_LocalRoomId` in `g_RoomCache` and shows "Room: <name>". Falls back to "Room" on cache miss.
+
+**B-138 — Apply Changes dirty / unsaved guard**: `applyDisabled = (pending == 0)` only counted component-level changes; `modmgrIsDirty()` (mod-level) was ignored. Fixed: added `modDirty` check, enabled Apply Changes when mod-level dirty, label shows "Apply Changes*". Added "Unsaved Changes" `BeginPopupModal` on Close/Escape with Apply & Close / Discard & Close / Cancel buttons.
+
+**B-139 — Countdown lingering**: 3-2-1 overlay persisted on main menu after disconnect (Chicago Bug A). Added `pdguiCountdownReset()` to `pdgui_bridge.c` (clears `g_MatchCountdownState.active` + `.countdown_secs`). Called from the mode→NONE disconnect reset block in `pdgui_lobby.cpp`.
+
+**Songs F-2.1**: `renderSelectTunes` in `pdgui_menu_mpsettings.cpp` now mirrors the Arenas collapsible pattern. Both "Base Tracks" and "Mod Tracks" sections wrapped in `ImGui::TreeNodeEx(count_hdr, DefaultOpen)`. Mod tracks qsort'd alphabetically by `display_name` via new `modTrackCompare()`. PD/GE base track split deferred — `mpGetTrackName()` is a flat game array with no origin tag.
+
+**Weapons F-2.1 — Deferred**: Weapon SET picker uses `mpGetWeaponSetName()`, a flat game array with no namespace or category metadata. "Standard/Special/Mod" grouping cannot be derived without hardcoding. Deferred.
+
+### Files Modified
+
+- `mods/base-ui/mod.json` — added `"id"` field
+- `port/fast3d/pdgui_menu_room.cpp` — dynamic room title from `g_RoomCache`
+- `port/fast3d/pdgui_menu_modmgr.cpp` — `modmgrSaveConfig()` at toggle sites, `modmgrIsDirty()` in Apply Changes, Unsaved Changes modal
+- `port/fast3d/pdgui_bridge.c` — `pdguiCountdownReset()`
+- `port/fast3d/pdgui_lobby.cpp` — forward decl + call to `pdguiCountdownReset()` on disconnect
+- `port/fast3d/pdgui_menu_mpsettings.cpp` — `<stdlib.h>` include, `modTrackCompare()`, qsort, `TreeNodeEx` on both sections
+
+### Deferred
+
+- Issue 2/8: Theme + audio mod registration on mod enable (unified `modmgrCatalogChanged()` consumers)
+- Issue 4: Airbase Start Match no response — client log shows manifest OK but no SVC_STAGE_START
+- Bug B: Server countdown not cancelled on room close (fix in `netmsg.c`, off-limits this session)
+- Bug C: Invisible bots in Chicago match (chr generation token area)
+- Bug D: Silent crash ~9s into Chicago match (needs VEH log)
+- Issue 7: Bot count / player count display not updating in room
+- B-140: Mod music playlist can't be added to in-match; playlist may not sync to clients
+
+### Build
+
+Both targets clean. `PerfectDark.exe` + `PerfectDarkServer.exe` from worktree `claude/exciting-turing`. WIP commit: `ae922c3c`.
+
+### Next
+
+B-140 investigation (playlist add + network sync). Issue 2/8 unified mod notification.
+
+---
+
 ## Session S247 — 2026-04-13 (Build-env self-heal: _build-env-prelude.ps1 + build-env.sh)
 
 **Focus**: Eliminate recurring wasted build time caused by invalid `$TEMP` and MinGW not on PATH. Three-layer fix: shared PS prelude, bash helper, CLAUDE.md doc block.

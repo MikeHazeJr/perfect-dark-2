@@ -92,6 +92,9 @@ s32 netLocalClientInLobby(void);
 /* HUD context gate — true when combat sim match is actively running */
 s32 pdguiPauseGetNormMplayerIsRunning(void);
 
+/* Clears the 3-2-1 countdown overlay — call on disconnect so it doesn't linger */
+void pdguiCountdownReset(void);
+
 /* Lobby state management */
 void lobbyUpdate(void);
 
@@ -397,6 +400,7 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* Reset room state on disconnect */
     if (s_LastMode != NETMODE_NONE && mode == NETMODE_NONE) {
         s_InRoom = false;
+        pdguiCountdownReset(); /* Bug-A: clear 3-2-1 overlay so it doesn't linger on main menu */
     }
     s_LastMode = mode;
 
