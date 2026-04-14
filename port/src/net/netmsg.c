@@ -6158,7 +6158,7 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 
 void netSendRoomSettingsUpdate(void)
 {
-	if (g_NetMode != NETMODE_CLIENT) return;
+	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) return;
 
 	u8 numBots = 0;
 	for (s32 i = 1; i < g_MatchConfig.numSlots; i++) {
@@ -6167,18 +6167,18 @@ void netSendRoomSettingsUpdate(void)
 	u8 wpnIdx = (g_MatchConfig.weaponSetIndex >= 0)
 	            ? (u8)g_MatchConfig.weaponSetIndex : 0xFF;
 
-	netbufStartWrite(&g_NetMsgRel);
+	netbufStartWrite(&g_NetLocalClient->out);
 	netmsgClcRoomSettingsUpdateWrite(
-	    &g_NetMsgRel, numBots,
+	    &g_NetLocalClient->out, numBots,
 	    g_MatchConfig.timelimit, g_MatchConfig.scorelimit,
 	    g_MatchConfig.teamscorelimit, g_MatchConfig.options,
 	    g_MatchConfig.scenario, wpnIdx, g_MatchConfig.stage_id);
-	netSend(g_NetLocalServer, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
 }
 
 void netSendRoomPlaylistUpdate(void)
 {
-	if (g_NetMode != NETMODE_CLIENT) return;
+	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) return;
 
 	/* Serialize current playlist to semicolon-delimited string. */
 	char pl[AUDIO_MAX_PLAYLIST * 65];
@@ -6198,7 +6198,7 @@ void netSendRoomPlaylistUpdate(void)
 	}
 	pl[pos] = '\0';
 
-	netbufStartWrite(&g_NetMsgRel);
-	netmsgClcRoomPlaylistUpdateWrite(&g_NetMsgRel, pl);
-	netSend(g_NetLocalServer, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	netbufStartWrite(&g_NetLocalClient->out);
+	netmsgClcRoomPlaylistUpdateWrite(&g_NetLocalClient->out, pl);
+	netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
 }
