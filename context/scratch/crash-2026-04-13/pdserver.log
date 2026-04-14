@@ -1,0 +1,223 @@
+[00:00.00] version: dev-window-v2-idle-hitch d9d80f87 (x86_64-windows)
+[00:00.00] startup date: 13 Apr 2026 21:20:20
+[00:00.00] LOG: Channel filter mask: 0xFFFF (all channels active), verbose: off
+[00:00.01] base dir: C:/Users/mikeh/Downloads/Perfect Dark 2.0/data
+[00:00.01] save dir: C:/Users/mikeh/AppData/Roaming/perfectdark
+[00:00.01] UPDATER: install dir: C:\Users\mikeh\Downloads\Perfect Dark 2.0
+[00:00.02] UPDATER: update path: C:\Users\mikeh\Downloads\Perfect Dark 2.0\pd.update.zip
+[00:00.02] UPDATER: Initialized — v0.0.94 (server, dev channel)
+[00:00.02] assetcatalog: registered 63 base bodies
+[00:00.03] assetcatalog: registered 76 base heads (all g_MpHeads[])
+[00:00.03] assetcatalog: arena[0] id="base:arena_mp_skedar" stagenum=0x32 langid=0x0000 cat="Dark"
+[00:00.03] assetcatalog: arena[1] id="base:arena_mp_pipes" stagenum=0x29 langid=0x0000 cat="Dark"
+[00:00.04] assetcatalog: arena[2] id="base:arena_mp_ravine" stagenum=0x17 langid=0x0000 cat="Dark"
+[00:00.04] assetcatalog: arena[3] id="base:arena_mp_g5building" stagenum=0x20 langid=0x0000 cat="Dark"
+[00:00.04] assetcatalog: arena[4] id="base:arena_mp_sewers" stagenum=0x42 langid=0x0000 cat="Dark"
+[00:00.04] assetcatalog: arena[5] id="base:arena_mp_warehouse" stagenum=0x3c langid=0x0000 cat="Dark"
+[00:00.05] assetcatalog: arena[6] id="base:arena_mp_grid" stagenum=0x47 langid=0x0000 cat="Dark"
+[00:00.05] assetcatalog: arena[7] id="base:arena_mp_ruins" stagenum=0x41 langid=0x0000 cat="Dark"
+[00:00.05] assetcatalog: arena[8] id="base:arena_mp_area52" stagenum=0x3b langid=0x0000 cat="Dark"
+[00:00.05] assetcatalog: arena[9] id="base:arena_mp_base" stagenum=0x39 langid=0x0000 cat="Dark"
+[00:00.06] assetcatalog: arena[10] id="base:arena_mp_fortress" stagenum=0x44 langid=0x0000 cat="Dark"
+[00:00.06] assetcatalog: arena[11] id="base:arena_mp_villa" stagenum=0x45 langid=0x0000 cat="Dark"
+[00:00.06] assetcatalog: arena[12] id="base:arena_mp_carpark" stagenum=0x3d langid=0x0000 cat="Dark"
+[00:00.07] assetcatalog: arena[13] id="base:arena_defection" stagenum=0x30 langid=0x0000 cat="Solo Missions"
+[00:00.07] assetcatalog: arena[14] id="base:arena_investigation" stagenum=0x33 langid=0x0000 cat="Solo Missions"
+[00:00.07] assetcatalog: arena[15] id="base:arena_villa" stagenum=0x2c langid=0x0000 cat="Solo Missions"
+[00:00.08] assetcatalog: arena[16] id="base:arena_chicago" stagenum=0x1d langid=0x0000 cat="Solo Missions"
+[00:00.08] assetcatalog: arena[17] id="base:arena_g5building" stagenum=0x1e langid=0x0000 cat="Solo Missions"
+[00:00.08] assetcatalog: arena[18] id="base:arena_infiltration" stagenum=0x2f langid=0x0000 cat="Solo Missions"
+[00:00.09] assetcatalog: arena[19] id="base:arena_airbase" stagenum=0x27 langid=0x0000 cat="Solo Missions"
+[00:00.09] assetcatalog: arena[20] id="base:arena_airforceone" stagenum=0x31 langid=0x0000 cat="Solo Missions"
+[00:00.10] assetcatalog: arena[21] id="base:arena_crashsite" stagenum=0x1c langid=0x0000 cat="Solo Missions"
+[00:00.10] assetcatalog: arena[22] id="base:arena_pelagic" stagenum=0x21 langid=0x0000 cat="Solo Missions"
+[00:00.10] assetcatalog: arena[23] id="base:arena_deepsea" stagenum=0x38 langid=0x0000 cat="Solo Missions"
+[00:00.11] assetcatalog: arena[24] id="base:arena_defense" stagenum=0x2d langid=0x0000 cat="Solo Missions"
+[00:00.11] assetcatalog: arena[25] id="base:arena_attackship" stagenum=0x34 langid=0x0000 cat="Solo Missions"
+[00:00.11] assetcatalog: arena[26] id="base:arena_skedarruins" stagenum=0x2a langid=0x0000 cat="Solo Missions"
+[00:00.12] assetcatalog: arena[27] id="base:arena_mp_temple" stagenum=0x25 langid=0x0000 cat="Classic"
+[00:00.12] assetcatalog: arena[28] id="base:arena_mp_complex" stagenum=0x1f langid=0x0000 cat="Classic"
+[00:00.13] assetcatalog: arena[29] id="base:arena_mp_grid6" stagenum=0x3e langid=0x0000 cat="Classic"
+[00:00.13] assetcatalog: arena[30] id="base:arena_mp_grid2" stagenum=0x3a langid=0x0000 cat="Classic"
+[00:00.13] assetcatalog: arena[31] id="base:arena_mp_felicity" stagenum=0x43 langid=0x0000 cat="Classic"
+[00:00.14] assetcatalog: arena[55] id="base:arena_stage_24" stagenum=0x24 langid=0x0000 cat="Bonus"
+[00:00.14] assetcatalog: arena[56] id="base:arena_mp_grid7" stagenum=0x3f langid=0x0000 cat="Bonus"
+[00:00.14] assetcatalog: arena[57] id="base:arena_test_arch" stagenum=0x18 langid=0x0000 cat="Bonus"
+[00:00.15] assetcatalog: arena[58] id="base:arena_test_dest" stagenum=0x1a langid=0x0000 cat="Bonus"
+[00:00.15] assetcatalog: arena[59] id="base:arena_extra16" stagenum=0x51 langid=0x0000 cat="Bonus"
+[00:00.15] assetcatalog: arena[60] id="base:arena_extra17" stagenum=0x52 langid=0x0000 cat="Bonus"
+[00:00.16] assetcatalog: arena[61] id="base:arena_extra18" stagenum=0x53 langid=0x0000 cat="Bonus"
+[00:00.16] assetcatalog: arena[62] id="base:arena_extra19" stagenum=0x54 langid=0x0000 cat="Bonus"
+[00:00.16] assetcatalog: arena[63] id="base:arena_extra20" stagenum=0x55 langid=0x0000 cat="Bonus"
+[00:00.17] assetcatalog: arena[64] id="base:arena_extra21" stagenum=0x56 langid=0x0000 cat="Bonus"
+[00:00.17] assetcatalog: arena[65] id="base:arena_extra22" stagenum=0x57 langid=0x0000 cat="Bonus"
+[00:00.17] assetcatalog: arena[66] id="base:arena_extra23" stagenum=0x58 langid=0x0000 cat="Bonus"
+[00:00.18] assetcatalog: arena[67] id="base:arena_extra24" stagenum=0x59 langid=0x0000 cat="Bonus"
+[00:00.18] assetcatalog: arena[69] id="base:arena_test_lam" stagenum=0x5f langid=0x0000 cat="Bonus"
+[00:00.18] assetcatalog: arena[71] id="base:arena_mp_random_multi" stagenum=0x02 langid=0x0000 cat="Random"
+[00:00.19] assetcatalog: arena[72] id="base:arena_mp_random_solo" stagenum=0x03 langid=0x0000 cat="Random"
+[00:00.19] assetcatalog: registered 48 base arenas
+[00:00.19] assetcatalog: registered 0 sp bodies, 0 sp heads from g_HeadsAndBodies[152]
+[00:00.20] assetcatalog: base game registration complete (188 total entries)
+[00:00.20] assetcatalog: registered 47 base weapons
+[00:00.21] assetcatalog: registered 1207 base animations
+[00:00.25] assetcatalog: registered 3503 base textures
+[00:00.25] assetcatalog: registered 8 base props
+[00:00.25] assetcatalog: registered 6 base game modes
+[00:00.29] assetcatalog: registered 1545 base audio entries (SFX)
+[00:00.29] assetcatalog: registered 43 base music tracks
+[00:00.30] assetcatalog: registered 6 base HUD elements
+[00:00.32] assetcatalog: registered 441 base prop models (ASSET_MODEL)
+[00:00.32] assetcatalog: registered 68 base lang banks
+[00:00.32] assetcatalog: T3/T4/T5 extended registration complete (6874 entries)
+[00:00.33] assetcatalog: extended registration added 6874 entries (7062 total)
+[00:00.33] [CATALOG] Runtime caches built: 63 body IDs, 76 head IDs
+[00:00.33] LOBBY: initialized (dedicated server model)
+[00:00.33] HUB ROOM: subsystem initialised, room 0 open
+[00:00.34] IDENTITY: loaded, UUID=06814cc96258ccd7d62f38968dd4d7a0 profiles=1 active=0
+[00:00.34] HUB: initialised, state=LOUNGE
+[00:00.70] SERVER: Window and GL context created
+[00:00.70] SERVER GUI: OpenGL 4.6.0 NVIDIA 591.86
+[00:00.70] SERVER GUI: Initialized
+[00:00.70] NET: using protocol version 35
+[00:00.71] NET: created server on port 27100
+[00:00.71] UPNP: Starting async discovery for port 27100...
+[00:00.71] STUN: starting async discovery for port 27100...
+[00:00.71] UPNP: [thread] Discovering devices...
+[00:00.71] LOBBY: initialized (dedicated server model)
+[00:00.71] STUN: [thread] probing (bound to port 27100)...
+[00:00.72] SERVER: Listening on port 27100 (max 32 clients)
+[00:00.72] SERVER: Entering main loop
+[00:00.75] UPDATER: parsed 64 valid release(s) from API response
+[00:00.75] UPDATER: Up to date (v0.0.94)
+[00:00.76] SERVER: Up to date (v0.0.94)
+[00:03.73] WARNING: STUN: timeout waiting for response from stun.l.google.com:19302
+[00:03.77] STUN: [thread] probe 1 => 67.8.148.199:27100 via stun1.l.google.com:19302
+[00:03.81] STUN: [thread] probe 2 => 67.8.148.199:27100 (port match — cone NAT, hole punch viable)
+[00:03.81] STUN: Connect code: wicked spider sliding under a savanna
+[00:04.19] UPNP: [thread] Found devices, looking for IGD...
+[00:04.20] UPNP: [thread] IGD found (type 1), LAN: 192.168.1.10
+[00:04.21] UPNP: [thread] External IP: 67.8.148.199
+[00:04.22] UPNP: [thread] Port 27100/UDP mapped! Connect to 67.8.148.199:27100
+[00:04.22] UPNP: Connect code: wicked spider sliding under a savanna
+[02:41.22] NET: incoming connection
+[02:41.22] NET: client slot 0 assigned to peer
+[02:41.25] MATCH-TRACE: server dispatch msgtype=0x02 from client 0
+[02:41.26] NET: CLC_AUTH from client 0 (MikeHazeJr), responding
+[02:41.26] DISTRIB: sent SVC_CATALOG_INFO to MikeHazeJr
+[02:41.26] NET: MikeHazeJr (0) joined
+[02:41.26] NET: broadcast SVC_LOBBY_LEADER: client 0 is leader
+[02:41.26] MATCH-TRACE: server dispatch msgtype=0x05 from client 0
+[02:46.38] MATCH-TRACE: server dispatch msgtype=0x10 from client 0
+[02:46.38] HUB ROOM: created room 1 "Atomic Viking"
+[02:46.38] HUB ROOM: client 0 joined room 1 "Atomic Viking" (1/32)
+[02:46.38] HUB ROOM: room 1 configured by client 0
+[02:46.39] NET: CLC_ROOM_CREATE from client 0 — created room 1 "Atomic Viking"
+[02:57.60] MATCH-TRACE: server dispatch msgtype=0x08 from client 0
+[02:57.60] WARNING: MATCH-START: server received CLC_LOBBY_START, stage_id='base:arena_airbase'
+[02:57.60] NET: CLC_LOBBY_START spawn weapon '(random)' → weaponnum=255
+[02:57.61] NET: CLC_LOBBY_START from leader MikeHazeJr: gamemode=0 stage='base:arena_airbase'(num=39) diff=0 tl=60 opt=0x00200000
+[02:57.61] NET: assigned playernum 0 to client 0 (MikeHazeJr)
+[02:57.61] NET: Combat Sim setup: stage=0x27 chrslots=0x1 players=1 sims=0 type=2
+[02:57.62] MANIFEST: built — 10 entries, hash=0x405d5ab9
+[02:57.62] MANIFEST:   [ 0] STAGE     hash=0xddce7fea slot=MATCH  id='base:arena_airbase'
+[02:57.62] MANIFEST:   [ 1] WEAPON    hash=0x678c0f89 slot=MATCH  id='base:falcon2_silencer'
+[02:57.63] MANIFEST:   [ 2] WEAPON    hash=0xabb9f5e9 slot=MATCH  id='base:mauler'
+[02:57.63] MANIFEST:   [ 3] WEAPON    hash=0xf573184f slot=MATCH  id='base:dy357lx'
+[02:57.63] MANIFEST:   [ 4] BODY      hash=0xb6a15a23 slot=0     id='base:dark_combat'
+[02:57.64] MANIFEST:   [ 5] HEAD      hash=0x91936917 slot=0     id='base:head_dark_combat'
+[02:57.64] MANIFEST:   [ 6] COMPONENT hash=0x27189221 slot=MATCH  id='bw-basic'
+[02:57.65] MANIFEST:   [ 7] COMPONENT hash=0x8695a392 slot=MATCH  id='black-and-gold-2'
+[02:57.65] MANIFEST:   [ 8] COMPONENT hash=0x22de7e42 slot=MATCH  id='of-wolf-and-man'
+[02:57.65] MANIFEST:   [ 9] COMPONENT hash=0x2bfba64e slot=MATCH  id='memory-remains'
+[02:57.66] NET: session catalog (10 entries):
+[02:57.66]   [0] wire=1 type=2 hash=0xddce7fea id=base:arena_airbase
+[02:57.66]   [1] wire=2 type=3 hash=0x678c0f89 id=base:falcon2_silencer
+[02:57.66]   [2] wire=3 type=3 hash=0xabb9f5e9 id=base:mauler
+[02:57.66]   [3] wire=4 type=3 hash=0xf573184f id=base:dy357lx
+[02:57.67]   [4] wire=5 type=0 hash=0xb6a15a23 id=base:dark_combat
+[02:57.67]   [5] wire=6 type=1 hash=0x91936917 id=base:head_dark_combat
+[02:57.67]   [6] wire=7 type=4 hash=0x00000000 id=bw-basic
+[02:57.67]   [7] wire=8 type=4 hash=0x00000000 id=black-and-gold-2
+[02:57.67]   [8] wire=9 type=4 hash=0x00000000 id=of-wolf-and-man
+[02:57.68]   [9] wire=10 type=4 hash=0x00000000 id=memory-remains
+[02:57.68] NET: SVC_MATCH_MANIFEST broadcast (hash=0x405d5ab9 entries=10 room=1)
+[02:57.68] NET: SVC_SESSION_CATALOG broadcast (10 entries)
+[02:57.68] HUB ROOM: room 1 "Atomic Viking" Lobby -> Preparing
+[02:57.68] NET: SVC_MATCH_COUNTDOWN 0/1 phase=0 secs=30
+[02:57.69] NET: ready gate active — 1 clients CLSTATE_PREPARING deadline=5892
+[02:57.74] MATCH-TRACE: server dispatch msgtype=0x0e from client 0
+[02:57.74] NET: CLC_MANIFEST_STATUS from client 0: hash=0x405d5ab9 status=1 missing=4
+[02:57.74] NET: MANIFEST MISSING[0] id=bw-basic
+[02:57.74] NET: MANIFEST MISSING[1] id=black-and-gold-2
+[02:57.74] NET: MANIFEST MISSING[2] id=of-wolf-and-man
+[02:57.75] NET: MANIFEST MISSING[3] id=memory-remains
+[02:57.75] NET: ready gate: client 0 NEED_ASSETS (4 missing), queuing transfer
+[02:57.75] DISTRIB: client MikeHazeJr missing 4 components (temporary=1)
+[02:57.75] NET: SVC_MATCH_COUNTDOWN 0/1 phase=1 secs=29
+[02:57.75] WARNING: DISTRIB: unknown catalog_id 'bw-basic' requested
+[02:57.80] WARNING: DISTRIB: unknown catalog_id 'black-and-gold-2' requested
+[02:57.84] WARNING: DISTRIB: unknown catalog_id 'of-wolf-and-man' requested
+[02:57.89] WARNING: DISTRIB: unknown catalog_id 'memory-remains' requested
+[03:05.76] MATCH-TRACE: server dispatch msgtype=0x08 from client 0
+[03:05.76] WARNING: MATCH-START: server received CLC_LOBBY_START, stage_id='base:arena_airforceone'
+[03:05.76] NET: CLC_LOBBY_START spawn weapon '(random)' → weaponnum=255
+[03:05.77] NET: CLC_LOBBY_START from leader MikeHazeJr: gamemode=0 stage='base:arena_airforceone'(num=49) diff=0 tl=60 opt=0x00200000
+[03:05.77] NET: Combat Sim setup: stage=0x31 chrslots=0x0 players=0 sims=0 type=2
+[03:05.78] MANIFEST: built — 10 entries, hash=0xbb65c855
+[03:05.78] MANIFEST:   [ 0] STAGE     hash=0x738c0ef4 slot=MATCH  id='base:arena_airforceone'
+[03:05.78] MANIFEST:   [ 1] WEAPON    hash=0x678c0f89 slot=MATCH  id='base:falcon2_silencer'
+[03:05.79] MANIFEST:   [ 2] WEAPON    hash=0xabb9f5e9 slot=MATCH  id='base:mauler'
+[03:05.79] MANIFEST:   [ 3] WEAPON    hash=0xf573184f slot=MATCH  id='base:dy357lx'
+[03:05.79] MANIFEST:   [ 4] BODY      hash=0xb6a15a23 slot=0     id='base:dark_combat'
+[03:05.79] MANIFEST:   [ 5] HEAD      hash=0x91936917 slot=0     id='base:head_dark_combat'
+[03:05.80] MANIFEST:   [ 6] COMPONENT hash=0x27189221 slot=MATCH  id='bw-basic'
+[03:05.80] MANIFEST:   [ 7] COMPONENT hash=0x8695a392 slot=MATCH  id='black-and-gold-2'
+[03:05.80] MANIFEST:   [ 8] COMPONENT hash=0x22de7e42 slot=MATCH  id='of-wolf-and-man'
+[03:05.80] MANIFEST:   [ 9] COMPONENT hash=0x2bfba64e slot=MATCH  id='memory-remains'
+[03:05.81] NET: session catalog (10 entries):
+[03:05.81]   [0] wire=1 type=2 hash=0x738c0ef4 id=base:arena_airforceone
+[03:05.81]   [1] wire=2 type=3 hash=0x678c0f89 id=base:falcon2_silencer
+[03:05.81]   [2] wire=3 type=3 hash=0xabb9f5e9 id=base:mauler
+[03:05.81]   [3] wire=4 type=3 hash=0xf573184f id=base:dy357lx
+[03:05.82]   [4] wire=5 type=0 hash=0xb6a15a23 id=base:dark_combat
+[03:05.82]   [5] wire=6 type=1 hash=0x91936917 id=base:head_dark_combat
+[03:05.82]   [6] wire=7 type=4 hash=0x00000000 id=bw-basic
+[03:05.82]   [7] wire=8 type=4 hash=0x00000000 id=black-and-gold-2
+[03:05.82]   [8] wire=9 type=4 hash=0x00000000 id=of-wolf-and-man
+[03:05.83]   [9] wire=10 type=4 hash=0x00000000 id=memory-remains
+[03:05.83] NET: SVC_MATCH_MANIFEST broadcast (hash=0xbb65c855 entries=10 room=1)
+[03:05.83] NET: SVC_SESSION_CATALOG broadcast (10 entries)
+[03:05.83] HUB ROOM: room 1 "Atomic Viking" Preparing -> Loading
+[03:05.83] STUB: mainChangeToStage(0x31)
+[03:05.84] WARNING: MATCH-START: netServerStageStart called, stage_id='base:arena_airforceone', sending SVC_STAGE_START to 1 clients
+[03:05.84] NET: === STAGE START === stage=0x31 (g_StageNum=0x00, pending=0x31) scenario=0 clients=1
+[03:05.84] NET:   client 0 'MikeHazeJr' state=4 playernum=0 head='' body='' team=0
+[03:05.84] WARNING: MATCH-START: writing SVC_STAGE_START, stage_session=1, stage_id='base:arena_airforceone'
+[03:05.85] SERVER: mpStartMatch: 0 simulants requested — no bot stubs allocated
+[03:05.85] NET: waiting for CLC_STAGE_READY from 1 client(s), deadline tick 4577
+[03:05.85] NET: SVC_STAGE_START sent, resync flags=0x7
+[03:05.85] HUB ROOM: room 0 "Lounge" Lobby -> Match
+[03:05.86] HUB: state Lounge -> Active
+[03:05.86] NET: sending chr resync to all clients (0 bots)
+[03:05.86] NET: sending prop resync to all clients
+[03:05.86] NET: sending score resync to all clients
+[03:05.91] MATCH-TRACE: server dispatch msgtype=0x0e from client 0
+[03:05.91] NET: CLC_MANIFEST_STATUS from client 0: hash=0xbb65c855 status=1 missing=4
+[03:05.92] NET: MANIFEST MISSING[0] id=bw-basic
+[03:05.92] NET: MANIFEST MISSING[1] id=black-and-gold-2
+[03:05.92] NET: MANIFEST MISSING[2] id=of-wolf-and-man
+[03:05.92] NET: MANIFEST MISSING[3] id=memory-remains
+[03:05.94] MATCH-TRACE: server dispatch msgtype=0x0b from client 0
+[03:05.95] NET: client 0 stage ready (1/1)
+[03:05.95] NET: all clients ready, sending BOT_AUTHORITY to client 0 ('MikeHazeJr')
+[03:06.00] MATCH-TRACE: server dispatch msgtype=0x04 from client 0
+[03:07.82] MATCH-TRACE: server dispatch msgtype=0x04 from client 0
+[04:22.31] NET: disconnect event from client 0
+[04:22.31] NET: preserved player MikeHazeJr (playernum 0, 0 kills, 0 deaths)
+[04:22.31] HUB ROOM: client 0 left room 1 "Atomic Viking" (0 remaining)
+[04:22.32] HUB ROOM: closing room 1 "Atomic Viking"
+[04:22.32] NET: client 0 (MikeHazeJr) disconnected
+[04:22.32] HUB ROOM: room 0 "Lounge" Match -> Postgame
+[04:22.37] HUB ROOM: room 0 "Lounge" Postgame -> Lobby
+[04:22.37] HUB: state Active -> Lounge
