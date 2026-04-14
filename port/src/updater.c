@@ -335,11 +335,15 @@ static int curlProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dl
 }
 
 /* Perform a GET request, return response body in a buffer.
- * Caller must free buf->data. Returns curl result code. */
-static CURLcode curlGet(const char *url, curl_buffer_t *buf)
+ * Caller must free buf->data. Returns curl result code.
+ * FIX-F.1: httpCodeOut receives the HTTP response code (0 on curl error). */
+static CURLcode curlGet(const char *url, curl_buffer_t *buf, long *httpCodeOut)
 {
 	CURL *curl = curl_easy_init();
-	if (!curl) return CURLE_FAILED_INIT;
+	if (!curl) {
+		if (httpCodeOut) *httpCodeOut = 0;
+		return CURLE_FAILED_INIT;
+	}
 
 	memset(buf, 0, sizeof(*buf));
 
@@ -363,13 +367,14 @@ static CURLcode curlGet(const char *url, curl_buffer_t *buf)
 
 	CURLcode res = curl_easy_perform(curl);
 
+	long httpCode = 0;
 	if (res == CURLE_OK) {
-		long httpCode = 0;
 		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
 		if (httpCode != 200) {
 			sysLogPrintf(LOG_WARNING, "UPDATER: GitHub API HTTP %ld (url: %.80s)", httpCode, url);
 		}
 	}
+	if (httpCodeOut) *httpCodeOut = httpCode;
 
 	curl_slist_free_all(headers);
 	curl_easy_cleanup(curl);
@@ -663,25 +668,46 @@ static int SDLCALL checkThread(void *data)
 		UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO);
 
 	curl_buffer_t buf;
-	CURLcode res = curlGet(url, &buf);
+	long httpCode = 0;
+	/* FIX-F.1: capture HTTP response code to distinguish rate limit from
+	 * other API failures before attempting JSON parse. */
+	CURLcode res = curlGet(url, &buf, &httpCode);
 
 	SDL_LockMutex(s_Updater.mutex);
 
 	if (res != CURLE_OK) {
+		/* (a) Network / transport failure */
 		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
-			"Update check failed: %s", curl_easy_strerror(res));
+			"Update check failed: network error (%s)", curl_easy_strerror(res));
 		s_Updater.status = UPDATER_CHECK_FAILED;
 		sysLogPrintf(LOG_WARNING, "UPDATER: %s", s_Updater.errorMsg);
 	} else if (!buf.data || buf.size == 0) {
+		/* (b) Empty body */
 		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
-			"Update check failed: empty response");
+			"Update check failed: empty response from server");
 		s_Updater.status = UPDATER_CHECK_FAILED;
-		sysLogPrintf(LOG_WARNING, "UPDATER: empty response (size=%zu)", buf.size);
+		sysLogPrintf(LOG_WARNING, "UPDATER: empty response (HTTP %ld, size=%zu)", httpCode, buf.size);
+	} else if (httpCode == 403) {
+		/* (c) GitHub API rate limit returns HTTP 403 with JSON error object */
+		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+			"Update check failed: GitHub API rate limit exceeded -- retry in 1 hour");
+		s_Updater.status = UPDATER_CHECK_FAILED;
+		sysLogPrintf(LOG_WARNING, "UPDATER: rate limited (HTTP 403) -- preview: %.120s",
+			buf.data);
+	} else if (httpCode != 200) {
+		/* (d) Other unexpected HTTP status */
+		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+			"Update check failed: GitHub API returned HTTP %ld", httpCode);
+		s_Updater.status = UPDATER_CHECK_FAILED;
+		sysLogPrintf(LOG_WARNING, "UPDATER: API error HTTP %ld -- preview: %.120s",
+			httpCode, buf.data);
 	} else {
 		s32 count = parseReleasesJson(buf.data);
 		if (count < 0) {
+			/* (e) HTTP 200 but body is not a JSON releases array */
 			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
-				"Update check failed: could not parse response");
+				"Update check failed: GitHub response was not a releases array "
+				"(malformed JSON or wrong API endpoint)");
 			s_Updater.status = UPDATER_CHECK_FAILED;
 			/* Log first 200 chars so we can identify what GitHub returned
 			 * (e.g. rate-limit object, HTML error page, redirect body) */
@@ -736,7 +762,7 @@ static int SDLCALL downloadThread(void *data)
 
 	if (rel->hashUrl[0]) {
 		curl_buffer_t hashBuf;
-		CURLcode hres = curlGet(rel->hashUrl, &hashBuf);
+		CURLcode hres = curlGet(rel->hashUrl, &hashBuf, NULL);
 		if (hres == CURLE_OK && hashBuf.data) {
 			/* SHA256 file format: "hexhash  filename\n" or just "hexhash\n" */
 			s32 i;
@@ -996,6 +1022,39 @@ void updaterInit(void)
 #endif
 
 	detectExePath();
+
+	/* FIX-F.2: If detectExePath() produced an empty installDir (can happen on Linux
+	 * if /proc/self/exe is unreadable and the fallback "PerfectDark" has no separator),
+	 * fall back to the fs-canonical exe directory established by fsInit().  Also log
+	 * the resolved paths for post-mortem diagnostics in bug reports. */
+	if (!s_Updater.installDir[0]) {
+		const char *edir = fsFullPath("$E/");
+		if (edir && edir[0] && edir[0] != '$') {
+			/* Snapshot — fsFullPath uses a static buffer, overwritten by each call */
+			char edirbuf[512];
+			strncpy(edirbuf, edir, sizeof(edirbuf) - 1);
+			edirbuf[sizeof(edirbuf) - 1] = '\0';
+			/* Strip trailing slash */
+			size_t el = strlen(edirbuf);
+			while (el > 0 && (edirbuf[el-1] == '/' || edirbuf[el-1] == '\\')) {
+				edirbuf[--el] = '\0';
+			}
+			strncpy(s_Updater.installDir, edirbuf, sizeof(s_Updater.installDir) - 1);
+#ifdef _WIN32
+			snprintf(s_Updater.updatePath,  sizeof(s_Updater.updatePath),  "%s\\pd.update.zip",     s_Updater.installDir);
+			snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath), "%s\\pd.update.zip.ver", s_Updater.installDir);
+			snprintf(s_Updater.stagingDir,  sizeof(s_Updater.stagingDir),  "%s\\pd_update_staging", s_Updater.installDir);
+#else
+			snprintf(s_Updater.updatePath,  sizeof(s_Updater.updatePath),  "%s/pd.update.zip",     s_Updater.installDir);
+			snprintf(s_Updater.versionPath, sizeof(s_Updater.versionPath), "%s/pd.update.zip.ver", s_Updater.installDir);
+			snprintf(s_Updater.stagingDir,  sizeof(s_Updater.stagingDir),  "%s/pd_update_staging", s_Updater.installDir);
+#endif
+			sysLogPrintf(LOG_WARNING, "UPDATER: installDir was empty; resolved via fsFullPath to: %s",
+				s_Updater.installDir);
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "UPDATER: install dir: %s", s_Updater.installDir);
+	sysLogPrintf(LOG_NOTE, "UPDATER: update path: %s", s_Updater.updatePath);
 
 	/* Restore staged version if a .update file already exists on disk.
 	 * This covers the case where the user downloaded an update in a
@@ -1470,7 +1529,9 @@ s32 updaterApplyPending(void)
 		return -1;
 	}
 
-	/* Step 2: Verify extraction produced the expected client binary */
+	/* Step 2: Verify extraction produced the expected client binary.
+	 * FIX-F.3: check existence AND minimum size so a truncated extraction
+	 * (PowerShell killed mid-run, out-of-disk) is caught before self-replace. */
 	{
 		char testExe[MAX_PATH];
 		snprintf(testExe, sizeof(testExe), "%s\\PerfectDark.exe", s_Updater.stagingDir);
@@ -1479,6 +1540,28 @@ s32 updaterApplyPending(void)
 			sysLogPrintf(LOG_ERROR, "UPDATER: Staging dir missing PerfectDark.exe after extraction");
 			removeDirRecursive(s_Updater.stagingDir);
 			return -1;
+		}
+		/* Size check: game binary must be at least 1 MB.  A truncated download
+		 * or a mismatched asset (wrong suffix matched) would be much smaller. */
+		HANDLE hExe = CreateFileA(testExe, GENERIC_READ, FILE_SHARE_READ,
+		                          NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hExe != INVALID_HANDLE_VALUE) {
+			LARGE_INTEGER exeSize;
+			exeSize.QuadPart = 0;
+			GetFileSizeEx(hExe, &exeSize);
+			CloseHandle(hExe);
+			if (exeSize.QuadPart < (1LL * 1024 * 1024)) {
+				fprintf(stderr, "UPDATER: Extracted PerfectDark.exe is too small (%lld bytes)"
+				        " — extraction incomplete or wrong asset\n",
+				        (long long)exeSize.QuadPart);
+				sysLogPrintf(LOG_ERROR,
+				        "UPDATER: Extracted exe too small (%lld bytes) — aborting apply",
+				        (long long)exeSize.QuadPart);
+				removeDirRecursive(s_Updater.stagingDir);
+				return -1;
+			}
+			sysLogPrintf(LOG_NOTE, "UPDATER: Extracted exe size OK: %lld bytes",
+			        (long long)exeSize.QuadPart);
 		}
 	}
 
