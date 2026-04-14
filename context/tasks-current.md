@@ -215,7 +215,31 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
 | **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
 | **Issue 7** | Bot count / player count display doesn't update in room when host adjusts | Requires `SVC_ROOM_SETTINGS` broadcast from server. |
-| **B-140** | Mod music playlist: can't add tracks to playlist in-match; playlist may not sync to network clients | `renderSelectTunes` / `audioModPlaylist` + network sync path needs investigation. Reported 2026-04-13. |
+| **B-140 (partial)** | Track add from in-match UI unconfirmed; may require separate investigation | Playlist sync Issue A (server-side auto-advance) is fixed. In-match add UI path deferred. |
+
+---
+
+## 2026-04-13 Playtest Stabilization (S249)
+
+> B-140 playlist-sync root cause fix.
+
+### Fixed This Session (S249)
+
+| ID | Title | Status | Detail |
+|----|-------|--------|--------|
+| **B-140 Issue A** | Mod music playlist auto-advance never broadcast to clients | **FIXED S249** | `NETMODE_SERVER_AUDIO` in `audio.c:17` was `2` (= `NETMODE_CLIENT`). Changed to `1` (= `NETMODE_SERVER`). `audioNetworkMusicTick()` now fires on the host, enabling `netMusicBroadcastAdvance()` to send `SVC_MUSIC_ADVANCE` when a playlist track ends. Clients receive the advance and `modMusicPlay()` is called directly in `netmsgSvcMusicAdvanceRead`. |
+
+### Deferred (Next Session)
+
+| ID | Title | Notes |
+|----|-------|-------|
+| **B-140 Issue B** | Can't add tracks to playlist from in-match UI | `renderSelectTunes` doesn't route adds to mod playlist while in-match. Needs dedicated investigation. |
+| **Issue 2/8** | Custom themes + song mods don't appear in Settings/Combat Sim after Mods toggle | Requires unified `modmgrCatalogChanged()` consumer notifications. |
+| **Issue 4** | Airbase Start Match → no response (client sends but server never replies) | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
+| **Bug B** | Server countdown keeps running after room closes; fires into new room | Fix in `readyGateTickCountdown()` / `netmsg.c` — off-limits (parallel End Game crash session). |
+| **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
+| **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
+| **Issue 7** | Bot count / player count display doesn't update in room when host adjusts | Requires `SVC_ROOM_SETTINGS` broadcast from server. |
 
 ---
 

@@ -3,6 +3,33 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S249 — 2026-04-13 (B-140 playlist sync root cause)
+
+**Focus**: Fix B-140 Issue A — playlist auto-advance never broadcast to clients.
+
+### Fix Landed
+
+**B-140 Issue A — `NETMODE_SERVER_AUDIO` wrong value**: `audioNetworkMusicTick()` in `audio.c` was guarded by `g_NetMode != NETMODE_SERVER_AUDIO`, but `NETMODE_SERVER_AUDIO` was `#define`d as `2` — same value as `NETMODE_CLIENT`. Host is `NETMODE_SERVER == 1`. Result: the tick function fired on clients, never on the host, so `netMusicBroadcastAdvance()` was never called. Fix: single-line change — `#define NETMODE_SERVER_AUDIO 1`. All callers of `audioGetModTrackId()` are guarded by `plcount == 0` first, so secondary issue (accessor returns wrong value when playlist present) does not affect real playback paths.
+
+### Files Modified
+
+- `port/src/audio.c:17` — `#define NETMODE_SERVER_AUDIO 2` → `1`
+
+### Deferred
+
+- B-140 Issue B: Can't add tracks to playlist from in-match UI (separate code path)
+- All other deferred items carried over from S248
+
+### Build
+
+Both targets clean. Only `audio.c` recompiled.
+
+### Next
+
+B-140 Issue B, Issue 2/8, Issue 4, Bugs B/C/D, Issue 7.
+
+---
+
 ## Session S248 — 2026-04-13 (Playtest stabilization: mod persistence, room name, countdown, songs sort)
 
 **Focus**: Six fixes from Mike's 2026-04-13 solo + Chicago multiplayer playtest. Plus Songs list F-2.1 sort/categorize upgrade.
