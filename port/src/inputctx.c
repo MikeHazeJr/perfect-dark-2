@@ -345,17 +345,15 @@ static void gameplayOnPush(InputContext *self)
 {
     (void)self;
     inputLockMouse(1);
-    SDL_SetRelativeMouseMode(SDL_TRUE);
-    SDL_ShowCursor(SDL_DISABLE);
+    /* F-1.4: SDL mouse mode handled solely by inputCtxSyncMouseMode(). */
     sysLogPrintf(LOG_NOTE, "INPUTCTX: gameplay on_push -- mouse captured");
 }
 
 static void gameplayOnPop(InputContext *self)
 {
     (void)self;
-    SDL_SetRelativeMouseMode(SDL_FALSE);
-    SDL_ShowCursor(SDL_ENABLE);
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: gameplay on_pop -- mouse released");
+    /* F-1.4: SDL mouse mode handled solely by inputCtxSyncMouseMode(). */
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: gameplay on_pop");
 }
 
 static s32 gameplayCanConsume(InputContext *self, const SDL_Event *ev)
@@ -392,10 +390,9 @@ InputContext g_CtxGameplay = {
 static void imguiMenuOnPush(InputContext *self)
 {
     (void)self;
-    SDL_SetRelativeMouseMode(SDL_FALSE);
-    SDL_ShowCursor(SDL_ENABLE);
+    /* F-1.4: SDL mouse mode handled solely by inputCtxSyncMouseMode(). */
     imcActivate(&g_ImcMenu);
-    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_push -- mouse absolute, cursor visible, g_ImcMenu activated");
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_push -- g_ImcMenu activated");
 }
 
 static void imguiMenuOnPop(InputContext *self)
@@ -456,8 +453,7 @@ InputContext g_CtxImGuiMenu = {
 static void pauseMenuOnPush(InputContext *self)
 {
     (void)self;
-    SDL_SetRelativeMouseMode(SDL_FALSE);
-    SDL_ShowCursor(SDL_ENABLE);
+    /* F-1.4: SDL mouse mode handled solely by inputCtxSyncMouseMode(). */
     s_GamePaused = 1;
     imcActivate(&g_ImcMenu);
     imcActivate(&g_ImcPauseMenu);
@@ -503,7 +499,7 @@ InputContext g_CtxPauseMenu = {
 static void debugOverlayOnPush(InputContext *self)
 {
     (void)self;
-    SDL_ShowCursor(SDL_ENABLE);
+    /* F-1.4: SDL mouse mode handled solely by inputCtxSyncMouseMode(). */
     imcActivate(&g_ImcMenu);
     imcActivate(&g_ImcDebugOverlay);
     sysLogPrintf(LOG_NOTE, "INPUTCTX: debug_overlay on_push -- menu+debug IMCs activated");
