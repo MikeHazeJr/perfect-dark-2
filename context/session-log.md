@@ -3,6 +3,71 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S245 — 2026-04-13 (L7 Supporting Items: FIX-F Updater + FIX-G Mission Headers)
+
+**Focus**: Infrastructure repair plan Layer 7 — updater robustness (FIX-F, B-99) and mission category headers enhancement (FIX-G, B-97).
+
+### Changes (2 files, +172 lines)
+
+1. **`port/src/updater.c`** (+83, 1608→1691):
+   - **FIX-F.1**: `curlGet()` gains `long *httpCodeOut` parameter. Callers now get the HTTP response code.
+     `checkThread()` classifies errors into four distinct paths: network failure (curl error), rate limit (HTTP 403 → "retry in 1 hour" user message + log preview of response body), API error (non-200), parse failure (response not a releases array).
+   - **FIX-F.2**: `updaterInit()` now checks if `installDir` is empty after `detectExePath()`. If so, falls back to `fsFullPath("$E/")` (exe dir expander) and rebuilds `updatePath`, `versionPath`, `stagingDir` from it. Logs both final paths.
+   - **FIX-F.3**: `updaterApplyPending()` extraction verify step checks extracted `PerfectDark.exe` for existence AND minimum 1MB size via `GetFileSizeEx`. Truncated extractions are rejected and staging dir removed before returning -1.
+
+2. **`port/fast3d/pdgui_menu_solomission.cpp`** (+89, 3380→3469):
+   - **FIX-G.1**: `stagecat_t` enum added (`STAGE_CAT_MISSION`, `STAGE_CAT_SPECIAL`, `STAGE_CAT_BONUS`). `stageCategoryFor()` maps stageIdx. `countMissionGroupCompletions()` counts mission groups fully beaten on Agent (all stages in group). `countSpecialCompletions()` counts individual special stages beaten on Agent via `g_GameFile.besttimes`.
+   - **FIX-G.2**: CAMPAIGN section header (`ImGui::SeparatorText`) with `(done/total)` completion count added before missions loop. Special Assignments header upgraded from S242's `TextUnformatted` to `SeparatorText` with gold tint + `countSpecialCompletions()` beat-count. Resolved merge conflict with S242 partial FIX-G.
+
+### Build Verification
+- PerfectDark.exe: 49MB, PerfectDarkServer.exe: 22MB. Both targets linked clean.
+- updater.c: 1608→1691 lines (+83). solomission.cpp: 3380→3469 lines (+89). No truncation.
+
+### Merge
+- Resolved merge conflict in `pdgui_menu_solomission.cpp` (S242 partial FIX-G in HEAD vs. our SeparatorText version). Took our version.
+- `--no-ff` merge `205c74a7` to dev: "Merge worktree nostalgic-banach: L7 updater robustness + mission category headers (FIX-F, FIX-G)"
+- Post-merge line counts verified clean.
+
+### Closed
+- B-99 (updater extraction failure): FIXED
+- B-97 (SA not separated from mission list): already closed S242; FIX-G.2 SeparatorText upgrade landed in this session via merge conflict resolution
+
+### Next
+- Playtest: trigger GitHub API rate limit to verify 403 message; verify CAMPAIGN/SA headers render with correct counts
+- Remaining Layer 7: FIX-B.1 (deep manifest scanner, `netmanifest.c`)
+
+---
+
+## Session S244 — 2026-04-13 (L2/L3 Spawn + Import Polish)
+
+**Focus**: Complete all deferred items from L2 (spawn pool) and L3 (map import) sessions.
+
+### Changes (5 files, +434/-9 lines)
+
+1. **`src/game/playerreset.c`** (+51/-3):
+   - Replaced `0x12345678` match_seed placeholder with `g_NetMatchSeed` (from SVC_STAGE_START). Offline fallback: `stagenum ^ lvframe60`.
+   - Initial MP spawn (lvframe60 == 0) now uses `spawnPoolSelect()` with occupied-position tracking and team awareness (MPOPTION_TEAMSENABLED, player config team index). Respawns still use existing enemy-distance dispersal.
+
+2. **`src/game/spawnpool.c`** (+153):
+   - `spawnPoolSelect()`: farthest-point-first greedy algorithm. Marks occupied entries. FFA: maximizes min-distance-to-assigned. Teams: angular sector partitioning around map center, prefers same-team sector, overflows to FFA on sector exhaustion.
+   - `spawnPoolSmokeTest()`: diagnostic that logs current pool state and flags L3/L4 activations.
+
+3. **`src/include/game/spawnpool.h`** (+24): Added `spawnPoolSelect()`, `spawnPoolSmokeTest()` declarations.
+
+4. **`port/fast3d/pdgui_menu_moddinghub.cpp`** (+177/-6):
+   - Added "Map Import" as 7th Modding Hub tab (tool index 6). UI: source dir path input, map name input, Import Map button, Reset button, Smoke Test button. Status/error display with color-coded success/failure. Tab button width 140->120 to fit 7 tabs.
+
+5. **`port/src/mapimport.c`** (+29): `mapImportRunFull()` C wrapper for C++ UI consumption.
+
+### Build Verification
+- pd: 500 objects, linked clean
+- pd-server: 59 objects, linked clean
+
+### Merge
+- `--no-ff` to dev, post-merge line counts verified
+
+---
+
 ## Session S243 — 2026-04-13 (L6 Rendering Polish: FIX-C.1/C.2/C.3)
 
 **Focus**: Infrastructural repair plan Layer 6 — Class C rendering state leakage. B-18 (pink sky), B-128 (sky tearing, confirmed already fixed), menu opacity stacking.

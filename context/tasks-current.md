@@ -27,8 +27,8 @@
 | **M-5.4: mapImportEmit** | DONE (S240) | Atomic write via temp dir + rename. File copy with fallback. |
 | **M-5.5: mapImportValidate** | DONE (S240) | Output integrity checks (mod.json, BG file present). |
 | **M-5.6: mapImportRegister** | DONE (S240) | Signals modmgrCatalogChanged() for catalog pickup. |
-| **M-6.1: Import UI button** | PENDING | Add "Import Map" button to Modding Hub. |
-| **M-6.2: Import dialog** | PENDING | Directory selection, progress display, result summary. |
+| **M-6.1: Import UI button** | DONE (S244) | "Map Import" tab (7th) in Modding Hub. Source dir + map name inputs, Import button. |
+| **M-6.2: Import dialog** | DONE (S244) | Status/error display with color-coded results. Smoke Test button for spawn pool diagnostics. mapImportRunFull() C wrapper. |
 | **M-7.x: Retroactive validation** | PENDING | Run all base + mod arenas through smoke test. |
 
 ---
@@ -288,8 +288,8 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 | ID | Title | Status | Session | Detail |
 |----|-------|--------|---------|--------|
-| **FIX-G** | Mission category headers (B-97) | **DONE** | S242 | Sections existed (M1.1 S168). Added completion counters to chapter + SA headers. |
-| **FIX-F** | Update system reliability (B-99) | OPEN | — | Self-contained in `updater.c`. |
+| **FIX-G** | Mission category headers (B-97) | **DONE** | S242/S245 | Sections existed (M1.1 S168). S242 added counters via isStageDifficultyUnlocked. S245 upgraded to SeparatorText + besttimes-based beat-count; resolved merge conflict with S242 partial. |
+| **FIX-F** | Update system reliability (B-99) | **DONE** | S245 | FIX-F.1: curlGet returns HTTP code; 403 rate-limit path with user-visible msg. FIX-F.2: fsFullPath("$E/") fallback when installDir empty. FIX-F.3: 1MB minimum size check on extracted PerfectDark.exe. |
 | **FIX-B.1** | Deep manifest scanner | OPEN | — | `netmanifest.c`, `setup.c`. |
 
 ---

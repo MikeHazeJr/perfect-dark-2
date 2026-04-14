@@ -50,7 +50,7 @@
 | **B-96** | HIGH | Mission select difficulty flow wrong — should be pick mission → pick difficulty → see objectives → Start; currently shows minimal popup | pdgui_menu_solomission.cpp | **FIXED S168 (M1.1)** — Two-panel layout: left=mission list, right=detail with inline difficulty picker, objectives, Start button. Single-screen flow. |
 | **B-97** | LOW | Special Assignments / Challenges not separated from main mission list | pdgui_menu_solomission.cpp | **FIXED S242** — Sections already existed (M1.1 redesign S168). FIX-G added completion counters "(done/total)" to chapter headers + SA header. |
 | **B-98** | HIGH | Solo mission pause menu falls back to OG rendering for empty sections — ImGui menu not fully implemented | pdgui_menu_solomission.cpp | **FIXED S164** — renderPauseMenu() fully implemented via hotswap registration |
-| **B-99** | MED | Updater downloads zip but extraction may fail — needs retest with v0.0.25 fixed binaries | updater.c | OPEN — needs playtest |
+| **B-99** | MED | Updater downloads zip but extraction may fail — needs retest with v0.0.25 fixed binaries | updater.c | **FIXED S245** — FIX-F.1: curlGet() now returns HTTP code; HTTP 403 classified as rate-limit with "retry in 1 hour" message; non-JSON response classified as wrong-endpoint error. FIX-F.2: if detectExePath() yields empty installDir, fsFullPath("$E/") fallback populates it. FIX-F.3: extracted PerfectDark.exe checked for existence AND minimum 1MB size before self-replace; truncated extraction rejected early. |
 
 ---
 
