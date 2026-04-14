@@ -1345,32 +1345,61 @@ $script:MainTimer.Add_Tick({
 # ============================================================================
 
 function Update-StatusBar {
+    # Guard: skip if a git poll is already in flight
     if ($script:GitBusy) { return }
     $script:GitBusy = $true
-    try {
-        $branch = Get-GitBranch
-        $hash   = Get-GitShortHash
-        $cnt    = Get-GitChangeCount
-        $script:GitChangeCount = $cnt
 
-        $ui["StatusBranch"].Text = "branch: " + $branch
-        $ui["StatusHash"].Text   = "HEAD: " + $hash
-        if ($cnt -eq 0) {
-            $ui["StatusDirty"].Text = "clean"
-            $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
-        } else {
-            $ui["StatusDirty"].Text = "" + $cnt + " uncommitted"
-            $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
-        }
+    # Run the three git queries on a background runspace so the UI thread never
+    # blocks.  Same pattern as the gh-auth check in Section 21.
+    $root = $script:ProjectRoot
+    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $rs.Open()
+    $ps = [System.Management.Automation.PowerShell]::Create()
+    $ps.Runspace = $rs
+    [void]$ps.AddScript({
+        param($root)
+        $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
+        $h = try { $x = git -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
+        $c = try { $st = git -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
+        [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c }
+    })
+    [void]$ps.AddArgument($root)
+    $handle = $ps.BeginInvoke()
 
-        $authText = $(if ($script:GhAuthOk) { "auth: ok" } else { "auth: --" })
-        $authColor = $(if ($script:GhAuthOk) { "#00B400" } else { "#8C8C8C" })
-        $ui["StatusAuth"].Text = $authText
-        $ui["StatusAuth"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
-        $ui["LblAuthStatus"].Text = $authText
-        $ui["LblAuthStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
-    } catch {}
-    $script:GitBusy = $false
+    # Poll on the dispatcher (250 ms) until the background job finishes, then
+    # apply results on the UI thread.  GitBusy is cleared only after completion.
+    $gitPollTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $gitPollTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+    $gitPollTimer.Add_Tick({
+        if (-not $handle.IsCompleted) { return }
+        $this.Stop()
+        try {
+            $results = $ps.EndInvoke($handle)
+            $r = if ($results -and $results.Count -gt 0) { $results[0] } else { $null }
+            if ($r) {
+                $script:GitChangeCount = $r.Count
+                $ui["StatusBranch"].Text = "branch: " + $r.Branch
+                $ui["StatusHash"].Text   = "HEAD: " + $r.Hash
+                if ($r.Count -eq 0) {
+                    $ui["StatusDirty"].Text = "clean"
+                    $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
+                } else {
+                    $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
+                    $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
+                }
+                $authText  = if ($script:GhAuthOk) { "auth: ok" } else { "auth: --" }
+                $authColor = if ($script:GhAuthOk) { "#00B400" } else { "#8C8C8C" }
+                $ui["StatusAuth"].Text = $authText
+                $ui["StatusAuth"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
+                $ui["LblAuthStatus"].Text = $authText
+                $ui["LblAuthStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
+            }
+            try { $ps.Dispose() } catch {}
+            try { $rs.Close(); $rs.Dispose() } catch {}
+        } catch {}
+        $script:GitBusy = $false
+    })
+    $gitPollTimer.Start()
 }
 
 # ============================================================================
