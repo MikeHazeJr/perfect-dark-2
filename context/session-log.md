@@ -3,6 +3,25 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S254 — 2026-04-14 (Bug B: countdown-cancel-on-room-close)
+
+Worktree `claude/condescending-jepsen`, changes committed to dev. Spec: `context/scratch/bug-b-fix-spec-2026-04-14.md`.
+
+**Root cause**: `s_ReadyGate` (static singleton in `netmsg.c`) has no teardown hook. When clients leave a room or a room is destroyed, none of the four `roomLeave` callsites cleared the gate or broadcast `SVC_MATCH_CANCELLED`. The gate kept ticking and at zero fired `mainChangeToStage()` into an empty room; clients stuck at "GO!" overlay.
+
+**Fix shape** — 3 files, ~45 lines, no protocol bump (reuses existing `SVC_MATCH_CANCELLED`):
+- `port/include/net/netmsg.h`: declared `netReadyGateAbortForRoom(u8, const char*)` and `netReadyGateOnClientLeft(u8)`.
+- `port/src/net/netmsg.c`: added `static void readyGateAbort(…)` forward decl; added defensive room-missing guard at top of `readyGateTickCountdown()` (calls `readyGateAbort` if `roomGetById(room_id)==NULL`); implemented both public wrappers as thin guards over existing `readyGateAbort`.
+- `port/src/room.c`: added extern forward decls; patched `roomLeave()` to call `netReadyGateOnClientLeft(clientId)` after removing the client, and `netReadyGateAbortForRoom(room->id, "Room closed")` inside the `client_count==0` branch before `roomDestroy()`.
+
+**Verification status**: Build clean (both pd + pd-server, `PerfectDark.exe` + `PerfectDarkServer.exe` rebuilt 2026-04-14). **Needs in-game playtest** per spec §7 (leader leaves during countdown, client disconnects during countdown, ESC cancel regression).
+
+**Follow-up caveat — `CLSTATE_PREPARING` gate in ESC-cancel path**: `netLobbyRequestCancel()` in `pdgui_bridge.c:923` checks `g_NetLocalClient->state == CLSTATE_PREPARING`, but grep shows no client-side code ever sets `g_NetLocalClient->state` to `CLSTATE_PREPARING`. ESC-cancel may be silently failing (spec §7.5 / §9 "ESC cancel may be pre-broken"). Out of scope for Bug B fix — file as follow-up if confirmed broken in playtest.
+
+**Context updates**: constraints.md +1 bullet ("Ready gate lifetime bound to room"), systemic-bugs.md +SP-14 ("Room-bound server state must be cleaned up on room teardown"), bugs.md Bug B moved from open → fixed.
+
+---
+
 ## Session S253 — 2026-04-13 (MP Lobby Residual: Issue 7, F-2.1, Issue 2/8, B-140 Issue B)
 
 Worktree `claude/great-carson` (base `8e02a2ef`), final dev HEAD `287b0bc4`. Closed all four S248/S249/S250 residuals. **Issue 7** — `SVC_ROOM_SETTINGS 0x78` / `SVC_ROOM_PLAYLIST 0x79` + CLC counterparts `0x13`/`0x14`; dirty-flag accumulator in `pdguiRoomScreenRender()` flushes end-of-frame; server validates room-leader and rebroadcasts. Protocol v35 additive. Post-merge fix commit `287b0bc4` corrected sender from `g_NetLocalServer` (undeclared) to `g_NetLocalClient->out` + `netSend(g_NetLocalClient, NULL, ...)`. **Weapons F-2.1** — `pdgui_menu_room.cpp` picker switched to `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha Selectables. **Issue 2/8** — `pdguiThemeRescanMods()` added (bypasses `s_LoaderInitDone`), called from `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`; audio self-heals per-frame. **B-140 Issue B** — `renderSelectTunes` redesigned: 0.70×0.82 window, two-column (Library / Selected Tracks), click-add / click-remove, hover-preview via `list_Focus` (base) / `audioSetModTrackId` (mod), `musicRestoreInterval()` on hover-off; `netSendRoomPlaylistUpdate()` at all three change sites when leader. Build clean (8 files, +517/-141). Open after drop: see `bugs.md` + `tasks-current.md`; forensic detail in `scratch/archive/2026-04-13/session-state-mp-lobby-residual.md`.

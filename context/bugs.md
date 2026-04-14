@@ -24,7 +24,6 @@ the compact reference below with commit SHAs.
 
 These are in `tasks-current.md` punch list and `context/scratch/archive/2026-04-13/README.md` — promotion to formal B-numbers deferred until the 2026-04-13 drop is playtest-verified (several may have already cleared).
 
-- **Bug B (countdown-cancel-on-room-close)** — server countdown lingers after the leader closes a room; fires into the next room. Fix lives in `readyGateTickCountdown()` / `netmsg.c`.
 - **Bug C (post-game endscreen partial render)** — scrim + title-bar rectangle render but content body is invisible. Six hypotheses in `scratch/archive/2026-04-13/session-state-endgame-crash.md` §4c; needs instrumentation in `renderMpEndscreen`.
 - **Bug D (invisible networked bots on Chicago)** — bots visible on minimap and audible but not rendered in world. Likely chr generation token mismatch (FIX-A.2 area); may have cleared with today's drop.
 - **Chicago silent crash ~9 s** — needs VEH log + symbolify.
@@ -36,6 +35,7 @@ These are in `tasks-current.md` punch list and `context/scratch/archive/2026-04-
 
 | ID | Description | Fixed |
 |----|-------------|-------|
+| Bug B | Countdown-cancel-on-room-close — server `s_ReadyGate` kept ticking after all clients left the room, firing `mainChangeToStage()` into an empty room; clients stuck on "GO!". Fix: `netReadyGateOnClientLeft()` + `netReadyGateAbortForRoom()` called from `roomLeave()` in `room.c`; defensive "room missing" guard at top of `readyGateTickCountdown()`. No protocol bump. See systemic-bugs.md SP-14. | 2026-04-14 — S254 — netmsg.h, netmsg.c, room.c |
 | B-143 | End-Game-Crash 0xc0000005 — `netDisconnect()` called `mainChangeToStage(STAGE_CITRAINING)` while `g_ClientManifest` still held the match manifest → `manifestMPTransition()` diffed torn-down entries → AV. Fix: `manifestClear(&g_ClientManifest)` before stage change (pattern-match to F-0.4 / L1-1). Also: controller-friendly modal confirm UX. See systemic-bugs.md SP-13. | 2026-04-13 — d37e9677 — net.c, pdgui_menu_warning.cpp |
 | B-134 | Chicago MP fire-escape railing trap — `spawnPoolRaycastBudget()` 5-unit near-hit threshold passed railings inside player capsule (30 units). Fix: threshold = `SPAWNPOOL_CAPSULE_RADIUS` (30.0f). L1 rejection log upgraded to LOG_WARNING. | 2026-04-13 — 0b44b2b8 — spawnpool.c, spawnpool.h |
 | B-140 | Mod music playlist auto-advance never broadcast — `NETMODE_SERVER_AUDIO` was `#define`d 2 (= NETMODE_CLIENT) instead of 1 (= NETMODE_SERVER); `audioNetworkMusicTick()` fired on clients not host. | S249 / 2026-04-13 — e13c2d1f — audio.c:17 |

@@ -316,6 +316,13 @@ void netBroadcastRoomList(void);
  * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
 void readyGateTickCountdown(void);
 
+/* Bug B fix: abort the pre-match countdown when the room it targets is torn
+ * down or when a preparing client leaves.  Both routes broadcast
+ * SVC_MATCH_CANCELLED via the existing readyGateAbort() pipeline, so all
+ * clients clear their 3-2-1 overlay. */
+void netReadyGateAbortForRoom(u8 room_id, const char *reason);
+void netReadyGateOnClientLeft(u8 clientId);
+
 /* Prop syncid → prop* lookup map.
  * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.
  * Must be kept in sync whenever prop syncids change:

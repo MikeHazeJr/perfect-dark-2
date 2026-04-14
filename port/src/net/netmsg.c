@@ -4109,10 +4109,26 @@ static void readyGateCheck(void)
 	readyGateBroadcastCountdown(MANIFEST_PHASE_LOADING);
 }
 
+/* Bug B: forward declaration — readyGateAbort is defined below but called from
+ * readyGateTickCountdown's defensive room-missing check. */
+static void readyGateAbort(const char *canceller_name);
+
 /* Phase F: Called every server tick from netEndFrame() to drive the launch countdown. */
 void readyGateTickCountdown(void)
 {
 	if (!s_ReadyGate.active) {
+		return;
+	}
+
+	/* Bug B defensive: if the room this gate targets no longer exists,
+	 * abort now.  Prevents mainChangeToStage() from firing into a dead
+	 * room if a teardown path bypassed netReadyGateAbortForRoom.
+	 * room_id == 0xFF means the gate is global (co-op) — no room binding. */
+	if (s_ReadyGate.room_id != 0xFF && roomGetById(s_ReadyGate.room_id) == NULL) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: ready gate room %u missing at tick — aborting (defensive)",
+		             (unsigned)s_ReadyGate.room_id);
+		readyGateAbort("Room closed");
 		return;
 	}
 
@@ -4209,6 +4225,38 @@ static void readyGateAbort(const char *canceller_name)
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcMatchCancelledWrite(&g_NetMsgRel, canceller_name ? canceller_name : "?");
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+}
+
+/* Bug B: called from room teardown paths.  If the gate targets this room
+ * (or any room when gate is active with room_id == 0xFF — co-op), abort
+ * and broadcast SVC_MATCH_CANCELLED. */
+void netReadyGateAbortForRoom(u8 room_id, const char *reason)
+{
+	if (!s_ReadyGate.active) return;
+	if (s_ReadyGate.room_id != 0xFF && s_ReadyGate.room_id != room_id) return;
+	sysLogPrintf(LOG_NOTE,
+	             "NET: ready gate aborting — room %u torn down (%s)",
+	             (unsigned)room_id, reason ? reason : "?");
+	readyGateAbort(reason ? reason : "Room closed");
+}
+
+/* Bug B: called from CLC_ROOM_LEAVE / CLC_ROOM_JOIN / CLC_ROOM_CREATE
+ * handlers and netServerEvDisconnect after the client has been pulled out
+ * of its room.  If this client was a preparing participant in the current
+ * gate, abort so the remaining clients don't keep counting down without
+ * them. */
+void netReadyGateOnClientLeft(u8 clientId)
+{
+	if (!s_ReadyGate.active) return;
+	if (clientId >= NET_MAX_CLIENTS) return;
+	const u32 bit = (1u << clientId);
+	if (!(s_ReadyGate.expected_mask & bit)) return;
+	const char *who = g_NetClients[clientId].settings.name[0]
+	                  ? g_NetClients[clientId].settings.name : "Player";
+	sysLogPrintf(LOG_NOTE,
+	             "NET: ready gate aborting — client %u (%s) left the room/disconnected",
+	             (unsigned)clientId, who);
+	readyGateAbort(who);
 }
 
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)

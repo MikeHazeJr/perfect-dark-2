@@ -363,6 +363,45 @@ mainChangeToStage during MP teardown".
 
 ---
 
+## SP-14: Room-bound server state must be cleaned up on room teardown
+
+**Severity**: HIGH — silent protocol desync, stuck UI, ghost stage loads
+**Root cause**: Server-side state keyed on `room_id` (`s_ReadyGate`,
+`g_NetMatchRoomId`, mod playlist state, match config snapshot, …) must
+be torn down when the room it belongs to is destroyed. `roomDestroy()`
+only clears the room slot itself — it does not notify downstream
+subsystems. Any subsystem holding room-keyed state must hook into
+`roomLeave()` / `roomDestroy()` (or run a "room still exists?" check on
+each tick).
+
+**When it happens**: host leaves room, last player leaves, host kicks
+all, server drops client. Anything that empties a room.
+
+**Canonical fix pattern** (Bug B, 2026-04-14):
+1. Add a public "on client left" and "on room destroyed" wrapper that
+   reads the subsystem's state and invokes its abort / clear path.
+2. Call both wrappers from `roomLeave()` in `port/src/room.c` — once
+   the leaver has been removed, and again (defensively) inside the
+   `client_count == 0` branch before `roomDestroy()`.
+3. Add a per-tick defensive check inside the subsystem's tick function
+   that calls `roomGetById(room_id) == NULL` → abort.
+
+**Known sites audited**:
+- `s_ReadyGate` (Bug B, 2026-04-14) — fixed via `netReadyGateAbortForRoom`
+  + `netReadyGateOnClientLeft` in `netmsg.c`.
+
+**Audit command** (run when adding new room-keyed state):
+```
+grep -nE 'room_id|matchRoomId|g_NetMatchRoomId' port/src/net/*.c port/src/*.c
+```
+Then verify every static/global holding `room_id` has a hook in
+`roomLeave()` or a defensive per-tick cleanup.
+
+**Active constraint**: [constraints.md](constraints.md) — "Ready gate lifetime
+is bound to its room's lifetime".
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

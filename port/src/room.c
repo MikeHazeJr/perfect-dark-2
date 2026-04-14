@@ -13,6 +13,10 @@
 #include "room.h"
 #include "system.h"
 
+/* Bug B forward decls — avoid pulling all of netmsg.h into room.c. */
+extern void netReadyGateOnClientLeft(u8 clientId);
+extern void netReadyGateAbortForRoom(u8 room_id, const char *reason);
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -155,8 +159,19 @@ void roomLeave(hub_room_t *room, u8 clientId)
                  (unsigned)clientId, (unsigned)room->id, room->name,
                  (unsigned)room->client_count);
 
+    /* Bug B: if this client was participating in the pre-match ready
+     * gate, abort the countdown.  Safe no-op if gate is inactive or the
+     * client wasn't preparing.  Runs regardless of whether the room will
+     * survive this leave. */
+    netReadyGateOnClientLeft(clientId);
+
     /* Destroy empty rooms (except room 0) */
     if (room->client_count == 0 && room->id != 0) {
+        /* Bug B defensive: abort any gate still targeting this room before
+         * destroying the slot.  Should already be clear from the
+         * netReadyGateOnClientLeft above, but covers edge cases (e.g. the
+         * leaver was a late-join spectator not in expected_mask). */
+        netReadyGateAbortForRoom(room->id, "Room closed");
         roomDestroy(room);
     }
 }
