@@ -381,7 +381,7 @@ function Auto-Commit-Sync {
             <Setter Property="Foreground" Value="#DCDCDC"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#505050"/>
-            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Padding" Value="10,7"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -448,7 +448,7 @@ function Auto-Commit-Sync {
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right"
                            Text="Ctrl+B=Build    Ctrl+R=Release    Ctrl+L=Log    Ctrl+G=Game"
-                           Foreground="#1E3050" FontSize="10" FontFamily="Consolas"
+                           Foreground="#304870" FontSize="12" FontFamily="Consolas"
                            VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="#0090D0" CornerRadius="2" Padding="7,2" Margin="0,0,10,0">
@@ -464,24 +464,24 @@ function Auto-Commit-Sync {
         </Border>
 
         <!-- Status Bar -->
-        <Border DockPanel.Dock="Bottom" Background="#0A0F1A" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="10,5">
+        <Border DockPanel.Dock="Bottom" Background="#0A0F1A" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="10,7">
             <DockPanel>
                 <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#C8A000"
-                           FontFamily="Consolas" FontSize="11" FontWeight="SemiBold"
+                           FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
                            DockPanel.Dock="Right" VerticalAlignment="Center"/>
                 <Rectangle Width="1" Fill="#162030" Margin="12,0" DockPanel.Dock="Right"/>
                 <TextBlock x:Name="StatusAuth" Text="auth: --" Foreground="#506070"
-                           FontFamily="Consolas" FontSize="11"
+                           FontFamily="Consolas" FontSize="13"
                            DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0"
-                           FontFamily="Consolas" FontSize="11" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="13" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#3A5070"
-                           FontFamily="Consolas" FontSize="11" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="13" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
-                           FontFamily="Consolas" FontSize="11"/>
+                           FontFamily="Consolas" FontSize="13"/>
             </DockPanel>
         </Border>
 
@@ -568,11 +568,11 @@ function Auto-Commit-Sync {
                                 BorderBrush="#162438" BorderThickness="1" Padding="10,8">
                             <StackPanel>
                                 <TextBlock x:Name="LblClientStatus" Text="client: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="11" Margin="0,0,0,3"/>
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="13" Margin="0,0,0,3"/>
                                 <TextBlock x:Name="LblServerStatus" Text="server: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6"/>
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="13" Margin="0,0,0,6"/>
                                 <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#506880"
-                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,4"/>
 
                                 <!-- Progress Bar -->
                                 <Border x:Name="ProgressBack" Background="#0A1520" Height="16"
@@ -582,7 +582,7 @@ function Auto-Commit-Sync {
                                         <Border x:Name="ProgressFill" Background="#0090D0"
                                                 CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
                                         <TextBlock x:Name="LblProgressText" Text="" Foreground="White"
-                                                   FontFamily="Consolas" FontSize="10"
+                                                   FontFamily="Consolas" FontSize="11"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Border>
@@ -590,13 +590,13 @@ function Auto-Commit-Sync {
                                 <!-- Action Buttons Row -->
                                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                     <Button x:Name="BtnStop" Content="STOP" Style="{StaticResource RedBtn}"
-                                            Padding="10,4" Margin="0,0,4,0" Visibility="Collapsed"/>
+                                            Padding="10,7" Margin="0,0,4,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyErrors" Content="Copy Errors" Style="{StaticResource ToolBtn}"
                                             Margin="0,0,4,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyLog" Content="Copy Log" Style="{StaticResource ToolBtn}"
                                             Margin="0,0,4,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
-                                            ToolTip="Validate clean git state + run git-snapshot.sh"/>
+                                            Padding="12,7" ToolTip="Validate clean git state + run git-snapshot.sh"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -605,57 +605,57 @@ function Auto-Commit-Sync {
                         <Border Grid.Column="2" Background="#0E1420" CornerRadius="4"
                                 BorderBrush="#162438" BorderThickness="1" Padding="10,8">
                             <StackPanel>
-                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="9"
+                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="11"
                                            FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,5"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Text="MAJ" Foreground="#2A4060" FontSize="9"
+                                        <TextBlock Text="MAJ" Foreground="#2A4060" FontSize="11"
                                                    FontFamily="Consolas" Margin="0,0,0,2"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerMajor" Width="30" TextAlignment="Center"
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerMajor" Width="32" TextAlignment="Center"
                                                      Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
                                                      FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
                                             <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Text="MIN" Foreground="#2A4060" FontSize="9"
+                                        <TextBlock Text="MIN" Foreground="#2A4060" FontSize="11"
                                                    FontFamily="Consolas" Margin="0,0,0,2"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerMinor" Width="30" TextAlignment="Center"
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerMinor" Width="32" TextAlignment="Center"
                                                      Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
                                                      FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
                                             <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="PAT" Foreground="#2A4060" FontSize="9"
+                                        <TextBlock Text="PAT" Foreground="#2A4060" FontSize="11"
                                                    FontFamily="Consolas" Margin="0,0,0,2"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerPatch" Width="30" TextAlignment="Center"
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                            <TextBox x:Name="TxtVerPatch" Width="32" TextAlignment="Center"
                                                      Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
                                                      FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
                                             <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,2" Width="22" FontFamily="Consolas"/>
+                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
-                                          FontSize="11" FontWeight="SemiBold" Margin="0,2,0,6"/>
+                                          FontSize="13" FontWeight="SemiBold" Margin="0,2,0,6"/>
                                 <TextBlock x:Name="LblAuthStatus" Text="auth: --" Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,3" Cursor="Hand"/>
+                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,3" Cursor="Hand"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="11" Margin="0,0,0,2"/>
+                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,2"/>
                                 <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#3860A0"
-                                           FontFamily="Consolas" FontSize="11"/>
+                                           FontFamily="Consolas" FontSize="13"/>
                             </StackPanel>
                         </Border>
                     </Grid>
