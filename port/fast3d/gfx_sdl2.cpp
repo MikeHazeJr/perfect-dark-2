@@ -16,6 +16,8 @@ extern "C" {
     void pdguiConsoleToggle(void);
     signed int pdguiIsActive(void);
     void inputCtxEndFrame(void);
+    /* ADR 2026-04-13: window-focus signals into the input-authority predicate. */
+    void inputCtxNotifyFocus(signed int gained);
 }
 
 /* M0.2 Phase B: actionmap lifecycle */
@@ -332,6 +334,16 @@ static void gfx_sdl_handle_events(void) {
                     if (!fullscreen_state) {
                         maximized_state = SDL_GetWindowFlags(wnd) & SDL_WINDOW_MAXIMIZED ? true : false;
                     }
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    /* ADR 2026-04-13: flush held gameplay keys on alt-tab so
+                     * the player doesn't keep walking while the window is
+                     * backgrounded. SDL may never deliver matching KEYUPs. */
+                    inputCtxNotifyFocus(0);
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                    /* Focus back: start the settle window; until it expires,
+                     * gameplayInputSuppressed() stays true so SDL's auto-
+                     * repeat replays of held keys won't move the player. */
+                    inputCtxNotifyFocus(1);
                 } else if (event.window.event == SDL_WINDOWEVENT_CLOSE &&
                            event.window.windowID == SDL_GetWindowID(wnd)) {
                     // We listen specifically for main window close because closing main window
