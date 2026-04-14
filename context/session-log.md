@@ -3,6 +3,44 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S247 — 2026-04-13 (Build-env self-heal: _build-env-prelude.ps1 + build-env.sh)
+
+**Focus**: Eliminate recurring wasted build time caused by invalid `$TEMP` and MinGW not on PATH. Three-layer fix: shared PS prelude, bash helper, CLAUDE.md doc block.
+
+### Layer 1 — `devtools/_build-env-prelude.ps1` (new, 28 lines)
+
+Dot-sourced by all three build scripts. Sets `TEMP`/`TMP` to `C:\Users\mikeh\AppData\Local\Temp` (creates dir if absent), idempotently prepends `C:\msys64\mingw64\bin` to PATH, sets `MSYSTEM`/`MINGW_PREFIX`/`CCACHE_SLOPPINESS`, echoes one-line confirmation. Replaces duplicate 9–16 line env blocks in each script.
+
+Scripts updated to dot-source the prelude:
+- `devtools/build-headless.ps1`: replaced lines 89–104 with 3-line dot-source
+- `devtools/release.ps1`: replaced lines 100–109 (retained `GIT_TERMINAL_PROMPT` separately)
+- `devtools/dev-window-v2/dev-window-v2.ps1`: replaced Section 0 lines 15–25
+
+### Layer 2 — `devtools/build-env.sh` (new, 20 lines)
+
+Bash-side equivalent. `source devtools/build-env.sh && ninja -C Build pd pd-server` is now the canonical bash build recipe. Idempotent PATH guard via `case` pattern.
+
+### Layer 3 — CLAUDE.md "Build environment" block
+
+Added immediately under Repository section. Canonical bash and PowerShell recipes documented with "Do not rediscover TEMP or PATH" warning. Parent copy synced to `Perfect-Dark-2/CLAUDE.md` (created, previously absent).
+
+### Build Verification
+
+Bash path verified: `source devtools/build-env.sh && ninja -C Build pd pd-server` — 752/752 steps, both targets clean.
+- `PerfectDark.exe`: 49 MB
+- `PerfectDarkServer.exe`: 22 MB
+
+### Commits
+
+- `2807f37a` feat: build-env self-heal — _build-env-prelude.ps1, build-env.sh, CLAUDE.md (worktree claude/bold-agnesi)
+- `54659577` Merge worktree bold-agnesi: build-env self-heal (prelude + sh + CLAUDE.md) → dev
+
+### Next
+
+No follow-up required. Sessions should now source `build-env.sh` (bash) or run `build-headless.ps1` (PowerShell) without any env setup ceremony.
+
+---
+
 ## Session S246 — 2026-04-13 (Gap Closure: M-7.x Smoke Test + match_seed/B-19 DONE)
 
 **Focus**: Gap-closure pass after Layer 1-7 master plan. Two work items + tasks refresh.
