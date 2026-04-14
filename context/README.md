@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-12, S220 B-133 FIXED (inline Vp in display list caused GBI crash in character preview — pdgui_charpreview.c static Vp + gfx_pc.cpp PRIxPTR format fix)
+> **Last updated**: 2026-04-13, S247 — Build-env self-heal (_build-env-prelude.ps1 + build-env.sh + CLAUDE.md). Prior: S246 gap closure (M-7.x smoke test, match_seed/B-19 DONE), S245 FIX-F/FIX-G (B-99/B-97 closed).
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,7 +35,11 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
-| S202-S209 | 2026-04-11 | S202 Batch 4 Cheats/Cinema (+131KB). S203 Batch 5 MP Setup Core (+147KB). S204 Batch 6 Bot Setup (+135KB). S205 Batch 7 MP Advanced/Quick (+220KB). S206 Batch 8 MP Pause & In-Game (+156KB). S207 Batch 6 polish (live head/body preview). S208 Opus 1M playtest-fixes (6 bugs). S209 Batch 11 MP Player Config & Stats (+131KB). |
+| S245-S247 | 2026-04-13 | S245 L7 FIX-F updater robustness (B-99) + FIX-G mission headers (B-97). S246 gap-closure (M-7.x smoke test + tasks refresh; match_seed/B-19 DONE). S247 build-env self-heal (prelude.ps1 + build-env.sh + CLAUDE.md). |
+| S238-S244 | 2026-04-13 | S238 L2 universal spawn pool (L1-L4 fallback chain) + F-1.1/F-1.2/F-2.1 menu consistency. S239 spawn tracker. S240 L3 mod map import pipeline. S241/S242 L5 match lifecycle (co-op manifest, protocol v35, match_seed) + L6 rendering polish FIX-C.1/C.3 + menu polish tail. S243 FIX-C rendering tracker. S244 M-6 import UI. |
+| S231-S237 | 2026-04-13 | S231 L0-BUILD ccache sloppiness fix + L0-LINK verify. S232 dev-window-v2 overhaul + release hang fix. S233 L0 manifest safety (L1-1, FIX-B.2) + B-72/B-21 closed. S234 FIX-A chr tick isolation + crash handler hardening (B-112/B-126 mitigated). S236 L1 networking safety baseline + menu consistency. |
+| S221-S230 | 2026-04-12/13 | S221 9-issue playtest fix batch. S222 audio mod fixes. S223 S224 static-link DLL elimination + Ninja/ccache/PCH pipeline. S226-S229 architecture audits (match lifecycle, menu/input, spawn+import). S230 master orchestration plan (75 items, 8 layers). |
+| S202-S220 | 2026-04-11/12 | Batch 4-11 MP menu ports (+920KB ImGui menus). S208 Opus 1M playtest (6 bugs). S218 controller bindings. S220 B-133 charpreview GBI crash fix. |
 | S200-S201 | 2026-04-11 | S200 B-78/B-84 FIXED (chat size cap + dead tmp[1024]). S201 D5 P3 Batch 3 DONE: Sound Mode dropdown added to Settings → Audio; CI Options redirects verified complete. pdgui_menu_mainmenu.cpp 3100→3123. |
 | S199 | 2026-04-11 | Updater parse failure diagnosis (B-99/D13). per_page 30→100; HTTP code + raw response instrumentation in updater.c. Root cause likely GitHub rate-limit 403 error object. |
 | S196-S198 | 2026-04-10 | S196 Theme system: base-game template mod, nineslice pipeline, Settings → Video → UI Chrome Style toggle. S197a Input regressions post-S196 fixed. S198 B-129 agent save path FULLY FIXED (saveInit() wired in main.c + server_main.c); theme editor close lifecycle instrumentation (B-130). New bugs B-130/B-131 OPEN. |
@@ -117,7 +121,7 @@ Completed audits, superseded plans, and old session logs are in `_archive/`. Sub
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW. `devtools/build-headless.ps1` for AI.
-- **Net**: Protocol **v32**, 60Hz tick. All wire fields use catalog ID strings. net_hash is dead.
+- **Net**: Protocol **v35**, 60Hz tick. All wire fields use catalog ID strings. net_hash is dead. match_seed synced via SVC_STAGE_START.
 - **Input**: Action map system (M0.2). `actionPressed()`/`actionHeld()`/`actionValue()`. No CK_*.
 - **Menus**: ImGui sole system (P10 D5.7). `pdgui_menu_*.cpp`. Legacy rendering removed.
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32.

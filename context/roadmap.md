@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-11 (S199 — Updater parse diagnosis; daily context audit)
+> Last updated: 2026-04-13 (S247 — daily context audit)
 
 ## Current State
 
-**Build**: v0.0.75 | **Protocol**: v32 | **Sessions**: 199+
+**Build**: v0.0.93 | **Protocol**: v35 | **Sessions**: 247+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 
@@ -29,18 +29,18 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 |------|--------|--------|
 | **D5 Phase 3 — Remaining menu screens** | L | 61/120 screens still need ImGui ports. Many are stubs/simple dialogs. |
 | **D5 Phase 4 — Theme System** | M | Auto-extract base-ui textures at runtime. Mod themes. Debug menu rebuild. |
-| **B-112 root cause** | M | Chr pointer corruption in 31-bot matches. Guards in place but root cause unknown. |
+| **B-112 root cause** | M | Chr pointer corruption in 31-bot matches. S234 FIX-A MITIGATED (stack depth cap + generation tokens + hardened handler). Awaiting 31-bot repro test to confirm crash eliminated. |
 | **Build verification pass** | S | Clean build, all QC tests passing, no known crash bugs. |
-| **D13 — Update System parse diagnosis** | S | IN PROGRESS (S199) — instrumentation deployed; awaiting next failed-check log to confirm GitHub HTTP code (likely 403 rate-limit). |
+| **D13 — Update System parse diagnosis** | S | **DONE (S245 FIX-F)** — curlGet returns HTTP code; 403 rate-limit path + user message; fsFullPath fallback for empty installDir; 1MB min size check on extracted exe. B-99 closed. |
 
 ### Should-Have
 
 | Item | Effort | Detail |
 |------|--------|--------|
-| **M3 — Online MP flow** | M | Lobby polish, room list UX, leader election, Quick Play. R-3 (room networking) done. |
+| **M3 — Online MP flow** | M | Lobby polish, room list UX, leader election, Quick Play. R-3 (room networking) done. L5 match lifecycle (co-op manifest, protocol v35, match_seed) DONE S241. |
 | **Prop sync event-driven** | S | Currently CRC polling. Should fire on pickup/door events. |
-| **B-78 chat rate limiting** | S | DoS amplification vector. |
-| **B-81 JSON recursion guard** | S | Crafted save file → stack overflow crash. |
+| **B-78 chat rate limiting** | S | **DONE (2026-04-11)** — CHAT_MSG_MAX_LEN 255 + length check before rate-limit ring. |
+| **B-81 JSON recursion guard** | S | **DONE (2026-04-11)** — S_MAX_DEPTH 64 + 256KB file cap. |
 
 ### Nice-to-Have
 
@@ -48,7 +48,7 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 |------|--------|--------|
 | **D5 Phase 5 — Lobby scene** | L | Player portraits, connected player avatars, character preview. |
 | **Killfeed bot kills** | S | Bot kills not appearing in killfeed. |
-| **B-97 Special Assignments separation** | S | Mixed into main mission list. |
+| **B-97 Special Assignments separation** | S | **DONE (S242/S245 FIX-G)** — SeparatorText headers with completion counters for Campaign + SA sections. |
 
 ## Post v0.1.0 Roadmap
 
