@@ -5,222 +5,45 @@
 
 ## Session S253 — 2026-04-13 (MP Lobby Residual: Issue 7, F-2.1, Issue 2/8, B-140 Issue B)
 
-**Focus**: Close out all four punch-list items deferred from S248/S249/S250 MP lobby/room UI + mod persistence work.
-
-Branch: `claude/great-carson` (worktree), dev tip `8e02a2ef` at session start. Final dev HEAD: `287b0bc4`.
-
-### What Shipped
-
-**Issue 7 — SVC_ROOM_SETTINGS room broadcast** (`netmsg.h`, `netmsg.c`, `net.c`, `pdgui_menu_room.cpp`):
-Full two-message round-trip: leader changes settings → `CLC_ROOM_SETTINGS_UPDATE (0x13)` to server → server validates room-leader → rebroadcasts `SVC_ROOM_SETTINGS (0x78)` to all room peers. Also adds `SVC_ROOM_PLAYLIST (0x79)` / `CLC_ROOM_PLAYLIST_UPDATE (0x14)` for B-140. Clients apply `g_MatchConfig` fields on receipt. Dirty-flag accumulator in `pdguiRoomScreenRender()` fires end-of-frame. Protocol v35 additive (no breaking changes).
-Build fix: `netSendRoomSettingsUpdate/PlaylistUpdate` sender functions initially used `g_NetLocalServer` (undeclared); corrected to `g_NetLocalClient->out` + `netSend(g_NetLocalClient, NULL, ...)` matching the CLC send pattern in `pdgui_bridge.c`.
-
-**Weapons F-2.1** (`pdgui_menu_room.cpp`):
-Replaced flat `BeginCombo` with `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha-sorted Selectables. Matches the Arenas section pattern. `#include <algorithm>` added.
-
-**Issue 2/8 — Theme rescan on Apply** (`pdgui_theme_loader.h`, `pdgui_theme_loader.cpp`, `modmgr.c`):
-`pdguiThemeRescanMods()` added — calls `scan_mods_for_themes()` directly, bypassing the `s_LoaderInitDone` gate. Called from `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`. Audio already self-heals per-frame.
-
-**B-140 Issue B — Select Tunes two-panel UX + network sync** (`pdgui_menu_mpsettings.cpp`):
-`renderSelectTunes` completely redesigned. Window widened to 0.70×0.82. Two-column layout: Library (left) + Selected Tracks (right). Click left mod track = add to playlist; click right = remove. Hover base track = `list_Focus` preview; hover mod track = `audioSetModTrackId` preview; hover-off = `musicRestoreInterval()` resume. Network sync via `netSendRoomPlaylistUpdate()` when `g_NetMode == MPSETTINGS_NETMODE_CLIENT && lobbyIsLocalLeader()`.
-
-### Build
-`ninja -C Build pd pd-server` — both targets link clean. No errors. 517 insertions / 141 deletions across 8 files + 1 post-merge fix commit.
-
-### Next
-- **Playtest verify**: Issue 7 room settings sync, B-140 two-panel UX.
-- **Input Phase 2**: Menu pool single-instance discipline (see tasks-current.md ADR section).
+Worktree `claude/great-carson` (base `8e02a2ef`), final dev HEAD `287b0bc4`. Closed all four S248/S249/S250 residuals. **Issue 7** — `SVC_ROOM_SETTINGS 0x78` / `SVC_ROOM_PLAYLIST 0x79` + CLC counterparts `0x13`/`0x14`; dirty-flag accumulator in `pdguiRoomScreenRender()` flushes end-of-frame; server validates room-leader and rebroadcasts. Protocol v35 additive. Post-merge fix commit `287b0bc4` corrected sender from `g_NetLocalServer` (undeclared) to `g_NetLocalClient->out` + `netSend(g_NetLocalClient, NULL, ...)`. **Weapons F-2.1** — `pdgui_menu_room.cpp` picker switched to `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha Selectables. **Issue 2/8** — `pdguiThemeRescanMods()` added (bypasses `s_LoaderInitDone`), called from `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`; audio self-heals per-frame. **B-140 Issue B** — `renderSelectTunes` redesigned: 0.70×0.82 window, two-column (Library / Selected Tracks), click-add / click-remove, hover-preview via `list_Focus` (base) / `audioSetModTrackId` (mod), `musicRestoreInterval()` on hover-off; `netSendRoomPlaylistUpdate()` at all three change sites when leader. Build clean (8 files, +517/-141). Open after drop: see `bugs.md` + `tasks-current.md`; forensic detail in `scratch/archive/2026-04-13/session-state-mp-lobby-residual.md`.
 
 ---
 
-## Session S252 — 2026-04-13 (B-142 NULL-guard on mpPlayerGetIndex)
+## Session S252 — 2026-04-13 (End-Game-Crash + B-142 NULL-guard + modal confirm UX)
 
-Worktree `hungry-bose` branch `fix-end-game-crash-and-ux`. Added `if (chr == NULL) return -1;` early-return at top of `mpPlayerGetIndex` (`src/game/mplayer/mplayer.c:3734`) to prevent `mpPlayerGetIndex(NULL)` from matching `g_MpAllChrPtrs[0]==NULL` at index 0 and mis-attributing orphan/explosion/tripmine damage to player slot 0. Merged `--no-ff` to dev at `4d1e13c1`; line count 4507 → 4510 verified. Build-verify: `pd` + `pd-server` linked clean. B-142 → FIXED-PENDING-PLAYTEST.
+Worktree `hungry-bose` branch `fix-end-game-crash-and-ux`. Two fixes from the same branch, both merged `--no-ff` into dev — `d37e9677` End-Game-Crash + modal confirm, `4d1e13c1` B-142 NULL-guard. Forensic detail in `scratch/archive/2026-04-13/session-state-endgame-crash.md`.
+
+**B-143 End-Game-Crash (merge `d37e9677`)**: 0xc0000005 access-violation on MP pause → End Game → Confirm → CI-training stage change. Root cause: `netDisconnect()` (`net.c:~935-1002`) called `mainChangeToStage(STAGE_CITRAINING)` while `g_ClientManifest.num_entries > 0` still held the MP match's entries; `mainChangeToStage()` took the `manifestMPTransition()` branch and attempted to diff the torn-down manifest against whatever was loading for CI-training → AV. **This is the third site of a now-systemic pattern**: F-0.4 (pdgui_bridge.c:799, `pdguiEndscreenExitToMainMenu`, S233) and L1-1 (netmsg.c:1419, `netmsgSvcStageEndRead`, S235) both received `manifestClear(&g_ClientManifest)` before stage change for the same reason. netDisconnect was the third missed callsite. Fix: `manifestClear(&g_ClientManifest)` immediately before `mainChangeToStage(STAGE_CITRAINING)` in `netDisconnect()`, with block comment referencing F-0.4 and L1-1. **Pattern is now load-bearing enough to justify a systemic class** — documented as **SP-13** in `systemic-bugs.md` (manifestClear before mainChangeToStage during MP teardown) with audit checklist + search command. Also documented as active invariant in `constraints.md`. Companion UX fix: `pdgui_menu_warning.cpp` added new `renderMpEndGameDialog` (~150 lines) replacing the text-only Danger modal — palette 2 (red) scrim, PdDialog frame, yellow "End Match?" title, Cancel (default focus) + red "End Match" buttons, Enter/Space/Gamepad-A → Confirm, Escape/Gamepad-B → Cancel, hint row. Registered via `pdguiHotswapRegister(&g_MpEndGameMenuDialog, renderMpEndGameDialog, "MP End Game (modal confirm)")` replacing the prior `renderDangerDialog` wiring.
+
+**B-142 false kills (merge `4d1e13c1`)**: Fresh match, player opens pause immediately after spawn, score shows ~17 kills before any actions. Root cause candidate: `mpPlayerGetIndex(NULL)` returned `0` whenever `g_MpAllChrPtrs[0]==NULL` as well — the NULL==NULL loop-match at index 0 silently attributed any orphan/explosion/tripmine damage to player slot 0. Candidates 1–3 (g_PlayerScores not zeroed / SVC_PLAYER_SCORES replay / NET_RESYNC_FLAG_SCORES) falsified in trace. Fix: `if (chr == NULL) return -1;` early-return at top of `mpPlayerGetIndex` (`src/game/mplayer/mplayer.c:3734`). Defensively correct regardless of whether it's the sole root cause; closes the attribution footgun. Post-merge line count 4507 → 4510 verified. B-142 → FIXED-PENDING-PLAYTEST (fresh 32-bot Chicago match, idle 30 s, pause → kill counter should be 0 / 0).
+
+Build-verify: `pd` + `pd-server` linked clean on both merges.
+
+Open items from this worktree carried forward (see `tasks-current.md`): Bug C post-game endscreen partial render (scrim + title-bar render, body invisible — six hypotheses in endgame-crash scratch §4c; needs instrumentation); Bug D invisible Chicago bots (may have cleared with today's drop); Airbase Start-Match 0xc0000005 (may share root cause with B-143, needs post-drop repro); Bug B countdown-cancel-on-room-close (off-limits during parallel sessions; clear to pick up now).
 
 ---
 
 ## Session S251 — 2026-04-13 (B-141 audio telemetry: drop/underrun/hitch counters)
 
-**Focus**: Pre-instrument the audio push path so B-141 (intermittent audio skips/pauses, not reproducible on demand) produces diagnostic signal the next time it happens. Not a fix — evidence-gathering.
-
-Branch: `b141-audio-telemetry` (worktree `happy-hofstadter`), dev tip `8e02a2ef` at session start.
-
-### What shipped
-
-`audioEndFrame()` in `port/src/audio.c` is the only place where producer (game frame) and consumer (SDL) can both be observed. Three symptoms now counted there:
-
-- **drops** — `buffered >= queueLimit` at push time. Producer outrunning consumer OR the consumer stalled; whole frame of audio is dropped.
-- **underruns** — `buffered < 128 stereo samples` at push time. SDL chewed through everything; the next few ms will be silence.
-- **hitches** — gap between consecutive `audioEndFrame` calls exceeds 50 ms. Main loop stalled; audio underrun will follow.
-
-Counters are always on (cheap: one `SDL_GetTicks()` + a few adds per frame). Per-event log lines are opt-in via `Audio.VerboseLog = 1` in pd.ini (default off). A 30-second summary line fires automatically if any of the three counters moved in the window — zero-activity windows are silent.
-
-New accessor `audioGetB141Counters(u32 *drops, u32 *underruns, u32 *hitches)` exported from `audio.h` so a future diagnostic UI / dashboard can poll the values without touching internals.
-
-### Files touched
-
-- `port/src/audio.c` — telemetry block (+89 lines): counters, thresholds, instrumented `audioEndFrame`, getter, `Audio.VerboseLog` CVar registration.
-- `port/include/audio.h` — `audioGetB141Counters()` public declaration (+10 lines).
-
-### Build
-
-Clean. 24/24 incremental ninja steps against the worktree's own `Build/` directory. `PerfectDark.exe` 51 MB, `PerfectDarkServer.exe` 22 MB. `pd-server` does not link `audio.c` (no audio layer on the headless server) — only `pd` picks up the new object.
-
-### Acceptance
-
-- No repro required to validate. Counters start at 0 and stay at 0 under healthy conditions; they accumulate silently when drops / underruns / hitches happen. Verbose log is opt-in.
-- Next time Mike hits B-141 (or any audio stutter symptom), tail `pd.log` for `AUDIO[B-141]` lines. The 30-second summary gives count; setting `Audio.VerboseLog=1` gives per-event timestamps.
-
-### Parallel-session notes
-
-Two in-flight parallel sessions observed during this session: `exciting-turing` landed S249 (B-140 playlist sync) + session-state hand-off dump + finishing the B-140→B-141 rename I started in S250. Kept B-141 audio work scoped to `audio.c`/`audio.h` only; no overlap with the other session's work in `src/game/menu.c` / `pdgui_*`.
-
-### Next
-
-- Wait for a B-141 repro, read counters / verbose log, narrow the mechanism (hitch-driven vs queue-drop vs mix-stall).
-- Phase 2 menu pool (from S250 ADR) still queued for a dedicated session.
+Worktree `happy-hofstadter` (base `8e02a2ef`), merged `5a42f234`. Not a fix — evidence-gathering for B-141 (intermittent audio skips, not reproducible on demand). `audioEndFrame()` in `port/src/audio.c` is the single observation point (producer frame + SDL consumer) and now counts three symptoms: **drops** (`buffered >= queueLimit` at push — producer outruns consumer), **underruns** (`buffered < 128 stereo samples` — SDL starving), **hitches** (>50 ms inter-frame gap — main loop stalled). Counters always on (cheap). Per-event log opt-in via `Audio.VerboseLog=1` in pd.ini. Auto 30 s summary line if any counter moved; zero-activity silent. New accessor `audioGetB141Counters(u32*, u32*, u32*)` exported from `audio.h` for future diagnostic UI. `audio.c` +89, `audio.h` +10. Build clean (pd only; pd-server does not link `audio.c`). Next repro: tail `pd.log` for `AUDIO[B-141]`; summary gives count, verbose gives per-event timestamps. Parallel sessions noted: `exciting-turing` landed S249 (B-140 playlist sync) and finished B-140→B-141 rename started in S250 — kept audio work scoped to `audio.c`/`audio.h` only.
 
 ---
 
 ## Session S250 — 2026-04-13 (Input authority: gameplay-input suppression predicate + focus handling)
 
-**Focus**: 2026-04-13 playtest surfaced Ctrl+V in the main menu's Online-window jumping the background player (Ctrl is bound to `ACTION_JUMP` in the gameplay IMC). Phase 1 of the input-authority-and-menu-pool ADR: add a single truth-source predicate and short-circuit gameplay input reading at the source; Phase 2 (menu pool single-instance discipline) queued for a dedicated follow-up session.
-
-Branch: `claude/happy-hofstadter` (worktree), dev tip `6f562beb` at session start.
-
-### Architecture decision (ADR)
-
-`context/designs/input-authority-and-menu-pool-2026-04-13.md` — 8-section ADR covering both problems: (A) input bleed-through, (B) menu pool single-instance discipline. Phase 1 implements the predicate + read-site gates + focus handling. Phase 2 (menu pool) scoped but not started.
-
-### Phase 1 implementation (defense-in-depth)
-
-**New predicate** `gameplayInputSuppressed()` (in `port/src/inputctx.c`, declared in `inputctx.h`) — authoritatively `1` when ANY of: (a) top context != `&g_CtxGameplay`, (b) window focus is currently lost, (c) focus regained but still inside the `INPUTCTX_FOCUS_SETTLE_MS` (50 ms) settle window.
-
-**Classification helper** `actionIsGameplayOnly(InputAction a)` in `port/src/actionmap.cpp` — returns 1 for gameplay movement/aim/combat/weapon/vehicle/dpad/cbutton; returns 0 for `ACTION_MENU_*`, `ACTION_USE`, `ACTION_CANCEL_USE`, `ACTION_PAUSE`, and the system hotkey group. Shared actions intentionally stay readable so menu consumers and pause still work. (Known leak: background-bondmove reading ACTION_USE when menu is open — flagged as Phase 2 scope.)
-
-**Gameplay-state flush** `actionmapFlushGameplayState()` — zeroes `s_State` for all gameplay-only actions across all 4 players, synthesises a falling edge for keys that were held so consumers see a clean release. Called from:
-
-1. `inputCtxPush()` (fresh push AND resurrect of a marked-for-removal context) when `ctx != &g_CtxGameplay` — "menu open → stop walking" semantics.
-2. `inputCtxNotifyFocus(0)` — alt-tab out flushes immediately (SDL may never deliver KEYUPs while backgrounded).
-3. `inputCtxNotifyFocus(1)` — on regain, flush + stamp `s_FocusRegainTick` so the 50 ms settle window suppresses SDL auto-repeat replays.
-
-**Dispatch-site gate** — `fireVk()` in `actionmap.cpp` skips `g_ImcGameplay` and `g_ImcVehicle` when `gameplayInputSuppressed()` is true. Ctrl+V in the Online window now walks past the gameplay IMC entirely, so `ACTION_JUMP` is never written into `s_State`.
-
-**Read-site gates** — `actionPressed/Held/Released/Value/Axis` in `actionmap.cpp` early-return `0` / `0.0f` / zero-out-axis when `gameplayInputSuppressed() && actionIsGameplayOnly(action)`. Defence-in-depth against any future dispatch-site regression.
-
-**SDL window focus wiring** — `port/fast3d/gfx_sdl2.cpp` now handles `SDL_WINDOWEVENT_FOCUS_LOST` → `inputCtxNotifyFocus(0)` and `SDL_WINDOWEVENT_FOCUS_GAINED` → `inputCtxNotifyFocus(1)`, alongside the existing SIZE_CHANGED and CLOSE handlers.
-
-**Existing gate reused** — `actionmapPollFrame()` already gated SDL analog stick polling on `menuActive` (B-124d, S188). The predicate was widened from `(topCtx && topCtx != &g_CtxGameplay)` to the full `gameplayInputSuppressed()` so sticks are also zeroed on focus-lost + the settle window.
-
-### Files touched
-
-- `port/include/inputctx.h` — declare `gameplayInputSuppressed()`, `inputCtxNotifyFocus()`, `inputCtxIsFocusLost()`, `INPUTCTX_FOCUS_SETTLE_MS`.
-- `port/src/inputctx.c` — `s_WindowFocusLost` + `s_FocusRegainTick` state; focus-notify + predicate implementations; flush call on non-gameplay push (fresh + resurrect).
-- `port/include/actionmap.h` — declare `actionmapFlushGameplayState()` + `actionIsGameplayOnly()`.
-- `port/src/actionmap.cpp` — both helper bodies; dispatch-site gate in `fireVk()`; read-site gates in `actionPressed/Held/Released/Value/Axis`; `actionmapPollFrame()` now uses the predicate.
-- `port/fast3d/gfx_sdl2.cpp` — focus-lost / focus-gained window-event wiring.
-- `context/designs/input-authority-and-menu-pool-2026-04-13.md` — ADR.
-- `context/bugs.md` — `B-141` audio skips/pauses logged (2026-04-13 playtest). (Originally filed as B-140; S249 claimed B-140 for playlist sync, so renamed.)
-
-### Acceptance matrix (Phase 1 intent)
-
-| Scenario                                                              | Expected                                                                   |
-|-----------------------------------------------------------------------|----------------------------------------------------------------------------|
-| Hold LCTRL inside an ImGui menu (Ctrl+V in Online window)             | Background player does NOT jump. Dispatch gate blocks gameplay IMC.        |
-| Hold SPACE while any menu is on top                                   | No jump. Read-site gate returns 0 for `ACTION_JUMP`.                       |
-| Hold W during menu open → menu close                                  | Player stationary on resume; must re-press W. Flush on push released held. |
-| Alt-tab out while holding W → alt-tab back                            | Player stationary on regain until W released + re-pressed (50 ms settle).  |
-| `ACTION_USE` / `ACTION_PAUSE` while menu on top                       | Still readable — shared actions excluded from gameplay-only classification. |
-
-### Phase 2 (deferred — own session)
-
-Menu pool single-instance discipline: pre-allocated slots keyed by menu type; open = populate + activate; close = deactivate + clear. Duplicate-push becomes structurally impossible. Also resolves the shared-action leak (background-bondmove reading `ACTION_USE` while menu owns the A button) with a per-scope action-state partition. Scope: `src/game/menu.c`, `port/fast3d/pdgui_backend.cpp`, potentially a new `port/src/menupool.c`.
-
-### Bugs logged
-
-- `B-141` MED — Audio skips / pauses intermittently. Not reproducible on demand. Need profiling of the SDL audio callback under verbose logging during repro. (Originally filed as B-140; renamed to B-141 after S249 claimed B-140 for playlist sync.)
-
-### Next
-
-- Phase 2 menu-pool refactor (dedicated session).
-- Playtest confirmation of the acceptance matrix.
-- Investigate `B-141` audio skips when a repro emerges.
+Worktree `claude/happy-hofstadter` (base `6f562beb`), merged `5098f903`. Phase 1 of the input-authority-and-menu-pool ADR (`designs/input-authority-and-menu-pool-2026-04-13.md`). Trigger: 2026-04-13 playtest — Ctrl+V in Online window jumped the background player (Ctrl bound to `ACTION_JUMP` in gameplay IMC). Defense-in-depth fix at four layers: **predicate** `gameplayInputSuppressed()` (inputctx.c/.h) — 1 when any of (top ctx != gameplay, focus lost, <50 ms since focus regain). **Dispatch gate** in `fireVk()` skips `g_ImcGameplay`/`g_ImcVehicle` when predicate true. **Read gates** in `actionPressed/Held/Released/Value/Axis` early-return 0 when `gameplayInputSuppressed() && actionIsGameplayOnly(action)` — shared actions (ACTION_USE, ACTION_CANCEL_USE, ACTION_PAUSE, menu nav, system hotkeys) stay readable. **Flush** `actionmapFlushGameplayState()` zeroes `s_State` + synthesises released edges on non-gameplay push (fresh + resurrect) and focus-lost/regain. SDL `WINDOWEVENT_FOCUS_LOST/GAINED` wired in `gfx_sdl2.cpp`. `actionmapPollFrame()` predicate widened (was `menuActive` per B-124d, S188). Files: `inputctx.h`, `inputctx.c`, `actionmap.h`, `actionmap.cpp`, `gfx_sdl2.cpp`, plus ADR. Acceptance matrix documents Ctrl+V, SPACE, hold-W→menu→close, alt-tab-with-W, shared-action survival. Bug logged: **B-141** (audio skips — filed as B-140, renamed after S249 claimed B-140 for playlist). Phase 2 (menu pool single-instance discipline) deferred to dedicated session.
 
 ---
 
 ## Session S249 — 2026-04-13 (B-140 playlist sync root cause)
 
-**Focus**: Fix B-140 Issue A — playlist auto-advance never broadcast to clients.
-
-### Fix Landed
-
-**B-140 Issue A — `NETMODE_SERVER_AUDIO` wrong value**: `audioNetworkMusicTick()` in `audio.c` was guarded by `g_NetMode != NETMODE_SERVER_AUDIO`, but `NETMODE_SERVER_AUDIO` was `#define`d as `2` — same value as `NETMODE_CLIENT`. Host is `NETMODE_SERVER == 1`. Result: the tick function fired on clients, never on the host, so `netMusicBroadcastAdvance()` was never called. Fix: single-line change — `#define NETMODE_SERVER_AUDIO 1`. All callers of `audioGetModTrackId()` are guarded by `plcount == 0` first, so secondary issue (accessor returns wrong value when playlist present) does not affect real playback paths.
-
-### Files Modified
-
-- `port/src/audio.c:17` — `#define NETMODE_SERVER_AUDIO 2` → `1`
-
-### Deferred
-
-- B-140 Issue B: Can't add tracks to playlist from in-match UI (separate code path)
-- All other deferred items carried over from S248
-
-### Build
-
-Both targets clean. Only `audio.c` recompiled.
-
-### Next
-
-B-140 Issue B, Issue 2/8, Issue 4, Bugs B/C/D, Issue 7.
+Worktree `exciting-turing`, merged `e13c2d1f`. One-line fix to B-140 Issue A (playlist auto-advance never broadcast to clients). `audioNetworkMusicTick()` was guarded by `g_NetMode != NETMODE_SERVER_AUDIO`, but `#define NETMODE_SERVER_AUDIO 2` collided with `NETMODE_CLIENT==2`; host is `NETMODE_SERVER==1`. Tick fired on clients, never host, so `netMusicBroadcastAdvance()` was never called. Fix: `port/src/audio.c:17` → `#define NETMODE_SERVER_AUDIO 1`. Secondary audioGetModTrackId() issue masked by `plcount==0` guard in all callers. Both targets build clean (audio.c only). Separate worktree `spawn-validation-stuck-geometry` landed B-134 (`0b44b2b8`) in the same window. Deferred: B-140 Issue B, Issue 2/8, Issue 4, Bugs B/C/D, Issue 7.
 
 ---
 
 ## Session S248 — 2026-04-13 (Playtest stabilization: mod persistence, room name, countdown, songs sort)
 
-**Focus**: Six fixes from Mike's 2026-04-13 solo + Chicago multiplayer playtest. Plus Songs list F-2.1 sort/categorize upgrade.
-
-### Fixes Landed
-
-**B-135 — base-ui [INVALID]**: `mods/base-ui/mod.json` was missing the `"id"` field. Added `"id": "base-ui"` as first field. Validator at `modmgr.c:427` now passes.
-
-**B-136 — Mod persistence**: All mods had to be re-enabled every run. Root cause: mod-level checkbox in `pdgui_menu_modmgr.cpp` called `modmgrSetEnabled()` but never `modmgrSaveConfig()`. The `modmgrApplyChanges()` path saves both, but the direct toggle bypassed it. Fixed by calling `modmgrSaveConfig()` immediately after each of three `modmgrSetEnabled()` call sites (enable, disable, size-confirm-modal).
-
-**B-137 — Room name title**: Room screen showed static "Room" regardless of which room the client was in. Added `#include "room.h"` in `pdgui_menu_room.cpp`; title now looks up `g_LocalRoomId` in `g_RoomCache` and shows "Room: <name>". Falls back to "Room" on cache miss.
-
-**B-138 — Apply Changes dirty / unsaved guard**: `applyDisabled = (pending == 0)` only counted component-level changes; `modmgrIsDirty()` (mod-level) was ignored. Fixed: added `modDirty` check, enabled Apply Changes when mod-level dirty, label shows "Apply Changes*". Added "Unsaved Changes" `BeginPopupModal` on Close/Escape with Apply & Close / Discard & Close / Cancel buttons.
-
-**B-139 — Countdown lingering**: 3-2-1 overlay persisted on main menu after disconnect (Chicago Bug A). Added `pdguiCountdownReset()` to `pdgui_bridge.c` (clears `g_MatchCountdownState.active` + `.countdown_secs`). Called from the mode→NONE disconnect reset block in `pdgui_lobby.cpp`.
-
-**Songs F-2.1**: `renderSelectTunes` in `pdgui_menu_mpsettings.cpp` now mirrors the Arenas collapsible pattern. Both "Base Tracks" and "Mod Tracks" sections wrapped in `ImGui::TreeNodeEx(count_hdr, DefaultOpen)`. Mod tracks qsort'd alphabetically by `display_name` via new `modTrackCompare()`. PD/GE base track split deferred — `mpGetTrackName()` is a flat game array with no origin tag.
-
-**Weapons F-2.1 — Deferred**: Weapon SET picker uses `mpGetWeaponSetName()`, a flat game array with no namespace or category metadata. "Standard/Special/Mod" grouping cannot be derived without hardcoding. Deferred.
-
-### Files Modified
-
-- `mods/base-ui/mod.json` — added `"id"` field
-- `port/fast3d/pdgui_menu_room.cpp` — dynamic room title from `g_RoomCache`
-- `port/fast3d/pdgui_menu_modmgr.cpp` — `modmgrSaveConfig()` at toggle sites, `modmgrIsDirty()` in Apply Changes, Unsaved Changes modal
-- `port/fast3d/pdgui_bridge.c` — `pdguiCountdownReset()`
-- `port/fast3d/pdgui_lobby.cpp` — forward decl + call to `pdguiCountdownReset()` on disconnect
-- `port/fast3d/pdgui_menu_mpsettings.cpp` — `<stdlib.h>` include, `modTrackCompare()`, qsort, `TreeNodeEx` on both sections
-
-### Deferred
-
-- Issue 2/8: Theme + audio mod registration on mod enable (unified `modmgrCatalogChanged()` consumers)
-- Issue 4: Airbase Start Match no response — client log shows manifest OK but no SVC_STAGE_START
-- Bug B: Server countdown not cancelled on room close (fix in `netmsg.c`, off-limits this session)
-- Bug C: Invisible bots in Chicago match (chr generation token area)
-- Bug D: Silent crash ~9s into Chicago match (needs VEH log)
-- Issue 7: Bot count / player count display not updating in room
-- B-140: Mod music playlist can't be added to in-match; playlist may not sync to clients
-
-### Build
-
-Both targets clean. `PerfectDark.exe` + `PerfectDarkServer.exe` from worktree `claude/exciting-turing`. WIP commit: `ae922c3c`.
-
-### Next
-
-B-140 investigation (playlist add + network sync). Issue 2/8 unified mod notification.
+Worktree `claude/exciting-turing`, WIP `ae922c3c` → merge `93c64f6c` → renumber `5448f2d6` → final `16de65e6`. Six fixes from Mike's 2026-04-13 solo + Chicago playtest, plus Songs F-2.1. **B-135** — `mods/base-ui/mod.json` missing `"id"`; added as first field. **B-136** — mod-level toggle in `pdgui_menu_modmgr.cpp` called `modmgrSetEnabled()` but not `modmgrSaveConfig()`; save added at all three sites (enable/disable/size-confirm). **B-137** — `pdguiRoomScreenRender()` looks up `g_LocalRoomId` in `g_RoomCache`, shows "Room: <name>". **B-138** — Apply Changes enables when `modmgrIsDirty()`, label "Apply Changes*"; added "Unsaved Changes" `BeginPopupModal` on Close/Escape with Apply/Discard/Cancel. **B-139** — `pdguiCountdownReset()` in `pdgui_bridge.c` called from mode→NONE disconnect block in `pdgui_lobby.cpp`. **Songs F-2.1** — `renderSelectTunes` base + mod tracks wrapped in `TreeNodeEx(DefaultOpen)`; mod tracks qsort'd by `display_name` via new `modTrackCompare()`. **Weapons F-2.1** deferred at this session (landed S253-residual). Bug ID renumber commit `5448f2d6` moved B-134..B-138 → B-135..B-139 to avoid conflict with existing dev B-134. Build clean. Parallel session `agitated-jackson` landed dev-window-v2 font polish (`11fd1d5e`). Deferred (picked up in S249/S251-res): Issue 2/8, Issue 4 (Airbase no-response), Bug B countdown-on-close, Bug C invisible bots, Bug D silent crash, Issue 7 room-settings sync, B-140 track add.
 
 ---
 

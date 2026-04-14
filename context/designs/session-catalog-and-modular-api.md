@@ -4,7 +4,7 @@
 **Date**: 2026-03-31
 **Author**: Session S89 (architect synthesis)
 
-**Unifies**: ADR-003 (catalog core), catalog-loading-plan.md (C-4 through C-9), match-startup-pipeline.md (manifest phase), B-12 Phase 3 (chrslots removal), D3R-5 (callsite migration), D3R-9 (network distribution)
+**Unifies**: ADR-003 (catalog core), `_archive/plans/catalog-loading-plan.md` (C-4 through C-9 — archived, plan closed), match-startup-pipeline.md (manifest phase), B-12 Phase 3 (chrslots removal), D3R-5 (callsite migration), D3R-9 (network distribution)
 
 **Dependencies**:
 - Asset Catalog core (ADR-003 — done, `assetcatalog.c` exists)
@@ -14,7 +14,7 @@
 
 **Cross-references**:
   [ADR-003-asset-catalog-core.md](../ADR-003-asset-catalog-core.md) — hash table, FNV-1a + CRC32, entry struct
-  [catalog-loading-plan.md](../catalog-loading-plan.md) — C-series loading intercept plan
+  [_archive/plans/catalog-loading-plan.md](../_archive/plans/catalog-loading-plan.md) — C-series loading intercept plan (archived — plan closed, catalog is live)
   [designs/match-startup-pipeline.md](match-startup-pipeline.md) — 7-phase match pipeline
   [b12-participant-system.md](../b12-participant-system.md) — chrslots removal
   [component-mod-architecture.md](../component-mod-architecture.md) — component filesystem, D3R series

@@ -8,11 +8,10 @@
 **Dependencies**: Participant pool (B-12 Phase 2 — done), Asset Catalog (C-0 through C-4 — done), PDCA distribution (D3R-9 — done), Room structs (R-1 — done)
 
 **Cross-references**:
-  [room-architecture-plan.md](../room-architecture-plan.md) — room lifecycle, state machine, message IDs
+  [network-architecture.md](../network-architecture.md) — consolidated networking (room lifecycle §3, state machine, message IDs, join flow §2, J-series status §10). Replaces the former room-architecture-plan / lobby-flow-plan / join-flow-plan (all archived).
   [component-mod-architecture.md](../component-mod-architecture.md) — asset catalog, component filesystem
   [b12-participant-system.md](../b12-participant-system.md) — participant pool, chrslots removal
-  [join-flow-plan.md](../join-flow-plan.md) — J-series task definitions
-  [nat-traversal-architecture.md](../nat-traversal-architecture.md) — connection establishment
+  [nat-traversal-architecture.md](nat-traversal-architecture.md) — connection establishment
 
 ---
 
