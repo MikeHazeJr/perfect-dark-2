@@ -1,132 +1,154 @@
-# Session State Dump — mp-lobby-ui-and-mod-persistence
-**Written**: 2026-04-13  
-**Purpose**: Compaction-risk save. A fresh session can rehydrate from this file.
+# Session State Dump — mp-lobby + mod hardening (hand-off for fresh session)
+
+**Written**: 2026-04-13 (end of S249)
+**Purpose**: Pick up the residual playtest-stabilization punch list with zero re-reading of prior sessions. Session cap was hit at ~524 turns.
 
 ---
 
-## 1. Current Branch / HEAD
+## 1. HEAD state
 
-- **Branch**: `claude/exciting-turing`  
-- **HEAD SHA**: `6f562beb2e75bbadd877ce7cf7f65b402c389427`  
-- **Base**: `dev` at the same SHA (no new commits yet — all changes are uncommitted)
+- **Worktree**: `claude/exciting-turing` at `e4aff5e2` (single commit on top of pre-S249 base).
+- **Dev tip**: `0a7805ba` (merge `e13c2d1f` + 1-line doc housekeeping). Pushed? — not verified. Mike can push.
+- **Working tree**: clean on dev, clean on worktree. No half-finished code to revert.
 
----
+## 2. What landed this window
 
-## 2. Files Modified (all uncommitted, worktree-dirty)
+### S248 — mp-lobby & mod stabilization (merge `93c64f6c` on dev)
 
-```
- M mods/base-ui/mod.json
- M port/fast3d/pdgui_bridge.c
- M port/fast3d/pdgui_lobby.cpp
- M port/fast3d/pdgui_menu_modmgr.cpp
- M port/fast3d/pdgui_menu_room.cpp
-```
+Already on dev before this session started. Summary for context:
 
-Plus this file itself and other context/ files modified upstream (pre-existing dirty from prior sessions — those are NOT new edits from this session).
+- **B-135** FIXED — `mods/base-ui/mod.json`: added `"id": "base-ui"` (validator required field).
+- **B-136** FIXED — mod persistence across runs. `modmgrSaveConfig()` now called after each `modmgrSetEnabled()` call site in `port/fast3d/pdgui_menu_modmgr.cpp`.
+- **B-137** FIXED — room screen title. `pdguiRoomScreenRender()` looks up `g_LocalRoomId` in `g_RoomCache`, shows `"Room: <name>"`.
+- **B-138** FIXED — Mod Manager Apply Changes dirty-state + unsaved-changes guard. `modmgrIsDirty()` now gates Apply; close/escape opens `BeginPopupModal("Unsaved Changes")` with Apply/Discard/Cancel.
+- **B-139** FIXED — countdown 3-2-1 overlay lingering after disconnect. `pdguiCountdownReset()` added to `pdgui_bridge.c`, called from disconnect path in `pdgui_lobby.cpp`.
+- **Songs F-2.1 sort/group** DONE — `renderSelectTunes` in `pdgui_menu_mpsettings.cpp` uses `TreeNodeEx(DefaultOpen)` for Base Tracks + Mod Tracks; mod tracks qsort'd by display_name via `modTrackCompare()`.
 
----
+### S249 — B-140 Issue A (merge `e13c2d1f` on dev)
 
-## 3. Uncommitted Changes Summary
+- **B-140 Issue A** FIXED — playlist auto-advance never broadcast. `port/src/audio.c:17` `#define NETMODE_SERVER_AUDIO 2` → `1`. `NETMODE_SERVER == 1` in the rest of the codebase; the `2` meant `audioNetworkMusicTick()` was firing on clients instead of the host, so `netMusicBroadcastAdvance()` was never called. Clients now get `SVC_MUSIC_ADVANCE` and `modMusicPlay()` runs directly in `netmsgSvcMusicAdvanceRead` (confirmed by reading that function).
+- **B-141** created from S250's audio-skips entry (the ID previously reused by S250). Renamed in bugs.md, tasks-current.md, session-log.md.
 
-### `mods/base-ui/mod.json`
-Added `"id": "base-ui"` as the first field. Mod validator requires `id`; the file had `name` but not `id`, causing "[INVALID] Missing required field: id" in the Mod Manager.
-
-### `port/fast3d/pdgui_menu_room.cpp`
-- Added `#include "room.h"` in the includes block
-- Changed the screen title in `pdguiRoomScreenRender()` from static `"Room"` to a dynamic lookup: searches `g_RoomCache` for `g_LocalRoomId` and formats as `"Room: <name>"`. Falls back to `"Room"` if cache miss.
-
-### `port/fast3d/pdgui_menu_modmgr.cpp`
-Four changes for mod persistence + Apply Changes:
-1. Added `s32 modmgrIsDirty(void);` to the extern "C" forward decl block
-2. After `modmgrSetEnabled(i, 1)` in enable path: added `modmgrSaveConfig();`
-3. After `modmgrSetEnabled(i, 0)` in disable path: added `modmgrSaveConfig();`
-4. After `modmgrSetEnabled(s_SizeConfirmIdx, 1)` in size-confirm modal: added `modmgrSaveConfig();`
-5. Apply Changes block: added `bool modDirty = (modmgrIsDirty() != 0);` and changed label logic to show "Apply Changes*" when only mod-level dirty, "Apply Changes (N)" when component-level pending
-6. Changed `bool applyDisabled = (pending == 0)` → `bool applyDisabled = (pending == 0 && !modDirty);`
-7. Close button and Escape/Gamepad now check `hasDirty = (pending > 0) || modDirty` and open "Unsaved Changes" modal instead of closing immediately
-8. Added "Unsaved Changes" modal with three buttons: Apply & Close, Discard & Close, Cancel
-
-### `port/fast3d/pdgui_bridge.c`
-Added `pdguiCountdownReset()` function after `pdguiCountdownGetSecs()`:
-```c
-void pdguiCountdownReset(void)
-{
-    g_MatchCountdownState.active = 0;
-    g_MatchCountdownState.countdown_secs = 0;
-}
-```
-
-### `port/fast3d/pdgui_lobby.cpp`
-- Added `void pdguiCountdownReset(void);` forward declaration in the extern "C" block
-- Added `pdguiCountdownReset();` call in the disconnect reset block (fires when `s_LastMode != NETMODE_NONE && mode == NETMODE_NONE`)
+### Files NOT to revisit
+All of the following are merged, clean, and verified:
+- `mods/base-ui/mod.json`
+- `port/fast3d/pdgui_menu_modmgr.cpp`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `port/fast3d/pdgui_menu_mpsettings.cpp`
+- `port/fast3d/pdgui_bridge.c`
+- `port/fast3d/pdgui_lobby.cpp`
+- `port/src/audio.c`
 
 ---
 
-## 4. Status Per Issue
+## 3. Still PENDING — punch list for fresh session
 
-- [x] **B-137 — Room name on room screen**: DONE. Dynamic title via `g_RoomCache` lookup.
-- [ ] **Issue 2 — Custom themes visible in Settings after Mods toggle**: DEFERRED. Requires `pdguiThemeRegisterModDir()` on mod enable; bundles with Issue 8.
-- [x] **B-136 — Mod persistence across runs**: DONE. `modmgrSaveConfig()` called immediately after each `modmgrSetEnabled()` call site.
-- [ ] **Issue 4 — Airbase crash (0xc0000005)**: DEFERRED. Client log shows manifest OK but no SVC_STAGE_START received. Server log from a clean session shows Airbase works fine. Root cause unclear — possibly session-specific server state.
-- [x] **B-135 — base-ui INVALID (missing id field)**: DONE. Added `"id": "base-ui"` to mod.json.
-- [x] **B-138 — Mod Manager dirty-state + unsaved-changes popup**: DONE. Apply Changes enabled when mod-level dirty, modal guard on Close/Escape.
-- [ ] **Bot count sync + player count sync**: DEFERRED. Requires SVC_ROOM_SETTINGS broadcast from server.
-- [ ] **Song mods appearing in Combat Sim music picker**: DEFERRED. Bundles with Issue 2 (unified mod-change notification).
-- [x] **B-139 — Bug A — Countdown timer lingers after disconnect**: DONE. `pdguiCountdownReset()` called on mode→NONE transition.
-- [ ] **Bug B — Server countdown keeps running after room closes**: DEFERRED. Fix is in `readyGateTickCountdown()` in netmsg.c (off-limits — claimed by parallel End Game crash session).
-- [ ] **Bug C — Bots visible on minimap but not rendered**: DEFERRED.
-- [ ] **Bug D — Silent crash ~9s into Chicago match**: DEFERRED.
-- [x] **Songs alphabetize/categorize (F-2.1)**: DONE. `renderSelectTunes` — both Base Tracks and Mod Tracks wrapped in `TreeNodeEx(DefaultOpen)`. Mod tracks sorted by `modTrackCompare()`. PD/GE base track split deferred (no origin metadata).
-- [ ] **Weapons alphabetize/categorize (F-2.1)**: DEFERRED. `mpGetWeaponSetName()` is a flat game array, no category metadata. Can't categorize without hardcoding.
-- [ ] **B-140 — Mod music playlist: can't add tracks in-match; may not sync to clients**: NEW — reported 2026-04-13 post-session. Needs investigation.
+Ordered by directness of fix and value.
+
+### 3.1 — B-140 Issue B: can't add tracks in-match
+
+**Symptom** (per Mike's report): while a match is active, user can't add/remove tracks from the playlist.
+
+**What I verified**:
+- `renderSelectTunes` in `pdgui_menu_mpsettings.cpp:576` already wires checkboxes to `audioAddModPlaylistEntry()` / `audioRemoveModPlaylistEntry()` correctly.
+- `audioPlaylistSerialize()` updates `g_AudioModPlaylistStr` in memory. pd.ini persistence fires on config save.
+- The `Select Tunes` dialog is **NOT** reachable from the pause menu (`pdgui_menu_pausemenu.cpp`). Only reachable from the pre-match lobby (`pdgui_menu_mpsettings.cpp`) and room screen.
+
+**Likely root cause**: this is a feature gap, not a bug — there's no in-match route to the music picker. To add one:
+1. Add a "Music" button to the pause menu (`pdgui_menu_pausemenu.cpp`).
+2. Route it to `g_MpSelectTunesMenuDialog` via the hotswap registry.
+3. On client-side: verify the playlist broadcast happens mid-match too — currently `netmsgSvcMusicAdvanceRead` uses the broadcast value, but if the host's playlist changes mid-match, there's no equivalent "SVC_PLAYLIST_SYNC" to tell clients about the new list. Clients still play from their locally-saved playlist until a track ends, then they receive the host's *next* track — so it may effectively self-heal.
+
+**Alternative interpretation**: the bug could also be "can't add tracks AT ALL" (broken checkbox wiring) — but reading the code, the checkboxes look correctly wired. Recommend getting Mike to demo the exact failure mode before coding a fix.
+
+**Files**: `port/fast3d/pdgui_menu_pausemenu.cpp` (add route), possibly new `SVC_PLAYLIST_SYNC` in `netmsg.c`.
+
+### 3.2 — Issue 2/8: unified mod-change notification (themes + audio)
+
+**Problem**: toggling a mod via Mod Manager doesn't re-scan `mods/` for themes or audio mods, so newly-dropped mods don't appear in Settings → Theme or Combat Sim → Select Tunes until a restart.
+
+**Design** (from S248 state dump, not yet implemented):
+- Expose `pdguiThemeRescanMods()` as public API in `port/include/pdgui_theme_loader.h`.
+  - Implementation in `port/fast3d/pdgui_theme_loader.cpp` — drop the `s_LoaderInitDone` early-exit from the rescan path; call `scan_mods_for_themes()` directly. That helper is idempotent: `register_mod_theme_dir()` at line 1028 has `if (find_entry(catalog_id)) return;`.
+- Add `audioRescanModTracks()` parallel function in `port/src/audio.c` — re-walk `ASSET_AUDIO` catalog entries for mod tracks. Or: trigger via `modmgrCatalogChanged()` invalidating a cache and having the combat-sim UI re-collect on next render (it already does `assetCatalogIterateByType(ASSET_AUDIO, collectModMusicTrack, &mc)` per frame in `renderSelectTunes`).
+- Call both from `modmgrApplyChanges()` in `port/src/modmgr.c:1676` after `catalogLoadInit()` and before `mainChangeToStage(MODMGR_STAGE_TITLE)`.
+
+**One caveat I found while reading**: `modmgrApplyChanges()` already does `mainChangeToStage(MODMGR_STAGE_TITLE)` — this may partially re-init some subsystems. But `pdguiThemeLoaderInit()` has `if (s_LoaderInitDone) return;` so theme rescan definitely does not happen on stage change. Audio may or may not — worth verifying with a `sysLogPrintf` probe.
+
+**Also check for deeper bug**: it's possible themes already ARE registered at boot via `scan_mods_for_themes()`, and the UI issue is elsewhere (stale cache in the selector). Before adding the rescan function, log `pdguiThemeGetCount()` on first Settings→Theme render to see if mod themes are missing from the registry or present-but-not-displayed.
+
+**Files**: `port/fast3d/pdgui_theme_loader.cpp`, `port/include/pdgui_theme_loader.h`, `port/src/audio.c`, `port/include/audio.h`, `port/src/modmgr.c`.
+
+### 3.3 — Issue 7: bot count + player count SVC_ROOM_SETTINGS sync
+
+**Problem**: when the host adjusts bot count or player count in the room screen, clients don't see the change until match start.
+
+**Design**:
+- Add `SVC_ROOM_SETTINGS` message type in `port/include/net/netmsg.h` (next free SVC_ID).
+- Write handler: serialize bot count, player count, and any other room-scope settings (`g_MpSetup` subset). Broadcast whenever host changes them in `renderRoomScreen`.
+- Read handler: client applies the changes to its local `g_MpSetup` shadow.
+- Triggers from the UI: probably in `pdgui_menu_room.cpp` on bot count / player count slider drag-end or commit.
+
+**Scope**: ~80–120 lines across `netmsg.c`, `netmsg.h`, `pdgui_menu_room.cpp`.
+
+### 3.4 — Weapons F-2.1 (flat array, blocked without metadata)
+
+**Deferred indefinitely**. `mpGetWeaponSetName()` is a flat game array of ~14 entries with no origin/category metadata. Can't split into Standard/Special/Mod without hardcoding index ranges in the UI, which is brittle.
+
+**Options** (all worse than deferring):
+- Hardcode a name→category map in `pdgui_menu_mpsettings.cpp`.
+- Add a category field to `mpweaponsets.c`'s runtime table.
+- Tag weapons via catalog metadata (requires modelling weapons as catalog assets — bigger lift).
+
+Recommend leaving as flat list until the weapon system is refactored.
+
+### 3.5 — Bug B: server countdown not cancelled on room close
+
+**Status**: off-limits. Fix lives in `readyGateTickCountdown()` in `port/src/net/netmsg.c`, which was claimed by a parallel End Game crash investigation session. Revisit once that work lands.
+
+### 3.6 — Bug C: invisible bots in Chicago
+
+**Hypothesis**: chr generation token mismatch (S234 FIX-A.2 area). Bots visible on minimap (chr slot valid) but not rendered in world (chr pointer may be stale at render time, or PROPFLAG_NOTYETTICKED gate).
+
+**Start**: grep for `chrIsGenerationValid` usage around `chrRender` / `mtxCharRender` / related. Also check whether Chicago-specific `g_StageSetup.props` has any valid paths but invalid chr slots.
+
+### 3.7 — Bug D: silent crash ~9s into Chicago match
+
+**Blocker**: no VEH log from the crash. Next session should:
+1. Enable verbose logging + heartbeat instrumentation (already in place from S191/S234).
+2. Re-run Chicago match until crash.
+3. Symbolify the VEH log.
+4. If it's another stack-overflow class → see if FIX-A stack watermark flagged a codepath.
+
+### 3.8 — Issue 4: Airbase Start Match no response
+
+**Symptom**: client log shows manifest OK, but no SVC_STAGE_START received.
+
+**Blocker**: no server log from a Chicago-era session showing the same pattern. Mike's earlier clean Airbase run worked — suggests session-specific server state (maybe stale `readyGate` state? room state?).
+
+**Start**: add a log on the server side at the point where SVC_STAGE_START would be sent, to confirm whether the server decided not to send or whether the message was lost on the wire.
+
+### 3.9 — B-141: audio skips/pauses intermittently
+
+**Status**: open, no repro. Filed by S250. Needs profiling of SDL audio callback under verbose logging during a repro.
 
 ---
 
-## 5. Unified Mod-Change Notification Design (Current Hypothesis)
+## 4. Known constraints / traps for the next session
 
-The root problem: `scan_mods_for_themes()` (and analogous audio/song consumer scans) only run at init. When a mod is enabled/disabled via the Mod Manager, the consumers don't know.
-
-**Proposed pattern** (not yet implemented):
-- `modmgrApplyChanges()` already calls `modmgrCatalogChanged()` — this is the hook.
-- Add `pdguiThemeRegisterModDir()` to `modmgrCatalogChanged()` (or to a post-apply callback list).
-- Same for audio: `audioSongScanMods()` or equivalent scan triggered by `modmgrCatalogChanged()`.
-- This gives a single notification point for all consumers.
+- `NETMODE_SERVER` = `1`, `NETMODE_CLIENT` = `2`, `NETMODE_NONE` = `0`. These values are hardcoded as `#define` in ~6 files (grep for `#define NETMODE_`). If touching audio/music/playlist paths in `audio.c`, remember `NETMODE_SERVER_AUDIO` was the S249 trap — it's now `1` to match `NETMODE_SERVER`.
+- `modmgrCatalogChanged()` currently only sets `s_CatalogCacheDirty = 1`. It does NOT dispatch consumer callbacks. If you add a consumer pattern, document it and grep for every existing caller before changing semantics.
+- `register_mod_theme_dir()` in `pdgui_theme_loader.cpp` is idempotent — safe to call from a rescan function.
+- `modmgrApplyChanges()` calls `mainChangeToStage(MODMGR_STAGE_TITLE)` as the last step — state transitions should ride on that, don't try to do consumer notification inline *before* the stage change or you'll fire twice.
 
 ---
 
-## 6. Code Changes Made — Diff Summary Per File
+## 5. Next-session starter prompt (suggested)
 
-See section 3 above. All changes are in-place, no new files created.
-
-Key function locations:
-- `pdguiRoomScreenRender()` → `port/fast3d/pdgui_menu_room.cpp` line ~2105
-- Apply Changes block → `port/fast3d/pdgui_menu_modmgr.cpp` line ~1147
-- Mod enable/disable checkboxes → `port/fast3d/pdgui_menu_modmgr.cpp` lines ~911, 914, 976
-- Countdown reset → `port/fast3d/pdgui_bridge.c` after line 948
-- Disconnect block → `port/fast3d/pdgui_lobby.cpp` line ~398
+> Pick up from `context/scratch/session-state-mp-lobby-mod.md`. HEAD is `0a7805ba` on dev. Highest-value items: (1) Issue 2/8 themes+audio unified rescan — design in section 3.2, low risk because `register_mod_theme_dir` is idempotent; (2) Issue 7 SVC_ROOM_SETTINGS sync — section 3.3, ~100 lines. Don't attempt B-140 Issue B without a live demo from Mike of the exact failure mode. Bug C/D require Mike's repro + log. Everything in section 2 is done; don't revisit those files.
 
 ---
 
-## 7. Pending Work Before Merge
+## 6. End state
 
-All done as of session end.
-
-1. **[DONE] Build verify** — both `pd` and `pd-server` compiled clean. Pre-existing `/*` within comment warnings only, zero errors.
-2. **[DONE] Songs F-2.1** — `renderSelectTunes` TreeNodeEx + qsort on mod tracks (`pdgui_menu_mpsettings.cpp`).
-3. **[DONE] Context updates** — bugs.md B-135..B-139, tasks-current.md S248 section, session-log.md S248 entry.
-4. **[DONE] Commits** — WIP `ae922c3c`, feature `16de65e6`, renumber `5448f2d6`.
-5. **[DONE] --no-ff merge** to `dev` — merge commit `93c64f6c`. Resolved conflict: B-134 (dev) + B-135..B-139 (worktree) — both kept.
-6. **[DONE] Post-merge line count** — all files grew or stayed same; no unexpected shrinkage.
-
-### Remaining deferred items (next session)
-- B-140: playlist add + network sync
-- Issue 2/8: unified mod-change notification (themes + audio)
-- Bugs B/C/D, Issue 4 (Airbase), Issue 7 (bot count sync)
-
----
-
-## 8. Final Commit State
-
-Merged to `dev` at `93c64f6c`. Worktree branch `claude/exciting-turing` at `5448f2d6`.
-
-Session S248 complete.
+No half-finished code. No uncommitted edits in worktree or main repo. S248 and S249 cleanly on dev. Mike can push whenever ready — `git push origin dev` from the main repo.
