@@ -84,4 +84,14 @@ void audioResetPlaylistIndex(void);
  */
 void audioNetworkMusicTick(void);
 
+/**
+ * B-141 telemetry — read diagnostic counters for the audio push path.
+ *   drops     — SDL queue was full at push time (buffered >= queueLimit).
+ *   underruns — SDL queue was near-empty at push time (< 128 stereo samples).
+ *   hitches   — gap between audioEndFrame calls exceeded 50ms.
+ * Counters are monotonic since process start. Any out parameter may be NULL.
+ * Set `Audio.VerboseLog = 1` in pd.ini for per-event log lines.
+ */
+void audioGetB141Counters(u32 *drops, u32 *underruns, u32 *hitches);
+
 #endif

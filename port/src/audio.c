@@ -67,6 +67,37 @@ extern u16  g_MusicVolume;
  * uninitialized sequencer/sound channel data during early init. */
 static s32 g_AudioEngineReady = 0;
 
+/* ========================================================================
+ * B-141 telemetry — audio path diagnostic counters.
+ *
+ * B-141: "audio skips / pauses intermittently during gameplay" — 2026-04-13
+ * playtest, not reproducible on demand. We count three symptoms at the only
+ * place they can all be observed (the per-frame audioEndFrame push):
+ *
+ *   drops     — SDL queue was full at push time (buffered >= queueLimit).
+ *               Producer outrunning consumer, or consumer stalled.
+ *   underruns — SDL queue was near-empty at push time (< threshold).
+ *               Consumer chewed through everything; next few ms = silence.
+ *   hitches   — gap between consecutive audioEndFrame calls exceeded the
+ *               threshold. Main-loop stall. Audio will underrun soon after.
+ *
+ * Counters are always maintained (cheap: a few adds + one SDL_GetTicks per
+ * frame). Per-event log lines are gated on `Audio.VerboseLog` (pd.ini).
+ * A 30-second summary fires automatically if any event happened in that
+ * window. Zero-activity windows are silent.
+ * ======================================================================== */
+
+#define AUDIO_HITCH_THRESHOLD_MS 50          /* gap between pushes > 50ms = hitch */
+#define AUDIO_UNDERRUN_THRESHOLD_SAMPLES 128 /* < 128 stereo samples = ~3ms buffer */
+#define AUDIO_SUMMARY_INTERVAL_MS 30000      /* summary cadence when active */
+
+static s32 g_AudioVerboseLog = 0;            /* pd.ini: Audio.VerboseLog */
+static u32 g_AudioDropCount = 0;
+static u32 g_AudioUnderrunCount = 0;
+static u32 g_AudioHitchCount = 0;
+static u32 s_AudioLastEndTick = 0;           /* for hitch detection */
+static u32 s_AudioLastSummaryTick = 0;       /* for periodic summary */
+
 s32 audioInit(void)
 {
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
@@ -125,8 +156,33 @@ static s16 s_MixBuf[8192]; /* 8192 samples = 4096 stereo frames — covers any r
 
 void audioEndFrame(void)
 {
+	const u32 now = SDL_GetTicks();
+
+	/* B-141: hitch detection — gap between consecutive pushes exceeds
+	 * threshold. Main loop stalled; audio will underrun right after. */
+	if (s_AudioLastEndTick != 0) {
+		const u32 delta = now - s_AudioLastEndTick;
+		if (delta > AUDIO_HITCH_THRESHOLD_MS) {
+			g_AudioHitchCount++;
+			if (g_AudioVerboseLog) {
+				sysLogPrintf(LOG_WARNING, "AUDIO[B-141]: frame hitch delta=%ums", (unsigned)delta);
+			}
+		}
+	}
+	s_AudioLastEndTick = now;
+
 	if (nextBuf && nextSize) {
-		if (audioGetSamplesBuffered() < queueLimit) {
+		const s32 buffered = audioGetSamplesBuffered();
+
+		/* B-141: underrun detection — consumer chewed through the queue. */
+		if (buffered < AUDIO_UNDERRUN_THRESHOLD_SAMPLES) {
+			g_AudioUnderrunCount++;
+			if (g_AudioVerboseLog) {
+				sysLogPrintf(LOG_WARNING, "AUDIO[B-141]: underrun buffered=%d", buffered);
+			}
+		}
+
+		if (buffered < queueLimit) {
 			if (modMusicIsPlaying()) {
 				/* Copy N64 output into writable buffer, mix mod music on top */
 				u32 numSamples = nextSize / sizeof(s16);
@@ -143,10 +199,37 @@ void audioEndFrame(void)
 			} else {
 				SDL_QueueAudio(dev, nextBuf, nextSize);
 			}
+		} else {
+			/* B-141: queue-limit drop — producer outrunning consumer; frame
+			 * of audio is discarded, usually audible as a skip. */
+			g_AudioDropCount++;
+			if (g_AudioVerboseLog) {
+				sysLogPrintf(LOG_WARNING, "AUDIO[B-141]: drop buffered=%d limit=%d",
+				             buffered, queueLimit);
+			}
 		}
 		nextBuf = NULL;
 		nextSize = 0;
 	}
+
+	/* B-141: periodic 30s summary if anything happened in the window */
+	if (now - s_AudioLastSummaryTick > AUDIO_SUMMARY_INTERVAL_MS) {
+		s_AudioLastSummaryTick = now;
+		if (g_AudioDropCount || g_AudioUnderrunCount || g_AudioHitchCount) {
+			sysLogPrintf(LOG_NOTE, "AUDIO[B-141]: 30s summary drops=%u underruns=%u hitches=%u",
+			             (unsigned)g_AudioDropCount,
+			             (unsigned)g_AudioUnderrunCount,
+			             (unsigned)g_AudioHitchCount);
+		}
+	}
+}
+
+/* B-141 telemetry getters. Any out parameter may be NULL. */
+void audioGetB141Counters(u32 *drops, u32 *underruns, u32 *hitches)
+{
+	if (drops) *drops = g_AudioDropCount;
+	if (underruns) *underruns = g_AudioUnderrunCount;
+	if (hitches) *hitches = g_AudioHitchCount;
 }
 
 /* ========================================================================
@@ -519,6 +602,10 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 {
 	configRegisterInt("Audio.BufferSize", &bufferSize, 0, 1 * 1024 * 1024);
 	configRegisterInt("Audio.QueueLimit", &queueLimit, 0, 1 * 1024 * 1024);
+
+	/* B-141: opt-in per-event log (default off to keep logs clean).
+	 * Counters + 30s summary are always on regardless. */
+	configRegisterInt("Audio.VerboseLog", &g_AudioVerboseLog, 0, 1);
 
 	/* Volume layers — persisted as floats 0.0–1.0 */
 	configRegisterFloat("Audio.MasterVolume",   &g_AudioMasterVolume,   0.0f, 1.0f);
