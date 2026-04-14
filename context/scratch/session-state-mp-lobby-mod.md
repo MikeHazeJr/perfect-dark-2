@@ -64,19 +64,21 @@ void pdguiCountdownReset(void)
 
 ## 4. Status Per Issue
 
-- [x] **Issue 1 — Room name on room screen**: DONE. Dynamic title via `g_RoomCache` lookup.
+- [x] **B-137 — Room name on room screen**: DONE. Dynamic title via `g_RoomCache` lookup.
 - [ ] **Issue 2 — Custom themes visible in Settings after Mods toggle**: DEFERRED. Requires `pdguiThemeRegisterModDir()` on mod enable; bundles with Issue 8.
-- [x] **Issue 3 — Mod persistence across runs**: DONE. `modmgrSaveConfig()` called immediately after each `modmgrSetEnabled()` call site.
+- [x] **B-136 — Mod persistence across runs**: DONE. `modmgrSaveConfig()` called immediately after each `modmgrSetEnabled()` call site.
 - [ ] **Issue 4 — Airbase crash (0xc0000005)**: DEFERRED. Client log shows manifest OK but no SVC_STAGE_START received. Server log from a clean session shows Airbase works fine. Root cause unclear — possibly session-specific server state.
-- [x] **base-ui INVALID (missing id field)**: DONE. Added `"id": "base-ui"` to mod.json.
-- [x] **Mod Manager dirty-state + unsaved-changes popup**: DONE. Apply Changes enabled when mod-level dirty, modal guard on Close/Escape.
+- [x] **B-135 — base-ui INVALID (missing id field)**: DONE. Added `"id": "base-ui"` to mod.json.
+- [x] **B-138 — Mod Manager dirty-state + unsaved-changes popup**: DONE. Apply Changes enabled when mod-level dirty, modal guard on Close/Escape.
 - [ ] **Bot count sync + player count sync**: DEFERRED. Requires SVC_ROOM_SETTINGS broadcast from server.
 - [ ] **Song mods appearing in Combat Sim music picker**: DEFERRED. Bundles with Issue 2 (unified mod-change notification).
-- [x] **Bug A — Countdown timer lingers after disconnect**: DONE. `pdguiCountdownReset()` called on mode→NONE transition.
+- [x] **B-139 — Bug A — Countdown timer lingers after disconnect**: DONE. `pdguiCountdownReset()` called on mode→NONE transition.
 - [ ] **Bug B — Server countdown keeps running after room closes**: DEFERRED. Fix is in `readyGateTickCountdown()` in netmsg.c (off-limits — claimed by parallel End Game crash session).
 - [ ] **Bug C — Bots visible on minimap but not rendered**: DEFERRED.
 - [ ] **Bug D — Silent crash ~9s into Chicago match**: DEFERRED.
-- [ ] **Weapons + Songs alphabetize/categorize (F-2.1 pattern)**: PENDING — queued for this session if headroom allows. User-requested during this session. Pattern: `qsort`+`strcasecmp` + `TreeNodeEx(DefaultOpen)` sections, same as Arenas list in `pdgui_menu_combatsim.cpp` (commit `6d6841be`).
+- [x] **Songs alphabetize/categorize (F-2.1)**: DONE. `renderSelectTunes` — both Base Tracks and Mod Tracks wrapped in `TreeNodeEx(DefaultOpen)`. Mod tracks sorted by `modTrackCompare()`. PD/GE base track split deferred (no origin metadata).
+- [ ] **Weapons alphabetize/categorize (F-2.1)**: DEFERRED. `mpGetWeaponSetName()` is a flat game array, no category metadata. Can't categorize without hardcoding.
+- [ ] **B-140 — Mod music playlist: can't add tracks in-match; may not sync to clients**: NEW — reported 2026-04-13 post-session. Needs investigation.
 
 ---
 
@@ -107,26 +109,24 @@ Key function locations:
 
 ## 7. Pending Work Before Merge
 
-1. **[IN PROGRESS] Build verify** — build started via `cmake --build Build --target pd pd-server`. Need to confirm both targets pass with no errors (only pre-existing `/*` within comment warnings expected).
-2. **Weapons + Songs alphabetize (F-2.1)** — user-requested add-on, pending scope assessment.
-3. **Context updates**:
-   - `context/bugs.md` — add B-xxx entries for Issues 1/3/5/6, Bug A
-   - `context/tasks-current.md` — tick DONE items
-   - `context/session-log.md` — S248 entry
-4. **Commit** — single commit covering all five fixes
-5. **--no-ff merge** to `dev`
-6. **Post-merge line count verification** per Standing Order 9
+All done as of session end.
+
+1. **[DONE] Build verify** — both `pd` and `pd-server` compiled clean. Pre-existing `/*` within comment warnings only, zero errors.
+2. **[DONE] Songs F-2.1** — `renderSelectTunes` TreeNodeEx + qsort on mod tracks (`pdgui_menu_mpsettings.cpp`).
+3. **[DONE] Context updates** — bugs.md B-135..B-139, tasks-current.md S248 section, session-log.md S248 entry.
+4. **[DONE] Commits** — WIP `ae922c3c`, feature `16de65e6`, renumber `5448f2d6`.
+5. **[DONE] --no-ff merge** to `dev` — merge commit `93c64f6c`. Resolved conflict: B-134 (dev) + B-135..B-139 (worktree) — both kept.
+6. **[DONE] Post-merge line count** — all files grew or stayed same; no unexpected shrinkage.
+
+### Remaining deferred items (next session)
+- B-140: playlist add + network sync
+- Issue 2/8: unified mod-change notification (themes + audio)
+- Bugs B/C/D, Issue 4 (Airbase), Issue 7 (bot count sync)
 
 ---
 
-## 8. Commit-First Snapshot
+## 8. Final Commit State
 
-All changes are uncommitted as of writing. WIP commit being made immediately after this file is saved.
+Merged to `dev` at `93c64f6c`. Worktree branch `claude/exciting-turing` at `5448f2d6`.
 
-**Files to stage for WIP commit**:
-- `mods/base-ui/mod.json`
-- `port/fast3d/pdgui_bridge.c`
-- `port/fast3d/pdgui_lobby.cpp`
-- `port/fast3d/pdgui_menu_modmgr.cpp`
-- `port/fast3d/pdgui_menu_room.cpp`
-- `context/scratch/session-state-mp-lobby-mod.md` (this file)
+Session S248 complete.
