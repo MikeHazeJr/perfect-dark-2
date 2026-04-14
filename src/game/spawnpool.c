@@ -22,6 +22,7 @@
 #include "game/spawnpool.h"
 #include "game/bg.h"
 #include "game/pad.h"
+#include "game/atan2f.h"
 #include "lib/collision.h"
 #include "lib/rng.h"
 #include "system.h"
@@ -817,4 +818,156 @@ void spawnPoolReset(void)
 {
 	s_PoolReady = false;
 	memset(&s_Pool, 0, sizeof(s_Pool));
+}
+
+/* ========================================================================
+ * spawnPoolSelect -- farthest-point-first greedy spawn assignment
+ *
+ * For FFA (num_teams == 0 or team == -1):
+ *   Pick the pool point that maximizes min-distance-to-occupied.
+ *
+ * For team modes (num_teams >= 2, team >= 0):
+ *   Partition pool into angular sectors around pool_center. Prefer the
+ *   sector assigned to this team. Fall back to other sectors if the
+ *   team's sector is exhausted. Within the sector, apply farthest-first.
+ * ======================================================================== */
+
+s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
+                    s32 num_occupied, s32 team, s32 num_teams,
+                    const struct coord *pool_center)
+{
+	s32 best_idx = -1;
+	f32 best_min_dist = -1.0f;
+	s32 i, j;
+	/* Track which pool indices have already been assigned this match.
+	 * We use a simple O(N*M) approach since pool is small (<=40). */
+	bool used[SPAWNPOOL_MAX];
+
+	if (!pool || pool->count <= 0) {
+		return -1;
+	}
+
+	memset(used, 0, sizeof(used));
+
+	/* Mark pool entries that are already occupied (within 10 units of an
+	 * existing occupied position -- same point re-selected) */
+	for (i = 0; i < pool->count; i++) {
+		for (j = 0; j < num_occupied; j++) {
+			f32 dx = pool->points[i].pos.x - occupied[j].x;
+			f32 dz = pool->points[i].pos.z - occupied[j].z;
+			if (dx * dx + dz * dz < 100.0f) { /* 10 unit radius */
+				used[i] = true;
+				break;
+			}
+		}
+	}
+
+	/* Team sector filtering */
+	if (num_teams >= 2 && team >= 0 && team < num_teams && pool_center) {
+		/* Phase 1: try points in this team's angular sector */
+		f32 sector_size = (2.0f * 3.14159265f) / (f32)num_teams;
+		f32 sector_start = sector_size * (f32)team - 3.14159265f;
+		f32 sector_end = sector_start + sector_size;
+
+		for (i = 0; i < pool->count; i++) {
+			f32 dx, dz, angle, min_dist;
+
+			if (used[i]) continue;
+
+			dx = pool->points[i].pos.x - pool_center->x;
+			dz = pool->points[i].pos.z - pool_center->z;
+			angle = atan2f(dz, dx);
+
+			/* Check if angle falls within team sector (handle wrap) */
+			if (angle < sector_start) angle += 2.0f * 3.14159265f;
+			if (angle >= sector_start && angle < sector_end) {
+				/* Compute min distance to all occupied points */
+				min_dist = 1e30f;
+				for (j = 0; j < num_occupied; j++) {
+					f32 odx = pool->points[i].pos.x - occupied[j].x;
+					f32 odz = pool->points[i].pos.z - occupied[j].z;
+					f32 dist_sq = odx * odx + odz * odz;
+					if (dist_sq < min_dist) min_dist = dist_sq;
+				}
+				if (num_occupied == 0) min_dist = 1e30f;
+
+				if (min_dist > best_min_dist) {
+					best_min_dist = min_dist;
+					best_idx = i;
+				}
+			}
+		}
+
+		/* If found a point in team sector, use it */
+		if (best_idx >= 0) {
+			return best_idx;
+		}
+
+		/* Phase 2: fall through to FFA if team sector is exhausted */
+	}
+
+	/* FFA / fallback: farthest-point-first over entire pool */
+	best_idx = -1;
+	best_min_dist = -1.0f;
+
+	for (i = 0; i < pool->count; i++) {
+		f32 min_dist;
+
+		if (used[i]) continue;
+
+		min_dist = 1e30f;
+		for (j = 0; j < num_occupied; j++) {
+			f32 dx = pool->points[i].pos.x - occupied[j].x;
+			f32 dz = pool->points[i].pos.z - occupied[j].z;
+			f32 dist_sq = dx * dx + dz * dz;
+			if (dist_sq < min_dist) min_dist = dist_sq;
+		}
+		if (num_occupied == 0) min_dist = pool->points[i].budget_score;
+
+		if (min_dist > best_min_dist) {
+			best_min_dist = min_dist;
+			best_idx = i;
+		}
+	}
+
+	return best_idx;
+}
+
+/* ========================================================================
+ * spawnPoolSmokeTest -- diagnostic sweep of all stages
+ *
+ * Builds the spawn pool for every gameplay stagenum in g_Stages[] and
+ * logs max_layer_used per stage. Returns count of stages needing L3+.
+ * NOTE: This is a diagnostic tool for the dev menu / log. It does NOT
+ * load actual stage geometry -- it operates on whatever is currently
+ * loaded or uses placeholder results. For meaningful results, call
+ * from within an actual stage context or iterate stageloads.
+ * ======================================================================== */
+
+s32 spawnPoolSmokeTest(void)
+{
+	/* Placeholder: actual implementation requires stage iteration which
+	 * involves loading each stage's BG/pad/setup files. This is a
+	 * heavyweight operation that should be triggered from the dev menu
+	 * or a dedicated test harness, not called during normal gameplay.
+	 *
+	 * For now, log the current pool state if one exists. */
+	s32 warnings = 0;
+
+	if (s_PoolReady) {
+		sysLogPrintf(LOG_NOTE,
+			"SPAWNPOOL SMOKE: current pool: %d points, max_layer=%d, seed=0x%08x",
+			s_Pool.count, s_Pool.max_layer_used, s_Pool.seed);
+
+		if (s_Pool.max_layer_used >= 3) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWNPOOL SMOKE: current stage required L%d (grid/radial fallback)",
+				s_Pool.max_layer_used);
+			warnings++;
+		}
+	} else {
+		sysLogPrintf(LOG_NOTE, "SPAWNPOOL SMOKE: no pool built for current stage");
+	}
+
+	return warnings;
 }

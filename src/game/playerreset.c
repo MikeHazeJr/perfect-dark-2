@@ -416,11 +416,13 @@ void playerReset(void)
 	 * This runs after INTROCMD_SPAWN + waypoint/pad fallbacks have populated
 	 * g_SpawnPoints[]. The pool guarantees enough spawn points for all
 	 * participants even on maps with zero declared spawns.
-	 * match_seed: use stagenum XOR'd with a time-based value for now;
-	 * will be replaced by server-distributed seed via SVC_STAGE_START. */
+	 * match_seed: use g_NetMatchSeed (distributed via SVC_STAGE_START) for
+	 * networked matches. For offline/solo, derive from stagenum. */
 	if (g_Vars.mplayerisrunning || g_NetMode != NETMODE_NONE) {
 		s32 spawn_needed = PLAYERCOUNT() + g_BotCount;
-		u32 match_seed = (u32)g_Vars.stagenum ^ 0x12345678u;
+		u32 match_seed = (g_NetMode != NETMODE_NONE && g_NetMatchSeed != 0)
+			? g_NetMatchSeed
+			: (u32)g_Vars.stagenum ^ (u32)g_Vars.lvframe60;
 		if (spawn_needed < 4) spawn_needed = 4; /* minimum for reasonable dispersal */
 		spawnPoolBuildGlobal(g_MissionConfig.stage_id, match_seed, spawn_needed);
 	}
@@ -576,6 +578,52 @@ void playerReset(void)
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+		} else if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0) {
+			/* Initial MP spawn: use farthest-point-first from pool.
+			 * lvframe60 == 0 means this is the first spawn after stage
+			 * load, not a respawn. For respawns, fall through to the
+			 * existing enemy-aware scenarioChooseSpawnLocation. */
+			const spawn_pool_t *pool = spawnPoolGet();
+			s32 num_teams = (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 4 : 0;
+			s32 my_team = (num_teams > 0)
+				? g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.team
+				: -1;
+			spawn_aabb_t aabb;
+			struct coord center;
+			/* Collect already-occupied positions from other players */
+			struct coord occupied[MAX_MPCHRS];
+			s32 num_occupied = 0;
+			s32 pi;
+			for (pi = 0; pi < PLAYERCOUNT(); pi++) {
+				if (g_Vars.players[pi] && g_Vars.players[pi]->prop
+						&& g_Vars.players[pi]->prop != g_Vars.currentplayer->prop
+						&& g_Vars.players[pi]->prop->rooms[0] >= 0) {
+					occupied[num_occupied++] = g_Vars.players[pi]->prop->pos;
+				}
+			}
+
+			spawnPoolComputeAABB(&aabb);
+			center.x = (aabb.min.x + aabb.max.x) * 0.5f;
+			center.y = (aabb.min.y + aabb.max.y) * 0.5f;
+			center.z = (aabb.min.z + aabb.max.z) * 0.5f;
+
+			{
+				s32 sel = spawnPoolSelect(pool, occupied, num_occupied,
+				                          my_team, num_teams, &center);
+				if (sel >= 0) {
+					pos = pool->points[sel].pos;
+					rooms[0] = pool->points[sel].room;
+					rooms[1] = -1;
+					turnanglerad = 0;
+					sysLogPrintf(LOG_NOTE,
+						"SPAWN: initial MP spawn via pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d",
+						sel, pool->points[sel].layer,
+						pos.x, pos.y, pos.z, (s32)rooms[0], my_team);
+				} else {
+					/* Pool empty/exhausted -- fall through to legacy */
+					turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+				}
+			}
 		} else {
 			if (g_Vars.mplayerisrunning == 0) {
 				g_NumSpawnPoints = 1;

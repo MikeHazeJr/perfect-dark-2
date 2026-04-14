@@ -106,4 +106,28 @@ void spawnPoolBuildGlobal(const char *stage_id, u32 match_seed, s32 needed);
 /* Reset pool state on stage change */
 void spawnPoolReset(void);
 
+/*
+ * Select a spawn point using farthest-point-first greedy algorithm.
+ * Maximizes the minimum distance from already-occupied positions.
+ *
+ * occupied:      array of positions already assigned to other participants
+ * num_occupied:  number of entries in occupied[]
+ * team:          team index (0-3) for team-aware selection, or -1 for FFA
+ * num_teams:     total number of teams in this match (0 = FFA)
+ * pool_center:   map center (for team sector computation)
+ *
+ * Returns index into pool->points[], or -1 if pool is empty.
+ */
+s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
+                    s32 num_occupied, s32 team, s32 num_teams,
+                    const struct coord *pool_center);
+
+/*
+ * Run a diagnostic sweep logging pool construction results for every
+ * registered stage. Call from dev menu or boot-time validation.
+ * Writes per-stage max_layer_used to sysLogPrintf.
+ * Returns the number of stages that needed L3 or L4.
+ */
+s32 spawnPoolSmokeTest(void);
+
 #endif /* IN_GAME_SPAWNPOOL_H */

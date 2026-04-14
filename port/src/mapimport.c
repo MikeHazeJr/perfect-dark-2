@@ -929,3 +929,32 @@ fail:
 	             ctx->map_name, ctx->error);
 	return ctx->result;
 }
+
+/* ========================================================================
+ * C++ wrapper -- thin shim for pdgui_menu_moddinghub.cpp
+ * Avoids including mapimport.h from C++ (types.h conflict).
+ * ======================================================================== */
+
+s32 mapImportRunFull(const char *source_dir, const char *map_name,
+                     char *errbuf, s32 errbuflen,
+                     s32 *out_num_rooms, s32 *out_num_pads,
+                     s32 *out_generated_spawns)
+{
+	import_context_t ctx;
+	mapimport_result_e result;
+
+	memset(&ctx, 0, sizeof(ctx));
+
+	result = mapImport(source_dir, map_name, &ctx);
+
+	if (errbuf && errbuflen > 0) {
+		strncpy(errbuf, ctx.error, errbuflen - 1);
+		errbuf[errbuflen - 1] = '\0';
+	}
+
+	if (out_num_rooms) *out_num_rooms = ctx.num_rooms;
+	if (out_num_pads) *out_num_pads = ctx.num_pads;
+	if (out_generated_spawns) *out_generated_spawns = ctx.num_generated_spawns;
+
+	return (s32)result;
+}
