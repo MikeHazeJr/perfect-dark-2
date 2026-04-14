@@ -3735,6 +3735,9 @@ s32 mpPlayerGetIndex(struct chrdata *chr)
 {
 	s32 i;
 
+	if (chr == NULL) {
+		return -1;
+	}
 	for (i = 0; i < g_MpNumChrs; i++) {
 		if (g_MpAllChrPtrs[i] == chr) {
 			return i;
