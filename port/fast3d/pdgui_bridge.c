@@ -948,6 +948,14 @@ s32 pdguiCountdownGetSecs(void)
     return (s32)g_MatchCountdownState.countdown_secs;
 }
 
+/* Clears countdown display — call on disconnect / room leave so the 3-2-1 overlay
+ * does not linger on the main menu after the match is abandoned. */
+void pdguiCountdownReset(void)
+{
+    g_MatchCountdownState.active = 0;
+    g_MatchCountdownState.countdown_secs = 0;
+}
+
 /* Returns 1 if a SVC_MATCH_CANCELLED has been received and not yet cleared. */
 s32 pdguiCancelledIsActive(void)
 {

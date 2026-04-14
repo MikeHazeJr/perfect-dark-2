@@ -35,6 +35,7 @@
 #include "pdgui_menu_botsetup.h" /* D5 P3 Batch 6: inline Simulant Profiles panel */
 #include "system.h"
 #include "inputctx.h"
+#include "room.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -2174,7 +2175,19 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                           pdguiPalImU32(PDPAL_BODYBG, 255));
     }
 
-    const char *screenTitle = s_IsSoloMode ? "Combat Simulator" : "Room";
+    /* R-name: show the current room name in the header. Look up g_LocalRoomId
+     * in the SVC_ROOM_LIST cache. Falls back to "Room" if not yet received. */
+    char s_RoomTitleBuf[80] = "Room";
+    if (!s_IsSoloMode && g_LocalRoomId != 0xFF) {
+        for (s32 ri = 0; ri < g_RoomCacheCount; ri++) {
+            if (g_RoomCache[ri].id == g_LocalRoomId && g_RoomCache[ri].name[0]) {
+                snprintf(s_RoomTitleBuf, sizeof(s_RoomTitleBuf),
+                         "Room: %s", g_RoomCache[ri].name);
+                break;
+            }
+        }
+    }
+    const char *screenTitle = s_IsSoloMode ? "Combat Simulator" : s_RoomTitleBuf;
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, screenTitle, 1);
 
     /* ---- Title bar ---- */
