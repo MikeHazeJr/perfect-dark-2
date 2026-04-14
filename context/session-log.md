@@ -9,15 +9,15 @@
 
 ### Fixes Landed
 
-**B-134 — base-ui [INVALID]**: `mods/base-ui/mod.json` was missing the `"id"` field. Added `"id": "base-ui"` as first field. Validator at `modmgr.c:427` now passes.
+**B-135 — base-ui [INVALID]**: `mods/base-ui/mod.json` was missing the `"id"` field. Added `"id": "base-ui"` as first field. Validator at `modmgr.c:427` now passes.
 
-**B-135 — Mod persistence**: All mods had to be re-enabled every run. Root cause: mod-level checkbox in `pdgui_menu_modmgr.cpp` called `modmgrSetEnabled()` but never `modmgrSaveConfig()`. The `modmgrApplyChanges()` path saves both, but the direct toggle bypassed it. Fixed by calling `modmgrSaveConfig()` immediately after each of three `modmgrSetEnabled()` call sites (enable, disable, size-confirm-modal).
+**B-136 — Mod persistence**: All mods had to be re-enabled every run. Root cause: mod-level checkbox in `pdgui_menu_modmgr.cpp` called `modmgrSetEnabled()` but never `modmgrSaveConfig()`. The `modmgrApplyChanges()` path saves both, but the direct toggle bypassed it. Fixed by calling `modmgrSaveConfig()` immediately after each of three `modmgrSetEnabled()` call sites (enable, disable, size-confirm-modal).
 
-**B-136 — Room name title**: Room screen showed static "Room" regardless of which room the client was in. Added `#include "room.h"` in `pdgui_menu_room.cpp`; title now looks up `g_LocalRoomId` in `g_RoomCache` and shows "Room: <name>". Falls back to "Room" on cache miss.
+**B-137 — Room name title**: Room screen showed static "Room" regardless of which room the client was in. Added `#include "room.h"` in `pdgui_menu_room.cpp`; title now looks up `g_LocalRoomId` in `g_RoomCache` and shows "Room: <name>". Falls back to "Room" on cache miss.
 
-**B-137 — Apply Changes dirty / unsaved guard**: `applyDisabled = (pending == 0)` only counted component-level changes; `modmgrIsDirty()` (mod-level) was ignored. Fixed: added `modDirty` check, enabled Apply Changes when mod-level dirty, label shows "Apply Changes*". Added "Unsaved Changes" `BeginPopupModal` on Close/Escape with Apply & Close / Discard & Close / Cancel buttons.
+**B-138 — Apply Changes dirty / unsaved guard**: `applyDisabled = (pending == 0)` only counted component-level changes; `modmgrIsDirty()` (mod-level) was ignored. Fixed: added `modDirty` check, enabled Apply Changes when mod-level dirty, label shows "Apply Changes*". Added "Unsaved Changes" `BeginPopupModal` on Close/Escape with Apply & Close / Discard & Close / Cancel buttons.
 
-**B-138 — Countdown lingering**: 3-2-1 overlay persisted on main menu after disconnect (Chicago Bug A). Added `pdguiCountdownReset()` to `pdgui_bridge.c` (clears `g_MatchCountdownState.active` + `.countdown_secs`). Called from the mode→NONE disconnect reset block in `pdgui_lobby.cpp`.
+**B-139 — Countdown lingering**: 3-2-1 overlay persisted on main menu after disconnect (Chicago Bug A). Added `pdguiCountdownReset()` to `pdgui_bridge.c` (clears `g_MatchCountdownState.active` + `.countdown_secs`). Called from the mode→NONE disconnect reset block in `pdgui_lobby.cpp`.
 
 **Songs F-2.1**: `renderSelectTunes` in `pdgui_menu_mpsettings.cpp` now mirrors the Arenas collapsible pattern. Both "Base Tracks" and "Mod Tracks" sections wrapped in `ImGui::TreeNodeEx(count_hdr, DefaultOpen)`. Mod tracks qsort'd alphabetically by `display_name` via new `modTrackCompare()`. PD/GE base track split deferred — `mpGetTrackName()` is a flat game array with no origin tag.
 
@@ -40,7 +40,7 @@
 - Bug C: Invisible bots in Chicago match (chr generation token area)
 - Bug D: Silent crash ~9s into Chicago match (needs VEH log)
 - Issue 7: Bot count / player count display not updating in room
-- B-139: Mod music playlist can't be added to in-match; playlist may not sync to clients
+- B-140: Mod music playlist can't be added to in-match; playlist may not sync to clients
 
 ### Build
 
@@ -48,7 +48,7 @@ Both targets clean. `PerfectDark.exe` + `PerfectDarkServer.exe` from worktree `c
 
 ### Next
 
-B-139 investigation (playlist add + network sync). Issue 2/8 unified mod notification.
+B-140 investigation (playlist add + network sync). Issue 2/8 unified mod notification.
 
 ---
 
