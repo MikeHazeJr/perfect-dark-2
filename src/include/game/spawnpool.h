@@ -26,6 +26,9 @@
 #define SPAWNPOOL_RAY_RANGE 2000.0f     /* max ray distance (units) */
 #define SPAWNPOOL_BUDGET_THRESHOLD 1500.0f /* min sum of ray distances */
 #define SPAWNPOOL_L4_MAX_DILATIONS 8
+/* Player capsule radius (units). Any ray hit closer than this means the
+ * capsule would intersect the surface -- reject the candidate immediately. */
+#define SPAWNPOOL_CAPSULE_RADIUS 30.0f
 
 /* Which layer generated this spawn point */
 #define SPAWNLAYER_DECLARED  1  /* L1: INTROCMD_SPAWN pad */

@@ -244,13 +244,12 @@ f32 spawnPoolRaycastBudget(const struct coord *pos, RoomNum room)
 			f32 dz = hit.pos.z - pos->z;
 			f32 dist = sqrtf(dx * dx + dy * dy + dz * dz);
 
-			/* Backface check: if the hit is extremely close (< 5 units),
-			 * the candidate is likely inside or against geometry. A true
-			 * backface test would check the face normal dot product, but
-			 * PD's bgTestHitInRoom doesn't expose the normal. Instead,
-			 * check if multiple nearby hits cluster -- if more than half
-			 * the rays hit within 30 units, reject as "inside geometry". */
-			if (dist < 5.0f) {
+			/* Capsule-clearance check: if the surface is closer than the
+			 * player capsule radius, the player would clip or be trapped.
+			 * bgTestHitInRoom doesn't expose face normals, so we use
+			 * capsule radius as a proxy for "inside/against geometry":
+			 * any hit within SPAWNPOOL_CAPSULE_RADIUS units is too close. */
+			if (dist < SPAWNPOOL_CAPSULE_RADIUS) {
 				return -1.0f;
 			}
 
@@ -405,8 +404,8 @@ static void spawnPoolL1Declared(spawn_pool_t *pool, s32 needed, f32 min_spacing)
 			poolAdd(pool, &pos, room, g_SpawnPoints[i],
 			        SPAWNLAYER_DECLARED, budget);
 		} else {
-			sysLogPrintf(LOG_NOTE,
-				"SPAWNPOOL: L1 pad %d rejected (budget=%.0f, room=%d)",
+			sysLogPrintf(LOG_WARNING,
+				"SPAWNPOOL: L1 declared pad %d failed validation (budget=%.0f, room=%d) -- falling through to L2",
 				(s32)g_SpawnPoints[i], budget, (s32)room);
 		}
 	}

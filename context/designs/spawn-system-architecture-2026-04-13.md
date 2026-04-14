@@ -226,9 +226,9 @@ Every spawn candidate at any tier (L1–L4) must pass raycast-budget validation 
 1. **Fire ~14 rays outward** from the candidate point:
    - 6 cardinal axes: +X, −X, +Y, −Y, +Z, −Z
    - 8 horizontal diagonals: ±X±Z (normalized), and optionally upper/lower diagonals for geometry with overhangs
-2. **Backface check**: Any ray that hits a backface indicates the candidate is inside solid geometry. Candidate is rejected immediately on any backface hit.
-3. **Distance sum**: Sum all ray distances. Must meet threshold: **≥ 10m–20m** (tune against player capsule volume). A spawn in a tight alcove or embedded in a wall will fail.
-4. **Pass condition**: No backface hits AND `sum(ray_distances) ≥ threshold`.
+2. **Capsule-clearance check**: `bgTestHitInRoom()` does not expose face normals, so true backface detection is unavailable. Instead: if any ray hits within `SPAWNPOOL_CAPSULE_RADIUS` (30 units), reject immediately. This covers: (a) inside-geometry (hit << 5u), and (b) adjacent-to-geometry where the player capsule would clip (hit < 30u). Threshold matches player capsule radius. *Changed from 5u → 30u in S249 (B-134 fix — railing trap on Chicago fire-escape staircase).*
+3. **Distance sum**: Sum all ray distances. Must meet threshold: `SPAWNPOOL_BUDGET_THRESHOLD` (1500 units). A spawn completely enclosed or in a very tight space will fail even if no single ray is blocked within capsule reach.
+4. **Pass condition**: No ray hits within capsule radius AND `sum(ray_distances) ≥ SPAWNPOOL_BUDGET_THRESHOLD`.
 
 **Per-tier behavior:**
 - **L1/L2/L3**: Failed candidates are skipped. If a tier produces zero passing candidates, the next tier activates.
