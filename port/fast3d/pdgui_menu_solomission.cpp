@@ -503,6 +503,27 @@ static const char *k_DiffShort[] = { "A", "S", "P" };
  * Mission Select
  * ========================================================================= */
 
+/* =========================================================================
+ * FIX-G.1: Stage category classification
+ * Stages 0..SOLOSTAGEINDEX_SKEDARRUINS  = main campaign missions
+ * Stages SOLOSTAGEINDEX_SKEDARRUINS+1.. = Special Assignments
+ * STAGE_CAT_BONUS reserved for future unlockable content
+ * ========================================================================= */
+
+typedef enum {
+    STAGE_CAT_MISSION = 0,   /* Missions 1–9, main campaign */
+    STAGE_CAT_SPECIAL,       /* Special Assignments SA-1–4  */
+    STAGE_CAT_BONUS,         /* Reserved — future bonus stages */
+} stagecat_t;
+
+static stagecat_t stageCategoryFor(s32 stageIdx)
+{
+    if (stageIdx <= SOLOSTAGEINDEX_SKEDARRUINS) return STAGE_CAT_MISSION;
+    return STAGE_CAT_SPECIAL;
+}
+/* countMissionGroupCompletions / countSpecialCompletions defined below
+ * k_MissionGroups / k_NumRegularGroups (same TU, resolved at compile time). */
+
 /* Mission group data: {firstStageIndex, langId} — mirrors menuhandlerMissionList */
 struct MissionGroup { s32 firstIdx; s32 langId; };
 static const MissionGroup k_MissionGroups[] = {
@@ -527,6 +548,35 @@ static s32 stageToGroupIdx(s32 stageIdx)
         else break;
     }
     return grp;
+}
+
+/* FIX-G.1: Completion counters for section headers (G.2).
+ * A mission group is "completed" when every stage in it has been beaten on Agent. */
+static void countMissionGroupCompletions(s32 *doneOut, s32 *totalOut)
+{
+    *totalOut = k_NumRegularGroups;
+    *doneOut  = 0;
+    for (s32 g = 0; g < k_NumRegularGroups; g++) {
+        s32 first = k_MissionGroups[g].firstIdx;
+        s32 last  = (g + 1 < k_NumRegularGroups)
+                  ? k_MissionGroups[g + 1].firstIdx - 1
+                  : SOLOSTAGEINDEX_SKEDARRUINS;
+        bool allDone = true;
+        for (s32 i = first; i <= last; i++) {
+            if (g_GameFile.besttimes[i][DIFF_A] == 0) { allDone = false; break; }
+        }
+        if (allDone) (*doneOut)++;
+    }
+}
+
+/* Count special stages with at least one cleared time on Agent. */
+static void countSpecialCompletions(s32 *doneOut, s32 *totalOut)
+{
+    *totalOut = NUM_SOLOSTAGES - (SOLOSTAGEINDEX_SKEDARRUINS + 1);
+    *doneOut  = 0;
+    for (s32 j = SOLOSTAGEINDEX_SKEDARRUINS + 1; j < NUM_SOLOSTAGES; j++) {
+        if (g_GameFile.besttimes[j][DIFF_A] != 0) (*doneOut)++;
+    }
 }
 
 /*
@@ -705,6 +755,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         if (ImGui::BeginChild("##ms_list_scroll", ImVec2(0, 0), false,
                                ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
+            /* FIX-G.2: "CAMPAIGN" section header with completion indicator.
+             * Shown at the very top of the list so missions are clearly labelled
+             * as a distinct category from Special Assignments below. */
+            {
+                s32 mDone = 0, mTotal = 0;
+                countMissionGroupCompletions(&mDone, &mTotal);
+                char campaignHdr[80];
+                snprintf(campaignHdr, sizeof(campaignHdr),
+                         "  CAMPAIGN  (%d/%d)", mDone, mTotal);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.9f));
+                ImGui::SeparatorText(campaignHdr);
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
+
             /* Regular missions 0..SOLOSTAGEINDEX_SKEDARRUINS */
             s32 prevGroup = -1;
             for (s32 i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS; i++) {
@@ -832,29 +897,29 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 ImGui::PopID();
             } /* regular stage loop */
 
-            /* Special Assignments (stages 17..20)
-             * FIX-G (B-97): show completion count. */
+            /* FIX-G.2: Special Assignments section header — same SeparatorText style
+             * as CAMPAIGN above, gold tint to distinguish the category visually.
+             * Completion count uses besttimes (beaten on Agent) not unlock status. */
             s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1;
             ImGui::Spacing();
-
-            s32 saTotal = NUM_SOLOSTAGES - specialStart;
-            s32 saDone  = 0;
-            for (s32 si = specialStart; si < NUM_SOLOSTAGES; si++) {
-                if (isStageDifficultyUnlocked(si, DIFF_A)) saDone++;
+            {
+                s32 sDone = 0, sTotal = 0;
+                countSpecialCompletions(&sDone, &sTotal);
+                const char *saLang = langSafe(L_OPTIONS_132);
+                char saBuf[96];
+                if (saLang[0]) {
+                    snprintf(saBuf, sizeof(saBuf), "  %s  (%d/%d)",
+                             saLang, sDone, sTotal);
+                } else {
+                    snprintf(saBuf, sizeof(saBuf),
+                             "  SPECIAL ASSIGNMENTS  (%d/%d)", sDone, sTotal);
+                }
+                ImGui::PushStyleColor(ImGuiCol_Text,        ImVec4(1.0f, 0.85f, 0.4f, 0.9f));
+                ImGui::PushStyleColor(ImGuiCol_Separator,   ImVec4(0.7f, 0.55f, 0.1f, 0.6f));
+                ImGui::SeparatorText(saBuf);
+                ImGui::PopStyleColor(2);
+                ImGui::Spacing();
             }
-
-            const char *saLang = langSafe(L_OPTIONS_132);
-            char saBuf[96];
-            if (saLang[0]) {
-                snprintf(saBuf, sizeof(saBuf), "-- %s (%d/%d) --",
-                         saLang, saDone, saTotal);
-            } else {
-                snprintf(saBuf, sizeof(saBuf), "-- Special Assignments (%d/%d) --",
-                         saDone, saTotal);
-            }
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
-            ImGui::TextUnformatted(saBuf);
-            ImGui::PopStyleColor();
 
             for (s32 j = specialStart; j < NUM_SOLOSTAGES; j++) {
                 s32 saNum       = j - specialStart + 1;
