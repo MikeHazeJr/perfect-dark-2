@@ -749,8 +749,21 @@ extern "C" void pdguiApplyPdStyle(void)
         );
     };
 
-    /* Window/frame backgrounds -- derived from dialog_bodybg */
-    colors[ImGuiCol_WindowBg]           = C(pal->dialog_bodybg);
+    /* Window/frame backgrounds -- derived from dialog_bodybg.
+     *
+     * FIX-C.3: WindowBg is fully transparent (alpha=0).  All PD-styled
+     * windows use NoBackground and rely on pdguiDrawPdDialog() or
+     * drawPdWindowFrame() for their body fill.  Previously WindowBg had
+     * alpha ~0xa0 from dialog_bodybg, which added a SECOND translucent
+     * layer on top of the explicit PD dialog fill.  Over repeated menu
+     * open/close cycles, the GBI blur overlay (menugfxRenderBgBlur) plus
+     * the ImGui WindowBg compounded, making the background progressively
+     * more opaque ("menu opacity stacking").
+     *
+     * ChildBg and PopupBg keep their semi-transparent values because
+     * child windows and popups that DON'T use NoBackground still need
+     * a visible background for readability (e.g., combo dropdowns). */
+    colors[ImGuiCol_WindowBg]           = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     colors[ImGuiCol_ChildBg]            = C((pal->dialog_bodybg & 0xFFFFFF00) | 0x66);
     colors[ImGuiCol_PopupBg]            = C((pal->dialog_bodybg & 0xFFFFFF00) | 0xD9);
 
