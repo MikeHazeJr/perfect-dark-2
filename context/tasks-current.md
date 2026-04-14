@@ -112,8 +112,9 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **Rebind UI: single-column, MP slots 1–3 unbound** | HIGH | No Bind1/Bind2 split; MP players 1–3 have no default gamepad binds. |
 | **CrouchMode=2 toggle works, resets on respawn** | MED | `Game.Player0.CrouchMode=2` in pd.ini. bondmove.c:1925 handles it. |
 | **Mission 1 completion: no crash, JSON save written** | HIGH | B-129 fix. `saves/agent_<name>.json` must be updated on mission end. |
-| **Sky tearing gone on outdoor stages** | HIGH | B-128 fix. Test on Dark Noon, Goldfinger 64 exteriors. |
-| **B-18 check on Skedar Ruins** | MED | Does sky still show pink? B-128 fix may or may not cover B-18. Report result. |
+| **Sky tearing gone on outdoor stages** | HIGH | B-128 point fix + FIX-C.1 systemic state reset (S243). Test on Dark Noon, Goldfinger 64 exteriors. |
+| **B-18 check on Skedar Ruins** | MED | FIX-C.1 (S243) resets env color before sky render — eliminates the cross-frame leakage that caused pink. Playtest to confirm. |
+| **Menu opacity stacking gone** | MED | FIX-C.3 (S243): WindowBg alpha → 0. Open/close main menu 10+ times, verify background doesn't darken progressively. |
 
 ### Must-Have
 

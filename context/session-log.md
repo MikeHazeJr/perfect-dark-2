@@ -3,6 +3,40 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S243 — 2026-04-13 (L6 Rendering Polish: FIX-C.1/C.2/C.3)
+
+**Focus**: Infrastructural repair plan Layer 6 — Class C rendering state leakage. B-18 (pink sky), B-128 (sky tearing, confirmed already fixed), menu opacity stacking.
+
+### Changes (2 files, +33/-2)
+
+**FIX-C.1: GBI frame-start state reset** (`src/game/lv.c:1407-1421`)
+- Canonical state reset before `skyRender()` each frame: `gDPPipeSync`, `gDPSetRenderMode(OPA_SURF)`, `gDPSetEnvColor(white)`, `gDPSetPrimColor(white)`, `gDPSetFogColor(black)`.
+- Eliminates the entire class of cross-frame GBI state leakage (SP-10). Previous frame's sun flares, teleport beams, or translucent particles can no longer corrupt the current frame's sky or early geometry.
+- Defense-in-depth for B-128 (already point-fixed with OPA_SURF in sky.c:1244).
+
+**FIX-C.2: B-18 Skedar Ruins investigation** (no code change)
+- Skedar Ruins environment data: `RGB(0x6565ff)` = blue-purple sky (correct from ROM).
+- Pink appearance was cross-frame env color leakage into the cloud LERP combiner (`SHADE, ENVIRONMENT, TEXEL0, ENVIRONMENT`). FIX-C.1's env color reset to white eliminates this.
+- **Needs playtest confirmation on Skedar Ruins** to close B-18.
+
+**FIX-C.3: Menu opacity stacking** (`port/fast3d/pdgui_style.cpp:752`)
+- Set `ImGuiCol_WindowBg` alpha to 0 (fully transparent). PD-styled windows use `NoBackground` + `pdguiDrawPdDialog()` for body fill; the semi-transparent `WindowBg` (~0xa0 alpha) was adding a second translucent layer. Over repeated open/close cycles, GBI blur + ImGui WindowBg compounded.
+- ChildBg and PopupBg retain their semi-transparent values for combo dropdowns etc.
+
+### Build
+- PerfectDark.exe: 51,160,628 bytes, PerfectDarkServer.exe: 22,793,307 bytes. Both clean link.
+
+### Decisions
+- B-128 confirmed FIXED (sky tearing). FIX-C.1 provides systemic defense.
+- B-18 downgraded to "LIKELY FIXED" pending Skedar Ruins playtest.
+- Menu opacity stacking: root cause was double-layered semi-transparent backgrounds. Fixed.
+
+### Next
+- Playtest: Skedar Ruins sky color, menu open/close opacity, outdoor stages for sky state leakage
+- If B-18 confirmed: close bug. If still pink: investigate stage-specific palette/sky-type issue.
+
+---
+
 ## Session S242 — 2026-04-13 (Menu Polish Tail: F-3.1/F-3.2/F-1.4/FIX-G)
 
 **Focus**: Final menu system polish items from fix plan Layers 1-3 + infrastructural repair FIX-G.
