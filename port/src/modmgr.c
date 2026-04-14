@@ -26,6 +26,7 @@
 #include "data.h"
 #include "game/stagetable.h"
 #include "video.h"
+#include "pdgui_theme_loader.h"  /* Issue 2/8: theme rescan after mod apply */
 
 /* Forward declaration — defined in src/lib/main.c */
 extern void mainChangeToStage(s32 stagenum);
@@ -1692,6 +1693,12 @@ void modmgrApplyChanges(void)
 
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
+
+	/* Issue 2/8: rescan mods/ for new theme.json files so newly-installed
+	 * mod themes appear in the theme selector after Apply without a restart.
+	 * Audio is self-healing (renderSelectTunes scans per-frame); only themes
+	 * need an explicit rescan here. */
+	pdguiThemeRescanMods();
 
 	/* Return to title screen — clean slate for the new mod configuration */
 	mainChangeToStage(MODMGR_STAGE_TITLE);

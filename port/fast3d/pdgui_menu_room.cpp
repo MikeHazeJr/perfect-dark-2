@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <algorithm>
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -196,6 +197,10 @@ void netbufStartWrite(struct netbuf *buf);
 extern s32 g_NetMode;
 #define RM_NETMODE_NONE   0
 #define RM_NETMODE_CLIENT 2
+
+/* R-5: Room settings + playlist sync (netmsg.c) */
+void netSendRoomSettingsUpdate(void);
+void netSendRoomPlaylistUpdate(void);
 
 /* Sub-screen dialog defs (U-2, U-3) */
 struct menudialogdef;
@@ -523,6 +528,9 @@ static bool s_IsSoloMode = false;
 
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
+
+/* R-5: set true whenever the leader changes settings; cleared after CLC_ROOM_SETTINGS_UPDATE send */
+static bool s_RoomSettingsDirty = false;
 
 /* B-124 pattern: true if this screen pushed g_CtxImGuiMenu itself.
  * Used to correctly match push/pop ownership — only pop if we pushed it. */
@@ -1255,6 +1263,7 @@ static void optToggle(const char *label, u32 flag, bool leader)
         if (on) g_MatchConfig.options |= flag;
         else    g_MatchConfig.options &= ~flag;
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        s_RoomSettingsDirty = true;
     }
     if (!leader) ImGui::EndDisabled();
 }
@@ -1268,6 +1277,7 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
         if (on) g_MatchConfig.options &= ~flag;
         else    g_MatchConfig.options |= flag;
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        s_RoomSettingsDirty = true;
     }
     if (!leader) ImGui::EndDisabled();
 }
@@ -1564,6 +1574,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     }
                 }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                s_RoomSettingsDirty = true;
             }
 
             /* Re-roll — random name + character for all selected */
@@ -1574,6 +1585,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     }
                 }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                s_RoomSettingsDirty = true;
             }
 
             /* Remove — delete all selected */
@@ -1586,6 +1598,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 }
                 botSelectClear();
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                s_RoomSettingsDirty = true;
             }
 
             ImGui::EndPopup();
@@ -1613,6 +1626,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         /* Random bot — no explicit body/head/name triggers generators */
         matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, nullptr, nullptr, nullptr);
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        s_RoomSettingsDirty = true;
     }
     if (!canAdd) ImGui::EndDisabled();
 
@@ -1660,6 +1674,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                     g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
                 }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                s_RoomSettingsDirty = true;
             }
             if (sel) ImGui::SetItemDefaultFocus();
         }
@@ -1694,6 +1709,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                         sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
                             s_Arenas[ai].name, s_Arenas[ai].id);
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        s_RoomSettingsDirty = true;
                     }
                     if (sel) ImGui::SetItemDefaultFocus();
                 }
@@ -1716,6 +1732,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         ImGui::SetNextItemWidth(comboW * 0.6f);
         if (ImGui::SliderInt("Time (min)", &tl, 0, 60)) {
             g_MatchConfig.timelimit = (u8)tl;
+            s_RoomSettingsDirty = true;
         }
         ImGui::SameLine();
         if (g_MatchConfig.timelimit >= 60) {
@@ -1734,6 +1751,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         ImGui::SetNextItemWidth(comboW * 0.6f);
         if (ImGui::SliderInt("Score", &sl, 1, 100)) {
             g_MatchConfig.scorelimit = (u8)(sl - 1);  /* store 0-based */
+            s_RoomSettingsDirty = true;
         }
         ImGui::SameLine();
         if (g_MatchConfig.scorelimit >= 99) {  /* 99+1=100: show "No limit" */
@@ -1746,29 +1764,43 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
     ImGui::Spacing();
 
-    /* --- Weapon Set --- */
+    /* --- Weapon Set (F-2.1: TreeNodeEx + alphabetized, same pattern as Arenas) --- */
     {
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Weapon Set");
         if (!leader) ImGui::BeginDisabled();
         s32 numSets = func0f189058(1);
         s32 curSet  = mpGetWeaponSet();
-        char *curName = mpGetWeaponSetName(curSet);
-        ImGui::SetNextItemWidth(comboW);
-        if (ImGui::BeginCombo("##wset", curName ? curName : "???")) {
-            for (s32 i = 0; i < numSets; i++) {
-                char *setName = mpGetWeaponSetName(i);
-                if (!setName || !setName[0]) continue;
-                bool isSel = (i == curSet);
-                char setLabel[64];
-                snprintf(setLabel, sizeof(setLabel), "%s##ws%d", setName, i);
+
+        struct WSEntry { char name[64]; s32 idx; };
+        static WSEntry s_WSorted[64];
+        s32 wcount = 0;
+        for (s32 i = 0; i < numSets && wcount < (s32)(sizeof(s_WSorted)/sizeof(s_WSorted[0])); i++) {
+            char *sn = mpGetWeaponSetName(i);
+            if (!sn || !sn[0]) continue;
+            snprintf(s_WSorted[wcount].name, sizeof(s_WSorted[wcount].name), "%s", sn);
+            s_WSorted[wcount].idx = i;
+            wcount++;
+        }
+        std::sort(s_WSorted, s_WSorted + wcount, [](const WSEntry &a, const WSEntry &b) {
+            return strcmp(a.name, b.name) < 0;
+        });
+
+        char grpHdr[64];
+        snprintf(grpHdr, sizeof(grpHdr), "Base Game (%d)", wcount);
+        if (ImGui::TreeNodeEx(grpHdr, ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (s32 j = 0; j < wcount; j++) {
+                bool isSel = (s_WSorted[j].idx == curSet);
+                char setLabel[128];
+                snprintf(setLabel, sizeof(setLabel), "%s##ws%d", s_WSorted[j].name, s_WSorted[j].idx);
                 if (ImGui::Selectable(setLabel, isSel)) {
-                    mpSetWeaponSet(i);
-                    g_MatchConfig.weaponSetIndex = (s8)i;
+                    mpSetWeaponSet(s_WSorted[j].idx);
+                    g_MatchConfig.weaponSetIndex = (s8)s_WSorted[j].idx;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    s_RoomSettingsDirty = true;
                 }
                 if (isSel) ImGui::SetItemDefaultFocus();
             }
-            ImGui::EndCombo();
+            ImGui::TreePop();
         }
         if (!leader) ImGui::EndDisabled();
     }
@@ -2902,6 +2934,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
 
         ImGui::EndPopup();
+    }
+
+    /* R-5: If leader changed settings this frame, broadcast to room members */
+    if (s_RoomSettingsDirty && g_NetMode == NETMODE_CLIENT && lobbyIsLocalLeader()) {
+        netSendRoomSettingsUpdate();
+        s_RoomSettingsDirty = false;
     }
 
     /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */

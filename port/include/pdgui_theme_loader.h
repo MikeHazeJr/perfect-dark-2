@@ -59,6 +59,11 @@ void pdguiThemeLoaderInit(void);
 /** Shutdown: free any loaded theme data. */
 void pdguiThemeLoaderShutdown(void);
 
+/** Rescan mods/ for new/updated theme.json files.
+ *  Call after modmgrApplyChanges() so newly-installed mod themes appear
+ *  without requiring a restart.  Safe to call at any time after init. */
+void pdguiThemeRescanMods(void);
+
 /* -----------------------------------------------------------------------
  * Theme loading
  * --------------------------------------------------------------------- */

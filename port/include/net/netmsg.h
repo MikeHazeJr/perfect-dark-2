@@ -59,9 +59,13 @@
 #define SVC_LOBBY_KILL_FEED 0x74 // server→spectating clients: kill event with pre-resolved names
 
 /* R-3: Room networking (protocol v29) */
-#define SVC_ROOM_LIST   0x75 // server→all: full room list snapshot (on any room change)
+#define SVC_ROOM_LIST     0x75 // server→all: full room list snapshot (on any room change)
 #define SVC_ROOM_ASSIGN   0x76 // server→client: "you are now in room X" (0xFF = lounge)
 #define SVC_MUSIC_ADVANCE 0x77 // server→room: advance playlist to next track (catalog ID string)
+
+/* R-5: Room settings sync (protocol v35 additive) */
+#define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
+#define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
@@ -87,6 +91,10 @@
 #define CLC_ROOM_CREATE  0x10 // client→server: create a new room
 #define CLC_ROOM_JOIN    0x11 // client→server: join room by id
 #define CLC_ROOM_LEAVE   0x12 // client→server: leave current room
+
+/* R-5: Room settings sync (protocol v35 additive) */
+#define CLC_ROOM_SETTINGS_UPDATE  0x13 // leader→server: push current match settings for broadcast
+#define CLC_ROOM_PLAYLIST_UPDATE  0x14 // leader→server: push mod playlist string for broadcast
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -275,6 +283,26 @@ u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id);
 u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl);
 void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
+
+/* R-5: Room settings sync (v35 additive) */
+u32 netmsgSvcRoomSettingsWrite(struct netbuf *dst, u8 numBots, u8 timelimit,
+                                u8 scorelimit, u16 teamscorelimit, u32 options,
+                                u8 scenario, u8 weaponSetIndex, const char *stage_id);
+u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcRoomPlaylistWrite(struct netbuf *dst, const char *playlist_str);
+u32 netmsgSvcRoomPlaylistRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomSettingsUpdateWrite(struct netbuf *dst, u8 numBots, u8 timelimit,
+                                      u8 scorelimit, u16 teamscorelimit, u32 options,
+                                      u8 scenario, u8 weaponSetIndex, const char *stage_id);
+u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcRoomPlaylistUpdateWrite(struct netbuf *dst, const char *playlist_str);
+u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl);
+/* Convenience: pack current g_MatchConfig into CLC_ROOM_SETTINGS_UPDATE and send.
+ * Call from the room screen whenever the leader changes settings. */
+void netSendRoomSettingsUpdate(void);
+/* Convenience: pack current mod playlist into CLC_ROOM_PLAYLIST_UPDATE and send. */
+void netSendRoomPlaylistUpdate(void);
+
 u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
 u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
