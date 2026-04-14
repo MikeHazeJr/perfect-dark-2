@@ -14,6 +14,23 @@ PC only — x86_64 via MSYS2/MinGW + CMake. SDL2 + OpenGL rendering.
 ## Repository
 GitHub: https://github.com/MikeHazeJr/perfect-dark-2
 
+## Build environment — every session, before any build
+
+> **Do not rediscover TEMP or PATH. Do not invent alternatives.**
+
+From bash:
+```bash
+source devtools/build-env.sh && ninja -C Build pd pd-server
+```
+
+From PowerShell:
+```powershell
+.\devtools\build-headless.ps1   # self-configures env
+```
+
+`build-env.sh` sets `TEMP`, `TMP`, and prepends `/c/msys64/mingw64/bin` to `PATH`.
+`build-headless.ps1` dot-sources `devtools/_build-env-prelude.ps1` (idempotent).
+
 ---
 
 ## STANDING ORDERS — Context System

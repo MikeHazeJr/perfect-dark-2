@@ -85,23 +85,9 @@ $Generator  = "Ninja"
 # GCC looks for ld.mold.exe which doesn't exist (only mold.exe). Rolled back to GNU ld.
 $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 
-# MSYS2 MINGW64 environment  -  same as GUI version
-$env:MSYSTEM      = "MINGW64"
-$env:MINGW_PREFIX = "/mingw64"
-$env:PATH         = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
-
-# Ensure TEMP/TMP point to a writable directory. In some sandbox/code-session
-# environments the inherited TEMP may be C:\Windows (read-only), which causes
-# cc1.exe to fail when writing intermediate compilation files.
-$goodTemp = "$env:USERPROFILE\AppData\Local\Temp"
-if (-not (Test-Path $goodTemp)) { $goodTemp = "C:\Users\mikeh\AppData\Local\Temp" }
-$env:TEMP = $goodTemp
-$env:TMP  = $goodTemp
-
-# ccache sloppiness: allow PCH timestamp variation so TUs that include a PCH
-# are still cacheable. Without this, target_precompile_headers causes 78% of
-# TUs to be marked uncacheable and warm builds regress from ~9s to ~31s.
-$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
+# Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
+# Prelude is idempotent: safe to run multiple times or in nested script invocations.
+. (Join-Path $ScriptDir "_build-env-prelude.ps1")
 
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }

@@ -12,17 +12,8 @@
 # Section 0: PATH fix - BEFORE ANYTHING ELSE
 # ============================================================================
 
-$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
-$env:MSYSTEM           = "MINGW64"
-$env:MINGW_PREFIX      = "/mingw64"
-# ccache sloppiness: allow PCH timestamp variation — prevents 78% uncacheable TU regression
-$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
-
-$_goodTemp = "$env:USERPROFILE\AppData\Local\Temp"
-if (-not (Test-Path $_goodTemp)) { $_goodTemp = "C:\Users\mikeh\AppData\Local\Temp" }
-if (-not (Test-Path $_goodTemp)) { $_goodTemp = $env:TEMP }
-$env:TEMP = $_goodTemp
-$env:TMP  = $_goodTemp
+# Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
+. (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1")
 
 # ============================================================================
 # Section 1: Assembly loading + console hide

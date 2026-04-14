@@ -98,15 +98,9 @@ $CCExe     = "C:/msys64/mingw64/bin/cc.exe"
 $Cores     = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
 $BuildDir  = Join-Path $ProjectRoot "Build"
 
-# MSYS2/MinGW64 environment — set early so all git/cmake subprocesses inherit
-$env:MSYSTEM             = "MINGW64"
-$env:MINGW_PREFIX        = "/mingw64"
-$env:PATH                = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
-$env:TEMP                = "$env:USERPROFILE\AppData\Local\Temp"
-$env:TMP                 = $env:TEMP
+# Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
+. (Join-Path $PSScriptRoot "_build-env-prelude.ps1")
 $env:GIT_TERMINAL_PROMPT = "0"                          # prevent git from hanging on credential prompts
-# ccache sloppiness: allow PCH timestamp variation — prevents 78% uncacheable TU regression
-$env:CCACHE_SLOPPINESS   = "pch_defines,time_macros"
 
 # Version parts for cmake -D flags (resolved above from CMakeLists.txt or -Version param)
 $vParts = $Version -split '\.'
