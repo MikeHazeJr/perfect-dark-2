@@ -3,6 +3,49 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S251 — 2026-04-13 (B-141 audio telemetry: drop/underrun/hitch counters)
+
+**Focus**: Pre-instrument the audio push path so B-141 (intermittent audio skips/pauses, not reproducible on demand) produces diagnostic signal the next time it happens. Not a fix — evidence-gathering.
+
+Branch: `b141-audio-telemetry` (worktree `happy-hofstadter`), dev tip `8e02a2ef` at session start.
+
+### What shipped
+
+`audioEndFrame()` in `port/src/audio.c` is the only place where producer (game frame) and consumer (SDL) can both be observed. Three symptoms now counted there:
+
+- **drops** — `buffered >= queueLimit` at push time. Producer outrunning consumer OR the consumer stalled; whole frame of audio is dropped.
+- **underruns** — `buffered < 128 stereo samples` at push time. SDL chewed through everything; the next few ms will be silence.
+- **hitches** — gap between consecutive `audioEndFrame` calls exceeds 50 ms. Main loop stalled; audio underrun will follow.
+
+Counters are always on (cheap: one `SDL_GetTicks()` + a few adds per frame). Per-event log lines are opt-in via `Audio.VerboseLog = 1` in pd.ini (default off). A 30-second summary line fires automatically if any of the three counters moved in the window — zero-activity windows are silent.
+
+New accessor `audioGetB141Counters(u32 *drops, u32 *underruns, u32 *hitches)` exported from `audio.h` so a future diagnostic UI / dashboard can poll the values without touching internals.
+
+### Files touched
+
+- `port/src/audio.c` — telemetry block (+89 lines): counters, thresholds, instrumented `audioEndFrame`, getter, `Audio.VerboseLog` CVar registration.
+- `port/include/audio.h` — `audioGetB141Counters()` public declaration (+10 lines).
+
+### Build
+
+Clean. 24/24 incremental ninja steps against the worktree's own `Build/` directory. `PerfectDark.exe` 51 MB, `PerfectDarkServer.exe` 22 MB. `pd-server` does not link `audio.c` (no audio layer on the headless server) — only `pd` picks up the new object.
+
+### Acceptance
+
+- No repro required to validate. Counters start at 0 and stay at 0 under healthy conditions; they accumulate silently when drops / underruns / hitches happen. Verbose log is opt-in.
+- Next time Mike hits B-141 (or any audio stutter symptom), tail `pd.log` for `AUDIO[B-141]` lines. The 30-second summary gives count; setting `Audio.VerboseLog=1` gives per-event timestamps.
+
+### Parallel-session notes
+
+Two in-flight parallel sessions observed during this session: `exciting-turing` landed S249 (B-140 playlist sync) + session-state hand-off dump + finishing the B-140→B-141 rename I started in S250. Kept B-141 audio work scoped to `audio.c`/`audio.h` only; no overlap with the other session's work in `src/game/menu.c` / `pdgui_*`.
+
+### Next
+
+- Wait for a B-141 repro, read counters / verbose log, narrow the mechanism (hitch-driven vs queue-drop vs mix-stall).
+- Phase 2 menu pool (from S250 ADR) still queued for a dedicated session.
+
+---
+
 ## Session S250 — 2026-04-13 (Input authority: gameplay-input suppression predicate + focus handling)
 
 **Focus**: 2026-04-13 playtest surfaced Ctrl+V in the main menu's Online-window jumping the background player (Ctrl is bound to `ACTION_JUMP` in the gameplay IMC). Phase 1 of the input-authority-and-menu-pool ADR: add a single truth-source predicate and short-circuit gameplay input reading at the source; Phase 2 (menu pool single-instance discipline) queued for a dedicated follow-up session.
