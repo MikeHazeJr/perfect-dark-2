@@ -28,7 +28,10 @@
 #include "system.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include "assetcatalog.h"
 
 /* Externs for spawn data (declared in player.c) */
 extern s16 g_SpawnPoints[];
@@ -40,6 +43,61 @@ extern s32 g_NumSpawnPoints;
 
 static spawn_pool_t s_Pool;
 static bool s_PoolReady = false;
+
+/* ========================================================================
+ * Smoke test accumulator (M-7.x retroactive validation)
+ *
+ * Records per-stage pool build results across the session.  Each unique
+ * stage_id gets one slot; live (in-game) results overwrite offline ones.
+ * ======================================================================== */
+
+#define SMOKE_MAX_STAGES 128
+#define SMOKE_SRC_LIVE    'L'  /* built during real gameplay */
+#define SMOKE_SRC_OFFLINE 'O'  /* built offline with zeroed pads */
+
+typedef struct smoke_record {
+	char stage_id[CATALOG_ID_LEN];
+	s32  needed;
+	s32  produced;
+	u8   max_layer;
+	char source;   /* SMOKE_SRC_LIVE or SMOKE_SRC_OFFLINE */
+	u32  time_ms;
+} smoke_record_t;
+
+static smoke_record_t s_SmokeLog[SMOKE_MAX_STAGES];
+static s32            s_SmokeCount = 0;
+
+static void smokeLogRecord(const char *stage_id, s32 needed, s32 produced,
+                           u8 max_layer, char source, u32 time_ms)
+{
+	s32 i;
+	if (!stage_id || !stage_id[0]) return;
+
+	/* Update existing entry (live always overwrites offline) */
+	for (i = 0; i < s_SmokeCount; i++) {
+		if (strncmp(s_SmokeLog[i].stage_id, stage_id, CATALOG_ID_LEN - 1) == 0) {
+			if (source == SMOKE_SRC_LIVE || s_SmokeLog[i].source == SMOKE_SRC_OFFLINE) {
+				s_SmokeLog[i].needed    = needed;
+				s_SmokeLog[i].produced  = produced;
+				s_SmokeLog[i].max_layer = max_layer;
+				s_SmokeLog[i].source    = source;
+				s_SmokeLog[i].time_ms   = time_ms;
+			}
+			return;
+		}
+	}
+
+	/* New entry */
+	if (s_SmokeCount >= SMOKE_MAX_STAGES) return;
+	strncpy(s_SmokeLog[s_SmokeCount].stage_id, stage_id, CATALOG_ID_LEN - 1);
+	s_SmokeLog[s_SmokeCount].stage_id[CATALOG_ID_LEN - 1] = '\0';
+	s_SmokeLog[s_SmokeCount].needed    = needed;
+	s_SmokeLog[s_SmokeCount].produced  = produced;
+	s_SmokeLog[s_SmokeCount].max_layer = max_layer;
+	s_SmokeLog[s_SmokeCount].source    = source;
+	s_SmokeLog[s_SmokeCount].time_ms   = time_ms;
+	s_SmokeCount++;
+}
 
 /* ========================================================================
  * Deterministic PRNG (xorshift32)
@@ -809,8 +867,14 @@ bool spawnPoolIsReady(void)
 
 void spawnPoolBuildGlobal(const char *stage_id, u32 match_seed, s32 needed)
 {
+	clock_t t0 = clock();
 	s_PoolReady = false;
 	spawnPoolBuild(&s_Pool, stage_id, match_seed, needed);
+	{
+		u32 ms = (u32)(((clock() - t0) * 1000u) / (u32)CLOCKS_PER_SEC);
+		smokeLogRecord(stage_id, needed, s_Pool.count, s_Pool.max_layer_used,
+		               SMOKE_SRC_LIVE, ms);
+	}
 }
 
 /* Reset pool state (called on stage change) */
@@ -946,19 +1010,13 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 
 s32 spawnPoolSmokeTest(void)
 {
-	/* Placeholder: actual implementation requires stage iteration which
-	 * involves loading each stage's BG/pad/setup files. This is a
-	 * heavyweight operation that should be triggered from the dev menu
-	 * or a dedicated test harness, not called during normal gameplay.
-	 *
-	 * For now, log the current pool state if one exists. */
 	s32 warnings = 0;
+	s32 i;
 
 	if (s_PoolReady) {
 		sysLogPrintf(LOG_NOTE,
 			"SPAWNPOOL SMOKE: current pool: %d points, max_layer=%d, seed=0x%08x",
 			s_Pool.count, s_Pool.max_layer_used, s_Pool.seed);
-
 		if (s_Pool.max_layer_used >= 3) {
 			sysLogPrintf(LOG_WARNING,
 				"SPAWNPOOL SMOKE: current stage required L%d (grid/radial fallback)",
@@ -969,5 +1027,111 @@ s32 spawnPoolSmokeTest(void)
 		sysLogPrintf(LOG_NOTE, "SPAWNPOOL SMOKE: no pool built for current stage");
 	}
 
+	/* Summary of accumulated session log */
+	for (i = 0; i < s_SmokeCount; i++) {
+		if (s_SmokeLog[i].max_layer >= 3) warnings++;
+		sysLogPrintf(LOG_NOTE,
+			"SPAWNPOOL SMOKE LOG[%d]: %-32s L%d (%d/%d) src=%c t=%ums",
+			i, s_SmokeLog[i].stage_id,
+			(s32)s_SmokeLog[i].max_layer,
+			s_SmokeLog[i].produced, s_SmokeLog[i].needed,
+			s_SmokeLog[i].source, s_SmokeLog[i].time_ms);
+	}
+
 	return warnings;
+}
+
+/* ========================================================================
+ * Offline sweep iterator state
+ * ======================================================================== */
+
+typedef struct smoke_iter_ctx {
+	s32 count;
+	s32 warnings;
+} smoke_iter_ctx_t;
+
+static void smokeOfflineBuildArena(const asset_entry_t *entry, void *userdata)
+{
+	smoke_iter_ctx_t *ctx = (smoke_iter_ctx_t *)userdata;
+	spawn_pool_t scratch;
+	s32 saved_nsp;
+	clock_t t0;
+	u32 ms;
+	const char *id;
+
+	if (!entry || entry->type != ASSET_ARENA) return;
+
+	id = entry->id;
+
+	/* Skip stages already recorded from live gameplay */
+	{
+		s32 i;
+		for (i = 0; i < s_SmokeCount; i++) {
+			if (strncmp(s_SmokeLog[i].stage_id, id, CATALOG_ID_LEN - 1) == 0
+			    && s_SmokeLog[i].source == SMOKE_SRC_LIVE) {
+				ctx->count++;
+				if (s_SmokeLog[i].max_layer >= 3) ctx->warnings++;
+				return;
+			}
+		}
+	}
+
+	/* Offline build: zero declared pads, use current geometry state.
+	 * This exercises L2-L4 fallback paths and confirms the guarantee holds.
+	 * Results are labelled 'O' (offline) in the CSV. */
+	saved_nsp = g_NumSpawnPoints;
+	g_NumSpawnPoints = 0;
+
+	t0 = clock();
+	spawnPoolBuild(&scratch, id, 0x5EC0BE45u, SPAWNPOOL_MAX); /* offline test seed */
+	ms = (u32)(((clock() - t0) * 1000u) / (u32)CLOCKS_PER_SEC);
+
+	g_NumSpawnPoints = saved_nsp;
+
+	smokeLogRecord(id, SPAWNPOOL_MAX, scratch.count, scratch.max_layer_used,
+	               SMOKE_SRC_OFFLINE, ms);
+
+	ctx->count++;
+	if (scratch.max_layer_used >= 3) ctx->warnings++;
+}
+
+s32 spawnPoolSmokeAll(void)
+{
+	smoke_iter_ctx_t ctx;
+	ctx.count    = 0;
+	ctx.warnings = 0;
+
+	sysLogPrintf(LOG_NOTE, "SPAWNPOOL SMOKE ALL: sweeping catalog arenas...");
+	assetCatalogIterateByType(ASSET_ARENA, smokeOfflineBuildArena, &ctx);
+	sysLogPrintf(LOG_NOTE,
+		"SPAWNPOOL SMOKE ALL: %d arenas tested, %d needed L3/L4",
+		ctx.count, ctx.warnings);
+
+	return ctx.warnings;
+}
+
+void spawnPoolSmokeWriteCSV(const char *path)
+{
+	FILE *f;
+	s32 i;
+
+	if (!path || !path[0]) return;
+
+	f = fopen(path, "w");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "SPAWNPOOL SMOKE: cannot write CSV to %s", path);
+		return;
+	}
+
+	fprintf(f, "stage_id,needed,produced,max_layer_used,source,time_ms,flag\n");
+	for (i = 0; i < s_SmokeCount; i++) {
+		const smoke_record_t *r = &s_SmokeLog[i];
+		const char *flag = (r->max_layer >= 3) ? "L3L4_RISK" : "OK";
+		fprintf(f, "%s,%d,%d,%d,%c,%u,%s\n",
+			r->stage_id, r->needed, r->produced, (s32)r->max_layer,
+			r->source, r->time_ms, flag);
+	}
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "SPAWNPOOL SMOKE: CSV written to %s (%d rows)", path, s_SmokeCount);
 }

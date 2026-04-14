@@ -123,11 +123,24 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
                     const struct coord *pool_center);
 
 /*
- * Run a diagnostic sweep logging pool construction results for every
- * registered stage. Call from dev menu or boot-time validation.
- * Writes per-stage max_layer_used to sysLogPrintf.
- * Returns the number of stages that needed L3 or L4.
+ * Log current pool state; summary of accumulated session data.
+ * Returns count of stages that needed L3 or L4.
  */
 s32 spawnPoolSmokeTest(void);
+
+/*
+ * Iterate all catalog arenas and build offline pools (zero declared pads).
+ * Live (in-game) results take priority over offline results.
+ * Returns count of arenas that needed L3 or L4.
+ */
+s32 spawnPoolSmokeAll(void);
+
+/*
+ * Write smoke log CSV to path.
+ * Columns: stage_id, needed, produced, max_layer_used, source, time_ms, flag
+ * source: 'L' = live gameplay, 'O' = offline sweep
+ * flag: OK or L3L4_RISK
+ */
+void spawnPoolSmokeWriteCSV(const char *path);
 
 #endif /* IN_GAME_SPAWNPOOL_H */

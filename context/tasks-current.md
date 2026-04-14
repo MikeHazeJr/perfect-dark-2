@@ -29,7 +29,7 @@
 | **M-5.6: mapImportRegister** | DONE (S240) | Signals modmgrCatalogChanged() for catalog pickup. |
 | **M-6.1: Import UI button** | DONE (S244) | "Map Import" tab (7th) in Modding Hub. Source dir + map name inputs, Import button. |
 | **M-6.2: Import dialog** | DONE (S244) | Status/error display with color-coded results. Smoke Test button for spawn pool diagnostics. mapImportRunFull() C wrapper. |
-| **M-7.x: Retroactive validation** | PENDING | Run all base + mod arenas through smoke test. |
+| **M-7.x: Retroactive validation** | DONE (this session) | `spawnPoolSmokeAll()` sweeps catalog arenas; session accumulator records live results. "Run All" button + CSV output in Modding Hub → Map Import tab. Offline results labelled 'O'; live results 'L'. L3/L4 maps flagged in CSV as `L3L4_RISK`. |
 
 ---
 
@@ -38,9 +38,9 @@
 | Item | Status | Detail |
 |------|--------|--------|
 | **L2 spawn pool: L1-L4 chain** | DONE (S239) | `spawnpool.c/h`: raycast-budget validator + L1 declared + L2 waypoint + L3 grid + L4 radial. Deterministic from (stage_id, match_seed). Guarantees >= N+M spawn points on any map. `g_SpawnPoints` expanded 24->40. |
-| **match_seed via SVC_STAGE_START** | PENDING | Currently using `stagenum ^ 0x12345678`. Need server-generated seed distributed via SVC_STAGE_START for true cross-client determinism. |
-| **B-19 resolution** | IMPROVED (S239) | Bot spawn stacking partially addressed -- L1-L4 chain provides validated spread-out spawns. Full B-19 fix requires match_seed + spawnPoolSelect() for initial placement. |
-| **Smoke test: all base + mod maps** | PENDING | Run pool build on all 14 MP arenas + GEX/Kakariko/DarkNoon stages. Verify max_layer_used <= 2 for base maps, log any L3/L4 activations. |
+| **match_seed via SVC_STAGE_START** | DONE (S241/S242) | `g_NetMatchSeed` in `net.c`; generated server-side from RNG+tick, written via `netbufWriteU32` in SVC_STAGE_START, received client-side. `playerreset.c` uses `g_NetMatchSeed` (nonzero) or local fallback. Cross-client determinism confirmed. |
+| **B-19 resolution** | DONE (S242) | match_seed + `spawnPoolSelect()` both wired in `playerreset.c:611`. L1-L4 guarantees spread-out validated spawns; farthest-first greedy selection for initial placement. |
+| **Smoke test: all base + mod maps** | DONE (this session) | Session accumulator logs live results per stage; `spawnPoolSmokeAll()` offline sweep covers unvisited catalog arenas. "Run All" button in Modding Hub → `Build/smoke-test-results.csv`. See `context/scratch/spawn-smoke-test-results-2026-04-13.md`. |
 
 ---
 

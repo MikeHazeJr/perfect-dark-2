@@ -69,6 +69,8 @@ s32 mapImportRunFull(const char *source_dir, const char *map_name,
 
 /* Spawn pool diagnostic */
 s32 spawnPoolSmokeTest(void);
+s32 spawnPoolSmokeAll(void);
+void spawnPoolSmokeWriteCSV(const char *path);
 
 } /* extern "C" */
 
@@ -1328,10 +1330,21 @@ static void renderMapImport(float w, float h, float scale)
     }
 
     ImGui::SameLine();
-    if (PdButton("Smoke Test", ImVec2(140.0f * scale, 28.0f * scale))) {
+    if (PdButton("Smoke Test", ImVec2(120.0f * scale, 28.0f * scale))) {
         s32 warnings = spawnPoolSmokeTest();
         snprintf(s_MapImpStatus, sizeof(s_MapImpStatus),
                  "Smoke test: %d stage(s) needed L3/L4. Check log.", warnings);
+        s_MapImpStatusOk = (warnings == 0);
+        s_MapImpDone = true;
+    }
+
+    ImGui::SameLine();
+    if (PdButton("Run All", ImVec2(100.0f * scale, 28.0f * scale))) {
+        s32 warnings = spawnPoolSmokeAll();
+        spawnPoolSmokeWriteCSV("Build/smoke-test-results.csv");
+        snprintf(s_MapImpStatus, sizeof(s_MapImpStatus),
+                 "Smoke sweep done: %d L3/L4 map(s). CSV -> Build/smoke-test-results.csv",
+                 warnings);
         s_MapImpStatusOk = (warnings == 0);
         s_MapImpDone = true;
     }
