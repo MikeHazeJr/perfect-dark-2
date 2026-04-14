@@ -748,13 +748,15 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* E.2: Push ImGuiMenu input context on first appear.
-     * The context's on_push callback handles SDL mouse mode (absolute + visible).
-     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
+    /* E.2: Keep ImGuiMenu input active for the whole time this window exists.
+     * Gating push on IsWindowAppearing() alone misses the first frame on some
+     * transitions (MP pause → end game → endscreen), so gameplay-relative mouse
+     * stays on: no clicks, no visible interaction (Bug C / post-game soft-lock). */
+    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPush(&g_CtxImGuiMenu);
+    }
     if (ImGui::IsWindowAppearing()) {
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        ImGui::SetWindowFocus();
     }
 
     pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "Game Over", 1);

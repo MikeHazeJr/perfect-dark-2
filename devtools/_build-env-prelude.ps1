@@ -6,13 +6,28 @@
 #   . (Join-Path $ScriptDir "_build-env-prelude.ps1")         # from devtools/
 #   . (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1") # from devtools/subdirs
 
-# TEMP/TMP -- hardcoded to a known-writable path. Create the directory if absent.
-# Some sandbox / code-session environments inherit C:\Windows as TEMP, which is
-# read-only and causes cc1.exe to crash when writing intermediate files.
-$env:TEMP = "C:\Users\mikeh\AppData\Local\Temp"
-$env:TMP  = $env:TEMP
-if (-not (Test-Path $env:TEMP)) {
-    New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
+# TEMP/TMP -- current user's Local\Temp (never hardcode another profile path).
+# Some environments inherit C:\Windows as TEMP, which breaks cc1.exe.
+$goodTemp = $null
+if ($env:LOCALAPPDATA) {
+    $goodTemp = Join-Path $env:LOCALAPPDATA "Temp"
+}
+if (-not $goodTemp -and $env:USERPROFILE) {
+    $goodTemp = Join-Path $env:USERPROFILE "AppData\Local\Temp"
+}
+if (-not $goodTemp) {
+    $goodTemp = [System.IO.Path]::GetTempPath().TrimEnd('\')
+}
+$env:TEMP = $goodTemp
+$env:TMP  = $goodTemp
+if (-not (Test-Path -LiteralPath $env:TEMP)) {
+    try {
+        New-Item -ItemType Directory -LiteralPath $env:TEMP -Force -ErrorAction Stop | Out-Null
+    } catch {
+        $fallback = [System.IO.Path]::GetTempPath().TrimEnd('\')
+        $env:TEMP = $fallback
+        $env:TMP  = $fallback
+    }
 }
 
 # PATH -- prepend MinGW64 + MSYS2 usr/bin only if not already present.

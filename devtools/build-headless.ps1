@@ -22,12 +22,25 @@
     Show full compiler output. Without this flag, only errors and summary lines
     are printed during the compile step.
 
+.PARAMETER OutputDir
+    CMake build directory relative to the project root, or an absolute path.
+    Default is "Build". Use "Cursor Build" for the Cursor-focused out-of-tree folder.
+
+.PARAMETER UseNextVersion
+    Before configuring, set CMakeLists.txt to max(CMake version, all vX.Y.Z git tags) + 1 patch.
+    Implies a version bump for this build; combine with -AutoCommit to commit the file change.
+
+.PARAMETER CommitPush
+    Alias for -AutoCommit: commit pending changes (with SP-9 guard) and push current branch.
+
 .EXAMPLE
     .\build-headless.ps1
     .\build-headless.ps1 -Target client -Clean
     .\build-headless.ps1 -Target server -Verbose
     .\build-headless.ps1 -AutoCommit
     powershell -File build-headless.ps1 -Target all -Clean
+    .\build-headless.ps1 -OutputDir "Cursor Build"
+    .\build-headless.ps1 -UseNextVersion -CommitPush
 #>
 
 param(
@@ -40,9 +53,14 @@ param(
 
     [switch]$Clean,
 
+    [Alias("CommitPush")]
     [switch]$AutoCommit,
 
-    [switch]$Verbose
+    [switch]$Verbose,
+
+    [string]$OutputDir = "",
+
+    [switch]$UseNextVersion
 )
 
 Set-StrictMode -Version Latest
@@ -71,7 +89,15 @@ if ($ProjectDir -match [regex]::Escape('.claude\worktrees\')) {
 }
 
 # Unified build directory (client + server share one dir -- no double-compile)
-$BuildDir   = Join-Path $ProjectDir "Build"
+if ($OutputDir -ne "") {
+    if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+        $BuildDir = $OutputDir
+    } else {
+        $BuildDir = Join-Path $ProjectDir $OutputDir
+    }
+} else {
+    $BuildDir = Join-Path $ProjectDir "Build"
+}
 $StateFile  = Join-Path $BuildDir ".last_build_state.json"
 $AddinDir   = Join-Path $ProjectDir "..\post-batch-addin"
 $CMakeExe   = "cmake"
@@ -88,13 +114,16 @@ $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNC
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 # Prelude is idempotent: safe to run multiple times or in nested script invocations.
 . (Join-Path $ScriptDir "_build-env-prelude.ps1")
+. (Join-Path $ScriptDir "version-util.ps1")
 
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
 
 # ============================================================================
 # Version resolution  -  mirrors dev-window-v2.ps1 Get-ProjectVersion
-# If -Version "X.Y.Z" supplied, use it. Otherwise read CMakeLists.txt.
+# If -Version "X.Y.Z" supplied, use it.
+# If -UseNextVersion: max(CMake, git tags vX.Y.Z) then patch + 1, write CMakeLists.txt.
+# Else read VERSION_SEM_* from CMakeLists.txt.
 # ============================================================================
 
 $VerMajor = 0; $VerMinor = 0; $VerPatch = 0
@@ -108,6 +137,13 @@ if ($Version -ne "") {
     } else {
         Write-Warning "-Version '$Version' is not in X.Y.Z format -- using 0.0.0"
     }
+} elseif ($UseNextVersion) {
+    $nextInfo = Get-NextReleaseSemVer $ProjectDir
+    Write-Host "  [version] Next build version: $($nextInfo.NextString) (max of CMake + git tags was $($nextInfo.Previous.Major).$($nextInfo.Previous.Minor).$($nextInfo.Previous.Patch))" -ForegroundColor Cyan
+    Set-CMakeListsSemVer $ProjectDir $nextInfo.Next.Major $nextInfo.Next.Minor $nextInfo.Next.Patch
+    $VerMajor = $nextInfo.Next.Major
+    $VerMinor = $nextInfo.Next.Minor
+    $VerPatch = $nextInfo.Next.Patch
 } else {
     # Read from CMakeLists.txt (same source as the Dev Window)
     $cmakeLists = Join-Path $ProjectDir "CMakeLists.txt"
@@ -411,8 +447,9 @@ Write-Host ""
 Write-Host "  Perfect Dark PC Port  -  Headless Build" -ForegroundColor Cyan
 Write-Host "  Target:     $Target" -ForegroundColor Gray
 Write-Host "  Version:    $VerMajor.$VerMinor.$VerPatch" -ForegroundColor Gray
+Write-Host "  Next ver:   $($UseNextVersion.IsPresent) (-UseNextVersion)" -ForegroundColor Gray
 Write-Host "  Clean:      $($Clean.IsPresent)" -ForegroundColor Gray
-Write-Host "  AutoCommit: $($AutoCommit.IsPresent)" -ForegroundColor Gray
+Write-Host "  AutoCommit: $($AutoCommit.IsPresent) (-AutoCommit / -CommitPush)" -ForegroundColor Gray
 Write-Host "  Verbose:    $($Verbose.IsPresent)" -ForegroundColor Gray
 Write-Host "  Cores:      $Cores" -ForegroundColor Gray
 Write-Host "  Generator:  $Generator" -ForegroundColor Gray

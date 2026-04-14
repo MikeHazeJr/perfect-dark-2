@@ -2,8 +2,8 @@
 # Packages and pushes builds for both client and dedicated server.
 #
 # Usage:
-#   .\release.ps1                    # Uses version from CMakeLists.txt
-#   .\release.ps1 -Version "0.0.3a" # Override version string
+#   .\release.ps1                    # Version = max(CMakeLists, v* git tags) + 1 patch; updates CMakeLists.txt
+#   .\release.ps1 -Version "1.2.3" # Explicit X.Y.Z (numeric); syncs CMakeLists.txt when possible
 #   .\release.ps1 -Nightly           # Nightly dev build (date-based tag, prerelease)
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
@@ -53,11 +53,12 @@ if ($Nightly) {
 } else {
     $ExplicitVersion = ($Version -ne "")
     if ($Version -eq "") {
-        $cmake = Get-Content "CMakeLists.txt" -Raw
-        $major = $(if ($cmake -match 'VERSION_SEM_MAJOR\s+(\d+)') { $matches[1] } else { "0" })
-        $minor = $(if ($cmake -match 'VERSION_SEM_MINOR\s+(\d+)') { $matches[1] } else { "0" })
-        $patch = $(if ($cmake -match 'VERSION_SEM_PATCH\s+(\d+)') { $matches[1] } else { "0" })
-        $Version = "$major.$minor.$patch"
+        . (Join-Path $PSScriptRoot "version-util.ps1")
+        $nextInfo = Get-NextReleaseSemVer $ProjectRoot
+        Write-Host "  Release version (max of CMake + git tags, then +1): $($nextInfo.NextString)" -ForegroundColor Cyan
+        Write-Host "    Previous max: $($nextInfo.Previous.Major).$($nextInfo.Previous.Minor).$($nextInfo.Previous.Patch)" -ForegroundColor Gray
+        Set-CMakeListsSemVer $ProjectRoot $nextInfo.Next.Major $nextInfo.Next.Minor $nextInfo.Next.Patch
+        $Version = $nextInfo.NextString
     }
     $ReleaseTag = "v$Version"
     $ReleaseTitle = "Perfect Dark 2 v$Version ($(if ($Prerelease) { 'Dev' } else { 'Stable' }))"
