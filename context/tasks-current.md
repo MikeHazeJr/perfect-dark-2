@@ -41,6 +41,7 @@
 | **match_seed via SVC_STAGE_START** | DONE (S241/S242) | `g_NetMatchSeed` in `net.c`; generated server-side from RNG+tick, written via `netbufWriteU32` in SVC_STAGE_START, received client-side. `playerreset.c` uses `g_NetMatchSeed` (nonzero) or local fallback. Cross-client determinism confirmed. |
 | **B-19 resolution** | DONE (S242) | match_seed + `spawnPoolSelect()` both wired in `playerreset.c:611`. L1-L4 guarantees spread-out validated spawns; farthest-first greedy selection for initial placement. |
 | **Smoke test: all base + mod maps** | DONE (this session) | Session accumulator logs live results per stage; `spawnPoolSmokeAll()` offline sweep covers unvisited catalog arenas. "Run All" button in Modding Hub → `Build/smoke-test-results.csv`. See `context/scratch/spawn-smoke-test-results-2026-04-13.md`. |
+| **B-134: capsule-radius validator fix** | DONE (2026-04-13) | Raised near-hit reject threshold from 5 → SPAWNPOOL_CAPSULE_RADIUS (30 units). Any surface within capsule reach = immediate reject. L1 rejection upgraded to LOG_WARNING. Commit `0b44b2b8`. |
 
 ---
 

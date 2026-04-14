@@ -4759,3 +4759,38 @@ Scope: our code only (not vendored imgui/, external/, or decompiled src/game/).
 - D5 UI Polish (B-91, B-92, B-93, B-96 are the recommended starting sequence per tasks-current.md).
 
 ---
+
+## Session S249 -- 2026-04-13
+
+**Focus**: B-134 — Chicago MP fire-escape railing trap (spawn validator capsule-radius fix)
+
+### What Was Done
+
+**Root cause analysis** — Playtest report: initial MP spawn placed player inside a fire-escape railing on Chicago. Investigation of `spawnPoolRaycastBudget()` found the near-hit rejection threshold was `5.0f` units — far below the player capsule radius of `30.0f`. A railing at 10-29 units from spawn center passed validation because:
+- Per-ray check: `dist < 5.0f` → false (railing is at ~15 units)
+- Budget sum: 1 ray at ~15 units + 13 open rays at 2000 units = ~26,015 >> SPAWNPOOL_BUDGET_THRESHOLD (1500) → passes
+
+L1 declared pads already go through the validator (no bypass gap) — the validator itself had the wrong threshold.
+
+**Fix applied** — Two changes in `src/game/spawnpool.c` + `src/include/game/spawnpool.h`:
+1. Added `SPAWNPOOL_CAPSULE_RADIUS 30.0f` constant to `spawnpool.h`.
+2. Changed near-hit check from `dist < 5.0f` to `dist < SPAWNPOOL_CAPSULE_RADIUS` in `spawnPoolRaycastBudget()`. Any surface closer than capsule radius is now an immediate reject.
+3. Upgraded L1 pad rejection log from `LOG_NOTE` to `LOG_WARNING` — stage pads that fail validation now surface in logs without needing to grep through NOTE-level output.
+
+**Build** — Clean link on `pd` target. Binary produced at 51MB.
+
+**Branch/Commit** — `spawn-validation-stuck-geometry`, commit `0b44b2b8`.
+
+### Decisions Made
+
+- L1 declared pads do NOT bypass validation — the code already calls `spawnPoolValidateCandidate()` on every declared pad and logs + skips failures. The gap was purely the threshold value.
+- Capsule radius (30 units) is the right per-ray minimum. A hit within 30 units means the player capsule would clip or be trapped. False-positive risk is low — any spot where all 14 rays see open space beyond 30 units is genuinely safe.
+- Budget-sum threshold (1500) retained as secondary filter. The capsule-radius check is now the primary geometric correctness gate.
+
+### Next Steps
+
+- Merge `spawn-validation-stuck-geometry` → `dev` (--no-ff, post-merge line count verify).
+- Chicago fire-escape staircase spawn should now be rejected at validation; L2-L4 will find a nearby open staircase platform if one exists.
+- Other parallel sessions: End Game crash, MP lobby/mod UI — not in contention with spawn code.
+
+---
