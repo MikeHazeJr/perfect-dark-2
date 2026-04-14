@@ -56,6 +56,20 @@ void pdguiAudioModRender(float contentW, float contentH, float scale);
 void pdguiSkinEditorRefresh(void);
 void pdguiSkinEditorRender(float contentW, float contentH, float scale);
 
+/* Map Import Pipeline (L3 — port/src/mapimport.c) */
+s32 mapImportExists(const char *map_name);
+const char *mapImportResultStr(s32 result);
+
+/* Thin C wrappers for map import — avoids including mapimport.h/types.h.
+ * Returns 0 on success, error code on failure. Error msg written to errbuf. */
+s32 mapImportRunFull(const char *source_dir, const char *map_name,
+                     char *errbuf, s32 errbuflen,
+                     s32 *out_num_rooms, s32 *out_num_pads,
+                     s32 *out_generated_spawns);
+
+/* Spawn pool diagnostic */
+s32 spawnPoolSmokeTest(void);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -92,7 +106,26 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * ======================================================================== */
 
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor */
+static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport */
+
+/* ========================================================================
+ * Map Import state (Tab 6)
+ * ======================================================================== */
+
+static char s_MapImpPath[512]    = "";
+static char s_MapImpName[64]     = "";
+static char s_MapImpError[256]   = "";
+static char s_MapImpStatus[128]  = "";
+static bool s_MapImpStatusOk     = true;
+static int  s_MapImpNumRooms     = 0;
+static int  s_MapImpNumPads      = 0;
+static int  s_MapImpGenSpawns    = 0;
+static bool s_MapImpRunning      = false;
+static bool s_MapImpDone         = false;
+
+/* Forward declarations for Map Import (defined after other tools) */
+static void importReset(void);
+static void renderMapImport(float w, float h, float scale);
 
 /* ========================================================================
  * INI Editor state
@@ -1047,12 +1080,12 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     /* ---- Tool selector bar ---- */
     {
-        const float btnW = 140.0f * scale;
+        const float btnW = 120.0f * scale;
         const float btnH = 28.0f * scale;
-        static const int NUM_TOOLS = 6;
+        static const int NUM_TOOLS = 7;
 
         static const char *toolNames[] = {
-            "Mod Manager", "INI Editor", "Model Scale Tool", "Mod Pack", "Audio Mods", "Skin Editor"
+            "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack", "Audio Mods", "Skin Editor", "Map Import"
         };
 
         /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav */
@@ -1065,6 +1098,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 3) packRefreshEntries();
             else if (next == 4) pdguiAudioModRefresh();
             else if (next == 5) pdguiSkinEditorRefresh();
+            else if (next == 6) importReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
@@ -1100,6 +1134,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (i == 3) packRefreshEntries();
                     else if (i == 4) pdguiAudioModRefresh();
                     else if (i == 5) pdguiSkinEditorRefresh();
+                    else if (i == 6) importReset();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -1126,7 +1161,7 @@ static void renderModdingHub(s32 winW, s32 winH)
 
         const char *childIds[] = {
             "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
-            "##modhub_pack", "##modhub_audio", "##modhub_skin"
+            "##modhub_pack", "##modhub_audio", "##modhub_skin", "##modhub_import"
         };
 
         if (ImGui::BeginChild(childIds[s_ActiveTool],
@@ -1145,6 +1180,8 @@ static void renderModdingHub(s32 winW, s32 winH)
                 pdguiAudioModRender(dialogW, contentH, scale);
             } else if (s_ActiveTool == 5) {
                 pdguiSkinEditorRender(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 6) {
+                renderMapImport(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
@@ -1161,7 +1198,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Bake model scale to file",
         "Export/import .pdpack files",
         "Browse, audition, and import audio mods",
-        "Paint custom character skins"
+        "Paint custom character skins",
+        "Import PD-format map files as playable arenas"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
@@ -1198,6 +1236,139 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     ImGui::EndChild();
     ImGui::End();
+}
+
+/* ========================================================================
+ * Map Import tool renderer (Tab 6)
+ * ======================================================================== */
+
+static void importReset(void)
+{
+    s_MapImpPath[0] = '\0';
+    s_MapImpName[0] = '\0';
+    s_MapImpError[0] = '\0';
+    s_MapImpStatus[0] = '\0';
+    s_MapImpStatusOk = true;
+    s_MapImpNumRooms = 0;
+    s_MapImpNumPads = 0;
+    s_MapImpGenSpawns = 0;
+    s_MapImpRunning = false;
+    s_MapImpDone = false;
+}
+
+static void renderMapImport(float w, float h, float scale)
+{
+    ImGui::TextDisabled("Import Map -- import PD-format map files");
+    ImGui::Spacing();
+
+    /* Source directory path input */
+    ImGui::Text("Source Directory:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(w * 0.6f);
+    ImGui::InputText("##mapimp_path", s_MapImpPath, sizeof(s_MapImpPath));
+
+    /* Map name input */
+    ImGui::Text("Map Name:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(w * 0.3f);
+    ImGui::InputText("##mapimp_name", s_MapImpName, sizeof(s_MapImpName));
+
+    ImGui::Spacing();
+
+    /* Import button */
+    {
+        bool canImport = s_MapImpPath[0] != '\0' && !s_MapImpRunning;
+
+        if (!canImport) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+        }
+
+        if (PdButton("Import Map", ImVec2(140.0f * scale, 28.0f * scale)) && canImport) {
+            s_MapImpRunning = true;
+            s_MapImpDone = false;
+            s_MapImpError[0] = '\0';
+            s_MapImpStatus[0] = '\0';
+
+            const char *name = s_MapImpName[0] ? s_MapImpName : NULL;
+            s32 rooms = 0, pads = 0, genSpawns = 0;
+            char errbuf[256] = "";
+
+            s32 result = mapImportRunFull(s_MapImpPath, name,
+                                          errbuf, sizeof(errbuf),
+                                          &rooms, &pads, &genSpawns);
+
+            s_MapImpNumRooms = rooms;
+            s_MapImpNumPads = pads;
+            s_MapImpGenSpawns = genSpawns;
+            s_MapImpRunning = false;
+            s_MapImpDone = true;
+
+            if (result == 0) {
+                s_MapImpStatusOk = true;
+                snprintf(s_MapImpStatus, sizeof(s_MapImpStatus),
+                         "Import successful! %d rooms, %d pads, %d spawns generated.",
+                         rooms, pads, genSpawns);
+            } else {
+                s_MapImpStatusOk = false;
+                strncpy(s_MapImpError, errbuf, sizeof(s_MapImpError) - 1);
+                s_MapImpError[sizeof(s_MapImpError) - 1] = '\0';
+                snprintf(s_MapImpStatus, sizeof(s_MapImpStatus),
+                         "Import failed: %s", mapImportResultStr(result));
+            }
+        }
+
+        if (!canImport) {
+            ImGui::PopStyleVar();
+        }
+    }
+
+    ImGui::SameLine();
+    if (PdButton("Reset", ImVec2(80.0f * scale, 28.0f * scale))) {
+        importReset();
+    }
+
+    ImGui::SameLine();
+    if (PdButton("Smoke Test", ImVec2(140.0f * scale, 28.0f * scale))) {
+        s32 warnings = spawnPoolSmokeTest();
+        snprintf(s_MapImpStatus, sizeof(s_MapImpStatus),
+                 "Smoke test: %d stage(s) needed L3/L4. Check log.", warnings);
+        s_MapImpStatusOk = (warnings == 0);
+        s_MapImpDone = true;
+    }
+
+    /* Status / error display */
+    if (s_MapImpDone) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (s_MapImpStatusOk) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+        }
+        ImGui::TextWrapped("%s", s_MapImpStatus);
+        ImGui::PopStyleColor();
+
+        if (!s_MapImpStatusOk && s_MapImpError[0]) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("Detail: %s", s_MapImpError);
+        }
+
+        if (s_MapImpStatusOk && s_MapImpNumRooms > 0) {
+            ImGui::Spacing();
+            ImGui::Text("Rooms: %d   Pads: %d   Generated Spawns: %d",
+                         s_MapImpNumRooms, s_MapImpNumPads, s_MapImpGenSpawns);
+        }
+    }
+
+    /* Help text */
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextDisabled("Accepts directories containing PD-format map files (.bg, .pad, .setup).");
+    ImGui::TextDisabled("Missing spawn points and mod.json will be generated automatically.");
+    ImGui::TextDisabled("Imported maps appear in Combat Simulator stage select.");
 }
 
 /* ========================================================================
