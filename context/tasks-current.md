@@ -25,12 +25,12 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 - **B-134 spawn validator** (`0b44b2b8`) — Chicago fire-escape area, no railing-interior spawn.
 - **S250 input authority Phase 1** (`5098f903`) — Ctrl+V in Online window = no background jump; hold W → menu → close = no residual walk.
 - **Dev-window-v2 polish** (`11fd1d5e`) — subjective legibility check.
+- **Bug B** countdown-cancel-on-room-close (`731831ec`, 2026-04-14) — fixed, awaiting playtest verification. Leader leaves room during countdown or client disconnects mid-countdown → 3-2-1 overlay clears, "cancelled" banner shows, no stuck UI. See session-log S254 + spec §7.
 
 ### Still open (post-drop)
 
 | Item | File / notes |
 |------|--------------|
-| **Bug B — countdown lingers after room close** | Fix in `readyGateTickCountdown()` / `netmsg.c`. Was off-limits during parallel End-Game-Crash session; clear to pick up now. |
 | **Bug C — post-game endscreen partial render** | Scrim + title-bar render; body content invisible. Six hypotheses in `scratch/archive/2026-04-13/session-state-endgame-crash.md` §4c. Needs `sysLogPrintf` instrumentation on each `renderMpEndscreen` early-return + fresh playtest log. |
 | **Bug D — invisible networked bots on Chicago** | Chr generation token mismatch likely (FIX-A.2 area). May have cleared with S253; needs post-drop repro. |
 | **Chicago silent crash ~9 s** | Needs VEH log + symbolify. May have cleared with today's drop. |
