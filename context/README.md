@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-13, S247 — Build-env self-heal (_build-env-prelude.ps1 + build-env.sh + CLAUDE.md). Prior: S246 gap closure (M-7.x smoke test, match_seed/B-19 DONE), S245 FIX-F/FIX-G (B-99/B-97 closed).
+> **Last updated**: 2026-04-13, S253 — MP Lobby Residual drop (Issue 7 SVC_ROOM_SETTINGS, Weapons F-2.1, Issue 2/8 theme rescan, B-140 Issue B two-panel Select Tunes). Stabilization batch S248–S253 all on `dev`. Context consolidation pass 2026-04-14 — scratch archived to dated subdirs; bugs.md / tasks-current.md / systemic-bugs.md restructured; see `chore(context)` commits on `dev`.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -35,6 +35,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S248-S253 | 2026-04-13 | MP lobby & mod stabilization drop. S248 mod persistence + room name + countdown + songs F-2.1 (B-135/B-136/B-137/B-138/B-139). S249 B-140 Issue A playlist auto-advance + B-134 spawn validator railing trap. S250 input authority Phase 1 (`gameplayInputSuppressed()` + focus handling). S251 B-141 audio telemetry (drop/underrun/hitch counters). S252 B-143 End-Game-Crash (`manifestClear` in netDisconnect) + B-142 false kills NULL-guard + modal confirm UX. S253 MP lobby residual — Issue 7 SVC_ROOM_SETTINGS, Weapons F-2.1, Issue 2/8 theme rescan, B-140 Issue B two-panel Select Tunes. Parallel: dev-window-v2 font/control polish. Forensic detail in `scratch/archive/2026-04-13/`. |
 | S245-S247 | 2026-04-13 | S245 L7 FIX-F updater robustness (B-99) + FIX-G mission headers (B-97). S246 gap-closure (M-7.x smoke test + tasks refresh; match_seed/B-19 DONE). S247 build-env self-heal (prelude.ps1 + build-env.sh + CLAUDE.md). |
 | S238-S244 | 2026-04-13 | S238 L2 universal spawn pool (L1-L4 fallback chain) + F-1.1/F-1.2/F-2.1 menu consistency. S239 spawn tracker. S240 L3 mod map import pipeline. S241/S242 L5 match lifecycle (co-op manifest, protocol v35, match_seed) + L6 rendering polish FIX-C.1/C.3 + menu polish tail. S243 FIX-C rendering tracker. S244 M-6 import UI. |
 | S231-S237 | 2026-04-13 | S231 L0-BUILD ccache sloppiness fix + L0-LINK verify. S232 dev-window-v2 overhaul + release hang fix. S233 L0 manifest safety (L1-1, FIX-B.2) + B-72/B-21 closed. S234 FIX-A chr tick isolation + crash handler hardening (B-112/B-126 mitigated). S236 L1 networking safety baseline + menu consistency. |

@@ -1,8 +1,44 @@
 # Active Tasks -- Current Punch List
 
-> Razor-thin: only what needs doing. Completed work archived in `_archive/tasks-archive.md`.
+> Razor-thin: only what needs doing. Completed work lives in `session-log.md`,
+> `bugs.md`, `daily-logs/`, or `_archive/tasks-archive.md`.
 > For phase status, see [infrastructure.md](infrastructure.md). For bugs, see [bugs.md](bugs.md).
 > Back to [index](README.md)
+
+---
+
+## Open — 2026-04-13+
+
+> Carried forward from the 2026-04-13 stabilization drop. Forensic detail in
+> `scratch/archive/2026-04-13/`.
+
+### Playtest verification of the 2026-04-13 drop
+
+Mike to confirm each on next build. Bug/feature → commit on `dev`:
+
+- **Issue 7** room-settings sync (`287b0bc4`) — non-leader sees leader's bot/player count / arena / timelimit real-time.
+- **B-140 Issue B** two-panel Select Tunes (`287b0bc4`) — add/remove mod tracks, hover preview, leader's playlist syncs to room.
+- **Issue 2/8** theme rescan (`287b0bc4`) — newly-enabled mod themes appear in Settings → Video without restart.
+- **B-142** false kills (`4d1e13c1`) — fresh 32-bot Chicago match, idle 30 s, pause → kill counter 0/0.
+- **B-143 End-Game-Crash** + modal confirm (`d37e9677`) — End Game → Confirm → no AV, CI training loads.
+- **B-141 telemetry** (`5a42f234`) — on next audio-skip repro, tail `pd.log` for `AUDIO[B-141]`.
+- **B-134 spawn validator** (`0b44b2b8`) — Chicago fire-escape area, no railing-interior spawn.
+- **S250 input authority Phase 1** (`5098f903`) — Ctrl+V in Online window = no background jump; hold W → menu → close = no residual walk.
+- **Dev-window-v2 polish** (`11fd1d5e`) — subjective legibility check.
+
+### Still open (post-drop)
+
+| Item | File / notes |
+|------|--------------|
+| **Bug B — countdown lingers after room close** | Fix in `readyGateTickCountdown()` / `netmsg.c`. Was off-limits during parallel End-Game-Crash session; clear to pick up now. |
+| **Bug C — post-game endscreen partial render** | Scrim + title-bar render; body content invisible. Six hypotheses in `scratch/archive/2026-04-13/session-state-endgame-crash.md` §4c. Needs `sysLogPrintf` instrumentation on each `renderMpEndscreen` early-return + fresh playtest log. |
+| **Bug D — invisible networked bots on Chicago** | Chr generation token mismatch likely (FIX-A.2 area). May have cleared with S253; needs post-drop repro. |
+| **Chicago silent crash ~9 s** | Needs VEH log + symbolify. May have cleared with today's drop. |
+| **Airbase 0xc0000005 / Start-Match no-response** | Log shows manifest OK, no SVC_STAGE_START. May share root cause with Bug A (fix shipped). Needs post-drop repro. |
+| **Input authority Phase 2** | Menu pool single-instance discipline. ADR: `designs/input-authority-and-menu-pool-2026-04-13.md` §6. Scope: `src/game/menu.c`, `pdgui_backend.cpp`, possibly new `port/src/menupool.c`. Dedicated session. |
+| **B-141 audio skips — root cause** | Blocked on repro against telemetry. |
+| **FIX-B.1 deep manifest scanner** | `netmanifest.c`, `setup.c`. Cinematics + AI scripts spawn assets not in the setup list. FIX-B.2 dependency DONE. |
+| **Manifest gap follow-ups** | See `scratch/archive/2026-04-13/manifest-gap-report-2026-04-13.md`. (1) Title/menu stage has no manifest — Skin Editor mod chars silently missing; fix: `manifestBuildForMenu()`. (2) SP pre-scan timing — split `manifestBuildMission()` into pre/post-load phases (partially mitigated by `manifestSPRescanSetup`). (3) Cutscene cinema models never in manifest — safety net only. |
 
 ---
 
@@ -10,9 +46,9 @@
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (added dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. All 3rd-party libs now static. Carve-out: opengl32.dll (Windows system DLL). Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design doc: `context/designs/static-link-dll-elimination-2026-04-13.md`. |
-| **L0-LINK: pdguiThemeRegisterModDir server link** | DONE (S231) | Stub confirmed present at `port/src/server_stubs.c:417` since theme-loader session. No code change needed. Both-targets link verify pending Mike's build. |
-| **L0-BUILD: ccache warm-build regression** | CODE DONE (S231) — **Mike: run warm-build timing verify** | Added `$env:CCACHE_SLOPPINESS="pch_defines,time_macros"` to all 3 build scripts. Target: warm `pd` build <12s (was 30.7s after PCH landed in commit `955dffa2`). Run: `.\devtools\build-headless.ps1 -Target client` twice; second run should be <12s. If still >12s, remove `target_precompile_headers` block from CMakeLists.txt. |
+| **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. Carve-out: `opengl32.dll` only. Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design: `designs/static-link-dll-elimination-2026-04-13.md`. |
+| **L0-LINK: pdguiThemeRegisterModDir server link** | DONE (S231) | Stub confirmed at `port/src/server_stubs.c:417`. Both-targets link verify pending Mike's build. |
+| **L0-BUILD: ccache warm-build regression** | CODE DONE (S231) — **Mike: run warm-build timing verify** | `CCACHE_SLOPPINESS=pch_defines,time_macros` in all 3 build scripts. Target: warm `pd` <12 s (was 30.7 s after PCH in `955dffa2`). Run `.\devtools\build-headless.ps1 -Target client` twice; second run should be <12 s. |
 
 ---
 
@@ -20,283 +56,45 @@
 
 ADR: `context/designs/input-authority-and-menu-pool-2026-04-13.md`
 
-| Item | Status | Detail |
-|------|--------|--------|
-| **Phase 1: gameplay-input authority predicate** | DONE (S250) | `gameplayInputSuppressed()` in inputctx.c — authoritative truth-source for "can gameplay actions be read now?" Covers context-stack top, window-focus lost, and 50 ms focus-regain settle window. Declared in `inputctx.h`, used by actionmap dispatch + read API. |
-| **Phase 1: dispatch-site gate (`fireVk`)** | DONE (S250) | `fireVk()` now skips `g_ImcGameplay` + `g_ImcVehicle` when predicate is true. Ctrl+V in Online window no longer writes `ACTION_JUMP` into `s_State`. |
-| **Phase 1: read-site gates (query API)** | DONE (S250) | `actionPressed/Held/Released/Value/Axis` early-return zero when suppressed AND action is gameplay-only (`actionIsGameplayOnly`). Shared actions (`ACTION_USE`, `ACTION_CANCEL_USE`, `ACTION_PAUSE`, menu nav, system hotkeys) stay readable. |
-| **Phase 1: gameplay-state flush on menu open** | DONE (S250) | `actionmapFlushGameplayState()` called from `inputCtxPush()` (fresh + resurrect paths) and on focus-lost/regain. Held keys synthesise a clean released edge so consumers see the transition. |
-| **Phase 1: SDL window focus wiring** | DONE (S250) | `gfx_sdl2.cpp` handles `SDL_WINDOWEVENT_FOCUS_LOST/GAINED` → `inputCtxNotifyFocus(0/1)`. Alt-tab flushes; regain starts 50 ms settle window. |
-| **Phase 1: playtest verify** | **Mike: verify** | Acceptance matrix in session S250 log. Key cases: Ctrl+V in Online window (no jump), hold W → open menu → close (no residual walk), alt-tab with W held (no walk on regain until re-press). |
-| **Phase 2: menu pool single-instance discipline** | QUEUED — own session | Pre-allocated menu-instance slots keyed by type. Open = populate + activate; close = deactivate + clear state. Duplicate-push becomes structurally impossible. Also resolves the shared-action leak (bondmove reading `ACTION_USE` while menu owns A). Scope: `src/game/menu.c`, `port/fast3d/pdgui_backend.cpp`, possibly new `port/src/menupool.c`. See ADR §6. |
+Phase 1 — gameplay-input authority predicate — ✅ DONE (S250, merge `5098f903`).
+
+- `gameplayInputSuppressed()` single truth-source (context-stack top, window focus, 50 ms focus-regain settle).
+- Dispatch-site gate in `fireVk()` + read-site gates in `actionPressed/Held/Released/Value/Axis` for gameplay-only actions.
+- `actionmapFlushGameplayState()` on `inputCtxPush` (fresh + resurrect) + focus-lost/regain — held keys synthesise clean released edge.
+- SDL `WINDOWEVENT_FOCUS_LOST/GAINED` wired in `gfx_sdl2.cpp`.
+
+Phase 2 — menu pool single-instance discipline — QUEUED (own session). Pre-allocated slots keyed by type; open=populate+activate, close=deactivate+clear; duplicate-push structurally impossible. Also resolves shared-action leak (background bondmove reading `ACTION_USE` while menu owns A). Scope: `src/game/menu.c`, `port/fast3d/pdgui_backend.cpp`, possibly new `port/src/menupool.c`. ADR §6.
 
 ---
 
 ## B-141 Audio Telemetry (S251 — investigation)
 
-Audio skips / pauses intermittent (2026-04-13 playtest, not reproducible on demand). Telemetry in place; waiting for repro to narrow mechanism.
+B-141 = audio skips / pauses intermittent (2026-04-13 playtest, not reproducible on demand). Telemetry shipped `5a42f234`; waiting for repro to narrow mechanism.
 
-| Item | Status | Detail |
-|------|--------|--------|
-| **audioEndFrame() instrumentation** | DONE (S251) | Counts drops (queue full), underruns (queue near-empty), hitches (>50 ms inter-frame gap). Always on, low overhead. |
-| **Audio.VerboseLog pd.ini flag** | DONE (S251) | Per-event `AUDIO[B-141]` log lines. Default off. |
-| **30s periodic summary** | DONE (S251) | Automatic summary line if any counter moved in the window. Zero-activity windows silent. |
-| **audioGetB141Counters() accessor** | DONE (S251) | Exported via `audio.h` so future diagnostic UI / dashboard can read counters without touching statics. |
-| **Repro capture** | Mike: on next occurrence | Tail `pd.log` for `AUDIO[B-141]`. Summary line gives counts per window; enable `Audio.VerboseLog=1` for per-event timestamps to correlate with gameplay events. |
-| **Root cause + fix** | BLOCKED on repro | Expected mechanism differs by symptom: hitch-dominated = main-loop stall (profile RSP or render), underrun-dominated = scheduler preemption / buffer too small, drop-dominated = producer runs ahead during slow frames. Telemetry will point the next session at the right one. |
+- `audioEndFrame()` counts drops / underruns / hitches (>50 ms inter-frame); always on, low overhead.
+- `Audio.VerboseLog=1` in pd.ini → per-event `AUDIO[B-141]` lines.
+- Auto 30 s summary if any counter moved; zero-activity windows silent.
+- Accessor: `audioGetB141Counters()` for diagnostic UI.
+- **Root cause + fix blocked on repro**. Expected mechanism differs by dominant counter: hitch-dominated = main-loop stall (profile RSP or render), underrun-dominated = scheduler preemption / buffer too small, drop-dominated = producer runs ahead during slow frames.
 
 ---
 
+## ✅ Shipped 2026-04-13 — MP Lobby / Mod Stabilization Drop
 
-## Mod Map Import Pipeline (L3)
+S248 → S253 batch all on `dev`. Session-by-session detail in `session-log.md`;
+bug-level detail in `bugs.md`; forensic handoffs in
+`scratch/archive/2026-04-13/`.
 
-| Item | Status | Detail |
-|------|--------|--------|
-| **M-5.1: mapimport.h + import_context_t** | DONE (S240) | Header with typed error codes, context struct, public API. |
-| **M-5.2: mapImportNormalize** | DONE (S240) | BG header validation, pad bounds check, room count limits. |
-| **M-5.3: mapImportGenerate** | DONE (S240) | Runtime L2-L4 spawn fallback noted; mod.json generation. |
-| **M-5.4: mapImportEmit** | DONE (S240) | Atomic write via temp dir + rename. File copy with fallback. |
-| **M-5.5: mapImportValidate** | DONE (S240) | Output integrity checks (mod.json, BG file present). |
-| **M-5.6: mapImportRegister** | DONE (S240) | Signals modmgrCatalogChanged() for catalog pickup. |
-| **M-6.1: Import UI button** | DONE (S244) | "Map Import" tab (7th) in Modding Hub. Source dir + map name inputs, Import button. |
-| **M-6.2: Import dialog** | DONE (S244) | Status/error display with color-coded results. Smoke Test button for spawn pool diagnostics. mapImportRunFull() C wrapper. |
-| **M-7.x: Retroactive validation** | DONE (this session) | `spawnPoolSmokeAll()` sweeps catalog arenas; session accumulator records live results. "Run All" button + CSV output in Modding Hub → Map Import tab. Offline results labelled 'O'; live results 'L'. L3/L4 maps flagged in CSV as `L3L4_RISK`. |
-
----
-
-## Spawn System (L2 Architecture)
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **L2 spawn pool: L1-L4 chain** | DONE (S239) | `spawnpool.c/h`: raycast-budget validator + L1 declared + L2 waypoint + L3 grid + L4 radial. Deterministic from (stage_id, match_seed). Guarantees >= N+M spawn points on any map. `g_SpawnPoints` expanded 24->40. |
-| **match_seed via SVC_STAGE_START** | DONE (S241/S242) | `g_NetMatchSeed` in `net.c`; generated server-side from RNG+tick, written via `netbufWriteU32` in SVC_STAGE_START, received client-side. `playerreset.c` uses `g_NetMatchSeed` (nonzero) or local fallback. Cross-client determinism confirmed. |
-| **B-19 resolution** | DONE (S242) | match_seed + `spawnPoolSelect()` both wired in `playerreset.c:611`. L1-L4 guarantees spread-out validated spawns; farthest-first greedy selection for initial placement. |
-| **Smoke test: all base + mod maps** | DONE (this session) | Session accumulator logs live results per stage; `spawnPoolSmokeAll()` offline sweep covers unvisited catalog arenas. "Run All" button in Modding Hub → `Build/smoke-test-results.csv`. See `context/scratch/spawn-smoke-test-results-2026-04-13.md`. |
-| **B-134: capsule-radius validator fix** | DONE (2026-04-13) | Raised near-hit reject threshold from 5 → SPAWNPOOL_CAPSULE_RADIUS (30 units). Any surface within capsule reach = immediate reject. L1 rejection upgraded to LOG_WARNING. Commit `0b44b2b8`. |
-
----
-
-## v0.1.0 "Foundation" Release Prep
-
-### Input System
-
-#### Done (S218)
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **Controller radial menu inaccessible** | FIXED (S218) | D-pad was all C-buttons; no gamepad button fired ACTION_DPAD_DOWN (radial). DpadLeft now opens radial menu. |
-| **Controller layout: X=interact+reload, Y=weapon cycle** | FIXED (S218) | X dual-binds USE+RELOAD. Y changed from USE to WEAPON_NEXT. DpadLeft=radial. A=jump, B=cancel/crouch unchanged. |
-
-#### Done (S189 + pre-S189)
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **B-button opens doors** | FIXED (S189) | bondmove.c:1836 — PC usemask = BUTTON_ACCEPT_USE only. BUTTON_CANCEL_USE==B_BUTTON was included, causing B to trigger door open. |
-| **Gamepad layout: A=jump, Y=use, B=crouch** | FIXED (S189) | actionmap.cpp: Y→USE, A→JUMP, B→CROUCH (dual with CANCEL_USE). RSTICK unbound from crouch. |
-| **MP 1-3 default gamepad binds removed** | DONE (S189) | setupGameplayDefaults else block removed. MP slots start unbound, rebind UI still works. |
-| **CrouchMode** | ALREADY DONE (pre-S189) | Game.Player%d.CrouchMode: 0=hold (default), 1=analog, 2=toggle, 3=toggle+analog. bondmove.c:1925. |
-
-#### Completed in S190 (confirmed in clean build)
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **unk14 gate removed** | DONE (S190) | bondmove.c:~1551 — `unk14 = true` unconditional in CONTROLMODE_PC. Was gated on c2stick, breaking left-stick strafe when right stick idle. |
-| **canlookahead gate removed (ADS)** | DONE (S190) | bondmove.c:~1633 — `canlookahead = true` unconditional in ADS block. Was c2stick-gated. |
-| **canlookahead gate removed (non-ADS)** | DONE (S190) | bondmove.c:~1642 — `canlookahead = !insightaimmode` only; stick gate removed. |
-| **FarSight strafe — left stick** | DONE (S190) | bondmove.c:~2104 — FarSight strafe reads `c1stickxsafe` (left stick), not `c2stickx` (aim stick). |
-| **LSTICK=Sprint define + bind** | DONE (S190) | actionmap.cpp — `JBTN_LSTICK`/`JBTN_RSTICK` defines added; LSTICK click → ACTION_SPRINT. |
-| **_dev-window.ps1 restored** | DONE (pre-S190) | Restored from 68c0b186 after truncation (2311→2232 lines). Em-dashes → hyphens to prevent re-truncation. |
-
-#### Completed in S189
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **usemask cleanup** | DONE (S189) | bondmove.c:1836 — PC usemask = `BUTTON_ACCEPT_USE` only. Confirmed: BUTTON_CANCEL_USE == B_BUTTON, both excluded. |
-| **P0-only binding refactor** | DONE (S189) | All setup*Defaults: Player 0 only, no p=0..3 loops. Init loop replaced with single `setupGameplayDefaults(0)` / `setupVehicleDefaults(0)`. |
-| **Bind 1 / Bind 2 collapse** | DONE (S189) | Not structural — flat `triggers[4]` array. No struct change needed. Each action now has 1 kbd + 1 gamepad default max. Dead MENU_UP/DOWN/LEFT/RIGHT binds removed from menu IMCs. |
-| **Menu IMC 3-action reduction** | DONE (S189) | g_ImcMenu + g_ImcPauseMenu: ACTION_USE (Return/A), ACTION_CANCEL_USE (Escape/B), ACTION_PAUSE (Start only). 5 triggers total, player 0 only. |
-| **crouch_mode in pd.ini** | ALREADY DONE (pre-S189) | `Game.Player%d.CrouchMode`: 0=hold (default). bondmove.c:1925 handles toggle/hold/analog. No changes needed. |
-
-#### Playtest fixes 2026-04-11 (Opus 1M session, S208)
-
-Mike's 2026-04-11 playtest of v0.0.77 surfaced six distinct issues; all six fixed together in the `infallible-napier` worktree. Full diagnosis in `context/scratch/playtest-fixes-2026-04-11.md`. Affected files: `port/fast3d/pdgui_menu_mainmenu.cpp`, `port/src/actionmap.cpp`, `port/fast3d/pdgui_menu_theme_editor.cpp`, `port/fast3d/pdgui_theme_loader.cpp`, `port/include/pdgui_theme_loader.h`.
-
-| Item | Status | Detail |
-|------|--------|--------|
-| **B-131 double-menu reopen in CI** | FIXED (S208) | pdgui_menu_mainmenu.cpp — 150 ms `MAIN_MENU_CLOSE_GRACE_MS` timestamp guard on ESC/B close handler + `io.AddKeyEvent(Escape/GamepadFaceRight, false)` on IsWindowAppearing to clear stale ImGui key edges. Complements the existing inputctx.c `push_tick` keyboard suppression (which only covers SDL_KEYDOWN, not SDL_CONTROLLERBUTTONDOWN). |
-| **B-132 saved bindings cross-contamination** | FIXED (S208) | actionmap.cpp — added `break;` in `actionmapLoadBinds()` inner loop so load honours the same first-match-wins semantics as `buildBindStr()`. Menu/pause_menu/text_input/debug_overlay IMCs no longer get overwritten with gameplay's shared-action triggers on every load. |
-| **B-130 Theme Customizer close paths + color picker broken** | FIXED (S208) | pdgui_menu_theme_editor.cpp — full rewrite of renderThemeEditor using native `BeginPopupModal` + `&p_open`. Three exit paths (X, Close button, click-outside rect-test) all working. Nested ColorEdit4 popups work because BeginPopupModal stacks with sub-popups correctly — no more focus thrash from the old overlay + per-frame SetNextWindowFocus hack. |
-| **Main menu controller bumpers skip within tab instead of cycling tabs** | FIXED (S208) | pdgui_menu_mainmenu.cpp — bumper checks in both `renderSettingsView()` and `renderMainMenu()` top-level sub-view cycle: swapped `ImGuiKey_GamepadL1`/`R1` → `ImGuiKey_PageUp`/`PageDown` to match the keys that `pdguiDriveImGuiNav()` actually injects from `ACTION_MENU_TAB_PREV/NEXT` (NavEnableGamepad is OFF, so ImGuiKey_Gamepad* is never set). |
-| **Custom user-saved themes missing from Theme selection UI** | FIXED (S208) | pdgui_theme_loader.cpp — new `scan_mods_for_themes()` walks `mods/` at init and registers each `mods/<slug>/theme.json` under catalog ID `mod:<slug>`. New public `pdguiThemeRegisterModDir(slug, filepath)` API so `saveThemeAsMod()` in the theme editor can register newly written themes without a restart. Settings → Debug "UI Theme" selector grid rewritten to iterate `pdguiThemeGetCount()` with a "Custom (from mods/)" header section for mod themes. |
-
-Pre-fix dev @ `bfbb19b9`: client 49,636,082 / server 22,789,968.
-Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,542**. Both targets link clean with zero new warnings. Ready to merge to dev via `--no-ff`.
-
-#### TODO — Verification Pass (Mike, post-reset)
-
-| Item | Priority | Detail |
-|------|----------|--------|
-| **A jumps, does NOT open doors** | HIGH | Verify A=JUMP binding and usemask fix. B should crouch, not open doors. |
-| **Y opens doors / interacts** | HIGH | Y=USE is the new interact button. |
-| **B crouches, does NOT open doors, exits FarSight/scope** | HIGH | Dual-bind CROUCH + CANCEL_USE. usemask fix ensures B excluded from door mask. |
-| **R3 does nothing** | HIGH | RSTICK click is unbound. |
-| **LSTICK click sprints** | HIGH | New LSTICK → ACTION_SPRINT binding. |
-| **Rebind UI: single-column, MP slots 1–3 unbound** | HIGH | No Bind1/Bind2 split; MP players 1–3 have no default gamepad binds. |
-| **CrouchMode=2 toggle works, resets on respawn** | MED | `Game.Player0.CrouchMode=2` in pd.ini. bondmove.c:1925 handles it. |
-| **Mission 1 completion: no crash, JSON save written** | HIGH | B-129 fix. `saves/agent_<name>.json` must be updated on mission end. |
-| **Sky tearing gone on outdoor stages** | HIGH | B-128 point fix + FIX-C.1 systemic state reset (S243). Test on Dark Noon, Goldfinger 64 exteriors. |
-| **B-18 check on Skedar Ruins** | MED | FIX-C.1 (S243) resets env color before sky render — eliminates the cross-frame leakage that caused pink. Playtest to confirm. |
-| **Menu opacity stacking gone** | MED | FIX-C.3 (S243): WindowBg alpha → 0. Open/close main menu 10+ times, verify background doesn't darken progressively. |
-
-### Must-Have
-
-| Item | Priority | Status | Detail |
-|------|----------|--------|--------|
-| **D5 Phase 3 -- Remaining menu screens** | HIGH | **COMPLETE 2026-04-11** | Full audit complete (S188): 254 dialogs found, 79 screens across 11 batches, ~13-18 sessions. Plan in `context/designs/menu-replacement-plan.md`. No split-screen (2P cancelled). CI Options absorbed into unified Settings. **Batch 6 DONE (S204/2026-04-11)**: Bot/Simulant Setup (5 dialogs) -- `g_MpSimulantsMenuDialog`, `g_MpAddSimulantMenuDialog`, `g_MpChangeSimulantMenuDialog`, `g_MpEditSimulantMenuDialog`, `g_MpSimulantCharacterMenuDialog`. NEW `port/fast3d/pdgui_menu_botsetup.cpp` (+1006 lines) using the s204 shadow-struct call-through pattern (extends s203 with a `carousel` variant for the two MENUITEMTYPE_CAROUSEL head/body handlers). Every state mutation delegates to legacy handlers in setup.c: `mpAddChangeSimulantMenuHandler` (grouped profile list with GETOPTGROUPCOUNT/GETOPTGROUPTEXT/GETGROUPSTARTINDEX/LISTITEMFOCUS), `menuhandlerMpSimulantHead/Body` (carousels → `mpCharacterHeadMenuHandler`/`mpCharacterBodyMenuHandler`), `mpBotDifficultyMenuHandler`, `menuhandlerMpChangeSimulantType`, `menuhandlerMpCopySimulant/DeleteSimulant/AddSimulant/SimulantSlot/ClearAllSimulants`. Dynamic-text function pointers (`mpMenuTextSimulantName`, `mpMenuTextSimulantDescription`, `mpMenuTitleEditSimulant`) invoked via shadow-cast. Mid-task pivot: per Mike's guidance, refactored the Simulants roster body into a public `pdguiBotSetupDrawSimulantsBody` inline helper (NEW header `port/include/pdgui_menu_botsetup.h`, 47 lines) and added a `CollapsingHeader("Simulant Profiles")` section at the bottom of `renderPlayerPanel` in `pdgui_menu_room.cpp` (+14 lines) that calls the helper inline — surfaces the legacy `g_BotConfigsArray` pool inside the room screen alongside the existing matchslot-based bot UI (additive, no removal). `renderMpSimulants` remains as a thin modal wrapper for the legacy Combat Simulator push path so linking + zero-function-loss are preserved. Client 49,202,510 → 49,340,784 (+138,274 bytes, ~135 KB); server unchanged 22,788,944. `pdgui_menus.h` +2. **Batch 6 polish DONE (S207/2026-04-11)**: live 3D head/body preview restored in `renderMpSimulantCharacter` via the reusable `pdguiModelPreviewDraw` widget (Batch-0 infra, also used by `pdgui_menu_agentcreate.cpp`). Two-column layout — 300x340 preview panel on the left (selection resolved to catalog ID strings via `catalogMpHeadId`/`catalogMpBodyId`), Head+Body dropdowns on the right, dialog size bumped from 0.55x0.58 to 0.62x0.62. Idle turntable rotation at 0.4 rad/s, instant swap on dropdown change, silhouette placeholder on first frame. Zero legacy function loss: the preview is produced by `menuRenderModel` (legacy), routed to a 256x256 FBO via the existing `pdguiCharPreviewRenderGBI` hook called from `src/game/menu.c:3754`. `menudialog0017ccfc::MENUOP_TICK` still fires via runtime and writes `g_Menus[0].menumodel.newparams` — our per-frame `pdguiCharPreviewRequest` overwrites with the same value so no conflict. Only file touched: `port/fast3d/pdgui_menu_botsetup.cpp` 1006→1074 (+68 lines). No header / other-file edits. Ran in parallel with Batch 8 on worktree `busy-lalande`, rebased onto dev after Batch 8 merged. Approach notes in `context/scratch/B6-head-preview-2026-04-11.md`. **Batch 0 DONE (S192)**: pdgui_layout primitive (docked action bar + popup scrim), pdguiModelPreview generalized to CHARACTER/WEAPON/VEHICLE/PROP, Mission Select Start Mission docked, Mission Difficulty dialog text-missing regression fixed, Challenges Accept Challenge docked. **Batch 1 DONE (S193)**: seven "low-hanging fruit" dialogs — ExitGame (literal-text fix), PdModeSettings (slider support in fallback), MpEndGame (scrim upgrade), and four filemgr pak-era placeholders redirecting to Agent Select.  1080p scaling baseline flipped in same session (foundation-layer fix). **Batch 2 DONE (S194)**: Co-op / Counter-Op flow — `g_CoopMissionDifficultyMenuDialog`, `g_CoopOptionsMenuDialog`, `g_AntiMissionDifficultyMenuDialog`, `g_AntiOptionsMenuDialog`.  New renderers in `pdgui_menu_solomission.cpp` (2650→3351, +701): shared `renderCoopAntiDifficultyImpl` (cloned from `renderDifficulty`, no PD Mode row, pushes Options instead of AcceptMission) + shared `renderCoopAntiOptionsImpl` (scrim + docked action bar primitive, Radar/FriendlyFire checkbox rows, Perfect Buddy / Main Player dropdown row, delegates all state to legacy menuhandler* functions so getMaxAiBuddies / modifiedfiles dirty flag / connected-controller math stays in one place).  Client builds green 48,716,058 bytes, server builds green 22,786,384 bytes.  Foundation primitives in place for Batches 3-12. **Batch 3 DONE (S195/2026-04-11)**: Unified Settings absorbs all CI Options content. Redirect plumbing: `renderCiSettingsRedirect` registered for 5 CI dialogs (Options/PC, Options/Pause, ControlOptions, ControlStyle, Display) → routes to unified Settings on matching sub-tab. Dead P2 variants (ControlStyleP2, DisplayP2, ControlP2) get `renderCiDeadPlayer2` (auto-pop + notice). Content absorption: all CI Display items and CI Control items already in unified settings. New: Sound Mode dropdown added to Settings → Audio. `pdgui_menu_mainmenu.cpp` 3100→3123 (+23). **Batch 4 DONE (S202/2026-04-11)**: Cheats & Cinema (10 dialogs). NEW `port/fast3d/pdgui_menu_cheats.cpp` (+903 lines) consolidating 9 legacy cheats dialogs into a tabbed ImGui hub: root `renderCheatsHub` (Fun/Gameplay/Jo Solo Weapons/Classic Weapons/Weapons/Buddies), 6 sub-dialog `renderCheatsSubRedirect` (pops legacy push, flips tab), `renderCheatsWarning`, `renderCheatsConfirmUnlock`. ALL state writes delegate to legacy `cheatCheckboxMenuHandler` / `cheatMenuHandleBuddyCheckbox` / `cheatMenuHandleTurnOffAllCheats` / `gamefileUnlockEverything` via the s202 shadow-struct call-through pattern (cloned from s194 in solomission.cpp). `cheatMenuHandleDialog` OPEN/CLOSE side effects (func0f14a52c HUD darken + piracy check + GAMEFILEFLAG_USED_TRANSFERPAK) preserved automatically via menu runtime. Cinema: `renderCinemaList` in `pdgui_menu_mainmenu.cpp` (+248 lines) delegates to `menuhandlerCinema` via `cn_*` shadow pattern for all MENUOP_* opcodes. `pdgui_menus.h` +1 line. Client 48,920,337→49,051,951 (+131,614 bytes); server unchanged 22,788,944. **Batch 5 DONE (S203/2026-04-11)**: MP Setup Core (14 dialogs) -- Arena / Scenario (+QuickTeam variant) / Weapons / SelectRandomWeapons / QuickTeamWeapons / Limits / 6 Scenario-Options (Combat/CTC/HTM/HTB/KOH/PAC) / ExtGameOptions. NEW `port/fast3d/pdgui_menu_mpsetup.cpp` (+1265 lines) using the s203 shadow-struct call-through pattern (ABI covers checkbox/dropdown/list/slider handlerdata variants). Every state mutation delegates to legacy handlers in setup.c / scenarios.c / scenarios/*.inc: `mpArenaMenuHandler`, `scenarioScenarioMenuHandler`, `menuhandlerMpWeaponSetDropdown`, `menuhandlerMpWeaponSlot`, `menuhandlerMpSelectRandomWeapons`, `menuhandlerMpAutoRandomWeapon`, `mpSelectRandomWeaponListHandler`, `menuhandlerMpTimeLimitSlider`, `menuhandlerMpScoreLimitSlider`, `menuhandlerMpTeamScoreLimitSlider`, `menuhandlerMpRestoreScoreDefaults`, `menuhandlerMpCheckboxOption`, `menuhandlerMpDisplayTeam`, `menuhandlerMpOneHitKills`, `menuhandlerMpSlowMotion`, `menuhandlerMpHillTime`. The 6 scenario-option dialogs collapse to one shared `renderMpScenarioOptionsImpl` dispatched by a variant enum; their legacy `nextsibling` → `g_ExtGameOptionsMenuDialog` tab page flattens into a docked "More Options..." action-bar button (Batch 2 precedent). `pdgui_menus.h` +2 lines. `pdgui_menu_solomission.cpp` and `pdgui_menu_room.cpp` untouched. Client 49,051,951 → 49,202,510 (+150,559 bytes, ~147 KB); server unchanged 22,788,944. MENUOP_* block seeded complete up-front so the Batch 4 mid-flight gotcha did not repeat. **Batch 7 DONE (S205/2026-04-11)**: MP Advanced/Quick paths (11 dialogs) -- `g_MpAdvancedSetupMenuDialog` + `ViaAdvChallenge` variant, `g_MpQuickGoMenuDialog`, `g_MpQuickTeamGameSetupMenuDialog`, `g_MpQuickTeamMenuDialog`, `g_MpStuffMenuDialog` + `ViaAdvChallenge` variant, `g_MpPlayerSetupViaAdv`/`ViaAdvChallenge`/`ViaQuickGoMenuDialog`. NEW `port/fast3d/pdgui_menu_mpadvanced.cpp` (+1059 lines) using the s205 shadow-struct call-through pattern (cloned from s203/s204, dropdown/list/slider/checkbox helpers + new `hubPushRow`/`hubHandlerRow` helpers that draw a full-width selectable with a manual two-column text overlay for hubs showing label + dynamic right-side text). Six renderer impls backing 11 dialog registrations: `renderMpAdvancedSetup`/`...ViaChallenge` share an impl (item lists byte-identical); `renderMpQuickGo` (4 pure pushes); `renderMpQuickTeam` (5 big-font selectables calling `menuhandlerMpQuickTeamOption`); `renderMpQuickTeamGameSetup` (15 items — Scenario/Options/Arena/Weapons/Limits pushes, Player 1..4 Team dropdowns via `menuhandlerPlayerTeam` param=player#, NumSims/SimsPerTeam/SimDifficulty dropdowns via CHECKHIDDEN gating, Finished Setup calling `menuhandlerMpFinishedSetup` → `func0f17f428` → `mpConfigureQuickTeamPlayers`); `renderMpStuff`/`...ViaChallenge` share impl (Soundtrack/TeamNames pushes, Lock/Split dropdowns via `menuhandlerMpLock`/`menuhandlerScreenSplit`, Start/Drop/Abort pushes — split is PC-dead but retained for zero-function-loss parity); `renderMpPlayerSetupHubImpl` used by all three Via* variants, dynamic text from `mpGetCurrentPlayerName` / `mpMenuTextSavePlayerOrCopy` invoked with nullptr (bodies ignore item and read globals). **Network match start/end wiring audit** (Mike's requirement): 13 fields traced writer → backing global → start reader (`mpStartMatch` / `mpConfigureQuickTeamPlayers` / `mpConfigureQuickTeamSimulants` / `SVC_STAGE`) → end reader (`g_Vars.playerstats` / `g_BotConfigsArray` / endscreen). All WIRED or N/A — no shadow/cached copy introduced; all writes land in g_Vars/g_MpSetup/g_PlayerConfigsArray exactly where the legacy renderer already landed them. Modern room lobby (room.cpp) is untouched and has no references to any Batch 7 dialog, so no interleaving risk. Full audit table + per-row verdicts in `context/scratch/D5-P3-batch7-2026-04-11.md`. Menu dialog OPEN side effects (`menudialogMpGameSetup` setting `g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP` / `usingadvsetup = true`; `menudialogMpQuickGo` setting `MPSETUPMENU_QUICKGO`) fire through legacy menu runtime because hot-swap hooks only RENDER. Client 49,340,784 → 49,566,481 (+225,697 bytes, ~220 KB); server unchanged (pdgui_menu_mpadvanced not in SRC_SERVER). `pdgui_menus.h` +2 lines. `pdgui_menu_room.cpp` untouched. **Batch 8 DONE (S206/2026-04-11)**: MP Pause & In-Game (6 dialogs) -- `g_MpPauseControlMenuDialog`, `g_MpPauseInventoryMenuDialog`, `g_MpPausePlayerStatsMenuDialog`, `g_MpPausePlayerRankingMenuDialog`, `g_MpPauseTeamRankingsMenuDialog`, `g_MpPlayerOptionsMenuDialog`. NEW `port/fast3d/pdgui_menu_mppause.cpp` (+1210 lines) using the s206 shadow-struct call-through pattern (cloned from s205). Six renderer impls: `renderMpPauseControl` (11-item hub — challenge/scenario/limit labels with CHECKHIDDEN, live match-time readout via `menutextMatchTime`, PC-dead pause toggle via `menuhandlerMpPause`, netplay-only team dropdown via `menuhandlerNetTeamSwitch`, netplay-only Controls push-row via `menuhandlerNetPauseControls`, End Game push to `g_MpEndGameMenuDialog`); `renderMpPauseInventory` (LIST via `menuhandlerInventoryList` MENUOP_GETOPTIONCOUNT/TEXT/SET/GETSELECTEDINDEX with `unk04=0` to match legacy equip semantics, marquee description via `mpMenuTextWeaponDescription`); `renderMpPausePlayerStats` (Stats-For dropdown via `mpStatsForPlayerDropdownHandler`, kills-vs-deaths ImGui table over `mpGetPlayerRankings` / `mpchr->killcounts[]` with selected player's suicides as header); `renderMpPausePlayerRanking` (ImGui ranking table over `mpGetPlayerRankings`); `renderMpPauseTeamRankings` (ImGui team table over `mpGetTeamRankings` + new bridge accessor `pdguiMppGetTeamName` in `pdgui_bridge.c`); `renderMpPlayerOptions` (4 checkboxes via `menuhandlerMpDisplayOptionCheckbox` with MPDISPLAYOPTION_* param3 masks, writes `g_PlayerConfigsArray[g_MpPlayerNum].base.displayoptions`). **Network match start/end wiring audit** (Mike's requirement): 9 fields traced, only ONE propagates on the wire (in-match team switch → `g_NetLocalClient->settings.team` + `netClientSettingsChanged()` → `CLC_SETTINGS` serializer → server's authoritative client record → broadcast to other clients). All other writes are local (displayoptions per-player read by scenarios.c/radar.c per-frame; stats-for-player view state; inventory equip uses same gun-cycle path as normal input; pause toggle PC-dead). Full audit table + per-row verdicts in `context/scratch/D5-P3-batch8-2026-04-11.md`. Two-word edit in `src/game/mplayer/ingame.c`: removed `static` from `menuhandlerNetTeamSwitch` + `menuhandlerNetPauseControls` so the C++ renderer can call them through the s206 function-pointer delegate (they have no other callers, grepped clean). `pdgui_bridge.c` +14 lines for the team-name accessor. `pdgui_menus.h` +2 lines. `pdgui_menu_room.cpp`, `pdgui_menu_solomission.cpp`, and `pdgui_menu_mpingame.cpp` (kill-ticker overlay) untouched. Client 49,566,481 → 49,726,176 (+159,695 bytes, ~156 KB); server 22,771,518 → 22,773,054 (+1,536 bytes, build-order variance — mppause.cpp / bridge / ingame.c are all outside SRC_SERVER whitelist). **Batch 11 DONE (S209/2026-04-11)**: MP Player Config & Stats (5 dialogs) -- `g_MpCharacterMenuDialog`, `g_MpPlayerStatsMenuDialog`, `g_MpLoadSettingsMenuDialog`, `g_MpLoadPresetMenuDialog`, `g_MpLoadPlayerMenuDialog`. NEW `port/fast3d/pdgui_menu_playerconfig.cpp` (+1294 lines) using the s207 shadow-struct call-through pattern (cloned from s206 in mppause.cpp, with the carousel variant from s204 in botsetup.cpp for the character head carousel). Five renderer impls: `renderMpCharacter` (live 3D preview via reusable `pdguiModelPreviewDraw` — 300x340 preview on the left, scrollable body list + head carousel on the right; selection resolved to catalog ID strings via `catalogMpBodyId`/`catalogMpHeadId`; commits through legacy `mpCharacterBodyListHandler` MENUOP_SET → `mpchrSetBodyByIndex`/`mpchrSetHeadByIndex`); `renderMpPlayerStats` (read-only lifetime stats — 13 label rows driven by legacy `mpMenuText*` dynamic-text functions, 4 medal rows drawn with ImGui-native colored circles + count text via new `pdguiPcPlayerConfigGetMedalCount` bridge accessor because legacy `mpMedalMenuHandler` MENUOP_RENDER is a GBI-only path, plus Player Title row via `mpMenuTextPlayerTitle(s32)` and the legacy USERNAME/PASSWORD Easter egg gated on `menuhandlerMpUsernamePassword` MENUOP_CHECKHIDDEN); `renderMpLoadSettings` and `renderMpLoadPreset` (share a grouped-list helper `pc_RenderGroupedList` that renders both preset+custom groups via GETOPTGROUPCOUNT/GETOPTGROUPTEXT/GETGROUPSTARTINDEX; force `g_Menus[g_MpPlayerNum].mpsetup.showpresets = 1` at first frame so unlocked preset slots always appear — legacy N64 toggled this for screen real-estate, PC scrolling makes the toggle obsolete; Load Preset uses param=1 so MENUOP_SET routes through the QuickGo push branch via `func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP)`; marquee row renders `mpMenuTextMpconfigMarquee(nullptr)` under the list); `renderMpLoadPlayer` (preserves device-grouped list shape, delegates to `mpLoadPlayerMenuHandler` which on SET calls `filemgrSaveOrLoad(FILEOP_LOAD_MPPLAYER)` replacing `g_PlayerConfigsArray[0]` wholesale). **Network match start/end wiring audit** (Mike's requirement): 13 fields traced writer → backing global → match-start reader (`netServerStageStart` at net.c:658 / `netServerCoopStageStart` at net.c:772 — both call `netClientReadConfig(g_NetLocalClient, 0)` which pulls fresh `g_PlayerConfigsArray[0].base.body_id/head_id` into `cl->settings` before SVC_STAGE_START broadcast) → match-end reader (`g_PlayerConfigsArray[0].base.*` read by endscreen display + stats accumulator). Key finding: the legacy `mpCharacterBodyListHandler` / `mpLoadPlayerMenuHandler` SET paths write `g_PlayerConfigsArray[0]` WITHOUT calling `netClientSettingsChanged()`. On listen server / host this is fine (the `netServerStageStart` sweep picks it up). On remote client it is a latent legacy behavior — CLC_SETTINGS stays stale until the next settings-touching action. Both modern dropdowns in `netmenu.c:179` / `:403` already notify explicitly; this batch brings the legacy setup.c path up to parity by calling `netClientSettingsChanged()` on dialog close (character select) and immediately after SET (load player). Fully additive — listen-server / host see identical behavior, client flow gains eager propagation. Matches Mike's direction: "Ensure any network play properly passes menu info into the relevant match start / end procedures." Full audit table + per-row verdicts in `context/scratch/D5-P3-batch11-2026-04-11.md`. Bridge additions in `port/fast3d/pdgui_bridge.c` (+38 lines): `pdguiPcMpSetShowPresets`/`GetShowPresets` (showpresets toggle, avoids direct `g_Menus[].mpsetup` access from C++), `pdguiPcPlayerConfigGetTitle` (Easter egg gate helper), `pdguiPcPlayerConfigGetMedalCount` (ImGui medal rows). `pdgui_menus.h` +2 lines. Zero `src/` files modified. Legacy dialog-handler TICK paths still fire via the menu runtime (hot-swap only intercepts RENDER) so `mpCharacterSelectDialogHandler` MENUOP_OPEN/TICK still drives `s_PreviewBodyNum`/`s_PreviewHeadNum` tracker and `mpLoadSettingsDialogHandler` MENUOP_TICK still toggles `showpresets` on Menu-Alt (now no-op behaviorally because the ImGui renderer forces showpresets=1 at first frame). Post-merge build: client 49,596,038 → 49,730,120 (+134,082 bytes, ~131 KB); server 22,789,968 → 22,788,944 (-1,024 bytes, linker variance — playerconfig.cpp outside SRC_SERVER whitelist, bridge also not in server build). **Batch 12 DONE (2026-04-11)**: Music & Misc (4 dialogs) -- `g_MpSelectTunesMenuDialog`, `g_MpSoundtrackMenuDialog`, `g_MpTeamNamesMenuDialog`, `g_MpChallengesMenuDialog`. EXTENDED `port/fast3d/pdgui_menu_mpsettings.cpp` 244→925 (+681 lines) with three renderers using the s208 shadow-struct call-through pattern (cloned from s207 in pdgui_menu_playerconfig.cpp; file-local ABI covers list + checkbox variants, MENUOP_* block seeded complete up-front). Three renderer impls: `renderSelectTunes` (unified single/multi list — single mode shows radio-style tracks + "Random" sentinel at end, multi mode shows ImGui::Checkbox per track + "Select All"/"Select None"/"Randomize" bulk rows at end, hover LISTITEMFOCUS drives `musicStartTrackAsMenu` preview via legacy handler path, `menudialogMpSelectTune` MENUOP_OPEN/CLOSE still fires via menu runtime so `g_MusicInterval240` preview pacing continues to work); `renderSoundtrack` (compact config hub: "Current Track:" row with `mpMenuTextCurrentTrack(nullptr)`, "Select Tune(s)" push-selectable with dynamic label from `mpMenuTextSelectTuneOrTunes(nullptr)`, "Multiple Tunes" checkbox via `menuhandlerMpMultipleTunes` s208 ABI, docked Back action bar); `renderTeamNames` (8-row inline editor replacing the legacy `g_MpChangeTeamNameMenuDialog` KEYBOARD drill-down with ImGui::InputText per team colour — each row has an ImGui::ColorButton swatch + fixed label + 16-byte buffer InputText; commits on Enter OR lose-focus OR Back-press via new `pdguiMpsTeamNameSet` bridge accessor that mirrors legacy `mpTeamNameMenuHandler::MENUOP_SETTEXT` write semantics exactly — 11-char cap, '\n' terminator at first-free position, zero-fill remainder, MODFILE_MPSETUP dirty flag). EXTENDED `port/fast3d/pdgui_menu_challenges.cpp` +21 lines: `g_MpChallengesMenuDialog` (root-menu variant, legacy item->param=1 routing through mpChallengesListMenuHandler) registers against the same existing `renderChallenges` function — both dialogs present identical list + Accept semantics because the Batch 0 renderer bypasses both legacy confirm dialogs and calls `matchStartFromChallenge` directly. `pdgui_bridge.c` +72 lines: `pdguiMpsTeamNameGet`/`Set` accessors for the inline team editor, comment block explaining the 11-char/`\n`-terminator/MODFILE_MPSETUP semantics. `pdgui_menu_warning.cpp` -23 lines: removed the 4 stale "Batch 12 partial" renderDefaultDialog fallback registrations since real renderers register later in pdguiMenusRegisterAll and silently override them anyway (kept logs cleaner). `pdgui_menus.h` +1 line comment update. **Network match start/end wiring audit** (Mike's requirement): 9 fields traced. 8 of 9 are LOCAL-ONLY — tunes (`g_BossFile.tracknum`), multi-tune slots (`g_BossFile.multipletracknums[]`), multi-tune toggle, team names (`g_BossFile.teamnames[MAX_TEAMS][12]`), and challenge lock state (`g_BossFile.locktype`) all live in the per-client boss file and never cross the wire — `grep -r 'teamnames|tracknum' port/src/net/` returns nothing. Each client plays its own music and displays its own team labels from its own boss file (consistent with legacy N64 intent + Batch 8's existing `pdguiMppGetTeamName` bridge accessor that reads the same field for pause team rankings). The ONE WIRED field is the challenge match-start flow — `matchStartFromChallenge` writes `g_MpSetup` (scenario/stagenum/weapons/bots/limits) via `challengeSetCurrentBySlot` which flows through the established `netServerStageStart` → SVC_STAGE_START broadcast pipeline (protocol v32 catalog-ID stage_id/scenario_id). No batch-specific net surface needed; existing Batch 0 flow is preserved. Full audit table + per-row verdicts in `context/scratch/D5-P3-batch12-2026-04-11.md`. Zero shadow/cached copies introduced — team name writes land in `g_BossFile.teamnames[team]` at the exact address the legacy handler writes. Zero function loss — every legacy handler invoked (`mpSelectTuneListHandler`, `menuhandlerMpMultipleTunes`, `mpMenuTextSelectTuneOrTunes`, `mpMenuTextCurrentTrack`, `mpChallengesListMenuHandler`, `matchStartFromChallenge`) is called via the shadow-struct ABI or direct function call, preserving every MENUOP_* branch. Room flow untouched — none of the 4 dialogs inline into `renderPlayerPanel` because tunes/soundtrack are ambient config, team names are per-client display (would duplicate Pause → Team Rankings from Batch 8), and Challenges root is a top-level nav item. Merge commit 3294e365 created via `--no-ff` into dev. Post-merge build: client 49,730,120 → **49,770,487** (+40,367 bytes, ~39 KB); server 22,788,944 → **22,788,944** (unchanged — mpsettings.cpp / challenges.cpp / bridge accessor additions are all outside SRC_SERVER whitelist, as expected from the Batch 8/11 build-order pattern). Both targets link clean with zero new warnings from Batch 12 code — all observed warnings in the build output are pre-existing (modelasm_c.c dangling-pointer, sndInit strncpy truncation, updater.h comment style). **Batch 10 DONE (2026-04-11)**: Training NULL-FN 3D Preview (12 dialogs — THE LAST BATCH) -- `g_FrWeaponListMenuDialog`, `g_BioListMenuDialog`, `g_BioProfileMenuDialog`, `g_DtListMenuDialog`, `g_DtDetailsMenuDialog`, `g_HtDetailsMenuDialog`, `g_HangarListMenuDialog`, `g_HangarVehicleHolographMenuDialog`, `g_HangarVehicleDetailsMenuDialog`, `g_HangarLocationDetailsMenuDialog`, `g_SoloMissionControlStyleMenuDialog`, `g_MpControlMenuDialog`. EXTENDED `port/fast3d/pdgui_menu_training.cpp` 1002→2106 (+1104 lines) — replaces the 10 previously-nullptr Training/Hangar registrations with real renderers: `renderFrWeaponList` (list + native ImGui score-tier stars), `renderBioList` (grouped chr + misc via legacy `ciOfficeInformationMenuHandler` data path), `renderBioProfile` (Batch-0 `pdguiModelPreviewDraw` CHARACTER with bodynum → mpbodynum → catalog ID resolution via new `pdguiTrBioGetCurrentChrCatalogIds` bridge helper), `renderDtList` (device list), `renderDtDetails` + `renderHtDetails` (shared `renderTrainingDetailsImpl` using new file-local `drawFilenumPreview` helper that wraps `pdguiCharPreviewRequestFilenum(PDGUI_PREVIEW_WEAPON, ...)` — `weaponGetFileNum(weaponnum)` resolved via bridge), `renderHangarList` (grouped locations + vehicles with pipe-separated name/subheading parser mirroring `ciMenuTextHangarBioSubheading`), `renderHangarVehicleHolograph` (`drawFilenumPreview` VEHICLE with file IDs sourced from a bridge-mirrored biovehicleitem[] table — FILE_PDROPSHIP/FILE_PHOVERCRATE1/FILE_PHOVBIKE/FILE_PHOOVERBOT/FILE_PDD_HOVERCOPTER/FILE_CCHICROB/FILE_PA51INTERCEPTOR/FILE_PELVIS_SAUCER/FILE_PSK_SHUTTLE), shared `renderHangarDetailsImpl` backing both vehicle and location details dialogs. NEW `port/fast3d/pdgui_menu_controldiagram.cpp` (+575 lines) hosting `renderSoloMissionControlStyle` (9-option control mode list + text "controller diagram" info panel — replaces the legacy MENUITEMTYPE_CONTROLLER texture render with per-mode button → action mapping descriptions) and `renderMpControl` (10 checkbox rows + Aim Control dropdown + nested Control Style push, delegating through new `pdguiCdGetPlayerOption`/`pdguiCdSetPlayerOption` bridge accessors that preserve the legacy OPTION_FORWARDPITCH inversion quirk exactly). EXTENDED `port/fast3d/pdgui_bridge.c` +448 lines with Batch 10 bridge section: FR weapon list/score/filenum, Bio chr+misc accessors, DT/HT slot state + descriptions + weapon filenums, Hangar slot + name/subheading/description + vehicle filenum lookup, Control Diagram helpers (control mode + option bitmask + aim control). Also adds `#include "game/training.h"`, `"game/bondgun.h"`, `"game/options.h"`, `"game/game_0b0fd0.h"`, `"files.h"` to the bridge header block. `port/include/pdgui_menus.h` +2 lines: declares + calls `pdguiMenuControlDiagramRegister`. Zero `src/` files modified. **Network match start/end wiring audit** (Mike's requirement): 12 of 12 dialogs are LOCAL-ONLY — training/bio/hangar slot state (g_FrWeaponNum, g_ChrBioSlot, g_DtSlot, var80088bb4, g_HangarBioSlot) never crosses the wire; control mode (`optionsSetControlMode` → `g_PlayerConfigsArray[].options`) and per-player display options (reverse pitch, look ahead, head roll, auto-aim, sight on screen, show target, zoom range, ammo on screen, gun function, paintball) are per-client render/input preferences; aim control (Hold/Toggle) is likewise local. `grep -r '\.options\|\.aimcontrol\|g_FrWeaponNum\|g_ChrBioSlot\|g_DtSlot\|g_HangarBioSlot' port/src/net/` returns only the matchslot body_id/head_id/weapon_ids catalog fields from prior batches — nothing new from Batch 10. Full audit table + per-row verdicts in `context/scratch/D5-P3-batch10-2026-04-11.md`. Model preview pipeline consumption: CHARACTER (Bio Profile), WEAPON (DT Details, HT Details via `drawFilenumPreview`), VEHICLE (Hangar Holograph via `drawFilenumPreview`) — the Batch-0 WEAPON/VEHICLE/PROP dispatch was already wired in `pdgui_charpreview.c` (MENUMODELTYPE_HUDPIECE for weapons, MENUMODELTYPE_DEFAULT for vehicles/props), so this batch is the final data-path hookup for the training screens. Legacy dialog-handler OPEN/TICK/CLOSE paths still fire via the menu runtime (hotswap intercepts only RENDER) so `ciCharacterProfileMenuDialog` pose setup, `dtTrainingDetailsMenuDialog` weapon model setup, `menudialog001a6aa4` HT setup, `ciHangarHolographMenuDialog` vehicle positioning — all continue to execute exactly as on legacy. Merge commit c671d1bb created via `--no-ff` into dev. Post-merge build: client 49,770,487 → **49,949,871** (+179,384 bytes, ~175 KB); server 22,788,944 → **22,788,944** (unchanged — `port/fast3d/pdgui_bridge.c` is NOT in the SRC_SERVER whitelist; server uses its own `port/src/server_bridge.c` instead). Both targets link clean with zero new warnings from Batch 10 code. **D5 PHASE 3 IS NOW COMPLETE**: Batches 0/1/2/3/4/5/6/6-polish/7/8/10/11/12 all landed; no NULL-FN dialogs remain in the plan. |
-| **1080p scaling baseline flip** | HIGH | DONE (S193) | `pdgui_scaling.h` now uses `displayH / 1080.0f` (was 720p).  312 `pdguiScale()` literals across 17 menu files rewritten ×1.5 to preserve visual output.  Action-bar metrics in pdgui_layout.cpp updated to 1080p values (64px button, 84px bar).  `pdgui_backend.cpp` safe-area fallback flipped to 1920×1080.  Migration note in `context/designs/scaling-baseline-1080.md`.  Client builds green. |
-| **Mission Select "Start Mission" scrolls off-screen** | HIGH | FIXED (S192) | Root cause: Start button rendered inside `##ms_right` BeginChild with fragile hardcoded layout math. Fix: split right panel into pinned header + difficulty picker + scroll body + docked action bar using new `pdguiBeginActionBar` primitive. Start button always visible regardless of scroll state. |
-| **Mission Difficulty dialog "text missing" regression** | HIGH | FIXED (S192) | Root cause: Selectable used invisible `##diff_row` label and drew text via `dl->AddText` overlay; when `langSafe()` returned "" the row appeared blank. Fix: real `ImGui::Selectable(labelStr, ...)` with hardcoded English fallbacks ("Agent", "Special Agent", "Perfect Agent", "PD Mode", "Cancel"). |
-| **Challenges "Accept Challenge" scrolls off-screen** | MED | FIXED (S192) | Same class of bug as Mission Select. Fix: split `##chal_detail` into inner scroll body + `##chal_action_bar` docked region. |
-| **D5 Phase 4 -- Theme System** | HIGH | IN PROGRESS (S196) | Auto-extract base-ui textures at runtime (no CLI flag) — DONE pre-S196. S196 added: base-game template mod concept (`is_template` + `tags` in modinfo_t + modmgr parser), nineslice pipeline infrastructure lift (TGA loader uncapped, per-edge modes, src_inset/dst_corner_px split), hand-authored test chrome mod at `mods/base-game/ui-chrome/`, Settings → Video → UI Chrome Style dropdown (Procedural/Classic), render-branch toggle in `pdguiDrawPdDialog`. **Visible chrome rendered: YES** (pending Mike's in-game verification). Deferred follow-ups: `modmgrSaveAs` / Modding Hub template grouping / base-ui extractor migration to template layout. |
-| **B-112 root cause** | HIGH | INVESTIGATING (S191) | Chr pointer corruption in 31-bot matches. S191: entry guard added at top of chraTick (CHR.GUARD channel); g_ChrLastTickedIndex slot-tracker in chr.c; SIGABRT handler reads index. Guards in place; awaiting next 31-bot crash log with chr slot ID. |
-| **B-126 silent crash** | HIGH | INVESTIGATING (S191) | Silent crash ~8min into MP. S191: heartbeat 60s→30s; NET.WATCHDOG per-peer dump via netHeartbeatLog(); SIGABRT handler logs chr index. Awaiting next repro to confirm SIGABRT vs other kill path. |
-| **B-129 mission-end AV crash** | HIGH | FIXED (S190 + S198) | S190: `endscreen.c` called `filemgrSaveOrLoad` → no Pak on PC → fn-ptr cast to lang index → AV. Replaced with `saveSaveAgent()`; three filemgr dialogs registered as noop. S198: `saveInit()` was never called from `main.c`/`server_main.c`, so saves landed at drive root and `besttimes[]` never persisted. Wired `saveInit()` into both startup sequences (commit `3fc345bf`). Saves now write to AppData. |
-| **D13 -- Update System parse diagnosis** | MED | IN PROGRESS (S199) | v0.0.75 not in update list; "couldn't parse" on Check for Updates. Instrumented: HTTP code + raw response preview logged on failure, per_page 30→100. Root cause likely GitHub rate-limit returning 403 object (not array). Next step: reproduce and check log for `UPDATER: GitHub API HTTP NNN`. See `context/scratch/updater-parse-diagnosis-2026-04-11.md`. |
-| **Build verification + QC pass** | MED | PLANNED | Clean build on dev, all QC tests from qc-tests.md passing, no known crash bugs. |
-
-### Should-Have
-
-| Item | Priority | Status | Detail |
-|------|----------|--------|--------|
-| **M3 -- Online MP flow** | MED | PLANNED | Lobby polish, room list UX, leader election, Quick Play button. R-3 done unblocks this. |
-| **Prop sync event-driven** | MED | PLANNED | Current CRC polling. Should fire on pickup/door events per game director. |
-| **B-78 chat rate limiting** | MED | FIXED (2026-04-11) | `CHAT_MSG_MAX_LEN 255` + length check added to `netmsgClcChatRead`. Dead `tmp[1024]` (B-84) also removed. Commit cb6f4763 on dev. |
-| **B-81 JSON recursion guard** | MED | FIXED (S200) | `S_MAX_DEPTH 64` depth guard in `s_skip_value` + `SAVE_MAX_FILE_BYTES 256KB` file size cap. Both attack vectors closed. |
-| **B-118 CI intro cutscene crash** | MED | OPEN | 56 models missed by SP manifest pre-scan. |
-
----
-
-## Open Bugs (by severity)
-
-### HIGH
-| Bug | Description | File |
-|-----|-------------|------|
-| **B-112** | Chr pointer corruption in 31-bot matches (guards in place, root cause unknown) | chraction.c, chr.c |
-| **B-126** | Silent crash ~8min into MP — process dies silently, no VEH log. Heartbeat instrumentation added (S187); awaiting next repro. | lv.c (heartbeat), crash.c |
-
-### FIXED S190/S198 (awaiting visual confirmation from Mike)
-| Bug | Description | Fix |
-|-----|-------------|-----|
-| **B-128** | Sky tearing / transparent sky tris on outdoor stages | sky.c:1244 `gDPSetRenderMode(OPA_SURF)` — inheriting previous frame blend state was root cause |
-| **B-129** | AV on mission end — filemgrSaveOrLoad + no Pak + fn-ptr cast to lang index → crash, plus saves landing at drive root | S190: endscreen.c +14 lines, pdgui_menu_warning.cpp +12 lines. S198: saveInit() wired into main.c + server_main.c (commit 3fc345bf); saves now land in AppData. |
-
-### NEW OPEN BUGS (S198)
-| Bug | Description | File |
-|-----|-------------|------|
-| **B-130** | Theme editor X / Close / click-outside dismiss all ineffective; lifecycle instrumentation deployed S198, awaiting next playtest log | pdgui_menu_theme_editor.cpp |
-| **B-131** | Post-restart Start button double-fire after Mission 1 loops back to start; deferred to follow-up | inputctx.c, bondmove.c |
-
-### MEDIUM
-| Bug | Description | File |
-|-----|-------------|------|
-| **B-18** | Pink sky on Skedar Ruins — may be resolved by B-128 sky fix; needs Skedar playtest | sky rendering |
-| **B-19** | Bot spawn stacking on Skedar Ruins (partial fix S125) | player.c |
-| ~~**B-78**~~ | ~~Chat rebroadcast without rate limiting -- DoS amplification~~ | FIXED 2026-04-11 |
-| ~~**B-81**~~ | ~~JSON tokenizer unbounded recursion -- crafted save crash~~ | FIXED S200 |
-| **B-99** | Updater extraction may fail -- needs retest | updater.c |
-| **B-118** | CI intro cutscene crash -- 56 models missed by manifest | netmanifest.c |
-| Menu opacity stacking | Main menu BG gets more opaque after repeated open/close | pdgui haze overlay |
-| Prop sync not event-driven | CRC polling instead of event-driven | net sync |
-| Some maps don't spawn enemies | Navmesh/pad coverage gaps post-AIDROP fix | various |
-| ~~Killfeed only shows player kills~~ | **VERIFIED S223**: killfeed shows ALL kill combos (player/bot any direction). `mpstatsRecordDeath` → `pdguiKillfeedPush` has no player-only gate. The note likely referred to the unused lobby `netDistribSendKillFeed()`. | mpstats.c |
-
-### LOW
-| Bug | Description | File |
-|-----|-------------|------|
-| **B-60** | Stray 'g'+'s' behind Video/Audio tabs | pdgui_menu_mainmenu.cpp |
-| ~~**B-72**~~ | ~~SVC_LOBBY_STATE raw stagenum (display-only)~~ | **CLOSED 2026-04-13** — confirmed fixed by v27 refactor (netmsgSvcLobbyStateWrite uses string ID + assetCatalogResolve) |
-| **B-95** | Update banner persists during gameplay | pdgui_menu_update.cpp |
-| **B-97** | Special Assignments not separated from missions | pdgui_menu_solomission.cpp |
-| JUMP_LANDING log spam | Every frame during pause logs ground clamp | movement |
-
----
-
-## 2026-04-13 Playtest Stabilization (S248)
-
-> Source: Mike's solo playtest (mod issues) + Chicago multiplayer playtest.
-
-### Fixed This Session (S248)
-
-| ID | Title | Status | Detail |
-|----|-------|--------|--------|
-| **B-135** | base-ui mod shows [INVALID] — missing `"id"` field | **FIXED S248** | Added `"id": "base-ui"` to `mods/base-ui/mod.json`. |
-| **B-136** | All mods must be re-enabled every run | **FIXED S248** | `modmgrSaveConfig()` now called after each `modmgrSetEnabled()` in mod manager UI. |
-| **B-137** | Room screen shows static "Room" title | **FIXED S248** | Dynamic title from `g_RoomCache[g_LocalRoomId].name`; format "Room: <name>". |
-| **B-138** | Apply Changes always disabled; no unsaved-changes guard | **FIXED S248** | `modmgrIsDirty()` check added; "Unsaved Changes" modal on Close/Escape. |
-| **B-139** | Countdown 3-2-1 lingers on main menu after disconnect | **FIXED S248** | `pdguiCountdownReset()` called on mode→NONE in `pdgui_lobby.cpp`. |
-| **Songs F-2.1** | Select Tunes: TreeNodeEx + alpha sort on mod tracks | **DONE S248** | Both sections (Base Tracks / Mod Tracks) wrapped in collapsible `TreeNodeEx`. Mod tracks qsort by display_name. Note: PD/GE base track split deferred (no origin metadata in `mpGetTrackName`). |
-| **Weapons F-2.1** | Weapon Set: alphabetize under "Base Game" group | **DONE S251-res** | Replaced flat `BeginCombo` with `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha Selectables, matching Arena section pattern. `#include <algorithm>` added. |
-
-### Deferred (Next Session)
-
-| ID | Title | Notes |
-|----|-------|-------|
-| **Issue 2/8** | Custom themes + song mods don't appear in Settings/Combat Sim after Mods toggle | Requires unified `modmgrCatalogChanged()` consumer notifications. |
-| **Issue 4** | Airbase Start Match → no response (client sends but server never replies) | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
-| **Bug B** | Server countdown keeps running after room closes; fires into new room | Fix in `readyGateTickCountdown()` / `netmsg.c` — off-limits (parallel End Game crash session). |
-| **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
-| **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
-| **Issue 7** | Bot count / player count display doesn't update in room when host adjusts | Requires `SVC_ROOM_SETTINGS` broadcast from server. |
-| **B-140 (partial)** | Track add from in-match UI unconfirmed; may require separate investigation | Playlist sync Issue A (server-side auto-advance) is fixed. In-match add UI path deferred. |
-
----
-
-## 2026-04-13 Playtest Stabilization (S249)
-
-> B-140 playlist-sync root cause fix.
-
-### Fixed This Session (S249)
-
-| ID | Title | Status | Detail |
-|----|-------|--------|--------|
-| **B-140 Issue A** | Mod music playlist auto-advance never broadcast to clients | **FIXED S249** | `NETMODE_SERVER_AUDIO` in `audio.c:17` was `2` (= `NETMODE_CLIENT`). Changed to `1` (= `NETMODE_SERVER`). `audioNetworkMusicTick()` now fires on the host, enabling `netMusicBroadcastAdvance()` to send `SVC_MUSIC_ADVANCE` when a playlist track ends. Clients receive the advance and `modMusicPlay()` is called directly in `netmsgSvcMusicAdvanceRead`. |
-
-### Deferred (Next Session)
-
-| ID | Title | Notes |
-|----|-------|-------|
-| **B-140 Issue B** | ~~Can't add tracks to playlist from in-match UI~~ | **DONE S251-res** — see below. |
-| **Issue 2/8** | ~~Custom themes + song mods don't appear after Mods toggle~~ | **DONE S251-res** — see below. |
-| **Issue 4** | Airbase Start Match → no response (client sends but server never replies) | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
-| **Bug B** | Server countdown keeps running after room closes; fires into new room | Fix in `readyGateTickCountdown()` / `netmsg.c` — off-limits (parallel End Game crash session). |
-| **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
-| **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
-| **Issue 7** | ~~Bot count / player count display doesn't update in room when host adjusts~~ | **DONE S251-res** — see below. |
-
----
-
-## 2026-04-13 MP Lobby Residual (S251-residual)
-
-> Picked up all residuals from S248/S249/S250: Issue 7, Weapons F-2.1, Issue 2/8, B-140 Issue B.
-> Worktree: `claude/great-carson`. Final dev HEAD: `287b0bc4`. Build: both targets clean.
-
-### Done This Session
-
-| ID | Title | Status | Detail |
-|----|-------|--------|--------|
-| **Issue 7** | Bot/player count propagates to room members | **DONE** | Full CLC→SVC round-trip: `CLC_ROOM_SETTINGS_UPDATE 0x13` from leader to server; server validates room-leader and rebroadcasts as `SVC_ROOM_SETTINGS 0x78` to all room peers. Clients apply to `g_MatchConfig` on receipt. Dirty-flag accumulator in `pdguiRoomScreenRender()` flushes at end-of-frame. Also adds `SVC_ROOM_PLAYLIST 0x79` / `CLC_ROOM_PLAYLIST_UPDATE 0x14` for playlist sync (used by B-140 Issue B). Protocol v35 additive. Files: `netmsg.h`, `netmsg.c`, `net.c`, `pdgui_menu_room.cpp`. |
-| **Weapons F-2.1** | Weapon Set picker alphabetized under "Base Game" group | **DONE** | See S248 Fixed section above for detail. |
-| **Issue 2/8** | Theme rescan after `modmgrApplyChanges()` | **DONE** | `pdguiThemeRescanMods()` added to `pdgui_theme_loader.cpp` (bypasses `s_LoaderInitDone`); declared in `pdgui_theme_loader.h`; called in `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`. Audio already self-heals via per-frame catalog scan — no extra rescan needed. |
-| **B-140 Issue B** | Select Tunes two-panel UX + network sync | **DONE** | `renderSelectTunes` redesigned: wider window (0.70×0.82), two-column layout. Left = Library (Base Game tree + Mod Tracks tree). Right = Selected Tracks (mod playlist). Click left mod track = add; click right = remove. Hover base track = `list_Focus` preview; hover mod track = `audioSetModTrackId` preview; hover-off = `musicRestoreInterval()` resume. Network sync: 3 call sites call `netSendRoomPlaylistUpdate()` when leader in networked room. `pdgui_menu_mpsettings.cpp`. |
-
-### Still Deferred
-
-| ID | Title | Notes |
-|----|-------|-------|
-| **Issue 4** | Airbase Start Match → no response | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
-| **Bug B** | Server countdown lingers after room closes | Fix in `readyGateTickCountdown()` / `netmsg.c`. |
-| **Bug C** | Bots visible on minimap but not rendered | Chr generation token mismatch likely. |
-| **B-140 Issue B gap** | Base game tracks not in "Selected Tracks" right panel | Uses legacy `g_BossFile.tracknum` per-client path; not network-synced. Deferred. |
+| Session | Commit | Scope |
+|---------|--------|-------|
+| S248 | `16de65e6` | B-135 / B-136 / B-137 / B-138 / B-139 + Songs F-2.1 |
+| Dev-window polish | `11fd1d5e` | font/control size (parallel `agitated-jackson`) |
+| S249 | `e13c2d1f` | B-140 Issue A playlist auto-advance |
+| S249 | `0b44b2b8` | B-134 spawn validator railing trap |
+| S250 | `5098f903` | Input authority Phase 1 |
+| S251 | `5a42f234` | B-141 audio telemetry |
+| S252 | `d37e9677`, `4d1e13c1` | B-143 End-Game-Crash + modal confirm; B-142 false kills |
+| S253 | `82d0c1f3` → `287b0bc4` | Issue 7, Weapons F-2.1, Issue 2/8, B-140 Issue B |
 
 ---
 
@@ -315,93 +113,39 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 ---
 
-## Audio Mod Menu (Phase 2 Feature)
+## Phase-2 Feature Lines (SHIPPED)
 
-> Design doc: `context/designs/audio-mod-menu-design.md`
+### Audio Mod Menu — A-1 → A-7 (COMPLETE 2026-04-12)
 
-| Batch | Scope | Status | Detail |
-|-------|-------|--------|--------|
-| **A-1** | Catalog Audio Extension | **DONE** (2026-04-12) | 43 base music tracks registered as ASSET_AUDIO/AUDIO_CAT_MUSIC. `catalog_audio_result_t` + `catalogResolveAudio()` added. 125 lines across 3 files. |
-| **A-2** | Mod Music Stream | **DONE** (2026-04-12) | `modmusic.c` (254 lines) + `modmusic.h` (52 lines) — WAV loading, PCM playback, volume, mixing into audioEndFrame via writable copy buffer. `audio.c` +21 lines. Both builds pass. |
-| **A-3** | Audio Mod Menu UI | **DONE** (2026-04-12) | `pdgui_menu_audiomod.cpp` (625 lines) — new tab 4 in Modding Hub. Category tabs (All/SFX/Music/Voice), list + detail panels, Play/Stop preview, import creates mod dir + audio.ini + catalog registration. `moddinghub.cpp` +12 lines. Build blocked by system GCC temp issue. |
-| **A-4** | Soundtrack Menu Extension | **DONE** (2026-04-12) | Collapsible "Mod Tracks" tree in renderSelectTunes (single+multi mode). pd.ini persistence via `Audio.ModTrackId`. mpChooseTrack returns -2 sentinel to suppress N64 sequencer and starts modMusicPlay. renderSoundtrack shows mod track name. 165 lines across 4 files. Both builds pass. |
-| **A-5** | Soundtrack Pack Creation | **DONE** (2026-04-12) | "Create Soundtrack Pack" dialog in Audio Mod Menu. Multi-select mod music tracks, name/version fields, saves to `mods/<slug>/` with mod.json + tracks/ subfolder. Catalog registration immediate. `pdgui_menu_audiomod.cpp` +252 lines (now 877 total). |
-| **A-6** | Multi-Format Import | **DONE** (2026-04-12) | `modMusicPlay()` accepts .mp3, .ogg, .wav (format-detecting loader). MP3 via existing minimp3, OGG via new stb_vorbis wrapper. SDL_AudioCVT resampling to 22050Hz S16 stereo. New: `port/external/stb_vorbis.c` (234), `port/include/external/stb_vorbis.h` (35). `modmusic.c` +236 lines (now 491). |
-| **A-7** | Network Sync | **DONE** (2026-04-12) | ASSET_AUDIO added to SVC_CATALOG_INFO type list — mod audio distributed via existing netdistrib PDCA pipeline. Host's mod_track_id string added to SVC_STAGE_START (write+read). Protocol v32→v33. `netmsg.c` +23 lines, `net.h` version bump. |
+Feature complete. Full batch line shipped 2026-04-12: catalog extension (A-1) → mod music stream (A-2) → Audio Mod Menu UI (A-3) → Soundtrack Menu extension (A-4) → pack creation (A-5) → multi-format import (A-6, MP3/OGG/WAV) → network sync (A-7). Seamless network sync added later same day. Protocol v32 → v33 → v34. Detail: `daily-logs/2026-04-12.md`.
 
----
+### Skin Editor — S-1 → S-9 (COMPLETE 2026-04-12)
 
-## Skin Editor (Phase 2 Feature)
+Feature complete. Full batch line shipped 2026-04-12: canvas + 2D editor (S-1/S-3) → live 3D preview (S-2) → save-as-mod (S-4) → image import (S-5) → PD-style downrez / quantize (S-6) → blend modes (S-7) → UV wireframe (S-8) → network sync via existing ASSET_SKIN infrastructure (S-9). Detail: `daily-logs/2026-04-12.md`.
 
-> Design doc: `context/designs/skin-editor-design.md`
+### Mod Map Import Pipeline (L3) — COMPLETE 2026-04-13
 
-| Batch | Scope | Status | Detail |
-|-------|-------|--------|--------|
-| **S-1** | Canvas System + 2D Editor | **DONE** (2026-04-12) | `pdgui_skin_canvas.cpp` (~380 lines) — 8-layer RGBA32 canvas with compositing, GL texture upload, undo/redo ring buffer (32 slots). `pdgui_skin_editor.cpp` (~800 lines) — three-panel editor UI (canvas/preview/tools), 5 tools (Draw/Erase/Fill/Eyedropper/Line), HSV color picker, brush size 1-8px, zoom/pan, pixel grid. `pdgui_skin_editor.h` (~130 lines). Modding Hub tab 5 integration. |
-| **S-2** | Live 3D Preview Override | **DONE** (2026-04-12) | `pdguiCharPreviewSetSkinOverride(glTexId, w, h)` API in charpreview. `gfx_pc.cpp` texture substitution hook during preview FBO render — first texture import replaced with canvas GL texture when override active. Resets per-FBO-pass. +35 lines charpreview, +20 lines gfx_pc. |
-| **S-3** | Fill + Line + Brush + Undo | **DONE** (2026-04-12) | Flood-fill (stack-based 4-connected), Bresenham line drawing, variable brush 1-8px, undo/redo (Ctrl+Z/Y). Implemented within S-1 files. |
-| **S-4** | Save as Mod | **DONE** (2026-04-12) | TGA writer (uncompressed BGRA), skin.ini with target body ref, `assetCatalogRegisterSkin()` hot reload. Save dialog popup with name input, Ctrl+S shortcut. `pdgui_skin_editor.cpp` +150 lines. |
-| **S-5** | Image Import | **DONE** (2026-04-12) | `stb_image.h` v2.30 vendored in `port/external/`. Import dialog with path input, nearest-neighbor scale to canvas, placed as new layer. PNG/TGA/BMP/JPG support. `pdgui_skin_editor.cpp` +80 lines. |
-| **S-6** | PD-Style Downrez | **DONE** (2026-04-12) | NEW `pdgui_skin_quantize.cpp` (~250 lines) — median-cut quantization (16/32/256 colors) + Bayer 4x4 / Floyd-Steinberg dithering. Before/after preview dialog. `pdgui_skin_editor.cpp` +100 lines. |
-| **S-7** | Blend Mode Extensions | **DONE** (2026-04-12) | Hue (RGB->HSL component swap), Burn (color burn formula), Saturation (HSL S-swap) added to compositor. Per-layer blend mode Combo dropdown in editor. `pdgui_skin_canvas.cpp` +80 lines. |
-| **S-8** | UV Wireframe Overlay | **DONE** (2026-04-12) | NEW `pdgui_skin_uv.cpp` (~200 lines) — walks model node tree, extracts Vtx.s/t from MODELNODETYPE_DL nodes, normalizes to 0..1. Orange wireframe overlay on 2D canvas, [U] toggle. Up to 2048 UV line segments. |
-| **S-9** | Network Sync | **DONE** (2026-04-12) | ASSET_SKIN already in SVC_CATALOG_INFO s_types[] and netdistrib.c skin.ini handler. Entire pipeline pre-wired: catalog, scanner, netmsg, netdistrib, modpack. S-4 save format is scanner-compatible. Zero new code needed beyond documentation comment. |
+M-5.x (`mapimport.h`/`mapimport.c` — 6-stage pipeline: PARSE / NORMALIZE / GENERATE / EMIT / VALIDATE / REGISTER) + M-6.x (Modding Hub tab + dialog + Smoke Test + `mapImportRunFull()` wrapper) + M-7.x (retroactive validation via `spawnPoolSmokeAll()` + CSV output). Detail: session-log S240 / S244 / S246.
+
+### Spawn System (L2 Architecture) — COMPLETE 2026-04-13
+
+L1-L4 fallback chain (`spawnpool.c/h`): raycast-budget validator + L1 declared + L2 waypoint + L3 grid + L4 radial. Deterministic from `hash(stage_id) ^ match_seed`. `g_SpawnPoints` expanded 24→40. `match_seed` in `SVC_STAGE_START` (v35). Farthest-first greedy selection in `spawnPoolSelect()`. B-134 capsule-radius threshold (SPAWNPOOL_CAPSULE_RADIUS=30 — see `constraints.md`). Detail: session-log S239 / S241 / S242 / S249.
 
 ---
 
-## Master Orchestration Plan — Layer 0 Execution
+## Master Orchestration Plan — Status 2026-04-13
 
-> Source: `context/designs/master-orchestration-plan-2026-04-13.md`
+Plan: `context/designs/master-orchestration-plan-2026-04-13.md`
 
-| ID | Title | Status | Session | Detail |
-|----|-------|--------|---------|--------|
-| **L0-BUILD** | Warm-ccache sloppiness | DONE | S231 | `CCACHE_SLOPPINESS=pch_defines,time_macros` in all build scripts |
-| **L0-LINK** | pdguiThemeRegisterModDir server link | DONE | S231 | Verified both targets link |
-| **F-0.1** | Campaign language-bank shadow fix | DONE | S233 | 46 shadow defines fixed: added LANGBANK prefix (OPTIONS=0x5600, MPWEAPONS=0x5400) |
-| **F-0.2** | Training FR weapon list context leak | DONE | S233 | Added `s_FrWeaponPushedCtx` tracking + `inputCtxPopDeferred` on both exit paths |
-| **F-0.3** | Game-over panels push-without-pop | RESOLVED | S233 | Dead code (`#if 0`); endscreen.cpp handles correctly |
-| **F-0.4** | Stale manifest on return-to-room | DONE | S233 | `manifestClear` added to `pdguiEndscreenExitToMainMenu()` (Option A) |
-| **FIX-A** | Chr tick isolation + lifetime hardening | **DONE** | S234 | All 4 sub-items: A.1 stack depth cap, A.2 generation tokens, A.3 crash handler hardening, A.4 stack watermark. Both targets build clean. Awaiting 31-bot playtest. |
-| **L1-1** | Clear g_ClientManifest on match end | **DONE** | S235 | `manifestClear(&g_ClientManifest)` after `sessionCatalogTeardown()` in `netmsg.c:~1391`. Prevents stale match-N assets leaking into match N+1. |
-| **FIX-B.2** | Graceful fallback for missing models | **DONE** | S235 | NULL guard in `setupLoadModeldef` (setuputils.c); `LOG_WARNING` + return false on NULL modeldef. Converts hard crash → missing prop. |
-| **CLOSE** | Close B-72, B-21 in bugs.md | **DONE** | S235 | B-72 CLOSED (v27 refactor). B-21 CLOSED-TENTATIVE (S124+S208 two-layer fix; confirm next playtest). |
+L0–L7 complete. Full layer-by-layer status (L0-BUILD / L0-LINK / F-0.1/2/3/4 /
+FIX-A / L1-1 / FIX-B.2 / L1-2/3/4/5 / F-1.1/2/3/4 / F-2.1/2 / F-3.1/2/3 /
+FIX-G / FIX-F) — see `session-log.md` S231 – S253.
 
-### Layer 1: Networking Safety Baseline (no protocol changes)
+Open supporting items:
 
-| ID | Title | Status | Session | Detail |
-|----|-------|--------|---------|--------|
-| **L1-2** | Periodic score broadcast (300 frames) | **DONE** | S237 | `(g_NetTick % 300) == 0 && mplayerisrunning` in `netEndFrame()` server path. Bounds drift from any dropped `SVC_PLAYER_STATS` to ≤5s. |
-| **L1-3** | Gate HUD during endscreen | **DONE** | S237 | `pdguiHudRender()`: added `\|\| g_MainIsEndscreen` to render guard. `extern s32 g_MainIsEndscreen` declared in C boundary block. |
-| **L1-4** | Clear co-op netclient linkages at endscreen | **DONE** | S237 | `pdguiEndscreenExitToMainMenu()` + `pdguiEndscreenStartMission()`: NULL `ncl->player` + `ncl->config` for all clients when COOP/ANTI. |
-| **L1-5** | NET_RESYNC_FLAG_SCORES in initial resync | **DONE** | S237 | `g_NetPendingResyncFlags` at match start now includes `NET_RESYNC_FLAG_SCORES`. Late joiners get current scores immediately. |
-| **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | OPEN | — | `netmanifest.c`, `setup.c` — depends on FIX-B.2 (done) |
-
-### Menu & Input Consistency (Layers 1-2 from menu-input-fix-plan)
-
-| ID | Title | Status | Session | Detail |
-|----|-------|--------|---------|--------|
-| **F-1.1** | Remove SDL_WarpMouseInWindow from pause | **DONE** | S238 | Pre-dated `inputCtxSyncMouseMode()`. Context `on_push` callback handles transition. |
-| **F-1.2** | pdguiSoloMissionReset() | **DONE** | S238 | Zeroes 17 statics. Wired into main menu entry + `pdguiEndscreenExitToMainMenu()`. |
-| **F-1.3** | Verify ad-hoc menus context delegation | AUDIT DONE (plan) | S229 | All OK except stats.cpp/moddinghub.cpp candidates for future push. |
-| **F-1.4** | Clean up redundant SDL calls in inputctx.c | **DONE** | S242 | Removed SDL calls from 5 on_push/on_pop callbacks. `inputCtxSyncMouseMode()` sole authority. |
-| **F-2.1** | Arena list collapsible sections | **DONE** | S238 | Three sections (MP/Campaign/Mod), alphabetized, `TreeNodeEx` + `DefaultOpen`. |
-| **F-2.2** | Solo pause k_Btns static init order | **RESOLVED** | S242 | Already non-static `const` local; `langSafe()` re-evaluated every frame. No fix needed. |
-
-### Menu Robustness (Layer 3 from menu-input-fix-plan)
-
-| ID | Title | Status | Session | Detail |
-|----|-------|--------|---------|--------|
-| **F-3.1** | Duplicate rejection in menuPushDialog | **DONE** | S242 | Scans layers for matching `definition` pointer; logs warning + returns early on duplicate. |
-| **F-3.2** | Pop underflow logging in menuPopDialog | **DONE** | S242 | Logs `LOG_WARNING` when called at depth 0. |
-| **F-3.3** | B-92 deferred flush review | **REVIEWED** | S242 | Still needed — hotswap→gameplay one-frame gap not covered by `inputCtxSyncMouseMode()`. |
-
-### Infrastructure Repair — Standalone Tracks
-
-| ID | Title | Status | Session | Detail |
-|----|-------|--------|---------|--------|
-| **FIX-G** | Mission category headers (B-97) | **DONE** | S242/S245 | Sections existed (M1.1 S168). S242 added counters via isStageDifficultyUnlocked. S245 upgraded to SeparatorText + besttimes-based beat-count; resolved merge conflict with S242 partial. |
-| **FIX-F** | Update system reliability (B-99) | **DONE** | S245 | FIX-F.1: curlGet returns HTTP code; 403 rate-limit path with user-visible msg. FIX-F.2: fsFullPath("$E/") fallback when installDir empty. FIX-F.3: 1MB minimum size check on extracted PerfectDark.exe. |
-| **FIX-B.1** | Deep manifest scanner | OPEN | — | `netmanifest.c`, `setup.c`. |
+| ID | Title | Status |
+|----|-------|--------|
+| **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | OPEN — `netmanifest.c`, `setup.c` |
 
 ---
 
@@ -409,7 +153,7 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 | System | Status |
 |--------|--------|
-| Menu/UI | DONE (in d5-full-menu-overhaul.md) |
+| Menu/UI | DONE (in `designs/d5-full-menu-overhaul.md`) |
 | Input | IMPLEMENTED (M0.2 action maps). Guidelines doc PLANNED. |
 | Networking | PLANNED |
 | Mod System | PLANNED |

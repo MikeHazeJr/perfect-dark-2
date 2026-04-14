@@ -4,7 +4,7 @@
 > For milestone targets, see [milestones.md](milestones.md).
 > Back to [index](README.md)
 
-> **Last updated**: 2026-04-02, Session S130 — Wire protocol v27 (all net_hash removed), SAVE-COMPAT stripped, comprehensive bug audit (4 critical/high fixes)
+> **Last updated**: 2026-04-13, S253. Wire protocol now **v35** (additive SVC_ROOM_SETTINGS/PLAYLIST on top of v34 seamless audio-mod sync + v35 L5 match lifecycle match_seed). D13 Update System FIXED via S245 FIX-F (HTTP code + rate-limit handling + exe-dir fallback + 1 MB size check). Master Orchestration Plan L0-L7 complete (FIX-B.1 sole open supporting item). See `session-log.md` S231–S253 for layer-by-layer status; `constraints.md` for current invariants.
 
 ---
 
@@ -48,7 +48,7 @@ Build test directories go under `ClaudeBuilds/` (changed S84 from `build_test_*/
 | D10 | Spectator Mode | 📋 Planned | — |
 | D11 | Simulant Creator | 📋 Planned | — |
 | D12 | Co-op Polish | 📋 Planned | — |
-| D13 | Update System | ⏳ Code written, needs build | S11 |
+| D13 | Update System | ✅ **DONE** (S245 FIX-F: HTTP code + 403 rate-limit path + exe-dir fallback + 1 MB extraction size check) | S245 |
 | D14a | Counter-Op Mode | 📋 Planned | — |
 | D14b | Mod Distribution | 📋 Planned | — |
 | D15 | Map Editor / Char Creator / Skins | 📋 Planned | — |
@@ -134,10 +134,8 @@ Server process with CLI args, signal handling, 4-panel ImGui GUI (now tabbed: Se
 - J-4: Recent server history UI with relative timestamps (S80/S84)
 - J-5: Lobby handoff polish (S81)
 
-### D13: Update System — ⏳ CODE WRITTEN
-All source files written (S8–S11). Semantic versioning, GitHub API, SHA-256, self-replace, save migration, ImGui UI, dual-tag releases, two channels.
-**Blocker**: Mike must install libcurl (`pacman -S mingw-w64-x86_64-curl`) and compile.
-Full design in [update-system.md](update-system.md).
+### D13: Update System — ✅ DONE (S245 FIX-F)
+All source files written (S8–S11). Semantic versioning, GitHub API, SHA-256, self-replace, save migration, ImGui UI, dual-tag releases, two channels. **S245 FIX-F** closed the rough edges: (1) `curlGet()` returns HTTP code; 403 classified as rate-limit with user-visible "retry in 1 hour" message; non-JSON response classified as wrong-endpoint. (2) `fsFullPath("$E/")` fallback when `detectExePath()` yields empty `installDir`. (3) Extracted `PerfectDark.exe` checked for existence AND minimum 1 MB size before self-replace; truncated extraction rejected. B-99 closed. Full design in [update-system.md](update-system.md).
 
 ### D-MEM: Memory Modernization — 🔶 M0–M1 DONE, MEM-1/2/3 DONE, M2–M6 REMAIN
 - **M0**: Diagnostic log cleanup → LOG_VERBOSE. ✅

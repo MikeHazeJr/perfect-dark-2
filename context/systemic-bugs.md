@@ -312,6 +312,57 @@ Visually inspect any flagged files before proceeding.
 
 ---
 
+## SP-13: `manifestClear` Before `mainChangeToStage` During MP Teardown
+
+**Severity**: CRITICAL — `0xc0000005` access violation
+**Root cause**: `mainChangeToStage()` treats any `STAGE_IS_GAMEPLAY()` target as a
+match-load, and if `g_ClientManifest.num_entries > 0` it takes the
+`manifestMPTransition()` branch and attempts to diff the old manifest against
+whatever is loading for the target stage. When the old manifest is a torn-down
+MP match manifest and the target is lobby/room/CI-training, the diff walks dead
+asset references and faults.
+
+**When it happens**: Any code path that changes stage out of an MP match
+without clearing the manifest first. Specifically, paths that end an MP match
+and return to the hub — pause-menu "End Game", endscreen "Exit", and the
+disconnect-and-clean-up flow.
+
+**Correct pattern**:
+```c
+manifestClear(&g_ClientManifest);
+mainChangeToStage(STAGE_CITRAINING);   // or any non-match target
+```
+
+**Known sites (ALL FIXED 2026-04-13)**:
+
+| Site | Fix | Commit |
+|------|-----|--------|
+| `pdgui_bridge.c:799` — `pdguiEndscreenExitToMainMenu()` | F-0.4 | S233 |
+| `netmsg.c:1419` — `netmsgSvcStageEndRead()` (SVC_STAGE_END path) | L1-1 | S235 |
+| `net.c::netDisconnect` (before `mainChangeToStage(STAGE_CITRAINING)`) | Bug A | `d37e9677` |
+
+**Audit checklist (before adding any new callsite)**:
+
+1. Does this code call `mainChangeToStage()`?
+2. Is `g_ClientManifest` potentially non-empty when this runs (i.e. was an MP
+   match active in this flow)?
+3. If both yes: insert `manifestClear(&g_ClientManifest);` immediately before
+   the `mainChangeToStage()` call.
+4. Reference F-0.4 / L1-1 / Bug A in the comment for cross-pattern
+   traceability.
+
+**Search command to audit new callsites**:
+```
+grep -n 'mainChangeToStage' port/src/net/*.c port/fast3d/*.cpp src/game/*.c
+```
+Then verify each non-menu-system hit is either already preceded by
+`manifestClear` OR demonstrably cannot run with a populated `g_ClientManifest`.
+
+**Active constraint**: [constraints.md](constraints.md) — "manifestClear before
+mainChangeToStage during MP teardown".
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
