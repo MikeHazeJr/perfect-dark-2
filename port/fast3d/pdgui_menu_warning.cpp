@@ -696,6 +696,214 @@ static s32 renderDefaultDialog(struct menudialog *dialog,
 }
 
 /* ========================================================================
+ * MP End Game — custom modal confirmation (B-End-Game-UX)
+ *
+ * Replaces the generic renderDangerDialog path for g_MpEndGameMenuDialog
+ * with a first-class modal popup:
+ *   - Centered "End Match?" panel with large "Are you sure?" body copy
+ *   - Single Confirm / Cancel pair with visible keybinding hints
+ *   - Keyboard:  Enter / Space → Confirm, Esc → Cancel
+ *   - Gamepad:   A (FaceDown)  → Confirm, B (FaceRight) → Cancel
+ *
+ * The confirm path invokes the legacy menuhandlerMpEndGame via the dialog
+ * item's handler pointer (same MENUOP_SET contract renderTypedDialog uses),
+ * which on a client runs netDisconnect() — that in turn now clears
+ * g_ClientManifest before mainChangeToStage() (B-End-Game-Crash fix in
+ * port/src/net/net.c).
+ * ======================================================================== */
+
+static s32 renderMpEndGameDialog(struct menudialog *dialog,
+                                  struct menu * /*menu*/,
+                                  s32 /*winW*/, s32 /*winH*/)
+{
+    struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog);
+    if (!def) return 0;
+
+    /* Full-viewport scrim — focus the player on the dialog, not the match
+     * scene below.  Same primitive renderTypedDialog uses. */
+    pdguiPopupDarkenBehind(0.60f);
+
+    /* Red/warning palette (matches the legacy DANGER dialog type). */
+    s32 prevPalette = pdguiGetPalette();
+    pdguiSetPalette(2);
+
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiScale(540.0f);
+    float dialogH = pdguiScale(260.0f);
+    ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
+    float dialogX = dlgPos.x;
+    float dialogY = dlgPos.y;
+
+    float pdTitleH = pdguiScale(36.0f);
+    if (pdTitleH < 18.0f) pdTitleH = 18.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground
+                            | ImGuiWindowFlags_NoScrollbar;
+
+    char winId[64];
+    snprintf(winId, sizeof(winId), "##mp_endgame_dialog_%p", (void *)dialog);
+
+    if (!ImGui::Begin(winId, nullptr, wflags)) {
+        ImGui::End();
+        pdguiSetPalette(prevPalette);
+        return 1;
+    }
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        pdguiPlaySound(PDGUI_SND_ERROR);
+    }
+
+    /* Opaque body behind the frame — the hotswap system may render this
+     * over a still-live pause menu, so the body must not be see-through. */
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(dialogX, dialogY),
+                          ImVec2(dialogX + dialogW, dialogY + dialogH),
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
+    }
+
+    /* PD-authentic frame + title text. */
+    const char *title = "End Match?";
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
+                          dialogW - 16.0f, pdTitleH - 4.0f);
+        ImVec2 titleSize = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
+                           dialogY + (pdTitleH - titleSize.y) * 0.5f),
+                    IM_COL32(255, 255, 0, 255), title);
+    }
+
+    /* ---- Body ---- */
+    float bodyTop = pdTitleH + ImGui::GetStyle().WindowPadding.y + 8.0f * scale;
+    ImGui::SetCursorPosY(bodyTop);
+
+    const char *bodyMsg = "Are you sure you want to end the match?";
+    {
+        float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+        ImVec2 ts = ImGui::CalcTextSize(bodyMsg, nullptr, false, availW);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - ts.x) * 0.5f);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
+        ImGui::TextWrapped("%s", bodyMsg);
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ---- Buttons ---- */
+    float btnW = pdguiScale(160.0f);
+    float btnH = pdguiScale(32.0f);
+    float gap  = pdguiScale(16.0f);
+    float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float totalW = btnW * 2.0f + gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - totalW) * 0.5f);
+
+    bool doConfirm = false;
+    bool doCancel  = false;
+
+    /* Cancel first — safer default focus (Cancel is the non-destructive
+     * choice).  Keyboard/gamepad bindings below still route activations
+     * directly without needing focus. */
+    if (ImGui::Button("Cancel##mpendgame", ImVec2(btnW, btnH))) {
+        doCancel = true;
+    }
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetItemDefaultFocus();
+    }
+
+    ImGui::SameLine(0.0f, gap);
+
+    /* Red "End Match" confirm.  Styled with the danger palette so it reads
+     * as destructive even to a colour-blind player. */
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+    if (ImGui::Button("End Match##mpendgame", ImVec2(btnW, btnH))) {
+        doConfirm = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    /* ---- Keybinding hints (always visible at the bottom) ---- */
+    {
+        const char *hintL = "[Enter/Space/(A)] Confirm";
+        const char *hintR = "[Esc/(B)] Cancel";
+
+        /* Reserve a row at the bottom of the dialog for hint text.  Absolute
+         * Y position so it sits right above the frame's bottom edge even if
+         * the body wraps. */
+        float hintY = dialogH - pdguiScale(22.0f);
+        if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
+            hintY = ImGui::GetCursorPosY() + 4.0f * scale;
+        }
+        ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, hintY));
+        ImGui::TextDisabled("%s", hintL);
+
+        ImVec2 rSize = ImGui::CalcTextSize(hintR);
+        ImGui::SetCursorPos(ImVec2(dialogW - ImGui::GetStyle().WindowPadding.x - rSize.x,
+                                   hintY));
+        ImGui::TextDisabled("%s", hintR);
+    }
+
+    /* ---- Global keyboard + gamepad bindings ---- */
+    if (!ImGui::IsWindowAppearing()) {
+        /* ACTION_ACCEPT equivalents (per pdguiDriveImGuiNav convention) */
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)) {
+            doConfirm = true;
+        }
+
+        /* ACTION_CANCEL_USE equivalents */
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+            doCancel = true;
+        }
+    }
+
+    if (doConfirm) {
+        pdguiPlaySound(PDGUI_SND_SELECT);
+
+        /* Invoke the legacy SELECTABLE that carries the real End Game
+         * handler (menuhandlerMpEndGame in src/game/mplayer/ingame.c).
+         * On a client this calls netDisconnect() → mainChangeToStage()
+         * with a cleared manifest (B-End-Game-Crash root-cause fix).
+         * On the server it calls mainEndStage() → SVC_STAGE_END. */
+        if (def->items) {
+            for (struct menuitem *it = def->items;
+                 it->type != MENUITEMTYPE_END;
+                 it++) {
+                if (it->type == MENUITEMTYPE_SELECTABLE && it->handler) {
+                    union handlerdata hd;
+                    memset(&hd, 0, sizeof(hd));
+                    it->handler(MENUOP_SET, it, &hd);
+                    break;  /* exactly one confirm handler per dialog */
+                }
+            }
+        }
+        menuPopDialog();
+    } else if (doCancel) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+    }
+
+    ImGui::End();
+    pdguiSetPalette(prevPalette);
+    return 1;
+}
+
+/* ========================================================================
  * Noop render — suppresses a dialog without drawing anything
  * ======================================================================== */
 
@@ -907,9 +1115,16 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegister(&g_PdModeSettingsMenuDialog,
                           renderDefaultDialog,
                           "PD Mode Settings (Batch 1)");
+    /* B-End-Game-UX (2026-04-13): First-class modal confirmation with a
+     * visible keybinding hint row, keyboard Enter/Space + gamepad A for
+     * Confirm, and Esc + gamepad B for Cancel.  Replaces the split-button
+     * pattern the generic renderDangerDialog produced for this dialog (which
+     * mouse-worked but did not accept controller Accept).  The Confirm path
+     * invokes menuhandlerMpEndGame → netDisconnect() → the cleared-manifest
+     * stage change (B-End-Game-Crash). */
     pdguiHotswapRegister(&g_MpEndGameMenuDialog,
-                          renderDangerDialog,
-                          "MP End Game (Batch 1)");
+                          renderMpEndGameDialog,
+                          "MP End Game (modal confirm)");
     pdguiHotswapRegister(&g_FilemgrDeleteMenuDialog,
                           renderFilemgrPcPlaceholder,
                           "Filemgr Delete (PC placeholder, Batch 1)");

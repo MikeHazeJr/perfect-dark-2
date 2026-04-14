@@ -17,6 +17,7 @@
 #include "net/netdistrib.h"
 #include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
+#include "net/netmanifest.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -995,6 +996,15 @@ s32 netDisconnect(void)
 		titleSetNextStage(STAGE_CITRAINING);
 		setNumPlayers(1);
 		titleSetNextMode(TITLEMODE_SKIP);
+		/* B-End-Game-Crash: Clear the stale MP client manifest BEFORE the stage
+		 * change.  mainChangeToStage(STAGE_CITRAINING) treats CITRAINING as a
+		 * gameplay stage; if g_ClientManifest still has the MP match's entries
+		 * at this point, mainChangeToStage takes the manifestMPTransition()
+		 * branch and attempts to diff the torn-down MP manifest against
+		 * whatever is loading for CI training, leading to an access violation
+		 * during the manifest apply.  Same fix pattern as F-0.4 in
+		 * pdguiEndscreenExitToMainMenu and L1-1 in netmsgSvcStageEndRead. */
+		manifestClear(&g_ClientManifest);
 		mainChangeToStage(STAGE_CITRAINING);
 	}
 
