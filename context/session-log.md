@@ -3,6 +3,12 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S252 — 2026-04-13 (B-142 NULL-guard on mpPlayerGetIndex)
+
+Worktree `hungry-bose` branch `fix-end-game-crash-and-ux`. Added `if (chr == NULL) return -1;` early-return at top of `mpPlayerGetIndex` (`src/game/mplayer/mplayer.c:3734`) to prevent `mpPlayerGetIndex(NULL)` from matching `g_MpAllChrPtrs[0]==NULL` at index 0 and mis-attributing orphan/explosion/tripmine damage to player slot 0. Merged `--no-ff` to dev at `4d1e13c1`; line count 4507 → 4510 verified. Build-verify: `pd` + `pd-server` linked clean. B-142 → FIXED-PENDING-PLAYTEST.
+
+---
+
 ## Session S251 — 2026-04-13 (B-141 audio telemetry: drop/underrun/hitch counters)
 
 **Focus**: Pre-instrument the audio push path so B-141 (intermittent audio skips/pauses, not reproducible on demand) produces diagnostic signal the next time it happens. Not a fix — evidence-gathering.
