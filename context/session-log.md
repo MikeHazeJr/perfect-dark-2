@@ -3,6 +3,55 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S246 — 2026-04-13 (Gap Closure: M-7.x Smoke Test + match_seed/B-19 DONE)
+
+**Focus**: Gap-closure pass after Layer 1-7 master plan. Two work items + tasks refresh.
+
+### Work Item 1 — tasks-current.md Refresh
+
+Grepped evidence confirmed both items are fully done:
+- `match_seed via SVC_STAGE_START` → **DONE (S241/S242)**: `g_NetMatchSeed` declared `net.c`, generated server-side (RNG+tick), written via `netbufWriteU32` in SVC_STAGE_START handler, received client-side. `playerreset.c` uses `g_NetMatchSeed` (nonzero) or fallback.
+- `B-19 resolution` → **DONE (S242)**: `spawnPoolSelect()` wired at `playerreset.c:611` + farthest-first greedy confirmed.
+- `Smoke test: all base + mod maps` → DONE (this session) via work item 2.
+- `M-7.x: Retroactive validation` → DONE (this session).
+- Parent copy (`Perfect-Dark-2/tasks-current.md`) synced per Standing Order 1.
+
+### Work Item 2 — M-7.x Smoke Test Implementation
+
+Added to `src/game/spawnpool.c` (+183 net lines):
+- **Smoke log accumulator**: `smoke_record_t s_SmokeLog[128]` with `smokeLogRecord()`. Auto-records every live pool build from `spawnPoolBuildGlobal()` (stage_id, needed, produced, max_layer_used, time_ms, source='L').
+- **`spawnPoolSmokeAll()`**: iterates all `ASSET_ARENA` catalog entries via `assetCatalogIterateByType`. Skips stages with live data. For others: saves/restores `g_NumSpawnPoints=0` + `s_PoolReady`, calls `spawnPoolBuild()` into scratch pool (offline test seed `0x5EC0BE45`), records source='O'. Returns L3/L4 count.
+- **`spawnPoolSmokeWriteCSV(path)`**: writes CSV with columns: `stage_id, needed, produced, max_layer_used, source, time_ms, flag` (flag: `OK` or `L3L4_RISK`).
+- **Updated `spawnPoolSmokeTest()`**: dumps full session log in addition to current pool state.
+
+Added to `port/fast3d/pdgui_menu_moddinghub.cpp` (+15 net lines):
+- **"Run All" button** (next to Smoke Test): calls `spawnPoolSmokeAll()` + `spawnPoolSmokeWriteCSV("Build/smoke-test-results.csv")`. Status line shows L3/L4 count + CSV path.
+
+Added `context/scratch/spawn-smoke-test-results-2026-04-13.md`: test plan, base arena list (13 Dark + 5 classic), mod stage instructions, offline vs live result interpretation guide.
+
+### Bug Fix
+
+Fixed `s_PoolReady` pollution from offline sweep: `spawnPoolBuild()` sets the global flag unconditionally. Added save/restore around each offline scratch build in `smokeOfflineBuildArena()`.
+
+### Build Verification
+
+- Both targets clean. No new errors, no new warnings.
+- PerfectDark.exe: 51,101,998 bytes (48.7 MB client). PerfectDarkServer.exe: 22,812,269 bytes (21.8 MB).
+- spawnpool.c: +183 net lines. spawnpool.h: +21 net lines. moddinghub.cpp: +15 net lines.
+- Total: 5 files changed, 312 insertions (+), 16 deletions.
+
+### Commits
+
+- `489de13c` feat: gap-closure pass — M-7.x smoke test + tasks refresh (match_seed/B-19 DONE)
+- `46c9cc7e` fix: restore s_PoolReady after offline smoke sweep
+
+### Next
+
+- Mike: visit each MP arena in-game, then press "Run All" in Modding Hub → Map Import to get live CSV
+- Filter `source=L` rows in `Build/smoke-test-results.csv` — any `L3L4_RISK` in live rows = that map needs more spawn pads
+
+---
+
 ## Session S245 — 2026-04-13 (L7 Supporting Items: FIX-F Updater + FIX-G Mission Headers)
 
 **Focus**: Infrastructure repair plan Layer 7 — updater robustness (FIX-F, B-99) and mission category headers enhancement (FIX-G, B-97).
