@@ -41,7 +41,7 @@ Branch: `claude/happy-hofstadter` (worktree), dev tip `6f562beb` at session star
 - `port/src/actionmap.cpp` — both helper bodies; dispatch-site gate in `fireVk()`; read-site gates in `actionPressed/Held/Released/Value/Axis`; `actionmapPollFrame()` now uses the predicate.
 - `port/fast3d/gfx_sdl2.cpp` — focus-lost / focus-gained window-event wiring.
 - `context/designs/input-authority-and-menu-pool-2026-04-13.md` — ADR.
-- `context/bugs.md` — `B-140` audio skips/pauses logged (2026-04-13 playtest).
+- `context/bugs.md` — `B-141` audio skips/pauses logged (2026-04-13 playtest). (Originally filed as B-140; S249 claimed B-140 for playlist sync, so renamed.)
 
 ### Acceptance matrix (Phase 1 intent)
 
