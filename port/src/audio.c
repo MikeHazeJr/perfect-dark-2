@@ -14,7 +14,7 @@
 /* Network externs for music tick (avoid pulling in full net headers) */
 extern s32 g_NetMode;
 extern s32 g_NetLocalBotAuthority; /* true if we are the host/bot authority */
-#define NETMODE_SERVER_AUDIO 2
+#define NETMODE_SERVER_AUDIO 1
 /* From netmsg.h — broadcast next track to room */
 extern void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
 extern u8 g_LocalRoomId;
