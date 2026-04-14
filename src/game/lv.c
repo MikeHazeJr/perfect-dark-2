@@ -1405,6 +1405,24 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				gdl = viRenderViewportEdges(gdl);
+
+				/* FIX-C.1: Canonical GBI state reset at frame start.
+				 * The GBI display list interpreter carries all state registers
+				 * across frames.  Effects from the previous frame (sun flares,
+				 * teleport beams, overexposure, translucent particles) can set
+				 * blend modes, env color, prim color, and fog color that leak
+				 * into the current frame's sky and early geometry.
+				 *
+				 * Emit a known-good baseline (5 commands, negligible cost) so
+				 * that every frame starts from a deterministic render state.
+				 * This eliminates the entire class of cross-frame state leakage
+				 * documented as SP-10 in systemic-bugs.md. */
+				gDPPipeSync(gdl++);
+				gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+				gDPSetEnvColor(gdl++, 0xff, 0xff, 0xff, 0xff);
+				gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0xff, 0xff);
+				gDPSetFogColor(gdl++, 0, 0, 0, 0);
+
 				/* Sky renders first (before world geometry). Disable depth test
 				 * and depth write so sky never interacts with the depth buffer.
 				 * World geometry drawn after will correctly occlude sky via its
