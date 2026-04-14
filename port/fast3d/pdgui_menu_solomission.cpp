@@ -715,15 +715,30 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 bool accessible = missionIsAccessible(i);
                 bool isSelected = (s_MissionSelectIdx == i);
 
-                /* Chapter heading when the group changes */
+                /* Chapter heading when the group changes.
+                 * FIX-G (B-97): show completion count per chapter. */
                 if (grp != prevGroup) {
                     if (prevGroup >= 0) ImGui::Spacing();
                     const char *chapLang = langSafe(k_MissionGroups[grp].langId);
-                    char chapHdr[64];
+
+                    /* Count completed and total missions in this chapter */
+                    s32 chapFirst = k_MissionGroups[grp].firstIdx;
+                    s32 chapLast  = (grp + 1 < k_NumRegularGroups)
+                                  ? k_MissionGroups[grp + 1].firstIdx - 1
+                                  : SOLOSTAGEINDEX_SKEDARRUINS;
+                    s32 chapTotal = chapLast - chapFirst + 1;
+                    s32 chapDone  = 0;
+                    for (s32 ci = chapFirst; ci <= chapLast; ci++) {
+                        if (isStageDifficultyUnlocked(ci, DIFF_A)) chapDone++;
+                    }
+
+                    char chapHdr[96];
                     if (chapLang[0]) {
-                        snprintf(chapHdr, sizeof(chapHdr), "-- %s --", chapLang);
+                        snprintf(chapHdr, sizeof(chapHdr), "-- %s (%d/%d) --",
+                                 chapLang, chapDone, chapTotal);
                     } else {
-                        snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d --", chap);
+                        snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d (%d/%d) --",
+                                 chap, chapDone, chapTotal);
                     }
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
                     ImGui::TextUnformatted(chapHdr);
@@ -817,16 +832,25 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 ImGui::PopID();
             } /* regular stage loop */
 
-            /* Special Assignments (stages 17..20) */
+            /* Special Assignments (stages 17..20)
+             * FIX-G (B-97): show completion count. */
             s32 specialStart = SOLOSTAGEINDEX_SKEDARRUINS + 1;
             ImGui::Spacing();
 
+            s32 saTotal = NUM_SOLOSTAGES - specialStart;
+            s32 saDone  = 0;
+            for (s32 si = specialStart; si < NUM_SOLOSTAGES; si++) {
+                if (isStageDifficultyUnlocked(si, DIFF_A)) saDone++;
+            }
+
             const char *saLang = langSafe(L_OPTIONS_132);
-            char saBuf[64];
+            char saBuf[96];
             if (saLang[0]) {
-                snprintf(saBuf, sizeof(saBuf), "-- %s --", saLang);
+                snprintf(saBuf, sizeof(saBuf), "-- %s (%d/%d) --",
+                         saLang, saDone, saTotal);
             } else {
-                snprintf(saBuf, sizeof(saBuf), "-- Special Assignments --");
+                snprintf(saBuf, sizeof(saBuf), "-- Special Assignments (%d/%d) --",
+                         saDone, saTotal);
             }
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
             ImGui::TextUnformatted(saBuf);

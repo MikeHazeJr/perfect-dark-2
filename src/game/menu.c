@@ -1511,6 +1511,21 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 	g_AllowMouseHeld = false;
 
 	if (dialogdef) {
+		/* F-3.1: Reject duplicate push of the same dialogdef.
+		 * Scan current layers — if this def is already on the stack, log and bail.
+		 * Legitimate sibling tabs use nextsibling, not double push. */
+		for (s32 d = 0; d < g_Menus[g_MpPlayerNum].depth; d++) {
+			struct menulayer *chk = &g_Menus[g_MpPlayerNum].layers[d];
+			for (s32 s = 0; s < chk->numsiblings; s++) {
+				if (chk->siblings[s] && chk->siblings[s]->definition == dialogdef) {
+					sysLogPrintf(LOG_WARNING,
+						"MENU: menuPushDialog rejected duplicate def %p at depth %d",
+						(void *)dialogdef, d);
+					return;
+				}
+			}
+		}
+
 		menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
 
 		if (g_Menus[g_MpPlayerNum].depth < 6 && g_Menus[g_MpPlayerNum].numdialogs < ARRAYCOUNT(g_Menus[0].dialogs)) {
@@ -1723,6 +1738,10 @@ void menuUpdateCurFrame(void)
 
 void menuPopDialog(void)
 {
+	/* F-3.2: Log underflow — helps diagnose push/pop mismatches. */
+	if (g_Menus[g_MpPlayerNum].depth == 0) {
+		sysLogPrintf(LOG_WARNING, "MENU: menuPopDialog called at depth 0 (underflow)");
+	}
 	menuCloseDialog();
 	menuUpdateCurFrame();
 }
