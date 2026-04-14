@@ -3,6 +3,36 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S253 — 2026-04-13 (MP Lobby Residual: Issue 7, F-2.1, Issue 2/8, B-140 Issue B)
+
+**Focus**: Close out all four punch-list items deferred from S248/S249/S250 MP lobby/room UI + mod persistence work.
+
+Branch: `claude/great-carson` (worktree), dev tip `8e02a2ef` at session start. Final dev HEAD: `287b0bc4`.
+
+### What Shipped
+
+**Issue 7 — SVC_ROOM_SETTINGS room broadcast** (`netmsg.h`, `netmsg.c`, `net.c`, `pdgui_menu_room.cpp`):
+Full two-message round-trip: leader changes settings → `CLC_ROOM_SETTINGS_UPDATE (0x13)` to server → server validates room-leader → rebroadcasts `SVC_ROOM_SETTINGS (0x78)` to all room peers. Also adds `SVC_ROOM_PLAYLIST (0x79)` / `CLC_ROOM_PLAYLIST_UPDATE (0x14)` for B-140. Clients apply `g_MatchConfig` fields on receipt. Dirty-flag accumulator in `pdguiRoomScreenRender()` fires end-of-frame. Protocol v35 additive (no breaking changes).
+Build fix: `netSendRoomSettingsUpdate/PlaylistUpdate` sender functions initially used `g_NetLocalServer` (undeclared); corrected to `g_NetLocalClient->out` + `netSend(g_NetLocalClient, NULL, ...)` matching the CLC send pattern in `pdgui_bridge.c`.
+
+**Weapons F-2.1** (`pdgui_menu_room.cpp`):
+Replaced flat `BeginCombo` with `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha-sorted Selectables. Matches the Arenas section pattern. `#include <algorithm>` added.
+
+**Issue 2/8 — Theme rescan on Apply** (`pdgui_theme_loader.h`, `pdgui_theme_loader.cpp`, `modmgr.c`):
+`pdguiThemeRescanMods()` added — calls `scan_mods_for_themes()` directly, bypassing the `s_LoaderInitDone` gate. Called from `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`. Audio already self-heals per-frame.
+
+**B-140 Issue B — Select Tunes two-panel UX + network sync** (`pdgui_menu_mpsettings.cpp`):
+`renderSelectTunes` completely redesigned. Window widened to 0.70×0.82. Two-column layout: Library (left) + Selected Tracks (right). Click left mod track = add to playlist; click right = remove. Hover base track = `list_Focus` preview; hover mod track = `audioSetModTrackId` preview; hover-off = `musicRestoreInterval()` resume. Network sync via `netSendRoomPlaylistUpdate()` when `g_NetMode == MPSETTINGS_NETMODE_CLIENT && lobbyIsLocalLeader()`.
+
+### Build
+`ninja -C Build pd pd-server` — both targets link clean. No errors. 517 insertions / 141 deletions across 8 files + 1 post-merge fix commit.
+
+### Next
+- **Playtest verify**: Issue 7 room settings sync, B-140 two-panel UX.
+- **Input Phase 2**: Menu pool single-instance discipline (see tasks-current.md ADR section).
+
+---
+
 ## Session S252 — 2026-04-13 (B-142 NULL-guard on mpPlayerGetIndex)
 
 Worktree `hungry-bose` branch `fix-end-game-crash-and-ux`. Added `if (chr == NULL) return -1;` early-return at top of `mpPlayerGetIndex` (`src/game/mplayer/mplayer.c:3734`) to prevent `mpPlayerGetIndex(NULL)` from matching `g_MpAllChrPtrs[0]==NULL` at index 0 and mis-attributing orphan/explosion/tripmine damage to player slot 0. Merged `--no-ff` to dev at `4d1e13c1`; line count 4507 → 4510 verified. Build-verify: `pd` + `pd-server` linked clean. B-142 → FIXED-PENDING-PLAYTEST.

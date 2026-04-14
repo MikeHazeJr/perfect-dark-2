@@ -235,7 +235,7 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 | **B-138** | Apply Changes always disabled; no unsaved-changes guard | **FIXED S248** | `modmgrIsDirty()` check added; "Unsaved Changes" modal on Close/Escape. |
 | **B-139** | Countdown 3-2-1 lingers on main menu after disconnect | **FIXED S248** | `pdguiCountdownReset()` called on mode→NONE in `pdgui_lobby.cpp`. |
 | **Songs F-2.1** | Select Tunes: TreeNodeEx + alpha sort on mod tracks | **DONE S248** | Both sections (Base Tracks / Mod Tracks) wrapped in collapsible `TreeNodeEx`. Mod tracks qsort by display_name. Note: PD/GE base track split deferred (no origin metadata in `mpGetTrackName`). |
-| **Weapons F-2.1** | Weapon Set: categorize Standard/Special/Mod | **DEFERRED** | `mpGetWeaponSetName()` is a flat game array with no origin metadata. Can't categorize without hardcoding. Re-evaluate when weapon catalog metadata is richer. |
+| **Weapons F-2.1** | Weapon Set: alphabetize under "Base Game" group | **DONE S251-res** | Replaced flat `BeginCombo` with `TreeNodeEx("Base Game (%d)", DefaultOpen)` + `std::sort` alpha Selectables, matching Arena section pattern. `#include <algorithm>` added. |
 
 ### Deferred (Next Session)
 
@@ -265,13 +265,38 @@ Post-fix worktree (`.claude/pf-build`): client **49,681,524** / server **22,772,
 
 | ID | Title | Notes |
 |----|-------|-------|
-| **B-140 Issue B** | Can't add tracks to playlist from in-match UI | `renderSelectTunes` doesn't route adds to mod playlist while in-match. Needs dedicated investigation. |
-| **Issue 2/8** | Custom themes + song mods don't appear in Settings/Combat Sim after Mods toggle | Requires unified `modmgrCatalogChanged()` consumer notifications. |
+| **B-140 Issue B** | ~~Can't add tracks to playlist from in-match UI~~ | **DONE S251-res** — see below. |
+| **Issue 2/8** | ~~Custom themes + song mods don't appear after Mods toggle~~ | **DONE S251-res** — see below. |
 | **Issue 4** | Airbase Start Match → no response (client sends but server never replies) | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
 | **Bug B** | Server countdown keeps running after room closes; fires into new room | Fix in `readyGateTickCountdown()` / `netmsg.c` — off-limits (parallel End Game crash session). |
 | **Bug C** | Bots visible on minimap but not rendered in world (audible) | Likely chr generation token mismatch (FIX-A area). |
 | **Bug D** | Silent crash ~9s into Chicago match | Needs VEH log + symbolify. |
-| **Issue 7** | Bot count / player count display doesn't update in room when host adjusts | Requires `SVC_ROOM_SETTINGS` broadcast from server. |
+| **Issue 7** | ~~Bot count / player count display doesn't update in room when host adjusts~~ | **DONE S251-res** — see below. |
+
+---
+
+## 2026-04-13 MP Lobby Residual (S251-residual)
+
+> Picked up all residuals from S248/S249/S250: Issue 7, Weapons F-2.1, Issue 2/8, B-140 Issue B.
+> Worktree: `claude/great-carson`. Final dev HEAD: `287b0bc4`. Build: both targets clean.
+
+### Done This Session
+
+| ID | Title | Status | Detail |
+|----|-------|--------|--------|
+| **Issue 7** | Bot/player count propagates to room members | **DONE** | Full CLC→SVC round-trip: `CLC_ROOM_SETTINGS_UPDATE 0x13` from leader to server; server validates room-leader and rebroadcasts as `SVC_ROOM_SETTINGS 0x78` to all room peers. Clients apply to `g_MatchConfig` on receipt. Dirty-flag accumulator in `pdguiRoomScreenRender()` flushes at end-of-frame. Also adds `SVC_ROOM_PLAYLIST 0x79` / `CLC_ROOM_PLAYLIST_UPDATE 0x14` for playlist sync (used by B-140 Issue B). Protocol v35 additive. Files: `netmsg.h`, `netmsg.c`, `net.c`, `pdgui_menu_room.cpp`. |
+| **Weapons F-2.1** | Weapon Set picker alphabetized under "Base Game" group | **DONE** | See S248 Fixed section above for detail. |
+| **Issue 2/8** | Theme rescan after `modmgrApplyChanges()` | **DONE** | `pdguiThemeRescanMods()` added to `pdgui_theme_loader.cpp` (bypasses `s_LoaderInitDone`); declared in `pdgui_theme_loader.h`; called in `modmgrApplyChanges()` between `modmgrCatalogChanged()` and `mainChangeToStage()`. Audio already self-heals via per-frame catalog scan — no extra rescan needed. |
+| **B-140 Issue B** | Select Tunes two-panel UX + network sync | **DONE** | `renderSelectTunes` redesigned: wider window (0.70×0.82), two-column layout. Left = Library (Base Game tree + Mod Tracks tree). Right = Selected Tracks (mod playlist). Click left mod track = add; click right = remove. Hover base track = `list_Focus` preview; hover mod track = `audioSetModTrackId` preview; hover-off = `musicRestoreInterval()` resume. Network sync: 3 call sites call `netSendRoomPlaylistUpdate()` when leader in networked room. `pdgui_menu_mpsettings.cpp`. |
+
+### Still Deferred
+
+| ID | Title | Notes |
+|----|-------|-------|
+| **Issue 4** | Airbase Start Match → no response | Log shows manifest OK but no SVC_STAGE_START. Server session-specific? |
+| **Bug B** | Server countdown lingers after room closes | Fix in `readyGateTickCountdown()` / `netmsg.c`. |
+| **Bug C** | Bots visible on minimap but not rendered | Chr generation token mismatch likely. |
+| **B-140 Issue B gap** | Base game tracks not in "Selected Tracks" right panel | Uses legacy `g_BossFile.tracknum` per-client path; not network-synced. Deferred. |
 
 ---
 
