@@ -1080,15 +1080,34 @@ static void register_mod_theme_dir(const char *mods_dir, const char *slug)
 /** Scan the `mods/` directory and register every `<slug>/theme.json` found. */
 static void scan_mods_for_themes(void)
 {
-    /* Try a few locations — fsFileLoad may already know about search roots
-     * (e.g. install dir, user data dir).  We start with the plain relative
-     * path "mods" and fall back if needed. */
-    static const char * const candidates[] = { "mods" };
-    const int numCandidates = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    /* Match modmgr search order so theme discovery follows the same roots:
+     * ./mods, $E/mods, then base-dir mods fallback. */
+    char candidateBufs[3][THEME_FILEPATH_LEN];
+    snprintf(candidateBufs[0], sizeof(candidateBufs[0]), "%s", "mods");
+    {
+        const char *p = fsFullPath("$E/mods");
+        snprintf(candidateBufs[1], sizeof(candidateBufs[1]), "%s", p ? p : "");
+    }
+    {
+        const char *p = fsFullPath("mods");
+        snprintf(candidateBufs[2], sizeof(candidateBufs[2]), "%s", p ? p : "");
+    }
 
-    int found = 0;
-    for (int ci = 0; ci < numCandidates; ci++) {
-        DIR *d = opendir(candidates[ci]);
+    int walked = 0;
+    for (int ci = 0; ci < 3; ci++) {
+        if (!candidateBufs[ci][0]) continue;
+
+        /* Avoid re-scanning duplicate resolved paths. */
+        bool dup = false;
+        for (int pj = 0; pj < ci; pj++) {
+            if (candidateBufs[pj][0] && strcmp(candidateBufs[pj], candidateBufs[ci]) == 0) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) continue;
+
+        DIR *d = opendir(candidateBufs[ci]);
         if (!d) continue;
 
         struct dirent *ent;
@@ -1099,23 +1118,19 @@ static void scan_mods_for_themes(void)
 
             /* Verify it's a directory */
             char subdir[THEME_FILEPATH_LEN];
-            snprintf(subdir, sizeof(subdir), "%s/%s", candidates[ci], name);
+            snprintf(subdir, sizeof(subdir), "%s/%s", candidateBufs[ci], name);
             struct stat st;
             if (stat(subdir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
 
-            register_mod_theme_dir(candidates[ci], name);
-            found++;
+            register_mod_theme_dir(candidateBufs[ci], name);
+            walked++;
         }
         closedir(d);
-
-        /* First candidate that exists wins — don't double-register from
-         * multiple search roots. */
-        if (found > 0) break;
     }
 
     sysLogPrintf(LOG_NOTE,
         "PDGUI theme loader: scanned mods/ — %d directories walked, %d total themes registered",
-        found, s_ThemeCount);
+        walked, s_ThemeCount);
 }
 
 /* =========================================================================

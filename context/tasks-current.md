@@ -19,6 +19,7 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 - **Issue 7** room-settings sync (`287b0bc4`) — non-leader sees leader's bot/player count / arena / timelimit real-time.
 - **B-140 Issue B** two-panel Select Tunes (`287b0bc4`) — add/remove mod tracks, hover preview, leader's playlist syncs to room.
 - **Issue 2/8** theme rescan (`287b0bc4`) — newly-enabled mod themes appear in Settings → Video without restart.
+- **Mod Apply follow-up (S260, uncommitted)** — verify Apply now rebuilds enabled mod manifests/audio before title return (themes + mod songs populate; Select Tunes add/remove works) and MP dialog close no longer steals main-menu input context.
 - **B-142** false kills (`4d1e13c1`) — fresh 32-bot Chicago match, idle 30 s, pause → kill counter 0/0.
 - **B-143 End-Game-Crash** + modal confirm (`d37e9677`) — End Game → Confirm → no AV, CI training loads.
 - **B-141 telemetry** (`5a42f234`) — on next audio-skip repro, tail `pd.log` for `AUDIO[B-141]`.

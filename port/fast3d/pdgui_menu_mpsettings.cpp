@@ -301,6 +301,9 @@ struct PdmsWindowFrame {
     ImVec2 pos;
 };
 
+/* True only when this module pushed g_CtxImGuiMenu itself. */
+static bool s_PdmsOwnsMenuCtx = false;
+
 static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char *title,
                                                  float widthFrac, float heightFrac)
 {
@@ -331,6 +334,9 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_PdmsOwnsMenuCtx = true;
+        } else {
+            s_PdmsOwnsMenuCtx = false;
         }
     }
 
@@ -343,8 +349,9 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
 static void pdms_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+    if (s_PdmsOwnsMenuCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
+        s_PdmsOwnsMenuCtx = false;
     }
     menuPopDialog();
 }
@@ -500,8 +507,7 @@ static s32 renderHandicap(struct menudialog *dialog,
         || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        pdms_CloseCurrentDialog();
     }
 
     ImGui::End();
@@ -540,6 +546,14 @@ static s32 renderHandicap(struct menudialog *dialog,
  */
 
 static s32 s_TunesHoverIdx  = -1;  /* -1 = nothing hovered */
+
+static void pdms_EndTunesPreview(void)
+{
+    if (s_TunesHoverIdx >= 0) {
+        s_TunesHoverIdx = -1;
+        musicRestoreInterval();
+    }
+}
 
 /* ---- Batch A-4: Mod music tracks from catalog ---- */
 
@@ -592,6 +606,7 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
     }
 
     if (pdms_BackPressed()) {
+        pdms_EndTunesPreview();
         pdms_CloseCurrentDialog();
         ImGui::End();
         return 1;
@@ -775,12 +790,12 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 
     /* Hover-off resume: when nothing hovered this frame, restore background music */
     if (!anyHover && s_TunesHoverIdx >= 0) {
-        s_TunesHoverIdx = -1;
-        musicRestoreInterval();
+        pdms_EndTunesPreview();
     }
 
     if (pdguiBeginActionBar("##pdms_tunes_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+            pdms_EndTunesPreview();
             pdms_CloseCurrentDialog();
         }
     }

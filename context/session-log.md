@@ -3,6 +3,21 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S260 — 2026-04-14 (Mod Apply rebuild + theme roots + MP dialog input ownership)
+
+**Problem**: After enabling mods and pressing Apply, enabled mod themes/songs did not appear, Select Tunes interactions were inert (no mod tracks to add), and menu input/cursor state could break after backing out of MP dialogs.
+
+**Root causes + fixes**:
+- **`port/src/modmgr.c`**: `modmgrApplyChanges()` only rebuilt reverse indexes; it did not re-register enabled mods before returning to title. Added `modmgrRebuildCatalogFromCurrentSelection()` and used it in both `modmgrApplyChanges()` and `modmgrReload()`: clear mod catalog entries, rescan components, restore `.modstate`, re-load enabled mods (`modmgrLoadMod`), then run `catalogLoadInit()`. This makes enabled mod manifest/audio entries present in the same apply cycle.
+- **`port/fast3d/pdgui_theme_loader.cpp`**: `scan_mods_for_themes()` only walked `"mods"` and stopped at first hit. Updated to match modmgr roots (`mods`, `$E/mods`, `fsFullPath("mods")`), skip duplicate resolved paths, and scan all reachable roots so themes located outside the first root still register.
+- **`port/fast3d/pdgui_menu_mpsettings.cpp`**: dialog close path always popped `g_CtxImGuiMenu` even when this screen did not push it. Added ownership tracking (`s_PdmsOwnsMenuCtx`) so close only pops contexts owned by this dialog; also routed Handicaps "Done" through the same close helper. Added `pdms_EndTunesPreview()` and call it on Select Tunes back/close so hover preview always restores background music on exit.
+
+**Build verification**:
+- `devtools/build-headless.ps1 -Target all` currently fails at configure due an unrelated workspace state in `CMakeLists.txt` (CMake reports `CMAKE_C_COMPILER` / `CMAKE_CXX_COMPILER` set to `C`, not a valid compiler path).
+- Changes in this session are uncommitted; runtime playtest is required once configure is restored.
+
+---
+
 ## Session S259 — 2026-04-14 (Dev Window: lock cleanup, progress text, no forced Log tab)
 
 **Problem**: `Invoke-GitSyncBeforeBuild` failed with *Unable to create `.git/index.lock`: File exists* (leftover lock after interrupted/crashed git). `Auto-Commit-Sync` and `build-headless -AutoCommit` already remove a stale lock; sync-before-build did not.

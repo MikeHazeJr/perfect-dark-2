@@ -96,6 +96,7 @@ static bool modmgrParseAudioIni(modinfo_t *mod);
 static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
+static void modmgrRebuildCatalogFromCurrentSelection(void);
 static u32  modmgrHashString(const char *str);
 static void modmgrParseEnabledList(void);
 static void modmgrBuildEnabledList(void);
@@ -1440,37 +1441,7 @@ void modmgrReload(void)
 
 	// Unload everything
 	modmgrUnloadAllMods();
-
-	// C-8: Rebuild catalog with the new enabled mod set.
-	// assetCatalogClearMods() removes all non-bundled (mod) entries from the
-	// catalog, then re-scanning repopulates them for the currently enabled mods.
-	// catalogLoadInit() then rebuilds the four reverse-index arrays so the
-	// C-4/C-5/C-6/C-7 intercepts reflect the updated mod state immediately.
-	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — clearing mod entries");
-	assetCatalogClearMods();
-	{
-		const char *modsdir = modmgrGetModsDir();
-		if (modsdir) {
-			s32 ncomp = assetCatalogScanComponents(modsdir);
-			assetCatalogScanBotVariants(modsdir);
-			sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — %d component(s) re-registered", ncomp);
-		}
-	}
-	// Restore per-component enable state from .modstate (written by
-	// modmgrSaveComponentState during the preceding apply step).
-	modmgrLoadComponentState();
-	// Rebuild reverse-index arrays — skips disabled entries, so components
-	// toggled off via .modstate will not appear in override lookups.
-	catalogLoadInit();
-	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries",
-	             assetCatalogGetCount());
-
-	// Re-load enabled mods
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
-			modmgrLoadMod(&g_ModRegistry[i]);
-		}
-	}
+	modmgrRebuildCatalogFromCurrentSelection();
 
 	g_ModDirty = false;
 
@@ -1481,6 +1452,45 @@ void modmgrReload(void)
 
 	videoResetTextureCache();
 	mainChangeToStage(MODMGR_STAGE_TITLE);
+}
+
+static void modmgrRebuildCatalogFromCurrentSelection(void)
+{
+	s32 enabledCount = 0;
+
+	// C-8: Rebuild catalog with the new enabled mod set.
+	// assetCatalogClearMods() removes all non-bundled (mod) entries from the
+	// catalog, then re-scanning repopulates them for the currently enabled mods.
+	// catalogLoadInit() then rebuilds reverse-index arrays so C-4/C-5/C-6/C-7
+	// intercepts reflect the updated mod state immediately.
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — clearing mod entries");
+	assetCatalogClearMods();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			s32 ncomp = assetCatalogScanComponents(modsdir);
+			assetCatalogScanBotVariants(modsdir);
+			sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — %d component(s) re-registered", ncomp);
+		}
+	}
+
+	// Restore per-component enable state from .modstate (written by
+	// modmgrSaveComponentState during apply).
+	modmgrLoadComponentState();
+
+	// Re-register enabled manifest/audio mods so theme/audio content is present
+	// in the catalog for the next reverse-index build.
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].enabled) {
+			modmgrLoadMod(&g_ModRegistry[i]);
+			enabledCount++;
+		}
+	}
+
+	// Rebuild reverse-index arrays after all mod entries are present.
+	catalogLoadInit();
+	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries (%d enabled mod package(s))",
+	             assetCatalogGetCount(), enabledCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -1684,15 +1694,14 @@ void modmgrApplyChanges(void)
 	/* Persist legacy modinfo enables */
 	modmgrSaveConfig();
 
-	/* C-8: Component enable/disable flags changed — rebuild the reverse-index
-	 * arrays so C-4/C-5/C-6/C-7 intercepts reflect the new state before the
-	 * title screen reloads.  catalogLoadInit() skips disabled entries, so
-	 * components the user toggled off will produce no overrides. */
-	sysLogPrintf(LOG_NOTE, "MOD: reverse-index rebuild after component toggle");
-	catalogLoadInit();
+	/* Rebuild catalog + reverse-indexes from the newly saved config and
+	 * component state so enabled mod manifests/audio are live immediately. */
+	modmgrUnloadAllMods();
+	modmgrRebuildCatalogFromCurrentSelection();
 
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
+	g_ModDirty = false;
 
 	/* Issue 2/8: rescan mods/ for new theme.json files so newly-installed
 	 * mod themes appear in the theme selector after Apply without a restart.
