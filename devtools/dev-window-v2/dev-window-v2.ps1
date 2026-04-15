@@ -19,9 +19,8 @@ $env:PD_BUILD_ENV_QUIET = '1'
 . (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1")
 
 # ----------------------------------------------------------------------------
-# GitHub CLI: PATH from registry + default install dirs
-# winget / MSI often add User or Machine PATH; a Dev Window started from Explorer
-# can inherit a stale PATH until logoff. Merge registry PATH + probe gh.exe.
+# GitHub CLI PATH: merge Machine+User from registry (same idea as original Dev Window
+# passing $env:PATH into the auth runspace). See devtools/_dev-window.ps1 Section 22.
 # ----------------------------------------------------------------------------
 function Sync-UserMachinePath {
     try {
@@ -30,27 +29,6 @@ function Sync-UserMachinePath {
         if ($m) { $env:Path = $m + ';' + $env:Path }
         if ($u) { $env:Path = $u + ';' + $env:Path }
     } catch {}
-}
-
-function Resolve-GhExecutable {
-    Sync-UserMachinePath
-    $cmd = Get-Command gh -ErrorAction SilentlyContinue
-    if ($null -ne $cmd -and $cmd.Source) { return $cmd.Source.Trim() }
-    $pf = [System.Environment]::GetEnvironmentVariable('ProgramFiles')
-    if ($pf) {
-        $p = Join-Path $pf 'GitHub CLI\gh.exe'
-        if (Test-Path -LiteralPath $p) { return $p }
-    }
-    $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-    if ($pf86) {
-        $p = Join-Path $pf86 'GitHub CLI\gh.exe'
-        if (Test-Path -LiteralPath $p) { return $p }
-    }
-    if ($env:LocalAppData) {
-        $p = Join-Path $env:LocalAppData 'GitHub CLI\gh.exe'
-        if (Test-Path -LiteralPath $p) { return $p }
-    }
-    return $null
 }
 
 Sync-UserMachinePath
@@ -169,7 +147,6 @@ $script:LastGitCheck        = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
 $script:GhCliAvailable      = $false
-$script:GhExe               = $null   # full path from Resolve-GhExecutable
 $script:GhAuthChecked       = $false
 $script:GhAuthRefreshBusy   = $false  # runspace probe in flight
 $script:LastGhAuthProbeUtc  = [DateTime]::UtcNow
@@ -1158,11 +1135,6 @@ function Start-PushRelease {
         [System.Windows.MessageBox]::Show("release.ps1 not found in devtools/.", "Release Error", "OK", "Warning") | Out-Null
         return
     }
-    $ghResolved = Resolve-GhExecutable
-    if ($ghResolved) {
-        $script:GhExe = $ghResolved
-        $script:GhCliAvailable = $true
-    }
     if (-not $script:GhCliAvailable -or -not $script:GhAuthOk) {
         $go = [System.Windows.MessageBox]::Show(
             "GitHub CLI (gh) is missing or you are not logged in.`n`n" +
@@ -1504,10 +1476,10 @@ $script:MainTimer.Add_Tick({
     try {
         Update-RunButtons
         if (-not $script:IsBuilding) { Update-StatusBar }
-        # Until auth shows ok, re-check periodically (user may complete gh auth in browser)
-        if ($script:GhAuthChecked -and $script:GhCliAvailable -and -not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
+        # Re-check gh auth (same cadence as post-login refresh; includes "gh not installed" yet)
+        if ($script:GhAuthChecked -and -not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
             $elapsed = ([DateTime]::UtcNow - $script:LastGhAuthProbeUtc).TotalSeconds
-            if ($elapsed -ge 10) { Invoke-GhAuthStatusProbeAsync }
+            if ($elapsed -ge 10) { Invoke-GhAuthBackgroundCheck }
         }
     } catch {}
 })
@@ -1516,53 +1488,32 @@ $script:MainTimer.Add_Tick({
 # Section 19: Status bar updates
 # ============================================================================
 
-# Runs gh auth status in a background runspace using Process.ExitCode (reliable).
-# Re-invoked after login, on timer, on focus, and F5 — initial load only ran once,
-# so the UI never picked up completed gh auth login.
-function Invoke-GhAuthStatusProbeAsync {
+# Matches devtools/_dev-window.ps1: pass $env:PATH into runspace, Get-Command gh,
+# gh auth status 2>&1, success = output matches 'Logged in' (not exit code).
+function Invoke-GhAuthBackgroundCheck {
     if ($script:GhAuthRefreshBusy) { return }
-    $exe = $script:GhExe
-    if (-not $exe) {
-        $exe = Resolve-GhExecutable
-        if ($exe) { $script:GhExe = $exe }
-    }
-    if (-not $exe) { return }
-
+    Sync-UserMachinePath
     $script:GhAuthRefreshBusy = $true
     $script:LastGhAuthProbeUtc = [DateTime]::UtcNow
+    $pathToPass = $env:PATH
 
-    $ghPathForJob = $exe
     $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
     $rs.Open()
     $ps = [System.Management.Automation.PowerShell]::Create()
     $ps.Runspace = $rs
     [void]$ps.AddScript({
-        param([string]$GhExePath)
-        if (-not $GhExePath -or -not (Test-Path -LiteralPath $GhExePath)) {
-            return [PSCustomObject]@{ Present = $false; Ok = $false }
-        }
+        param([string]$EnvPath)
         try {
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = $GhExePath
-            $psi.Arguments = 'auth status'
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            $psi.CreateNoWindow = $true
-            $psi.WorkingDirectory = [System.Environment]::GetFolderPath('UserProfile')
-            $proc = New-Object System.Diagnostics.Process
-            $proc.StartInfo = $psi
-            [void]$proc.Start()
-            if (-not $proc.WaitForExit(45000)) {
-                try { $proc.Kill() } catch {}
-                return [PSCustomObject]@{ Present = $true; Ok = $false }
-            }
-            return [PSCustomObject]@{ Present = $true; Ok = ($proc.ExitCode -eq 0) }
+            $env:PATH = $EnvPath
+            $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+            if ($null -eq $ghCmd) { return "NOT_INSTALLED" }
+            $o = gh auth status 2>&1
+            return (($o | ForEach-Object { $_.ToString() }) -join " ")
         } catch {
-            return [PSCustomObject]@{ Present = $true; Ok = $false }
+            return "ERROR"
         }
     })
-    [void]$ps.AddArgument($ghPathForJob)
+    [void]$ps.AddArgument($pathToPass)
     $handle = $ps.BeginInvoke()
     $authPollTimer = New-Object System.Windows.Threading.DispatcherTimer
     $authPollTimer.Interval = [TimeSpan]::FromMilliseconds(400)
@@ -1572,16 +1523,15 @@ function Invoke-GhAuthStatusProbeAsync {
             $this.Stop()
             $result = $ps.EndInvoke($handle)
             $script:GhAuthRefreshBusy = $false
-            $script:GhCliAvailable = $false
-            $script:GhAuthOk = $false
-            $script:GhAuthChecked = $true
+            $txt = ""
             if ($null -ne $result -and $result.Count -gt 0) {
-                $o = $result[0]
-                if ($null -ne $o -and $o.Present) {
-                    $script:GhCliAvailable = $true
-                    $script:GhAuthOk = [bool]$o.Ok
-                }
+                $txt = ($result | ForEach-Object { $_ }) -join " "
             }
+            $ok = $txt -match 'Logged in'
+            $notInstalled = $txt -match 'NOT_INSTALLED'
+            $script:GhAuthChecked = $true
+            $script:GhCliAvailable = -not $notInstalled
+            $script:GhAuthOk = $ok
             try { $ps.Dispose() } catch {}
             try { $rs.Close(); $rs.Dispose() } catch {}
             Update-Auth-Labels
@@ -1597,7 +1547,7 @@ function Update-Auth-Labels {
     $authText  = "auth: ..."
     $authColor = "#8C8C8C"
     if (-not $script:GhAuthChecked) {
-        # still checking — avoids flashing auth: no gh before background run finishes
+        # still checking - avoids flashing auth: no gh before background run finishes
     } elseif (-not $script:GhCliAvailable) {
         $authText  = "auth: no gh"
         $authColor = "#C9A020"
@@ -1623,41 +1573,20 @@ function Update-Auth-Labels {
 }
 
 function Invoke-GhAuthHelp {
-    $exe = Resolve-GhExecutable
-    if (-not $exe) {
-        [System.Windows.MessageBox]::Show(
-            "GitHub CLI (gh) was not found.`n`n" +
-            "Install (example):`n" +
-            "  winget install GitHub.cli`n`n" +
-            "Or: https://cli.github.com/`n`n" +
-            "Default location: Program Files\GitHub CLI\gh.exe`n`n" +
-            "This window merges Machine + User PATH from the registry when it starts, so a full sign-out is usually not required. If gh still is not found, open a new Command Prompt and run: where gh",
-            "GitHub CLI",
-            "OK",
-            "Information") | Out-Null
-        return
-    }
-    $script:GhExe = $exe
-    $script:GhCliAvailable = $true
-    Update-Auth-Labels
+    # Same as devtools/_dev-window.ps1: visible PowerShell with gh on normal PATH
     if ($script:GhAuthOk) { return }
     try {
-        Start-Process -FilePath $exe -ArgumentList @('auth','login') -WorkingDirectory $script:ProjectRoot
-        # Browser/device login finishes after this returns — re-probe a few times
-        $d4 = New-Object System.Windows.Threading.DispatcherTimer
-        $d4.Interval = [TimeSpan]::FromSeconds(4)
-        $d4.Add_Tick({ $this.Stop(); try { Invoke-GhAuthStatusProbeAsync } catch {} })
-        $d4.Start()
-        $d15 = New-Object System.Windows.Threading.DispatcherTimer
-        $d15.Interval = [TimeSpan]::FromSeconds(15)
-        $d15.Add_Tick({ $this.Stop(); try { Invoke-GhAuthStatusProbeAsync } catch {} })
-        $d15.Start()
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = "-NoExit -Command `"gh auth login`""
+        $psi.UseShellExecute = $true
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
     } catch {
         [System.Windows.MessageBox]::Show(
-            "Could not start GitHub CLI: " + $_.Exception.Message,
-            "Error",
+            "Could not launch gh auth login. Make sure GitHub CLI (gh) is installed.",
+            "Auth Error",
             "OK",
-            "Error") | Out-Null
+            "Warning") | Out-Null
     }
 }
 
@@ -1743,7 +1672,7 @@ $window.Add_KeyDown({
     }
     elseif ($e.Key -eq [System.Windows.Input.Key]::F5) {
         Update-StatusBar
-        Invoke-GhAuthStatusProbeAsync
+        Invoke-GhAuthBackgroundCheck
         Refresh-VersionDisplay
         $e.Handled = $true
     }
@@ -1796,8 +1725,7 @@ $window.Add_Loaded({
         # Status bar (initial)
         Update-StatusBar
 
-        $script:GhExe = Resolve-GhExecutable
-        Invoke-GhAuthStatusProbeAsync
+        Invoke-GhAuthBackgroundCheck
 
         # Start main timer
         $script:MainTimer.Start()
@@ -1807,12 +1735,11 @@ $window.Add_Loaded({
 $window.Add_Activated({
     try {
         if (-not $script:GhAuthChecked) { return }
-        if (-not $script:GhCliAvailable) { return }
         if ($script:GhAuthOk) { return }
         if ($script:GhAuthRefreshBusy) { return }
         $elapsed = ([DateTime]::UtcNow - $script:LastGhAuthProbeUtc).TotalSeconds
         if ($elapsed -lt 3) { return }
-        Invoke-GhAuthStatusProbeAsync
+        Invoke-GhAuthBackgroundCheck
     } catch {}
 })
 

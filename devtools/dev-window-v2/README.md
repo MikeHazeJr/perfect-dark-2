@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File devtools\dev-window-v2\dev-window-v2.ps
 - **RELEASE** button -- sets version, builds, packages, pushes to GitHub via `devtools/release.ps1`.
 - **Version spinners** -- major/minor/patch with +/- buttons. Source of truth: `CMakeLists.txt`.
 - **Stable checkbox** -- toggles between Dev (prerelease) and Stable release.
-- **Auth status** -- shows `gh auth status`. Click to launch `gh auth login` if not authenticated.
+- **Auth status** -- same behavior as original Dev Window: background `gh auth status` (match `Logged in` in output). Click opens a **new PowerShell window** (`-NoExit -Command "gh auth login"`).
 - **Check** button -- validates clean git state and runs `devtools/git-snapshot.sh`.
 - **Copy Errors / Copy Log** -- appear after builds.
 - **GitHub / Project Folder / Clean Build** -- utility buttons.
