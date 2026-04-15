@@ -322,6 +322,9 @@ void readyGateTickCountdown(void);
  * clients clear their 3-2-1 overlay. */
 void netReadyGateAbortForRoom(u8 room_id, const char *reason);
 void netReadyGateOnClientLeft(u8 clientId);
+/* Local host/listen-server cancel path used by UI Back/Escape during countdown.
+ * Returns 0 on success, <0 when not cancellable in current state. */
+s32 netReadyGateCancelByLocalClient(struct netclient *srccl);
 
 /* Prop syncid → prop* lookup map.
  * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.

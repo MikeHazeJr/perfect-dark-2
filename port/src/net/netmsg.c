@@ -4271,6 +4271,29 @@ void netReadyGateOnClientLeft(u8 clientId)
 	readyGateAbort(who);
 }
 
+s32 netReadyGateCancelByLocalClient(struct netclient *srccl)
+{
+	if (g_NetMode != NETMODE_SERVER) {
+		return -1;
+	}
+
+	if (!srccl) {
+		return -2;
+	}
+
+	/* Cancellation is only valid while the visible 3-2-1 countdown is active. */
+	if (!s_ReadyGate.active || !s_ReadyGate.countdown_active) {
+		return -3;
+	}
+
+	if (srccl->state != CLSTATE_PREPARING) {
+		return -4;
+	}
+
+	readyGateAbort(srccl->settings.name[0] ? srccl->settings.name : "Player");
+	return 0;
+}
+
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
@@ -5203,7 +5226,7 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 /* ---- SVC_MATCH_MANIFEST ---- */
 
 /* Phase D.4: SVC_MATCH_MANIFEST now uses manifestSerialize/Deserialize (protocol 26+).
- * Per-entry format: u32 net_hash, u8 type, u8 slot_index, str id,
+ * Per-entry format: u8 type, u8 slot_index, str id,
  *                   [u8[32] sha256] only for MANIFEST_TYPE_COMPONENT entries.
  * The manifest_hash header is retained for integrity checking on the client. */
 
@@ -5239,6 +5262,11 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 
 	/* Phase C: check local catalog against manifest, send CLC_MANIFEST_STATUS */
 	manifestCheck(&g_ClientManifest);
+
+	/* Local client is now in match-start prep (manifest check/transfer/countdown). */
+	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient) {
+		g_NetLocalClient->state = CLSTATE_PREPARING;
+	}
 
 	return src->error;
 }
@@ -5401,22 +5429,11 @@ u32 netmsgClcLobbyCancelRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	/* Only valid during the MANIFEST_PHASE_LOADING countdown */
-	if (!s_ReadyGate.active || !s_ReadyGate.countdown_active) {
-		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' but no countdown active — ignored",
+	if (netReadyGateCancelByLocalClient(srccl) != 0) {
+		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' ignored (gate/state mismatch)",
 		             srccl->settings.name[0] ? srccl->settings.name : "?");
 		return src->error;
 	}
-
-	/* Only clients that are currently preparing can cancel */
-	if (srccl->state != CLSTATE_PREPARING) {
-		return src->error;
-	}
-
-	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_CANCEL from '%s' — aborting countdown",
-	             srccl->settings.name[0] ? srccl->settings.name : "?");
-
-	readyGateAbort(srccl->settings.name[0] ? srccl->settings.name : "Player");
 
 	return src->error;
 }
@@ -5456,6 +5473,10 @@ u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
 		g_MatchCancelledState.name[MATCH_CANCEL_NAME_LEN - 1] = '\0';
 	} else {
 		g_MatchCancelledState.name[0] = '\0';
+	}
+
+	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient) {
+		g_NetLocalClient->state = CLSTATE_LOBBY;
 	}
 
 	return src->error;
