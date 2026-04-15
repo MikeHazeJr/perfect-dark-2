@@ -328,6 +328,36 @@ function Remove-GitIndexLockForRepo {
     } catch {}
 }
 
+function Force-DeleteGitIndexLockHard {
+    param([string]$RepoRoot)
+    if (-not $RepoRoot) { return }
+
+    # Normal cleanup path first.
+    Remove-GitIndexLockForRepo $RepoRoot
+
+    # Extra safety: force-delete common Linux path variants explicitly.
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if ($null -eq $wsl) { return }
+    try {
+        # 1) Repo as seen by current shell through WSL path translation.
+        $wslRepo = (& wsl.exe wslpath -a $RepoRoot 2>$null)
+        if ($wslRepo) {
+            $wslRepo = $wslRepo.Trim().TrimEnd('/')
+            if ($wslRepo) {
+                [void](& wsl.exe -- rm -f -- ($wslRepo + '/.git/index.lock') 2>&1)
+            }
+        }
+        # 2) Repo root as reported by git itself (can be /home/...).
+        $gitTop = (& git -C $RepoRoot rev-parse --show-toplevel 2>$null)
+        if ($gitTop) {
+            $gitTop = $gitTop.Trim().TrimEnd('/')
+            if ($gitTop -match '^/') {
+                [void](& wsl.exe -- rm -f -- ($gitTop + '/.git/index.lock') 2>&1)
+            }
+        }
+    } catch {}
+}
+
 function Get-ChildProcessPathEnv {
     $segments = [System.Collections.ArrayList]::new()
     $gitExe = Resolve-GitExecutable
@@ -464,7 +494,7 @@ function Get-GitChangeCount {
 }
 
 function Auto-Commit-Sync {
-    Remove-GitIndexLockForRepo $script:ProjectRoot
+    Force-DeleteGitIndexLockHard $script:ProjectRoot
     $st = git -C $script:ProjectRoot status --porcelain 2>$null
     if (-not $st) { return $true }
     $ver = $(if ($null -ne $script:BuildVersion) { $script:BuildVersion } else { Get-ProjectVersion })
@@ -1171,15 +1201,22 @@ function Invoke-GitSyncBeforeBuild {
     Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
     Push-Location $script:ProjectRoot
     try {
-        Remove-GitIndexLockForRepo $script:ProjectRoot
-        $addOut = @(git add -A 2>&1)
-        $addCode = $LASTEXITCODE
-        if ($addCode -ne 0 -and (($addOut | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
-            $addText = ($addOut | ForEach-Object { "$_" }) -join "`n"
-            Remove-GitIndexLockFromGitStderr $addText
-            Remove-GitIndexLockForRepo $script:ProjectRoot
+        Force-DeleteGitIndexLockHard $script:ProjectRoot
+        $addOut = @()
+        $addCode = 1
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
             $addOut = @(git add -A 2>&1)
             $addCode = $LASTEXITCODE
+            if ($addCode -eq 0) { break }
+            $addText = ($addOut | Out-String)
+            if ($addText -match 'index\.lock|Unable to create') {
+                Add-LogSessionLine "git add: index.lock detected (attempt $attempt/3), forcing lock cleanup + retry..." "#CDAA32"
+                Remove-GitIndexLockFromGitStderr $addText
+                Force-DeleteGitIndexLockHard $script:ProjectRoot
+                Start-Sleep -Milliseconds 250
+                continue
+            }
+            break
         }
         if ($addCode -ne 0) {
             foreach ($line in $addOut) { Add-LogSessionLine "$line" "#DC3232" }
