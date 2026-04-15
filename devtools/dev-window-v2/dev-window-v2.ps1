@@ -111,6 +111,8 @@ $script:BuildDir            = [System.IO.Path]::GetFullPath((Join-Path $script:P
 $script:SettingsPath        = Join-Path $script:ScriptDir "settings.json"
 $script:ReleaseCachePath    = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
 $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin"
+# Pin native MinGW CMake (not bare "cmake" on PATH): MSYS usr\bin also ships cmake; that Cygwin build
+# maps C:\... CWD to /home/... and corrupts -S/-B paths when mixed with Windows paths.
 $script:CMake               = "C:/msys64/mingw64/bin/cmake.exe"
 $script:CC                  = "C:/msys64/mingw64/bin/cc.exe"
 $script:ClientExeName       = "PerfectDark.exe"
@@ -255,6 +257,7 @@ function Get-ChildProcessPathEnv {
         $gd = Split-Path -Parent $gitExe
         if ($gd) { [void]$segments.Add($gd) }
     }
+    # mingw64\bin MUST come before usr\bin: both contain cmake.exe; usr\bin wins Cygwin cmake (bad).
     foreach ($d in @("C:\msys64\mingw64\bin", "C:\msys64\usr\bin")) {
         if (Test-Path -LiteralPath $d) { [void]$segments.Add($d) }
     }

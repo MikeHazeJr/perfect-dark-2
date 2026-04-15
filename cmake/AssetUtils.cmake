@@ -1,3 +1,19 @@
+# Ninja on Windows runs custom commands via cmd.exe with a minimal environment; a bare `python3`
+# is often missing (Windows uses `python` or py.exe). Resolve once at configure time so build rules
+# embed an absolute path.
+if(NOT PD_PYTHON_EXECUTABLE)
+  find_program(PD_PYTHON_EXECUTABLE
+    NAMES python3 python3.exe python python.exe py py.exe
+    HINTS
+      "C:/msys64/mingw64/bin"
+      "C:/msys64/usr/bin"
+    DOC "Python 3 for mklang/mkanims asset header generation")
+endif()
+if(NOT PD_PYTHON_EXECUTABLE)
+  message(FATAL_ERROR "Python 3 not found (tried python3, python, py). Install Python 3 or MSYS2: pacman -S mingw-w64-x86_64-python. Or re-run CMake with -DPD_PYTHON_EXECUTABLE=C:/path/to/python.exe")
+endif()
+message(STATUS "Asset tools Python: ${PD_PYTHON_EXECUTABLE}")
+
 # execute a header generator (execcmd) for every json file in jsonpath, collect headers in headerlist
 # note that this reads ROMID
 macro(generate_asset_headers jsonpath execcmd extraarg headerlist)
@@ -29,7 +45,7 @@ macro(generate_asset_headers jsonpath execcmd extraarg headerlist)
     add_custom_command(
       OUTPUT  ${HEADERNAME}
       DEPENDS ${JSON}
-      COMMAND python3 "${REL_EXECCMD}" "${REL_JSON}" ${extraarg} --headers-only --romid=${ROMID}
+      COMMAND "${PD_PYTHON_EXECUTABLE}" "${REL_EXECCMD}" "${REL_JSON}" ${extraarg} --headers-only --romid=${ROMID}
       WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     )
     list(APPEND ${headerlist} "${HEADERNAME}")
