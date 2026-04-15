@@ -27,6 +27,18 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
+if (-not ([System.Management.Automation.PSTypeName]'PD2V2.DpiUtil').Type) {
+    Add-Type -Language CSharp @"
+using System.Runtime.InteropServices;
+namespace PD2V2 {
+    public static class DpiUtil {
+        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    }
+}
+"@
+}
+try { [void][PD2V2.DpiUtil]::SetProcessDPIAware() } catch {}
+
 if (-not ([System.Management.Automation.PSTypeName]'PD2V2.ConsoleHider').Type) {
     Add-Type -Language CSharp @"
 using System;
@@ -305,6 +317,10 @@ function Auto-Commit-Sync {
         MinWidth="700" MinHeight="500"
         Background="#141820"
         WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        RenderOptions.ClearTypeHint="Enabled"
         TextElement.FontFamily="Segoe UI"
         TextElement.FontSize="13"
         TextElement.Foreground="#C8D0DC">
@@ -670,6 +686,10 @@ function Auto-Commit-Sync {
                         <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
+                        <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
+                                ToolTip="git pull (current branch, upstream)"/>
+                        <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
+                                ToolTip="git push (current branch to upstream)"/>
                     </StackPanel>
                 </DockPanel>
             </TabItem>
@@ -741,7 +761,7 @@ $namedElements = @(
     "TxtVerMajor","TxtVerMinor","TxtVerPatch",
     "BtnVerMajDown","BtnVerMajUp","BtnVerMinDown","BtnVerMinUp","BtnVerPatDown","BtnVerPatUp",
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
-    "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild",
+    "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild","BtnPull","BtnPush",
     "BtnLogClear","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent"
 )
@@ -895,6 +915,80 @@ function Copy-AddinFiles {
     } catch {}
 }
 
+function Get-GitCurrentBranch {
+    try {
+        $b = git -C $script:ProjectRoot rev-parse --abbrev-ref HEAD 2>$null
+        if ($b) { return $b.Trim() }
+    } catch {}
+    return "HEAD"
+}
+
+function Invoke-GitPull {
+    if ($script:IsBuilding -or $script:IsPushing) {
+        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Pull", "OK", "Information") | Out-Null
+        return
+    }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Pull", "OK", "Warning") | Out-Null
+        return
+    }
+    $ui["TabControl"].SelectedIndex = 1
+    $br = Get-GitCurrentBranch
+    Add-LogLine ">>> git pull (branch: $br)" "#0090D0"
+    try {
+        $out = & git -C $script:ProjectRoot pull 2>&1
+        $code = $LASTEXITCODE
+        foreach ($line in $out) {
+            $t = "$line".TrimEnd("`r")
+            $cl = "#8C8C8C"
+            if ($code -ne 0) { $cl = "#DC3232" }
+            Add-LogLine $t $cl
+        }
+        if ($code -eq 0) {
+            [System.Windows.MessageBox]::Show("Pull completed successfully.", "Git Pull", "OK", "Information") | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show("Pull finished with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
+        }
+    } catch {
+        Add-LogLine $_.Exception.Message "#DC3232"
+        [System.Windows.MessageBox]::Show($_.Exception.Message, "Git Pull", "OK", "Error") | Out-Null
+    }
+    Update-StatusBar
+}
+
+function Invoke-GitPush {
+    if ($script:IsBuilding -or $script:IsPushing) {
+        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Push", "OK", "Information") | Out-Null
+        return
+    }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Push", "OK", "Warning") | Out-Null
+        return
+    }
+    $ui["TabControl"].SelectedIndex = 1
+    $br = Get-GitCurrentBranch
+    Add-LogLine ">>> git push (branch: $br)" "#0090D0"
+    try {
+        $out = & git -C $script:ProjectRoot push 2>&1
+        $code = $LASTEXITCODE
+        foreach ($line in $out) {
+            $t = "$line".TrimEnd("`r")
+            $cl = "#8C8C8C"
+            if ($code -ne 0) { $cl = "#DC3232" }
+            Add-LogLine $t $cl
+        }
+        if ($code -eq 0) {
+            [System.Windows.MessageBox]::Show("Push completed successfully.", "Git Push", "OK", "Information") | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show("Push finished with exit code $code.`nSee Log tab for details.", "Git Push", "OK", "Warning") | Out-Null
+        }
+    } catch {
+        Add-LogLine $_.Exception.Message "#DC3232"
+        [System.Windows.MessageBox]::Show($_.Exception.Message, "Git Push", "OK", "Error") | Out-Null
+    }
+    Update-StatusBar
+}
+
 function Stop-Build {
     if ($null -ne $script:BuildProcess) { try { $script:BuildProcess.Kill() } catch {}; $script:BuildProcess = $null }
     $script:BuildStepQueue.Clear()
@@ -903,6 +997,8 @@ function Stop-Build {
     $ui["BtnBuild"].IsEnabled = $true
     $ui["BtnRelease"].IsEnabled = $true
     $ui["BtnCleanBuild"].IsEnabled = $true
+    $ui["BtnPull"].IsEnabled = $true
+    $ui["BtnPush"].IsEnabled = $true
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["LblBuildActivity"].Text = "Stopped."
@@ -941,6 +1037,8 @@ function Start-Build-Step($step) {
         $script:IsBuilding = $false; $script:IsPushing = $false
         $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true
         $ui["BtnCleanBuild"].IsEnabled = $true
+        $ui["BtnPull"].IsEnabled = $true
+        $ui["BtnPush"].IsEnabled = $true
         $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["LblBuildActivity"].Text = "ERROR starting: " + $step.Exe
     }
@@ -985,6 +1083,8 @@ function Start-Build {
     $ui["LblClientStatus"].Text = "client: building..."; $ui["LblClientStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
     $ui["LblServerStatus"].Text = "server: --"; $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C")))
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
+    $ui["BtnPull"].IsEnabled = $false
+    $ui["BtnPush"].IsEnabled = $false
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["BtnCopyErrors"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Collapsed
@@ -1031,6 +1131,8 @@ function Start-PushRelease {
     if ($ok -ne [System.Windows.MessageBoxResult]::Yes) { return }
     $script:IsPushing = $true
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
+    $ui["BtnPull"].IsEnabled = $false
+    $ui["BtnPush"].IsEnabled = $false
     Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
     $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
 
@@ -1174,6 +1276,9 @@ $ui["BtnOpenGitHub"].Add_Click({
 $ui["BtnOpenFolder"].Add_Click({
     try { Start-Process "explorer.exe" $script:ProjectRoot } catch {}
 })
+
+$ui["BtnPull"].Add_Click({ Invoke-GitPull })
+$ui["BtnPush"].Add_Click({ Invoke-GitPush })
 
 $ui["LblAuthStatus"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
@@ -1332,6 +1437,8 @@ $script:BuildTimer.Add_Tick({
                 $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
                 $script:IsBuilding = $false; $script:IsPushing = $false
                 $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
+                $ui["BtnPull"].IsEnabled = $true
+                $ui["BtnPush"].IsEnabled = $true
                 $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
                 Refresh-VersionDisplay; Update-RunButtons; Update-StatusBar
             }

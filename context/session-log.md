@@ -3,6 +3,18 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S255 — 2026-04-14 (Dev Window v2: Pull / Push + DPI font scaling)
+
+**Scope**: `devtools/dev-window-v2/dev-window-v2.ps1` only (no game/protocol changes).
+
+**Git UX**: Utility row adds **Pull** and **Push** after `Clean Build`. Handlers run `git -C <ProjectRoot> pull` and `git push` (current branch / upstream), append output to the Log tab, show a MessageBox from exit code, then `Update-StatusBar`. Blocked while `IsBuilding` or `IsPushing`; same enable/disable wiring as `BtnCleanBuild`.
+
+**Font / DPI**: Call `SetProcessDPIAware()` early (before WPF window) via `PD2V2.DpiUtil`. Root `Window`: `UseLayoutRounding="True"`, `SnapsToDevicePixels="True"`, `TextOptions.TextFormattingMode="Display"`, `RenderOptions.ClearTypeHint="Enabled"`.
+
+**Context**: `README.md`, `session-log.md`, `tasks-current.md`, `infrastructure.md`, `roadmap.md` updated for handoff.
+
+---
+
 ## Session S254 — 2026-04-14 (Bug B: countdown-cancel-on-room-close)
 
 Worktree `claude/condescending-jepsen`, changes committed to dev. Spec: `context/scratch/bug-b-fix-spec-2026-04-14.md`.
