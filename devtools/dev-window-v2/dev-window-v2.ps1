@@ -1614,9 +1614,9 @@ function Update-Auth-Labels {
         $ui["LblAuthStatus"].Text = $authText
         $ui["LblAuthStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
         $tip = $(if (-not $script:GhAuthChecked) { "GitHub CLI: checking..." }
-            elseif (-not $script:GhCliAvailable) { "GitHub CLI: not found — click for install help" }
+            elseif (-not $script:GhCliAvailable) { "GitHub CLI: not found - click for install help" }
             elseif ($script:GhAuthOk) { "GitHub CLI: signed in" }
-            else { "GitHub CLI: not signed in — click to run gh auth login" })
+            else { "GitHub CLI: not signed in - click to run gh auth login" })
         $ui["LblAuthStatus"].ToolTip = $tip
         $ui["StatusAuth"].ToolTip = $tip
     } catch {}
